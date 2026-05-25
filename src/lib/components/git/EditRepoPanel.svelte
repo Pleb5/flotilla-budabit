@@ -18,10 +18,9 @@
     CheckCircle2,
     Loader2,
   } from "@lucide/svelte";
-  import type { NostrEvent } from "nostr-tools";
+  import { nip19, type NostrEvent } from "nostr-tools";
   import { PeoplePicker } from "@nostr-git/ui";
   import { Repo } from "./Repo.svelte";
-  import { nip19 } from "nostr-tools";
   import { commonHashtags } from "../../stores/hashtags";
   import {
     getEditableRepoRelayUrls,
@@ -106,6 +105,15 @@
   const isPage = $derived(variant === "page");
 
   const copyList = (values?: string[] | null) => (Array.isArray(values) ? [...values] : []);
+  const getDeclaredMaintainers = (targetRepo: Repo): string[] =>
+    Array.from(
+      new Set(
+        (targetRepo.repoEvent?.tags || [])
+          .filter((tag: string[]) => tag[0] === "maintainers")
+          .flatMap((tag: string[]) => tag.slice(1))
+          .filter(Boolean)
+      )
+    );
 
   const cloneFormData = (data: FormData): FormData => ({
     ...data,
@@ -150,7 +158,7 @@
       description: repo.description || "",
       visibility: isPrivate ? "private" : ("public" as "public" | "private"),
       defaultBranch,
-      maintainers: copyList(repo.maintainers),
+      maintainers: getDeclaredMaintainers(repo),
       relays: getEditableRepoRelayUrls(copyList(repo.relays), editableCloneUrls),
       webUrls: copyList(repo.web),
       cloneUrls: editableCloneUrls,
@@ -555,7 +563,7 @@
     ).filter((m) => {
       const v = m?.trim?.();
       if (!v) return false;
-      return !/^npub1[ac-hj-np-z02-9]{58}$/.test(v) && !/^[a-fA-F0-9]{64}$/.test(v);
+      return !/^npub1[ac-hj-np-z02-9]{58}$/i.test(v) && !/^[a-fA-F0-9]{64}$/.test(v);
     });
     if (invalidMaintainers.length > 0) {
       errors.maintainers = "Maintainers must be npub or 64-char hex pubkeys";
@@ -659,7 +667,6 @@
     try {
       // Filter out empty strings from arrays
       const cleanMaintainers = formData.maintainers.filter((m) => m.trim());
-      // Normalize maintainers to hex pubkeys
       const normalizedMaintainers = cleanMaintainers.map((m) => {
         const v = m.trim();
         if (/^npub1/i.test(v)) {
@@ -668,8 +675,8 @@
             if (dec.type === "npub" && typeof dec.data === "string") {
               return dec.data.toLowerCase();
             }
-          } catch (e) {
-            // Fallback: keep original, validation should have caught invalid values
+          } catch {
+            // Validation should have caught invalid npubs; keep original as a fallback.
           }
         }
         return v.toLowerCase();
@@ -1006,7 +1013,6 @@
               },
             } as any}
             onDeleteLabel={(evt) => {
-              // Handle LabelEvent deletion - extract pubkey and remove from array
               const pubkey = evt.tags?.find((t) => t[0] === "p")?.[1];
               if (pubkey) {
                 formData.maintainers = formData.maintainers.filter((p) => p !== pubkey);

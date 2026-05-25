@@ -119,6 +119,7 @@ export class Repo {
   #hasMoreCommitsState: boolean = $state(false);
   // Optional multi-state/status/comments/labels streams
   #repoStateEventsArr = $state<RepoStateEvent[] | undefined>(undefined);
+  #pendingRepoStateEvent: RepoStateEvent | undefined;
   #statusEventsArr = $state<StatusEvent[] | undefined>(undefined);
   #commentEventsArr = $state<CommentEvent[] | undefined>(undefined);
   #labelEventsArr = $state<LabelEvent[] | undefined>(undefined);
@@ -133,7 +134,7 @@ export class Repo {
   vendorReadRouter!: VendorReadRouter;
 
   // Private caches used across helpers
-  #mergedRefsCache:
+  #repoStateRefsCache:
     | Map<string, { commitId: string; type: "heads" | "tags"; fullRef: string }>
     | undefined;
   #statusCache: Map<
@@ -196,6 +197,145 @@ export class Repo {
     const changed = nextSignature !== this.#repoStateSnapshotSignature;
     this.#repoStateSnapshotSignature = nextSignature;
     return changed;
+  }
+
+  #processRepoStateEvent(
+    event: RepoStateEvent,
+    initialRepoEvent: RepoAnnouncementEvent | null
+  ): void {
+    if (this.#repoStateEvent?.id === event.id) return;
+
+    console.log(
+      `[Repo] repoStateEvent subscription fired:`,
+      `has event with ${event.tags?.length || 0} tags`
+    );
+    this.#repoStateEvent = event;
+    this.#state = parseRepoStateEvent(event);
+
+    const parsedState = this.#state;
+    let repoStateSnapshotChanged = false;
+    console.log(`[Repo] Parsed state refs:`, parsedState?.refs?.length || 0);
+    if (parsedState?.refs && parsedState.refs.length > 0) {
+      const immediateRefs = parsedState.refs
+        .filter((r: any) => r.ref && r.commit)
+        .map((r: any) => {
+          const parts = r.ref.split("/");
+          const type = parts[1] === "heads" ? "heads" : parts[1] === "tags" ? "tags" : "heads";
+          const name = parts.slice(2).join("/");
+          return {
+            name,
+            type: type as "heads" | "tags",
+            fullRef: r.ref,
+            commitId: r.commit,
+          };
+        })
+        .filter((r: any) => r.name)
+        .filter((r: any) => isDisplayableGitRef(r));
+      const sortedImmediateRefs = immediateRefs.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "heads" ? -1 : 1;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+      repoStateSnapshotChanged = this.#updateRepoStateSnapshotSignature(sortedImmediateRefs);
+      if (repoStateSnapshotChanged || this.refs.length === 0 || this.#refsSeededFromHead) {
+        this.refs = sortedImmediateRefs;
+        this.#refsSeededFromHead = false;
+        console.log(`⚡ Instantly loaded ${this.refs.length} refs from owner RepoStateEvent`);
+        this.refDiscoverySource = {
+          kind: "repo-state",
+          label: "Repo state snapshot",
+          details: "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
+        };
+      }
+      this.#maybeSelectBranchFromRefs(sortedImmediateRefs, parsedState?.head);
+    } else {
+      repoStateSnapshotChanged = this.#updateRepoStateSnapshotSignature([]);
+      this.#seedRefsFromHead(parsedState?.head);
+    }
+
+    if (initialRepoEvent) {
+      void this.branchManager.processRepoStateEventVerified(event, initialRepoEvent);
+      if (repoStateSnapshotChanged && this.workerManager.isReady && !this.#refsLoading) {
+        void this.#loadBranchesFromRepo(initialRepoEvent);
+      }
+    } else {
+      this.branchManager.processRepoStateEvent(event);
+    }
+
+    this.invalidateBranchCache();
+  }
+
+  #processOwnerRepoStateEvents(
+    nextRepoStateEvents: RepoStateEvent[] | undefined,
+    initialRepoEvent: RepoAnnouncementEvent | null
+  ): void {
+    if (!nextRepoStateEvents || nextRepoStateEvents.length === 0) {
+      this.#repoStateRefsCache = undefined;
+      if (this.#updateRepoStateSnapshotSignature([])) {
+        this.#seedRefsFromHead(this.#state?.head);
+      }
+      return;
+    }
+
+    if (!this.getOwnerPubkey()) return;
+
+    const ownerStateEvent = RepoCore.selectOwnerRepoStateEvent(
+      this.#coreCtx(),
+      nextRepoStateEvents
+    );
+    const stateRefs = RepoCore.getRepoStateRefs(ownerStateEvent);
+    this.#repoStateRefsCache = stateRefs;
+
+    if (stateRefs.size > 0) {
+      const immediateRefs: Array<{
+        name: string;
+        type: "heads" | "tags";
+        fullRef: string;
+        commitId: string;
+      }> = [];
+      for (const [key, ref] of stateRefs.entries()) {
+        const name = key.split(":")[1];
+        if (name && ref.type) {
+          const nextRef = {
+            name,
+            type: ref.type,
+            fullRef: ref.fullRef,
+            commitId: ref.commitId,
+          };
+          if (isDisplayableGitRef(nextRef)) {
+            immediateRefs.push(nextRef);
+          }
+        }
+      }
+      const sortedImmediateRefs = immediateRefs.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "heads" ? -1 : 1;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+      const repoStateSnapshotChanged = this.#updateRepoStateSnapshotSignature(sortedImmediateRefs);
+      if (repoStateSnapshotChanged || this.refs.length === 0 || this.#refsSeededFromHead) {
+        this.refs = sortedImmediateRefs;
+        this.#refsSeededFromHead = false;
+        console.log(`⚡ Instantly loaded ${this.refs.length} refs from owner RepoStateEvent`);
+        this.refDiscoverySource = {
+          kind: "repo-state",
+          label: "Repo state snapshot",
+          details: "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
+        };
+      }
+      this.#maybeSelectBranchFromRefs(
+        sortedImmediateRefs,
+        this.#getHeadHintFromRepoStateEvent(ownerStateEvent) || this.#state?.head
+      );
+      if (
+        repoStateSnapshotChanged &&
+        this.workerManager.isReady &&
+        initialRepoEvent &&
+        !this.#refsLoading
+      ) {
+        void this.#loadBranchesFromRepo(initialRepoEvent);
+      }
+    } else if (this.#updateRepoStateSnapshotSignature([])) {
+      this.#seedRefsFromHead(this.#state?.head);
+    }
   }
 
   #getBranchSelectionStorageKeys(): string[] {
@@ -483,6 +623,18 @@ export class Repo {
           this.address = this.#repo!.address;
           this.community = this.#repo!.community;
           this.#updateEditable();
+
+          const pendingRepoStateEvent = this.#pendingRepoStateEvent;
+          if (pendingRepoStateEvent) {
+            const owner = this.getOwnerPubkey();
+            this.#pendingRepoStateEvent = undefined;
+            if (owner && pendingRepoStateEvent.pubkey === owner) {
+              this.#processRepoStateEvent(pendingRepoStateEvent, initialRepoEvent);
+            }
+          }
+          if (this.#repoStateEventsArr !== undefined) {
+            this.#processOwnerRepoStateEvents(this.#repoStateEventsArr, initialRepoEvent);
+          }
         }
       })
     );
@@ -490,73 +642,15 @@ export class Repo {
     this.#trackStoreSubscription(
       repoStateEvent.subscribe((event) => {
         if (event) {
-          if (this.#repoStateEvent?.id === event.id) return;
-          console.log(
-            `[Repo] repoStateEvent subscription fired:`,
-            `has event with ${event.tags?.length || 0} tags`
-          );
-          this.#repoStateEvent = event; // Set the reactive state
-          this.#state = parseRepoStateEvent(event);
-
-          // IMMEDIATELY extract refs from RepoStateEvent for instant UI display
-          // This is synchronous and doesn't require any network/worker calls
-          const parsedState = this.#state;
-          let repoStateSnapshotChanged = false;
-          console.log(`[Repo] Parsed state refs:`, parsedState?.refs?.length || 0);
-          if (parsedState?.refs && parsedState.refs.length > 0) {
-            // parsedState.refs has structure: { ref: "refs/heads/master", commit: "abc123", lineage?: string[] }
-            const immediateRefs = parsedState.refs
-              .filter((r: any) => r.ref && r.commit) // Filter out invalid refs
-              .map((r: any) => {
-                // Parse "refs/heads/master" or "refs/tags/v1.0" into name and type
-                const parts = r.ref.split("/");
-                const type =
-                  parts[1] === "heads" ? "heads" : parts[1] === "tags" ? "tags" : "heads";
-                const name = parts.slice(2).join("/"); // Handle names with slashes like "feature/foo"
-                return {
-                  name,
-                  type: type as "heads" | "tags",
-                  fullRef: r.ref,
-                  commitId: r.commit,
-                };
-              })
-              .filter((r: any) => r.name)
-              .filter((r: any) => isDisplayableGitRef(r));
-            const sortedImmediateRefs = immediateRefs.sort((a, b) => {
-              if (a.type !== b.type) return a.type === "heads" ? -1 : 1;
-              return (a.name || "").localeCompare(b.name || "");
-            });
-            repoStateSnapshotChanged = this.#updateRepoStateSnapshotSignature(sortedImmediateRefs);
-            if (repoStateSnapshotChanged || this.refs.length === 0 || this.#refsSeededFromHead) {
-              this.refs = sortedImmediateRefs;
-              this.#refsSeededFromHead = false;
-              console.log(`⚡ Instantly loaded ${this.refs.length} refs from RepoStateEvent`);
-              this.refDiscoverySource = {
-                kind: "repo-state",
-                label: "Repo state snapshot",
-                details:
-                  "Using signed repo-state refs until remote discovery confirms the live ref set.",
-              };
-            }
-            this.#maybeSelectBranchFromRefs(sortedImmediateRefs, parsedState?.head);
-          } else {
-            repoStateSnapshotChanged = this.#updateRepoStateSnapshotSignature([]);
-            this.#seedRefsFromHead(parsedState?.head);
+          const owner = this.getOwnerPubkey();
+          if (!owner) {
+            this.#pendingRepoStateEvent = event;
+            return;
           }
+          if (event.pubkey !== owner) return;
 
-          // Process the Repository State event in BranchManager (verified against worker when possible)
-          if (initialRepoEvent) {
-            // Fire-and-forget; verification is async
-            void this.branchManager.processRepoStateEventVerified(event, initialRepoEvent);
-            if (repoStateSnapshotChanged && this.workerManager.isReady && !this.#refsLoading) {
-              void this.#loadBranchesFromRepo(initialRepoEvent);
-            }
-          } else {
-            this.branchManager.processRepoStateEvent(event);
-          }
-
-          // Invalidate branch cache when repo state changes
-          this.invalidateBranchCache();
+          this.#pendingRepoStateEvent = undefined;
+          this.#processRepoStateEvent(event, initialRepoEvent);
         }
       })
     );
@@ -571,72 +665,7 @@ export class Repo {
           this.#repoStateEventsSignature = repoStateEventsSignature;
         }
 
-        if (!nextRepoStateEvents || nextRepoStateEvents.length === 0) {
-          this.#mergedRefsCache = undefined;
-          if (this.#updateRepoStateSnapshotSignature([])) {
-            this.#seedRefsFromHead(this.#state?.head);
-          }
-          return;
-        }
-
-        const merged = this.mergeRepoStateByMaintainers(nextRepoStateEvents);
-        this.#mergedRefsCache = merged;
-
-        // IMMEDIATELY extract refs from merged RepoStateEvents for instant UI display
-        if (merged.size > 0) {
-          const immediateRefs: Array<{
-            name: string;
-            type: "heads" | "tags";
-            fullRef: string;
-            commitId: string;
-          }> = [];
-          for (const [key, ref] of merged.entries()) {
-            const name = key.split(":")[1];
-            if (name && ref.type) {
-              // Filter out invalid refs
-              const nextRef = {
-                name,
-                type: ref.type,
-                fullRef: ref.fullRef,
-                commitId: ref.commitId,
-              };
-              if (isDisplayableGitRef(nextRef)) {
-                immediateRefs.push(nextRef);
-              }
-            }
-          }
-          const sortedImmediateRefs = immediateRefs.sort((a, b) => {
-            if (a.type !== b.type) return a.type === "heads" ? -1 : 1;
-            return (a.name || "").localeCompare(b.name || "");
-          });
-          const repoStateSnapshotChanged =
-            this.#updateRepoStateSnapshotSignature(sortedImmediateRefs);
-          if (repoStateSnapshotChanged || this.refs.length === 0 || this.#refsSeededFromHead) {
-            this.refs = sortedImmediateRefs;
-            this.#refsSeededFromHead = false;
-            console.log(`⚡ Instantly loaded ${this.refs.length} refs from merged RepoStateEvents`);
-            this.refDiscoverySource = {
-              kind: "repo-state",
-              label: "Repo state snapshot",
-              details:
-                "Using merged signed repo-state refs until remote discovery confirms the live ref set.",
-            };
-          }
-          this.#maybeSelectBranchFromRefs(
-            sortedImmediateRefs,
-            this.#getHeadHintFromRepoStateEvents(nextRepoStateEvents) || this.#state?.head
-          );
-          if (
-            repoStateSnapshotChanged &&
-            this.workerManager.isReady &&
-            initialRepoEvent &&
-            !this.#refsLoading
-          ) {
-            void this.#loadBranchesFromRepo(initialRepoEvent);
-          }
-        } else if (this.#updateRepoStateSnapshotSignature([])) {
-          this.#seedRefsFromHead(this.#state?.head);
-        }
+        this.#processOwnerRepoStateEvents(nextRepoStateEvents, initialRepoEvent);
       })
     );
     this.#trackStoreSubscription(
@@ -902,25 +931,7 @@ export class Repo {
   public isAuthorized(pubkey?: string): boolean {
     if (!pubkey) return false;
     const owner = this.getOwnerPubkey();
-    if (pubkey === owner) return true;
-    return (this.#repo?.maintainers || []).includes(pubkey);
-  }
-
-  /** Return unique list of trusted maintainers including owner. */
-  get trustedMaintainers(): string[] {
-    const out = new Set<string>(this.#repo?.maintainers || []);
-    const owner = this.getOwnerPubkey();
-    if (owner) out.add(owner);
-    return Array.from(out);
-  }
-
-  // -------------------------
-  // Merged refs from 30618 by maintainers
-  // -------------------------
-  private mergeRepoStateByMaintainers(
-    events: RepoStateEvent[]
-  ): Map<string, { commitId: string; type: "heads" | "tags"; fullRef: string }> {
-    return RepoCore.mergeRepoStateByMaintainers(this.#coreCtx(), events);
+    return pubkey === owner;
   }
 
   // -------------------------
@@ -1008,12 +1019,16 @@ export class Repo {
           ? `refs/${s}`
           : `refs/heads/${s}`;
     const fullRef = toFullRef(ref);
-    // Prefer merged refs if present
+    // Prefer owner-authored repo-state refs if present
     if (this.#repoStateEventsArr && this.#repoStateEventsArr.length > 0) {
-      const merged = this.mergeRepoStateByMaintainers(this.#repoStateEventsArr);
-      for (const [, v] of merged.entries()) {
+      const ownerStateEvent = RepoCore.selectOwnerRepoStateEvent(
+        this.#coreCtx(),
+        this.#repoStateEventsArr
+      );
+      const stateRefs = RepoCore.getRepoStateRefs(ownerStateEvent);
+      for (const [, v] of stateRefs.entries()) {
         if (v.fullRef === fullRef) {
-          // No lineage info available in merged map; cannot compute trail
+          // No lineage info available in compact state map; cannot compute trail
           return { ahead: 0 };
         }
       }
@@ -1091,18 +1106,15 @@ export class Repo {
       // Check if REST API is available for this repo
       const hasVendorApi = this.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false;
 
-      // Check if current user is a maintainer
-      const isMaintainer = this.viewerPubkey ? this.isAuthorized(this.viewerPubkey) : false;
+      const isOwner = this.viewerPubkey ? this.isAuthorized(this.viewerPubkey) : false;
 
       console.log(
-        `[Repo] #loadCommitsFromRepo: hasVendorApi=${hasVendorApi}, isMaintainer=${isMaintainer}`
+        `[Repo] #loadCommitsFromRepo: hasVendorApi=${hasVendorApi}, isOwner=${isOwner}`
       );
 
-      if (hasVendorApi && !isMaintainer) {
-        // NON-MAINTAINER with REST API: Skip git clone entirely, use only REST API
-        console.log(
-          `[Repo] Non-maintainer with REST API available - skipping git clone, using REST API only`
-        );
+      if (hasVendorApi && !isOwner) {
+        // Non-owner with REST API: skip git clone entirely, use only REST API.
+        console.log(`[Repo] Non-owner with REST API available - using REST API only`);
         this.#loadingIds.clone = context.loading("Loading repository via API...");
 
         // Load commits directly via REST API (CommitManager uses VendorReadRouter)
@@ -1113,10 +1125,10 @@ export class Repo {
           message: "Repository loaded via API",
           duration: 3000,
         });
-      } else if (hasVendorApi && isMaintainer) {
-        // MAINTAINER with REST API: Load metadata via REST API first for fast UI, then clone in background
+      } else if (hasVendorApi && isOwner) {
+        // Owner with REST API: load metadata via REST API first for fast UI, then clone in background.
         console.log(
-          `[Repo] Maintainer with REST API available - loading via API first, then cloning in background`
+          `[Repo] Owner with REST API available - loading via API first, then cloning in background`
         );
         this.#loadingIds.clone = context.loading("Loading repository...");
 
@@ -1141,7 +1153,7 @@ export class Repo {
               if (result.usedUrl) {
                 this.recordCloneUrlSuccess(result.usedUrl);
               }
-              console.log(`[Repo] Background git clone completed for maintainer`);
+              console.log(`[Repo] Background git clone completed for owner`);
             } else {
               console.warn(`[Repo] Background git clone failed:`, result.error);
             }
@@ -1460,24 +1472,10 @@ export class Repo {
     return commonDefaults.find((name) => heads.some((ref) => ref.name === name)) || heads[0]?.name;
   }
 
-  #getHeadHintFromRepoStateEvents(events?: RepoStateEvent[]): string | undefined {
-    const trustedMaintainers = new Set(this.trustedMaintainers);
-    let bestHead: string | undefined;
-    let bestCreatedAt = -1;
-
-    for (const event of events || []) {
-      if (trustedMaintainers.size > 0 && !trustedMaintainers.has(event.pubkey)) continue;
-
-      const parsed = parseRepoStateEvent(event) as any;
-      const head = this.#getHeadBranchName(parsed?.head);
-      const createdAt = event.created_at || 0;
-      if (head && createdAt >= bestCreatedAt) {
-        bestHead = head;
-        bestCreatedAt = createdAt;
-      }
-    }
-
-    return bestHead;
+  #getHeadHintFromRepoStateEvent(event?: RepoStateEvent): string | undefined {
+    if (!event) return undefined;
+    const parsed = parseRepoStateEvent(event) as any;
+    return this.#getHeadBranchName(parsed?.head) || undefined;
   }
 
   #seedRefsFromHead(headHint?: string) {
@@ -1528,10 +1526,14 @@ export class Repo {
   async getAllRefsWithFallback(): Promise<
     Array<{ name: string; type: "heads" | "tags"; fullRef: string; commitId: string }>
   > {
-    // Prefer merged refs by trusted maintainers when multiple 30618s are available
+    // Prefer owner-authored repo-state refs when available.
     if (this.#repoStateEventsArr && this.#repoStateEventsArr.length > 0) {
-      if (!this.#mergedRefsCache) {
-        this.#mergedRefsCache = this.mergeRepoStateByMaintainers(this.#repoStateEventsArr);
+      if (!this.#repoStateRefsCache) {
+        const ownerStateEvent = RepoCore.selectOwnerRepoStateEvent(
+          this.#coreCtx(),
+          this.#repoStateEventsArr
+        );
+        this.#repoStateRefsCache = RepoCore.getRepoStateRefs(ownerStateEvent);
       }
       const refs: Array<{
         name: string;
@@ -1539,7 +1541,7 @@ export class Repo {
         fullRef: string;
         commitId: string;
       }> = [];
-      for (const [key, ref] of this.#mergedRefsCache.entries()) {
+      for (const [key, ref] of this.#repoStateRefsCache.entries()) {
         const name = key.split(":")[1];
         refs.push({ name, type: ref.type, fullRef: ref.fullRef, commitId: ref.commitId });
       }

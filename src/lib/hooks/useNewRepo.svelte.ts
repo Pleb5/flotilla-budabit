@@ -866,10 +866,10 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             config.maintainers && config.maintainers.length > 0 ? config.maintainers : undefined,
           hashtags: config.tags && config.tags.length > 0 ? config.tags : undefined,
           earliestUniqueCommit: localRepo?.initialCommit || undefined,
-            refs,
-            head: config.defaultBranch,
-            community: config.community,
-          });
+          refs,
+          head: config.defaultBranch,
+          community: config.community,
+        });
 
         announcementEvent = graspEvents.announcementEvent;
         stateEvent = graspEvents.stateEvent;

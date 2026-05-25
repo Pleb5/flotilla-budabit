@@ -299,7 +299,7 @@ export async function syncLocalRepoToTargets(
     targets,
     userPubkey,
     relays = [],
-    maintainers = [userPubkey],
+    maintainers,
     community,
     onPublishEvent,
     updateProgress,

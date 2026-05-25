@@ -1830,7 +1830,6 @@ async function syncRepositoryToRemotes(
     targets,
     userPubkey: context.userPubkey,
     relays: context.config.relays || [],
-    maintainers: [context.userPubkey],
     onPublishEvent: context.onPublishEvent as ((event: NostrEvent) => Promise<unknown>) | undefined,
     onFetchRelayEvents: context.onFetchRelayEvents,
     updateProgress: (message) => context.updateProgress(message),

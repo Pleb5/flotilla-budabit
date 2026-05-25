@@ -613,7 +613,7 @@
 
   $effect(() => {
     if (maintainersInitialized || !repo?.repoEvent) return;
-    const repoMaintainers = (defaultMaintainers.length > 0 ? defaultMaintainers : repo?.maintainers || []).filter(Boolean);
+    const repoMaintainers = defaultMaintainers.filter(Boolean);
     if (maintainers.length === 0 && repoMaintainers.length > 0) {
       maintainers = [...repoMaintainers];
     }

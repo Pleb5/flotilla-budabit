@@ -190,7 +190,7 @@ describe("Repo core helpers", () => {
     expect(status?.by).toBe("author-z");
   });
 
-  it("merges refs from multiple 30618 events", async () => {
+  it("uses only owner-authored repo state refs", async () => {
     const repoEv = mkRepoAnnouncement({ pubkey: "owner-abc", tags: [["d", "repo"]] });
     const state1 = mkRepoState({
       pubkey: "owner-abc",
@@ -212,9 +212,10 @@ describe("Repo core helpers", () => {
       repoEvent: repoEv,
       repo: { ...parseRepoAnnouncementEvent(repoEv as any), maintainers: ["maint-1"] } as any,
     });
-    const merged = RepoCore.mergeRepoStateByMaintainers(ctx, [state1, state2] as any);
-    const main = merged.get("heads:main");
-    expect(main?.commitId).toBe("2222222222222222222222222222222222222222");
+    const ownerState = RepoCore.selectOwnerRepoStateEvent(ctx, [state1, state2] as any);
+    const refs = RepoCore.getRepoStateRefs(ownerState);
+    const main = refs.get("heads:main");
+    expect(main?.commitId).toBe("1111111111111111111111111111111111111111");
   });
 
   it("resolves status with precedence and author/trust policy", async () => {

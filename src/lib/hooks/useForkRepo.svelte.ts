@@ -658,6 +658,9 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       );
 
       let latestRepoMetadataCreatedAt = 0;
+      const remoteMaintainers = Array.from(
+        new Set((config.maintainers || []).filter((value) => Boolean(value?.trim())))
+      );
       remotePushResults = await syncLocalRepoToTargets({
         workerApi: gitWorkerApi,
         localRepoId,
@@ -669,12 +672,8 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         targets: selectedTargets,
         userPubkey,
         relays: config.relays || [],
+        maintainers: remoteMaintainers.length > 0 ? remoteMaintainers : undefined,
         community: config.community,
-        maintainers: Array.from(
-          new Set(
-            [userPubkey, ...(config.maintainers || [])].filter((value) => Boolean(value?.trim()))
-          )
-        ),
         onPublishEvent: onPublishEvent as (event: NostrEvent) => Promise<unknown>,
         onFetchRelayEvents: options.onFetchRelayEvents,
         updateProgress: (message) => updateProgress("publish", message, "running"),
@@ -740,13 +739,11 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         getEditableRepoRelayUrls(config.relays || [], selectedGraspTargetRelays),
         successfulGraspRelays
       );
-      const maintainers = Array.from(
-        new Set(
-          [userPubkey, ...(config.maintainers || [])].filter((value) => Boolean(value?.trim()))
-        )
-      );
       const hashtags = Array.from(
         new Set((config.tags || []).map((tag) => tag.trim()).filter(Boolean))
+      );
+      const maintainers = Array.from(
+        new Set((config.maintainers || []).map((value) => value.trim()).filter(Boolean))
       );
       const stateRefs = preparedSource.refs.filter(
         (ref): ref is RemoteSyncRef & { commit: string } => Boolean(ref.commit)

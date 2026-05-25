@@ -78,15 +78,10 @@
     tokenList.filter((token) => repoHosts.includes(token.host))
   );
 
-  // Check if user is a maintainer/owner
-  const isMaintainer = $derived.by(() => {
+  const isOwner = $derived.by(() => {
     const userPubkey = pubkey;
     if (!userPubkey || !repository) return false;
-
-    // Check if user is the repo owner (event author)
-    if (repository.maintainers.includes(userPubkey)) return true;
-
-    return false;
+    return repository.isAuthorized(userPubkey);
   });
 
   // Determine overall auth status
@@ -102,33 +97,33 @@
       };
     }
 
-    if (isMaintainer && hasTokensForRepo) {
+    if (isOwner && hasTokensForRepo) {
       return {
         type: "authorized",
         icon: CheckCircle,
         color: "text-green-700 dark:text-green-300",
         bgColor: "bg-green-100 dark:bg-green-900/40",
-        message: "Authorized maintainer",
+        message: "Authorized owner",
       };
     }
 
-    if (isMaintainer && !hasTokensForRepo) {
+    if (isOwner && !hasTokensForRepo) {
       return {
-        type: "maintainer-no-token",
+        type: "owner-no-token",
         icon: Key,
         color: "text-orange-700 dark:text-orange-300",
         bgColor: "bg-orange-100 dark:bg-orange-900/40",
-        message: "Maintainer - needs auth token",
+        message: "Owner - needs auth token",
       };
     }
 
-    if (!isMaintainer && hasTokensForRepo) {
+    if (!isOwner && hasTokensForRepo) {
       return {
         type: "token-no-access",
         icon: Shield,
         color: "text-blue-700 dark:text-blue-300",
         bgColor: "bg-blue-100 dark:bg-blue-900/40",
-        message: "Has token - not maintainer",
+        message: "Has token - not owner",
       };
     }
 
@@ -158,8 +153,8 @@
     </Badge>
   {/if}
 
-  <!-- Action Button for maintainers without tokens -->
-  {#if authStatus.type === "maintainer-no-token"}
+  <!-- Action Button for owners without tokens -->
+  {#if authStatus.type === "owner-no-token"}
     <Button variant="outline" size="sm" class="text-xs">
       <Key class="h-3 w-3 mr-1" />
       Add Token

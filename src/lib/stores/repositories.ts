@@ -45,7 +45,7 @@ export type RepoCard = {
   euc: string;
   web: string[];
   clone: string[];
-  maintainers: string[];
+  owner: string;
   refs: any;
   title: string;
   description: string;
@@ -105,21 +105,6 @@ function createRepositoriesStore() {
       return /^[0-9a-f]{64}$/i.test(pubkey);
     };
 
-    const getTaggedMaintainers = (event: any): string[] => {
-      const raw = (event?.tags || [])
-        .filter((t: string[]) => t[0] === "maintainers")
-        .flatMap((t: string[]) => t.slice(1));
-      return Array.from(new Set(raw.filter((pk: string) => isValidPubkey(pk))));
-    };
-
-    const getRepoMaintainers = (event: any, tagged: string[]): string[] => {
-      const maintainers = new Set<string>();
-      if (isValidPubkey(event?.pubkey)) maintainers.add(event.pubkey);
-      for (const pk of tagged) maintainers.add(pk);
-
-      return Array.from(maintainers);
-    };
-
     const bookmarked = loadedBookmarkedRepos || [];
     const byAddress = new Map<string, RepoCard>();
 
@@ -145,7 +130,6 @@ function createRepositoriesStore() {
       let title = name || d || euc;
       let description = "";
       let community: RepoCommunityBinding | undefined;
-      const declaredMaintainers = getTaggedMaintainers(first);
       try {
         if (first) {
           const parsed = parseRepoAnnouncementEvent(first);
@@ -154,15 +138,8 @@ function createRepositoriesStore() {
           community = parsed?.community;
         }
       } catch {}
-      const maintainers = getRepoMaintainers(first, declaredMaintainers);
-      // Compute principal maintainer and naddr for navigation
-      // Use first valid maintainer, or fall back to event pubkey if valid
-      const principal =
-        maintainers.length > 0 && isValidPubkey(maintainers[0] as string)
-          ? maintainers[0]
-          : isValidPubkey((first as any)?.pubkey)
-            ? (first as any)?.pubkey
-            : "";
+      const owner = isValidPubkey((first as any)?.pubkey) ? (first as any).pubkey : "";
+      const principal = owner;
       const repoNaddr = (() => {
         try {
           if (!principal || !title) return "";
@@ -184,7 +161,7 @@ function createRepositoriesStore() {
         euc,
         web: Array.from(new Set(web)) as string[],
         clone: Array.from(new Set(clone)) as string[],
-        maintainers: maintainers.filter((pk: any) => isValidPubkey(pk)) as string[],
+        owner,
         refs,
         title,
         description,

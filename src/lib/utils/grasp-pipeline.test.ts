@@ -3,6 +3,7 @@ import { createRepoStateEvent } from "@nostr-git/core/events";
 
 import {
   buildGraspRepoUrls,
+  createGraspAnnouncementAndState,
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
   getMandatoryGraspRelayUrls,
@@ -64,6 +65,28 @@ describe("grasp-pipeline", () => {
         "https://github.com/me/flotilla-budabit.git",
       ])
     ).toEqual(["wss://gitnostr.com"]);
+  });
+
+  it("does not add maintainer tags when none are provided", () => {
+    const { announcementEvent } = createGraspAnnouncementAndState({
+      relayUrl: "wss://relay.ngit.dev",
+      ownerPubkey: "a".repeat(64),
+      repoName: "flotilla-budabit",
+    });
+
+    expect(announcementEvent.tags.some((tag) => tag[0] === "maintainers")).toBe(false);
+  });
+
+  it("preserves explicitly provided maintainer tags", () => {
+    const maintainer = "b".repeat(64);
+    const { announcementEvent } = createGraspAnnouncementAndState({
+      relayUrl: "wss://relay.ngit.dev",
+      ownerPubkey: "a".repeat(64),
+      repoName: "flotilla-budabit",
+      maintainers: [maintainer],
+    });
+
+    expect(announcementEvent.tags).toContainEqual(["maintainers", maintainer]);
   });
 
   it("waits until a matching GRASP repo state is visible on the relay", async () => {
