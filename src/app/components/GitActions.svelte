@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Address, type TrustedEvent} from "@welshman/util"
+  import type {TrustedEvent} from "@welshman/util"
   import {
     getFailedThunkUrls,
     mergeThunks,
@@ -12,10 +12,10 @@
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import ThunkPending from "@app/components/ThunkPending.svelte"
   import EventMenu from "@app/components/EventMenu.svelte"
-  import {makeGitIssuePath, makeGitPath} from "@app/util/routes"
+  import {makeGitIssuePath} from "@app/util/routes"
   import {deriveIsDeleted} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
-  import {sanitizeRelays, buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
+  import {sanitizeRelays} from "@nostr-git/core/utils"
   import {buildRepoKey} from "@nostr-git/core/events"
   import {pushToast} from "@app/util/toast"
   import {normalizeRelayUrl} from "@welshman/util"
@@ -24,8 +24,8 @@
   import {parseRepoAnnouncementEvent} from "@nostr-git/core/events"
   import {tokens as tokensStore} from "@nostr-git/ui"
   import {tryTokensForHost, getTokensForHost} from "@nostr-git/ui"
-  import {Router} from "@welshman/router"
   import {GIT_RELAYS} from "@app/core/git-state"
+  import {makeRepoHrefFromEvent, makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -53,27 +53,13 @@
   const relaysTag = event.tags.find(nthEq(0, "relays")) || []
   const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
 
-  const repoNaddr = $derived.by(() => {
-    const userOutboxRelays = (() => {
-      try {
-        return Router.get().FromUser().getUrls() || []
-      } catch {
-        return []
-      }
-    })()
+  const repoNaddr = $derived.by(() =>
+    makeRepoNaddrFromEvent(event, {fallbackRelays: relays, gitRelays: GIT_RELAYS}),
+  )
 
-    return (
-      buildRepoNaddrFromEvent({
-        event,
-        fallbackPubkey: event.pubkey,
-        fallbackRepoRelays: relays,
-        userOutboxRelays,
-        gitRelays: GIT_RELAYS,
-      }) || Address.fromEvent(event).toNaddr()
-    )
-  })
-
-  const browseHref = $derived.by(() => makeGitPath(url, repoNaddr))
+  const browseHref = $derived.by(() =>
+    makeRepoHrefFromEvent(event, {url, fallbackRelays: relays, gitRelays: GIT_RELAYS}),
+  )
   const codeHref = $derived.by(() => `${browseHref}/code`)
 
   const deleted = deriveIsDeleted(repository, event)

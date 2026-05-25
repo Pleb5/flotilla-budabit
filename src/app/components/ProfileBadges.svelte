@@ -2,14 +2,16 @@
   import {onMount} from "svelte"
   import {load, request} from "@welshman/net"
   import {Router} from "@welshman/router"
-  import type {Filter} from "@welshman/util"
+  import type {Filter, TrustedEvent} from "@welshman/util"
   import {deriveArray, deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {formatTimestampRelative} from "@welshman/lib"
   import {NOTE, COMMENT} from "@welshman/util"
   import {repository, loadRelayList} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
   import MedalStar from "@assets/icons/medal-star.svg?dataurl"
+  import ProfileName from "@app/components/ProfileName.svelte"
   import {MESSAGE_KINDS} from "@app/core/state"
   import {
     activeCommunityDefinition,
@@ -94,7 +96,18 @@
       : [],
   )
 
+  let openBadgeId = $state<string | null>(null)
+
   const viewEvent = () => goToEvent($events[0]!)
+
+  const toggleBadge = (badgeId: string) => {
+    openBadgeId = openBadgeId === badgeId ? null : badgeId
+  }
+
+  const viewBadgeEvent = (event: TrustedEvent) => {
+    openBadgeId = null
+    goToEvent(event)
+  }
 
   onMount(async () => {
     // Make sure we have their relay selections before we load their posts
@@ -128,16 +141,77 @@
 <div class="flex flex-wrap gap-2">
   {#each acceptedBadges as badge (badge.award.event.id)}
     {@const badgeImage = getCommunityBadgeImageUrl(badge.definition, 32)}
-    <span
-      class="badge badge-primary h-auto max-w-full gap-1 py-1"
-      title={badge.definition.description || badge.definition.name}>
-      {#if badgeImage}
-        <img alt="" src={badgeImage} class="h-4 w-4 rounded-full object-cover" />
-      {:else}
-        <Icon icon={MedalStar} size={4} />
+    <div class="relative max-w-full">
+      <Button
+        onclick={() => toggleBadge(badge.award.event.id)}
+        class="badge badge-primary h-auto max-w-full gap-1 py-1"
+        title={badge.definition.description || badge.definition.name}>
+        {#if badgeImage}
+          <img alt="" src={badgeImage} class="h-4 w-4 rounded-full object-cover" />
+        {:else}
+          <Icon icon={MedalStar} size={4} />
+        {/if}
+        <span class="max-w-36 truncate">{badge.definition.name}</span>
+      </Button>
+
+      {#if openBadgeId === badge.award.event.id}
+        <InlinePopover onClose={() => (openBadgeId = null)} align="left" widthClass="w-80">
+          <div class="flex flex-col gap-3 text-sm">
+            <div>
+              <div class="font-semibold">{badge.definition.name}</div>
+              {#if badge.definition.description}
+                <div class="mt-1 text-xs opacity-70">{badge.definition.description}</div>
+              {/if}
+            </div>
+
+            <div class="rounded-box bg-base-200/60 p-3">
+              <div class="text-xs uppercase tracking-wide opacity-60">Awarded by</div>
+              <div class="mt-1 text-sm font-medium">
+                <ProfileName pubkey={badge.award.event.pubkey} />
+              </div>
+              <div class="mt-1 text-xs opacity-70">
+                {formatTimestampRelative(badge.award.event.created_at)}
+              </div>
+            </div>
+
+            <div class="rounded-box bg-base-200/60 p-3">
+              <div class="text-xs uppercase tracking-wide opacity-60">Definition</div>
+              <div class="mt-1 break-all text-xs opacity-75">{badge.definition.address}</div>
+              {#if badge.definition.communityPubkey}
+                <div class="mt-2 text-xs opacity-70">
+                  Community <ProfileName pubkey={badge.definition.communityPubkey} />
+                </div>
+              {/if}
+            </div>
+
+            <div class="rounded-box bg-base-200/60 p-3">
+              <div class="text-xs uppercase tracking-wide opacity-60">Accepted by profile</div>
+              <div class="mt-1 break-all text-xs opacity-75">
+                Award event {badge.profilePair.awardId}
+              </div>
+              {#if badge.profilePair.awardRelay || badge.profilePair.definitionRelay}
+                <div class="mt-1 break-all text-xs opacity-60">
+                  {badge.profilePair.awardRelay || badge.profilePair.definitionRelay}
+                </div>
+              {/if}
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+              <Button
+                onclick={() => viewBadgeEvent(badge.award.event)}
+                class="btn btn-neutral btn-xs">
+                View award
+              </Button>
+              <Button
+                onclick={() => viewBadgeEvent(badge.definition.event)}
+                class="btn btn-neutral btn-xs">
+                View definition
+              </Button>
+            </div>
+          </div>
+        </InlinePopover>
       {/if}
-      <span class="max-w-36 truncate">{badge.definition.name}</span>
-    </span>
+    </div>
   {/each}
   {#if $events.length > 0}
     <Button onclick={viewEvent} class="badge badge-neutral">

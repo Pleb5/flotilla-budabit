@@ -6,13 +6,12 @@
   import GitActions from "./GitActions.svelte"
   import Link from "@lib/components/Link.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
-  import {makeCommunityPath, makeGitPath} from "@app/util/routes"
+  import {makeCommunityPath} from "@app/util/routes"
   import {getInteractiveCardTarget} from "@lib/html"
   import {profilesByPubkey} from "@welshman/app"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
-  import {Router} from "@welshman/router"
   import {GIT_RELAYS} from "@app/core/git-state"
-  import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
+  import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {parseRepoCommunityBinding} from "@nostr-git/core/events"
   import {Star} from "@lucide/svelte"
 
@@ -48,25 +47,7 @@
     const profile = $profilesByPubkey.get(community.pubkey)
     return profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
   })
-  const repoNaddr = $derived.by(() => {
-    const userOutboxRelays = (() => {
-      try {
-        return Router.get().FromUser().getUrls() || []
-      } catch {
-        return []
-      }
-    })()
-
-    return (
-      buildRepoNaddrFromEvent({
-        event,
-        fallbackPubkey: event.pubkey,
-        userOutboxRelays,
-        gitRelays: GIT_RELAYS,
-      }) || Address.fromEvent(event).toNaddr()
-    )
-  })
-  const browseHref = $derived.by(() => makeGitPath(url, repoNaddr))
+  const browseHref = $derived.by(() => makeRepoHrefFromEvent(event, {url, gitRelays: GIT_RELAYS}))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
   const prsHref = $derived.by(() => `${browseHref}/prs`)
   const repoAddress = $derived.by(() => {

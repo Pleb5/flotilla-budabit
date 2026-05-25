@@ -88,7 +88,6 @@
     filterValidCloneUrls,
     reorderUrlsByPreference,
     resolveRepoRelayPolicy,
-    buildRepoNaddrFromEvent,
     getTaggedRelaysFromRepoEvent,
   } from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
@@ -147,6 +146,7 @@
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
+  import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -2785,10 +2785,9 @@
         gitRelays: GIT_RELAYS,
       })
 
-      const naddr = buildRepoNaddrFromEvent({
-        event: result.announcementEvent,
+      const naddr = makeRepoNaddrFromEvent(result.announcementEvent, {
         fallbackPubkey: $pubkey || "",
-        fallbackRepoRelays: policy.repoRelays,
+        fallbackRelays: policy.repoRelays,
         userOutboxRelays,
         gitRelays: GIT_RELAYS,
       })

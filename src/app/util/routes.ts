@@ -185,7 +185,9 @@ const getTargetedPublicationCommunityForOriginal = (event: TrustedEvent) => {
   const filters = getTargetedPublicationFiltersForOriginal(event)
 
   return filters.length
-    ? getFirstTargetedPublicationCommunity(repository.query(filters, {shouldSort: false}) as TrustedEvent[])
+    ? getFirstTargetedPublicationCommunity(
+        repository.query(filters, {shouldSort: false}) as TrustedEvent[],
+      )
     : undefined
 }
 
@@ -254,6 +256,17 @@ export const makeChatPath = (recipient: string) => {
   const id = makeChatId(recipient)
 
   return `/chat/${id}`
+}
+
+export const makeProfilePath = (profile: string, relays: string[] = []) => {
+  const relayHints = relays.filter(Boolean)
+  const value = /^[0-9a-f]{64}$/i.test(profile)
+    ? relayHints.length > 0
+      ? nip19.nprofileEncode({pubkey: profile, relays: relayHints})
+      : nip19.npubEncode(profile)
+    : profile
+
+  return `/people/${encodeURIComponent(value)}`
 }
 
 export const getPrimaryNavItem = ($page: Page) => $page.route?.id?.split("/")[1]

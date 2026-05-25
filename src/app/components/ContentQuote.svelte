@@ -93,6 +93,7 @@
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getCommunityCensorReason} from "@app/core/community-reports"
   import {goToEvent, makeGitPath} from "@app/util/routes"
+  import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {pushToast} from "@app/util/toast"
   import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
   import {makeEventNevent} from "@app/util/event-links"
@@ -445,13 +446,9 @@
   }
 
   const buildRepoHrefFromEvent = (evt: TrustedEvent, relays: string[] = []) => {
-    const identifier = getTagValue(evt, "d") || getTagValue(evt, "name")
-    if (!identifier || !evt.pubkey) return ""
+    if (!evt.pubkey) return ""
 
-    return buildRepoHrefFromAddress(
-      `${GIT_REPO_ANNOUNCEMENT}:${evt.pubkey}:${identifier}`,
-      getRepoEventRelayHints(evt, relays),
-    )
+    return makeRepoHrefFromEvent(evt, {relays: getRepoEventRelayHints(evt, relays)})
   }
 
   const getCommentRootId = (evt: TrustedEvent) => getTagValueAny(evt, ["E", "e"])

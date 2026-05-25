@@ -57,11 +57,7 @@
     type BookmarkAddress,
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
-  import {
-    getTaggedRelaysFromRepoEvent,
-    resolveRepoRelayPolicy,
-    buildRepoNaddrFromEvent,
-  } from "@nostr-git/core/utils"
+  import {getTaggedRelaysFromRepoEvent, resolveRepoRelayPolicy} from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
     Avatar,
@@ -125,6 +121,7 @@
   import Download from "@assets/icons/download.svg?dataurl"
   import Code from "@assets/icons/code.svg?dataurl"
   import {makeGitPath} from "@app/util/routes"
+  import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import {gitSelectedTab, type GitTab} from "@app/util/git-tabs"
   import {
     buildBookmarkRepoFilters,
@@ -2994,10 +2991,9 @@
     fallbackPubkey: string,
     fallbackRelays: string[] = [],
   ): string => {
-    const naddr = buildRepoNaddrFromEvent({
-      event,
+    const naddr = makeRepoNaddrFromEvent(event, {
       fallbackPubkey,
-      fallbackRepoRelays: [...getTaggedRelaysFromRepoEvent(event), ...(fallbackRelays || [])],
+      fallbackRelays: [...getTaggedRelaysFromRepoEvent(event), ...(fallbackRelays || [])],
       userOutboxRelays: getUserOutboxRelays(),
       gitRelays: GIT_RELAYS,
     })

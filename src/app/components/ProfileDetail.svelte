@@ -8,9 +8,9 @@
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
   import MedalStar from "@assets/icons/medal-star.svg?dataurl"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
+  import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
-  import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import Popover from "@lib/components/Popover.svelte"
@@ -20,9 +20,6 @@
   import EventInfo from "@app/components/EventInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
   import CommunityBadgeAwardForm from "@app/components/CommunityBadgeAwardForm.svelte"
-  import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
-  import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
-  import {pubkeyLink} from "@app/core/state"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
@@ -30,7 +27,7 @@
   } from "@app/core/community-state"
   import {canCreateCommunityBadge} from "@app/core/community-badges"
   import {pushModal} from "@app/util/modal"
-  import {makeChatPath} from "@app/util/routes"
+  import {makeChatPath, makeProfilePath} from "@app/util/routes"
 
   export type Props = {
     pubkey: string
@@ -46,20 +43,21 @@
   const canAwardCommunityBadges = $derived(
     Boolean(
       $activeCommunityDefinition &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading &&
-        $sessionPubkey &&
-        canCreateCommunityBadge({
-          definition: $activeCommunityDefinition,
-          pubkey: $sessionPubkey,
-          reportState: $activeCommunityReportState,
-        }),
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading &&
+      $sessionPubkey &&
+      canCreateCommunityBadge({
+        definition: $activeCommunityDefinition,
+        pubkey: $sessionPubkey,
+        reportState: $activeCommunityReportState,
+      }),
     ),
   )
 
   const back = () => history.back()
 
   const chatPath = $derived(makeChatPath(pubkey))
+  const fullProfilePath = $derived(makeProfilePath(pubkey, relayHints))
 
   const showInfo = () => pushModal(EventInfo, {url: profileUrl, event: $profile!.event})
 
@@ -106,8 +104,6 @@
   </div>
   <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
   <ProfileBadges {pubkey} url={profileUrl} />
-  <ProfileNip85Metrics {pubkey} />
-  <ProfileCodeTrustAnalysis {pubkey} />
   {#if canAwardCommunityBadges}
     <div class="rounded-xl bg-base-200/50">
       <button
@@ -143,14 +139,14 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <div class="flex gap-2">
-      <Link external href={pubkeyLink(pubkey)} class="btn btn-neutral">
-        <ImageIcon alt="" src="/coracle.png" />
-        Open in Coracle
+    <div class="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:justify-end">
+      <Link href={fullProfilePath} class="btn btn-neutral min-w-0 justify-center whitespace-nowrap">
+        <Icon icon={UserCircle} />
+        <span class="truncate text-xs sm:text-sm">View full profile</span>
       </Link>
-      <Button onclick={openChat} class="btn btn-primary">
+      <Button onclick={openChat} class="btn btn-primary min-w-0 justify-center whitespace-nowrap">
         <Icon icon={Letter} />
-        Open Chat
+        <span class="truncate">Open Chat</span>
       </Button>
     </div>
   </ModalFooter>
