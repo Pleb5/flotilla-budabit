@@ -81,55 +81,53 @@ export class RepoCore {
     return Array.from(out)
   }
 
-  static mergeRepoStateByMaintainers(
+  static selectOwnerRepoStateEvent(
     ctx: RepoContext,
-    events: RepoStateEvent[],
+    events: RepoStateEvent[] = [],
+  ): RepoStateEvent | undefined {
+    const owner = getOwnerPubkey(ctx)
+    if (!owner) return undefined
+
+    const ownerEvents = events
+      .filter(event => event.pubkey === owner)
+      .sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
+    return ownerEvents[ownerEvents.length - 1]
+  }
+
+  static getRepoStateRefs(
+    event?: RepoStateEvent,
   ): Map<string, {commitId: string; type: "heads" | "tags"; fullRef: string}> {
-    const merged = new Map<
-      string,
-      {commitId: string; type: "heads" | "tags"; fullRef: string; at: number}
-    >()
-    for (const ev of events) {
-      if (!isTrusted(ctx, ev.pubkey)) continue
-      const parsed = parseRepoStateEvent(ev) as any
-      const at = (ev as any).created_at || 0
-      let refs = parsed?.refs || []
-      // Fallback: reconstruct from legacy 'r' tags (pairs of ref/commit)
-      if (!refs || refs.length === 0) {
-        const tags: any[] = (ev as any).tags || []
-        let lastRef: string | null = null
-        const out: any[] = []
-        for (const t of tags) {
-          if (t[0] !== "r") continue
-          if (t[2] === "ref") lastRef = t[1]
-          else if (t[2] === "commit" && lastRef) {
-            out.push({ref: lastRef, commit: t[1]})
-            lastRef = null
-          }
-        }
-        refs = out
-      }
-      for (const ref of refs) {
-        const fullRef: string =
-          ref.ref ?? (ref.type && ref.name ? `refs/${ref.type}/${ref.name}` : "")
-        if (!fullRef) continue
-        const m = /^refs\/(heads|tags)\/(.+)$/.exec(fullRef)
-        if (!m) continue
-        const type = m[1] as "heads" | "tags"
-        const name = m[2]
-        if (type === "tags" && name.endsWith("^{}")) continue
-        const key = `${type}:${name}`
-        const prev = merged.get(key)
-        const commitId: string = ref.commit || ""
-        if (!prev || at > prev.at) {
-          merged.set(key, {commitId, type, fullRef, at})
-        }
-      }
-    }
     const out = new Map<string, {commitId: string; type: "heads" | "tags"; fullRef: string}>()
-    for (const [k, v] of merged.entries()) {
-      out.set(k, {commitId: v.commitId, type: v.type, fullRef: v.fullRef})
+    if (!event) return out
+
+    const parsed = parseRepoStateEvent(event) as any
+    let refs = parsed?.refs || []
+    if (!refs || refs.length === 0) {
+      const tags: any[] = (event as any).tags || []
+      let lastRef: string | null = null
+      const legacyRefs: any[] = []
+      for (const tag of tags) {
+        if (tag[0] !== "r") continue
+        if (tag[2] === "ref") lastRef = tag[1]
+        else if (tag[2] === "commit" && lastRef) {
+          legacyRefs.push({ref: lastRef, commit: tag[1]})
+          lastRef = null
+        }
+      }
+      refs = legacyRefs
     }
+
+    for (const ref of refs) {
+      const fullRef: string = ref.ref ?? (ref.type && ref.name ? `refs/${ref.type}/${ref.name}` : "")
+      if (!fullRef) continue
+      const match = /^refs\/(heads|tags)\/(.+)$/.exec(fullRef)
+      if (!match) continue
+      const type = match[1] as "heads" | "tags"
+      const name = match[2]
+      if (type === "tags" && name.endsWith("^{}")) continue
+      out.set(`${type}:${name}`, {commitId: ref.commit || "", type, fullRef})
+    }
+
     return out
   }
 
