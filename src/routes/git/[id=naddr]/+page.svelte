@@ -59,10 +59,11 @@
   import {isGraspRelayUrl, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
-  import {pubkey} from "@welshman/app"
+  import {profilesByPubkey, pubkey} from "@welshman/app"
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/util/toast"
   import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
+  import {makeCommunityPath} from "@app/util/routes"
 
   import {getContext} from "svelte"
   import type {Readable} from "svelte/store"
@@ -476,6 +477,14 @@
     updatedAt: (repoClass as any).repoStateEvent?.created_at
       ? new Date(((repoClass as any).repoStateEvent.created_at as number) * 1000)
       : null,
+    community: repoClass.community,
+  })
+
+  const repoCommunityLabel = $derived.by(() => {
+    const community = repoMetadata.community
+    if (!community) return ""
+    const profile = $profilesByPubkey.get(community.pubkey)
+    return profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
   })
 
   $effect(() => {
@@ -1045,6 +1054,17 @@
                         class="rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-300"
                         >Fallback active</span>
                     {/if}
+                  </div>
+                {/if}
+
+                {#if repoMetadata.community}
+                  <div class="flex items-center gap-2 py-1">
+                    <span class="flex-shrink-0 text-muted-foreground">Community</span>
+                    <AppLink
+                      href={makeCommunityPath(repoMetadata.community.pubkey)}
+                      class="min-w-0 flex-1 truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15">
+                      {repoCommunityLabel}
+                    </AppLink>
                   </div>
                 {/if}
 

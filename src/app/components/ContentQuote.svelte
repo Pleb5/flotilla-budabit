@@ -78,6 +78,7 @@
 <script lang="ts">
   import * as nip19 from "nostr-tools/nip19"
   import {goto} from "$app/navigation"
+  import {profilesByPubkey} from "@welshman/app"
   import {Router} from "@welshman/router"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, MESSAGE} from "@welshman/util"
@@ -107,6 +108,7 @@
     GIT_PULL_REQUEST,
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
+    parseRepoCommunityBinding,
   } from "@nostr-git/core/events"
 
   type Props = {
@@ -485,13 +487,21 @@
 
   const getRepoPreview = (evt: TrustedEvent) => truncateText(getTagValue(evt, "description"))
 
+  const getRepoCommunityMeta = (evt: TrustedEvent) => {
+    const community = parseRepoCommunityBinding(evt)
+    if (!community) return ""
+    const profile = $profilesByPubkey.get(community.pubkey)
+    const label = profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
+    return `Community: ${label}`
+  }
+
   const getGitShareCard = (evt: TrustedEvent, relays: string[] = []) => {
     if (!evt) return null
     if (evt.kind === GIT_REPO_ANNOUNCEMENT || evt.kind === GIT_REPO_STATE) {
       return {
         label: "Repository",
         title: getTagValue(evt, "name") || getTagValue(evt, "d") || "Repository",
-        meta: [] as string[],
+        meta: [getRepoCommunityMeta(evt)].filter(Boolean) as string[],
         preview: getRepoPreview(evt),
         href: buildRepoHrefFromEvent(evt, relays),
       }

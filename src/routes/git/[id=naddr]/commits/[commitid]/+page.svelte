@@ -34,6 +34,7 @@
     prChangeToParseDiffFile,
     prChangeToReviewParseDiffFile,
     toast,
+    type RepoCommunityOption,
   } from "@nostr-git/ui"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
@@ -43,9 +44,17 @@
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
-  import {postPermalink} from "@app/core/git-commands"
   import {makeEventNevent} from "@app/util/event-links"
   import type {CommitChange} from "./+page"
+  import {profilesByPubkey, pubkey} from "@welshman/app"
+  import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
+  import {clearModals, pushModal} from "@app/util/modal"
+  import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {COMMUNITY_SECTION_PERMALINKS} from "@app/core/community"
+  import {
+    publishPermalinkToDestinations,
+    type PublicationDestinationSelection,
+  } from "@app/util/permalink-publishing"
 
   const {data}: {data: PageData} = $props()
 
@@ -206,18 +215,68 @@
     }
   }
 
+  const getCommunityOptionLabel = (communityPubkey: string) => {
+    const profile = $profilesByPubkey.get(communityPubkey)
+    return profile?.display_name || profile?.name || `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+  }
+
+  const permalinkCommunityOptions = $derived.by((): RepoCommunityOption[] =>
+    $activeUserCommunityRefs
+      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_PERMALINKS))
+      .map(ref => ({
+        pubkey: ref.communityPubkey,
+        label: getCommunityOptionLabel(ref.communityPubkey),
+        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+      })),
+  )
+
   const publishPermalink = async (permalink: PermalinkEvent) => {
-    const relays = repoClass.relays || []
-    const thunk = postPermalink(permalink, relays)
-    toast.push({
-      message: "Permalink published successfully",
-      timeout: 2000,
-    })
-    const nevent = makeEventNevent(thunk.event as any, {relays})
-    await navigator.clipboard.writeText(nevent)
-    toast.push({
-      message: "Permalink copied to clipboard",
-      timeout: 2000,
+    if (!$pubkey) {
+      toast.push({message: "Sign in to publish permalinks", timeout: 2000})
+      return false
+    }
+
+    return new Promise<boolean>(resolve => {
+      pushModal(RepoCollectModal, {
+        title: "Publish permalink",
+        description: "Choose where this permalink should be saved or curated.",
+        personalLabel: "Personal snippets",
+        submitLabel: "Publish",
+        submittingLabel: "Publishing...",
+        communityOptions: permalinkCommunityOptions,
+        onCancel: () => {
+          clearModals()
+          resolve(false)
+        },
+        onCollect: async (selection: PublicationDestinationSelection) => {
+          try {
+            const relays = repoClass.relays || []
+            const event = publishPermalinkToDestinations({
+              permalink,
+              relays,
+              communityOptions: permalinkCommunityOptions,
+              selection,
+            })
+            clearModals()
+
+            if (!event) {
+              toast.push({message: "No permalink was published", timeout: 2000})
+              resolve(false)
+              return
+            }
+
+            const nevent = makeEventNevent(event as any, {relays})
+            await navigator.clipboard.writeText(nevent)
+            toast.push({message: "Permalink copied to clipboard", timeout: 2000})
+            resolve(true)
+          } catch (error) {
+            clearModals()
+            console.error("Failed to publish permalink", error)
+            toast.push({message: "Failed to publish permalink", timeout: 2000})
+            resolve(false)
+          }
+        },
+      })
     })
   }
 

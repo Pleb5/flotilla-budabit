@@ -6,12 +6,14 @@
   import GitActions from "./GitActions.svelte"
   import Link from "@lib/components/Link.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
-  import {makeGitPath} from "@app/util/routes"
+  import {makeCommunityPath, makeGitPath} from "@app/util/routes"
   import {getInteractiveCardTarget} from "@lib/html"
+  import {profilesByPubkey} from "@welshman/app"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {Router} from "@welshman/router"
   import {GIT_RELAYS} from "@app/core/git-state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
+  import {parseRepoCommunityBinding} from "@nostr-git/core/events"
   import {Star} from "@lucide/svelte"
 
   const {
@@ -40,6 +42,12 @@
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
+  const community = $derived.by(() => parseRepoCommunityBinding(event))
+  const communityLabel = $derived.by(() => {
+    if (!community) return ""
+    const profile = $profilesByPubkey.get(community.pubkey)
+    return profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
+  })
   const repoNaddr = $derived.by(() => {
     const userOutboxRelays = (() => {
       try {
@@ -153,11 +161,20 @@
   <NoteCard {event} class="card2 sm:card2-sm bg-alt relative" {hideDate}>
     {#if name}
       <div class="flex w-full items-start justify-between gap-2">
-        <Link href={browseHref} class="block min-w-0 flex-1">
-          <div class="flex w-full items-center gap-2">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <Link href={browseHref} class="block min-w-0">
             <p class="overflow-wrap-anywhere break-words text-xl">{name}</p>
-          </div>
-        </Link>
+          </Link>
+          {#if community}
+            <a
+              href={makeCommunityPath(community.pubkey)}
+              class="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+              onclick={(event: MouseEvent) => event.stopPropagation()}
+              title={`Community: ${communityLabel}`}>
+              {communityLabel}
+            </a>
+          {/if}
+        </div>
         <div class="flex items-center gap-2 {showActions ? 'mr-9' : ''}">
           {#if onToggleBookmark}
             <button

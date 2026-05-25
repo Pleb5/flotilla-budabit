@@ -11,6 +11,7 @@
     Repo,
     WorkerManager,
     ForkRepoDialog,
+    type RepoCommunityOption,
   } from "@nostr-git/ui"
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
@@ -40,6 +41,7 @@
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {pushModal, clearModals} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
+  import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
@@ -115,6 +117,8 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
     getTagValue,
+    makeEvent,
+    REACTION,
     COMMENT,
     type Filter,
     type TrustedEvent,
@@ -146,7 +150,7 @@
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
-  import {makeGitPath} from "@app/util/routes"
+  import {makeCommunityPath, makeGitPath} from "@app/util/routes"
   import {getInitializedGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {
@@ -160,11 +164,18 @@
     isAnyBookmarked,
   } from "@app/util/bookmarks"
   import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {COMMUNITY_SECTION_REPOSITORIES, TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {
+    makeTargetedPublicationForCommunity,
+    withPublicationTargetingId,
+  } from "@app/core/community-targeting"
   import {
     makeRepoStarReaction,
     repoStarToBookmarkAddress,
     type RepoStarRef,
   } from "@app/util/repo-stars"
+  import {randomId} from "@welshman/lib"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
 
   const {id} = $page.params
@@ -192,6 +203,31 @@
     const normalized = safeNormalizeRelayUrl(relay)
     return Boolean(normalized && normalizedGitRelays.includes(normalized))
   }
+
+  const getCommunityOptionLabel = (communityPubkey: string) => {
+    const profile = $profilesByPubkey.get(communityPubkey)
+    return (
+      profile?.display_name ||
+      profile?.name ||
+      `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+    )
+  }
+
+  const repoCommunityOptions = $derived.by((): RepoCommunityOption[] =>
+    $activeUserCommunityRefs
+      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_REPOSITORIES))
+      .map(ref => ({
+        pubkey: ref.communityPubkey,
+        label: getCommunityOptionLabel(ref.communityPubkey),
+        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+      })),
+  )
+
+  const repoCommunityLabel = $derived.by(() => {
+    const community = repoClass?.community
+    if (!community) return ""
+    return getCommunityOptionLabel(community.pubkey)
+  })
 
   const COMMENT_LOAD_DEBOUNCE_MS = 300
   const COMMENT_LOAD_CHUNK_SIZE = 100
@@ -2394,6 +2430,137 @@
     })
   })
 
+  const publishPersonalRepoStar = ({
+    event,
+    address,
+    relayHint,
+    repoRelays,
+    createdAt,
+  }: {
+    event: RepoAnnouncementEvent
+    address: string
+    relayHint: string
+    repoRelays: string[]
+    createdAt: number
+  }) => {
+    const relays = getRepoStarRelays([relayHint, ...repoRelays])
+    const starEvent = {
+      ...makeRepoStarReaction({event, address, relayHints: [relayHint]}),
+      created_at: createdAt,
+    }
+    const thunk = publishThunk({event: starEvent, relays})
+    if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+    return Boolean(thunk?.event)
+  }
+
+  const publishCommunityRepoStar = ({
+    event,
+    address,
+    relayHint,
+    repoRelays,
+    community,
+    createdAt,
+  }: {
+    event: RepoAnnouncementEvent
+    address: string
+    relayHint: string
+    repoRelays: string[]
+    community: RepoCommunityOption
+    createdAt: number
+  }) => {
+    const targetingId = randomId()
+    const relays = getRepoStarRelays([
+      relayHint,
+      community.relay || "",
+      ...(community.relays || []),
+      ...repoRelays,
+    ])
+    const starEvent = withPublicationTargetingId(
+      {...makeRepoStarReaction({event, address, relayHints: [relayHint]}), created_at: createdAt},
+      targetingId,
+    )
+    const starThunk = publishThunk({event: starEvent, relays})
+    if (starThunk?.event) repository.publish(starThunk.event as TrustedEvent)
+
+    const targetingEvent = makeEvent(TARGETED_PUBLICATION_KIND, {
+      ...makeTargetedPublicationForCommunity({
+        targetingId,
+        originalKind: REACTION,
+        communityPubkey: community.pubkey,
+        communityRelay: community.relay || community.relays?.[0],
+      }),
+      created_at: createdAt + 1,
+    })
+    const targetingThunk = publishThunk({event: targetingEvent, relays})
+    if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
+    return Boolean(starThunk?.event || targetingThunk?.event)
+  }
+
+  const getDefaultRepoCollectCommunityPubkey = () => {
+    const communityPubkey = repoClass?.community?.pubkey || ""
+    return repoCommunityOptions.some(option => option.pubkey === communityPubkey) ? communityPubkey : ""
+  }
+
+  const openRepoCollectModal = ({
+    event,
+    address,
+    relayHint,
+    repoRelays,
+  }: {
+    event: RepoAnnouncementEvent
+    address: string
+    relayHint: string
+    repoRelays: string[]
+  }) => {
+    pushModal(RepoCollectModal, {
+      communityOptions: repoCommunityOptions,
+      defaultCommunityPubkey: getDefaultRepoCollectCommunityPubkey(),
+      onCancel: clearModals,
+      onCollect: async ({personal, communityPubkeys}: {personal: boolean; communityPubkeys: string[]}) => {
+        if (isTogglingBookmark) return
+        isTogglingBookmark = true
+        let published = 0
+
+        try {
+          const baseCreatedAt = Math.floor(Date.now() / 1000)
+          if (personal) {
+            if (publishPersonalRepoStar({event, address, relayHint, repoRelays, createdAt: baseCreatedAt})) {
+              published += 1
+            }
+          }
+
+          for (const [index, communityPubkey] of communityPubkeys.entries()) {
+            const community = repoCommunityOptions.find(option => option.pubkey === communityPubkey)
+            if (!community) continue
+            if (
+              publishCommunityRepoStar({
+                event,
+                address,
+                relayHint,
+                repoRelays,
+                community,
+                createdAt: baseCreatedAt + 2 + index * 2,
+              })
+            ) {
+              published += 1
+            }
+          }
+
+          clearModals()
+          pushToast({message: published > 1 ? "Repository collected" : "Repository starred"})
+        } catch (error) {
+          console.error("Failed to collect repository:", error)
+          pushToast({
+            message: `Failed to star repository: ${error instanceof Error ? error.message : "Unknown error"}`,
+            theme: "error",
+          })
+        } finally {
+          isTogglingBookmark = false
+        }
+      },
+    })
+  }
+
   // --- GRASP servers (user profile) ---
   // Only query GRASP servers when a user is logged in to avoid relay auth errors
   const currentPubkey = pubkey.get()
@@ -2874,6 +3041,7 @@
       defaultRelays,
       sourceCloneUrls,
       defaultMaintainers,
+      communityOptions: repoCommunityOptions,
       getProfile: getRepoProfile,
       searchProfiles: searchRepoProfiles,
       searchRelays: searchRepoRelays,
@@ -2939,6 +3107,7 @@
         getProfile: getRepoProfile,
         searchProfiles: searchRepoProfiles,
         searchRelays: searchRepoRelays,
+        communityOptions: repoCommunityOptions,
       },
       replaceState ? {replaceState: true} : {},
     )
@@ -3168,32 +3337,29 @@
       const activeStar = findActiveRepoStar()
       wasRemoving = Boolean(activeStar)
 
-      const relaysToPublish = getRepoStarRelays([
-        normalizedRelayHint,
-        ...(activeStar?.relayHints || []),
-        ...repoRelays,
-      ])
-
       if (activeStar) {
+        const relaysToPublish = getRepoStarRelays([
+          normalizedRelayHint,
+          ...(activeStar.relayHints || []),
+          ...repoRelays,
+        ])
         const thunk = publishDelete({
           event: activeStar.reaction,
           relays: relaysToPublish,
           protect: false,
         })
         if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+        pushToast({message: "Repository unstarred"})
       } else {
-        const starEvent = makeRepoStarReaction({
+        isTogglingBookmark = false
+        openRepoCollectModal({
           event: repoClass.repoEvent as RepoAnnouncementEvent,
           address,
-          relayHints: [normalizedRelayHint],
+          relayHint: normalizedRelayHint,
+          repoRelays,
         })
-        const thunk = publishThunk({event: starEvent, relays: relaysToPublish})
-        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+        return
       }
-
-      pushToast({
-        message: wasRemoving ? "Repository unstarred" : "Repository starred",
-      })
     } catch (error) {
       console.error("Failed to toggle repository star:", error)
       const action = wasRemoving ? "remove" : "add"
@@ -3275,6 +3441,14 @@
         data-testid="repo-topbar-home">
         {displayRepoName}
       </button>
+      {#if repoClass?.community}
+        <a
+          href={makeCommunityPath(repoClass.community.pubkey)}
+          class="ml-1 shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+          title={`Community: ${repoCommunityLabel}`}>
+          {repoCommunityLabel}
+        </a>
+      {/if}
     </div>
   {/snippet}
   {#snippet action()}

@@ -184,6 +184,7 @@ export const selectActiveRepoStars = ({
   for (const event of reactions) {
     if (normalizedAuthor && event.pubkey !== normalizedAuthor) continue
     if (deletedIds.has(event.id)) continue
+    if ((event.tags || []).some(tag => tag[0] === "h")) continue
 
     const star = parseRepoStarReaction(event)
     if (!star) continue

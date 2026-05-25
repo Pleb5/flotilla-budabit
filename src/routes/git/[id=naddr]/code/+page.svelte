@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {FileView, Input} from "@nostr-git/ui"
+  import {FileView, Input, type RepoCommunityOption} from "@nostr-git/ui"
   import {fade} from "svelte/transition"
   import {goto} from "$app/navigation"
   import {browser} from "$app/environment"
@@ -12,14 +12,21 @@
   import {filterValidCloneUrls} from "@nostr-git/core/utils"
   import {pushToast} from "@src/app/util/toast"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
-  import {postPermalink} from "@app/core/git-commands.js"
   import {makeEventNevent} from "@app/util/event-links"
-  import {createSearch} from "@welshman/app"
+  import {createSearch, profilesByPubkey, pubkey} from "@welshman/app"
   import {getContext, hasContext} from "svelte"
   import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@app/core/git-state"
   import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import {page} from "$app/stores"
+  import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
+  import {clearModals, pushModal} from "@app/util/modal"
+  import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {COMMUNITY_SECTION_PERMALINKS} from "@app/core/community"
+  import {
+    publishPermalinkToDestinations,
+    type PublicationDestinationSelection,
+  } from "@app/util/permalink-publishing"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoCloneUrlsStore = hasContext(REPO_CLONE_URLS_KEY)
@@ -104,6 +111,21 @@
 
     return search.searchOptions(query)
   }
+
+  const getCommunityOptionLabel = (communityPubkey: string) => {
+    const profile = $profilesByPubkey.get(communityPubkey)
+    return profile?.display_name || profile?.name || `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+  }
+
+  const permalinkCommunityOptions = $derived.by((): RepoCommunityOption[] =>
+    $activeUserCommunityRefs
+      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_PERMALINKS))
+      .map(ref => ({
+        pubkey: ref.communityPubkey,
+        label: getCommunityOptionLabel(ref.communityPubkey),
+        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+      })),
+  )
 
   const updateQueryParams = ({dir, file}: {dir?: string; file?: string}) => {
     const next = new URL($page.url)
@@ -549,17 +571,51 @@
   }
 
   const publish = async (permalink: PermalinkEvent) => {
-    const thunk = postPermalink(permalink, repoClass.relays)
+    if (!$pubkey) {
+      pushToast({message: "Sign in to publish permalinks", theme: "warning"})
+      return false
+    }
 
-    pushToast({
-      message: "Permalink published successfully",
-    })
-    console.log("Permalink published successfully", thunk.event)
-    const nevent = makeEventNevent(thunk.event as any, {relays: repoClass.relays})
-    console.log("Permalink published successfully", nevent)
-    navigator.clipboard.writeText(nevent)
-    pushToast({
-      message: "Permalink copied to clipboard",
+    return new Promise<boolean>(resolve => {
+      pushModal(RepoCollectModal, {
+        title: "Publish permalink",
+        description: "Choose where this permalink should be saved or curated.",
+        personalLabel: "Personal snippets",
+        submitLabel: "Publish",
+        submittingLabel: "Publishing...",
+        communityOptions: permalinkCommunityOptions,
+        onCancel: () => {
+          clearModals()
+          resolve(false)
+        },
+        onCollect: async (selection: PublicationDestinationSelection) => {
+          try {
+            const event = publishPermalinkToDestinations({
+              permalink,
+              relays: repoClass.relays,
+              communityOptions: permalinkCommunityOptions,
+              selection,
+            })
+            clearModals()
+
+            if (!event) {
+              pushToast({message: "No permalink was published", theme: "warning"})
+              resolve(false)
+              return
+            }
+
+            const nevent = makeEventNevent(event as any, {relays: repoClass.relays})
+            await navigator.clipboard.writeText(nevent)
+            pushToast({message: "Permalink copied to clipboard"})
+            resolve(true)
+          } catch (error) {
+            clearModals()
+            console.error("Failed to publish permalink", error)
+            pushToast({message: "Failed to publish permalink", theme: "error"})
+            resolve(false)
+          }
+        },
+      })
     })
   }
 </script>

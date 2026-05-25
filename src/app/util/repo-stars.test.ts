@@ -130,6 +130,18 @@ describe("repo stars", () => {
     ])
   })
 
+  it("keeps community-targeted repo stars out of personal stars", () => {
+    const personal = makeStar("personal", 1)
+    const communityTargeted = makeEvent({
+      ...makeStar("community", 2),
+      tags: [["h", "target-id"], ...makeStar("community", 2).tags],
+    })
+
+    expect(selectActiveRepoStars({reactions: [personal, communityTargeted], author: userPubkey})).toEqual([
+      expect.objectContaining({reaction: personal}),
+    ])
+  })
+
   it("builds filters for loading repo star reactions and deletes", () => {
     const star = makeStar("star-1")
 

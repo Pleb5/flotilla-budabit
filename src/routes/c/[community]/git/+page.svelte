@@ -23,13 +23,7 @@
     activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {COMMUNITY_SECTION_REPOSITORIES, TARGETED_PUBLICATION_KIND} from "@app/core/community"
-  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
-  import {
-    makeAddressablePublicationRef,
-    makeTargetedPublicationForCommunity,
-    withPublicationTargetingId,
-  } from "@app/core/community-targeting"
+  import {COMMUNITY_SECTION_REPOSITORIES} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -50,14 +44,6 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
-  const targetingFilters = $derived(
-    communityBootstrapReady && communityPubkey
-      ? [makeCommunityTargetingFilter(communityPubkey, [GIT_REPO_ANNOUNCEMENT])]
-      : [],
-  )
-  const targetingEvents = $derived(
-    deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
-  )
   const repoAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
@@ -70,7 +56,7 @@
   )
   const repoFilters = $derived(
     communityBootstrapReady && repoAuthorPubkeys.length
-      ? makeTargetedPublicationOriginalFilters($targetingEvents, repoAuthorPubkeys)
+      ? [{kinds: [GIT_REPO_ANNOUNCEMENT], authors: repoAuthorPubkeys, "#h": [communityPubkey]}]
       : [],
   )
   const repos = $derived(deriveEventsAsc(deriveEventsById({repository, filters: repoFilters})))
@@ -102,40 +88,19 @@
     }
 
     const repoId = slug.trim() || randomId()
-    const targetingId = randomId()
-    const repoTemplate = withPublicationTargetingId(
-      {
-        content: "",
-        tags: [
-          ["d", repoId],
-          ["name", name.trim()],
-          ["description", description.trim()],
-          ...(clone.trim() ? [["clone", clone.trim()]] : []),
-          ["relays", ...relays],
-        ],
-      },
-      targetingId,
-    )
+    const repoTemplate = {
+      content: "",
+      tags: [
+        ["d", repoId],
+        ["h", communityPubkey, relays[0]],
+        ["name", name.trim()],
+        ["description", description.trim()],
+        ...(clone.trim() ? [["clone", clone.trim()]] : []),
+        ["relays", ...relays],
+      ],
+    }
 
     publishThunk({relays, event: makeEvent(GIT_REPO_ANNOUNCEMENT, repoTemplate)})
-    publishThunk({
-      relays,
-      event: makeEvent(
-        TARGETED_PUBLICATION_KIND,
-        makeTargetedPublicationForCommunity({
-          targetingId,
-          originalKind: GIT_REPO_ANNOUNCEMENT,
-          originalRef: makeAddressablePublicationRef({
-            kind: GIT_REPO_ANNOUNCEMENT,
-            pubkey: $pubkey,
-            identifier: repoId,
-            relay: relays[0],
-          }),
-          communityPubkey,
-          communityRelay: relays[0],
-        }),
-      ),
-    })
 
     name = ""
     slug = ""
@@ -148,43 +113,13 @@
   let slug = $state("")
   let description = $state("")
   let clone = $state("")
-  let loadingTargets = $state(false)
-  let targetRequestDone = $state(false)
   let loadingRepos = $state(false)
   let repoRequestDone = $state(false)
   const reposLoading = $derived(
     communityBootstrapLoading ||
-      loadingTargets ||
       loadingRepos ||
-      !targetRequestDone ||
       (repoFilters.length > 0 && !repoRequestDone && $repos.length === 0),
   )
-
-  $effect(() => {
-    if (
-      !communityBootstrapReady ||
-      !communityPubkey ||
-      $activeCommunityRelays.length === 0 ||
-      targetingFilters.length === 0
-    ) {
-      loadingTargets = false
-      targetRequestDone = false
-      return
-    }
-
-    const controller = new AbortController()
-    loadingTargets = true
-    targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
-      .catch(() => undefined)
-      .finally(() => {
-        if (controller.signal.aborted) return
-        loadingTargets = false
-        targetRequestDone = true
-      })
-
-    return () => controller.abort()
-  })
 
   $effect(() => {
     if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || repoFilters.length === 0) {
@@ -196,7 +131,7 @@
     const controller = new AbortController()
     loadingRepos = true
     repoRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: repoFilters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters: repoFilters as any, signal: controller.signal})
       .catch(() => undefined)
       .finally(() => {
         if (controller.signal.aborted) return
@@ -224,7 +159,7 @@
 
 <PageContent class="content col-4 p-4">
   <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createRepoAnnouncement)}>
-    <strong>Create targeted repository announcement</strong>
+    <strong>Create repository announcement</strong>
     <Field>
       {#snippet label()}<p>Name</p>{/snippet}
       {#snippet input()}<input bind:value={name} class="input input-bordered w-full" type="text" />{/snippet}
@@ -262,7 +197,7 @@
         {#if reposLoading}
           <Spinner loading>Looking for repositories...</Spinner>
         {:else}
-          No targeted repositories found.
+          No repositories found.
         {/if}
       </p>
     {/each}
