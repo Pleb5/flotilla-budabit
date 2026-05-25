@@ -1,3 +1,5 @@
+import type {RepoCommunityBinding} from "../events/index.js"
+
 /**
  * Import Configuration for Repository Import Feature
  *
@@ -98,6 +100,11 @@ export interface ImportConfig {
    * Defaults to the source repository name when omitted.
    */
   destinationRepoName?: string
+
+  /**
+   * Optional community bound directly to the final repo announcement.
+   */
+  community?: RepoCommunityBinding
 }
 
 /**

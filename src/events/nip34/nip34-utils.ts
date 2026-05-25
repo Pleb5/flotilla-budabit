@@ -31,6 +31,7 @@ import {
 } from "./nip34.js"
 import type {CommentEvent} from "../nip22/nip22.js"
 import {sanitizeRelays} from "../../utils/sanitize-relays.js"
+import {toHexPubkey} from "../../utils/nostr-pubkey.js"
 
 // Stronger typing for tag helpers: map known tag names to their tuple types
 // (imports of specific tag types are declared at the top of file)
@@ -57,6 +58,53 @@ export type TagFor<T extends string> =
 // For value extraction: the first value after tag name, or undefined if not present
 type FirstValueOf<T extends string> =
   TagFor<T> extends [any, infer V extends string, ...any[]] ? V : undefined
+
+export const REPO_COMMUNITY_TAG = "h"
+
+export interface RepoCommunityBinding {
+  pubkey: string
+  relay?: string
+}
+
+const normalizeRepoCommunityPubkey = (value?: string): string | undefined => {
+  if (!value) return undefined
+  try {
+    return toHexPubkey(value)
+  } catch {
+    return undefined
+  }
+}
+
+export function parseRepoCommunityBinding(
+  eventOrTags: {tags?: readonly string[][]} | readonly string[][],
+): RepoCommunityBinding | undefined {
+  const tags = Array.isArray(eventOrTags) ? eventOrTags : eventOrTags.tags || []
+
+  for (const tag of tags) {
+    if (tag[0] !== REPO_COMMUNITY_TAG) continue
+    const pubkey = normalizeRepoCommunityPubkey(tag[1])
+    if (!pubkey) continue
+    const relay = tag[2] ? sanitizeRelays([tag[2]])[0] : undefined
+    return relay ? {pubkey, relay} : {pubkey}
+  }
+
+  return undefined
+}
+
+export function withRepoCommunityBinding<T extends {tags?: string[][]}>(
+  event: T,
+  community?: RepoCommunityBinding,
+): T {
+  const tags = (event.tags || []).filter(tag => tag[0] !== REPO_COMMUNITY_TAG)
+  const pubkey = normalizeRepoCommunityPubkey(community?.pubkey)
+
+  if (pubkey) {
+    const relay = community?.relay ? sanitizeRelays([community.relay])[0] : undefined
+    tags.push(relay ? [REPO_COMMUNITY_TAG, pubkey, relay] : [REPO_COMMUNITY_TAG, pubkey])
+  }
+
+  return {...event, tags}
+}
 
 /**
  * Type guard for RepoAnnouncementEvent (kind: 30617)
@@ -312,6 +360,7 @@ function extractRepoName(repoId: string): string {
  */
 export function createRepoAnnouncementEvent(opts: {
   repoId: string
+  community?: RepoCommunityBinding
   name?: string
   description?: string
   web?: string[]
@@ -327,6 +376,13 @@ export function createRepoAnnouncementEvent(opts: {
     ["d", extractRepoName(opts.repoId)],
   ]
   if (opts.name) tags.push(["name", opts.name])
+  if (opts.community) {
+    const pubkey = normalizeRepoCommunityPubkey(opts.community.pubkey)
+    if (pubkey) {
+      const relay = opts.community.relay ? sanitizeRelays([opts.community.relay])[0] : undefined
+      tags.push(relay ? [REPO_COMMUNITY_TAG, pubkey, relay] : [REPO_COMMUNITY_TAG, pubkey])
+    }
+  }
   if (opts.description) tags.push(["description", opts.description])
   // NIP-34: web, clone, relays, maintainers tags can include multiple values in a single tag
   if (opts.web && opts.web.length > 0) tags.push(["web", ...opts.web])
@@ -795,6 +851,7 @@ export interface RepoAnnouncement {
   address: string
   name?: string
   owner: string
+  community?: RepoCommunityBinding
   description?: string
   web?: string[]
   clone?: string[]
@@ -835,6 +892,7 @@ export function parseRepoAnnouncementEvent(event: RepoAnnouncementEvent): RepoAn
     address: `${GIT_REPO_ANNOUNCEMENT}:${event.pubkey}:${getTag("d")}`,
     name: getTag("name"),
     owner: event.pubkey,
+    community: parseRepoCommunityBinding(event),
     description: getTag("description"),
     web: getMultiTag("web"),
     clone: getMultiTag("clone"),

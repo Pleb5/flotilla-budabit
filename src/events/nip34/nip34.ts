@@ -43,6 +43,8 @@ export const GIT_STATUS_DRAFT = 1633
 // -------------------
 export type RepoAnnouncementTag =
   | ["d", string] // repo-id
+  | ["h", string]
+  | ["h", string, string]
   | ["name", string]
   | ["description", string]
   | ["web", ...string[]]
