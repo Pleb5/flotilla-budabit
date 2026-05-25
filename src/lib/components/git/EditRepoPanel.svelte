@@ -780,6 +780,8 @@
       formData.name !== original.name ||
       formData.description !== original.description ||
       formData.visibility !== original.visibility ||
+      formData.communityPubkey.trim().toLowerCase() !==
+        original.communityPubkey.trim().toLowerCase() ||
       formData.defaultBranch !== original.defaultBranch ||
       formData.earliestUniqueCommit.trim().toLowerCase() !==
         original.earliestUniqueCommit.trim().toLowerCase();
@@ -820,7 +822,7 @@
     role={isPage ? undefined : "document"}
   >
     <!-- Header -->
-    <div class="flex items-center justify-between p-6 border-b border-gray-700">
+    <div class="flex items-center justify-between p-4 border-b border-gray-700 sm:p-6">
       <div class="flex items-center space-x-3">
         <Settings class="w-6 h-6 text-blue-600 dark:text-blue-400" />
         <h2 id="edit-repo-title" class="text-xl font-semibold text-white">Edit Repository</h2>
@@ -838,7 +840,7 @@
 
     <!-- Content -->
     <div class="flex-1 overflow-y-auto min-h-0">
-      <div class="p-6 space-y-6">
+      <div class="p-4 space-y-6 sm:p-6">
         <!-- Repository Metadata -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <!-- Repository Name -->
@@ -1208,7 +1210,7 @@
                   aria-grabbed={draggingCloneIndex === index ? "true" : "false"}
                   ondragstart={(event) => handleCloneDragStart(index, event)}
                   ondragend={handleCloneDragEnd}
-                  class="p-2 text-gray-400 hover:text-gray-200 cursor-grab active:cursor-grabbing disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="hidden p-2 text-gray-400 hover:text-gray-200 cursor-grab active:cursor-grabbing disabled:opacity-50 disabled:cursor-not-allowed sm:block"
                   title="Drag to reorder"
                 >
                   <GripVertical class="w-4 h-4" />
@@ -1235,22 +1237,26 @@
                     <ChevronDown class="w-4 h-4" />
                   </button>
                 </div>
-                <input
-                  type="text"
-                  bind:value={formData.cloneUrls[index]}
-                  oninput={(e) =>
-                    updateArrayItem("cloneUrls", index, (e.target as HTMLInputElement).value)}
-                  disabled={isEditing}
-                  class="min-w-0 flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-                  placeholder="https://github.com/user/repo.git"
-                />
-                {#if index === 0}
-                  <span
-                    class="shrink-0 whitespace-nowrap rounded border border-blue-500/30 bg-blue-500/20 px-1.5 py-1 text-[10px] text-blue-700 dark:text-blue-300 sm:px-2 sm:text-xs"
-                  >
-                    Primary
-                  </span>
-                {/if}
+                <div class="min-w-0 flex-1 space-y-1.5">
+                  {#if index === 0}
+                    <span
+                      class="inline-flex w-fit rounded border border-blue-500/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+                    >
+                      Primary clone URL
+                    </span>
+                  {/if}
+                  <div class="min-w-0">
+                    <input
+                      type="text"
+                      bind:value={formData.cloneUrls[index]}
+                      oninput={(e) =>
+                        updateArrayItem("cloneUrls", index, (e.target as HTMLInputElement).value)}
+                      disabled={isEditing}
+                      class="min-w-0 w-full flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                      placeholder="https://github.com/user/repo.git"
+                    />
+                  </div>
+                </div>
                 <button
                   type="button"
                   onclick={() => removeArrayItem("cloneUrls", index)}
@@ -1521,7 +1527,7 @@
 
         {#if onRequestDelete}
           <div class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-600/40 dark:bg-red-950/30">
-            <div class="flex items-start justify-between gap-4">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <h3 class="font-semibold text-red-700 dark:text-red-300">Danger Zone</h3>
                 <p class="mt-1 text-sm text-red-700/80 dark:text-red-200/80">
@@ -1537,7 +1543,7 @@
                 type="button"
                 onclick={onRequestDelete}
                 disabled={isEditing || !canDelete}
-                class="flex shrink-0 items-center space-x-2 rounded-lg bg-red-600 px-3 py-2 !text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                class="flex w-full shrink-0 items-center justify-center space-x-2 rounded-lg bg-red-600 px-3 py-2 !text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 <Trash2 class="w-4 h-4" />
                 <span>Delete repo</span>
@@ -1615,26 +1621,26 @@
 
     <!-- Footer -->
     {#if !progress?.isComplete}
-      <div class="flex items-center justify-between p-6 border-t border-gray-700">
-        <div class="text-sm text-gray-400">
+      <div class="flex flex-col gap-4 p-4 border-t border-gray-700 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div class="text-sm text-gray-400 sm:min-w-0">
           {#if isFormDirty}
             <span class="text-yellow-700 dark:text-yellow-400">• Unsaved changes</span>
           {:else}
             <span>No changes</span>
           {/if}
         </div>
-        <div class="flex items-center space-x-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-3 sm:gap-0">
           <button
             onclick={handleCancel}
             disabled={isEditing}
-            class="px-4 py-2 text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full px-4 py-2 text-center text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto"
           >
             {isPage ? "Reset" : "Cancel"}
           </button>
           <button
             onclick={handleSave}
             disabled={isEditing || !isFormValid || !isFormDirty}
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            class="flex w-full items-center justify-center space-x-2 whitespace-nowrap rounded-lg bg-blue-600 px-4 py-2 !text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {#if isEditing}
               <Loader2 class="w-4 h-4 animate-spin" />
@@ -1647,7 +1653,7 @@
         </div>
       </div>
     {:else}
-      <div class="flex items-center justify-end p-6 border-t border-gray-700">
+      <div class="flex items-center justify-end p-4 border-t border-gray-700 sm:p-6">
         <button
           onclick={back}
           class="px-4 py-2 bg-green-600 hover:bg-green-700 !text-white rounded-lg transition-colors flex items-center space-x-2"

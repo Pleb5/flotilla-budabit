@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ChevronDown } from "@lucide/svelte";
   import type { RepoCommunityOption } from "./repo-community-options.js";
   import { getRepoCommunityOptionLabel } from "./repo-community-options.js";
 
@@ -27,17 +28,22 @@
     {/if}
   </div>
 
-  <select
-    id="repo-community-select"
-    class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-    bind:value
-    {disabled}
-  >
-    <option value="">No community</option>
-    {#each options as option (option.pubkey)}
-      <option value={option.pubkey}>{getRepoCommunityOptionLabel(option)}</option>
-    {/each}
-  </select>
+  <div class="relative">
+    <select
+      id="repo-community-select"
+      class="w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-10 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+      bind:value
+      {disabled}
+    >
+      <option value="">No community</option>
+      {#each options as option (option.pubkey)}
+        <option value={option.pubkey}>{getRepoCommunityOptionLabel(option)}</option>
+      {/each}
+    </select>
+    <ChevronDown
+      class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+    />
+  </div>
 
   {#if options.length === 0}
     <p class="text-xs text-muted-foreground">
