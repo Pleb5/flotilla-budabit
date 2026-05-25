@@ -231,7 +231,12 @@
 
   const getDefaultCommit = async (): Promise<string> => {
     try {
-      const history = await repo.getCommitHistory({ depth: 1 });
+      const result = await repo.getCommitHistory({ depth: 1 });
+      const history = Array.isArray(result)
+        ? result
+        : Array.isArray(result?.commits)
+          ? result.commits
+          : [];
       return history?.[0]?.oid || "";
     } catch (e) {
       console.error("Failed to get default commit:", e);

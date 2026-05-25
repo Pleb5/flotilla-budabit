@@ -408,7 +408,11 @@ export class Repo {
     if (!exists) return false;
 
     this.branchManager.setSelectedBranch(branch);
+    const previousBranch = this.#selectedBranchState;
     this.#selectedBranchState = branch;
+    if (previousBranch !== branch) {
+      this.#branchChangeTrigger++;
+    }
     return true;
   }
 
@@ -775,8 +779,12 @@ export class Repo {
               this.refs = loadedRefs;
               this.#refsSeededFromHead = false;
               if (!this.#restorePersistedSelectedBranch()) {
-                this.#selectedBranchState =
+                const selectedFromManager =
                   this.branchManager.getSelectedBranch() || this.#selectedBranchState;
+                if (selectedFromManager && selectedFromManager !== this.#selectedBranchState) {
+                  this.#selectedBranchState = selectedFromManager;
+                  this.#branchChangeTrigger++;
+                }
               }
               this.refDiscoverySource =
                 this.branchManager.getRefDiscoverySource() || this.refDiscoverySource;
@@ -1218,7 +1226,10 @@ export class Repo {
     const branchToLoad = this.selectedBranch || mainBranch;
 
     // Delegate to CommitManager
-    await this.commitManager.loadCommits(this.key, branchToLoad, mainBranch);
+    const result = await this.commitManager.loadCommits(this.key, branchToLoad, mainBranch);
+    if (result.success) {
+      this.syncCommitsState();
+    }
   }
 
   async #loadBranchesFromRepo(repoEvent: RepoAnnouncementEvent) {
@@ -1259,6 +1270,7 @@ export class Repo {
       const selectedFromManager = this.branchManager.getSelectedBranch();
       if (selectedFromManager && selectedFromManager !== this.#selectedBranchState) {
         this.#selectedBranchState = selectedFromManager;
+        this.#branchChangeTrigger++;
         console.log(`[Repo] Auto-selected branch from BranchManager: ${selectedFromManager}`);
       }
     } catch (error) {
@@ -1493,6 +1505,7 @@ export class Repo {
     this.#refsSeededFromHead = true;
     if (!this.#selectedBranchState) {
       this.#selectedBranchState = headName;
+      this.#branchChangeTrigger++;
     }
     this.branchManager.setSelectedBranch(headName);
   }
@@ -1512,6 +1525,7 @@ export class Repo {
     if (!chosen) return;
     this.#selectedBranchState = chosen;
     this.branchManager.setSelectedBranch(chosen);
+    this.#branchChangeTrigger++;
   }
 
   /**

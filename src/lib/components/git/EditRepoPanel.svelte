@@ -333,9 +333,37 @@
   }> = [];
   let loadingRefs = $state(true);
 
+  type AvailableCommit = {
+    oid?: string;
+    message?: string;
+    author?: string;
+    timestamp?: number;
+    commit?: {
+      message?: string;
+      author?: {
+        name?: string;
+        timestamp?: number;
+      };
+    };
+  };
+
+  const unwrapCommitHistory = (result: any): AvailableCommit[] => {
+    if (Array.isArray(result)) return result;
+    if (Array.isArray(result?.commits)) return result.commits;
+    return [];
+  };
+
+  const getCommitMessage = (commit: AvailableCommit) =>
+    commit.message || commit.commit?.message || "";
+
+  const getCommitAuthor = (commit: AvailableCommit) =>
+    commit.author || commit.commit?.author?.name || "";
+
+  const getCommitTimestamp = (commit: AvailableCommit) =>
+    commit.timestamp || commit.commit?.author?.timestamp || 0;
+
   // Load commit history for earliest unique commit selection
-  let availableCommits: Array<{ oid: string; message: string; author: string; timestamp: number }> =
-    [];
+  let availableCommits: AvailableCommit[] = [];
   let loadingCommits = $state(false);
   let commitSearchQuery = $state("");
   let showCommitDropdown = $state(false);
@@ -399,13 +427,14 @@
         // Try to load commits
         repo
           .getCommitHistory({ branch: formData.defaultBranch, depth: 100 })
-          .then((commits) => {
+          .then((result) => {
+            const commits = unwrapCommitHistory(result);
             console.log(
               "[EditRepoPanel] Loaded commits from getCommitHistory:",
-              commits?.length,
-              commits
+              commits.length,
+              result
             );
-            availableCommits = commits || repo.commits || [];
+            availableCommits = commits.length > 0 ? commits : repo.commits || [];
             loadingCommits = false;
           })
           .catch((error) => {
@@ -435,8 +464,8 @@
     const results = availableCommits
       .filter((c) => {
         const oid = c.oid || "";
-        const message = c.message || "";
-        const author = c.author || "";
+        const message = getCommitMessage(c);
+        const author = getCommitAuthor(c);
         return (
           oid.toLowerCase().includes(query) ||
           message.toLowerCase().includes(query) ||
@@ -1465,9 +1494,11 @@
                   <button
                     type="button"
                     onclick={() => {
+                      const oid = commit.oid || "";
+                      if (!oid) return;
                       earliestUniqueCommitTouched = true;
-                      formData.earliestUniqueCommit = commit.oid;
-                      commitSearchQuery = commit.oid;
+                      formData.earliestUniqueCommit = oid;
+                      commitSearchQuery = oid;
                       showCommitDropdown = false;
                     }}
                     class="w-full text-left px-3 py-2 hover:bg-gray-700 border-b border-gray-700 last:border-b-0"
@@ -1479,11 +1510,11 @@
                           {commit.oid?.slice(0, 7) || "unknown"}
                         </div>
                         <div class="text-sm text-white truncate">
-                          {commit.message?.split("\n")[0] || "No message"}
+                          {getCommitMessage(commit).split("\n")[0] || "No message"}
                         </div>
                         <div class="text-xs text-gray-400 mt-0.5">
-                          {commit.author || "Unknown"} · {new Date(
-                            (commit.timestamp || 0) * 1000
+                          {getCommitAuthor(commit) || "Unknown"} · {new Date(
+                            getCommitTimestamp(commit) * 1000
                           ).toLocaleDateString()}
                         </div>
                       </div>
