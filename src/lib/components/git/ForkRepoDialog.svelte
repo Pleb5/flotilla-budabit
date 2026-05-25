@@ -29,6 +29,9 @@
   import type { Token } from "$lib/stores/tokens";
   import type { ForkResult, ForkConfig } from "../../hooks/useForkRepo.svelte";
   import { toast } from "../../stores/toast";
+  import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
+  import type { RepoCommunityOption } from "./repo-community-options.js";
+  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
   import {
     DEFAULT_BRANCH_COPY_FILTER_TOOLTIP,
     deriveBranchCopyFilterState,
@@ -76,6 +79,8 @@
     defaultRelays?: string[];
     sourceCloneUrls?: string[];
     defaultMaintainers?: string[];
+    communityOptions?: RepoCommunityOption[];
+    defaultCommunityPubkey?: string;
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
@@ -106,6 +111,8 @@
     defaultRelays = [],
     sourceCloneUrls = [],
     defaultMaintainers = [],
+    communityOptions = [],
+    defaultCommunityPubkey = "",
     getProfile,
     searchProfiles,
     searchRelays,
@@ -120,6 +127,7 @@
   let initialFocusEl = $state<HTMLInputElement | null>(null);
   let shouldCloseAfterAbort = $state(false);
   let isCancelingFork = $state(false);
+  let selectedCommunityPubkey = $state(defaultCommunityPubkey);
 
   const forkOptions = $derived.by(() => {
     const baseOptions = {
@@ -837,6 +845,9 @@
       tags,
       maintainers,
       relays: effectivePreferredRelays,
+      community: getRepoCommunityOptionBinding(
+        findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
+      ),
     };
 
     try {
@@ -1332,6 +1343,13 @@
                   Optional NIP-34 fields for your fork announcement.
                 </p>
               </div>
+
+              <RepoCommunitySelect
+                options={communityOptions}
+                bind:value={selectedCommunityPubkey}
+                label="Repository community"
+                description="Optionally bind this fork to one community as part of its identity."
+              />
 
               <div>
                 <label class="block text-sm font-medium text-gray-300 mb-2">

@@ -62,6 +62,9 @@
     getAccessTokenManagementMessage,
     isWorkflowScopeIssue,
   } from "../../utils/tokenManagement.js";
+  import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
+  import type { RepoCommunityOption } from "./repo-community-options.js";
+  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
 
   interface Props {
     pubkey: string;
@@ -85,6 +88,8 @@
     onAbortImport?: () => Promise<void> | void;
     defaultRelays?: string[];
     searchRelays?: (query: string) => Promise<string[]>;
+    communityOptions?: RepoCommunityOption[];
+    defaultCommunityPubkey?: string;
   }
 
   const {
@@ -102,6 +107,8 @@
     onAbortImport,
     defaultRelays = DEFAULT_RELAYS.default.slice(0, 2),
     searchRelays,
+    communityOptions = [],
+    defaultCommunityPubkey = "",
   }: Props = $props();
 
   // Validate that we have at least one signing method
@@ -171,6 +178,7 @@
   let mirrorIssues = $state(true);
   let mirrorPullRequests = $state(true);
   let mirrorComments = $state(true);
+  let selectedCommunityPubkey = $state(defaultCommunityPubkey);
 
   type ImportTargetOption = RemoteTargetOption;
 
@@ -1045,6 +1053,9 @@
       mirrorPullRequests: sourceAccessMode === "anonymous" ? false : mirrorPullRequests,
       mirrorComments: sourceAccessMode === "anonymous" ? false : mirrorComments,
       relays: effectiveSelectedRelays,
+      community: getRepoCommunityOptionBinding(
+        findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
+      ),
     };
     (config as ImportConfig & { selectedBranches?: string[] }).selectedBranches =
       selectedBranchNamesForImport;
@@ -1457,6 +1468,15 @@
               <p class="mt-2 text-xs text-gray-400">
                 Selected import targets and the final Nostr repo announcement will use this name.
               </p>
+            </div>
+
+            <div class="mb-4">
+              <RepoCommunitySelect
+                options={communityOptions}
+                bind:value={selectedCommunityPubkey}
+                label="Repository community"
+                description="Optionally bind the imported repository to one community as part of its identity."
+              />
             </div>
 
             <!-- Branch Selection -->

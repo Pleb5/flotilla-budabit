@@ -119,7 +119,7 @@
     repo?: Repo;
     repoRefs?: string[];
     relayHint?: string;
-    publish?: (permalink: PermalinkEvent) => Promise<void>;
+    publish?: (permalink: PermalinkEvent) => Promise<void | boolean>;
     enablePermalinks?: boolean;
     showFileHeaders?: boolean;
     compact?: boolean;
@@ -1384,10 +1384,10 @@
       return;
     }
 
-    toast.push({ title: "Creating permalink...", description: "Publishing to relays" });
     try {
       if (publish) {
-        await publish(evt);
+        const published = await publish(evt);
+        if (published === false) return;
         toast.push({
           title: "Permalink published",
           description: "Permalink published successfully",

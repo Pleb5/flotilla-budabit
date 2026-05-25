@@ -1,4 +1,5 @@
 import type { BookmarkAddress } from "@nostr-git/core/events";
+import type { RepoCommunityBinding } from "@nostr-git/core/events";
 import { buildRepoNaddrFromEvent } from "@nostr-git/core/utils";
 
 // Singleton store for bookmarked repositories
@@ -48,6 +49,7 @@ export type RepoCard = {
   refs: any;
   title: string;
   description: string;
+  community?: RepoCommunityBinding;
   first: any;
   principal: string;
   repoNaddr: string;
@@ -142,12 +144,14 @@ function createRepositoriesStore() {
       const first = event;
       let title = name || d || euc;
       let description = "";
+      let community: RepoCommunityBinding | undefined;
       const declaredMaintainers = getTaggedMaintainers(first);
       try {
         if (first) {
           const parsed = parseRepoAnnouncementEvent(first);
           if (parsed?.name) title = parsed.name;
           if (parsed?.description) description = parsed.description;
+          community = parsed?.community;
         }
       } catch {}
       const maintainers = getRepoMaintainers(first, declaredMaintainers);
@@ -184,6 +188,7 @@ function createRepositoriesStore() {
         refs,
         title,
         description,
+        community,
         first,
         principal,
         repoNaddr,

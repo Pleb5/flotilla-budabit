@@ -2,6 +2,7 @@
   import { nip19, type NostrEvent } from "nostr-tools";
   import { onMount } from "svelte";
   import { FolderGit2, Copy, Star, GitBranch } from "@lucide/svelte";
+  import { parseRepoCommunityBinding } from "@nostr-git/core/events";
   import { useRegistry } from "../../useRegistry";
 
   const { Card, Button, Avatar, AvatarImage, AvatarFallback, ProfileLink } = useRegistry();
@@ -25,6 +26,10 @@
   const shortDescription = $derived(repoDescription || "No description provided");
   const shortNpub = $derived(authorNpub ? authorNpub.slice(0, 16) + "..." : "");
   const createdDate = $derived(new Date(event.created_at * 1000));
+  const community = $derived(parseRepoCommunityBinding(event));
+  const communityLabel = $derived(
+    community ? `${community.pubkey.slice(0, 8)}...${community.pubkey.slice(-6)}` : ""
+  );
 
   // Parse event tags to extract repository information
   const parseEventData = () => {
@@ -110,6 +115,10 @@
 
       <div class="flex items-center gap-2 text-xs text-muted-foreground mb-1">
         <span>By <ProfileLink pubkey={event.pubkey} /></span>
+        {#if community}
+          <span>•</span>
+          <span class="rounded-full border px-1.5 py-0.5 text-[11px]">Community {communityLabel}</span>
+        {/if}
         <span>•</span>
         <span>{createdDate.toLocaleDateString()}</span>
       </div>

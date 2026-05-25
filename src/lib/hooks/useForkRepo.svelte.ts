@@ -1,4 +1,9 @@
-import type { RepoAnnouncementEvent, RepoStateEvent, NostrEvent } from "@nostr-git/core/events";
+import type {
+  RepoAnnouncementEvent,
+  RepoCommunityBinding,
+  RepoStateEvent,
+  NostrEvent,
+} from "@nostr-git/core/events";
 import { createRepoAnnouncementEvent, createRepoStateEvent } from "@nostr-git/core/events";
 import { parseRepoId } from "@nostr-git/core/utils";
 import { nip19 } from "nostr-tools";
@@ -37,6 +42,7 @@ export interface ForkConfig {
   maintainers?: string[];
   relays?: string[];
   includeBranches?: string[];
+  community?: RepoCommunityBinding;
 }
 
 export interface ForkProgress {
@@ -663,6 +669,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         targets: selectedTargets,
         userPubkey,
         relays: config.relays || [],
+        community: config.community,
         maintainers: Array.from(
           new Set(
             [userPubkey, ...(config.maintainers || [])].filter((value) => Boolean(value?.trim()))
@@ -762,6 +769,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         ...(config.earliestUniqueCommit
           ? { earliestUniqueCommit: config.earliestUniqueCommit }
           : {}),
+        community: config.community,
         created_at: finalCreatedAt,
       });
 

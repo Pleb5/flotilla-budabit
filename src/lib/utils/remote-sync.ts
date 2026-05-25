@@ -1,4 +1,5 @@
 import { getGitServiceApiFromUrl, parseRepoUrl, type NostrEvent } from "@nostr-git/core";
+import type { RepoCommunityBinding } from "@nostr-git/core/events";
 
 import {
   buildGraspRepoUrls,
@@ -50,6 +51,7 @@ export interface SyncLocalRepoToTargetsOptions {
   userPubkey: string;
   relays?: string[];
   maintainers?: string[];
+  community?: RepoCommunityBinding;
   onPublishEvent?: (event: NostrEvent) => Promise<unknown>;
   onFetchRelayEvents?: FetchRelayEvents;
   updateProgress: (message: string) => void;
@@ -298,6 +300,7 @@ export async function syncLocalRepoToTargets(
     userPubkey,
     relays = [],
     maintainers = [userPubkey],
+    community,
     onPublishEvent,
     updateProgress,
     runAbortable,
@@ -423,6 +426,7 @@ export async function syncLocalRepoToTargets(
               selectedGraspCloneUrls.length > 0 ? selectedGraspCloneUrls : [graspRemoteUrl],
             webUrls: webUrl ? [webUrl] : undefined,
             maintainers,
+            community,
           });
 
           latestRepoMetadataCreatedAt = updateLatestRepoMetadataCreatedAt(
@@ -532,6 +536,7 @@ export async function syncLocalRepoToTargets(
                   webUrl || guessWebUrl(graspRemoteUrl) || graspRemoteUrl.replace(/\.git$/, ""),
                 ],
                 maintainers,
+                community,
                 refs: stateRefs,
                 head: stateHead,
               });

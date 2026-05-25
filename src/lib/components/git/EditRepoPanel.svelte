@@ -28,6 +28,9 @@
     getEffectiveRepoRelayUrls,
     getSuccessfulGraspRelayUrls,
   } from "../../utils/grasp-pipeline.js";
+  import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
+  import type { RepoCommunityOption } from "./repo-community-options.js";
+  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
 
   // Types for edit configuration and progress
   interface EditProgress {
@@ -47,6 +50,7 @@
     cloneUrls: string[];
     hashtags: string[];
     earliestUniqueCommit: string;
+    communityPubkey: string;
   }
 
   interface SaveCompleteResult {
@@ -80,6 +84,7 @@
       }>
     >;
     searchRelays?: (query: string) => Promise<string[]>;
+    communityOptions?: RepoCommunityOption[];
   }
 
   const {
@@ -95,6 +100,7 @@
     getProfile,
     searchProfiles,
     searchRelays,
+    communityOptions = [],
   }: Props = $props();
 
   const isPage = $derived(variant === "page");
@@ -124,6 +130,7 @@
         cloneUrls: copyList(),
         hashtags: copyList(),
         earliestUniqueCommit: "",
+        communityPubkey: "",
       };
     }
 
@@ -149,6 +156,7 @@
       cloneUrls: editableCloneUrls,
       hashtags: copyList(repo.hashtags),
       earliestUniqueCommit: repo.earliestUniqueCommit || "",
+      communityPubkey: repo.community?.pubkey || "",
     };
   }
 
@@ -688,6 +696,9 @@
         relays: cleanRelays,
         hashtags: cleanHashtags,
         earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase() || undefined,
+        community: getRepoCommunityOptionBinding(
+          findRepoCommunityOption(communityOptions, formData.communityPubkey)
+        ),
         // Include all URLs in the event
         web: cleanWebUrls,
         clone: cleanCloneUrls,
@@ -889,6 +900,14 @@
             </p>
           {/if}
         </div>
+
+        <RepoCommunitySelect
+          options={communityOptions}
+          bind:value={formData.communityPubkey}
+          label="Repository community"
+          description="Set, change, or remove the community bound to this repository identity."
+          disabled={isEditing}
+        />
 
         <!-- Default Branch -->
         <div>

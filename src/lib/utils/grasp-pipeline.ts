@@ -2,6 +2,7 @@ import {
   createRepoAnnouncementEvent,
   createRepoStateEvent,
   type RepoAnnouncementEvent,
+  type RepoCommunityBinding,
   type RepoStateEvent,
 } from "@nostr-git/core/events";
 import type { NostrEvent, NostrFilter } from "@nostr-git/core";
@@ -396,6 +397,7 @@ export interface CreateGraspEventsParams {
   maintainers?: string[];
   hashtags?: string[];
   earliestUniqueCommit?: string;
+  community?: RepoCommunityBinding;
   refs?: GraspRef[];
   head?: string;
 }
@@ -411,6 +413,7 @@ export function createGraspAnnouncementAndState({
   maintainers,
   hashtags,
   earliestUniqueCommit,
+  community,
   refs,
   head,
 }: CreateGraspEventsParams): {
@@ -450,6 +453,7 @@ export function createGraspAnnouncementAndState({
     maintainers,
     hashtags,
     earliestUniqueCommit,
+    community,
   });
 
   const stateEvent = createRepoStateEvent({

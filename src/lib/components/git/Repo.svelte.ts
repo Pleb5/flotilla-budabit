@@ -1,6 +1,7 @@
 import type {
   IssueEvent,
   RepoAnnouncement,
+  RepoCommunityBinding,
   RepoState,
   RepoAnnouncementEvent,
   RepoStateEvent,
@@ -87,6 +88,7 @@ export class Repo {
   clone: string[] = $state([]);
   web: string[] = $state([]);
   address: string = $state("");
+  community: RepoCommunityBinding | undefined = $state(undefined);
   viewerPubkey: string | null = $state(null);
   editable: boolean = $state(false);
 
@@ -479,6 +481,7 @@ export class Repo {
           this.earliestUniqueCommit = this.#repo!.earliestUniqueCommit!;
           this.createdAt = this.#repo!.createdAt;
           this.address = this.#repo!.address;
+          this.community = this.#repo!.community;
           this.#updateEditable();
         }
       })
@@ -2193,6 +2196,7 @@ export class Repo {
     relays?: string[];
     hashtags?: string[];
     earliestUniqueCommit?: string;
+    community?: RepoCommunityBinding;
   }): RepoAnnouncementEvent {
     // Use the shared-types utility function
     // Resolve a robust earliestUniqueCommit:
@@ -2222,6 +2226,9 @@ export class Repo {
       maintainers: repoData.maintainers,
       hashtags: repoData.hashtags,
       earliestUniqueCommit: euc,
+      community: Object.prototype.hasOwnProperty.call(repoData, "community")
+        ? repoData.community
+        : this.community,
     });
   }
 

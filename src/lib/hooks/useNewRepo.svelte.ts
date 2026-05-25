@@ -4,6 +4,7 @@ import { tokens as tokensStore, type Token } from "../stores/tokens.js";
 import {
   createRepoAnnouncementEvent as createAnnouncementEventShared,
   createRepoStateEvent as createStateEventShared,
+  type RepoCommunityBinding,
 } from "@nostr-git/core/events";
 import { parseRepoId } from "@nostr-git/core/utils";
 import { tryTokensForHost, getTokensForHost } from "../utils/tokenHelpers.js";
@@ -439,6 +440,7 @@ export interface NewRepoConfig {
   cloneUrl?: string; // Git clone URL
   cloneUrls?: string[]; // Preferred ordered clone URLs
   cloneUrlOrder?: string[]; // Provider order for clone URL priority
+  community?: RepoCommunityBinding;
 }
 
 export interface NewRepoResult {
@@ -704,6 +706,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             relays: editableRelays,
             maintainers:
               config.maintainers && config.maintainers.length > 0 ? config.maintainers : undefined,
+            community: config.community,
             onPublishEvent: onPublishEvent as (event: any) => Promise<unknown>,
             onFetchRelayEvents: options.onFetchRelayEvents,
             updateProgress: (message) => updateProgress(pushStep, message, "running"),
@@ -863,9 +866,10 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             config.maintainers && config.maintainers.length > 0 ? config.maintainers : undefined,
           hashtags: config.tags && config.tags.length > 0 ? config.tags : undefined,
           earliestUniqueCommit: localRepo?.initialCommit || undefined,
-          refs,
-          head: config.defaultBranch,
-        });
+            refs,
+            head: config.defaultBranch,
+            community: config.community,
+          });
 
         announcementEvent = graspEvents.announcementEvent;
         stateEvent = graspEvents.stateEvent;
@@ -890,6 +894,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           maintainers:
             config.maintainers && config.maintainers.length > 0 ? config.maintainers : undefined,
           hashtags: config.tags && config.tags.length > 0 ? config.tags : undefined,
+          community: config.community,
         });
 
         stateEvent = createStateEventShared({

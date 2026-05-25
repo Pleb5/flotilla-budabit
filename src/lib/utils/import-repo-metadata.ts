@@ -4,6 +4,7 @@ import {
   type RepoMetadata,
   type NostrEvent,
 } from "@nostr-git/core";
+import { withRepoCommunityBinding, type RepoCommunityBinding } from "@nostr-git/core/events";
 import { isGraspRepoHttpUrl } from "@nostr-git/core/utils";
 
 import { normalizeGraspOrigins } from "./grasp-pipeline.js";
@@ -86,6 +87,7 @@ export function buildImportedRepoEvents(params: {
   latestRepoMetadataCreatedAt?: number;
   remotePushResults?: ImportedRemotePushResultLike[];
   selectedBranchRefs?: ImportedBranchRefLike[];
+  community?: RepoCommunityBinding;
 }): {
   announcement: Omit<NostrEvent, "id" | "sig" | "pubkey">;
   state: Omit<NostrEvent, "id" | "sig" | "pubkey">;
@@ -99,6 +101,7 @@ export function buildImportedRepoEvents(params: {
     latestRepoMetadataCreatedAt = 0,
     remotePushResults = [],
     selectedBranchRefs = [],
+    community,
   } = params;
 
   const repoForAnnouncement = buildImportedRepoMetadata(repo, repoName);
@@ -108,12 +111,14 @@ export function buildImportedRepoEvents(params: {
     latestRepoMetadataCreatedAt
   );
 
-  const announcement = convertRepoToNostrEvent(
+  let announcement = convertRepoToNostrEvent(
     repoForAnnouncement,
     relays,
     userPubkey,
     finalRepoMetadataCreatedAt
   );
+
+  if (community) announcement = withRepoCommunityBinding(announcement, community);
 
   const successfulRemoteUrls = Array.from(
     new Set(

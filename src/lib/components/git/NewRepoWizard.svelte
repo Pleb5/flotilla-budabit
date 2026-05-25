@@ -2,6 +2,7 @@
   import RepoDetailsStep from "./RepoDetailsStep.svelte";
   import AdvancedSettingsStep from "./AdvancedSettingsStep.svelte";
   import RepoProgressStep from "./RepoProgressStep.svelte";
+  import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
   import StepChooseService from "./steps/StepChooseService.svelte";
   import { nip19, type Event as NostrEvent } from "nostr-tools";
   import { useRegistry } from "../../useRegistry";
@@ -18,6 +19,8 @@
   } from "../../hooks/useNewRepo.svelte";
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { graspServersStore } from "../../stores/graspServers.js";
+  import type { RepoCommunityOption } from "./repo-community-options.js";
+  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
   const { Button } = useRegistry();
 
   function deriveOrigins(input: string): { wsOrigin: string; httpOrigin: string } {
@@ -75,6 +78,8 @@
       }>
     >;
     searchRelays?: (query: string) => Promise<string[]>;
+    communityOptions?: RepoCommunityOption[];
+    defaultCommunityPubkey?: string;
     /** Callback to create NIP-98 auth header for GRASP push (must be called on main thread) */
     createAuthHeader?: (url: string, method?: string) => Promise<string | null>;
     /** Fetch events from specific relays for GRASP state visibility checks */
@@ -102,6 +107,8 @@
     getProfile,
     searchProfiles,
     searchRelays,
+    communityOptions = [],
+    defaultCommunityPubkey = "",
     createAuthHeader,
     onFetchRelayEvents,
   }: Props = $props();
@@ -144,6 +151,7 @@
   let userEditedWebUrl = $state(false);
   let userEditedCloneUrl = $state(false);
   let userEditedRelays = $state(false);
+  let selectedCommunityPubkey = $state(defaultCommunityPubkey);
 
   // Grasp server options sourced from global singleton store
   let graspServerOptions = $state<string[]>([]);
@@ -598,6 +606,9 @@
 
     const providerDefaults = getProviderUrlDefaults(repoDetails.name.trim());
     const cloneProviderOrder = getCloneProviderOrder(providerDefaults);
+    const selectedCommunity = getRepoCommunityOptionBinding(
+      findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
+    );
 
     try {
       createdResult = null;
@@ -621,6 +632,7 @@
         webUrls: advancedSettings.webUrls.filter((v) => v && v.trim()),
         cloneUrls: advancedSettings.cloneUrls.filter((v) => v && v.trim()),
         cloneUrlOrder: cloneProviderOrder,
+        community: selectedCommunity,
         webUrl: advancedSettings.webUrls.find((v) => v && v.trim()) || "",
         cloneUrl: advancedSettings.cloneUrls.find((v) => v && v.trim()) || "",
       });
@@ -874,6 +886,14 @@
           searchRelays={searchRelays}
           onCloneUrlsChange={handleCloneUrlsChange}
         />
+        <div class="mt-6">
+          <RepoCommunitySelect
+            options={communityOptions}
+            bind:value={selectedCommunityPubkey}
+            label="Repository community"
+            description="Optionally bind this repository to one community as part of its identity."
+          />
+        </div>
       {:else if currentStep === 4}
         <RepoProgressStep
           isCreating={isCreating()}

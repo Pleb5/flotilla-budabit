@@ -1842,6 +1842,7 @@ async function syncRepositoryToRemotes(
     onLatestRepoMetadataCreatedAt: (value) => {
       context.latestRepoMetadataCreatedAt = value;
     },
+    community: context.config.community,
     requireNonGraspSuccessBeforeGrasp: true,
   });
 }
@@ -1893,6 +1894,7 @@ function convertRepoEvents(context: ImportContext): {
       latestRepoMetadataCreatedAt: context.latestRepoMetadataCreatedAt,
       remotePushResults: context.remotePushResults,
       selectedBranchRefs: context.selectedBranchRefs || [],
+      community: context.config.community,
     });
 
   return {
