@@ -19,7 +19,6 @@
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
   } from "@app/core/git-state"
-  import {makeCommunityPath} from "@app/util/routes"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
 
@@ -43,9 +42,6 @@
   const repoRelays = $derived.by(() => $repoRelaysStore || [])
   const statusEventsByRoot = $derived.by(() => $statusEventsByRootStore || new Map())
   const defaultThreadCommunityPubkey = $derived(repoClass.community?.pubkey || "")
-  const communityHref = $derived(
-    defaultThreadCommunityPubkey ? makeCommunityPath(defaultThreadCommunityPubkey) : "",
-  )
 
   const activityEvents = $derived.by(() => {
     const deduped = new Map<string, TrustedEvent>()
@@ -112,21 +108,6 @@
 </svelte:head>
 
 <div class="mx-auto flex w-full max-w-4xl flex-col gap-4 px-1 py-2 sm:px-2">
-  <section class="rounded-2xl border border-border bg-base-200/50 p-4 shadow-sm sm:p-5">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div class="space-y-1">
-        <h2 class="text-xl font-semibold">Repository Activity</h2>
-        <p class="max-w-2xl text-sm text-muted-foreground">
-          Issues and pull requests for this repository. Use the thread action on an activity item to
-          start a focused community discussion without mixing chat into the activity stream.
-        </p>
-      </div>
-      {#if communityHref}
-        <a class="btn btn-neutral btn-sm shrink-0" href={communityHref}>Open community</a>
-      {/if}
-    </div>
-  </section>
-
   {#if elements.length === 0}
     <div
       class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
