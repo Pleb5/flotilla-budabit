@@ -1,7 +1,6 @@
 <script lang="ts">
   import Link from "@lib/components/Link.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import {APP_NAME} from "@app/core/state"
   import Code from "@assets/icons/code-2.svg?dataurl"
 
   const hash = import.meta.env.VITE_BUILD_HASH
@@ -10,8 +9,7 @@
 <div class="mt-8 min-h-screen bg-base-200 sm:hero">
   <div class="hero-content">
     <div class="column content gap-6">
-      <p class="text-center text-2xl">Thanks for using</p>
-      <h1 class="mb-4 text-center text-5xl font-bold uppercase">{$APP_NAME}</h1>
+      <h1 class="mb-4 text-center text-5xl font-bold uppercase">Thanks for using this app</h1>
       <div class="flex flex-col gap-4">
         <div class="items-center text-center">
           {#if hash}

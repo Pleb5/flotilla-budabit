@@ -14,7 +14,7 @@
   import SignUpProfile from "@app/components/SignUpProfile.svelte"
   import SignUpSuccess from "@app/components/SignUpSuccess.svelte"
   import {pushModal} from "@app/util/modal"
-  import {APP_NAME, BURROW_URL} from "@app/core/state"
+  import {BURROW_URL} from "@app/core/state"
   import {pushToast} from "@app/util/toast"
 
   const login = () => pushModal(LogIn)
@@ -51,7 +51,7 @@
 <form class="column gap-4" onsubmit={preventDefault(usePassword)}>
   <h1 class="heading">Sign up with Nostr</h1>
   <p class="m-auto max-w-sm text-center">
-    {$APP_NAME} is built using the
+    This app is built using the
     <Button class="link" onclick={() => pushModal(InfoNostr)}>nostr protocol</Button>, which gives
     users control over their digital identity using <strong>cryptographic key pairs</strong>.
   </p>
@@ -83,9 +83,9 @@
       <Icon icon={AltArrowRight} />
     </Button>
     <p class="text-sm opacity-75">
-      Note that your email and password will only work to log in to {$APP_NAME}. To use your key
-      on other nostr applications, you can create a nostr key yourself, or export your key from {$APP_NAME}
-      later.
+      Note that your email and password will only work with this hosted login service. To use your
+      key on other nostr applications, you can create a nostr key yourself, or export your key from
+      settings later.
     </p>
     <Divider>Or</Divider>
   {/if}

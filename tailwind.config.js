@@ -1,14 +1,17 @@
 import {config} from "dotenv"
 import daisyui from "daisyui"
 import themes from "daisyui/src/theming/themes"
-import uiPreset from '@nostr-git/ui/tailwind.preset.js';
+import uiPreset from "@nostr-git/ui/tailwind.preset.js"
 
 config({path: ".env"})
 config({path: ".env.template"})
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./src/**/*.{html,js,svelte,ts}", "./node_modules/@nostr-git/ui/dist/**/*.{html,js,svelte,ts}"],
+  content: [
+    "./src/**/*.{html,js,svelte,ts}",
+    "./node_modules/@nostr-git/ui/dist/**/*.{html,js,svelte,ts}",
+  ],
   darkMode: ["selector", '[data-theme="dark"]'],
   safelist: ["bg-success", "bg-warning"],
   theme: {
@@ -34,19 +37,19 @@ export default {
       {
         dark: {
           ...themes["dark"],
-          primary: process.env.VITE_PLATFORM_ACCENT,
-          "primary-content": process.env.VITE_PLATFORM_ACCENT_CONTENT || "#EAE7FF",
-          secondary: process.env.VITE_PLATFORM_SECONDARY,
-          "secondary-content": process.env.VITE_PLATFORM_SECONDARY_CONTENT || "#EAE7FF",
+          primary: process.env.VITE_APP_ACCENT,
+          "primary-content": process.env.VITE_APP_ACCENT_CONTENT || "#EAE7FF",
+          secondary: process.env.VITE_APP_SECONDARY,
+          "secondary-content": process.env.VITE_APP_SECONDARY_CONTENT || "#EAE7FF",
         },
         light: {
           ...themes["winter"],
           neutral: "#F2F7FF",
           warning: "#FD8D0B",
-          primary: process.env.VITE_PLATFORM_ACCENT,
-          "primary-content": process.env.VITE_PLATFORM_ACCENT_CONTENT || "#EAE7FF",
-          secondary: process.env.VITE_PLATFORM_SECONDARY,
-          "secondary-content": process.env.VITE_PLATFORM_SECONDARY_CONTENT || "#EAE7FF",
+          primary: process.env.VITE_APP_ACCENT,
+          "primary-content": process.env.VITE_APP_ACCENT_CONTENT || "#EAE7FF",
+          secondary: process.env.VITE_APP_SECONDARY,
+          "secondary-content": process.env.VITE_APP_SECONDARY_CONTENT || "#EAE7FF",
         },
       },
     ],

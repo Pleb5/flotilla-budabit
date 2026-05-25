@@ -2,7 +2,6 @@
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
-  import {APP_NAME} from "@app/core/state"
 </script>
 
 <div class="column gap-4">
@@ -24,7 +23,7 @@
   <p>
     One way to log in with a remote signer is using a "bunker link" which is more secure and
     decentralized than other solutions. Check your signer for a link beginning with "bunker://",
-    copy it into {$APP_NAME}, and you should be good to go!
+    copy it here, and you should be good to go!
   </p>
   <p>
     If you don't have a signer yet, <Link external class="link" href="https://nsec.app/"

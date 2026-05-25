@@ -94,13 +94,12 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 You can also optionally create an `.env` file and populate it with the following environment variables (see `.env` for examples):
 
 - `VITE_DEFAULT_PUBKEYS` - A comma-separated list of hex pubkeys for bootstrapping web of trust
-- `VITE_PLATFORM_URL` - Fallback app URL when community profile website is unavailable
-- `VITE_PLATFORM_NAME` - Fallback app name when community profile name is unavailable
-- `VITE_PLATFORM_LOGO` - Fallback/PWA logo URL when community profile picture is unavailable at runtime
-- `VITE_DEFAULT_COMMUNITY` - Optional default community as a hex pubkey, `npub`, or `ncommunity`
+- `VITE_APP_URL` - Public app URL used for app metadata and internal link detection
+- `VITE_APP_NAME` - App name used for protocol metadata
+- `VITE_APP_LOGO` - App/PWA logo URL
+- `VITE_DEFAULT_COMMUNITY` - Optional recommended starting community as a hex pubkey, `npub`, or `ncommunity`
 - `VITE_INDEXER_RELAYS` - Optional comma-separated relay URLs used for discovery and community bootstrap
-- `VITE_PLATFORM_ACCENT` - A hex color for the app's accent color
-- `VITE_PLATFORM_DESCRIPTION` - Fallback app description when community profile about is unavailable
+- `VITE_APP_ACCENT` - A hex color for the app's accent color
 - `VITE_GIT_RELAYS` - Comma-separated Nostr relays used for Git repository discovery
 - `VITE_GIT_DEFAULT_CORS_PROXY` - Default CORS proxy for Git HTTP operations
 

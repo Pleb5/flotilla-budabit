@@ -8,7 +8,6 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ProfileEject from "@app/components/ProfileEject.svelte"
-  import {APP_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
 
   const back = () => history.back()
@@ -35,8 +34,8 @@
   </p>
   {#if $session?.email}
     <p>
-      It's very important to keep private keys safe, but this can sometimes be tricky, which is why {$APP_NAME}
-      supports a traditional account-based login for new users.
+      It's very important to keep private keys safe, but this can sometimes be tricky, which is why
+      this app supports a traditional account-based login for new users.
     </p>
     <p>If you'd like to switch to self-custody, please click below to get started.</p>
     <ModalFooter>

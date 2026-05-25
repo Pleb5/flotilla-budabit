@@ -7,6 +7,7 @@
   import {pushToast} from "@app/util/toast"
   import {normalizeRelays, parseCommunityInput} from "@app/core/community"
   import {
+    DEFAULT_COMMUNITY_INPUT,
     activeCommunityDefinition,
     activeCommunitySession,
     activePreferredCommunities,
@@ -38,6 +39,10 @@
   let previewRequestId = 0
   let previewRequestKey = ""
   let previewLookupState = $state<"idle" | "loading" | "found" | "not-found">("idle")
+  let defaultRequestId = 0
+  let defaultRequestKey = ""
+  let defaultLookupState = $state<"idle" | "loading" | "found" | "not-found">("idle")
+  let loadedDefaultRelayHints = $state<string[]>([])
   let enteringCommunityKey = $state("")
   let selectorRelayHints = $state<Record<string, string[]>>({})
   let preferredHydrationKey = ""
@@ -129,6 +134,12 @@
     if (!pubkey) return
 
     enterCommunity(makeCommunityInputValue({pubkey, relayHints}) || pubkey)
+  }
+
+  const openDefaultCommunity = () => {
+    if (!defaultOpenInput) return
+
+    enterCommunity(defaultOpenInput)
   }
 
   const loadCommunityDefinitionRelays = async (communityPubkey: string, relayHints: string[]) => {
@@ -238,6 +249,49 @@
       ? "Enter a valid npub, hex pubkey, or ncommunity."
       : "Paste a community to preview it.",
   )
+  const defaultCommunityInput = $derived(parseCommunityInput(DEFAULT_COMMUNITY_INPUT))
+  const defaultCommunityPubkey = $derived(defaultCommunityInput?.pubkey || "")
+  const defaultRelayHints = $derived.by(() => {
+    if (!defaultCommunityPubkey) return []
+
+    return normalizeRelays([
+      ...(defaultCommunityInput?.relays || []),
+      ...loadedDefaultRelayHints,
+      ...(defaultCommunityPubkey === $activeCommunitySession?.communityPubkey
+        ? currentRelayHints
+        : []),
+    ])
+  })
+  const defaultOpenInput = $derived(
+    defaultCommunityPubkey
+      ? makeCommunityInputValue({pubkey: defaultCommunityPubkey, relayHints: defaultRelayHints}) ||
+          DEFAULT_COMMUNITY_INPUT ||
+          defaultCommunityPubkey
+      : "",
+  )
+  const defaultOpening = $derived(
+    Boolean(defaultOpenInput && enteringCommunityKey === getEnteringCommunityKey(defaultOpenInput)),
+  )
+  const defaultHasCommunityDefinition = $derived(
+    Boolean(
+      defaultCommunityPubkey &&
+      ($activeCommunityDefinition?.pubkey === defaultCommunityPubkey ||
+        loadedDefaultRelayHints.length ||
+        selectorRelayHints[defaultCommunityPubkey]?.length),
+    ),
+  )
+  const defaultLoading = $derived(
+    Boolean(
+      defaultCommunityPubkey && !defaultHasCommunityDefinition && defaultLookupState === "loading",
+    ),
+  )
+  const defaultCommunityNotFound = $derived(
+    Boolean(
+      defaultCommunityPubkey &&
+      !defaultHasCommunityDefinition &&
+      defaultLookupState === "not-found",
+    ),
+  )
 
   $effect(() => {
     const key = $pubkey ? `${$pubkey}:${currentRelayHints.join(",")}` : ""
@@ -278,6 +332,42 @@
           selectorRelayLoadAttempts.delete(key)
         })
     }
+  })
+
+  $effect(() => {
+    const parsed = defaultCommunityInput
+
+    if (!parsed) {
+      defaultRequestKey = ""
+      defaultLookupState = "idle"
+      loadedDefaultRelayHints = []
+      return
+    }
+
+    const requestKey = [parsed.pubkey, ...parsed.relays].join("|")
+    if (defaultRequestKey === requestKey) return
+
+    defaultRequestKey = requestKey
+    defaultLookupState = "loading"
+    loadedDefaultRelayHints = []
+
+    const requestId = ++defaultRequestId
+
+    loadCommunityDefinitionRelays(parsed.pubkey, parsed.relays)
+      .then(relays => {
+        if (requestId !== defaultRequestId) return
+        if (relays.length === 0) {
+          defaultLookupState = "not-found"
+          return
+        }
+
+        loadedDefaultRelayHints = relays
+        selectorRelayHints = {...selectorRelayHints, [parsed.pubkey]: relays}
+        defaultLookupState = "found"
+      })
+      .catch(() => {
+        if (requestId === defaultRequestId) defaultLookupState = "not-found"
+      })
   })
 
   $effect(() => {
@@ -322,28 +412,53 @@
 
 <div class="hero min-h-screen w-full min-w-0 overflow-y-auto overflow-x-hidden pb-8">
   <div class="hero-content w-full min-w-0 p-2 sm:p-4">
-    <div class="column content-sizing min-w-0 gap-4 px-2 py-4 sm:px-8 sm:py-8 md:px-12 md:py-12">
+    <div
+      class="mx-auto flex w-full max-w-6xl flex-col gap-4 px-2 py-4 sm:px-8 sm:py-8 md:px-12 md:py-12">
       <h1 class="mb-3 text-center text-3xl font-bold leading-tight sm:mb-4 sm:text-5xl">
-        Explore BudaBit Communities
+        Explore Communities
       </h1>
-      <div class="col-3">
-        <CommunityPreviewCard
-          pubkey={previewPubkey}
-          relayHints={previewRelayHints}
-          shareRelayHints={selectorRelayHints[previewPubkey] || previewRelayHints}
-          label={previewLabel}
-          emptyInfo={previewEmptyInfo}
-          onOpen={openPreviewCommunity}
-          bind:inputValue={communityInput}
-          showInput
-          showActions={previewHasCommunityDefinition}
-          loading={previewLoading}
-          opening={previewOpening}
-          notFound={previewCommunityNotFound}
-          onSubmit={submitCommunityInput} />
+      <div
+        class="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)] lg:items-start">
+        <div class="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1">
+          <CommunityPreviewCard
+            pubkey={previewPubkey}
+            relayHints={previewRelayHints}
+            shareRelayHints={selectorRelayHints[previewPubkey] || previewRelayHints}
+            label={previewLabel}
+            emptyInfo={previewEmptyInfo}
+            onOpen={openPreviewCommunity}
+            bind:inputValue={communityInput}
+            showInput
+            showActions={previewHasCommunityDefinition}
+            loading={previewLoading}
+            opening={previewOpening}
+            notFound={previewCommunityNotFound}
+            onSubmit={submitCommunityInput} />
+
+          {#if defaultCommunityPubkey}
+            <CommunityPreviewCard
+              pubkey={defaultCommunityPubkey}
+              relayHints={defaultRelayHints}
+              shareRelayHints={selectorRelayHints[defaultCommunityPubkey] || defaultRelayHints}
+              label="Brand new? Start here:"
+              emptyInfo="Start with the recommended community."
+              onOpen={openDefaultCommunity}
+              showActions={defaultHasCommunityDefinition}
+              loading={defaultLoading}
+              opening={defaultOpening}
+              notFound={defaultCommunityNotFound} />
+          {/if}
+
+          <Button
+            onclick={createCommunity}
+            class="btn btn-neutral min-h-14 w-full items-center justify-start gap-4 rounded-box px-5 py-4 text-base sm:min-h-16 sm:px-6">
+            <Icon icon={AddCircle} size={7} />
+            <span class="min-w-0 truncate font-bold leading-none">Create Community</span>
+          </Button>
+        </div>
 
         {#if selectorCommunities.length > 0 || $communityStarsLoading || $communityPreferencesLoading}
-          <div class="card2 card2-sm bg-alt col-3 shadow-md">
+          <div class="card2 card2-sm bg-alt col-3 shadow-md lg:col-start-1 lg:row-start-1">
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
@@ -371,14 +486,6 @@
             </div>
           </div>
         {/if}
-        <Button
-          onclick={createCommunity}
-          class="btn btn-neutral h-14 w-full justify-start gap-4 px-5 sm:h-16 sm:px-6">
-          <Icon icon={AddCircle} size={7} />
-          <span class="min-w-0 truncate text-base font-bold leading-none sm:text-lg">
-            Create BudaBit Community
-          </span>
-        </Button>
       </div>
     </div>
   </div>

@@ -17,7 +17,6 @@
   import SignUpComplete from "@app/components/SignUpComplete.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
-  import {APP_NAME} from "@app/core/state"
 
   type Props = {
     profile: Profile
@@ -59,7 +58,7 @@
 
       const ncryptsec = encrypt(hexToBytes(secret), password)
       const instructions = `
-      This file contains a backup of your Nostr secret key, downloaded from ${$APP_NAME} and encrypted using
+      This file contains a backup of your Nostr secret key, encrypted using
       a password you chose when you signed up.
 
       ${sharedCopy}
@@ -76,7 +75,7 @@
     } else {
       const nsec = nsecEncode(hexToBytes(secret))
       const instructions = `
-      This file contains a backup of your Nostr secret key, downloaded from ${$APP_NAME}.
+      This file contains a backup of your Nostr secret key.
 
       ${sharedCopy}
 

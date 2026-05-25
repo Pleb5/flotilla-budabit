@@ -131,7 +131,7 @@ Add a central community live layer after community state is fully trusted on rou
 
 The live layer should:
 
-- Use `activeCommunityRelays`, not `PLATFORM_RELAYS`.
+- Use `activeCommunityRelays`, not app/indexer relays.
 - Subscribe to community-exclusive events by `#h` community pubkey for room, message, thread, comment, reaction, delete, label, and report/moderation kinds needed by the UI.
 - Subscribe to targeted publication events by `#p` community pubkey for targetable sections.
 - Open live requests and rely on Welshman's global socket listener to insert received events into `repository`, so existing page feeds can observe repository updates.

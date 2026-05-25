@@ -32,24 +32,24 @@
       const path = `${parsed.pathname}${parsed.search}${parsed.hash}` || href || "/"
 
       if (path.includes("/git/")) {
-        return {title: "Budabit Git link", description: path}
+        return {title: "Git link", description: path}
       }
 
       if (path.includes("/chat")) {
-        return {title: "Budabit chat link", description: path}
+        return {title: "Chat link", description: path}
       }
 
       if (path.includes("/threads/")) {
-        return {title: "Budabit thread link", description: path}
+        return {title: "Thread link", description: path}
       }
 
       if (!path || path === "/") {
-        return {title: "BudaBit", description: displayUrl(url)}
+        return {title: "App link", description: displayUrl(url)}
       }
 
-      return {title: "Budabit link", description: path}
+      return {title: "App link", description: path}
     } catch {
-      return {title: "Budabit link", description: href || displayUrl(url)}
+      return {title: "App link", description: href || displayUrl(url)}
     }
   })
 

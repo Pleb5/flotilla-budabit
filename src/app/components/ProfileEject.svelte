@@ -12,7 +12,7 @@
   import Field from "@lib/components/Field.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {APP_NAME, BURROW_URL} from "@app/core/state"
+  import {BURROW_URL} from "@app/core/state"
   import {pushToast} from "@app/util/toast"
   import {logout} from "@app/core/commands"
 
@@ -60,7 +60,8 @@
   <ul class="flex list-inside list-decimal flex-col gap-4">
     <li>When you're ready, enter your account password below to continue.</li>
     <li>
-      {$APP_NAME} will send an email to "{email}" with your encrypted private key in it.
+      The hosted login service will send an email to "{email}" with your encrypted private key in
+      it.
     </li>
     <li>
       Store your "ncryptsec" in a password manager like

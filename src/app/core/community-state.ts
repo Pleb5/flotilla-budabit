@@ -156,9 +156,6 @@ export const makeCommunitySession = (
 const getInitialSession = () => {
   const stored = readStoredSession()
   if (stored) return stored
-
-  const parsedDefault = parseCommunityInput(DEFAULT_COMMUNITY_INPUT)
-  return parsedDefault ? makeCommunitySession(parsedDefault) : undefined
 }
 
 export const activeCommunitySession = writable<CommunitySession | undefined>(getInitialSession())

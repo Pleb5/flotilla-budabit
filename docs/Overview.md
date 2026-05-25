@@ -46,7 +46,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - Repo announcements (NIP-34): `repoAnnouncements`, `repoAnnouncementsByAddress`, and direct repo maintainer helpers.
   - URL and relay helpers: `getUrlsForEvent`, `deriveEventsForUrl`, and community route helpers.
 - `src/app/core/community-state.ts` owns the active community session and bootstrap:
-  - `VITE_DEFAULT_COMMUNITY` seeds the initial community when no local session exists.
+  - `VITE_DEFAULT_COMMUNITY` provides the recommended starting community on `/explore`.
   - `VITE_INDEXER_RELAYS` are discovery/bootstrap relays before the community definition relays are known.
   - The active `kind:10222` definition provides community relays, sections, profile-list references, forms, moderation state, and Blossom refs.
 - Router/Context:
@@ -71,7 +71,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - `check`: `svelte-check`
 - Env vars are read via `import.meta.env.*` in `src/app/core/state.ts` and related core modules:
   - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_GIT_RELAYS`.
-  - Branding: community profile metadata first, with fallback env values `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_URL`, `VITE_PLATFORM_LOGO`, `VITE_PLATFORM_ACCENT`.
+  - App metadata: `VITE_APP_NAME`, `VITE_APP_URL`, `VITE_APP_LOGO`, `VITE_APP_ACCENT`.
   - Media: `VITE_DEFAULT_BLOSSOM_SERVERS` for fallback Blossom upload targets; community Blossom servers come from active community definitions.
   - Services: `VITE_BURROW_URL`; alert delivery services `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, and `VITE_VAPID_PUBLIC_KEY` are used only when `FEATURE_ALERTS=1`.
   - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.

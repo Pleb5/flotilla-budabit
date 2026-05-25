@@ -25,11 +25,10 @@ That is enough for a basic deployment.
 For a community-first deployment, create `.env` in the repo root with at least:
 
 ```env
-VITE_PLATFORM_URL=https://your-domain.com
-VITE_PLATFORM_NAME=Your Budabit
-VITE_PLATFORM_DESCRIPTION=Your Budabit instance
-VITE_PLATFORM_ACCENT=#0f766e
-VITE_PLATFORM_LOGO=https://your-domain.com/logo.png
+VITE_APP_URL=https://your-domain.com
+VITE_APP_NAME=Your Budabit
+VITE_APP_ACCENT=#0f766e
+VITE_APP_LOGO=https://your-domain.com/logo.png
 VITE_DEFAULT_COMMUNITY=npub1...
 VITE_INDEXER_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
 VITE_GIT_RELAYS=wss://relay.ngit.dev,wss://gitnostr.com
@@ -38,10 +37,10 @@ VITE_DEFAULT_PUBKEYS=hexpubkey1,hexpubkey2
 
 Notes:
 
-- `VITE_PLATFORM_URL` should be the final public URL of the app.
-- `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_URL`, and `VITE_PLATFORM_LOGO` are fallbacks. At runtime, the selected/default community profile name, about, website, and picture are used when available.
-- `VITE_PLATFORM_LOGO` can be a remote HTTPS URL. The build pulls it into the static bundle for PWA assets.
-- `VITE_PLATFORM_ACCENT` controls the deployment fallback accent color.
+- `VITE_APP_URL` should be the final public URL of the app.
+- `VITE_APP_NAME`, `VITE_APP_URL`, and `VITE_APP_LOGO` provide app metadata for protocol handshakes and generated PWA assets.
+- `VITE_APP_LOGO` can be a remote HTTPS URL. The build pulls it into the static bundle for PWA assets.
+- `VITE_APP_ACCENT` controls the deployment accent color.
 - `VITE_DEFAULT_PUBKEYS` is worth setting even if `.env.example` makes it look optional.
 - `VITE_DEFAULT_COMMUNITY` should be a community hex pubkey, `npub`, or `ncommunity` value. `ncommunity` relay hints are used first.
 - `VITE_INDEXER_RELAYS` should include relays that can resolve the default community profile and `kind:10222` definition before the app knows that community's own relays.
@@ -59,7 +58,7 @@ Community-specific Blossom servers should live in the community `kind:10222` def
 
 Self-hosting Budabit does not create a community by itself. Before setting `VITE_DEFAULT_COMMUNITY`, make sure the community pubkey has public Nostr state that Budabit can resolve:
 
-- A `kind:0` profile with name, about, website, and picture if you want runtime branding to override the fallback env values
+- A `kind:0` profile with name, about, website, and picture for the recommended community card and community pages
 - A latest `kind:10222` Communikey definition authored by the community pubkey
 - `r` relay tags in the definition for community reads and writes
 - `content`, `k`, and `a` tags for the sections you want to expose and their `kind:30000` profile-list write permissions

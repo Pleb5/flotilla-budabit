@@ -22,7 +22,6 @@
   import ProfileDelete from "@app/components/ProfileDelete.svelte"
   import SignerStatus from "@app/components/SignerStatus.svelte"
   import InfoKeys from "@app/components/InfoKeys.svelte"
-  import {APP_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
   import GraspServersPanel from "@app/components/GraspServersPanel.svelte"
@@ -85,7 +84,7 @@
         {/snippet}
         {#snippet info()}
           <p>
-            Your email and password can only be used to log into {$APP_NAME}.
+            Your email and password can only be used with this hosted login service.
             <Button class="link" onclick={startEject}>Start holding your own keys</Button>
           </p>
         {/snippet}

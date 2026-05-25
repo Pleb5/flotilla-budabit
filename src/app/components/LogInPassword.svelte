@@ -19,13 +19,7 @@
   import {clearModals, pushModal} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
-  import {
-    APP_LOGO,
-    APP_NAME,
-    APP_URL,
-    NIP46_PERMS,
-    BURROW_URL,
-  } from "@app/core/state"
+  import {APP_LOGO, APP_NAME, APP_URL, NIP46_PERMS, BURROW_URL} from "@app/core/state"
 
   interface Props {
     email?: string
@@ -139,7 +133,7 @@
     {/snippet}
   </FieldInline>
   <p class="text-sm">
-    Your email and password only work to log in to {$APP_NAME}. To use your key on other nostr
+    Your email and password only work with this hosted login service. To use your key on other nostr
     applications, visit your settings page. <Button class="link" onclick={startReset}
       >Forgot your password?</Button>
   </p>

@@ -6,5 +6,5 @@ dotenv.config({path: ".env.template"})
 
 export default defineConfig({
   preset,
-  images: [process.env.VITE_PLATFORM_LOGO],
+  images: [process.env.VITE_APP_LOGO],
 })

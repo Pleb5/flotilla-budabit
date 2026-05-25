@@ -20,7 +20,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {pushToast} from "@app/util/toast"
   import {logout} from "@app/core/commands"
-  import {APP_NAME, INDEXER_RELAYS} from "@app/core/state"
+  import {INDEXER_RELAYS} from "@app/core/state"
 
   let progress: number | undefined = $state(undefined)
   let confirmText = $state("")
@@ -114,14 +114,12 @@
   </ModalHeader>
   {#if showProgress}
     <p>
-      We are currently sending deletion requests to your configured relays. Please
-      wait while we complete this process. Once we're done, you'll be automatically logged out.
+      We are currently sending deletion requests to your configured relays. Please wait while we
+      complete this process. Once we're done, you'll be automatically logged out.
     </p>
     <progress class="progress progress-primary w-full" value={progress! * 100} max="100"></progress>
   {:else}
-    <p>
-      This will delete your nostr account everywhere, not just on {$APP_NAME}.
-    </p>
+    <p>This will delete your nostr account everywhere, not just in this app.</p>
     <p>
       To confirm, please type "{CONFIRM_TEXT}" into the text box below. This action can't be undone.
     </p>

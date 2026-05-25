@@ -9,7 +9,7 @@
   import Link from "@lib/components/Link.svelte"
   import ProfileMultiSelect from "@app/components/ProfileMultiSelect.svelte"
   import {pushToast} from "@app/util/toast"
-  import {APP_NAME, userSettingsValues} from "@app/core/state"
+  import {userSettingsValues} from "@app/core/state"
   import {publishSettings} from "@app/core/commands"
   import {clearBadges} from "@app/util/notifications"
 
@@ -53,9 +53,7 @@
           bind:checked={settings.hide_sensitive} />
       {/snippet}
       {#snippet info()}
-        <p>
-          If content is marked by the author as sensitive, {$APP_NAME} will hide it by default.
-        </p>
+        <p>If content is marked by the author as sensitive, hide it by default.</p>
       {/snippet}
     </FieldInline>
     <FieldInline>
@@ -127,7 +125,7 @@
             bind:checked={settings.play_notification_sound} />
         {/snippet}
         {#snippet info()}
-          <p>Play a sound for new in-app notifications while {$APP_NAME} is in the background.</p>
+          <p>Play a sound for new in-app notifications while the app is in the background.</p>
         {/snippet}
       </FieldInline>
     {/if}

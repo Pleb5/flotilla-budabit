@@ -1,16 +1,7 @@
 import twColors from "tailwindcss/colors"
 import {get, derived, readable, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
-import {
-  on,
-  call,
-  uniq,
-  shuffle,
-  parseJson,
-  identity,
-  always,
-  tryCatch,
-} from "@welshman/lib"
+import {on, call, uniq, shuffle, parseJson, identity, always, tryCatch} from "@welshman/lib"
 import {
   Pool,
   load,
@@ -75,7 +66,6 @@ import {
   makeUserData,
   userFollowList,
 } from "@welshman/app"
-import {activeCommunityProfile} from "@app/core/community-state"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -99,34 +89,24 @@ export const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
 export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)
 
-export const PLATFORM_RELAYS = INDEXER_RELAYS
+export const APP_RELAYS = INDEXER_RELAYS
 
 export const SIGNER_RELAYS = fromCsv(import.meta.env.VITE_SIGNER_RELAYS)
 
-export const PLATFORM_URL = import.meta.env.VITE_PLATFORM_URL || ""
+export const APP_BASE_URL = import.meta.env.VITE_APP_URL || ""
 
-export const PLATFORM_TERMS = import.meta.env.VITE_PLATFORM_TERMS
+export const APP_DEFAULT_LOGO =
+  import.meta.env.VITE_APP_LOGO || (APP_BASE_URL ? `${APP_BASE_URL}/logo.png` : "")
 
-export const PLATFORM_PRIVACY = import.meta.env.VITE_PLATFORM_PRIVACY
+export const APP_DEFAULT_NAME = import.meta.env.VITE_APP_NAME || "Budabit"
 
-export const PLATFORM_LOGO = import.meta.env.VITE_PLATFORM_LOGO || (PLATFORM_URL ? `${PLATFORM_URL}/logo.png` : "")
-
-export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME || "Budabit"
-
-export const PLATFORM_ACCENT = import.meta.env.VITE_PLATFORM_ACCENT
-
-export const PLATFORM_DESCRIPTION = import.meta.env.VITE_PLATFORM_DESCRIPTION
-
-export const APP_METADATA = derived(activeCommunityProfile, profile => ({
-  name: profile?.display_name || profile?.name || PLATFORM_NAME,
-  description: profile?.about || PLATFORM_DESCRIPTION || "",
-  url: profile?.website || PLATFORM_URL || "",
-  logo: profile?.picture || PLATFORM_LOGO || "",
-}))
+export const APP_METADATA = readable({
+  name: APP_DEFAULT_NAME,
+  url: APP_BASE_URL,
+  logo: APP_DEFAULT_LOGO || "",
+})
 
 export const APP_NAME = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.name)
-
-export const APP_DESCRIPTION = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.description)
 
 export const APP_URL = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.url)
 
