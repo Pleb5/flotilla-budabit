@@ -6,6 +6,7 @@
     "dev": "vite dev",
     "dev:app": "vite dev",
     "dev:full": "node dev-full.mjs",
+    "screenshots:landing": "node scripts/capture-landing-screenshots.mjs",
     "build": "./build.sh",
     "build-in-production": "./build-in-production.sh",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json",
