@@ -122,7 +122,14 @@
   import Code from "@assets/icons/code.svg?dataurl"
   import {makeGitPath} from "@app/util/routes"
   import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
-  import {gitSelectedTab, type GitTab} from "@app/util/git-tabs"
+  import {
+    getInitialGitMode,
+    getInitialGitTab,
+    gitSelectedMode,
+    gitSelectedTab,
+    type GitMode,
+    type GitTab,
+  } from "@app/util/git-tabs"
   import {
     buildBookmarkRepoFilters,
     buildBookmarkRepoLoadKey,
@@ -333,11 +340,9 @@
     matchedRepos: 0,
   })
 
-  type GitMode = "community" | "personal"
-
   let loading = $state(true)
-  let activeMode = $state<GitMode>("community")
-  let activeTab = $state<GitTab>("my-repos")
+  let activeMode = $state<GitMode>(getInitialGitMode())
+  let activeTab = $state<GitTab>(getInitialGitTab())
   let selectedCommunityPubkey = $state("")
   let gitTabHydrated = $state(false)
   let searchQuery = $state("")
@@ -373,10 +378,6 @@
   })
 
   onMount(() => {
-    const savedTab = getStore(gitSelectedTab)
-    if (savedTab && savedTab !== activeTab) {
-      activeTab = savedTab
-    }
     gitTabHydrated = true
 
     try {
@@ -391,6 +392,9 @@
 
   $effect(() => {
     if (!gitTabHydrated) return
+    if ($gitSelectedMode !== activeMode) {
+      gitSelectedMode.set(activeMode)
+    }
     if ($gitSelectedTab !== activeTab) {
       gitSelectedTab.set(activeTab)
     }

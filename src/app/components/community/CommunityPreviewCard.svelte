@@ -88,55 +88,58 @@
 </script>
 
 {#snippet preview()}
-  <div class="flex items-stretch gap-2">
+  <div class="flex w-full min-w-0 items-stretch gap-2">
     <button
       type="button"
-      class="group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-base-300 disabled:cursor-not-allowed disabled:opacity-60 sm:gap-4 sm:p-2"
+      class="group flex min-w-0 flex-1 flex-col items-stretch gap-1 rounded-xl p-1 text-left transition-colors hover:bg-base-300 disabled:cursor-not-allowed disabled:opacity-60 sm:p-2"
       class:bg-base-300={opening}
       aria-busy={loading || opening}
       disabled={!pubkey || loading || opening || notFound}
       onclick={onOpen}>
-      <div
-        class="center !flex h-12 w-12 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300 sm:h-16 sm:w-16">
-        {#if pubkey && !notFound && $profile?.picture}
-          <img alt="" src={$profile.picture} class="h-full w-full object-cover" />
-        {:else}
-          <Icon icon={Ghost} size={7} />
+      <div class="flex min-w-0 items-center gap-2 sm:gap-4">
+        <div
+          class="center !flex h-10 w-10 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300 sm:h-16 sm:w-16">
+          {#if pubkey && !notFound && $profile?.picture}
+            <img alt="" src={$profile.picture} class="h-full w-full object-cover" />
+          {:else}
+            <Icon icon={Ghost} size={7} />
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <p
+            class="truncate text-[0.7rem] font-semibold uppercase tracking-wide opacity-60 sm:text-xs">
+            {label}
+          </p>
+          <h2 class="truncate text-lg font-bold leading-snug sm:text-xl">{name}</h2>
+        </div>
+        {#if loading || opening}
+          <span class="loading loading-spinner loading-sm hidden shrink-0 opacity-60 sm:block"
+          ></span>
+        {:else if !notFound}
+          <div
+            class="hidden shrink-0 text-3xl opacity-50 transition-transform group-hover:translate-x-1 sm:block">
+            &gt;
+          </div>
         {/if}
       </div>
-      <div class="min-w-0 flex-1">
-        <p
-          class="truncate text-[0.7rem] font-semibold uppercase tracking-wide opacity-60 sm:text-xs">
-          {label}
-        </p>
-        <h2 class="truncate text-lg font-bold leading-snug sm:text-xl">{name}</h2>
-        <p class="truncate text-xs opacity-70 sm:text-sm">{info}</p>
-      </div>
-      {#if loading || opening}
-        <span class="loading loading-spinner loading-sm hidden opacity-60 sm:block"></span>
-      {:else if !notFound}
-        <div
-          class="hidden text-3xl opacity-50 transition-transform group-hover:translate-x-1 sm:block">
-          &gt;
-        </div>
-      {/if}
+      <p class="truncate text-xs opacity-70 sm:text-sm">{info}</p>
     </button>
     {#if pubkey && showActions}
       <CommunityShareButton
         communityPubkey={pubkey}
         relayHints={shareRelays}
-        class="btn btn-square self-center" />
+        class="btn btn-square btn-sm shrink-0 self-center" />
       <CommunityStarButton
         communityPubkey={pubkey}
         relayHints={profileRelays}
-        class="btn btn-square self-center" />
+        class="btn btn-square btn-sm shrink-0 self-center" />
     {/if}
   </div>
 {/snippet}
 
 {#if showInput}
   <form
-    class="card2 bg-alt flex w-full flex-col gap-3 !p-3 shadow-md sm:!p-4"
+    class="card2 bg-alt flex w-full min-w-0 flex-col gap-3 !p-3 shadow-md sm:!p-4"
     onsubmit={preventDefault(submit)}>
     <Field>
       {#snippet label()}
@@ -155,7 +158,7 @@
     {@render preview()}
   </form>
 {:else}
-  <div class="card2 bg-alt flex w-full items-stretch gap-2 p-2 shadow-md">
+  <div class="card2 bg-alt flex w-full min-w-0 items-stretch gap-2 p-2 shadow-md">
     {@render preview()}
   </div>
 {/if}
