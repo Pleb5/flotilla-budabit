@@ -52,6 +52,30 @@ describe('ensureRepoFromEvent deepening path (strict)', () => {
     expect((args.ref as string).length).toBeGreaterThan(7);
   });
 
+  it('when deepening fetch fails, tries later clone URLs', async () => {
+    const badUrl = 'https://bad.example.com/owner/repo.git';
+    const goodUrl = 'https://example.com/owner/repo.git';
+    const resolveRef = vi.fn(async (arg: any) => {
+      if (arg.ref === 'HEAD') return 'ref: refs/heads/main';
+      return '0123456789abcdef0123456789abcdef01234567';
+    });
+    const listRefs = vi.fn(async () => [{ ref: 'refs/heads/main' }]);
+    const fetch = vi.fn(async (args: any) => {
+      if (args.url === badUrl) throw new Error('bad remote');
+    });
+
+    __setGit({ resolveRef, listRefs, fetch });
+
+    await ensureRepoFromEvent(
+      { repoEvent: { ...makeRepoEvent(), clone: [badUrl, goodUrl] }, branch: 'main' },
+      5
+    );
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.map(call => call[0].url)).toEqual([badUrl, goodUrl]);
+    expect(fetch.mock.calls[1][0].depth).toBe(5);
+  });
+
   it('deepening fetch failure is wrapped and swallowed (function resolves)', async () => {
     const resolveRef = vi.fn(async (arg: any) => {
       if (arg.ref === 'HEAD') return 'ref: refs/heads/main';

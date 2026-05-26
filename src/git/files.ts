@@ -1,11 +1,18 @@
 import {getGitProvider} from "../api/git-provider.js"
-import {ensureRepo, ensureRepoFromEvent, rootDir, resolveBranchToOid} from "./git.js"
+import {
+  ensureRepo,
+  ensureRepoFromEvent,
+  getUsableCloneUrls,
+  rootDir,
+  resolveBranchToOid,
+} from "./git.js"
 import {parseRepoId} from "../utils/repo-id.js"
 import {parseRepoAnnouncementEvent} from "../events/index.js"
 import type {RepoAnnouncementEvent} from "../events/index.js"
 import {Buffer} from "buffer"
 import {assertRepoAnnouncementEvent} from "../events/nip34/validation.js"
 import {createInvalidInputError, wrapError, type GitErrorContext} from "../errors/index.js"
+import {withUrlFallback} from "../utils/clone-url-fallback.js"
 
 declare global {
   // Extend globalThis to include Buffer
@@ -92,27 +99,27 @@ export async function listRepoFilesFromEvent(opts: {
         } catch (deepenError: any) {
           // As a next attempt, fetch tags and recent history from remote (commit may be reachable via tag only)
           try {
-            const selectCloneUrl = () => {
-              let url = event.clone?.find((u: string) => u.startsWith("https://"))
-              if (!url && event.clone?.length) {
-                const ssh = event.clone.find((u: string) => u.startsWith("git@"))
-                if (ssh) {
-                  const m = ssh.match(/^git@([^:]+):(.+?)(\.git)?$/)
-                  if (m) url = `https://${m[1]}/${m[2]}.git`
-                }
-              }
-              return url
-            }
-            const url = selectCloneUrl()
-            if (url) {
+            const fetchUrls = getUsableCloneUrls(event)
+            if (fetchUrls.length > 0) {
               // Fetch tags and a bit more history to try to obtain the commit
-              await git.fetch({
-                dir,
-                url,
-                singleBranch: false,
-                depth: 200,
-                tags: true,
-              })
+              const fetchResult = await withUrlFallback(
+                fetchUrls,
+                async (url: string) => {
+                  await git.fetch({
+                    dir,
+                    url,
+                    singleBranch: false,
+                    depth: 200,
+                    tags: true,
+                  })
+                  return {url}
+                },
+                {repoId: opts.repoKey || parseRepoId(event.repoId), perUrlTimeoutMs: 15000},
+              )
+              if (!fetchResult.success) {
+                const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
+                throw new Error(lastAttempt?.error || "Fetch failed for all clone URLs")
+              }
               // Retry reading commit after tag fetch
               await git.readCommit({dir, oid})
             } else {
@@ -239,43 +246,41 @@ export async function listRepoFilesFromEvent(opts: {
     } catch (retry1: any) {
       try {
         // Second recovery path: fetch tags and more history, then retry again
-        const selectCloneUrl = () => {
-          let url = event.clone?.find((u: string) => u.startsWith("https://"))
-          if (!url && event.clone?.length) {
-            const ssh = event.clone.find((u: string) => u.startsWith("git@"))
-            if (ssh) {
-              const m = ssh.match(/^git@([^:]+):(.+?)(\.git)?$/)
-              if (m) url = `https://${m[1]}/${m[2]}.git`
-            }
-          }
-          return url
-        }
-        const url = selectCloneUrl()
-        if (url) {
+        const fetchUrls = getUsableCloneUrls(event)
+        if (fetchUrls.length > 0) {
           // Prefer fetching the exact branch with full history to ensure the root tree exists
-          try {
-            await git.fetch({dir, url, singleBranch: true, depth: 0, ref: branch, tags: true})
-          } catch (fetchErr) {
-            // Fallback to a limited-depth, multi-branch fetch if full fetch fails
-            try {
-              await git.fetch({dir, url, singleBranch: false, depth: 500, tags: true})
-            } catch (fetchTagsError) {
-              // Final diagnostic: list some commits for error context
+          const fetchResult = await withUrlFallback(
+            fetchUrls,
+            async (url: string) => {
               try {
-                const commits = await git.log({dir, depth: 10})
-                const availableCommits = commits.map((c: any) => c.oid.substring(0, 8)).join(", ")
-                throw createInvalidInputError(
-                  `Commit ${opts.commit} not found in repository. Available recent commits: ${availableCommits}`,
-                  treeContext,
-                  fetchTagsError instanceof Error ? fetchTagsError : undefined,
-                )
-              } catch (logError) {
-                throw createInvalidInputError(
-                  `Commit ${opts.commit} not found in repository. Unable to list available commits.`,
-                  treeContext,
-                  logError instanceof Error ? logError : undefined,
-                )
+                await git.fetch({dir, url, singleBranch: true, depth: 0, ref: branch, tags: true})
+              } catch (fetchErr) {
+                // Fallback to a limited-depth, multi-branch fetch if full fetch fails
+                await git.fetch({dir, url, singleBranch: false, depth: 500, tags: true})
               }
+              return {url}
+            },
+            {repoId: opts.repoKey || parseRepoId(event.repoId), perUrlTimeoutMs: 15000},
+          )
+          if (!fetchResult.success) {
+            const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
+            const fetchTagsError = new Error(lastAttempt?.error || "Fetch failed for all clone URLs")
+
+            // Final diagnostic: list some commits for error context
+            try {
+              const commits = await git.log({dir, depth: 10})
+              const availableCommits = commits.map((c: any) => c.oid.substring(0, 8)).join(", ")
+              throw createInvalidInputError(
+                `Commit ${opts.commit} not found in repository. Available recent commits: ${availableCommits}`,
+                treeContext,
+                fetchTagsError,
+              )
+            } catch (logError) {
+              throw createInvalidInputError(
+                `Commit ${opts.commit} not found in repository. Unable to list available commits.`,
+                treeContext,
+                logError instanceof Error ? logError : undefined,
+              )
             }
           }
         }

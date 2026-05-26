@@ -14,6 +14,7 @@ import {
 } from "../errors/index.js"
 import {buildAdvertisedBranchCandidates, discoverAdvertisedRefs} from "../utils/advertised-refs.js"
 import {buildBranchRefCandidates, normalizeBranchName} from "../utils/branch-refs.js"
+import {filterValidCloneUrls, withUrlFallback} from "../utils/clone-url-fallback.js"
 
 // Only set Buffer on window if we're in a browser context (not in a worker)
 if (typeof window !== "undefined" && typeof window.Buffer === "undefined") {
@@ -29,6 +30,27 @@ const DEPTH_CACHE_TTL_MS = 60_000 // 60 seconds
 /** Clear the repo depth cache - exported for testing */
 export function clearRepoDepthCache(): void {
   repoDepthCache.clear()
+}
+
+export function getUsableCloneUrls(repoEvent: Pick<RepoAnnouncement, "clone">): string[] {
+  const urls: string[] = []
+
+  for (const rawUrl of repoEvent.clone || []) {
+    const url = String(rawUrl || "").trim()
+    if (!url) continue
+
+    if (url.startsWith("git@")) {
+      const httpsUrl = sshToHttps(url)
+      if (httpsUrl) urls.push(httpsUrl)
+      continue
+    }
+
+    if (/^https?:\/\//.test(url)) {
+      urls.push(url)
+    }
+  }
+
+  return Array.from(new Set(filterValidCloneUrls(urls)))
 }
 
 /**
@@ -297,24 +319,9 @@ export async function ensureRepoFromEvent(
   depth: number = 1,
 ) {
   const git = getGitProvider()
-  const dir = `${rootDir}/${opts.repoKey || parseRepoId(opts.repoEvent.repoId)}`
-
-  // Collect all HTTPS clone URLs to try
-  const cloneUrls: string[] = []
-
-  // Add all HTTPS URLs
-  if (opts.repoEvent.clone?.length) {
-    for (const url of opts.repoEvent.clone) {
-      if (url.startsWith("https://")) {
-        cloneUrls.push(url)
-      } else if (url.startsWith("git@")) {
-        const httpsUrl = sshToHttps(url)
-        if (httpsUrl) {
-          cloneUrls.push(httpsUrl)
-        }
-      }
-    }
-  }
+  const repoKey = opts.repoKey || parseRepoId(opts.repoEvent.repoId)
+  const dir = `${rootDir}/${repoKey}`
+  const cloneUrls = getUsableCloneUrls(opts.repoEvent)
 
   if (cloneUrls.length === 0) {
     throw createInvalidInputError("No supported clone URL found in repo announcement", {
@@ -325,7 +332,7 @@ export async function ensureRepoFromEvent(
     })
   }
 
-  // Use the first URL for initial clone attempt
+  // Use the first URL for context; clone/fetch operations try the full list below.
   let cloneUrl = cloneUrls[0]
 
   const isCloned = await isRepoCloned(dir)
@@ -340,30 +347,33 @@ export async function ensureRepoFromEvent(
     repoDir: dir,
   }
 
-  if (!targetBranch) {
-    if (isCloned) {
-      // If repo exists, detect the actual default branch
-      try {
-        targetBranch = await detectDefaultBranch(opts.repoEvent, opts.repoKey)
-      } catch (error) {
-        console.warn(
-          "Failed to detect default branch, will use robust resolution after clone:",
-          error,
-        )
-        targetBranch = "main" // Temporary, will be resolved robustly after clone
-      }
-    } else {
-      try {
-        const advertised = await discoverAdvertisedRefs(git, {url: cloneUrl})
-        targetBranch =
-          buildAdvertisedBranchCandidates({
-            headBranch: advertised.headBranch,
-            branches: advertised.branches,
-          })[0] || "main"
-      } catch (error) {
-        console.warn("Failed to inspect remote refs before clone, falling back to main:", error)
-        targetBranch = "main"
-      }
+  if (!targetBranch && isCloned) {
+    // If repo exists, detect the actual default branch
+    try {
+      targetBranch = await detectDefaultBranch(opts.repoEvent, opts.repoKey)
+    } catch (error) {
+      console.warn(
+        "Failed to detect default branch, will use robust resolution after clone:",
+        error,
+      )
+      targetBranch = "main" // Temporary, will be resolved robustly after clone
+    }
+  }
+
+  const resolveCloneBranch = async (url: string): Promise<string> => {
+    if (targetBranch) return targetBranch
+
+    try {
+      const advertised = await discoverAdvertisedRefs(git, {url})
+      return (
+        buildAdvertisedBranchCandidates({
+          headBranch: advertised.headBranch,
+          branches: advertised.branches,
+        })[0] || "main"
+      )
+    } catch (error) {
+      console.warn("Failed to inspect remote refs before clone, falling back to main:", error)
+      return "main"
     }
   }
 
@@ -372,43 +382,82 @@ export async function ensureRepoFromEvent(
   }
 
   if (!isCloned) {
-    console.log(`Cloning ${cloneUrl} to ${dir} (depth: ${depth})`)
+    const cloneResult = await withUrlFallback(
+      cloneUrls,
+      async (url: string) => {
+        const refForClone = await resolveCloneBranch(url)
+        const cloneContext = {...baseContext, remote: url, ref: refForClone}
 
-    // Create a timeout promise to prevent infinite stalling
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(createTimeoutError(baseContext)), 60000)
-    })
+        console.log(`Cloning ${url} to ${dir} (depth: ${depth})`)
 
-    // Clone the best-known branch explicitly.
-    // This avoids remote HEAD lookups for headless servers while keeping checkout deferred.
-    // Use noCheckout: true to avoid "commit not available locally" errors during shallow clones
-    // We'll manually set up refs afterward
-    // Use singleBranch: true for shallow clones - non-GitHub servers (Forgejo, Gitea)
-    // don't properly handle singleBranch: false with shallow depth during pack negotiation
-    const clonePromise = git.clone({
-      dir,
-      url: cloneUrl,
-      ...(targetBranch ? {ref: targetBranch} : {}),
-      singleBranch: true, // Critical: use single branch for shallow clone compatibility
-      depth,
-      noCheckout: true, // Avoid checkout errors when commit not in shallow fetch
-      noTags: true,
-      // Optimize for speed over completeness
-      since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Only last 30 days
-      onProgress: (progress: any) => {
-        // Only log major progress milestones to reduce overhead
-        if (progress.phase === "Receiving objects" || progress.phase === "Resolving deltas") {
-          console.log(
-            `${progress.phase}: ${progress.loaded}/${progress.total} (${Math.round((progress.loaded / progress.total) * 100)}%)`,
-          )
+        // Create a timeout promise to prevent infinite stalling
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(createTimeoutError(cloneContext)), 60000)
+        })
+
+        // Clone the best-known branch explicitly.
+        // This avoids remote HEAD lookups for headless servers while keeping checkout deferred.
+        // Use noCheckout: true to avoid "commit not available locally" errors during shallow clones
+        // We'll manually set up refs afterward
+        // Use singleBranch: true for shallow clones - non-GitHub servers (Forgejo, Gitea)
+        // don't properly handle singleBranch: false with shallow depth during pack negotiation
+        const clonePromise = git.clone({
+          dir,
+          url,
+          ref: refForClone,
+          singleBranch: true, // Critical: use single branch for shallow clone compatibility
+          depth,
+          noCheckout: true, // Avoid checkout errors when commit not in shallow fetch
+          noTags: true,
+          // Optimize for speed over completeness
+          since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Only last 30 days
+          onProgress: (progress: any) => {
+            // Only log major progress milestones to reduce overhead
+            if (progress.phase === "Receiving objects" || progress.phase === "Resolving deltas") {
+              console.log(
+                `${progress.phase}: ${progress.loaded}/${progress.total} (${Math.round((progress.loaded / progress.total) * 100)}%)`,
+              )
+            }
+          },
+          onMessage: (message: any) => console.log("Git message:", message),
+        })
+
+        try {
+          await Promise.race([clonePromise, timeoutPromise])
+          return {url, branch: refForClone}
+        } catch (error) {
+          console.error(`Clone failed for ${url}:`, error)
+          // Clean up partial clone on failure
+          try {
+            await git.deleteRef({dir, ref: "HEAD"})
+          } catch (cleanupError) {
+            // Ignore cleanup errors
+          }
+          throw error
         }
       },
-      onMessage: (message: any) => console.log("Git message:", message),
-    })
+      {repoId: repoKey, perUrlTimeoutMs: 0},
+    )
 
-    // Race between clone and timeout
+    if (!cloneResult.success) {
+      const lastAttempt = cloneResult.attempts[cloneResult.attempts.length - 1]
+      const error = new Error(
+        `Clone failed for all ${cloneResult.attempts.length} URL(s): ${lastAttempt?.error || "Unknown error"}`,
+      )
+      throw wrapError(error, {
+        ...baseContext,
+        remote: lastAttempt?.url || cloneUrl,
+      })
+    }
+
+    cloneUrl = cloneResult.usedUrl || cloneUrl
+    targetBranch = cloneResult.result?.branch || targetBranch
+    baseContext.remote = cloneUrl
+    if (targetBranch) {
+      baseContext.ref = targetBranch
+    }
+
     try {
-      await Promise.race([clonePromise, timeoutPromise])
       console.log(`Successfully cloned ${cloneUrl}`)
 
       // After successful clone, detect the actual default branch
@@ -633,21 +682,31 @@ export async function ensureRepoFromEvent(
       // Use robust branch resolution instead of hardcoded fallback
       const resolvedBranch = await resolveBranchToOid(git, dir, targetBranch)
 
-      try {
-        await git.fetch({
-          dir,
-          url: cloneUrl,
-          ref: resolvedBranch,
-          depth,
-          singleBranch: true,
-        })
+      const fetchResult = await withUrlFallback(
+        cloneUrls,
+        async (url: string) => {
+          await git.fetch({
+            dir,
+            url,
+            ref: resolvedBranch,
+            depth,
+            singleBranch: true,
+          })
+          return {url}
+        },
+        {repoId: repoKey, perUrlTimeoutMs: 15000},
+      )
+
+      if (fetchResult.success) {
         console.log(
-          `Successfully deepened repository using resolved branch '${resolvedBranch}' to depth ${depth}`,
+          `Successfully deepened repository using ${fetchResult.usedUrl} for resolved branch '${resolvedBranch}' to depth ${depth}`,
         )
 
         // Update the depth cache
         repoDepthCache.set(cacheKey, {depth, timestamp: now})
-      } catch (fetchError: any) {
+      } else {
+        const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
+        const fetchError = new Error(lastAttempt?.error || "Fetch failed for all clone URLs")
         console.log(
           `Failed to fetch resolved branch '${resolvedBranch}':`,
           fetchError.message || String(fetchError),
@@ -655,6 +714,7 @@ export async function ensureRepoFromEvent(
         throw wrapError(fetchError, {
           ...baseContext,
           operation: "ensureRepoFromEvent/deepen",
+          remote: lastAttempt?.url || cloneUrl,
           ref: resolvedBranch,
         })
       }

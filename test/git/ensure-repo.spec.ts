@@ -119,6 +119,49 @@ describe.sequential(
       await expect(isRepoCloned(localDir)).resolves.toBe(true)
     })
 
+    it("ensureRepoFromEvent falls back to later clone URLs and discovers their default branch", async () => {
+      const remoteFs = createTestFs("ensure-remote-fallback")
+      const remote = new VirtualGitRemote({
+        fs: remoteFs as any,
+        dir: "/remote",
+        defaultBranch: "master",
+        author: {name: "Remote", email: "remote@example.com"},
+      })
+      await remote.seed({"README.md": "hello fallback\n"}, "init")
+
+      const registry = createRemoteRegistry()
+      const badUrl = "https://bad.example.com/owner/repo.git"
+      const goodUrl = "https://example.com/owner/repo.git"
+      registry.register(goodUrl, remote)
+
+      const fs = createTestFs("ensure-local-fallback")
+      const git = createTestGitProvider({fs: fs as any, remoteRegistry: registry})
+      setGitProvider(git as any)
+
+      const cloneSpy = vi.spyOn(git as any, "clone")
+
+      const repoEvent: any = {
+        repoId: "fallback-repo",
+        clone: [badUrl, goodUrl],
+      }
+
+      await ensureRepoFromEvent(
+        {
+          repoEvent,
+          repoKey: "owner/repo",
+        },
+        1,
+      )
+
+      const cloneUrls = cloneSpy.mock.calls.map(call => call[0]?.url)
+      expect(cloneUrls).toEqual([badUrl, goodUrl])
+      const successfulCloneArgs = cloneSpy.mock.calls[1]?.[0] as any
+      expect(successfulCloneArgs.ref).toBe("master")
+
+      const localDir = `${rootDir}/owner/repo`
+      await expect(isRepoCloned(localDir)).resolves.toBe(true)
+    })
+
     it("detectDefaultBranch and getDefaultBranch return HEAD symbolic default branch and cache it", async () => {
       const fs = createTestFs("ensure-default-branch")
       const registry = createRemoteRegistry()
