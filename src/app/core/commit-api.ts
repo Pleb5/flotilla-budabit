@@ -6,6 +6,24 @@
 import {getGitServiceApi, parseRepoUrl} from "@nostr-git/core"
 import {filterValidCloneUrls, reorderUrlsByPreference, hasRestApiSupport} from "@nostr-git/core"
 
+function getRestApiBaseUrl(provider: string, host?: string): string | undefined {
+  const hostname = String(host || "").trim().toLowerCase()
+  if (!hostname) return undefined
+
+  switch (provider) {
+    case "github":
+      return hostname === "github.com" ? undefined : `https://${hostname}/api/v3`
+    case "gitlab":
+      return `https://${hostname}/api/v4`
+    case "gitea":
+      return `https://${hostname}/api/v1`
+    case "bitbucket":
+      return hostname === "bitbucket.org" ? undefined : `https://${hostname}/api/2.0`
+    default:
+      return undefined
+  }
+}
+
 export interface CommitMeta {
   sha: string
   author: string
@@ -68,11 +86,11 @@ export async function getCommitDetailsViaRestApi(
         continue
       }
 
-      const {owner, repo, provider} = parsed
+      const {owner, repo, provider, host} = parsed
       console.log(`[commit-api] Parsed: owner=${owner}, repo=${repo}, provider=${provider}`)
 
       // Use empty token for public repo access
-      const api = getGitServiceApi(provider, "")
+      const api = getGitServiceApi(provider, "", getRestApiBaseUrl(provider, host))
       const commitData = await api.getCommit(owner, repo, commitId)
 
       console.log(`[commit-api] REST API success for commit ${commitId}`)

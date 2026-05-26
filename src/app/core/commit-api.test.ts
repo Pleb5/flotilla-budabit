@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
 
 vi.mock("@nostr-git/core", () => ({
   getGitServiceApi: vi.fn(),
@@ -6,11 +6,15 @@ vi.mock("@nostr-git/core", () => ({
   filterValidCloneUrls: vi.fn((urls: string[]) => urls),
   reorderUrlsByPreference: vi.fn((urls: string[], _repoId?: string) => urls),
   hasRestApiSupport: vi.fn(
-    (url: string) => url.includes("github.com") || url.includes("gitlab.com"),
+    (url: string) => url.includes("github.com") || url.includes("gitlab."),
   ),
 }))
 
 describe("commit-api", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it("returns null when no clone URLs provided", async () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {})
 
@@ -31,6 +35,7 @@ describe("commit-api", () => {
     vi.mocked(parseRepoUrl).mockReturnValue({
       owner: "user",
       repo: "repo",
+      host: "github.com",
       provider: "github",
     } as any)
     vi.mocked(getGitServiceApi).mockReturnValue({
@@ -57,6 +62,42 @@ describe("commit-api", () => {
       changes: [],
       source: "rest-api",
     })
+
+    consoleSpy.mockRestore()
+  })
+
+  it("passes self-hosted REST API base URLs to the provider", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    const {getGitServiceApi, parseRepoUrl} = await import("@nostr-git/core")
+    vi.mocked(parseRepoUrl).mockReturnValue({
+      owner: "group/subgroup",
+      repo: "repo",
+      host: "gitlab.example.com",
+      provider: "gitlab",
+    } as any)
+    vi.mocked(getGitServiceApi).mockReturnValue({
+      getCommit: vi.fn().mockResolvedValue({
+        sha: "abc123",
+        author: {name: "Alice", email: "alice@example.com", date: "2024-01-15T10:00:00Z"},
+        message: "fix: self hosted",
+        parents: [],
+      }),
+    } as any)
+
+    const {getCommitDetailsViaRestApi} = await import("./commit-api")
+    const result = await getCommitDetailsViaRestApi(
+      ["https://gitlab.example.com/group/subgroup/repo.git"],
+      "abc123",
+    )
+
+    expect(result?.success).toBe(true)
+    expect(getGitServiceApi).toHaveBeenCalledWith(
+      "gitlab",
+      "",
+      "https://gitlab.example.com/api/v4",
+    )
 
     consoleSpy.mockRestore()
   })
