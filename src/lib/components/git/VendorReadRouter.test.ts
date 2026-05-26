@@ -148,6 +148,11 @@ describe("VendorReadRouter.listRefs", () => {
         "https://github.com/example/repo.git",
       ])
     ).toBe(false);
+    expect(
+      router.hasVendorSupport([
+        "https://gitnostr.com/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git",
+      ])
+    ).toBe(false);
     expect(router.hasVendorSupport(["https://github.com/example/repo.git"])).toBe(true);
   });
 });

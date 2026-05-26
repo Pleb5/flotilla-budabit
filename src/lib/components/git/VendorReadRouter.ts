@@ -94,6 +94,10 @@ export interface RefDiscoverySource {
 
 type SupportedVendor = "github" | "gitlab" | "gitea" | "bitbucket" | "grasp-rest";
 
+// GRASP relays currently expose git smart HTTP endpoints, not the REST endpoints below.
+// Keep REST reads disabled until a compatible GRASP REST API is deployed.
+const ENABLE_GRASP_REST_READS: boolean = false;
+
 /**
  * Callback for reporting clone URL errors to the UI
  */
@@ -664,7 +668,7 @@ export class VendorReadRouter {
       if (v === "gitlab") return "gitlab";
       if (v === "gitea") return "gitea";
       if (v === "bitbucket") return "bitbucket";
-      if (v === "grasp-rest") return null;
+      if (v === "grasp-rest") return ENABLE_GRASP_REST_READS ? "grasp-rest" : null;
       return null;
     } catch {
       return null;
