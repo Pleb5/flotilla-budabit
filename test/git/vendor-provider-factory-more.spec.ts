@@ -49,6 +49,24 @@ describe('vendor-provider-factory more edges', () => {
     clearProviderOverrides();
   });
 
+  it('builds self-hosted REST API URLs from provider hostnames', () => {
+    clearProviderRegistry();
+    clearProviderOverrides();
+
+    registerProviderOverride('enterprise.example.com', 'github');
+    const github = resolveVendorProvider('https://enterprise.example.com/org/repo');
+    expect(github.getApiUrl('/repos/org/repo/commits/abc123')).toBe(
+      'https://enterprise.example.com/api/v3/repos/org/repo/commits/abc123'
+    );
+
+    const gitlab = resolveVendorProvider('https://gitlab.example.com/group/subgroup/repo');
+    expect(gitlab.getApiUrl('/projects/group%2Fsubgroup%2Frepo/repository/commits/abc123')).toBe(
+      'https://gitlab.example.com/api/v4/projects/group%2Fsubgroup%2Frepo/repository/commits/abc123'
+    );
+
+    clearProviderOverrides();
+  });
+
   it('clearProviderRegistry resets the cache creating a new instance for same hostname', () => {
     clearProviderRegistry();
     const p1 = resolveVendorProvider('https://cache-reset.example.com/a/b');

@@ -2672,7 +2672,7 @@ const api = {
                   `[getCommitDetails] Parsed: owner=${owner}, repo=${repo}, vendor=${provider.vendor}`,
                 )
 
-                const api = getGitServiceApi(provider.vendor, "")
+                const api = getGitServiceApi(provider.vendor, "", provider.getApiUrl(""))
                 const commitData = await api.getCommit(owner, repo, opts.commitId)
 
                 console.log(
