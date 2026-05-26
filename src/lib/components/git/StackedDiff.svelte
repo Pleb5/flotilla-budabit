@@ -89,9 +89,11 @@
     diffStore.setCommitLoading(commitSha, true);
 
     try {
-      const result = (await repo.workerManager.execute("getCommitDetails", {
+      const result = (await repo.workerManager.getCommitDetails({
         repoId: repo.key,
         commitId: commitSha,
+        branch: repo.selectedBranch || repo.mainBranch,
+        cloneUrls: repo.cloneUrls,
       })) as { success: boolean; meta?: any; changes?: any; error?: string };
 
       if (result.success && result.meta && result.changes) {
