@@ -4,6 +4,7 @@
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
@@ -20,6 +21,7 @@
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
+  import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
@@ -195,6 +197,7 @@
   )
 
   const goHome = () => goto(homePath, {replaceState})
+  const openWallet = () => pushModal(CashuWalletModal, {}, {replaceState})
   const login = () => pushModal(LogIn, {}, {replaceState})
   const createRoom = () => {
     if (canCreateRoom) pushModal(CommunityRoomCreate, {communityPubkey: community}, {replaceState})
@@ -202,6 +205,13 @@
 
   let replaceState = $state(false)
   let element: Element | undefined = $state()
+
+  const walletLabel = $derived.by(() => {
+    const balance = $cashuTotalBalance
+    if (!$cashuBackupConfirmed) return "Set up Cashu"
+    if (balance >= 1000) return `${(balance / 1000).toFixed(balance % 1000 === 0 ? 0 : 1)}K sats`
+    return `${balance} sats`
+  })
 
   onMount(() => {
     replaceState = Boolean(element?.closest(".drawer"))
@@ -270,6 +280,13 @@
     </Button>
 
     <div class="flex max-h-[calc(100vh-170px)] min-h-0 flex-col gap-1 overflow-auto">
+      {#if $pubkey}
+        <SecondaryNavItem {replaceState} onclick={openWallet}>
+          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning">₿</span>
+          {walletLabel}
+        </SecondaryNavItem>
+      {/if}
+
       <SecondaryNavItem {replaceState} href={homePath}>
         <Icon icon={HomeSmile} /> Home
       </SecondaryNavItem>

@@ -26,7 +26,7 @@
       if (alwaysAllow) {
         addAutoPayWhitelist(extensionId)
       }
-      const token = await createCashuToken(amount, mintUrl, label || extensionId)
+      const token = await createCashuToken(amount, mintUrl)
       onresult({token})
     } catch (e: any) {
       error = e?.message || "Failed to create token"
