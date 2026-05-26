@@ -410,7 +410,7 @@
   })
 </script>
 
-<div class="hero min-h-screen w-full min-w-0 overflow-y-auto overflow-x-hidden pb-8">
+<div class="hero min-h-screen w-full min-w-0 overflow-y-auto overflow-x-hidden pb-20 sm:pb-12">
   <div class="hero-content w-full min-w-0 p-2 sm:p-4">
     <div
       class="mx-auto flex w-full max-w-6xl flex-col gap-4 px-2 py-4 sm:px-8 sm:py-8 md:px-12 md:py-12">

@@ -129,13 +129,14 @@
     onclick={loginWithLocalKey}
     {disabled}
     data-testid="login-option-local-key"
-    class="btn btn-outline grid grid-cols-[1fr_auto_1fr] border-warning/50 bg-warning/10 text-base-content hover:border-warning hover:bg-warning/20">
-    <span></span>
-    <span class="flex items-center gap-2 justify-self-center">
+    class="btn btn-outline h-auto min-h-12 flex-col gap-2 border-warning/50 bg-warning/10 px-3 py-3 text-base-content hover:border-warning hover:bg-warning/20 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:gap-2 sm:py-2">
+    <span class="hidden sm:block"></span>
+    <span class="flex min-w-0 items-center gap-2 justify-self-center">
       <Icon icon={ShieldWarning} />
       Local key
     </span>
-    <span class="badge badge-warning badge-outline justify-self-end text-xs font-semibold"
+    <span
+      class="badge badge-warning badge-outline justify-self-center text-xs font-semibold sm:justify-self-end"
       >least secure</span>
   </Button>
   {#if !hasSigner || !BURROW_URL}

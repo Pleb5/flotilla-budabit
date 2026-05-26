@@ -8,6 +8,8 @@
   import type {ISigner} from "@welshman/signer"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import Tooltip from "@lib/components/Tooltip.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import Profile from "@app/components/Profile.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
@@ -37,6 +39,9 @@
   } from "@app/core/community"
   import {makeCommunityProfileList} from "@app/core/community-admin"
   import {getCommunityRootPublishRelays} from "@app/core/community-relays"
+  import {uploadFile} from "@app/core/commands"
+  import type {BlossomUploadStage} from "@app/core/blossom"
+  import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 
   type Mode = "create" | "edit"
 
@@ -110,6 +115,14 @@
   const SUBTYPE_RE = /^[a-z-]{0,20}$/
   const SUBTYPE_HELP =
     "Optional third value in a k tag. Use it when one event kind supports multiple sections, like 11/room, 11/threads, or 9/room-message."
+  const RECOMMENDED_COMMUNITY_RELAYS = normalizeRelays([
+    "wss://budabit.nostr1.com",
+    "wss://nos.lol",
+    "wss://relay.damus.io",
+  ])
+  const STRFRY_RELAY_URL = "https://github.com/hoytech/strfry"
+  const BLOSSOM_SERVER_URL =
+    "https://budabit.club/git/naddr1qvzqqqrhnypzqfngzhsvjggdlgeycm96x4emzjlwf8dyyzdfg4hefp89zpkdgz99qyvhwumn8ghj7emfwsh8x6rpddjhxur9v9ex2tnyd9usz9rhwden5te0wfjkccte9ehxw6t59ejx2aspr9mhxue69uhhq7tjv9kkjepwve5kzar2v9nzucm0d5qqucnvdaehxmmd94ek2unkv4eqs93a9j"
 
   const KNOWN_SECTION_KIND_OPTIONS = [
     {label: "Room Messages", kind: 9, subtype: "room-message"},
@@ -835,6 +848,89 @@
     validateSectionKinds(nextDrafts)
   }
 
+  const addRecommendedCommunityRelay = (url: string) => {
+    const normalized = normalizeRelay(url)
+    if (!normalized) return
+
+    const currentPrimary = normalizeRelay(primaryRelay)
+    const currentExtras = normalizeRelays(splitLines(extraRelays))
+
+    if (currentPrimary === normalized || currentExtras.includes(normalized)) return
+
+    if (!currentPrimary) {
+      primaryRelay = normalized
+      setFieldError("primaryRelay")
+      return
+    }
+
+    extraRelays = normalizeRelays([...currentExtras, normalized]).join("\n")
+    setFieldError("extraRelays")
+  }
+
+  const getPictureUploadTargetOptions = () => {
+    const servers = splitLines(blossomServers)
+    const normalizedServers: string[] = []
+
+    for (const [index, server] of servers.entries()) {
+      const normalized = normalizeWebUrl(server)
+
+      if (!normalized) {
+        setFieldError(
+          "blossomServers",
+          `Line ${index + 1} must be a valid http:// or https:// URL.`,
+        )
+        return undefined
+      }
+
+      normalizedServers.push(normalized)
+    }
+
+    if (normalizedServers.length === 0) return {}
+
+    blossomServers = normalizedServers.join("\n")
+    setFieldError("blossomServers")
+
+    return {url: normalizedServers[0], mirrorUrls: normalizedServers.slice(1)}
+  }
+
+  const uploadPictureFile = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+
+    pictureUploadStage = "preparing"
+
+    try {
+      if (!file.type.startsWith("image/")) throw new Error("Choose an image file.")
+
+      const targetOptions = getPictureUploadTargetOptions()
+      if (!targetOptions) {
+        pictureUploadStage = "failed"
+        pushToast({theme: "error", message: "Fix Blossom server URLs before uploading a picture."})
+        return
+      }
+
+      const {error, result, uploadId} = await uploadFile(file, {
+        ...targetOptions,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        onStage: stage => (pictureUploadStage = stage),
+      })
+
+      if (error || !result?.url) throw new Error(error || "Picture upload failed.")
+
+      picture = result.url
+      setFieldError("picture")
+      promptBlossomMirrorUpload(uploadId)
+      pushToast({theme: "success", message: "Community picture uploaded."})
+    } catch (error) {
+      pictureUploadStage = "failed"
+      pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
+    } finally {
+      input.value = ""
+    }
+  }
+
   let loading = $state(false)
   let name = $state("")
   let description = $state("")
@@ -848,6 +944,7 @@
   let tosRelay = $state("")
   let location = $state("")
   let geohash = $state("")
+  let pictureUploadStage = $state<BlossomUploadStage>("idle")
   let sectionDrafts = $state<SectionDraft[]>(makeDefaultSectionDrafts())
   let expandedSectionIndex = $state(0)
   let websitePrefilled = $state(false)
@@ -864,6 +961,15 @@
   const newAuthorityCount = $derived(
     sectionDrafts.filter(section => section.profileLists.length === 0).length,
   )
+  const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
+  const activeCommunityRelays = $derived.by(() =>
+    normalizeRelays([primaryRelay, ...splitLines(extraRelays)]),
+  )
+  const recommendedCommunityRelays = $derived.by(() => {
+    const active = new Set(activeCommunityRelays)
+
+    return RECOMMENDED_COMMUNITY_RELAYS.filter(relay => !active.has(relay))
+  })
 
   $effect(() => {
     const activePubkey = $pubkey || ""
@@ -899,6 +1005,7 @@
       tosRelay = definition.tos?.relay || ""
       location = definition.location || ""
       geohash = definition.geohash || ""
+      pictureUploadStage = "idle"
       sectionDrafts = makeSectionDraftsFromDefinition(definition)
       expandedSectionIndex = 0
       websitePrefilled = true
@@ -917,6 +1024,7 @@
     tosRelay = ""
     location = ""
     geohash = ""
+    pictureUploadStage = "idle"
     sectionDrafts = makeDefaultSectionDrafts()
     expandedSectionIndex = 0
     websitePrefilled = Boolean(activePubkey)
@@ -967,7 +1075,16 @@
             {#if activeCommunityPubkey}
               <span class="mb-3 block">Publishing as</span>
               <Profile pubkey={activeCommunityPubkey} avatarSize={9} showPubkey />
-              <span class="mt-3 block">Bunker and extension signers are supported.</span>
+              <span class="mt-3 block">
+                The active signer shown here owns and publishes this community. Better keep the
+                community owner key in cold storage and sign with it
+                <a
+                  class="link font-medium"
+                  href="https://nostrapps.com#signers"
+                  target="_blank"
+                  rel="noopener noreferrer">remotely</a
+                >.
+              </span>
             {:else}
               Log in with the npub that should own this community.
             {/if}
@@ -1029,28 +1146,57 @@
               {#snippet label()}<p>
                   Picture URL <span class="opacity-60">(optional)</span>
                 </p>{/snippet}
-              {#snippet input()}<input
-                  bind:value={picture}
-                  class="input input-bordered w-full {errors.picture ? 'input-error' : ''}"
-                  onblur={() => validateField("picture")}
-                  type="url" />{/snippet}
+              {#snippet input()}<div class="space-y-2">
+                  <div class="space-y-2">
+                    <input
+                      bind:value={picture}
+                      class="input input-bordered w-full {errors.picture ? 'input-error' : ''}"
+                      disabled={pictureUploading}
+                      oninput={() => (pictureUploadStage = "idle")}
+                      onblur={() => validateField("picture")}
+                      type="url" />
+                    <label
+                      class="btn btn-outline btn-sm w-full sm:w-auto {pictureUploading || loading
+                        ? 'btn-disabled'
+                        : ''}">
+                      {#if pictureUploading}
+                        <span class="loading loading-spinner loading-xs"></span>
+                      {/if}
+                      Upload picture
+                      <input
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        disabled={pictureUploading || loading}
+                        onchange={uploadPictureFile} />
+                    </label>
+                  </div>
+                  <BlossomUploadStatus stage={pictureUploadStage} />
+                </div>{/snippet}
             </Field>
           </div>
         </section>
 
         <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
-          <div class="mb-5 flex items-start justify-between gap-4">
+          <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <strong class="text-lg">Content sections</strong>
               <p class="mt-1 text-sm opacity-65">
                 Section names may use only A-Z letters and must be 50 characters or fewer.
               </p>
             </div>
-            <div class="flex shrink-0 flex-wrap justify-end gap-2">
-              <Button class="btn btn-ghost btn-sm" onclick={restoreDefaultSections} {disabled}>
+            <div
+              class="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:justify-end">
+              <Button
+                class="btn btn-ghost btn-sm w-full sm:w-auto"
+                onclick={restoreDefaultSections}
+                {disabled}>
                 Restore defaults
               </Button>
-              <Button class="btn btn-primary btn-sm" onclick={addSection} {disabled}>
+              <Button
+                class="btn btn-primary btn-sm w-full sm:w-auto"
+                onclick={addSection}
+                {disabled}>
                 Add section
               </Button>
             </div>
@@ -1127,11 +1273,11 @@
                       {/if}
                       {#each section.kinds as kindDraft, kindIndex}
                         <div
-                          class="grid gap-3 rounded-2xl border border-base-300 bg-base-100/75 p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-[minmax(220px,2fr)_minmax(100px,1fr)_minmax(170px,1fr)_auto] lg:items-end">
+                          class="grid gap-2 rounded-2xl border border-base-300 bg-base-100/75 p-3 text-sm shadow-sm sm:grid-cols-2 sm:gap-3 sm:p-4 sm:text-base lg:grid-cols-[minmax(220px,2fr)_minmax(100px,1fr)_minmax(170px,1fr)_auto] lg:items-end">
                           <Field class="sm:col-span-2 lg:col-span-1">
                             {#snippet label()}<p>Known kind</p>{/snippet}
                             {#snippet input()}<select
-                                class="select select-bordered w-full"
+                                class="select select-bordered select-sm w-full text-sm sm:select-md sm:text-base"
                                 value={kindDraftOptionValue(kindDraft)}
                                 onchange={event =>
                                   setKnownKind(
@@ -1152,7 +1298,7 @@
                             {#snippet label()}<p>Kind</p>{/snippet}
                             {#snippet input()}<input
                                 value={kindDraft.kind}
-                                class="input input-bordered w-full {errors[
+                                class="input input-sm input-bordered w-full text-sm sm:input-md sm:text-base {errors[
                                   sectionKindField(sectionIndex, kindIndex)
                                 ]
                                   ? 'input-error'
@@ -1168,11 +1314,19 @@
                           <Field error={errors[sectionSubtypeField(sectionIndex, kindIndex)]}>
                             {#snippet label()}
                               <p>Subtype</p>
+                              <Tooltip content={SUBTYPE_HELP} class="inline-flex">
+                                <button
+                                  type="button"
+                                  class="badge badge-ghost badge-sm"
+                                  aria-label={SUBTYPE_HELP}>
+                                  ?
+                                </button>
+                              </Tooltip>
                             {/snippet}
                             {#snippet input()}<input
                                 value={kindDraft.subtype}
                                 maxlength="20"
-                                class="input input-bordered w-full {errors[
+                                class="input input-sm input-bordered w-full text-sm sm:input-md sm:text-base {errors[
                                   sectionSubtypeField(sectionIndex, kindIndex)
                                 ]
                                   ? 'input-error'
@@ -1183,7 +1337,6 @@
                                   })}
                                 onblur={() => validateSectionKinds()}
                                 type="text" />{/snippet}
-                            {#snippet info()}{SUBTYPE_HELP}{/snippet}
                           </Field>
                           <div class="flex sm:col-span-2 lg:col-span-1">
                             <Button
@@ -1223,6 +1376,44 @@
               </p>
             </div>
           </div>
+          <div class="mb-5 grid gap-3 lg:grid-cols-2">
+            <div class="rounded-2xl border border-info/20 bg-info/5 p-4">
+              <p class="text-sm font-semibold text-info">Recommended community relays</p>
+              <p class="mt-1 text-xs leading-relaxed text-base-content/70">
+                Click once to add a starter relay to your community definition.
+              </p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                {#if recommendedCommunityRelays.length === 0}
+                  <p class="text-sm text-base-content/65">
+                    All recommended relays are already added.
+                  </p>
+                {:else}
+                  {#each recommendedCommunityRelays as relay (relay)}
+                    <button
+                      type="button"
+                      class="max-w-full rounded-full border border-dashed border-base-content/30 px-3 py-1 text-left text-sm transition hover:border-info hover:text-info disabled:cursor-not-allowed disabled:opacity-50"
+                      onclick={() => addRecommendedCommunityRelay(relay)}
+                      {disabled}>
+                      + <span class="break-all">{relay.replace(/^wss?:\/\//, "")}</span>
+                    </button>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+            <div
+              class="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm leading-relaxed text-base-content">
+              <p class="font-semibold text-warning">Public relay caution</p>
+              <p class="mt-1 text-base-content/75">
+                These relays do not have availability or data retention guarantees. Run your own
+                relays to become fully independent.
+              </p>
+              <a
+                class="link mt-2 inline-block text-sm font-medium"
+                href={STRFRY_RELAY_URL}
+                target="_blank"
+                rel="noopener noreferrer">strfry relay implementation</a>
+            </div>
+          </div>
           <div class="grid gap-4 md:grid-cols-2">
             <Field error={errors.primaryRelay}>
               {#snippet label()}<p>
@@ -1247,18 +1438,35 @@
                   placeholder="One relay per line"></textarea>
                 >{/snippet}
             </Field>
-            <Field error={errors.blossomServers}>
-              {#snippet label()}<p>
-                  Blossom servers <span class="opacity-60">(optional)</span>
-                </p>{/snippet}
-              {#snippet input()}<textarea
-                  bind:value={blossomServers}
-                  class="textarea textarea-bordered {errors.blossomServers ? 'textarea-error' : ''}"
-                  onblur={() => validateField("blossomServers")}
-                  rows="2"
-                  placeholder="One server per line"></textarea>
-                >{/snippet}
-            </Field>
+            <div class="space-y-3">
+              <Field error={errors.blossomServers}>
+                {#snippet label()}<p>
+                    Blossom servers <span class="opacity-60">(optional)</span>
+                  </p>{/snippet}
+                {#snippet input()}<textarea
+                    bind:value={blossomServers}
+                    class="textarea textarea-bordered {errors.blossomServers
+                      ? 'textarea-error'
+                      : ''}"
+                    onblur={() => validateField("blossomServers")}
+                    rows="2"
+                    placeholder="One server per line"></textarea>
+                  >{/snippet}
+              </Field>
+              <div
+                class="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm leading-relaxed text-base-content">
+                <p class="font-semibold text-warning">Blossom media ownership</p>
+                <p class="mt-1 text-base-content/75">
+                  BudaBit comes with a last-resort Blossom media server, but you should run your own
+                  to have full control over media storage, retention, and policy.
+                </p>
+                <a
+                  class="link mt-2 inline-block text-sm font-medium"
+                  href={BLOSSOM_SERVER_URL}
+                  target="_blank"
+                  rel="noopener noreferrer">Blossom server implementation</a>
+              </div>
+            </div>
             <Field error={errors.mints}>
               {#snippet label()}<p>Mints <span class="opacity-60">(optional)</span></p>{/snippet}
               {#snippet input()}<textarea
@@ -1348,6 +1556,7 @@
                 !$pubkey ||
                 !name.trim() ||
                 !primaryRelay.trim() ||
+                pictureUploading ||
                 sectionDrafts.length === 0}>
               {#if loading}<span class="loading loading-spinner mr-2"></span>{/if}
               {actionLabel}
