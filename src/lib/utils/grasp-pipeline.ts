@@ -64,6 +64,14 @@ export interface GraspStateVisibilityResult {
   reason?: string;
 }
 
+export interface FetchLatestGraspRepoStateParams {
+  relayUrl: string;
+  repoName: string;
+  fetchRelayEvents?: FetchRelayEvents;
+  authorPubkey?: string;
+  timeoutMs?: number;
+}
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function normalizeRelayForCompare(relay: string): string {
@@ -317,6 +325,123 @@ export interface GraspRef {
   type: "heads" | "tags";
   name: string;
   commit: string;
+  ancestry?: string[];
+}
+
+function parseGraspFullRef(fullRef: string): { type: "heads" | "tags"; name: string } | null {
+  const match = /^refs\/(heads|tags)\/(.+)$/.exec(fullRef);
+  if (!match) return null;
+  if (match[1] === "tags" && match[2].endsWith("^{}")) return null;
+
+  return { type: match[1] as "heads" | "tags", name: match[2] };
+}
+
+export function getGraspRefFullName(ref: Pick<GraspRef, "type" | "name">): string {
+  return `refs/${ref.type}/${ref.name}`;
+}
+
+export function getGraspStateRefsFromEvent(event?: NostrEvent | RepoStateEvent): GraspRef[] {
+  if (!event || !Array.isArray(event.tags)) return [];
+
+  const refs: GraspRef[] = [];
+  for (const tag of event.tags) {
+    const fullRef = String(tag?.[0] || "");
+    if (!fullRef.startsWith("refs/")) continue;
+
+    const parsed = parseGraspFullRef(fullRef);
+    const commit = String(tag?.[1] || "").trim();
+    if (!parsed || !commit) continue;
+
+    const ancestry = tag.slice(2).filter((value): value is string => typeof value === "string");
+    refs.push({ ...parsed, commit, ...(ancestry.length > 0 ? { ancestry } : {}) });
+  }
+
+  return refs;
+}
+
+export function getGraspStateHeadFromEvent(event?: NostrEvent | RepoStateEvent): string | undefined {
+  if (!event || !Array.isArray(event.tags)) return undefined;
+
+  const headValue = String(event.tags.find((tag) => tag?.[0] === "HEAD")?.[1] || "").trim();
+  const fullRef = headValue.startsWith("ref: ") ? headValue.slice("ref: ".length) : headValue;
+  const parsed = parseGraspFullRef(fullRef);
+  return parsed?.type === "heads" ? parsed.name : undefined;
+}
+
+export function createGraspRefMap(refs: GraspRef[] = []): Map<string, GraspRef> {
+  const map = new Map<string, GraspRef>();
+  for (const ref of refs) {
+    const fullRef = getGraspRefFullName(ref);
+    map.set(fullRef, ref);
+  }
+  return map;
+}
+
+export function mergeGraspRefs(baseRefs: GraspRef[] = [], updates: GraspRef[] = []): GraspRef[] {
+  const refsByFullRef = createGraspRefMap(baseRefs);
+  for (const update of updates) {
+    if (!update.commit) continue;
+    refsByFullRef.set(getGraspRefFullName(update), update);
+  }
+  return Array.from(refsByFullRef.values());
+}
+
+export function resolveGraspStateHead(params: {
+  existingHead?: string;
+  refs: GraspRef[];
+  fallbackHead?: string;
+  preferFallback?: boolean;
+}): string | undefined {
+  const heads = new Set(params.refs.filter((ref) => ref.type === "heads").map((ref) => ref.name));
+  if (params.preferFallback && params.fallbackHead && heads.has(params.fallbackHead)) {
+    return params.fallbackHead;
+  }
+  if (params.existingHead && heads.has(params.existingHead)) return params.existingHead;
+  if (params.fallbackHead && heads.has(params.fallbackHead)) return params.fallbackHead;
+  return heads.values().next().value;
+}
+
+export async function fetchLatestGraspRepoStateEvent({
+  relayUrl,
+  repoName,
+  fetchRelayEvents,
+  authorPubkey,
+  timeoutMs = 2500,
+}: FetchLatestGraspRepoStateParams): Promise<NostrEvent | undefined> {
+  if (!fetchRelayEvents) return undefined;
+
+  const normalizedRelayUrl = normalizeRelayOrigin(relayUrl);
+  const filter: NostrFilter = {
+    kinds: [30618],
+    "#d": [repoName],
+    limit: 20,
+  };
+
+  if (authorPubkey) {
+    filter.authors = [authorPubkey];
+  }
+
+  const events = await fetchRelayEvents({
+    relays: [normalizedRelayUrl],
+    filters: [filter],
+    timeoutMs,
+  });
+
+  return events
+    .filter((event) => event?.kind === 30618)
+    .filter((event) =>
+      Array.isArray(event.tags)
+        ? event.tags.some(
+            (tag) => tag?.[0] === "d" && String(tag?.[1] || "") === repoName
+          )
+        : false
+    )
+    .sort((a, b) => {
+      const createdAtDiff = (a.created_at || 0) - (b.created_at || 0);
+      if (createdAtDiff !== 0) return createdAtDiff;
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    })
+    .at(-1);
 }
 
 export function normalizeGraspOrigins(input: string): { wsOrigin: string; httpOrigin: string } {
@@ -642,10 +767,32 @@ export async function publishGraspRepoStateForPush({
   settleDelayMs,
 }: PublishGraspRepoStateForPushParams): Promise<{ relayUrl: string; repoName: string }> {
   const { relayUrl, repoName } = parseGraspPushTarget(remoteUrl, fallbackRepoName);
+  let existingStateEvent: NostrEvent | undefined;
+
+  try {
+    existingStateEvent = await fetchLatestGraspRepoStateEvent({
+      relayUrl,
+      repoName,
+      fetchRelayEvents,
+      authorPubkey,
+    });
+  } catch (error) {
+    console.warn("[GRASP] Failed to fetch existing repo state before push:", error);
+  }
+
+  const refs = mergeGraspRefs(getGraspStateRefsFromEvent(existingStateEvent), [
+    { type: "heads", name: branch, commit: commitSha },
+  ]);
+  const head = resolveGraspStateHead({
+    existingHead: getGraspStateHeadFromEvent(existingStateEvent),
+    refs,
+    fallbackHead: branch,
+  });
+
   const stateEvent = createRepoStateEvent({
     repoId: repoName,
-    head: branch,
-    refs: [{ type: "heads", name: branch, commit: commitSha }],
+    head,
+    refs,
   });
 
   await publishGraspRepoStateAndWait({

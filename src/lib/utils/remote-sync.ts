@@ -3,14 +3,22 @@ import type { RepoCommunityBinding } from "@nostr-git/core/events";
 
 import {
   buildGraspRepoUrls,
+  createGraspRefMap,
   createGraspAnnouncementAndState,
   didRelayAckGraspEvents,
   extractPublishRelayAck,
+  fetchLatestGraspRepoStateEvent,
+  getGraspRefFullName,
+  getGraspStateHeadFromEvent,
+  getGraspStateRefsFromEvent,
+  mergeGraspRefs,
   normalizeGraspOrigins,
   publishGraspRepoStateAndWait,
+  resolveGraspStateHead,
   toNpubOrSelf,
   waitForGraspProvisioning,
   type FetchRelayEvents,
+  type GraspRef,
 } from "./grasp-pipeline.js";
 import { trackLatestRepoMetadataCreatedAt } from "./import-repo-metadata.js";
 import {
@@ -483,7 +491,23 @@ export async function syncLocalRepoToTargets(
               { type: item.type, name: item.name, commit: item.commit as string },
             ])
         );
-        const acceptedRefsForState = new Set<string>();
+        let stateRefsByFullRef = new Map<string, GraspRef>();
+        let currentStateHead: string | undefined;
+
+        if (onPublishEvent) {
+          try {
+            const existingStateEvent = await fetchLatestGraspRepoStateEvent({
+              relayUrl: target.relayUrl,
+              repoName,
+              fetchRelayEvents: options.onFetchRelayEvents,
+              authorPubkey: userPubkey,
+            });
+            stateRefsByFullRef = createGraspRefMap(getGraspStateRefsFromEvent(existingStateEvent));
+            currentStateHead = getGraspStateHeadFromEvent(existingStateEvent);
+          } catch (stateFetchError) {
+            console.warn("[GRASP] Failed to fetch existing repo state before sync:", stateFetchError);
+          }
+        }
 
         for (let refIndex = 0; refIndex < orderedRefs.length; refIndex++) {
           const ref = orderedRefs[refIndex];
@@ -491,36 +515,22 @@ export async function syncLocalRepoToTargets(
           throwIfAborted?.();
 
           if (onPublishEvent && refDetailsByFullRef.size > 0) {
+            const refDetail = refDetailsByFullRef.get(ref.ref);
             updateProgress(
               `Publishing GRASP state for ${ref.type === "heads" ? "branch" : "tag"} ${ref.name} (${refIndex + 1}/${orderedRefs.length})...`
             );
 
-            const stateRefKeys = Array.from(
-              new Set(
-                [...acceptedRefsForState, ref.ref].filter((fullRef) =>
-                  refDetailsByFullRef.has(fullRef)
-                )
-              )
-            );
-            const stateRefs = stateRefKeys
-              .map((fullRef) => refDetailsByFullRef.get(fullRef))
-              .filter(
-                (
-                  value
-                ): value is {
-                  type: "heads" | "tags";
-                  name: string;
-                  commit: string;
-                } => Boolean(value?.commit)
-              );
+            const stateRefs = refDetail
+              ? mergeGraspRefs(Array.from(stateRefsByFullRef.values()), [refDetail])
+              : Array.from(stateRefsByFullRef.values());
 
             if (stateRefs.length > 0) {
-              const declaredHeads = stateRefs
-                .filter((item) => item.type === "heads")
-                .map((item) => item.name);
-              const stateHead = declaredHeads.includes(defaultBranch)
-                ? defaultBranch
-                : declaredHeads[0] || defaultBranch;
+              const stateHead = resolveGraspStateHead({
+                existingHead: currentStateHead,
+                refs: stateRefs,
+                fallbackHead: defaultBranch,
+                preferFallback: ref.type === "heads" && ref.name === defaultBranch,
+              });
 
               const graspState = createGraspAnnouncementAndState({
                 relayUrl: target.relayUrl,
@@ -560,6 +570,8 @@ export async function syncLocalRepoToTargets(
                 `Waiting for GRASP state visibility for ${ref.name}`,
                 0
               );
+
+              currentStateHead = stateHead;
             }
           }
 
@@ -596,7 +608,10 @@ export async function syncLocalRepoToTargets(
           );
 
           if (pushedRefs.includes(ref.ref)) {
-            acceptedRefsForState.add(ref.ref);
+            const refDetail = refDetailsByFullRef.get(ref.ref);
+            if (refDetail) {
+              stateRefsByFullRef.set(getGraspRefFullName(refDetail), refDetail);
+            }
           }
         }
         activeRef = null;

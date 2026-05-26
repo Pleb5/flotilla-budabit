@@ -294,4 +294,60 @@ describe("grasp-pipeline", () => {
       })
     );
   });
+
+  it("preserves existing refs and HEAD when publishing branch state for an existing GRASP target", async () => {
+    let publishedState: any;
+    const existingState = {
+      id: "evt-existing",
+      kind: 30618,
+      pubkey: "a".repeat(64),
+      created_at: 1_717_171_700,
+      tags: [
+        ["d", "flotilla-budabit"],
+        ["refs/heads/main", "a".repeat(40)],
+        ["refs/heads/dev", "b".repeat(40)],
+        ["refs/tags/v1.0.0", "c".repeat(40)],
+        ["HEAD", "ref: refs/heads/main"],
+      ],
+      content: "",
+      sig: "sig",
+    };
+
+    const onPublishEvent = vi.fn(async (event) => {
+      publishedState = event;
+      return {
+        ackedRelays: ["wss://relay.ngit.dev"],
+        failedRelays: [],
+        successCount: 1,
+        hasRelayOutcomes: true,
+      };
+    });
+    const fetchRelayEvents = vi.fn(async () => [publishedState || existingState]);
+
+    await expect(
+      publishGraspRepoStateForPush({
+        remoteUrl:
+          "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
+        branch: "dev",
+        commitSha: "d".repeat(40),
+        authorPubkey: "a".repeat(64),
+        onPublishEvent,
+        fetchRelayEvents,
+        settleDelayMs: 0,
+      })
+    ).resolves.toEqual({
+      relayUrl: "wss://relay.ngit.dev",
+      repoName: "flotilla-budabit",
+    });
+
+    expect(publishedState.tags).toEqual(
+      expect.arrayContaining([
+        ["d", "flotilla-budabit"],
+        ["refs/heads/main", "a".repeat(40)],
+        ["refs/heads/dev", "d".repeat(40)],
+        ["refs/tags/v1.0.0", "c".repeat(40)],
+        ["HEAD", "ref: refs/heads/main"],
+      ])
+    );
+  });
 });
