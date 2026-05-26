@@ -108,7 +108,6 @@
     <Icon size={4} icon={Code2} />
     Message Info
   </Button>
-  <ModerationAction {event} sectionName={communitySectionName} mode="buttons" replaceState />
   {#if ENABLE_ZAPS && !readOnly}
     <ZapButton replaceState {url} {event} class="btn btn-neutral w-full">
       <Icon size={4} icon={Bolt} />
@@ -133,4 +132,5 @@
       Send Reaction
     </Button>
   {/if}
+  <ModerationAction {event} sectionName={communitySectionName} mode="buttons" replaceState />
 </div>

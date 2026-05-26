@@ -54,7 +54,6 @@
       Show JSON
     </Button>
   </li>
-  <ModerationAction {event} sectionName={communitySectionName} {onClick} />
   {#if event.pubkey === $pubkey && !readOnly}
     <li>
       <Button onclick={showDelete} class="text-error">
@@ -63,4 +62,5 @@
       </Button>
     </li>
   {/if}
+  <ModerationAction {event} sectionName={communitySectionName} {onClick} />
 </ul>
