@@ -2,7 +2,7 @@
 
 If you need the full clone/build/deploy workflow, start with `docs/ops/self-hosting.md`.
 
-The production build is a static SPA (Single Page Application) that requires proper server configuration to handle client-side routing.
+The production build is a static SvelteKit SPA/PWA. It requires server configuration that serves real files normally and falls back to `/index.html` for client-side routes.
 
 ## Recommended: Using `serve` (Node.js)
 
@@ -21,7 +21,7 @@ npx serve build -s -p 3000
 The `-s` flag tells `serve` to:
 
 - Redirect all non-file routes to index.html (enabling SPA routing)
-- Properly handle client-side routing for routes like `/settings`, `/git/...`, `/c/...`, etc.
+- Properly handle client-side routing for routes like `/settings`, `/git/...`, `/c/...`, `/widgets`, and `/people/...`.
 
 ## Alternative: Using Python's http.server
 
@@ -75,7 +75,7 @@ python3 spa-server.py
 
 ## Alternative: Using Apache
 
-If you're using Apache or LiteSpeed, the `.htaccess` file in the build directory already handles SPA routing and cache headers. Just point your vhost to the `build` directory and keep that file in place.
+If you're using Apache or LiteSpeed, the generated `build/.htaccess` handles SPA routing, cache headers, and CORS for `/.well-known/`. Point your vhost to `build/` and keep that file in place.
 
 ## Alternative: Using Nginx
 
@@ -92,10 +92,15 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Cache static assets
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+    # Cache immutable static assets. SvelteKit content-hashes files under /_app/immutable/.
+    location /_app/immutable/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+    }
+
+    # Keep service worker and manifest fresh.
+    location ~* ^/(service-worker\.js|manifest\.webmanifest|_app/version\.json)$ {
+        add_header Cache-Control "no-cache";
     }
 
     # CORS for .well-known
@@ -109,7 +114,7 @@ server {
 
 ## Why Direct Routes Return 404
 
-When you access `http://192.168.10.103:3000/settings` directly:
+When you access a direct route such as `http://192.168.10.103:3000/settings`:
 
 1. The browser requests `/settings` from the server
 2. The server looks for a file at `/settings` (doesn't exist)
@@ -121,4 +126,4 @@ For SPAs to work, the server must:
 2. If not, serve `index.html` instead
 3. Let the client-side router (SvelteKit) handle the route
 
-This is what the `serve.json`, `.htaccess`, and the configurations above accomplish.
+This is what `serve -s`, `serve.json`, `build/.htaccess`, and the configurations above accomplish.

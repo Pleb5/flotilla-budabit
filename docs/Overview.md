@@ -11,6 +11,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - `@welshman/*`: app, store, net, router, signer, util.
   - `nostr-tools` for nip19, etc.
 - Internal Git/NIP-34 features provided by `packages/nostr-git-core` and `packages/nostr-git-ui` (workspace dependencies: `@nostr-git/core` and `@nostr-git/ui`).
+- Extension surfaces support NIP-89 manifests and Smart Widget `kind:30033` events in sandboxed iframes.
 
 ## High-Level Architecture
 
@@ -21,6 +22,7 @@ This document summarizes how the Budabit client is structured and how the main p
 - The canonical Git route family is `/git`, with community Git catalogs available under `/c/[community]/git`.
 - Reusable UI components live in `src/app/components/` and `src/lib/components/`.
 - Nostr Git (NIP-34) UI flows are implemented in `packages/nostr-git-ui/src/lib/components/git/`.
+- Extension runtime, settings, bridge, slots, and URL policy live in `src/app/extensions/`.
 - Packaging/build is orchestrated with `vite` and `build.sh`.
 
 ## Key Directories
@@ -31,7 +33,9 @@ This document summarizes how the Budabit client is structured and how the main p
 - `src/lib/`: Design system and general-purpose components/utilities.
 - `src/routes/`: SvelteKit routes and pages. Community pages are under `src/routes/c/[community]/...`; canonical Git pages are under `src/routes/git/...`.
 - `packages/nostr-git-ui/src/lib/components/git/`: Git feature UI, such as repo dialogs, repository views, and worker managers.
-- `packages/nostr-git-core/src/lib/`: Core Git providers, workers, Nostr Git event handling, vendor APIs, and shared Git utilities.
+- `packages/nostr-git-core/src/git/`: Core Git providers, GRASP/Nostr Git orchestration, import helpers, and shared Git utilities.
+- `packages/nostr-git-core/src/worker/`: Comlink worker entry point and worker helper modules for clone, sync, push, PR merge analysis, cache, branches, commit history, remote backfill, and git config.
+- `src/app/extensions/`: Extension registry, iframe bridge, install settings, repo-tab slots, widget parsing, and embeddable URL policy.
 
 ## Central State and Data Flow
 
@@ -51,7 +55,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - The active `kind:10222` definition provides community relays, sections, profile-list references, forms, moderation state, and Blossom refs.
 - Router/Context:
   - `routerContext.getIndexerRelays` is wired to env-configured relays.
-  - `appContext.dufflepudUrl` provides a backend service URL.
+  - `appContext.dufflepudUrl` is currently hard-coded to `https://dufflepud.onrender.com`.
 - Signing/Decryption:
   - `@welshman/signer` with NIP‑44/NIP‑59 helpers for encrypted content and unwrap logic.
 
@@ -62,6 +66,17 @@ This document summarizes how the Budabit client is structured and how the main p
   - Example: `NewRepoWizard.svelte` imports `AdvancedSettingsStep.svelte`, `RepoDetailsStep.svelte`, `RepoProgressStep.svelte`.
 - `useNewRepo.svelte` and related hooks in `packages/nostr-git-ui/src/lib` coordinate repo creation, progress, and publishing events.
 - The app-level state exposes repo announcements and maintainers using `@nostr-git/core` utilities.
+- App-level Git worker access goes through `src/app/core/worker-singleton.ts`, which creates one shared worker, injects the Vite-resolved worker URL, configures EventIO, and applies the configured Git CORS proxy.
+- Repo routes decode `naddr` values in `src/routes/git/[id=naddr]/+layout.ts`, build a `Repo` context in `+layout.svelte`, and provide repo-scoped stores for issues, PRs, comments, status, feed activity, trust metrics, settings actions, clone URLs, and relays.
+
+## Extensions and Widgets
+
+- Built-in extensions are not bundled or auto-installed; `src/app/extensions/builtin.ts` keeps `installBuiltinExtensions()` as a no-op for the existing call site.
+- Users install extensions from Settings > Extensions using NIP-89 manifest URLs or Smart Widget `kind:30033` events.
+- `src/app/extensions/registry.ts` validates embeddable URLs, fetches manifests without cache, parses Smart Widget button/slot metadata, and registers extension origins.
+- `src/app/extensions/bridge.ts` and `provider.svelte` host extensions in iframes and expose a permissioned host bridge.
+- Extension slots are rendered through `src/app/extensions/components/SlotRenderer.svelte`; repo-tab extensions are mounted under `/git/[id]/extensions/[extId]` and surfaced from the Git repo layout.
+- Global and community widget routes live at `/widgets` and `/c/[community]/widgets`.
 
 ## Configuration and Environment
 
@@ -71,10 +86,21 @@ This document summarizes how the Budabit client is structured and how the main p
   - `check`: `svelte-check`
 - Env vars are read via `import.meta.env.*` in `src/app/core/state.ts` and related core modules:
   - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_GIT_RELAYS`.
-  - App metadata: `VITE_APP_NAME`, `VITE_APP_URL`, `VITE_APP_LOGO`, `VITE_APP_ACCENT`.
+  - App metadata and theme: `VITE_APP_NAME`, `VITE_APP_URL`, `VITE_APP_LOGO`, `VITE_APP_ACCENT`, `VITE_APP_ACCENT_CONTENT`, `VITE_APP_SECONDARY`, `VITE_APP_SECONDARY_CONTENT`.
   - Media: `VITE_DEFAULT_BLOSSOM_SERVERS` for fallback Blossom upload targets; community Blossom servers come from active community definitions.
   - Services: `VITE_BURROW_URL`; alert delivery services `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, and `VITE_VAPID_PUBLIC_KEY` are used only when `FEATURE_ALERTS=1`.
+  - Widgets: `VITE_SMART_WIDGET_RELAYS` overrides default widget discovery relays.
   - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.
+  - Development: `VITE_DEV_ALLOWED_HOSTS`, `VITE_DEV_HMR_*`, and `VITE_DEV_CHII_TARGET_URL` support reverse-proxied/mobile dev sessions.
+- Build-time constants are defined in `vite.config.ts`: `__GRASP__` is enabled unless `FEATURE_GRASP=0`, `__CICD__` is enabled only with `FEATURE_CICD=1`, and `__ALERTS__` is enabled only with `FEATURE_ALERTS=1`.
+- Current notification behavior: in-app unread badges and sounds remain available without alerts; external email and web push setup is hidden/rejected unless `FEATURE_ALERTS=1`.
+- `build.sh` currently post-processes HTML and manifest metadata from `VITE_PLATFORM_NAME`, `VITE_PLATFORM_SHORT_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_ACCENT`, and `VITE_PLATFORM_URL`, while runtime app metadata and PWA icon generation use `VITE_APP_*`.
+
+## App Shell Boot Sequence
+
+- `src/routes/+layout.ts` disables SSR for the app shell.
+- `src/routes/+layout.svelte` wires global policies and app providers, including signer context, storage/event sync, push setup when alerts are enabled, community hydration, extension provider setup, Cashu bridge integration, update polling, and debug/dev hooks.
+- The SvelteKit static adapter uses `fallback: "index.html"`, so deployed hosts must preserve SPA fallback behavior.
 
 ## How Pages Use State
 
@@ -108,6 +134,7 @@ This document summarizes how the Budabit client is structured and how the main p
 - Messaging: `src/app/components/Chat.svelte`, `ChannelMessage*.svelte` components.
 - Community git catalog: `src/routes/c/[community]/git/` and components in `packages/nostr-git-ui/src/lib/components/git/`.
 - Canonical Git surface: `src/routes/git/`.
+- Extension settings and widgets: `src/routes/settings/extensions/`, `src/routes/widgets/`, `src/routes/c/[community]/widgets/`, and `src/routes/git/[id=naddr]/extensions/[extId]/`.
 - Community state: `src/app/core/community-state.ts`, `src/app/core/community.ts`, and `src/app/core/community-feeds.ts`.
 - Shared state: `src/app/core/state.ts`.
 
@@ -116,6 +143,7 @@ This document summarizes how the Budabit client is structured and how the main p
 - Development: `pnpm dev` (SvelteKit dev server).
 - Type checks: `pnpm check`.
 - Build: `pnpm build` (delegates to `./build.sh`).
+- Production build helper: `pnpm run build-in-production` installs dependencies, rebuilds native modules, sets build metadata, and delegates to `./build.sh`.
 
 ---
 

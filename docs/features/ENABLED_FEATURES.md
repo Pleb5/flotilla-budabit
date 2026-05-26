@@ -10,7 +10,7 @@ The root `vite.config.ts` defines these compile-time flags from environment vari
 | --- | --- | --- | --- |
 | `FEATURE_GRASP` | `__GRASP__` | Enabled unless set to `0` | GRASP and Nostr Git integration paths. |
 | `FEATURE_CICD` | `__CICD__` | Disabled unless set to `1` | Experimental CI/CD automation hooks. |
-| `FEATURE_ALERTS` | `__ALERTS__` | Disabled unless set to `1` | External email digest and web push alert setup. |
+| `FEATURE_ALERTS` | `__ALERTS__` | Disabled unless set to `1` | External email digest and web push alert setup. In-app unread badges and sounds remain available while disabled. |
 
 ## Community Architecture Note
 

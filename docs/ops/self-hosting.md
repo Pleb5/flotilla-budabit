@@ -22,15 +22,17 @@ That is enough for a basic deployment.
 
 ## Minimum `.env`
 
-For a community-first deployment, create `.env` in the repo root with at least:
+For a community-first deployment, create `.env` in the repo root. Use `.env.example` as the full reference. A practical deployment starts with:
 
 ```env
 VITE_APP_URL=https://your-domain.com
 VITE_APP_NAME=Your Budabit
 VITE_APP_ACCENT=#0f766e
+VITE_APP_ACCENT_CONTENT=#ecfdf5
 VITE_APP_LOGO=https://your-domain.com/logo.png
 VITE_DEFAULT_COMMUNITY=npub1...
 VITE_INDEXER_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
+VITE_SIGNER_RELAYS=wss://relay.damus.io,wss://nos.lol
 VITE_GIT_RELAYS=wss://relay.ngit.dev,wss://gitnostr.com
 VITE_DEFAULT_PUBKEYS=hexpubkey1,hexpubkey2
 ```
@@ -38,13 +40,15 @@ VITE_DEFAULT_PUBKEYS=hexpubkey1,hexpubkey2
 Notes:
 
 - `VITE_APP_URL` should be the final public URL of the app.
-- `VITE_APP_NAME`, `VITE_APP_URL`, and `VITE_APP_LOGO` provide app metadata for protocol handshakes and generated PWA assets.
-- `VITE_APP_LOGO` can be a remote HTTPS URL. The build pulls it into the static bundle for PWA assets.
-- `VITE_APP_ACCENT` controls the deployment accent color.
+- `VITE_APP_NAME`, `VITE_APP_URL`, and `VITE_APP_LOGO` provide runtime app metadata. `VITE_APP_LOGO` is also used as the source for generated PWA assets.
+- `VITE_APP_ACCENT`, `VITE_APP_ACCENT_CONTENT`, `VITE_APP_SECONDARY`, and `VITE_APP_SECONDARY_CONTENT` control the DaisyUI theme colors.
 - `VITE_DEFAULT_PUBKEYS` is worth setting even if `.env.example` makes it look optional.
 - `VITE_DEFAULT_COMMUNITY` should be a community hex pubkey, `npub`, or `ncommunity` value. `ncommunity` relay hints are used first.
 - `VITE_INDEXER_RELAYS` should include relays that can resolve the default community profile and `kind:10222` definition before the app knows that community's own relays.
+- `VITE_SIGNER_RELAYS` are used for NIP-46 signer discovery.
 - `VITE_GIT_RELAYS` are used for top-level `/git` repository discovery and Git-related Nostr events. Community repository catalogs are still selected through `/c/<community>/git` and targeted publication events.
+
+`build.sh` currently post-processes generated HTML and `manifest.webmanifest` from `VITE_PLATFORM_NAME`, `VITE_PLATFORM_SHORT_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_ACCENT`, and `VITE_PLATFORM_URL`. Set those too if you need install-card, Open Graph, and manifest metadata to differ from the built-in Budabit defaults. Runtime metadata still comes from `VITE_APP_*`.
 
 Optional but useful for community media:
 
@@ -53,6 +57,14 @@ VITE_DEFAULT_BLOSSOM_SERVERS=https://blossom-1.example.com,https://blossom-2.exa
 ```
 
 Community-specific Blossom servers should live in the community `kind:10222` definition. `VITE_DEFAULT_BLOSSOM_SERVERS` is a fallback, not community identity.
+
+Optional widget discovery:
+
+```env
+VITE_SMART_WIDGET_RELAYS=wss://relay.yakihonne.com,wss://relay.sharegap.net,wss://nos.lol
+```
+
+If this is empty, Budabit uses built-in widget discovery defaults. Built-in extensions are not bundled or auto-installed; users install extensions from Nostr `kind:30033` events or manifest URLs in Settings > Extensions.
 
 ## Community Definition Checklist
 
@@ -68,9 +80,31 @@ Relays are infrastructure, not identity. Do not configure a deployment as if one
 
 ## Optional Alerts
 
-Email digests and web push alerts are disabled by default with `FEATURE_ALERTS=0`.
-Set `FEATURE_ALERTS=1` and configure notifier values only if you want external alert delivery.
-In-app unread badges and notification sounds do not require notifier values.
+External email digests and web push alerts are disabled by default with `FEATURE_ALERTS=0`. That is the current expected self-hosting mode.
+
+In-app unread badges and notification sounds do not require notifier values and remain available without `FEATURE_ALERTS=1`.
+
+Set `FEATURE_ALERTS=1` only if you want to expose external alert delivery setup, then configure:
+
+```env
+VITE_NOTIFIER_RELAY=
+VITE_NOTIFIER_PUBKEY=
+VITE_NOTIFIER_HANDLER_ADDRESS=
+VITE_NOTIFIER_HANDLER_RELAY=
+VITE_VAPID_PUBLIC_KEY=
+```
+
+If these values are absent while `FEATURE_ALERTS=0`, users still get in-app indications for new activity.
+
+## Optional Account Service
+
+Budabit does not need an account backend for normal Nostr-signer use. If you run a hosted email/password account service, set:
+
+```env
+VITE_BURROW_URL=https://your-burrow.example.com
+```
+
+Leave it empty to hide those flows.
 
 ## Hosting Requirements
 
@@ -101,6 +135,21 @@ Set the equivalent rule:
 - otherwise serve `/index.html`
 
 If your host cannot do SPA fallback, direct links like `/settings`, `/git/...`, or `/c/...` will break.
+
+## Container Runtime
+
+The included Dockerfile builds the static app and serves `build/` with `serve` in SPA mode.
+
+```sh
+podman build -t budabit .
+podman run -d --name budabit -p 1847:1847 budabit
+```
+
+The runtime image defaults to `PORT=1847`. Override it if needed:
+
+```sh
+podman run -d --name budabit -e PORT=3000 -p 3000:3000 budabit
+```
 
 ## Frequent Updates
 
@@ -256,6 +305,9 @@ Budabit is static, but it still talks to public network services from the browse
 - Nostr relays from `VITE_INDEXER_RELAYS`, `VITE_GIT_RELAYS`, user relay lists, and the active community definition
 - Blossom servers from user settings, the active community definition, and optional fallback env values
 - Git HTTP remotes, usually through a CORS proxy
+- Dufflepud at `https://dufflepud.onrender.com`, currently wired as the Welshman backend service URL and used for link preview service calls
+- Optional Burrow account service if `VITE_BURROW_URL` is set
+- Optional notifier/push services only when `FEATURE_ALERTS=1`
 
 Git-over-HTTP operations use a CORS proxy. If you do not set one, Budabit falls back to `https://corsproxy.budabit.club`.
 
@@ -272,6 +324,7 @@ VITE_GIT_DEFAULT_CORS_PROXY=https://your-cors-proxy.example.com
 - Do not use a dumb file server without SPA rewrites and expect deep links to work.
 - Do not point `VITE_DEFAULT_COMMUNITY` at a user profile that has no resolvable `kind:10222` community definition.
 - Do not rely on legacy `/spaces/[relay]` routes. They were removed in the Communikey pivot.
+- Do not expect external email or push delivery unless `FEATURE_ALERTS=1` and notifier values are configured. In-app badges are the default notification path.
 
 ## Sanity Check
 

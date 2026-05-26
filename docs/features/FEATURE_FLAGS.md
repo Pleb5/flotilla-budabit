@@ -36,7 +36,7 @@ Enables experimental CI/CD automation hooks.
 
 Enables external email digest and web push alert setup.
 
-When disabled, email and push alert setup is hidden and direct alert creation is rejected. In-app notification badges and sounds remain available.
+Current default/self-hosted behavior keeps this disabled. When disabled, email and push alert setup is hidden and direct alert creation is rejected. In-app unread badges and notification sounds remain available and are the default way to show new activity.
 
 ## Removed Flags
 

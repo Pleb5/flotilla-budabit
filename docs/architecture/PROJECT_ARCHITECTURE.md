@@ -11,6 +11,7 @@ flotilla-budabit/
 │   ├── nostr-git-core/     # Core Git/Nostr library (NIP-34 implementation)
 │   ├── nostr-git-ui/       # Svelte 5 UI components for Git features
 │   ├── budabit-kanban-extension/  # Kanban board extension
+│   ├── budabit-pipelines-extension/  # Pipelines extension package
 │   └── flotilla-extension-template/
 ├── docs/                   # Project and architecture documentation
 ```
@@ -21,7 +22,7 @@ flotilla-budabit/
 
 ### 1. Provider Abstraction Layer
 
-The git functionality is abstracted through a **GitProvider interface** in `nostr-git-core`:
+The git functionality is abstracted through a **GitProvider interface** in `packages/nostr-git-core/src/git/`:
 
 - **`GitProvider`** (`provider.ts`) - Defines ~60+ git operations (clone, push, fetch, branch, etc.)
 - **`IsomorphicGitProvider`** (`isomorphic-git-provider.ts`) - Implements GitProvider using **isomorphic-git** (a pure JS git implementation that works in browsers)
@@ -66,12 +67,24 @@ Workers are **the backbone** of git operations. Since git operations are expensi
 | `auth.ts`            | Token storage, auth callbacks, retry with multiple tokens      |
 | `branches.ts`        | Branch resolution with fallbacks (HEAD → main → master → list) |
 | `cache.ts`           | IndexedDB caching (repo metadata, commits, merge analysis)     |
+| `commit-history.ts`  | Commit history loading and history-specific fallbacks          |
 | `fs-utils.ts`        | Filesystem utilities (ensureDir, safeRmrf)                     |
+| `git-config.ts`      | Runtime Git configuration, including CORS proxy defaults       |
 | `pr-merge.ts`        | Pull request merge analysis and conflict detection             |
 | `push.ts`            | Safe push with preflight checks                                |
+| `remote-backfill.ts` | Remote refs/state backfill helpers                             |
 | `repo-management.ts` | Create, fork, update repositories                              |
 | `repos.ts`           | Clone operations, smart initialization                         |
 | `sync.ts`            | Sync local with remote, check for updates                      |
+| `timeout.ts`         | Timeout helpers for long-running worker operations             |
+
+### App-Level Worker Wiring
+
+The root app does not rely on package-default worker URL discovery. It wires workers explicitly for Vite/SvelteKit:
+
+- `src/app/core/worker-singleton.ts` creates one shared Git worker with `@nostr-git/core/worker/worker.js?url`, pings it, configures EventIO, and applies Git CORS proxy settings.
+- `src/app/util/git-cors-proxy.ts` normalizes the app-level default CORS proxy from `VITE_GIT_DEFAULT_CORS_PROXY` and the user override in local storage.
+- `src/routes/git/[id=naddr]/+layout.svelte` builds repo-local worker managers and injects repo contexts/stores for child routes.
 
 ### Communication Pattern
 
@@ -137,6 +150,42 @@ let progress = $state<ForkProgress[]>([])
 - **Dialogs**: `ForkRepoDialog.svelte`, `CloneRepoDialog.svelte`, `NewRepoWizard.svelte`
 - **Managers**: `CommitManager.ts`, `BranchManager.ts`, `FileManager.ts`
 - **WorkerManager.ts**: Higher-level abstraction with progress tracking and token management
+
+### Route Context
+
+- `src/routes/git/[id=naddr]/+layout.ts` decodes the `naddr`, validates the canonical repo key, extracts relay hints, and merges fallback Git announcement relays.
+- `src/routes/git/[id=naddr]/+layout.svelte` constructs the `Repo` class, wires repo-scoped derived stores, creates settings/actions contexts, and mounts repo tabs for overview, code, feed, commits, issues, PRs, settings, and enabled repo-tab extensions.
+- Community repository catalogs are separate from canonical repository routes: `/c/[community]/git` lists community-targeted repository publications, while `/git/[id]` is the canonical repo workspace.
+
+---
+
+## Community Bootstrap
+
+Communities are identified by a pubkey, not by a relay URL.
+
+- `src/app/core/community.ts` parses hex pubkeys, `npub`, and `ncommunity://...` values. `ncommunity` relay hints are preserved and used first.
+- `src/app/core/community-state.ts` stores the active community session, loads the latest `kind:10222` definition, resolves profile lists, admission forms, moderator requests, reports, and user/community refs, and persists the active session in local storage.
+- `src/routes/c/[community]/+layout.svelte` activates the route community, hydrates bootstrap data, and provides the shell for community pages.
+- Section definitions in `kind:10222` map community content to rooms, threads, calendar events, goals, repositories, permalinks, widgets, badges, moderation, and admin/access surfaces.
+
+---
+
+## Extension Architecture
+
+Built-in extensions are not bundled or auto-installed. `src/app/extensions/builtin.ts` intentionally leaves `installBuiltinExtensions()` as a no-op.
+
+Budabit supports two install paths:
+
+- NIP-89-style manifest URLs from Settings > Extensions.
+- Smart Widget `kind:30033` events discovered from widget relays or installed directly.
+
+Runtime pieces:
+
+- `src/app/extensions/registry.ts` fetches manifests, parses Smart Widget metadata, validates embeddable URLs, registers origins, and tracks repo context.
+- `src/app/extensions/bridge.ts` provides the iframe host bridge and permissioned messaging.
+- `src/app/extensions/settings.ts` persists installed/enabled extension state.
+- `src/app/extensions/slots.ts` and `components/SlotRenderer.svelte` render extension slots.
+- Repo-tab slots appear under `/git/[id=naddr]/extensions/[extId]`; global/community widget views live under `/widgets` and `/c/[community]/widgets`.
 
 ---
 
@@ -213,6 +262,10 @@ The `RepoCore` class in `repo-core.ts` orchestrates Nostr-based git workflows, i
 - Maintainer trust verification
 - Pull request trust and status metrics
 
+GRASP and Nostr Git paths are compiled in unless `FEATURE_GRASP=0`. Experimental CI/CD hooks require `FEATURE_CICD=1`.
+
+External email/push alerts are compiled in only with `FEATURE_ALERTS=1`. In-app unread badges and notification sounds remain available without enabling external alerts.
+
 ---
 
 ## Package Relationships
@@ -227,6 +280,8 @@ Root Application
 └── @nostr-git/ui (workspace) - Git/Nostr UI components
     └── Depends on: @nostr-git/core (workspace)
 ```
+
+The repository also contains extension packages such as `budabit-kanban-extension`, `budabit-pipelines-extension`, and `flotilla-extension-template`. They are development/distribution packages, not bundled built-ins in the app shell.
 
 **Data Flow:**
 
