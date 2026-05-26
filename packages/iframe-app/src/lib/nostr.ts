@@ -168,3 +168,118 @@ export function buildRepoEvents(
 
   return merge(workflowRuns$, loomJobs$, workerEvents$, workerInfo$, workflowResults$);
 }
+
+/**
+ * Worker discovery stream — kind 10100 worker advertisements. Untrusted by
+ * design: any pubkey can advertise itself as a worker, the UI ranks/filters
+ * downstream. Filters to events from the last 5 minutes via `since` so we
+ * never even see ads from workers that haven't republished recently.
+ */
+export const WORKER_ONLINE_WINDOW_MS = 5 * 60 * 1000;
+
+export function buildWorkerEvents(relays: string[]): Observable<NostrEvent> {
+  const since = Math.floor((Date.now() - WORKER_ONLINE_WINDOW_MS) / 1000);
+  return pool
+    .subscription(relays, {kinds: [KIND_LOOM_WORKER], since})
+    .pipe(onlyEvents());
+}
+
+/**
+ * Layered event stream for the Releases tab. Mirrors `buildRepoEvents` but
+ * keyed on `repoNaddr` (the address pointer), with trust scoped to the
+ * provided maintainer set, and a configurable artifact-kind filter.
+ *
+ * Layers:
+ * - **Workflow runs (5401)** scoped by `#a: repoNaddr`, filtered to runs
+ *   triggered by trusted maintainers.
+ * - **Artifacts (filterKinds)** via two parallel paths: by `authors:
+ *   publishers` and by `#e: runIds`. Downstream code dedupes.
+ * - **Loom jobs (5100)** by `#e: runIds`, used to derive worker pubkeys.
+ * - **Worker ads (10100)** by `authors: workerPubkeys`, used to resolve
+ *   worker names.
+ */
+export function buildReleaseEvents(args: {
+  repoNaddr: string;
+  trustedMaintainers: string[];
+  relays: string[];
+  filterKinds: number[];
+}): Observable<NostrEvent> {
+  const {repoNaddr, trustedMaintainers, relays, filterKinds} = args;
+  const trusted = new Set(trustedMaintainers);
+  if (trusted.size === 0) return EMPTY;
+
+  const accumulateToSet = <T>(values$: Observable<T>) =>
+    values$.pipe(
+      scan((set, v) => (set.has(v) ? set : new Set(set).add(v)), new Set<T>()),
+      distinctUntilChanged(setsEqual),
+    );
+
+  const trustedRuns$ = pool
+    .subscription(relays, {
+      kinds: [KIND_WORKFLOW_RUN],
+      '#a': [repoNaddr],
+    })
+    .pipe(
+      onlyEvents(),
+      filter(e => {
+        const triggeredBy = eventTagValue(e, 'triggered-by');
+        return !!triggeredBy && trusted.has(triggeredBy);
+      }),
+      shareReplay({bufferSize: Infinity, refCount: true}),
+    );
+
+  const publishers$ = accumulateToSet(
+    trustedRuns$.pipe(
+      map(e => eventTagValue(e, 'publisher')),
+      filter((pk): pk is string => !!pk),
+    ),
+  );
+
+  const runIds$ = accumulateToSet(trustedRuns$.pipe(map(e => e.id)));
+
+  const artifactsByPublisher$ = publishers$.pipe(
+    switchMap(pubs => {
+      if (!pubs.size) return EMPTY;
+      return pool
+        .subscription(relays, {kinds: filterKinds, authors: [...pubs]})
+        .pipe(onlyEvents());
+    }),
+  );
+
+  const artifactsByRun$ = runIds$.pipe(
+    switchMap(ids => {
+      if (!ids.size) return EMPTY;
+      return pool
+        .subscription(relays, {kinds: filterKinds, '#e': [...ids]})
+        .pipe(onlyEvents());
+    }),
+  );
+
+  const loomJobs$ = runIds$.pipe(
+    switchMap(ids => {
+      if (!ids.size) return EMPTY;
+      return pool
+        .subscription(relays, {kinds: [KIND_LOOM_JOB], '#e': [...ids]})
+        .pipe(onlyEvents());
+    }),
+    shareReplay({bufferSize: Infinity, refCount: true}),
+  );
+
+  const workerPubkeys$ = accumulateToSet(
+    loomJobs$.pipe(
+      map(e => eventTagValue(e, 'p')),
+      filter((pk): pk is string => !!pk),
+    ),
+  );
+
+  const workerAds$ = workerPubkeys$.pipe(
+    switchMap(pks => {
+      if (!pks.size) return EMPTY;
+      return pool
+        .subscription(relays, {kinds: [KIND_LOOM_WORKER], authors: [...pks]})
+        .pipe(onlyEvents());
+    }),
+  );
+
+  return merge(trustedRuns$, artifactsByPublisher$, artifactsByRun$, loomJobs$, workerAds$);
+}

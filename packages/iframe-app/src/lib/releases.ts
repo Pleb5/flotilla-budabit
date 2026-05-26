@@ -1,6 +1,8 @@
 import type { WidgetBridge } from '@flotilla/ext-shared';
+import { BehaviorSubject, type Observable } from 'rxjs';
 import type { NostrEvent, RepoContextNormalized } from './types';
 import { queryEvents, eventTagValue } from './workflows';
+import { buildReleaseEvents, eventStore } from './nostr';
 
 const FALLBACK_RELAYS = ['wss://relay.sharegap.net', 'wss://nos.lol'];
 
@@ -130,95 +132,79 @@ export function createSignedReleaseTemplate(sourceEvent: NostrEvent): {
  *
  * Returns all the data needed to render the release signing view.
  */
-export async function loadReleaseData(
-  bridge: WidgetBridge,
-  repo: RepoContextNormalized,
-  trustedMaintainers: string[],
-  filterKinds: number[] = [1063]
-): Promise<{
+export interface ReleaseDataState {
   artifacts: ReleaseArtifact[];
   workflowRuns: Map<string, NostrEvent>;
   workerNames: Map<string, string>;
   ephemeralToWorker: Map<string, string>;
-}> {
-  const relays = dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
-  const trustedNpubs = new Set(trustedMaintainers);
+}
 
-  const emptyResult = {
-    artifacts: [],
-    workflowRuns: new Map<string, NostrEvent>(),
-    workerNames: new Map<string, string>(),
-    ephemeralToWorker: new Map<string, string>(),
-  };
+const emptyReleaseState = (): ReleaseDataState => ({
+  artifacts: [],
+  workflowRuns: new Map(),
+  workerNames: new Map(),
+  ephemeralToWorker: new Map(),
+});
 
-  if (!repo.repoNaddr || trustedNpubs.size === 0) {
-    console.log('[releases] no repoNaddr or no trusted maintainers');
-    return emptyResult;
+/**
+ * Live release-data stream. Subscribes to the layered release events
+ * (`buildReleaseEvents`) and folds them into the same shape the previous
+ * one-shot `loadReleaseData` returned. Emits an updated state whenever new
+ * events arrive (workflow runs, artifacts, loom jobs, worker ads).
+ *
+ * Cached per (repoNaddr, trustedMaintainers, filterKinds) so re-mounting
+ * the Releases tab gets the current snapshot immediately.
+ */
+const releaseDataCache = new Map<string, BehaviorSubject<ReleaseDataState>>();
+
+export function releaseData$(args: {
+  repo: RepoContextNormalized;
+  trustedMaintainers: string[];
+  filterKinds?: number[];
+}): Observable<ReleaseDataState> {
+  const filterKinds = args.filterKinds ?? [1063];
+  // `repoNaddr` is read off the host context shape — the type doesn't (yet)
+  // declare it but the host is known to set it. Pre-existing convention.
+  const repoNaddr = (args.repo as unknown as {repoNaddr?: string}).repoNaddr;
+  const trustedNpubs = [...new Set(args.trustedMaintainers)].sort();
+  const relays = dedupe([...args.repo.repoRelays, ...FALLBACK_RELAYS]);
+
+  if (!repoNaddr || trustedNpubs.length === 0) {
+    return new BehaviorSubject(emptyReleaseState());
   }
 
-  // Phase 1: Load workflow runs (kind 5401) to discover ephemeral pubkeys
-  const runs = await queryEvents(bridge, relays, [
-    { kinds: [5401], '#a': [repo.repoNaddr] },
-  ]);
+  const cacheKey = [repoNaddr, trustedNpubs.join(','), filterKinds.join(','), relays.slice().sort().join(',')].join('|');
+  const existing = releaseDataCache.get(cacheKey);
+  if (existing) return existing;
 
-  console.log('[releases] Found', runs.length, 'workflow runs');
+  const trustedSet = new Set(trustedNpubs);
+  const subject = new BehaviorSubject<ReleaseDataState>(emptyReleaseState());
 
-  // Build two indexes from trusted runs
-  const publisherMap = new Map<string, NostrEvent>();
-  const runIdMap = new Map<string, NostrEvent>();
+  // Mutable indexes accumulated over the stream's lifetime.
+  const runIdMap = new Map<string, NostrEvent>(); // run id → workflow run event
+  const publisherMap = new Map<string, NostrEvent>(); // publisher (or artifact-author) pubkey → run event
+  const artifactEvents = new Map<string, NostrEvent>(); // artifact event id → event
+  const ephemeralToWorker = new Map<string, string>(); // publisher pubkey → worker pubkey
+  const workerAdByPubkey = new Map<string, NostrEvent>(); // worker pubkey → latest 10100 ad
 
-  for (const run of runs) {
-    const triggeredBy = eventTagValue(run, 'triggered-by');
-    const publisher = eventTagValue(run, 'publisher');
-    if (triggeredBy && trustedNpubs.has(triggeredBy)) {
-      if (publisher) publisherMap.set(publisher, run);
-      runIdMap.set(run.id, run);
-    }
-  }
-
-  const publishers = Array.from(publisherMap.keys());
-  const runIds = Array.from(runIdMap.keys());
-
-  if (publishers.length === 0 && runIds.length === 0) {
-    return emptyResult;
-  }
-
-  // Phase 2: Fetch artifacts via both trust paths, deduplicate
-  const filters: Array<Record<string, unknown>> = [];
-  if (publishers.length > 0) {
-    filters.push({ kinds: filterKinds, authors: publishers });
-  }
-  if (runIds.length > 0) {
-    filters.push({ kinds: filterKinds, '#e': runIds });
-  }
-
-  const allEvents = await queryEvents(bridge, relays, filters);
-
-  // For e-tag-linked events, backfill publisherMap
-  for (const e of allEvents) {
-    if (!publisherMap.has(e.pubkey)) {
-      const eTag = e.tags.find((t) => t[0] === 'e')?.[1];
-      if (eTag && runIdMap.has(eTag)) {
-        publisherMap.set(e.pubkey, runIdMap.get(eTag)!);
+  const recompute = () => {
+    // Backfill publisherMap from artifact e-tags pointing at known runs.
+    for (const event of artifactEvents.values()) {
+      if (publisherMap.has(event.pubkey)) continue;
+      const eTag = event.tags.find(t => t[0] === 'e')?.[1];
+      if (eTag) {
+        const run = runIdMap.get(eTag);
+        if (run) publisherMap.set(event.pubkey, run);
       }
     }
-  }
 
-  // Filter to valid artifacts
-  const releaseEvents = allEvents.filter((e) => {
-    const hash = eventTagValue(e, 'x');
-    return hash && validateHash(hash);
-  });
-
-  // Build artifacts
-  const artifacts: ReleaseArtifact[] = releaseEvents
-    .map((event) => {
+    const artifacts: ReleaseArtifact[] = [];
+    for (const event of artifactEvents.values()) {
       const hash = eventTagValue(event, 'x');
-      if (!hash) return null;
+      if (!hash || !validateHash(hash)) continue;
       const publisherRun = publisherMap.get(event.pubkey);
-      if (!publisherRun) return null;
-
-      return {
+      if (!publisherRun) continue;
+      artifacts.push({
         event,
         hash,
         filename: eventTagValue(event, 'filename') ?? 'unknown',
@@ -226,59 +212,68 @@ export async function loadReleaseData(
         ephemeralPubkey: event.pubkey,
         workflow: eventTagValue(publisherRun, 'workflow') ?? '',
         branch: eventTagValue(publisherRun, 'branch') ?? '',
-        tags: Object.fromEntries(event.tags.map((t) => [t[0], t[1]])),
-      };
-    })
-    .filter((a): a is ReleaseArtifact => a !== null);
+        tags: Object.fromEntries(event.tags.map(t => [t[0], t[1]])),
+      });
+    }
 
-  // Phase 3: Resolve worker names via Kind 5100 → Kind 10100
-  const ephemeralToWorker = new Map<string, string>();
-  const workerNames = new Map<string, string>();
-
-  if (runIds.length > 0) {
-    const jobEvents = await queryEvents(bridge, relays, [
-      { kinds: [5100], '#e': runIds, limit: 200 },
-    ]);
-
-    for (const job of jobEvents) {
-      const eTag = job.tags.find((t) => t[0] === 'e')?.[1];
-      const pTag = job.tags.find((t) => t[0] === 'p')?.[1];
-      if (eTag && pTag && runIdMap.has(eTag)) {
-        const run = runIdMap.get(eTag)!;
-        const publisher = eventTagValue(run, 'publisher');
-        if (publisher) ephemeralToWorker.set(publisher, pTag);
+    const workerNames = new Map<string, string>();
+    for (const [ephKey, workerPk] of ephemeralToWorker) {
+      const ad = workerAdByPubkey.get(workerPk);
+      if (!ad) continue;
+      try {
+        const content = JSON.parse(ad.content || '{}');
+        if (content.name) workerNames.set(ephKey, content.name);
+      } catch {
+        // ignore unparseable worker ads
       }
     }
 
-    const workerPubkeys = [...new Set(ephemeralToWorker.values())];
-    if (workerPubkeys.length > 0) {
-      const ads = await queryEvents(bridge, relays, [
-        { kinds: [10100], authors: workerPubkeys, limit: 200 },
-      ]);
+    subject.next({
+      artifacts,
+      workflowRuns: new Map(publisherMap),
+      workerNames,
+      ephemeralToWorker: new Map(ephemeralToWorker),
+    });
+  };
 
-      const adByPubkey = new Map<string, NostrEvent>();
-      for (const ad of ads) {
-        const existing = adByPubkey.get(ad.pubkey);
-        if (!existing || ad.created_at > existing.created_at) {
-          adByPubkey.set(ad.pubkey, ad);
-        }
-      }
+  buildReleaseEvents({repoNaddr, trustedMaintainers: trustedNpubs, relays, filterKinds}).subscribe(event => {
+    eventStore.add(event as Parameters<typeof eventStore.add>[0]);
 
-      for (const [ephKey, workerPk] of ephemeralToWorker) {
-        const ad = adByPubkey.get(workerPk);
-        if (ad) {
-          try {
-            const content = JSON.parse(ad.content || '{}');
-            if (content.name) workerNames.set(ephKey, content.name);
-          } catch {
-            // ignore
-          }
-        }
-      }
+    if (event.kind === 5401) {
+      const triggeredBy = eventTagValue(event, 'triggered-by');
+      if (!triggeredBy || !trustedSet.has(triggeredBy)) return;
+      const prior = runIdMap.get(event.id);
+      if (prior && prior.created_at >= event.created_at) return;
+      runIdMap.set(event.id, event);
+      const publisher = eventTagValue(event, 'publisher');
+      if (publisher) publisherMap.set(publisher, event);
+      recompute();
+    } else if (event.kind === 5100) {
+      const eTag = event.tags.find(t => t[0] === 'e')?.[1];
+      const pTag = event.tags.find(t => t[0] === 'p')?.[1];
+      if (!eTag || !pTag) return;
+      const run = runIdMap.get(eTag);
+      if (!run) return;
+      const publisher = eventTagValue(run, 'publisher');
+      if (!publisher) return;
+      if (ephemeralToWorker.get(publisher) === pTag) return;
+      ephemeralToWorker.set(publisher, pTag);
+      recompute();
+    } else if (event.kind === 10100) {
+      const prior = workerAdByPubkey.get(event.pubkey);
+      if (prior && prior.created_at >= event.created_at) return;
+      workerAdByPubkey.set(event.pubkey, event);
+      recompute();
+    } else if (filterKinds.includes(event.kind)) {
+      const prior = artifactEvents.get(event.id);
+      if (prior) return;
+      artifactEvents.set(event.id, event);
+      recompute();
     }
-  }
+  });
 
-  return { artifacts, workflowRuns: publisherMap, workerNames, ephemeralToWorker };
+  releaseDataCache.set(cacheKey, subject);
+  return subject;
 }
 
 /**
