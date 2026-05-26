@@ -23,6 +23,20 @@ export function normalizeGitRefName(input?: string): string {
   return raw;
 }
 
+export function getGitRefMismatch(
+  requested?: string,
+  actual?: string
+): { requested: string; actual: string } | null {
+  const requestedName = normalizeGitRefName(requested);
+  const actualName = normalizeGitRefName(actual);
+
+  if (!requestedName || !actualName || requestedName === actualName) {
+    return null;
+  }
+
+  return { requested: requestedName, actual: actualName };
+}
+
 export function isPeeledTagName(name?: string): boolean {
   return normalizeGitRefName(name).endsWith("^{}");
 }

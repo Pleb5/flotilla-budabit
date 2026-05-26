@@ -44,7 +44,7 @@ import {
   extractHostname,
 } from "@nostr-git/core/git";
 import { VendorReadRouter } from "./VendorReadRouter";
-import { isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
+import { getGitRefMismatch, isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
 import { resolvePreferredBranchFromRefs } from "./branch-selection";
 import { resolveLoadPageBranch } from "./load-page-branch";
 import {
@@ -1674,6 +1674,19 @@ export class Repo {
     return this.#branchChangeTrigger;
   }
 
+  #assertBranchSwitchMatched(
+    requestedBranch: string,
+    actualBranch: string | undefined,
+    source: string
+  ) {
+    const mismatch = getGitRefMismatch(requestedBranch, actualBranch);
+    if (!mismatch) return;
+
+    throw new Error(
+      `Requested branch '${mismatch.requested}' but ${source} selected '${mismatch.actual}' instead.`
+    );
+  }
+
   async setSelectedBranch(branchName: string, options: { persist?: boolean } = { persist: true }) {
     const previousBranch = this.selectedBranch;
 
@@ -1717,7 +1730,7 @@ export class Repo {
 
       // 1) Only sync with remote if vendor API is NOT available
       // When vendor API is available, we can get data immediately without waiting for git
-      if (!hasVendorApi && this.key && cloneUrls.length > 0) {
+      if (!isTag && !hasVendorApi && this.key && cloneUrls.length > 0) {
         // Ensure worker is ready
         if (!this.workerManager?.isReady) {
           await this.workerManager.initialize();
@@ -1729,7 +1742,13 @@ export class Repo {
             repoId: this.key,
             cloneUrls,
             branch: shortBranch,
+            requireRemoteSync: true,
+            requireTrackingRef: true,
           });
+          if (this.syncStatus?.success === false) {
+            throw new Error(this.syncStatus.error || `Failed to sync branch '${shortBranch}'`);
+          }
+          this.#assertBranchSwitchMatched(shortBranch, this.syncStatus?.branch, "remote sync");
           if (this.syncStatus?.usedUrl) {
             this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
           }
@@ -1749,7 +1768,17 @@ export class Repo {
 
         // 2) Ensure the branch is fully available locally (deep clone as needed)
         if (this.key) {
-          await this.workerManager.ensureFullClone({ repoId: this.key, branch: shortBranch });
+          const fullCloneResult = await this.workerManager.ensureFullClone({
+            repoId: this.key,
+            branch: shortBranch,
+            cloneUrls,
+          });
+          if (fullCloneResult?.success === false) {
+            throw new Error(
+              fullCloneResult.error || `Failed to load branch '${shortBranch}' locally`
+            );
+          }
+          this.#assertBranchSwitchMatched(shortBranch, fullCloneResult?.branch, "full clone");
         }
       } else if (hasVendorApi) {
         console.log(
@@ -1784,6 +1813,9 @@ export class Repo {
         shortBranch, // The selected branch or tag
         mainBranchName
       );
+      if (!result.success) {
+        throw new Error(result.error || `Failed to load commits for '${shortBranch}'`);
+      }
       console.log(
         `[setSelectedBranch] Commits loaded:`,
         result.success,
@@ -1804,8 +1836,10 @@ export class Repo {
         this.#refsLoading = true;
         await this.branchManager.loadAllRefs(() => this.getAllRefsWithFallback());
         this.refs = this.branchManager.getAllRefs();
-        this.#selectedBranchState =
+        const selectedAfterRefs =
           this.branchManager.getSelectedBranch() || this.#selectedBranchState;
+        this.#assertBranchSwitchMatched(shortBranch, selectedAfterRefs, "ref refresh");
+        this.#selectedBranchState = selectedAfterRefs || this.#selectedBranchState;
         this.refDiscoverySource =
           this.branchManager.getRefDiscoverySource() || this.refDiscoverySource;
       } finally {

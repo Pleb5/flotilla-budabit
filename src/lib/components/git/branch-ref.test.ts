@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isDisplayableGitRef, isPeeledTagName, normalizeGitRefName } from "./branch-ref";
+import {
+  getGitRefMismatch,
+  isDisplayableGitRef,
+  isPeeledTagName,
+  normalizeGitRefName,
+} from "./branch-ref";
 
 describe("normalizeGitRefName", () => {
   it("preserves slash-containing branch names", () => {
@@ -28,5 +33,14 @@ describe("normalizeGitRefName", () => {
     expect(isDisplayableGitRef({ name: "v0.2.0^{}", type: "tags" })).toBe(false);
     expect(isDisplayableGitRef({ name: "v0.2.0", type: "tags" })).toBe(true);
     expect(isDisplayableGitRef({ name: "fix/ipk-builds", type: "heads" })).toBe(true);
+  });
+
+  it("detects mismatched normalized refs", () => {
+    expect(getGitRefMismatch("refs/heads/feature/x", "origin/feature/x")).toBeNull();
+    expect(getGitRefMismatch("feature/x", "refs/heads/main")).toEqual({
+      requested: "feature/x",
+      actual: "main",
+    });
+    expect(getGitRefMismatch("feature/x", "")).toBeNull();
   });
 });
