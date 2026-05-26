@@ -595,12 +595,32 @@ export class VendorReadRouter {
     }
 
     if (commitsResult?.success === false) {
+      if (
+        pendingVendorFailures.some((attempt) => this.isBenignEmptyRepoCommitError(attempt.error))
+      ) {
+        return {
+          commits: [],
+          ref: normalizeGitRefName(branch),
+          fromVendor: false,
+          hasMore: false,
+        };
+      }
+
       for (const attempt of pendingVendorFailures.filter(
         (entry) => !this.isBenignEmptyRepoCommitError(entry.error)
       )) {
         const status = this.extractHttpStatus(attempt.error);
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
       }
+
+      const vendorContext = pendingVendorFailures.length
+        ? ` after vendor REST failed: ${pendingVendorFailures
+            .map((attempt) => `${attempt.url}: ${attempt.error || "Unknown error"}`)
+            .join(" | ")}`
+        : "";
+      throw createUnknownError(
+        `${commitsResult.error || "Git worker commit history fallback failed"}${vendorContext}`
+      );
     }
 
     const commits: VendorCommit[] = (commitsResult.commits || []).map((c: any) => ({
@@ -629,6 +649,7 @@ export class VendorReadRouter {
       commits,
       ref: normalizeGitRefName(branch),
       fromVendor: false,
+      hasMore: commits.length >= depth,
     };
   }
 

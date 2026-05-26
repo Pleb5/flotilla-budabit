@@ -220,16 +220,16 @@ describe("VendorReadRouter.listCommits", () => {
       })),
     } as any;
 
-    const result = await router.listCommits({
-      workerManager,
-      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
-      repoKey: "owner/repo",
-      cloneUrls: ["https://github.com/example/repo.git"],
-      branch: "master",
-    });
+    await expect(
+      router.listCommits({
+        workerManager,
+        repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+        repoKey: "owner/repo",
+        cloneUrls: ["https://github.com/example/repo.git"],
+        branch: "master",
+      })
+    ).rejects.toThrow("Branch not found");
 
-    expect(result.fromVendor).toBe(false);
-    expect(result.commits).toHaveLength(0);
     expect(reportCloneUrlError).toHaveBeenCalledWith(
       "https://github.com/example/repo.git",
       expect.stringContaining("HTTP 404"),

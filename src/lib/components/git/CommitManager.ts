@@ -436,7 +436,7 @@ export class CommitManager {
             repoKey: this.canonicalKey,
             cloneUrls,
             branch: branchName,
-            depth: this.commitsPerPage,
+            depth: requiredDepth,
             page: this.currentPage,
             perPage: this.commitsPerPage,
           });
@@ -548,7 +548,9 @@ export class CommitManager {
 
         this.hasMoreCommits = commitsResult.fromVendor
           ? Boolean(commitsResult.hasMore)
-          : endIndex < allCommits.length;
+          : commitsResult.hasMore !== undefined
+            ? Boolean(commitsResult.hasMore)
+            : endIndex < allCommits.length;
 
         // Only fetch total count on first load and cache it
         if (this.currentPage === 1 && this.totalCommits === undefined) {
