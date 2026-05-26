@@ -248,4 +248,37 @@ describe("BranchManager", () => {
 
     expect(manager.getRefDiscoverySource()?.kind).toBe("repo-state");
   });
+
+  it("waits for an in-flight ref load instead of returning stale refs", async () => {
+    const manager = new BranchManager({} as any);
+    let releaseLoad!: () => void;
+    const callback = vi.fn(
+      () =>
+        new Promise<Array<{ name: string; type: "heads"; fullRef: string; commitId: string }>>(
+          (resolve) => {
+            releaseLoad = () =>
+              resolve([
+                {
+                  name: "main",
+                  type: "heads",
+                  fullRef: "refs/heads/main",
+                  commitId: "abc123",
+                },
+              ]);
+          }
+        )
+    );
+
+    const firstLoad = manager.loadAllRefs(callback);
+    const secondLoad = manager.loadAllRefs(async () => {
+      throw new Error("second callback should wait for the first load");
+    });
+
+    expect(manager.getAllRefs()).toEqual([]);
+    releaseLoad();
+    await Promise.all([firstLoad, secondLoad]);
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(manager.getAllRefs().map((ref) => ref.name)).toEqual(["main"]);
+  });
 });
