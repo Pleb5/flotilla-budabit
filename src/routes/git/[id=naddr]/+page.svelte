@@ -892,7 +892,7 @@
                       <div class="min-w-0 flex-1">
                         <code
                           class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs {isNostr
-                            ? 'text-purple-300'
+                            ? 'text-purple-700 dark:text-purple-200'
                             : ''}">{item.url}</code>
                         <div class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide">
                           {#if item.isDeclaredPrimary}
