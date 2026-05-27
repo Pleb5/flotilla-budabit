@@ -3,6 +3,7 @@
   import {goto} from "$app/navigation"
   import {userProfile, pubkey} from "@welshman/app"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
@@ -158,7 +159,11 @@
       <ImageIcon alt="Search" src={Magnifier} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
-      <ImageIcon alt="Settings" src={Settings} size={5} />
+      {#if $pubkey}
+        <ProfileCircle pubkey={$pubkey} size={5} />
+      {:else}
+        <ImageIcon alt="Settings" src={UserRounded} size={5} class="rounded-full" />
+      {/if}
     </PrimaryNavItem>
   </div>
 </div>

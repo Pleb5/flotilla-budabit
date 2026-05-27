@@ -15,13 +15,23 @@
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import LogOut from "@app/components/LogOut.svelte"
-  import {pushModal} from "@app/util/modal"
+  import {clearModals, pushModal} from "@app/util/modal"
   import {theme} from "@app/util/theme"
 
   const logout = () => pushModal(LogOut)
 
   const toggleTheme = () => theme.set($theme === "dark" ? "light" : "dark")
+
+  const dismissOnEscape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return
+
+    event.preventDefault()
+    event.stopPropagation()
+    clearModals()
+  }
 </script>
+
+<svelte:window onkeydown={dismissOnEscape} />
 
 <div class="column menu gap-2">
   <Link replaceState href="/settings/profile">
