@@ -89,6 +89,15 @@ export const makeCommunityPermalinkPath = (community: string, eventId?: string) 
 export const makeCommunityWidgetPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "widgets", eventId)
 
+export type CommunityReportTargetPathInput = {
+  targetEventId?: string
+  targetEventKind?: number
+  targetEventSubtype?: string
+  targetRootId?: string
+  targetRootKind?: number
+  targetIdentifier?: string
+}
+
 export const makeSpacePath = (community: string, ...extra: (string | undefined)[]) =>
   makeCommunityPath(community, ...extra)
 
@@ -120,6 +129,61 @@ const getCommunityPubkeyForEvent = (event: TrustedEvent) => {
 
 const getEventRootId = (event: TrustedEvent) =>
   getTagValue("E", event.tags) || getTagValue("e", event.tags)
+
+const getCommunityPathForKind = ({
+  community,
+  kind,
+  id,
+  subtype = "",
+}: {
+  community: string
+  kind?: number
+  id?: string
+  subtype?: string
+}) => {
+  if (!kind || !id) return undefined
+
+  if (kind === THREAD) {
+    return subtype === "room" ? makeCommunityRoomPath(community, id) : makeCommunityThreadPath(community, id)
+  }
+  if (kind === MESSAGE) return makeCommunityRoomPath(community, id)
+  if (kind === EVENT_TIME) return makeCommunityCalendarPath(community, id)
+  if (kind === ZAP_GOAL) return makeCommunityGoalPath(community, id)
+  if (kind === SMART_WIDGET_KIND) return makeCommunityWidgetPath(community, id)
+
+  return undefined
+}
+
+export const getCommunityReportTargetPath = (
+  community: string,
+  target: CommunityReportTargetPathInput,
+) => {
+  const targetId = target.targetIdentifier || target.targetEventId || ""
+  const rootId = target.targetRootId || ""
+
+  if (target.targetEventKind === COMMENT) {
+    return getCommunityPathForKind({
+      community,
+      kind: target.targetRootKind,
+      id: rootId,
+    })
+  }
+
+  if (target.targetEventKind === MESSAGE) {
+    return getCommunityPathForKind({
+      community,
+      kind: MESSAGE,
+      id: rootId || target.targetEventId,
+    })
+  }
+
+  return getCommunityPathForKind({
+    community,
+    kind: target.targetEventKind,
+    id: targetId,
+    subtype: target.targetEventSubtype,
+  })
+}
 
 const TARGETED_PUBLICATION_ROUTE_KINDS = [EVENT_TIME, ZAP_GOAL, SMART_WIDGET_KIND]
 

@@ -56,6 +56,7 @@ const definition = parseCommunityDefinition(
       ["k", "9", "room-message"],
       ["k", "1111"],
       ["k", "7"],
+      ["k", "1984"],
       ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:General`],
       ["badge", `${BADGE_DEFINITION}:${managerPubkey}:member`],
       ["content", "Repositories"],
@@ -95,6 +96,7 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(9, "room-message")).toEqual(COMMUNITY_WRITE_TARGETS.roomMessage)
     expect(getCommunityWriteTarget(11, "threads")).toEqual(COMMUNITY_WRITE_TARGETS.thread)
     expect(getCommunityWriteTarget(11, "forum")).toEqual(COMMUNITY_WRITE_TARGETS.thread)
+    expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
   })
 
@@ -287,6 +289,7 @@ describe("community permissions", () => {
     expect(capabilities["9:room-message"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})
+    expect(capabilities["1984"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["30617"]).toMatchObject({sectionName: "Repositories", canWrite: false})
   })
 

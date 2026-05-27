@@ -243,6 +243,7 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
         {kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
         {kind: 1111},
         {kind: 7},
+        {kind: 1984},
         {kind: 1985},
       ]
     case COMMUNITY_SECTION_ROOMS:

@@ -17,6 +17,7 @@ import {
   canWriteFromProfileList,
   findCommunitySection,
   getCommunityMainRelay,
+  getDefaultCommunitySectionKinds,
   makeCommunityBadgeDefinition,
   makeCommunityNcommunity,
   makeCommunitySetupSection,
@@ -214,7 +215,10 @@ describe("community protocol helpers", () => {
     })
     expect(general.badges).toEqual([])
     expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM_MESSAGE)).toBe(true)
+    expect(sectionSupportsKind(general, 1984)).toBe(true)
+    expect(sectionSupportsKind(general, 1985)).toBe(true)
     expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
+    expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_GENERAL)).toContainEqual({kind: 1984})
   })
 
   it("builds custom content sections with multiple authority refs", () => {

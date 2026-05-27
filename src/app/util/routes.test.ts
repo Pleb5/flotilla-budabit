@@ -186,6 +186,40 @@ describe("routes", () => {
     ).toBe(`/c/${communityNpub}/rooms/room-root`)
   })
 
+  it("routes community report targets to in-app context pages", async () => {
+    const {getCommunityReportTargetPath} = await import("./routes")
+    const communityPubkey = "a".repeat(64)
+    const communityNpub = nip19.npubEncode(communityPubkey)
+
+    expect(
+      getCommunityReportTargetPath(communityPubkey, {
+        targetEventKind: 9,
+        targetEventId: "message-id",
+        targetRootId: "room-root",
+      }),
+    ).toBe(`/c/${communityNpub}/rooms/room-root`)
+    expect(
+      getCommunityReportTargetPath(communityPubkey, {
+        targetEventKind: 1111,
+        targetRootKind: 11,
+        targetRootId: "thread-root",
+      }),
+    ).toBe(`/c/${communityNpub}/threads/thread-root`)
+    expect(
+      getCommunityReportTargetPath(communityPubkey, {
+        targetEventKind: 31922,
+        targetEventId: "calendar-id",
+        targetIdentifier: "calendar-d",
+      }),
+    ).toBe(`/c/${communityNpub}/calendar/calendar-d`)
+    expect(
+      getCommunityReportTargetPath(communityPubkey, {
+        targetEventKind: 9041,
+        targetEventId: "goal-id",
+      }),
+    ).toBe(`/c/${communityNpub}/goals/goal-id`)
+  })
+
   it("routes targetable community events to their section pages", async () => {
     const {getCommunityEventPath} = await import("./routes")
     const communityPubkey = "a".repeat(64)

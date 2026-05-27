@@ -1,17 +1,23 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
-  import {THREAD, getTagValue, makeEvent} from "@welshman/util"
+  import {MESSAGE, THREAD, getTagValue, makeEvent} from "@welshman/util"
   import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import Danger from "@assets/icons/danger.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import {activeCommunityDefinition, activeCommunityReportState} from "@app/core/community-state"
-  import {normalizePubkey} from "@app/core/community"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityReportState,
+  } from "@app/core/community-state"
+  import {COMMUNITY_SUBTYPE_ROOM_MESSAGE, normalizePubkey} from "@app/core/community"
   import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {
+    canPublishCommunityContentReport,
     canPublishCommunityEventReport,
     canPublishCommunityPersonReport,
+    getCommunityReportTargetContext,
     makeCommunityEventReport,
     makeCommunityPersonReport,
   } from "@app/core/community-reports"
@@ -39,6 +45,14 @@
   const reportRelays = $derived.by(() =>
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
+  type CommunityReportAction = "content" | "event" | "person"
+
+  const eventSubtype = $derived.by(() => {
+    if (event.kind === THREAD && event.tags.some(tag => tag[0] === "room")) return "room"
+    if (event.kind === MESSAGE) return COMMUNITY_SUBTYPE_ROOM_MESSAGE
+
+    return ""
+  })
   const canModerateEvent = $derived.by(() =>
     Boolean(
       $activeCommunityDefinition &&
@@ -50,6 +64,22 @@
         reporterPubkey,
         targetPubkey: event.pubkey,
         sectionName,
+        reportState: $activeCommunityReportState,
+      }),
+    ),
+  )
+  const canReportContent = $derived.by(() =>
+    Boolean(
+      $activeCommunityDefinition &&
+      reporterPubkey &&
+      sectionName &&
+      reportRelays.length > 0 &&
+      !canModerateEvent &&
+      canPublishCommunityContentReport({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        reporterPubkey,
+        targetPubkey: event.pubkey,
         reportState: $activeCommunityReportState,
       }),
     ),
@@ -79,26 +109,30 @@
       : "Relay did not confirm the moderation report."
   }
 
-  const publishCommunityReport = async (target: "event" | "person") => {
+  const publishCommunityReport = async (target: CommunityReportAction) => {
     if (!$activeCommunityDefinition || publishStatus === "publishing") return
+    if (target === "content" && !canReportContent) return
+    if (target === "event" && !canModerateEvent) return
+    if (target === "person" && !canModeratePerson) return
 
     if (reportRelays.length === 0) {
       pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
     }
 
+    const targetContext = getCommunityReportTargetContext(event)
     const template =
-      target === "event"
+      target === "event" || target === "content"
         ? makeCommunityEventReport({
             communityPubkey: $activeCommunityDefinition.pubkey,
             sectionName,
             eventId: event.id,
             eventPubkey: event.pubkey,
             eventKind: event.kind,
-            eventSubtype:
-              event.kind === THREAD && event.tags.some(tag => tag[0] === "room") ? "room" : "",
+            eventSubtype,
             eventTitle: getTagValue("title", event.tags) || "",
             eventContent: event.content || "",
+            ...targetContext,
           })
         : makeCommunityPersonReport({
             communityPubkey: $activeCommunityDefinition.pubkey,
@@ -119,7 +153,7 @@
       publishStatus = "idle"
       pushToast({
         theme: "error",
-        message: `Moderation failed: ${getPublishError(thunk)}`,
+        message: `${target === "content" ? "Report" : "Moderation"} failed: ${getPublishError(thunk)}`,
       })
       return
     }
@@ -127,19 +161,27 @@
     publishStatus = "idle"
     pushToast({
       theme: "success",
-      message: target === "event" ? "Event moderated." : "Person banned.",
+      message:
+        target === "content"
+          ? "Report sent to community moderators."
+          : target === "event"
+            ? "Event moderated."
+            : "Person banned.",
     })
     history.back()
   }
 
-  const confirmModeration = (target: "event" | "person") => {
+  const confirmModeration = (target: CommunityReportAction) => {
     onClick?.()
     pushModal(
       Confirm,
       {
-        title: target === "event" ? "Moderate event" : "Ban person",
+        title:
+          target === "content" ? "Report content" : target === "event" ? "Moderate event" : "Ban person",
         message:
-          target === "event"
+          target === "content"
+            ? "Send this report to community moderators for review?"
+            : target === "event"
             ? "Hide this event in the current community section?"
             : "Ban this person from publishing across this community?",
         confirm: () => publishCommunityReport(target),
@@ -154,6 +196,15 @@
 </script>
 
 {#if mode === "buttons"}
+  {#if canReportContent}
+    <Button
+      class={buttonClass}
+      disabled={publishStatus === "publishing"}
+      onclick={() => confirmModeration("content")}>
+      <Icon size={4} icon={Danger} />
+      {publishStatus === "publishing" ? "Publishing..." : "Report Content"}
+    </Button>
+  {/if}
   {#if canModerateEvent}
     <Button
       class={buttonClass}
@@ -173,6 +224,17 @@
     </Button>
   {/if}
 {:else}
+  {#if canReportContent}
+    <li>
+      <Button
+        class={buttonClass}
+        disabled={publishStatus === "publishing"}
+        onclick={() => confirmModeration("content")}>
+        <Icon size={4} icon={Danger} />
+        {publishStatus === "publishing" ? "Publishing..." : "Report Content"}
+      </Button>
+    </li>
+  {/if}
   {#if canModerateEvent}
     <li>
       <Button

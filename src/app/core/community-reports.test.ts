@@ -10,17 +10,23 @@ import {
 import {
   COMMUNITY_REPORT_KIND,
   COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH,
+  canPublishCommunityContentReport,
   canPublishCommunityEventReport,
   canPublishCommunityPersonReport,
+  canReviewCommunityContentReport,
   getAllSectionModeratorPubkeys,
   getCommunityCensorReason,
+  getCommunityContentReportGroups,
+  getCommunityContentReports,
   getEffectiveCommunityModerationActionsByReporter,
   getEffectiveCommunityReportState,
   isCommunityPersonBanned,
   makeCommunityEventReport,
   makeCommunityPersonReport,
   makeCommunityReportDelete,
+  makeCommunityReportReviewLabel,
   parseCommunityReport,
+  parseCommunityReportReviewLabel,
 } from "./community-reports"
 
 const communityPubkey = "a".repeat(64)
@@ -51,6 +57,7 @@ const makeDefinition = ({includeSectionModerator = true} = {}) =>
         ["content", "General"],
         ["k", "9", "room-message"],
         ["k", "1111"],
+        ["k", "1984"],
         ...(includeSectionModerator
           ? [
               ["a", `${PROFILE_LIST_KIND}:${sectionModeratorPubkey}:General`],
@@ -68,6 +75,16 @@ const makeDefinition = ({includeSectionModerator = true} = {}) =>
       ],
     }),
   )!
+
+const generalProfileList = makeEvent({
+  id: "general-profile-list",
+  kind: PROFILE_LIST_KIND,
+  pubkey: sectionModeratorPubkey,
+  tags: [
+    ["d", "General"],
+    ["p", outsiderPubkey],
+  ],
+})
 
 describe("community reports", () => {
   it("builds and parses community event and person spam reports", () => {
@@ -495,6 +512,124 @@ describe("community reports", () => {
         targetPubkey: communityPubkey,
       }),
     ).toBe(false)
+    expect(
+      canPublishCommunityContentReport({
+        definition,
+        profileListEvents: [generalProfileList],
+        reporterPubkey: outsiderPubkey,
+        targetPubkey,
+      }),
+    ).toBe(true)
+    expect(
+      canPublishCommunityContentReport({
+        definition,
+        profileListEvents: [generalProfileList],
+        reporterPubkey: outsiderPubkey,
+        targetPubkey: outsiderPubkey,
+      }),
+    ).toBe(false)
+  })
+
+  it("separates user content reports from active moderation and review labels", () => {
+    const definition = makeDefinition()
+    const userReport = makeEvent({
+      id: "user-report",
+      created_at: 10,
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: outsiderPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "reported-event",
+        eventPubkey: targetPubkey,
+        eventKind: 9,
+        eventSubtype: "room-message",
+        targetRootId: "room-root",
+        targetRootKind: 11,
+      }).tags,
+    })
+    const moderatorReport = makeEvent({
+      id: "moderator-report",
+      created_at: 20,
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "moderated-event",
+        eventPubkey: targetPubkey,
+      }).tags,
+    })
+    const unauthorizedReview = makeEvent({
+      id: "unauthorized-review",
+      kind: 1985,
+      pubkey: otherSectionModeratorPubkey,
+      tags: makeCommunityReportReviewLabel({
+        communityPubkey,
+        reportId: userReport.id,
+        targetEventId: "reported-event",
+        targetEventKind: 9,
+        sectionName: "General",
+        reporterPubkey: outsiderPubkey,
+      }).tags,
+    })
+    const authorizedReview = makeEvent({
+      id: "authorized-review",
+      created_at: 30,
+      kind: 1985,
+      pubkey: sectionModeratorPubkey,
+      tags: makeCommunityReportReviewLabel({
+        communityPubkey,
+        reportId: userReport.id,
+        targetEventId: "reported-event",
+        targetEventKind: 9,
+        sectionName: "General",
+        reporterPubkey: outsiderPubkey,
+      }).tags,
+    })
+
+    const pendingReports = getCommunityContentReports({
+      definition,
+      reportEvents: [userReport, moderatorReport],
+      reviewEvents: [unauthorizedReview],
+      profileListEvents: [generalProfileList],
+    })
+    const reviewedReports = getCommunityContentReports({
+      definition,
+      reportEvents: [userReport, moderatorReport],
+      reviewEvents: [authorizedReview],
+      profileListEvents: [generalProfileList],
+    })
+
+    expect(parseCommunityReportReviewLabel(authorizedReview, communityPubkey)).toMatchObject({
+      reportId: userReport.id,
+      reviewerPubkey: sectionModeratorPubkey,
+      sectionName: "General",
+    })
+    expect(
+      canReviewCommunityContentReport({
+        definition,
+        reviewerPubkey: sectionModeratorPubkey,
+        report: parseCommunityReport(userReport, communityPubkey)!,
+      }),
+    ).toBe(true)
+    expect(
+      canReviewCommunityContentReport({
+        definition,
+        reviewerPubkey: otherSectionModeratorPubkey,
+        report: parseCommunityReport(userReport, communityPubkey)!,
+      }),
+    ).toBe(false)
+    expect(pendingReports.map(report => report.event.id)).toEqual(["user-report"])
+    expect(pendingReports[0]).toMatchObject({reviewed: false, targetRootId: "room-root"})
+    expect(reviewedReports[0]).toMatchObject({reviewed: true})
+    expect(getCommunityContentReportGroups(reviewedReports)).toMatchObject([
+      {
+        key: "General:reported-event",
+        reviewed: true,
+        reports: [{event: {id: "user-report"}}],
+      },
+    ])
   })
 
   it("sorts active moderation actions by reporter", () => {

@@ -100,7 +100,7 @@
         </Button>
       </li>
     {/if}
-  {:else if showReport}
+  {:else if showReport && !communitySectionName}
     <li>
       <Button class="text-error" onclick={report}>
         <Icon size={4} icon={Danger} />

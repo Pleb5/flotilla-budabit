@@ -75,6 +75,7 @@ export const COMMUNITY_WRITE_TARGETS = {
   thread: {sectionName: COMMUNITY_SECTION_THREADS, kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS},
   comment: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1111},
   reaction: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 7},
+  report: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1984},
   label: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1985},
   calendar: {sectionName: COMMUNITY_SECTION_CALENDAR, kind: 31922},
   goal: {sectionName: COMMUNITY_SECTION_GOALS, kind: 9041},

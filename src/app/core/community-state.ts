@@ -55,6 +55,8 @@ import {
 } from "@app/core/community-moderator-requests"
 import {
   COMMUNITY_REPORT_KIND,
+  COMMUNITY_REPORT_REVIEW_LABEL_KIND,
+  COMMUNITY_REPORT_REVIEW_NAMESPACE,
   getEffectiveCommunityReportState,
   type EffectiveCommunityReportState,
 } from "@app/core/community-reports"
@@ -84,6 +86,7 @@ export type CommunityBootstrap = {
   admissionFormEvents: TrustedEvent[]
   reportEvents: TrustedEvent[]
   reportDeleteEvents: TrustedEvent[]
+  reportReviewEvents: TrustedEvent[]
 }
 
 export type CommunityBootstrapStatus = {
@@ -1302,6 +1305,26 @@ export const makeCommunityReportDeleteFilters = (reportEvents: TrustedEvent[]): 
   return reportIds.length ? [{kinds: [DELETE], "#e": reportIds}] : []
 }
 
+export const makeCommunityReportReviewFilters = (
+  definition: CommunityDefinition,
+  reportEvents: TrustedEvent[],
+): Filter[] => {
+  const communityAddress = makeCommunityDefinitionAddress(definition.pubkey)
+  const reportIds = Array.from(new Set(reportEvents.map(event => event.id).filter(Boolean)))
+
+  return communityAddress && reportIds.length
+    ? [
+        {
+          kinds: [COMMUNITY_REPORT_REVIEW_LABEL_KIND],
+          "#a": [communityAddress],
+          "#e": reportIds,
+          "#L": [COMMUNITY_REPORT_REVIEW_NAMESPACE],
+          limit: 500,
+        },
+      ]
+    : []
+}
+
 const communityReportDeleteHydratedAt = new Map<string, number>()
 const communityReportDeleteHydrationPromises = new Map<string, Promise<TrustedEvent[]>>()
 
@@ -1395,6 +1418,28 @@ export const activeCommunityReportDeleteEvents: Readable<TrustedEvent[]> = deriv
     }).catch(error => {
       console.warn("[community] Failed to hydrate moderation report deletes", error)
     })
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityReportReviewEvents: Readable<TrustedEvent[]> = derived(
+  [activeCommunityDefinition, activeCommunityReportEvents],
+  ([$activeCommunityDefinition, $activeCommunityReportEvents], set) => {
+    if (!$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const filters = makeCommunityReportReviewFilters(
+      $activeCommunityDefinition,
+      $activeCommunityReportEvents,
+    )
+    if (filters.length === 0) {
+      set([])
+      return
+    }
 
     return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
   },
@@ -1828,12 +1873,26 @@ export const loadCommunityBootstrap = async (
     console.warn("[community] Failed to hydrate moderation report deletes", error)
   })
 
+  const reportReviewFilters = definition
+    ? makeCommunityReportReviewFilters(definition, reportEvents)
+    : []
+  const reportReviewEvents =
+    reportReviewFilters.length > 0
+      ? await loadCommunityEvents(communityRelays, reportReviewFilters, {
+          authenticate: true,
+          settle: "first",
+        })
+      : []
+
   const bootstrap = {
     definition,
     profileListEvents: authorityEvents.filter(event => event.kind === PROFILE_LIST_KIND),
     admissionFormEvents: admissionFormEvents.filter(event => event.kind === FORM_TEMPLATE_KIND),
     reportEvents: reportEvents.filter(event => event.kind === COMMUNITY_REPORT_KIND),
     reportDeleteEvents: [],
+    reportReviewEvents: reportReviewEvents.filter(
+      event => event.kind === COMMUNITY_REPORT_REVIEW_LABEL_KIND,
+    ),
   }
 
   return bootstrap

@@ -1,4 +1,4 @@
-import {DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
+import {DELETE, getTagValue, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   findCommunitySection,
@@ -7,11 +7,18 @@ import {
   normalizePubkey,
   type CommunityDefinition,
 } from "@app/core/community"
-import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permissions"
+import {
+  COMMUNITY_WRITE_TARGETS,
+  canWriteCommunityTarget,
+  getGrantCapableSectionModeratorPubkeys,
+} from "@app/core/community-permissions"
 
 export const COMMUNITY_REPORT_KIND = 1984
 export const COMMUNITY_REPORT_REASON = "spam"
 export const COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH = 4096
+export const COMMUNITY_REPORT_REVIEW_LABEL_KIND = 1985
+export const COMMUNITY_REPORT_REVIEW_NAMESPACE = "budabit:community-report"
+export const COMMUNITY_REPORT_REVIEWED_LABEL = "reviewed"
 
 export type CommunityReportTarget = "event" | "person"
 
@@ -26,6 +33,10 @@ export type ParsedCommunityReport = {
   targetEventSubtype?: string
   targetEventTitle?: string
   targetEventContent?: string
+  targetRootId?: string
+  targetRootKind?: number
+  targetIdentifier?: string
+  targetScope?: string
   sectionName?: string
 }
 
@@ -40,6 +51,35 @@ export type EffectiveCommunityReportState = {
 }
 
 export type CommunityModerationAction = EffectiveCommunityReport
+
+export type CommunityReportReview = {
+  event: TrustedEvent
+  reportId: string
+  communityPubkey: string
+  reviewerPubkey: string
+  targetEventId?: string
+  targetEventKind?: number
+  sectionName?: string
+}
+
+export type CommunityContentReport = ParsedCommunityReport & {
+  reporterPubkey: string
+  reviews: CommunityReportReview[]
+  reviewed: boolean
+}
+
+export type CommunityContentReportGroup = {
+  key: string
+  sectionName: string
+  targetEventId?: string
+  targetEventKind?: number
+  targetEventSubtype?: string
+  targetPubkey: string
+  reports: CommunityContentReport[]
+  reviews: CommunityReportReview[]
+  reviewed: boolean
+  latestCreatedAt: number
+}
 
 const sortReportsByRecent = <T extends {event: TrustedEvent}>(reports: T[]) =>
   reports.toSorted(
@@ -120,6 +160,13 @@ const getSectionName = (event: TrustedEvent) =>
 const getStringTagValue = (event: TrustedEvent, tagName: string) =>
   event.tags.find(tag => tag[0] === tagName)?.[1]?.trim() || ""
 
+const getNumberTagValue = (event: TrustedEvent, tagName: string) => {
+  const value = getStringTagValue(event, tagName)
+  const parsed = Number.parseInt(value, 10)
+
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 const getTargetEventKind = (event: TrustedEvent) => {
   const value = getStringTagValue(event, "target-kind")
   const kind = Number.parseInt(value, 10)
@@ -132,6 +179,13 @@ const makeOptionalTag = (name: string, value: unknown) => {
 
   return text ? [[name, text]] : []
 }
+
+export const getCommunityReportTargetContext = (event: TrustedEvent) => ({
+  targetRootId: getTagValue("E", event.tags) || getTagValue("e", event.tags) || "",
+  targetRootKind: getNumberTagValue(event, "K"),
+  targetIdentifier: getTagValue("d", event.tags) || "",
+  targetScope: getTagValue("h", event.tags) || "",
+})
 
 const truncateTargetContent = (content: string) => {
   const trimmed = content.trim()
@@ -150,6 +204,10 @@ export const makeCommunityEventReport = ({
   eventSubtype = "",
   eventTitle = "",
   eventContent = "",
+  targetRootId = "",
+  targetRootKind,
+  targetIdentifier = "",
+  targetScope = "",
   content = "",
 }: {
   communityPubkey: string
@@ -160,6 +218,10 @@ export const makeCommunityEventReport = ({
   eventSubtype?: string
   eventTitle?: string
   eventContent?: string
+  targetRootId?: string
+  targetRootKind?: number
+  targetIdentifier?: string
+  targetScope?: string
   content?: string
 }): EventContent & {kind: typeof COMMUNITY_REPORT_KIND} => ({
   kind: COMMUNITY_REPORT_KIND,
@@ -174,6 +236,10 @@ export const makeCommunityEventReport = ({
     ...makeOptionalTag("target-subtype", normalizeCommunitySectionSubtype(eventSubtype)),
     ...makeOptionalTag("target-title", eventTitle),
     ...makeOptionalTag("target-content", truncateTargetContent(eventContent)),
+    ...makeOptionalTag("target-root-id", targetRootId),
+    ...makeOptionalTag("target-root-kind", targetRootKind),
+    ...makeOptionalTag("target-d", targetIdentifier),
+    ...makeOptionalTag("target-h", targetScope),
   ],
 })
 
@@ -207,6 +273,76 @@ export const makeCommunityReportDelete = ({
     ["k", String(COMMUNITY_REPORT_KIND)],
   ],
 })
+
+export const makeCommunityReportReviewLabel = ({
+  communityPubkey,
+  reportId,
+  targetEventId = "",
+  targetEventKind,
+  sectionName = "",
+  reporterPubkey = "",
+  content = "",
+}: {
+  communityPubkey: string
+  reportId: string
+  targetEventId?: string
+  targetEventKind?: number
+  sectionName?: string
+  reporterPubkey?: string
+  content?: string
+}): EventContent & {kind: typeof COMMUNITY_REPORT_REVIEW_LABEL_KIND} => ({
+  kind: COMMUNITY_REPORT_REVIEW_LABEL_KIND,
+  content,
+  tags: [
+    ["L", COMMUNITY_REPORT_REVIEW_NAMESPACE],
+    ["l", COMMUNITY_REPORT_REVIEWED_LABEL, COMMUNITY_REPORT_REVIEW_NAMESPACE],
+    ["e", reportId],
+    ["a", makeCommunityDefinitionAddress(communityPubkey)],
+    ["h", normalizePubkey(communityPubkey)],
+    ...makeOptionalTag("E", targetEventId),
+    ...makeOptionalTag("K", targetEventKind),
+    ...makeOptionalTag("content", normalizeCommunitySectionName(sectionName)),
+    ...makeOptionalTag("p", normalizePubkey(reporterPubkey)),
+  ],
+})
+
+export const parseCommunityReportReviewLabel = (
+  event: TrustedEvent,
+  communityPubkey?: string,
+): CommunityReportReview | undefined => {
+  if (event.kind !== COMMUNITY_REPORT_REVIEW_LABEL_KIND) return undefined
+  if (!event.tags.some(tag => tag[0] === "L" && tag[1] === COMMUNITY_REPORT_REVIEW_NAMESPACE)) {
+    return undefined
+  }
+  if (
+    !event.tags.some(
+      tag =>
+        tag[0] === "l" &&
+        tag[1] === COMMUNITY_REPORT_REVIEWED_LABEL &&
+        tag[2] === COMMUNITY_REPORT_REVIEW_NAMESPACE,
+    )
+  ) {
+    return undefined
+  }
+
+  const community = getCommunityAddress(event)
+  if (!community) return undefined
+  if (communityPubkey && community.pubkey !== normalizePubkey(communityPubkey)) return undefined
+
+  const reportId = getStringTagValue(event, "e")
+  const reviewerPubkey = normalizePubkey(event.pubkey || "")
+  if (!reportId || !reviewerPubkey) return undefined
+
+  return {
+    event,
+    reportId,
+    communityPubkey: community.pubkey,
+    reviewerPubkey,
+    targetEventId: getStringTagValue(event, "E") || undefined,
+    targetEventKind: getNumberTagValue(event, "K"),
+    sectionName: getSectionName(event) || undefined,
+  }
+}
 
 export const parseCommunityReport = (
   event: TrustedEvent,
@@ -243,6 +379,10 @@ export const parseCommunityReport = (
       ),
       targetEventTitle: getStringTagValue(event, "target-title"),
       targetEventContent: getStringTagValue(event, "target-content"),
+      targetRootId: getStringTagValue(event, "target-root-id") || undefined,
+      targetRootKind: getNumberTagValue(event, "target-root-kind"),
+      targetIdentifier: getStringTagValue(event, "target-d") || undefined,
+      targetScope: getStringTagValue(event, "target-h") || undefined,
       sectionName,
     }
   }
@@ -376,6 +516,57 @@ export const canPublishCommunityPersonReport = ({
   return getAllSectionModeratorPubkeys(definition).includes(reporter)
 }
 
+export const canReviewCommunityContentReport = ({
+  definition,
+  reviewerPubkey,
+  report,
+  reportState,
+}: {
+  definition: CommunityDefinition
+  reviewerPubkey: string
+  report: ParsedCommunityReport
+  reportState?: EffectiveCommunityReportState
+}) => {
+  const reviewer = normalizePubkey(reviewerPubkey)
+
+  if (report.target !== "event" || !report.sectionName || !reviewer) return false
+  if (isCommunityAdmin(definition, reviewer)) return true
+  if (isCommunityPersonBanned(reportState, reviewer)) return false
+
+  return getGrantCapableSectionModeratorPubkeys({
+    definition,
+    sectionName: report.sectionName,
+    reportState,
+  }).includes(reviewer)
+}
+
+export const canPublishCommunityContentReport = ({
+  definition,
+  profileListEvents,
+  reporterPubkey,
+  targetPubkey,
+  reportState,
+}: {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  reporterPubkey: string
+  targetPubkey?: string
+  reportState?: EffectiveCommunityReportState
+}) => {
+  const reporter = normalizePubkey(reporterPubkey)
+  const target = normalizePubkey(targetPubkey || "")
+
+  if (!reporter || (target && reporter === target)) return false
+
+  return canWriteCommunityTarget({
+    definition,
+    profileListEvents,
+    userPubkey: reporter,
+    target: COMMUNITY_WRITE_TARGETS.report,
+    reportState,
+  })
+}
+
 const isProtectedModeratorTarget = ({
   definition,
   report,
@@ -467,6 +658,115 @@ export const getEffectiveCommunityReportState = ({
   )
 
   return {eventReports, personReports}
+}
+
+export const getCommunityContentReports = ({
+  definition,
+  reportEvents,
+  reviewEvents = [],
+  deleteEvents = [],
+  profileListEvents = [],
+  reportState,
+}: {
+  definition: CommunityDefinition
+  reportEvents: TrustedEvent[]
+  reviewEvents?: TrustedEvent[]
+  deleteEvents?: TrustedEvent[]
+  profileListEvents?: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
+}): CommunityContentReport[] => {
+  const parsedReviews = reviewEvents
+    .map(event => parseCommunityReportReviewLabel(event, definition.pubkey))
+    .filter((review): review is CommunityReportReview => Boolean(review))
+  const reviewsByReportId = new Map<string, CommunityReportReview[]>()
+
+  for (const review of parsedReviews) {
+    const reviews = reviewsByReportId.get(review.reportId) || []
+    reviews.push(review)
+    reviewsByReportId.set(review.reportId, reviews)
+  }
+
+  return reportEvents
+    .filter(event => !isCommunityReportDeleted(event, deleteEvents))
+    .map(event => parseCommunityReport(event, definition.pubkey))
+    .filter((report): report is ParsedCommunityReport => Boolean(report))
+    .filter(report => report.target === "event")
+    .filter(report => {
+      const reporterPubkey = normalizePubkey(report.event.pubkey || "")
+      if (!reporterPubkey || reporterPubkey === report.targetPubkey) return false
+      if (
+        canPublishCommunityEventReport({
+          definition,
+          reporterPubkey,
+          targetPubkey: report.targetPubkey,
+          sectionName: report.sectionName || "",
+          reportState,
+        })
+      ) {
+        return false
+      }
+
+      return canPublishCommunityContentReport({
+        definition,
+        profileListEvents,
+        reporterPubkey,
+        targetPubkey: report.targetPubkey,
+        reportState,
+      })
+    })
+    .map(report => {
+      const reviews = (reviewsByReportId.get(report.event.id) || []).filter(review =>
+        canReviewCommunityContentReport({
+          definition,
+          reviewerPubkey: review.reviewerPubkey,
+          report,
+          reportState,
+        }),
+      )
+
+      return {
+        ...report,
+        reporterPubkey: normalizePubkey(report.event.pubkey || ""),
+        reviews: sortReportsByRecent(reviews),
+        reviewed: reviews.length > 0,
+      }
+    })
+}
+
+export const getCommunityContentReportGroups = (
+  reports: CommunityContentReport[],
+): CommunityContentReportGroup[] => {
+  const groups = new Map<string, CommunityContentReportGroup>()
+
+  for (const report of reports) {
+    const key = `${report.sectionName || ""}:${report.targetEventId || report.event.id}`
+    const current = groups.get(key)
+
+    if (!current) {
+      groups.set(key, {
+        key,
+        sectionName: report.sectionName || "",
+        targetEventId: report.targetEventId,
+        targetEventKind: report.targetEventKind,
+        targetEventSubtype: report.targetEventSubtype,
+        targetPubkey: report.targetPubkey,
+        reports: [report],
+        reviews: report.reviews,
+        reviewed: report.reviewed,
+        latestCreatedAt: report.event.created_at,
+      })
+      continue
+    }
+
+    current.reports.push(report)
+    current.reviews.push(...report.reviews)
+    current.reviewed = current.reports.every(item => item.reviewed)
+    current.latestCreatedAt = Math.max(current.latestCreatedAt, report.event.created_at)
+  }
+
+  return Array.from(groups.values()).sort(
+    (a, b) => b.latestCreatedAt - a.latestCreatedAt || a.key.localeCompare(b.key),
+  )
 }
 
 export const getCommunityCensorReason = ({

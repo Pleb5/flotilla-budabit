@@ -17,6 +17,7 @@ import {
   makeCommunityProfileListFilters,
   makeCommunityReportDeleteFilters,
   makeCommunityReportFilters,
+  makeCommunityReportReviewFilters,
 } from "@app/core/community-state"
 
 type CommunityLiveFilterInput = {
@@ -94,6 +95,7 @@ export const buildCommunityLiveFilters = ({
     ...makeCommunityModeratorRequestDeleteFilters(definition, moderatorRequestReactionEvents),
     ...makeCommunityReportFilters(definition),
     ...makeCommunityReportDeleteFilters(reportEvents),
+    ...makeCommunityReportReviewFilters(definition, reportEvents),
     ...makeTargetedPublicationOriginalFilters(targetingEvents),
   ]
 

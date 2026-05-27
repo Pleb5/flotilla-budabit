@@ -130,6 +130,7 @@
     {label: "Threads", kind: 11, subtype: "threads"},
     {label: "Comments", kind: 1111},
     {label: "Reactions", kind: 7},
+    {label: "Reports", kind: 1984},
     {label: "Labels", kind: 1985},
     {label: "Calendar Events", kind: 31922},
     {label: "Goals", kind: 9041},
@@ -826,12 +827,20 @@
     validateSectionNames(nextDrafts)
   }
 
-  const addKind = (sectionIndex: number) => {
+  const addKind = async (sectionIndex: number) => {
     sectionDrafts = sectionDrafts.map((section, index) =>
       index === sectionIndex
-        ? {...section, kinds: [...section.kinds, {kind: "", subtype: ""}]}
+        ? {...section, kinds: [{kind: "", subtype: ""}, ...section.kinds]}
         : section,
     )
+
+    await tick()
+
+    if (!browser) return
+
+    document
+      .querySelector(`[data-section-kind-row="${sectionIndex}-0"]`)
+      ?.scrollIntoView({behavior: "smooth", block: "center"})
   }
 
   const removeKind = (sectionIndex: number, kindIndex: number) => {
@@ -1273,6 +1282,7 @@
                       {/if}
                       {#each section.kinds as kindDraft, kindIndex}
                         <div
+                          data-section-kind-row={`${sectionIndex}-${kindIndex}`}
                           class="grid gap-2 rounded-2xl border border-base-300 bg-base-100/75 p-3 text-sm shadow-sm sm:grid-cols-2 sm:gap-3 sm:p-4 sm:text-base lg:grid-cols-[minmax(220px,2fr)_minmax(100px,1fr)_minmax(170px,1fr)_auto] lg:items-end">
                           <Field class="sm:col-span-2 lg:col-span-1">
                             {#snippet label()}<p>Known kind</p>{/snippet}
