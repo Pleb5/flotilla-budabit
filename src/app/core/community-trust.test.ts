@@ -1,7 +1,13 @@
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
-import {COMMUNITY_MEMBER_FLOOR, DIRECT_FOLLOW_WEIGHT} from "./trust-assessment"
+import {COMMUNITY_MEMBER_FLOOR, DIRECT_FOLLOW_WEIGHT, REPORT_WEIGHT} from "./trust-assessment"
+import {
+  COMMUNITY_REPORT_KIND,
+  getEffectiveCommunityReportState,
+  makeCommunityEventReport,
+  makeCommunityPersonReport,
+} from "./community-reports"
 import {
   MAX_SHARED_COMMUNITY_BONUS,
   buildCommunityTrustAssessment,
@@ -190,6 +196,115 @@ describe("community trust", () => {
     expect(assessment.category).toBe("unknown")
     expect(assessment.score).toBe(0)
     expect(assessment.evidence).toEqual([])
+  })
+
+  it("applies contextual event report penalties to target authors", () => {
+    const viewerPubkey = "1".repeat(64)
+    const memberPubkey = "2".repeat(64)
+    const communityPubkey = "3".repeat(64)
+    const listOwner = "4".repeat(64)
+    const definitions = [
+      makeDefinition({
+        id: "community",
+        pubkey: communityPubkey,
+        profileListAddress: `${PROFILE_LIST_KIND}:${listOwner}:Repositories`,
+      }),
+    ]
+    const profileListEvents = [
+      makeProfileList({
+        id: "members",
+        pubkey: listOwner,
+        identifier: "Repositories",
+        members: [memberPubkey],
+      }),
+    ]
+    const reportEvent = makeEvent({
+      id: "event-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "Repositories",
+        eventId: "reported-event",
+        eventPubkey: memberPubkey,
+      }).tags,
+    })
+    const reportState = getEffectiveCommunityReportState({
+      definition: definitions[0],
+      reportEvents: [reportEvent],
+    })
+
+    const assessment = buildCommunityTrustAssessment({
+      viewerPubkey,
+      targetPubkey: memberPubkey,
+      context: {scope: "active_community", communityPubkey},
+      definitions,
+      profileListEvents,
+      reportStates: new Map([[communityPubkey, reportState]]),
+    })
+
+    expect(assessment.category).toBe("community_member")
+    expect(assessment.score).toBe(COMMUNITY_MEMBER_FLOOR + REPORT_WEIGHT)
+    expect(assessment.suppressed).toBe(false)
+    expect(assessment.displayLabels).toEqual(["Community member", "Reported here"])
+  })
+
+  it("suppresses person bans only in the reported community context", () => {
+    const viewerPubkey = "1".repeat(64)
+    const memberPubkey = "2".repeat(64)
+    const communityPubkey = "3".repeat(64)
+    const otherCommunityPubkey = "4".repeat(64)
+    const listOwner = "5".repeat(64)
+    const definitions = [
+      makeDefinition({
+        id: "community",
+        pubkey: communityPubkey,
+        profileListAddress: `${PROFILE_LIST_KIND}:${listOwner}:Repositories`,
+      }),
+    ]
+    const profileListEvents = [
+      makeProfileList({
+        id: "members",
+        pubkey: listOwner,
+        identifier: "Repositories",
+        members: [memberPubkey],
+      }),
+    ]
+    const banEvent = makeEvent({
+      id: "person-ban",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      tags: makeCommunityPersonReport({communityPubkey, pubkey: memberPubkey}).tags,
+    })
+    const reportState = getEffectiveCommunityReportState({
+      definition: definitions[0],
+      reportEvents: [banEvent],
+    })
+    const reportStates = new Map([[communityPubkey, reportState]])
+
+    const assessment = buildCommunityTrustAssessment({
+      viewerPubkey,
+      targetPubkey: memberPubkey,
+      context: {scope: "active_community", communityPubkey},
+      definitions,
+      profileListEvents,
+      reportStates,
+    })
+    const unrelatedAssessment = buildCommunityTrustAssessment({
+      viewerPubkey,
+      targetPubkey: memberPubkey,
+      context: {scope: "active_community", communityPubkey: otherCommunityPubkey},
+      definitions,
+      profileListEvents,
+      reportStates,
+    })
+
+    expect(assessment.category).toBe("suppressed")
+    expect(assessment.score).toBe(COMMUNITY_MEMBER_FLOOR)
+    expect(assessment.suppressionReason).toBe("community_ban")
+    expect(assessment.displayLabels).toEqual(["Community member", "Banned here"])
+    expect(unrelatedAssessment.suppressed).toBe(false)
+    expect(unrelatedAssessment.displayLabels).not.toContain("Banned here")
   })
 
   it("builds candidate assessments while reusing collected refs", () => {

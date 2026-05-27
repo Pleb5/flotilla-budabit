@@ -8,12 +8,16 @@ import {
 } from "@app/core/community-membership"
 import {
   COMMUNITY_MEMBER_FLOOR,
+  REPORT_WEIGHT,
+  clampOverlayScore,
   makeTrustAssessment,
+  suppressTrustAssessment,
   type TrustAssessment,
   type TrustCategory,
   type TrustContext,
   type TrustEvidence,
 } from "@app/core/trust-assessment"
+import type {EffectiveCommunityReportState} from "@app/core/community-reports"
 
 export const COMMUNITY_ADMIN_WEIGHT = 12
 export const COMMUNITY_MODERATOR_WEIGHT = 8
@@ -83,6 +87,57 @@ const getContextCommunityPubkey = (context?: TrustContext) =>
     ? normalizePubkey(context.communityPubkey || "")
     : ""
 
+const getReportState = (states: UserCommunityReportStates | undefined, communityPubkey: string) =>
+  states instanceof Map ? states.get(communityPubkey) : states?.[communityPubkey]
+
+const countTargetReports = (reports: {targetPubkey: string}[], targetPubkey: string) =>
+  reports.filter(report => report.targetPubkey === targetPubkey).length
+
+const applyCommunityModerationEvidence = ({
+  assessment,
+  targetPubkey,
+  communityPubkey,
+  reportState,
+}: {
+  assessment: TrustAssessment
+  targetPubkey: string
+  communityPubkey: string
+  reportState?: EffectiveCommunityReportState
+}): TrustAssessment => {
+  if (!communityPubkey || !targetPubkey || !reportState) return assessment
+
+  const banCount = countTargetReports(reportState.personReports, targetPubkey)
+  if (banCount > 0) {
+    return suppressTrustAssessment(assessment, "community_ban", [
+      {
+        type: "community_ban",
+        communityPubkey,
+        count: banCount,
+        label: "Banned here",
+      },
+    ])
+  }
+
+  const reportCount = countTargetReports(reportState.eventReports, targetPubkey)
+  if (reportCount === 0) return assessment
+
+  const evidence: TrustEvidence[] = [
+    ...assessment.evidence,
+    {
+      type: "community_report",
+      communityPubkey,
+      count: reportCount,
+      label: reportCount === 1 ? "Reported here" : `${reportCount} reports here`,
+    },
+  ]
+
+  return makeTrustAssessment({
+    ...assessment,
+    score: assessment.score + clampOverlayScore(reportCount * REPORT_WEIGHT),
+    evidence,
+  })
+}
+
 export const collectCommunityTrustRefs = ({
   pubkeys,
   definitions = [],
@@ -117,12 +172,14 @@ export const assessCommunityTrustFromRefs = ({
   context,
   viewerRefs = [],
   targetRefs = [],
+  reportStates,
 }: {
   viewerPubkey?: string
   targetPubkey?: string
   context?: TrustContext
   viewerRefs?: ActiveUserCommunityRef[]
   targetRefs?: ActiveUserCommunityRef[]
+  reportStates?: UserCommunityReportStates
 }): TrustAssessment => {
   const normalizedViewer = normalizePubkey(viewerPubkey || "")
   const normalizedTarget = normalizePubkey(targetPubkey || "")
@@ -209,10 +266,17 @@ export const assessCommunityTrustFromRefs = ({
     score += Math.min(sharedSectionNames.length, MAX_SHARED_SECTION_BONUS) * SHARED_SECTION_WEIGHT
   }
 
-  return makeTrustAssessment({
+  const assessment = makeTrustAssessment({
     category: bestRole ? roleCategories[bestRole] : score > 0 ? "community_member" : "unknown",
     score,
     evidence,
+  })
+
+  return applyCommunityModerationEvidence({
+    assessment,
+    targetPubkey: normalizedTarget,
+    communityPubkey: contextCommunityPubkey,
+    reportState: getReportState(reportStates, contextCommunityPubkey),
   })
 }
 
@@ -230,7 +294,6 @@ export const buildCommunityTrustAssessment = ({
     definitions,
     definitionEvents,
     profileListEvents,
-    reportStates,
   })
 
   return assessCommunityTrustFromRefs({
@@ -239,6 +302,7 @@ export const buildCommunityTrustAssessment = ({
     context,
     viewerRefs: refsByPubkey.get(normalizePubkey(viewerPubkey || "")) || [],
     targetRefs: refsByPubkey.get(normalizePubkey(targetPubkey || "")) || [],
+    reportStates,
   })
 }
 
@@ -256,7 +320,6 @@ export const buildCommunityTrustAssessments = ({
     definitions,
     definitionEvents,
     profileListEvents,
-    reportStates,
   })
   const viewerRefs = refsByPubkey.get(normalizePubkey(viewerPubkey || "")) || []
   const assessments = new Map<string, TrustAssessment>()
@@ -273,6 +336,7 @@ export const buildCommunityTrustAssessments = ({
         context,
         viewerRefs,
         targetRefs: refsByPubkey.get(candidatePubkey) || [],
+        reportStates,
       }),
     )
   }

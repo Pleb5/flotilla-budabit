@@ -146,25 +146,69 @@ describe("community reports", () => {
     expect(contentTag?.[1]).toHaveLength(COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH)
   })
 
-  it("parses NIP-56 report reason tags with relay hints", () => {
-    const report = makeEvent({
-      id: "nip56-report",
+  it("parses NIP-56 report reason tags with relay hints and any reason", () => {
+    const eventReport = makeEvent({
+      id: "nip56-event-report",
       kind: COMMUNITY_REPORT_KIND,
       pubkey: sectionModeratorPubkey,
       tags: [
-        ["e", "reported-event", "wss://relay.example.com/", "spam"],
+        ["e", "reported-event", "wss://relay.example.com/", "impersonation"],
         ["p", targetPubkey],
         ["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:`],
         ["content", "General"],
       ],
     })
+    const personReport = makeEvent({
+      id: "nip56-person-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: [
+        ["p", targetPubkey, "illegal"],
+        ["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:`],
+      ],
+    })
 
-    expect(parseCommunityReport(report, communityPubkey)).toMatchObject({
+    expect(parseCommunityReport(eventReport, communityPubkey)).toMatchObject({
       target: "event",
       sectionName: "General",
       targetEventId: "reported-event",
       targetPubkey,
     })
+    expect(parseCommunityReport(personReport, communityPubkey)).toMatchObject({
+      target: "person",
+      targetPubkey,
+    })
+  })
+
+  it("resolves event report authors from loaded target events", () => {
+    const definition = makeDefinition()
+    const targetEvent = makeEvent({
+      id: "reported-event",
+      kind: 9,
+      pubkey: targetPubkey,
+    })
+    const report = makeEvent({
+      id: "event-report-without-p-tag",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: [
+        ["e", targetEvent.id, "wss://relay.example.com/", "malware"],
+        ["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:`],
+        ["content", "General"],
+      ],
+    })
+    const state = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [report],
+      targetEvents: [targetEvent],
+    })
+
+    expect(parseCommunityReport(report, communityPubkey, [targetEvent])).toMatchObject({
+      target: "event",
+      targetEventId: targetEvent.id,
+      targetPubkey,
+    })
+    expect(state.eventReports.map(report => report.targetPubkey)).toEqual([targetPubkey])
   })
 
   it("applies admin, section moderator, and all-section moderator reports", () => {

@@ -112,7 +112,7 @@ export const isCommunityPersonBanned = (
 
   return Boolean(
     normalizedPubkey &&
-      reportState?.personReports.some(report => report.targetPubkey === normalizedPubkey),
+    reportState?.personReports.some(report => report.targetPubkey === normalizedPubkey),
   )
 }
 
@@ -124,12 +124,16 @@ const isPersonBannedByReports = (personReports: EffectiveCommunityReport[], pubk
   )
 }
 
+const isRelayHint = (value: string | undefined) => /^wss?:\/\//i.test(value?.trim() || "")
+
+const hasReportReason = (tag: string[]) =>
+  Boolean(tag[3]?.trim() || (tag[2]?.trim() && !isRelayHint(tag[2])))
+
 const getReasonTag = (event: TrustedEvent, tagName: "e" | "p") =>
-  event.tags.find(
-    tag =>
-      tag[0] === tagName &&
-      (tag[2] === COMMUNITY_REPORT_REASON || tag[3] === COMMUNITY_REPORT_REASON),
-  )
+  event.tags.find(tag => tag[0] === tagName && hasReportReason(tag))
+
+const getLoadedEventAuthor = (eventId: string, targetEvents: TrustedEvent[]) =>
+  normalizePubkey(targetEvents.find(event => event.id === eventId)?.pubkey || "")
 
 const makeCommunityDefinitionAddress = (communityPubkey: string) => {
   const pubkey = normalizePubkey(communityPubkey)
@@ -347,6 +351,7 @@ export const parseCommunityReportReviewLabel = (
 export const parseCommunityReport = (
   event: TrustedEvent,
   communityPubkey?: string,
+  targetEvents: TrustedEvent[] = [],
 ): ParsedCommunityReport | undefined => {
   if (event.kind !== COMMUNITY_REPORT_KIND) return undefined
 
@@ -357,7 +362,10 @@ export const parseCommunityReport = (
   const eventTag = getReasonTag(event, "e")
   const personReportTag = getReasonTag(event, "p")
   const targetPubkey = normalizePubkey(
-    (eventTag ? event.tags.find(tag => tag[0] === "p")?.[1] : personReportTag?.[1]) || "",
+    eventTag
+      ? event.tags.find(tag => tag[0] === "p")?.[1] ||
+          getLoadedEventAuthor(eventTag[1] || "", targetEvents)
+      : personReportTag?.[1] || "",
   )
 
   if (!targetPubkey) return undefined
@@ -612,17 +620,19 @@ export const getEffectiveCommunityReportState = ({
   definition,
   reportEvents,
   deleteEvents = [],
+  targetEvents = [],
 }: {
   definition: CommunityDefinition
   reportEvents: TrustedEvent[]
   deleteEvents?: TrustedEvent[]
+  targetEvents?: TrustedEvent[]
 }): EffectiveCommunityReportState => {
   const parsedReports: EffectiveCommunityReport[] = []
 
   for (const event of reportEvents) {
     if (isCommunityReportDeleted(event, deleteEvents)) continue
 
-    const report = parseCommunityReport(event, definition.pubkey)
+    const report = parseCommunityReport(event, definition.pubkey, targetEvents)
     if (!report) continue
 
     const reporterPubkey = normalizePubkey(event.pubkey || "")
@@ -643,8 +653,14 @@ export const getEffectiveCommunityReportState = ({
         !isPersonBannedByReports(personReports, report.reporterPubkey) &&
         isAuthorizedPersonReport(definition, report),
     )
-    const currentIds = personReports.map(report => report.event.id).sort().join(",")
-    const nextIds = nextPersonReports.map(report => report.event.id).sort().join(",")
+    const currentIds = personReports
+      .map(report => report.event.id)
+      .sort()
+      .join(",")
+    const nextIds = nextPersonReports
+      .map(report => report.event.id)
+      .sort()
+      .join(",")
 
     personReports = nextPersonReports
     if (currentIds === nextIds) break
