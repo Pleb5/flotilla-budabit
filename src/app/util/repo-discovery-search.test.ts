@@ -188,6 +188,18 @@ describe("repo discovery search helpers", () => {
     expect(candidates.indexOf("followed-owner")).toBeLessThan(candidates.indexOf("known-owner"))
   })
 
+  it("keeps community-associated owners ahead of direct-only follows", () => {
+    const candidates = buildRepoDiscoveryCandidatePubkeys({
+      settings: getDefaultRepoDiscoveryPrioritySettings(),
+      viewerPubkey: "viewer",
+      communityAssociatedPubkeys: ["associated-owner"],
+      followPubkeys: ["followed-owner"],
+      knownOwners: ["known-owner"],
+    })
+
+    expect(candidates).toEqual(["viewer", "associated-owner", "followed-owner", "known-owner"])
+  })
+
   it("maps legacy bookmarked owner settings to starred owners", () => {
     const settings = coerceRepoDiscoveryPrioritySettings([
       {key: "bookmarked_owners", enabled: false},

@@ -332,6 +332,37 @@ describe("community reports", () => {
     ).toBeUndefined()
   })
 
+  it("removes active person bans when the report is deleted", () => {
+    const definition = makeDefinition()
+    const personReport = makeEvent({
+      id: "deleted-person-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityPersonReport({communityPubkey, pubkey: targetPubkey}).tags,
+    })
+    const deleteEvent = makeEvent({
+      id: "delete-person-report",
+      kind: DELETE,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityReportDelete({reportId: personReport.id}).tags,
+    })
+    const activeState = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [personReport],
+    })
+    const revokedState = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [personReport],
+      deleteEvents: [deleteEvent],
+    })
+
+    expect(isCommunityPersonBanned(activeState, targetPubkey)).toBe(true)
+    expect(isCommunityPersonBanned(revokedState, targetPubkey)).toBe(false)
+    expect(
+      getCommunityCensorReason({reportState: revokedState, pubkey: targetPubkey}),
+    ).toBeUndefined()
+  })
+
   it("protects current moderators from moderator reports but not admin reports", () => {
     const definition = makeDefinition()
     const moderatorReport = makeEvent({

@@ -1,7 +1,12 @@
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
-import {COMMUNITY_MEMBER_FLOOR, DIRECT_FOLLOW_WEIGHT, REPORT_WEIGHT} from "./trust-assessment"
+import {
+  COMMUNITY_MEMBER_FLOOR,
+  DIRECT_FOLLOW_WEIGHT,
+  OVERLAY_CAP,
+  REPORT_WEIGHT,
+} from "./trust-assessment"
 import {
   COMMUNITY_REPORT_KIND,
   getEffectiveCommunityReportState,
@@ -247,6 +252,59 @@ describe("community trust", () => {
     expect(assessment.score).toBe(COMMUNITY_MEMBER_FLOOR + REPORT_WEIGHT)
     expect(assessment.suppressed).toBe(false)
     expect(assessment.displayLabels).toEqual(["Community member", "Reported here"])
+  })
+
+  it("caps repeated report penalties so reports do not erase membership evidence", () => {
+    const viewerPubkey = "1".repeat(64)
+    const memberPubkey = "2".repeat(64)
+    const communityPubkey = "3".repeat(64)
+    const listOwner = "4".repeat(64)
+    const definitions = [
+      makeDefinition({
+        id: "community",
+        pubkey: communityPubkey,
+        profileListAddress: `${PROFILE_LIST_KIND}:${listOwner}:Repositories`,
+      }),
+    ]
+    const profileListEvents = [
+      makeProfileList({
+        id: "members",
+        pubkey: listOwner,
+        identifier: "Repositories",
+        members: [memberPubkey],
+      }),
+    ]
+    const reportEvents = ["reported-event-1", "reported-event-2", "reported-event-3"].map(
+      (eventId, index) =>
+        makeEvent({
+          id: `event-report-${index}`,
+          kind: COMMUNITY_REPORT_KIND,
+          pubkey: communityPubkey,
+          tags: makeCommunityEventReport({
+            communityPubkey,
+            sectionName: "Repositories",
+            eventId,
+            eventPubkey: memberPubkey,
+          }).tags,
+        }),
+    )
+    const reportState = getEffectiveCommunityReportState({
+      definition: definitions[0],
+      reportEvents,
+    })
+
+    const assessment = buildCommunityTrustAssessment({
+      viewerPubkey,
+      targetPubkey: memberPubkey,
+      context: {scope: "active_community", communityPubkey},
+      definitions,
+      profileListEvents,
+      reportStates: new Map([[communityPubkey, reportState]]),
+    })
+
+    expect(assessment.score).toBe(COMMUNITY_MEMBER_FLOOR - OVERLAY_CAP)
+    expect(assessment.displayLabels).toEqual(["Community member", "3 reports here"])
+    expect(assessment.suppressed).toBe(false)
   })
 
   it("suppresses person bans only in the reported community context", () => {
