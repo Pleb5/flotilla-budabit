@@ -2,9 +2,9 @@
   import {tick} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {DELETE, makeEvent} from "@welshman/util"
+  import {DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
   import Settings from "@assets/icons/settings.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
@@ -479,6 +479,14 @@
     status === "granted" ? "bg-success/10 text-success" : "bg-error/10 text-error"
   const reviewHistoryLabel = (status: string) =>
     status === "granted" ? "Previously granted" : "Previously rejected"
+  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
+    Object.values(thunk.results).some(result => result.status === "success")
+
+  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
+    const result = Object.values(thunk.results).find(result => result.status !== "success")
+
+    return result ? `${result.relay}: ${result.detail || result.status}` : "No relay confirmed."
+  }
 
   const selectSection = async (sectionName: string) => {
     selectedSectionName = sectionName
@@ -517,7 +525,7 @@
     pushModal(Confirm, {
       title: "Publish application form",
       message: `Publish the application form for ${selected.displayName}?`,
-      confirm: () => {
+      confirm: async () => {
         const template = makeAdmissionFormTemplate({
           identifier: selectedDraft.identifier,
           communityPubkey: $activeCommunityDefinition.pubkey,
@@ -528,8 +536,23 @@
           fields: makeAdmissionFormFieldsFromDraft(selectedDraft),
         })
 
-        publishThunk({relays: communityPublishRelays, event: makeEvent(template.kind, template)})
-        pushToast({message: `${selected.displayName} application form published.`})
+        const thunk = publishThunk({
+          relays: communityPublishRelays,
+          event: makeEvent(template.kind, template),
+        })
+        await waitForThunkCompletion(thunk)
+
+        if (!hasSuccessfulRelay(thunk)) {
+          if (thunk.event) repository.removeEvent(thunk.event.id)
+          pushToast({theme: "error", message: `Form publish failed: ${getPublishError(thunk)}`})
+          return
+        }
+
+        if (thunk.event) repository.publish(thunk.event as TrustedEvent)
+        drafts = Object.fromEntries(
+          Object.entries(drafts).filter(([sectionName]) => sectionName !== selected.section.name),
+        )
+        pushToast({theme: "success", message: `${selected.displayName} application form published.`})
         history.back()
       },
     })
