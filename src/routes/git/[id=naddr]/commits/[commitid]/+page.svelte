@@ -137,7 +137,14 @@
       }
 
       // Try REST API first (much faster for GitHub/GitLab repos)
-      const cloneUrls = $repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls
+      const cloneUrls = Array.from(
+        new Set(
+          (
+            ($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || []
+          ).filter(Boolean),
+        ),
+      )
+      const selectedBranch = repoClass.selectedBranch || repoClass.mainBranch || undefined
       if (cloneUrls.length === 0) {
         loadError = "No clone URLs available for this repository"
         return
@@ -159,6 +166,7 @@
           const result = await repoClass.workerManager.smartInitializeRepo({
             repoId: repoClass.key,
             cloneUrls,
+            branch: selectedBranch,
             forceUpdate: false,
           })
 
@@ -172,6 +180,8 @@
         commitDetails = await repoClass.workerManager.getCommitDetails({
           repoId: repoClass.key,
           commitId: commitid,
+          ...(selectedBranch ? {branch: selectedBranch} : {}),
+          cloneUrls,
         })
       }
 
