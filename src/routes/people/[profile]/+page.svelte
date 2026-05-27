@@ -34,6 +34,7 @@
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
+  import Settings from "@assets/icons/settings.svg?dataurl"
   import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import UsersGroup from "@assets/icons/users-group-rounded.svg?dataurl"
@@ -800,7 +801,12 @@
     </div>
   {/snippet}
   {#snippet action()}
-    {#if targetPubkey && !isSelf && chatPath}
+    {#if isSelf}
+      <Link href="/settings/profile" class="btn btn-circle btn-neutral btn-sm">
+        <Icon icon={Settings} />
+        <span class="sr-only">Profile settings</span>
+      </Link>
+    {:else if targetPubkey && chatPath}
       <Link href={chatPath} class="btn btn-circle btn-primary btn-sm">
         <Icon icon={Letter} />
       </Link>

@@ -10,10 +10,12 @@
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"
   import Settings from "@assets/icons/settings.svg?dataurl"
+  import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import Link from "@lib/components/Link.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
@@ -24,10 +26,12 @@
   import InfoKeys from "@app/components/InfoKeys.svelte"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
+  import {makeProfilePath} from "@app/util/routes"
   import GraspServersPanel from "@app/components/GraspServersPanel.svelte"
   import GitAuth from "@app/components/GitAuth.svelte"
 
   const npub = nip19.npubEncode($pubkey!)
+  const profilePath = makeProfilePath($pubkey!)
   const profile = deriveProfile($pubkey!)
   const pubkeyDisplay = displayPubkey($pubkey!)
 
@@ -69,6 +73,12 @@
     {#key $profile?.about}
       <ContentMinimal event={{content: $profile?.about || "", tags: []}} />
     {/key}
+    <div class="mt-4 flex justify-end">
+      <Link href={profilePath} class="btn btn-neutral btn-sm">
+        <Icon icon={UserCircle} />
+        View full profile
+      </Link>
+    </div>
   </div>
   {#if $session?.email}
     <div class="card2 bg-alt col-4 shadow-md">
