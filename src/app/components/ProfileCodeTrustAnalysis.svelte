@@ -30,9 +30,9 @@
   const {pubkey}: Props = $props()
 
   type MetricKey =
-    | "trusted-merged"
-    | "trusted-maintainer"
-    | "trusted-collaborators"
+    | "overlay-merged"
+    | "overlay-maintainer"
+    | "overlay-collaborators"
     | "observed-authored"
     | "observed-maintainer"
 
@@ -72,31 +72,41 @@
   const hasGraphAdjustments = $derived.by(() =>
     hasEnabledTrustGraphRules($userTrustGraphConfigValues),
   )
+  const isDirectSocialAnalysis = $derived.by(
+    () => (analysis?.graphSource || "direct_social") === "direct_social",
+  )
+  const matchedActorPhrase = $derived.by(() =>
+    isDirectSocialAnalysis ? "people you follow" : "people matched by your direct overlay rules",
+  )
+  const matchedCollaboratorLabel = $derived.by(() =>
+    isDirectSocialAnalysis ? "Direct-follow collaborators" : "Overlay-matched collaborators",
+  )
   const metricCards = $derived.by<MetricCard[]>(() =>
     analysis
       ? [
           {
-            key: "trusted-merged",
-            label: "Trusted merged PRs",
-            value: analysis.trustedMergedPullRequests,
-            description:
-              "Pull requests authored by this profile that were merged by collaborators in your trust graph.",
-            details: analysis.trustedMergedPullRequestDetails,
+            key: "overlay-merged",
+            label: isDirectSocialAnalysis
+              ? "Direct-follow merged PRs"
+              : "Overlay-matched merged PRs",
+            value: analysis.overlayMatchedMergedPullRequests,
+            description: `Pull requests authored by this profile that were merged by ${matchedActorPhrase}.`,
+            details: analysis.overlayMatchedMergedPullRequestDetails,
           },
           {
-            key: "trusted-maintainer",
-            label: "Trusted maintainer merges",
-            value: analysis.trustedMaintainerMerges,
-            description:
-              "Pull requests this profile merged where the author is in your trust graph.",
-            details: analysis.trustedMaintainerMergeDetails,
+            key: "overlay-maintainer",
+            label: isDirectSocialAnalysis
+              ? "Direct-follow author merges"
+              : "Overlay-matched author merges",
+            value: analysis.overlayMatchedMaintainerMerges,
+            description: `Pull requests this profile merged where the author is among ${matchedActorPhrase}.`,
+            details: analysis.overlayMatchedMaintainerMergeDetails,
           },
           {
-            key: "trusted-collaborators",
-            label: "Trusted collaborators",
-            value: analysis.trustedCollaborators,
-            description:
-              "Distinct trusted people involved in either direction of recent merged pull request work.",
+            key: "overlay-collaborators",
+            label: matchedCollaboratorLabel,
+            value: analysis.overlayMatchedCollaborators,
+            description: `Distinct ${matchedActorPhrase} involved in either direction of recent merged pull request work.`,
             collaborators: analysis.collaborators.slice(0, 5),
           },
           {
@@ -104,7 +114,7 @@
             label: "Observed authored PRs",
             value: analysis.authoredPullRequestCount,
             description:
-              "All pull requests authored by this profile in the current analysis window, regardless of trust match.",
+              "All pull requests authored by this profile in the current analysis window, regardless of overlay match.",
             details: analysis.authoredPullRequestDetails,
           },
           {
@@ -175,7 +185,7 @@
   }
 
   const getMetricPopoverButtonLabel = (metric: MetricCard) => {
-    if (metric.key === "trusted-collaborators") {
+    if (metric.key === "overlay-collaborators") {
       return metric.value === 1 ? "1 collaborator" : `${metric.value} collaborators`
     }
 
@@ -187,7 +197,7 @@
   }
 
   const getDetailContext = (metricKey: MetricKey, detail: ProfileCodeTrustInteractionDetail) => {
-    if (metricKey === "trusted-maintainer" || metricKey === "observed-maintainer") {
+    if (metricKey === "overlay-maintainer" || metricKey === "observed-maintainer") {
       return {label: "Author", pubkey: detail.authorPubkey}
     }
 
@@ -200,7 +210,7 @@
 
   const analyze = async (force = false) => {
     if (!$sessionPubkey) {
-      status = "Sign in to analyze code trust against your WoT."
+      status = "Sign in to analyze code collaboration evidence."
       return
     }
 
@@ -215,14 +225,14 @@
       if (result.authoredPullRequestCount === 0 && result.maintainerActionCount === 0) {
         status = `No recent pull request activity found in the last ${result.windowDays} days.`
       } else if (
-        result.trustedMergedPullRequests === 0 &&
-        result.trustedMaintainerMerges === 0 &&
-        result.trustedCollaborators === 0
+        result.overlayMatchedMergedPullRequests === 0 &&
+        result.overlayMatchedMaintainerMerges === 0 &&
+        result.overlayMatchedCollaborators === 0
       ) {
-        status = `No recent git collaborations matched your ${getTrustGraphSourceLabel(result.graphSource)} in the last ${result.windowDays} days.`
+        status = `No recent git collaborations matched your ${getTrustGraphSourceLabel(result.graphSource).toLowerCase()} in the last ${result.windowDays} days.`
       }
     } catch (error: any) {
-      status = error?.message || "Unable to analyze code trust right now."
+      status = error?.message || "Unable to analyze code collaboration right now."
     } finally {
       loading = false
     }
@@ -260,18 +270,20 @@
     onclick={() => (isOpen = !isOpen)}>
     <div class="flex flex-col gap-1">
       <span class="flex items-center gap-2 text-sm font-semibold">
-        <Icon icon={Git} /> Code trust analysis
+        <Icon icon={Git} /> Code collaboration evidence
       </span>
       <span class="text-xs opacity-70">
-        Manually analyze recent git collaboration against your trust graph.
+        Manually analyze recent git collaboration against direct-overlay evidence.
       </span>
     </div>
 
     <div class="flex flex-wrap items-center justify-end gap-2 text-xs opacity-70">
       {#if analysis}
-        <span class="badge badge-neutral">{analysis.trustedMergedPullRequests} merged</span>
-        <span class="badge badge-neutral">{analysis.trustedMaintainerMerges} maintainer</span>
-        <span class="badge badge-neutral">{analysis.trustedCollaborators} collaborators</span>
+        <span class="badge badge-neutral">{analysis.overlayMatchedMergedPullRequests} merged</span>
+        <span class="badge badge-neutral"
+          >{analysis.overlayMatchedMaintainerMerges} maintainer</span>
+        <span class="badge badge-neutral"
+          >{analysis.overlayMatchedCollaborators} collaborators</span>
       {/if}
       <div class="transition-transform" class:rotate-180={isOpen}>
         <Icon icon={AltArrowDown} />
@@ -299,14 +311,16 @@
             {/if}
             <span class="leading-none">{analysis ? "Refresh analysis" : "Analyze"}</span>
           </Button>
-          <Link href="/settings/trust" class="btn btn-neutral btn-sm">Trust settings</Link>
+          <Link href="/settings/trust" class="btn btn-neutral btn-sm"
+            >Community trust settings</Link>
         </div>
       </div>
 
       {#if !hasGraphAdjustments}
         <div class="rounded-box bg-base-100/40 p-3 text-xs opacity-75">
-          Using the basic WoT fallback. Add graph rules in Trust settings if you want this analysis
-          to include or exclude collaborators based on selected rank, follower, or report metrics.
+          Using direct social overlay only. This panel counts recent collaboration with people you
+          follow; community roles and shared membership are shown in the profile connection
+          sections.
         </div>
       {/if}
 
@@ -438,7 +452,7 @@
         {#if analysis.collaborators.length > 0}
           <div class="flex flex-col gap-3 border-t border-base-300/50 pt-4">
             <div class="flex items-center justify-between gap-2">
-              <strong class="text-sm">Trusted collaborators</strong>
+              <strong class="text-sm">{matchedCollaboratorLabel}</strong>
               <span class="text-xs opacity-60">Most active recent matches</span>
             </div>
 
@@ -459,7 +473,9 @@
                         onclick={() => openProfile(collaborator.pubkey)}>
                         <ProfileName pubkey={collaborator.pubkey} />
                       </Button>
-                      <div class="text-xs opacity-60">Recent trusted collaboration counterpart</div>
+                      <div class="text-xs opacity-60">
+                        Recent direct-overlay collaboration match
+                      </div>
                     </div>
                   </div>
 
@@ -608,7 +624,7 @@
                             <div>
                               <div class="font-medium">Common repos</div>
                               <div class="mt-1 text-xs opacity-70">
-                                Repositories where this collaborator has recent trusted activity
+                                Repositories where this collaborator has recent matched activity
                                 with the target profile.
                               </div>
                             </div>

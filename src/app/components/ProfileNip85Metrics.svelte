@@ -35,6 +35,7 @@
   let loadedKey = $state("")
   let previousPubkey = $state(pubkey)
   let requestId = 0
+  const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
 
   const configuredProviders = $derived($userNip85ConfiguredUserProviders)
 
@@ -134,7 +135,7 @@
       summary = null
       results = new Map()
       loadedKey = nextKey
-      status = "Configure trusted assertion providers in Settings to see NIP-85 profile metrics."
+      status = "Configure NIP-85 assertion providers in Settings to see profile metrics."
       return
     }
 
@@ -152,13 +153,13 @@
 
       const hasData = Array.from(loaded.results.values()).some(result => result.status === "data")
 
-      status = hasData ? null : "No trusted assertion data found for this profile yet."
+      status = hasData ? null : "No NIP-85 assertion data found for this profile yet."
     } catch (error: any) {
       if (currentRequest !== requestId) return
 
       summary = null
       results = new Map()
-      status = error?.message || "Unable to load trusted assertion data."
+      status = error?.message || "Unable to load NIP-85 assertion data."
     } finally {
       if (currentRequest === requestId) {
         loading = false
@@ -187,177 +188,179 @@
   })
 </script>
 
-<div class="rounded-xl bg-base-200/50">
-  <button
-    type="button"
-    class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-    onclick={() => (isOpen = !isOpen)}>
-    <div class="flex flex-col gap-1">
-      <span class="flex items-center gap-2 text-sm font-semibold">
-        <Icon icon={ShieldCheck} /> Trust metrics
-      </span>
-      <span class="text-xs opacity-70">
-        Load NIP-85 profile metrics from the providers you trust.
-      </span>
-    </div>
-
-    <div class="flex items-center gap-2 text-xs opacity-70">
-      {#if summary?.providerCount}
-        <span class="badge badge-neutral">{summary.providerCount} providers</span>
-      {/if}
-      <div class="transition-transform" class:rotate-180={isOpen}>
-        <Icon icon={AltArrowDown} />
+{#if NIP85_ENABLED}
+  <div class="rounded-xl bg-base-200/50">
+    <button
+      type="button"
+      class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      onclick={() => (isOpen = !isOpen)}>
+      <div class="flex flex-col gap-1">
+        <span class="flex items-center gap-2 text-sm font-semibold">
+          <Icon icon={ShieldCheck} /> NIP-85 metrics
+        </span>
+        <span class="text-xs opacity-70">
+          Load NIP-85 profile metrics from selected assertion providers.
+        </span>
       </div>
-    </div>
-  </button>
 
-  {#if isOpen}
-    <div class="flex flex-col gap-4 border-t border-base-300/50 px-4 py-4">
-      {#if loading}
-        <div class="flex items-center gap-2 text-sm opacity-75">
-          <Spinner {loading} />
-          <span>Loading trusted assertions...</span>
-        </div>
-      {:else}
-        {#if status}
-          <div class="rounded-box bg-base-100/40 p-3 text-sm opacity-80">
-            {status}
-          </div>
+      <div class="flex items-center gap-2 text-xs opacity-70">
+        {#if summary?.providerCount}
+          <span class="badge badge-neutral">{summary.providerCount} providers</span>
         {/if}
+        <div class="transition-transform" class:rotate-180={isOpen}>
+          <Icon icon={AltArrowDown} />
+        </div>
+      </div>
+    </button>
 
-        {#if configuredProviders.length === 0}
-          <div>
-            <Link href="/settings/trust" class="btn btn-neutral btn-sm">Configure Providers</Link>
+    {#if isOpen}
+      <div class="flex flex-col gap-4 border-t border-base-300/50 px-4 py-4">
+        {#if loading}
+          <div class="flex items-center gap-2 text-sm opacity-75">
+            <Spinner {loading} />
+            <span>Loading NIP-85 assertions...</span>
           </div>
         {:else}
-          <p class="text-xs opacity-70">
-            Summary values only show when exactly one provider is selected for a metric.
-          </p>
-
-          {#if summaryTags.length > 0}
-            <div class="grid gap-3 sm:grid-cols-2">
-              {#each summaryTags as kindTag}
-                {@const value = getSummaryValue(summary, kindTag)}
-                <div class="rounded-box bg-base-100/40 p-3">
-                  <div class="text-xs uppercase tracking-wide opacity-60">
-                    {getNip85UserMetricLabel(kindTag.split(":")[1])}
-                  </div>
-                  <div class="mt-1 text-sm font-medium">
-                    {formatNip85UserMetricValue(kindTag.split(":")[1], value)}
-                  </div>
-                </div>
-              {/each}
+          {#if status}
+            <div class="rounded-box bg-base-100/40 p-3 text-sm opacity-80">
+              {status}
             </div>
           {/if}
 
-          {#if selectedTags.length > 0}
-            <div class="flex flex-col gap-3 border-t border-base-300/50 pt-4">
-              <div class="flex items-center justify-between gap-2">
-                <strong class="text-sm">Provider responses</strong>
-                <span class="text-xs opacity-60">Per metric</span>
-              </div>
-
-              {#each selectedTags as kindTag}
-                {@const providers = providersByCapability.get(kindTag) || []}
-                <div class="flex flex-col gap-2">
-                  <div class="flex items-center justify-between gap-2 text-sm">
-                    <span class="font-medium"
-                      >{getNip85UserMetricLabel(kindTag.split(":")[1])}</span>
-                    <span class="text-xs opacity-60">{providers.length} selected</span>
-                  </div>
-
-                  {#each providers as provider}
-                    {@const result = results.get(provider.serviceKey)}
-                    {@const rawValue = result?.assertion
-                      ? getNip85UserAssertionValue(result.assertion, provider.tag)
-                      : undefined}
-                    {@const hasValue = hasNip85MetricValue(rawValue)}
-                    {@const tagMissing = Boolean(
-                      result?.assertion &&
-                      !hasValue &&
-                      result.availableTags.length > 0 &&
-                      !result.availableTags.includes(provider.tag),
-                    )}
-                    <div class="rounded-box bg-base-100/40 p-3">
-                      <div
-                        class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div class="flex min-w-0 gap-3">
-                          <ProfileCircle pubkey={provider.serviceKey} size={7} />
-                          <div class="min-w-0">
-                            <div class="truncate text-sm font-medium">
-                              <ProfileName pubkey={provider.serviceKey} />
-                            </div>
-                            <div class="text-xs opacity-60">
-                              {displayPubkey(provider.serviceKey)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="text-sm font-medium">
-                          {#if hasValue}
-                            {formatNip85UserMetricValue(provider.tag, rawValue)}
-                          {:else}
-                            <span class="opacity-60">No data</span>
-                          {/if}
-                        </div>
-                      </div>
-
-                      {#if result?.status === "error"}
-                        <p class="mt-2 text-xs opacity-70">
-                          {result.error || "Provider unavailable."}
-                        </p>
-                      {:else if result && result.status !== "data"}
-                        <p class="mt-2 text-xs opacity-70">
-                          Provider may be offline or has not published this profile yet.
-                        </p>
-                      {/if}
-
-                      {#if tagMissing}
-                        <p class="mt-2 text-xs opacity-70">
-                          This provider published different metrics for this profile:
-                          {result?.availableTags.join(", ")}
-                        </p>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {/each}
+          {#if configuredProviders.length === 0}
+            <div>
+              <Link href="/settings/trust" class="btn btn-neutral btn-sm">Configure Providers</Link>
             </div>
-          {/if}
+          {:else}
+            <p class="text-xs opacity-70">
+              Summary values only show when exactly one provider is selected for a metric.
+            </p>
 
-          {#if providerExtras.length > 0}
-            <details class="rounded-box border border-base-300/50 bg-base-100/20 p-3">
-              <summary class="cursor-pointer text-sm font-medium">Other provider metrics</summary>
-              <div class="mt-3 flex flex-col gap-3">
-                {#each providerExtras as entry}
+            {#if summaryTags.length > 0}
+              <div class="grid gap-3 sm:grid-cols-2">
+                {#each summaryTags as kindTag}
+                  {@const value = getSummaryValue(summary, kindTag)}
                   <div class="rounded-box bg-base-100/40 p-3">
-                    <div class="flex items-center gap-3">
-                      <ProfileCircle pubkey={entry.serviceKey} size={7} />
-                      <div class="min-w-0">
-                        <div class="truncate text-sm font-medium">
-                          <ProfileName pubkey={entry.serviceKey} />
-                        </div>
-                        <div class="text-xs opacity-60">{displayPubkey(entry.serviceKey)}</div>
-                      </div>
+                    <div class="text-xs uppercase tracking-wide opacity-60">
+                      {getNip85UserMetricLabel(kindTag.split(":")[1])}
                     </div>
-
-                    <div class="mt-3 flex flex-col gap-2">
-                      {#each entry.metrics as metric}
-                        <div class="flex items-center justify-between gap-3 text-sm">
-                          <span class="opacity-70">{getNip85UserMetricLabel(metric.tag)}</span>
-                          <span class="font-medium">
-                            {formatNip85UserMetricValue(metric.tag, metric.value)}
-                          </span>
-                        </div>
-                      {/each}
+                    <div class="mt-1 text-sm font-medium">
+                      {formatNip85UserMetricValue(kindTag.split(":")[1], value)}
                     </div>
                   </div>
                 {/each}
               </div>
-            </details>
+            {/if}
+
+            {#if selectedTags.length > 0}
+              <div class="flex flex-col gap-3 border-t border-base-300/50 pt-4">
+                <div class="flex items-center justify-between gap-2">
+                  <strong class="text-sm">Provider responses</strong>
+                  <span class="text-xs opacity-60">Per metric</span>
+                </div>
+
+                {#each selectedTags as kindTag}
+                  {@const providers = providersByCapability.get(kindTag) || []}
+                  <div class="flex flex-col gap-2">
+                    <div class="flex items-center justify-between gap-2 text-sm">
+                      <span class="font-medium"
+                        >{getNip85UserMetricLabel(kindTag.split(":")[1])}</span>
+                      <span class="text-xs opacity-60">{providers.length} selected</span>
+                    </div>
+
+                    {#each providers as provider}
+                      {@const result = results.get(provider.serviceKey)}
+                      {@const rawValue = result?.assertion
+                        ? getNip85UserAssertionValue(result.assertion, provider.tag)
+                        : undefined}
+                      {@const hasValue = hasNip85MetricValue(rawValue)}
+                      {@const tagMissing = Boolean(
+                        result?.assertion &&
+                        !hasValue &&
+                        result.availableTags.length > 0 &&
+                        !result.availableTags.includes(provider.tag),
+                      )}
+                      <div class="rounded-box bg-base-100/40 p-3">
+                        <div
+                          class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div class="flex min-w-0 gap-3">
+                            <ProfileCircle pubkey={provider.serviceKey} size={7} />
+                            <div class="min-w-0">
+                              <div class="truncate text-sm font-medium">
+                                <ProfileName pubkey={provider.serviceKey} />
+                              </div>
+                              <div class="text-xs opacity-60">
+                                {displayPubkey(provider.serviceKey)}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="text-sm font-medium">
+                            {#if hasValue}
+                              {formatNip85UserMetricValue(provider.tag, rawValue)}
+                            {:else}
+                              <span class="opacity-60">No data</span>
+                            {/if}
+                          </div>
+                        </div>
+
+                        {#if result?.status === "error"}
+                          <p class="mt-2 text-xs opacity-70">
+                            {result.error || "Provider unavailable."}
+                          </p>
+                        {:else if result && result.status !== "data"}
+                          <p class="mt-2 text-xs opacity-70">
+                            Provider may be offline or has not published this profile yet.
+                          </p>
+                        {/if}
+
+                        {#if tagMissing}
+                          <p class="mt-2 text-xs opacity-70">
+                            This provider published different metrics for this profile:
+                            {result?.availableTags.join(", ")}
+                          </p>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if providerExtras.length > 0}
+              <details class="rounded-box border border-base-300/50 bg-base-100/20 p-3">
+                <summary class="cursor-pointer text-sm font-medium">Other provider metrics</summary>
+                <div class="mt-3 flex flex-col gap-3">
+                  {#each providerExtras as entry}
+                    <div class="rounded-box bg-base-100/40 p-3">
+                      <div class="flex items-center gap-3">
+                        <ProfileCircle pubkey={entry.serviceKey} size={7} />
+                        <div class="min-w-0">
+                          <div class="truncate text-sm font-medium">
+                            <ProfileName pubkey={entry.serviceKey} />
+                          </div>
+                          <div class="text-xs opacity-60">{displayPubkey(entry.serviceKey)}</div>
+                        </div>
+                      </div>
+
+                      <div class="mt-3 flex flex-col gap-2">
+                        {#each entry.metrics as metric}
+                          <div class="flex items-center justify-between gap-3 text-sm">
+                            <span class="opacity-70">{getNip85UserMetricLabel(metric.tag)}</span>
+                            <span class="font-medium">
+                              {formatNip85UserMetricValue(metric.tag, metric.value)}
+                            </span>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </details>
+            {/if}
           {/if}
         {/if}
-      {/if}
-    </div>
-  {/if}
-</div>
+      </div>
+    {/if}
+  </div>
+{/if}

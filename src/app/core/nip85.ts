@@ -468,7 +468,7 @@ export const saveUserNip85ProviderConfig = async (providers: Nip85ConfiguredProv
   const $signer = signer.get()
 
   if (!$pubkey || !$signer) {
-    throw new Error("Sign in to update trusted assertion providers.")
+    throw new Error("Sign in to update NIP-85 assertion providers.")
   }
 
   const current = get(userNip85ProviderConfig)?.list || makeList({kind: NIP85_PROVIDER_CONFIG_KIND})
@@ -659,8 +659,7 @@ export const loadNip85RecommendedUserProviders = async () => {
       ...defaultRecommendationState,
       status: "error",
       authors: authors.length,
-      error:
-        error instanceof Error ? error.message : "Failed to load trusted provider recommendations.",
+      error: error instanceof Error ? error.message : "Failed to load provider recommendations.",
     })
   }
 }
@@ -789,7 +788,7 @@ export const verifyNip85SelectedProviders = async (providers: Nip85ConfiguredPro
   const currentPubkey = pubkey.get()
 
   if (!currentPubkey) {
-    throw new Error("Sign in to verify trusted assertion providers.")
+    throw new Error("Sign in to verify NIP-85 assertion providers.")
   }
 
   const samplePubkeys = getNip85VerificationSamplePubkeys(currentPubkey, getWotGraph())

@@ -25,21 +25,21 @@ import {
 } from "./profile-collab-analysis"
 
 const targetPubkey = "a".repeat(64)
-const trustedMaintainer = "b".repeat(64)
-const trustedAuthor = "c".repeat(64)
-const untrustedMaintainer = "d".repeat(64)
+const matchedMaintainer = "b".repeat(64)
+const matchedAuthor = "c".repeat(64)
+const unmatchedMaintainer = "d".repeat(64)
 const repoAddress = `30617:${targetPubkey}:demo`
 
 describe("profile code trust analysis", () => {
-  it("counts trusted merged PRs, maintainer merges, and collaborators", () => {
+  it("counts overlay-matched merged PRs, maintainer merges, and collaborators", () => {
     const analysis = buildProfileCodeTrustAnalysis({
       targetPubkey,
       trustGraph: {
         viewerPubkey: "f".repeat(64),
         source: "direct_social",
         scores: new Map([
-          [trustedMaintainer, 4],
-          [trustedAuthor, 3],
+          [matchedMaintainer, 4],
+          [matchedAuthor, 3],
         ]),
         enabledRuleCount: 0,
       },
@@ -54,7 +54,7 @@ describe("profile code trust analysis", () => {
         {
           id: "2".repeat(64),
           kind: 1618,
-          pubkey: trustedAuthor,
+          pubkey: matchedAuthor,
           created_at: 20,
           tags: [["a", repoAddress]],
         },
@@ -70,7 +70,7 @@ describe("profile code trust analysis", () => {
         {
           id: "4".repeat(64),
           kind: 1631,
-          pubkey: trustedMaintainer,
+          pubkey: matchedMaintainer,
           created_at: 40,
           tags: [["e", "1".repeat(64), "", "root"]],
         },
@@ -84,13 +84,13 @@ describe("profile code trust analysis", () => {
         {
           id: "6".repeat(64),
           kind: 1631,
-          pubkey: untrustedMaintainer,
+          pubkey: unmatchedMaintainer,
           created_at: 60,
           tags: [["e", "3".repeat(64), "", "root"]],
         },
       ] as any,
       repoMaintainersByAddress: new Map([
-        [repoAddress, new Set([targetPubkey, trustedMaintainer])],
+        [repoAddress, new Set([targetPubkey, matchedMaintainer])],
       ]),
       repoNamesByAddress: new Map([[repoAddress, "demo"]]),
       relays: ["wss://git.example.com"],
@@ -99,23 +99,23 @@ describe("profile code trust analysis", () => {
 
     expect(analysis.graphSource).toBe("direct_social")
     expect(analysis.windowDays).toBe(PROFILE_CODE_TRUST_WINDOW_DAYS)
-    expect(analysis.trustedMergedPullRequests).toBe(1)
-    expect(analysis.trustedMaintainerMerges).toBe(1)
-    expect(analysis.trustedCollaborators).toBe(2)
+    expect(analysis.overlayMatchedMergedPullRequests).toBe(1)
+    expect(analysis.overlayMatchedMaintainerMerges).toBe(1)
+    expect(analysis.overlayMatchedCollaborators).toBe(2)
     expect(analysis.authoredPullRequestCount).toBe(2)
     expect(analysis.maintainerActionCount).toBe(1)
-    expect(analysis.trustedMergedPullRequestDetails).toEqual([
+    expect(analysis.overlayMatchedMergedPullRequestDetails).toEqual([
       expect.objectContaining({
         rootId: "1".repeat(64),
         repoName: "demo",
-        mergedByPubkey: trustedMaintainer,
+        mergedByPubkey: matchedMaintainer,
       }),
     ])
-    expect(analysis.trustedMaintainerMergeDetails).toEqual([
+    expect(analysis.overlayMatchedMaintainerMergeDetails).toEqual([
       expect.objectContaining({
         rootId: "2".repeat(64),
         repoName: "demo",
-        authorPubkey: trustedAuthor,
+        authorPubkey: matchedAuthor,
       }),
     ])
     expect(analysis.authoredPullRequestDetails).toEqual(
@@ -124,7 +124,7 @@ describe("profile code trust analysis", () => {
         expect.objectContaining({
           rootId: "1".repeat(64),
           repoName: "demo",
-          mergedByPubkey: trustedMaintainer,
+          mergedByPubkey: matchedMaintainer,
         }),
       ]),
     )
@@ -132,12 +132,12 @@ describe("profile code trust analysis", () => {
       expect.objectContaining({
         rootId: "2".repeat(64),
         repoName: "demo",
-        authorPubkey: trustedAuthor,
+        authorPubkey: matchedAuthor,
       }),
     ])
     expect(analysis.collaborators).toEqual([
       expect.objectContaining({
-        pubkey: trustedMaintainer,
+        pubkey: matchedMaintainer,
         mergedTargetPullRequests: 1,
         mergedByTarget: 0,
         totalInteractions: 1,
@@ -146,7 +146,7 @@ describe("profile code trust analysis", () => {
         repoDetails: [expect.objectContaining({repoName: "demo", count: 1})],
       }),
       expect.objectContaining({
-        pubkey: trustedAuthor,
+        pubkey: matchedAuthor,
         mergedTargetPullRequests: 0,
         mergedByTarget: 1,
         totalInteractions: 1,
@@ -188,9 +188,9 @@ describe("profile code trust analysis", () => {
       analyzedAt: 123,
     })
 
-    expect(analysis.trustedMergedPullRequests).toBe(1)
-    expect(analysis.trustedMaintainerMerges).toBe(0)
-    expect(analysis.trustedCollaborators).toBe(0)
+    expect(analysis.overlayMatchedMergedPullRequests).toBe(1)
+    expect(analysis.overlayMatchedMaintainerMerges).toBe(0)
+    expect(analysis.overlayMatchedCollaborators).toBe(0)
     expect(analysis.authoredPullRequestDetails).toEqual([
       expect.objectContaining({rootId: "1".repeat(64)}),
     ])

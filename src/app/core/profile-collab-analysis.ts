@@ -40,7 +40,7 @@ export type ProfileCodeTrustInteractionDetail = {
 
 export type ProfileCodeTrustCollaborator = {
   pubkey: string
-  trustScore: number
+  matchScore: number
   mergedTargetPullRequests: number
   mergedByTarget: number
   totalInteractions: number
@@ -60,11 +60,11 @@ export type ProfileCodeTrustAnalysis = {
   relays: string[]
   authoredPullRequestCount: number
   maintainerActionCount: number
-  trustedMergedPullRequests: number
-  trustedMaintainerMerges: number
-  trustedCollaborators: number
-  trustedMergedPullRequestDetails: ProfileCodeTrustInteractionDetail[]
-  trustedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[]
+  overlayMatchedMergedPullRequests: number
+  overlayMatchedMaintainerMerges: number
+  overlayMatchedCollaborators: number
+  overlayMatchedMergedPullRequestDetails: ProfileCodeTrustInteractionDetail[]
+  overlayMatchedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[]
   authoredPullRequestDetails: ProfileCodeTrustInteractionDetail[]
   maintainerActionDetails: ProfileCodeTrustInteractionDetail[]
   collaborators: ProfileCodeTrustCollaborator[]
@@ -72,7 +72,7 @@ export type ProfileCodeTrustAnalysis = {
 
 type CollaborationBucket = {
   pubkey: string
-  trustScore: number
+  matchScore: number
   mergedTargetPullRequests: number
   mergedByTarget: number
   latestAt: number
@@ -203,14 +203,14 @@ const addCollaboratorInteraction = (
   collaborators: Map<string, CollaborationBucket>,
   {
     collaboratorPubkey,
-    trustScore,
+    matchScore,
     type,
     repoAddress,
     createdAt,
     detail,
   }: {
     collaboratorPubkey: string
-    trustScore: number
+    matchScore: number
     type: "merged_target_pr" | "merged_by_target"
     repoAddress: string
     createdAt: number
@@ -221,7 +221,7 @@ const addCollaboratorInteraction = (
     collaborators.get(collaboratorPubkey) ||
     ({
       pubkey: collaboratorPubkey,
-      trustScore,
+      matchScore,
       mergedTargetPullRequests: 0,
       mergedByTarget: 0,
       latestAt: 0,
@@ -230,7 +230,7 @@ const addCollaboratorInteraction = (
       mergedByTargetDetails: [],
     } satisfies CollaborationBucket)
 
-  current.trustScore = Math.max(current.trustScore, trustScore)
+  current.matchScore = Math.max(current.matchScore, matchScore)
   current.latestAt = Math.max(current.latestAt, createdAt)
   current.repos.set(repoAddress, (current.repos.get(repoAddress) || 0) + 1)
 
@@ -267,12 +267,12 @@ export const buildProfileCodeTrustAnalysis = ({
   const pullRequestsById = getLatestEventsById(pullRequests)
   const statusesByRoot = groupStatusesByRoot(appliedStatuses)
   const collaborators = new Map<string, CollaborationBucket>()
-  let trustedMergedPullRequestDetails: ProfileCodeTrustInteractionDetail[] = []
-  let trustedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[] = []
+  let overlayMatchedMergedPullRequestDetails: ProfileCodeTrustInteractionDetail[] = []
+  let overlayMatchedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[] = []
   let maintainerActionDetails: ProfileCodeTrustInteractionDetail[] = []
 
-  let trustedMergedPullRequests = 0
-  let trustedMaintainerMerges = 0
+  let overlayMatchedMergedPullRequests = 0
+  let overlayMatchedMaintainerMerges = 0
 
   const authoredPullRequests = Array.from(pullRequestsById.values()).filter(
     pullRequest => pullRequest.pubkey === targetPubkey,
@@ -301,22 +301,24 @@ export const buildProfileCodeTrustAnalysis = ({
     if (!latestStatus) continue
 
     const collaboratorPubkey = latestStatus.pubkey
-    const trustScore = trustGraph.scores.get(collaboratorPubkey) || 0
+    const matchScore = trustGraph.scores.get(collaboratorPubkey) || 0
 
-    if (trustScore <= 0) continue
+    if (matchScore <= 0) continue
 
-    trustedMergedPullRequests += 1
+    overlayMatchedMergedPullRequests += 1
     const detail = makeInteractionDetail(pullRequest, repoNamesByAddress, latestStatus)
 
-    trustedMergedPullRequestDetails = takeRecentDetails([
-      ...trustedMergedPullRequestDetails.filter(existing => existing.rootId !== detail.rootId),
+    overlayMatchedMergedPullRequestDetails = takeRecentDetails([
+      ...overlayMatchedMergedPullRequestDetails.filter(
+        existing => existing.rootId !== detail.rootId,
+      ),
       detail,
     ])
 
     if (collaboratorPubkey !== targetPubkey) {
       addCollaboratorInteraction(collaborators, {
         collaboratorPubkey,
-        trustScore,
+        matchScore,
         type: "merged_target_pr",
         repoAddress: getRepoAddress(pullRequest),
         createdAt: latestStatus.created_at,
@@ -349,18 +351,18 @@ export const buildProfileCodeTrustAnalysis = ({
 
     if (!collaboratorPubkey || collaboratorPubkey === targetPubkey) continue
 
-    const trustScore = trustGraph.scores.get(collaboratorPubkey) || 0
+    const matchScore = trustGraph.scores.get(collaboratorPubkey) || 0
 
-    if (trustScore <= 0) continue
+    if (matchScore <= 0) continue
 
-    trustedMaintainerMerges += 1
-    trustedMaintainerMergeDetails = takeRecentDetails([
-      ...trustedMaintainerMergeDetails.filter(existing => existing.rootId !== detail.rootId),
+    overlayMatchedMaintainerMerges += 1
+    overlayMatchedMaintainerMergeDetails = takeRecentDetails([
+      ...overlayMatchedMaintainerMergeDetails.filter(existing => existing.rootId !== detail.rootId),
       detail,
     ])
     addCollaboratorInteraction(collaborators, {
       collaboratorPubkey,
-      trustScore,
+      matchScore,
       type: "merged_by_target",
       repoAddress: getRepoAddress(pullRequest),
       createdAt: latestStatus.created_at,
@@ -371,7 +373,7 @@ export const buildProfileCodeTrustAnalysis = ({
   const collaboratorList = Array.from(collaborators.values())
     .map(collaborator => ({
       pubkey: collaborator.pubkey,
-      trustScore: collaborator.trustScore,
+      matchScore: collaborator.matchScore,
       mergedTargetPullRequests: collaborator.mergedTargetPullRequests,
       mergedByTarget: collaborator.mergedByTarget,
       totalInteractions: collaborator.mergedTargetPullRequests + collaborator.mergedByTarget,
@@ -395,7 +397,7 @@ export const buildProfileCodeTrustAnalysis = ({
     .sort((a, b) => {
       if (a.totalInteractions !== b.totalInteractions)
         return b.totalInteractions - a.totalInteractions
-      if (a.trustScore !== b.trustScore) return b.trustScore - a.trustScore
+      if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore
       if (a.latestAt !== b.latestAt) return b.latestAt - a.latestAt
       return a.pubkey.localeCompare(b.pubkey)
     })
@@ -410,11 +412,11 @@ export const buildProfileCodeTrustAnalysis = ({
     relays,
     authoredPullRequestCount: authoredPullRequests.length,
     maintainerActionCount,
-    trustedMergedPullRequests,
-    trustedMaintainerMerges,
-    trustedCollaborators: collaboratorList.length,
-    trustedMergedPullRequestDetails,
-    trustedMaintainerMergeDetails,
+    overlayMatchedMergedPullRequests,
+    overlayMatchedMaintainerMerges,
+    overlayMatchedCollaborators: collaboratorList.length,
+    overlayMatchedMergedPullRequestDetails,
+    overlayMatchedMaintainerMergeDetails,
     authoredPullRequestDetails,
     maintainerActionDetails,
     collaborators: collaboratorList,
@@ -451,7 +453,7 @@ export const loadProfileCodeTrustAnalysis = async (
   const viewerPubkey = pubkey.get() || ""
 
   if (!viewerPubkey) {
-    throw new Error("Sign in to analyze code trust.")
+    throw new Error("Sign in to analyze code collaboration.")
   }
 
   if (!force) {

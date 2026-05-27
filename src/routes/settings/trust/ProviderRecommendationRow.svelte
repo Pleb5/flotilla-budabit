@@ -175,7 +175,7 @@
         onclick={() => (showRecommenders = !showRecommenders)}>
         <div>
           <div class="text-sm font-medium">Recommended by</div>
-          <div class="text-xs opacity-70">{usageLabel} in your current WoT sample</div>
+          <div class="text-xs opacity-70">{usageLabel} in your current direct-overlay sample</div>
         </div>
 
         <div class="flex items-center gap-2">
@@ -220,7 +220,7 @@
       <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div class="text-sm font-medium">Verification</div>
-          <div class="text-xs opacity-70">3-profile sample from your WoT</div>
+          <div class="text-xs opacity-70">3-profile direct-overlay sample</div>
         </div>
 
         <span class={verificationBadgeClass}>

@@ -316,7 +316,7 @@ export const NIP85_USER_METRICS: Nip85MetricDefinition[] = [
     kind: NIP85_USER_ASSERTION_KIND,
     kindTag: makeNip85KindTag(NIP85_USER_ASSERTION_KIND, "rank"),
     tag: "rank",
-    label: "WoT Rank",
+    label: "Provider rank",
     description: "A normalized reputation score from 0 to 100.",
     format: "rank",
   },

@@ -212,7 +212,7 @@
 
   const graphAdjustmentStatus = $derived.by(() => {
     if (!hasGraphAdjustments) {
-      return "Using basic WoT only. Add include/exclude rules to widen or narrow collaboration analysis."
+      return "Using direct social overlay only. Add include/exclude rules to widen or narrow collaboration analysis."
     }
 
     return `${graphConfig.rules.filter(rule => rule.enabled).length} graph rule${graphConfig.rules.filter(rule => rule.enabled).length === 1 ? "" : "s"} active. Adjusted direct overlay will be used anywhere Budabit runs trust-based collaboration analysis.`
@@ -222,7 +222,7 @@
     const hasProviderSources = graphMetricSourceOptions.some(option => option.value !== "basic_wot")
 
     if (!hasProviderSources) {
-      return "Select one or more trusted assertion providers below to unlock provider-based graph rules like rank, followers, and reports."
+      return "Select one or more NIP-85 assertion providers below to unlock provider-based graph rules like rank, followers, and reports."
     }
 
     return "Presets use your selected providers for rank, followers, and report metrics when available."
@@ -577,7 +577,7 @@
     const sampleSize = verificationSamplePubkeys.length || 3
 
     if (verificationState === "running") {
-      return `Verifying selected providers against a ${sampleSize}-profile sample from your WoT...`
+      return `Verifying selected providers against a ${sampleSize}-profile direct-overlay sample...`
     }
 
     if (verificationState === "error") {
@@ -585,10 +585,10 @@
     }
 
     if (verificationState === "done") {
-      return `Checked ${managedProviders.length} selected entries against a ${sampleSize}-profile sample from your WoT.`
+      return `Checked ${managedProviders.length} selected entries against a ${sampleSize}-profile direct-overlay sample.`
     }
 
-    return `Verify selected providers against a ${sampleSize}-profile sample from your WoT.`
+    return `Verify selected providers against a ${sampleSize}-profile direct-overlay sample.`
   })
 
   const extraCapabilityDiscoveryStatus = $derived.by(() => {
@@ -655,7 +655,7 @@
     const state = $nip85RecommendationState
 
     if (state.status === "loading" && state.phase === "relay_lists") {
-      return `Analyzing relay lists for ${state.loadedAuthors}/${state.authors} trusted profiles...`
+      return `Analyzing relay lists for ${state.loadedAuthors}/${state.authors} direct-overlay profiles...`
     }
 
     if (state.status === "loading" && state.phase === "provider_configs") {
@@ -674,7 +674,7 @@
       if (recommendedEntryCount === 0) {
         return state.relayCount > 0
           ? `No public provider configs were found on ${state.relayCount} discovery relays.`
-          : "No discovery relays were available for trusted provider recommendations."
+          : "No discovery relays were available for provider recommendations."
       }
 
       return `Found ${recommendedEntryCount} provider recommendations from ${recommendedServiceCount} unique services across ${capabilityOptions.length} visible capabilities using ${state.relayCount} relays.`
@@ -684,7 +684,7 @@
       return state.error || "Unable to load provider recommendations."
     }
 
-    return "Recommendations come from public kind 10040 selections in your follows and the stronger edges in your web of trust."
+    return "Recommendations come from public kind 10040 selections in your follows and direct-overlay matches."
   })
 
   $effect(() => {
@@ -733,7 +733,7 @@
     } catch (error: any) {
       pushToast({
         theme: "error",
-        message: error?.message || "Unable to refresh trusted provider recommendations",
+        message: error?.message || "Unable to refresh provider recommendations",
       })
     } finally {
       refreshing = false
@@ -962,7 +962,7 @@
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div class="flex flex-col gap-2">
           <strong class="flex items-center gap-3 text-base sm:text-lg">
-            <Icon icon={ShieldCheck} /> Trusted Assertions
+            <Icon icon={ShieldCheck} /> NIP-85 Assertions
           </strong>
           <p class="max-w-3xl text-sm opacity-75 sm:text-sm">
             Budabit uses NIP-85 user assertions when you open a profile. Pick which providers you
@@ -997,7 +997,7 @@
       <p class="text-sm opacity-75">{recommendationStatus}</p>
       <p class="text-xs opacity-60">
         Recommendation counts are per capability. A single provider service can appear more than
-        once if people in your WoT use it for multiple capabilities.
+        once if people in your direct-overlay sample use it for multiple capabilities.
       </p>
 
       {#if unmanagedProvidersCount > 0}
@@ -1305,7 +1305,7 @@
             <div>
               <div class="text-sm font-medium">Provider Verification</div>
               <div class="text-xs opacity-70">
-                Checks your selected providers against a 3-profile sample from your WoT.
+                Checks your selected providers against a 3-profile direct-overlay sample.
               </div>
             </div>
 
@@ -1343,8 +1343,8 @@
             </strong>
             <p class="text-sm opacity-75">{activeCapability.description}</p>
             <p class="text-xs opacity-60">
-              Endorsements count how many distinct people in your current WoT sample publicly
-              selected each provider for this capability.
+              Endorsements count how many distinct people in your current direct-overlay sample
+              publicly selected each provider for this capability.
             </p>
           </div>
 
@@ -1371,7 +1371,8 @@
       <div class="card2 bg-alt flex flex-col gap-3 shadow-md">
         <strong class="text-base sm:text-lg">No Provider Capabilities Yet</strong>
         <p class="text-sm opacity-75">
-          Refresh recommendations to scan your web of trust, or add a provider manually above.
+          Refresh recommendations to scan your direct-overlay matches, or add a provider manually
+          above.
         </p>
       </div>
     {/if}
@@ -1382,7 +1383,7 @@
         <strong class="text-base sm:text-lg">Custom Provider</strong>
       </div>
       <p class="text-sm opacity-75">
-        Add a provider directly if it is not yet recommended by your web of trust.
+        Add a provider directly if it is not yet recommended by your direct-overlay matches.
       </p>
       <div class="grid gap-3 sm:gap-4 md:grid-cols-2">
         <label class="flex flex-col gap-2">
@@ -1524,7 +1525,7 @@
 
       <div class="rounded-box border border-info/25 bg-info/10 px-4 py-3 text-sm text-info">
         Trust surfaces should show semantic labels like Community member, Moderator, You follow, or
-        Banned here instead of raw compound trust scores.
+        Banned here instead of raw compound scores.
       </div>
     </div>
   </div>

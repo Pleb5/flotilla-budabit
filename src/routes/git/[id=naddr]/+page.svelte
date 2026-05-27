@@ -52,7 +52,6 @@
   } from "@nostr-git/core/events"
   import {isGraspRelayUrl, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {page} from "$app/stores"
-  import {goto} from "$app/navigation"
   import {profilesByPubkey, pubkey} from "@welshman/app"
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/util/toast"
@@ -113,41 +112,23 @@
   const activityHref = (item: {kind: "issue" | "pr"; id: string}) =>
     `${repoBasePath}/${item.kind === "issue" ? "issues" : "prs"}/${item.id}`
   let openTrustMetricPopover = $state<
-    "trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null
+    "community-aligned-merged" | "community-aligned-maintainer" | "community-collaborators" | null
   >(null)
   const repoTrustStatus = $derived.by(() => {
     if (repoTrustMetrics.status === "loading") {
-      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} activity...`
+      return "Refreshing community-aligned pull request activity..."
     }
 
     if (repoTrustMetrics.status === "error") {
-      return repoTrustMetrics.error || "Unable to compute trust activity."
+      return repoTrustMetrics.error || "Unable to compute community-aligned activity."
     }
 
     if (repoTrustMetrics.totalPullRequests === 0) {
-      return "No pull requests loaded yet for trust activity metrics."
+      return "No pull requests loaded yet for community-aligned metrics."
     }
 
-    if (repoTrustMetrics.enabledRuleCount > 0) {
-      return `Using ${repoTrustMetrics.graphLabel} across ${repoTrustMetrics.enabledRuleCount} graph rules.`
-    }
-
-    return "Using the basic WoT fallback. Add graph rules in Trust settings to refine these repo metrics."
+    return "Counting merged pull requests whose authors or mergers have community evidence for this repo context."
   })
-
-  const openPrsTrustView = (trust = "", trustSort = "") => {
-    const search = new URLSearchParams()
-
-    if (trust) {
-      search.set("trust", trust)
-    }
-
-    if (trustSort) {
-      search.set("trustSort", trustSort)
-    }
-
-    goto(search.size > 0 ? `${prsHref}?${search.toString()}` : prsHref)
-  }
 
   const getRepoTrustPrHref = (rootId: string) => `${prsHref}/${rootId}`
 
@@ -155,11 +136,11 @@
     getTagValue("subject", pullRequest.tags) || "Pull Request"
 
   const repoTrustMetricCards = $derived.by(() => {
-    const trustedMergedDetails = pullRequests
+    const communityAlignedMergedDetails = pullRequests
       .filter(pullRequest => {
         const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
 
-        return Boolean(metric?.merged && metric.trustedAuthor)
+        return Boolean(metric?.merged && metric.communityAlignedAuthor)
       })
       .map(pullRequest => {
         const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
@@ -172,11 +153,11 @@
         }
       })
       .slice(0, 5)
-    const trustedMaintainerDetails = pullRequests
+    const communityAlignedMaintainerDetails = pullRequests
       .filter(pullRequest => {
         const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
 
-        return Boolean(metric?.merged && metric.trustedMaintainerMerge)
+        return Boolean(metric?.merged && metric.communityAlignedMaintainerMerge)
       })
       .map(pullRequest => ({
         rootId: pullRequest.id,
@@ -188,27 +169,27 @@
 
     return [
       {
-        key: "trusted-merged" as const,
-        label: "Trusted merged contributions",
-        value: repoTrustMetrics.trustedMergedContributions,
+        key: "community-aligned-merged" as const,
+        label: "Community-aligned merged PRs",
+        value: repoTrustMetrics.communityAlignedMergedContributions,
         description:
-          "Merged pull requests in this repo whose authors are in your active trust graph.",
-        details: trustedMergedDetails,
+          "Merged pull requests whose authors have community evidence for this repo context.",
+        details: communityAlignedMergedDetails,
       },
       {
-        key: "trusted-maintainer" as const,
-        label: "Trusted maintainer merges",
-        value: repoTrustMetrics.trustedMaintainerMerges,
+        key: "community-aligned-maintainer" as const,
+        label: "Community-aligned maintainer merges",
+        value: repoTrustMetrics.communityAlignedMaintainerMerges,
         description:
-          "Merged pull requests in this repo where the maintainer who applied the status is in your active trust graph.",
-        details: trustedMaintainerDetails,
+          "Merged pull requests where the maintainer who applied the status has community evidence for this repo context.",
+        details: communityAlignedMaintainerDetails,
       },
       {
-        key: "trusted-collaborators" as const,
-        label: "Trusted collaborators",
-        value: repoTrustMetrics.trustedCollaborators,
+        key: "community-collaborators" as const,
+        label: "Community collaborators",
+        value: repoTrustMetrics.communityCollaborators,
         description:
-          "Distinct trusted authors and maintainers involved in merged pull request activity for this repo.",
+          "Distinct authors and maintainers with community evidence in merged pull request activity for this repo.",
         actors: repoTrustMetrics.topActors.slice(0, 5),
       },
     ]
@@ -378,7 +359,9 @@
   })
 
   const repoRelayItems = $derived.by<RelayItem[]>(() => {
-    return Array.from(new Set((repoClass.relays || []).filter(Boolean))).map(relay => ({url: relay}))
+    return Array.from(new Set((repoClass.relays || []).filter(Boolean))).map(relay => ({
+      url: relay,
+    }))
   })
 
   const repoMetadata = $derived({
@@ -1249,10 +1232,9 @@
             <div class="mb-2 flex items-center gap-2">
               <h3 class="flex items-center gap-2 text-sm font-semibold">
                 <Users class="h-4 w-4" />
-                Trust Activity
+                Community Activity
               </h3>
-              <span class="ml-auto text-[11px] text-muted-foreground"
-                >{repoTrustMetrics.graphLabel}</span>
+              <span class="ml-auto text-[11px] text-muted-foreground">Community evidence</span>
             </div>
             {#if repoTrustStatus}
               <p class="mb-2 text-xs text-muted-foreground">{repoTrustStatus}</p>
@@ -1260,9 +1242,9 @@
             <div class="space-y-1">
               {#each repoTrustMetricCards as metric (metric.key)}
                 {@const accent =
-                  metric.key === "trusted-merged"
+                  metric.key === "community-aligned-merged"
                     ? "text-emerald-400"
-                    : metric.key === "trusted-maintainer"
+                    : metric.key === "community-aligned-maintainer"
                       ? "text-sky-400"
                       : "text-amber-400"}
                 <div class="relative">
@@ -1287,9 +1269,9 @@
                   </button>
                   {#if openTrustMetricPopover === metric.key}
                     {@const bgTint =
-                      metric.key === "trusted-merged"
+                      metric.key === "community-aligned-merged"
                         ? "bg-emerald-500/10"
-                        : metric.key === "trusted-maintainer"
+                        : metric.key === "community-aligned-maintainer"
                           ? "bg-sky-500/10"
                           : "bg-amber-500/10"}
                     <InlinePopover
@@ -1301,23 +1283,23 @@
                           <div class="font-medium">{metric.label}</div>
                           <div class="mt-1 text-xs opacity-70">{metric.description}</div>
                         </div>
-                        {#if metric.key === "trusted-merged"}
+                        {#if metric.key === "community-aligned-merged"}
                           <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests}
+                            {repoTrustMetrics.communityAlignedMergedContributions} of {repoTrustMetrics.mergedPullRequests}
                             merged pull request{repoTrustMetrics.mergedPullRequests === 1
                               ? ""
-                              : "s"} matched a trusted author.
+                              : "s"} had a community-aligned author.
                           </div>
-                        {:else if metric.key === "trusted-maintainer"}
+                        {:else if metric.key === "community-aligned-maintainer"}
                           <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges ===
+                            {repoTrustMetrics.communityAlignedMaintainerMerges} merged pull request{repoTrustMetrics.communityAlignedMaintainerMerges ===
                             1
                               ? ""
-                              : "s"} were merged by trusted maintainers.
+                              : "s"} were merged by community-aligned maintainers.
                           </div>
                         {:else}
                           <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators ===
+                            {repoTrustMetrics.communityCollaborators} distinct community collaborator{repoTrustMetrics.communityCollaborators ===
                             1
                               ? ""
                               : "s"} participated in merged pull request activity.

@@ -189,7 +189,7 @@ describe("nip85 recommendation aggregation", () => {
     ])
   })
 
-  it("builds a 3-profile verification sample from self plus top WoT pubkeys", () => {
+  it("builds a 3-profile verification sample from self plus top direct-overlay pubkeys", () => {
     const currentPubkey = "1".repeat(64)
     const sample = getNip85VerificationSamplePubkeys(
       currentPubkey,
@@ -265,7 +265,7 @@ describe("nip85 recommendation aggregation", () => {
     expect(getNip85CapabilityDescription("30382:hops")).toContain("Provider-defined user metric")
   })
 
-  it("ranks relays by how often they appear in WoT relay lists", () => {
+  it("ranks relays by how often they appear in direct-overlay relay lists", () => {
     const relays = rankNip85Relays(
       new Map([
         ["wss://relay-three.example.com", 1],
