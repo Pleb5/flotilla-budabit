@@ -9,7 +9,7 @@ const trustSurfaceFiles = [
   {name: "PR detail", path: "../components/PRView.svelte"},
   {name: "profile collaboration", path: "../components/ProfileCodeTrustAnalysis.svelte"},
   {name: "profile NIP-85 metrics", path: "../components/ProfileNip85Metrics.svelte"},
-  {name: "trust settings", path: "../../routes/settings/trust/+page.svelte"},
+  {name: "trust model", path: "../../routes/trust-model/+page.svelte"},
   {
     name: "provider recommendations",
     path: "../../routes/settings/trust/ProviderRecommendationRow.svelte",
@@ -24,6 +24,11 @@ const avoidedLabelPatterns = [
   /\bTrusted (merged|maintainer|collaborators|author|Assertions)\b/i,
   /\btrusted (author|maintainer|collaborator|providers?|profiles|activity|assertions?)\b/i,
 ]
+
+const trustModelDocHref =
+  "/git/naddr1qvzqqqrhnypzp5zweue6xqa9npf0md5pak95zgsph2za35sentk88jmzdqwk925sqqgxvmr0w35kcmrp94382erpvf5hgqtk2vr/code?path=docs%2Farchitecture%2FWeb-of-Trust-in-BudaBit-Communities.md"
+const trustModelEventHref =
+  "/nevent1qvzqqqqx2upzp5zweue6xqa9npf0md5pak95zgsph2za35sentk88jmzdqwk925sqqstd2x5chl93t2zhqjtxflehjlek55dl7678wswnz6mc9xjgkusn6c0hjwhy"
 
 describe("trust UI labels", () => {
   it("does not render avoided raw or vague trust labels on trust surfaces", () => {
@@ -47,6 +52,23 @@ describe("trust UI labels", () => {
     expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
       "Direct-follow merged PRs",
     )
-    expect(readUiFile("../../routes/settings/trust/+page.svelte")).toContain("Community Trust")
+    expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
+      "More about trust in BudaBit",
+    )
+    expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Trust in BudaBit")
+    expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Community-first")
+  })
+
+  it("moves trust explanation out of settings", () => {
+    const trustModel = readUiFile("../../routes/trust-model/+page.svelte")
+
+    expect(trustModel).not.toContain("NIP-85")
+    expect(trustModel).toContain(trustModelDocHref)
+    expect(trustModel).toContain(trustModelEventHref)
+    expect(readUiFile("../../routes/settings/trust/+page.ts")).toContain(
+      'throw redirect(307, "/trust-model")',
+    )
+    expect(readUiFile("../components/MenuSettings.svelte")).not.toContain("/settings/trust")
+    expect(readUiFile("../../routes/settings/+layout.svelte")).not.toContain("/settings/trust")
   })
 })

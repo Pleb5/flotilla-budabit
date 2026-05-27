@@ -81,6 +81,13 @@
   const matchedCollaboratorLabel = $derived.by(() =>
     isDirectSocialAnalysis ? "Direct-follow collaborators" : "Overlay-matched collaborators",
   )
+  const analysisActionLabel = $derived.by(() => {
+    if (analysis) return "Refresh analysis"
+    if (loading) return "Loading analysis"
+    if (status) return "Retry analysis"
+
+    return "Refresh analysis"
+  })
   const metricCards = $derived.by<MetricCard[]>(() =>
     analysis
       ? [
@@ -261,6 +268,12 @@
     openMetricPopover = null
     openCollaboratorPopover = null
   })
+
+  $effect(() => {
+    if (!isOpen || loading || analysis || cachedAnalysis || status) return
+
+    void analyze(false)
+  })
 </script>
 
 <div class="rounded-xl bg-base-200/50">
@@ -273,7 +286,7 @@
         <Icon icon={Git} /> Code collaboration evidence
       </span>
       <span class="text-xs opacity-70">
-        Manually analyze recent git collaboration against direct-overlay evidence.
+        Automatically checks recent git collaboration against direct-overlay evidence when opened.
       </span>
     </div>
 
@@ -303,16 +316,16 @@
           <Button
             type="button"
             class="btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"
+            disabled={loading}
             onclick={() => analyze(Boolean(analysis))}>
             {#if loading}
               <span class="loading loading-spinner loading-sm shrink-0"></span>
             {:else}
               <Icon icon={Refresh} size={4} class="shrink-0" />
             {/if}
-            <span class="leading-none">{analysis ? "Refresh analysis" : "Analyze"}</span>
+            <span class="leading-none">{analysisActionLabel}</span>
           </Button>
-          <Link href="/settings/trust" class="btn btn-neutral btn-sm"
-            >Community trust settings</Link>
+          <Link href="/trust-model" class="btn btn-neutral btn-sm">More about trust in BudaBit</Link>
         </div>
       </div>
 

@@ -9,7 +9,6 @@
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Plugins from "@assets/icons/plug-circle.svg?dataurl"
   import Flower from "@assets/icons/flower.svg?dataurl"
-  import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -115,19 +114,6 @@
         {:else}
           <div>Manage content display, editor, and in-app notification preferences</div>
         {/if}
-      {/snippet}
-    </CardButton>
-  </Link>
-  <Link replaceState href="/settings/trust">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={ShieldCheck} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Trust</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Review client-side community trust and contextual moderation policy</div>
       {/snippet}
     </CardButton>
   </Link>
