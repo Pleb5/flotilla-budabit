@@ -2,7 +2,7 @@ import {mount} from "svelte"
 import type {Writable} from "svelte/store"
 import {get, derived} from "svelte/store"
 import {Router} from "@welshman/router"
-import {dec, inc} from "@welshman/lib"
+import {dec} from "@welshman/lib"
 import {throttled} from "@welshman/store"
 import type {PublishedProfile} from "@welshman/util"
 import {
@@ -10,8 +10,8 @@ import {
   profiles,
   searchProfiles,
   handlesByNip05,
-  getMaxWot,
-  getWotGraph,
+  getFollows,
+  pubkey,
   signer,
 } from "@welshman/app"
 import type {FileAttributes, WelshmanExtensionOptions} from "@welshman/editor"
@@ -110,9 +110,12 @@ export const makeEditor = async ({
         onSearch: searchProfiles,
         getValue: (profile: PublishedProfile) => profile.event.pubkey,
         sortFn: ({score = 1, item}) => {
-          const wotScore = getWotGraph().get(item.event.pubkey) || 0
+          const viewerPubkey = pubkey.get()
+          const directFollow = viewerPubkey
+            ? getFollows(viewerPubkey).includes(item.event.pubkey)
+            : false
 
-          return dec(score) * inc(wotScore / getMaxWot())
+          return dec(score) * (directFollow ? 2 : 1)
         },
         fuseOptions: {
           keys: [

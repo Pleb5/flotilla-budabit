@@ -151,10 +151,10 @@
       if (option.source.type === "basic_wot") {
         return {
           ...option,
-          capabilityLabel: "Basic WoT score",
-          providerLabel: "Base social graph",
+          capabilityLabel: "Direct social overlay score",
+          providerLabel: "Direct lists",
           unavailable: false,
-          searchText: "basic wot score base social graph",
+          searchText: "direct social overlay score direct lists",
         }
       }
 
@@ -178,14 +178,14 @@
       if (!byValue.has(value)) {
         const providerLabel =
           rule.source.type === "basic_wot"
-            ? "Basic WoT score"
+            ? "Direct lists"
             : displayProfile(
                 $profilesByPubkey.get(rule.source.serviceKey),
                 displayPubkey(rule.source.serviceKey),
               )
         const capabilityLabel =
           rule.source.type === "basic_wot"
-            ? "Basic WoT score"
+            ? "Direct social overlay score"
             : getNip85CapabilityLabel(rule.source.kindTag)
 
         byValue.set(value, {
@@ -215,7 +215,7 @@
       return "Using basic WoT only. Add include/exclude rules to widen or narrow collaboration analysis."
     }
 
-    return `${graphConfig.rules.filter(rule => rule.enabled).length} graph rule${graphConfig.rules.filter(rule => rule.enabled).length === 1 ? "" : "s"} active. Adjusted WoT will be used anywhere Budabit runs trust-based collaboration analysis.`
+    return `${graphConfig.rules.filter(rule => rule.enabled).length} graph rule${graphConfig.rules.filter(rule => rule.enabled).length === 1 ? "" : "s"} active. Adjusted direct overlay will be used anywhere Budabit runs trust-based collaboration analysis.`
   })
 
   const graphAdjustmentHint = $derived.by(() => {
@@ -1108,14 +1108,14 @@
         <strong class="text-base sm:text-lg">Graph Adjustments</strong>
       </div>
       <p class="text-sm opacity-75">
-        Refine the basic WoT graph Budabit uses for collaboration analysis. These private rules can
-        add or exclude people based on your selected scores; if you leave them empty, Budabit falls
-        back to the basic WoT graph.
+        Refine the direct social overlay Budabit uses for collaboration ordering. These private
+        rules can add or exclude people based on your selected scores; if you leave them empty,
+        Budabit uses only direct follows and mutes.
       </p>
 
       <div class="flex flex-wrap gap-2 text-xs">
         <span class={hasGraphAdjustments ? softBadgeSuccess : softBadgeWarning}>
-          {hasGraphAdjustments ? "Adjusted WoT active" : "Basic WoT fallback"}
+          {hasGraphAdjustments ? "Adjusted direct overlay active" : "Direct overlay only"}
         </span>
         <span class={softBadgeNeutral}>{graphConfig.rules.length} rules</span>
       </div>

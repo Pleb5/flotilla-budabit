@@ -119,7 +119,7 @@ export const getTrustGraphMetricSourceLabel = (
   providers: Nip85ConfiguredProvider[] = [],
 ) => {
   if (source.type === "basic_wot") {
-    return "Basic WoT score"
+    return "Direct social overlay score"
   }
 
   const provider = providers.find(

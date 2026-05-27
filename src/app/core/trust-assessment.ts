@@ -71,7 +71,16 @@ export type RepoCommunityContext = {
   suppressionReason?: TrustSuppressionReason
 }
 
+export const DIRECT_FOLLOW_WEIGHT = 1
+export const DIRECT_MUTE_WEIGHT = -1
+export const REPORT_WEIGHT = -2
+export const OVERLAY_CAP = 3
+export const COMMUNITY_MEMBER_FLOOR = 4
+
 const unique = <T>(values: T[]) => Array.from(new Set(values))
+
+export const clampOverlayScore = (score: number) =>
+  Math.max(-OVERLAY_CAP, Math.min(OVERLAY_CAP, score))
 
 export const getTrustEvidenceLabels = (evidence: TrustEvidence[]) =>
   unique(evidence.map(item => item.label).filter(Boolean))

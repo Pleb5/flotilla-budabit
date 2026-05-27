@@ -156,7 +156,7 @@ describe("repo discovery search helpers", () => {
     ])
   })
 
-  it("prioritizes starred owners ahead of lower trust matches", () => {
+  it("prioritizes starred owners ahead of direct follows and known owners", () => {
     const candidates = buildRepoDiscoveryCandidatePubkeys({
       settings: getDefaultRepoDiscoveryPrioritySettings(),
       viewerPubkey: "viewer",
@@ -164,17 +164,13 @@ describe("repo discovery search helpers", () => {
       followPubkeys: ["followed-owner"],
       knownOwners: ["known-owner"],
       profileMatches: ["profile-match"],
-      trustScores: new Map([
-        ["starred-owner", 1],
-        ["higher-trust-owner", 50],
-      ]),
+      trustScores: new Map([["legacy-trust-owner", 50]]),
     })
 
+    expect(candidates).not.toContain("legacy-trust-owner")
     expect(candidates.indexOf("profile-match")).toBeLessThan(candidates.indexOf("starred-owner"))
     expect(candidates.indexOf("starred-owner")).toBeLessThan(candidates.indexOf("followed-owner"))
-    expect(candidates.indexOf("followed-owner")).toBeLessThan(
-      candidates.indexOf("higher-trust-owner"),
-    )
+    expect(candidates.indexOf("followed-owner")).toBeLessThan(candidates.indexOf("known-owner"))
   })
 
   it("maps legacy bookmarked owner settings to starred owners", () => {
@@ -189,6 +185,16 @@ describe("repo discovery search helpers", () => {
       enabled: false,
     })
     expect(settings.map(setting => setting.key)).not.toContain("bookmarked_owners")
+  })
+
+  it("does not include the legacy trust bucket by default", () => {
+    expect(getDefaultRepoDiscoveryPrioritySettings().map(setting => setting.key)).toEqual([
+      "profile_matches",
+      "viewer",
+      "starred_owners",
+      "direct_follows",
+      "known_repo_owners",
+    ])
   })
 
   it("respects custom priority order and disabled buckets", () => {

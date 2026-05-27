@@ -6,7 +6,6 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
-  import WotScore from "@app/components/WotScore.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
@@ -21,13 +20,21 @@
     hideDetails?: boolean
   }
 
-  const {pubkey, url, relays = [], showPubkey, avatarSize = 10, hideDetails = false}: Props = $props()
+  const {
+    pubkey,
+    url,
+    relays = [],
+    showPubkey,
+    avatarSize = 10,
+    hideDetails = false,
+  }: Props = $props()
 
   const relayHints = $derived(removeUndefined([url, ...relays]))
   const profileDisplay = $derived(deriveProfileDisplay(pubkey, relayHints))
   const handle = $derived(deriveHandleForPubkey(pubkey))
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey, url: relayHints[0], relays: relayHints})
+  const openProfile = () =>
+    pushModal(ProfileDetail, {pubkey, url: relayHints[0], relays: relayHints})
 
   const copyPubkey = () => clip(nip19.npubEncode(pubkey))
 </script>
@@ -44,7 +51,6 @@
           class="text-bold overflow-hidden text-ellipsis whitespace-nowrap">
           {$profileDisplay}
         </Button>
-        <WotScore {pubkey} />
       </div>
       {#if $handle}
         <div class="overflow-hidden text-ellipsis text-sm opacity-75">

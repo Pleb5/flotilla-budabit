@@ -67,7 +67,7 @@
   )
 
   const graphSourceLabel = $derived.by(() =>
-    getTrustGraphSourceLabel(analysis?.graphSource || "basic_wot"),
+    getTrustGraphSourceLabel(analysis?.graphSource || "direct_social"),
   )
   const hasGraphAdjustments = $derived.by(() =>
     hasEnabledTrustGraphRules($userTrustGraphConfigValues),

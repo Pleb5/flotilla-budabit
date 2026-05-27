@@ -136,7 +136,7 @@ describe("repo trust metrics", () => {
       repoMaintainersByAddress: new Map([[repoAddress, new Set(["f".repeat(64)])]]),
       trustGraph: {
         viewerPubkey: "9".repeat(64),
-        source: "basic_wot",
+        source: "direct_social",
         scores: new Map([
           [author, 3],
           [outsider, 4],
@@ -176,7 +176,7 @@ describe("repo trust metrics", () => {
       repoMaintainersByAddress: new Map([[repoAddress, new Set(["f".repeat(64)])]]),
       trustGraph: {
         viewerPubkey: "9".repeat(64),
-        source: "basic_wot",
+        source: "direct_social",
         scores: new Map([[trustedAuthor, 4]]),
         enabledRuleCount: 0,
       },

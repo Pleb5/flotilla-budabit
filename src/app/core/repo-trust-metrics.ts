@@ -57,8 +57,8 @@ type BuildRepoTrustMetricsInput = {
 
 export const defaultRepoTrustMetrics: RepoTrustMetrics = {
   status: "idle",
-  graphSource: "basic_wot",
-  graphLabel: getTrustGraphSourceLabel("basic_wot"),
+  graphSource: "direct_social",
+  graphLabel: getTrustGraphSourceLabel("direct_social"),
   enabledRuleCount: 0,
   totalPullRequests: 0,
   mergedPullRequests: 0,

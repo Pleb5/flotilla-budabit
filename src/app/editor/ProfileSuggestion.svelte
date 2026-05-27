@@ -2,7 +2,6 @@
   import {removeUndefined} from "@welshman/lib"
   import {displayPubkey} from "@welshman/util"
   import {deriveHandleForPubkey, displayHandle, deriveProfileDisplay} from "@welshman/app"
-  import WotScore from "@app/components/WotScore.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
 
   type Props = {
@@ -26,7 +25,6 @@
       <div class="text-bold overflow-hidden text-ellipsis text-base">
         {$profileDisplay}
       </div>
-      <WotScore {pubkey} />
     </div>
     <div class="overflow-hidden text-ellipsis text-sm opacity-75">
       {$handle ? displayHandle($handle) : displayPubkey(pubkey)}

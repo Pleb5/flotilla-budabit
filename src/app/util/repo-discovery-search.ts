@@ -84,13 +84,13 @@ const REPO_DISCOVERY_PRIORITY_METADATA: Record<
   },
   direct_follows: {
     key: "direct_follows",
-    label: "Direct follows",
-    description: "People you directly follow.",
+    label: "You follow",
+    description: "Repository owners you directly follow.",
   },
   trust_network: {
     key: "trust_network",
-    label: "Web of trust",
-    description: "Wider trusted network, highest scores first.",
+    label: "Direct social overlay",
+    description: "Bounded direct follow and mute ordering signals.",
   },
   known_repo_owners: {
     key: "known_repo_owners",
@@ -102,6 +102,14 @@ const REPO_DISCOVERY_PRIORITY_METADATA: Record<
 const REPO_DISCOVERY_PRIORITY_KEYS = Object.keys(
   REPO_DISCOVERY_PRIORITY_METADATA,
 ) as RepoDiscoveryPriorityKey[]
+
+const DEFAULT_REPO_DISCOVERY_PRIORITY_KEYS: RepoDiscoveryPriorityKey[] = [
+  "profile_matches",
+  "viewer",
+  "starred_owners",
+  "direct_follows",
+  "known_repo_owners",
+]
 
 const normalizeSearchValue = (value: unknown) =>
   String(value ?? "")
@@ -296,16 +304,7 @@ export const sortRepoSearchResults = <
 }
 
 export const getDefaultRepoDiscoveryPrioritySettings = (): RepoDiscoveryPrioritySetting[] =>
-  (
-    [
-      "profile_matches",
-      "viewer",
-      "starred_owners",
-      "direct_follows",
-      "trust_network",
-      "known_repo_owners",
-    ] as RepoDiscoveryPriorityKey[]
-  ).map(key => ({
+  DEFAULT_REPO_DISCOVERY_PRIORITY_KEYS.map(key => ({
     ...REPO_DISCOVERY_PRIORITY_METADATA[key],
     enabled: true,
   }))
@@ -313,8 +312,12 @@ export const getDefaultRepoDiscoveryPrioritySettings = (): RepoDiscoveryPriority
 export const coerceRepoDiscoveryPrioritySettings = (
   value: unknown,
 ): RepoDiscoveryPrioritySetting[] => {
-  const defaults = getDefaultRepoDiscoveryPrioritySettings()
-  const byKey = new Map(defaults.map(setting => [setting.key, setting]))
+  const byKey = new Map(
+    REPO_DISCOVERY_PRIORITY_KEYS.map(key => [
+      key,
+      {...REPO_DISCOVERY_PRIORITY_METADATA[key], enabled: true},
+    ]),
+  )
   const normalized: RepoDiscoveryPrioritySetting[] = []
   const seen = new Set<RepoDiscoveryPriorityKey>()
 
@@ -338,7 +341,7 @@ export const coerceRepoDiscoveryPrioritySettings = (
     }
   }
 
-  for (const key of REPO_DISCOVERY_PRIORITY_KEYS) {
+  for (const key of DEFAULT_REPO_DISCOVERY_PRIORITY_KEYS) {
     if (!seen.has(key)) {
       normalized.push(byKey.get(key)!)
     }

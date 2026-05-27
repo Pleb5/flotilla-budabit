@@ -1,5 +1,11 @@
 import {describe, expect, it} from "vitest"
 import {
+  COMMUNITY_MEMBER_FLOOR,
+  DIRECT_FOLLOW_WEIGHT,
+  DIRECT_MUTE_WEIGHT,
+  OVERLAY_CAP,
+  REPORT_WEIGHT,
+  clampOverlayScore,
   getTrustEvidenceLabels,
   makeRepoCommunityContext,
   makeTrustAssessment,
@@ -19,6 +25,15 @@ describe("trust assessment vocabulary", () => {
     expect(getTrustEvidenceLabels([memberEvidence, {...memberEvidence}])).toEqual([
       "Community member",
     ])
+  })
+
+  it("keeps direct social and report overlays below community membership", () => {
+    expect(DIRECT_FOLLOW_WEIGHT).toBe(1)
+    expect(DIRECT_MUTE_WEIGHT).toBe(-1)
+    expect(REPORT_WEIGHT).toBe(-2)
+    expect(OVERLAY_CAP).toBeLessThan(COMMUNITY_MEMBER_FLOOR)
+    expect(clampOverlayScore(99)).toBe(OVERLAY_CAP)
+    expect(clampOverlayScore(-99)).toBe(-OVERLAY_CAP)
   })
 
   it("keeps internal score separate from evidence labels", () => {

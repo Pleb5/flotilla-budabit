@@ -36,7 +36,7 @@ describe("profile code trust analysis", () => {
       targetPubkey,
       trustGraph: {
         viewerPubkey: "f".repeat(64),
-        source: "basic_wot",
+        source: "direct_social",
         scores: new Map([
           [trustedMaintainer, 4],
           [trustedAuthor, 3],
@@ -89,13 +89,15 @@ describe("profile code trust analysis", () => {
           tags: [["e", "3".repeat(64), "", "root"]],
         },
       ] as any,
-      repoMaintainersByAddress: new Map([[repoAddress, new Set([targetPubkey, trustedMaintainer])]]),
+      repoMaintainersByAddress: new Map([
+        [repoAddress, new Set([targetPubkey, trustedMaintainer])],
+      ]),
       repoNamesByAddress: new Map([[repoAddress, "demo"]]),
       relays: ["wss://git.example.com"],
       analyzedAt: 123,
     })
 
-    expect(analysis.graphSource).toBe("basic_wot")
+    expect(analysis.graphSource).toBe("direct_social")
     expect(analysis.windowDays).toBe(PROFILE_CODE_TRUST_WINDOW_DAYS)
     expect(analysis.trustedMergedPullRequests).toBe(1)
     expect(analysis.trustedMaintainerMerges).toBe(1)
@@ -160,7 +162,7 @@ describe("profile code trust analysis", () => {
       targetPubkey,
       trustGraph: {
         viewerPubkey: targetPubkey,
-        source: "basic_wot",
+        source: "direct_social",
         scores: new Map([[targetPubkey, 5]]),
         enabledRuleCount: 0,
       },

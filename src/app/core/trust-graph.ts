@@ -1,9 +1,14 @@
 import {get} from "svelte/store"
 import {chunk} from "@welshman/lib"
 import {makeLoader} from "@welshman/net"
-import {getFollows, getWotGraph, pubkey, repository} from "@welshman/app"
+import {getFollows, getMutes, pubkey, repository} from "@welshman/app"
 import {type TrustedEvent} from "@welshman/util"
 import {GIT_REPO_ANNOUNCEMENT, parseRepoAnnouncementEvent} from "@nostr-git/core/events"
+import {
+  DIRECT_FOLLOW_WEIGHT,
+  DIRECT_MUTE_WEIGHT,
+  clampOverlayScore,
+} from "@app/core/trust-assessment"
 import {
   getNip85UserAssertionValue,
   hasNip85MetricValue,
@@ -21,7 +26,7 @@ import {
   type TrustGraphRule,
 } from "./trust-graph-config"
 
-export type TrustGraphSource = "basic_wot" | "adjusted_wot"
+export type TrustGraphSource = "direct_social" | "adjusted_wot"
 
 export type ActiveTrustGraph = {
   viewerPubkey: string
@@ -33,7 +38,6 @@ export type ActiveTrustGraph = {
 type TrustGraphAssertionStore = Map<string, Map<string, Nip85UserAssertion>>
 
 const SELF_WEIGHT = 5
-const FOLLOW_WEIGHT = 3
 const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
 const trustGraphMetricLoad = makeLoader({delay: 200, timeout: 5000, threshold: 0.5})
 
@@ -68,24 +72,23 @@ export const getBasicTrustGraphScore = (
   viewerPubkey: string,
   targetPubkey: string,
   follows: string[],
-  wotGraph: Map<string, number>,
-  declaredMaintainers: string[] = [],
+  mutes: string[] = [],
 ) => {
   if (!viewerPubkey || !targetPubkey) return 0
-  const wotScore = Math.max(0, wotGraph.get(targetPubkey) || 0)
 
-  if (targetPubkey === viewerPubkey) return Math.max(SELF_WEIGHT, wotScore)
-  if (follows.includes(targetPubkey)) return Math.max(FOLLOW_WEIGHT, wotScore)
-  if (declaredMaintainers.includes(targetPubkey)) return Math.max(FOLLOW_WEIGHT, wotScore)
+  if (targetPubkey === viewerPubkey) return SELF_WEIGHT
 
-  return wotScore
+  const directScore =
+    (follows.includes(targetPubkey) ? DIRECT_FOLLOW_WEIGHT : 0) +
+    (mutes.includes(targetPubkey) ? DIRECT_MUTE_WEIGHT : 0)
+
+  return clampOverlayScore(directScore)
 }
 
 export const buildBasicTrustGraph = (
   viewerPubkey: string,
   follows: string[],
-  wotGraph: Map<string, number>,
-  declaredMaintainers: string[] = [],
+  mutes: string[] = [],
 ) => {
   const scores = new Map<string, number>()
 
@@ -95,22 +98,14 @@ export const buildBasicTrustGraph = (
 
   scores.set(viewerPubkey, SELF_WEIGHT)
 
-  for (const follow of follows) {
-    if (!follow) continue
+  for (const targetPubkey of new Set([...follows, ...mutes])) {
+    if (!targetPubkey) continue
 
-    scores.set(follow, Math.max(FOLLOW_WEIGHT, scores.get(follow) || 0))
-  }
+    const score = getBasicTrustGraphScore(viewerPubkey, targetPubkey, follows, mutes)
 
-  for (const maintainer of declaredMaintainers) {
-    if (!maintainer) continue
+    if (score === 0) continue
 
-    scores.set(maintainer, Math.max(FOLLOW_WEIGHT, scores.get(maintainer) || 0))
-  }
-
-  for (const [targetPubkey, rawScore] of wotGraph.entries()) {
-    if (!targetPubkey || rawScore <= 0) continue
-
-    scores.set(targetPubkey, Math.max(rawScore, scores.get(targetPubkey) || 0))
+    scores.set(targetPubkey, score)
   }
 
   return scores
@@ -119,13 +114,12 @@ export const buildBasicTrustGraph = (
 export const getActiveTrustGraph = (): ActiveTrustGraph => {
   const viewerPubkey = pubkey.get() || ""
   const follows = viewerPubkey ? getFollows(viewerPubkey) : []
-  const wotGraph = getWotGraph()
-  const declaredMaintainers = getDeclaredRepoMaintainerPubkeys(viewerPubkey)
+  const mutes = viewerPubkey ? getMutes(viewerPubkey) : []
 
   return {
     viewerPubkey,
-    source: "basic_wot",
-    scores: buildBasicTrustGraph(viewerPubkey, follows, wotGraph, declaredMaintainers),
+    source: "direct_social",
+    scores: buildBasicTrustGraph(viewerPubkey, follows, mutes),
     enabledRuleCount: 0,
   }
 }
@@ -134,21 +128,14 @@ const getBasicTrustGraphScoresForCandidates = (
   viewerPubkey: string,
   candidatePubkeys: string[],
   follows: string[],
-  wotGraph: Map<string, number>,
-  declaredMaintainers: string[] = [],
+  mutes: string[] = [],
 ) => {
   const scores = new Map<string, number>()
 
   for (const candidatePubkey of candidatePubkeys) {
-    const score = getBasicTrustGraphScore(
-      viewerPubkey,
-      candidatePubkey,
-      follows,
-      wotGraph,
-      declaredMaintainers,
-    )
+    const score = getBasicTrustGraphScore(viewerPubkey, candidatePubkey, follows, mutes)
 
-    if (score > 0) {
+    if (score !== 0) {
       scores.set(candidatePubkey, score)
     }
   }
@@ -305,15 +292,13 @@ const loadTrustGraphAssertions = async (
 export const loadActiveTrustGraph = async (candidatePubkeys: string[]) => {
   const viewerPubkey = pubkey.get() || ""
   const follows = viewerPubkey ? getFollows(viewerPubkey) : []
-  const wotGraph = getWotGraph()
-  const declaredMaintainers = getDeclaredRepoMaintainerPubkeys(viewerPubkey)
+  const mutes = viewerPubkey ? getMutes(viewerPubkey) : []
   const normalizedCandidates = Array.from(new Set(candidatePubkeys.filter(Boolean)))
   const basicScores = getBasicTrustGraphScoresForCandidates(
     viewerPubkey,
     normalizedCandidates,
     follows,
-    wotGraph,
-    declaredMaintainers,
+    mutes,
   )
   const config = get(userTrustGraphConfigValues)
 
@@ -325,7 +310,7 @@ export const loadActiveTrustGraph = async (candidatePubkeys: string[]) => {
   ) {
     return {
       viewerPubkey,
-      source: "basic_wot" as const,
+      source: "direct_social" as const,
       scores: basicScores,
       enabledRuleCount: 0,
     }
@@ -345,7 +330,7 @@ export const loadActiveTrustGraph = async (candidatePubkeys: string[]) => {
   if (activeRules.length === 0) {
     return {
       viewerPubkey,
-      source: "basic_wot" as const,
+      source: "direct_social" as const,
       scores: basicScores,
       enabledRuleCount: 0,
     }
@@ -374,8 +359,8 @@ export const loadActiveTrustGraph = async (candidatePubkeys: string[]) => {
 export const getTrustGraphSourceLabel = (source: TrustGraphSource) => {
   switch (source) {
     case "adjusted_wot":
-      return "Adjusted WoT"
+      return "Adjusted direct overlay"
     default:
-      return "Basic WoT"
+      return "Direct social overlay"
   }
 }

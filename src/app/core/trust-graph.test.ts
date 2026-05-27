@@ -14,31 +14,26 @@ afterEach(() => {
 })
 
 describe("trust graph rules", () => {
-  it("adds declared repo maintainers to the base graph", () => {
+  it("builds a bounded direct follow and mute overlay", () => {
     const viewerPubkey = "1".repeat(64)
-    const maintainerPubkey = "2".repeat(64)
-    const scores = buildBasicTrustGraph(viewerPubkey, [], new Map(), [maintainerPubkey])
+    const followedPubkey = "2".repeat(64)
+    const mutedPubkey = "3".repeat(64)
+    const scores = buildBasicTrustGraph(viewerPubkey, [followedPubkey], [mutedPubkey])
 
-    expect(scores.get(maintainerPubkey)).toBe(3)
+    expect(scores.get(viewerPubkey)).toBe(5)
+    expect(scores.get(followedPubkey)).toBe(1)
+    expect(scores.get(mutedPubkey)).toBe(-1)
   })
 
-  it("keeps higher social scores for declared repo maintainers", () => {
+  it("cancels direct follow and mute signals", () => {
     const viewerPubkey = "1".repeat(64)
-    const maintainerPubkey = "2".repeat(64)
-    const scores = buildBasicTrustGraph(viewerPubkey, [], new Map([[maintainerPubkey, 7]]), [
-      maintainerPubkey,
-    ])
+    const targetPubkey = "2".repeat(64)
+    const scores = buildBasicTrustGraph(viewerPubkey, [targetPubkey], [targetPubkey])
 
-    expect(scores.get(maintainerPubkey)).toBe(7)
     expect(
-      getBasicTrustGraphScore(
-        viewerPubkey,
-        maintainerPubkey,
-        [],
-        new Map([[maintainerPubkey, 7]]),
-        [maintainerPubkey],
-      ),
-    ).toBe(7)
+      getBasicTrustGraphScore(viewerPubkey, targetPubkey, [targetPubkey], [targetPubkey]),
+    ).toBe(0)
+    expect(scores.has(targetPubkey)).toBe(false)
   })
 
   it("reads declared repo maintainers from current-user repo announcements", () => {
@@ -144,12 +139,12 @@ describe("trust graph rules", () => {
     expect(scores.has(targetPubkey)).toBe(false)
   })
 
-  it("can remove declared repo maintainers with an exclude rule", () => {
+  it("can remove direct overlay members with an exclude rule", () => {
     const viewerPubkey = "1".repeat(64)
-    const maintainerPubkey = "2".repeat(64)
-    const basicScores = buildBasicTrustGraph(viewerPubkey, [], new Map(), [maintainerPubkey])
+    const followedPubkey = "2".repeat(64)
+    const basicScores = buildBasicTrustGraph(viewerPubkey, [followedPubkey], [])
     const scores = applyTrustGraphRules({
-      candidatePubkeys: [maintainerPubkey],
+      candidatePubkeys: [followedPubkey],
       basicScores,
       config: normalizeTrustGraphConfig({
         rules: [
@@ -166,13 +161,10 @@ describe("trust graph rules", () => {
         ],
       }),
       assertionsByServiceKey: new Map([
-        [
-          "f".repeat(64),
-          new Map([[maintainerPubkey, {pubkey: maintainerPubkey, reportsCntRecd: 7}]]),
-        ],
+        ["f".repeat(64), new Map([[followedPubkey, {pubkey: followedPubkey, reportsCntRecd: 7}]])],
       ]),
     })
 
-    expect(scores.has(maintainerPubkey)).toBe(false)
+    expect(scores.has(followedPubkey)).toBe(false)
   })
 })
