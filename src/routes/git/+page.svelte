@@ -149,7 +149,7 @@
     repoStarToBookmarkAddress,
     type RepoStarRef,
   } from "@app/util/repo-stars"
-  import {getActiveTrustGraph} from "@app/core/trust-graph"
+  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
   import {
     REPO_DISCOVERY_TIMEOUT_MS,
     REPO_DISCOVERY_SETTINGS_STORAGE_KEY,
@@ -1775,6 +1775,36 @@
     return Array.from(owners).filter(Boolean)
   })
 
+  const buildDiscoveryCommunityTrustScores = (candidatePubkeys: string[]) => {
+    if (
+      activeMode !== "community" ||
+      !selectedCommunityDefinition ||
+      candidatePubkeys.length === 0
+    ) {
+      return new Map<string, number>()
+    }
+
+    const assessments = buildCommunityTrustAssessments({
+      viewerPubkey: $pubkey || "",
+      candidatePubkeys,
+      context: {scope: "active_community", communityPubkey: selectedCommunityPubkey},
+      definitions: [selectedCommunityDefinition],
+      profileListEvents: $selectedCommunityProfileListEvents
+        ? ($selectedCommunityProfileListEvents as TrustedEvent[])
+        : [],
+      reportStates:
+        selectedCommunityPubkey && selectedCommunityReportState
+          ? new Map([[selectedCommunityPubkey, selectedCommunityReportState]])
+          : undefined,
+    })
+
+    return new Map(
+      Array.from(assessments.entries())
+        .filter(([, assessment]) => !assessment.suppressed && assessment.score > 0)
+        .map(([pubkey, assessment]) => [pubkey, assessment.score]),
+    )
+  }
+
   $effect(() => {
     const {pubkey, relayHints} = accountSearch
     if (!pubkey) return
@@ -2071,17 +2101,39 @@
       return
     }
 
-    const discoveryInputs = untrack(() => ({
-      settings: repoDiscoveryPrioritySettings.map(setting => ({...setting})),
-      viewerPubkey: $pubkey,
-      starredOwners: [...starredRepoOwners],
-      followPubkeys: [...followedPubkeys],
-      knownOwners: [...knownRepoOwners],
-      trustScores: new Map(getActiveTrustGraph().scores),
-      profileMatches: getProfileSearchMatches(query),
-      existingRepoPool: [...discoveredSearchRepoPool],
-      runMode,
-    }))
+    const discoveryInputs = untrack(() => {
+      const profileMatches = getProfileSearchMatches(query)
+      const activeCommunityPubkeys =
+        activeMode === "community" ? [...selectedCommunityRepoWriterPubkeys] : []
+      const communityAssociatedPubkeys =
+        activeMode === "community" ? latestCommunityRepos.map(repo => repo.event.pubkey) : []
+      const communityTrustCandidates = Array.from(
+        new Set(
+          [
+            ...starredRepoOwners,
+            ...followedPubkeys,
+            ...knownRepoOwners,
+            ...profileMatches,
+            ...activeCommunityPubkeys,
+            ...communityAssociatedPubkeys,
+          ].filter(Boolean),
+        ),
+      )
+
+      return {
+        settings: repoDiscoveryPrioritySettings.map(setting => ({...setting})),
+        viewerPubkey: $pubkey,
+        starredOwners: [...starredRepoOwners],
+        activeCommunityPubkeys,
+        communityTrustScores: buildDiscoveryCommunityTrustScores(communityTrustCandidates),
+        communityAssociatedPubkeys,
+        followPubkeys: [...followedPubkeys],
+        knownOwners: [...knownRepoOwners],
+        profileMatches,
+        existingRepoPool: [...discoveredSearchRepoPool],
+        runMode,
+      }
+    })
 
     const previousSnapshot = untrack(() => repoDiscoverySnapshot)
 
@@ -2100,10 +2152,12 @@
           settings: discoveryInputs.settings,
           viewerPubkey: discoveryInputs.viewerPubkey,
           starredOwners: discoveryInputs.starredOwners,
+          activeCommunityPubkeys: discoveryInputs.activeCommunityPubkeys,
+          communityTrustScores: discoveryInputs.communityTrustScores,
+          communityAssociatedPubkeys: discoveryInputs.communityAssociatedPubkeys,
           followPubkeys: discoveryInputs.followPubkeys,
           knownOwners: discoveryInputs.knownOwners,
           profileMatches: discoveryInputs.profileMatches,
-          trustScores: discoveryInputs.trustScores,
         }),
       )
 

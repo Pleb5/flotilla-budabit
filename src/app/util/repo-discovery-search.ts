@@ -40,8 +40,10 @@ export type RepoDiscoveryPriorityKey =
   | "profile_matches"
   | "viewer"
   | "starred_owners"
+  | "active_community"
+  | "shared_communities"
+  | "community_associated"
   | "direct_follows"
-  | "trust_network"
   | "known_repo_owners"
 
 export type RepoDiscoveryPrioritySetting = {
@@ -74,23 +76,33 @@ const REPO_DISCOVERY_PRIORITY_METADATA: Record<
   },
   viewer: {
     key: "viewer",
-    label: "My account",
+    label: "Owned by you",
     description: "Your own published repositories.",
   },
   starred_owners: {
     key: "starred_owners",
-    label: "Starred owners",
-    description: "People who own repositories you starred.",
+    label: "Starred",
+    description: "Repositories and owners you explicitly starred.",
+  },
+  active_community: {
+    key: "active_community",
+    label: "Active community repos",
+    description: "Repo-section writers in the selected community.",
+  },
+  shared_communities: {
+    key: "shared_communities",
+    label: "Shared community repos",
+    description: "Owners connected through shared community membership or grants.",
+  },
+  community_associated: {
+    key: "community_associated",
+    label: "Community-associated owners",
+    description: "Owners already connected to community-associated repositories.",
   },
   direct_follows: {
     key: "direct_follows",
     label: "You follow",
     description: "Repository owners you directly follow.",
-  },
-  trust_network: {
-    key: "trust_network",
-    label: "Direct social overlay",
-    description: "Bounded direct follow and mute ordering signals.",
   },
   known_repo_owners: {
     key: "known_repo_owners",
@@ -104,9 +116,11 @@ const REPO_DISCOVERY_PRIORITY_KEYS = Object.keys(
 ) as RepoDiscoveryPriorityKey[]
 
 const DEFAULT_REPO_DISCOVERY_PRIORITY_KEYS: RepoDiscoveryPriorityKey[] = [
-  "profile_matches",
   "viewer",
   "starred_owners",
+  "active_community",
+  "shared_communities",
+  "community_associated",
   "direct_follows",
   "known_repo_owners",
 ]
@@ -323,6 +337,7 @@ export const coerceRepoDiscoveryPrioritySettings = (
 
   const normalizeKey = (key: unknown): RepoDiscoveryPriorityKey | null => {
     if (key === "bookmarked_owners") return "starred_owners"
+    if (key === "trust_network") return "shared_communities"
     if (typeof key === "string" && byKey.has(key as RepoDiscoveryPriorityKey)) {
       return key as RepoDiscoveryPriorityKey
     }
@@ -357,31 +372,44 @@ export const buildRepoDiscoveryBuckets = ({
   settings = getDefaultRepoDiscoveryPrioritySettings(),
   viewerPubkey,
   starredOwners = [],
+  activeCommunityPubkeys = [],
+  sharedCommunityPubkeys,
+  communityAssociatedPubkeys = [],
   followPubkeys = [],
   knownOwners = [],
   profileMatches = [],
+  communityTrustScores,
   trustScores,
 }: {
   settings?: RepoDiscoveryPrioritySetting[]
   viewerPubkey?: string | null
   starredOwners?: string[]
+  activeCommunityPubkeys?: string[]
+  sharedCommunityPubkeys?: string[]
+  communityAssociatedPubkeys?: string[]
   followPubkeys?: string[]
   knownOwners?: string[]
   profileMatches?: string[]
-  trustScores: Map<string, number>
+  communityTrustScores?: Map<string, number>
+  trustScores?: Map<string, number>
 }): RepoDiscoveryBucket[] => {
   const normalizedSettings = coerceRepoDiscoveryPrioritySettings(settings)
-  const trustPubkeys = Array.from(trustScores.entries())
+  const sharedCommunityScores = communityTrustScores || trustScores || new Map()
+  const sharedCommunityScorePubkeys = Array.from(sharedCommunityScores.entries())
     .filter(([, score]) => score > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([pubkey]) => pubkey)
+  const sharedCommunitySourcePubkeys =
+    sharedCommunityPubkeys === undefined ? sharedCommunityScorePubkeys : sharedCommunityPubkeys
 
   const sources: Record<RepoDiscoveryPriorityKey, string[]> = {
     profile_matches: uniquePubkeys(profileMatches),
     viewer: uniquePubkeys(viewerPubkey ? [viewerPubkey] : []),
     starred_owners: uniquePubkeys(starredOwners),
+    active_community: uniquePubkeys(activeCommunityPubkeys),
+    shared_communities: uniquePubkeys(sharedCommunitySourcePubkeys),
+    community_associated: uniquePubkeys(communityAssociatedPubkeys),
     direct_follows: uniquePubkeys(followPubkeys),
-    trust_network: uniquePubkeys(trustPubkeys),
     known_repo_owners: uniquePubkeys(knownOwners),
   }
 
@@ -449,27 +477,39 @@ export const buildRepoDiscoveryCandidatePubkeys = ({
   settings = getDefaultRepoDiscoveryPrioritySettings(),
   viewerPubkey,
   starredOwners = [],
+  activeCommunityPubkeys = [],
+  sharedCommunityPubkeys,
+  communityAssociatedPubkeys = [],
   followPubkeys = [],
   knownOwners = [],
   profileMatches = [],
+  communityTrustScores,
   trustScores,
 }: {
   settings?: RepoDiscoveryPrioritySetting[]
   viewerPubkey?: string | null
   starredOwners?: string[]
+  activeCommunityPubkeys?: string[]
+  sharedCommunityPubkeys?: string[]
+  communityAssociatedPubkeys?: string[]
   followPubkeys?: string[]
   knownOwners?: string[]
   profileMatches?: string[]
-  trustScores: Map<string, number>
+  communityTrustScores?: Map<string, number>
+  trustScores?: Map<string, number>
 }) => {
   return dedupeRepoDiscoveryBuckets(
     buildRepoDiscoveryBuckets({
       settings,
       viewerPubkey,
       starredOwners,
+      activeCommunityPubkeys,
+      sharedCommunityPubkeys,
+      communityAssociatedPubkeys,
       followPubkeys,
       knownOwners,
       profileMatches,
+      communityTrustScores,
       trustScores,
     }),
   ).flatMap(bucket => bucket.pubkeys)

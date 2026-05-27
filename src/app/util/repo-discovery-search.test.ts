@@ -156,20 +156,35 @@ describe("repo discovery search helpers", () => {
     ])
   })
 
-  it("prioritizes starred owners ahead of direct follows and known owners", () => {
+  it("prioritizes owned, starred, community, direct follow, and known buckets", () => {
     const candidates = buildRepoDiscoveryCandidatePubkeys({
       settings: getDefaultRepoDiscoveryPrioritySettings(),
       viewerPubkey: "viewer",
       starredOwners: ["starred-owner"],
+      activeCommunityPubkeys: ["active-community-owner"],
+      communityTrustScores: new Map([
+        ["community-member", 6],
+        ["followed-owner", 4],
+      ]),
+      communityAssociatedPubkeys: ["associated-owner"],
       followPubkeys: ["followed-owner"],
       knownOwners: ["known-owner"],
       profileMatches: ["profile-match"],
-      trustScores: new Map([["legacy-trust-owner", 50]]),
     })
 
-    expect(candidates).not.toContain("legacy-trust-owner")
-    expect(candidates.indexOf("profile-match")).toBeLessThan(candidates.indexOf("starred-owner"))
-    expect(candidates.indexOf("starred-owner")).toBeLessThan(candidates.indexOf("followed-owner"))
+    expect(candidates).not.toContain("profile-match")
+    expect(candidates).toEqual([
+      "viewer",
+      "starred-owner",
+      "active-community-owner",
+      "community-member",
+      "followed-owner",
+      "associated-owner",
+      "known-owner",
+    ])
+    expect(candidates.indexOf("active-community-owner")).toBeLessThan(
+      candidates.indexOf("community-member"),
+    )
     expect(candidates.indexOf("followed-owner")).toBeLessThan(candidates.indexOf("known-owner"))
   })
 
@@ -181,17 +196,33 @@ describe("repo discovery search helpers", () => {
 
     expect(settings[0]).toMatchObject({
       key: "starred_owners",
-      label: "Starred owners",
+      label: "Starred",
       enabled: false,
     })
     expect(settings.map(setting => setting.key)).not.toContain("bookmarked_owners")
   })
 
-  it("does not include the legacy trust bucket by default", () => {
+  it("maps legacy trust network settings to shared communities", () => {
+    const settings = coerceRepoDiscoveryPrioritySettings([
+      {key: "trust_network", enabled: true},
+      {key: "direct_follows", enabled: false},
+    ])
+
+    expect(settings[0]).toMatchObject({
+      key: "shared_communities",
+      label: "Shared community repos",
+      enabled: true,
+    })
+    expect(settings.map(setting => setting.key)).not.toContain("trust_network")
+  })
+
+  it("uses community-first discovery buckets by default", () => {
     expect(getDefaultRepoDiscoveryPrioritySettings().map(setting => setting.key)).toEqual([
-      "profile_matches",
       "viewer",
       "starred_owners",
+      "active_community",
+      "shared_communities",
+      "community_associated",
       "direct_follows",
       "known_repo_owners",
     ])
@@ -201,9 +232,10 @@ describe("repo discovery search helpers", () => {
     const settings = coerceRepoDiscoveryPrioritySettings([
       {key: "direct_follows", enabled: true},
       {key: "viewer", enabled: false},
-      {key: "trust_network", enabled: true},
-      {key: "profile_matches", enabled: false},
+      {key: "shared_communities", enabled: true},
+      {key: "active_community", enabled: false},
       {key: "starred_owners", enabled: false},
+      {key: "community_associated", enabled: false},
       {key: "known_repo_owners", enabled: true},
     ])
 
@@ -212,21 +244,22 @@ describe("repo discovery search helpers", () => {
         settings,
         viewerPubkey: "viewer",
         starredOwners: ["starred-owner"],
+        activeCommunityPubkeys: ["active-community-owner"],
         followPubkeys: ["followed-owner"],
         knownOwners: ["known-owner"],
-        profileMatches: ["profile-match"],
-        trustScores: new Map([["trusted-owner", 4]]),
+        communityTrustScores: new Map([["community-member", 4]]),
+        communityAssociatedPubkeys: ["associated-owner"],
       }),
     )
 
     expect(buckets.map(bucket => bucket.key)).toEqual([
       "direct_follows",
-      "trust_network",
+      "shared_communities",
       "known_repo_owners",
     ])
     expect(buckets.flatMap(bucket => bucket.pubkeys)).toEqual([
       "followed-owner",
-      "trusted-owner",
+      "community-member",
       "known-owner",
     ])
   })
