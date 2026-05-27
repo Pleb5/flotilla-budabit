@@ -87,12 +87,14 @@
     activeCommunitySession,
     activePreferredCommunities,
     activeUserCommunityRefs,
+    communityPreferencesLoading,
     hydratePreferredCommunities,
     makeCommunityDefinitionFilter,
     makeCommunityProfileListFilters,
     makeCommunityReportDeleteFilters,
     makeCommunityReportFilters,
     selectLatestCommunityDefinition,
+    setActiveCommunityInput,
   } from "@app/core/community-state"
   import {
     COMMUNITY_SECTION_PERMALINKS,
@@ -140,6 +142,7 @@
     matchBookmarkedRepoEvents,
   } from "@app/util/bookmarks"
   import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {makeCommunityInputValue} from "@app/util/community-stars"
   import {
     makeRepoStarReaction,
     parseRepoStarReaction,
@@ -340,8 +343,11 @@
     matchedRepos: 0,
   })
 
+  const getInitialGitModeForContext = (): GitMode =>
+    getStore(activeCommunitySession)?.communityPubkey ? getInitialGitMode() : "personal"
+
   let loading = $state(true)
-  let activeMode = $state<GitMode>(getInitialGitMode())
+  let activeMode = $state<GitMode>(getInitialGitModeForContext())
   let activeTab = $state<GitTab>(getInitialGitTab())
   let selectedCommunityPubkey = $state("")
   let gitTabHydrated = $state(false)
@@ -361,6 +367,9 @@
   let repoDiscoveryController: AbortController | null = null
   let repoDiscoveryDebounceTimer: ReturnType<typeof setTimeout> | null = null
   let snippetsLoadedFor = $state<string | null>(null)
+
+  const hasActiveCommunityContext = $derived(Boolean($activeCommunitySession?.communityPubkey))
+  const gitPageWidthClass = $derived(hasActiveCommunityContext ? "" : "cw-full")
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
@@ -552,18 +561,53 @@
 
   $effect(() => {
     if (activeMode !== "community") return
-    if (
-      selectedCommunityPubkey &&
-      repoViewCommunityOptions.some(c => c.pubkey === selectedCommunityPubkey)
-    ) {
+    const activeCommunityPubkey = $activeCommunitySession?.communityPubkey || ""
+
+    if (activeCommunityPubkey && selectedCommunityPubkey !== activeCommunityPubkey) {
+      selectedCommunityPubkey = activeCommunityPubkey
       return
     }
-    selectedCommunityPubkey = repoViewCommunityOptions[0]?.pubkey || ""
+
+    if (
+      selectedCommunityPubkey &&
+      !repoViewCommunityOptions.some(c => c.pubkey === selectedCommunityPubkey)
+    ) {
+      selectedCommunityPubkey = ""
+    }
   })
 
   const selectedCommunityOption = $derived.by(() =>
     repoViewCommunityOptions.find(option => option.pubkey === selectedCommunityPubkey),
   )
+  const selectedCommunityLabel = $derived(
+    selectedCommunityOption?.label ||
+      (selectedCommunityPubkey ? getCommunityOptionLabel(selectedCommunityPubkey) : ""),
+  )
+  const communityOptionsLoading = $derived(
+    activeMode === "community" &&
+      !selectedCommunityPubkey &&
+      repoViewCommunityOptions.length === 0 &&
+      $communityPreferencesLoading,
+  )
+
+  const getCommunityOptionRelayHints = (option?: RepoCommunityOption) =>
+    Array.from(new Set([...(option?.relays || []), option?.relay || ""].filter(Boolean)))
+
+  const selectGitCommunity = (communityPubkey: string) => {
+    selectedCommunityPubkey = communityPubkey
+    if (!communityPubkey) return
+
+    const option = repoViewCommunityOptions.find(item => item.pubkey === communityPubkey)
+    const communityInput = makeCommunityInputValue({
+      pubkey: communityPubkey,
+      relayHints: getCommunityOptionRelayHints(option),
+    })
+
+    setActiveCommunityInput(communityInput || communityPubkey)
+  }
+
+  const openExploreCommunities = () => goto("/explore")
+  const openCreateCommunity = () => goto("/explore/create-community")
 
   const selectedCommunityRelays = $derived.by(() =>
     Array.from(
@@ -3416,14 +3460,23 @@
   <title>Git Repositories</title>
 </svelte:head>
 
-<PageBar>
+<PageBar class={gitPageWidthClass}>
   {#snippet icon()}
     <div class="center">
       <Icon icon={Git} />
     </div>
   {/snippet}
   {#snippet title()}
-    <strong>Git Repositories</strong>
+    <div class="flex min-w-0 flex-col leading-tight">
+      <strong>Git Repositories</strong>
+      {#if activeMode === "community" && selectedCommunityLabel}
+        <span class="truncate text-xs font-normal text-muted-foreground">
+          Viewing {selectedCommunityLabel}
+        </span>
+      {:else if activeMode === "personal"}
+        <span class="truncate text-xs font-normal text-muted-foreground">Personal Git</span>
+      {/if}
+    </div>
   {/snippet}
   {#snippet action()}
     <div class="hidden items-center gap-2 sm:flex">
@@ -3440,7 +3493,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="mt-4 flex flex-grow flex-col gap-4 overflow-auto p-2">
+<PageContent class={`${gitPageWidthClass} mt-4 flex flex-grow flex-col gap-4 overflow-auto p-2`}>
   <div class="flex flex-col gap-2 sm:hidden">
     <Button class="btn btn-primary btn-sm w-full" onclick={() => onNewRepo()}>
       <Icon icon={AddCircle} />
@@ -3474,11 +3527,13 @@
           <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground"
             >Community</span>
           <select
-            bind:value={selectedCommunityPubkey}
+            value={selectedCommunityPubkey}
+            onchange={event => selectGitCommunity((event.currentTarget as HTMLSelectElement).value)}
             class="select select-bordered select-sm w-full">
             {#if repoViewCommunityOptions.length === 0}
               <option value="">No communities</option>
             {:else}
+              <option value="" disabled>Select a community</option>
               {#each repoViewCommunityOptions as option (option.pubkey)}
                 <option value={option.pubkey}>{option.label || option.pubkey}</option>
               {/each}
@@ -3599,7 +3654,31 @@
         {/if}
       </div>
       {#if activeMode === "community" && !selectedCommunityPubkey}
-        <p class="text-sm text-muted-foreground">Select a community to view curated snippets.</p>
+        <div
+          class="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          {#if communityOptionsLoading}
+            <Spinner loading>Looking for your communities...</Spinner>
+          {:else}
+            <strong class="block text-base text-foreground">
+              {repoViewCommunityOptions.length === 0 ? "No communities yet" : "Choose a community"}
+            </strong>
+            <p class="mx-auto mt-2 max-w-md">
+              {repoViewCommunityOptions.length === 0
+                ? "Join or create a community to view curated snippets."
+                : "Select a community above to view its curated snippets."}
+            </p>
+            {#if repoViewCommunityOptions.length === 0}
+              <div class="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+                <Button class="btn btn-primary btn-sm" onclick={openExploreCommunities}>
+                  Explore communities
+                </Button>
+                <Button class="btn btn-outline btn-sm" onclick={openCreateCommunity}>
+                  Create community
+                </Button>
+              </div>
+            {/if}
+          {/if}
+        </div>
       {:else if !$pubkey && activeMode === "personal"}
         <p class="text-sm text-muted-foreground">Sign in to view your snippets.</p>
       {:else if filteredSnippets.length === 0}
@@ -3750,7 +3829,33 @@
           </div>
         </div>
       {/if}
-      {#if loading}
+      {#if activeMode === "community" && !selectedCommunityPubkey}
+        <div
+          class="mx-auto max-w-xl rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          {#if communityOptionsLoading}
+            <Spinner loading>Looking for your communities...</Spinner>
+          {:else}
+            <strong class="block text-base text-foreground">
+              {repoViewCommunityOptions.length === 0 ? "No communities yet" : "Choose a community"}
+            </strong>
+            <p class="mx-auto mt-2 max-w-md">
+              {repoViewCommunityOptions.length === 0
+                ? "Join or create a community to view curated repositories."
+                : "Select a community above to view its curated repositories."}
+            </p>
+            {#if repoViewCommunityOptions.length === 0}
+              <div class="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+                <Button class="btn btn-primary btn-sm" onclick={openExploreCommunities}>
+                  Explore communities
+                </Button>
+                <Button class="btn btn-outline btn-sm" onclick={openCreateCommunity}>
+                  Create community
+                </Button>
+              </div>
+            {/if}
+          {/if}
+        </div>
+      {:else if loading}
         <p class="flex h-10 items-center justify-center py-20" out:fly>
           <Spinner {loading}>
             {#if loading}

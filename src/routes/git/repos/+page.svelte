@@ -14,9 +14,11 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
+  import {activeCommunitySession} from "@app/core/community-state"
   import Git from "@assets/icons/git.svg?dataurl"
 
   const url = $repoAnnouncementRelaysStore[0] || ""
+  const gitPageWidthClass = $derived($activeCommunitySession?.communityPubkey ? "" : "cw-full")
 
   let loading = $state(true)
   let lastLoadedRelays = $state("")
@@ -67,7 +69,7 @@
   })
 </script>
 
-<PageBar>
+<PageBar class={gitPageWidthClass}>
   {#snippet icon()}
     <div class="center">
       <Icon icon={Git} />
@@ -81,7 +83,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent>
+<PageContent class={gitPageWidthClass}>
   <div class="flex flex-grow flex-col gap-2 overflow-auto p-2">
     {#if loading}
       <p class="flex h-10 items-center justify-center py-20" out:fly>
