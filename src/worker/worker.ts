@@ -563,8 +563,11 @@ const api = {
           repoDataLevels,
           clonedRepos,
           isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-          resolveBranchName: async (dir: string, requested?: string) =>
-            resolveRobustBranchUtil(git, dir, requested),
+          resolveBranchName: async (
+            dir: string,
+            requested?: string,
+            options?: {strict?: boolean},
+          ) => resolveRobustBranchUtil(git, dir, requested, options),
         },
         sendProgress,
       ),
@@ -938,8 +941,11 @@ const api = {
             repoDataLevels,
             clonedRepos,
             isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-            resolveBranchName: async (dir: string, requested?: string) =>
-              resolveRobustBranchUtil(git, dir, requested),
+            resolveBranchName: async (
+              dir: string,
+              requested?: string,
+              options?: {strict?: boolean},
+            ) => resolveRobustBranchUtil(git, dir, requested, options),
             cacheManager,
           },
           makeProgress(args.repoId, "clone-progress"),
@@ -2709,7 +2715,7 @@ const api = {
 
         let cloneError: unknown
         try {
-          await ensureFullCloneUtil(
+          const cloneResult = await ensureFullCloneUtil(
             git,
             {repoId: opts.repoId, branch: opts.branch, depth: 1000, cloneUrls: opts.cloneUrls},
             {
@@ -2718,14 +2724,40 @@ const api = {
               repoDataLevels,
               clonedRepos,
               isRepoCloned: async (g: GitProvider, d: string) => isRepoClonedFs(g, d),
-              resolveBranchName: async (d: string, requested?: string) =>
-                resolveRobustBranchUtil(git, d, requested),
+              resolveBranchName: async (
+                d: string,
+                requested?: string,
+                options?: {strict?: boolean},
+              ) => resolveRobustBranchUtil(git, d, requested, options),
               cacheManager,
             },
             makeProgress(opts.repoId, "clone-progress"),
           )
+          let branchFetchError: unknown
+          if ((cloneResult as any)?.success === false) {
+            branchFetchError = new Error(
+              (cloneResult as any).error || "Failed to fetch repository branch",
+            )
+          }
 
-          commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+          try {
+            commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+          } catch (logError) {
+            if (!isMissingCommitObjectError(logError) && !branchFetchError) {
+              throw logError
+            }
+
+            console.warn(
+              `[getCommitDetails] Commit ${opts.commitId} missing after branch fetch, trying full ref fetch...`,
+              logError,
+            )
+            const recovered = await fetchAllRefsForMissingCommit()
+            if (recovered) {
+              commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+            } else {
+              throw branchFetchError || logError
+            }
+          }
 
           if (commits.length === 0) {
             console.warn(
@@ -2734,6 +2766,8 @@ const api = {
             const recovered = await fetchAllRefsForMissingCommit()
             if (recovered) {
               commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+            } else if (branchFetchError) {
+              throw branchFetchError
             }
           }
         } catch (error) {
@@ -3061,8 +3095,8 @@ const api = {
           repoDataLevels,
           clonedRepos,
           isRepoCloned: async (g: GitProvider, d: string) => isRepoClonedFs(g, d),
-          resolveBranchName: async (d: string, requested?: string) =>
-            resolveRobustBranchUtil(git, d, requested),
+          resolveBranchName: async (d: string, requested?: string, options?: {strict?: boolean}) =>
+            resolveRobustBranchUtil(git, d, requested, options),
           cacheManager,
         },
         makeProgress(opts.repoId, "clone-progress"),

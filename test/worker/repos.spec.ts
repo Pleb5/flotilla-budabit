@@ -78,6 +78,28 @@ describe('worker/repos quick tests', () => {
     expect(String((res as any).error)).toMatch(/network fail/);
   });
 
+  it('ensureFullCloneUtil resolves requested branches in strict mode', async () => {
+    const resolveBranchName = vi.fn(async (_dir: string, requested?: string) => requested || 'main');
+    const repoDataLevels = new Map<string, any>([['owner:name', 'refs']]);
+
+    const res = await ensureFullCloneUtil(
+      makeGit(),
+      { repoId: 'owner/name', branch: 'dev', cloneUrls: ['https://example.com/x/y.git'] },
+      {
+        rootDir: '/root',
+        parseRepoId: (id: string) => id.replace('/', ':'),
+        repoDataLevels,
+        clonedRepos: new Set(['owner:name']),
+        isRepoCloned: async () => true,
+        resolveBranchName,
+      },
+      () => {}
+    );
+
+    expect(res.success).toBe(true);
+    expect(resolveBranchName).toHaveBeenCalledWith('/root/owner:name', 'dev', { strict: true });
+  });
+
   it('smartInitializeRepoUtil sync path uses HEAD when writeRef fails', async () => {
     const headOid = 'head'.padEnd(40, 'h');
     const git = makeGit({

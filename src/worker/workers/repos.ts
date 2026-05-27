@@ -792,7 +792,11 @@ export async function ensureFullCloneUtil(
     repoDataLevels: Map<string, DataLevel>
     clonedRepos: Set<string>
     isRepoCloned: (git: GitProvider, dir: string) => Promise<boolean>
-    resolveBranchName: (dir: string, requested?: string) => Promise<string>
+    resolveBranchName: (
+      dir: string,
+      requested?: string,
+      options?: {strict?: boolean},
+    ) => Promise<string>
     cacheManager?: RepoCacheManager
   },
   sendProgress: (phase: string, loaded?: number, total?: number) => void,
@@ -832,7 +836,7 @@ export async function ensureFullCloneUtil(
     return pendingClone
   }
 
-  const targetBranch = await resolveBranchName(dir, branch)
+  const targetBranch = await resolveBranchName(dir, branch, {strict: Boolean(branch)})
 
   // Check if we already have commits for this specific branch
   // Even at 'full' level, we may need to fetch a different branch
