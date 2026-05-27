@@ -160,7 +160,13 @@
     isAnyBookmarked,
   } from "@app/util/bookmarks"
   import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
-  import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityReportState,
+    activeUserCommunityRefs,
+  } from "@app/core/community-state"
+  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
   import {COMMUNITY_SECTION_REPOSITORIES, TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     makeTargetedPublicationForCommunity,
@@ -1447,6 +1453,65 @@
     mergedStatusEventsStore,
     $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
   )
+  const communityAlignedScoresStore: Readable<Map<string, number>> = derived(
+    [
+      pullRequestsStore,
+      appliedStatusEventsStore,
+      activeCommunityDefinition,
+      activeCommunityProfileListEvents,
+      activeCommunityReportState,
+      pubkey,
+    ],
+    ([
+      $pullRequests,
+      $appliedStatuses,
+      $activeCommunityDefinition,
+      $activeCommunityProfileListEvents,
+      $activeCommunityReportState,
+      $viewerPubkey,
+    ]) => {
+      const repoCommunityPubkey =
+        (repoClass as any)?.community?.pubkey ||
+        getTagValue("h", (repoClass as any)?.repoEvent?.tags || [])
+      if (
+        !$activeCommunityDefinition ||
+        $activeCommunityDefinition.pubkey !== repoCommunityPubkey
+      ) {
+        return new Map<string, number>()
+      }
+
+      const candidatePubkeys = Array.from(
+        new Set(
+          [
+            ...($pullRequests || []).map(event => event.pubkey),
+            ...($appliedStatuses || []).map(event => event.pubkey),
+          ].filter(Boolean),
+        ),
+      )
+      if (candidatePubkeys.length === 0) return new Map<string, number>()
+
+      const assessments = buildCommunityTrustAssessments({
+        viewerPubkey: $viewerPubkey || "",
+        candidatePubkeys,
+        context: {
+          scope: "repo",
+          communityPubkey: repoCommunityPubkey,
+          repoAddress: repoClass?.address || "",
+        },
+        definitions: [$activeCommunityDefinition],
+        profileListEvents: $activeCommunityProfileListEvents || [],
+        reportStates: $activeCommunityReportState
+          ? new Map([[repoCommunityPubkey, $activeCommunityReportState]])
+          : undefined,
+      })
+
+      return new Map(
+        Array.from(assessments.entries())
+          .filter(([, assessment]) => !assessment.suppressed && assessment.score > 0)
+          .map(([actor, assessment]) => [actor, assessment.score]),
+      )
+    },
+  )
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
   const commentEventsStore = deriveComments(allRootIdsStore)
   const repoFeedActivityStore: Readable<TrustedEvent[]> = derived(
@@ -1467,6 +1532,7 @@
     repoAddresses: repoAddressesStore,
     pullRequests: pullRequestsStore,
     appliedStatuses: appliedStatusEventsStore,
+    communityAlignedScores: communityAlignedScoresStore,
   })
   const forkBranchCopyFilter = $derived.by(() => {
     const status = $repoTrustMetricsStore?.status || "idle"

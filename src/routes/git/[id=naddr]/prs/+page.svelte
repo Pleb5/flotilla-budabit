@@ -78,7 +78,7 @@
   }
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
-  type TrustFilterKey = "all" | "trusted" | "trusted-author" | "trusted-maintainer"
+  type TrustFilterKey = "all" | "community" | "community-author" | "community-maintainer"
 
   type PrListItem = {
     id: string
@@ -317,13 +317,13 @@
 
   const trustFilterOptions: Array<{value: TrustFilterKey; label: string}> = [
     {value: "all", label: "All activity"},
-    {value: "trusted", label: "Trusted only"},
-    {value: "trusted-author", label: "Trusted authors"},
-    {value: "trusted-maintainer", label: "Trusted maintainer merges"},
+    {value: "community", label: "Community-aligned only"},
+    {value: "community-author", label: "Community-aligned authors"},
+    {value: "community-maintainer", label: "Community-aligned merges"},
   ]
   const trustFilterStatus = $derived.by(() => {
     if (repoTrustMetrics.status === "loading") {
-      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} metrics for this repository...`
+      return "Refreshing community-aligned metrics for this repository..."
     }
 
     if (repoTrustMetrics.status === "error") {
@@ -331,10 +331,10 @@
     }
 
     if (repoTrustMetrics.totalPullRequests === 0) {
-      return "No pull requests loaded yet for trust activity metrics."
+      return "No pull requests loaded yet for community activity metrics."
     }
 
-    return "Trust signals from PR authors and maintainer merges."
+    return "Community evidence from PR authors and maintainer merges."
   })
 
   $effect(() => {
@@ -465,7 +465,7 @@
         Array.from(currentRepoTrustMetrics.byRootId.entries())
           .map(
             ([id, metric]) =>
-              `${id}:${metric.trustedActorCount}:${metric.trustedAuthor ? 1 : 0}:${metric.trustedMaintainerMerge ? 1 : 0}`,
+              `${id}:${metric.communityAlignedActorCount}:${metric.communityAlignedAuthor ? 1 : 0}:${metric.communityAlignedMaintainerMerge ? 1 : 0}`,
           )
           .sort()
           .join(","),
@@ -507,9 +507,11 @@
 
           if (!metric) return false
 
-          if (currentTrustFilter === "trusted") return metric.trustedActorCount > 0
-          if (currentTrustFilter === "trusted-author") return metric.trustedAuthor
-          if (currentTrustFilter === "trusted-maintainer") return metric.trustedMaintainerMerge
+          if (currentTrustFilter === "community") return metric.communityAlignedActorCount > 0
+          if (currentTrustFilter === "community-author") return metric.communityAlignedAuthor
+          if (currentTrustFilter === "community-maintainer") {
+            return metric.communityAlignedMaintainerMerge
+          }
 
           return true
         })
@@ -532,12 +534,12 @@
         sortedPrs.sort((a, b) => {
           const trustA = currentRepoTrustMetrics.byRootId.get(a.id)
           const trustB = currentRepoTrustMetrics.byRootId.get(b.id)
-          const actorCountA = trustA?.trustedActorCount || 0
-          const actorCountB = trustB?.trustedActorCount || 0
-          const authorA = trustA?.trustedAuthor ? 1 : 0
-          const authorB = trustB?.trustedAuthor ? 1 : 0
-          const maintainerA = trustA?.trustedMaintainerMerge ? 1 : 0
-          const maintainerB = trustB?.trustedMaintainerMerge ? 1 : 0
+          const actorCountA = trustA?.communityAlignedActorCount || 0
+          const actorCountB = trustB?.communityAlignedActorCount || 0
+          const authorA = trustA?.communityAlignedAuthor ? 1 : 0
+          const authorB = trustB?.communityAlignedAuthor ? 1 : 0
+          const maintainerA = trustA?.communityAlignedMaintainerMerge ? 1 : 0
+          const maintainerB = trustB?.communityAlignedMaintainerMerge ? 1 : 0
 
           if (actorCountA !== actorCountB) return actorCountB - actorCountA
           if (authorA !== authorB) return authorB - authorA
@@ -880,11 +882,7 @@
     }
 
     const maintainers = Array.from(new Set([...repoMaintainers, evt.pubkey].filter(Boolean)))
-    const prEventWithRecipients = withPullRequestRepoContext(
-      prEvent,
-      maintainers,
-      repoAddress,
-    )
+    const prEventWithRecipients = withPullRequestRepoContext(prEvent, maintainers, repoAddress)
     const publishedPR = publishEvent(prEventWithRecipients, relaysToUse)
     const rootId = publishedPR.event.id
     const statusEvent = createStatusEvent({
@@ -1040,7 +1038,6 @@
       clearTimeout(feedInitTimer)
       feedInitTimer = null
     }
-
   })
 
   const searchedPrs = $derived.by(() => {
@@ -1152,15 +1149,19 @@
   <div class="mb-3 rounded-box bg-base-200/30 p-2 text-xs">
     <div class="flex flex-col gap-1">
       <div>
-        <div class="font-medium">Trusted activity</div>
+        <div class="font-medium">Community activity</div>
         <div class="text-[11px] opacity-60">{trustFilterStatus}</div>
       </div>
 
       <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] opacity-80">
         <span
-          ><strong>{repoTrustMetrics.trustedMergedContributions}</strong> merged contributions</span>
-        <span><strong>{repoTrustMetrics.trustedMaintainerMerges}</strong> maintainer merges</span>
-        <span><strong>{repoTrustMetrics.trustedCollaborators}</strong> collaborators</span>
+          ><strong>{repoTrustMetrics.communityAlignedMergedContributions}</strong>
+          community-aligned PRs</span>
+        <span>
+          <strong>{repoTrustMetrics.communityAlignedMaintainerMerges}</strong>
+          community-aligned merges</span>
+        <span
+          ><strong>{repoTrustMetrics.communityCollaborators}</strong> community collaborators</span>
       </div>
     </div>
 
@@ -1181,7 +1182,7 @@
           type="button"
           class={trustSortFirst ? "btn btn-info btn-xs" : "btn btn-neutral btn-xs"}
           onclick={() => (trustSortFirst = !trustSortFirst)}>
-          Trusted first
+          Community first
         </Button>
       </div>
 
@@ -1339,17 +1340,17 @@
                 </div>
               </div>
             </div>
-            {#if trustMetric && (trustMetric.trustedAuthor || trustMetric.trustedMaintainerMerge || trustMetric.trustedActorCount > 0)}
+            {#if trustMetric && (trustMetric.communityAlignedAuthor || trustMetric.communityAlignedMaintainerMerge || trustMetric.communityAlignedActorCount > 0)}
               <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                {#if trustMetric.trustedAuthor}
-                  <span class="badge badge-success badge-sm">Trusted author</span>
+                {#if trustMetric.communityAlignedAuthor}
+                  <span class="badge badge-success badge-sm">Community-aligned author</span>
                 {/if}
-                {#if trustMetric.trustedMaintainerMerge}
-                  <span class="badge badge-info badge-sm">Trusted maintainer merge</span>
+                {#if trustMetric.communityAlignedMaintainerMerge}
+                  <span class="badge badge-info badge-sm">Community-aligned merge</span>
                 {/if}
-                {#if trustMetric.trustedActorCount > 1}
+                {#if trustMetric.communityAlignedActorCount > 1}
                   <span class="badge badge-neutral badge-sm">
-                    {trustMetric.trustedActorCount} trusted actors
+                    {trustMetric.communityAlignedActorCount} community-aligned actors
                   </span>
                 {/if}
               </div>

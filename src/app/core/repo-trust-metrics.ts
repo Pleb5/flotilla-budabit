@@ -22,6 +22,9 @@ export type RepoTrustActorMetric = {
 export type RepoTrustRootMetric = {
   rootId: string
   merged: boolean
+  communityAlignedAuthor: boolean
+  communityAlignedMaintainerMerge: boolean
+  communityAlignedActorCount: number
   trustedAuthor: boolean
   trustedMaintainerMerge: boolean
   trustedActorCount: number
@@ -37,6 +40,11 @@ export type RepoTrustMetrics = {
   enabledRuleCount: number
   totalPullRequests: number
   mergedPullRequests: number
+  communityAlignedMergedContributions: number
+  communityAlignedMaintainerMerges: number
+  communityCollaborators: number
+  communityAlignedAuthors: number
+  communityAlignedMaintainers: number
   trustedMergedContributions: number
   trustedMaintainerMerges: number
   trustedCollaborators: number
@@ -53,6 +61,7 @@ type BuildRepoTrustMetricsInput = {
   appliedStatuses: StatusEvent[]
   repoMaintainersByAddress: Map<string, Set<string>>
   trustGraph: ActiveTrustGraph
+  communityAlignedScores?: Map<string, number>
 }
 
 export const defaultRepoTrustMetrics: RepoTrustMetrics = {
@@ -62,6 +71,11 @@ export const defaultRepoTrustMetrics: RepoTrustMetrics = {
   enabledRuleCount: 0,
   totalPullRequests: 0,
   mergedPullRequests: 0,
+  communityAlignedMergedContributions: 0,
+  communityAlignedMaintainerMerges: 0,
+  communityCollaborators: 0,
+  communityAlignedAuthors: 0,
+  communityAlignedMaintainers: 0,
   trustedMergedContributions: 0,
   trustedMaintainerMerges: 0,
   trustedCollaborators: 0,
@@ -159,18 +173,19 @@ export const buildRepoTrustMetrics = ({
   appliedStatuses,
   repoMaintainersByAddress,
   trustGraph,
+  communityAlignedScores = new Map(),
 }: BuildRepoTrustMetricsInput): RepoTrustMetrics => {
   const byRootId = new Map<string, RepoTrustRootMetric>()
-  const trustedAuthors = new Set<string>()
-  const trustedMaintainers = new Set<string>()
-  const trustedCollaborators = new Set<string>()
+  const communityAlignedAuthors = new Set<string>()
+  const communityAlignedMaintainers = new Set<string>()
+  const communityCollaborators = new Set<string>()
   const maintainerTargetBranches = new Set<string>()
   const actorMetrics = new Map<string, RepoTrustActorMetric>()
   const statusesByRoot = groupStatusesByRoot(appliedStatuses)
 
   let mergedPullRequests = 0
-  let trustedMergedContributions = 0
-  let trustedMaintainerMerges = 0
+  let communityAlignedMergedContributions = 0
+  let communityAlignedMaintainerMerges = 0
 
   for (const pullRequest of pullRequests) {
     const latestStatus = getLatestMaintainerAppliedStatus(
@@ -179,9 +194,9 @@ export const buildRepoTrustMetrics = ({
       repoMaintainersByAddress,
     )
     const targetBranch = getPullRequestTargetBranch(pullRequest)
-    const authorScore = trustGraph.scores.get(pullRequest.pubkey) || 0
-    const maintainerScore = latestStatus ? trustGraph.scores.get(latestStatus.pubkey) || 0 : 0
-    const trustedActorCount = new Set(
+    const authorScore = communityAlignedScores.get(pullRequest.pubkey) || 0
+    const maintainerScore = latestStatus ? communityAlignedScores.get(latestStatus.pubkey) || 0 : 0
+    const communityAlignedActorCount = new Set(
       [
         authorScore > 0 ? pullRequest.pubkey : "",
         maintainerScore > 0 ? latestStatus?.pubkey || "" : "",
@@ -192,9 +207,9 @@ export const buildRepoTrustMetrics = ({
       mergedPullRequests += 1
 
       if (authorScore > 0) {
-        trustedMergedContributions += 1
-        trustedAuthors.add(pullRequest.pubkey)
-        trustedCollaborators.add(pullRequest.pubkey)
+        communityAlignedMergedContributions += 1
+        communityAlignedAuthors.add(pullRequest.pubkey)
+        communityCollaborators.add(pullRequest.pubkey)
         addActorMetric(actorMetrics, {
           pubkey: pullRequest.pubkey,
           trustScore: authorScore,
@@ -203,9 +218,9 @@ export const buildRepoTrustMetrics = ({
       }
 
       if (maintainerScore > 0) {
-        trustedMaintainerMerges += 1
-        trustedMaintainers.add(latestStatus.pubkey)
-        trustedCollaborators.add(latestStatus.pubkey)
+        communityAlignedMaintainerMerges += 1
+        communityAlignedMaintainers.add(latestStatus.pubkey)
+        communityCollaborators.add(latestStatus.pubkey)
         addActorMetric(actorMetrics, {
           pubkey: latestStatus.pubkey,
           trustScore: maintainerScore,
@@ -221,9 +236,12 @@ export const buildRepoTrustMetrics = ({
     byRootId.set(pullRequest.id, {
       rootId: pullRequest.id,
       merged: Boolean(latestStatus),
+      communityAlignedAuthor: authorScore > 0,
+      communityAlignedMaintainerMerge: maintainerScore > 0,
+      communityAlignedActorCount,
       trustedAuthor: authorScore > 0,
       trustedMaintainerMerge: maintainerScore > 0,
-      trustedActorCount,
+      trustedActorCount: communityAlignedActorCount,
       authorScore,
       maintainerScore,
       mergedByPubkey: latestStatus?.pubkey,
@@ -237,11 +255,16 @@ export const buildRepoTrustMetrics = ({
     enabledRuleCount: trustGraph.enabledRuleCount,
     totalPullRequests: pullRequests.length,
     mergedPullRequests,
-    trustedMergedContributions,
-    trustedMaintainerMerges,
-    trustedCollaborators: trustedCollaborators.size,
-    trustedAuthors: trustedAuthors.size,
-    trustedMaintainers: trustedMaintainers.size,
+    communityAlignedMergedContributions,
+    communityAlignedMaintainerMerges,
+    communityCollaborators: communityCollaborators.size,
+    communityAlignedAuthors: communityAlignedAuthors.size,
+    communityAlignedMaintainers: communityAlignedMaintainers.size,
+    trustedMergedContributions: communityAlignedMergedContributions,
+    trustedMaintainerMerges: communityAlignedMaintainerMerges,
+    trustedCollaborators: communityCollaborators.size,
+    trustedAuthors: communityAlignedAuthors.size,
+    trustedMaintainers: communityAlignedMaintainers.size,
     maintainerTargetBranches: Array.from(maintainerTargetBranches).sort((a, b) =>
       a.localeCompare(b),
     ),
@@ -259,15 +282,19 @@ export const createRepoTrustMetricsStore = ({
   repoAddresses,
   pullRequests,
   appliedStatuses,
+  communityAlignedScores,
 }: {
   repoAddresses: Readable<string[]>
   pullRequests: Readable<PullRequestEvent[]>
   appliedStatuses: Readable<StatusEvent[]>
+  communityAlignedScores?: Readable<Map<string, number>>
 }) =>
   readable<RepoTrustMetrics>(defaultRepoTrustMetrics, set => {
     let requestId = 0
     let previousKey = ""
     let lastReady = defaultRepoTrustMetrics
+    const communityAlignedScoresStore =
+      communityAlignedScores || readable(new Map<string, number>())
 
     const combined = derived(
       [
@@ -278,6 +305,7 @@ export const createRepoTrustMetricsStore = ({
         userTrustGraphConfigValues,
         userNip85ConfiguredProviders,
         pubkey,
+        communityAlignedScoresStore,
       ],
       ([
         $repoAddresses,
@@ -287,6 +315,7 @@ export const createRepoTrustMetricsStore = ({
         $graphConfig,
         $providers,
         $viewerPubkey,
+        $communityAlignedScores,
       ]) => ({
         repoAddresses: $repoAddresses,
         pullRequests: $pullRequests,
@@ -300,6 +329,7 @@ export const createRepoTrustMetricsStore = ({
         graphConfig: NIP85_ENABLED ? $graphConfig : null,
         providers: NIP85_ENABLED ? $providers : [],
         viewerPubkey: $viewerPubkey,
+        communityAlignedScores: $communityAlignedScores,
       }),
     )
 
@@ -312,6 +342,7 @@ export const createRepoTrustMetricsStore = ({
         graphConfig,
         providers,
         viewerPubkey,
+        communityAlignedScores,
       }) => {
         const relevantRepoAddresses = Array.from(new Set(repoAddresses.filter(Boolean))).sort()
         const relevantPullRequests = pullRequests.filter(pullRequest =>
@@ -345,6 +376,10 @@ export const createRepoTrustMetricsStore = ({
           JSON.stringify(graphConfig),
           providers
             .map(provider => `${provider.serviceKey}:${provider.kindTag}:${provider.visibility}`)
+            .sort()
+            .join(","),
+          Array.from(communityAlignedScores.entries())
+            .map(([actor, score]) => `${actor}:${score}`)
             .sort()
             .join(","),
         ].join("|")
@@ -382,6 +417,7 @@ export const createRepoTrustMetricsStore = ({
               appliedStatuses: relevantAppliedStatuses,
               repoMaintainersByAddress,
               trustGraph,
+              communityAlignedScores,
             })
             set(lastReady)
           })

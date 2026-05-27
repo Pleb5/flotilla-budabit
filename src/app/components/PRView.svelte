@@ -195,20 +195,20 @@
     }
 
     if (repoTrustMetrics.status === "error") {
-      return repoTrustMetrics.error || "Unable to compute trust activity for this PR."
+      return repoTrustMetrics.error || "Unable to compute community activity for this PR."
     }
 
     if (!metric) {
-      return "No trust data for this PR yet."
+      return "No community activity data for this PR yet."
     }
 
-    if (metric.trustedActorCount > 0) {
-      return `${metric.trustedActorCount} trusted actor${metric.trustedActorCount === 1 ? "" : "s"} matched this PR.`
+    if (metric.communityAlignedActorCount > 0) {
+      return `${metric.communityAlignedActorCount} community-aligned actor${metric.communityAlignedActorCount === 1 ? "" : "s"} matched this PR.`
     }
 
     return metric.merged
-      ? "No trusted actors matched this merged PR."
-      : "No trusted actors matched this PR yet."
+      ? "No community-aligned actors matched this merged PR."
+      : "No community-aligned actors matched this PR yet."
   })
 
   const canManagePr = $derived.by(() => {
@@ -2619,27 +2619,27 @@
       <div class="mb-6 rounded-lg border bg-muted/20 p-4 text-sm">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 class="font-medium">Trust activity</h3>
+            <h3 class="font-medium">Community activity</h3>
             <p class="mt-1 text-xs text-muted-foreground">{prTrustSummary}</p>
           </div>
 
           <div class="flex flex-wrap gap-2 text-xs">
-            {#if prTrustMetric?.trustedAuthor}
+            {#if prTrustMetric?.communityAlignedAuthor}
               <span
                 class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
-                Trusted author
+                Community-aligned author
               </span>
             {/if}
-            {#if prTrustMetric?.trustedMaintainerMerge}
+            {#if prTrustMetric?.communityAlignedMaintainerMerge}
               <span
                 class="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
-                Trusted maintainer merge
+                Community-aligned merge
               </span>
             {/if}
           </div>
         </div>
 
-        {#if prTrustMetric?.mergedByPubkey && prTrustMetric.trustedMaintainerMerge}
+        {#if prTrustMetric?.mergedByPubkey && prTrustMetric.communityAlignedMaintainerMerge}
           <div class="mt-3 text-xs text-muted-foreground">
             Merged by
             <ProfileLink
