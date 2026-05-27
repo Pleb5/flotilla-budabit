@@ -155,8 +155,9 @@
   });
 
   const basePath = $derived.by(() => {
-    if (!repoNaddr || !communityValue) return "";
-    return `/c/${communityValue}/git/${repoNaddr}`;
+    if (!repoNaddr) return "";
+    if (communityValue) return `/c/${communityValue}/git/${repoNaddr}`;
+    return `/git/${repoNaddr}`;
   });
 
   const diffAnchor = $derived.by(() => {
