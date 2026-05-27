@@ -127,7 +127,7 @@
         <div>Trust</div>
       {/snippet}
       {#snippet info()}
-        <div>Manage trusted assertion providers and WoT-based recommendations</div>
+        <div>Review client-side community trust and contextual moderation policy</div>
       {/snippet}
     </CardButton>
   </Link>

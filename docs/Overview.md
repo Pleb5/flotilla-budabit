@@ -92,7 +92,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - Widgets: `VITE_SMART_WIDGET_RELAYS` overrides default widget discovery relays.
   - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.
   - Development: `VITE_DEV_ALLOWED_HOSTS`, `VITE_DEV_HMR_*`, and `VITE_DEV_CHII_TARGET_URL` support reverse-proxied/mobile dev sessions.
-- Build-time constants are defined in `vite.config.ts`: `__GRASP__` is enabled unless `FEATURE_GRASP=0`, `__CICD__` is enabled only with `FEATURE_CICD=1`, and `__ALERTS__` is enabled only with `FEATURE_ALERTS=1`.
+- Build-time constants are defined in `vite.config.ts`: `__GRASP__` is enabled unless `FEATURE_GRASP=0`, `__CICD__` is enabled only with `FEATURE_CICD=1`, `__ALERTS__` is enabled only with `FEATURE_ALERTS=1`, and legacy NIP-85 provider trust is gated behind `FEATURE_NIP85=1`.
 - Current notification behavior: in-app unread badges and sounds remain available without alerts; external email and web push setup is hidden/rejected unless `FEATURE_ALERTS=1`.
 - `build.sh` currently post-processes HTML and manifest metadata from `VITE_PLATFORM_NAME`, `VITE_PLATFORM_SHORT_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_ACCENT`, and `VITE_PLATFORM_URL`, while runtime app metadata and PWA icon generation use `VITE_APP_*`.
 

@@ -127,6 +127,7 @@ Build-time feature flags:
 - `FEATURE_GRASP` - Enables GRASP and Nostr Git paths unless set to `0`
 - `FEATURE_CICD` - Enables experimental CI/CD hooks only when set to `1`
 - `FEATURE_ALERTS` - Enables external email and web push alert setup only when set to `1`; in-app badges do not require this
+- `FEATURE_NIP85` - Enables legacy NIP-85 provider discovery and provider-based trust graph adjustments only when set to `1`; stored provider settings remain preserved but inert by default
 
 Development-only helpers:
 

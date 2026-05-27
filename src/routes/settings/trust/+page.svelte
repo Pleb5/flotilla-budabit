@@ -115,6 +115,7 @@
   let verificationSamplePubkeys = $state<string[]>([])
   let verificationState = $state<"idle" | "running" | "done" | "error">("idle")
   let verificationError = $state<string | null>(null)
+  const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
 
   const softBadgePrimary =
     "badge border border-amber-500/35 bg-amber-100/70 font-medium text-amber-700 dark:border-primary/25 dark:bg-primary/15 dark:text-primary"
@@ -687,6 +688,7 @@
   })
 
   $effect(() => {
+    if (!NIP85_ENABLED) return
     if (dirty) return
 
     providers = [...$userNip85ConfiguredProviders]
@@ -695,6 +697,8 @@
   })
 
   $effect(() => {
+    if (!NIP85_ENABLED) return
+
     for (const provider of managedProviders) {
       loadProfile(provider.serviceKey, [provider.relayHint]).catch(() => undefined)
     }
@@ -707,6 +711,8 @@
   })
 
   $effect(() => {
+    if (!NIP85_ENABLED) return
+
     if (capabilityOptions.length === 0) {
       selectedCapability = ""
       return
@@ -735,7 +741,9 @@
   }
 
   onMount(() => {
-    refreshRecommendations()
+    if (NIP85_ENABLED) {
+      refreshRecommendations()
+    }
   })
 
   const discoverExtras = async () => {
@@ -948,518 +956,576 @@
   }
 </script>
 
-<form class="content column gap-3 pb-24 sm:gap-4 sm:pb-12" onsubmit={preventDefault(save)}>
-  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div class="flex flex-col gap-2">
-        <strong class="flex items-center gap-3 text-base sm:text-lg">
-          <Icon icon={ShieldCheck} /> Trusted Assertions
-        </strong>
-        <p class="max-w-3xl text-sm opacity-75 sm:text-sm">
-          Budabit uses NIP-85 user assertions when you open a profile. Pick which providers you
-          trust for each capability. Public selections help your network discover providers; private
-          selections are stored with NIP-44 encryption in your kind 10040 config.
-        </p>
+{#if NIP85_ENABLED}
+  <form class="content column gap-3 pb-24 sm:gap-4 sm:pb-12" onsubmit={preventDefault(save)}>
+    <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex flex-col gap-2">
+          <strong class="flex items-center gap-3 text-base sm:text-lg">
+            <Icon icon={ShieldCheck} /> Trusted Assertions
+          </strong>
+          <p class="max-w-3xl text-sm opacity-75 sm:text-sm">
+            Budabit uses NIP-85 user assertions when you open a profile. Pick which providers you
+            trust for each capability. Public selections help your network discover providers;
+            private selections are stored with NIP-44 encryption in your kind 10040 config.
+          </p>
+        </div>
+        <Button
+          type="button"
+          class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto sm:flex-none"
+          onclick={refreshRecommendations}>
+          {#if refreshing || $nip85RecommendationState.status === "loading"}
+            <span class="loading loading-spinner loading-sm shrink-0"></span>
+          {:else}
+            <Icon icon={Refresh} size={4} class="shrink-0" />
+          {/if}
+          <span class="leading-none">Refresh recommendations</span>
+        </Button>
       </div>
-      <Button
-        type="button"
-        class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto sm:flex-none"
-        onclick={refreshRecommendations}>
-        {#if refreshing || $nip85RecommendationState.status === "loading"}
-          <span class="loading loading-spinner loading-sm shrink-0"></span>
-        {:else}
-          <Icon icon={Refresh} size={4} class="shrink-0" />
-        {/if}
-        <span class="leading-none">Refresh recommendations</span>
-      </Button>
-    </div>
 
-    <div class="flex flex-wrap gap-2 text-xs">
-      <span class={softBadgePrimary}>{managedProviders.length} selected entries</span>
-      <span class={softBadgeAccent}>{selectedServiceCount} selected services</span>
-      <span class={softBadgeInfo}>{recommendedEntryCount} recommended entries</span>
-      <span class={softBadgeSuccess}>{recommendedServiceCount} discovered services</span>
-      <span class={softBadgeNeutral}>{capabilityOptions.length} capabilities</span>
-      {#if extraCapabilityCount > 0}
-        <span class={softBadgeWarning}>{extraCapabilityCount} extra capabilities</span>
+      <div class="flex flex-wrap gap-2 text-xs">
+        <span class={softBadgePrimary}>{managedProviders.length} selected entries</span>
+        <span class={softBadgeAccent}>{selectedServiceCount} selected services</span>
+        <span class={softBadgeInfo}>{recommendedEntryCount} recommended entries</span>
+        <span class={softBadgeSuccess}>{recommendedServiceCount} discovered services</span>
+        <span class={softBadgeNeutral}>{capabilityOptions.length} capabilities</span>
+        {#if extraCapabilityCount > 0}
+          <span class={softBadgeWarning}>{extraCapabilityCount} extra capabilities</span>
+        {/if}
+      </div>
+
+      <p class="text-sm opacity-75">{recommendationStatus}</p>
+      <p class="text-xs opacity-60">
+        Recommendation counts are per capability. A single provider service can appear more than
+        once if people in your WoT use it for multiple capabilities.
+      </p>
+
+      {#if unmanagedProvidersCount > 0}
+        <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
+          Budabit is preserving {unmanagedProvidersCount}
+          {unmanagedProvidersCount === 1 ? " non-profile entry" : " non-profile entries"} already present
+          in your NIP-85 config.
+        </div>
       {/if}
     </div>
 
-    <p class="text-sm opacity-75">{recommendationStatus}</p>
-    <p class="text-xs opacity-60">
-      Recommendation counts are per capability. A single provider service can appear more than once
-      if people in your WoT use it for multiple capabilities.
-    </p>
+    <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex flex-col gap-2">
+          <strong class="text-base sm:text-lg">Service Provider Websites</strong>
+          <p class="text-sm opacity-75">
+            Aggregated from provider profiles Budabit has already collected from discovered service
+            keys.
+          </p>
+        </div>
 
-    {#if unmanagedProvidersCount > 0}
-      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
-        Budabit is preserving {unmanagedProvidersCount}
-        {unmanagedProvidersCount === 1 ? " non-profile entry" : " non-profile entries"} already present
-        in your NIP-85 config.
-      </div>
-    {/if}
-  </div>
+        <div class="flex shrink-0 items-center gap-3">
+          <span class={softBadgeNeutral}>{serviceProviderWebsiteEntries.length} discovered</span>
+          <div class="relative shrink-0">
+            <button
+              type="button"
+              class="text-sm text-primary underline-offset-2 hover:underline"
+              onclick={() => (showServiceProviderHelp = !showServiceProviderHelp)}>
+              How this works
+            </button>
 
-  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
-    <div class="flex items-start justify-between gap-3">
-      <div class="flex flex-col gap-2">
-        <strong class="text-base sm:text-lg">Service Provider Websites</strong>
-        <p class="text-sm opacity-75">
-          Aggregated from provider profiles Budabit has already collected from discovered service
-          keys.
-        </p>
-      </div>
-
-      <div class="flex shrink-0 items-center gap-3">
-        <span class={softBadgeNeutral}>{serviceProviderWebsiteEntries.length} discovered</span>
-        <div class="relative shrink-0">
-          <button
-            type="button"
-            class="text-sm text-primary underline-offset-2 hover:underline"
-            onclick={() => (showServiceProviderHelp = !showServiceProviderHelp)}>
-            How this works
-          </button>
-
-          {#if showServiceProviderHelp}
-            <InlinePopover
-              onClose={() => (showServiceProviderHelp = false)}
-              align="right"
-              widthClass="w-80">
-              <div class="flex flex-col gap-3 text-sm">
-                <div class="font-medium">Service grouping and view hints</div>
-                <div class="text-xs leading-relaxed opacity-75">{serviceProviderHelperText}</div>
-              </div>
-            </InlinePopover>
-          {/if}
+            {#if showServiceProviderHelp}
+              <InlinePopover
+                onClose={() => (showServiceProviderHelp = false)}
+                align="right"
+                widthClass="w-80">
+                <div class="flex flex-col gap-3 text-sm">
+                  <div class="font-medium">Service grouping and view hints</div>
+                  <div class="text-xs leading-relaxed opacity-75">{serviceProviderHelperText}</div>
+                </div>
+              </InlinePopover>
+            {/if}
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="rounded-box border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
-      Endorsed scores may be personalized to the endorser's viewpoint.
-    </div>
+      <div
+        class="rounded-box border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+        Endorsed scores may be personalized to the endorser's viewpoint.
+      </div>
 
-    {#if serviceProviderWebsiteEntries.length > 0}
-      <div class="grid gap-3 lg:grid-cols-2">
-        {#each serviceProviderWebsiteEntries as entry (entry.serviceIdentity)}
-          <div class="rounded-box bg-base-100/40 p-4">
-            <div class="flex flex-col gap-3">
-              <div class="min-w-0">
-                <Link
-                  href={entry.website}
-                  external
-                  class="block truncate text-lg font-medium text-primary underline-offset-2 hover:underline">
-                  {entry.websiteLabel}
-                </Link>
-                <div class="truncate text-sm opacity-65">{entry.website}</div>
-              </div>
+      {#if serviceProviderWebsiteEntries.length > 0}
+        <div class="grid gap-3 lg:grid-cols-2">
+          {#each serviceProviderWebsiteEntries as entry (entry.serviceIdentity)}
+            <div class="rounded-box bg-base-100/40 p-4">
+              <div class="flex flex-col gap-3">
+                <div class="min-w-0">
+                  <Link
+                    href={entry.website}
+                    external
+                    class="block truncate text-lg font-medium text-primary underline-offset-2 hover:underline">
+                    {entry.websiteLabel}
+                  </Link>
+                  <div class="truncate text-sm opacity-65">{entry.website}</div>
+                </div>
 
-              <div class="flex flex-wrap gap-2 text-xs">
-                {#if entry.endorsementCount > 0}
-                  <span class={softBadgeInfo}
-                    >{entry.endorsementCount} endorsement{entry.endorsementCount === 1
+                <div class="flex flex-wrap gap-2 text-xs">
+                  {#if entry.endorsementCount > 0}
+                    <span class={softBadgeInfo}
+                      >{entry.endorsementCount} endorsement{entry.endorsementCount === 1
+                        ? ""
+                        : "s"}</span>
+                  {/if}
+                  <span class={softBadgeNeutral}
+                    >{entry.providerKeys.length} key{entry.providerKeys.length === 1
                       ? ""
                       : "s"}</span>
-                {/if}
-                <span class={softBadgeNeutral}
-                  >{entry.providerKeys.length} key{entry.providerKeys.length === 1
-                    ? ""
-                    : "s"}</span>
-                <span class={softBadgeNeutral}
-                  >{entry.capabilityCount} capabilit{entry.capabilityCount === 1
-                    ? "y"
-                    : "ies"}</span>
-              </div>
+                  <span class={softBadgeNeutral}
+                    >{entry.capabilityCount} capabilit{entry.capabilityCount === 1
+                      ? "y"
+                      : "ies"}</span>
+                </div>
 
-              <div class="text-xs opacity-70">
-                To enforce your own view,
-                <Link
-                  href={entry.website}
-                  external
-                  class="text-primary underline-offset-2 hover:underline">
-                  visit the provider website
-                </Link>
-                and configure there. BudaBit should load your config automatically after setup.
+                <div class="text-xs opacity-70">
+                  To enforce your own view,
+                  <Link
+                    href={entry.website}
+                    external
+                    class="text-primary underline-offset-2 hover:underline">
+                    visit the provider website
+                  </Link>
+                  and configure there. BudaBit should load your config automatically after setup.
+                </div>
               </div>
             </div>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
-        No provider websites found.
-      </div>
-    {/if}
-  </div>
-
-  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
-    <div class="flex items-center gap-3">
-      <Icon icon={ShieldCheck} />
-      <strong class="text-base sm:text-lg">Graph Adjustments</strong>
-    </div>
-    <p class="text-sm opacity-75">
-      Refine the basic WoT graph Budabit uses for collaboration analysis. These private rules can
-      add or exclude people based on your selected scores; if you leave them empty, Budabit falls
-      back to the basic WoT graph.
-    </p>
-
-    <div class="flex flex-wrap gap-2 text-xs">
-      <span class={hasGraphAdjustments ? softBadgeSuccess : softBadgeWarning}>
-        {hasGraphAdjustments ? "Adjusted WoT active" : "Basic WoT fallback"}
-      </span>
-      <span class={softBadgeNeutral}>{graphConfig.rules.length} rules</span>
+          {/each}
+        </div>
+      {:else}
+        <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
+          No provider websites found.
+        </div>
+      {/if}
     </div>
 
-    <p class="text-sm opacity-75">{graphAdjustmentStatus}</p>
-    <p class="text-xs opacity-60">{graphAdjustmentHint}</p>
-
-    <div class="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-      <Button
-        type="button"
-        class={selectedGraphPreset === "balanced"
-          ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
-          : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
-        onclick={() => applyGraphPreset("balanced")}>
-        Balanced
-      </Button>
-      <Button
-        type="button"
-        class={selectedGraphPreset === "conservative"
-          ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
-          : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
-        onclick={() => applyGraphPreset("conservative")}>
-        Conservative
-      </Button>
-      <Button
-        type="button"
-        class={selectedGraphPreset === "open"
-          ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
-          : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
-        onclick={() => applyGraphPreset("open")}>
-        Open
-      </Button>
-      <Button
-        type="button"
-        class="btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"
-        onclick={addGraphRule}>
-        <Icon icon={AddCircle} /> Add rule
-      </Button>
-    </div>
-
-    {#if graphConfig.rules.length > 0}
-      <div class="flex flex-col gap-3">
-        {#each graphConfig.rules as rule (rule.id)}
-          <div class="rounded-box bg-base-100/40 p-3">
-            <div
-              class="grid gap-3 xl:grid-cols-[auto_minmax(0,2.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
-              <label class="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  class="toggle toggle-sm"
-                  checked={rule.enabled}
-                  onchange={event =>
-                    updateGraphRule(rule.id, {
-                      enabled: (event.currentTarget as HTMLInputElement).checked,
-                    })} />
-                <span>Enabled</span>
-              </label>
-
-              <label class="flex flex-col gap-2">
-                <span class="text-xs font-medium opacity-70">Metric source</span>
-                <MetricSourcePicker
-                  value={getTrustGraphMetricSourceValue(rule.source)}
-                  options={graphMetricSourceOptions}
-                  onChange={value => updateGraphRuleSource(rule.id, value)} />
-              </label>
-
-              <label class="flex flex-col gap-2">
-                <span class="text-xs font-medium opacity-70">Action</span>
-                <select
-                  class="select select-bordered select-sm w-full"
-                  value={rule.action}
-                  onchange={event =>
-                    updateGraphRule(rule.id, {
-                      action: (event.currentTarget as HTMLSelectElement)
-                        .value as TrustGraphRule["action"],
-                    })}>
-                  <option value="include">Include</option>
-                  <option value="exclude">Exclude</option>
-                </select>
-              </label>
-
-              <label class="flex flex-col gap-2">
-                <span class="text-xs font-medium opacity-70">Comparison</span>
-                <select
-                  class="select select-bordered select-sm w-full"
-                  value={rule.operator}
-                  onchange={event =>
-                    updateGraphRule(rule.id, {
-                      operator: (event.currentTarget as HTMLSelectElement)
-                        .value as TrustGraphRule["operator"],
-                    })}>
-                  <option value="gte">at least</option>
-                  <option value="lte">at most</option>
-                </select>
-              </label>
-
-              <label class="flex flex-col gap-2">
-                <span class="text-xs font-medium opacity-70">Threshold</span>
-                <input
-                  type="number"
-                  class="input input-sm input-bordered w-full"
-                  value={rule.threshold}
-                  step="1"
-                  onchange={event =>
-                    updateGraphRule(rule.id, {
-                      threshold: Number((event.currentTarget as HTMLInputElement).value) || 0,
-                    })} />
-              </label>
-            </div>
-
-            <div class="mt-3 flex justify-end">
-              <Button
-                type="button"
-                class="btn btn-neutral btn-xs inline-flex items-center justify-center gap-2 sm:btn-sm"
-                onclick={() => deleteGraphRule(rule.id)}>
-                Remove rule
-              </Button>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
-        No graph rules yet. Start with the Balanced preset or add a rule manually.
-      </div>
-    {/if}
-  </div>
-
-  {#if capabilityOptions.length > 0}
     <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <label class="flex flex-1 flex-col gap-2">
-          <span class="text-sm font-medium">Select Capability</span>
-          <select
-            class="select select-bordered select-sm sm:select-md"
-            bind:value={selectedCapability}>
-            {#each capabilityOptions as option (option.kindTag)}
-              <option value={option.kindTag}>{option.label}</option>
+      <div class="flex items-center gap-3">
+        <Icon icon={ShieldCheck} />
+        <strong class="text-base sm:text-lg">Graph Adjustments</strong>
+      </div>
+      <p class="text-sm opacity-75">
+        Refine the basic WoT graph Budabit uses for collaboration analysis. These private rules can
+        add or exclude people based on your selected scores; if you leave them empty, Budabit falls
+        back to the basic WoT graph.
+      </p>
+
+      <div class="flex flex-wrap gap-2 text-xs">
+        <span class={hasGraphAdjustments ? softBadgeSuccess : softBadgeWarning}>
+          {hasGraphAdjustments ? "Adjusted WoT active" : "Basic WoT fallback"}
+        </span>
+        <span class={softBadgeNeutral}>{graphConfig.rules.length} rules</span>
+      </div>
+
+      <p class="text-sm opacity-75">{graphAdjustmentStatus}</p>
+      <p class="text-xs opacity-60">{graphAdjustmentHint}</p>
+
+      <div class="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+        <Button
+          type="button"
+          class={selectedGraphPreset === "balanced"
+            ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
+            : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
+          onclick={() => applyGraphPreset("balanced")}>
+          Balanced
+        </Button>
+        <Button
+          type="button"
+          class={selectedGraphPreset === "conservative"
+            ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
+            : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
+          onclick={() => applyGraphPreset("conservative")}>
+          Conservative
+        </Button>
+        <Button
+          type="button"
+          class={selectedGraphPreset === "open"
+            ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
+            : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
+          onclick={() => applyGraphPreset("open")}>
+          Open
+        </Button>
+        <Button
+          type="button"
+          class="btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"
+          onclick={addGraphRule}>
+          <Icon icon={AddCircle} /> Add rule
+        </Button>
+      </div>
+
+      {#if graphConfig.rules.length > 0}
+        <div class="flex flex-col gap-3">
+          {#each graphConfig.rules as rule (rule.id)}
+            <div class="rounded-box bg-base-100/40 p-3">
+              <div
+                class="grid gap-3 xl:grid-cols-[auto_minmax(0,2.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-sm"
+                    checked={rule.enabled}
+                    onchange={event =>
+                      updateGraphRule(rule.id, {
+                        enabled: (event.currentTarget as HTMLInputElement).checked,
+                      })} />
+                  <span>Enabled</span>
+                </label>
+
+                <label class="flex flex-col gap-2">
+                  <span class="text-xs font-medium opacity-70">Metric source</span>
+                  <MetricSourcePicker
+                    value={getTrustGraphMetricSourceValue(rule.source)}
+                    options={graphMetricSourceOptions}
+                    onChange={value => updateGraphRuleSource(rule.id, value)} />
+                </label>
+
+                <label class="flex flex-col gap-2">
+                  <span class="text-xs font-medium opacity-70">Action</span>
+                  <select
+                    class="select select-bordered select-sm w-full"
+                    value={rule.action}
+                    onchange={event =>
+                      updateGraphRule(rule.id, {
+                        action: (event.currentTarget as HTMLSelectElement)
+                          .value as TrustGraphRule["action"],
+                      })}>
+                    <option value="include">Include</option>
+                    <option value="exclude">Exclude</option>
+                  </select>
+                </label>
+
+                <label class="flex flex-col gap-2">
+                  <span class="text-xs font-medium opacity-70">Comparison</span>
+                  <select
+                    class="select select-bordered select-sm w-full"
+                    value={rule.operator}
+                    onchange={event =>
+                      updateGraphRule(rule.id, {
+                        operator: (event.currentTarget as HTMLSelectElement)
+                          .value as TrustGraphRule["operator"],
+                      })}>
+                    <option value="gte">at least</option>
+                    <option value="lte">at most</option>
+                  </select>
+                </label>
+
+                <label class="flex flex-col gap-2">
+                  <span class="text-xs font-medium opacity-70">Threshold</span>
+                  <input
+                    type="number"
+                    class="input input-sm input-bordered w-full"
+                    value={rule.threshold}
+                    step="1"
+                    onchange={event =>
+                      updateGraphRule(rule.id, {
+                        threshold: Number((event.currentTarget as HTMLInputElement).value) || 0,
+                      })} />
+                </label>
+              </div>
+
+              <div class="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  class="btn btn-neutral btn-xs inline-flex items-center justify-center gap-2 sm:btn-sm"
+                  onclick={() => deleteGraphRule(rule.id)}>
+                  Remove rule
+                </Button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
+          No graph rules yet. Start with the Balanced preset or add a rule manually.
+        </div>
+      {/if}
+    </div>
+
+    {#if capabilityOptions.length > 0}
+      <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <label class="flex flex-1 flex-col gap-2">
+            <span class="text-sm font-medium">Select Capability</span>
+            <select
+              class="select select-bordered select-sm sm:select-md"
+              bind:value={selectedCapability}>
+              {#each capabilityOptions as option (option.kindTag)}
+                <option value={option.kindTag}>{option.label}</option>
+              {/each}
+            </select>
+          </label>
+
+          {#if activeCapability}
+            <div class="flex flex-wrap gap-2 text-xs">
+              {#if activeCapability.selectedCount > 0}
+                <span class={softBadgePrimary}>{activeCapability.selectedCount} selected</span>
+              {/if}
+              <span class={softBadgeInfo}>
+                {activeCapability.recommendedCount} recommended
+              </span>
+              <span class={softBadgeAccent}>{activeCapability.rows.length} shown</span>
+              {#if !activeCapability.isKnown}
+                <span class={softBadgeWarning}>Extra capability</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <div class="flex flex-col gap-2 rounded-box bg-base-200/40 p-3 sm:gap-3 sm:p-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div class="text-sm font-medium">Extra Capability Discovery</div>
+              <div class="text-xs opacity-70">
+                Scan recent provider assertions to surface additional `30382:*` tags that do not
+                appear in public kind 10040 declarations.
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto"
+              onclick={discoverExtras}
+              disabled={$nip85ExtraCapabilityDiscoveryState.status === "running" ||
+                recommendedServiceCount === 0}>
+              {#if $nip85ExtraCapabilityDiscoveryState.status === "running"}
+                <span class="loading loading-spinner loading-sm shrink-0"></span>
+              {/if}
+              <span class="leading-none">Discover extra capabilities</span>
+            </Button>
+          </div>
+
+          <div class="text-xs opacity-75 sm:text-sm">{extraCapabilityDiscoveryStatus}</div>
+        </div>
+
+        <div class="flex flex-col gap-2 rounded-box bg-base-200/40 p-3 sm:gap-3 sm:p-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div class="text-sm font-medium">Provider Verification</div>
+              <div class="text-xs opacity-70">
+                Checks your selected providers against a 3-profile sample from your WoT.
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto"
+              onclick={verifySelectedProviders}
+              disabled={verifying || managedProviders.length === 0}>
+              {#if verifying}
+                <span class="loading loading-spinner loading-sm shrink-0"></span>
+              {/if}
+              <span class="leading-none">Verify selected providers</span>
+            </Button>
+          </div>
+
+          <div class="text-xs opacity-75 sm:text-sm">{verificationStatusText}</div>
+
+          {#if verificationState !== "idle"}
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class={softBadgeSuccess}>{verificationSummary.verified} verified</span>
+              <span class={softBadgeWarning}>{verificationSummary.missing} mismatched</span>
+              <span class={softBadgeInfo}>{verificationSummary.noData} no data</span>
+              <span class={softBadgeError}>{verificationSummary.error} errors</span>
+              {#if verificationSummary.unverified > 0}
+                <span class={softBadgeNeutral}>{verificationSummary.unverified} unchecked</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        {#if activeCapability}
+          <div class="flex flex-col gap-2">
+            <strong class="break-words text-base sm:text-lg">
+              Providers for {activeCapability.label}
+            </strong>
+            <p class="text-sm opacity-75">{activeCapability.description}</p>
+            <p class="text-xs opacity-60">
+              Endorsements count how many distinct people in your current WoT sample publicly
+              selected each provider for this capability.
+            </p>
+          </div>
+
+          <div class="flex flex-col gap-3">
+            {#each activeCapability.rows as row (getNip85ProviderKey(row.provider))}
+              <ProviderRecommendationRow
+                provider={row.provider}
+                usageCount={row.usageCount}
+                recommenders={row.recommenders}
+                selectedProvider={row.selectedProvider}
+                verification={row.selectedProvider
+                  ? verificationByProviderKey.get(getNip85ProviderKey(row.selectedProvider))
+                  : undefined}
+                onSelect={visibility => selectProvider(row.provider, visibility)}
+                onSetVisibility={visibility => setVisibility(row.provider, visibility)}
+                onSwitchTag={tag =>
+                  row.selectedProvider && switchProviderTag(row.selectedProvider, tag)}
+                onRemove={() => removeProvider(row.provider)} />
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <div class="card2 bg-alt flex flex-col gap-3 shadow-md">
+        <strong class="text-base sm:text-lg">No Provider Capabilities Yet</strong>
+        <p class="text-sm opacity-75">
+          Refresh recommendations to scan your web of trust, or add a provider manually above.
+        </p>
+      </div>
+    {/if}
+
+    <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+      <div class="flex items-center gap-3">
+        <Icon icon={AddCircle} />
+        <strong class="text-base sm:text-lg">Custom Provider</strong>
+      </div>
+      <p class="text-sm opacity-75">
+        Add a provider directly if it is not yet recommended by your web of trust.
+      </p>
+      <div class="grid gap-3 sm:gap-4 md:grid-cols-2">
+        <label class="flex flex-col gap-2">
+          <span class="text-sm font-medium">Known capability</span>
+          <select class="select select-bordered select-sm sm:select-md" bind:value={customKindTag}>
+            {#each suggestedKindTags as kindTag (kindTag)}
+              <option value={kindTag}>{getNip85CapabilityLabel(kindTag)}</option>
             {/each}
           </select>
         </label>
 
-        {#if activeCapability}
-          <div class="flex flex-wrap gap-2 text-xs">
-            {#if activeCapability.selectedCount > 0}
-              <span class={softBadgePrimary}>{activeCapability.selectedCount} selected</span>
-            {/if}
-            <span class={softBadgeInfo}>
-              {activeCapability.recommendedCount} recommended
-            </span>
-            <span class={softBadgeAccent}>{activeCapability.rows.length} shown</span>
-            {#if !activeCapability.isKnown}
-              <span class={softBadgeWarning}>Extra capability</span>
-            {/if}
-          </div>
-        {/if}
-      </div>
+        <label class="flex flex-col gap-2">
+          <span class="text-sm font-medium">Provider pubkey or npub</span>
+          <input
+            class="input input-sm input-bordered sm:input-md"
+            bind:value={customServiceKey}
+            placeholder="npub1... or hex pubkey" />
+        </label>
 
-      <div class="flex flex-col gap-2 rounded-box bg-base-200/40 p-3 sm:gap-3 sm:p-4">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div class="text-sm font-medium">Extra Capability Discovery</div>
-            <div class="text-xs opacity-70">
-              Scan recent provider assertions to surface additional `30382:*` tags that do not
-              appear in public kind 10040 declarations.
-            </div>
-          </div>
+        <label class="flex flex-col gap-2">
+          <span class="text-sm font-medium">Relay hint</span>
+          <input
+            class="input input-sm input-bordered sm:input-md"
+            bind:value={customRelayHint}
+            placeholder="wss://relay.example.com" />
+        </label>
 
-          <Button
-            type="button"
-            class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto"
-            onclick={discoverExtras}
-            disabled={$nip85ExtraCapabilityDiscoveryState.status === "running" ||
-              recommendedServiceCount === 0}>
-            {#if $nip85ExtraCapabilityDiscoveryState.status === "running"}
-              <span class="loading loading-spinner loading-sm shrink-0"></span>
-            {/if}
-            <span class="leading-none">Discover extra capabilities</span>
-          </Button>
-        </div>
+        <label class="flex flex-col gap-2">
+          <span class="text-sm font-medium">Custom capability override</span>
+          <input
+            class="input input-sm input-bordered sm:input-md"
+            bind:value={customKindTagOverride}
+            placeholder="30382:personalizedPageRank" />
+          <span class="text-xs opacity-60">
+            Optional. Use this if the capability you want is not in the known list yet.
+          </span>
+        </label>
 
-        <div class="text-xs opacity-75 sm:text-sm">{extraCapabilityDiscoveryStatus}</div>
-      </div>
-
-      <div class="flex flex-col gap-2 rounded-box bg-base-200/40 p-3 sm:gap-3 sm:p-4">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div class="text-sm font-medium">Provider Verification</div>
-            <div class="text-xs opacity-70">
-              Checks your selected providers against a 3-profile sample from your WoT.
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto"
-            onclick={verifySelectedProviders}
-            disabled={verifying || managedProviders.length === 0}>
-            {#if verifying}
-              <span class="loading loading-spinner loading-sm shrink-0"></span>
-            {/if}
-            <span class="leading-none">Verify selected providers</span>
-          </Button>
-        </div>
-
-        <div class="text-xs opacity-75 sm:text-sm">{verificationStatusText}</div>
-
-        {#if verificationState !== "idle"}
-          <div class="flex flex-wrap gap-2 text-xs">
-            <span class={softBadgeSuccess}>{verificationSummary.verified} verified</span>
-            <span class={softBadgeWarning}>{verificationSummary.missing} mismatched</span>
-            <span class={softBadgeInfo}>{verificationSummary.noData} no data</span>
-            <span class={softBadgeError}>{verificationSummary.error} errors</span>
-            {#if verificationSummary.unverified > 0}
-              <span class={softBadgeNeutral}>{verificationSummary.unverified} unchecked</span>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
-      {#if activeCapability}
         <div class="flex flex-col gap-2">
-          <strong class="break-words text-base sm:text-lg">
-            Providers for {activeCapability.label}
-          </strong>
-          <p class="text-sm opacity-75">{activeCapability.description}</p>
-          <p class="text-xs opacity-60">
-            Endorsements count how many distinct people in your current WoT sample publicly selected
-            each provider for this capability.
-          </p>
-        </div>
-
-        <div class="flex flex-col gap-3">
-          {#each activeCapability.rows as row (getNip85ProviderKey(row.provider))}
-            <ProviderRecommendationRow
-              provider={row.provider}
-              usageCount={row.usageCount}
-              recommenders={row.recommenders}
-              selectedProvider={row.selectedProvider}
-              verification={row.selectedProvider
-                ? verificationByProviderKey.get(getNip85ProviderKey(row.selectedProvider))
-                : undefined}
-              onSelect={visibility => selectProvider(row.provider, visibility)}
-              onSetVisibility={visibility => setVisibility(row.provider, visibility)}
-              onSwitchTag={tag =>
-                row.selectedProvider && switchProviderTag(row.selectedProvider, tag)}
-              onRemove={() => removeProvider(row.provider)} />
-          {/each}
-        </div>
-      {/if}
-    </div>
-  {:else}
-    <div class="card2 bg-alt flex flex-col gap-3 shadow-md">
-      <strong class="text-base sm:text-lg">No Provider Capabilities Yet</strong>
-      <p class="text-sm opacity-75">
-        Refresh recommendations to scan your web of trust, or add a provider manually above.
-      </p>
-    </div>
-  {/if}
-
-  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
-    <div class="flex items-center gap-3">
-      <Icon icon={AddCircle} />
-      <strong class="text-base sm:text-lg">Custom Provider</strong>
-    </div>
-    <p class="text-sm opacity-75">
-      Add a provider directly if it is not yet recommended by your web of trust.
-    </p>
-    <div class="grid gap-3 sm:gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Known capability</span>
-        <select class="select select-bordered select-sm sm:select-md" bind:value={customKindTag}>
-          {#each suggestedKindTags as kindTag (kindTag)}
-            <option value={kindTag}>{getNip85CapabilityLabel(kindTag)}</option>
-          {/each}
-        </select>
-      </label>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Provider pubkey or npub</span>
-        <input
-          class="input input-sm input-bordered sm:input-md"
-          bind:value={customServiceKey}
-          placeholder="npub1... or hex pubkey" />
-      </label>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Relay hint</span>
-        <input
-          class="input input-sm input-bordered sm:input-md"
-          bind:value={customRelayHint}
-          placeholder="wss://relay.example.com" />
-      </label>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Custom capability override</span>
-        <input
-          class="input input-sm input-bordered sm:input-md"
-          bind:value={customKindTagOverride}
-          placeholder="30382:personalizedPageRank" />
-        <span class="text-xs opacity-60">
-          Optional. Use this if the capability you want is not in the known list yet.
-        </span>
-      </label>
-
-      <div class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Visibility</span>
-        <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <Button
-            type="button"
-            class={customVisibility === "public"
-              ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
-              : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
-            onclick={() => (customVisibility = "public")}>
-            <Icon icon={Global} /> Public
-          </Button>
-          <Button
-            type="button"
-            class={customVisibility === "private"
-              ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
-              : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
-            onclick={() => (customVisibility = "private")}>
-            <Icon icon={Lock} /> Private
-          </Button>
+          <span class="text-sm font-medium">Visibility</span>
+          <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <Button
+              type="button"
+              class={customVisibility === "public"
+                ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
+                : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
+              onclick={() => (customVisibility = "public")}>
+              <Icon icon={Global} /> Public
+            </Button>
+            <Button
+              type="button"
+              class={customVisibility === "private"
+                ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
+                : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
+              onclick={() => (customVisibility = "private")}>
+              <Icon icon={Lock} /> Private
+            </Button>
+          </div>
         </div>
       </div>
+      <div class="flex justify-end">
+        <Button
+          type="button"
+          class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
+          onclick={addCustomProvider}>
+          <Icon icon={AddCircle} /> Add Provider
+        </Button>
+      </div>
     </div>
-    <div class="flex justify-end">
+
+    <div
+      class="mt-2 flex flex-col-reverse gap-2 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <Button
         type="button"
+        class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
+        onclick={reset}
+        disabled={!dirty || saving}>
+        Discard Changes
+      </Button>
+      <Button
+        type="submit"
         class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
-        onclick={addCustomProvider}>
-        <Icon icon={AddCircle} /> Add Provider
+        disabled={!dirty || saving}>
+        {#if saving}
+          <span class="loading loading-spinner loading-sm shrink-0"></span>
+        {/if}
+        <span class="leading-none">Save Trust Settings</span>
       </Button>
     </div>
-  </div>
+  </form>
+{:else}
+  <div class="content column gap-3 pb-24 sm:gap-4 sm:pb-12">
+    <div class="card2 bg-alt flex flex-col gap-4 shadow-md">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex flex-col gap-2">
+          <strong class="flex items-center gap-3 text-base sm:text-lg">
+            <Icon icon={ShieldCheck} /> Community Trust
+          </strong>
+          <p class="max-w-3xl text-sm opacity-75">
+            Budabit trust is client-side and community-first. Collaboration context comes from
+            Communikey communities, section grants, repository-community associations, and current
+            community moderation state.
+          </p>
+        </div>
+        <span class={softBadgeSuccess}>Community-first</span>
+      </div>
 
-  <div
-    class="mt-2 flex flex-col-reverse gap-2 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-    <Button
-      type="button"
-      class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
-      onclick={reset}
-      disabled={!dirty || saving}>
-      Discard Changes
-    </Button>
-    <Button
-      type="submit"
-      class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
-      disabled={!dirty || saving}>
-      {#if saving}
-        <span class="loading loading-spinner loading-sm shrink-0"></span>
-      {/if}
-      <span class="leading-none">Save Trust Settings</span>
-    </Button>
+      <div class="grid gap-3 md:grid-cols-2">
+        <div class="rounded-box bg-base-100/40 p-4">
+          <div class="font-medium">Primary evidence</div>
+          <p class="mt-2 text-sm opacity-75">
+            Community admins, moderators, profile-list membership, and section write grants are the
+            primary trust signals inside Budabit communities.
+          </p>
+        </div>
+        <div class="rounded-box bg-base-100/40 p-4">
+          <div class="font-medium">Contextual moderation</div>
+          <p class="mt-2 text-sm opacity-75">
+            Community reports and bans apply only in the community where they are effective. They do
+            not create global distrust across Budabit.
+          </p>
+        </div>
+        <div class="rounded-box bg-base-100/40 p-4">
+          <div class="font-medium">Social overlay</div>
+          <p class="mt-2 text-sm opacity-75">
+            Direct follows and mutes can help with discovery and ordering, but they are bounded
+            personal signals and do not define community trust.
+          </p>
+        </div>
+        <div class="rounded-box bg-base-100/40 p-4">
+          <div class="font-medium">Provider settings</div>
+          <p class="mt-2 text-sm opacity-75">
+            Legacy NIP-85 provider configuration is preserved in storage but inactive in this build.
+            Provider-based graph rules are not loaded or applied unless the NIP-85 feature gate is
+            explicitly enabled.
+          </p>
+        </div>
+      </div>
+
+      <div class="rounded-box border border-info/25 bg-info/10 px-4 py-3 text-sm text-info">
+        Trust surfaces should show semantic labels like Community member, Moderator, You follow, or
+        Banned here instead of raw compound trust scores.
+      </div>
+    </div>
   </div>
-</form>
+{/if}

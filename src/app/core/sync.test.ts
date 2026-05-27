@@ -241,4 +241,19 @@ describe("syncApplicationData", () => {
 
     cleanup()
   })
+
+  it("keeps legacy NIP-85 provider sync inert by default", async () => {
+    mocks.userRelayList.set({event: {pubkey: "b".repeat(64)}})
+
+    const {syncApplicationData} = await import("./sync")
+    const cleanup = syncApplicationData()
+    await flush()
+
+    expect(mocks.loadSettings).toHaveBeenCalledWith("b".repeat(64))
+    expect(mocks.loadRepoWatch).toHaveBeenCalledWith("b".repeat(64))
+    expect(mocks.loadNip85ProviderConfig).not.toHaveBeenCalled()
+    expect(mocks.loadTrustGraphConfig).not.toHaveBeenCalled()
+
+    cleanup()
+  })
 })

@@ -29,11 +29,7 @@ import {
   loadUserFollowList,
   loadUserMuteList,
 } from "@welshman/app"
-import {
-  INDEXER_RELAYS,
-  loadSettings,
-  bootstrapPubkeys,
-} from "@app/core/state"
+import {INDEXER_RELAYS, loadSettings, bootstrapPubkeys} from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
@@ -91,6 +87,7 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
 const dmLoad = makeLoader({delay: 200, threshold: 0.5})
 
 const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
+const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
 
 const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
   const [smart, dumb] = partition(hasNegentropy, relays)
@@ -192,8 +189,10 @@ const syncUserData = () => {
       loadUserMuteList($userRelayList.event.pubkey)
       loadProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
-      loadNip85ProviderConfig($userRelayList.event.pubkey)
-      loadTrustGraphConfig($userRelayList.event.pubkey)
+      if (NIP85_ENABLED) {
+        loadNip85ProviderConfig($userRelayList.event.pubkey)
+        loadTrustGraphConfig($userRelayList.event.pubkey)
+      }
       loadRepoWatch($userRelayList.event.pubkey)
     }
   })

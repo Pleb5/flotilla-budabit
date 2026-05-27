@@ -38,6 +38,14 @@ Enables external email digest and web push alert setup.
 
 Current default/self-hosted behavior keeps this disabled. When disabled, email and push alert setup is hidden and direct alert creation is rejected. In-app unread badges and notification sounds remain available and are the default way to show new activity.
 
+### `__NIP85__`
+
+**Type**: Feature
+**Default**: Disabled unless `FEATURE_NIP85=1`
+**Control**: `FEATURE_NIP85`
+
+Keeps legacy NIP-85 provider discovery, provider settings, and provider-based trust graph adjustments gated while Budabit uses client-side community trust. When disabled, stored provider settings are preserved but inert.
+
 ## Removed Flags
 
 These are intentionally not feature flags:
@@ -58,7 +66,8 @@ export default defineConfig({
     __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
     __ALERTS__: JSON.stringify(process.env.FEATURE_ALERTS === "1"),
-  }
+    __NIP85__: JSON.stringify(process.env.FEATURE_NIP85 === "1"),
+  },
 })
 ```
 
@@ -72,6 +81,7 @@ declare const __DEVELOPMENT__: boolean
 declare const __GRASP__: boolean
 declare const __CICD__: boolean
 declare const __ALERTS__: boolean
+declare const __NIP85__: boolean
 ```
 
 ## Source Of Truth

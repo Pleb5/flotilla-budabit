@@ -9,6 +9,8 @@ import type {PullRequestEvent, StatusEvent} from "@nostr-git/core/events"
 
 export const REPO_TRUST_METRICS_KEY = Symbol("repo-trust-metrics")
 
+const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
+
 export type RepoTrustActorMetric = {
   pubkey: string
   trustScore: number
@@ -295,8 +297,8 @@ export const createRepoTrustMetricsStore = ({
             new Set(getRepoMaintainers(event)),
           ]),
         ),
-        graphConfig: $graphConfig,
-        providers: $providers,
+        graphConfig: NIP85_ENABLED ? $graphConfig : null,
+        providers: NIP85_ENABLED ? $providers : [],
         viewerPubkey: $viewerPubkey,
       }),
     )
@@ -376,11 +378,11 @@ export const createRepoTrustMetricsStore = ({
             if (currentRequest !== requestId) return
 
             lastReady = buildRepoTrustMetrics({
-            pullRequests: relevantPullRequests,
-            appliedStatuses: relevantAppliedStatuses,
-            repoMaintainersByAddress,
-            trustGraph,
-          })
+              pullRequests: relevantPullRequests,
+              appliedStatuses: relevantAppliedStatuses,
+              repoMaintainersByAddress,
+              trustGraph,
+            })
             set(lastReady)
           })
           .catch(error => {

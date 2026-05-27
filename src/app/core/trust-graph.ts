@@ -34,6 +34,7 @@ type TrustGraphAssertionStore = Map<string, Map<string, Nip85UserAssertion>>
 
 const SELF_WEIGHT = 5
 const FOLLOW_WEIGHT = 3
+const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
 const trustGraphMetricLoad = makeLoader({delay: 200, timeout: 5000, threshold: 0.5})
 
 export const getDeclaredRepoMaintainerPubkeys = (viewerPubkey: string) => {
@@ -316,7 +317,12 @@ export const loadActiveTrustGraph = async (candidatePubkeys: string[]) => {
   )
   const config = get(userTrustGraphConfigValues)
 
-  if (!viewerPubkey || normalizedCandidates.length === 0 || !hasEnabledTrustGraphRules(config)) {
+  if (
+    !viewerPubkey ||
+    normalizedCandidates.length === 0 ||
+    !NIP85_ENABLED ||
+    !hasEnabledTrustGraphRules(config)
+  ) {
     return {
       viewerPubkey,
       source: "basic_wot" as const,

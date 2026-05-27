@@ -64,6 +64,7 @@ export default defineConfig({
     __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
     __ALERTS__: JSON.stringify(process.env.FEATURE_ALERTS === "1"),
+    __NIP85__: JSON.stringify(process.env.FEATURE_NIP85 === "1"),
   },
   optimizeDeps: {
     include: ["@codemirror/state", "@codemirror/view"],
