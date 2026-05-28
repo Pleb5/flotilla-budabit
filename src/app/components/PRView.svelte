@@ -64,6 +64,8 @@
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
+    isImportedEvent,
+    resolveStatus,
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
@@ -171,6 +173,10 @@
   })
 
   const repoMaintainerPubkeys = $derived.by(() => new Set(repoMaintainers))
+  const repoOwnerPubkey = $derived.by(
+    () => (((repoClass as any)?.repoEvent?.pubkey || (repoClass as any)?.owner || "") as string),
+  )
+  const isImportedPr = $derived.by(() => isImportedEvent(prEvent as any))
   const repoAddresses = $derived.by(() => {
     const address = (repoClass as any)?.address || ""
     return address ? [address] : []
@@ -191,7 +197,7 @@
     const metric = prTrustMetric
 
     if (repoTrustMetrics.status === "loading") {
-      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} activity for this PR...`
+      return "Refreshing community activity for this PR..."
     }
 
     if (repoTrustMetrics.status === "error") {
@@ -227,8 +233,9 @@
         maintainers: repoMaintainers,
         relays: repoClass.relays || repoRelays || [],
         repoEvent: (repoClass as any).repoEvent,
+        owner: repoOwnerPubkey,
         getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
-      }) as Repo,
+      }) as unknown as Repo,
   )
 
   // PR-specific status and comments
@@ -247,18 +254,15 @@
     return $prStatusEvents as StatusEvent[]
   })
 
-  const prAuthorizedStatusEvents = $derived.by(() => {
-    if (!prEvent) return []
-    return prStatusEventsArray.filter(
-      event => event.pubkey === prEvent.pubkey || repoMaintainerPubkeys.has(event.pubkey),
-    )
-  })
-
   const prStatus = $derived.by(() => {
     if (!prEvent) return undefined
-    const events = prAuthorizedStatusEvents
-    if (!events || events.length === 0) return undefined
-    const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
+    const latest = resolveStatus({
+      statuses: prStatusEventsArray as any,
+      rootAuthor: prEvent.pubkey,
+      maintainers: repoMaintainerPubkeys,
+      repoOwner: repoOwnerPubkey,
+      importedRoot: isImportedPr,
+    }).final
     return latest ? parseStatusEvent(latest as StatusEvent) : undefined
   })
 
@@ -2757,6 +2761,7 @@
           rootAuthor={prEvent.pubkey}
           statusEvents={prStatusEventsArray}
           actorPubkey={$pubkey}
+          isMirrored={isImportedPr}
           ProfileComponent={NostrGitProfileComponent}
           onPublish={handlePrStatusPublish} />
       </div>

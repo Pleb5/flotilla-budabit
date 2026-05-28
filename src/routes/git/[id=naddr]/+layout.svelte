@@ -82,6 +82,8 @@
     parseRepoAnnouncementEvent,
     isCommentEvent,
     createRepoStateEvent,
+    isImportedEvent,
+    resolveStatus,
   } from "@nostr-git/core/events"
   import {
     parseRepoId,
@@ -109,6 +111,7 @@
   import {
     normalizeRelayUrl,
     Address,
+    REPORT,
     GIT_ISSUE,
     DELETE,
     GIT_STATUS_OPEN,
@@ -129,6 +132,8 @@
     REPO_RELAYS_KEY,
     REPO_CLONE_URLS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
+    RESOLVED_STATUS_BY_ROOT_KEY,
+    HIDDEN_ROOT_IDS_KEY,
     PULL_REQUESTS_KEY,
     COMMENT_EVENTS_KEY,
     REPO_FEED_ACTIVITY_KEY,
@@ -138,6 +143,7 @@
     GIT_RELAYS,
     getRepoAnnouncementRelays,
     getRepoScopedRelays,
+    getRepoMaintainers,
   } from "@app/core/git-state"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
@@ -274,6 +280,11 @@
     target?: string
   }
 
+  type ResolvedRootStatus = {
+    state: "open" | "draft" | "closed" | "merged" | "resolved"
+    event?: StatusEvent
+  }
+
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
   const displayRepoName = $derived.by(() => repoClass?.name || repoName)
@@ -371,17 +382,6 @@
   const basePath = $derived(`/git/${id}`)
   const issuesPath = $derived.by(() => `${basePath}/issues`)
   const prsPath = $derived.by(() => `${basePath}/prs`)
-  const isItemOpen = (item: {id: string}) => {
-    // Prefer the latest status event from the shared map (covers both issues
-    // and PRs and matches what the issues/PR pages use).
-    const events = $statusEventsByRootStore?.get(item.id)
-    if (events && events.length > 0) {
-      const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
-      return latest.kind === GIT_STATUS_OPEN
-    }
-    return true
-  }
-  const issuesCount = $derived((repoClass?.issues ?? []).filter(isItemOpen).length)
   const hasIssuesNotification = $derived.by(() => {
     if (repoAddress) {
       return hasRepoNotification($notifications, {
@@ -1199,8 +1199,8 @@
     ) as Readable<StatusEvent[]>
   }
 
-  function deriveRootScopedStatusEvents(rootIds: Readable<string[]>) {
-    return readable<StatusEvent[]>([], set => {
+  function deriveRootScopedEvents<T extends TrustedEvent>(rootIds: Readable<string[]>, kinds: number[]) {
+    return readable<T[]>([], set => {
       let previousKey = ""
       let unsubscribeScoped: (() => void) | undefined
 
@@ -1222,17 +1222,14 @@
         }
 
         const filters: Filter[] = chunkBySize(normalized, COMMENT_DERIVE_FILTER_CHUNK_SIZE).map(
-          ids => ({
-            kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-            "#e": ids,
-          }),
+          ids => ({kinds, "#e": ids}),
         )
         const scopedEvents = throttled(
           SCOPED_DERIVE_THROTTLE_MS,
           deriveEventsAsc(deriveEventsById({repository, filters})),
         )
         unsubscribeScoped = scopedEvents.subscribe(events => {
-          set(getVisibleRepositoryEvents(events as StatusEvent[]))
+          set(getVisibleRepositoryEvents(events as T[]))
         })
       })
 
@@ -1241,6 +1238,15 @@
         unsubscribeRootIds()
       }
     })
+  }
+
+  function deriveRootScopedStatusEvents(rootIds: Readable<string[]>) {
+    return deriveRootScopedEvents<StatusEvent>(rootIds, [
+      GIT_STATUS_OPEN,
+      GIT_STATUS_DRAFT,
+      GIT_STATUS_CLOSED,
+      GIT_STATUS_COMPLETE,
+    ])
   }
 
   function deriveStatusEventsByRoot(statusEvents: Readable<StatusEvent[]>) {
@@ -1260,6 +1266,89 @@
       }
       return map
     }) as Readable<Map<string, StatusEvent[]>>
+  }
+
+  function deriveRootScopedReportEvents(rootIds: Readable<string[]>) {
+    return deriveRootScopedEvents<TrustedEvent>(rootIds, [REPORT])
+  }
+
+  const isRelayHint = (value: string | undefined) => /^wss?:\/\//i.test(value?.trim() || "")
+
+  const getReportReason = (tag: string[]) => {
+    const markerReason = tag[3]?.trim()
+    if (markerReason) return markerReason.toLowerCase()
+    const maybeReason = tag[2]?.trim()
+    return maybeReason && !isRelayHint(maybeReason) ? maybeReason.toLowerCase() : ""
+  }
+
+  const getOwnerSpamReportRootId = (event: TrustedEvent, repoOwner: string) => {
+    if (event.kind !== REPORT || !repoOwner || event.pubkey !== repoOwner) return ""
+
+    const targetTag = (event.tags || []).find(
+      (tag: string[]) => tag[0] === "e" && tag[1] && getReportReason(tag) === "spam",
+    )
+
+    return targetTag?.[1] || ""
+  }
+
+  function deriveHiddenRootIds(
+    reportEvents: Readable<TrustedEvent[]>,
+    repoOwner: Readable<string[]>,
+  ) {
+    return derived([reportEvents, repoOwner], ([$reports, $owners]) => {
+      const owner = $owners[0] || repoPubkey
+      const hidden = new Set<string>()
+      for (const report of $reports || []) {
+        const rootId = getOwnerSpamReportRootId(report, owner)
+        if (rootId) hidden.add(rootId)
+      }
+      return hidden
+    }) as Readable<Set<string>>
+  }
+
+  function deriveResolvedStatusByRoot(
+    issues: Readable<IssueEvent[]>,
+    pullRequests: Readable<PullRequestEvent[]>,
+    statusEventsByRoot: Readable<Map<string, StatusEvent[]>>,
+    repoEvent: Readable<RepoAnnouncementEvent | undefined>,
+  ) {
+    return derived(
+      [issues, pullRequests, statusEventsByRoot, repoEvent],
+      ([$issues, $pullRequests, $statusEventsByRoot, $repoEvent]) => {
+        const map = new Map<string, ResolvedRootStatus>()
+        const repoOwner = $repoEvent?.pubkey || repoPubkey
+        const maintainers = new Set(getRepoMaintainers($repoEvent || null))
+
+        const resolveRoot = (root: IssueEvent | PullRequestEvent) => {
+          const statusEvents = $statusEventsByRoot.get(root.id) || []
+          const {final} = resolveStatus({
+            statuses: statusEvents as any,
+            rootAuthor: root.pubkey,
+            maintainers,
+            repoOwner,
+            importedRoot: isImportedEvent(root as any),
+          })
+          const state = (() => {
+            switch (final?.kind) {
+              case GIT_STATUS_DRAFT:
+                return "draft"
+              case GIT_STATUS_CLOSED:
+                return "closed"
+              case GIT_STATUS_COMPLETE:
+                return root.kind === GIT_ISSUE ? "resolved" : "merged"
+              case GIT_STATUS_OPEN:
+              default:
+                return "open"
+            }
+          })()
+          map.set(root.id, {state, event: final as StatusEvent | undefined})
+        }
+
+        for (const issue of $issues || []) resolveRoot(issue)
+        for (const pullRequest of $pullRequests || []) resolveRoot(pullRequest)
+        return map
+      },
+    ) as Readable<Map<string, ResolvedRootStatus>>
   }
 
   function deriveAllRootIds(
@@ -1418,19 +1507,9 @@
   const repoRelaysStore: Readable<string[]> = rootRepoRelaysStore
   const issuesStore = deriveIssues(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
-  const prsCount = $derived(($pullRequestsStore ?? []).filter(isItemOpen).length)
   const statusEventsStore = deriveStatusEvents(repoAddressesStore)
-  const pullRequestRootIdsStore: Readable<string[]> = derived(pullRequestsStore, $pullRequests =>
-    [
-      ...new Set(
-        ($pullRequests || [])
-          .map((pullRequest: PullRequestEvent) => pullRequest.id)
-          .filter(Boolean),
-      ),
-    ].sort(),
-  )
   const allRootIdsStore = deriveAllRootIds(issuesStore, pullRequestsStore)
-  const rootStatusEventsStore = deriveRootScopedStatusEvents(pullRequestRootIdsStore)
+  const rootStatusEventsStore = deriveRootScopedStatusEvents(allRootIdsStore)
   const mergedStatusEventsStore: Readable<StatusEvent[]> = derived(
     [statusEventsStore, rootStatusEventsStore],
     ([$addressScopedEvents, $rootScopedEvents]) => {
@@ -1449,6 +1528,8 @@
       )
     },
   )
+  const rootReportEventsStore = deriveRootScopedReportEvents(allRootIdsStore)
+  const hiddenRootIdsStore = deriveHiddenRootIds(rootReportEventsStore, repoOwnerStore)
   const appliedStatusEventsStore: Readable<StatusEvent[]> = derived(
     mergedStatusEventsStore,
     $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
@@ -1513,13 +1594,26 @@
     },
   )
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
+  const resolvedStatusByRootStore = deriveResolvedStatusByRoot(
+    issuesStore,
+    pullRequestsStore,
+    statusEventsByRootStore,
+    repoEventStore,
+  )
+  const isItemOpen = (item: {id: string}) => {
+    if ($hiddenRootIdsStore?.has(item.id)) return false
+    return ($resolvedStatusByRootStore?.get(item.id)?.state || "open") === "open"
+  }
+  const issuesCount = $derived.by(() => (repoClass?.issues ?? []).filter(isItemOpen).length)
+  const prsCount = $derived.by(() => ($pullRequestsStore ?? []).filter(isItemOpen).length)
   const commentEventsStore = deriveComments(allRootIdsStore)
   const repoFeedActivityStore: Readable<TrustedEvent[]> = derived(
-    [issuesStore, pullRequestsStore],
-    ([$issues, $pullRequests]) => {
+    [issuesStore, pullRequestsStore, hiddenRootIdsStore],
+    ([$issues, $pullRequests, $hiddenRootIds]) => {
       const deduped = new Map<string, TrustedEvent>()
 
       for (const event of [...($issues || []), ...($pullRequests || [])]) {
+        if ($hiddenRootIds.has(event.id)) continue
         deduped.set(event.id, event)
       }
 
@@ -1570,6 +1664,7 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
     COMMENT,
+    REPORT,
   ]
   let deleteLoadKey = ""
   let latestDeleteSeen = 0
@@ -1807,6 +1902,8 @@
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
   setContext(REPO_CLONE_URLS_KEY, repoCloneUrlsStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
+  setContext(RESOLVED_STATUS_BY_ROOT_KEY, resolvedStatusByRootStore)
+  setContext(HIDDEN_ROOT_IDS_KEY, hiddenRootIdsStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(COMMENT_EVENTS_KEY, commentEventsStore)
   setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
@@ -1933,6 +2030,7 @@
         {kinds: [COMMENT], "#e": rootChunk, limit: 0},
         {kinds: [GIT_LABEL, GIT_COVER_LETTER_KIND], "#e": rootChunk, limit: 0},
         {kinds: repoStatusKinds, "#e": rootChunk, limit: 0},
+        {kinds: [REPORT], "#e": rootChunk, limit: 0},
       )
     }
 
@@ -2160,7 +2258,13 @@
             relays,
             filters: [
               {
-                kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+                kinds: [
+                  GIT_STATUS_OPEN,
+                  GIT_STATUS_DRAFT,
+                  GIT_STATUS_CLOSED,
+                  GIT_STATUS_COMPLETE,
+                  REPORT,
+                ],
                 "#e": rootIds,
               },
             ],
@@ -2187,7 +2291,7 @@
       }, PR_STATUS_ROOT_LOAD_DEBOUNCE_MS)
     }
 
-    const prStatusLoadTrigger = derived(pullRequestRootIdsStore, (rootIds: string[]) => {
+    const prStatusLoadTrigger = derived(allRootIdsStore, (rootIds: string[]) => {
       if (rootIds.length > 0) {
         const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
         if (currentRelays.length === 0) return rootIds

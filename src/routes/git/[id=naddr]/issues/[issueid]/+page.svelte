@@ -46,10 +46,12 @@
   import {toNaturalArray} from "@app/util/labels"
   import {resolveIssueEdits} from "@app/util/issue-edits"
   import Markdown from "@src/lib/components/Markdown.svelte"
-  import {REPO_KEY} from "@app/core/git-state"
+  import {HIDDEN_ROOT_IDS_KEY, REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
+  import type {Readable} from "svelte/store"
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -61,6 +63,8 @@
   })
 
   const issueId = $page.params.issueid
+  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
+  const isHiddenRoot = $derived.by(() => hiddenRootIds.has(issueId))
   const GIT_COVER_LETTER_KIND = 1624
   const isDeletedRepositoryEvent = (event?: {id?: string}) =>
     Boolean(event && (repository as any).isDeleted?.(event))
@@ -189,15 +193,31 @@
   )
   const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
 
-  const issueMaintainers = $derived.by(() => {
-    const repoEvent =
+  const issueRepoEvent = $derived.by(() => {
+    return (
       (issueRepoAddress && $repoAnnouncementsByAddress.get(issueRepoAddress)) ||
       (currentRepoAddress && $repoAnnouncementsByAddress.get(currentRepoAddress)) ||
       ((repoClass as any)?.repoEvent as any)
-    const maintainers = getRepoMaintainers(repoEvent)
+    )
+  })
+  const currentRepoOwner = $derived.by(
+    () => (((issueRepoEvent as any)?.pubkey || (repoClass as any)?.owner || "") as string),
+  )
+  const issueMaintainers = $derived.by(() => {
+    const maintainers = getRepoMaintainers(issueRepoEvent as any)
     if (maintainers.length > 0) return new Set(maintainers)
     return fallbackMaintainers
   })
+  const issueStatusRepo = $derived.by(
+    () =>
+      ({
+        maintainers: Array.from(issueMaintainers),
+        relays: repoClass.relays || repoBoundRelays || [],
+        repoEvent: issueRepoEvent || (repoClass as any).repoEvent,
+        owner: currentRepoOwner,
+        getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
+      }) as unknown as Repo,
+  )
 
   const issue = $derived.by(() => {
     if (!issueEvent) return undefined
@@ -516,18 +536,14 @@
       {root: issueEvent as any, comments: [], statuses: $statusEvents as any},
       issue.author.pubkey,
       issueMaintainers,
+      {repoOwner: currentRepoOwner, importedRoot: isMirrored},
     ) as {final: any | undefined; reason: string}
   })
 
   const statusReason = $derived(() => resolved?.reason)
   // Title icon should match Status component logic: authorized events (author or maintainers/owner), latest by time
   const titleCurrentStatusEvent = $derived.by(() => {
-    if (!$statusEvents || !issue) return undefined
-    const authorized = ($statusEvents as StatusEvent[]).filter(
-      e => e.pubkey === issue.author.pubkey || issueMaintainers.has(e.pubkey),
-    )
-    if (authorized.length === 0) return undefined
-    return [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
+    return resolved?.final as StatusEvent | undefined
   })
   const statusIcon = $derived(() => getStatusIcon(titleCurrentStatusEvent?.kind))
 
@@ -644,7 +660,12 @@
   <title>{repoClass.name} - {issue?.subject}</title>
 </svelte:head>
 
-{#if issue}
+{#if isHiddenRoot}
+  <div class="flex flex-col items-center justify-center px-4 py-8 sm:py-12">
+    <SearchX class="mb-2 h-6 w-6 sm:h-8 sm:w-8" />
+    <p class="text-center text-sm sm:text-base">This issue was hidden as spam.</p>
+  </div>
+{:else if issue}
   <div class="px-2 py-2 sm:px-0 sm:py-4" transition:slide>
     <Card class="git-card p-4 transition-colors sm:p-6">
       <div class="flex items-start gap-2 sm:gap-4">
@@ -718,18 +739,20 @@
                 event={issueEvent as any}
                 url={repoBoundRelays[0] || ""}
                 relays={repoBoundRelays}
+                ownerPubkey={currentRepoOwner}
                 noun="issue" />
             </div>
           </div>
           <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Status
-              repo={repoClass}
+              repo={issueStatusRepo}
               rootId={issue.id}
               rootKind={GIT_ISSUE}
               rootAuthor={issue.author.pubkey}
               statusEvents={($statusEvents || []) as StatusEvent[]}
               actorPubkey={$pubkey}
               compact={true}
+              isMirrored={isMirrored}
               ProfileComponent={NostrGitProfileComponent} />
             <span
               class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground sm:text-sm">
@@ -880,13 +903,14 @@
       <!-- Status Section -->
       <div class="my-4 sm:my-6">
         <Status
-          repo={repoClass}
+          repo={issueStatusRepo}
           rootId={issue.id}
           rootKind={GIT_ISSUE}
           rootAuthor={issue.author.pubkey}
           statusEvents={($statusEvents || []) as StatusEvent[]}
           actorPubkey={$pubkey}
           compact={false}
+          isMirrored={isMirrored}
           ProfileComponent={NostrGitProfileComponent}
           onPublish={handleStatusPublish} />
       </div>

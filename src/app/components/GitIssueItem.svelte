@@ -27,7 +27,7 @@
   import {decodeRelay} from "@app/core/state"
   import {getRepoMaintainers} from "@app/core/git-state"
   import {Router} from "@welshman/router"
-  import {resolveIssueStatus} from "@nostr-git/core/events"
+  import {isImportedEvent, resolveIssueStatus} from "@nostr-git/core/events"
   import {deriveEffectiveLabels} from "@app/core/git-state"
 
   const {
@@ -66,36 +66,41 @@
 
   let statusColor = $state("badge-success")
   let displayedStatus = $state(GitIssueStatus.OPEN)
-  // Accumulated status events and the resolved final status (per NIP-34 precedence)
+  // Accumulated status events and the resolved final status.
   let statusEvents: TrustedEvent[] = $state([])
   let finalStatus: TrustedEvent | undefined = $state(undefined)
   let finalReason: string | undefined = $state(undefined)
+  let didResolveStatus = $state(false)
   let maintainersSet: Set<string> = $state(new Set<string>())
+  let repoOwnerPubkey = $state("")
   // NIP-32 labels (centralized derivation)
   let labelsNormalized: string[] = $state([])
 
   $effect(() => {
-    // Prefer resolved finalStatus when available, otherwise fallback to latestStatus prop
-    const s = finalStatus ?? latestStatus
-    if (s) {
-      switch (s.kind) {
-        case GIT_STATUS_OPEN:
-          statusColor = "badge-success"
-          displayedStatus = GitIssueStatus.OPEN
-          break
-        case GIT_STATUS_CLOSED:
-          statusColor = "badge-error"
-          displayedStatus = GitIssueStatus.CLOSED
-          break
-        case GIT_STATUS_COMPLETE:
-          statusColor = "badge-info"
-          displayedStatus = GitIssueStatus.RESOLVED
-          break
-        case GIT_STATUS_DRAFT:
-          statusColor = "badge-warning"
-          displayedStatus = GitIssueStatus.DRAFT
-          break
-      }
+    const s = finalStatus ?? (didResolveStatus ? undefined : latestStatus)
+    if (!s) {
+      statusColor = "badge-success"
+      displayedStatus = GitIssueStatus.OPEN
+      return
+    }
+
+    switch (s.kind) {
+      case GIT_STATUS_OPEN:
+        statusColor = "badge-success"
+        displayedStatus = GitIssueStatus.OPEN
+        break
+      case GIT_STATUS_CLOSED:
+        statusColor = "badge-error"
+        displayedStatus = GitIssueStatus.CLOSED
+        break
+      case GIT_STATUS_COMPLETE:
+        statusColor = "badge-info"
+        displayedStatus = GitIssueStatus.RESOLVED
+        break
+      case GIT_STATUS_DRAFT:
+        statusColor = "badge-warning"
+        displayedStatus = GitIssueStatus.DRAFT
+        break
     }
   })
 
@@ -106,25 +111,23 @@
       if (statusEvents.length === 0) {
         finalStatus = undefined
         finalReason = undefined
+        didResolveStatus = false
         return
       }
-      const {final} = resolveIssueStatus(
-        {root: issue as any, comments: [], statuses: statusEvents as any},
-        issue.pubkey,
-        maintainersSet,
-      )
-      // resolveIssueStatus returns { final, reason } but type erasure on import; call again to grab reason
       const res: any = resolveIssueStatus(
         {root: issue as any, comments: [], statuses: statusEvents as any},
         issue.pubkey,
         maintainersSet,
+        {repoOwner: repoOwnerPubkey, importedRoot: isImportedEvent(issue as any)},
       )
       finalStatus = res.final as any
       finalReason = res.reason as string
+      didResolveStatus = true
     } catch (e) {
       // Non-fatal; keep fallback behavior
       finalStatus = undefined
       finalReason = undefined
+      didResolveStatus = false
     }
   }
 
@@ -144,6 +147,7 @@
       if (events.length > 0) {
         const repoEvent = events[0]
         maintainersSet = new Set(getRepoMaintainers(repoEvent as any))
+        repoOwnerPubkey = repoEvent.pubkey || ""
 
         const [tagId, ...relays] = getTag("relays", repoEvent.tags) ?? []
 

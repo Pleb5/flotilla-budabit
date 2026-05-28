@@ -25,6 +25,7 @@
     relays?: string[]
     scopeH?: string
     communitySectionName?: string
+    ownerPubkey?: string
     readOnly?: boolean
     showReport?: boolean
     allowAdminDelete?: boolean
@@ -42,6 +43,7 @@
     relays = [],
     scopeH = "",
     communitySectionName = "",
+    ownerPubkey = "",
     readOnly = false,
     showReport = true,
     allowAdminDelete = true,
@@ -118,6 +120,7 @@
         relays,
         scopeH,
         communitySectionName,
+        ownerPubkey,
         showReport,
         allowAdminDelete,
       }}

@@ -57,6 +57,8 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
+    RESOLVED_STATUS_BY_ROOT_KEY,
+    HIDDEN_ROOT_IDS_KEY,
     deriveAssignmentsFor,
     deriveEffectiveLabels,
     getRepoMaintainers,
@@ -79,6 +81,11 @@
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
   type TrustFilterKey = "all" | "community" | "community-author" | "community-maintainer"
+
+  type ResolvedRootStatus = {
+    state: PrStatusKey | "resolved"
+    event?: StatusEvent
+  }
 
   type PrListItem = {
     id: string
@@ -111,6 +118,9 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const resolvedStatusByRootStore =
+    getContext<Readable<Map<string, ResolvedRootStatus>>>(RESOLVED_STATUS_BY_ROOT_KEY)
+  const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
   const commentEventsStore = getContext<Readable<CommentEvent[]>>(COMMENT_EVENTS_KEY)
@@ -123,8 +133,13 @@
   const statusEventsByRoot = $derived.by(() =>
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
+  const resolvedStatusByRoot = $derived.by(() =>
+    resolvedStatusByRootStore ? $resolvedStatusByRootStore : new Map<string, ResolvedRootStatus>(),
+  )
+  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
-  const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
+  const allPullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
+  const pullRequests = $derived.by(() => allPullRequests.filter(pr => !hiddenRootIds.has(pr.id)))
   const repoTrustMetrics = $derived.by(() =>
     repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
   )
@@ -377,33 +392,9 @@
     })
   })
 
-  const maintainerPubkeys = $derived.by(() => new Set(repoMaintainers))
   const currentPrStateFor = (rootId: string): PrStatusKey => {
-    try {
-      const events = (mergedStatusEventsByRoot?.get(rootId) || []) as StatusEvent[]
-      const rootAuthor = (pullRequests || []).find(
-        (pr: PullRequestEvent) => pr.id === rootId,
-      )?.pubkey
-      const authorized = events.filter(
-        event => event.pubkey === rootAuthor || maintainerPubkeys.has(event.pubkey),
-      )
-      if (authorized.length === 0) return "open"
-      const latest = [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
-      switch (latest.kind) {
-        case GIT_STATUS_OPEN:
-          return "open"
-        case GIT_STATUS_DRAFT:
-          return "draft"
-        case GIT_STATUS_CLOSED:
-          return "closed"
-        case GIT_STATUS_COMPLETE:
-          return "merged"
-        default:
-          return "open"
-      }
-    } catch {
-      return "open"
-    }
+    const state = resolvedStatusByRoot.get(rootId)?.state
+    return state === "merged" || state === "closed" || state === "draft" ? state : "open"
   }
 
   let allPrItems = $state<PrListItem[]>([])
@@ -419,9 +410,8 @@
     const currentTrustSortFirst = trustSortFirst
     const currentSortBy = sortBy
     const currentPrListCacheKey = prListCacheKey
-    const currentMergedStatusEventsByRoot = mergedStatusEventsByRoot
+    const currentResolvedStatusByRoot = resolvedStatusByRoot
     const currentRepoTrustMetrics = repoTrustMetrics
-    const currentMaintainers = [...repoMaintainers].sort()
 
     const timeout = setTimeout(() => {
       if (!currentPullRequests || currentPullRequests.length === 0) {
@@ -431,13 +421,11 @@
         return
       }
 
-      const statusKey = [...(currentMergedStatusEventsByRoot?.entries() || [])]
-        .map(
-          ([id, events]) =>
-            `${id}:${events
-              .map(event => `${event.id}:${event.kind}:${event.created_at}:${event.pubkey}`)
-              .join("~")}`,
-        )
+      const statusKey = currentPullRequests
+        .map(pr => {
+          const status = currentResolvedStatusByRoot.get(pr.id)
+          return `${pr.id}:${status?.state || "open"}:${status?.event?.id || ""}`
+        })
         .sort()
         .join(",")
       const commentsKey = [...currentCommentsByPr.entries()]
@@ -469,10 +457,14 @@
           )
           .sort()
           .join(","),
-        currentMaintainers.join(","),
       ].join("|")
 
       if (currentPrListCacheKey === currentKey) return
+
+      const getCurrentPrState = (rootId: string): PrStatusKey => {
+        const state = currentResolvedStatusByRoot.get(rootId)?.state
+        return state === "merged" || state === "closed" || state === "draft" ? state : "open"
+      }
 
       const items = currentPullRequests.map((pr: PullRequestEvent) => {
         const parsed = parsePullRequestEvent(pr)
@@ -494,7 +486,7 @@
       let filteredPrs = [...items]
 
       if (currentStatusFilter !== "all") {
-        filteredPrs = filteredPrs.filter(pr => currentPrStateFor(pr.id) === currentStatusFilter)
+        filteredPrs = filteredPrs.filter(pr => getCurrentPrState(pr.id) === currentStatusFilter)
       }
 
       if (currentAuthorFilter) {
@@ -524,7 +516,7 @@
         sortedPrs.sort((a, b) => a.created_at - b.created_at)
       } else if (currentSortBy === "status") {
         const priority = (id: string) => {
-          const state = currentPrStateFor(id)
+          const state = getCurrentPrState(id)
           return state === "open" ? 0 : state === "draft" ? 1 : state === "merged" ? 2 : 3
         }
         sortedPrs.sort((a, b) => priority(a.id) - priority(b.id))
@@ -1322,7 +1314,8 @@
                       rootAuthor={pr.event.pubkey}
                       statusEvents={mergedStatusEventsByRoot?.get(pr.id) || []}
                       actorPubkey={$pubkey}
-                      compact={true} />
+                      compact={true}
+                      isMirrored={(pr.event.tags || []).some((tag: string[]) => tag[0] === "imported")} />
                     <ReactionSummary
                       event={pr.event as TrustedEvent}
                       url={relayUrl}
@@ -1335,6 +1328,7 @@
                       event={pr.event as TrustedEvent}
                       url={relayUrl}
                       noun="pull request"
+                      ownerPubkey={(repoClass as any)?.repoEvent?.pubkey || ""}
                       relays={repoRelays} />
                   </div>
                 </div>

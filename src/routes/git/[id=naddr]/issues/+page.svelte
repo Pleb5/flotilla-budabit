@@ -50,6 +50,8 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
+    RESOLVED_STATUS_BY_ROOT_KEY,
+    HIDDEN_ROOT_IDS_KEY,
     deriveAssignmentsFor,
     getRepoMaintainers,
     getRepoScopedRelays,
@@ -173,6 +175,11 @@
   }
 
   type IssueStatusKey = "open" | "resolved" | "closed" | "draft"
+
+  type ResolvedRootStatus = {
+    state: IssueStatusKey | "merged"
+    event?: StatusEvent
+  }
 
   const ISSUE_STATUS_ORDER: IssueStatusKey[] = ["open", "resolved", "draft", "closed"]
   const ISSUE_STATUS_LABELS: Record<IssueStatusKey, string> = {
@@ -495,6 +502,9 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const resolvedStatusByRootStore =
+    getContext<Readable<Map<string, ResolvedRootStatus>>>(RESOLVED_STATUS_BY_ROOT_KEY)
+  const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
 
   if (!repoClass) {
@@ -505,9 +515,14 @@
   const statusEventsByRoot = $derived.by(() =>
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
+  const resolvedStatusByRoot = $derived.by(() =>
+    resolvedStatusByRootStore ? $resolvedStatusByRootStore : new Map<string, ResolvedRootStatus>(),
+  )
+  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
 
-  const issues = $derived.by(() => repoClass.issues || [])
+  const allIssues = $derived.by(() => repoClass.issues || [])
+  const issues = $derived.by(() => allIssues.filter(issue => !hiddenRootIds.has(issue.id)))
 
   const commentsOrdered = $derived.by(() => {
     const ret: Record<string, CommentEvent[]> = {}
@@ -598,10 +613,10 @@
   )
 
   const uniqueAuthors = $derived.by(() => {
-    if (!repoClass.issues) return []
+    if (!issues) return []
 
     const authors = new Set<string>()
-    repoClass.issues.forEach((issue: IssueEvent) => {
+    issues.forEach((issue: IssueEvent) => {
       const pubkey = issue.pubkey
       if (pubkey) authors.add(pubkey)
     })
@@ -613,7 +628,7 @@
 
   // Prefetch recent issue edit events (1985 labels + 1624 cover letters)
   $effect(() => {
-    const currentIssues = repoClass.issues || []
+    const currentIssues = issues || []
     const currentRepoRelays = repoRelays.filter(Boolean)
     if (currentRepoRelays.length === 0) return
     const relayList = (
@@ -679,92 +694,12 @@
   // Persist filters per repo (delegated to FilterPanel)
   let storageKey = repoClass ? `issuesFilters:${repoClass.key}` : ""
 
-  // Compute statusMap asynchronously to avoid blocking UI rendering
-  let statusMap = $state<Record<string, string>>({})
-  let statusMapCacheKey = $state<string>("")
-
-  $effect(() => {
-    // Access reactive dependencies synchronously to ensure they're tracked
-    if (!repoClass) return
-
-    const currentIssues = repoClass.issues
-    const currentStatusEventsByRoot = statusEventsByRoot
-    const currentStatusMapCacheKey = statusMapCacheKey
-
-    const timeout = setTimeout(() => {
-      if (!currentIssues) {
-        statusMap = {}
-        return
-      }
-
-      // Create cache key from issue IDs and statusEventsByRoot to detect changes
-      const issueIds = currentIssues
-        .map(i => i.id)
-        .sort()
-        .join(",")
-      const statusEventIds = currentStatusEventsByRoot
-        ? Array.from(currentStatusEventsByRoot.keys()).sort().join(",")
-        : ""
-      const currentKey = `${issueIds}|${statusEventIds}`
-
-      if (currentStatusMapCacheKey === currentKey) return
-
-      const map: Record<string, string> = {}
-
-      // First, set default "open" status for all issues
-      for (const issue of currentIssues) {
-        map[issue.id] = "open"
-      }
-
-      // Then override with actual status events
-      if (currentStatusEventsByRoot) {
-        for (const [rootId, events] of currentStatusEventsByRoot) {
-          // Check if this issue is mirrored
-          const issue = currentIssues.find(i => i.id === rootId)
-          const isMirrored = issue
-            ? ((issue.tags as Array<[string, string]> | undefined)?.some(
-                t => t[0] === "imported",
-              ) ?? false)
-            : false
-
-          if (isMirrored && events && events.length > 0) {
-            // For mirrored issues, use ALL status events (not just authorized ones)
-            // Sort by created_at descending and take the most recent
-            const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at)
-            const latestEvent = sortedEvents[0]
-
-            // Map status event kinds to status strings
-            const statusKindToState = (kind: number): string => {
-              switch (kind) {
-                case GIT_STATUS_OPEN:
-                  return "open"
-                case GIT_STATUS_DRAFT:
-                  return "draft"
-                case GIT_STATUS_CLOSED:
-                  return "closed"
-                case GIT_STATUS_COMPLETE:
-                  return "resolved"
-                default:
-                  return "open"
-              }
-            }
-
-            map[rootId] = statusKindToState(latestEvent.kind)
-          } else {
-            // For non-mirrored issues, use the existing authorization logic
-            const statusResult = repoClass.resolveStatusFor(rootId)
-            map[rootId] = statusResult?.state || "open"
-          }
-        }
-      }
-
-      statusMap = map
-      statusMapCacheKey = currentKey
-    }, 100)
-
-    return () => {
-      clearTimeout(timeout)
+  const statusMap = $derived.by(() => {
+    const map: Record<string, string> = {}
+    for (const issue of issues) {
+      map[issue.id] = resolvedStatusByRoot.get(issue.id)?.state || "open"
     }
+    return map
   })
 
   // Compute issueList asynchronously to avoid blocking UI rendering
@@ -775,7 +710,7 @@
     // Access reactive dependencies synchronously to ensure they're tracked
     if (!repoClass) return
 
-    const currentIssues = repoClass.issues
+    const currentIssues = issues
     const currentComments = commentsOrdered
     const currentStatusMap = statusMap
     const currentIssueEdits = issueEditsById
@@ -796,14 +731,17 @@
         .flatMap(id => currentComments[id].map(c => c.id))
         .sort()
         .join(",")
-      const statusMapKeys = Object.keys(currentStatusMap).sort().join(",")
+      const statusMapKey = Object.entries(currentStatusMap)
+        .map(([id, state]) => `${id}:${state}`)
+        .sort()
+        .join(",")
       const editsKey = Array.from(currentIssueEdits.entries())
         .map(
           ([id, edit]) => `${id}:${edit.subject}:${edit.content.length}:${edit.labels.join(",")}`,
         )
         .sort()
         .join("|")
-      const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}|${editsKey}`
+      const currentKey = `${issueIds}|${commentIds}|${statusMapKey}|${editsKey}`
 
       if (currentIssueListCacheKey === currentKey) return
 
@@ -874,8 +812,13 @@
         .sort()
         .join(",")
       const labelsKey = Array.from(currentLabelsByIssue.values()).flat().sort().join(",")
+      const statusKey = Object.entries(currentStatusMap)
+        .map(([id, state]) => `${id}:${state}`)
+        .sort()
+        .join(",")
       const currentKey = [
         issueIds,
+        statusKey,
         currentSearchTerm,
         currentStatusFilter,
         currentAuthorFilter,
@@ -983,7 +926,7 @@
   }
 
   const roleAssignments = $derived.by(() => {
-    const ids = repoClass.issues?.map((i: any) => i.id) || []
+    const ids = issues?.map((i: any) => i.id) || []
     return deriveAssignmentsFor(ids)
   })
 

@@ -3,13 +3,7 @@
   import {page} from "$app/stores"
   import {formatTimestampAsDate} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {
-    GIT_ISSUE,
-    GIT_STATUS_CLOSED,
-    GIT_STATUS_COMPLETE,
-    GIT_STATUS_DRAFT,
-    GIT_STATUS_OPEN,
-  } from "@welshman/util"
+  import {GIT_ISSUE} from "@welshman/util"
   import type {Readable} from "svelte/store"
   import Spinner from "@lib/components/Spinner.svelte"
   import RepoFeedGitItem from "@app/components/RepoFeedGitItem.svelte"
@@ -17,10 +11,9 @@
     REPO_FEED_ACTIVITY_KEY,
     REPO_KEY,
     REPO_RELAYS_KEY,
-    STATUS_EVENTS_BY_ROOT_KEY,
+    RESOLVED_STATUS_BY_ROOT_KEY,
   } from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
-  import type {StatusEvent} from "@nostr-git/core/events"
 
   type ActivityElement =
     | {type: "date"; id: string; value: string}
@@ -29,8 +22,10 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const repoFeedActivityStore = getContext<Readable<TrustedEvent[]>>(REPO_FEED_ACTIVITY_KEY)
-  const statusEventsByRootStore =
-    getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const resolvedStatusByRootStore =
+    getContext<Readable<Map<string, {state: "open" | "draft" | "closed" | "merged" | "resolved"}>>>(
+      RESOLVED_STATUS_BY_ROOT_KEY,
+    )
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -40,7 +35,7 @@
   const basePath = $derived.by(() => $page.url.pathname.replace(/\/feed$/, ""))
   const repoFeedActivity = $derived.by(() => $repoFeedActivityStore || [])
   const repoRelays = $derived.by(() => $repoRelaysStore || [])
-  const statusEventsByRoot = $derived.by(() => $statusEventsByRootStore || new Map())
+  const resolvedStatusByRoot = $derived.by(() => $resolvedStatusByRootStore || new Map())
   const defaultThreadCommunityPubkey = $derived(repoClass.community?.pubkey || "")
 
   const activityEvents = $derived.by(() => {
@@ -80,23 +75,8 @@
     const byId = new Map<string, "open" | "draft" | "closed" | "applied">()
 
     for (const event of repoFeedActivity) {
-      const statusEvent = statusEventsByRoot.get(event.id)?.at(-1)
-
-      switch (statusEvent?.kind) {
-        case GIT_STATUS_DRAFT:
-          byId.set(event.id, "draft")
-          break
-        case GIT_STATUS_CLOSED:
-          byId.set(event.id, "closed")
-          break
-        case GIT_STATUS_COMPLETE:
-          byId.set(event.id, "applied")
-          break
-        case GIT_STATUS_OPEN:
-        default:
-          byId.set(event.id, "open")
-          break
-      }
+      const state = resolvedStatusByRoot.get(event.id)?.state || "open"
+      byId.set(event.id, state === "merged" || state === "resolved" ? "applied" : state)
     }
 
     return byId

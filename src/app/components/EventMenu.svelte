@@ -19,6 +19,7 @@
   import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
+  import {publishReport} from "@app/core/commands"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
 
   type Props = {
@@ -30,6 +31,7 @@
     relays?: string[]
     scopeH?: string
     communitySectionName?: string
+    ownerPubkey?: string
     showReport?: boolean
   }
 
@@ -41,12 +43,19 @@
     customActions,
     relays = [],
     communitySectionName = "",
+    ownerPubkey = "",
     showReport = true,
   }: Props = $props()
 
   const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
   const report = () => pushModal(Report, {url, event})
+
+  const hideAsSpam = () => {
+    const reportRelays = relays.length > 0 ? relays : url ? [url] : []
+    if (reportRelays.length === 0) return
+    publishReport({event, reason: "spam", content: "", relays: reportRelays})
+  }
 
   const showInfo = () => pushModal(EventInfo, {url, event, relays})
 
@@ -100,7 +109,15 @@
         </Button>
       </li>
     {/if}
-  {:else if showReport && !communitySectionName}
+  {/if}
+  {#if ownerPubkey && ownerPubkey === $pubkey && event.pubkey !== $pubkey && showReport && !communitySectionName}
+    <li>
+      <Button class="text-error" onclick={hideAsSpam}>
+        <Icon size={4} icon={Danger} />
+        Hide as spam
+      </Button>
+    </li>
+  {:else if event.pubkey !== $pubkey && showReport && !communitySectionName}
     <li>
       <Button class="text-error" onclick={report}>
         <Icon size={4} icon={Danger} />

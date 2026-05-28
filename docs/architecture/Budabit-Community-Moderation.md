@@ -243,6 +243,60 @@ A user with General access but not Repositories access may react to a repository
 
 This avoids coupling UI features directly to section names. UI components should declare what they publish, and the permission layer maps that publish effect to the relevant section and application flow.
 
+## Repositories
+
+The Repositories community section controls who may publish repository announcements into the community. It does not replace repository-level authority. Once a repository exists, issue and pull request moderation uses the repository owner and declared maintainers from the NIP-34 repo announcement.
+
+Repository authority is intentionally narrower than community write access. A user with Repositories section access may publish a repo announcement, but they do not automatically become a maintainer of every repository in that section.
+
+Definitions:
+
+| Role | Source |
+|---|---|
+| Repo owner | The pubkey that authored the repository announcement. |
+| Declared maintainer | Pubkeys listed in the repo announcement `maintainers` tag. |
+| Issue author | The pubkey that authored the issue root event. |
+| PR author | The pubkey that authored the pull request root event. |
+
+Status resolution is shared in `@nostr-git/core`. Budabit should pass the same repository owner and maintainer set to both the status resolver and the status editor UI. This keeps the displayed final state and the visible “Change Status” affordance aligned.
+
+### Issue Permissions
+
+| Action | Issue Author | Repo Owner | Declared Maintainer | Other User |
+|---|---:|---:|---:|---:|
+| Change issue status | Yes, unless imported/mirrored | Yes | Yes | No |
+| Edit issue title | Yes | Yes | Yes | No |
+| Edit issue description | Yes | Yes | Yes | No |
+| Add/remove issue labels | Yes | Yes | Yes | No |
+| Add/remove assignees | Yes | Yes | Yes | No |
+| Comment/react | Yes | Yes | Yes | Yes, if signed in |
+| Hide issue as spam | No | Yes | No | No |
+
+Reasoning: issue authors should be able to manage their own issue metadata and status, but repository owners and maintainers need authority to triage issues they do not own. Spam hiding is owner-only because it is a global repository visibility override rather than a normal collaborative edit.
+
+### Pull Request Permissions
+
+| Action | PR Author | Repo Owner | Declared Maintainer | Other User |
+|---|---:|---:|---:|---:|
+| Change PR status | Yes, unless imported/mirrored | Yes | Yes | No |
+| Edit PR description | Yes | Yes | Yes | No |
+| Merge/manage PR actions | No, unless also maintainer/owner | Yes | Yes | No |
+| Comment/react | Yes | Yes | Yes | Yes, if signed in |
+| Hide PR as spam | No | Yes | No | No |
+
+Reasoning: PR authors can update their own proposal text and status, but merge and repository-management actions belong to the repository owner and maintainers. This lets maintainers close, draft, reopen, or merge PRs without needing ownership of the original PR event.
+
+### Imported Or Mirrored Roots
+
+| Role | Status Authority |
+|---|---:|
+| Synthetic/imported root author | No |
+| Imported baseline status event | Can be used as baseline |
+| Repo owner | Yes |
+| Declared maintainer | Yes |
+
+Reasoning: imported issues and PRs may have synthetic authors or imported baseline status events that preserve state from another platform. Those imported roots should not grant ongoing authority to the synthetic root author. Repository owners and declared maintainers remain able to update status after import.
+
 ## Permission-Gated UX
 
 Budabit should not hide inaccessible capabilities. It should show them as available community affordances that require access.

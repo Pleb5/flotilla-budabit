@@ -46,6 +46,10 @@ export const REPO_CLONE_URLS_KEY = Symbol("repo-clone-urls")
 
 export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
 
+export const RESOLVED_STATUS_BY_ROOT_KEY = Symbol("resolved-status-by-root")
+
+export const HIDDEN_ROOT_IDS_KEY = Symbol("hidden-root-ids")
+
 export const PULL_REQUESTS_KEY = Symbol("pull-requests")
 
 export const COMMENT_EVENTS_KEY = Symbol("comment-events")

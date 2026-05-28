@@ -20,6 +20,7 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     PULL_REQUESTS_KEY,
+    HIDDEN_ROOT_IDS_KEY,
     getRepoScopedRelays,
   } from "@app/core/git-state"
   import Button from "@lib/components/Button.svelte"
@@ -30,6 +31,7 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
+  const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -55,6 +57,8 @@
   let scrollParent: HTMLElement | null = $state(null)
 
   const prId = $derived($page.params.prid ?? "")
+  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
+  const isHiddenRoot = $derived.by(() => hiddenRootIds.has(prId))
   const isDeletedRepositoryEvent = (event?: TrustedEvent) =>
     Boolean(event && (repository as any).isDeleted?.(event))
   const getFirstTagValue = (event: {tags?: string[][]} | undefined, tagName: string) =>
@@ -212,7 +216,9 @@
 </svelte:head>
 
 <div bind:this={pageContainerRef}>
-  {#if isResolving}
+  {#if isHiddenRoot}
+    <div class="p-4 text-center text-muted-foreground">This pull request was hidden as spam.</div>
+  {:else if isResolving}
     <div class="p-4 text-center">Loading pull request...</div>
   {:else if pr && resolvedPrEvent}
     <PRView {pr} prEvent={resolvedPrEvent} repo={repoClass} {repoRelays} {prEditRelays} />
