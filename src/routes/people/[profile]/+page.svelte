@@ -67,8 +67,10 @@
 
   type ProfileStat = {
     label: string
-    value: number | string
+    value?: number | string
     description: string
+    actionLabel?: string
+    action?: () => void
   }
 
   type RecentAction = {
@@ -600,43 +602,43 @@
     },
     {
       label: "Repos maintained",
-      value: loadRepositoryRelationships ? targetMaintainedRepos.length : "Not loaded",
-      description: loadRepositoryRelationships
-        ? "Loaded repositories where this profile is listed as maintainer but is not the owner."
-        : "Press Load repository relationships to check maintained repositories.",
+      value: loadRepositoryRelationships ? targetMaintainedRepos.length : undefined,
+      description: "Repositories where this profile is listed as maintainer but is not the owner.",
+      actionLabel: loadRepositoryRelationships ? undefined : "Load repository relationships",
+      action: loadRepositoryRelationships ? undefined : requestRepositoryRelationships,
     },
     {
       label: "Recent PRs",
-      value: loadGitActivity ? targetAuthoredPullRequests.length : "Not loaded",
-      description: loadGitActivity
-        ? "Pull requests authored in the current activity window."
-        : "Press Load recent git activity to fetch pull requests.",
+      value: loadGitActivity ? targetAuthoredPullRequests.length : undefined,
+      description: "Pull requests authored in the current activity window.",
+      actionLabel: loadGitActivity ? undefined : "Load recent git activity",
+      action: loadGitActivity ? undefined : requestGitActivity,
     },
     {
       label: "Maintainer actions",
-      value: loadGitActivity ? targetAppliedStatuses.length : "Not loaded",
-      description: loadGitActivity
-        ? "Recent applied git status events authored by this profile."
-        : "Press Load recent git activity to fetch maintainer status events.",
+      value: loadGitActivity ? targetAppliedStatuses.length : undefined,
+      description: "Recent applied git status events authored by this profile.",
+      actionLabel: loadGitActivity ? undefined : "Load recent git activity",
+      action: loadGitActivity ? undefined : requestGitActivity,
     },
     {
       label: "Issues",
-      value: loadGitActivity ? targetIssues.length : "Not loaded",
-      description: loadGitActivity
-        ? "Recent git issues authored by this profile."
-        : "Press Load recent git activity to fetch issues.",
+      value: loadGitActivity ? targetIssues.length : undefined,
+      description: "Recent git issues authored by this profile.",
+      actionLabel: loadGitActivity ? undefined : "Load recent git activity",
+      action: loadGitActivity ? undefined : requestGitActivity,
     },
   ])
 
-  const requestGitActivity = () => {
+  function requestGitActivity() {
     loadGitActivity = true
   }
 
-  const requestCommunityActivity = () => {
+  function requestCommunityActivity() {
     loadCommunityActivity = true
   }
 
-  const requestRepositoryRelationships = () => {
+  function requestRepositoryRelationships() {
     loadGitActivity = true
     loadRepositoryRelationships = true
   }
@@ -913,11 +915,7 @@
         <div class="mt-4 flex flex-col gap-2 border-t border-base-300/60 pt-4">
           {#if !loadGitActivity || !loadCommunityActivity}
             <div class="rounded-box bg-base-200/60 p-4 text-sm">
-              <div class="font-medium">Recent actions start with fast, already-loaded basics.</div>
-              <p class="mt-1 text-xs opacity-70">
-                Load deeper activity only when you need it; this avoids blocking profile navigation.
-              </p>
-              <div class="mt-3 flex flex-wrap gap-2">
+              <div class="flex flex-wrap gap-2">
                 {#if !loadGitActivity}
                   <button type="button" class="btn btn-neutral btn-sm" onclick={requestGitActivity}>
                     Load recent git activity
@@ -1026,14 +1024,9 @@
 
             {#if !loadRepositoryRelationships}
               <div class="mt-4 rounded-box bg-base-200/60 p-4 text-sm">
-                <div class="font-medium">Relationship checks are loaded on demand.</div>
-                <p class="mt-1 text-xs opacity-70">
-                  This fetches bounded git data for you and this profile instead of scanning on
-                  every profile visit.
-                </p>
                 <button
                   type="button"
-                  class="btn btn-neutral btn-sm mt-3"
+                  class="btn btn-neutral btn-sm"
                   onclick={requestRepositoryRelationships}>
                   Load repository relationships
                 </button>
@@ -1123,9 +1116,6 @@
             <div class="text-sm font-semibold">Maintained repositories</div>
             <div class="mt-3 flex flex-col gap-2">
               {#if !loadRepositoryRelationships}
-                <div class="rounded-box bg-base-100/50 p-3 text-sm opacity-75">
-                  Maintainer relationships are not loaded yet.
-                </div>
                 <button
                   type="button"
                   class="btn btn-neutral btn-sm w-fit"
@@ -1222,41 +1212,20 @@
         </summary>
 
         <div class="mt-4 flex flex-col gap-4 border-t border-base-300/60 pt-4">
-          <div class="rounded-box bg-base-200/60 p-4 text-sm">
-            <div class="font-medium">Basic stats render first.</div>
-            <p class="mt-1 text-xs opacity-70">
-              Use these buttons for deeper profile analysis only when needed.
-            </p>
-            <div class="mt-3 flex flex-wrap gap-2">
-              {#if !loadGitActivity}
-                <button type="button" class="btn btn-neutral btn-sm" onclick={requestGitActivity}>
-                  Load recent git activity
-                </button>
-              {/if}
-              {#if !loadRepositoryRelationships && canShowRelativeAnalysis}
-                <button
-                  type="button"
-                  class="btn btn-neutral btn-sm"
-                  onclick={requestRepositoryRelationships}>
-                  Load repository relationships
-                </button>
-              {/if}
-              {#if !loadCommunityActivity}
-                <button
-                  type="button"
-                  class="btn btn-neutral btn-sm"
-                  onclick={requestCommunityActivity}>
-                  Load community activity
-                </button>
-              {/if}
-            </div>
-          </div>
-
           <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {#each profileStats as stat (stat.label)}
               <div class="rounded-box bg-base-200/60 p-3">
                 <div class="text-xs uppercase tracking-wide opacity-60">{stat.label}</div>
-                <div class="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</div>
+                {#if stat.actionLabel && stat.action}
+                  <button
+                    type="button"
+                    class="btn btn-neutral btn-sm mt-3"
+                    onclick={stat.action}>
+                    {stat.actionLabel}
+                  </button>
+                {:else}
+                  <div class="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</div>
+                {/if}
                 <div class="mt-1 text-xs opacity-60">{stat.description}</div>
               </div>
             {/each}
