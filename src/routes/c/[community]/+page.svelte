@@ -39,6 +39,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -100,7 +101,11 @@
       : [],
   )
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
-  const rooms = $derived(readCommunityRoomRoots($roomEvents, communityId))
+  const rooms = $derived(
+    readCommunityRoomRoots($roomEvents, communityId).filter(
+      room => !isCommunityPersonBanned($activeCommunityReportState, room.event.pubkey),
+    ),
+  )
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&

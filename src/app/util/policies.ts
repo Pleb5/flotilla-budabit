@@ -14,7 +14,8 @@ import {
   isClientNegOpen,
   isClientNegClose,
 } from "@welshman/net"
-import {signer} from "@welshman/app"
+import {pubkey, signer} from "@welshman/app"
+import {Nip01Signer} from "@welshman/signer"
 import {
   userSettingsValues,
   getSetting,
@@ -22,29 +23,63 @@ import {
   relaysMostlyRestricted,
 } from "@app/core/state"
 
+let guestRelaySigner: Nip01Signer | undefined
+
+const getRelayAuthSigner = () => {
+  const activeSigner = signer.get()
+  if (activeSigner) return {signer: activeSigner, isGuest: false}
+  if (pubkey.get()) return undefined
+
+  // Use a throwaway key only for NIP-42 relay auth so public reads work for guests.
+  guestRelaySigner ||= Nip01Signer.ephemeral()
+
+  return {signer: guestRelaySigner, isGuest: true}
+}
+
 export const authPolicy = (socket: Socket) => {
   let inFlight = false
+  let authenticatedWithGuest = false
 
   const attemptAuth = async () => {
     if (inFlight) return
-    const $signer = signer.get()
-    if (!$signer) return
+    const activeSigner = signer.get()
+
+    if (
+      authenticatedWithGuest &&
+      activeSigner &&
+      [AuthStatus.Ok, AuthStatus.Forbidden].includes(socket.auth.status)
+    ) {
+      inFlight = true
+      try {
+        await socket.auth.retryAuth(event => activeSigner.sign(event))
+        authenticatedWithGuest = false
+      } finally {
+        inFlight = false
+      }
+      return
+    }
+
     if (socket.auth.status !== AuthStatus.Requested) return
+    const relayAuthSigner = getRelayAuthSigner()
+    if (!relayAuthSigner) return
     inFlight = true
     try {
-      await socket.auth.doAuth(event => $signer.sign(event))
+      await socket.auth.doAuth(event => relayAuthSigner.signer.sign(event))
+      authenticatedWithGuest = relayAuthSigner.isGuest
     } finally {
       inFlight = false
+      if (authenticatedWithGuest && signer.get()) attemptAuth()
     }
   }
 
   const unsubscribers = [
-    on(socket.auth, AuthStateEvent.Status, status => {
-      if (status === AuthStatus.Requested) {
-        attemptAuth()
-      }
+    on(socket.auth, AuthStateEvent.Status, () => {
+      attemptAuth()
     }),
     signer.subscribe(() => {
+      attemptAuth()
+    }),
+    pubkey.subscribe(() => {
       attemptAuth()
     }),
   ]
