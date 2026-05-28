@@ -21,6 +21,7 @@ const avoidedLabelPatterns = [
   /\bTrust score\b/i,
   /\bGlobally distrusted\b/i,
   /\bTrust Activity\b/,
+  /\bDirect-follow\b/i,
   /\bTrusted (merged|maintainer|collaborators|author|Assertions)\b/i,
   /\btrusted (author|maintainer|collaborator|providers?|profiles|activity|assertions?)\b/i,
 ]
@@ -47,10 +48,13 @@ describe("trust UI labels", () => {
     )
     expect(readUiFile("../../routes/git/[id=naddr]/+page.svelte")).toContain("Community Activity")
     expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
-      "Code collaboration evidence",
+      "Code collaboration activity",
     )
     expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
-      "Direct-follow merged PRs",
+      "Maintainer-accepted PRs",
+    )
+    expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
+      "Community collaborators",
     )
     expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
       "More about trust in BudaBit",
@@ -79,6 +83,17 @@ describe("trust UI labels", () => {
     expect(profilePage).not.toContain("loadRepoAnnouncements(")
     expect(profilePage).toContain("Load recent git activity")
     expect(profilePage).toContain("Load repository relationships")
+    expect(profilePage).toContain("Copy profile npub")
+    expect(profilePage).toContain('"#maintainers"')
+    expect(profilePage).toContain("published repo metadata")
+    expect(profilePage).toContain("Latest metadata event")
+    expect(profilePage).toContain("Repo metadata events are replaceable")
+    expect(profilePage).toContain("Owned repo profiles")
+    expect(profilePage).toContain(
+      "Latest metadata event {formatTimestampRelative(getRepoLatestCreatedAt(repo))}",
+    )
+    expect(profilePage).not.toContain("announced repo")
+    expect(profilePage).not.toContain("Announced {formatTimestampRelative")
     expect(profilePage).not.toContain("Basic stats render first")
     expect(profilePage).not.toContain("Not loaded")
     expect(profilePage).not.toContain("Press Load")

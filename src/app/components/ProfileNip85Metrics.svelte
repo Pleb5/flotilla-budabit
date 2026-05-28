@@ -192,10 +192,10 @@
   <div class="rounded-xl bg-base-200/50">
     <button
       type="button"
-      class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left sm:gap-3 sm:px-4 sm:py-3"
       onclick={() => (isOpen = !isOpen)}>
       <div class="flex flex-col gap-1">
-        <span class="flex items-center gap-2 text-sm font-semibold">
+        <span class="flex items-center gap-1.5 text-xs font-semibold sm:gap-2 sm:text-sm">
           <Icon icon={ShieldCheck} /> NIP-85 metrics
         </span>
         <span class="text-xs opacity-70">
@@ -205,7 +205,8 @@
 
       <div class="flex items-center gap-2 text-xs opacity-70">
         {#if summary?.providerCount}
-          <span class="badge badge-neutral">{summary.providerCount} providers</span>
+          <span class="badge badge-neutral badge-sm sm:badge-md"
+            >{summary.providerCount} providers</span>
         {/if}
         <div class="transition-transform" class:rotate-180={isOpen}>
           <Icon icon={AltArrowDown} />
@@ -214,22 +215,24 @@
     </button>
 
     {#if isOpen}
-      <div class="flex flex-col gap-4 border-t border-base-300/50 px-4 py-4">
+      <div
+        class="flex flex-col gap-3 border-t border-base-300/50 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
         {#if loading}
-          <div class="flex items-center gap-2 text-sm opacity-75">
+          <div class="flex items-center gap-2 text-xs opacity-75 sm:text-sm">
             <Spinner {loading} />
             <span>Loading NIP-85 assertions...</span>
           </div>
         {:else}
           {#if status}
-            <div class="rounded-box bg-base-100/40 p-3 text-sm opacity-80">
+            <div class="rounded-box bg-base-100/40 p-2.5 text-xs opacity-80 sm:p-3 sm:text-sm">
               {status}
             </div>
           {/if}
 
           {#if configuredProviders.length === 0}
             <div>
-              <Link href="/settings/trust" class="btn btn-neutral btn-sm">Configure Providers</Link>
+              <Link href="/settings/trust" class="btn btn-neutral btn-xs sm:btn-sm"
+                >Configure Providers</Link>
             </div>
           {:else}
             <p class="text-xs opacity-70">
@@ -237,10 +240,10 @@
             </p>
 
             {#if summaryTags.length > 0}
-              <div class="grid gap-3 sm:grid-cols-2">
+              <div class="grid gap-2 sm:grid-cols-2 sm:gap-3">
                 {#each summaryTags as kindTag}
                   {@const value = getSummaryValue(summary, kindTag)}
-                  <div class="rounded-box bg-base-100/40 p-3">
+                  <div class="rounded-box bg-base-100/40 p-2.5 sm:p-3">
                     <div class="text-xs uppercase tracking-wide opacity-60">
                       {getNip85UserMetricLabel(kindTag.split(":")[1])}
                     </div>
@@ -253,7 +256,7 @@
             {/if}
 
             {#if selectedTags.length > 0}
-              <div class="flex flex-col gap-3 border-t border-base-300/50 pt-4">
+              <div class="flex flex-col gap-2.5 border-t border-base-300/50 pt-3 sm:gap-3 sm:pt-4">
                 <div class="flex items-center justify-between gap-2">
                   <strong class="text-sm">Provider responses</strong>
                   <span class="text-xs opacity-60">Per metric</span>
@@ -280,10 +283,10 @@
                         result.availableTags.length > 0 &&
                         !result.availableTags.includes(provider.tag),
                       )}
-                      <div class="rounded-box bg-base-100/40 p-3">
+                      <div class="rounded-box bg-base-100/40 p-2.5 sm:p-3">
                         <div
-                          class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div class="flex min-w-0 gap-3">
+                          class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                          <div class="flex min-w-0 gap-2 sm:gap-3">
                             <ProfileCircle pubkey={provider.serviceKey} size={7} />
                             <div class="min-w-0">
                               <div class="truncate text-sm font-medium">
@@ -328,7 +331,7 @@
             {/if}
 
             {#if providerExtras.length > 0}
-              <details class="rounded-box border border-base-300/50 bg-base-100/20 p-3">
+              <details class="rounded-box border border-base-300/50 bg-base-100/20 p-2.5 sm:p-3">
                 <summary class="cursor-pointer text-sm font-medium">Other provider metrics</summary>
                 <div class="mt-3 flex flex-col gap-3">
                   {#each providerExtras as entry}

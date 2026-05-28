@@ -1,5 +1,6 @@
 <script lang="ts">
   import {loadProfile, pubkey as sessionPubkey} from "@welshman/app"
+  import type {TrustedEvent} from "@welshman/util"
   import Git from "@assets/icons/git.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Refresh from "@assets/icons/refresh.svg?dataurl"
@@ -17,22 +18,31 @@
     loadProfileCodeTrustAnalysis,
     profileCodeTrustAnalyses,
     type ProfileCodeTrustCollaborator,
+    type ProfileCodeTrustCommunityContext,
     type ProfileCodeTrustInteractionDetail,
     type ProfileCodeTrustAnalysis,
   } from "@app/core/profile-collab-analysis"
-  import {getTrustGraphSourceLabel} from "@app/core/trust-graph"
-  import {hasEnabledTrustGraphRules, userTrustGraphConfigValues} from "@app/core/trust-graph-config"
+  import type {CommunityDefinition} from "@app/core/community"
+  import type {EffectiveCommunityReportState} from "@app/core/community-reports"
 
   type Props = {
     pubkey: string
+    communityDefinition?: CommunityDefinition
+    communityProfileListEvents?: TrustedEvent[]
+    communityReportState?: EffectiveCommunityReportState
   }
 
-  const {pubkey}: Props = $props()
+  const {
+    pubkey,
+    communityDefinition,
+    communityProfileListEvents = [],
+    communityReportState,
+  }: Props = $props()
 
   type MetricKey =
-    | "overlay-merged"
-    | "overlay-maintainer"
-    | "overlay-collaborators"
+    | "maintainer-accepted"
+    | "community-maintainer"
+    | "community-collaborators"
     | "observed-authored"
     | "observed-maintainer"
 
@@ -60,28 +70,19 @@
   let requestId = 0
 
   const cacheKey = $derived.by(() =>
-    $sessionPubkey ? getProfileCodeTrustAnalysisKey($sessionPubkey, pubkey) : "",
+    $sessionPubkey
+      ? getProfileCodeTrustAnalysisKey($sessionPubkey, pubkey, communityDefinition?.pubkey || "")
+      : "",
   )
 
   const cachedAnalysis = $derived.by(() =>
     cacheKey ? $profileCodeTrustAnalyses.get(cacheKey) || null : null,
   )
 
-  const graphSourceLabel = $derived.by(() =>
-    getTrustGraphSourceLabel(analysis?.graphSource || "direct_social"),
+  const communityContextLabel = $derived.by(() =>
+    communityDefinition ? "the active community" : "loaded community context",
   )
-  const hasGraphAdjustments = $derived.by(() =>
-    hasEnabledTrustGraphRules($userTrustGraphConfigValues),
-  )
-  const isDirectSocialAnalysis = $derived.by(
-    () => (analysis?.graphSource || "direct_social") === "direct_social",
-  )
-  const matchedActorPhrase = $derived.by(() =>
-    isDirectSocialAnalysis ? "people you follow" : "people matched by your direct overlay rules",
-  )
-  const matchedCollaboratorLabel = $derived.by(() =>
-    isDirectSocialAnalysis ? "Direct-follow collaborators" : "Overlay-matched collaborators",
-  )
+  const matchedCollaboratorLabel = "Community collaborators"
   const analysisActionLabel = $derived.by(() => {
     if (analysis) return "Refresh analysis"
     if (loading) return "Analyzing"
@@ -93,28 +94,26 @@
     analysis
       ? [
           {
-            key: "overlay-merged",
-            label: isDirectSocialAnalysis
-              ? "Direct-follow merged PRs"
-              : "Overlay-matched merged PRs",
-            value: analysis.overlayMatchedMergedPullRequests,
-            description: `Pull requests authored by this profile that were merged by ${matchedActorPhrase}.`,
-            details: analysis.overlayMatchedMergedPullRequestDetails,
+            key: "maintainer-accepted",
+            label: "Maintainer-accepted PRs",
+            value: analysis.maintainerAcceptedPullRequests,
+            description:
+              "Pull requests authored by this profile that were accepted by a repo owner or declared maintainer.",
+            details: analysis.maintainerAcceptedPullRequestDetails,
           },
           {
-            key: "overlay-maintainer",
-            label: isDirectSocialAnalysis
-              ? "Direct-follow author merges"
-              : "Overlay-matched author merges",
-            value: analysis.overlayMatchedMaintainerMerges,
-            description: `Pull requests this profile merged where the author is among ${matchedActorPhrase}.`,
-            details: analysis.overlayMatchedMaintainerMergeDetails,
+            key: "community-maintainer",
+            label: "Community-aligned author merges",
+            value: analysis.communityAlignedMaintainerMerges,
+            description: `Pull requests this profile merged where the author has evidence in ${communityContextLabel}.`,
+            details: analysis.communityAlignedMaintainerMergeDetails,
           },
           {
-            key: "overlay-collaborators",
+            key: "community-collaborators",
             label: matchedCollaboratorLabel,
-            value: analysis.overlayMatchedCollaborators,
-            description: `Distinct ${matchedActorPhrase} involved in either direction of recent merged pull request work.`,
+            value: analysis.communityCollaborators,
+            description:
+              "Distinct community-aligned actors involved in either direction of recent merged pull request work.",
             collaborators: analysis.collaborators.slice(0, 5),
           },
           {
@@ -122,7 +121,7 @@
             label: "Observed authored PRs",
             value: analysis.authoredPullRequestCount,
             description:
-              "All pull requests authored by this profile in the current analysis window, regardless of overlay match.",
+              "All pull requests authored by this profile in the current analysis window, regardless of community or maintainer evidence.",
             details: analysis.authoredPullRequestDetails,
           },
           {
@@ -193,7 +192,7 @@
   }
 
   const getMetricPopoverButtonLabel = (metric: MetricCard) => {
-    if (metric.key === "overlay-collaborators") {
+    if (metric.key === "community-collaborators") {
       return metric.value === 1 ? "1 collaborator" : `${metric.value} collaborators`
     }
 
@@ -205,7 +204,7 @@
   }
 
   const getDetailContext = (metricKey: MetricKey, detail: ProfileCodeTrustInteractionDetail) => {
-    if (metricKey === "overlay-maintainer" || metricKey === "observed-maintainer") {
+    if (metricKey === "community-maintainer" || metricKey === "observed-maintainer") {
       return {label: "Author", pubkey: detail.authorPubkey}
     }
 
@@ -218,7 +217,7 @@
 
   const analyze = async (force = false) => {
     if (!$sessionPubkey) {
-      status = "Sign in to analyze code collaboration evidence."
+      status = "Sign in to analyze code collaboration activity."
       return
     }
 
@@ -228,7 +227,15 @@
     status = null
 
     try {
-      const result = await loadProfileCodeTrustAnalysis(pubkey, {force})
+      const communityContext: ProfileCodeTrustCommunityContext | undefined = communityDefinition
+        ? {
+            communityPubkey: communityDefinition.pubkey,
+            definitions: [communityDefinition],
+            profileListEvents: communityProfileListEvents,
+            reportState: communityReportState,
+          }
+        : undefined
+      const result = await loadProfileCodeTrustAnalysis(pubkey, {force, communityContext})
 
       if (currentRequest !== requestId || result.targetPubkey !== pubkey) return
 
@@ -237,11 +244,11 @@
       if (result.authoredPullRequestCount === 0 && result.maintainerActionCount === 0) {
         status = `No recent pull request activity found in the last ${result.windowDays} days.`
       } else if (
-        result.overlayMatchedMergedPullRequests === 0 &&
-        result.overlayMatchedMaintainerMerges === 0 &&
-        result.overlayMatchedCollaborators === 0
+        result.maintainerAcceptedPullRequests === 0 &&
+        result.communityAlignedMaintainerMerges === 0 &&
+        result.communityCollaborators === 0
       ) {
-        status = `No recent git collaborations matched your ${getTrustGraphSourceLabel(result.graphSource).toLowerCase()} in the last ${result.windowDays} days.`
+        status = `No recent maintainer-accepted or community-aligned git collaborations found in the last ${result.windowDays} days.`
       }
     } catch (error: any) {
       if (currentRequest !== requestId) return
@@ -279,30 +286,30 @@
     openMetricPopover = null
     openCollaboratorPopover = null
   })
-
 </script>
 
 <div class="rounded-xl bg-base-200/50">
   <button
     type="button"
-    class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+    class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left sm:gap-3 sm:px-4 sm:py-3"
     onclick={() => (isOpen = !isOpen)}>
     <div class="flex flex-col gap-1">
-      <span class="flex items-center gap-2 text-sm font-semibold">
-        <Icon icon={Git} /> Code collaboration evidence
+      <span class="flex items-center gap-1.5 text-xs font-semibold sm:gap-2 sm:text-sm">
+        <Icon icon={Git} /> Code collaboration activity
       </span>
       <span class="text-xs opacity-70">
-        Run a bounded recent git collaboration check when you need deeper evidence.
+        Recent pull requests, merges, and maintainer relationships connected to this profile.
       </span>
     </div>
 
     <div class="flex flex-wrap items-center justify-end gap-2 text-xs opacity-70">
       {#if analysis}
-        <span class="badge badge-neutral">{analysis.overlayMatchedMergedPullRequests} merged</span>
-        <span class="badge badge-neutral"
-          >{analysis.overlayMatchedMaintainerMerges} maintainer</span>
-        <span class="badge badge-neutral"
-          >{analysis.overlayMatchedCollaborators} collaborators</span>
+        <span class="badge badge-neutral badge-sm sm:badge-md"
+          >{analysis.maintainerAcceptedPullRequests} accepted</span>
+        <span class="badge badge-neutral badge-sm sm:badge-md"
+          >{analysis.communityAlignedMaintainerMerges} community merges</span>
+        <span class="badge badge-neutral badge-sm sm:badge-md"
+          >{analysis.communityCollaborators} collaborators</span>
       {/if}
       <div class="transition-transform" class:rotate-180={isOpen}>
         <Icon icon={AltArrowDown} />
@@ -311,17 +318,17 @@
   </button>
 
   {#if isOpen}
-    <div class="flex flex-col gap-4 border-t border-base-300/50 px-4 py-4">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex flex-col gap-3 border-t border-base-300/50 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
+      <div class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div class="text-xs opacity-70">
-          Uses {graphSourceLabel} and scans up to {PROFILE_CODE_TRUST_WINDOW_DAYS} days of recent PR and
-          merge activity on git relays.
+          Looks at recent public git activity and highlights work accepted by repo maintainers or
+          connected to the active community.
         </div>
 
         <div class="flex flex-wrap gap-2">
           <Button
             type="button"
-            class="btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"
+            class="btn btn-neutral btn-xs inline-flex items-center justify-center gap-1.5 sm:btn-sm sm:gap-2"
             disabled={loading}
             onclick={() => analyze(Boolean(analysis))}>
             {#if loading}
@@ -331,39 +338,34 @@
             {/if}
             <span class="leading-none">{analysisActionLabel}</span>
           </Button>
-          <Link href="/trust-model" class="btn btn-neutral btn-sm">More about trust in BudaBit</Link>
+          <Link href="/trust-model" class="btn btn-neutral btn-xs sm:btn-sm"
+            >More about trust in BudaBit</Link>
         </div>
       </div>
 
-      {#if !hasGraphAdjustments}
-        <div class="rounded-box bg-base-100/40 p-3 text-xs opacity-75">
-          Using direct social overlay only. This panel counts recent collaboration with people you
-          follow; community roles and shared membership are shown in the profile connection
-          sections.
-        </div>
-      {/if}
-
       {#if !analysis && !loading && !status}
-        <div class="rounded-box bg-base-100/40 p-3 text-xs opacity-75">
+        <div class="rounded-box bg-base-100/40 p-2.5 text-xs opacity-75 sm:p-3">
           This deeper analysis runs only after you press Analyze code collaboration, so profile
           navigation stays responsive.
         </div>
       {/if}
 
       {#if status}
-        <div class="rounded-box bg-base-100/40 p-3 text-sm opacity-80">{status}</div>
+        <div class="rounded-box bg-base-100/40 p-2.5 text-xs opacity-80 sm:p-3 sm:text-sm">
+          {status}
+        </div>
       {/if}
 
       {#if analysis}
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="grid gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
           {#each metricCards as metric (metric.key)}
-            <div class="rounded-box bg-base-100/40 p-3">
+            <div class="rounded-box bg-base-100/40 p-2.5 sm:p-3">
               <div class="text-xs uppercase tracking-wide opacity-60">{metric.label}</div>
               <div class="mt-2 flex items-center gap-2">
                 <div class="relative">
                   <button
                     type="button"
-                    class="badge badge-neutral cursor-pointer px-3 py-3 text-sm font-medium"
+                    class="badge badge-neutral badge-sm cursor-pointer px-2 py-2 text-xs font-medium sm:badge-md sm:px-3 sm:py-3 sm:text-sm"
                     onclick={() => toggleMetricPopover(metric)}>
                     {metric.value}
                   </button>
@@ -462,30 +464,31 @@
                           </div>
                         {:else}
                           <div class="text-xs opacity-60">
-                            No evidence captured for this metric in the current window.
+                            No activity captured for this metric in the current window.
                           </div>
                         {/if}
                       </div>
                     </InlinePopover>
                   {/if}
                 </div>
-                <span class="text-xs opacity-60">Click for meaning and evidence</span>
+                <span class="text-xs opacity-60">Click for meaning and activity</span>
               </div>
             </div>
           {/each}
         </div>
 
         {#if analysis.collaborators.length > 0}
-          <div class="flex flex-col gap-3 border-t border-base-300/50 pt-4">
+          <div class="flex flex-col gap-2.5 border-t border-base-300/50 pt-3 sm:gap-3 sm:pt-4">
             <div class="flex items-center justify-between gap-2">
               <strong class="text-sm">{matchedCollaboratorLabel}</strong>
               <span class="text-xs opacity-60">Most active recent matches</span>
             </div>
 
             {#each analysis.collaborators.slice(0, 5) as collaborator (collaborator.pubkey)}
-              <div class="rounded-box bg-base-100/40 p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div class="flex min-w-0 gap-3">
+              <div class="rounded-box bg-base-100/40 p-2.5 sm:p-3">
+                <div
+                  class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                  <div class="flex min-w-0 gap-2 sm:gap-3">
                     <Button
                       type="button"
                       class="shrink-0 p-0"
@@ -500,7 +503,7 @@
                         <ProfileName pubkey={collaborator.pubkey} />
                       </Button>
                       <div class="text-xs opacity-60">
-                        Recent direct-overlay collaboration match
+                        Recent community-aligned collaboration match
                       </div>
                     </div>
                   </div>
@@ -510,7 +513,7 @@
                       <div class="relative">
                         <button
                           type="button"
-                          class="badge badge-neutral cursor-pointer px-3 py-3"
+                          class="badge badge-neutral badge-sm cursor-pointer px-2 py-2 sm:badge-md sm:px-3 sm:py-3"
                           onclick={() => toggleCollaboratorPopover(collaborator, "merged-target")}>
                           {collaborator.mergedTargetPullRequests} merged target PRs
                         </button>
@@ -525,7 +528,7 @@
                                 <div class="font-medium">Merged target PRs</div>
                                 <div class="mt-1 text-xs opacity-70">
                                   Pull requests authored by this profile and merged by this
-                                  collaborator.
+                                  community collaborator.
                                 </div>
                               </div>
 
@@ -573,7 +576,7 @@
                       <div class="relative">
                         <button
                           type="button"
-                          class="badge badge-neutral cursor-pointer px-3 py-3"
+                          class="badge badge-neutral badge-sm cursor-pointer px-2 py-2 sm:badge-md sm:px-3 sm:py-3"
                           onclick={() =>
                             toggleCollaboratorPopover(collaborator, "merged-by-target")}>
                           {collaborator.mergedByTarget} merged by target
@@ -636,7 +639,7 @@
                     <div class="relative">
                       <button
                         type="button"
-                        class="badge badge-neutral cursor-pointer px-3 py-3"
+                        class="badge badge-neutral badge-sm cursor-pointer px-2 py-2 sm:badge-md sm:px-3 sm:py-3"
                         onclick={() => toggleCollaboratorPopover(collaborator, "repos")}>
                         {collaborator.repoCount} repos
                       </button>

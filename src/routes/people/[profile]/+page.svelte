@@ -30,6 +30,7 @@
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
+  import Copy from "@assets/icons/copy.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
@@ -48,17 +49,21 @@
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
   import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
   import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
-  import {activeUserCommunityRefs, COMMUNITY_DISCOVERY_RELAYS} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityReportState,
+    activeUserCommunityRefs,
+    COMMUNITY_DISCOVERY_RELAYS,
+  } from "@app/core/community-state"
   import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "@app/core/community"
   import {selectUserCommunityRefs} from "@app/core/community-membership"
   import {makeCommunityDefinitionProfileListRefFilters} from "@app/util/community-preferences"
-  import {
-    getRepoAnnouncementRelays,
-    getRepoMaintainers,
-  } from "@app/core/git-state"
+  import {getRepoAnnouncementRelays, getRepoMaintainers} from "@app/core/git-state"
   import {formatShortNpub, normalizePubkey} from "@app/util/pubkeys"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {makeChatPath, makeCommunityPath} from "@app/util/routes"
+  import {clip} from "@app/util/toast"
 
   type ParsedProfileRoute = {
     pubkey: string
@@ -88,6 +93,14 @@
     value: number | string
     description: string
     href?: string
+  }
+
+  type RepoHistory = {
+    address: string
+    first: RepoAnnouncementEvent
+    latest: RepoAnnouncementEvent
+    firstCreatedAt: number
+    latestCreatedAt: number
   }
 
   const RECENT_SINCE_SECONDS = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60
@@ -197,18 +210,38 @@
     return Array.from(latest.values())
   }
 
-  const getLatestByRepoAddress = (events: RepoAnnouncementEvent[]) => {
-    const latest = new Map<string, RepoAnnouncementEvent>()
+  const getRepoHistoriesByAddress = (events: RepoAnnouncementEvent[]) => {
+    const histories = new Map<string, RepoHistory>()
 
     for (const event of events) {
       const address = getRepoAddress(event)
       if (!address) continue
 
-      const current = latest.get(address)
-      if (!current || event.created_at > current.created_at) latest.set(address, event)
+      const current = histories.get(address)
+      if (!current) {
+        histories.set(address, {
+          address,
+          first: event,
+          latest: event,
+          firstCreatedAt: event.created_at,
+          latestCreatedAt: event.created_at,
+        })
+        continue
+      }
+
+      const first = event.created_at < current.firstCreatedAt ? event : current.first
+      const latest = event.created_at > current.latestCreatedAt ? event : current.latest
+
+      histories.set(address, {
+        address,
+        first,
+        latest,
+        firstCreatedAt: first.created_at,
+        latestCreatedAt: latest.created_at,
+      })
     }
 
-    return latest
+    return histories
   }
 
   const formatCount = (count: number, singular: string, plural = `${singular}s`) =>
@@ -224,6 +257,7 @@
   const isSelf = $derived(Boolean(targetPubkey && $sessionPubkey === targetPubkey))
   const canShowRelativeAnalysis = $derived(Boolean(targetPubkey && $sessionPubkey && !isSelf))
   const chatPath = $derived(targetPubkey ? makeChatPath(targetPubkey) : "")
+  const targetNpub = $derived(targetPubkey ? nip19.npubEncode(targetPubkey) : "")
 
   let recentActionsExpanded = $state(false)
   let loadGitActivity = $state(false)
@@ -291,23 +325,77 @@
     deriveEventsAsc(deriveEventsById({repository, filters: communityActivityFilters})),
   )
 
+  const repoRelationshipFilters = $derived<Filter[]>(
+    loadRepositoryRelationships && targetPubkey
+      ? [
+          ...(canShowRelativeAnalysis && $sessionPubkey
+            ? [
+                {
+                  kinds: [GIT_REPO_ANNOUNCEMENT],
+                  authors: [$sessionPubkey],
+                  limit: PROFILE_EVENT_LIMIT,
+                },
+              ]
+            : []),
+          {kinds: [GIT_REPO_ANNOUNCEMENT], limit: PROFILE_EVENT_LIMIT},
+        ]
+      : [],
+  )
+  const repoMaintainerLookupFilters = $derived<Filter[]>(
+    loadRepositoryRelationships && targetPubkey
+      ? [
+          {
+            kinds: [GIT_REPO_ANNOUNCEMENT],
+            "#maintainers": [targetPubkey],
+            limit: PROFILE_EVENT_LIMIT,
+          } as Filter,
+          ...(canShowRelativeAnalysis && $sessionPubkey
+            ? [
+                {
+                  kinds: [GIT_REPO_ANNOUNCEMENT],
+                  "#maintainers": [$sessionPubkey],
+                  limit: PROFILE_EVENT_LIMIT,
+                } as Filter,
+              ]
+            : []),
+        ]
+      : [],
+  )
   const repoAnnouncementFilters = $derived<Filter[]>([
     ...(targetPubkey
       ? [{kinds: [GIT_REPO_ANNOUNCEMENT], authors: [targetPubkey], limit: PROFILE_EVENT_LIMIT}]
       : []),
-    ...(loadRepositoryRelationships && canShowRelativeAnalysis && $sessionPubkey
-      ? [
-          {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$sessionPubkey], limit: PROFILE_EVENT_LIMIT},
-        ]
-      : []),
+    ...repoRelationshipFilters,
   ])
   const repoAnnouncementEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: repoAnnouncementFilters})),
   )
+  const repoMaintainerLookupEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: repoMaintainerLookupFilters})),
+  )
+  const combinedRepoAnnouncementEvents = $derived([
+    ...($repoAnnouncementEvents as RepoAnnouncementEvent[]),
+    ...($repoMaintainerLookupEvents as RepoAnnouncementEvent[]),
+  ])
+  const repoHistoriesByAddress = $derived(getRepoHistoriesByAddress(combinedRepoAnnouncementEvents))
   const latestRepoEventsByAddress = $derived(
-    getLatestByRepoAddress($repoAnnouncementEvents as RepoAnnouncementEvent[]),
+    new Map(
+      Array.from(repoHistoriesByAddress.entries()).map(
+        ([address, history]) => [address, history.latest] as const,
+      ),
+    ),
   )
   const repoEvents = $derived(Array.from(latestRepoEventsByAddress.values()))
+  const getRepoHistoryForEvent = (event?: RepoAnnouncementEvent | null) =>
+    event ? repoHistoriesByAddress.get(getRepoAddress(event)) : undefined
+  const getRepoFirstLoadedCreatedAt = (event: RepoAnnouncementEvent) =>
+    getRepoHistoryForEvent(event)?.firstCreatedAt || event.created_at
+  const getRepoLatestCreatedAt = (event: RepoAnnouncementEvent) =>
+    getRepoHistoryForEvent(event)?.latestCreatedAt || event.created_at
+  const hasMultipleLoadedRepoMetadataEvents = (event: RepoAnnouncementEvent) => {
+    const history = getRepoHistoryForEvent(event)
+    return Boolean(history && history.latestCreatedAt > history.firstCreatedAt)
+  }
   const targetOwnedRepos = $derived(
     repoEvents
       .filter(event => event.pubkey === targetPubkey)
@@ -489,6 +577,15 @@
         )
       : [],
   )
+  const viewerMaintainsTargetRepos = $derived(
+    canShowRelativeAnalysis && $sessionPubkey
+      ? targetOwnedRepos.filter(event =>
+          getRepoMaintainers(event)
+            .filter(maintainer => maintainer !== targetPubkey)
+            .includes($sessionPubkey!),
+        )
+      : [],
+  )
   const targetContributedToViewerRepos = $derived.by(() => {
     if (!canShowRelativeAnalysis) return []
     const viewerRepoSet = new Set(viewerOwnedRepoAddresses)
@@ -548,6 +645,14 @@
       href: targetMaintainsViewerRepos[0] ? getRepoHref(targetMaintainsViewerRepos[0]) : undefined,
     },
     {
+      label: "You maintain their repos",
+      value: viewerMaintainsTargetRepos.length,
+      description: viewerMaintainsTargetRepos.length
+        ? "You are declared as a maintainer on repositories this profile owns."
+        : "No maintainer relationship from you to their repos loaded yet.",
+      href: viewerMaintainsTargetRepos[0] ? getRepoHref(viewerMaintainsTargetRepos[0]) : undefined,
+    },
+    {
       label: "Contributed to your repos",
       value: targetContributedToViewerRepos.length,
       description: targetContributedToViewerRepos.length
@@ -579,6 +684,7 @@
   const strongestConnection = $derived.by(() => {
     if (!canShowRelativeAnalysis) return ""
     if (targetMaintainsViewerRepos.length) return "maintains repositories you own"
+    if (viewerMaintainsTargetRepos.length) return "owns repositories you maintain"
     if (targetContributedToViewerRepos.length)
       return "has contributed pull requests to your repositories"
     if (targetMergedViewerRepoPullRequests.length)
@@ -596,14 +702,14 @@
       description: "Membership, moderation, and owned community contexts loaded for this profile.",
     },
     {
-      label: "Repos owned",
+      label: "Owned repo profiles",
       value: targetOwnedRepos.length,
-      description: "Repository announcements authored by this profile.",
+      description: "Latest loaded repo metadata events authored by this profile.",
     },
     {
-      label: "Repos maintained",
+      label: "Maintained repo profiles",
       value: loadRepositoryRelationships ? targetMaintainedRepos.length : undefined,
-      description: "Repositories where this profile is listed as maintainer but is not the owner.",
+      description: "Loaded repo metadata where this profile is listed as maintainer but not owner.",
       actionLabel: loadRepositoryRelationships ? undefined : "Load repository relationships",
       action: loadRepositoryRelationships ? undefined : requestRepositoryRelationships,
     },
@@ -643,6 +749,10 @@
     loadRepositoryRelationships = true
   }
 
+  function copyTargetNpub() {
+    if (targetNpub) clip(targetNpub)
+  }
+
   const recentActions = $derived.by<RecentAction[]>(() => {
     const actions: RecentAction[] = []
 
@@ -650,9 +760,9 @@
       actions.push({
         id: event.id,
         kind: "repo",
-        label: "announced repo",
+        label: "published repo metadata",
         title: getRepoName(event),
-        context: "Repository",
+        context: "Repository metadata event",
         createdAt: event.created_at,
         href: getRepoHref(event),
       })
@@ -835,6 +945,20 @@
 
     return () => controller.abort()
   })
+
+  $effect(() => {
+    if (!targetPubkey || gitRelays.length === 0 || repoMaintainerLookupFilters.length === 0) return
+
+    const controller = new AbortController()
+    request({
+      relays: gitRelays,
+      filters: repoMaintainerLookupFilters as any,
+      autoClose: true,
+      signal: controller.signal,
+    }).catch(() => undefined)
+
+    return () => controller.abort()
+  })
 </script>
 
 <PageBar>
@@ -863,33 +987,49 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="p-2 sm:p-4">
+<PageContent class="p-1.5 sm:p-4">
   {#if targetPubkey}
-    <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-8">
-      <section class="card2 bg-alt overflow-hidden shadow-md">
-        <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div class="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
+    <div class="mx-auto flex w-full max-w-7xl flex-col gap-2.5 pb-5 sm:gap-4 sm:pb-8">
+      <section class="card2 bg-alt overflow-hidden !p-3 shadow-md sm:!p-6">
+        <div class="flex flex-col gap-3 sm:gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+            <ProfileCircle
+              pubkey={targetPubkey}
+              relays={profileRelayHints}
+              size={16}
+              class="shrink-0 sm:hidden" />
             <ProfileCircle
               pubkey={targetPubkey}
               relays={profileRelayHints}
               size={24}
-              class="shrink-0" />
+              class="hidden shrink-0 sm:block" />
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2">
-                <h1 class="min-w-0 break-words text-3xl font-bold leading-tight">
+                <h1 class="min-w-0 break-words text-2xl font-bold leading-tight sm:text-3xl">
                   <ProfileName pubkey={targetPubkey} url={profileRelayHints[0]} />
                 </h1>
                 {#if isSelf}
-                  <span class="badge badge-primary">You</span>
+                  <span class="badge badge-primary badge-sm sm:badge-md">You</span>
                 {/if}
               </div>
-              <div class="mt-1 break-all text-sm opacity-70">
-                {profile?.nip05 || formatShortNpub(targetPubkey)}
+              <div
+                class="mt-1 flex flex-wrap items-center gap-1.5 break-all text-xs opacity-70 sm:gap-2 sm:text-sm">
+                <span>{profile?.nip05 || formatShortNpub(targetPubkey)}</span>
+                {#if targetNpub}
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs h-auto min-h-0 shrink-0 px-1 py-1"
+                    title="Copy profile npub"
+                    aria-label="Copy profile npub"
+                    onclick={copyTargetNpub}>
+                    <Icon size={4} icon={Copy} />
+                  </button>
+                {/if}
               </div>
-              <div class="mt-4 max-w-3xl text-sm leading-relaxed opacity-90">
+              <div class="mt-3 max-w-3xl text-xs leading-relaxed opacity-90 sm:mt-4 sm:text-sm">
                 <ProfileInfo pubkey={targetPubkey} relays={profileRelayHints} />
               </div>
-              <div class="mt-4">
+              <div class="mt-3 sm:mt-4">
                 <ProfileBadges pubkey={targetPubkey} url={profileRelayHints[0]} />
               </div>
             </div>
@@ -897,34 +1037,38 @@
         </div>
       </section>
 
-      <details class="card2 bg-alt group shadow-md">
+      <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
         <summary
-          class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-box py-1 pr-2 [&::-webkit-details-marker]:hidden">
-          <h2 class="flex items-center gap-2 text-xl font-semibold">
+          class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
+          <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
             <Icon icon={NotesMinimalistic} />
             Recent actions
           </h2>
           <div class="flex shrink-0 items-center gap-2">
-            <span class="badge badge-neutral">{formatCount(recentActions.length, "action")}</span>
+            <span class="badge badge-neutral badge-sm sm:badge-md"
+              >{formatCount(recentActions.length, "action")}</span>
             <div class="transition-transform group-open:rotate-180">
               <Icon icon={AltArrowDown} />
             </div>
           </div>
         </summary>
 
-        <div class="mt-4 flex flex-col gap-2 border-t border-base-300/60 pt-4">
+        <div class="mt-3 flex flex-col gap-2 border-t border-base-300/60 pt-3 sm:mt-4 sm:pt-4">
           {#if !loadGitActivity || !loadCommunityActivity}
-            <div class="rounded-box bg-base-200/60 p-4 text-sm">
+            <div class="rounded-box bg-base-200/60 p-3 text-xs sm:p-4 sm:text-sm">
               <div class="flex flex-wrap gap-2">
                 {#if !loadGitActivity}
-                  <button type="button" class="btn btn-neutral btn-sm" onclick={requestGitActivity}>
+                  <button
+                    type="button"
+                    class="btn btn-neutral btn-xs sm:btn-sm"
+                    onclick={requestGitActivity}>
                     Load recent git activity
                   </button>
                 {/if}
                 {#if !loadCommunityActivity}
                   <button
                     type="button"
-                    class="btn btn-neutral btn-sm"
+                    class="btn btn-neutral btn-xs sm:btn-sm"
                     onclick={requestCommunityActivity}>
                     Load community activity
                   </button>
@@ -935,58 +1079,60 @@
 
           {#each visibleRecentActions as action (action.id)}
             {#if action.href}
-              <Link href={action.href} class="rounded-box bg-base-200/60 p-4 hover:bg-base-200">
-                <div class="flex min-w-0 items-start gap-3">
-                  <div class="center h-9 w-9 shrink-0 rounded-full bg-base-100">
+              <Link
+                href={action.href}
+                class="rounded-box bg-base-200/60 p-3 hover:bg-base-200 sm:p-4">
+                <div class="flex min-w-0 items-start gap-2 sm:gap-3">
+                  <div class="center h-8 w-8 shrink-0 rounded-full bg-base-100 sm:h-9 sm:w-9">
                     {#if action.kind === "community"}
-                      <Icon icon={Hashtag} size={5} />
+                      <Icon icon={Hashtag} size={4} />
                     {:else if action.kind === "repo"}
-                      <Icon icon={Git} size={5} />
+                      <Icon icon={Git} size={4} />
                     {:else if action.kind === "status"}
-                      <Icon icon={ShieldCheck} size={5} />
+                      <Icon icon={ShieldCheck} size={4} />
                     {:else}
-                      <Icon icon={Code2} size={5} />
+                      <Icon icon={Code2} size={4} />
                     {/if}
                   </div>
                   <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
                       <span class="font-medium">{action.label}</span>
                       <span class="opacity-50">-</span>
                       <span class="opacity-70">{formatTimestampRelative(action.createdAt)}</span>
                     </div>
-                    <div class="mt-1 truncate font-medium">{action.title}</div>
+                    <div class="mt-1 truncate text-sm font-medium sm:text-base">{action.title}</div>
                     <div class="mt-1 truncate text-xs opacity-65">{action.context}</div>
                   </div>
                 </div>
               </Link>
             {:else}
-              <div class="rounded-box bg-base-200/60 p-4">
-                <div class="flex min-w-0 items-start gap-3">
-                  <div class="center h-9 w-9 shrink-0 rounded-full bg-base-100">
+              <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
+                <div class="flex min-w-0 items-start gap-2 sm:gap-3">
+                  <div class="center h-8 w-8 shrink-0 rounded-full bg-base-100 sm:h-9 sm:w-9">
                     {#if action.kind === "community"}
-                      <Icon icon={Hashtag} size={5} />
+                      <Icon icon={Hashtag} size={4} />
                     {:else if action.kind === "repo"}
-                      <Icon icon={Git} size={5} />
+                      <Icon icon={Git} size={4} />
                     {:else if action.kind === "status"}
-                      <Icon icon={ShieldCheck} size={5} />
+                      <Icon icon={ShieldCheck} size={4} />
                     {:else}
-                      <Icon icon={Code2} size={5} />
+                      <Icon icon={Code2} size={4} />
                     {/if}
                   </div>
                   <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
                       <span class="font-medium">{action.label}</span>
                       <span class="opacity-50">-</span>
                       <span class="opacity-70">{formatTimestampRelative(action.createdAt)}</span>
                     </div>
-                    <div class="mt-1 truncate font-medium">{action.title}</div>
+                    <div class="mt-1 truncate text-sm font-medium sm:text-base">{action.title}</div>
                     <div class="mt-1 truncate text-xs opacity-65">{action.context}</div>
                   </div>
                 </div>
               </div>
             {/if}
           {:else}
-            <div class="rounded-box bg-base-200/60 p-4 text-sm opacity-75">
+            <div class="rounded-box bg-base-200/60 p-3 text-xs opacity-75 sm:p-4 sm:text-sm">
               No recent public Budabit actions loaded for this profile yet.
             </div>
           {/each}
@@ -994,7 +1140,7 @@
           {#if recentActions.length > RECENT_ACTION_PREVIEW_LIMIT}
             <button
               type="button"
-              class="btn btn-neutral btn-sm self-center"
+              class="btn btn-neutral btn-xs self-center sm:btn-sm"
               onclick={() => (recentActionsExpanded = !recentActionsExpanded)}>
               {recentActionsExpanded
                 ? "Show less"
@@ -1005,10 +1151,10 @@
       </details>
 
       {#if canShowRelativeAnalysis}
-        <details class="card2 bg-alt group shadow-md">
+        <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
           <summary
-            class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-box py-1 pr-2 [&::-webkit-details-marker]:hidden">
-            <h2 class="flex items-center gap-2 text-xl font-semibold">
+            class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
+            <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
               <Icon icon={ShieldCheck} />
               Connection analysis
             </h2>
@@ -1019,26 +1165,27 @@
             </div>
           </summary>
 
-          <div class="mt-4 border-t border-base-300/60 pt-4">
-            <p class="text-sm opacity-75">{profileLabel} {strongestConnection}.</p>
+          <div class="mt-3 border-t border-base-300/60 pt-3 sm:mt-4 sm:pt-4">
+            <p class="text-xs opacity-75 sm:text-sm">{profileLabel} {strongestConnection}.</p>
 
             {#if !loadRepositoryRelationships}
-              <div class="mt-4 rounded-box bg-base-200/60 p-4 text-sm">
+              <div class="mt-3 rounded-box bg-base-200/60 p-3 text-xs sm:mt-4 sm:p-4 sm:text-sm">
                 <button
                   type="button"
-                  class="btn btn-neutral btn-sm"
+                  class="btn btn-neutral btn-xs sm:btn-sm"
                   onclick={requestRepositoryRelationships}>
                   Load repository relationships
                 </button>
               </div>
             {/if}
 
-            <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div class="mt-3 grid gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
               {#each connectionRows as row (row.label)}
-                <div class="rounded-box bg-base-200/60 p-4">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="text-sm font-medium">{row.label}</div>
-                    <div class="badge badge-neutral px-3 py-3 text-sm tabular-nums">
+                <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
+                  <div class="flex items-start justify-between gap-2 sm:gap-3">
+                    <div class="text-xs font-medium sm:text-sm">{row.label}</div>
+                    <div
+                      class="badge badge-neutral badge-sm px-2 py-2 text-xs tabular-nums sm:badge-md sm:px-3 sm:py-3 sm:text-sm">
                       {row.value}
                     </div>
                   </div>
@@ -1055,13 +1202,13 @@
             </div>
 
             {#if commonCommunities.length > 0}
-              <div class="mt-4 border-t border-base-300/60 pt-4">
+              <div class="mt-3 border-t border-base-300/60 pt-3 sm:mt-4 sm:pt-4">
                 <div class="mb-2 text-sm font-semibold">Common communities</div>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-wrap gap-1.5 sm:gap-2">
                   {#each commonCommunities.slice(0, 8) as item (item.target.communityPubkey)}
                     <Link
                       href={makeCommunityPath(item.target.communityPubkey)}
-                      class="badge badge-neutral h-auto gap-2 py-2">
+                      class="badge badge-neutral badge-sm h-auto gap-1.5 py-1.5 sm:badge-md sm:gap-2 sm:py-2">
                       <ProfileCircle
                         pubkey={item.target.communityPubkey}
                         relays={item.target.relayHints}
@@ -1078,47 +1225,58 @@
         </details>
       {/if}
 
-      <details class="card2 bg-alt group shadow-md">
+      <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
         <summary
-          class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-box py-1 pr-2 [&::-webkit-details-marker]:hidden">
-          <h2 class="flex items-center gap-2 text-xl font-semibold">
+          class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
+          <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
             <Icon icon={Git} />
             Repositories
           </h2>
           <div class="flex shrink-0 items-center gap-2">
-            <span class="badge badge-neutral">Last 180 days</span>
+            <span class="badge badge-neutral badge-sm sm:badge-md">Repo metadata</span>
             <div class="transition-transform group-open:rotate-180">
               <Icon icon={AltArrowDown} />
             </div>
           </div>
         </summary>
 
-        <div class="mt-4 grid gap-3 border-t border-base-300/60 pt-4 md:grid-cols-2">
-          <div class="rounded-box bg-base-200/60 p-4">
-            <div class="text-sm font-semibold">Owned repositories</div>
-            <div class="mt-3 flex flex-col gap-2">
+        <div
+          class="mt-3 grid gap-2 border-t border-base-300/60 pt-3 sm:mt-4 sm:gap-3 sm:pt-4 md:grid-cols-2">
+          <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
+            <div class="text-xs font-semibold sm:text-sm">Owned repo profiles</div>
+            <p class="mt-1 text-xs opacity-60">
+              Repo metadata events are replaceable; these dates are not repository creation dates.
+            </p>
+            <div class="mt-2 flex flex-col gap-2 sm:mt-3">
               {#each targetOwnedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
                 <Link
                   href={getRepoHref(repo)}
-                  class="rounded-box bg-base-100/50 p-3 hover:bg-base-100">
-                  <div class="font-medium">{getRepoName(repo)}</div>
+                  class="rounded-box bg-base-100/50 p-2.5 hover:bg-base-100 sm:p-3">
+                  <div class="text-sm font-medium sm:text-base">{getRepoName(repo)}</div>
                   <div class="text-xs opacity-60">
-                    Announced {formatTimestampRelative(repo.created_at)}
+                    Latest metadata event {formatTimestampRelative(getRepoLatestCreatedAt(repo))}
                   </div>
+                  {#if hasMultipleLoadedRepoMetadataEvents(repo)}
+                    <div class="text-xs opacity-60">
+                      Earliest loaded metadata event {formatTimestampRelative(
+                        getRepoFirstLoadedCreatedAt(repo),
+                      )}
+                    </div>
+                  {/if}
                 </Link>
               {:else}
-                <div class="text-sm opacity-70">No owned repository announcements loaded.</div>
+                <div class="text-xs opacity-70 sm:text-sm">No owned repo metadata loaded.</div>
               {/each}
             </div>
           </div>
 
-          <div class="rounded-box bg-base-200/60 p-4">
-            <div class="text-sm font-semibold">Maintained repositories</div>
-            <div class="mt-3 flex flex-col gap-2">
+          <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
+            <div class="text-xs font-semibold sm:text-sm">Maintained repo profiles</div>
+            <div class="mt-2 flex flex-col gap-2 sm:mt-3">
               {#if !loadRepositoryRelationships}
                 <button
                   type="button"
-                  class="btn btn-neutral btn-sm w-fit"
+                  class="btn btn-neutral btn-xs w-fit sm:btn-sm"
                   onclick={requestRepositoryRelationships}>
                   Load repository relationships
                 </button>
@@ -1126,14 +1284,16 @@
                 {#each targetMaintainedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
                   <Link
                     href={getRepoHref(repo)}
-                    class="rounded-box bg-base-100/50 p-3 hover:bg-base-100">
-                    <div class="font-medium">{getRepoName(repo)}</div>
+                    class="rounded-box bg-base-100/50 p-2.5 hover:bg-base-100 sm:p-3">
+                    <div class="text-sm font-medium sm:text-base">{getRepoName(repo)}</div>
                     <div class="text-xs opacity-60">
                       Owner <ProfileName pubkey={repo.pubkey} />
                     </div>
                   </Link>
                 {:else}
-                  <div class="text-sm opacity-70">No maintained repositories loaded.</div>
+                  <div class="text-xs opacity-70 sm:text-sm">
+                    No maintained repo metadata found.
+                  </div>
                 {/each}
               {/if}
             </div>
@@ -1141,15 +1301,15 @@
         </div>
       </details>
 
-      <details class="card2 bg-alt group shadow-md">
+      <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
         <summary
-          class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-box py-1 pr-2 [&::-webkit-details-marker]:hidden">
-          <h2 class="flex items-center gap-2 text-xl font-semibold">
+          class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
+          <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
             <Icon icon={UsersGroup} />
             Community participation
           </h2>
           <div class="flex shrink-0 items-center gap-2">
-            <span class="badge badge-neutral"
+            <span class="badge badge-neutral badge-sm sm:badge-md"
               >{formatCount(targetCommunityRefs.length, "community", "communities")}</span>
             <div class="transition-transform group-open:rotate-180">
               <Icon icon={AltArrowDown} />
@@ -1157,20 +1317,20 @@
           </div>
         </summary>
 
-        <div class="mt-4 border-t border-base-300/60 pt-4">
+        <div class="mt-3 border-t border-base-300/60 pt-3 sm:mt-4 sm:pt-4">
           {#if targetCommunityRefs.length > 0}
-            <div class="grid gap-3 md:grid-cols-2">
+            <div class="grid gap-2 sm:gap-3 md:grid-cols-2">
               {#each targetCommunityRefs.slice(0, 12) as ref (ref.communityPubkey)}
                 <Link
                   href={makeCommunityPath(ref.communityPubkey)}
-                  class="rounded-box bg-base-200/60 p-4 hover:bg-base-200">
-                  <div class="flex min-w-0 items-start gap-3">
-                    <ProfileCircle pubkey={ref.communityPubkey} relays={ref.relayHints} size={9} />
+                  class="rounded-box bg-base-200/60 p-3 hover:bg-base-200 sm:p-4">
+                  <div class="flex min-w-0 items-start gap-2 sm:gap-3">
+                    <ProfileCircle pubkey={ref.communityPubkey} relays={ref.relayHints} size={7} />
                     <div class="min-w-0 flex-1">
-                      <div class="truncate font-medium">
+                      <div class="truncate text-sm font-medium sm:text-base">
                         <ProfileName pubkey={ref.communityPubkey} url={ref.relayHints[0]} />
                       </div>
-                      <div class="mt-2 flex flex-wrap gap-1">
+                      <div class="mt-1.5 flex flex-wrap gap-1 sm:mt-2">
                         {#each ref.roles as role}
                           <span class="badge badge-primary badge-sm capitalize">{role}</span>
                         {/each}
@@ -1189,42 +1349,46 @@
               {/each}
             </div>
           {:else}
-            <div class="rounded-box bg-base-200/60 p-4 text-sm opacity-75">
+            <div class="rounded-box bg-base-200/60 p-3 text-xs opacity-75 sm:p-4 sm:text-sm">
               No community memberships or moderation roles loaded for this profile yet.
             </div>
           {/if}
         </div>
       </details>
 
-      <details class="card2 bg-alt group shadow-md">
+      <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
         <summary
-          class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-box py-1 pr-2 [&::-webkit-details-marker]:hidden">
-          <h2 class="flex items-center gap-2 text-xl font-semibold">
+          class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
+          <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
             <Icon icon={ShieldCheck} />
             Stats
           </h2>
           <div class="flex shrink-0 items-center gap-2">
-            <span class="badge badge-neutral">{formatCount(profileStats.length, "metric")}</span>
+            <span class="badge badge-neutral badge-sm sm:badge-md"
+              >{formatCount(profileStats.length, "metric")}</span>
             <div class="transition-transform group-open:rotate-180">
               <Icon icon={AltArrowDown} />
             </div>
           </div>
         </summary>
 
-        <div class="mt-4 flex flex-col gap-4 border-t border-base-300/60 pt-4">
+        <div
+          class="mt-3 flex flex-col gap-3 border-t border-base-300/60 pt-3 sm:mt-4 sm:gap-4 sm:pt-4">
           <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {#each profileStats as stat (stat.label)}
-              <div class="rounded-box bg-base-200/60 p-3">
+              <div class="rounded-box bg-base-200/60 p-2.5 sm:p-3">
                 <div class="text-xs uppercase tracking-wide opacity-60">{stat.label}</div>
                 {#if stat.actionLabel && stat.action}
                   <button
                     type="button"
-                    class="btn btn-neutral btn-sm mt-3"
+                    class="btn btn-neutral btn-xs mt-2 sm:btn-sm sm:mt-3"
                     onclick={stat.action}>
                     {stat.actionLabel}
                   </button>
                 {:else}
-                  <div class="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</div>
+                  <div class="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">
+                    {stat.value}
+                  </div>
                 {/if}
                 <div class="mt-1 text-xs opacity-60">{stat.description}</div>
               </div>
@@ -1232,17 +1396,21 @@
           </div>
 
           <ProfileNip85Metrics pubkey={targetPubkey} />
-          <ProfileCodeTrustAnalysis pubkey={targetPubkey} />
+          <ProfileCodeTrustAnalysis
+            pubkey={targetPubkey}
+            communityDefinition={$activeCommunityDefinition}
+            communityProfileListEvents={$activeCommunityProfileListEvents}
+            communityReportState={$activeCommunityReportState} />
         </div>
       </details>
     </div>
   {:else}
-    <div class="card2 bg-alt mx-auto mt-4 max-w-xl shadow-md">
-      <h1 class="text-xl font-semibold">Profile not found</h1>
-      <p class="mt-2 text-sm opacity-75">
+    <div class="card2 bg-alt mx-auto mt-3 max-w-xl !p-3 shadow-md sm:mt-4 sm:!p-6">
+      <h1 class="text-base font-semibold sm:text-xl">Profile not found</h1>
+      <p class="mt-2 text-xs opacity-75 sm:text-sm">
         This profile link does not contain a valid npub, nprofile, or hex pubkey.
       </p>
-      <Link href="/people" class="btn btn-primary mt-4">Back to people</Link>
+      <Link href="/people" class="btn btn-primary btn-sm mt-3 sm:mt-4">Back to people</Link>
     </div>
   {/if}
 </PageContent>

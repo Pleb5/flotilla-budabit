@@ -3,6 +3,7 @@ import {makeLoader} from "@welshman/net"
 import {getTagValue, type TrustedEvent} from "@welshman/util"
 import {loadProfile, pubkey} from "@welshman/app"
 import {
+  GIT_REPO_ANNOUNCEMENT,
   GIT_PULL_REQUEST,
   GIT_STATUS_APPLIED,
   type PullRequestEvent,
@@ -15,7 +16,9 @@ import {
   loadRepoAnnouncementByAddress,
   repoAnnouncementsByAddress,
 } from "@app/core/git-state"
-import {loadActiveTrustGraph, type ActiveTrustGraph, type TrustGraphSource} from "./trust-graph"
+import type {CommunityDefinition} from "@app/core/community"
+import type {EffectiveCommunityReportState} from "@app/core/community-reports"
+import {buildCommunityTrustAssessments} from "./community-trust"
 
 export const PROFILE_CODE_TRUST_WINDOW_DAYS = 180
 export const PROFILE_CODE_TRUST_PULL_REQUEST_LIMIT = 25
@@ -40,7 +43,7 @@ export type ProfileCodeTrustInteractionDetail = {
 
 export type ProfileCodeTrustCollaborator = {
   pubkey: string
-  matchScore: number
+  communityScore: number
   mergedTargetPullRequests: number
   mergedByTarget: number
   totalInteractions: number
@@ -54,17 +57,18 @@ export type ProfileCodeTrustCollaborator = {
 
 export type ProfileCodeTrustAnalysis = {
   targetPubkey: string
-  graphSource: TrustGraphSource
+  communityContextPubkey?: string
+  communityContextAvailable: boolean
   windowDays: number
   analyzedAt: number
   relays: string[]
   authoredPullRequestCount: number
   maintainerActionCount: number
-  overlayMatchedMergedPullRequests: number
-  overlayMatchedMaintainerMerges: number
-  overlayMatchedCollaborators: number
-  overlayMatchedMergedPullRequestDetails: ProfileCodeTrustInteractionDetail[]
-  overlayMatchedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[]
+  maintainerAcceptedPullRequests: number
+  communityAlignedMaintainerMerges: number
+  communityCollaborators: number
+  maintainerAcceptedPullRequestDetails: ProfileCodeTrustInteractionDetail[]
+  communityAlignedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[]
   authoredPullRequestDetails: ProfileCodeTrustInteractionDetail[]
   maintainerActionDetails: ProfileCodeTrustInteractionDetail[]
   collaborators: ProfileCodeTrustCollaborator[]
@@ -72,7 +76,7 @@ export type ProfileCodeTrustAnalysis = {
 
 type CollaborationBucket = {
   pubkey: string
-  matchScore: number
+  communityScore: number
   mergedTargetPullRequests: number
   mergedByTarget: number
   latestAt: number
@@ -83,7 +87,9 @@ type CollaborationBucket = {
 
 type BuildProfileCodeTrustAnalysisInput = {
   targetPubkey: string
-  trustGraph: ActiveTrustGraph
+  communityAlignedScores?: Map<string, number>
+  communityContextPubkey?: string
+  communityContextAvailable?: boolean
   pullRequests: PullRequestEvent[]
   appliedStatuses: StatusEvent[]
   repoMaintainersByAddress: Map<string, Set<string>>
@@ -91,6 +97,13 @@ type BuildProfileCodeTrustAnalysisInput = {
   windowDays?: number
   analyzedAt?: number
   relays?: string[]
+}
+
+export type ProfileCodeTrustCommunityContext = {
+  communityPubkey?: string
+  definitions?: CommunityDefinition[]
+  profileListEvents?: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
 }
 
 const PROFILE_CODE_TRUST_CACHE_TTL = 1000 * 60 * 10
@@ -109,6 +122,12 @@ const getRepoOwner = (repoAddress: string) => repoAddress.split(":")[1] || ""
 
 const getRepoName = (repoAddress: string, repoNamesByAddress: Map<string, string>) =>
   repoNamesByAddress.get(repoAddress) || repoAddress.split(":").slice(2).join(":") || repoAddress
+
+const getRepoAnnouncementAddress = (repoEvent: RepoAnnouncementEvent) => {
+  const identifier = getTagValue("d", repoEvent.tags || []) || ""
+
+  return identifier ? `${repoEvent.kind}:${repoEvent.pubkey}:${identifier}` : ""
+}
 
 const getPullRequestSubject = (pullRequest: Pick<PullRequestEvent, "tags">) =>
   getTagValue("subject", pullRequest.tags) || "Pull Request"
@@ -203,14 +222,14 @@ const addCollaboratorInteraction = (
   collaborators: Map<string, CollaborationBucket>,
   {
     collaboratorPubkey,
-    matchScore,
+    communityScore,
     type,
     repoAddress,
     createdAt,
     detail,
   }: {
     collaboratorPubkey: string
-    matchScore: number
+    communityScore: number
     type: "merged_target_pr" | "merged_by_target"
     repoAddress: string
     createdAt: number
@@ -221,7 +240,7 @@ const addCollaboratorInteraction = (
     collaborators.get(collaboratorPubkey) ||
     ({
       pubkey: collaboratorPubkey,
-      matchScore,
+      communityScore,
       mergedTargetPullRequests: 0,
       mergedByTarget: 0,
       latestAt: 0,
@@ -230,7 +249,7 @@ const addCollaboratorInteraction = (
       mergedByTargetDetails: [],
     } satisfies CollaborationBucket)
 
-  current.matchScore = Math.max(current.matchScore, matchScore)
+  current.communityScore = Math.max(current.communityScore, communityScore)
   current.latestAt = Math.max(current.latestAt, createdAt)
   current.repos.set(repoAddress, (current.repos.get(repoAddress) || 0) + 1)
 
@@ -255,7 +274,9 @@ const addCollaboratorInteraction = (
 
 export const buildProfileCodeTrustAnalysis = ({
   targetPubkey,
-  trustGraph,
+  communityAlignedScores = new Map(),
+  communityContextPubkey,
+  communityContextAvailable = Boolean(communityContextPubkey),
   pullRequests,
   appliedStatuses,
   repoMaintainersByAddress,
@@ -267,12 +288,12 @@ export const buildProfileCodeTrustAnalysis = ({
   const pullRequestsById = getLatestEventsById(pullRequests)
   const statusesByRoot = groupStatusesByRoot(appliedStatuses)
   const collaborators = new Map<string, CollaborationBucket>()
-  let overlayMatchedMergedPullRequestDetails: ProfileCodeTrustInteractionDetail[] = []
-  let overlayMatchedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[] = []
+  let maintainerAcceptedPullRequestDetails: ProfileCodeTrustInteractionDetail[] = []
+  let communityAlignedMaintainerMergeDetails: ProfileCodeTrustInteractionDetail[] = []
   let maintainerActionDetails: ProfileCodeTrustInteractionDetail[] = []
 
-  let overlayMatchedMergedPullRequests = 0
-  let overlayMatchedMaintainerMerges = 0
+  let maintainerAcceptedPullRequests = 0
+  let communityAlignedMaintainerMerges = 0
 
   const authoredPullRequests = Array.from(pullRequestsById.values()).filter(
     pullRequest => pullRequest.pubkey === targetPubkey,
@@ -301,24 +322,19 @@ export const buildProfileCodeTrustAnalysis = ({
     if (!latestStatus) continue
 
     const collaboratorPubkey = latestStatus.pubkey
-    const matchScore = trustGraph.scores.get(collaboratorPubkey) || 0
-
-    if (matchScore <= 0) continue
-
-    overlayMatchedMergedPullRequests += 1
+    const communityScore = communityAlignedScores.get(collaboratorPubkey) || 0
     const detail = makeInteractionDetail(pullRequest, repoNamesByAddress, latestStatus)
 
-    overlayMatchedMergedPullRequestDetails = takeRecentDetails([
-      ...overlayMatchedMergedPullRequestDetails.filter(
-        existing => existing.rootId !== detail.rootId,
-      ),
+    maintainerAcceptedPullRequests += 1
+    maintainerAcceptedPullRequestDetails = takeRecentDetails([
+      ...maintainerAcceptedPullRequestDetails.filter(existing => existing.rootId !== detail.rootId),
       detail,
     ])
 
-    if (collaboratorPubkey !== targetPubkey) {
+    if (communityScore > 0 && collaboratorPubkey !== targetPubkey) {
       addCollaboratorInteraction(collaborators, {
         collaboratorPubkey,
-        matchScore,
+        communityScore,
         type: "merged_target_pr",
         repoAddress: getRepoAddress(pullRequest),
         createdAt: latestStatus.created_at,
@@ -351,18 +367,18 @@ export const buildProfileCodeTrustAnalysis = ({
 
     if (!collaboratorPubkey || collaboratorPubkey === targetPubkey) continue
 
-    const matchScore = trustGraph.scores.get(collaboratorPubkey) || 0
+    const communityScore = communityAlignedScores.get(collaboratorPubkey) || 0
 
-    if (matchScore <= 0) continue
+    if (communityScore <= 0) continue
 
-    overlayMatchedMaintainerMerges += 1
-    overlayMatchedMaintainerMergeDetails = takeRecentDetails([
-      ...overlayMatchedMaintainerMergeDetails.filter(existing => existing.rootId !== detail.rootId),
+    communityAlignedMaintainerMerges += 1
+    communityAlignedMaintainerMergeDetails = takeRecentDetails([
+      ...communityAlignedMaintainerMergeDetails.filter(existing => existing.rootId !== detail.rootId),
       detail,
     ])
     addCollaboratorInteraction(collaborators, {
       collaboratorPubkey,
-      matchScore,
+      communityScore,
       type: "merged_by_target",
       repoAddress: getRepoAddress(pullRequest),
       createdAt: latestStatus.created_at,
@@ -373,7 +389,7 @@ export const buildProfileCodeTrustAnalysis = ({
   const collaboratorList = Array.from(collaborators.values())
     .map(collaborator => ({
       pubkey: collaborator.pubkey,
-      matchScore: collaborator.matchScore,
+      communityScore: collaborator.communityScore,
       mergedTargetPullRequests: collaborator.mergedTargetPullRequests,
       mergedByTarget: collaborator.mergedByTarget,
       totalInteractions: collaborator.mergedTargetPullRequests + collaborator.mergedByTarget,
@@ -397,7 +413,7 @@ export const buildProfileCodeTrustAnalysis = ({
     .sort((a, b) => {
       if (a.totalInteractions !== b.totalInteractions)
         return b.totalInteractions - a.totalInteractions
-      if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore
+      if (a.communityScore !== b.communityScore) return b.communityScore - a.communityScore
       if (a.latestAt !== b.latestAt) return b.latestAt - a.latestAt
       return a.pubkey.localeCompare(b.pubkey)
     })
@@ -406,28 +422,36 @@ export const buildProfileCodeTrustAnalysis = ({
 
   return {
     targetPubkey,
-    graphSource: trustGraph.source,
+    communityContextPubkey,
+    communityContextAvailable,
     windowDays,
     analyzedAt,
     relays,
     authoredPullRequestCount: authoredPullRequests.length,
     maintainerActionCount,
-    overlayMatchedMergedPullRequests,
-    overlayMatchedMaintainerMerges,
-    overlayMatchedCollaborators: collaboratorList.length,
-    overlayMatchedMergedPullRequestDetails,
-    overlayMatchedMaintainerMergeDetails,
+    maintainerAcceptedPullRequests,
+    communityAlignedMaintainerMerges,
+    communityCollaborators: collaboratorList.length,
+    maintainerAcceptedPullRequestDetails,
+    communityAlignedMaintainerMergeDetails,
     authoredPullRequestDetails,
     maintainerActionDetails,
     collaborators: collaboratorList,
   }
 }
 
-export const getProfileCodeTrustAnalysisKey = (viewerPubkey: string, targetPubkey: string) =>
-  `${viewerPubkey}:${targetPubkey}`
+export const getProfileCodeTrustAnalysisKey = (
+  viewerPubkey: string,
+  targetPubkey: string,
+  communityPubkey = "",
+) => `${viewerPubkey}:${targetPubkey}:${communityPubkey || "no-community"}`
 
-const getCachedProfileCodeTrustAnalysis = (viewerPubkey: string, targetPubkey: string) => {
-  const key = getProfileCodeTrustAnalysisKey(viewerPubkey, targetPubkey)
+const getCachedProfileCodeTrustAnalysis = (
+  viewerPubkey: string,
+  targetPubkey: string,
+  communityPubkey = "",
+) => {
+  const key = getProfileCodeTrustAnalysisKey(viewerPubkey, targetPubkey, communityPubkey)
   const cached = get(profileCodeTrustAnalyses).get(key)
 
   if (!cached) return
@@ -448,16 +472,24 @@ const getCachedProfileCodeTrustAnalysis = (viewerPubkey: string, targetPubkey: s
 
 export const loadProfileCodeTrustAnalysis = async (
   targetPubkey: string,
-  {force = false}: {force?: boolean} = {},
+  {
+    force = false,
+    communityContext,
+  }: {force?: boolean; communityContext?: ProfileCodeTrustCommunityContext} = {},
 ) => {
   const viewerPubkey = pubkey.get() || ""
+  const communityContextPubkey = communityContext?.communityPubkey || ""
 
   if (!viewerPubkey) {
     throw new Error("Sign in to analyze code collaboration.")
   }
 
   if (!force) {
-    const cached = getCachedProfileCodeTrustAnalysis(viewerPubkey, targetPubkey)
+    const cached = getCachedProfileCodeTrustAnalysis(
+      viewerPubkey,
+      targetPubkey,
+      communityContextPubkey,
+    )
 
     if (cached) {
       return cached
@@ -527,28 +559,54 @@ export const loadProfileCodeTrustAnalysis = async (
       ) as StatusEvent[],
     ).values(),
   )
-  const trustGraph = await loadActiveTrustGraph(
-    Array.from(
-      new Set(
-        [
-          ...pullRequests.map(pullRequest => pullRequest.pubkey),
-          ...appliedStatuses.map(status => status.pubkey),
-        ].filter(pubkey => pubkey && pubkey !== targetPubkey),
-      ),
+  const candidatePubkeys = Array.from(
+    new Set(
+      [
+        targetPubkey,
+        ...pullRequests.map(pullRequest => pullRequest.pubkey),
+        ...appliedStatuses.map(status => status.pubkey),
+      ].filter(Boolean),
     ),
   )
+  const communityAlignedScores = getProfileCommunityAlignedScores({
+    viewerPubkey,
+    candidatePubkeys,
+    communityContext,
+  })
 
   const repoAddresses = Array.from(
     new Set(pullRequests.map(pullRequest => getRepoAddress(pullRequest)).filter(Boolean)),
   )
 
-  await Promise.all(
-    repoAddresses.map(repoAddress =>
-      loadRepoAnnouncementByAddress(repoAddress)?.catch(() => undefined),
-    ),
+  const repoLoadResults = await Promise.all(
+    repoAddresses.map(async repoAddress => {
+      try {
+        return (await loadRepoAnnouncementByAddress(repoAddress)) || []
+      } catch {
+        return []
+      }
+    }),
   )
+  const loadedRepoEvents = repoLoadResults
+    .flat()
+    .filter((event): event is RepoAnnouncementEvent => event?.kind === GIT_REPO_ANNOUNCEMENT)
 
-  const repoEventsByAddress = get(repoAnnouncementsByAddress)
+  const repoEventsByAddress = new Map<string, RepoAnnouncementEvent>()
+
+  for (const [address, event] of get(repoAnnouncementsByAddress)) {
+    repoEventsByAddress.set(address, event)
+  }
+
+  for (const event of loadedRepoEvents) {
+    const address = getRepoAnnouncementAddress(event)
+    if (!address) continue
+
+    const current = repoEventsByAddress.get(address)
+    if (!current || event.created_at > current.created_at) {
+      repoEventsByAddress.set(address, event)
+    }
+  }
+
   const repoEvents = repoAddresses
     .map(repoAddress => repoEventsByAddress.get(repoAddress))
     .filter(Boolean) as RepoAnnouncementEvent[]
@@ -557,7 +615,7 @@ export const loadProfileCodeTrustAnalysis = async (
   const repoMaintainersByAddress = new Map<string, Set<string>>()
 
   for (const repoEvent of repoEvents) {
-    const repoAddress = `${repoEvent.kind}:${repoEvent.pubkey}:${getTagValue("d", repoEvent.tags) || ""}`
+    const repoAddress = getRepoAnnouncementAddress(repoEvent)
     const repoName =
       getTagValue("name", repoEvent.tags) || getTagValue("d", repoEvent.tags) || repoAddress
 
@@ -567,7 +625,11 @@ export const loadProfileCodeTrustAnalysis = async (
 
   const analysis = buildProfileCodeTrustAnalysis({
     targetPubkey,
-    trustGraph,
+    communityAlignedScores,
+    communityContextPubkey,
+    communityContextAvailable: Boolean(
+      communityContextPubkey && communityContext?.definitions?.length,
+    ),
     pullRequests,
     appliedStatuses,
     repoMaintainersByAddress,
@@ -584,10 +646,47 @@ export const loadProfileCodeTrustAnalysis = async (
   profileCodeTrustAnalyses.update(entries => {
     const next = new Map(entries)
 
-    next.set(getProfileCodeTrustAnalysisKey(viewerPubkey, targetPubkey), analysis)
+    next.set(
+      getProfileCodeTrustAnalysisKey(viewerPubkey, targetPubkey, communityContextPubkey),
+      analysis,
+    )
 
     return next
   })
 
   return analysis
+}
+
+const getProfileCommunityAlignedScores = ({
+  viewerPubkey,
+  candidatePubkeys,
+  communityContext,
+}: {
+  viewerPubkey: string
+  candidatePubkeys: string[]
+  communityContext?: ProfileCodeTrustCommunityContext
+}) => {
+  const definitions = (communityContext?.definitions || []).filter(Boolean)
+  const communityPubkey = communityContext?.communityPubkey || definitions[0]?.pubkey || ""
+
+  if (!communityPubkey || definitions.length === 0 || candidatePubkeys.length === 0) {
+    return new Map<string, number>()
+  }
+
+  const assessments = buildCommunityTrustAssessments({
+    viewerPubkey,
+    candidatePubkeys,
+    context: {scope: "active_community", communityPubkey},
+    definitions,
+    profileListEvents: communityContext?.profileListEvents || [],
+    reportStates: communityContext?.reportState
+      ? new Map([[communityPubkey, communityContext.reportState]])
+      : undefined,
+  })
+
+  return new Map(
+    Array.from(assessments.entries())
+      .filter(([, assessment]) => !assessment.suppressed && assessment.score > 0)
+      .map(([actor, assessment]) => [actor, assessment.score]),
+  )
 }

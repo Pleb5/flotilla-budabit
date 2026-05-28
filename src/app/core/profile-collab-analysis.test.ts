@@ -1,26 +1,59 @@
-import {readable} from "svelte/store"
-import {describe, expect, it, vi} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
+
+const mocks = vi.hoisted(() => {
+  const getRepoMaintainers = vi.fn((event?: {pubkey?: string; tags?: string[][]} | null) => {
+    if (!event) return []
+
+    return Array.from(
+      new Set([
+        event.pubkey || "",
+        ...((event.tags || []).find(tag => tag[0] === "maintainers")?.slice(1) || []),
+      ].filter(Boolean)),
+    )
+  })
+
+  return {
+    analysisLoad: vi.fn(),
+    getRepoMaintainers,
+    loadProfile: vi.fn(() => Promise.resolve()),
+    loadRepoAnnouncementByAddress: vi.fn(),
+    viewerPubkey: "f".repeat(64),
+  }
+})
 
 vi.mock("@app/core/git-state", () => ({
-  repoAnnouncementsByAddress: readable(new Map()),
-  getRepoMaintainers: vi.fn(() => []),
-  getRepoAnnouncementRelays: vi.fn(() => []),
-  loadRepoAnnouncementByAddress: vi.fn(),
+  repoAnnouncementsByAddress: {
+    subscribe: (run: (value: Map<string, unknown>) => void) => {
+      run(new Map())
+      return () => undefined
+    },
+  },
+  getRepoMaintainers: mocks.getRepoMaintainers,
+  getRepoAnnouncementRelays: vi.fn(() => ["wss://git.example.com"]),
+  loadRepoAnnouncementByAddress: mocks.loadRepoAnnouncementByAddress,
 }))
 
-vi.mock("./trust-graph", () => ({
-  loadActiveTrustGraph: vi.fn(),
+vi.mock("@welshman/app", () => ({
+  loadProfile: mocks.loadProfile,
+  pubkey: {
+    get: () => mocks.viewerPubkey,
+    subscribe: (run: (value: string) => void) => {
+      run(mocks.viewerPubkey)
+      return () => undefined
+    },
+  },
 }))
 
 vi.mock("@welshman/net", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/net")>()
   return {
     ...actual,
-    makeLoader: vi.fn(() => vi.fn()),
+    makeLoader: vi.fn(() => mocks.analysisLoad),
   }
 })
 import {
   buildProfileCodeTrustAnalysis,
+  loadProfileCodeTrustAnalysis,
   PROFILE_CODE_TRUST_WINDOW_DAYS,
 } from "./profile-collab-analysis"
 
@@ -31,18 +64,21 @@ const unmatchedMaintainer = "d".repeat(64)
 const repoAddress = `30617:${targetPubkey}:demo`
 
 describe("profile code trust analysis", () => {
-  it("counts overlay-matched merged PRs, maintainer merges, and collaborators", () => {
+  beforeEach(() => {
+    mocks.analysisLoad.mockReset()
+    mocks.loadProfile.mockClear()
+    mocks.loadRepoAnnouncementByAddress.mockReset()
+    mocks.getRepoMaintainers.mockClear()
+  })
+
+  it("counts maintainer-accepted PRs, community-aligned maintainer merges, and collaborators", () => {
     const analysis = buildProfileCodeTrustAnalysis({
       targetPubkey,
-      trustGraph: {
-        viewerPubkey: "f".repeat(64),
-        source: "direct_social",
-        scores: new Map([
-          [matchedMaintainer, 4],
-          [matchedAuthor, 3],
-        ]),
-        enabledRuleCount: 0,
-      },
+      communityAlignedScores: new Map([
+        [matchedMaintainer, 4],
+        [matchedAuthor, 3],
+      ]),
+      communityContextPubkey: "e".repeat(64),
       pullRequests: [
         {
           id: "1".repeat(64),
@@ -97,21 +133,21 @@ describe("profile code trust analysis", () => {
       analyzedAt: 123,
     })
 
-    expect(analysis.graphSource).toBe("direct_social")
     expect(analysis.windowDays).toBe(PROFILE_CODE_TRUST_WINDOW_DAYS)
-    expect(analysis.overlayMatchedMergedPullRequests).toBe(1)
-    expect(analysis.overlayMatchedMaintainerMerges).toBe(1)
-    expect(analysis.overlayMatchedCollaborators).toBe(2)
+    expect(analysis.communityContextAvailable).toBe(true)
+    expect(analysis.maintainerAcceptedPullRequests).toBe(1)
+    expect(analysis.communityAlignedMaintainerMerges).toBe(1)
+    expect(analysis.communityCollaborators).toBe(2)
     expect(analysis.authoredPullRequestCount).toBe(2)
     expect(analysis.maintainerActionCount).toBe(1)
-    expect(analysis.overlayMatchedMergedPullRequestDetails).toEqual([
+    expect(analysis.maintainerAcceptedPullRequestDetails).toEqual([
       expect.objectContaining({
         rootId: "1".repeat(64),
         repoName: "demo",
         mergedByPubkey: matchedMaintainer,
       }),
     ])
-    expect(analysis.overlayMatchedMaintainerMergeDetails).toEqual([
+    expect(analysis.communityAlignedMaintainerMergeDetails).toEqual([
       expect.objectContaining({
         rootId: "2".repeat(64),
         repoName: "demo",
@@ -138,6 +174,7 @@ describe("profile code trust analysis", () => {
     expect(analysis.collaborators).toEqual([
       expect.objectContaining({
         pubkey: matchedMaintainer,
+        communityScore: 4,
         mergedTargetPullRequests: 1,
         mergedByTarget: 0,
         totalInteractions: 1,
@@ -147,6 +184,7 @@ describe("profile code trust analysis", () => {
       }),
       expect.objectContaining({
         pubkey: matchedAuthor,
+        communityScore: 3,
         mergedTargetPullRequests: 0,
         mergedByTarget: 1,
         totalInteractions: 1,
@@ -160,12 +198,6 @@ describe("profile code trust analysis", () => {
   it("ignores non-maintainer applied statuses and self as collaborator", () => {
     const analysis = buildProfileCodeTrustAnalysis({
       targetPubkey,
-      trustGraph: {
-        viewerPubkey: targetPubkey,
-        source: "direct_social",
-        scores: new Map([[targetPubkey, 5]]),
-        enabledRuleCount: 0,
-      },
       pullRequests: [
         {
           id: "1".repeat(64),
@@ -188,9 +220,9 @@ describe("profile code trust analysis", () => {
       analyzedAt: 123,
     })
 
-    expect(analysis.overlayMatchedMergedPullRequests).toBe(1)
-    expect(analysis.overlayMatchedMaintainerMerges).toBe(0)
-    expect(analysis.overlayMatchedCollaborators).toBe(0)
+    expect(analysis.maintainerAcceptedPullRequests).toBe(1)
+    expect(analysis.communityAlignedMaintainerMerges).toBe(0)
+    expect(analysis.communityCollaborators).toBe(0)
     expect(analysis.authoredPullRequestDetails).toEqual([
       expect.objectContaining({rootId: "1".repeat(64)}),
     ])
@@ -199,5 +231,52 @@ describe("profile code trust analysis", () => {
     ])
     expect(analysis.maintainerActionCount).toBe(1)
     expect(analysis.collaborators).toEqual([])
+  })
+
+  it("counts maintainer evidence from repo announcements returned during first load", async () => {
+    const repoOwnerPubkey = "1".repeat(64)
+    const repoMaintainerPubkey = "2".repeat(64)
+    const loadedRepoAddress = `30617:${repoOwnerPubkey}:demo`
+    const pullRequestId = "7".repeat(64)
+    const pullRequest = {
+      id: pullRequestId,
+      kind: 1618,
+      pubkey: targetPubkey,
+      created_at: 10,
+      tags: [["a", loadedRepoAddress]],
+    }
+    const status = {
+      id: "8".repeat(64),
+      kind: 1631,
+      pubkey: repoMaintainerPubkey,
+      created_at: 20,
+      tags: [["e", pullRequestId, "", "root"]],
+    }
+    const repoAnnouncement = {
+      id: "9".repeat(64),
+      kind: 30617,
+      pubkey: repoOwnerPubkey,
+      created_at: 30,
+      tags: [
+        ["d", "demo"],
+        ["name", "demo"],
+        ["maintainers", repoMaintainerPubkey],
+      ],
+    }
+
+    mocks.analysisLoad.mockResolvedValueOnce([pullRequest]).mockResolvedValueOnce([status])
+    mocks.loadRepoAnnouncementByAddress.mockResolvedValueOnce([repoAnnouncement])
+
+    const analysis = await loadProfileCodeTrustAnalysis(targetPubkey, {force: true})
+
+    expect(mocks.loadRepoAnnouncementByAddress).toHaveBeenCalledWith(loadedRepoAddress)
+    expect(analysis.maintainerAcceptedPullRequests).toBe(1)
+    expect(analysis.maintainerAcceptedPullRequestDetails).toEqual([
+      expect.objectContaining({
+        rootId: pullRequestId,
+        repoName: "demo",
+        mergedByPubkey: repoMaintainerPubkey,
+      }),
+    ])
   })
 })
