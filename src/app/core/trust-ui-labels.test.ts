@@ -71,4 +71,17 @@ describe("trust UI labels", () => {
     expect(readUiFile("../components/MenuSettings.svelte")).not.toContain("/settings/trust")
     expect(readUiFile("../../routes/settings/+layout.svelte")).not.toContain("/settings/trust")
   })
+
+  it("keeps deeper profile trust analysis behind explicit actions", () => {
+    const profilePage = readUiFile("../../routes/people/[profile]/+page.svelte")
+    const profileCollaboration = readUiFile("../components/ProfileCodeTrustAnalysis.svelte")
+
+    expect(profilePage).not.toContain("loadRepoAnnouncements(")
+    expect(profilePage).toContain("Load recent git activity")
+    expect(profilePage).toContain("Load repository relationships")
+    expect(profilePage).toContain("Basic stats render first")
+    expect(profileCollaboration).toContain("Analyze code collaboration")
+    expect(profileCollaboration).toContain("requestId")
+    expect(profileCollaboration).not.toContain("Automatically checks")
+  })
 })

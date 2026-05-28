@@ -57,6 +57,7 @@
   let previousPubkey = $state(pubkey)
   let openMetricPopover = $state<MetricKey | null>(null)
   let openCollaboratorPopover = $state<CollaboratorPopoverKey | null>(null)
+  let requestId = 0
 
   const cacheKey = $derived.by(() =>
     $sessionPubkey ? getProfileCodeTrustAnalysisKey($sessionPubkey, pubkey) : "",
@@ -83,10 +84,10 @@
   )
   const analysisActionLabel = $derived.by(() => {
     if (analysis) return "Refresh analysis"
-    if (loading) return "Loading analysis"
+    if (loading) return "Analyzing"
     if (status) return "Retry analysis"
 
-    return "Refresh analysis"
+    return "Analyze code collaboration"
   })
   const metricCards = $derived.by<MetricCard[]>(() =>
     analysis
@@ -221,11 +222,15 @@
       return
     }
 
+    const currentRequest = ++requestId
+
     loading = true
     status = null
 
     try {
       const result = await loadProfileCodeTrustAnalysis(pubkey, {force})
+
+      if (currentRequest !== requestId || result.targetPubkey !== pubkey) return
 
       analysis = result
 
@@ -239,9 +244,13 @@
         status = `No recent git collaborations matched your ${getTrustGraphSourceLabel(result.graphSource).toLowerCase()} in the last ${result.windowDays} days.`
       }
     } catch (error: any) {
+      if (currentRequest !== requestId) return
+
       status = error?.message || "Unable to analyze code collaboration right now."
     } finally {
-      loading = false
+      if (currentRequest === requestId) {
+        loading = false
+      }
     }
   }
 
@@ -255,6 +264,8 @@
     if (pubkey === previousPubkey) return
 
     previousPubkey = pubkey
+    requestId += 1
+    isOpen = false
     analysis = null
     status = null
     loading = false
@@ -269,11 +280,6 @@
     openCollaboratorPopover = null
   })
 
-  $effect(() => {
-    if (!isOpen || loading || analysis || cachedAnalysis || status) return
-
-    void analyze(false)
-  })
 </script>
 
 <div class="rounded-xl bg-base-200/50">
@@ -286,7 +292,7 @@
         <Icon icon={Git} /> Code collaboration evidence
       </span>
       <span class="text-xs opacity-70">
-        Automatically checks recent git collaboration against direct-overlay evidence when opened.
+        Run a bounded recent git collaboration check when you need deeper evidence.
       </span>
     </div>
 
@@ -334,6 +340,13 @@
           Using direct social overlay only. This panel counts recent collaboration with people you
           follow; community roles and shared membership are shown in the profile connection
           sections.
+        </div>
+      {/if}
+
+      {#if !analysis && !loading && !status}
+        <div class="rounded-box bg-base-100/40 p-3 text-xs opacity-75">
+          This deeper analysis runs only after you press Analyze code collaboration, so profile
+          navigation stays responsive.
         </div>
       {/if}
 

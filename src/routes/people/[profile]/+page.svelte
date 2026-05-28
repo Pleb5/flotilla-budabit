@@ -55,8 +55,6 @@
   import {
     getRepoAnnouncementRelays,
     getRepoMaintainers,
-    loadRepoAnnouncements,
-    repoAnnouncements,
   } from "@app/core/git-state"
   import {formatShortNpub, normalizePubkey} from "@app/util/pubkeys"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
@@ -225,6 +223,12 @@
   const canShowRelativeAnalysis = $derived(Boolean(targetPubkey && $sessionPubkey && !isSelf))
   const chatPath = $derived(targetPubkey ? makeChatPath(targetPubkey) : "")
 
+  let recentActionsExpanded = $state(false)
+  let loadGitActivity = $state(false)
+  let loadCommunityActivity = $state(false)
+  let loadRepositoryRelationships = $state(false)
+  let previousProfilePubkey = $state("")
+
   const communityRelays = $derived(uniq([...profileRelayHints, ...COMMUNITY_DISCOVERY_RELAYS]))
   const gitRelays = $derived(getRepoAnnouncementRelays(profileRelayHints))
 
@@ -269,7 +273,7 @@
   })
 
   const communityActivityFilters = $derived<Filter[]>(
-    targetPubkey
+    loadCommunityActivity && targetPubkey
       ? [
           {
             kinds: [THREAD, MESSAGE, COMMENT],
@@ -285,8 +289,21 @@
     deriveEventsAsc(deriveEventsById({repository, filters: communityActivityFilters})),
   )
 
+  const repoAnnouncementFilters = $derived<Filter[]>([
+    ...(targetPubkey
+      ? [{kinds: [GIT_REPO_ANNOUNCEMENT], authors: [targetPubkey], limit: PROFILE_EVENT_LIMIT}]
+      : []),
+    ...(loadRepositoryRelationships && canShowRelativeAnalysis && $sessionPubkey
+      ? [
+          {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$sessionPubkey], limit: PROFILE_EVENT_LIMIT},
+        ]
+      : []),
+  ])
+  const repoAnnouncementEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: repoAnnouncementFilters})),
+  )
   const latestRepoEventsByAddress = $derived(
-    getLatestByRepoAddress($repoAnnouncements as RepoAnnouncementEvent[]),
+    getLatestByRepoAddress($repoAnnouncementEvents as RepoAnnouncementEvent[]),
   )
   const repoEvents = $derived(Array.from(latestRepoEventsByAddress.values()))
   const targetOwnedRepos = $derived(
@@ -318,36 +335,40 @@
   const publicGitFilters = $derived<Filter[]>(
     targetPubkey
       ? [
-          {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [targetPubkey], limit: PROFILE_EVENT_LIMIT},
-          {
-            kinds: [GIT_PULL_REQUEST],
-            authors: [targetPubkey],
-            since: RECENT_SINCE_SECONDS,
-            limit: GIT_ACTIVITY_LIMIT,
-          },
-          {
-            kinds: [GIT_ISSUE],
-            authors: [targetPubkey],
-            since: RECENT_SINCE_SECONDS,
-            limit: GIT_ACTIVITY_LIMIT,
-          },
-          {
-            kinds: [GIT_STATUS_APPLIED],
-            authors: [targetPubkey],
-            since: RECENT_SINCE_SECONDS,
-            limit: GIT_ACTIVITY_LIMIT,
-          },
-          {
-            kinds: [GIT_COMMENT],
-            authors: [targetPubkey],
-            since: RECENT_SINCE_SECONDS,
-            limit: GIT_ACTIVITY_LIMIT,
-          },
+          ...repoAnnouncementFilters,
+          ...(loadGitActivity
+            ? [
+                {
+                  kinds: [GIT_PULL_REQUEST],
+                  authors: [targetPubkey],
+                  since: RECENT_SINCE_SECONDS,
+                  limit: GIT_ACTIVITY_LIMIT,
+                },
+                {
+                  kinds: [GIT_ISSUE],
+                  authors: [targetPubkey],
+                  since: RECENT_SINCE_SECONDS,
+                  limit: GIT_ACTIVITY_LIMIT,
+                },
+                {
+                  kinds: [GIT_STATUS_APPLIED],
+                  authors: [targetPubkey],
+                  since: RECENT_SINCE_SECONDS,
+                  limit: GIT_ACTIVITY_LIMIT,
+                },
+                {
+                  kinds: [GIT_COMMENT],
+                  authors: [targetPubkey],
+                  since: RECENT_SINCE_SECONDS,
+                  limit: GIT_ACTIVITY_LIMIT,
+                },
+              ]
+            : []),
         ]
       : [],
   )
   const relativeGitFilters = $derived<Filter[]>([
-    ...(canShowRelativeAnalysis && viewerOwnedRepoAddresses.length
+    ...(loadRepositoryRelationships && canShowRelativeAnalysis && viewerOwnedRepoAddresses.length
       ? [
           {
             kinds: [GIT_PULL_REQUEST],
@@ -357,7 +378,10 @@
           } as Filter,
         ]
       : []),
-    ...(canShowRelativeAnalysis && targetOwnedRepoAddresses.length && $sessionPubkey
+    ...(loadRepositoryRelationships &&
+    canShowRelativeAnalysis &&
+    targetOwnedRepoAddresses.length &&
+    $sessionPubkey
       ? [
           {
             kinds: [GIT_PULL_REQUEST],
@@ -368,7 +392,7 @@
           } as Filter,
         ]
       : []),
-    ...(canShowRelativeAnalysis && $sessionPubkey
+    ...(loadRepositoryRelationships && canShowRelativeAnalysis && $sessionPubkey
       ? [
           {
             kinds: [GIT_PULL_REQUEST],
@@ -576,27 +600,46 @@
     },
     {
       label: "Repos maintained",
-      value: targetMaintainedRepos.length,
-      description: "Repositories where this profile is listed as maintainer but is not the owner.",
+      value: loadRepositoryRelationships ? targetMaintainedRepos.length : "Not loaded",
+      description: loadRepositoryRelationships
+        ? "Loaded repositories where this profile is listed as maintainer but is not the owner."
+        : "Press Load repository relationships to check maintained repositories.",
     },
     {
       label: "Recent PRs",
-      value: targetAuthoredPullRequests.length,
-      description: "Pull requests authored in the current activity window.",
+      value: loadGitActivity ? targetAuthoredPullRequests.length : "Not loaded",
+      description: loadGitActivity
+        ? "Pull requests authored in the current activity window."
+        : "Press Load recent git activity to fetch pull requests.",
     },
     {
       label: "Maintainer actions",
-      value: targetAppliedStatuses.length,
-      description: "Recent applied git status events authored by this profile.",
+      value: loadGitActivity ? targetAppliedStatuses.length : "Not loaded",
+      description: loadGitActivity
+        ? "Recent applied git status events authored by this profile."
+        : "Press Load recent git activity to fetch maintainer status events.",
     },
     {
       label: "Issues",
-      value: targetIssues.length,
-      description: "Recent git issues authored by this profile.",
+      value: loadGitActivity ? targetIssues.length : "Not loaded",
+      description: loadGitActivity
+        ? "Recent git issues authored by this profile."
+        : "Press Load recent git activity to fetch issues.",
     },
   ])
 
-  let recentActionsExpanded = $state(false)
+  const requestGitActivity = () => {
+    loadGitActivity = true
+  }
+
+  const requestCommunityActivity = () => {
+    loadCommunityActivity = true
+  }
+
+  const requestRepositoryRelationships = () => {
+    loadGitActivity = true
+    loadRepositoryRelationships = true
+  }
 
   const recentActions = $derived.by<RecentAction[]>(() => {
     const actions: RecentAction[] = []
@@ -727,6 +770,16 @@
   })
 
   $effect(() => {
+    if (targetPubkey === previousProfilePubkey) return
+
+    previousProfilePubkey = targetPubkey
+    recentActionsExpanded = false
+    loadGitActivity = false
+    loadCommunityActivity = false
+    loadRepositoryRelationships = false
+  })
+
+  $effect(() => {
     if (!targetPubkey) return
 
     loadProfile(targetPubkey, profileRelayHints).catch(() => undefined)
@@ -762,12 +815,6 @@
     }).catch(() => undefined)
 
     return () => controller.abort()
-  })
-
-  $effect(() => {
-    if (!targetPubkey || gitRelays.length === 0) return
-
-    loadRepoAnnouncements(gitRelays).catch(() => undefined)
   })
 
   $effect(() => {
@@ -864,6 +911,30 @@
         </summary>
 
         <div class="mt-4 flex flex-col gap-2 border-t border-base-300/60 pt-4">
+          {#if !loadGitActivity || !loadCommunityActivity}
+            <div class="rounded-box bg-base-200/60 p-4 text-sm">
+              <div class="font-medium">Recent actions start with fast, already-loaded basics.</div>
+              <p class="mt-1 text-xs opacity-70">
+                Load deeper activity only when you need it; this avoids blocking profile navigation.
+              </p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                {#if !loadGitActivity}
+                  <button type="button" class="btn btn-neutral btn-sm" onclick={requestGitActivity}>
+                    Load recent git activity
+                  </button>
+                {/if}
+                {#if !loadCommunityActivity}
+                  <button
+                    type="button"
+                    class="btn btn-neutral btn-sm"
+                    onclick={requestCommunityActivity}>
+                    Load community activity
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
           {#each visibleRecentActions as action (action.id)}
             {#if action.href}
               <Link href={action.href} class="rounded-box bg-base-200/60 p-4 hover:bg-base-200">
@@ -953,6 +1024,22 @@
           <div class="mt-4 border-t border-base-300/60 pt-4">
             <p class="text-sm opacity-75">{profileLabel} {strongestConnection}.</p>
 
+            {#if !loadRepositoryRelationships}
+              <div class="mt-4 rounded-box bg-base-200/60 p-4 text-sm">
+                <div class="font-medium">Relationship checks are loaded on demand.</div>
+                <p class="mt-1 text-xs opacity-70">
+                  This fetches bounded git data for you and this profile instead of scanning on
+                  every profile visit.
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-sm mt-3"
+                  onclick={requestRepositoryRelationships}>
+                  Load repository relationships
+                </button>
+              </div>
+            {/if}
+
             <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {#each connectionRows as row (row.label)}
                 <div class="rounded-box bg-base-200/60 p-4">
@@ -1035,16 +1122,30 @@
           <div class="rounded-box bg-base-200/60 p-4">
             <div class="text-sm font-semibold">Maintained repositories</div>
             <div class="mt-3 flex flex-col gap-2">
-              {#each targetMaintainedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
-                <Link
-                  href={getRepoHref(repo)}
-                  class="rounded-box bg-base-100/50 p-3 hover:bg-base-100">
-                  <div class="font-medium">{getRepoName(repo)}</div>
-                  <div class="text-xs opacity-60">Owner <ProfileName pubkey={repo.pubkey} /></div>
-                </Link>
+              {#if !loadRepositoryRelationships}
+                <div class="rounded-box bg-base-100/50 p-3 text-sm opacity-75">
+                  Maintainer relationships are not loaded yet.
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-sm w-fit"
+                  onclick={requestRepositoryRelationships}>
+                  Load repository relationships
+                </button>
               {:else}
-                <div class="text-sm opacity-70">No maintained repositories loaded.</div>
-              {/each}
+                {#each targetMaintainedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
+                  <Link
+                    href={getRepoHref(repo)}
+                    class="rounded-box bg-base-100/50 p-3 hover:bg-base-100">
+                    <div class="font-medium">{getRepoName(repo)}</div>
+                    <div class="text-xs opacity-60">
+                      Owner <ProfileName pubkey={repo.pubkey} />
+                    </div>
+                  </Link>
+                {:else}
+                  <div class="text-sm opacity-70">No maintained repositories loaded.</div>
+                {/each}
+              {/if}
             </div>
           </div>
         </div>
@@ -1121,6 +1222,36 @@
         </summary>
 
         <div class="mt-4 flex flex-col gap-4 border-t border-base-300/60 pt-4">
+          <div class="rounded-box bg-base-200/60 p-4 text-sm">
+            <div class="font-medium">Basic stats render first.</div>
+            <p class="mt-1 text-xs opacity-70">
+              Use these buttons for deeper profile analysis only when needed.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              {#if !loadGitActivity}
+                <button type="button" class="btn btn-neutral btn-sm" onclick={requestGitActivity}>
+                  Load recent git activity
+                </button>
+              {/if}
+              {#if !loadRepositoryRelationships && canShowRelativeAnalysis}
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-sm"
+                  onclick={requestRepositoryRelationships}>
+                  Load repository relationships
+                </button>
+              {/if}
+              {#if !loadCommunityActivity}
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-sm"
+                  onclick={requestCommunityActivity}>
+                  Load community activity
+                </button>
+              {/if}
+            </div>
+          </div>
+
           <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {#each profileStats as stat (stat.label)}
               <div class="rounded-box bg-base-200/60 p-3">
