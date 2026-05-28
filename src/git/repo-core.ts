@@ -11,6 +11,7 @@ import type {
 } from "../events/index.js"
 import {buildRepoKey, parseEucTag, GitIssueStatus, parseRepoStateEvent} from "../events/index.js"
 import {assembleIssueThread, resolveIssueStatus, type IssueThread} from "../events/nip34/issues.js"
+import {isImportedEvent, resolveStatus} from "../events/nip34/status-resolver.js"
 import {buildRepoSubscriptions, type RepoSubscriptions} from "../git/subscriptions.js"
 
 // ============================================================
@@ -143,8 +144,12 @@ export class RepoCore {
     thread: IssueThread,
     rootAuthor: string,
     maintainers: Set<string>,
+    options: {repoOwner?: string; importedRoot?: boolean} = {},
   ): {final: NostrEvent | undefined; reason: string} {
-    return resolveIssueStatus(thread, rootAuthor, maintainers)
+    return resolveIssueStatus(thread, rootAuthor, maintainers, {
+      ...options,
+      importedRoot: options.importedRoot ?? isImportedEvent(thread.root as any),
+    })
   }
 
   // Issue / PR threads & statuses
@@ -160,8 +165,11 @@ export class RepoCore {
     const allStatus = ctx.statusEventsArr || []
     if (allStatus.length === 0) return null
 
-    const rootAuthor = RepoCore.findRootAuthor(ctx, rootId)
-    const rootIsIssue = !!(ctx.issues || []).find(i => i.id === rootId)
+    const root =
+      (ctx.issues || []).find(i => i.id === rootId) ||
+      (ctx.pullRequests || []).find(pr => pr.id === rootId)
+    const rootAuthor = root?.pubkey || ""
+    const rootIsIssue = root?.kind === 1621
     const kindToState = (kind: number): "open" | "draft" | "closed" | "merged" | "resolved" => {
       if (kind === 1630) return "open"
       if (kind === 1633) return "draft"
@@ -172,17 +180,21 @@ export class RepoCore {
 
     const events = allStatus
       .filter(ev => (ev.tags || []).some((t: string[]) => t[0] === "e" && t[1] === rootId))
-      .filter(ev => isTrusted(ctx, ev.pubkey) || (!!rootAuthor && ev.pubkey === rootAuthor))
-      .sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
+    const {final} = resolveStatus({
+      statuses: events as any,
+      rootAuthor,
+      maintainers: new Set(ctx.maintainers || ctx.repo?.maintainers || []),
+      repoOwner: getOwnerPubkey(ctx),
+      importedRoot: isImportedEvent(root as any),
+    })
 
-    const last = events[events.length - 1]
-    if (!last) return null
-    const state = kindToState((last as any).kind)
+    if (!final) return null
+    const state = kindToState((final as any).kind)
     return {
       state,
-      by: last.pubkey,
-      at: (last as any).created_at || 0,
-      eventId: last.id,
+      by: final.pubkey,
+      at: (final as any).created_at || 0,
+      eventId: final.id,
     }
   }
 
@@ -392,6 +404,7 @@ export class RepoCore {
     thread: IssueThread,
     rootAuthor: string,
     maintainers: Set<string>,
+    options: {repoOwner?: string; importedRoot?: boolean} = {},
   ): {
     status: GitIssueStatus
     by?: string
@@ -399,7 +412,10 @@ export class RepoCore {
     eventId?: string
     reason: string
   } {
-    const {final, reason} = resolveIssueStatus(thread, rootAuthor, maintainers)
+    const {final, reason} = resolveIssueStatus(thread, rootAuthor, maintainers, {
+      ...options,
+      importedRoot: options.importedRoot ?? isImportedEvent(thread.root as any),
+    })
     const mapKindToEnum = (k?: number): GitIssueStatus => {
       switch (k) {
         case 1632:

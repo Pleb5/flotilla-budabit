@@ -9,6 +9,7 @@ export * from "./nip34/nip34-utils.js"
 export {isDeletedRepoAnnouncement} from "./nip34/nip34-utils.js"
 export * from "./nip34/nip34.js"
 export * from "./nip34/issues.js"
+export * from "./nip34/status-resolver.js"
 export * from "./nip34/repositories.js"
 export * from "./nip34/validation.js"
 

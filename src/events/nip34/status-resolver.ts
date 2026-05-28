@@ -1,76 +1,68 @@
-// Core: status precedence resolver (separate from existing git status utilities)
+// Core: status resolver (separate from existing git status utilities)
 import type { NostrEvent } from "nostr-tools";
 
 export type LocalStatusEvent = NostrEvent; // refine when wired to shared-types
 
-// Status kind precedence: Draft < Open < Applied < Closed
-// 1633 < 1630 < 1631 < 1632
-function statusKindRank(kind: number): number {
-  switch (kind) {
-    case 1633: // draft
-      return 0;
-    case 1630: // open
-      return 1;
-    case 1631: // applied
-      return 2;
-    case 1632: // closed
-      return 3;
-    default:
-      return -1; // unknown kinds rank lowest
-  }
+const STATUS_KINDS = [1630, 1631, 1632, 1633];
+
+export function isImportedEvent(event: Pick<NostrEvent, "tags"> | undefined): boolean {
+  return Boolean(event?.tags?.some((tag) => tag[0] === "imported"));
 }
 
-// Author role precedence: maintainer > rootAuthor > others
-function authorRoleRank(pubkey: string, rootAuthor: string, maintainers: Set<string>): number {
-  if (maintainers.has(pubkey)) return 2;
-  if (pubkey === rootAuthor) return 1;
-  return 0;
+export function isStatusAuthorized(args: {
+  status: LocalStatusEvent;
+  rootAuthor: string;
+  maintainers: Set<string>;
+  repoOwner?: string;
+  importedRoot?: boolean;
+}): boolean {
+  const { status, rootAuthor, maintainers, repoOwner = "", importedRoot = false } = args;
+  const statusAuthor = status.pubkey || "";
+  if (!statusAuthor) return false;
+  if (repoOwner && statusAuthor === repoOwner) return true;
+  if (maintainers.has(statusAuthor)) return true;
+  if (!importedRoot && rootAuthor && statusAuthor === rootAuthor) return true;
+  return importedRoot && isImportedEvent(status);
 }
 
 export function resolveStatus(args: {
   statuses: LocalStatusEvent[];
   rootAuthor: string;
   maintainers: Set<string>;
+  repoOwner?: string;
+  importedRoot?: boolean;
 }): { final: LocalStatusEvent | undefined; reason: string } {
-  const valid = args.statuses.filter(
-    (e) => typeof e?.kind === "number" && [1630, 1631, 1632, 1633].includes(e.kind)
-  );
-  if (valid.length === 0) return { final: undefined, reason: "no-status-events" };
+  let final: LocalStatusEvent | undefined;
 
-  let best: LocalStatusEvent | undefined;
-  let bestRole = -1;
-  let bestKind = -1;
-  let bestTime = -1;
-
-  for (const e of valid) {
-    const role = authorRoleRank(e.pubkey, args.rootAuthor, args.maintainers);
-    const kindR = statusKindRank(e.kind);
-    const time = e.created_at ?? 0;
-
+  for (const status of args.statuses) {
+    if (typeof status?.kind !== "number" || !STATUS_KINDS.includes(status.kind)) continue;
     if (
-      role > bestRole ||
-      (role === bestRole && kindR > bestKind) ||
-      (role === bestRole && kindR === bestKind && time > bestTime)
+      !isStatusAuthorized({
+        status,
+        rootAuthor: args.rootAuthor,
+        maintainers: args.maintainers,
+        repoOwner: args.repoOwner,
+        importedRoot: args.importedRoot,
+      })
     ) {
-      best = e;
-      bestRole = role;
-      bestKind = kindR;
-      bestTime = time;
+      continue;
+    }
+
+    const statusTime = status.created_at ?? 0;
+    const finalTime = final?.created_at ?? 0;
+    if (
+      !final ||
+      statusTime > finalTime ||
+      (statusTime === finalTime && (status.id || "").localeCompare(final.id || "") > 0)
+    ) {
+      final = status;
     }
   }
 
-  const roleLabel = bestRole === 2 ? "maintainer" : bestRole === 1 ? "root-author" : "other";
-  const kindLabel =
-    best?.kind === 1632
-      ? "closed"
-      : best?.kind === 1631
-        ? "applied"
-        : best?.kind === 1630
-          ? "open"
-          : "draft";
-  const reason = best
-    ? `selected-by precedence: role=${roleLabel} (${bestRole}) > kind=${kindLabel} (${bestKind}) > recency(${bestTime})`
-    : "no-status-events";
+  if (!final) return { final: undefined, reason: "no-authorized-status-events" };
 
-  return { final: best, reason };
+  return {
+    final,
+    reason: `selected-by latest authorized status (${final.created_at ?? 0})`,
+  };
 }

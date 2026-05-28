@@ -84,12 +84,18 @@ export function assembleIssueThread(args: {
   return { root, comments, statuses };
 }
 
-// Select final status for an issue thread using status precedence rules.
-// Maintainers outrank root author, who outranks others; Closed > Applied > Open > Draft; then recency.
+// Select the latest status from an authorized issue actor.
 export function resolveIssueStatus(
   thread: IssueThread,
   rootAuthor: string,
-  maintainers: Set<string>
+  maintainers: Set<string>,
+  options: { repoOwner?: string; importedRoot?: boolean } = {}
 ): { final: NostrEvent | undefined; reason: string } {
-  return resolveStatus({ statuses: thread.statuses as NostrEvent[], rootAuthor, maintainers });
+  return resolveStatus({
+    statuses: thread.statuses as NostrEvent[],
+    rootAuthor,
+    maintainers,
+    repoOwner: options.repoOwner,
+    importedRoot: options.importedRoot,
+  });
 }
