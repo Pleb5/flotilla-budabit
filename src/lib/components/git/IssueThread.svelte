@@ -9,7 +9,7 @@
   import { slide } from "svelte/transition";
   import RichText from "../RichText.svelte";
   import { toast } from "../../stores/toast";
-  const { Button, Textarea, Card, ProfileComponent, Markdown, CommentStatus } = useRegistry();
+  const { Button, Textarea, Card, ProfileComponent, Markdown, CommentStatus, EventActions } = useRegistry();
 
   interface Props {
     issueId: string;
@@ -24,6 +24,7 @@
     rootEvent?: {id: string; kind: number | string; pubkey?: string; tags?: string[][]};
     repoRefs?: string[];
     relayHint?: string;
+    ownerPubkey?: string;
     enableReplies?: boolean;
     onInlineCommentOpen?: (comment: CommentEvent) => void;
   }
@@ -39,6 +40,7 @@
     rootEvent,
     repoRefs = [],
     relayHint,
+    ownerPubkey = "",
     enableReplies = false,
     onInlineCommentOpen,
   }: Props = $props();
@@ -254,6 +256,7 @@
         {@const inlineLocation = getInlineCommentLocation(c.raw)}
         {@const inlineLocationLabel = getInlineLocationLabel(inlineLocation)}
         {@const isReply = Boolean(parentId && parentId !== issueId)}
+        {@const eventActionUrl = relays[0] || relayHint || ""}
         <div
           id={`comment-${c.id}`}
           data-event={c.id}
@@ -315,6 +318,18 @@
                   ></path>
                 </svg>
               </Button>
+              {#if ownerPubkey && currentCommenter === ownerPubkey && c.raw.pubkey !== currentCommenter && eventActionUrl}
+                <EventActions
+                  event={c.raw}
+                  url={eventActionUrl}
+                  noun="comment"
+                  relays={relays}
+                  ownerPubkey={ownerPubkey}
+                  showReport={true}
+                  menuOnly
+                  class="text-muted-foreground"
+                />
+              {/if}
             </div>
           </div>
           <div class="w-full flex flex-col gap-y-2 mt-2">

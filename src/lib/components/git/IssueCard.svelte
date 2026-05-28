@@ -78,6 +78,7 @@
   });
 
   const repoAddress = $derived.by(() => getTagValue(event as any, "a") || repo?.address || "");
+  const repoOwnerPubkey = $derived.by(() => repo?.repoEvent?.pubkey || repo?.owner || "");
 
   const parsed = parseIssueEvent(event);
 
@@ -289,7 +290,7 @@
           url={relayUrl}
           noun="issue"
           relays={commentRelays}
-          ownerPubkey={repo?.repoEvent?.pubkey || ""}
+          ownerPubkey={repoOwnerPubkey}
           customActions={undefined}
         />
         <button
@@ -321,6 +322,7 @@
       rootEvent={event}
       repoRefs={repoAddress ? [repoAddress] : []}
       relayHint={commentRelays[0]}
+      ownerPubkey={repoOwnerPubkey}
     />
   </Card>
 {/if}

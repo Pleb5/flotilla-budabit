@@ -8,6 +8,9 @@
     customActions?: Snippet;
     relays?: string[];
     ownerPubkey?: string;
+    showReport?: boolean;
+    menuOnly?: boolean;
+    class?: string;
   };
 
   const { customActions }: Props = $props();
