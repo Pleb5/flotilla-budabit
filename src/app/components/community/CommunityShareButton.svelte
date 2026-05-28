@@ -22,7 +22,7 @@
   const shareCommunity = () => {
     if (!shareValue) return
 
-    clip(shareValue)
+    clip(shareValue, "Community link copied!")
   }
 </script>
 

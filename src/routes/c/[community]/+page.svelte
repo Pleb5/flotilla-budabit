@@ -184,12 +184,10 @@
 <PageContent class="flex flex-col gap-2 p-2 pt-4">
   <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
     {#if communityId}
-      <div class="absolute left-3 top-3">
+      <div class="flex w-full justify-end gap-2">
         {#if $activeCommunityDefinition?.pubkey === communityId}
           <CommunityShareButton communityPubkey={communityId} relayHints={communityShareRelays} />
         {/if}
-      </div>
-      <div class="absolute right-3 top-3">
         <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
       </div>
     {/if}
@@ -197,7 +195,7 @@
       <div class="relative">
         <div class="avatar relative">
           <div
-            class="center !flex h-20 w-20 min-w-16 overflow-hidden rounded-full border-2 border-solid border-base-300 bg-base-300">
+            class="center !flex h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-solid border-base-300 bg-base-300 sm:h-20 sm:w-20">
             {#if communityPicture}
               <img alt="" src={communityPicture} class="h-full w-full object-cover" />
             {:else}
@@ -229,40 +227,6 @@
   </div>
 
   <div class="grid gap-2 max-sm:grid-cols-2 sm:grid-cols-3">
-    {#each rooms as room (room.id)}
-      {@const roomPath = makeCommunityRoomPath(communityId, room.id)}
-      <Link href={roomPath} class="btn btn-neutral relative">
-        <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap md:text-lg">
-          <Icon icon={Hashtag} />
-          <span class="ellipsize">{room.name}</span>
-        </div>
-        {#if $notifications.has(roomPath)}
-          <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade></div>
-        {/if}
-      </Link>
-    {/each}
-    {#if communityId && rooms.length === 0}
-      <div class="card2 bg-alt col-span-full flex flex-wrap items-center justify-between gap-3 p-4">
-        <div>
-          <h3 class="flex items-center gap-2 text-lg font-semibold">
-            <Icon icon={Hashtag} />
-            {roomsLoading ? "Looking for rooms..." : "No rooms found"}
-          </h3>
-          <p class="text-sm opacity-70">
-            {roomsLoading
-              ? "Loading community rooms and permissions."
-              : canCreateRoom
-                ? "Create the first room for this community."
-                : "No rooms have been published yet."}
-          </p>
-        </div>
-        {#if canCreateRoom}
-          <button class="btn btn-primary" type="button" onclick={createRoom}>
-            Create Room
-          </button>
-        {/if}
-      </div>
-    {/if}
     <Link href={gitPath} class="btn border-none bg-[#0284c7] text-white hover:bg-[#0369a1] md:text-lg">
       <div class="relative flex items-center gap-2">
         <Icon icon={Git} />
@@ -316,6 +280,40 @@
           {/if}
         </div>
       </Link>
+    {/if}
+    {#each rooms as room (room.id)}
+      {@const roomPath = makeCommunityRoomPath(communityId, room.id)}
+      <Link href={roomPath} class="btn btn-neutral relative">
+        <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap md:text-lg">
+          <Icon icon={Hashtag} />
+          <span class="ellipsize">{room.name}</span>
+        </div>
+        {#if $notifications.has(roomPath)}
+          <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade></div>
+        {/if}
+      </Link>
+    {/each}
+    {#if communityId && rooms.length === 0}
+      <div class="card2 bg-alt col-span-full flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <h3 class="flex items-center gap-2 text-lg font-semibold">
+            <Icon icon={Hashtag} />
+            {roomsLoading ? "Looking for rooms..." : "No rooms found"}
+          </h3>
+          <p class="text-sm opacity-70">
+            {roomsLoading
+              ? "Loading community rooms and permissions."
+              : canCreateRoom
+                ? "Create the first room for this community."
+                : "No rooms have been published yet."}
+          </p>
+        </div>
+        {#if canCreateRoom}
+          <button class="btn btn-primary" type="button" onclick={createRoom}>
+            Create Room
+          </button>
+        {/if}
+      </div>
     {/if}
   </div>
 </PageContent>

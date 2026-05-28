@@ -47,7 +47,7 @@ export const pushToast = (params: ToastParams) => {
 
 export const popToast = (id: string) => toast.update(list => list.filter(item => item.id !== id))
 
-export const clip = (value: string) => {
+export const clip = (value: string, message = "Copied to clipboard!") => {
   copyToClipboard(value)
-  pushToast({message: "Copied to clipboard!"})
+  pushToast({message})
 }
