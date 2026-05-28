@@ -101,9 +101,9 @@
   }
 </script>
 
-<div class="w-full max-w-2xl p-4">
-  <div class="mb-4 flex items-start justify-between gap-3">
-    <div class="space-y-1">
+<div class="w-full max-w-2xl p-0 sm:p-4">
+  <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+    <div class="min-w-0 space-y-1">
       <h3 class="text-lg font-semibold">GRASP Servers</h3>
       <p class="text-sm opacity-75">
         New profiles start with {DEFAULT_GRASP_SERVER_URL}, but you can remove every relay and leave
@@ -125,11 +125,11 @@
       {#if activeRelayUrls.length === 0}
         <p class="text-sm opacity-70">No GRASP relays saved yet.</p>
       {:else}
-        <div class="flex flex-wrap gap-2">
+        <div class="flex min-w-0 flex-wrap gap-2">
           {#each activeRelayUrls as url (url)}
             <div
-              class="inline-flex items-center gap-2 rounded-full border border-info/30 bg-info/10 px-3 py-1 text-sm">
-              <span class="max-w-[20rem] truncate" title={url}
+              class="inline-flex max-w-full items-center gap-2 rounded-full border border-info/30 bg-info/10 px-3 py-1 text-sm">
+              <span class="min-w-0 max-w-[16rem] truncate sm:max-w-[20rem]" title={url}
                 >{url.replace(/^wss?:\/\//, "")}</span>
               <button
                 type="button"
@@ -169,14 +169,14 @@
     <div class="rounded-box bg-base-200/40 p-4">
       <p class="mb-3 text-sm font-medium">Add custom relay</p>
 
-      <div class="flex items-center gap-2">
-        <label class="w-24 text-sm opacity-80" aria-label="Add URL" for="url">Add URL</label>
-        <div class="relative flex-1">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label class="text-sm opacity-80 sm:w-24" aria-label="Add URL" for="url">Add URL</label>
+        <div class="relative min-w-0 flex-1">
           <input
             id="url"
             bind:value={newUrl}
             placeholder="wss://relay.example.com"
-            class="input input-bordered w-full"
+            class="input input-bordered w-full min-w-0"
             onfocus={() => (showRelayAutocomplete = relayAutocompleteOptions.length > 0)}
             oninput={() => (showRelayAutocomplete = relayAutocompleteOptions.length > 0)}
             onblur={() => {
@@ -208,7 +208,7 @@
           {/if}
         </div>
         <Button
-          class="btn btn-primary btn-sm"
+          class="btn btn-primary btn-sm w-full justify-center sm:w-auto"
           onclick={addUrl}
           disabled={isSaving || !newUrl.trim()}>
           <CirclePlus />Add
