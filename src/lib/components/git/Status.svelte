@@ -6,6 +6,8 @@
     GIT_STATUS_DRAFT,
     GIT_STATUS_CLOSED,
     GIT_STATUS_APPLIED,
+    isStatusAuthorized,
+    resolveStatus,
   } from "@nostr-git/core/events";
   import { CircleCheck, CircleDot, Clock, AlertCircle, X } from "@lucide/svelte";
   import { Button } from "../ui/button";
@@ -45,43 +47,55 @@
     isMirrored = false,
   }: StatusProps = $props();
 
-  // Authority check
-  const isAuthorized = $derived.by(() => {
-    if (!actorPubkey) return false;
-    const maintainers = repo.maintainers || [];
-    return actorPubkey === rootAuthor || maintainers.includes(actorPubkey);
-  });
-
   // Determine current status
   const maintainerPubkeys = $derived.by(() => {
     const maintainers = repo.maintainers || [];
-    const owner = (repo as any).repoEvent?.pubkey;
-    return new Set([...maintainers, owner].filter(Boolean));
+    return new Set(maintainers.filter(Boolean));
+  });
+
+  const repoOwner = $derived.by(() => (repo as any).repoEvent?.pubkey || (repo as any).owner || "");
+
+  // Authority check
+  const isAuthorized = $derived.by(() => {
+    if (!actorPubkey) return false;
+    if (repoOwner && actorPubkey === repoOwner) return true;
+    if (maintainerPubkeys.has(actorPubkey)) return true;
+    return !isMirrored && actorPubkey === rootAuthor;
   });
 
   const authorizedEvents = $derived.by(() => {
-    // For mirrored issues, all status events are considered authorized
-    // since they represent the actual state from the original platform
-    if (isMirrored) {
-      return statusEvents;
-    }
-
-    return statusEvents.filter((e) => e.pubkey === rootAuthor || maintainerPubkeys.has(e.pubkey));
+    return statusEvents.filter((status) =>
+      isStatusAuthorized({
+        status,
+        rootAuthor,
+        maintainers: maintainerPubkeys,
+        repoOwner,
+        importedRoot: isMirrored,
+      })
+    );
   });
 
   const suggestedEvents = $derived.by(() => {
-    // For mirrored issues, there are no suggestions since all events are authorized
-    if (isMirrored) {
-      return [];
-    }
-
-    return statusEvents.filter((e) => e.pubkey !== rootAuthor && !maintainerPubkeys.has(e.pubkey));
+    return statusEvents.filter(
+      (status) =>
+        !isStatusAuthorized({
+          status,
+          rootAuthor,
+          maintainers: maintainerPubkeys,
+          repoOwner,
+          importedRoot: isMirrored,
+        })
+    );
   });
 
   const currentStatusEvent = $derived.by(() => {
-    if (authorizedEvents.length === 0) return undefined;
-    // Sort by created_at descending
-    return [...authorizedEvents].sort((a, b) => b.created_at - a.created_at)[0];
+    return resolveStatus({
+      statuses: statusEvents as any,
+      rootAuthor,
+      maintainers: maintainerPubkeys,
+      repoOwner,
+      importedRoot: isMirrored,
+    }).final as StatusEvent | undefined;
   });
 
   const currentState = $derived.by((): StatusState => {

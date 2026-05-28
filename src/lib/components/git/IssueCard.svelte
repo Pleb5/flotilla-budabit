@@ -289,6 +289,7 @@
           url={relayUrl}
           noun="issue"
           relays={commentRelays}
+          ownerPubkey={repo?.repoEvent?.pubkey || ""}
           customActions={undefined}
         />
         <button

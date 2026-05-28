@@ -7,9 +7,10 @@
     noun: string;
     customActions?: Snippet;
     relays?: string[];
+    ownerPubkey?: string;
   };
 
-  const { event, url, noun, customActions, relays }: Props = $props();
+  const { customActions }: Props = $props();
 </script>
 
 <div class="flex items-center gap-2">
