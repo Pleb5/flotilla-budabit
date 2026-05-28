@@ -46,6 +46,8 @@
   const startDelete = () => pushModal(ProfileDelete)
 
   let showAdvanced = false
+
+  const toggleAdvanced = () => (showAdvanced = !showAdvanced)
 </script>
 
 <div class="content column gap-4">
@@ -160,19 +162,20 @@
   </div>
 
   <div class="card2 bg-alt shadow-xl">
-    <div class="flex items-center justify-between">
+    <Button
+      class="flex w-full items-center justify-between gap-3"
+      aria-expanded={showAdvanced}
+      onclick={toggleAdvanced}>
       <strong class="flex items-center gap-3">
         <Icon icon={Settings} />
         Advanced
       </strong>
-      <Button onclick={() => (showAdvanced = !showAdvanced)}>
-        {#if showAdvanced}
-          <Icon icon={AltArrowDown} />
-        {:else}
-          <Icon icon={AltArrowUp} />
-        {/if}
-      </Button>
-    </div>
+      {#if showAdvanced}
+        <Icon icon={AltArrowUp} />
+      {:else}
+        <Icon icon={AltArrowDown} />
+      {/if}
+    </Button>
     {#if showAdvanced}
       <div transition:slideAndFade class="flex flex-col gap-2 pt-4">
         <Button class="btn btn-outline btn-error" onclick={startDelete}>

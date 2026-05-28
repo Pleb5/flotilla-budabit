@@ -106,7 +106,9 @@
 
     try {
       const entries = await Promise.all(
-        tokensToCheck.map(async token => [tokenKey(token), await checkTokenCapabilities(token)] as const),
+        tokensToCheck.map(
+          async token => [tokenKey(token), await checkTokenCapabilities(token)] as const,
+        ),
       )
       if (runId !== capabilityRunId) return
       capabilityChecks = Object.fromEntries(entries)
@@ -168,20 +170,20 @@
   }
 </script>
 
-<div class="card2 bg-alt flex flex-col gap-6 shadow-xl">
-  <div class="flex items-center justify-between">
-    <strong class="flex items-center gap-3">
+<div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-xl">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <strong class="flex min-w-0 items-center gap-3">
       <Icon icon={Git} />
-      Git Authentication Tokens
+      <span class="min-w-0">Git Authentication Tokens</span>
     </strong>
-    <div class="flex items-center gap-2">
+    <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
       <Button
-        class="btn btn-ghost btn-sm"
+        class="btn btn-ghost btn-sm justify-center whitespace-nowrap"
         onclick={() => refreshCapabilities($tokensStore)}
         disabled={capabilityRefreshing || !$tokensStore.length}>
         {capabilityRefreshing ? "Checking..." : "Refresh"}
       </Button>
-      <Button class="btn btn-primary btn-sm" onclick={openDialog}>
+      <Button class="btn btn-primary btn-sm justify-center whitespace-nowrap" onclick={openDialog}>
         <Icon icon={AddCircle} />
         Add Token
       </Button>
@@ -190,16 +192,16 @@
 
   <div class="rounded border border-warning/30 bg-warning/10 p-3 text-warning">
     <div class="flex items-start gap-2">
-      <Icon icon={DangerTriangle} class="mt-0.5 text-warning" size={4} />
-      <p class="text-sm leading-5">
-        Tokens are sent in cleartext through the configured CORS proxy and are backed up encrypted to
-        your Nostr relays. DO NOT PUT CRITICAL ACCESS TOKENS HERE! SCOPE TOKEN PERMISSIONS TO REDUCE
-        RISK.
+      <Icon icon={DangerTriangle} class="mt-0.5 shrink-0 text-warning" size={4} />
+      <p class="min-w-0 text-sm leading-5">
+        Tokens are sent in cleartext through the configured CORS proxy and are backed up encrypted
+        to your Nostr relays. DO NOT PUT CRITICAL ACCESS TOKENS HERE! SCOPE TOKEN PERMISSIONS TO
+        REDUCE RISK.
       </p>
     </div>
   </div>
 
-  <div class="rounded border border-base-300 bg-base-200/40 p-3 text-sm leading-5">
+  <div class="break-words rounded border border-base-300 bg-base-200/40 p-3 text-sm leading-5">
     Need a token?
     <a
       href={githubTokenSettings?.url}
@@ -218,8 +220,74 @@
     </a>
   </div>
 
+  {#snippet capabilityDetails(capabilityCheck: TokenCapabilityCheck | undefined)}
+    <div class="flex min-w-0 flex-col gap-1">
+      <div class="break-words text-xs opacity-70">{checkSummary(capabilityCheck)}</div>
+      <div class="flex flex-wrap gap-1">
+        {#if capabilityCheck?.valid}
+          {#each capabilityCheck.capabilities as capability}
+            <span
+              class={capabilityPillClass(capability)}
+              title={capability.detail || capability.label}>
+              {getTokenCapabilityPillLabel(capability)}
+            </span>
+          {/each}
+        {:else if capabilityCheck}
+          <span class={invalidPillClass()} title={capabilityCheck.error || "Token check failed"}>
+            {capabilityCheck.unsupported ? "Capabilities unknown" : "Invalid token"}
+          </span>
+        {:else}
+          <span
+            class="inline-flex items-center rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-xs font-medium leading-5 text-base-content/70">
+            Checking...
+          </span>
+        {/if}
+      </div>
+    </div>
+  {/snippet}
+
+  {#snippet tokenActions(t: TokenEntry)}
+    <div class="flex justify-end gap-2">
+      <Button
+        class="btn btn-primary btn-sm shrink-0"
+        aria-label="Edit token"
+        onclick={() => editToken(t)}>
+        <Icon icon={Pen} />
+      </Button>
+      <Button
+        class="btn btn-error btn-sm shrink-0"
+        aria-label="Delete token"
+        onclick={() => del(t)}>
+        <Icon icon={TrashBin2} />
+      </Button>
+    </div>
+  {/snippet}
+
   {#if $tokensStore.length}
-    <div class="w-full">
+    <div class="flex flex-col gap-3 md:hidden">
+      {#each $tokensStore as t}
+        {@const capabilityCheck = getCapabilityCheck(t)}
+        <div class="rounded border border-base-300 bg-base-200/30 p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="break-all text-sm font-semibold">{t.host}</div>
+              <div class="font-mono text-sm opacity-70">{mask(t.token)}</div>
+            </div>
+            <div class="shrink-0">
+              {@render tokenActions(t)}
+            </div>
+          </div>
+          <div class="mt-3 border-t border-base-300 pt-3">
+            <div class="mb-2 text-xs font-semibold uppercase tracking-wide opacity-60">
+              Capabilities
+            </div>
+            {@render capabilityDetails(capabilityCheck)}
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    <div class="hidden w-full md:block">
       <table class="w-full table-fixed">
         <thead>
           <tr>
@@ -233,38 +301,13 @@
           {#each $tokensStore as t}
             {@const capabilityCheck = getCapabilityCheck(t)}
             <tr class="hover:bg-neutral">
-              <td class="p-2 text-left">{t.host}</td>
-              <td class="p-2 text-left">{mask(t.token)}</td>
-              <td class="p-2 text-left">
-                <div class="flex flex-col gap-1">
-                  <div class="text-xs opacity-70">{checkSummary(capabilityCheck)}</div>
-                  <div class="flex flex-wrap gap-1">
-                    {#if capabilityCheck?.valid}
-                      {#each capabilityCheck.capabilities as capability}
-                        <span class={capabilityPillClass(capability)} title={capability.detail || capability.label}>
-                          {getTokenCapabilityPillLabel(capability)}
-                        </span>
-                      {/each}
-                    {:else if capabilityCheck}
-                      <span class={invalidPillClass()} title={capabilityCheck.error || "Token check failed"}>
-                        {capabilityCheck.unsupported ? "Capabilities unknown" : "Invalid token"}
-                      </span>
-                    {:else}
-                      <span
-                        class="inline-flex items-center rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-xs font-medium leading-5 text-base-content/70">
-                        Checking...
-                      </span>
-                    {/if}
-                  </div>
-                </div>
+              <td class="break-all p-2 text-left align-top">{t.host}</td>
+              <td class="p-2 text-left align-top font-mono text-sm">{mask(t.token)}</td>
+              <td class="p-2 text-left align-top">
+                {@render capabilityDetails(capabilityCheck)}
               </td>
-              <td class="p-2 text-right">
-                <div class="flex justify-end gap-2">
-                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}
-                    ><Icon icon={Pen} /></Button>
-                  <Button class="btn btn-error btn-sm" onclick={() => del(t)}
-                    ><Icon icon={TrashBin2} /></Button>
-                </div>
+              <td class="p-2 text-right align-top">
+                {@render tokenActions(t)}
               </td>
             </tr>
           {/each}
@@ -285,18 +328,18 @@
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
         <input
-          class="grow"
+          class="min-w-0 grow"
           type="url"
           placeholder={DEFAULT_GIT_CORS_PROXY}
           bind:value={corsProxyDraft}
           onchange={saveCorsProxy} />
-        <Button class="btn btn-ghost btn-xs" onclick={resetCorsProxy}>Default</Button>
+        <Button class="btn btn-ghost btn-xs shrink-0" onclick={resetCorsProxy}>Default</Button>
       </label>
     {/snippet}
     {#snippet info()}
       <p>
-        Default: <span class="font-mono">{DEFAULT_GIT_CORS_PROXY}</span>. Leave blank to use it.
-        Current: <span class="font-mono">{effectiveCorsProxy}</span>.
+        Default: <span class="break-all font-mono">{DEFAULT_GIT_CORS_PROXY}</span>. Leave blank to
+        use it. Current: <span class="break-all font-mono">{effectiveCorsProxy}</span>.
       </p>
     {/snippet}
   </FieldInline>
