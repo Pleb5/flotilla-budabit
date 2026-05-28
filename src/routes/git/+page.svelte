@@ -35,6 +35,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import {getInteractiveCardTarget} from "@lib/html"
   import GitItem from "@app/components/GitItem.svelte"
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
@@ -3265,6 +3266,11 @@
 
   const onNewRepo = async () => {
     console.log("[+page.svelte] onNewRepo called")
+
+    if (!$session || !$pubkey) {
+      pushModal(LogIn)
+      return
+    }
 
     // Ensure worker is initialized before opening wizard
     if (!workerApi || !workerInstance) {

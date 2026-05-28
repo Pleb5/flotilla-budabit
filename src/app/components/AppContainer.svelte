@@ -17,6 +17,24 @@
   const {children}: Props = $props()
 
   const isGuestCommunityRoute = $derived($page.url.pathname.startsWith("/c/"))
+  const isPublicRoute = $derived.by(() => {
+    const pathname = $page.url.pathname
+    const routeId = $page.route.id || ""
+
+    return (
+      pathname === "/" ||
+      pathname === "/home" ||
+      pathname === "/trust-model" ||
+      pathname === "/explore" ||
+      pathname.startsWith("/explore/") ||
+      pathname === "/people" ||
+      pathname.startsWith("/people/") ||
+      pathname === "/git" ||
+      pathname.startsWith("/git/") ||
+      isGuestCommunityRoute ||
+      routeId === "/[bech32]"
+    )
+  })
 
   if (BURROW_URL && !$pubkey) {
     if ($page.url.pathname === "/confirm-email") {
@@ -36,11 +54,11 @@
 </script>
 
 <div class="flex h-screen overflow-hidden">
-  {#if $pubkey}
+  {#if $pubkey || (isPublicRoute && !isGuestCommunityRoute)}
     <PrimaryNav>
       {@render children?.()}
     </PrimaryNav>
-  {:else if isGuestCommunityRoute}
+  {:else if isPublicRoute}
     {@render children?.()}
   {:else if !$modals[$page.url.hash.slice(1)]}
     <Landing />
