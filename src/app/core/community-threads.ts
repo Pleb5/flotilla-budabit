@@ -12,6 +12,13 @@ export type CommunityThread = {
   creatorPubkey: string
 }
 
+export type CommunityThreadReplyParent = {
+  id: string
+  pubkey: string
+  kind?: number
+  relay?: string
+}
+
 export const makeCommunityThread = ({
   communityPubkey,
   title,
@@ -59,23 +66,35 @@ export const makeCommunityThreadReply = ({
   thread,
   content,
   relay,
+  parent,
   tags = [],
 }: {
   communityPubkey: string
   thread: Pick<CommunityThread, "id" | "creatorPubkey">
   content: string
   relay?: string
+  parent?: CommunityThreadReplyParent
   tags?: string[][]
-}): EventContent => ({
-  content,
-  tags: [
+}): EventContent => {
+  const eventTags = [
     ["h", normalizePubkey(communityPubkey)],
     ["E", thread.id, relay || "", thread.creatorPubkey],
     ["K", String(THREAD)],
     ["P", thread.creatorPubkey, relay || ""],
-    ...tags,
-  ],
-})
+  ]
+
+  if (parent) {
+    const parentRelay = parent.relay || relay || ""
+
+    eventTags.push(
+      ["e", parent.id, parentRelay, parent.pubkey],
+      ["k", String(parent.kind || COMMENT)],
+      ["p", parent.pubkey, parentRelay],
+    )
+  }
+
+  return {content, tags: [...eventTags, ...tags]}
+}
 
 export const readCommunityThreadReply = (
   event: TrustedEvent,
@@ -85,6 +104,7 @@ export const readCommunityThreadReply = (
   if (event.kind !== COMMENT) return undefined
   if (communityPubkey && !eventTargetsCommunity(event, communityPubkey)) return undefined
   const rootId = getTagValue("E", event.tags) || ""
+  const parentId = getTagValue("e", event.tags) || ""
   if (!rootId) return undefined
   if (threadId && rootId !== threadId) return undefined
   if (getTagValue("K", event.tags) !== String(THREAD)) return undefined
@@ -94,5 +114,6 @@ export const readCommunityThreadReply = (
     event,
     communityPubkey: getTagValue("h", event.tags) || "",
     threadId: rootId,
+    parentReplyId: parentId && parentId !== rootId ? parentId : "",
   }
 }

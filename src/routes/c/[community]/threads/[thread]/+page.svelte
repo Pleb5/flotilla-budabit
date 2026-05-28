@@ -4,13 +4,14 @@
   import {request} from "@welshman/net"
   import {repository, publishThunk, pubkey} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {COMMENT, makeEvent, type EventContent} from "@welshman/util"
+  import {COMMENT, makeEvent, type EventContent, type TrustedEvent} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
+  import {scrollToEvent} from "@lib/html"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
@@ -18,6 +19,7 @@
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
+  import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import {pushToast} from "@app/util/toast"
   import {
@@ -131,6 +133,7 @@
   const visibleReplies = $derived(
     showAllReplies ? replies : replies.slice(Math.max(replies.length - 4, 0)),
   )
+  const repliesById = $derived.by(() => new Map(replies.map(reply => [reply!.id, reply!])))
   const latestReplyId = $derived(replies.at(-1)?.id || "")
   const canReply = $derived(
     Boolean(
@@ -164,6 +167,22 @@
     ),
   )
 
+  const openCommentPrompt = async (replyParent?: TrustedEvent) => {
+    parent = replyParent
+    showReply = true
+    await tick()
+    compose?.focus()
+  }
+
+  const closeCommentPrompt = () => {
+    parent = undefined
+    showReply = false
+  }
+
+  const clearParent = () => {
+    parent = undefined
+  }
+
   const sendReply = ({content, tags}: EventContent) => {
     const trimmed = content.trim()
     if (!trimmed || !communityPubkey || !threadId) return
@@ -182,20 +201,22 @@
       return
     }
 
+    const template = makeCommunityThreadReply({
+      communityPubkey,
+      thread: {id: thread.id, creatorPubkey: thread.creatorPubkey},
+      relay: relays[0],
+      content: trimmed,
+      tags,
+      parent: parent
+        ? {id: parent.id, pubkey: parent.pubkey, kind: parent.kind, relay: relays[0]}
+        : undefined,
+    })
+
     publishThunk({
       relays,
-      event: makeEvent(
-        COMMENT,
-        makeCommunityThreadReply({
-          communityPubkey,
-          thread: {id: thread.id, creatorPubkey: thread.creatorPubkey},
-          relay: relays[0],
-          content: trimmed,
-          tags,
-        }),
-      ),
+      event: makeEvent(COMMENT, template),
     })
-    showReply = false
+    closeCommentPrompt()
   }
 
   const scrollToLatestReply = async () => {
@@ -207,10 +228,18 @@
     }
   }
 
+  const scrollToReplyParent = async (event: TrustedEvent) => {
+    showAllReplies = true
+    await tick()
+    await scrollToEvent(event.id)
+  }
+
   let loadingThread = $state(false)
   let loadingReplies = $state(false)
   let threadRequestStarted = $state(false)
   let showReply = $state(false)
+  let parent: TrustedEvent | undefined = $state()
+  let compose: RoomCompose | undefined = $state()
   let element: HTMLElement | undefined = $state()
   let initialScrollDone = $state(false)
   let initialScrollThreadId = ""
@@ -337,6 +366,9 @@
       <div class="col-2">
         {#each visibleReplies as item (item?.id)}
           {#if item}
+            {@const replyParent = item.parentReplyId
+              ? repliesById.get(item.parentReplyId)?.event
+              : undefined}
             <div
               class="card2 bg-alt shadow-sm"
               data-latest-reply={item.id === latestReplyId ? "true" : undefined}>
@@ -349,7 +381,10 @@
                 interactionAuthorPubkeys={replyAuthorPubkeys}
                 scopeH={communityPubkey}
                 communitySectionName={COMMUNITY_SECTION_GENERAL}
-                protectInteractions={false} />
+                protectInteractions={false}
+                {replyParent}
+                onReplyParentOpen={scrollToReplyParent}
+                replyTo={canReply ? event => openCommentPrompt(event) : undefined} />
             </div>
           {/if}
         {/each}
@@ -366,24 +401,29 @@
     {#if !threadCensorReason && showReply}
       <div class="card2 bg-alt col-3 p-4 shadow-md">
         <div class="flex items-center justify-between gap-2">
-          <strong>Reply</strong>
-          <button class="btn btn-link btn-sm" type="button" onclick={() => (showReply = false)}>
+          <strong>{parent ? "Reply" : "Comment"}</strong>
+          <button class="btn btn-link btn-sm" type="button" onclick={closeCommentPrompt}>
             Cancel
           </button>
         </div>
+        {#if parent}
+          <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
+        {/if}
         <RoomCompose
           url={$activeCommunityRelays[0] || communityPubkey}
           h={communityPubkey}
           blossomContext={{type: "community", communityPubkey}}
           showMenu={false}
-          onSubmit={sendReply} />
+          onSubmit={sendReply}
+          onEscape={closeCommentPrompt}
+          bind:this={compose} />
       </div>
     {:else if !threadCensorReason}
       <div class="flex justify-end">
         {#if canReply}
-          <button class="btn btn-primary" type="button" onclick={() => (showReply = true)}>
+          <button class="btn btn-primary" type="button" onclick={() => openCommentPrompt()}>
             <Icon icon={Reply} />
-            Reply to thread
+            Comment
           </button>
         {:else if communityBootstrapLoading}
           <div class="flex items-center gap-2 text-sm opacity-70">
@@ -392,10 +432,10 @@
         {:else}
           <PublishGate
             target={COMMUNITY_WRITE_TARGETS.comment}
-            action="reply to threads"
+            action="comment on threads"
             class="btn btn-primary">
             <Icon icon={Reply} />
-            Reply to thread
+            Comment
           </PublishGate>
         {/if}
       </div>

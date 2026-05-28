@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as nip19 from "nostr-tools/nip19"
   import {hash, now, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
   import {COMMENT, getTag, type TrustedEvent, type EventContent} from "@welshman/util"
   import {thunks, deriveProfile, deriveProfileDisplay} from "@welshman/app"
@@ -11,6 +12,7 @@
   import Button from "@lib/components/Button.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
+  import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
@@ -38,6 +40,8 @@
     scopeH?: string
     communitySectionName?: string
     protectInteractions?: boolean
+    replyParent?: TrustedEvent
+    onReplyParentOpen?: (event: TrustedEvent) => void
   }
 
   const {
@@ -52,9 +56,37 @@
     scopeH = "",
     communitySectionName = "",
     protectInteractions = true,
+    replyParent = undefined,
+    onReplyParentOpen = undefined,
   }: Props = $props()
 
+  const LEADING_EVENT_URI = /^(?:nostr:\s*)?(n(?:event|ote)1[ac-hj-np-z02-9]{6,})[ \t]*(?:\r?\n){1,2}/i
+
+  const getEventIdFromEntity = (entity: string) => {
+    try {
+      const decoded = nip19.decode(entity)
+
+      if (decoded.type === "note") return decoded.data as string
+      if (decoded.type === "nevent") return (decoded.data as {id?: string}).id || ""
+    } catch {
+      return ""
+    }
+
+    return ""
+  }
+
+  const stripLeadingReplyQuote = (content: string, parentId: string) => {
+    const match = LEADING_EVENT_URI.exec(content)
+
+    if (!match || getEventIdFromEntity(match[1]) !== parentId) return content
+
+    return content.slice(match[0].length)
+  }
+
   const thunk = $derived($thunks.find(t => t.event.id === event.id))
+  const displayEvent = $derived(
+    replyParent ? {...event, content: stripLeadingReplyQuote(event.content, replyParent.id)} : event,
+  )
   const shouldProtect = protectInteractions ? canEnforceNip70(url) : undefined
   const today = formatTimestampAsDate(now())
   const profile = deriveProfile(event.pubkey, [url])
@@ -81,7 +113,10 @@
       : undefined,
   )
 
-  const reply = !readOnly && replyTo ? () => replyTo(event) : undefined
+  const reply = replyTo ? () => replyTo(event) : undefined
+  const openReplyParent = () => {
+    if (replyParent) onReplyParentOpen?.(replyParent)
+  }
 
   const openMobileMenu = () =>
     pushModal(ChannelMessageMenuMobile, {
@@ -186,17 +221,25 @@
           </span>
         </div>
       {/if}
+      {#if replyParent}
+        <Button
+          class="mt-2 block w-full rounded-none border-l-2 border-solid border-l-primary bg-base-300/60 py-1 pl-2 pr-3 text-left opacity-90 transition hover:bg-base-300"
+          onclick={openReplyParent}
+          data-stop-tap>
+          <NoteContentMinimal trimParent {url} event={replyParent} />
+        </Button>
+      {/if}
       <div class="w-full min-w-0 pt-2 text-sm">
         {#if censorReason}
           <ModeratedContent reason={censorReason} />
-        {:else if event.kind === COMMENT}
+        {:else if displayEvent.kind === COMMENT}
           <Markdown
-            content={event.content}
-            {event}
+            content={displayEvent.content}
+            event={displayEvent}
             {url}
             {communitySectionName}
             variant="comment" />
-        {:else if isKnownEventKind(event.kind)}
+        {:else if isKnownEventKind(displayEvent.kind)}
           <div
             class="event-renderer"
             role="presentation"
@@ -207,14 +250,18 @@
                 e.preventDefault()
               }
             }}>
-            <EventRenderer event={event as any} relay={url} />
+            <EventRenderer event={displayEvent as any} relay={url} />
           </div>
-        {:else if isKnownUnknown(event.kind)}
+        {:else if isKnownUnknown(displayEvent.kind)}
           <div class="unknown-kind">
-            {@html new Template(event as any).render()}
+            {@html new Template(displayEvent as any).render()}
           </div>
         {:else}
-          <Markdown content={event.content} {event} {url} {communitySectionName} />
+          <Markdown
+            content={displayEvent.content}
+            event={displayEvent}
+            {url}
+            {communitySectionName} />
         {/if}
         {#if thunk}
           <ThunkFailure showToastOnRetry {thunk} class="mt-2" />

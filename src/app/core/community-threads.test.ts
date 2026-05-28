@@ -98,7 +98,39 @@ describe("community thread helpers", () => {
       id: "reply-id",
       communityPubkey,
       threadId: "thread-id",
+      parentReplyId: "",
     })
     expect(readCommunityThreadReply(reply, communityPubkey, "other-thread")).toBeUndefined()
+  })
+
+  it("builds thread replies to other replies while keeping the root thread scope", () => {
+    const template = makeCommunityThreadReply({
+      communityPubkey,
+      thread: {id: "thread-id", creatorPubkey},
+      parent: {id: "parent-reply-id", pubkey: authorPubkey, relay: "wss://relay.example.com/"},
+      relay: "wss://relay.example.com/",
+      content: "Nested reply body",
+    })
+    const reply = makeEvent({
+      id: "reply-id",
+      kind: 1111,
+      tags: template.tags,
+      content: template.content,
+    })
+
+    expect(template.tags).toEqual([
+      ["h", communityPubkey],
+      ["E", "thread-id", "wss://relay.example.com/", creatorPubkey],
+      ["K", "11"],
+      ["P", creatorPubkey, "wss://relay.example.com/"],
+      ["e", "parent-reply-id", "wss://relay.example.com/", authorPubkey],
+      ["k", "1111"],
+      ["p", authorPubkey, "wss://relay.example.com/"],
+    ])
+    expect(readCommunityThreadReply(reply, communityPubkey, "thread-id")).toMatchObject({
+      id: "reply-id",
+      threadId: "thread-id",
+      parentReplyId: "parent-reply-id",
+    })
   })
 })
