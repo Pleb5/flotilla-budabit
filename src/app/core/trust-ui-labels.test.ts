@@ -8,6 +8,7 @@ const trustSurfaceFiles = [
   {name: "PR list", path: "../../routes/git/[id=naddr]/prs/+page.svelte"},
   {name: "PR detail", path: "../components/PRView.svelte"},
   {name: "profile collaboration", path: "../components/ProfileCodeTrustAnalysis.svelte"},
+  {name: "profile trust badges", path: "../components/ProfileTrustBadges.svelte"},
   {name: "profile NIP-85 metrics", path: "../components/ProfileNip85Metrics.svelte"},
   {name: "trust model", path: "../../routes/trust-model/+page.svelte"},
   {
@@ -59,6 +60,8 @@ describe("trust UI labels", () => {
     expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
       "More about trust in BudaBit",
     )
+    expect(readUiFile("../components/ProfileDetail.svelte")).toContain("ProfileTrustBadges")
+    expect(readUiFile("../../routes/people/[profile]/+page.svelte")).toContain("ProfileTrustBadges")
     expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Trust in BudaBit")
     expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Community-first")
   })

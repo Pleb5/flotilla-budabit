@@ -839,36 +839,37 @@ const communityMemberReportDeleteEvents: Readable<TrustedEvent[]> = derived(
   [] as TrustedEvent[],
 )
 
-const communityMemberReportStates: Readable<Map<string, EffectiveCommunityReportState>> = derived(
-  [
-    activeUserCommunityDefinitionEvents,
-    communityMemberReportEvents,
-    communityMemberReportDeleteEvents,
-  ],
-  ([
-    $activeUserCommunityDefinitionEvents,
-    $communityMemberReportEvents,
-    $communityMemberReportDeleteEvents,
-  ]) => {
-    const states = new Map<string, EffectiveCommunityReportState>()
-
-    for (const definition of selectLatestDefinitionsByPubkey(
+export const communityMemberReportStates: Readable<Map<string, EffectiveCommunityReportState>> =
+  derived(
+    [
+      activeUserCommunityDefinitionEvents,
+      communityMemberReportEvents,
+      communityMemberReportDeleteEvents,
+    ],
+    ([
       $activeUserCommunityDefinitionEvents,
-    )) {
-      states.set(
-        definition.pubkey,
-        getEffectiveCommunityReportState({
-          definition,
-          reportEvents: $communityMemberReportEvents,
-          deleteEvents: $communityMemberReportDeleteEvents,
-        }),
-      )
-    }
+      $communityMemberReportEvents,
+      $communityMemberReportDeleteEvents,
+    ]) => {
+      const states = new Map<string, EffectiveCommunityReportState>()
 
-    return states
-  },
-  new Map<string, EffectiveCommunityReportState>(),
-)
+      for (const definition of selectLatestDefinitionsByPubkey(
+        $activeUserCommunityDefinitionEvents,
+      )) {
+        states.set(
+          definition.pubkey,
+          getEffectiveCommunityReportState({
+            definition,
+            reportEvents: $communityMemberReportEvents,
+            deleteEvents: $communityMemberReportDeleteEvents,
+          }),
+        )
+      }
+
+      return states
+    },
+    new Map<string, EffectiveCommunityReportState>(),
+  )
 
 export const activeUserCommunityRefs: Readable<ActiveUserCommunityRef[]> = derived(
   [

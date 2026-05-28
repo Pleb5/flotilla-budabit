@@ -17,6 +17,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import Profile from "@app/components/Profile.svelte"
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
+  import ProfileTrustBadges from "@app/components/ProfileTrustBadges.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
   import CommunityBadgeAwardForm from "@app/components/CommunityBadgeAwardForm.svelte"
@@ -102,6 +103,7 @@
       </div>
     {/if}
   </div>
+  <ProfileTrustBadges {pubkey} />
   <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
   <ProfileBadges {pubkey} url={profileUrl} />
   {#if canAwardCommunityBadges}

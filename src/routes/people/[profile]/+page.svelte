@@ -46,6 +46,7 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
+  import ProfileTrustBadges from "@app/components/ProfileTrustBadges.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
   import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
   import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
@@ -1012,6 +1013,7 @@
                   <span class="badge badge-primary badge-sm sm:badge-md">You</span>
                 {/if}
               </div>
+              <ProfileTrustBadges pubkey={targetPubkey} class="mt-2" />
               <div
                 class="mt-1 flex flex-wrap items-center gap-1.5 break-all text-xs opacity-70 sm:gap-2 sm:text-sm">
                 <span>{profile?.nip05 || formatShortNpub(targetPubkey)}</span>
