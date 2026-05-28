@@ -1281,7 +1281,7 @@
     return maybeReason && !isRelayHint(maybeReason) ? maybeReason.toLowerCase() : ""
   }
 
-  const getOwnerSpamReportRootId = (event: TrustedEvent, repoOwner: string) => {
+  const getOwnerSpamReportTargetId = (event: TrustedEvent, repoOwner: string) => {
     if (event.kind !== REPORT || !repoOwner || event.pubkey !== repoOwner) return ""
 
     const targetTag = (event.tags || []).find(
@@ -1291,7 +1291,7 @@
     return targetTag?.[1] || ""
   }
 
-  function deriveHiddenRootIds(
+  function deriveHiddenRepoEventIds(
     reportEvents: Readable<TrustedEvent[]>,
     repoOwner: Readable<string[]>,
   ) {
@@ -1299,8 +1299,8 @@
       const owner = $owners[0] || repoPubkey
       const hidden = new Set<string>()
       for (const report of $reports || []) {
-        const rootId = getOwnerSpamReportRootId(report, owner)
-        if (rootId) hidden.add(rootId)
+        const targetId = getOwnerSpamReportTargetId(report, owner)
+        if (targetId) hidden.add(targetId)
       }
       return hidden
     }) as Readable<Set<string>>
@@ -1528,8 +1528,17 @@
       )
     },
   )
-  const rootReportEventsStore = deriveRootScopedReportEvents(allRootIdsStore)
-  const hiddenRootIdsStore = deriveHiddenRootIds(rootReportEventsStore, repoOwnerStore)
+  const rawCommentEventsStore = deriveComments(allRootIdsStore)
+  const allRepoContentIdsStore: Readable<string[]> = derived(
+    [allRootIdsStore, rawCommentEventsStore],
+    ([$rootIds, $comments]) =>
+      normalizeScopeValues([
+        ...($rootIds || []),
+        ...($comments || []).map(comment => comment.id).filter(Boolean),
+      ]),
+  )
+  const repoReportEventsStore = deriveRootScopedReportEvents(allRepoContentIdsStore)
+  const hiddenRootIdsStore = deriveHiddenRepoEventIds(repoReportEventsStore, repoOwnerStore)
   const appliedStatusEventsStore: Readable<StatusEvent[]> = derived(
     mergedStatusEventsStore,
     $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
@@ -1606,7 +1615,11 @@
   }
   const issuesCount = $derived.by(() => (repoClass?.issues ?? []).filter(isItemOpen).length)
   const prsCount = $derived.by(() => ($pullRequestsStore ?? []).filter(isItemOpen).length)
-  const commentEventsStore = deriveComments(allRootIdsStore)
+  const commentEventsStore: Readable<CommentEvent[]> = derived(
+    [rawCommentEventsStore, hiddenRootIdsStore],
+    ([$comments, $hiddenIds]) =>
+      (($comments || []) as CommentEvent[]).filter(comment => !$hiddenIds.has(comment.id)),
+  )
   const repoFeedActivityStore: Readable<TrustedEvent[]> = derived(
     [issuesStore, pullRequestsStore, hiddenRootIdsStore],
     ([$issues, $pullRequests, $hiddenRootIds]) => {
@@ -1986,6 +1999,7 @@
   let pendingCommentRootIds = new Set<string>()
   let commentLoadRelaysKey = ""
   let commentLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let commentReportLoadKey = ""
   let requestedPrStatusRootIds = new Set<string>()
   let pendingPrStatusRootIds = new Set<string>()
   let prStatusRootLoadRelaysKey = ""
@@ -2411,6 +2425,26 @@
 
     // No cleanup needed - subscriptions should persist across navigation
     // Only cleanup on component destroy (handled by onDestroy)
+  })
+
+  $effect(() => {
+    const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
+    const commentIds = normalizeScopeValues(
+      (($rawCommentEventsStore || []) as CommentEvent[]).map(comment => comment.id).filter(Boolean),
+    )
+
+    if (relays.length === 0 || commentIds.length === 0) {
+      commentReportLoadKey = ""
+      return
+    }
+
+    const key = `${relays.join("|")}::${commentIds.join("|")}`
+    if (commentReportLoadKey === key) return
+    commentReportLoadKey = key
+
+    for (const ids of chunkBySize(commentIds, REPO_LIVE_FILTER_CHUNK_SIZE)) {
+      load({relays, filters: [{kinds: [REPORT], "#e": ids}]}).catch(() => {})
+    }
   })
 
   $effect(() => {

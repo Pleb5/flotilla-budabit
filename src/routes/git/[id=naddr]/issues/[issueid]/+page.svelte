@@ -500,6 +500,11 @@
       return deriveEventsAsc(deriveEventsById({repository, filters}))
     }
   })
+  const visibleThreadComments = $derived.by(() =>
+    (threadComments ? (($threadComments || []) as CommentEvent[]) : []).filter(
+      comment => !hiddenRootIds.has(comment.id),
+    ),
+  )
 
   const getStatusFilter = () => ({
     kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
@@ -919,20 +924,21 @@
 
       <h2 class="my-2 flex items-center gap-2 text-base font-medium sm:text-lg">
         <MessageSquare class="h-4 w-4 flex-shrink-0 sm:h-5 sm:w-5" />
-        <span class="break-words">Discussion ({$threadComments?.length})</span>
+        <span class="break-words">Discussion ({visibleThreadComments.length})</span>
       </h2>
 
       <IssueThread
         issueId={issue?.id ?? ""}
         issueKind={GIT_ISSUE.toString() as "1621"}
-        comments={$threadComments as CommentEvent[]}
+        comments={visibleThreadComments}
         currentCommenter={$pubkey || ""}
         onCommentCreated={$pubkey ? onCommentCreated : undefined}
         relays={repoBoundRelays}
         repoAddress={issueEditRepoAddress}
         rootEvent={issueEvent as any}
         repoRefs={issueCommentRepoRefs}
-        relayHint={issueCommentRelayHint} />
+        relayHint={issueCommentRelayHint}
+        ownerPubkey={currentRepoOwner} />
     </Card>
   </div>
 {:else if isResolvingIssue || !didResolveIssue}

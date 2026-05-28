@@ -69,11 +69,12 @@
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
-  import {getRepoMaintainers} from "@app/core/git-state"
+  import {HIDDEN_ROOT_IDS_KEY, getRepoMaintainers} from "@app/core/git-state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
   import Profile from "@src/app/components/Profile.svelte"
+  import EventActions from "@app/components/EventActions.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import type {Repo} from "@nostr-git/ui"
   import {getContext, hasContext, tick, untrack} from "svelte"
@@ -143,6 +144,9 @@
   const repoTrustMetricsStore = hasContext(REPO_TRUST_METRICS_KEY)
     ? getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
     : undefined
+  const hiddenRepoEventIdsStore = hasContext(HIDDEN_ROOT_IDS_KEY)
+    ? getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
+    : undefined
 
   const GIT_COVER_LETTER_KIND = 1624
   const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
@@ -191,6 +195,9 @@
     repoTrustMetricsStore
       ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics)
       : defaultRepoTrustMetrics,
+  )
+  const hiddenRepoEventIds = $derived.by(() =>
+    hiddenRepoEventIdsStore ? ($hiddenRepoEventIdsStore ?? new Set<string>()) : new Set<string>(),
   )
   const prTrustMetric = $derived.by(() => repoTrustMetrics.byRootId.get(prEvent?.id || ""))
   const prTrustSummary = $derived.by(() => {
@@ -329,7 +336,9 @@
 
   const prThreadCommentsArray = $derived.by(() => {
     if (!prThreadComments) return []
-    return $prThreadComments as CommentEvent[]
+    return (($prThreadComments || []) as CommentEvent[]).filter(
+      comment => !hiddenRepoEventIds.has(comment.id),
+    )
   })
   const prThreadCommentsCount = $derived.by(() => prThreadCommentsArray.length)
 
@@ -2590,18 +2599,32 @@
   <div>
     <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
       <div class="mb-4 flex flex-col items-start justify-between gap-2">
-        <div class="flex items-start gap-4">
-          <div class="mt-1">
-            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
-              <GitCommit class="h-5 w-5 text-amber-500" />
+        <div class="flex w-full items-start justify-between gap-3">
+          <div class="flex min-w-0 items-start gap-4">
+            <div class="mt-1">
+              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
+                <GitCommit class="h-5 w-5 text-amber-500" />
+              </div>
             </div>
+
+            <h1
+              class="line-clamp-2 overflow-hidden break-words text-lg font-bold md:text-2xl"
+              title={pr?.subject || "Untitled"}>
+              {pr?.subject || "Untitled"}
+            </h1>
           </div>
 
-          <h1
-            class="line-clamp-2 overflow-hidden break-words text-lg font-bold md:text-2xl"
-            title={pr?.subject || "Untitled"}>
-            {pr?.subject || "Untitled"}
-          </h1>
+          {#if repoOwnerPubkey && repoOwnerPubkey === $pubkey && prEvent.pubkey !== $pubkey}
+            <EventActions
+              event={prEvent as any}
+              url={commentRelayHint || repoRelays[0] || ""}
+              relays={repoRelays}
+              noun="pull request"
+              ownerPubkey={repoOwnerPubkey}
+              showReport={true}
+              menuOnly
+              class="shrink-0" />
+          {/if}
         </div>
 
         <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
@@ -3701,6 +3724,7 @@
             rootEvent={prEvent}
             repoRefs={commentRepoRefs}
             relayHint={commentRelayHint}
+            ownerPubkey={repoOwnerPubkey}
             onInlineCommentOpen={openPrInlineCommentLocation}
             enableReplies />
         {/if}

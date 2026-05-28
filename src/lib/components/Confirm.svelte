@@ -13,9 +13,10 @@
     subtitle?: string
     message: any
     confirm: any
+    confirmLabel?: string
   }
 
-  const {subtitle = "", message, confirm, ...restProps}: Props = $props()
+  const {subtitle = "", message, confirm, confirmLabel = "Confirm", ...restProps}: Props = $props()
 
   let loading = $state(false)
 
@@ -48,7 +49,7 @@
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={loading}>
-      <Spinner {loading}>Confirm</Spinner>
+      <Spinner {loading}>{confirmLabel}</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>

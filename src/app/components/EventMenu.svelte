@@ -13,12 +13,13 @@
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import Report from "@app/components/Report.svelte"
+  import Confirm from "@lib/components/Confirm.svelte"
   import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
   import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
   import {pushModal} from "@app/util/modal"
-  import {clip} from "@app/util/toast"
+  import {clip, pushToast} from "@app/util/toast"
   import {publishReport} from "@app/core/commands"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
 
@@ -51,10 +52,21 @@
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
   const report = () => pushModal(Report, {url, event})
 
-  const hideAsSpam = () => {
+  const publishHideSpam = () => {
     const reportRelays = relays.length > 0 ? relays : url ? [url] : []
     if (reportRelays.length === 0) return
     publishReport({event, reason: "spam", content: "", relays: reportRelays})
+    pushToast({message: `${noun} hidden from BudaBit users.`})
+    history.back()
+  }
+
+  const hideSpam = () => {
+    pushModal(Confirm, {
+      title: "Hide spam",
+      message: `This will hide this ${noun.toLowerCase()} from BudaBit users.`,
+      confirm: publishHideSpam,
+      confirmLabel: "Hide spam",
+    })
   }
 
   const showInfo = () => pushModal(EventInfo, {url, event, relays})
@@ -112,9 +124,9 @@
   {/if}
   {#if ownerPubkey && ownerPubkey === $pubkey && event.pubkey !== $pubkey && showReport && !communitySectionName}
     <li>
-      <Button class="text-error" onclick={hideAsSpam}>
+      <Button class="text-error" onclick={hideSpam}>
         <Icon size={4} icon={Danger} />
-        Hide as spam
+        Hide spam
       </Button>
     </li>
   {:else if event.pubkey !== $pubkey && showReport && !communitySectionName}
