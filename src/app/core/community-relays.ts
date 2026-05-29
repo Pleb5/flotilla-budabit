@@ -3,6 +3,7 @@ import {derived, get, type Readable} from "svelte/store"
 import {normalizePubkey, normalizeRelays, type CommunityDefinition} from "@app/core/community"
 import {INDEXER_RELAYS} from "@app/core/state"
 import {activeUserCommunityRefs} from "@app/core/community-state"
+import {logPublishRelaySummary} from "@app/core/diagnostics"
 
 export type CommunityRelayRef = {
   communityPubkey: string
@@ -49,7 +50,18 @@ export const getActiveUserCommunityRelays = () => get(activeUserCommunityRelays)
 export const getUserDataPublishRelays = (
   baseRelays: string[] = [],
   activeCommunityRelays = getActiveUserCommunityRelays(),
-) => normalizeRelays([...baseRelays, ...activeCommunityRelays])
+) => {
+  const relays = normalizeRelays([...baseRelays, ...activeCommunityRelays])
+
+  logPublishRelaySummary({
+    category: "personal-user-data",
+    relays,
+    baseRelays,
+    activeCommunityRelays,
+  })
+
+  return relays
+}
 
 export const getScopedCommunityPublishRelays = (
   communityPubkeys: string[] = [],

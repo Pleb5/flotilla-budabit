@@ -34,6 +34,7 @@ import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "@app/util/issue-edits"
 import {graspServersStore, type Repo} from "@nostr-git/ui"
 import {getScopedCommunityPublishRelays, type CommunityRelayRef} from "@app/core/community-relays"
+import {logPublishRelaySummary} from "@app/core/diagnostics"
 
 export const shouldReloadRepos = writable(false)
 
@@ -207,17 +208,29 @@ export const getRepoAnnouncementPublishRelays = ({
     [...communityPubkeys, ...getRepoAnnouncementCommunityPubkeys(repoEvent)],
     communityRefs,
   )
+  const outboxRelays = userOutboxRelays ?? getUserOutboxRelays()
+  const graspRelays = userGraspRelays ?? getExplicitGraspServerRelays(viewerPubkey)
   const merged = [
-    ...(userOutboxRelays ?? getUserOutboxRelays()),
+    ...outboxRelays,
     ...gitIndexerRelays,
-    ...(userGraspRelays ?? getExplicitGraspServerRelays(viewerPubkey)),
+    ...graspRelays,
     ...repoRelays,
     ...scopedCommunityRelays,
   ]
-
-  return Array.from(
+  const relays = Array.from(
     new Set(merged.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
   ) as string[]
+
+  logPublishRelaySummary({
+    category: "repo-announcement",
+    relays,
+    baseRelays: [...outboxRelays, ...graspRelays],
+    repoRelays,
+    scopedCommunityRelays,
+    indexerRelays: gitIndexerRelays,
+  })
+
+  return relays
 }
 
 export const getRepoAnnouncementRelays = (extra: string[] = [], viewerPubkey = get(pubkey)) =>

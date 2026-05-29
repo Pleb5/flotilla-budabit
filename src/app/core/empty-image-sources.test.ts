@@ -8,6 +8,7 @@ describe("empty image source guards", () => {
     const source = readProjectFile("../../lib/components/ImageIcon.svelte")
 
     expect(source).toContain('const safeSrc = $derived(String(src || "").trim())')
+    expect(source).toContain("warnEmptyImageSource")
     expect(source).toContain("{#if !safeSrc}")
     expect(source).toContain("{:else if safeSrc.includes")
     expect(source).toContain("src={safeSrc}")
@@ -28,6 +29,7 @@ describe("empty image source guards", () => {
     expect(layout).toContain("@app/components/SafeAvatarImage.svelte")
     expect(gitPage).toContain("@app/components/SafeAvatarImage.svelte")
     expect(safeAvatar).toContain("{#if safeSrc}")
+    expect(safeAvatar).toContain("warnEmptyImageSource")
     expect(safeAvatar).toContain("<BaseAvatarImage")
   })
 })

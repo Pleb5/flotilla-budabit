@@ -4,6 +4,7 @@ import {derived, get, readable, type Readable} from "svelte/store"
 import {normalizePubkey, normalizeRelays} from "@app/core/community"
 import {INDEXER_RELAYS} from "@app/core/state"
 import {activeUserCommunityRelays, getActiveUserCommunityRelays} from "@app/core/community-relays"
+import {logProfileLoadSummary, type ProfileLoadReason} from "@app/core/diagnostics"
 
 export type ProfileResolutionOptions = {
   url?: string
@@ -35,6 +36,11 @@ const rememberProfileLoadAttempt = (pubkey: string, relays: string[]) => {
   const attemptedRelays = attemptedRelaysByPubkey.get(pubkey) || new Set<string>()
   const hasPreviousAttempt = relaySets.size > 0
   const hasNewRelays = relays.some(relay => !attemptedRelays.has(relay))
+  const reason: ProfileLoadReason = !hasPreviousAttempt
+    ? "first-load"
+    : hasNewRelays
+      ? "improved-hints"
+      : "same-relays"
 
   relaySets.add(relayKey)
   for (const relay of relays) attemptedRelays.add(relay)
@@ -42,7 +48,7 @@ const rememberProfileLoadAttempt = (pubkey: string, relays: string[]) => {
   attemptedRelaySetsByPubkey.set(pubkey, relaySets)
   attemptedRelaysByPubkey.set(pubkey, attemptedRelays)
 
-  return hasPreviousAttempt && hasNewRelays
+  return {reason, shouldForceLoad: hasPreviousAttempt && hasNewRelays}
 }
 
 export const loadBudabitProfile = async (
@@ -57,8 +63,14 @@ export const loadBudabitProfile = async (
   if (currentProfile) return currentProfile
 
   const relays = getBudabitProfileRelays(options, activeCommunityRelays)
-  const shouldForceLoad = rememberProfileLoadAttempt(normalizedPubkey, relays)
-  const loader = shouldForceLoad ? forceLoadProfile : loadProfile
+  const attempt = rememberProfileLoadAttempt(normalizedPubkey, relays)
+  logProfileLoadSummary({
+    pubkey: normalizedPubkey,
+    relays,
+    reason: attempt.reason,
+    force: attempt.shouldForceLoad,
+  })
+  const loader = attempt.shouldForceLoad ? forceLoadProfile : loadProfile
 
   return loader(normalizedPubkey, relays)
 }
@@ -73,7 +85,15 @@ export const deriveBudabitProfile = (
   const initialRelays = getBudabitProfileRelays(options)
   const profile = deriveProfile(normalizedPubkey, initialRelays)
   let lastRequestedRelayKey: string | undefined = initialRelays.join("\n")
-  rememberProfileLoadAttempt(normalizedPubkey, initialRelays)
+  const initialAttempt = rememberProfileLoadAttempt(normalizedPubkey, initialRelays)
+  if (!get(profilesByPubkey).get(normalizedPubkey)) {
+    logProfileLoadSummary({
+      pubkey: normalizedPubkey,
+      relays: initialRelays,
+      reason: initialAttempt.reason,
+      force: false,
+    })
+  }
 
   return derived<
     [Readable<PublishedProfile | undefined>, Readable<string[]>],

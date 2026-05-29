@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "@lib/components/Icon.svelte"
+  import {warnEmptyImageSource} from "@app/core/diagnostics"
 
   type Props = {
     src?: string | null
@@ -11,6 +12,10 @@
   const {src, alt, size = 5, ...props}: Props = $props()
 
   const safeSrc = $derived(String(src || "").trim())
+
+  $effect(() => {
+    if (src !== undefined && !safeSrc) warnEmptyImageSource("ImageIcon")
+  })
 </script>
 
 {#if !safeSrc}

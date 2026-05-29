@@ -13,6 +13,7 @@ import {GIT_RELAYS, getRepoAnnouncementPublishRelays} from "./git-state"
 import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
+import {logPublishRelaySummary} from "@app/core/diagnostics"
 import {
   COMMENT,
   GIT_STATUS_OPEN,
@@ -39,8 +40,8 @@ const getUserRelayUrls = (): string[] => {
   }
 }
 
-const getScopedRelayUrls = (relays: string[] = []) =>
-  Array.from(
+const getScopedRelayUrls = (relays: string[] = []) => {
+  const scopedRelays = Array.from(
     new Set(
       relays
         .map(relay => {
@@ -53,6 +54,15 @@ const getScopedRelayUrls = (relays: string[] = []) =>
         .filter(isRelayUrl),
     ),
   )
+
+  logPublishRelaySummary({
+    category: "repo-scoped",
+    relays: scopedRelays,
+    repoRelays: relays,
+  })
+
+  return scopedRelays
+}
 
 export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) => {
   return publishThunk({
