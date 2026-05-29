@@ -62,7 +62,6 @@
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
     Avatar,
-    AvatarImage,
     AvatarFallback,
     bookmarksStore,
     repositoriesStore,
@@ -74,6 +73,7 @@
     NewRepoWizard,
     ImportRepoDialog,
   } from "@nostr-git/ui"
+  import AvatarImage from "@app/components/SafeAvatarImage.svelte"
   import type {ImportResult, NewRepoResult, RepoCommunityOption} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
   import {

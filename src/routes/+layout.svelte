@@ -27,7 +27,7 @@
   import * as welshmanSigner from "@welshman/signer"
   import * as net from "@welshman/net"
   import * as app from "@welshman/app"
-  import {ConfigProvider, AvatarImage} from "@nostr-git/ui"
+  import {ConfigProvider} from "@nostr-git/ui"
   import AppContainer from "@app/components/AppContainer.svelte"
   import ModalContainer from "@app/components/ModalContainer.svelte"
   import EventActions from "@app/components/EventActions.svelte"
@@ -36,6 +36,7 @@
   import Markdown from "@src/lib/components/Markdown.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import NostrGitProfileLink from "@app/components/NostrGitProfileLink.svelte"
+  import AvatarImage from "@app/components/SafeAvatarImage.svelte"
   import {setupHistory} from "@app/util/history"
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {userSettingsValues} from "@app/core/state"
@@ -229,7 +230,13 @@
     const relayHints = $activeCommunityRelays
     const key = user ? `${user}:${relayHints.join(",")}` : ""
 
-    if (!browser || !user || !key || loadedUserProfileKey === key || loadingUserProfileKey === key) {
+    if (
+      !browser ||
+      !user ||
+      !key ||
+      loadedUserProfileKey === key ||
+      loadingUserProfileKey === key
+    ) {
       return
     }
 
@@ -637,12 +644,7 @@
     unsubscribers.push(uninstallSocketPolicies)
 
     // History, navigation, and application data
-    unsubscribers.push(
-      setupHistory(),
-      setupGitCorsProxy(),
-      syncApplicationData(),
-      syncGitData(),
-    )
+    unsubscribers.push(setupHistory(), setupGitCorsProxy(), syncApplicationData(), syncGitData())
 
     // Initialize Cashu wallet eagerly so balance is available immediately.
     // After init, cashuNeedsBackup will be true if backup hasn't been confirmed yet —

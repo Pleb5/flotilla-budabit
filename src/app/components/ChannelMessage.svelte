@@ -2,10 +2,9 @@
   import * as nip19 from "nostr-tools/nip19"
   import {hash, now, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
   import {COMMENT, getTag, type TrustedEvent, type EventContent} from "@welshman/util"
-  import {thunks, deriveProfile, deriveProfileDisplay} from "@welshman/app"
+  import {thunks} from "@welshman/app"
   import {isMobile} from "@lib/html"
   import TapTarget from "@lib/components/TapTarget.svelte"
-  import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -13,6 +12,7 @@
   import Markdown from "@lib/components/Markdown.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
@@ -24,6 +24,7 @@
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getCommunityCensorReason} from "@app/core/community-reports"
   import {publishSocialDelete, publishReaction} from "@app/core/commands"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
@@ -89,8 +90,7 @@
       : event,
   )
   const today = formatTimestampAsDate(now())
-  const profile = deriveProfile(event.pubkey, [url])
-  const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
+  const profileDisplay = deriveBudabitProfileDisplay(event.pubkey, {url})
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
@@ -188,9 +188,9 @@
   <div class="flex w-full gap-3 overflow-hidden">
     {#if showPubkey && !censorReason}
       <Button onclick={openProfile} class="flex items-start">
-        <ImageIcon
-          alt=""
-          src={$profile?.picture || ""}
+        <ProfileCircle
+          pubkey={event.pubkey}
+          {url}
           class="rounded-full border border-solid border-base-content"
           size={8} />
       </Button>
