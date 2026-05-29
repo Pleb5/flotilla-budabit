@@ -1,6 +1,13 @@
 import {Router} from "@welshman/router"
+import {derived, get, type Readable} from "svelte/store"
 import {normalizePubkey, normalizeRelays, type CommunityDefinition} from "@app/core/community"
 import {INDEXER_RELAYS} from "@app/core/state"
+import {activeUserCommunityRefs} from "@app/core/community-state"
+
+export type CommunityRelayRef = {
+  communityPubkey: string
+  relayHints: string[]
+}
 
 export const getPubkeyOutboxRelays = (pubkey: string | undefined) => {
   const normalizedPubkey = normalizePubkey(pubkey || "")
@@ -27,3 +34,33 @@ export const getCommunityRootPublishRelays = (
     ...(options.indexerRelays ?? INDEXER_RELAYS),
     ...(options.outboxRelays ?? getPubkeyOutboxRelays(communityPubkey)),
   ])
+
+export const getActiveUserCommunityRelaysFromRefs = (refs: CommunityRelayRef[]) =>
+  normalizeRelays(refs.flatMap(ref => ref.relayHints))
+
+export const activeUserCommunityRelays: Readable<string[]> = derived(
+  activeUserCommunityRefs,
+  getActiveUserCommunityRelaysFromRefs,
+  [] as string[],
+)
+
+export const getActiveUserCommunityRelays = () => get(activeUserCommunityRelays)
+
+export const getUserDataPublishRelays = (
+  baseRelays: string[] = [],
+  activeCommunityRelays = getActiveUserCommunityRelays(),
+) => normalizeRelays([...baseRelays, ...activeCommunityRelays])
+
+export const getScopedCommunityPublishRelays = (
+  communityPubkeys: string[] = [],
+  communityRefs: CommunityRelayRef[] = get(activeUserCommunityRefs),
+) => {
+  const scopedPubkeys = new Set(communityPubkeys.map(normalizePubkey).filter(Boolean))
+  if (scopedPubkeys.size === 0) return []
+
+  return normalizeRelays(
+    communityRefs.flatMap(ref =>
+      scopedPubkeys.has(normalizePubkey(ref.communityPubkey)) ? ref.relayHints : [],
+    ),
+  )
+}

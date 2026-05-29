@@ -28,7 +28,12 @@ vi.mock("@app/core/state", () => ({
   fromCsv: () => relayMocks.gitRelays,
 }))
 
-import {getRepoAnnouncementRelays, getRepoMaintainers, getRepoScopedRelays} from "./git-state"
+import {
+  getRepoAnnouncementPublishRelays,
+  getRepoAnnouncementRelays,
+  getRepoMaintainers,
+  getRepoScopedRelays,
+} from "./git-state"
 
 let eventCounter = 0
 
@@ -127,6 +132,31 @@ describe("budabit state", () => {
         "wss://git-indexer.example/",
         "wss://custom.grasp.example/",
         "wss://repo.example/",
+      ])
+    })
+
+    it("adds only h-tagged community relays to repo announcement publish targets", () => {
+      const communityPubkey = "c".repeat(64)
+      const unrelatedCommunityPubkey = "d".repeat(64)
+
+      expect(
+        getRepoAnnouncementPublishRelays({
+          repoRelays: ["wss://repo.example"],
+          communityPubkeys: [communityPubkey],
+          communityRefs: [
+            {communityPubkey, relayHints: ["wss://community.example"]},
+            {communityPubkey: unrelatedCommunityPubkey, relayHints: ["wss://unrelated.example"]},
+          ],
+          gitIndexerRelays: ["wss://git.example"],
+          userOutboxRelays: ["wss://outbox.example"],
+          userGraspRelays: ["wss://grasp.example"],
+        }),
+      ).toEqual([
+        "wss://outbox.example/",
+        "wss://git.example/",
+        "wss://grasp.example/",
+        "wss://repo.example/",
+        "wss://community.example/",
       ])
     })
   })

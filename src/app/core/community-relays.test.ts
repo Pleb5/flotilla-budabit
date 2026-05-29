@@ -16,9 +16,16 @@ vi.mock("@app/core/state", () => ({
   INDEXER_RELAYS: ["wss://indexer.example"],
 }))
 
-import {getCommunityRootPublishRelays, getCommunityScopedPublishRelays} from "./community-relays"
+import {
+  getActiveUserCommunityRelaysFromRefs,
+  getCommunityRootPublishRelays,
+  getCommunityScopedPublishRelays,
+  getScopedCommunityPublishRelays,
+  getUserDataPublishRelays,
+} from "./community-relays"
 
 const communityPubkey = "a".repeat(64)
+const otherCommunityPubkey = "b".repeat(64)
 
 describe("community relay policies", () => {
   beforeEach(() => {
@@ -73,5 +80,39 @@ describe("community relay policies", () => {
       }),
     ).toEqual(["wss://community.example/"])
     expect(routerMocks.fromPubkeys).not.toHaveBeenCalled()
+  })
+
+  it("derives active user community relays from eligible refs", () => {
+    expect(
+      getActiveUserCommunityRelaysFromRefs([
+        {communityPubkey, relayHints: ["wss://community.example", "bad-relay"]},
+        {communityPubkey: otherCommunityPubkey, relayHints: ["wss://other.example"]},
+        {communityPubkey: "not-a-pubkey", relayHints: ["wss://fallback.example"]},
+      ]),
+    ).toEqual(["wss://community.example/", "wss://other.example/", "wss://fallback.example/"])
+  })
+
+  it("merges personal user-data relays with active community relays", () => {
+    expect(
+      getUserDataPublishRelays(
+        ["wss://outbox.example", "wss://community.example/", "not-a-relay"],
+        ["wss://community.example", "wss://other.example"],
+      ),
+    ).toEqual(["wss://outbox.example/", "wss://community.example/", "wss://other.example/"])
+  })
+
+  it("resolves scoped community publish relays without adding unrelated communities", () => {
+    expect(
+      getScopedCommunityPublishRelays(
+        [communityPubkey],
+        [
+          {communityPubkey, relayHints: ["wss://community.example", "wss://shared.example"]},
+          {
+            communityPubkey: otherCommunityPubkey,
+            relayHints: ["wss://other.example", "wss://shared.example"],
+          },
+        ],
+      ),
+    ).toEqual(["wss://community.example/", "wss://shared.example/"])
   })
 })
