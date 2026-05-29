@@ -33,6 +33,7 @@ describe("profile discoverability test matrix", () => {
       "adds active community relays to explicit personal command updates",
     )
     expect(personalTests).toContain("adds active community relays to settings list saves")
+    expect(personalTests).toContain("adds active community relays to profile badge")
     expect(policy).toContain("Do not publish these events to community relays merely because")
   })
 
@@ -50,6 +51,9 @@ describe("profile discoverability test matrix", () => {
   it("covers repo announcement and repo-scoped event relay boundaries", () => {
     const gitStateTests = readProjectFile("./git-state.test.ts")
     const gitCommandsTests = readProjectFile("./git-commands.test.ts")
+    const communityGitPage = dense(readProjectFile("../../routes/c/[community]/git/+page.svelte"))
+    const gitPage = dense(readProjectFile("../../routes/git/+page.svelte"))
+    const repoLayout = dense(readProjectFile("../../routes/git/[id=naddr]/+layout.svelte"))
 
     expect(gitStateTests).toContain("adds only h-tagged community relays")
     expect(gitStateTests).toContain(
@@ -58,6 +62,10 @@ describe("profile discoverability test matrix", () => {
     expect(gitCommandsTests).toContain("publishes comments only to provided relays")
     expect(gitCommandsTests).toContain("publishes issues only to provided repo relays")
     expect(gitCommandsTests).toContain("publishes statuses only to provided repo relays")
+    expect(communityGitPage).toContain("getRepoAnnouncementPublishRelays")
+    expect(communityGitPage).toContain("relays:announcementRelays,event:repoEvent")
+    expect(gitPage).toContain("constdefaultRepoRelays=$state<string[]>([...GIT_RELAYS])")
+    expect(repoLayout).not.toContain("repoRelays.length>0?repoRelays:GIT_RELAYS")
   })
 
   it("covers missing and slow profile rendering fallbacks", () => {

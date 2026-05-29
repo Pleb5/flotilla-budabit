@@ -9,9 +9,10 @@ describe("empty image source guards", () => {
 
     expect(source).toContain('const safeSrc = $derived(String(src || "").trim())')
     expect(source).toContain("warnEmptyImageSource")
-    expect(source).toContain("{#if !safeSrc}")
+    expect(source).toContain("{#if !safeSrc || imageFailed}")
     expect(source).toContain("{:else if safeSrc.includes")
     expect(source).toContain("src={safeSrc}")
+    expect(source).toContain("onerror={markImageFailed}")
   })
 
   it("uses profile avatar fallback instead of empty ChannelMessage picture src", () => {
@@ -28,8 +29,19 @@ describe("empty image source guards", () => {
 
     expect(layout).toContain("@app/components/SafeAvatarImage.svelte")
     expect(gitPage).toContain("@app/components/SafeAvatarImage.svelte")
-    expect(safeAvatar).toContain("{#if safeSrc}")
+    expect(safeAvatar).toContain("{#if safeSrc && !imageFailed}")
     expect(safeAvatar).toContain("warnEmptyImageSource")
+    expect(safeAvatar).toContain("onerror={markImageFailed}")
     expect(safeAvatar).toContain("<BaseAvatarImage")
+  })
+
+  it("falls back when community profile images fail to load", () => {
+    const preview = readProjectFile("../components/community/CommunityPreviewCard.svelte")
+    const link = readProjectFile("../components/community/CommunityLinkCard.svelte")
+
+    expect(preview).toContain("failedPicture")
+    expect(preview).toContain("onerror={() => (failedPicture = picture)}")
+    expect(link).toContain("failedPicture")
+    expect(link).toContain("onerror={() => (failedPicture = picture)}")
   })
 })

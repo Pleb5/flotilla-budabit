@@ -16,13 +16,13 @@ describe("profile discoverability phase 1 baseline", () => {
   it("keeps ProfileDetail using url as the first relay hint and all hints for the route", () => {
     const source = readProjectFile("../components/ProfileDetail.svelte")
 
-    expect(source).toContain("const relayHints = $derived(removeUndefined([url, ...relays]))")
+    expect(source).toContain("removeUndefined([url, ...relays]).filter(Boolean)")
     expect(source).toContain("const profileUrl = $derived(relayHints[0])")
     expect(source).toContain(
       "const fullProfilePath = $derived(makeProfilePath(pubkey, relayHints))",
     )
     expect(source).toContain(
-      "const showInfo = () => pushModal(EventInfo, {url: profileUrl, event: $profile!.event})",
+      "pushModal(EventInfo, {url: profileUrl, relays: relayHints, event: $profile!.event})",
     )
   })
 

@@ -6,7 +6,6 @@
   import {
     RepoHeader,
     RepoTab,
-    BranchSelector,
     toast,
     Repo,
     WorkerManager,
@@ -27,11 +26,6 @@
     Settings as SettingsIcon,
     ChevronLeft,
     Home,
-    Star,
-    Bell,
-    GitFork,
-    RotateCcw,
-    Globe,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
@@ -98,7 +92,6 @@
     pubkey,
     profilesByPubkey,
     profileSearch,
-    loadProfile,
     relaySearch,
     publishThunk,
     deriveProfile,
@@ -146,6 +139,7 @@
     getRepoScopedRelays,
     getRepoMaintainers,
   } from "@app/core/git-state"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
@@ -1949,9 +1943,8 @@
         throw new Error("Only the owner can edit this repo announcement")
       }
 
-      const repoRelays = getStore(repoRelaysStore)
-      const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
-      if (relaysForPublish.length === 0) {
+      const relaysForPublish = getStore(repoRelaysStore)
+      if (event.kind === GIT_REPO_STATE && relaysForPublish.length === 0) {
         throw new Error("Repository relays not ready. Please wait...")
       }
 
@@ -3041,8 +3034,7 @@
         display_name: profile.display_name,
       }
     }
-    const relays = getRepoRelaysForModal()
-    await loadProfile(pubkey, relays)
+    await loadBudabitProfile(pubkey)
     const loadedProfile = $profilesByPubkey.get(pubkey)
     if (loadedProfile) {
       return {
@@ -3187,6 +3179,10 @@
       return thunk
     }
 
+    if (event.kind !== GIT_REPO_ANNOUNCEMENT && policy.repoRelays.length === 0) {
+      throw new Error("Repository relays not ready. Please wait...")
+    }
+
     const thunk =
       event.kind === GIT_REPO_STATE
         ? postRepoStateEvent(event as RepoStateEvent, policy.repoRelays)
@@ -3238,8 +3234,7 @@
       console.warn("[repo/+layout] Failed to initialize shared git worker for fork flow:", error)
     }
 
-    const repoRelays = getRepoAnnouncementRelaysFromEvent()
-    const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
+    const defaultRelays = getRepoAnnouncementRelaysFromEvent()
     const sourceCloneUrls = getStore(repoCloneUrlsStore)
     const defaultMaintainers = (() => {
       try {
@@ -3338,15 +3333,7 @@
       return
     }
 
-    const repoRelays = getStore(repoRelaysStore)
-    const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
-    if (relaysForPublish.length === 0) {
-      pushToast({
-        message: "Repository relays not ready. Please wait...",
-        theme: "error",
-      })
-      return
-    }
+    const relaysForPublish = getStore(repoRelaysStore)
 
     pushModal(
       EditRepoPanel,

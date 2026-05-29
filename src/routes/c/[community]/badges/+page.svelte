@@ -30,6 +30,7 @@
     getCommunityBadgeRelays,
   } from "@app/core/community-state"
   import {normalizePubkey, normalizeRelays} from "@app/core/community"
+  import {getPubkeyOutboxRelays, getUserDataPublishRelays} from "@app/core/community-relays"
   import {
     canCreateCommunityBadge,
     getAcceptedCommunityBadges,
@@ -201,6 +202,20 @@
     repository.publish(thunk.event as TrustedEvent)
   }
 
+  const publishProfileBadgeTemplate = async (template: {
+    kind: number
+    content: string
+    tags: string[][]
+  }) => {
+    const relays = getUserDataPublishRelays([...getPubkeyOutboxRelays($pubkey), ...badgeRelays])
+    if (relays.length === 0) throw new Error("No profile badge relays are available.")
+
+    const thunk = publishThunk({relays, event: makeEvent(template.kind, template)})
+    await waitForThunkCompletion(thunk)
+    if (!hasSuccessfulRelay(thunk)) throw new Error(getPublishError(thunk))
+    repository.publish(thunk.event as TrustedEvent)
+  }
+
   const runPublish = async (action: () => Promise<void>, successMessage: string) => {
     publishing = true
     try {
@@ -352,7 +367,7 @@
 
     await runPublish(
       () =>
-        publishTemplate(
+        publishProfileBadgeTemplate(
           makeProfileBadgeAcceptanceEvent({
             currentEvent,
             pair: {
@@ -374,7 +389,7 @@
 
     await runPublish(
       () =>
-        publishTemplate(
+        publishProfileBadgeTemplate(
           makeProfileBadgeRemovalEvent({
             currentEvent,
             pair: badge.profilePair,

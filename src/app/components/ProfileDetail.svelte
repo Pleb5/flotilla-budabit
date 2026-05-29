@@ -39,7 +39,9 @@
 
   const {pubkey, url, relays = []}: Props = $props()
 
-  const relayHints = $derived(removeUndefined([url, ...relays]))
+  const relayHints = $derived(
+    Array.from(new Set(removeUndefined([url, ...relays]).filter(Boolean))),
+  )
   const profileUrl = $derived(relayHints[0])
   const profile = $derived(deriveBudabitProfile(pubkey, {url, relays}))
   const canAwardCommunityBadges = $derived(
@@ -61,7 +63,8 @@
   const chatPath = $derived(makeChatPath(pubkey))
   const fullProfilePath = $derived(makeProfilePath(pubkey, relayHints))
 
-  const showInfo = () => pushModal(EventInfo, {url: profileUrl, event: $profile!.event})
+  const showInfo = () =>
+    pushModal(EventInfo, {url: profileUrl, relays: relayHints, event: $profile!.event})
 
   const openChat = () => goto(chatPath)
 

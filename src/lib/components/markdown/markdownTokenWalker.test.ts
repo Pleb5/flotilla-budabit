@@ -15,7 +15,10 @@ vi.mock("@welshman/app", () => ({
       return () => {}
     }),
   },
-  loadProfile: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("@app/core/profile-resolver", () => ({
+  loadBudabitProfile: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("./markdownUtils.js", () => ({
@@ -28,20 +31,20 @@ vi.mock("svelte/store", () => ({
 
 describe("markdownTokenWalker", () => {
   const mockProfilesByPubkey = new Map<string, {name?: string; display_name?: string}>()
-  const mockLoadProfile = vi.fn().mockResolvedValue(undefined)
+  const mockLoadBudabitProfile = vi.fn().mockResolvedValue(undefined)
   const mockResolveNip05 = vi.fn()
 
   beforeEach(async () => {
     vi.mocked(nip19.decode).mockReset()
-    mockLoadProfile.mockReset().mockResolvedValue(undefined)
+    mockLoadBudabitProfile.mockReset().mockResolvedValue(undefined)
     mockResolveNip05.mockReset()
     mockProfilesByPubkey.clear()
 
     const {get} = await import("svelte/store")
     vi.mocked(get).mockReturnValue(mockProfilesByPubkey as any)
 
-    const {loadProfile} = await import("@welshman/app")
-    vi.mocked(loadProfile).mockImplementation(mockLoadProfile as any)
+    const {loadBudabitProfile} = await import("@app/core/profile-resolver")
+    vi.mocked(loadBudabitProfile).mockImplementation(mockLoadBudabitProfile as any)
 
     const {resolveNip05} = await import("./markdownUtils.js")
     vi.mocked(resolveNip05).mockImplementation(mockResolveNip05 as any)
@@ -119,7 +122,7 @@ describe("markdownTokenWalker", () => {
       expect(token.userName).toBe("Bob")
     })
 
-    it("calls loadProfile when profile not in store and defaultRelays provided", async () => {
+    it("loads missing npub profiles without using ambient markdown relays", async () => {
       const pubkey = "e".repeat(64)
       vi.mocked(nip19.decode).mockReturnValue({type: "npub", data: pubkey} as any)
 
@@ -127,7 +130,23 @@ describe("markdownTokenWalker", () => {
       const token = {type: "nostr", fullId: "npub1acdef0ghjkmnpqrstuvwxyz023456789"} as any
       await walker(token)
 
-      expect(mockLoadProfile).toHaveBeenCalledWith(pubkey, ["wss://relay.example.com"])
+      expect(mockLoadBudabitProfile).toHaveBeenCalledWith(pubkey, {relays: []})
+    })
+
+    it("honors explicit nprofile relay hints", async () => {
+      const pubkey = "e".repeat(64)
+      vi.mocked(nip19.decode).mockReturnValue({
+        type: "nprofile",
+        data: {pubkey, relays: ["wss://profile.example.com"]},
+      } as any)
+
+      const walker = createTokenWalker({defaultRelays: ["wss://ambient.example.com"]})
+      const token = {type: "nostr", fullId: "nprofile1acdef0ghjkmnpqrstuvwxyz023456"} as any
+      await walker(token)
+
+      expect(mockLoadBudabitProfile).toHaveBeenCalledWith(pubkey, {
+        relays: ["wss://profile.example.com"],
+      })
     })
 
     it("skips nostr token when decode returns non-profile type", async () => {

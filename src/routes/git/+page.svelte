@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {page} from "$app/stores"
   import {
     normalizeRelayUrl,
     Address,
@@ -1884,10 +1883,6 @@
     () => activeTab !== "snippets" && !isAccountSearch && trimmedSearchQuery.length > 0,
   )
 
-  const shouldLaunchTextSearch = $derived.by(
-    () => activeTab !== "snippets" && !isAccountSearch && trimmedSearchQuery.length >= 2,
-  )
-
   const localSearchFilteredRepos = $derived.by(() => {
     if (activeTab === "snippets" || isAccountSearch || !searchQuery.trim()) return []
 
@@ -2097,7 +2092,7 @@
   $effect(() => {
     const query = activeTextSearchQuery.trim()
     const runMode = repoDiscoveryRunMode
-    repoDiscoveryRunNonce
+    void repoDiscoveryRunNonce
 
     if (!query || activeTab === "snippets" || isAccountSearch) {
       return
@@ -3037,10 +3032,7 @@
     }
   }
 
-  let defaultRepoRelays = $state<string[]>([])
-  $effect(() => {
-    defaultRepoRelays = repoAnnouncementRelays
-  })
+  const defaultRepoRelays = $state<string[]>([...GIT_RELAYS])
 
   const publishEventToRelays = async (event: any, relays: string[] = defaultRepoRelays) => {
     try {

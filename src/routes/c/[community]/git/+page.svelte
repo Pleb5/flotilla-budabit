@@ -29,6 +29,8 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {normalizeRelays} from "@app/core/community"
+  import {getRepoAnnouncementPublishRelays} from "@app/core/git-state"
   import {
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
@@ -185,10 +187,16 @@
       ],
     }
     const targetingId = randomId()
+    const repoEvent = makeEvent(GIT_REPO_ANNOUNCEMENT, repoTemplate)
+    const announcementRelays = getRepoAnnouncementPublishRelays({
+      repoEvent,
+      repoRelays: relays,
+    })
+    const associationRelays = normalizeRelays([...announcementRelays, ...relays])
 
-    publishThunk({relays, event: makeEvent(GIT_REPO_ANNOUNCEMENT, repoTemplate)})
+    publishThunk({relays: announcementRelays, event: repoEvent})
     publishThunk({
-      relays,
+      relays: associationRelays,
       event: makeEvent(
         TARGETED_PUBLICATION_KIND,
         makeTargetedPublicationForCommunity({

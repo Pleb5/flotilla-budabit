@@ -75,10 +75,13 @@
             ? $profile?.about || profileRelays[0] || fallbackName
             : emptyInfo,
   )
+  let profileHydrationKey = ""
+  let failedPicture = $state("")
+
+  const picture = $derived(String($profile?.picture || "").trim())
+  const showPicture = $derived(Boolean(picture && failedPicture !== picture))
 
   const submit = () => onSubmit?.()
-
-  let profileHydrationKey = ""
 
   $effect(() => {
     const key = pubkey ? `${pubkey}:${profileRelays.join(",")}` : ""
@@ -101,8 +104,12 @@
       <div class="flex min-w-0 items-center gap-2 sm:gap-4">
         <div
           class="center !flex h-10 w-10 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300 sm:h-16 sm:w-16">
-          {#if pubkey && !notFound && $profile?.picture}
-            <img alt="" src={$profile.picture} class="h-full w-full object-cover" />
+          {#if pubkey && !notFound && showPicture}
+            <img
+              alt=""
+              src={picture}
+              class="h-full w-full object-cover"
+              onerror={() => (failedPicture = picture)} />
           {:else}
             <Icon icon={Ghost} size={7} />
           {/if}

@@ -5,7 +5,8 @@
 import type {Token} from "marked"
 import {nip19} from "nostr-tools"
 import {get} from "svelte/store"
-import {profilesByPubkey, loadProfile} from "@welshman/app"
+import {profilesByPubkey} from "@welshman/app"
+import {loadBudabitProfile} from "@app/core/profile-resolver"
 import {resolveNip05} from "./markdownUtils.js"
 
 export interface TokenWalkerOptions {
@@ -15,14 +16,12 @@ export interface TokenWalkerOptions {
 /**
  * Creates a token walker function that enriches tokens with profile data
  */
-export function createTokenWalker(options: TokenWalkerOptions) {
-  const {defaultRelays} = options
-
+export function createTokenWalker(_options: TokenWalkerOptions) {
   return async (token: Token) => {
     if (token.type === "nostr") {
-      await enrichNostrToken(token, defaultRelays)
+      await enrichNostrToken(token)
     } else if (token.type === "email") {
-      await enrichEmailToken(token, defaultRelays)
+      await enrichEmailToken(token)
     }
   }
 }
@@ -30,7 +29,7 @@ export function createTokenWalker(options: TokenWalkerOptions) {
 /**
  * Enriches a Nostr token with profile data
  */
-async function enrichNostrToken(token: Token, defaultRelays: string[]): Promise<void> {
+async function enrichNostrToken(token: Token): Promise<void> {
   const fullId = (token as any).fullId
   if (!fullId) return
   if ((token as any).community || fullId.startsWith("ncommunity://")) return
@@ -38,9 +37,11 @@ async function enrichNostrToken(token: Token, defaultRelays: string[]): Promise<
   try {
     const result: any = nip19.decode(fullId)
     let pubkey: string | undefined
+    let relayHints: string[] = []
 
     if (result.type === "nprofile") {
       pubkey = result.data.pubkey
+      relayHints = result.data.relays || []
     } else if (result.type === "npub") {
       pubkey = result.data
     }
@@ -51,8 +52,8 @@ async function enrichNostrToken(token: Token, defaultRelays: string[]): Promise<
     // Get or load profile
     const profiles = get(profilesByPubkey)
     let profile = profiles.get(pubkey)
-    if (!profile && defaultRelays.length > 0) {
-      await loadProfile(pubkey, defaultRelays)
+    if (!profile) {
+      await loadBudabitProfile(pubkey, {relays: relayHints})
       profile = get(profilesByPubkey).get(pubkey)
     }
 
@@ -67,7 +68,7 @@ async function enrichNostrToken(token: Token, defaultRelays: string[]): Promise<
 /**
  * Enriches an email token with NIP-05 profile data if applicable
  */
-async function enrichEmailToken(token: Token, defaultRelays: string[]): Promise<void> {
+async function enrichEmailToken(token: Token): Promise<void> {
   try {
     const pubkey = await resolveNip05((token as any).text)
     if (pubkey) {
@@ -79,8 +80,8 @@ async function enrichEmailToken(token: Token, defaultRelays: string[]): Promise<
       // Get or load profile
       const profiles = get(profilesByPubkey)
       let profile = profiles.get(pubkey)
-      if (!profile && defaultRelays.length > 0) {
-        await loadProfile(pubkey, defaultRelays)
+      if (!profile) {
+        await loadBudabitProfile(pubkey)
         profile = get(profilesByPubkey).get(pubkey)
       }
 

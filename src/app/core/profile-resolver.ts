@@ -15,6 +15,9 @@ export type ProfileResolutionOptions = {
 
 const attemptedRelaySetsByPubkey = new Map<string, Set<string>>()
 const attemptedRelaysByPubkey = new Map<string, Set<string>>()
+const profileLoadPromisesByKey = new Map<string, Promise<PublishedProfile | undefined>>()
+const completedProfileLoadTimesByKey = new Map<string, number>()
+const PROFILE_LOAD_RETRY_MS = 60_000
 
 export const getBudabitProfileRelays = (
   options: ProfileResolutionOptions = {},
@@ -64,6 +67,7 @@ export const loadBudabitProfile = async (
 
   const relays = getBudabitProfileRelays(options, activeCommunityRelays)
   const attempt = rememberProfileLoadAttempt(normalizedPubkey, relays)
+  const loadKey = `${normalizedPubkey}\n${relays.join("\n")}`
   logProfileLoadSummary({
     pubkey: normalizedPubkey,
     relays,
@@ -72,7 +76,25 @@ export const loadBudabitProfile = async (
   })
   const loader = attempt.shouldForceLoad ? forceLoadProfile : loadProfile
 
-  return loader(normalizedPubkey, relays)
+  if (!attempt.shouldForceLoad) {
+    const inFlight = profileLoadPromisesByKey.get(loadKey)
+    if (inFlight) return inFlight
+    const lastLoadAt = completedProfileLoadTimesByKey.get(loadKey)
+    if (lastLoadAt && Date.now() - lastLoadAt < PROFILE_LOAD_RETRY_MS) return undefined
+  }
+
+  const promise = loader(normalizedPubkey, relays)
+    .then(profile => {
+      completedProfileLoadTimesByKey.set(loadKey, Date.now())
+      return profile
+    })
+    .finally(() => {
+      profileLoadPromisesByKey.delete(loadKey)
+    }) as Promise<PublishedProfile | undefined>
+
+  profileLoadPromisesByKey.set(loadKey, promise)
+
+  return promise
 }
 
 export const deriveBudabitProfile = (
@@ -94,6 +116,8 @@ export const deriveBudabitProfile = (
       force: false,
     })
   }
+
+  if (!options.includeActiveCommunityRelays) return profile
 
   return derived<
     [Readable<PublishedProfile | undefined>, Readable<string[]>],

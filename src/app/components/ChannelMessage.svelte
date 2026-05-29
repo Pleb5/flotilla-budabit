@@ -37,6 +37,7 @@
     inert?: boolean
     readOnly?: boolean
     interactionRelays?: string[]
+    profileRelays?: string[]
     interactionAuthorPubkeys?: string[]
     scopeH?: string
     communitySectionName?: string
@@ -52,6 +53,7 @@
     inert = false,
     readOnly = false,
     interactionRelays = [],
+    profileRelays = [],
     interactionAuthorPubkeys = undefined,
     scopeH = "",
     communitySectionName = "",
@@ -94,8 +96,11 @@
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
   )
+  const profileRelayHints = $derived.by(() =>
+    (profileRelays.length > 0 ? profileRelays : relayTargets).filter(Boolean),
+  )
   const profileDisplay = $derived(
-    deriveBudabitProfileDisplay(event.pubkey, {url, relays: relayTargets}),
+    deriveBudabitProfileDisplay(event.pubkey, {relays: profileRelayHints}),
   )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -142,7 +147,11 @@
   }
 
   const openProfile = () =>
-    pushModal(ProfileDetail, {pubkey: event.pubkey, url, relays: relayTargets})
+    pushModal(ProfileDetail, {
+      pubkey: event.pubkey,
+      url: profileRelayHints[0],
+      relays: profileRelayHints,
+    })
 
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({
@@ -193,8 +202,8 @@
       <Button onclick={openProfile} class="flex items-start">
         <ProfileCircle
           pubkey={event.pubkey}
-          {url}
-          relays={relayTargets}
+          url={profileRelayHints[0]}
+          relays={profileRelayHints}
           class="rounded-full border border-solid border-base-content"
           size={8} />
       </Button>

@@ -12,13 +12,20 @@
 
   let {ref = $bindable(null), src, alt = "", ...restProps}: Props = $props()
 
+  let failedSrc = $state("")
+
   const safeSrc = $derived(String(src || "").trim())
+  const imageFailed = $derived(Boolean(safeSrc && failedSrc === safeSrc))
+
+  const markImageFailed = () => {
+    failedSrc = safeSrc
+  }
 
   $effect(() => {
     if (src !== undefined && !safeSrc) warnEmptyImageSource("SafeAvatarImage")
   })
 </script>
 
-{#if safeSrc}
-  <BaseAvatarImage bind:ref src={safeSrc} {alt} {...restProps} />
+{#if safeSrc && !imageFailed}
+  <BaseAvatarImage bind:ref src={safeSrc} {alt} onerror={markImageFailed} {...restProps} />
 {/if}

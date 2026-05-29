@@ -24,7 +24,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
-  import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
+  import {profilesByPubkey, profileSearch} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
@@ -45,6 +45,8 @@
   } from "@app/core/git-state"
   import {toNaturalArray} from "@app/util/labels"
   import {resolveIssueEdits} from "@app/util/issue-edits"
+  import {normalizeRelays} from "@app/core/community"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {HIDDEN_ROOT_IDS_KEY, REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
@@ -61,9 +63,14 @@
   const repoBoundRelays = $derived.by(() => {
     return getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays)
   })
+  const repoCommunityProfileRelays = $derived.by(() =>
+    normalizeRelays([repoClass.community?.relay || ""]),
+  )
 
   const issueId = $page.params.issueid
-  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
+  const hiddenRootIds = $derived.by(() =>
+    hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>(),
+  )
   const isHiddenRoot = $derived.by(() => hiddenRootIds.has(issueId))
   const GIT_COVER_LETTER_KIND = 1624
   const isDeletedRepositoryEvent = (event?: {id?: string}) =>
@@ -189,7 +196,11 @@
   const issueEditRepoAddress = $derived.by(() => issueRepoAddress || currentRepoAddress)
   const issueRepoAddresses = $derived.by(() => (issueEditRepoAddress ? [issueEditRepoAddress] : []))
   const issueCommentRepoRefs = $derived.by(() =>
-    issueRepoAddresses.length > 0 ? issueRepoAddresses : issueEditRepoAddress ? [issueEditRepoAddress] : [],
+    issueRepoAddresses.length > 0
+      ? issueRepoAddresses
+      : issueEditRepoAddress
+        ? [issueEditRepoAddress]
+        : [],
   )
   const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
 
@@ -201,7 +212,7 @@
     )
   })
   const currentRepoOwner = $derived.by(
-    () => (((issueRepoEvent as any)?.pubkey || (repoClass as any)?.owner || "") as string),
+    () => ((issueRepoEvent as any)?.pubkey || (repoClass as any)?.owner || "") as string,
   )
   const issueMaintainers = $derived.by(() => {
     const maintainers = getRepoMaintainers(issueRepoEvent as any)
@@ -532,7 +543,6 @@
     ) as {final: any | undefined; reason: string}
   })
 
-  const statusReason = $derived(() => resolved?.reason)
   // Title icon should match Status component logic: authorized events (author or maintainers/owner), latest by time
   const titleCurrentStatusEvent = $derived.by(() => {
     return resolved?.final as StatusEvent | undefined
@@ -583,17 +593,6 @@
     return publishThunk({event: statusWithRecipients as any, relays: getPublishRelays()})
   }
 
-  const getValidProfileRelays = () =>
-    repoBoundRelays.filter((relay: string) => {
-      try {
-        const url = new URL(relay)
-        return url.protocol === "ws:" || url.protocol === "wss:"
-      } catch {
-        console.warn(`Invalid relay URL filtered out: ${relay}`)
-        return false
-      }
-    })
-
   const toPersonSuggestion = (pubkey: string) => {
     const profile = $profilesByPubkey.get(pubkey)
     return {
@@ -606,12 +605,9 @@
   }
 
   $effect(() => {
-    const validRelays = getValidProfileRelays()
-    if (validRelays.length === 0) return
-
     for (const pubkey of recommendedAssigneePubkeys) {
       if ($profilesByPubkey.get(pubkey)) continue
-      loadProfile(pubkey, validRelays).catch(() => undefined)
+      loadBudabitProfile(pubkey, {relays: repoCommunityProfileRelays}).catch(() => undefined)
     }
   })
 
@@ -626,11 +622,7 @@
         display_name: profile.display_name,
       }
     }
-    const validRelays = getValidProfileRelays()
-
-    if (validRelays.length > 0) {
-      await loadProfile(pubkey, validRelays)
-    }
+    await loadBudabitProfile(pubkey, {relays: repoCommunityProfileRelays})
 
     return $profilesByPubkey.get(pubkey) ? toPersonSuggestion(pubkey) : null
   }
@@ -724,6 +716,7 @@
               <ReactionSummary
                 event={issueEvent as any}
                 url={repoBoundRelays[0] || ""}
+                relays={repoBoundRelays}
                 {deleteReaction}
                 {createReaction}
                 reactionClass="tooltip-left" />
@@ -744,11 +737,11 @@
               statusEvents={($statusEvents || []) as StatusEvent[]}
               actorPubkey={$pubkey}
               compact={true}
-              isMirrored={isMirrored}
+              {isMirrored}
               ProfileComponent={NostrGitProfileComponent} />
             <span
               class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground sm:text-sm">
-              <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
+              <ProfileLink pubkey={issue?.author.pubkey} relays={repoCommunityProfileRelays} />
               <span class="hidden sm:inline">opened this issue •</span>
               <span class="sm:hidden">opened</span>
               <span class="break-all text-xs sm:break-normal">{displayDateFormatted}</span>
@@ -884,7 +877,7 @@
         {:else if assignees.length}
           <div class="flex flex-wrap gap-2">
             {#each assignees as pk (pk)}
-              <ProfileLink pubkey={pk} />
+              <ProfileLink pubkey={pk} relays={repoCommunityProfileRelays} />
             {/each}
           </div>
         {:else}
@@ -902,7 +895,7 @@
           statusEvents={($statusEvents || []) as StatusEvent[]}
           actorPubkey={$pubkey}
           compact={false}
-          isMirrored={isMirrored}
+          {isMirrored}
           ProfileComponent={NostrGitProfileComponent}
           onPublish={handleStatusPublish} />
       </div>

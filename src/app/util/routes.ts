@@ -348,7 +348,9 @@ export const makeChatPath = (recipient: string) => {
 }
 
 export const makeProfilePath = (profile: string, relays: string[] = []) => {
-  const relayHints = relays.filter(Boolean)
+  const relayHints = Array.from(
+    new Set(relays.map(relay => String(relay || "").trim()).filter(Boolean)),
+  )
   const value = /^[0-9a-f]{64}$/i.test(profile)
     ? relayHints.length > 0
       ? nip19.nprofileEncode({pubkey: profile, relays: relayHints})

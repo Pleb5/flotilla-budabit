@@ -46,4 +46,18 @@ describe("personal user-data relay policy wiring", () => {
       "relays:getUserDataPublishRelays(Router.get().FromUser().getUrls())",
     )
   })
+
+  it("adds active community relays to profile badge and profile delete updates", () => {
+    const badges = dense(readProjectFile("../../routes/c/[community]/badges/+page.svelte"))
+    const profileDelete = dense(readProjectFile("../components/ProfileDelete.svelte"))
+
+    expect(badges).toContain("getPubkeyOutboxRelays,getUserDataPublishRelays")
+    expect(badges).toContain(
+      "constrelays=getUserDataPublishRelays([...getPubkeyOutboxRelays($pubkey),...badgeRelays])",
+    )
+    expect(badges).toContain("publishProfileBadgeTemplate(makeProfileBadgeAcceptanceEvent")
+    expect(badges).toContain("publishProfileBadgeTemplate(makeProfileBadgeRemovalEvent")
+    expect(profileDelete).toContain("constprofileRelays=getUserDataPublishRelays(relays)")
+    expect(profileDelete).toContain("publishThunk({relays:profileRelays,event:profileEvent})")
+  })
 })

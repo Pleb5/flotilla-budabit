@@ -149,10 +149,20 @@
     : undefined
 
   const GIT_COVER_LETTER_KIND = 1624
+  const normalizeRelay = (relay: string | undefined | null) => {
+    try {
+      return normalizeRelayUrl(relay || "")
+    } catch {
+      return ""
+    }
+  }
   const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
-    Array.from(new Set(relays.map(relay => normalizeRelayUrl(relay || "")).filter(Boolean)))
+    Array.from(new Set(relays.map(normalizeRelay).filter(Boolean)))
 
   const strictPrEditRelays = $derived.by(() => normalizeUniqueRelays(prEditRelays || []))
+  const profileRelays = $derived.by(() =>
+    repoClass.community?.relay ? normalizeUniqueRelays([repoClass.community.relay]) : [],
+  )
 
   const normalizeBranchName = (input?: string | null) => {
     const value = String(input || "").trim()
@@ -178,7 +188,7 @@
 
   const repoMaintainerPubkeys = $derived.by(() => new Set(repoMaintainers))
   const repoOwnerPubkey = $derived.by(
-    () => (((repoClass as any)?.repoEvent?.pubkey || (repoClass as any)?.owner || "") as string),
+    () => ((repoClass as any)?.repoEvent?.pubkey || (repoClass as any)?.owner || "") as string,
   )
   const isImportedPr = $derived.by(() => isImportedEvent(prEvent as any))
   const repoAddresses = $derived.by(() => {
@@ -2634,8 +2644,8 @@
           </div>
           <div class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
             {#if prEvent?.pubkey}
-              <Profile pubkey={prEvent.pubkey} hideDetails={true}></Profile>
-              <ProfileLink pubkey={prEvent.pubkey} />
+              <Profile pubkey={prEvent.pubkey} relays={profileRelays} hideDetails={true}></Profile>
+              <ProfileLink pubkey={prEvent.pubkey} relays={profileRelays} />
             {/if}
             <span class="hidden sm:inline">•</span>
             <span>{formatTimestamp(pr?.createdAt || "")}</span>
@@ -2671,6 +2681,7 @@
             Merged by
             <ProfileLink
               pubkey={prTrustMetric.mergedByPubkey}
+              relays={profileRelays}
               unstyled
               class="font-medium hover:underline" />
           </div>
@@ -3583,7 +3594,7 @@
                 <span class="text-muted-foreground">
                   {new Date(update.createdAt).toLocaleString()}
                 </span>
-                <ProfileLink pubkey={update.author.pubkey} />
+                <ProfileLink pubkey={update.author.pubkey} relays={profileRelays} />
               </li>
             {/each}
             {#if prStatus?.status === "applied" && prStatus?.createdAt}
@@ -3594,7 +3605,7 @@
                   {formatTimestamp(prStatus.createdAt)}
                 </span>
                 <span class="text-muted-foreground">by</span>
-                <ProfileLink pubkey={prStatus.author.pubkey} />
+                <ProfileLink pubkey={prStatus.author.pubkey} relays={profileRelays} />
               </li>
             {/if}
           </ul>

@@ -81,6 +81,11 @@
   const description = $derived(
     definition?.description || $profile?.about || displayRelays[0] || "Shared Budabit community",
   )
+  let profileHydrationKey = ""
+  let failedPicture = $state("")
+
+  const picture = $derived(String($profile?.picture || "").trim())
+  const showPicture = $derived(Boolean(picture && failedPicture !== picture))
   const shareValue = $derived(
     makeCommunityNcommunity({pubkey: communityPubkey, relayHints: displayRelays}),
   )
@@ -88,8 +93,6 @@
   const preserveRelayHints = () => {
     if (shareValue) setActiveCommunityInput(shareValue)
   }
-
-  let profileHydrationKey = ""
 
   $effect(() => {
     const key = communityPubkey ? `${communityPubkey}:${displayRelays.join(",")}` : ""
@@ -122,8 +125,12 @@
         data-stop-tap>
         <div
           class="center !flex h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-base-300 bg-base-200 sm:h-16 sm:w-16">
-          {#if $profile?.picture}
-            <img alt="" src={$profile.picture} class="h-full w-full object-cover" />
+          {#if showPicture}
+            <img
+              alt=""
+              src={picture}
+              class="h-full w-full object-cover"
+              onerror={() => (failedPicture = picture)} />
           {:else}
             <Icon icon={HomeSmile} size={compact ? 6 : 7} />
           {/if}

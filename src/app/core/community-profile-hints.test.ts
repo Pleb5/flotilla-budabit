@@ -55,10 +55,8 @@ describe("community profile relay hints", () => {
     expect(roomItem).toContain("deriveBudabitProfileDisplay")
     expect(roomItem).toContain("relays: profileRelayHints")
     expect(channelMessage).toContain("deriveBudabitProfileDisplay")
-    expect(channelMessage).toContain("relays: relayTargets")
-    expect(channelMessage).toMatch(
-      /pushModal\(ProfileDetail, \{pubkey: event\.pubkey, url, relays: relayTargets\}\)/,
-    )
+    expect(channelMessage).toContain("relays: profileRelayHints")
+    expect(channelMessage).toContain("url: profileRelayHints[0]")
     expect(chatMessage).toContain("deriveBudabitProfileDisplay")
   })
 
@@ -80,10 +78,12 @@ describe("community profile relay hints", () => {
     for (const path of [
       "../../routes/git/[id=naddr]/+page.svelte",
       "../../routes/git/[id=naddr]/prs/+page.svelte",
+      "../../routes/git/[id=naddr]/prs/[prid]/+page.svelte",
+      "../../routes/git/[id=naddr]/issues/[issueid]/+page.svelte",
     ]) {
       const source = readProjectFile(path)
 
-      expect(source).toContain("repoCommunityProfileRelays")
+      if (!path.includes("prs/[prid]")) expect(source).toContain("repoCommunityProfileRelays")
       expect(source).not.toMatch(/<(ProfileCircle|ProfileLink|ProfileName)[^>]+url=\{relayUrl\}/s)
       expect(source).not.toMatch(/pushModal\(ProfileDetail,\s*\{[^}]*url:\s*relayUrl/s)
     }

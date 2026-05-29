@@ -21,6 +21,7 @@
   import {pushToast} from "@app/util/toast"
   import {logout} from "@app/core/commands"
   import {INDEXER_RELAYS} from "@app/core/state"
+  import {getUserDataPublishRelays} from "@app/core/community-relays"
 
   let progress: number | undefined = $state(undefined)
   let confirmText = $state("")
@@ -43,6 +44,7 @@
     const vanishEvent = makeEvent(62, {tags: [["relay", "ALL_RELAYS"]]})
     const denominator = chunks.length + 2
     const relays = uniq([...INDEXER_RELAYS, ...$userWriteRelays])
+    const profileRelays = getUserDataPublishRelays(relays)
 
     let step = 0
 
@@ -53,7 +55,7 @@
     }
 
     // First, blank out their profile in case relays don't support deletion by address
-    await publishThunk({relays, event: profileEvent})
+    await publishThunk({relays: profileRelays, event: profileEvent})
 
     await incrementProgress()
 

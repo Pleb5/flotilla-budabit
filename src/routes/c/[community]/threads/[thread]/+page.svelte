@@ -378,6 +378,7 @@
                 showPubkey
                 readOnly={!canReact}
                 interactionRelays={$activeCommunityRelays}
+                profileRelays={$activeCommunityRelays}
                 interactionAuthorPubkeys={replyAuthorPubkeys}
                 scopeH={communityPubkey}
                 communitySectionName={COMMUNITY_SECTION_GENERAL}

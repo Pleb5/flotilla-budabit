@@ -119,6 +119,19 @@ describe("Budabit profile resolver", () => {
     ])
   })
 
+  it("deduplicates repeated missing-profile loads for the same relay set", async () => {
+    const {loadBudabitProfile} = await import("./profile-resolver")
+
+    await Promise.all([
+      loadBudabitProfile(pubkey, {url: "wss://hint.example"}),
+      loadBudabitProfile(pubkey, {url: "wss://hint.example"}),
+    ])
+    await loadBudabitProfile(pubkey, {url: "wss://hint.example"})
+
+    expect(mocks.loadProfile).toHaveBeenCalledTimes(1)
+    expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
+  })
+
   it("does not reload when the profile is already present", async () => {
     const {loadBudabitProfile} = await import("./profile-resolver")
     const profile = {name: "Alice"}
@@ -150,6 +163,17 @@ describe("Budabit profile resolver", () => {
       "wss://active.example/",
       "wss://community.example/",
     ])
+
+    unsubscribe()
+  })
+
+  it("does not subscribe derived profiles to active relays unless requested", async () => {
+    const {deriveBudabitProfile} = await import("./profile-resolver")
+
+    const unsubscribe = deriveBudabitProfile(pubkey).subscribe(() => {})
+    mocks.activeCommunityRelays.set(["wss://community.example"])
+
+    expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
 
     unsubscribe()
   })

@@ -11,14 +11,21 @@
 
   const {src, alt, size = 5, ...props}: Props = $props()
 
+  let failedSrc = $state("")
+
   const safeSrc = $derived(String(src || "").trim())
+  const imageFailed = $derived(Boolean(safeSrc && failedSrc === safeSrc))
+
+  const markImageFailed = () => {
+    failedSrc = safeSrc
+  }
 
   $effect(() => {
     if (src !== undefined && !safeSrc) warnEmptyImageSource("ImageIcon")
   })
 </script>
 
-{#if !safeSrc}
+{#if !safeSrc || imageFailed}
   <span
     role={alt ? "img" : undefined}
     aria-label={alt || undefined}
@@ -30,5 +37,6 @@
   <img
     src={safeSrc}
     {alt}
+    onerror={markImageFailed}
     class="h-{size} w-{size} min-w-{size} min-h-{size} aspect-square object-cover {props.class}" />
 {/if}
