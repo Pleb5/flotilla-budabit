@@ -8,7 +8,6 @@
   import Page from "@lib/components/Page.svelte"
   import ContentSearch from "@lib/components/ContentSearch.svelte"
   import PeopleItem from "@app/components/PeopleItem.svelte"
-  import {bootstrapPubkeys} from "@app/core/state"
   import {
     communityAdminDefinitionEvents,
     communityMemberDefinitionEvents,
@@ -74,7 +73,6 @@
           communityPubkeys,
           directFollowPubkeys,
           profileMatches,
-          knownPubkeys: $bootstrapPubkeys,
           communityAssessments,
           getProfile: pubkey => $profilesByPubkey.get(pubkey),
           limit,
@@ -128,11 +126,17 @@
         {#if normalizedSearchTerm}
           {#each peopleResults as result (result.pubkey)}
             <PeopleItem pubkey={result.pubkey} />
+          {:else}
+            <div class="col-2 m-auto max-w-md items-center py-20 text-center opacity-70">
+              <Icon icon={Magnifier} size={8} />
+              <p>No people found.</p>
+            </div>
           {/each}
         {:else}
-          {#each $bootstrapPubkeys.slice(0, limit) as pubkey (pubkey)}
-            <PeopleItem {pubkey} />
-          {/each}
+          <div class="col-2 m-auto max-w-md items-center py-20 text-center opacity-70">
+            <Icon icon={Magnifier} size={8} />
+            <p>Search for people by name, NIP-05, npub, or pubkey.</p>
+          </div>
         {/if}
       </div>
     {/snippet}
