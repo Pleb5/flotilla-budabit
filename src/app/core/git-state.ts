@@ -174,6 +174,7 @@ const getExplicitGraspServerRelays = (viewerPubkey = get(pubkey)) => {
 
 export type RepoAnnouncementPublishRelaysParams = {
   repoRelays?: string[]
+  repoEvent?: Pick<NostrEvent, "tags"> | null
   communityPubkeys?: string[]
   communityRefs?: CommunityRelayRef[]
   viewerPubkey?: string
@@ -182,8 +183,19 @@ export type RepoAnnouncementPublishRelaysParams = {
   userGraspRelays?: string[]
 }
 
+export const getRepoAnnouncementCommunityPubkeys = (event?: Pick<NostrEvent, "tags"> | null) =>
+  Array.from(
+    new Set(
+      (event?.tags || [])
+        .filter(tag => tag[0] === "h")
+        .map(tag => normalizePubkey(tag[1] || ""))
+        .filter(Boolean),
+    ),
+  )
+
 export const getRepoAnnouncementPublishRelays = ({
   repoRelays = [],
+  repoEvent,
   communityPubkeys = [],
   communityRefs,
   viewerPubkey = get(pubkey),
@@ -191,7 +203,10 @@ export const getRepoAnnouncementPublishRelays = ({
   userOutboxRelays,
   userGraspRelays,
 }: RepoAnnouncementPublishRelaysParams = {}) => {
-  const scopedCommunityRelays = getScopedCommunityPublishRelays(communityPubkeys, communityRefs)
+  const scopedCommunityRelays = getScopedCommunityPublishRelays(
+    [...communityPubkeys, ...getRepoAnnouncementCommunityPubkeys(repoEvent)],
+    communityRefs,
+  )
   const merged = [
     ...(userOutboxRelays ?? getUserOutboxRelays()),
     ...gitIndexerRelays,

@@ -42,6 +42,10 @@ vi.mock("@app/core/community-relays", () => ({
 
 vi.mock("./git-state", () => ({
   GIT_RELAYS: [],
+  getRepoAnnouncementPublishRelays: ({repoRelays = []}: {repoRelays?: string[]}) => [
+    ...repoRelays,
+    "wss://announcement.example/",
+  ],
 }))
 
 describe("budabit commands", () => {
@@ -123,6 +127,30 @@ describe("budabit commands", () => {
             "wss://user.relay.example.com",
             "wss://community.example.com",
           ]),
+        }),
+      )
+    })
+  })
+
+  describe("postRepoAnnouncement", () => {
+    it("uses repo announcement publish policy", async () => {
+      const {postRepoAnnouncement} = await import("./git-commands")
+      const repoEvent = {
+        id: "r1",
+        kind: 30617,
+        content: "",
+        created_at: 0,
+        tags: [],
+        pubkey: "a".repeat(64),
+        sig: "sig",
+      } as any
+
+      postRepoAnnouncement(repoEvent, ["wss://repo.example/"])
+
+      expect(mockPublishThunk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: repoEvent,
+          relays: ["wss://repo.example/", "wss://announcement.example/"],
         }),
       )
     })

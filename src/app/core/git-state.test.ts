@@ -159,6 +159,24 @@ describe("budabit state", () => {
         "wss://community.example/",
       ])
     })
+
+    it("derives scoped community relay targets from repo announcement h tags", () => {
+      const communityPubkey = "c".repeat(64)
+      const unrelatedCommunityPubkey = "d".repeat(64)
+
+      expect(
+        getRepoAnnouncementPublishRelays({
+          repoEvent: {tags: [["h", communityPubkey]]},
+          communityRefs: [
+            {communityPubkey, relayHints: ["wss://community.example"]},
+            {communityPubkey: unrelatedCommunityPubkey, relayHints: ["wss://unrelated.example"]},
+          ],
+          gitIndexerRelays: ["wss://git.example"],
+          userOutboxRelays: ["wss://outbox.example"],
+          userGraspRelays: [],
+        }),
+      ).toEqual(["wss://outbox.example/", "wss://git.example/", "wss://community.example/"])
+    })
   })
 
   describe("getRepoScopedRelays", () => {

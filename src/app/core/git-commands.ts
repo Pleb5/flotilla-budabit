@@ -9,7 +9,7 @@ import type {
 import {buildRoleLabelEvent} from "@app/util/labels"
 import {abortThunk, publishThunk, repository} from "@welshman/app"
 import {load} from "@welshman/net"
-import {GIT_RELAYS} from "./git-state"
+import {GIT_RELAYS, getRepoAnnouncementPublishRelays} from "./git-state"
 import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
@@ -83,7 +83,12 @@ export const postStatus = (status: StatusEvent, relays: string[]) => {
 }
 
 export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
+  const merged = getRepoAnnouncementPublishRelays({
+    repoEvent: repo,
+    repoRelays: relays,
+    userOutboxRelays: getUserRelayUrls(),
+    gitIndexerRelays: GIT_RELAYS,
+  })
   return publishThunk({
     relays: merged,
     event: repo,

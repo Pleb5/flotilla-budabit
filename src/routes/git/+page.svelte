@@ -79,6 +79,7 @@
   import {
     loadRepoAnnouncements,
     GIT_RELAYS,
+    getRepoAnnouncementPublishRelays,
     repoAnnouncementRelaysStore,
     repoAnnouncements,
   } from "@app/core/git-state"
@@ -3085,7 +3086,16 @@
       throw new Error("GRASP repository event is missing explicit relay targets")
     }
 
-    return policy.publishRelays
+    if (event?.kind === GIT_REPO_ANNOUNCEMENT) {
+      return getRepoAnnouncementPublishRelays({
+        repoEvent: event,
+        repoRelays: policy.repoRelays,
+        userOutboxRelays: getUserOutboxRelays(),
+        gitIndexerRelays: GIT_RELAYS,
+      })
+    }
+
+    return policy.repoRelays
   }
 
   const buildRepoNaddrFromAnnouncement = (

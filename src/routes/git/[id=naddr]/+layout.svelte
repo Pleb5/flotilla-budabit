@@ -141,6 +141,7 @@
     REPO_SETTINGS_ACTIONS_KEY,
     activeRepoClass,
     GIT_RELAYS,
+    getRepoAnnouncementPublishRelays,
     getRepoAnnouncementRelays,
     getRepoScopedRelays,
     getRepoMaintainers,
@@ -819,12 +820,11 @@
 
         for (const repo of selected) {
           try {
-            const baseRelays =
-              repo.relays && repo.relays.length > 0 ? repo.relays : getRepoAnnouncementRelays()
+            const baseRelays = repo.relays && repo.relays.length > 0 ? repo.relays : []
             if (!baseRelays || baseRelays.length === 0) {
               throw new Error(`No relays configured for ${repo.repoName || repo.repoId}`)
             }
-            const targetRelays = Array.from(new Set([...baseRelays, ...GIT_RELAYS]))
+            const targetRelays = Array.from(new Set(baseRelays))
               .map(safeNormalizeRelayUrl)
               .filter(Boolean) as string[]
             const stateEvent = createRepoStateEvent({
@@ -1199,7 +1199,10 @@
     ) as Readable<StatusEvent[]>
   }
 
-  function deriveRootScopedEvents<T extends TrustedEvent>(rootIds: Readable<string[]>, kinds: number[]) {
+  function deriveRootScopedEvents<T extends TrustedEvent>(
+    rootIds: Readable<string[]>,
+    kinds: number[],
+  ) {
     return readable<T[]>([], set => {
       let previousKey = ""
       let unsubscribeScoped: (() => void) | undefined
@@ -3170,15 +3173,24 @@
         throw new Error("GRASP repo event is missing explicit relay targets")
       }
 
-      const thunk = publishThunk({event, relays: policy.publishRelays})
+      const publishRelays =
+        event.kind === GIT_REPO_ANNOUNCEMENT
+          ? getRepoAnnouncementPublishRelays({
+              repoEvent: event,
+              repoRelays: policy.repoRelays,
+              userOutboxRelays: getUserOutboxRelays(),
+              gitIndexerRelays: GIT_RELAYS,
+            })
+          : policy.repoRelays
+      const thunk = publishThunk({event, relays: publishRelays})
       await awaitPublishThunk(thunk, options)
       return thunk
     }
 
     const thunk =
       event.kind === GIT_REPO_STATE
-        ? postRepoStateEvent(event as RepoStateEvent, policy.publishRelays)
-        : postRepoAnnouncement(event as RepoAnnouncementEvent, policy.publishRelays)
+        ? postRepoStateEvent(event as RepoStateEvent, policy.repoRelays)
+        : postRepoAnnouncement(event as RepoAnnouncementEvent, policy.repoRelays)
 
     await awaitPublishThunk(thunk, options)
 
@@ -3431,9 +3443,7 @@
     }
 
     const baseRelays = getRepoAnnouncementRelaysFromEvent()
-    const relaysForPublish = Array.from(
-      new Set([...(baseRelays.length > 0 ? baseRelays : GIT_RELAYS), ...GIT_RELAYS]),
-    )
+    const relaysForPublish = Array.from(new Set(baseRelays))
       .map(safeNormalizeRelayUrl)
       .filter(Boolean) as string[]
 
