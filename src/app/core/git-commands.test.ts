@@ -36,6 +36,10 @@ vi.mock("@app/core/commands", () => ({
   publishDelete: (opts?: unknown) => mockPublishDelete(opts),
 }))
 
+vi.mock("@app/core/community-relays", () => ({
+  getUserDataPublishRelays: (relays: string[]) => [...relays, "wss://community.example.com"],
+}))
+
 vi.mock("./git-state", () => ({
   GIT_RELAYS: [],
 }))
@@ -98,7 +102,7 @@ describe("budabit commands", () => {
   })
 
   describe("postGraspServersList", () => {
-    it("merges user relays with GIT_RELAYS", async () => {
+    it("merges user relays with active community relays", async () => {
       const {postGraspServersList} = await import("./git-commands")
       const graspEvent = {
         id: "g1",
@@ -115,7 +119,10 @@ describe("budabit commands", () => {
       expect(mockPublishThunk).toHaveBeenCalledWith(
         expect.objectContaining({
           event: graspEvent,
-          relays: expect.arrayContaining(["wss://user.relay.example.com"]),
+          relays: expect.arrayContaining([
+            "wss://user.relay.example.com",
+            "wss://community.example.com",
+          ]),
         }),
       )
     })

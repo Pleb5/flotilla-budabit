@@ -11,6 +11,7 @@
   import {pushToast} from "@app/util/toast"
   import {userSettingsValues} from "@app/core/state"
   import {publishSettings} from "@app/core/commands"
+  import {getUserDataPublishRelays} from "@app/core/community-relays"
   import {clearBadges} from "@app/util/notifications"
 
   const reset = () => {
@@ -29,7 +30,7 @@
 
     publishThunk({
       event: makeEvent(MUTES, {tags: mutedPubkeys.map(tagPubkey)}),
-      relays: Router.get().FromUser().getUrls(),
+      relays: getUserDataPublishRelays(Router.get().FromUser().getUrls()),
     })
 
     pushToast({message: "Your settings have been saved!"})

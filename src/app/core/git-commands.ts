@@ -12,6 +12,7 @@ import {load} from "@welshman/net"
 import {GIT_RELAYS} from "./git-state"
 import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
+import {getUserDataPublishRelays} from "@app/core/community-relays"
 import {
   COMMENT,
   GIT_STATUS_OPEN,
@@ -112,7 +113,7 @@ export const postPermalink = (permalink: NostrEvent, relays: string[]) => {
 }
 
 export const postGraspServersList = (graspServersList: GraspSetEvent) => {
-  const merged = Array.from(new Set([...getUserRelayUrls(), ...GIT_RELAYS]))
+  const merged = getUserDataPublishRelays([...getUserRelayUrls(), ...GIT_RELAYS])
   return publishThunk({
     event: graspServersList,
     relays: merged,
@@ -120,7 +121,7 @@ export const postGraspServersList = (graspServersList: GraspSetEvent) => {
 }
 
 export const postExtensionSettings = (event: Parameters<typeof publishThunk>[0]["event"]) => {
-  const merged = Array.from(new Set([...getUserRelayUrls(), ...GIT_RELAYS]))
+  const merged = getUserDataPublishRelays([...getUserRelayUrls(), ...GIT_RELAYS])
   return publishThunk({
     event,
     relays: merged,
@@ -150,13 +151,8 @@ export const postRoleLabel = (params: {
   })
 }
 
-export const deleteRoleLabelEvent = ({
-  relays,
-  event,
-}: {
-  relays: string[]
-  event: TrustedEvent
-}) => publishDelete({event, relays})
+export const deleteRoleLabelEvent = ({relays, event}: {relays: string[]; event: TrustedEvent}) =>
+  publishDelete({event, relays})
 
 export type DeleteProgress = {
   label: string

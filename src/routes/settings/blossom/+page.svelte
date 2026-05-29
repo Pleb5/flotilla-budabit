@@ -45,6 +45,7 @@
   import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
   import {makeBudabitBlossomAuthEvent} from "@app/util/blossom-auth"
   import {DEFAULT_BLOSSOM_SERVERS} from "@app/core/state"
+  import {getUserDataPublishRelays} from "@app/core/community-relays"
   import {clip, pushToast} from "@app/util/toast"
 
   type Tab = "dashboard" | "upload" | "servers" | "optimization" | "mirroring" | "advanced"
@@ -219,7 +220,7 @@
   const savePersonalServers = () => {
     publishThunk({
       event: makeEvent(BLOSSOM_SERVERS, {tags: personalServers.map(tagger("server"))}),
-      relays: Router.get().FromUser().getUrls(),
+      relays: getUserDataPublishRelays(Router.get().FromUser().getUrls()),
     })
     pushToast({message: "Personal Blossom servers saved."})
   }

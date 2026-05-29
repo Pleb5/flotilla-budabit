@@ -21,6 +21,7 @@ import {
   normalizeRelayUrl,
   type TrustedEvent,
 } from "@welshman/util"
+import {getUserDataPublishRelays} from "@app/core/community-relays"
 
 const safeNormalizeRelayUrl = (u: string): string => {
   try {
@@ -56,7 +57,10 @@ const withPersistTimeout = async <T>(operation: Promise<T>, label: string): Prom
   await Promise.race([
     operation,
     new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after 15 seconds`)), GIT_AUTH_PERSIST_TIMEOUT_MS)
+      setTimeout(
+        () => reject(new Error(`${label} timed out after 15 seconds`)),
+        GIT_AUTH_PERSIST_TIMEOUT_MS,
+      )
     }),
   ])
 
@@ -76,7 +80,7 @@ function getGitAuthPublishRelays(relays: string[]): string[] {
     out.push(normalized)
   }
 
-  return out
+  return getUserDataPublishRelays(out)
 }
 
 async function publishGitAuthTokensToRelays(encrypted: string, relays: string[]) {
@@ -106,7 +110,11 @@ async function publishGitAuthTokensToRelays(encrypted: string, relays: string[])
     const details = results
       .map(result => `${result?.relay || "relay"}: ${result?.detail || result?.status || "failed"}`)
       .join("; ")
-    throw new Error(details ? `No relay accepted Git token backup: ${details}` : "No relay accepted Git token backup")
+    throw new Error(
+      details
+        ? `No relay accepted Git token backup: ${details}`
+        : "No relay accepted Git token backup",
+    )
   }
 
   return acceptedRelays

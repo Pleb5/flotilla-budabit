@@ -68,6 +68,10 @@ vi.mock("@welshman/store", () => ({
   deriveEventsById: storeMocks.deriveEventsById,
 }))
 
+vi.mock("@app/core/community-relays", () => ({
+  getUserDataPublishRelays: (relays: string[]) => [...relays, "wss://community.example.com/"],
+}))
+
 vi.mock("@nostr-git/ui", () => ({
   tokens: {clear: vi.fn(), push: vi.fn()},
   bookmarksStore: {set: vi.fn()},
@@ -228,7 +232,7 @@ describe("requests", () => {
             content: expect.stringContaining("github.com"),
             tags: [["d", GIT_AUTH_DTAG]],
           }),
-          relays: expect.arrayContaining(["wss://relay.com/"]),
+          relays: expect.arrayContaining(["wss://relay.com/", "wss://community.example.com/"]),
         }),
       )
       expect(tokens.clear).toHaveBeenCalledTimes(1)
@@ -275,9 +279,14 @@ describe("requests", () => {
         },
       ])
 
-      expect(appMocks.ensurePlaintext).toHaveBeenCalledWith(expect.objectContaining({content: "encrypted"}))
+      expect(appMocks.ensurePlaintext).toHaveBeenCalledWith(
+        expect.objectContaining({content: "encrypted"}),
+      )
       expect(tokens.clear).toHaveBeenCalledTimes(1)
-      expect(tokens.push).toHaveBeenCalledWith({host: "github.com", token: "ghp_loaded_token_value"})
+      expect(tokens.push).toHaveBeenCalledWith({
+        host: "github.com",
+        token: "ghp_loaded_token_value",
+      })
     })
   })
 })

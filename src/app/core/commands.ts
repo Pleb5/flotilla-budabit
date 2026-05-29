@@ -119,6 +119,7 @@ import {
   activeUserCommunityBlossomRefs,
   getCommunityBlossomServers,
 } from "@app/core/community-state"
+import {getUserDataPublishRelays} from "@app/core/community-relays"
 import {
   blossomDashboardState,
   blossomSettings,
@@ -528,7 +529,11 @@ export const setRelayPolicy = (url: string, read: boolean, write: boolean) => {
 
   return publishThunk({
     event: makeEvent(list.kind, {tags}),
-    relays: [url, ...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
+    relays: getUserDataPublishRelays([
+      url,
+      ...INDEXER_RELAYS,
+      ...Router.get().FromUser().getUrls(),
+    ]),
   })
 }
 
@@ -545,7 +550,7 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
 
     return publishThunk({
       event: makeEvent(list.kind, {tags}),
-      relays: [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
+      relays: getUserDataPublishRelays([...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()]),
     })
   }
 }
@@ -933,7 +938,10 @@ export const makeSettings = async (params: Partial<SettingsValues>) => {
 }
 
 export const publishSettings = async (params: Partial<SettingsValues>) =>
-  publishThunk({event: await makeSettings(params), relays: Router.get().FromUser().getUrls()})
+  publishThunk({
+    event: await makeSettings(params),
+    relays: getUserDataPublishRelays(Router.get().FromUser().getUrls()),
+  })
 
 export const addTrustedRelay = async (url: string) =>
   publishSettings({trusted_relays: append(url, getSetting<string[]>("trusted_relays"))})
@@ -1933,7 +1941,7 @@ export const updateProfile = async ({
   const scenarios = shouldBroadcast ? [router.FromUser(), router.Index()] : [router.FromUser()]
 
   const event = makeEvent(template.kind, template)
-  const relays = router.merge(scenarios).getUrls()
+  const relays = getUserDataPublishRelays(router.merge(scenarios).getUrls())
 
   await publishThunk({event, relays}).complete
 }

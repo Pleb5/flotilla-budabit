@@ -13,6 +13,7 @@ import {
   signer,
 } from "@welshman/app"
 import {Router} from "@welshman/router"
+import {getUserDataPublishRelays} from "@app/core/community-relays"
 
 export const REPO_WATCH_DTAG = "budabit/repo-watch"
 
@@ -171,5 +172,5 @@ export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOption
   const next: RepoWatchState = {version: 1, repos}
   const content = await $signer.nip44.encrypt($pubkey, JSON.stringify(next))
   const event = makeEvent(APP_DATA, {content, tags: [["d", REPO_WATCH_DTAG]]})
-  await publishThunk({event, relays: Router.get().FromUser().getUrls()})
+  await publishThunk({event, relays: getUserDataPublishRelays(Router.get().FromUser().getUrls())})
 }
