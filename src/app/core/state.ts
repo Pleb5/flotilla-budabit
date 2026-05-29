@@ -400,6 +400,8 @@ export type Chat = {
   id: string
   pubkeys: string[]
   messages: TrustedEvent[]
+  latestMessage?: TrustedEvent
+  latestIncomingMessage?: TrustedEvent
   last_activity: number
   search_text: string
 }
@@ -453,6 +455,8 @@ export const buildChatsById = (events: TrustedEvent[], selfPubkey?: string) => {
         id,
         pubkeys,
         messages: [event],
+        latestMessage: event,
+        latestIncomingMessage: event.pubkey === selfPubkey ? undefined : event,
         last_activity: event.created_at,
         search_text: recipient,
       })
@@ -460,6 +464,15 @@ export const buildChatsById = (events: TrustedEvent[], selfPubkey?: string) => {
     }
 
     chat.messages.push(event)
+    if (!chat.latestMessage || event.created_at > chat.latestMessage.created_at) {
+      chat.latestMessage = event
+    }
+    if (
+      event.pubkey !== selfPubkey &&
+      (!chat.latestIncomingMessage || event.created_at > chat.latestIncomingMessage.created_at)
+    ) {
+      chat.latestIncomingMessage = event
+    }
     chat.last_activity = Math.max(chat.last_activity, event.created_at)
   }
 
@@ -471,10 +484,13 @@ export const chatsById = derived([pubkey, chatMessages], ([$pubkey, $chatMessage
 )
 
 export const chatSearch = derived(throttled(800, chatsById), $chatsById =>
-  createSearch(Array.from($chatsById.values()), {
-    getValue: (chat: Chat) => chat.id,
-    fuseOptions: {keys: ["search_text"]},
-  }),
+  createSearch(
+    Array.from($chatsById.values()).sort((a, b) => b.last_activity - a.last_activity),
+    {
+      getValue: (chat: Chat) => chat.id,
+      fuseOptions: {keys: ["search_text"]},
+    },
+  ),
 )
 
 export const deriveChat = (pubkeys: string[]) =>

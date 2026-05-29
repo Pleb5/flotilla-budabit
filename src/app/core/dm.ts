@@ -175,30 +175,66 @@ const decryptDmContent = async (
   return decrypt($signer, counterparty, content)
 }
 
-export const ensureDmPlaintext = async (event: TrustedEvent, selfPubkey: string) => {
-  if (!event.content || getPlaintext(event)) {
-    return getPlaintext(event)
+const plaintextPromisesByKey = new Map<string, Promise<string | undefined>>()
+const MAX_CONCURRENT_DM_DECRYPTIONS = 6
+const pendingDmDecryptions: Array<() => void> = []
+let activeDmDecryptions = 0
+
+const runDmDecryption = async <T>(fn: () => Promise<T>) => {
+  if (activeDmDecryptions >= MAX_CONCURRENT_DM_DECRYPTIONS) {
+    await new Promise<void>(resolve => pendingDmDecryptions.push(resolve))
   }
 
-  const $signer = signer.get()
-  if (!$signer) return
-
-  const counterparty = getDmCounterparty(event, selfPubkey)
-  if (!counterparty) return
-
-  let result: string | undefined
+  activeDmDecryptions += 1
 
   try {
-    result = await decryptDmContent($signer, counterparty, event.content)
-  } catch (error: any) {
-    if (!String(error).match(/invalid base64/)) {
-      throw error
+    return await fn()
+  } finally {
+    activeDmDecryptions -= 1
+    pendingDmDecryptions.shift()?.()
+  }
+}
+
+export const ensureDmPlaintext = async (event: TrustedEvent, selfPubkey: string) => {
+  const existing = getPlaintext(event)
+
+  if (!event.content || existing !== undefined) {
+    return existing
+  }
+
+  const promiseKey = `${selfPubkey}:${event.id}`
+  const existingPromise = plaintextPromisesByKey.get(promiseKey)
+  if (existingPromise) return existingPromise
+
+  const promise = (async () => {
+    const $signer = signer.get()
+    if (!$signer) return
+
+    const counterparty = getDmCounterparty(event, selfPubkey)
+    if (!counterparty) return
+
+    let result: string | undefined
+
+    try {
+      result = await runDmDecryption(() => decryptDmContent($signer, counterparty, event.content))
+    } catch (error: any) {
+      if (!String(error).match(/invalid base64/)) {
+        throw error
+      }
     }
-  }
 
-  if (result) {
-    setPlaintext(event, result)
-  }
+    if (result !== undefined) {
+      setPlaintext(event, result)
+    }
 
-  return getPlaintext(event)
+    return getPlaintext(event)
+  })()
+
+  plaintextPromisesByKey.set(promiseKey, promise)
+
+  try {
+    return await promise
+  } finally {
+    plaintextPromisesByKey.delete(promiseKey)
+  }
 }

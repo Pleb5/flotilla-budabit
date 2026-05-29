@@ -54,6 +54,13 @@ describe("state", () => {
           tags: [["p", selfPubkey]],
           created_at: 20,
         },
+        {
+          id: "sent-2",
+          kind: 4444,
+          pubkey: selfPubkey,
+          tags: [["p", otherPubkey]],
+          created_at: 30,
+        },
       ] as any,
       selfPubkey,
     )
@@ -62,10 +69,16 @@ describe("state", () => {
     expect(chats.get(otherPubkey)).toMatchObject({
       id: otherPubkey,
       pubkeys: [selfPubkey, otherPubkey],
-      last_activity: 20,
+      last_activity: 30,
       search_text: otherPubkey,
     })
-    expect(chats.get(otherPubkey)?.messages.map(event => event.id)).toEqual(["sent-1", "recv-1"])
+    expect(chats.get(otherPubkey)?.messages.map(event => event.id)).toEqual([
+      "sent-1",
+      "recv-1",
+      "sent-2",
+    ])
+    expect(chats.get(otherPubkey)?.latestMessage?.id).toBe("sent-2")
+    expect(chats.get(otherPubkey)?.latestIncomingMessage?.id).toBe("recv-1")
   })
 
   it("buildChatsById returns empty when pubkey is unavailable", async () => {

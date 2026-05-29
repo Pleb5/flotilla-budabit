@@ -1,29 +1,101 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {debounce} from "throttle-debounce"
+  import {getFollows, profileSearch, profilesByPubkey, pubkey as sessionPubkey} from "@welshman/app"
+  import type {TrustedEvent} from "@welshman/util"
   import {createScroller, isMobile} from "@lib/html"
-  import {profileSearch} from "@welshman/app"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import ContentSearch from "@lib/components/ContentSearch.svelte"
   import PeopleItem from "@app/components/PeopleItem.svelte"
   import {bootstrapPubkeys} from "@app/core/state"
+  import {
+    communityAdminDefinitionEvents,
+    communityMemberDefinitionEvents,
+    communityMemberProfileListEvents,
+    communityMemberReportStates,
+    communityModeratorDefinitionEvents,
+    communityModeratorProfileListEvents,
+  } from "@app/core/community-state"
+  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {
+    buildPeopleSearchResults,
+    getCommunityPeoplePubkeys,
+    type PeopleSearchResult,
+  } from "@app/util/people-search"
 
   let term = $state("")
+  let searchTerm = $state("")
+  let lastSearchTerm = $state("")
   let limit = $state(10)
-  let pubkeys = $state($bootstrapPubkeys)
   let element: Element | undefined = $state()
 
-  const search = debounce(200, (term: string) => {
-    if (term) {
-      pubkeys = $profileSearch.searchValues(term)
-    } else {
-      pubkeys = $bootstrapPubkeys
-    }
+  const normalizedSearchTerm = $derived(searchTerm.trim())
+  const profileMatches = $derived.by(() =>
+    normalizedSearchTerm ? ($profileSearch.searchValues(normalizedSearchTerm) as string[]) : [],
+  )
+  const directFollowPubkeys = $derived($sessionPubkey ? getFollows($sessionPubkey) : [])
+  const communityDefinitionEvents = $derived([
+    ...$communityAdminDefinitionEvents,
+    ...$communityMemberDefinitionEvents,
+    ...$communityModeratorDefinitionEvents,
+  ] as TrustedEvent[])
+  const communityProfileListEvents = $derived([
+    ...$communityMemberProfileListEvents,
+    ...$communityModeratorProfileListEvents,
+  ] as TrustedEvent[])
+  const communityPubkeys = $derived(
+    getCommunityPeoplePubkeys({
+      definitionEvents: communityDefinitionEvents,
+      profileListEvents: communityProfileListEvents,
+    }),
+  )
+  const peopleCandidatePubkeys = $derived(
+    normalizedSearchTerm
+      ? Array.from(new Set([...communityPubkeys, ...directFollowPubkeys, ...profileMatches]))
+      : [],
+  )
+  const communityAssessments = $derived(
+    normalizedSearchTerm
+      ? buildCommunityTrustAssessments({
+          candidatePubkeys: peopleCandidatePubkeys,
+          viewerPubkey: $sessionPubkey || undefined,
+          context: {scope: "global_discovery"},
+          definitionEvents: communityDefinitionEvents,
+          profileListEvents: communityProfileListEvents,
+          reportStates: $communityMemberReportStates,
+        })
+      : new Map(),
+  )
+  const peopleResults = $derived.by(() =>
+    normalizedSearchTerm
+      ? buildPeopleSearchResults({
+          query: normalizedSearchTerm,
+          communityPubkeys,
+          directFollowPubkeys,
+          profileMatches,
+          knownPubkeys: $bootstrapPubkeys,
+          communityAssessments,
+          getProfile: pubkey => $profilesByPubkey.get(pubkey),
+          limit,
+        })
+      : ([] as PeopleSearchResult[]),
+  )
+
+  $effect(() => {
+    const value = term
+    const timeout = setTimeout(() => {
+      searchTerm = value
+    }, 200)
+
+    return () => clearTimeout(timeout)
   })
 
-  $effect(() => search(term))
+  $effect(() => {
+    if (searchTerm === lastSearchTerm) return
+    lastSearchTerm = searchTerm
+    limit = 10
+  })
 
   onMount(() => {
     const scroller = createScroller({
@@ -53,9 +125,15 @@
     {/snippet}
     {#snippet content()}
       <div class="col-2 h-full" bind:this={element}>
-        {#each pubkeys.slice(0, limit) as pubkey (pubkey)}
-          <PeopleItem {pubkey} />
-        {/each}
+        {#if normalizedSearchTerm}
+          {#each peopleResults as result (result.pubkey)}
+            <PeopleItem pubkey={result.pubkey} />
+          {/each}
+        {:else}
+          {#each $bootstrapPubkeys.slice(0, limit) as pubkey (pubkey)}
+            <PeopleItem {pubkey} />
+          {/each}
+        {/if}
       </div>
     {/snippet}
   </ContentSearch>

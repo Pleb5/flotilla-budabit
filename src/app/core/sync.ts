@@ -226,7 +226,7 @@ const buildDmFilters = (pubkey: string, extra: Filter = {}) => [
   {kinds: [DM_KIND], authors: [pubkey], ...extra},
 ]
 
-export const shouldLoadFullDmHistory = (pathname = "") =>
+export const shouldRefreshDmRelayListsForChat = (pathname = "") =>
   pathname === "/chat" || pathname.startsWith("/chat/")
 
 export const buildDmSyncFilters = (pubkey: string, fullHistory = false) =>
@@ -251,7 +251,7 @@ const syncDMs = () => {
 
   let currentPubkey: string | undefined
   let currentFullHistory = false
-  let hasRequestedFullHistory = false
+  let hasRequestedChatRelayRefresh = false
 
   const unsubscribeAll = () => {
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
@@ -293,7 +293,7 @@ const syncDMs = () => {
     if ($pubkey !== currentPubkey) {
       unsubscribeAll()
       currentFullHistory = false
-      hasRequestedFullHistory = false
+      hasRequestedChatRelayRefresh = false
     }
 
     // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
@@ -310,8 +310,11 @@ const syncDMs = () => {
   const unsubscribeList = derived([pubkey, userMessagingRelayList, page], identity).subscribe(
     ([$pubkey, $userMessagingRelayList, $page]) => {
       if ($pubkey) {
-        if (!hasRequestedFullHistory && shouldLoadFullDmHistory($page?.url?.pathname || "")) {
-          hasRequestedFullHistory = true
+        if (
+          !hasRequestedChatRelayRefresh &&
+          shouldRefreshDmRelayListsForChat($page?.url?.pathname || "")
+        ) {
+          hasRequestedChatRelayRefresh = true
           const relayHints = getMessagingRelayHints()
           loadUserRelayList($pubkey)
           forceLoadUserMessagingRelayList(relayHints)
@@ -323,7 +326,7 @@ const syncDMs = () => {
           ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
           : []
         const relayUrls = sanitizeRelayList(stringRelays)
-        subscribeAll($pubkey, relayUrls, hasRequestedFullHistory)
+        subscribeAll($pubkey, relayUrls)
       }
     },
   )

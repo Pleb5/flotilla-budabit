@@ -15,7 +15,7 @@
   interface Props {
     id: string
     pubkeys: string[]
-    messages: TrustedEvent[]
+    latestMessage?: TrustedEvent
     [key: string]: any
   }
 
@@ -24,12 +24,7 @@
   const others = remove($pubkey!, props.pubkeys)
   const active = $derived($page.params.chat === props.id)
   const path = makeChatPath(props.id)
-  const latestMessage = $derived.by(() => {
-    if (!props.messages?.length) return undefined
-    return props.messages.reduce((latest, current) =>
-      current.created_at > latest.created_at ? current : latest,
-    )
-  })
+  const latestMessage = $derived(props.latestMessage)
 
   let previewText = $state("")
   let previewDecrypting = $state(false)

@@ -8,14 +8,12 @@
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Spinner from "@lib/components/Spinner.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import ChatMenu from "@app/components/ChatMenu.svelte"
-  import ChatItem from "@app/components/ChatItem.svelte"
+  import ChatSearchResults from "@app/components/ChatSearchResults.svelte"
   import {pushModal} from "@app/util/modal"
-  import {chatSearch} from "@app/core/state"
 
   type Props = {
     children?: Snippet
@@ -26,10 +24,18 @@
   const openMenu = () => pushModal(ChatMenu)
 
   let term = $state("")
-
-  const chats = $derived($chatSearch.searchOptions(term))
+  let searchTerm = $state("")
 
   const promise = sleep(10000)
+
+  $effect(() => {
+    const value = term
+    const timeout = setTimeout(() => {
+      searchTerm = value
+    }, 200)
+
+    return () => clearTimeout(timeout)
+  })
 
   onMount(() => {
     document.body.classList.add("chat-md-sidebar")
@@ -43,7 +49,7 @@
 <SecondaryNav visibleClass="md:flex">
   <SecondaryNavSection>
     <SecondaryNavHeader>
-      Chats
+      Recent Conversations
       <Button onclick={openMenu}>
         <Icon icon={MenuDots} />
       </Button>
@@ -51,17 +57,14 @@
   </SecondaryNavSection>
   <label class="input input-sm input-bordered mx-6 -mt-4 mb-2 flex items-center gap-2">
     <Icon icon={Magnifier} />
-    <input bind:value={term} class="grow" type="text" />
+    <input
+      bind:value={term}
+      class="grow"
+      type="text"
+      placeholder="Search conversations or people..." />
   </label>
   <div class="overflow-auto">
-    {#each chats as { id, pubkeys, messages } (id)}
-      <ChatItem {id} {pubkeys} {messages} />
-    {/each}
-    {#await promise}
-      <div class="border-t border-solid border-base-100 px-6 py-4 text-xs">
-        <Spinner loading>Loading conversations...</Spinner>
-      </div>
-    {/await}
+    <ChatSearchResults term={searchTerm} loadingPromise={promise} />
   </div>
 </SecondaryNav>
 <Page>

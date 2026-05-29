@@ -210,7 +210,7 @@ describe("syncApplicationData", () => {
     mocks.trackerGetRelays.mockReturnValue(new Set<string>())
   })
 
-  it("reloads DMs without history limits after entering /chat", async () => {
+  it("refreshes DM relays without unbounded history loading after entering /chat", async () => {
     mocks.pubkey.set("a".repeat(64))
     mocks.userMessagingRelayList.set({tags: [["r", "wss://dm.relay.example.com"]]})
 
@@ -233,11 +233,8 @@ describe("syncApplicationData", () => {
     mocks.page.set({url: {pathname: "/chat"}, params: {}})
     await flush()
 
-    const fullHistoryCall = mocks.dmLoad.mock.calls.at(-1)?.[0]
-
     expect(mocks.forceLoadUserMessagingRelayList).toHaveBeenCalledTimes(2)
-    expect(fullHistoryCall?.filters.every((filter: any) => filter.limit === undefined)).toBe(true)
-    expect(fullHistoryCall?.filters.every((filter: any) => filter.since === undefined)).toBe(true)
+    expect(mocks.dmLoad).not.toHaveBeenCalled()
 
     cleanup()
   })

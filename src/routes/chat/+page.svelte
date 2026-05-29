@@ -8,20 +8,27 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ContentSearch from "@lib/components/ContentSearch.svelte"
-  import ChatItem from "@app/components/ChatItem.svelte"
+  import ChatSearchResults from "@app/components/ChatSearchResults.svelte"
   import ChatStart from "@app/components/ChatStart.svelte"
   import ChatMenu from "@app/components/ChatMenu.svelte"
-  import {chatSearch} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
 
   let term = $state("")
+  let searchTerm = $state("")
 
   const startChat = () => pushModal(ChatStart)
 
   const openMenu = () => pushModal(ChatMenu)
 
-  const chats = $derived($chatSearch.searchOptions(term))
+  $effect(() => {
+    const value = term
+    const timeout = setTimeout(() => {
+      searchTerm = value
+    }, 200)
+
+    return () => clearTimeout(timeout)
+  })
 
   onDestroy(() => {
     setChecked($page.url.pathname)
@@ -51,7 +58,7 @@
           bind:value={term}
           class="grow"
           type="text"
-          placeholder="Search for conversations..." />
+          placeholder="Search conversations or people..." />
       </label>
       <Button class="btn btn-primary" onclick={openMenu}>
         <Icon icon={MenuDots} />
@@ -60,17 +67,21 @@
   {/snippet}
   {#snippet content()}
     <div class="col-2">
-      {#each chats as { id, pubkeys, messages } (id)}
-        <ChatItem {id} {pubkeys} {messages} class="bg-alt card2" />
-      {:else}
-        <div class="py-20 max-w-sm col-4 items-center m-auto text-center">
-          <p>No chats found! Try starting one up.</p>
-          <Button class="btn btn-primary" onclick={startChat}>
-            <Icon icon={AddCircle} />
-            Start a Chat
-          </Button>
-        </div>
-      {/each}
+      <ChatSearchResults
+        term={searchTerm}
+        chatItemClass="bg-alt card2"
+        peopleItemClass="bg-alt card2"
+        showEmpty>
+        {#snippet empty()}
+          <div class="col-4 m-auto max-w-sm items-center py-20 text-center">
+            <p>No chats found! Try starting one up.</p>
+            <Button class="btn btn-primary" onclick={startChat}>
+              <Icon icon={AddCircle} />
+              Start a Chat
+            </Button>
+          </div>
+        {/snippet}
+      </ChatSearchResults>
     </div>
   {/snippet}
 </ContentSearch>

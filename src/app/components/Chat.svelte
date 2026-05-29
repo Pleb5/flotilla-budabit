@@ -2,8 +2,9 @@
   import type {Snippet} from "svelte"
   import {onMount} from "svelte"
   import {int, sortBy, remove, formatTimestampAsDate, MINUTE} from "@welshman/lib"
-  import type {TrustedEvent, EventContent, EventTemplate} from "@welshman/util"
+  import type {TrustedEvent, EventContent, EventTemplate, Filter} from "@welshman/util"
   import {makeEvent} from "@welshman/util"
+  import {load} from "@welshman/net"
   import {
     pubkey,
     publishThunk,
@@ -35,6 +36,9 @@
     pubkeys: string[]
     info?: Snippet
   }
+
+  const INITIAL_MESSAGE_COUNT = 120
+  const MESSAGE_BATCH_SIZE = 120
 
   const {pubkeys, info}: Props = $props()
 
@@ -161,6 +165,75 @@
   let chatCompose: HTMLElement | undefined = $state()
   let dynamicPadding: HTMLElement | undefined = $state()
   let lastToastKey = $state("")
+  let visibleMessageCount = $state(INITIAL_MESSAGE_COUNT)
+  let olderMessagesLoading = $state(false)
+  let olderMessagesExhausted = $state(false)
+  let initialThreadLoadKey = $state("")
+  let initialThreadLoading = $state(false)
+  let activeChatId = $state("")
+
+  const sortedMessages = $derived.by(() =>
+    sortBy((e: TrustedEvent) => e.created_at, $chat?.messages || []),
+  )
+  const visibleMessages = $derived.by(() =>
+    sortedMessages.slice(Math.max(0, sortedMessages.length - visibleMessageCount)),
+  )
+  const hasOlderMessages = $derived(sortedMessages.length > visibleMessageCount)
+  const canLoadOlderMessages = $derived(
+    hasOlderMessages || (sortedMessages.length > 0 && !olderMessagesExhausted),
+  )
+
+  const showOlderLoadedMessages = () => {
+    visibleMessageCount = Math.min(visibleMessageCount + MESSAGE_BATCH_SIZE, sortedMessages.length)
+  }
+
+  const makeConversationFilters = (
+    selfPubkey: string,
+    recipientPubkey: string,
+    extra: Filter = {},
+  ): Filter[] =>
+    recipientPubkey === selfPubkey
+      ? [{kinds: [DM_KIND], authors: [selfPubkey], "#p": [selfPubkey], ...extra}]
+      : [
+          {kinds: [DM_KIND], authors: [recipientPubkey], "#p": [selfPubkey], ...extra},
+          {kinds: [DM_KIND], authors: [selfPubkey], "#p": [recipientPubkey], ...extra},
+        ]
+
+  const loadOlderMessages = async () => {
+    if (olderMessagesLoading) return
+    if (hasOlderMessages) {
+      showOlderLoadedMessages()
+      return
+    }
+
+    const selfPubkey = $pubkey
+    const oldestMessage = sortedMessages[0]
+    if (!selfPubkey || !recipientPubkey || !oldestMessage) return
+
+    const until = oldestMessage.created_at - 1
+    const relays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
+    if (relays.length === 0) {
+      olderMessagesExhausted = true
+      return
+    }
+
+    const filters = makeConversationFilters(selfPubkey, recipientPubkey, {
+      until,
+      limit: MESSAGE_BATCH_SIZE,
+    })
+
+    olderMessagesLoading = true
+
+    try {
+      const events = await load({relays, filters})
+      visibleMessageCount += MESSAGE_BATCH_SIZE
+      olderMessagesExhausted = events.length === 0
+    } catch {
+      pushToast({theme: "error", message: "Failed to load older messages."})
+    } finally {
+      olderMessagesLoading = false
+    }
+  }
 
   const elements = $derived.by(() => {
     const elements = [] as Array<{
@@ -174,7 +247,7 @@
     let previousPubkey
     let previousCreatedAt = 0
 
-    for (const event of sortBy((e: TrustedEvent) => e.created_at, $chat?.messages || [])) {
+    for (const event of visibleMessages) {
       const {id, pubkey, created_at} = event
       const date = formatTimestampAsDate(created_at)
 
@@ -195,6 +268,49 @@
     }
 
     return elements.reverse()
+  })
+
+  $effect(() => {
+    const chatId = $chat?.id || ""
+    if (chatId !== activeChatId) {
+      activeChatId = chatId
+      visibleMessageCount = INITIAL_MESSAGE_COUNT
+      olderMessagesLoading = false
+      olderMessagesExhausted = false
+      initialThreadLoadKey = ""
+      initialThreadLoading = false
+    }
+  })
+
+  $effect(() => {
+    if (relayCheckPending) return
+
+    const selfPubkey = $pubkey
+    const recipient = recipientPubkey
+    if (!selfPubkey || !recipient) return
+
+    const relays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
+    if (relays.length === 0) return
+
+    const key = [selfPubkey, recipient, relays.join("|")].join(":")
+    if (key === initialThreadLoadKey) return
+
+    let cancelled = false
+    initialThreadLoadKey = key
+    initialThreadLoading = true
+
+    load({
+      relays,
+      filters: makeConversationFilters(selfPubkey, recipient, {limit: MESSAGE_BATCH_SIZE}),
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) initialThreadLoading = false
+      })
+
+    return () => {
+      cancelled = true
+    }
   })
 
   $effect(() => {
@@ -379,17 +495,29 @@
     {#if type === "date"}
       <Divider>{value}</Divider>
     {:else}
-      <ChatMessage event={$state.snapshot(value as TrustedEvent)} {showPubkey} />
+      <ChatMessage event={value as TrustedEvent} {showPubkey} />
     {/if}
   {/each}
   <p class="m-auto flex h-10 max-w-sm flex-col items-center justify-center gap-4 py-20 text-center">
-    <Spinner {loading}>
-      {#if loading}
-        Looking for messages...
+    {#if canLoadOlderMessages}
+      {#if olderMessagesLoading}
+        <Spinner loading>Loading older messages...</Spinner>
       {:else}
-        End of message history
+        <Button class="btn btn-neutral btn-sm" onclick={loadOlderMessages}
+          >Load older messages</Button>
       {/if}
-    </Spinner>
+      <span class="text-xs opacity-70">
+        Showing {visibleMessages.length} of {sortedMessages.length} loaded messages
+      </span>
+    {:else}
+      <Spinner loading={loading || initialThreadLoading}>
+        {#if loading || initialThreadLoading}
+          Looking for messages...
+        {:else}
+          End of message history
+        {/if}
+      </Spinner>
+    {/if}
     {@render info?.()}
   </p>
 </PageContent>
