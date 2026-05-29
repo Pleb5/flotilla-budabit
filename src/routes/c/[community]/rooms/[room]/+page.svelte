@@ -220,7 +220,7 @@
 
     if (eventToEdit) {
       template.created_at = eventToEdit.created_at
-      publishSocialDelete({url: communityPubkey, relays, event: eventToEdit, protect: false})
+      publishSocialDelete({url: communityPubkey, relays, event: eventToEdit})
     }
 
     if (share) {
@@ -527,7 +527,6 @@
             interactionAuthorPubkeys={messageAuthorPubkeys}
             scopeH={communityPubkey}
             communitySectionName={COMMUNITY_SECTION_GENERAL}
-            protectInteractions={false}
             {event}
             readOnly={!canReact}
             {replyTo}

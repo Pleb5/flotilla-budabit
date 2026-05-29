@@ -2,7 +2,7 @@
   import type {TrustedEvent} from "@welshman/util"
   import {abortThunk} from "@welshman/app"
   import DeleteWithProgressConfirm from "@app/components/DeleteWithProgressConfirm.svelte"
-  import {publishSocialDelete, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
   import type {DeleteProgress} from "@app/core/git-commands"
 
@@ -11,10 +11,9 @@
     relays?: string[]
     event: TrustedEvent
     noun?: string
-    protect?: boolean
   }
 
-  const {url, relays = [], event, noun = "Message", protect}: Props = $props()
+  const {url, relays = [], event, noun = "Message"}: Props = $props()
 
   const waitForDeletePublish = async (
     thunk: {complete?: Promise<unknown>} | undefined,
@@ -43,8 +42,6 @@
     signal: AbortSignal
     onProgress: (progress: DeleteProgress) => void
   }) => {
-    onProgress({label: "Checking relay delete policy...", completed: 0, total: 1, current: noun})
-    const resolvedProtect = protect ?? (url ? await canEnforceNip70(url) : false)
     if (signal.aborted) {
       throw new DOMException("Delete operation cancelled", "AbortError")
     }
@@ -56,7 +53,7 @@
       current: noun.toLowerCase(),
     })
 
-    const thunk = publishSocialDelete({url, relays, event, protect: resolvedProtect})
+    const thunk = publishSocialDelete({url, relays, event})
     await waitForDeletePublish(thunk, signal)
 
     return thunk

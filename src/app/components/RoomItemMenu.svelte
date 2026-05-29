@@ -16,7 +16,6 @@
     onClick: () => void
     readOnly?: boolean
     relays?: string[]
-    protect?: boolean
     communitySectionName?: string
   }
 
@@ -26,7 +25,6 @@
     onClick,
     readOnly = false,
     relays = [],
-    protect,
     communitySectionName = "",
   }: Props = $props()
 
@@ -42,7 +40,6 @@
       relays,
       event,
       noun: "Message",
-      ...(protect === undefined ? {} : {protect}),
     })
   }
 </script>

@@ -61,7 +61,7 @@
   import type {StatusEvent} from "@nostr-git/core/events"
   import {fade} from "svelte/transition"
   import {resolveIssueEdits} from "@app/util/issue-edits"
-  import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -104,16 +104,6 @@
     return relayUrl ? [relayUrl] : []
   })
 
-  const getReactionProtect = async () => {
-    if (!relayUrl) return false
-
-    try {
-      return await canEnforceNip70(relayUrl)
-    } catch {
-      return false
-    }
-  }
-
   const deleteReaction = async (event: TrustedEvent) => {
     const relays = reactionRelays
     if (relays.length === 0) return
@@ -121,7 +111,6 @@
     publishDelete({
       relays,
       event,
-      protect: await getReactionProtect(),
     })
   }
 
@@ -136,7 +125,6 @@
       ...template,
       event: target,
       relays,
-      protect: await getReactionProtect(),
     })
   }
   const repoAddresses = $derived.by((): string[] => (repoAddress ? [repoAddress] : []))

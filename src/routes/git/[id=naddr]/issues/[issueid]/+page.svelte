@@ -32,7 +32,7 @@
   import {postComment} from "@app/core/git-commands"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
-  import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import EventActions from "@app/components/EventActions.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import {ROLE_NS, buildRoleLabelEvent} from "@app/util/labels"
@@ -321,17 +321,6 @@
 
   const getPublishRelays = () => [...repoBoundRelays]
 
-  const getReactionProtect = async () => {
-    const relay = repoBoundRelays[0] || ""
-    if (!relay) return false
-
-    try {
-      return await canEnforceNip70(relay)
-    } catch {
-      return false
-    }
-  }
-
   const deleteReaction = async (event: TrustedEvent) => {
     const relays = getPublishRelays()
     if (relays.length === 0) return
@@ -339,7 +328,6 @@
     publishDelete({
       event,
       relays,
-      protect: await getReactionProtect(),
     })
   }
 
@@ -353,7 +341,6 @@
       ...template,
       event: issueEvent as TrustedEvent,
       relays,
-      protect: await getReactionProtect(),
     })
   }
 
@@ -408,7 +395,7 @@
         const eventToDelete = candidate?.id ? issueLabelEventsById.get(candidate.id) : undefined
 
         if (eventToDelete && eventToDelete.pubkey === $pubkey) {
-          publishDelete({event: eventToDelete as any, relays, protect: false})
+          publishDelete({event: eventToDelete as any, relays})
         } else {
           publishTagDeleteMarker(value, relays, true)
         }
@@ -888,7 +875,7 @@
               if (!issue) return
               try {
                 const relays = getPublishRelays()
-                publishDelete({event: evt as any, relays, protect: false})
+                publishDelete({event: evt as any, relays})
                 await load({relays, filters: [{kinds: [1985], "#e": [issue.id]}]})
               } catch (err) {
                 console.error("[IssueDetail] Failed to delete assignee label", err)

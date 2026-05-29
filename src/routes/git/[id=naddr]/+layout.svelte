@@ -2754,7 +2754,6 @@
             const thunk = publishDelete({
               event: existingPersonalStar.reaction,
               relays: relaysToPublish,
-              protect: false,
             })
             if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
             actions.push({
@@ -3272,7 +3271,6 @@
         seen.add(event.id)
 
         const thunk = publishDelete({
-          protect: false,
           event,
           relays: rollbackRelays,
         })

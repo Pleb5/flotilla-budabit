@@ -732,7 +732,6 @@ describe("commands", () => {
       sig: "",
     } as any
     const reaction = makeReaction({
-      protect: false,
       event,
       content: "+",
     })
@@ -740,7 +739,7 @@ describe("commands", () => {
     expect(reaction.content).toBe("+")
   })
 
-  it("makeReaction never adds protected tags", async () => {
+  it("makeReaction drops standalone dash tags", async () => {
     const {makeReaction} = await import("./commands")
     const event = {
       id: "evt",
@@ -752,7 +751,6 @@ describe("commands", () => {
       sig: "",
     } as any
     const reaction = makeReaction({
-      protect: true,
       event,
       content: "❤️",
       tags: [["-"], ["custom", "value"]],
@@ -836,7 +834,6 @@ describe("commands", () => {
       sig: "",
     } as any
     const reaction = makeReaction({
-      protect: false,
       event,
       content: "👍",
       tags: [["custom", "tag"]],
@@ -844,7 +841,7 @@ describe("commands", () => {
     expect(reaction.tags.some((t: string[]) => t[0] === "custom")).toBe(true)
   })
 
-  it("makeDelete never adds protected tags", async () => {
+  it("makeDelete drops standalone dash tags", async () => {
     const {makeDelete} = await import("./commands")
     const event = {
       id: "evt",
@@ -855,7 +852,7 @@ describe("commands", () => {
       tags: [],
       sig: "",
     } as any
-    const del = makeDelete({protect: true, event, tags: [["-"]]})
+    const del = makeDelete({event, tags: [["-"]]})
     expect(del.tags).not.toContainEqual(["-"])
   })
 
@@ -870,7 +867,7 @@ describe("commands", () => {
       tags: [["h", "room123"]],
       sig: "",
     } as any
-    const del = makeDelete({protect: false, event})
+    const del = makeDelete({event})
     expect(del.tags).toContainEqual(["h", "room123"])
   })
 
@@ -886,7 +883,6 @@ describe("commands", () => {
       sig: "",
     } as any
     const del = makeDelete({
-      protect: false,
       event,
     })
     expect(del.kind).toBe(5)

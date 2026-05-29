@@ -2836,9 +2836,9 @@
       ...(community?.relays || selectedCommunityOption?.relays || []),
       ...bookmarkRelays,
     ])
-    const targetDelete = publishDelete({event: collection.targetEvent, relays, protect: false})
+    const targetDelete = publishDelete({event: collection.targetEvent, relays})
     if (targetDelete?.event) repository.publish(targetDelete.event as TrustedEvent)
-    const starDelete = publishDelete({event: collection.star.reaction, relays, protect: false})
+    const starDelete = publishDelete({event: collection.star.reaction, relays})
     if (starDelete?.event) repository.publish(starDelete.event as TrustedEvent)
     return [targetDelete, starDelete] as Array<PublishThunkResult | undefined>
   }
@@ -2895,7 +2895,6 @@
             const thunk = publishDelete({
               event: existingPersonalStar.reaction,
               relays,
-              protect: false,
             })
             if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
             actions.push({
@@ -3443,7 +3442,6 @@
           seen.add(event.id)
 
           const thunk = publishDelete({
-            protect: false,
             event,
             relays: rollbackRelays,
           })

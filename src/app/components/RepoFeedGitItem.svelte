@@ -187,7 +187,6 @@
       url,
       relays: relayTargets,
       event,
-      protect: false,
     })
 
   const createReaction = async (template: EventContent) =>
@@ -196,7 +195,6 @@
       event,
       relays: relayTargets,
       tags: [...(template.tags || []), ...scopedTags],
-      protect: false,
     })
 </script>
 
@@ -231,8 +229,7 @@
               {url}
               {event}
               relays={relayTargets}
-              {scopeH}
-              protect={false} />
+              {scopeH} />
             <Button
               class="btn btn-xs"
               onclick={shareItem}

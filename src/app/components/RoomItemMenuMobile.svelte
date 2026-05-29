@@ -17,7 +17,7 @@
   import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
-  import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishReaction} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
 
   type Props = {
@@ -29,7 +29,6 @@
     relays?: string[]
     scopeH?: string
     communitySectionName?: string
-    protectActions?: boolean
   }
 
   const {
@@ -41,11 +40,9 @@
     relays = [],
     scopeH = "",
     communitySectionName = "",
-    protectActions = true,
   }: Props = $props()
 
   const actionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
-  const shouldProtect = protectActions ? canEnforceNip70(url) : undefined
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
       return [] as string[][]
@@ -61,7 +58,6 @@
       relays: actionRelays,
       content: emoji.unicode,
       tags: scopedTags,
-      protect: protectActions ? await shouldProtect! : false,
     })
   }).bind(undefined, event)
 
@@ -93,7 +89,6 @@
       relays: actionRelays,
       event,
       noun: "Message",
-      ...(protectActions ? {} : {protect: false}),
     })
 </script>
 

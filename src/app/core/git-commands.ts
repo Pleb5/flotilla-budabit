@@ -153,12 +153,10 @@ export const postRoleLabel = (params: {
 export const deleteRoleLabelEvent = ({
   relays,
   event,
-  protect = false,
 }: {
   relays: string[]
   event: TrustedEvent
-  protect?: boolean
-}) => publishDelete({event, relays, protect})
+}) => publishDelete({event, relays})
 
 export type DeleteProgress = {
   label: string
@@ -241,14 +239,12 @@ const deleteEventsSequentially = async ({
   root,
   events,
   relays,
-  protect,
   signal,
   onProgress,
 }: {
   root: TrustedEvent
   events: TrustedEvent[]
   relays: string[]
-  protect: boolean
 } & DeleteCallbacks) => {
   let deletedEvents = 0
 
@@ -265,7 +261,6 @@ const deleteEventsSequentially = async ({
     const thunk = publishDelete({
       event,
       relays,
-      protect: event.id === root.id ? protect : false,
     })
 
     await waitForDeletePublish(thunk, signal)
@@ -285,13 +280,11 @@ const deleteEventsSequentially = async ({
 export const deleteIssueWithLabels = async ({
   issue,
   relays = [],
-  protect = false,
   signal,
   onProgress,
 }: {
   issue: TrustedEvent
   relays?: string[]
-  protect?: boolean
 } & DeleteCallbacks): Promise<{labelsDeleted: number}> => {
   if (!issue) return {labelsDeleted: 0}
   if (issue.kind !== 1621) return {labelsDeleted: 0}
@@ -334,7 +327,6 @@ export const deleteIssueWithLabels = async ({
     root: issue,
     events: [issue, ...labelEvents],
     relays: merged,
-    protect,
     signal,
     onProgress,
   })
@@ -345,13 +337,11 @@ export const deleteIssueWithLabels = async ({
 export const deletePullRequestWithRelated = async ({
   root,
   relays = [],
-  protect = false,
   signal,
   onProgress,
 }: {
   root: TrustedEvent
   relays?: string[]
-  protect?: boolean
 } & DeleteCallbacks): Promise<{deletedEvents: number; relatedDeleted: number}> => {
   if (!root?.id) return {deletedEvents: 0, relatedDeleted: 0}
   if (root.kind !== GIT_PULL_REQUEST) {
@@ -422,7 +412,6 @@ export const deletePullRequestWithRelated = async ({
     root,
     events: Array.from(eventsToDelete.values()),
     relays: merged,
-    protect,
     signal,
     onProgress,
   })

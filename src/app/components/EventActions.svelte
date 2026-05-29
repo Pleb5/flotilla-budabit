@@ -13,7 +13,7 @@
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import EventMenu from "@app/components/EventMenu.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
-  import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishReaction} from "@app/core/commands"
   import {stopPropagation} from "@lib/html"
 
   type Props = {
@@ -62,17 +62,6 @@
     return url ? [url] : []
   })
 
-  const getShouldProtect = async () => {
-    const relay = reactionRelays[0] || url
-    if (!relay) return false
-
-    try {
-      return await canEnforceNip70(relay)
-    } catch {
-      return false
-    }
-  }
-
   const showPopover = () => popover?.show()
 
   const hidePopover = () => popover?.hide()
@@ -83,7 +72,6 @@
       content: emoji.unicode,
       relays: reactionRelays,
       tags: scopeH ? [["h", scopeH]] : [],
-      protect: await getShouldProtect(),
     })
 
   // Stop right-click from bubbling up to parent context menu handlers

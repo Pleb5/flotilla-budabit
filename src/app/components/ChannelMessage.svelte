@@ -23,7 +23,7 @@
   import {colors, ENABLE_ZAPS} from "@app/core/state"
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getCommunityCensorReason} from "@app/core/community-reports"
-  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
@@ -39,7 +39,6 @@
     interactionAuthorPubkeys?: string[]
     scopeH?: string
     communitySectionName?: string
-    protectInteractions?: boolean
     replyParent?: TrustedEvent
     onReplyParentOpen?: (event: TrustedEvent) => void
   }
@@ -55,7 +54,6 @@
     interactionAuthorPubkeys = undefined,
     scopeH = "",
     communitySectionName = "",
-    protectInteractions = true,
     replyParent = undefined,
     onReplyParentOpen = undefined,
   }: Props = $props()
@@ -87,7 +85,6 @@
   const displayEvent = $derived(
     replyParent ? {...event, content: stripLeadingReplyQuote(event.content, replyParent.id)} : event,
   )
-  const shouldProtect = protectInteractions ? canEnforceNip70(url) : undefined
   const today = formatTimestampAsDate(now())
   const profile = deriveProfile(event.pubkey, [url])
   const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
@@ -126,7 +123,6 @@
       relays: relayTargets,
       scopeH,
       communitySectionName,
-      protectActions: protectInteractions,
     })
 
   const onTap = () => openMobileMenu()
@@ -147,7 +143,6 @@
       url,
       relays: relayTargets,
       event,
-      protect: protectInteractions ? await shouldProtect! : false,
     })
 
   const createReaction = async (template: EventContent) =>
@@ -156,7 +151,6 @@
       event,
       relays: relayTargets,
       tags: [...(template.tags || []), ...scopedTags],
-      protect: protectInteractions ? await shouldProtect! : false,
     })
 </script>
 
@@ -172,8 +166,7 @@
           {url}
           {event}
           relays={relayTargets}
-          {scopeH}
-          protect={protectInteractions} />
+          {scopeH} />
       {/if}
       {#if reply}
         <Button
@@ -294,8 +287,7 @@
           {url}
           {event}
           relays={relayTargets}
-          {scopeH}
-          protect={protectInteractions} />
+          {scopeH} />
       {/if}
       {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
@@ -307,7 +299,6 @@
         {event}
         relays={relayTargets}
         {communitySectionName}
-        protect={protectInteractions ? undefined : false}
         readOnly={inert || readOnly} />
       {#if !readOnly}
         <SlotRenderer slotId="chat:message:actions" context={{url, event}} />

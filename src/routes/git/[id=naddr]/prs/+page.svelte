@@ -49,7 +49,7 @@
   import {getContext, onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {beforeNavigate, goto} from "$app/navigation"
-  import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeFeed} from "@src/app/core/requests"
   import {
     PULL_REQUESTS_KEY,
@@ -154,16 +154,6 @@
     return relayUrl ? [relayUrl] : []
   })
 
-  const getReactionProtect = async () => {
-    if (!relayUrl) return false
-
-    try {
-      return await canEnforceNip70(relayUrl)
-    } catch {
-      return false
-    }
-  }
-
   const deleteReaction = async (event: TrustedEvent) => {
     const relays = reactionRelays
     if (relays.length === 0) return
@@ -171,7 +161,6 @@
     publishDelete({
       relays,
       event,
-      protect: await getReactionProtect(),
     })
   }
 
@@ -186,7 +175,6 @@
       ...template,
       event: target,
       relays,
-      protect: await getReactionProtect(),
     })
   }
 

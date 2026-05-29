@@ -16,7 +16,6 @@ import {
   fromPairs,
   simpleCache,
   normalizeUrl,
-  nthNe,
 } from "@welshman/lib"
 import {decrypt, Nip01Signer} from "@welshman/signer"
 import type {UploadTask} from "@welshman/editor"
@@ -551,16 +550,9 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
   }
 }
 
-// Relay access
-
-export const canEnforceNip70 = async (_url: string) => {
-  return false
-}
-
 // Deletions
 
 export type DeleteParams = {
-  protect: boolean
   event: TrustedEvent
   tags?: string[][]
 }
@@ -582,10 +574,10 @@ const getRepoAddressForDelete = (event: TrustedEvent) => {
   return ""
 }
 
-const stripProtectedTags = (tags: string[][] = []) => tags.filter(nthNe(0, "-"))
+const sanitizePublishTags = (tags: string[][] = []) => tags.filter(tag => tag[0] !== "-")
 
 export const makeDelete = ({event, tags = []}: DeleteParams) => {
-  const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...stripProtectedTags(tags)]
+  const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...sanitizePublishTags(tags)]
   const repoAddress = getRepoAddressForDelete(event)
   if (repoAddress) {
     thisTags.push(["repo", repoAddress])
@@ -722,14 +714,13 @@ export const publishReport = ({
 // Reactions
 
 export type ReactionParams = {
-  protect: boolean
   event: TrustedEvent
   content: string
   tags?: string[][]
 }
 
 export const makeReaction = ({content, event, tags: paramTags = []}: ReactionParams) => {
-  const tags = [...stripProtectedTags(paramTags), ...tagEventForReaction(event)]
+  const tags = [...sanitizePublishTags(paramTags), ...tagEventForReaction(event)]
   const groupTag = getTag("h", event.tags)
 
   if (groupTag) {
@@ -751,7 +742,7 @@ export type CommentParams = {
 }
 
 export const makeComment = ({event, content, tags = []}: CommentParams) =>
-  makeEvent(COMMENT, {content, tags: [...stripProtectedTags(tags), ...tagEventForComment(event)]})
+  makeEvent(COMMENT, {content, tags: [...sanitizePublishTags(tags), ...tagEventForComment(event)]})
 
 export const publishComment = ({relays, ...params}: CommentParams & {relays: string[]}) =>
   publishThunk({event: makeComment(params), relays})
@@ -845,7 +836,7 @@ export const deleteAlert = (alert: Alert) => {
   const relays = [NOTIFIER_RELAY]
   const tags = [["p", NOTIFIER_PUBKEY]]
 
-  return publishDelete({event: alert.event, relays, tags, protect: false})
+  return publishDelete({event: alert.event, relays, tags})
 }
 
 export type CreateAlertParams = Override<
@@ -1938,7 +1929,7 @@ export const updateProfile = async ({
 }) => {
   const router = Router.get()
   const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
-  template.tags = stripProtectedTags(template.tags)
+  template.tags = sanitizePublishTags(template.tags)
   const scenarios = shouldBroadcast ? [router.FromUser(), router.Index()] : [router.FromUser()]
 
   const event = makeEvent(template.kind, template)

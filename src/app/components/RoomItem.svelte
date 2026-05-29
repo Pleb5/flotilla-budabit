@@ -31,7 +31,7 @@
   import {colors, ENABLE_ZAPS, deriveEventsForUrl} from "@app/core/state"
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getCommunityCensorReason} from "@app/core/community-reports"
-  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
@@ -49,7 +49,6 @@
     interactionAuthorPubkeys?: string[]
     scopeH?: string
     communitySectionName?: string
-    protectInteractions?: boolean
     canEdit: (event: TrustedEvent) => boolean
     onEdit: (event: TrustedEvent) => void
   }
@@ -66,13 +65,11 @@
     interactionAuthorPubkeys = undefined,
     scopeH = "",
     communitySectionName = "",
-    protectInteractions = true,
     canEdit,
     onEdit,
   }: Props = $props()
 
   const path = getRoomItemPath(url, event)
-  const shouldProtect = protectInteractions ? canEnforceNip70(url) : undefined
   const today = formatTimestampAsDate(now())
   const profileRelayHints = $derived.by(() =>
     (profileRelays.length > 0
@@ -133,7 +130,6 @@
       relays: relayTargets,
       scopeH,
       communitySectionName,
-      protectActions: protectInteractions,
     })
 
   const openProfile = () =>
@@ -148,7 +144,6 @@
       url,
       relays: relayTargets,
       event,
-      protect: protectInteractions ? await shouldProtect! : false,
     })
 
   const createReaction = async (template: EventContent) =>
@@ -157,7 +152,6 @@
       event,
       relays: relayTargets,
       tags: [...(template.tags || []), ...scopedTags],
-      protect: protectInteractions ? await shouldProtect! : false,
     })
 </script>
 
@@ -228,8 +222,7 @@
           {url}
           {event}
           relays={relayTargets}
-          {scopeH}
-          protect={protectInteractions} />
+          {scopeH} />
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
             <Icon icon={Reply} size={4} />
@@ -284,8 +277,7 @@
           {url}
           {event}
           relays={relayTargets}
-          {scopeH}
-          protect={protectInteractions} />
+          {scopeH} />
       {/if}
       {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
@@ -303,8 +295,7 @@
         {readOnly}
         class={menuButtonClass}
         relays={relayTargets}
-        {communitySectionName}
-        protect={protectInteractions ? undefined : false} />
+        {communitySectionName} />
       {#if !readOnly}
         <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
       {/if}

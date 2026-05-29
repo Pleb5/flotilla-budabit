@@ -7,7 +7,7 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import RoomName from "@app/components/RoomName.svelte"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGoalPath, makeSpacePath} from "@app/util/routes"
 
   interface Props {
@@ -36,10 +36,9 @@
 
   const path = makeGoalPath(url, event.id)
   const h = getTagValue("h", event.tags)
-  const shouldProtect = canEnforceNip70(url)
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: relays.length ? relays : [url], event, protect: await shouldProtect})
+    publishDelete({relays: relays.length ? relays : [url], event})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({
@@ -47,7 +46,6 @@
       event,
       relays: relays.length ? relays : [url],
       tags: [...(template.tags || []), ...(scopeH ? [["h", scopeH]] : [])],
-      protect: await shouldProtect,
     })
 </script>
 

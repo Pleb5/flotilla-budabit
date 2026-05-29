@@ -7,7 +7,7 @@
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {makeThreadPath, makeSpacePath} from "@app/util/routes"
 
   interface Props {
@@ -38,10 +38,9 @@
 
   const h = getTagValue("h", event.tags)
   const path = makeThreadPath(url, event.id)
-  const shouldProtect = canEnforceNip70(url)
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishSocialDelete({url, event, protect: await shouldProtect})
+    publishSocialDelete({url, event})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({
@@ -49,7 +48,6 @@
       event,
       relays: relays.length ? relays : [url],
       tags: [...(template.tags || []), ...(scopeH ? [["h", scopeH]] : [])],
-      protect: await shouldProtect,
     })
 </script>
 

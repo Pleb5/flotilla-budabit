@@ -11,7 +11,7 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import CalendarEventEdit from "@app/components/CalendarEventEdit.svelte"
-  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {makeCalendarPath, makeSpacePath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import Pen2 from "@assets/icons/pen-2.svg?dataurl"
@@ -45,7 +45,6 @@
   const h = getTagValue("h", event.tags)
   const eventRouteParam = getTagValue("d", event.tags) || event.id
   const path = makeCalendarPath(url, eventRouteParam)
-  const shouldProtect = canEnforceNip70(url)
 
   const editEvent = () =>
     pushModal(CalendarEventEdit, {
@@ -56,7 +55,7 @@
     })
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishSocialDelete({url, event, protect: await shouldProtect})
+    publishSocialDelete({url, event})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({
@@ -64,7 +63,6 @@
       event,
       relays: relays.length ? relays : [url],
       tags: [...(template.tags || []), ...(scopeH ? [["h", scopeH]] : [])],
-      protect: await shouldProtect,
     })
 </script>
 

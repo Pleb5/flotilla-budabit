@@ -381,7 +381,6 @@
                 interactionAuthorPubkeys={replyAuthorPubkeys}
                 scopeH={communityPubkey}
                 communitySectionName={COMMUNITY_SECTION_GENERAL}
-                protectInteractions={false}
                 {replyParent}
                 onReplyParentOpen={scrollToReplyParent}
                 replyTo={canReply ? event => openCommentPrompt(event) : undefined} />

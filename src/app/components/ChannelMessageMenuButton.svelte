@@ -11,7 +11,6 @@
     event,
     readOnly = false,
     relays = [],
-    protect = undefined,
     communitySectionName = "",
   } = $props()
 
@@ -41,6 +40,6 @@
   <Tippy
     bind:popover
     component={RoomItemMenu}
-    props={{url, event, onClick, readOnly, relays, protect, communitySectionName}}
+    props={{url, event, onClick, readOnly, relays, communitySectionName}}
     params={{trigger: "manual", interactive: true}} />
 </div>

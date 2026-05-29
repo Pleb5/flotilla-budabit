@@ -14,7 +14,7 @@
   import EventInfo from "@app/components/EventInfo.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
-  import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishReaction} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
 
   type Props = {
@@ -23,14 +23,11 @@
     reply?: () => void
     relays?: string[]
     scopeH?: string
-    protectActions?: boolean
   }
 
-  const {url, event, reply, relays = [], scopeH = "", protectActions = true}: Props = $props()
+  const {url, event, reply, relays = [], scopeH = ""}: Props = $props()
 
   const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
-
-  const shouldProtect = protectActions ? canEnforceNip70(url) : undefined
 
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -47,7 +44,6 @@
       relays: reactionRelays,
       content: emoji.unicode,
       tags: scopedTags,
-      protect: protectActions ? await shouldProtect! : false,
     })
   }).bind(undefined, event)
 
@@ -70,7 +66,6 @@
       relays: reactionRelays,
       event,
       noun: "Message",
-      ...(protectActions ? {} : {protect: false}),
     })
 </script>
 

@@ -43,7 +43,7 @@
 
     try {
       if (star) {
-        const thunk = publishDelete({event: star.reaction, relays, protect: false})
+        const thunk = publishDelete({event: star.reaction, relays})
         if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
         pushToast({message: "Community unstarred."})
       } else {

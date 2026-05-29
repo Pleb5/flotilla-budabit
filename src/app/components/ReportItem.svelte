@@ -10,7 +10,7 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import NoteContent from "@app/components/NoteContent.svelte"
   import ReportMenu from "@app/components/ReportMenu.svelte"
-  import {publishDelete, canEnforceNip70} from "@app/core/commands"
+  import {publishDelete} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
   import {goToEvent} from "@app/util/routes"
 
@@ -25,7 +25,6 @@
   const etag = getTag("e", event.tags)
   const ptag = getTag("p", event.tags)
   const reason = etag?.[2] || ptag?.[2]
-  const shouldProtect = canEnforceNip70(url)
 
   const onClick = (e: Event, event: TrustedEvent) => {
     // @ts-ignore
@@ -37,7 +36,7 @@
   }
 
   const deleteReport = async () => {
-    publishDelete({event, relays: [url], protect: await shouldProtect})
+    publishDelete({event, relays: [url]})
     onDelete?.()
   }
 </script>
