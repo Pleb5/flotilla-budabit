@@ -6,15 +6,29 @@ import {
 } from "@nostr-git/core/events"
 import {repository, pubkey} from "@welshman/app"
 
+const relayMocks = vi.hoisted(() => ({
+  userOutboxRelays: ["wss://outbox.example"],
+  gitRelays: ["wss://git-indexer.example"],
+}))
+
 vi.mock("@nostr-git/ui", () => ({
   graspServersStore: {subscribe: () => () => {}},
 }))
 
-import {
-  getRepoAnnouncementRelays,
-  getRepoMaintainers,
-  getRepoScopedRelays,
-} from "./git-state"
+vi.mock("@welshman/router", () => ({
+  Router: {
+    get: () => ({
+      FromUser: () => ({getUrls: () => relayMocks.userOutboxRelays}),
+    }),
+  },
+}))
+
+vi.mock("@app/core/state", () => ({
+  deriveEvent: () => ({subscribe: () => () => {}}),
+  fromCsv: () => relayMocks.gitRelays,
+}))
+
+import {getRepoAnnouncementRelays, getRepoMaintainers, getRepoScopedRelays} from "./git-state"
 
 let eventCounter = 0
 
@@ -57,6 +71,10 @@ describe("budabit state", () => {
   })
 
   describe("getRepoAnnouncementRelays", () => {
+    beforeEach(() => {
+      relayMocks.userOutboxRelays = ["wss://outbox.example"]
+    })
+
     it("returns array of relay URLs", () => {
       const relays = getRepoAnnouncementRelays()
       expect(Array.isArray(relays)).toBe(true)
@@ -86,6 +104,30 @@ describe("budabit state", () => {
       const relays = getRepoAnnouncementRelays()
 
       expect(relays).toContain("wss://custom.grasp.example/")
+    })
+
+    it("merges user outbox, git indexer, explicit GRASP, and repo relays for announcements", () => {
+      const currentPubkey = "a".repeat(64)
+      pubkey.set(currentPubkey)
+
+      repository.publish({
+        id: "1".repeat(64),
+        sig: "2".repeat(128),
+        kind: GRASP_SET_KIND,
+        pubkey: currentPubkey,
+        created_at: 10,
+        tags: [["d", DEFAULT_GRASP_SET_ID]],
+        content: JSON.stringify({urls: ["wss://custom.grasp.example"]}),
+      } as any)
+
+      expect(
+        getRepoAnnouncementRelays(["wss://repo.example", "wss://repo.example/", "not-a-relay"]),
+      ).toEqual([
+        "wss://outbox.example/",
+        "wss://git-indexer.example/",
+        "wss://custom.grasp.example/",
+        "wss://repo.example/",
+      ])
     })
   })
 

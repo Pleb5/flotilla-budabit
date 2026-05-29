@@ -59,11 +59,7 @@ vi.mock("@welshman/util", () => ({
     }
 
     static fromEvent(event: {kind: number; pubkey: string; tags: string[][]}) {
-      return new this(
-        event.kind,
-        event.pubkey,
-        event.tags.find(tag => tag[0] === "d")?.[1] || "",
-      )
+      return new this(event.kind, event.pubkey, event.tags.find(tag => tag[0] === "d")?.[1] || "")
     }
 
     toString() {
@@ -108,7 +104,9 @@ describe("routes", () => {
     const communityNpub = nip19.npubEncode(communityPubkey)
 
     expect(makeCommunityPath(communityPubkey)).toBe(`/c/${communityNpub}`)
-    expect(makeCommunityRoomPath(communityPubkey, "room-id")).toBe(`/c/${communityNpub}/rooms/room-id`)
+    expect(makeCommunityRoomPath(communityPubkey, "room-id")).toBe(
+      `/c/${communityNpub}/rooms/room-id`,
+    )
     expect(makeCommunityThreadPath(communityPubkey, "thread-id")).toBe(
       `/c/${communityNpub}/threads/thread-id`,
     )
@@ -121,10 +119,54 @@ describe("routes", () => {
     })
   })
 
+  it("builds npub profile paths when no relay hints are provided", async () => {
+    const {makeProfilePath} = await import("./routes")
+    const profilePubkey = "a".repeat(64)
+    const profileNpub = nip19.npubEncode(profilePubkey)
+
+    expect(makeProfilePath(profilePubkey)).toBe(`/people/${profileNpub}`)
+    expect(nip19.decode(profileNpub)).toEqual({type: "npub", data: profilePubkey})
+  })
+
+  it("builds nprofile profile paths when relay hints are provided", async () => {
+    const {makeProfilePath} = await import("./routes")
+    const profilePubkey = "b".repeat(64)
+    const path = makeProfilePath(profilePubkey, [
+      "wss://profile-relay.example.com",
+      "",
+      "wss://backup-relay.example.com",
+    ])
+    const encodedProfile = decodeURIComponent(path.replace(/^\/people\//, ""))
+    const decoded = nip19.decode(encodedProfile)
+
+    expect(path.startsWith("/people/nprofile1")).toBe(true)
+    expect(decoded.type).toBe("nprofile")
+    expect(decoded.data).toMatchObject({
+      pubkey: profilePubkey,
+      relays: ["wss://profile-relay.example.com", "wss://backup-relay.example.com"],
+    })
+  })
+
+  it("keeps existing npub and nprofile route identifiers unchanged", async () => {
+    const {makeProfilePath} = await import("./routes")
+    const profilePubkey = "c".repeat(64)
+    const profileNpub = nip19.npubEncode(profilePubkey)
+    const profileNprofile = nip19.nprofileEncode({
+      pubkey: profilePubkey,
+      relays: ["wss://profile-relay.example.com"],
+    })
+
+    expect(makeProfilePath(profileNpub, ["wss://ignored.example.com"])).toBe(
+      `/people/${profileNpub}`,
+    )
+    expect(makeProfilePath(profileNprofile, ["wss://ignored.example.com"])).toBe(
+      `/people/${profileNprofile}`,
+    )
+  })
+
   it("parses encoded ncommunity route params", async () => {
     const {makeCommunityPath, parseCommunityRouteParam} = await import("./routes")
     const communityPubkey = "b".repeat(64)
-    const communityNpub = nip19.npubEncode(communityPubkey)
     const value = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
       "wss://relay.example.com",
     )}`
@@ -172,7 +214,11 @@ describe("routes", () => {
       getCommunityEventPath(
         makeEvent({
           kind: 1111,
-          tags: [["h", communityPubkey], ["E", "thread-root"], ["K", "11"]],
+          tags: [
+            ["h", communityPubkey],
+            ["E", "thread-root"],
+            ["K", "11"],
+          ],
         }) as any,
       ),
     ).toBe(`/c/${communityNpub}/threads/thread-root`)
@@ -180,7 +226,10 @@ describe("routes", () => {
       getCommunityEventPath(
         makeEvent({
           kind: 9,
-          tags: [["h", communityPubkey], ["E", "room-root"]],
+          tags: [
+            ["h", communityPubkey],
+            ["E", "room-root"],
+          ],
         }) as any,
       ),
     ).toBe(`/c/${communityNpub}/rooms/room-root`)
@@ -228,9 +277,9 @@ describe("routes", () => {
     expect(
       getCommunityEventPath(makeEvent({kind: 31922, tags: [["h", communityPubkey]]}) as any),
     ).toBe(`/c/${communityNpub}/calendar`)
-    expect(getCommunityEventPath(makeEvent({kind: 9041, tags: [["h", communityPubkey]]}) as any)).toBe(
-      `/c/${communityNpub}/goals`,
-    )
+    expect(
+      getCommunityEventPath(makeEvent({kind: 9041, tags: [["h", communityPubkey]]}) as any),
+    ).toBe(`/c/${communityNpub}/goals`)
     expect(
       getCommunityEventPath(makeEvent({kind: 30033, tags: [["h", communityPubkey]]}) as any),
     ).toBe(`/c/${communityNpub}/widgets`)
@@ -244,13 +293,23 @@ describe("routes", () => {
     repositoryQuery.mockReturnValue([
       makeEvent({
         kind: 30222,
-        tags: [["d", "target-1"], ["k", "31922"], ["p", communityPubkey]],
+        tags: [
+          ["d", "target-1"],
+          ["k", "31922"],
+          ["p", communityPubkey],
+        ],
       }),
     ] as any)
 
     expect(
       getCommunityEventPath(
-        makeEvent({kind: 31922, tags: [["h", "target-1"], ["d", "calendar-1"]]}) as any,
+        makeEvent({
+          kind: 31922,
+          tags: [
+            ["h", "target-1"],
+            ["d", "calendar-1"],
+          ],
+        }) as any,
       ),
     ).toBe(`/c/${communityNpub}/calendar`)
   })
@@ -261,10 +320,17 @@ describe("routes", () => {
     const communityNpub = nip19.npubEncode(communityPubkey)
     const targeting = makeEvent({
       kind: 30222,
-      tags: [["d", "target-1"], ["k", "9041"], ["p", communityPubkey]],
+      tags: [
+        ["d", "target-1"],
+        ["k", "9041"],
+        ["p", communityPubkey],
+      ],
     })
 
-    repositoryQuery.mockReturnValueOnce([]).mockReturnValueOnce([]).mockReturnValueOnce([targeting] as any)
+    repositoryQuery
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([targeting] as any)
 
     await expect(
       getEventPath(makeEvent({kind: 9041, tags: [["h", "target-1"]]}) as any, [
@@ -285,7 +351,11 @@ describe("routes", () => {
       getCommunityEventPath(
         makeEvent({
           kind: 30222,
-          tags: [["d", "target-1"], ["k", "30033"], ["p", communityPubkey]],
+          tags: [
+            ["d", "target-1"],
+            ["k", "30033"],
+            ["p", communityPubkey],
+          ],
         }) as any,
       ),
     ).toBe(`/c/${communityNpub}/widgets`)
@@ -297,7 +367,9 @@ describe("routes", () => {
     const path = await getEventPath(event as any, ["wss://relay.example.com"])
 
     expect(getCommunityEventPath(event as any)).toBeUndefined()
-    expect(getCommunityEventPath(makeEvent({kind: 11, tags: [["h", "topic"]]}) as any)).toBeUndefined()
+    expect(
+      getCommunityEventPath(makeEvent({kind: 11, tags: [["h", "topic"]]}) as any),
+    ).toBeUndefined()
     expect(path.startsWith("https://coracle.social/nevent1")).toBe(true)
   })
 })

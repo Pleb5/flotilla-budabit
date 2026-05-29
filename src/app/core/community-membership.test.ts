@@ -21,11 +21,13 @@ const makeDefinition = ({
   pubkey,
   sectionName = "General",
   profileListAddress,
+  relays = ["wss://relay.example.com"],
 }: {
   id: string
   pubkey: string
   sectionName?: string
   profileListAddress?: string
+  relays?: string[]
 }) =>
   parseCommunityDefinition(
     makeEvent({
@@ -33,7 +35,7 @@ const makeDefinition = ({
       pubkey,
       kind: COMMUNITY_DEFINITION_KIND,
       tags: [
-        ["r", "wss://relay.example.com"],
+        ...relays.map(relay => ["r", relay]),
         ["content", sectionName],
         ["k", "1111"],
         ...(profileListAddress ? [["a", profileListAddress]] : []),
@@ -158,5 +160,62 @@ describe("community membership", () => {
     })
 
     expect(refs.map(ref => ref.communityPubkey)).toEqual([userPubkey])
+  })
+
+  it("returns relay hints only for eligible active community refs", () => {
+    const userPubkey = "b".repeat(64)
+    const memberCommunityPubkey = "d".repeat(64)
+    const bannedCommunityPubkey = "e".repeat(64)
+    const unrelatedCommunityPubkey = "f".repeat(64)
+    const memberListOwner = "7".repeat(64)
+    const bannedListOwner = "8".repeat(64)
+
+    const refs = selectUserCommunityRefs({
+      author: userPubkey,
+      definitions: [
+        makeDefinition({
+          id: "admin-definition",
+          pubkey: userPubkey,
+          relays: ["wss://admin-relay.example.com", "bad-relay"],
+        }),
+        makeDefinition({
+          id: "member-definition",
+          pubkey: memberCommunityPubkey,
+          profileListAddress: `${PROFILE_LIST_KIND}:${memberListOwner}:General`,
+          relays: ["wss://member-relay.example.com", "wss://member-relay.example.com/"],
+        }),
+        makeDefinition({
+          id: "banned-definition",
+          pubkey: bannedCommunityPubkey,
+          profileListAddress: `${PROFILE_LIST_KIND}:${bannedListOwner}:General`,
+          relays: ["wss://banned-relay.example.com"],
+        }),
+        makeDefinition({
+          id: "unrelated-definition",
+          pubkey: unrelatedCommunityPubkey,
+          relays: ["wss://unrelated-relay.example.com"],
+        }),
+      ],
+      profileListEvents: [
+        makeProfileList({
+          id: "member-list",
+          pubkey: memberListOwner,
+          identifier: "General",
+          members: [userPubkey],
+        }),
+        makeProfileList({
+          id: "banned-list",
+          pubkey: bannedListOwner,
+          identifier: "General",
+          members: [userPubkey],
+        }),
+      ],
+      reportStates: new Map([[bannedCommunityPubkey, makePersonBanState(userPubkey)]]),
+    })
+
+    expect(refs.map(ref => ({pubkey: ref.communityPubkey, relayHints: ref.relayHints}))).toEqual([
+      {pubkey: userPubkey, relayHints: ["wss://admin-relay.example.com/"]},
+      {pubkey: memberCommunityPubkey, relayHints: ["wss://member-relay.example.com/"]},
+    ])
   })
 })

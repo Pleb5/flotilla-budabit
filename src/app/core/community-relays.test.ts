@@ -48,6 +48,15 @@ describe("community relay policies", () => {
     ).toEqual(["wss://community.example/", "wss://indexer.example/", "wss://outbox.example/"])
   })
 
+  it("normalizes and deduplicates root community relay merges", () => {
+    expect(
+      getCommunityRootPublishRelays(["wss://community.example", "bad-relay"], communityPubkey, {
+        indexerRelays: ["wss://indexer.example", "wss://community.example/"],
+        outboxRelays: ["wss://outbox.example", "wss://outbox.example/"],
+      }),
+    ).toEqual(["wss://community.example/", "wss://indexer.example/", "wss://outbox.example/"])
+  })
+
   it("uses the community pubkey outbox for root community definition publishes", () => {
     expect(getCommunityRootPublishRelays(["wss://community.example"], communityPubkey)).toEqual([
       "wss://community.example/",
