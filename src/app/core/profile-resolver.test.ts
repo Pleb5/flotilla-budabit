@@ -94,6 +94,15 @@ describe("Budabit profile resolver", () => {
     expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
   })
 
+  it("uses indexer-backed Welshman loadProfile for bare missing profiles", async () => {
+    const {loadBudabitProfile} = await import("./profile-resolver")
+
+    await expect(loadBudabitProfile(pubkey)).resolves.toBeUndefined()
+
+    expect(mocks.loadProfile).toHaveBeenCalledWith(pubkey, ["wss://indexer.example/"])
+    expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
+  })
+
   it("force-loads a missing profile when new relay hints appear", async () => {
     const {loadBudabitProfile} = await import("./profile-resolver")
 
@@ -141,6 +150,22 @@ describe("Budabit profile resolver", () => {
       "wss://active.example/",
       "wss://community.example/",
     ])
+
+    unsubscribe()
+  })
+
+  it("updates display stores when a slow profile load arrives", async () => {
+    const {deriveBudabitProfileDisplay} = await import("./profile-resolver")
+    const values: string[] = []
+
+    const unsubscribe = deriveBudabitProfileDisplay(pubkey).subscribe(value => values.push(value))
+
+    expect(values.at(-1)).toBeTruthy()
+    expect(values.at(-1)).not.toBe("Alice")
+
+    mocks.profilesByPubkey.set(new Map([[pubkey, {name: "Alice"}]]))
+
+    expect(values.at(-1)).toBe("Alice")
 
     unsubscribe()
   })

@@ -105,6 +105,54 @@ describe("budabit commands", () => {
     })
   })
 
+  describe("postIssue", () => {
+    it("publishes issues only to provided repo relays", async () => {
+      const {postIssue} = await import("./git-commands")
+      const issue = {
+        id: "i1",
+        kind: 1621,
+        content: "issue",
+        created_at: 0,
+        tags: [],
+        pubkey: "a".repeat(64),
+        sig: "sig",
+      } as any
+
+      postIssue(issue, ["wss://repo.example.com", "wss://repo.example.com/"])
+
+      expect(mockPublishThunk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: issue,
+          relays: ["wss://repo.example.com/"],
+        }),
+      )
+    })
+  })
+
+  describe("postStatus", () => {
+    it("publishes statuses only to provided repo relays", async () => {
+      const {postStatus} = await import("./git-commands")
+      const status = {
+        id: "s1",
+        kind: 1630,
+        content: "status",
+        created_at: 0,
+        tags: [],
+        pubkey: "a".repeat(64),
+        sig: "sig",
+      } as any
+
+      postStatus(status, ["wss://repo.example.com"])
+
+      expect(mockPublishThunk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: status,
+          relays: ["wss://repo.example.com/"],
+        }),
+      )
+    })
+  })
+
   describe("postGraspServersList", () => {
     it("merges user relays with active community relays", async () => {
       const {postGraspServersList} = await import("./git-commands")
