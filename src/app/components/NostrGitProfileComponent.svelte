@@ -6,6 +6,7 @@
   type Props = {
     pubkey?: string
     url?: string
+    relays?: string[]
     hideDetails?: boolean
     showPubkey?: boolean
     avatarSize?: number
@@ -20,6 +21,7 @@
     ref = $bindable(null),
     pubkey,
     url,
+    relays = [],
     hideDetails = false,
     showPubkey,
     avatarSize,
@@ -43,6 +45,6 @@
 
 <div bind:this={ref} class={className} {style} {title} {...restProps}>
   {#if pubkey}
-    <Profile {pubkey} {url} {hideDetails} {showPubkey} avatarSize={resolvedAvatarSize} />
+    <Profile {pubkey} {url} {relays} {hideDetails} {showPubkey} avatarSize={resolvedAvatarSize} />
   {/if}
 </div>

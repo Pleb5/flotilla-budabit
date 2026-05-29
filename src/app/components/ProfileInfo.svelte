@@ -1,7 +1,6 @@
 <script lang="ts">
-  import {removeUndefined} from "@welshman/lib"
-  import {deriveProfile} from "@welshman/app"
   import ContentMinimal from "@app/components/ContentMinimal.svelte"
+  import {deriveBudabitProfile} from "@app/core/profile-resolver"
 
   export type Props = {
     pubkey: string
@@ -11,8 +10,7 @@
 
   const {pubkey, url, relays = []}: Props = $props()
 
-  const relayHints = $derived(removeUndefined([url, ...relays]))
-  const profile = $derived(deriveProfile(pubkey, relayHints))
+  const profile = $derived(deriveBudabitProfile(pubkey, {url, relays}))
 </script>
 
 {#if $profile}

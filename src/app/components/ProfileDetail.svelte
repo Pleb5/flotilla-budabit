@@ -1,7 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {removeUndefined} from "@welshman/lib"
-  import {deriveProfile, pubkey as sessionPubkey} from "@welshman/app"
+  import {pubkey as sessionPubkey} from "@welshman/app"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
@@ -29,6 +29,7 @@
   import {canCreateCommunityBadge} from "@app/core/community-badges"
   import {pushModal} from "@app/util/modal"
   import {makeChatPath, makeProfilePath} from "@app/util/routes"
+  import {deriveBudabitProfile} from "@app/core/profile-resolver"
 
   export type Props = {
     pubkey: string
@@ -40,7 +41,7 @@
 
   const relayHints = $derived(removeUndefined([url, ...relays]))
   const profileUrl = $derived(relayHints[0])
-  const profile = $derived(deriveProfile(pubkey, relayHints))
+  const profile = $derived(deriveBudabitProfile(pubkey, {url, relays}))
   const canAwardCommunityBadges = $derived(
     Boolean(
       $activeCommunityDefinition &&

@@ -1,15 +1,15 @@
 <script lang="ts">
-  import {removeUndefined} from "@welshman/lib"
-  import {deriveProfileDisplay} from "@welshman/app"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
 
   type Props = {
     pubkey: string
     url?: string
+    relays?: string[]
   }
 
-  const {pubkey, url}: Props = $props()
+  const {pubkey, url, relays = []}: Props = $props()
 
-  const profileDisplay = $derived(deriveProfileDisplay(pubkey, removeUndefined([url])))
+  const profileDisplay = $derived(deriveBudabitProfileDisplay(pubkey, {url, relays}))
 </script>
 
 {$profileDisplay}

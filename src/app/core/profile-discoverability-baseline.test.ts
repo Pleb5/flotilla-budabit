@@ -34,12 +34,25 @@ describe("profile discoverability phase 1 baseline", () => {
     expect(profile).toContain(
       "pushModal(ProfileDetail, {pubkey, url: relayHints[0], relays: relayHints})",
     )
-    expect(link).toContain("pushModal(ProfileDetail, {pubkey, url})")
-    expect(link).toContain("<ProfileName {pubkey} {url} />")
+    expect(link).toContain("pushModal(ProfileDetail, {pubkey, url, relays: relayHints})")
+    expect(link).toContain("<ProfileName {pubkey} {url} {relays} />")
+  })
+
+  it("uses the Budabit resolver in common profile read components", () => {
+    for (const path of [
+      "../components/Profile.svelte",
+      "../components/ProfileCircle.svelte",
+      "../components/ProfileDetail.svelte",
+      "../components/ProfileInfo.svelte",
+      "../components/ProfileName.svelte",
+    ]) {
+      expect(readProjectFile(path)).toContain("@app/core/profile-resolver")
+    }
   })
 
   it("does not use repo relay defaults in common profile read components", () => {
     for (const path of [
+      "../components/NostrGitProfileComponent.svelte",
       "../components/Profile.svelte",
       "../components/ProfileCircle.svelte",
       "../components/ProfileDetail.svelte",

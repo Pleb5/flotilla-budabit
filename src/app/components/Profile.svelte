@@ -2,11 +2,12 @@
   import * as nip19 from "nostr-tools/nip19"
   import {removeUndefined} from "@welshman/lib"
   import {displayPubkey} from "@welshman/util"
-  import {deriveHandleForPubkey, displayHandle, deriveProfileDisplay} from "@welshman/app"
+  import {deriveHandleForPubkey, displayHandle} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
   import Copy from "@assets/icons/copy.svg?dataurl"
@@ -30,7 +31,7 @@
   }: Props = $props()
 
   const relayHints = $derived(removeUndefined([url, ...relays]))
-  const profileDisplay = $derived(deriveProfileDisplay(pubkey, relayHints))
+  const profileDisplay = $derived(deriveBudabitProfileDisplay(pubkey, {url, relays}))
   const handle = $derived(deriveHandleForPubkey(pubkey))
 
   const openProfile = () =>
@@ -41,7 +42,7 @@
 
 <div class="flex max-w-full items-start gap-3">
   <Button onclick={openProfile} class="py-1">
-    <ProfileCircle {pubkey} relays={relayHints} size={avatarSize} />
+    <ProfileCircle {pubkey} {url} {relays} size={avatarSize} />
   </Button>
   {#if !hideDetails}
     <div class="flex min-w-0 flex-col">
