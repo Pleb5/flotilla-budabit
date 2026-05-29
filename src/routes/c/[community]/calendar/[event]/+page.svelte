@@ -3,28 +3,40 @@
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, repository} from "@welshman/app"
+  import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {sortBy} from "@welshman/lib"
-  import {COMMENT, EVENT_TIME, getTagValue, type EventContent, type Filter} from "@welshman/util"
+  import {
+    COMMENT,
+    EVENT_TIME,
+    getTagValue,
+    makeEvent,
+    type EventContent,
+    type Filter,
+    type TrustedEvent,
+  } from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import Content from "@app/components/Content.svelte"
-  import NoteCard from "@app/components/NoteCard.svelte"
+  import {scrollToEvent} from "@lib/html"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
+  import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
+  import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
   import CalendarEventDescription from "@app/components/CalendarEventDescription.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
   import CalendarEventMeta from "@app/components/CalendarEventMeta.svelte"
   import CalendarEventDate from "@app/components/CalendarEventDate.svelte"
-  import {publishComment} from "@app/core/commands"
+  import {
+    makeCommunityCalendarEventReply,
+    readCommunityCalendarEventReply,
+  } from "@app/core/community-calendar"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
@@ -64,9 +76,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -161,7 +173,10 @@
       : undefined,
   )
   const replyFilters = $derived<Filter[]>(
-    communityBootstrapReady && approvedEvent && !approvedEventCensorReason && interactionAuthorPubkeys.length
+    communityBootstrapReady &&
+      approvedEvent &&
+      !approvedEventCensorReason &&
+      interactionAuthorPubkeys.length
       ? [
           {
             kinds: [COMMENT],
@@ -194,20 +209,34 @@
   const replyEventsStore = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})),
   )
-  const replyEvents = $derived(
+  const replies = $derived(
     sortBy(
-      replyEvent => replyEvent.created_at,
-      $replyEventsStore.filter(
-        event => !isCommunityPersonBanned($activeCommunityReportState, event.pubkey),
-      ),
+      reply => reply.event.created_at,
+      $replyEventsStore
+        .map(replyEvent =>
+          readCommunityCalendarEventReply(
+            replyEvent,
+            communityPubkey,
+            approvedEvent?.id,
+            eventAddress,
+          ),
+        )
+        .filter((reply): reply is NonNullable<ReturnType<typeof readCommunityCalendarEventReply>> =>
+          Boolean(reply),
+        )
+        .filter(
+          reply => !isCommunityPersonBanned($activeCommunityReportState, reply!.event.pubkey),
+        ),
     ),
   )
 
   let showAllReplies = $state(false)
 
-  const visibleReplyEvents = $derived(
-    showAllReplies ? replyEvents : replyEvents.slice(Math.max(replyEvents.length - 4, 0)),
+  const visibleReplies = $derived(
+    showAllReplies ? replies : replies.slice(Math.max(replies.length - 4, 0)),
   )
+  const repliesById = $derived.by(() => new Map(replies.map(reply => [reply!.id, reply!])))
+  const latestReplyId = $derived(replies.at(-1)?.id || "")
 
   const canReply = $derived(
     Boolean(
@@ -242,6 +271,23 @@
     ),
   )
 
+  const openCommentPrompt = async (replyParent?: TrustedEvent) => {
+    parent = replyParent
+    showReply = true
+    await tick()
+    composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
+    compose?.focus()
+  }
+
+  const closeCommentPrompt = () => {
+    parent = undefined
+    showReply = false
+  }
+
+  const clearParent = () => {
+    parent = undefined
+  }
+
   const sendReply = ({content, tags}: EventContent) => {
     const trimmed = content.trim()
     if (!approvedEvent || !trimmed) return
@@ -249,31 +295,45 @@
       pushToast({theme: "error", message: "You do not have permission to comment."})
       return
     }
-    if ($activeCommunityRelays.length === 0) {
+    const relays = $activeCommunityRelays
+    if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
     }
 
-    publishComment({
-      relays: $activeCommunityRelays,
-      event: approvedEvent,
+    const template = makeCommunityCalendarEventReply({
+      communityPubkey,
+      calendarEvent: approvedEvent,
+      relay: relays[0],
       content: trimmed,
-      tags: [["h", communityPubkey], ...(tags || [])],
+      tags,
+      parent: parent
+        ? {id: parent.id, pubkey: parent.pubkey, kind: parent.kind, relay: relays[0]}
+        : undefined,
     })
-    showReply = false
+
+    publishThunk({
+      relays,
+      event: makeEvent(COMMENT, template),
+    })
+    closeCommentPrompt()
   }
 
-  const openReply = async () => {
-    showReply = true
+  const scrollToReplyParent = async (event: TrustedEvent) => {
+    showAllReplies = true
     await tick()
-    composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
+    await scrollToEvent(event.id)
   }
+
+  const openReply = () => openCommentPrompt()
 
   let loadingEvent = $state(false)
   let eventRequestDone = $state(false)
   let loadingTargeting = $state(false)
   let targetRequestDone = $state(false)
   let showReply = $state(false)
+  let parent: TrustedEvent | undefined = $state()
+  let compose: RoomCompose | undefined = $state()
   let composeElement: HTMLElement | undefined = $state()
   let deleteLoadKey = ""
   let latestDeleteSeen = 0
@@ -314,7 +374,11 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || eventFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      eventFilters.length === 0
+    ) {
       loadingEvent = false
       eventRequestDone = false
       return
@@ -328,7 +392,12 @@
 
     loadingEvent = true
     eventRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: eventFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: eventFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -345,7 +414,11 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
       loadingTargeting = false
       targetRequestDone = false
       return
@@ -359,7 +432,12 @@
 
     loadingTargeting = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetingFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -376,10 +454,20 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || replyFilters.length === 0) return
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      replyFilters.length === 0
+    )
+      return
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, autoClose: true, filters: replyFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: replyFilters,
+      signal: controller.signal,
+    })
 
     return () => controller.abort()
   })
@@ -447,41 +535,36 @@
       {/if}
     </article>
 
-    {#if !approvedEventCensorReason && !showAllReplies && replyEvents.length > visibleReplyEvents.length}
+    {#if !approvedEventCensorReason && !showAllReplies && replies.length > visibleReplies.length}
       <div class="flex justify-center py-2">
         <button class="btn btn-link" type="button" onclick={() => (showAllReplies = true)}>
-          Show all {replyEvents.length} comments
+          Show all {replies.length} comments
         </button>
       </div>
     {/if}
 
     {#if !approvedEventCensorReason}
       <div class="col-2">
-        {#each visibleReplyEvents as replyEvent (replyEvent.id)}
-          {@const censorReason = getCommunityCensorReason({
-            reportState: $activeCommunityReportState,
-            eventId: replyEvent.id,
-            pubkey: replyEvent.pubkey,
-            sectionName: COMMUNITY_SECTION_GENERAL,
-          })}
-          {#if censorReason}
-            <div class="card2 bg-alt z-feature w-full">
-              <ModeratedContent reason={censorReason} />
-            </div>
-          {:else}
-            <NoteCard
-              event={replyEvent}
+        {#each visibleReplies as item (item.id)}
+          {@const replyParent = item.parentReplyId
+            ? repliesById.get(item.parentReplyId)?.event
+            : undefined}
+          <div
+            class="card2 bg-alt z-feature w-full shadow-sm"
+            data-latest-reply={item.id === latestReplyId ? "true" : undefined}>
+            <ChannelMessage
               url={communityPubkey}
-              class="card2 bg-alt z-feature w-full">
-              <div class="col-3 ml-12">
-                <Content
-                  showEntire
-                  event={replyEvent}
-                  url={communityPubkey}
-                  communitySectionName={COMMUNITY_SECTION_GENERAL} />
-              </div>
-            </NoteCard>
-          {/if}
+              event={item.event}
+              showPubkey
+              readOnly={!canReact}
+              interactionRelays={$activeCommunityRelays}
+              {interactionAuthorPubkeys}
+              scopeH={communityPubkey}
+              communitySectionName={COMMUNITY_SECTION_GENERAL}
+              {replyParent}
+              onReplyParentOpen={scrollToReplyParent}
+              replyTo={canReply ? event => openCommentPrompt(event) : undefined} />
+          </div>
         {:else}
           <p class="py-8 text-center opacity-70">No comments yet.</p>
         {/each}
@@ -491,24 +574,29 @@
     {#if !approvedEventCensorReason && showReply}
       <div bind:this={composeElement} class="card2 bg-alt col-3 p-4 shadow-md">
         <div class="flex items-center justify-between gap-2">
-          <strong>Comment</strong>
-          <button class="btn btn-link btn-sm" type="button" onclick={() => (showReply = false)}>
+          <strong>{parent ? "Reply" : "Comment"}</strong>
+          <button class="btn btn-link btn-sm" type="button" onclick={closeCommentPrompt}>
             Cancel
           </button>
         </div>
+        {#if parent}
+          <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
+        {/if}
         <RoomCompose
           url={$activeCommunityRelays[0] || communityPubkey}
           h={communityPubkey}
           blossomContext={{type: "community", communityPubkey}}
           showMenu={false}
-          onSubmit={sendReply} />
+          onSubmit={sendReply}
+          onEscape={closeCommentPrompt}
+          bind:this={compose} />
       </div>
     {:else if !approvedEventCensorReason}
       <div class="flex justify-end px-2 pb-2">
         {#if canReply}
           <button class="btn btn-primary" type="button" onclick={openReply}>
             <Icon icon={Reply} />
-            Leave comment
+            Comment
           </button>
         {:else if communityBootstrapLoading}
           <div class="flex items-center gap-2 text-sm opacity-70">
@@ -520,7 +608,7 @@
             action="comment on events"
             class="btn btn-primary">
             <Icon icon={Reply} />
-            Leave comment
+            Comment
           </PublishGate>
         {/if}
       </div>

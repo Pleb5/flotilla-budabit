@@ -36,7 +36,8 @@ vi.mock("@welshman/lib", () => ({
 }))
 vi.mock("@welshman/util", () => ({
   COMMENT: 1111,
-  EVENT_TIME: 31922,
+  EVENT_DATE: 31922,
+  EVENT_TIME: 31923,
   MESSAGE: 9,
   THREAD: 11,
   ZAP_GOAL: 9041,
@@ -222,6 +223,19 @@ describe("routes", () => {
         }) as any,
       ),
     ).toBe(`/c/${communityNpub}/threads/thread-root`)
+    expect(
+      getCommunityEventPath(
+        makeEvent({
+          kind: 1111,
+          tags: [
+            ["h", communityPubkey],
+            ["E", "calendar-root"],
+            ["K", "31922"],
+            ["A", `31922:${"2".repeat(64)}:calendar-d`],
+          ],
+        }) as any,
+      ),
+    ).toBe(`/c/${communityNpub}/calendar/calendar-d`)
     expect(
       getCommunityEventPath(
         makeEvent({

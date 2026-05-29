@@ -81,7 +81,7 @@
   import {profilesByPubkey} from "@welshman/app"
   import {Router} from "@welshman/router"
   import type {TrustedEvent} from "@welshman/util"
-  import {Address, MESSAGE} from "@welshman/util"
+  import {Address, EVENT_DATE, EVENT_TIME, MESSAGE, THREAD} from "@welshman/util"
   import {FileCode, GitCommit} from "@lucide/svelte"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
   import Button from "@lib/components/Button.svelte"
@@ -465,6 +465,9 @@
     return "Thread"
   }
 
+  const isCommunityCommentRootKind = (rootKind: number | null) =>
+    rootKind === THREAD || rootKind === EVENT_DATE || rootKind === EVENT_TIME
+
   const getCommentPreview = (evt: TrustedEvent) => {
     const text = evt?.content || ""
     if (!text) return ""
@@ -537,6 +540,9 @@
     }
 
     if (evt.kind === GIT_COMMENT) {
+      const rootKind = getCommentRootKind(evt)
+      if (isCommunityCommentRootKind(rootKind)) return null
+
       const repoAddress =
         getTagValue(evt, "A") ||
         getTagValue(evt, "a") ||
@@ -544,7 +550,6 @@
         getTagValue(evt, "repo")
       const repoLabel = getDisplayRepo(evt, repoAddress)
       const rootId = getCommentRootId(evt)
-      const rootKind = getCommentRootKind(evt)
       const contextLabel = getCommentContextLabel(rootKind)
       const baseHref = buildRepoHrefFromAddress(
         repoAddress,

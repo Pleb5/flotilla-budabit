@@ -58,7 +58,8 @@
     onReplyParentOpen = undefined,
   }: Props = $props()
 
-  const LEADING_EVENT_URI = /^(?:nostr:\s*)?(n(?:event|ote)1[ac-hj-np-z02-9]{6,})[ \t]*(?:\r?\n){1,2}/i
+  const LEADING_EVENT_URI =
+    /^(?:nostr:\s*)?(n(?:event|ote)1[ac-hj-np-z02-9]{6,})[ \t]*(?:\r?\n){1,2}/i
 
   const getEventIdFromEntity = (entity: string) => {
     try {
@@ -83,7 +84,9 @@
 
   const thunk = $derived($thunks.find(t => t.event.id === event.id))
   const displayEvent = $derived(
-    replyParent ? {...event, content: stripLeadingReplyQuote(event.content, replyParent.id)} : event,
+    replyParent
+      ? {...event, content: stripLeadingReplyQuote(event.content, replyParent.id)}
+      : event,
   )
   const today = formatTimestampAsDate(now())
   const profile = deriveProfile(event.pubkey, [url])
@@ -160,13 +163,9 @@
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left">
   {#if isMobile && !inert && !censorReason}
     <div
-      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+      class="z-10 join absolute right-2 top-2 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
       {#if !readOnly}
-        <ChannelMessageEmojiButton
-          {url}
-          {event}
-          relays={relayTargets}
-          {scopeH} />
+        <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
       {/if}
       {#if reply}
         <Button
@@ -277,29 +276,27 @@
     </div>
   {/if}
   {#if !isMobile && !censorReason}
-    <div
-      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
-      {#if ENABLE_ZAPS && !readOnly}
-        <ChannelMessageZapButton {url} {event} />
-      {/if}
-      {#if !readOnly}
-        <ChannelMessageEmojiButton
+    <div class="z-10 absolute right-2 top-2 flex items-center gap-1 text-xs">
+      <div
+        class="join rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+        {#if ENABLE_ZAPS && !readOnly}
+          <ChannelMessageZapButton {url} {event} />
+        {/if}
+        {#if !readOnly}
+          <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+        {/if}
+        {#if reply}
+          <Button class="btn join-item btn-xs" onclick={reply}>
+            <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
+        <ChannelMessageMenuButton
           {url}
           {event}
           relays={relayTargets}
-          {scopeH} />
-      {/if}
-      {#if reply}
-        <Button class="btn join-item btn-xs" onclick={reply}>
-          <Icon icon={Reply} size={4} />
-        </Button>
-      {/if}
-      <ChannelMessageMenuButton
-        {url}
-        {event}
-        relays={relayTargets}
-        {communitySectionName}
-        readOnly={inert || readOnly} />
+          {communitySectionName}
+          readOnly={inert || readOnly} />
+      </div>
       {#if !readOnly}
         <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
       {/if}

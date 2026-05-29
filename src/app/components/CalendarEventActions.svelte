@@ -94,7 +94,6 @@
     {readOnly}
     {event}
     noun="Event"
-    showReport={false}
     allowAdminDelete={false}>
     {#snippet customActions()}
       {#if event.pubkey === $pubkey}

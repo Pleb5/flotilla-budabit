@@ -9,6 +9,7 @@ import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
 import {
   COMMENT,
+  EVENT_DATE,
   EVENT_TIME,
   MESSAGE,
   THREAD,
@@ -130,6 +131,15 @@ const getCommunityPubkeyForEvent = (event: TrustedEvent) => {
 const getEventRootId = (event: TrustedEvent) =>
   getTagValue("E", event.tags) || getTagValue("e", event.tags)
 
+const getAddressIdentifierForKind = (address: string, kind: number) => {
+  const parts = address.split(":")
+  const kindValue = parts[0] || ""
+  const addressKind = Number.parseInt(kindValue || "", 10)
+  const identifier = parts.slice(2).join(":")
+
+  return addressKind === kind ? identifier : ""
+}
+
 const getCommunityPathForKind = ({
   community,
   kind,
@@ -144,10 +154,12 @@ const getCommunityPathForKind = ({
   if (!kind || !id) return undefined
 
   if (kind === THREAD) {
-    return subtype === "room" ? makeCommunityRoomPath(community, id) : makeCommunityThreadPath(community, id)
+    return subtype === "room"
+      ? makeCommunityRoomPath(community, id)
+      : makeCommunityThreadPath(community, id)
   }
   if (kind === MESSAGE) return makeCommunityRoomPath(community, id)
-  if (kind === EVENT_TIME) return makeCommunityCalendarPath(community, id)
+  if (kind === EVENT_DATE || kind === EVENT_TIME) return makeCommunityCalendarPath(community, id)
   if (kind === ZAP_GOAL) return makeCommunityGoalPath(community, id)
   if (kind === SMART_WIDGET_KIND) return makeCommunityWidgetPath(community, id)
 
@@ -185,12 +197,13 @@ export const getCommunityReportTargetPath = (
   })
 }
 
-const TARGETED_PUBLICATION_ROUTE_KINDS = [EVENT_TIME, ZAP_GOAL, SMART_WIDGET_KIND]
+const TARGETED_PUBLICATION_ROUTE_KINDS = [EVENT_DATE, EVENT_TIME, ZAP_GOAL, SMART_WIDGET_KIND]
 
 const hasTargetedPublicationPath = (kind: number) => TARGETED_PUBLICATION_ROUTE_KINDS.includes(kind)
 
 const makeTargetedPublicationPath = (communityPubkey: string, kind: number) => {
   switch (kind) {
+    case EVENT_DATE:
     case EVENT_TIME:
       return makeCommunityCalendarPath(communityPubkey)
     case ZAP_GOAL:
@@ -304,10 +317,22 @@ export const getCommunityEventPath = (event: TrustedEvent) => {
     return roomId ? makeCommunityRoomPath(communityPubkey, roomId) : undefined
   }
 
-  if (event.kind === COMMENT && getTagValue("K", event.tags) === String(THREAD)) {
-    const threadId = getEventRootId(event)
+  if (event.kind === COMMENT) {
+    const rootKind = Number.parseInt(getTagValue("K", event.tags) || "", 10)
 
-    return threadId ? makeCommunityThreadPath(communityPubkey, threadId) : undefined
+    if (rootKind === THREAD) {
+      const threadId = getEventRootId(event)
+
+      return threadId ? makeCommunityThreadPath(communityPubkey, threadId) : undefined
+    }
+
+    if (rootKind === EVENT_DATE || rootKind === EVENT_TIME) {
+      const calendarAddress = getTagValue("A", event.tags) || getTagValue("a", event.tags) || ""
+      const calendarId =
+        getAddressIdentifierForKind(calendarAddress, rootKind) || getEventRootId(event)
+
+      return calendarId ? makeCommunityCalendarPath(communityPubkey, calendarId) : undefined
+    }
   }
 
   return undefined

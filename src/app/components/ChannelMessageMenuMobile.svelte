@@ -12,6 +12,7 @@
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
   import ZapButton from "@app/components/ZapButton.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
+  import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {publishReaction} from "@app/core/commands"
@@ -23,9 +24,10 @@
     reply?: () => void
     relays?: string[]
     scopeH?: string
+    communitySectionName?: string
   }
 
-  const {url, event, reply, relays = [], scopeH = ""}: Props = $props()
+  const {url, event, reply, relays = [], scopeH = "", communitySectionName = ""}: Props = $props()
 
   const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
 
@@ -100,4 +102,6 @@
     <Icon size={4} icon={SmileCircle} />
     Send Reaction
   </Button>
+
+  <ModerationAction {event} sectionName={communitySectionName} mode="buttons" replaceState />
 </div>

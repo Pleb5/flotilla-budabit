@@ -108,7 +108,7 @@
   const edit = !readOnly && canEdit(event) ? () => onEdit(event) : undefined
   const hasJoinedActions = $derived(!readOnly)
   const actionGroupClass = $derived(
-    cx("z-10 absolute right-1 top-1 shadow-sm backdrop-blur", {
+    cx("shadow-sm backdrop-blur", {
       "join rounded-full border border-solid border-neutral bg-base-100/90": hasJoinedActions,
       "rounded-full": !hasJoinedActions,
     }),
@@ -160,7 +160,7 @@
   onTap={inert || censorReason ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left hover:bg-base-100/50">
   {#if !inert && !censorReason}
-    <div class="z-10 absolute right-1 top-1 sm:hidden">
+    <div class="z-10 absolute right-2 top-2 sm:hidden">
       <Button
         class="btn btn-neutral btn-xs rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur"
         onclick={onTap}
@@ -218,11 +218,7 @@
         {#if ENABLE_ZAPS}
           <RoomItemZapButton {url} {event} />
         {/if}
-        <RoomItemEmojiButton
-          {url}
-          {event}
-          relays={relayTargets}
-          {scopeH} />
+        <RoomItemEmojiButton {url} {event} relays={relayTargets} {scopeH} />
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
             <Icon icon={Reply} size={4} />
@@ -268,34 +264,32 @@
     </div>
   {/if}
   {#if !inert && !censorReason}
-    <div class={cx(actionGroupClass, "hidden text-xs sm:flex")}>
-      {#if ENABLE_ZAPS && !readOnly}
-        <RoomItemZapButton {url} {event} />
-      {/if}
-      {#if !readOnly}
-        <RoomItemEmojiButton
+    <div class="z-10 absolute right-2 top-2 hidden items-center gap-1 text-xs sm:flex">
+      <div class={actionGroupClass}>
+        {#if ENABLE_ZAPS && !readOnly}
+          <RoomItemZapButton {url} {event} />
+        {/if}
+        {#if !readOnly}
+          <RoomItemEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+        {/if}
+        {#if reply}
+          <Button class="btn join-item btn-xs" onclick={reply}>
+            <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
+        {#if edit}
+          <Button class="btn join-item btn-xs" onclick={edit}>
+            <Icon icon={Pen} size={4} />
+          </Button>
+        {/if}
+        <RoomItemMenuButton
           {url}
           {event}
+          {readOnly}
+          class={menuButtonClass}
           relays={relayTargets}
-          {scopeH} />
-      {/if}
-      {#if reply}
-        <Button class="btn join-item btn-xs" onclick={reply}>
-          <Icon icon={Reply} size={4} />
-        </Button>
-      {/if}
-      {#if edit}
-        <Button class="btn join-item btn-xs" onclick={edit}>
-          <Icon icon={Pen} size={4} />
-        </Button>
-      {/if}
-      <RoomItemMenuButton
-        {url}
-        {event}
-        {readOnly}
-        class={menuButtonClass}
-        relays={relayTargets}
-        {communitySectionName} />
+          {communitySectionName} />
+      </div>
       {#if !readOnly}
         <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
       {/if}

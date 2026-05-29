@@ -61,7 +61,6 @@
       {readOnly}
       {event}
       noun="Thread"
-      showReport={false}
       allowAdminDelete={false}
       menuOnly
       class="border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur" />
@@ -96,7 +95,6 @@
     {readOnly}
     {event}
     noun="Thread"
-    showReport={false}
     allowAdminDelete={false}
     class={floatMobileMenu ? "hidden sm:flex" : ""} />
 </div>
@@ -111,7 +109,6 @@
       {readOnly}
       {event}
       noun="Thread"
-      showReport={false}
       allowAdminDelete={false}
       hideMenu
       class="border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur" />
