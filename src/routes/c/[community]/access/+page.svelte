@@ -104,6 +104,9 @@
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
+  const communityProfileRelays = $derived(
+    $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityPublishRelays,
+  )
 
   const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
   const forms = $derived(communityBootstrapReady ? $activeCommunityAdmissionForms : {})
@@ -817,10 +820,16 @@
               <article class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4">
                 <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div class="flex min-w-0 items-start gap-3">
-                    <ProfileCircle pubkey={member.pubkey} size={9} />
+                    <ProfileCircle
+                      pubkey={member.pubkey}
+                      relays={communityProfileRelays}
+                      size={9} />
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
-                        <strong class="min-w-0"><ProfileLink pubkey={member.pubkey} /></strong>
+                        <strong class="min-w-0"
+                          ><ProfileLink
+                            pubkey={member.pubkey}
+                            relays={communityProfileRelays} /></strong>
                         {#if member.isOwner}
                           <span class="badge badge-primary">owner</span>
                           <span class="badge badge-success">admin</span>
@@ -1000,7 +1009,9 @@
                   <p
                     class={`rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
                     {reviewHistoryLabel(priorReview.status)} by
-                    <ProfileLink pubkey={priorReview.event.pubkey} /> on {new Date(
+                    <ProfileLink
+                      pubkey={priorReview.event.pubkey}
+                      relays={communityProfileRelays} /> on {new Date(
                       priorReview.event.created_at * 1000,
                     ).toLocaleString()}.
                   </p>

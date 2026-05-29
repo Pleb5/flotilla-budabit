@@ -1,10 +1,10 @@
 <script lang="ts">
-  import {deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {normalizeRelays} from "@app/core/community"
   import {hydratePubkeyProfiles} from "@app/core/community-state"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
+  import {deriveBudabitProfile, deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {formatShortNpub} from "@app/util/pubkeys"
 
   type Props = {
@@ -33,8 +33,10 @@
 
   const profileRelays = $derived(normalizeRelays(relayHints))
   const shareRelays = $derived(normalizeRelays(shareRelayHints))
-  const profile = $derived(deriveProfile(pubkey, profileRelays))
-  const profileDisplay = $derived(deriveProfileDisplay(pubkey, profileRelays))
+  const profile = $derived(deriveBudabitProfile(pubkey, {communityRelays: profileRelays}))
+  const profileDisplay = $derived(
+    deriveBudabitProfileDisplay(pubkey, {communityRelays: profileRelays}),
+  )
   const fallbackName = $derived(formatShortNpub(pubkey) || "Unknown community")
   const name = $derived($profileDisplay || fallbackName)
   const info = $derived($profile?.about || profileRelays[0] || fallbackName)

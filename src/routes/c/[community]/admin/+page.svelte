@@ -205,6 +205,9 @@
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
+  const communityProfileRelays = $derived(
+    $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityPublishRelays,
+  )
   const communityRootPublishRelays = $derived(
     getCommunityRootPublishRelays(communityPublishRelays, $activeCommunityDefinition?.pubkey),
   )
@@ -515,7 +518,10 @@
                       >{moderatorRequest.status}</span>
                   </div>
                   <p class="mt-1 text-sm opacity-70">
-                    Requester: <ProfileLink pubkey={moderatorRequest.requesterPubkey} />
+                    Requester:
+                    <ProfileLink
+                      pubkey={moderatorRequest.requesterPubkey}
+                      relays={communityProfileRelays} />
                   </p>
                   <p class="text-xs opacity-60">
                     {getRequestTimeLabel(moderatorRequest)}
@@ -583,9 +589,15 @@
                 <div
                   class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center justify-between gap-3 align-top">
                   <div class="flex min-w-0 items-center gap-3">
-                    <ProfileCircle pubkey={person.pubkey} size={9} />
+                    <ProfileCircle
+                      pubkey={person.pubkey}
+                      relays={communityProfileRelays}
+                      size={9} />
                     <div class="min-w-0">
-                      <strong><ProfileLink pubkey={person.pubkey} /></strong>
+                      <strong
+                        ><ProfileLink
+                          pubkey={person.pubkey}
+                          relays={communityProfileRelays} /></strong>
                       {#if person.banned}
                         <span class="badge badge-error mt-1">banned</span>
                       {/if}
@@ -623,6 +635,7 @@
                 {#if getModeratorPersonTab(person.pubkey) === "actions"}
                   <ModerationReportList
                     reports={personActions}
+                    relays={communityProfileRelays}
                     emptyMessage="No active moderation actions from this moderator." />
                 {:else}
                   <div class="flex flex-col gap-3">

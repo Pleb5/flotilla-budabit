@@ -102,6 +102,9 @@
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
+  const communityProfileRelays = $derived(
+    $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityPublishRelays,
+  )
 
   const grantableSections = $derived(
     communityBootstrapReady
@@ -587,7 +590,10 @@
         drafts = Object.fromEntries(
           Object.entries(drafts).filter(([sectionName]) => sectionName !== selected.section.name),
         )
-        pushToast({theme: "success", message: `${selected.displayName} application form published.`})
+        pushToast({
+          theme: "success",
+          message: `${selected.displayName} application form published.`,
+        })
         history.back()
       },
     })
@@ -675,7 +681,11 @@
 
   $effect(() => {
     if (!canAccessModerationPage) return
-    if (grantableSections.length === 0 && contentReportGroups.length === 0 && pageMode !== "moderation") {
+    if (
+      grantableSections.length === 0 &&
+      contentReportGroups.length === 0 &&
+      pageMode !== "moderation"
+    ) {
       pageMode = "moderation"
     }
   })
@@ -1091,6 +1101,7 @@
           </div>
           <ModerationReportList
             reports={currentEventModerationActions}
+            relays={communityProfileRelays}
             emptyMessage="No active event moderations from this key." />
         </section>
 
@@ -1104,6 +1115,7 @@
           </div>
           <ModerationReportList
             reports={currentPersonModerationActions}
+            relays={communityProfileRelays}
             emptyMessage="No active person bans from this key." />
         </section>
       </div>
@@ -1155,85 +1167,91 @@
           <div class="mt-4 flex flex-col gap-4">
             {#each applicationGroups as group}
               <div class="flex flex-col gap-2">
-              <h3 class="font-semibold">{group.label}</h3>
-              {#each group.items as application (application.response.event.id)}
-                <article
-                  class={`rounded-box border border-base-300 bg-base-100 p-3 ${
-                    application.state.status === "pending" ? "border-warning bg-warning/10" : ""
-                  }`}>
-                  <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <strong>{application.sectionDisplayName}</strong>
-                      <p class="truncate text-xs opacity-70">
-                        Applicant: <ProfileLink pubkey={application.response.event.pubkey} />
-                      </p>
-                      <p class="text-xs opacity-70">
-                        Submitted {new Date(
-                          application.response.event.created_at * 1000,
-                        ).toLocaleString()}
-                      </p>
+                <h3 class="font-semibold">{group.label}</h3>
+                {#each group.items as application (application.response.event.id)}
+                  <article
+                    class={`rounded-box border border-base-300 bg-base-100 p-3 ${
+                      application.state.status === "pending" ? "border-warning bg-warning/10" : ""
+                    }`}>
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <strong>{application.sectionDisplayName}</strong>
+                        <p class="truncate text-xs opacity-70">
+                          Applicant:
+                          <ProfileLink
+                            pubkey={application.response.event.pubkey}
+                            relays={communityProfileRelays} />
+                        </p>
+                        <p class="text-xs opacity-70">
+                          Submitted {new Date(
+                            application.response.event.created_at * 1000,
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+                      <span class="badge">{application.state.status}</span>
                     </div>
-                    <span class="badge">{application.state.status}</span>
-                  </div>
 
-                  {#if application.history.latestPriorReview}
-                    {@const priorReview = application.history.latestPriorReview}
-                    <p
-                      class={`mt-3 rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
-                      {reviewHistoryLabel(priorReview.status)} by
-                      <ProfileLink pubkey={priorReview.event.pubkey} /> on {new Date(
-                        priorReview.event.created_at * 1000,
-                      ).toLocaleString()}.
-                    </p>
-                  {/if}
-
-                  {#if application.response.responses[0]}
-                    {@const firstResponse = application.response.responses[0]}
-                    <div class="mt-3 rounded-box bg-base-200 p-2 text-sm">
-                      <strong>{getResponseLabel(application, firstResponse.fieldId)}</strong>
-                      <p class="line-clamp-3 whitespace-pre-wrap opacity-80">
-                        {getResponseDisplayValue(application, firstResponse)}
+                    {#if application.history.latestPriorReview}
+                      {@const priorReview = application.history.latestPriorReview}
+                      <p
+                        class={`mt-3 rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
+                        {reviewHistoryLabel(priorReview.status)} by
+                        <ProfileLink
+                          pubkey={priorReview.event.pubkey}
+                          relays={communityProfileRelays} /> on {new Date(
+                          priorReview.event.created_at * 1000,
+                        ).toLocaleString()}.
                       </p>
-                    </div>
-                  {/if}
+                    {/if}
 
-                  <details class="mt-3">
-                    <summary class="cursor-pointer text-sm font-medium">Review full response</summary>
-                    <div class="mt-2 grid gap-2">
-                      {#each application.response.responses as response}
-                        <div class="rounded-box bg-base-200 p-2 text-sm">
-                          <strong>{getResponseLabel(application, response.fieldId)}</strong>
-                          <p class="whitespace-pre-wrap opacity-80">
-                            {getResponseDisplayValue(application, response)}
-                          </p>
-                        </div>
-                      {/each}
-                    </div>
-                  </details>
+                    {#if application.response.responses[0]}
+                      {@const firstResponse = application.response.responses[0]}
+                      <div class="mt-3 rounded-box bg-base-200 p-2 text-sm">
+                        <strong>{getResponseLabel(application, firstResponse.fieldId)}</strong>
+                        <p class="line-clamp-3 whitespace-pre-wrap opacity-80">
+                          {getResponseDisplayValue(application, firstResponse)}
+                        </p>
+                      </div>
+                    {/if}
 
-                  <div class="mt-3 flex justify-end gap-2">
-                    <Button
-                      class="btn btn-error btn-sm"
-                      disabled={application.state.status === "rejected"}
-                      onclick={() => reviewApplication(application, "rejected")}>
-                      {application.state.status === "granted" ? "Revoke" : "Reject"}
-                    </Button>
-                    <Button
-                      class="btn btn-success btn-sm"
-                      disabled={application.state.status === "granted"}
-                      onclick={() => reviewApplication(application, "granted")}>Grant</Button>
-                  </div>
-                </article>
-              {:else}
-                <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
-                  {#if !setupComplete && group.label === "New"}
-                    Create forms before users can apply to missing sections.
-                  {:else}
-                    No {group.label.toLowerCase()} applications.
-                  {/if}
-                </p>
-              {/each}
-            </div>
+                    <details class="mt-3">
+                      <summary class="cursor-pointer text-sm font-medium"
+                        >Review full response</summary>
+                      <div class="mt-2 grid gap-2">
+                        {#each application.response.responses as response}
+                          <div class="rounded-box bg-base-200 p-2 text-sm">
+                            <strong>{getResponseLabel(application, response.fieldId)}</strong>
+                            <p class="whitespace-pre-wrap opacity-80">
+                              {getResponseDisplayValue(application, response)}
+                            </p>
+                          </div>
+                        {/each}
+                      </div>
+                    </details>
+
+                    <div class="mt-3 flex justify-end gap-2">
+                      <Button
+                        class="btn btn-error btn-sm"
+                        disabled={application.state.status === "rejected"}
+                        onclick={() => reviewApplication(application, "rejected")}>
+                        {application.state.status === "granted" ? "Revoke" : "Reject"}
+                      </Button>
+                      <Button
+                        class="btn btn-success btn-sm"
+                        disabled={application.state.status === "granted"}
+                        onclick={() => reviewApplication(application, "granted")}>Grant</Button>
+                    </div>
+                  </article>
+                {:else}
+                  <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
+                    {#if !setupComplete && group.label === "New"}
+                      Create forms before users can apply to missing sections.
+                    {:else}
+                      No {group.label.toLowerCase()} applications.
+                    {/if}
+                  </p>
+                {/each}
+              </div>
             {/each}
           </div>
         </details>
@@ -1246,7 +1264,8 @@
               <div class="flex flex-wrap items-center gap-2">
                 <h2 class="text-xl font-semibold">Content reports</h2>
                 {#if pendingContentReportGroups.length > 0}
-                  <span class="badge badge-warning">{pendingContentReportGroups.length} pending</span>
+                  <span class="badge badge-warning"
+                    >{pendingContentReportGroups.length} pending</span>
                 {/if}
                 <span class="badge badge-neutral">{contentReportGroups.length} total</span>
               </div>
@@ -1262,21 +1281,27 @@
           <div class="flex flex-col gap-2">
             <h3 class="font-semibold">Pending</h3>
             {#each pendingContentReportGroups as group (group.key)}
-              <CommunityContentReportCard {group} />
+              <CommunityContentReportCard {group} relays={communityProfileRelays} />
             {:else}
-              <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">No pending content reports.</p>
+              <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
+                No pending content reports.
+              </p>
             {/each}
           </div>
 
-          <details class="rounded-box bg-base-200 p-3" open={pendingContentReportGroups.length === 0}>
+          <details
+            class="rounded-box bg-base-200 p-3"
+            open={pendingContentReportGroups.length === 0}>
             <summary class="cursor-pointer font-semibold">
               Reviewed ({reviewedContentReportGroups.length})
             </summary>
             <div class="mt-3 flex flex-col gap-2">
               {#each reviewedContentReportGroups as group (group.key)}
-                <CommunityContentReportCard {group} />
+                <CommunityContentReportCard {group} relays={communityProfileRelays} />
               {:else}
-                <p class="rounded-box bg-base-100 p-3 text-sm opacity-70">No reviewed content reports.</p>
+                <p class="rounded-box bg-base-100 p-3 text-sm opacity-70">
+                  No reviewed content reports.
+                </p>
               {/each}
             </div>
           </details>

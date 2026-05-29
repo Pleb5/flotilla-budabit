@@ -19,9 +19,10 @@
     value: string
     autofocus?: boolean
     term?: Writable<string>
+    relays?: string[]
   }
 
-  let {value = $bindable(), term = writable(""), autofocus = false}: Props = $props()
+  let {value = $bindable(), term = writable(""), autofocus = false, relays = []}: Props = $props()
 
   const search = (term: string) => $profileSearch.searchValues(term)
 
@@ -69,13 +70,13 @@
 <div class="flex flex-col gap-2">
   <div>
     {#if value}
-      {@const onClick = () => pushModal(ProfileDetail, {pubkey: value})}
+      {@const onClick = () => pushModal(ProfileDetail, {pubkey: value, url: relays[0], relays})}
       <div class="flex-inline badge badge-neutral mr-1 gap-1">
         <Button class="flex items-center" onclick={clearSelection}>
           <Icon icon={CloseCircle} size={4} class="-ml-1 mt-px" />
         </Button>
         <Button onclick={onClick}>
-          <ProfileName pubkey={value} />
+          <ProfileName pubkey={value} {relays} />
         </Button>
       </div>
     {/if}

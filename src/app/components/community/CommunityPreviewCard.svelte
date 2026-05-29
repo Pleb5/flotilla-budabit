@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -9,6 +8,7 @@
   import {hydratePubkeyProfiles} from "@app/core/community-state"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
+  import {deriveBudabitProfile, deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {formatShortNpub} from "@app/util/pubkeys"
 
   type Props = {
@@ -54,8 +54,10 @@
   const profilePubkey = $derived(pubkey || EMPTY_PUBKEY)
   const profileRelays = $derived(normalizeRelays(relayHints))
   const shareRelays = $derived(normalizeRelays(shareRelayHints))
-  const profile = $derived(deriveProfile(profilePubkey, profileRelays))
-  const profileDisplay = $derived(deriveProfileDisplay(profilePubkey, profileRelays))
+  const profile = $derived(deriveBudabitProfile(profilePubkey, {communityRelays: profileRelays}))
+  const profileDisplay = $derived(
+    deriveBudabitProfileDisplay(profilePubkey, {communityRelays: profileRelays}),
+  )
   const fallbackName = $derived(
     pubkey ? formatShortNpub(pubkey) || "Unknown community" : "No community selected",
   )

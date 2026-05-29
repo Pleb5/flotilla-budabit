@@ -35,9 +35,10 @@
 
   type Props = {
     group: CommunityContentReportGroup
+    relays?: string[]
   }
 
-  const {group}: Props = $props()
+  const {group, relays = []}: Props = $props()
 
   let reviewStatus = $state<"idle" | "publishing">("idle")
   let targetEventLoadStatus = $state<"idle" | "loading" | "done">("idle")
@@ -45,6 +46,7 @@
 
   const currentPubkey = $derived(normalizePubkey($pubkey || ""))
   const reportRelays = $derived(getCommunityScopedPublishRelays($activeCommunityDefinition))
+  const profileRelays = $derived(relays.length > 0 ? relays : reportRelays)
   const pendingReports = $derived(group.reports.filter(report => !report.reviewed))
   const reviewablePendingReports = $derived.by(() =>
     $activeCommunityDefinition
@@ -232,7 +234,8 @@
           {group.reviewed ? "Reviewed" : "Pending"}
         </span>
         <span class="badge badge-neutral">
-          {group.reports.length} {group.reports.length === 1 ? "report" : "reports"}
+          {group.reports.length}
+          {group.reports.length === 1 ? "report" : "reports"}
         </span>
       </div>
       <p class="mt-1 text-xs opacity-60">
@@ -240,7 +243,7 @@
       </p>
       {#if latestReview}
         <p class="mt-1 text-xs opacity-70">
-          Reviewed by <ProfileLink pubkey={latestReview.reviewerPubkey} /> on {new Date(
+          Reviewed by <ProfileLink pubkey={latestReview.reviewerPubkey} relays={profileRelays} /> on {new Date(
             latestReview.event.created_at * 1000,
           ).toLocaleString()}
         </p>
@@ -265,7 +268,9 @@
   <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
     <div class="rounded-box bg-base-200 p-3">
       <strong>Target author</strong>
-      <p class="mt-1 opacity-75"><ProfileLink pubkey={group.targetPubkey} /></p>
+      <p class="mt-1 opacity-75">
+        <ProfileLink pubkey={group.targetPubkey} relays={profileRelays} />
+      </p>
     </div>
     <div class="rounded-box bg-base-200 p-3">
       <strong>Section</strong>
@@ -312,7 +317,7 @@
         <div class="rounded-box bg-base-100 p-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <p>
-              Reporter: <ProfileLink pubkey={report.reporterPubkey} />
+              Reporter: <ProfileLink pubkey={report.reporterPubkey} relays={profileRelays} />
             </p>
             <span class={`badge ${report.reviewed ? "badge-success" : "badge-warning"}`}>
               {report.reviewed ? "Reviewed" : "Pending"}

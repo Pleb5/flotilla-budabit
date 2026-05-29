@@ -90,10 +90,12 @@
       : event,
   )
   const today = formatTimestampAsDate(now())
-  const profileDisplay = deriveBudabitProfileDisplay(event.pubkey, {url})
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
+  )
+  const profileDisplay = $derived(
+    deriveBudabitProfileDisplay(event.pubkey, {url, relays: relayTargets}),
   )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -139,7 +141,8 @@
     }
   }
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
+  const openProfile = () =>
+    pushModal(ProfileDetail, {pubkey: event.pubkey, url, relays: relayTargets})
 
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({
@@ -191,6 +194,7 @@
         <ProfileCircle
           pubkey={event.pubkey}
           {url}
+          relays={relayTargets}
           class="rounded-full border border-solid border-base-content"
           size={8} />
       </Button>

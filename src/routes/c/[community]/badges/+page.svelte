@@ -77,6 +77,7 @@
   const badgeRelays = $derived(
     normalizeRelays(getCommunityBadgeRelays(communityBootstrapReady ? $activeCommunityRelays : [])),
   )
+  const communityProfileRelays = $derived(communityBootstrapReady ? $activeCommunityRelays : [])
 
   let pageTab = $state<BadgePageTab>("awarded")
   let myBadgePanel = $state<MyBadgePanel>("awarded")
@@ -603,7 +604,10 @@
                   <div class="min-w-0 flex-1">
                     <strong>{badge.definition.name}</strong>
                     <p class="mt-1 text-sm opacity-70">
-                      Awarded by <ProfileLink pubkey={badge.definition.pubkey} />
+                      Awarded by
+                      <ProfileLink
+                        pubkey={badge.definition.pubkey}
+                        relays={communityProfileRelays} />
                     </p>
                     {#if badge.definition.description}
                       <p class="mt-2 text-sm opacity-80">{badge.definition.description}</p>
@@ -642,7 +646,10 @@
                   <div class="min-w-0 flex-1">
                     <strong>{item.definition.name}</strong>
                     <p class="mt-1 text-sm opacity-70">
-                      Awarded by <ProfileLink pubkey={item.definition.pubkey} />
+                      Awarded by
+                      <ProfileLink
+                        pubkey={item.definition.pubkey}
+                        relays={communityProfileRelays} />
                     </p>
                     {#if item.definition.description}
                       <p class="mt-2 text-sm opacity-80">{item.definition.description}</p>
@@ -729,7 +736,9 @@
                         <div class="flex flex-wrap items-center justify-between gap-2">
                           <div class="flex flex-wrap gap-2">
                             <span class="badge badge-neutral h-auto py-1">
-                              <ProfileLink pubkey={item.award.recipientPubkey} />
+                              <ProfileLink
+                                pubkey={item.award.recipientPubkey}
+                                relays={communityProfileRelays} />
                             </span>
                           </div>
                           <Button
@@ -908,7 +917,9 @@
                         <div class="flex flex-wrap items-center justify-between gap-2">
                           <div class="flex flex-wrap gap-2">
                             <span class="badge h-auto py-1" class:badge-error={item.revoked}>
-                              <ProfileLink pubkey={item.award.recipientPubkey} />
+                              <ProfileLink
+                                pubkey={item.award.recipientPubkey}
+                                relays={communityProfileRelays} />
                             </span>
                             {#if item.revoked}<span class="badge badge-error">revoked</span>{/if}
                           </div>

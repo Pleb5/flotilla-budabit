@@ -2,7 +2,7 @@
   import type {Instance} from "tippy.js"
   import {hash, formatTimestampAsTime} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {pubkey, deriveProfileDisplay, getPlaintext} from "@welshman/app"
+  import {pubkey, getPlaintext} from "@welshman/app"
   import {ensureDmPlaintext} from "@app/core/dm"
   import {isMobile} from "@lib/html"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
@@ -17,6 +17,7 @@
   import {colors} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
 
   interface Props {
     event: TrustedEvent
@@ -26,7 +27,7 @@
   const {event, showPubkey = false}: Props = $props()
 
   const isOwn = event.pubkey === $pubkey
-  const profileDisplay = deriveProfileDisplay(event.pubkey)
+  const profileDisplay = deriveBudabitProfileDisplay(event.pubkey)
   const [_, colorValue] = colors[hash(event.pubkey) % colors.length]
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey})

@@ -6,7 +6,6 @@
     GitBranch,
     GitPullRequest,
     Users,
-    User,
     Eye,
     BookOpen,
     Copy,
@@ -57,6 +56,7 @@
   import {clip, pushToast} from "@app/util/toast"
   import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
   import {makeCommunityPath} from "@app/util/routes"
+  import {normalizeRelays} from "@app/core/community"
 
   import {getContext} from "svelte"
   import type {Readable} from "svelte/store"
@@ -199,7 +199,6 @@
   const initialLoading = false
   let readmeLoading = $state(true)
   let readmeError = $state(false)
-  let commitLoading = $state(true)
   let lastCommit = $state<any>(null)
   let lastCommitReqSeq = $state(0)
   let _prevRepoKey = $state<string | undefined>(undefined)
@@ -209,13 +208,9 @@
   let repoInfoLoaded = $state(false)
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
   let commitLoadInProgress = $state(false)
-  let expandedRecentPrIds = $state<Set<string>>(new Set())
   let cloneDetailsElement = $state<HTMLDetailsElement>()
   let cloneDetailsOpen = $state(false)
 
-  // Expandable sections state
-  let showAllRelays = $state(false)
-  const RECENT_PR_PREVIEW_LIMIT = 150
   const normalizePubkey = (value: string | undefined | null): string => {
     if (!value) return ""
     if (/^[0-9a-f]{64}$/i.test(value)) return value
@@ -387,6 +382,11 @@
     const profile = $profilesByPubkey.get(community.pubkey)
     return profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
   })
+  const repoCommunityProfileRelays = $derived.by(() => {
+    const community = repoMetadata.community
+
+    return normalizeRelays([community?.relay || ""])
+  })
 
   $effect(() => {
     if (!declaredPrimaryCloneUrl || !currentReadRemoteUrl) return
@@ -406,7 +406,6 @@
     })
   })
 
-  const relayUrl = $derived((($page.data as any)?.url || "") as string)
   const naddr = $derived($page.params.id)
 
   // Simple provider detection from URL
@@ -478,7 +477,6 @@
     commitLoadDebounce = setTimeout(() => {
       // Debounce/Dedupe: increment sequence and capture
       const seq = ++lastCommitReqSeq
-      commitLoading = true
       lastCommit = null
       ;(async () => {
         // Wait for repo to be ready before loading commits
@@ -535,7 +533,6 @@
       // Start with small depth (5) for faster loading, only increase if needed
       const mainBranch = repoClass.mainBranch
       if (!mainBranch) {
-        commitLoading = false
         commitLoadInProgress = false
         return
       }
@@ -543,7 +540,6 @@
       // Check if WorkerManager is ready before attempting operations
       if (!repoClass.workerManager?.isReady) {
         console.debug("LatestCommit: WorkerManager not ready, skipping")
-        commitLoading = false
         commitLoadInProgress = false
         return
       }
@@ -557,7 +553,6 @@
           const list = Array.isArray(res) ? res : res?.commits
           if (Array.isArray(list) && list.length > 0) {
             lastCommit = list[0]
-            commitLoading = false
             commitLoadInProgress = false
             return
           }
@@ -568,7 +563,6 @@
             console.debug(
               "LatestCommit: Repository not cloned, skipping (overview page doesn't need clone)",
             )
-            commitLoading = false
             commitLoadInProgress = false
             return
           }
@@ -580,7 +574,6 @@
       // Silently fail - commit history is optional
       console.debug("LatestCommit: Failed to load", e)
     } finally {
-      commitLoading = false
       commitLoadInProgress = false
     }
   }
@@ -676,32 +669,6 @@
 
   let activityExpanded = $state(false)
   const visibleActivity = $derived(activityExpanded ? recentActivity : recentActivity.slice(0, 4))
-
-  function shouldClampRecentPrTitle(title: string): boolean {
-    return title.replace(/\s+/g, " ").trim().length > RECENT_PR_PREVIEW_LIMIT
-  }
-
-  function getRecentPrTitlePreview(title: string, expanded: boolean): string {
-    const normalizedTitle = title.replace(/\s+/g, " ").trim()
-
-    if (expanded || normalizedTitle.length <= RECENT_PR_PREVIEW_LIMIT) {
-      return normalizedTitle
-    }
-
-    return `${normalizedTitle.slice(0, RECENT_PR_PREVIEW_LIMIT).trimEnd()}...`
-  }
-
-  function toggleRecentPrExpanded(id: string) {
-    const next = new Set(expandedRecentPrIds)
-
-    if (next.has(id)) {
-      next.delete(id)
-    } else {
-      next.add(id)
-    }
-
-    expandedRecentPrIds = next
-  }
 
   async function copyUrl(url: string) {
     try {
@@ -1150,14 +1117,20 @@
                         type="button"
                         class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
                         onclick={() =>
-                          pushModal(ProfileDetail, {pubkey: repoOwnerPubkey, url: relayUrl})}>
+                          pushModal(ProfileDetail, {
+                            pubkey: repoOwnerPubkey,
+                            url: repoCommunityProfileRelays[0],
+                            relays: repoCommunityProfileRelays,
+                          })}>
                         <ProfileCircle
                           pubkey={repoOwnerPubkey}
-                          url={relayUrl}
+                          relays={repoCommunityProfileRelays}
                           size={8}
                           class="border border-border" />
                         <span class="min-w-0 truncate text-sm hover:underline">
-                          <ProfileName pubkey={repoOwnerPubkey} url={relayUrl} />
+                          <ProfileName
+                            pubkey={repoOwnerPubkey}
+                            relays={repoCommunityProfileRelays} />
                         </span>
                       </button>
                     </div>
@@ -1184,13 +1157,13 @@
                       : ''}">
                     <ProfileCircle
                       pubkey={item.pubkey}
-                      url={relayUrl}
+                      relays={repoCommunityProfileRelays}
                       size={6}
                       class="flex-shrink-0" />
                     <div class="flex min-w-0 flex-1 flex-col">
                       <div class="flex min-w-0 items-center gap-1.5 text-xs">
                         <span class="min-w-0 truncate font-medium">
-                          <ProfileName pubkey={item.pubkey} url={relayUrl} />
+                          <ProfileName pubkey={item.pubkey} relays={repoCommunityProfileRelays} />
                         </span>
                         <span class="flex-shrink-0 text-muted-foreground">·</span>
                         <span class="flex-shrink-0 text-muted-foreground"
@@ -1319,7 +1292,7 @@
                                   <span>Author</span>
                                   <ProfileLink
                                     pubkey={detail.authorPubkey}
-                                    url={relayUrl}
+                                    relays={repoCommunityProfileRelays}
                                     unstyled
                                     class="font-medium text-primary underline-offset-2 hover:underline" />
                                 </div>
@@ -1329,7 +1302,7 @@
                                     <span>Merged by</span>
                                     <ProfileLink
                                       pubkey={detail.mergedByPubkey}
-                                      url={relayUrl}
+                                      relays={repoCommunityProfileRelays}
                                       unstyled
                                       class="font-medium text-primary underline-offset-2 hover:underline" />
                                   </div>
@@ -1344,13 +1317,13 @@
                                 <div class="flex min-w-0 items-center gap-3">
                                   <ProfileCircle
                                     pubkey={actor.pubkey}
-                                    url={relayUrl}
+                                    relays={repoCommunityProfileRelays}
                                     size={6}
                                     class="border border-border" />
                                   <div class="min-w-0">
                                     <ProfileLink
                                       pubkey={actor.pubkey}
-                                      url={relayUrl}
+                                      relays={repoCommunityProfileRelays}
                                       unstyled
                                       class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
                                     <div class="text-xs opacity-70">

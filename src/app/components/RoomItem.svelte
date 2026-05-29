@@ -3,13 +3,7 @@
   import {hash, now, displayList, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {MESSAGE, COMMENT, getTag} from "@welshman/util"
-  import {
-    thunks,
-    pubkey,
-    mergeThunks,
-    deriveProfileDisplay,
-    displayProfileByPubkey,
-  } from "@welshman/app"
+  import {thunks, pubkey, mergeThunks, displayProfileByPubkey} from "@welshman/app"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
@@ -32,6 +26,7 @@
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getCommunityCensorReason} from "@app/core/community-reports"
   import {publishSocialDelete, publishReaction} from "@app/core/commands"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
@@ -79,7 +74,9 @@
         : [url]
     ).filter(Boolean),
   )
-  const profileDisplay = $derived(deriveProfileDisplay(event.pubkey, profileRelayHints))
+  const profileDisplay = $derived(
+    deriveBudabitProfileDisplay(event.pubkey, {relays: profileRelayHints}),
+  )
   const thunk = mergeThunks($thunks.filter((t: Thunk) => t.event.id === event.id))
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
   const comments = deriveEventsForUrl(url, [{kinds: [COMMENT], "#e": [event.id]}])

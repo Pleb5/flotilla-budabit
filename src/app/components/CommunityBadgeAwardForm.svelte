@@ -66,6 +66,7 @@
   const badgeRelays = $derived(
     normalizeRelays(getCommunityBadgeRelays(communityBootstrapReady ? $activeCommunityRelays : [])),
   )
+  const communityProfileRelays = $derived(communityBootstrapReady ? $activeCommunityRelays : [])
   const canManageBadges = $derived(
     Boolean(
       communityBootstrapReady &&
@@ -233,7 +234,11 @@
   }
 
   $effect(() => {
-    if (unawardedActiveBadgeDefinitions.some(definition => definition.address === selectedDefinitionAddress)) {
+    if (
+      unawardedActiveBadgeDefinitions.some(
+        definition => definition.address === selectedDefinitionAddress,
+      )
+    ) {
       return
     }
 
@@ -307,13 +312,18 @@
     {#if recipientPubkey}
       <div class="rounded-box bg-base-200 p-3">
         <p class="text-xs font-semibold uppercase tracking-wide opacity-60">Recipient</p>
-        <p class="mt-1 text-sm"><ProfileName pubkey={targetPubkey} /></p>
+        <p class="mt-1 text-sm">
+          <ProfileName pubkey={targetPubkey} relays={communityProfileRelays} />
+        </p>
       </div>
     {:else}
       <Field>
         {#snippet label()}<p>Recipient</p>{/snippet}
         {#snippet input()}
-          <ProfileSingleSelect bind:value={selectedRecipientPubkey} {term} />
+          <ProfileSingleSelect
+            bind:value={selectedRecipientPubkey}
+            {term}
+            relays={communityProfileRelays} />
         {/snippet}
         {#snippet info()}Search by name or paste a pubkey/npub. One award event is published for one
           person.{/snippet}
@@ -323,7 +333,11 @@
       <Button
         type="submit"
         class="btn btn-primary"
-        disabled={publishing || checkingAwards || !selectedDefinitionAddress || !targetPubkey || selectedDefinitionAlreadyAwarded}>
+        disabled={publishing ||
+          checkingAwards ||
+          !selectedDefinitionAddress ||
+          !targetPubkey ||
+          selectedDefinitionAlreadyAwarded}>
         <Spinner loading={publishing || checkingAwards}>Award badge</Spinner>
       </Button>
     </div>

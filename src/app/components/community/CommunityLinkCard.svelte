@@ -1,6 +1,6 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {deriveProfile, deriveProfileDisplay, repository} from "@welshman/app"
+  import {repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -21,6 +21,7 @@
   } from "@app/core/community"
   import {makeCommunityPath} from "@app/util/routes"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
+  import {deriveBudabitProfile, deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
 
   type Props = {
     value: ParsedCommunityInput
@@ -72,8 +73,10 @@
   })
 
   const displayRelays = $derived(normalizeRelays([...relayHints, ...(definition?.relays || [])]))
-  const profile = $derived(deriveProfile(communityPubkey, displayRelays))
-  const profileDisplay = $derived(deriveProfileDisplay(communityPubkey, displayRelays))
+  const profile = $derived(deriveBudabitProfile(communityPubkey, {communityRelays: displayRelays}))
+  const profileDisplay = $derived(
+    deriveBudabitProfileDisplay(communityPubkey, {communityRelays: displayRelays}),
+  )
   const name = $derived($profileDisplay || fallbackName)
   const description = $derived(
     definition?.description || $profile?.about || displayRelays[0] || "Shared Budabit community",
@@ -113,7 +116,7 @@
     class="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm transition-colors hover:border-primary/40">
     <div class="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
       <a
-        href={href}
+        {href}
         class="flex min-w-0 flex-1 items-center gap-3 no-underline"
         onclick={openCommunity}
         data-stop-tap>
@@ -127,7 +130,9 @@
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex min-w-0 items-center gap-2">
-            <p class="truncate text-xs font-semibold uppercase tracking-wide opacity-60">Community</p>
+            <p class="truncate text-xs font-semibold uppercase tracking-wide opacity-60">
+              Community
+            </p>
             {#if loadingDefinition && !definition}
               <span class="loading loading-spinner loading-xs opacity-50"></span>
             {/if}
@@ -140,14 +145,14 @@
       </a>
       <div class="flex shrink-0 gap-2 self-end sm:self-center">
         <a
-          href={href}
+          {href}
           class="btn btn-primary btn-sm !border-primary !bg-primary !text-primary-content !no-underline hover:!border-primary/80 hover:!bg-primary/80 hover:!text-primary-content hover:!no-underline"
           onclick={openCommunity}
           data-stop-tap>
           Open
         </a>
         <CommunityShareButton
-          communityPubkey={communityPubkey}
+          {communityPubkey}
           relayHints={displayRelays}
           class="btn btn-square btn-sm" />
       </div>

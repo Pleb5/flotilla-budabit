@@ -2,14 +2,7 @@
   import {Button as GitButton, NewPRForm, Status, toast} from "@nostr-git/ui"
   import {Eye, GitPullRequest, SearchX} from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
-  import {
-    GIT_STATUS_CLOSED,
-    GIT_STATUS_COMPLETE,
-    GIT_STATUS_DRAFT,
-    GIT_STATUS_OPEN,
-    getTagValue,
-    type TrustedEvent,
-  } from "@welshman/util"
+  import {GIT_STATUS_OPEN, getTagValue, type TrustedEvent} from "@welshman/util"
   import {
     createStatusEvent,
     GIT_PULL_REQUEST,
@@ -26,7 +19,7 @@
     preventDefault,
     stopPropagation,
   } from "@src/lib/html.js"
-  import {postComment, publishEvent} from "@app/core/git-commands.js"
+  import {publishEvent} from "@app/core/git-commands.js"
   import {pushModal} from "@app/util/modal"
   import {
     checked,
@@ -50,6 +43,7 @@
   import {page} from "$app/stores"
   import {beforeNavigate, goto} from "$app/navigation"
   import {publishDelete, publishReaction} from "@app/core/commands"
+  import {normalizeRelays} from "@app/core/community"
   import {makeFeed} from "@src/app/core/requests"
   import {
     PULL_REQUESTS_KEY,
@@ -118,8 +112,9 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
-  const resolvedStatusByRootStore =
-    getContext<Readable<Map<string, ResolvedRootStatus>>>(RESOLVED_STATUS_BY_ROOT_KEY)
+  const resolvedStatusByRootStore = getContext<Readable<Map<string, ResolvedRootStatus>>>(
+    RESOLVED_STATUS_BY_ROOT_KEY,
+  )
   const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -136,7 +131,9 @@
   const resolvedStatusByRoot = $derived.by(() =>
     resolvedStatusByRootStore ? $resolvedStatusByRootStore : new Map<string, ResolvedRootStatus>(),
   )
-  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
+  const hiddenRootIds = $derived.by(() =>
+    hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>(),
+  )
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const allPullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
   const pullRequests = $derived.by(() => allPullRequests.filter(pr => !hiddenRootIds.has(pr.id)))
@@ -146,6 +143,11 @@
   const prsPath = $derived.by(() => `/git/${$page.params.id}/prs`)
   const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:prs`)
   const relayUrl = $derived.by(() => (($page.data as any)?.url || "") as string)
+  const repoCommunityProfileRelays = $derived.by(() => {
+    const community = repoClass.community
+
+    return normalizeRelays([community?.relay || ""])
+  })
   const reactionRelays = $derived.by(() => {
     const scoped = [...repoRelays].filter(Boolean)
 
@@ -834,10 +836,6 @@
     pendingScrollRestore = null
   })
 
-  const onCommentCreated = async (comment: CommentEvent) => {
-    postComment(comment, repoRelays)
-  }
-
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
@@ -899,7 +897,11 @@
   }
 
   const openProfile = (profilePubkey: string) =>
-    pushModal(ProfileDetail, {pubkey: profilePubkey, url: relayUrl})
+    pushModal(ProfileDetail, {
+      pubkey: profilePubkey,
+      url: repoCommunityProfileRelays[0],
+      relays: repoCommunityProfileRelays,
+    })
 
   const getLatestPrActivityAt = (pr: {
     id: string
@@ -1256,9 +1258,12 @@
                           <Button
                             class="p-0"
                             onclick={stopPropagation(preventDefault(() => openProfile(pr.pubkey)))}>
-                            <ProfileCircle pubkey={pr.pubkey} url={relayUrl} size={7} />
+                            <ProfileCircle
+                              pubkey={pr.pubkey}
+                              relays={repoCommunityProfileRelays}
+                              size={7} />
                           </Button>
-                          <ProfileLink pubkey={pr.pubkey} url={relayUrl} />
+                          <ProfileLink pubkey={pr.pubkey} relays={repoCommunityProfileRelays} />
                           <span
                             >{pr.comments.length} comment{pr.comments.length === 1
                               ? ""
@@ -1303,7 +1308,9 @@
                       statusEvents={mergedStatusEventsByRoot?.get(pr.id) || []}
                       actorPubkey={$pubkey}
                       compact={true}
-                      isMirrored={(pr.event.tags || []).some((tag: string[]) => tag[0] === "imported")} />
+                      isMirrored={(pr.event.tags || []).some(
+                        (tag: string[]) => tag[0] === "imported",
+                      )} />
                     <ReactionSummary
                       event={pr.event as TrustedEvent}
                       url={relayUrl}

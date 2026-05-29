@@ -29,15 +29,17 @@
   type Props = {
     report: CommunityModerationAction
     showReporter?: boolean
+    relays?: string[]
   }
 
-  const {report, showReporter = false}: Props = $props()
+  const {report, showReporter = false, relays = []}: Props = $props()
 
   let revokeStatus = $state<"idle" | "publishing">("idle")
   let targetEventLoadStatus = $state<"idle" | "loading" | "done">("idle")
 
   const currentPubkey = $derived(normalizePubkey($pubkey || ""))
   const reportRelays = $derived(getCommunityScopedPublishRelays($activeCommunityDefinition))
+  const profileRelays = $derived(relays.length > 0 ? relays : reportRelays)
   const canRevoke = $derived(Boolean(currentPubkey && report.reporterPubkey === currentPubkey))
   const revokeLabel = $derived(report.target === "event" ? "Uncensor" : "Unban")
   const targetLabel = $derived(report.target === "event" ? "Event" : "Person ban")
@@ -184,7 +186,7 @@
       </div>
       {#if showReporter}
         <p class="mt-1 text-sm opacity-70">
-          Moderator: <ProfileLink pubkey={report.reporterPubkey} />
+          Moderator: <ProfileLink pubkey={report.reporterPubkey} relays={profileRelays} />
         </p>
       {/if}
       <p class="mt-1 text-xs opacity-60">
@@ -209,7 +211,9 @@
   <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
     <div class="rounded-box bg-base-200 p-3">
       <strong>{report.target === "event" ? "Target author" : "Banned person"}</strong>
-      <p class="mt-1 opacity-75"><ProfileLink pubkey={report.targetPubkey} /></p>
+      <p class="mt-1 opacity-75">
+        <ProfileLink pubkey={report.targetPubkey} relays={profileRelays} />
+      </p>
     </div>
 
     {#if report.target === "event"}
