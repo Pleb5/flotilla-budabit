@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
 import type {EffectiveCommunityReportState} from "./community-reports"
-import {selectUserCommunityRefs} from "./community-membership"
+import {selectCommunityMemberList, selectUserCommunityRefs} from "./community-membership"
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -43,20 +43,45 @@ const makeDefinition = ({
     }),
   )!
 
+const makeMultiSectionDefinition = ({
+  id,
+  pubkey,
+  sections,
+}: {
+  id: string
+  pubkey: string
+  sections: Array<{name: string; profileListAddresses: string[]}>
+}) =>
+  parseCommunityDefinition(
+    makeEvent({
+      id,
+      pubkey,
+      kind: COMMUNITY_DEFINITION_KIND,
+      tags: sections.flatMap(section => [
+        ["content", section.name],
+        ["k", "1111"],
+        ...section.profileListAddresses.map(address => ["a", address]),
+      ]),
+    }),
+  )!
+
 const makeProfileList = ({
   id,
   pubkey,
   identifier,
   members = [],
+  createdAt = 1,
 }: {
   id: string
   pubkey: string
   identifier: string
   members?: string[]
+  createdAt?: number
 }) =>
   makeEvent({
     id,
     pubkey,
+    created_at: createdAt,
     kind: PROFILE_LIST_KIND,
     tags: [["d", identifier], ...members.map(member => ["p", member])],
   })
@@ -68,6 +93,91 @@ const makePersonBanState = (pubkey: string): EffectiveCommunityReportState =>
   }) as unknown as EffectiveCommunityReportState
 
 describe("community membership", () => {
+  it("selects sorted non-banned owner, moderator, and member list items", () => {
+    const ownerPubkey = "a".repeat(64)
+    const moderatorManyPubkey = "b".repeat(64)
+    const moderatorFewPubkey = "c".repeat(64)
+    const memberManyPubkey = "d".repeat(64)
+    const memberFewPubkey = "e".repeat(64)
+    const bannedPubkey = "f".repeat(64)
+    const removedPubkey = "9".repeat(64)
+    const generalAddress = `${PROFILE_LIST_KIND}:${moderatorManyPubkey}:General`
+    const generalExtraAddress = `${PROFILE_LIST_KIND}:${moderatorFewPubkey}:GeneralExtra`
+    const threadsAddress = `${PROFILE_LIST_KIND}:${moderatorManyPubkey}:Threads`
+    const reposAddress = `${PROFILE_LIST_KIND}:${moderatorFewPubkey}:Repos`
+    const definition = makeMultiSectionDefinition({
+      id: "community-definition",
+      pubkey: ownerPubkey,
+      sections: [
+        {name: "General", profileListAddresses: [generalAddress, generalExtraAddress]},
+        {name: "Threads", profileListAddresses: [threadsAddress]},
+        {name: "Repos", profileListAddresses: [reposAddress]},
+      ],
+    })
+
+    const members = selectCommunityMemberList({
+      definition,
+      profileListEvents: [
+        makeProfileList({
+          id: "old-general",
+          pubkey: moderatorManyPubkey,
+          identifier: "General",
+          members: [removedPubkey],
+          createdAt: 1,
+        }),
+        makeProfileList({
+          id: "new-general",
+          pubkey: moderatorManyPubkey,
+          identifier: "General",
+          members: [memberManyPubkey, memberFewPubkey, bannedPubkey],
+          createdAt: 2,
+        }),
+        makeProfileList({
+          id: "general-extra",
+          pubkey: moderatorFewPubkey,
+          identifier: "GeneralExtra",
+          members: [memberManyPubkey],
+        }),
+        makeProfileList({
+          id: "threads",
+          pubkey: moderatorManyPubkey,
+          identifier: "Threads",
+          members: [memberManyPubkey, moderatorManyPubkey],
+        }),
+        makeProfileList({
+          id: "repos",
+          pubkey: moderatorFewPubkey,
+          identifier: "Repos",
+          members: [memberManyPubkey, memberFewPubkey, moderatorManyPubkey, moderatorFewPubkey],
+        }),
+      ],
+      reportState: makePersonBanState(bannedPubkey),
+    })
+
+    expect(members.map(member => member.pubkey)).toEqual([
+      ownerPubkey,
+      moderatorManyPubkey,
+      moderatorFewPubkey,
+      memberManyPubkey,
+      memberFewPubkey,
+    ])
+    expect(members.map(member => member.grantCount)).toEqual([0, 2, 1, 3, 2])
+    expect(members.map(member => member.moderatorSectionCount)).toEqual([0, 2, 2, 0, 0])
+    expect(members[0]).toMatchObject({isOwner: true, isAdmin: true})
+    expect(members[1]).toMatchObject({isModerator: true})
+    expect(members[3].sectionGrants.map(grant => grant.displayName)).toEqual([
+      "General",
+      "Repos",
+      "Threads",
+    ])
+    expect(members[3].sectionGrants[0].profileListAddresses).toEqual([
+      generalAddress,
+      generalExtraAddress,
+    ])
+    expect(members.some(member => member.pubkey === bannedPubkey)).toBe(false)
+    expect(members.some(member => member.pubkey === removedPubkey)).toBe(false)
+  })
+
   it("selects admin, moderator, and member community refs", () => {
     const userPubkey = "b".repeat(64)
     const moderatorCommunityPubkey = "d".repeat(64)

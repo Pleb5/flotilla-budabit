@@ -1,6 +1,7 @@
 import type {TrustedEvent} from "@welshman/util"
 import {
   PROFILE_LIST_KIND,
+  getCommunitySectionDisplayName,
   getProfileListPubkeys,
   normalizePubkey,
   parseCommunityDefinition,
@@ -25,6 +26,23 @@ export type ActiveUserCommunityRef = {
 export type UserCommunityReportStates =
   | Map<string, EffectiveCommunityReportState | undefined>
   | Record<string, EffectiveCommunityReportState | undefined>
+
+export type CommunityMemberSectionRef = {
+  sectionName: string
+  displayName: string
+  profileListAddresses: string[]
+}
+
+export type CommunityMemberListItem = {
+  pubkey: string
+  isOwner: boolean
+  isAdmin: boolean
+  isModerator: boolean
+  moderatorSections: CommunityMemberSectionRef[]
+  sectionGrants: CommunityMemberSectionRef[]
+  moderatorSectionCount: number
+  grantCount: number
+}
 
 export type SelectUserCommunityRefsOptions = {
   author?: string
@@ -100,6 +118,124 @@ const hasMemberRef = (
   userPubkey: string,
   profileListsByAddress: Map<string, TrustedEvent>,
 ) => getProfileListPubkeys(profileListsByAddress.get(ref.address)).includes(userPubkey)
+
+const upsertSectionRef = (
+  refs: CommunityMemberSectionRef[],
+  sectionRef: CommunityMemberSectionRef,
+) => {
+  const existing = refs.find(ref => ref.sectionName === sectionRef.sectionName)
+
+  if (!existing) {
+    refs.push(sectionRef)
+    return
+  }
+
+  existing.profileListAddresses = Array.from(
+    new Set([...existing.profileListAddresses, ...sectionRef.profileListAddresses]),
+  ).sort((a, b) => a.localeCompare(b))
+}
+
+export const selectCommunityMemberList = ({
+  definition,
+  profileListEvents = [],
+  reportState,
+}: {
+  definition?: CommunityDefinition
+  profileListEvents?: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
+}): CommunityMemberListItem[] => {
+  if (!definition) return []
+
+  const ownerPubkey = normalizePubkey(definition.pubkey)
+  const profileListsByAddress = getLatestProfileListEventsByAddress(profileListEvents)
+  const people = new Map<string, CommunityMemberListItem>()
+  const getPerson = (pubkey: string) => {
+    const normalized = normalizePubkey(pubkey)
+    if (!normalized) return undefined
+    if (normalized !== ownerPubkey && isCommunityPersonBanned(reportState, normalized))
+      return undefined
+
+    const existing = people.get(normalized)
+    if (existing) return existing
+
+    const person = {
+      pubkey: normalized,
+      isOwner: normalized === ownerPubkey,
+      isAdmin: normalized === ownerPubkey,
+      isModerator: false,
+      moderatorSections: [],
+      sectionGrants: [],
+      moderatorSectionCount: 0,
+      grantCount: 0,
+    } satisfies CommunityMemberListItem
+
+    people.set(normalized, person)
+
+    return person
+  }
+
+  getPerson(ownerPubkey)
+
+  for (const section of definition.sections) {
+    const sectionRef = {
+      sectionName: section.name,
+      displayName: getCommunitySectionDisplayName(section),
+    }
+
+    for (const profileList of section.profileLists) {
+      const moderator = getPerson(profileList.pubkey)
+
+      if (moderator && !moderator.isOwner) {
+        moderator.isModerator = true
+        upsertSectionRef(moderator.moderatorSections, {
+          ...sectionRef,
+          profileListAddresses: [profileList.address],
+        })
+      }
+
+      const event = profileListsByAddress.get(profileList.address)
+
+      for (const memberPubkey of getProfileListPubkeys(event)) {
+        const member = getPerson(memberPubkey)
+        if (!member) continue
+
+        upsertSectionRef(member.sectionGrants, {
+          ...sectionRef,
+          profileListAddresses: [profileList.address],
+        })
+      }
+    }
+  }
+
+  return Array.from(people.values())
+    .map(person => ({
+      ...person,
+      moderatorSections: person.moderatorSections.sort((a, b) =>
+        a.displayName.localeCompare(b.displayName),
+      ),
+      sectionGrants: person.sectionGrants.sort((a, b) =>
+        a.displayName.localeCompare(b.displayName),
+      ),
+    }))
+    .map(person => ({
+      ...person,
+      moderatorSectionCount: person.moderatorSections.length,
+      grantCount: person.sectionGrants.length,
+    }))
+    .sort((a, b) => {
+      const aGroup = a.isOwner ? 0 : a.isModerator ? 1 : 2
+      const bGroup = b.isOwner ? 0 : b.isModerator ? 1 : 2
+
+      if (aGroup !== bGroup) return aGroup - bGroup
+      if (aGroup === 0) return a.pubkey.localeCompare(b.pubkey)
+      if (a.grantCount !== b.grantCount) return b.grantCount - a.grantCount
+      if (a.moderatorSectionCount !== b.moderatorSectionCount) {
+        return b.moderatorSectionCount - a.moderatorSectionCount
+      }
+
+      return a.pubkey.localeCompare(b.pubkey)
+    })
+}
 
 export const selectUserCommunityRefs = ({
   author,
