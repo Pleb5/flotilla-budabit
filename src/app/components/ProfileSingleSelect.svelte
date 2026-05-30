@@ -25,7 +25,12 @@
     communityModeratorProfileListEvents,
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
-  import {buildPeopleSearchResults, getCommunityPeoplePubkeys} from "@app/util/people-search"
+  import {
+    buildPeopleSearchCandidates,
+    getCommunityPeoplePubkeys,
+    PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
+    searchPeopleCandidates,
+  } from "@app/util/people-search"
 
   interface Props {
     value: string
@@ -56,33 +61,30 @@
       definitionEvents: communityDefinitionEvents,
       profileListEvents: communityProfileListEvents,
     })
-    const candidatePubkeys = Array.from(
-      new Set([
-        ...recentConversationPubkeys,
-        ...communityPubkeys,
-        ...directFollowPubkeys,
-        ...profileMatches,
-      ]),
-    )
-    const communityAssessments = buildCommunityTrustAssessments({
-      candidatePubkeys,
-      viewerPubkey: $sessionPubkey || undefined,
-      context: {scope: "global_discovery"},
-      definitionEvents: communityDefinitionEvents,
-      profileListEvents: communityProfileListEvents,
-      reportStates: $communityMemberReportStates,
-    })
-
-    return buildPeopleSearchResults({
+    const candidates = buildPeopleSearchCandidates({
       query,
       recentConversationPubkeys,
       communityPubkeys,
       directFollowPubkeys,
       profileMatches,
-      communityAssessments,
+    })
+
+    return searchPeopleCandidates({
+      query,
+      candidates,
       getProfile: pubkey => $profilesByPubkey.get(pubkey),
-      limit: 8,
-    }).map(result => result.pubkey)
+      getCommunityAssessments: candidatePubkeys =>
+        buildCommunityTrustAssessments({
+          candidatePubkeys,
+          viewerPubkey: $sessionPubkey || undefined,
+          context: {scope: "global_discovery"},
+          definitionEvents: communityDefinitionEvents,
+          profileListEvents: communityProfileListEvents,
+          reportStates: $communityMemberReportStates,
+        }),
+      scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
+      resultLimit: 8,
+    }).results.map(result => result.pubkey)
   }
 
   const selectPubkey = (pubkey: string) => {
@@ -140,7 +142,7 @@
       </div>
     {/if}
   </div>
-  <label class="input input-bordered flex min-w-0 w-full items-center gap-2" bind:this={input}>
+  <label class="input input-bordered flex w-full min-w-0 items-center gap-2" bind:this={input}>
     <Icon icon={Magnifier} />
     <!-- svelte-ignore a11y_autofocus -->
     <input

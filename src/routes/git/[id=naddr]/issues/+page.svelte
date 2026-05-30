@@ -171,6 +171,8 @@
     event: IssueEvent
   }
 
+  type IssueSearchItem = {id: string; subject: string; desc: string}
+
   type IssueStatusKey = "open" | "resolved" | "closed" | "draft"
 
   type ResolvedRootStatus = {
@@ -786,6 +788,9 @@
   // This is the most critical optimization as it includes search, filtering, and sorting
   let searchedIssues = $state<IssueListItem[]>([])
   let searchedIssuesCacheKey = $state<string>("")
+  let issueSearchSource: IssueListItem[] | null = null
+  let issueSearchItems: IssueSearchItem[] = []
+  let issueSearchCache: {searchOptions: (query: string) => IssueSearchItem[]} | null = null
 
   $effect(() => {
     // Access all reactive dependencies synchronously to ensure they're tracked
@@ -803,6 +808,9 @@
     const timeout = setTimeout(() => {
       if (!currentIssueList || currentIssueList.length === 0) {
         searchedIssues = []
+        issueSearchSource = null
+        issueSearchItems = []
+        issueSearchCache = null
         return
       }
 
@@ -811,6 +819,13 @@
         .map(i => i.id)
         .sort()
         .join(",")
+      const issueTextKey = currentIssueList
+        .map(issue => {
+          const subject = getTagValue("subject", issue.event.tags) ?? ""
+          return `${issue.id}:${subject}:${issue.event.content}`
+        })
+        .sort()
+        .join("|")
       const labelsKey = Array.from(currentLabelsByIssue.values()).flat().sort().join(",")
       const statusKey = Object.entries(currentStatusMap)
         .map(([id, state]) => `${id}:${state}`)
@@ -818,6 +833,7 @@
         .join(",")
       const currentKey = [
         issueIds,
+        issueTextKey,
         statusKey,
         currentSearchTerm,
         currentStatusFilter,
@@ -830,35 +846,40 @@
 
       if (currentCacheKey === currentKey) return
 
-      const issuesToSearch = currentIssueList.map(issue => {
-        return {
+      if (issueSearchSource !== currentIssueList || !issueSearchCache) {
+        issueSearchItems = currentIssueList.map(issue => ({
           id: issue.id,
           subject: getTagValue("subject", issue.event.tags) ?? "",
           desc: issue.event.content,
-        }
-      })
-      const issueSearch = createSearch(issuesToSearch, {
-        getValue: (issue: {id: string; subject: string; desc: string}) => issue.id,
-        fuseOptions: {
-          keys: [
-            {name: "subject", weight: 0.8},
-            {name: "desc", weight: 0.2},
-          ],
-          includeScore: true,
-          threshold: 0.3,
-          isCaseSensitive: false,
-          // When true, search will ignore location and distance, so it won't
-          // matter where in the string the pattern appears
-          ignoreLocation: true,
-        },
-        sortFn: ({score, item}) => {
-          if (score && score > 0.3) return -score!
-          return item.subject
-        },
-      })
-      const searchResults = issueSearch.searchOptions(currentSearchTerm)
+        }))
+        issueSearchCache = createSearch(issueSearchItems, {
+          getValue: (issue: IssueSearchItem) => issue.id,
+          fuseOptions: {
+            keys: [
+              {name: "subject", weight: 0.8},
+              {name: "desc", weight: 0.2},
+            ],
+            includeScore: true,
+            threshold: 0.3,
+            isCaseSensitive: false,
+            // When true, search will ignore location and distance, so it won't
+            // matter where in the string the pattern appears
+            ignoreLocation: true,
+          },
+          sortFn: ({score, item}) => {
+            if (score && score > 0.3) return -score!
+            return item.subject
+          },
+        })
+        issueSearchSource = currentIssueList
+      }
+      const trimmedSearchTerm = currentSearchTerm.trim()
+      const searchResults = trimmedSearchTerm
+        ? issueSearchCache.searchOptions(trimmedSearchTerm)
+        : issueSearchItems
+      const searchResultIds = new Set(searchResults.map(result => result.id))
       const result = currentIssueList
-        .filter(r => searchResults.find(res => res.id === r.id))
+        .filter(r => searchResultIds.has(r.id))
         .filter(issue => {
           if (currentAuthorFilter) {
             return issue.event.pubkey === currentAuthorFilter

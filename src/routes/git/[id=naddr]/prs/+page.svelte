@@ -95,6 +95,8 @@
     groups: LabelGroups
   }
 
+  type PrSearchItem = {id: string; title: string}
+
   const PR_STATUS_ORDER: PrStatusKey[] = ["open", "merged", "draft", "closed"]
   const PR_STATUS_LABELS: Record<PrStatusKey, string> = {
     open: "Open",
@@ -322,6 +324,9 @@
   let searchTerm = $state("")
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
+  let prSearchSource: PrListItem[] | null = null
+  let prSearchItems: PrSearchItem[] = []
+  let prSearchCache: {searchOptions: (query: string) => PrSearchItem[]} | null = null
 
   const trustFilterOptions: Array<{value: TrustFilterKey; label: string}> = [
     {value: "all", label: "All activity"},
@@ -1026,24 +1031,31 @@
   })
 
   const searchedPrs = $derived.by(() => {
-    const prsToSearch = prList.map(pr => ({id: pr.id, title: pr.title}))
-    const prsSearch = createSearch(prsToSearch, {
-      getValue: (pr: {id: string; title: string}) => pr.id,
-      fuseOptions: {
-        keys: [{name: "title"}],
-        includeScore: true,
-        threshold: 0.3,
-        isCaseSensitive: false,
-        ignoreLocation: true,
-      },
-      sortFn: ({score, item}) => {
-        if (score && score > 0.3) return -score!
-        return item.title
-      },
-    })
-    const searchResults = prsSearch.searchOptions(searchTerm)
+    if (prSearchSource !== prList || !prSearchCache) {
+      prSearchItems = prList.map(pr => ({id: pr.id, title: pr.title}))
+      prSearchCache = createSearch(prSearchItems, {
+        getValue: (pr: PrSearchItem) => pr.id,
+        fuseOptions: {
+          keys: [{name: "title"}],
+          includeScore: true,
+          threshold: 0.3,
+          isCaseSensitive: false,
+          ignoreLocation: true,
+        },
+        sortFn: ({score, item}) => {
+          if (score && score > 0.3) return -score!
+          return item.title
+        },
+      })
+      prSearchSource = prList
+    }
+    const trimmedSearchTerm = searchTerm.trim()
+    const searchResults = trimmedSearchTerm
+      ? prSearchCache.searchOptions(trimmedSearchTerm)
+      : prSearchItems
+    const searchResultIds = new Set(searchResults.map(result => result.id))
     return prList
-      .filter(pr => searchResults.find(result => result.id === pr.id))
+      .filter(pr => searchResultIds.has(pr.id))
       .filter(pr => {
         if (selectedLabels.length === 0) return true
         const labels = labelsByPr.get(pr.id) || []

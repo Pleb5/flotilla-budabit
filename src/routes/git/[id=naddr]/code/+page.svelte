@@ -48,9 +48,14 @@
   let isBrowserOpen = $state(true)
   let isDesktopViewport = $state(true)
   let fileSearchQuery = $state("")
+  let debouncedFileSearchQuery = $state("")
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
   let pageContainerRef: HTMLElement | undefined = $state()
+  let fileSearchSource: FileEntry[] | null = null
+  let fileSearchCache: {searchOptions: (query: string) => FileEntry[]} | null = null
+
+  const FILE_SEARCH_DEBOUNCE_MS = 350
 
   // Clone progress state - only show when actually cloning
   let isCloning = $state(false)
@@ -95,26 +100,33 @@
       .trim()
 
   const filterFileEntries = (entries: FileEntry[]) => {
-    const query = normalizeSearchValue(fileSearchQuery)
+    const query = normalizeSearchValue(debouncedFileSearchQuery)
     if (!query) return entries
 
-    const search = createSearch(entries, {
-      getValue: entry => entry.path,
-      fuseOptions: {
-        keys: ["name", "path"],
-        threshold: 0.42,
-        ignoreLocation: true,
-        minMatchCharLength: 1,
-        isCaseSensitive: false,
-      },
-    })
+    if (fileSearchSource !== entries || !fileSearchCache) {
+      fileSearchCache = createSearch(entries, {
+        getValue: entry => entry.path,
+        fuseOptions: {
+          keys: ["name", "path"],
+          threshold: 0.42,
+          ignoreLocation: true,
+          minMatchCharLength: 1,
+          isCaseSensitive: false,
+        },
+      })
+      fileSearchSource = entries
+    }
 
-    return search.searchOptions(query)
+    return fileSearchCache.searchOptions(query)
   }
 
   const getCommunityOptionLabel = (communityPubkey: string) => {
     const profile = $profilesByPubkey.get(communityPubkey)
-    return profile?.display_name || profile?.name || `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+    return (
+      profile?.display_name ||
+      profile?.name ||
+      `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+    )
   }
 
   const permalinkCommunityOptions = $derived.by((): RepoCommunityOption[] =>
@@ -188,6 +200,20 @@
     return () => {
       media.removeEventListener("change", syncViewport)
     }
+  })
+
+  $effect(() => {
+    const value = fileSearchQuery
+    if (!value.trim()) {
+      debouncedFileSearchQuery = ""
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      debouncedFileSearchQuery = value
+    }, FILE_SEARCH_DEBOUNCE_MS)
+
+    return () => clearTimeout(timeout)
   })
 
   $effect(() => {
@@ -715,7 +741,7 @@
                       </div>
                     {:else if visibleFileEntries.length === 0}
                       <div class="text-sm text-muted-foreground">
-                        No files match "{fileSearchQuery.trim()}".
+                        No files match "{debouncedFileSearchQuery.trim()}".
                       </div>
                     {:else}
                       <div class="flex flex-col">

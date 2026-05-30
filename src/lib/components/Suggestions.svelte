@@ -7,8 +7,9 @@
 
   let index = $state(0)
   let items: string[] = $state([])
+  const SUGGESTIONS_SEARCH_THROTTLE_MS = 350
 
-  const populateItems = throttle(300, term => {
+  const populateItems = throttle(SUGGESTIONS_SEARCH_THROTTLE_MS, term => {
     items = search(term).slice(0, 5)
   })
 

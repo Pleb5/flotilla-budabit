@@ -1,6 +1,11 @@
 import {describe, expect, it} from "vitest"
 import {PROFILE_LIST_KIND} from "@app/core/community"
-import {buildPeopleSearchResults, getCommunityPeoplePubkeys} from "./people-search"
+import {
+  buildPeopleSearchCandidates,
+  buildPeopleSearchResults,
+  getCommunityPeoplePubkeys,
+  searchPeopleCandidates,
+} from "./people-search"
 
 describe("people-search", () => {
   it("orders community matches ahead of direct follows", () => {
@@ -82,5 +87,74 @@ describe("people-search", () => {
     })
 
     expect(pubkeys).toEqual([listOwner, member])
+  })
+
+  it("returns bounded batches with a resumable cursor", () => {
+    const pubkeys = ["1".repeat(64), "2".repeat(64), "3".repeat(64)]
+    const profiles = new Map(pubkeys.map((pubkey, index) => [pubkey, {name: `Alice ${index}`}]))
+    const candidates = buildPeopleSearchCandidates({query: "alice", knownPubkeys: pubkeys})
+
+    const firstBatch = searchPeopleCandidates({
+      query: "alice",
+      candidates,
+      getProfile: pubkey => profiles.get(pubkey),
+      scanLimit: 2,
+    })
+
+    expect(firstBatch.results).toHaveLength(2)
+    expect(firstBatch.cursor).toBe(2)
+    expect(firstBatch.hasMore).toBe(true)
+
+    const secondBatch = searchPeopleCandidates({
+      query: "alice",
+      candidates,
+      getProfile: pubkey => profiles.get(pubkey),
+      cursor: firstBatch.cursor,
+      scanLimit: 2,
+    })
+
+    expect(secondBatch.results).toHaveLength(1)
+    expect(secondBatch.cursor).toBe(3)
+    expect(secondBatch.hasMore).toBe(false)
+  })
+
+  it("builds community trust only for candidates that match text", () => {
+    const matching = "4".repeat(64)
+    const nonMatching = "5".repeat(64)
+    const profiles = new Map([
+      [matching, {name: "Alice Builder"}],
+      [nonMatching, {name: "Bob Builder"}],
+    ])
+    const candidates = buildPeopleSearchCandidates({
+      query: "alice",
+      communityPubkeys: [nonMatching, matching],
+    })
+    const assessedPubkeys: string[] = []
+
+    const results = searchPeopleCandidates({
+      query: "alice",
+      candidates,
+      getProfile: pubkey => profiles.get(pubkey),
+      getCommunityAssessments: pubkeys => {
+        assessedPubkeys.push(...pubkeys)
+        return new Map(
+          pubkeys.map(pubkey => [
+            pubkey,
+            {
+              category: "community_member",
+              score: 4,
+              evidence: [{type: "community_member", label: "Community member"}],
+              displayLabels: ["Community member"],
+              suppressed: false,
+            },
+          ]),
+        )
+      },
+    }).results
+
+    expect(assessedPubkeys).toEqual([matching])
+    expect(results).toEqual([
+      expect.objectContaining({pubkey: matching, bucket: "community", label: "Community member"}),
+    ])
   })
 })

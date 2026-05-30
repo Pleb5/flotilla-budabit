@@ -2110,7 +2110,7 @@
       repoDiscoverySnapshot = null
       activeTextSearchQuery = query
       repoDiscoveryDebounceTimer = null
-    }, 250)
+    }, 350)
 
     return () => {
       if (repoDiscoveryDebounceTimer) {

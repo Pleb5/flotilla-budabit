@@ -16,12 +16,15 @@
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
   import {
-    buildPeopleSearchResults,
+    buildPeopleSearchCandidates,
     getCommunityPeoplePubkeys,
+    PEOPLE_SEARCH_DEBOUNCE_MS,
+    PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
+    searchPeopleCandidates,
     type PeopleSearchResult,
   } from "@app/util/people-search"
 
-  const SEARCH_DEBOUNCE_MS = 200
+  const PEOPLE_RESULT_LIMIT = 8
 
   type Props = {
     term: string
@@ -45,9 +48,14 @@
 
   $effect(() => {
     const value = term
+    if (!value.trim()) {
+      debouncedTerm = ""
+      return
+    }
+
     const timeout = setTimeout(() => {
       debouncedTerm = value
-    }, SEARCH_DEBOUNCE_MS)
+    }, PEOPLE_SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timeout)
   })
@@ -75,43 +83,36 @@
       profileListEvents: communityProfileListEvents,
     }),
   )
-  const peopleCandidatePubkeys = $derived(
+  const peopleSearchCandidates = $derived(
     normalizedTerm
-      ? Array.from(
-          new Set([
-            ...recentConversationPubkeys,
-            ...communityPubkeys,
-            ...directFollowPubkeys,
-            ...profileMatches,
-          ]),
-        )
-      : [],
-  )
-  const communityAssessments = $derived(
-    normalizedTerm
-      ? buildCommunityTrustAssessments({
-          candidatePubkeys: peopleCandidatePubkeys,
-          viewerPubkey: $pubkey || undefined,
-          context: {scope: "global_discovery"},
-          definitionEvents: communityDefinitionEvents,
-          profileListEvents: communityProfileListEvents,
-          reportStates: $communityMemberReportStates,
-        })
-      : new Map(),
-  )
-  const peopleResults = $derived.by(() =>
-    normalizedTerm
-      ? buildPeopleSearchResults({
+      ? buildPeopleSearchCandidates({
           query: normalizedTerm,
           recentConversationPubkeys,
           communityPubkeys,
           directFollowPubkeys,
           profileMatches,
-          excludePubkeys: Array.from(shownChatPubkeys),
-          communityAssessments,
-          getProfile: pubkey => $profilesByPubkey.get(pubkey),
-          limit: 8,
         })
+      : [],
+  )
+  const peopleResults = $derived.by(() =>
+    normalizedTerm
+      ? searchPeopleCandidates({
+          query: normalizedTerm,
+          candidates: peopleSearchCandidates,
+          excludePubkeys: Array.from(shownChatPubkeys),
+          getProfile: pubkey => $profilesByPubkey.get(pubkey),
+          getCommunityAssessments: candidatePubkeys =>
+            buildCommunityTrustAssessments({
+              candidatePubkeys,
+              viewerPubkey: $pubkey || undefined,
+              context: {scope: "global_discovery"},
+              definitionEvents: communityDefinitionEvents,
+              profileListEvents: communityProfileListEvents,
+              reportStates: $communityMemberReportStates,
+            }),
+          scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
+          resultLimit: PEOPLE_RESULT_LIMIT,
+        }).results
       : ([] as PeopleSearchResult[]),
   )
 </script>
