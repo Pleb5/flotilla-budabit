@@ -19,6 +19,7 @@
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
+  import RoomComposeEdit from "@app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import {pushToast} from "@app/util/toast"
@@ -45,6 +46,12 @@
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
   import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
+  import {
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -121,7 +128,7 @@
       : undefined,
   )
   const replies = $derived(
-    $replyEvents
+    filterVisibleAfterDeletesAndEdits($replyEvents, $editedTargetIds)
       .map(event => readCommunityThreadReply(event, communityPubkey, threadId))
       .filter(Boolean)
       .filter(reply => !isCommunityPersonBanned($activeCommunityReportState, reply!.event.pubkey))
@@ -169,6 +176,15 @@
 
   const openCommentPrompt = async (replyParent?: TrustedEvent) => {
     parent = replyParent
+    eventToEdit = undefined
+    showReply = true
+    await tick()
+    compose?.focus()
+  }
+
+  const openEditPrompt = async (event: TrustedEvent) => {
+    parent = undefined
+    eventToEdit = event
     showReply = true
     await tick()
     compose?.focus()
@@ -176,6 +192,7 @@
 
   const closeCommentPrompt = () => {
     parent = undefined
+    eventToEdit = undefined
     showReply = false
   }
 
@@ -198,6 +215,18 @@
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
+      return
+    }
+
+    if (eventToEdit) {
+      publishEditedReply({
+        event: eventToEdit,
+        content: trimmed,
+        tags,
+        relays,
+        url: communityPubkey,
+      })
+      closeCommentPrompt()
       return
     }
 
@@ -234,11 +263,14 @@
     await scrollToEvent(event.id)
   }
 
+  const canEditReply = (event: TrustedEvent) => canEditReplyEvent(event, $pubkey, canReply)
+
   let loadingThread = $state(false)
   let loadingReplies = $state(false)
   let threadRequestStarted = $state(false)
   let showReply = $state(false)
   let parent: TrustedEvent | undefined = $state()
+  let eventToEdit: TrustedEvent | undefined = $state()
   let compose: RoomCompose | undefined = $state()
   let element: HTMLElement | undefined = $state()
   let initialScrollDone = $state(false)
@@ -384,6 +416,8 @@
                 communitySectionName={COMMUNITY_SECTION_GENERAL}
                 {replyParent}
                 onReplyParentOpen={scrollToReplyParent}
+                canEdit={canEditReply}
+                onEdit={openEditPrompt}
                 replyTo={canReply ? event => openCommentPrompt(event) : undefined} />
             </div>
           {/if}
@@ -409,14 +443,20 @@
         {#if parent}
           <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
         {/if}
-        <RoomCompose
-          url={$activeCommunityRelays[0] || communityPubkey}
-          h={communityPubkey}
-          blossomContext={{type: "community", communityPubkey}}
-          showMenu={false}
-          onSubmit={sendReply}
-          onEscape={closeCommentPrompt}
-          bind:this={compose} />
+        {#if eventToEdit}
+          <RoomComposeEdit clear={() => (eventToEdit = undefined)} />
+        {/if}
+        {#key eventToEdit}
+          <RoomCompose
+            url={$activeCommunityRelays[0] || communityPubkey}
+            h={communityPubkey}
+            blossomContext={{type: "community", communityPubkey}}
+            showMenu={false}
+            onSubmit={sendReply}
+            onEscape={closeCommentPrompt}
+            content={eventToEdit?.content}
+            bind:this={compose} />
+        {/key}
       </div>
     {:else if !threadCensorReason}
       <div class="flex justify-end">

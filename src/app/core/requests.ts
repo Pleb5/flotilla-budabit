@@ -14,6 +14,7 @@ import {
   fromPairs,
 } from "@welshman/lib"
 import {
+  DELETE,
   EVENT_TIME,
   RELAY_INVITE,
   ALERT_EMAIL,
@@ -34,6 +35,11 @@ import {repository, makeFeedController, loadRelay, tracker} from "@welshman/app"
 import {createScroller} from "@lib/html"
 import {daysBetween} from "@lib/util"
 import {NOTIFIER_RELAY, getEventsForUrl} from "@app/core/state"
+import {
+  deleteEventsDeleteTarget,
+  editedTargetIds,
+  isVisibleAfterDeletesAndEdits,
+} from "@app/core/event-edits"
 
 // Utils
 
@@ -111,10 +117,15 @@ export const makeFeed = ({
     return nextEvents.length
   }
 
+  const removeEvents = (predicate: (event: TrustedEvent) => boolean) => {
+    buffer.update($buffer => $buffer.filter(event => !predicate(event)))
+    events.update($events => $events.filter(event => !predicate(event)))
+  }
+
   const insertEvent = (event: TrustedEvent) => {
     let handled = false
 
-    if (seen.has(event.id)) {
+    if (seen.has(event.id) || !isVisibleAfterDeletesAndEdits(event)) {
       return
     }
 
@@ -144,14 +155,25 @@ export const makeFeed = ({
     seen.add(event.id)
   }
 
+  const unsubscribeSuppressedEdits = editedTargetIds.subscribe(ids => {
+    if (ids.size === 0) return
+    removeEvents(event => ids.has(event.id))
+  })
+
   const unsubscribe = on(repository, "update", ({added, removed}) => {
     if (removed.size > 0) {
-      buffer.update($buffer => $buffer.filter(e => !removed.has(e.id)))
-      events.update($events => $events.filter(e => !removed.has(e.id)))
+      removeEvents(event => removed.has(event.id))
     }
 
-    for (const event of added) {
-      if (!matchFilters(liveFilters, event)) {
+    const addedEvents = Array.from(added) as TrustedEvent[]
+    const deleteEvents = addedEvents.filter(event => event.kind === DELETE)
+
+    if (deleteEvents.length > 0) {
+      removeEvents(event => deleteEventsDeleteTarget(deleteEvents, event))
+    }
+
+    for (const event of addedEvents) {
+      if (!matchFilters(liveFilters, event) || !isVisibleAfterDeletesAndEdits(event)) {
         continue
       }
 
@@ -235,6 +257,7 @@ export const makeFeed = ({
         clearTimeout(initialLoadTimeout)
       }
       unsubscribe()
+      unsubscribeSuppressedEdits()
       scroller.stop()
       controller.abort()
     },
@@ -275,7 +298,10 @@ export const makeCalendarFeed = ({
   const getEventsForRelays = () =>
     Array.from(
       new Map(
-        loadRelays.flatMap(relay => getEventsForUrl(relay, filters)).map(event => [event.id, event]),
+        loadRelays
+          .flatMap(relay => getEventsForUrl(relay, filters))
+          .filter(event => isVisibleAfterDeletesAndEdits(event))
+          .map(event => [event.id, event]),
       ).values(),
     )
 
@@ -292,14 +318,21 @@ export const makeCalendarFeed = ({
   const initialEvents = sortBy(getStart, getEventsForRelays())
   const events = writable(initialEvents)
 
+  const removeEvents = (predicate: (event: TrustedEvent) => boolean) => {
+    events.update($events => $events.filter(event => !predicate(event)))
+  }
+
   const insertEvent = (event: TrustedEvent) => {
     const start = getStart(event)
     const address = getAddress(event)
 
+    if (!isVisibleAfterDeletesAndEdits(event)) return
     if (isNaN(start) || isNaN(getEnd(event))) return
 
     events.update($events => {
-      const nextEvents = $events.filter(e => e.id !== event.id && (!address || getAddress(e) !== address))
+      const nextEvents = $events.filter(
+        e => e.id !== event.id && (!address || getAddress(e) !== address),
+      )
 
       for (let i = 0; i < nextEvents.length; i++) {
         if (getStart(nextEvents[i]) > start) return insertAt(i, event, nextEvents)
@@ -311,14 +344,26 @@ export const makeCalendarFeed = ({
 
   const unsubscribe = on(repository, "update", ({added, removed}) => {
     if (removed.size > 0) {
-      events.update($events => $events.filter(e => !removed.has(e.id)))
+      removeEvents(event => removed.has(event.id))
     }
 
-    for (const event of added) {
-      if (matchFilters(filters, event)) {
+    const addedEvents = Array.from(added) as TrustedEvent[]
+    const deleteEvents = addedEvents.filter(event => event.kind === DELETE)
+
+    if (deleteEvents.length > 0) {
+      removeEvents(event => deleteEventsDeleteTarget(deleteEvents, event))
+    }
+
+    for (const event of addedEvents) {
+      if (matchFilters(filters, event) && isVisibleAfterDeletesAndEdits(event)) {
         insertEvent(event)
       }
     }
+  })
+
+  const unsubscribeSuppressedEdits = editedTargetIds.subscribe(ids => {
+    if (ids.size === 0) return
+    removeEvents(event => ids.has(event.id))
   })
 
   let initialLoadComplete = false
@@ -415,6 +460,7 @@ export const makeCalendarFeed = ({
       forwardScroller.stop()
       controller.abort()
       unsubscribe()
+      unsubscribeSuppressedEdits()
     },
   }
 }

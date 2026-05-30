@@ -569,6 +569,10 @@ const getRepoAddressForDelete = (event: TrustedEvent) => {
   if (addressTag && addressTag.startsWith(`${GIT_REPO_ANNOUNCEMENT}:`)) {
     return addressTag
   }
+  const repoRefTag = (event.tags || []).find(
+    tag => tag[0] === "q" && tag[1]?.startsWith(`${GIT_REPO_ANNOUNCEMENT}:`),
+  )?.[1]
+  if (repoRefTag) return repoRefTag
   if (event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE) {
     try {
       return getAddress(event)

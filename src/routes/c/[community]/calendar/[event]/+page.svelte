@@ -26,6 +26,7 @@
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
+  import RoomComposeEdit from "@app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
@@ -58,12 +59,12 @@
   } from "@app/core/community-permissions"
   import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
   import {
-    getCommunityDeleteSeenKey,
-    getCommunityDeleteSince,
-    hydrateCommunityDeleteEvents,
-    normalizeDeleteCheckpoint,
-  } from "@app/core/community-deletes"
-  import {checked, setChecked, setCheckedAt} from "@app/util/notifications"
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -212,7 +213,7 @@
   const replies = $derived(
     sortBy(
       reply => reply.event.created_at,
-      $replyEventsStore
+      filterVisibleAfterDeletesAndEdits($replyEventsStore, $editedTargetIds)
         .map(replyEvent =>
           readCommunityCalendarEventReply(
             replyEvent,
@@ -273,6 +274,16 @@
 
   const openCommentPrompt = async (replyParent?: TrustedEvent) => {
     parent = replyParent
+    eventToEdit = undefined
+    showReply = true
+    await tick()
+    composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
+    compose?.focus()
+  }
+
+  const openEditPrompt = async (event: TrustedEvent) => {
+    parent = undefined
+    eventToEdit = event
     showReply = true
     await tick()
     composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
@@ -281,6 +292,7 @@
 
   const closeCommentPrompt = () => {
     parent = undefined
+    eventToEdit = undefined
     showReply = false
   }
 
@@ -298,6 +310,18 @@
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
+      return
+    }
+
+    if (eventToEdit) {
+      publishEditedReply({
+        event: eventToEdit,
+        content: trimmed,
+        tags,
+        relays,
+        url: communityPubkey,
+      })
+      closeCommentPrompt()
       return
     }
 
@@ -326,6 +350,7 @@
   }
 
   const openReply = () => openCommentPrompt()
+  const canEditReply = (event: TrustedEvent) => canEditReplyEvent(event, $pubkey, canReply)
 
   let loadingEvent = $state(false)
   let eventRequestDone = $state(false)
@@ -333,14 +358,9 @@
   let targetRequestDone = $state(false)
   let showReply = $state(false)
   let parent: TrustedEvent | undefined = $state()
+  let eventToEdit: TrustedEvent | undefined = $state()
   let compose: RoomCompose | undefined = $state()
   let composeElement: HTMLElement | undefined = $state()
-  let deleteLoadKey = ""
-  let latestDeleteSeen = 0
-  const deleteSeenKey = $derived(getCommunityDeleteSeenKey(communityPubkey))
-  const lastDeleteSeen = $derived(
-    deleteSeenKey ? normalizeDeleteCheckpoint($checked[deleteSeenKey] || 0) : 0,
-  )
 
   $effect(() => {
     if (!communityPubkey || !event || !isEventIdParam) return
@@ -349,28 +369,6 @@
     if (!identifier || identifier === eventParam) return
 
     goto(makeCommunityPath(communityPubkey, "calendar", identifier), {replaceState: true})
-  })
-
-  $effect(() => {
-    const relays = $activeCommunityRelays
-    if (!communityBootstrapReady || !communityPubkey || relays.length === 0) return
-
-    const since = getCommunityDeleteSince(lastDeleteSeen)
-    const key = `${communityPubkey}::${relays.slice().sort().join("|")}::${since}`
-    if (deleteLoadKey === key) return
-    deleteLoadKey = key
-
-    const controller = new AbortController()
-    void hydrateCommunityDeleteEvents({
-      relays,
-      kinds: [EVENT_TIME, COMMENT],
-      since,
-      signal: controller.signal,
-    }).then(latest => {
-      if (latest > latestDeleteSeen) latestDeleteSeen = latest
-    })
-
-    return () => controller.abort()
   })
 
   $effect(() => {
@@ -473,9 +471,6 @@
   })
 
   onDestroy(() => {
-    if (deleteSeenKey) {
-      setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
-    }
     setChecked($page.url.pathname)
   })
 </script>
@@ -564,6 +559,8 @@
               communitySectionName={COMMUNITY_SECTION_GENERAL}
               {replyParent}
               onReplyParentOpen={scrollToReplyParent}
+              canEdit={canEditReply}
+              onEdit={openEditPrompt}
               replyTo={canReply ? event => openCommentPrompt(event) : undefined} />
           </div>
         {:else}
@@ -583,14 +580,20 @@
         {#if parent}
           <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
         {/if}
-        <RoomCompose
-          url={$activeCommunityRelays[0] || communityPubkey}
-          h={communityPubkey}
-          blossomContext={{type: "community", communityPubkey}}
-          showMenu={false}
-          onSubmit={sendReply}
-          onEscape={closeCommentPrompt}
-          bind:this={compose} />
+        {#if eventToEdit}
+          <RoomComposeEdit clear={() => (eventToEdit = undefined)} />
+        {/if}
+        {#key eventToEdit}
+          <RoomCompose
+            url={$activeCommunityRelays[0] || communityPubkey}
+            h={communityPubkey}
+            blossomContext={{type: "community", communityPubkey}}
+            showMenu={false}
+            onSubmit={sendReply}
+            onEscape={closeCommentPrompt}
+            content={eventToEdit?.content}
+            bind:this={compose} />
+        {/key}
       </div>
     {:else if !approvedEventCensorReason}
       <div class="flex justify-end px-2 pb-2">

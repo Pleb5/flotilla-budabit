@@ -3,6 +3,7 @@
   import {getTag, type TrustedEvent} from "@welshman/util"
   import {pubkey} from "@welshman/app"
   import Bolt from "@assets/icons/bolt.svg?dataurl"
+  import Pen from "@assets/icons/pen.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
@@ -22,12 +23,21 @@
     url: string
     event: TrustedEvent
     reply?: () => void
+    edit?: () => void
     relays?: string[]
     scopeH?: string
     communitySectionName?: string
   }
 
-  const {url, event, reply, relays = [], scopeH = "", communitySectionName = ""}: Props = $props()
+  const {
+    url,
+    event,
+    reply,
+    edit,
+    relays = [],
+    scopeH = "",
+    communitySectionName = "",
+  }: Props = $props()
 
   const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
 
@@ -58,6 +68,15 @@
 
     history.back()
     reply()
+  }
+
+  const editMessage = () => {
+    if (!edit) {
+      return
+    }
+
+    history.back()
+    edit()
   }
 
   const showInfo = () => pushModal(EventInfo, {url, event}, {replaceState: true})
@@ -95,6 +114,13 @@
     <Button class="btn btn-neutral w-full" onclick={sendReply}>
       <Icon size={4} icon={Reply} />
       Send Reply
+    </Button>
+  {/if}
+
+  {#if edit}
+    <Button class="btn btn-neutral w-full" onclick={editMessage}>
+      <Icon size={4} icon={Pen} />
+      Edit Message
     </Button>
   {/if}
 

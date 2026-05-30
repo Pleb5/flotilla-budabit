@@ -1,11 +1,18 @@
 <script lang="ts">
-  import {onDestroy} from "svelte"
+  import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {sortBy} from "@welshman/lib"
-  import {COMMENT, ZAP_GOAL, getTagValue, type Filter} from "@welshman/util"
+  import {
+    COMMENT,
+    ZAP_GOAL,
+    getTagValue,
+    type EventContent,
+    type Filter,
+    type TrustedEvent,
+  } from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
@@ -15,13 +22,15 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Content from "@app/components/Content.svelte"
+  import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
+  import RoomCompose from "@app/components/RoomCompose.svelte"
+  import RoomComposeEdit from "@app/components/RoomComposeEdit.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
   import GoalActions from "@app/components/GoalActions.svelte"
-  import {preventDefault} from "@lib/html"
   import {publishComment} from "@app/core/commands"
   import {
     activeCommunityBootstrapStatus,
@@ -43,6 +52,12 @@
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
   import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
+  import {
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
@@ -53,7 +68,9 @@
   let targetRequestDone = $state(false)
   let showReply = $state(false)
   let showAllReplies = $state(false)
-  let reply = $state("")
+  let eventToEdit: TrustedEvent | undefined = $state()
+  let compose: RoomCompose | undefined = $state()
+  let composeElement: HTMLElement | undefined = $state()
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
@@ -62,9 +79,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -138,7 +155,10 @@
       : undefined,
   )
   const replyFilters = $derived<Filter[]>(
-    communityBootstrapReady && approvedGoal && !approvedGoalCensorReason && interactionAuthorPubkeys.length
+    communityBootstrapReady &&
+      approvedGoal &&
+      !approvedGoalCensorReason &&
+      interactionAuthorPubkeys.length
       ? [
           {
             kinds: [COMMENT],
@@ -156,7 +176,7 @@
   const replies = $derived(
     sortBy(
       replyEvent => -replyEvent.created_at,
-      $replyEventsStore.filter(
+      filterVisibleAfterDeletesAndEdits($replyEventsStore, $editedTargetIds).filter(
         event => !isCommunityPersonBanned($activeCommunityReportState, event.pubkey),
       ),
     ),
@@ -195,8 +215,8 @@
     ),
   )
 
-  const sendReply = () => {
-    const trimmed = reply.trim()
+  const sendReply = ({content, tags}: EventContent) => {
+    const trimmed = content.trim()
     if (!approvedGoal || !trimmed) return
     if (!canReply) {
       pushToast({theme: "error", message: "You do not have permission to comment."})
@@ -207,18 +227,57 @@
       return
     }
 
+    if (eventToEdit) {
+      publishEditedReply({
+        event: eventToEdit,
+        content: trimmed,
+        tags,
+        relays: $activeCommunityRelays,
+        url: communityPubkey,
+      })
+      eventToEdit = undefined
+      showReply = false
+      return
+    }
+
     publishComment({
       relays: $activeCommunityRelays,
       event: approvedGoal,
       content: trimmed,
-      tags: [["h", communityPubkey]],
+      tags: [["h", communityPubkey], ...tags],
     })
-    reply = ""
     showReply = false
   }
 
+  const openReply = async () => {
+    eventToEdit = undefined
+    showReply = true
+    await tick()
+    composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
+    compose?.focus()
+  }
+
+  const openEditPrompt = async (event: TrustedEvent) => {
+    eventToEdit = event
+    showReply = true
+    await tick()
+    composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
+    compose?.focus()
+  }
+
+  const closeReply = () => {
+    eventToEdit = undefined
+    showReply = false
+  }
+
+  const canEditReply = (event: TrustedEvent) => canEditReplyEvent(event, $pubkey, canReply)
+
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || goalFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      goalFilters.length === 0
+    ) {
       loadingGoal = false
       goalRequestDone = false
       return
@@ -232,7 +291,12 @@
 
     loadingGoal = true
     goalRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: goalFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: goalFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -249,7 +313,11 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
       loadingTargeting = false
       targetRequestDone = false
       return
@@ -263,7 +331,12 @@
 
     loadingTargeting = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetingFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -280,10 +353,20 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || replyFilters.length === 0) return
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      replyFilters.length === 0
+    )
+      return
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, autoClose: true, filters: replyFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: replyFilters,
+      signal: controller.signal,
+    })
 
     return () => controller.abort()
   })
@@ -365,18 +448,20 @@
               <ModeratedContent reason={censorReason} />
             </div>
           {:else}
-            <NoteCard
-              event={replyEvent}
-              url={communityPubkey}
-              class="card2 bg-alt z-feature w-full">
-              <div class="col-3 ml-12">
-                <Content
-                  showEntire
-                  event={replyEvent}
-                  url={communityPubkey}
-                  communitySectionName={COMMUNITY_SECTION_GENERAL} />
-              </div>
-            </NoteCard>
+            <div class="card2 bg-alt z-feature w-full">
+              <ChannelMessage
+                url={communityPubkey}
+                event={replyEvent}
+                showPubkey
+                readOnly={!canReact}
+                interactionRelays={$activeCommunityRelays}
+                profileRelays={$activeCommunityRelays}
+                {interactionAuthorPubkeys}
+                scopeH={communityPubkey}
+                communitySectionName={COMMUNITY_SECTION_GENERAL}
+                canEdit={canEditReply}
+                onEdit={openEditPrompt} />
+            </div>
           {/if}
         {:else}
           <p class="py-8 text-center opacity-70">No comments yet.</p>
@@ -385,26 +470,30 @@
     {/if}
 
     {#if !approvedGoalCensorReason && showReply}
-      <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(sendReply)}>
+      <div bind:this={composeElement} class="card2 bg-alt col-3 p-4 shadow-md">
         <strong>Comment</strong>
-        <textarea bind:value={reply} class="textarea textarea-bordered" rows="4"></textarea>
-        <div class="flex justify-end gap-2">
-          <button class="btn btn-link" type="button" onclick={() => (showReply = false)}
-            >Cancel</button>
-          <PublishGate
-            target={COMMUNITY_WRITE_TARGETS.comment}
-            action="comment on goals"
-            submit
-            disabled={!reply.trim()}>
-            <Icon icon={Reply} />
-            Comment
-          </PublishGate>
+        {#if eventToEdit}
+          <RoomComposeEdit clear={() => (eventToEdit = undefined)} />
+        {/if}
+        {#key eventToEdit}
+          <RoomCompose
+            url={$activeCommunityRelays[0] || communityPubkey}
+            h={communityPubkey}
+            blossomContext={{type: "community", communityPubkey}}
+            showMenu={false}
+            onSubmit={sendReply}
+            onEscape={closeReply}
+            content={eventToEdit?.content}
+            bind:this={compose} />
+        {/key}
+        <div class="flex justify-end">
+          <button class="btn btn-link btn-sm" type="button" onclick={closeReply}>Cancel</button>
         </div>
-      </form>
+      </div>
     {:else if !approvedGoalCensorReason}
       <div class="flex justify-end px-2 pb-2">
         {#if canReply}
-          <button class="btn btn-primary" type="button" onclick={() => (showReply = true)}>
+          <button class="btn btn-primary" type="button" onclick={openReply}>
             <Icon icon={Reply} />
             Comment on this goal
           </button>

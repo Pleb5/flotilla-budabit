@@ -42,14 +42,8 @@
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
-  import {
-    getCommunityDeleteSeenKey,
-    getCommunityDeleteSince,
-    hydrateCommunityDeleteEvents,
-    normalizeDeleteCheckpoint,
-  } from "@app/core/community-deletes"
   import {makeCalendarFeed} from "@app/core/requests"
-  import {checked, setChecked, setCheckedAt} from "@app/util/notifications"
+  import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type CalendarItem = {
@@ -70,24 +64,18 @@
   let previousScrollHeight = 0
   let previousFirstEventId = ""
   let initialScrollDone = false
-  let deleteLoadKey = ""
-  let latestDeleteSeen = 0
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const createPath = $derived(
     communityPubkey ? makeCommunityPath(communityPubkey, "calendar", "create") : "",
   )
-  const deleteSeenKey = $derived(getCommunityDeleteSeenKey(communityPubkey))
-  const lastDeleteSeen = $derived(
-    deleteSeenKey ? normalizeDeleteCheckpoint($checked[deleteSeenKey] || 0) : 0,
-  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -151,7 +139,10 @@
     return filters
   })
   const feedKey = $derived.by(() =>
-    communityBootstrapReady && communityPubkey && calendarFeedFilters.length && $activeCommunityRelays.length
+    communityBootstrapReady &&
+    communityPubkey &&
+    calendarFeedFilters.length &&
+    $activeCommunityRelays.length
       ? [
           communityPubkey,
           ...$activeCommunityRelays,
@@ -243,28 +234,6 @@
   }
 
   $effect(() => {
-    const relays = $activeCommunityRelays
-    if (!communityBootstrapReady || !communityPubkey || relays.length === 0) return
-
-    const since = getCommunityDeleteSince(lastDeleteSeen)
-    const key = `${communityPubkey}::${relays.slice().sort().join("|")}::${since}`
-    if (deleteLoadKey === key) return
-    deleteLoadKey = key
-
-    const controller = new AbortController()
-    void hydrateCommunityDeleteEvents({
-      relays,
-      kinds: [EVENT_TIME, COMMENT],
-      since,
-      signal: controller.signal,
-    }).then(latest => {
-      if (latest > latestDeleteSeen) latestDeleteSeen = latest
-    })
-
-    return () => controller.abort()
-  })
-
-  $effect(() => {
     if (
       !communityBootstrapReady ||
       !communityPubkey ||
@@ -277,7 +246,11 @@
     }
 
     const controller = new AbortController()
-    const key = JSON.stringify({scope: "calendar-targets", relays: $activeCommunityRelays, filters: targetingFilters})
+    const key = JSON.stringify({
+      scope: "calendar-targets",
+      relays: $activeCommunityRelays,
+      filters: targetingFilters,
+    })
 
     if (hasCommunityHydrationCompleted(key)) {
       loadingTargets = false
@@ -293,7 +266,12 @@
 
     loadingTargets = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetingFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -376,9 +354,6 @@
 
   onDestroy(() => {
     resetFeed()
-    if (deleteSeenKey) {
-      setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
-    }
     setChecked($page.url.pathname)
   })
 </script>

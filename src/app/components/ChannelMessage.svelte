@@ -6,6 +6,7 @@
   import {isMobile} from "@lib/html"
   import TapTarget from "@lib/components/TapTarget.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
+  import Pen from "@assets/icons/pen.svg?dataurl"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -43,6 +44,8 @@
     communitySectionName?: string
     replyParent?: TrustedEvent
     onReplyParentOpen?: (event: TrustedEvent) => void
+    canEdit?: (event: TrustedEvent) => boolean
+    onEdit?: (event: TrustedEvent) => void
   }
 
   const {
@@ -59,6 +62,8 @@
     communitySectionName = "",
     replyParent = undefined,
     onReplyParentOpen = undefined,
+    canEdit = () => false,
+    onEdit = undefined,
   }: Props = $props()
 
   const LEADING_EVENT_URI =
@@ -121,6 +126,7 @@
   )
 
   const reply = replyTo ? () => replyTo(event) : undefined
+  const edit = !readOnly && canEdit(event) && onEdit ? () => onEdit(event) : undefined
   const openReplyParent = () => {
     if (replyParent) onReplyParentOpen?.(replyParent)
   }
@@ -130,6 +136,7 @@
       url,
       event,
       reply,
+      edit,
       relays: relayTargets,
       scopeH,
       communitySectionName,
@@ -186,6 +193,11 @@
           aria-label="Reply to message"
           data-stop-tap>
           <Icon icon={Reply} size={4} />
+        </Button>
+      {/if}
+      {#if edit}
+        <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message" data-stop-tap>
+          <Icon icon={Pen} size={4} />
         </Button>
       {/if}
       <Button
@@ -301,6 +313,11 @@
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply}>
             <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
+        {#if edit}
+          <Button class="btn join-item btn-xs" onclick={edit}>
+            <Icon icon={Pen} size={4} />
           </Button>
         {/if}
         <ChannelMessageMenuButton

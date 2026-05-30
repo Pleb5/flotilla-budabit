@@ -70,6 +70,12 @@
   import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {HIDDEN_ROOT_IDS_KEY, getRepoMaintainers} from "@app/core/git-state"
+  import {
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
@@ -349,9 +355,10 @@
 
   const prThreadCommentsArray = $derived.by(() => {
     if (!prThreadComments) return []
-    return (($prThreadComments || []) as CommentEvent[]).filter(
-      comment => !hiddenRepoEventIds.has(comment.id),
-    )
+    return filterVisibleAfterDeletesAndEdits(
+      ($prThreadComments || []) as CommentEvent[],
+      $editedTargetIds,
+    ).filter(comment => !hiddenRepoEventIds.has(comment.id))
   })
   const prThreadCommentsCount = $derived.by(() => prThreadCommentsArray.length)
 
@@ -2068,6 +2075,18 @@
     }
   }
 
+  const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
+
+  const onCommentEdited = async (comment: CommentEvent, content: string) => {
+    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    publishEditedReply({
+      event: comment as unknown as TrustedEvent,
+      content,
+      relays,
+      url: relays[0],
+    })
+  }
+
   const handlePrStatusPublish = async (statusEvent: StatusEvent) => {
     if (!prEvent || !$pubkey) return
     if ($pubkey !== prEvent.pubkey && !canManagePr) {
@@ -3460,6 +3479,8 @@
                                       comments={prDiffComments}
                                       rootEvent={getPrCommitDiffRootEvent(oid)}
                                       onComment={handlePrDiffCommentSubmit}
+                                      {canEditComment}
+                                      onCommentEdited={$pubkey ? onCommentEdited : undefined}
                                       currentPubkey={$pubkey}
                                       repo={repoClass}
                                       repoRefs={commentRepoRefs}
@@ -3567,6 +3588,8 @@
                           comments={prDiffComments}
                           rootEvent={prDiffRootEvent}
                           onComment={handlePrDiffCommentSubmit}
+                          {canEditComment}
+                          onCommentEdited={$pubkey ? onCommentEdited : undefined}
                           currentPubkey={$pubkey}
                           repo={repoClass}
                           repoRefs={commentRepoRefs}
@@ -3751,6 +3774,8 @@
             comments={prThreadCommentsArray}
             currentCommenter={$pubkey || ""}
             onCommentCreated={$pubkey ? onCommentCreated : undefined}
+            {canEditComment}
+            onCommentEdited={$pubkey ? onCommentEdited : undefined}
             onLoginRequired={requireLogin}
             relays={repoRelays?.length ? repoRelays : repoClass.relays || []}
             repoAddress={repoClass.address || ""}

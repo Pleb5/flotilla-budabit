@@ -13,7 +13,7 @@
   import {pubkey, repository} from "@welshman/app"
   import {request} from "@welshman/net"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {displayRelayUrl, MESSAGE} from "@welshman/util"
+  import {DELETE, displayRelayUrl, MESSAGE} from "@welshman/util"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import CommunityMenu from "@app/components/CommunityMenu.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -21,6 +21,7 @@
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushDrawer} from "@app/util/modal"
+  import {checked, setCheckedAt} from "@app/util/notifications"
   import {deriveRelayAuthError} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {
@@ -37,7 +38,17 @@
     setActiveCommunityInput,
   } from "@app/core/community-state"
   import {FORM_RESPONSE_KIND} from "@app/core/community"
-  import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
+  import {
+    COMMUNITY_EXCLUSIVE_KINDS,
+    COMMUNITY_TARGETABLE_KINDS,
+    makeCommunityTargetingFilter,
+  } from "@app/core/community-feeds"
+  import {
+    getCommunityDeleteSeenKey,
+    getCommunityDeleteSince,
+    hydrateCommunityDeleteEvents,
+    normalizeDeleteCheckpoint,
+  } from "@app/core/community-deletes"
   import {
     buildCommunityLiveFilters,
     getCommunityLiveSubscriptionKey,
@@ -89,7 +100,15 @@
   let communityLiveController: AbortController | null = null
   let communityHistoryLoadKey = ""
   let communityHistoryLoadController: AbortController | null = null
+  let communityDeleteLoadKey = ""
+  let communityDeleteLoadController: AbortController | null = null
+  let latestCommunityDeleteSeen = 0
   const COMMUNITY_HISTORY_LOAD_TIMEOUT_MS = 5_000
+  const communityDeleteKinds = Array.from(
+    new Set(
+      [...COMMUNITY_EXCLUSIVE_KINDS, ...COMMUNITY_TARGETABLE_KINDS].filter(kind => kind !== DELETE),
+    ),
+  )
 
   const communityTargetingFilters = $derived(
     $activeCommunityDefinition
@@ -115,6 +134,12 @@
   const admissionResponseIds = $derived(
     normalizeCommunityLiveValues($admissionResponseEventsStore.map(event => event.id)),
   )
+  const communityDeleteSeenKey = $derived(
+    getCommunityDeleteSeenKey($activeCommunityDefinition?.pubkey || ""),
+  )
+  const lastCommunityDeleteSeen = $derived(
+    communityDeleteSeenKey ? normalizeDeleteCheckpoint($checked[communityDeleteSeenKey] || 0) : 0,
+  )
 
   const stopCommunityLiveSubscription = () => {
     communityLiveController?.abort()
@@ -126,6 +151,12 @@
     communityHistoryLoadController?.abort()
     communityHistoryLoadController = null
     communityHistoryLoadKey = ""
+  }
+
+  const stopCommunityDeleteLoad = () => {
+    communityDeleteLoadController?.abort()
+    communityDeleteLoadController = null
+    communityDeleteLoadKey = ""
   }
 
   const openCommunityMenu = () => {
@@ -227,6 +258,36 @@
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
 
     if (!definition || relays.length === 0) {
+      stopCommunityDeleteLoad()
+      return
+    }
+
+    const since = getCommunityDeleteSince(lastCommunityDeleteSeen)
+    const key = `${definition.pubkey}::${relays.join("|")}::${since}`
+    if (communityDeleteLoadKey === key) return
+
+    communityDeleteLoadController?.abort()
+    communityDeleteLoadKey = key
+    const controller = new AbortController()
+    communityDeleteLoadController = controller
+
+    void hydrateCommunityDeleteEvents({
+      relays,
+      kinds: communityDeleteKinds,
+      since,
+      signal: controller.signal,
+    }).then(latest => {
+      if (latest > latestCommunityDeleteSeen) latestCommunityDeleteSeen = latest
+    })
+
+    return () => controller.abort()
+  })
+
+  $effect(() => {
+    const definition = $activeCommunityDefinition
+    const relays = normalizeCommunityLiveValues($activeCommunityRelays)
+
+    if (!definition || relays.length === 0) {
       stopCommunityLiveSubscription()
       return
     }
@@ -267,7 +328,14 @@
 
   onDestroy(() => {
     stopCommunityHistoryLoad()
+    stopCommunityDeleteLoad()
     stopCommunityLiveSubscription()
+    if (communityDeleteSeenKey) {
+      setCheckedAt(
+        communityDeleteSeenKey,
+        Math.max(lastCommunityDeleteSeen, latestCommunityDeleteSeen),
+      )
+    }
   })
 </script>
 

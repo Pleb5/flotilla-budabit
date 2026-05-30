@@ -65,6 +65,12 @@
   import {resolveIssueEdits} from "@app/util/issue-edits"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {normalizeRelays} from "@app/core/community"
+  import {
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -532,7 +538,10 @@
     for (const issue of issues) {
       if (!issue?.id) continue
       const thread = repoClass.getIssueThread(issue.id)
-      ret[issue.id] = sortBy(e => -e.created_at, thread.comments || [])
+      ret[issue.id] = sortBy(
+        e => -e.created_at,
+        filterVisibleAfterDeletesAndEdits(thread.comments || [], $editedTargetIds),
+      )
     }
     return ret
   })
@@ -1088,6 +1097,17 @@
     postComment(comment, repoBoundRelays)
   }
 
+  const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
+
+  const onCommentEdited = async (comment: CommentEvent, content: string) => {
+    publishEditedReply({
+      event: comment as unknown as TrustedEvent,
+      content,
+      relays: repoBoundRelays,
+      url: repoBoundRelays[0],
+    })
+  }
+
   const requireLogin = () => pushModal(LogIn)
 
   const scrollToTop = () => {
@@ -1246,6 +1266,8 @@
               comments={commentsOrdered[issue.id]}
               currentCommenter={$pubkey || ""}
               onCommentCreated={$pubkey ? onCommentCreated : undefined}
+              {canEditComment}
+              onCommentEdited={$pubkey ? onCommentEdited : undefined}
               onLoginRequired={requireLogin}
               extraLabels={labelsByIssue.get(issue.id) || []}
               repo={repoClass}

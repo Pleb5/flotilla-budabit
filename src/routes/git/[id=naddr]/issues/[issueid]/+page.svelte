@@ -49,6 +49,12 @@
   import {toNaturalArray} from "@app/util/labels"
   import {resolveIssueEdits} from "@app/util/issue-edits"
   import {normalizeRelays} from "@app/core/community"
+  import {
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {HIDDEN_ROOT_IDS_KEY, REPO_KEY} from "@app/core/git-state"
@@ -506,9 +512,10 @@
     }
   })
   const visibleThreadComments = $derived.by(() =>
-    (threadComments ? (($threadComments || []) as CommentEvent[]) : []).filter(
-      comment => !hiddenRootIds.has(comment.id),
-    ),
+    filterVisibleAfterDeletesAndEdits(
+      threadComments ? (($threadComments || []) as CommentEvent[]) : [],
+      $editedTargetIds,
+    ).filter(comment => !hiddenRootIds.has(comment.id)),
   )
 
   const getStatusFilter = () => ({
@@ -575,6 +582,17 @@
 
   const onCommentCreated = async (comment: CommentEvent) => {
     postComment(comment, getPublishRelays())
+  }
+
+  const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
+
+  const onCommentEdited = async (comment: CommentEvent, content: string) => {
+    publishEditedReply({
+      event: comment as unknown as TrustedEvent,
+      content,
+      relays: getPublishRelays(),
+      url: repoBoundRelays[0],
+    })
   }
 
   const requireLogin = () => pushModal(LogIn)
@@ -923,6 +941,8 @@
         comments={visibleThreadComments}
         currentCommenter={$pubkey || ""}
         onCommentCreated={$pubkey ? onCommentCreated : undefined}
+        {canEditComment}
+        onCommentEdited={$pubkey ? onCommentEdited : undefined}
         onLoginRequired={requireLogin}
         relays={repoBoundRelays}
         repoAddress={issueEditRepoAddress}

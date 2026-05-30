@@ -5,7 +5,7 @@
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {ago, formatTimestampAsDate, int, MINUTE, now} from "@welshman/lib"
+  import {formatTimestampAsDate, int, MINUTE, now} from "@welshman/lib"
   import type {EventContent, TrustedEvent} from "@welshman/util"
   import {makeEvent, MESSAGE, THREAD} from "@welshman/util"
   import {fade, fly, slide} from "@lib/transition"
@@ -49,7 +49,13 @@
   import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {userSettingsValues} from "@app/core/state"
-  import {prependParent, publishSocialDelete} from "@app/core/commands"
+  import {prependParent} from "@app/core/commands"
+  import {
+    canEditMessageEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedMessage} from "@app/core/event-edit-publish"
   import {checked, setChecked} from "@app/util/notifications"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
@@ -89,17 +95,13 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
-    Boolean(
-      communityPubkey &&
-        !communityBootstrapReady &&
-        !$activeCommunityBootstrapStatus.error,
-    ),
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
   const roomFilters = $derived(
     communityBootstrapReady && communityPubkey && roomId && roomAuthorPubkeys.length
@@ -126,7 +128,11 @@
       : undefined,
   )
   const messageFilters = $derived(
-    communityBootstrapReady && communityPubkey && room && !roomCensorReason && messageAuthorPubkeys.length
+    communityBootstrapReady &&
+      communityPubkey &&
+      room &&
+      !roomCensorReason &&
+      messageAuthorPubkeys.length
       ? [makeCommunityRoomMessagesFilter(communityPubkey, room.id, {authors: messageAuthorPubkeys})]
       : [],
   )
@@ -209,7 +215,34 @@
       return
     }
 
-    let template: EventContent & {created_at?: number} = makeCommunityRoomMessage({
+    if (eventToEdit) {
+      const thunk = publishEditedMessage({
+        event: eventToEdit,
+        content: trimmed,
+        tags,
+        relays,
+        url: communityPubkey,
+        delay: $userSettingsValues.send_delay,
+      })
+
+      if ($userSettingsValues.send_delay) {
+        pushToast({
+          timeout: 30_000,
+          children: {
+            component: ThunkToast,
+            props: {thunk},
+          },
+        })
+      }
+
+      clearParent()
+      clearShare()
+      clearEventToEdit()
+      void tick().then(() => scrollToBottom())
+      return
+    }
+
+    let template: EventContent = makeCommunityRoomMessage({
       communityPubkey,
       room: {id: room.id, creatorPubkey: room.creatorPubkey},
       relay: relays[0],
@@ -217,11 +250,6 @@
       tags,
       parent: parent ? {id: parent.id, pubkey: parent.pubkey, relay: relays[0]} : undefined,
     })
-
-    if (eventToEdit) {
-      template.created_at = eventToEdit.created_at
-      publishSocialDelete({url: communityPubkey, relays, event: eventToEdit})
-    }
 
     if (share) {
       template = prependParent(share, template, {relays})
@@ -325,8 +353,7 @@
     clearEventToEdit()
   }
 
-  const canEditEvent = (event: TrustedEvent) =>
-    canSendMessage && event.pubkey === $pubkey && event.created_at >= ago(5, MINUTE)
+  const canEditEvent = (event: TrustedEvent) => canEditMessageEvent(event, $pubkey, canSendMessage)
 
   const onEditEvent = (event: TrustedEvent) => {
     clearParent()
@@ -335,7 +362,9 @@
   }
 
   const onEditPrevious = () => {
-    const prev = $events.find(e => e.pubkey === $pubkey)
+    const prev = filterVisibleAfterDeletesAndEdits($events, $editedTargetIds).find(
+      e => e.pubkey === $pubkey,
+    )
 
     if (prev && canEditEvent(prev)) {
       onEditEvent(prev)
@@ -361,9 +390,11 @@
   let lastFeedKey = ""
 
   const messages = $derived(
-    readCommunityRoomMessages($events, communityPubkey, roomId).filter(
-      item => !isCommunityPersonBanned($activeCommunityReportState, item.event.pubkey),
-    ),
+    readCommunityRoomMessages(
+      filterVisibleAfterDeletesAndEdits($events, $editedTargetIds),
+      communityPubkey,
+      roomId,
+    ).filter(item => !isCommunityPersonBanned($activeCommunityReportState, item.event.pubkey)),
   )
   const elements = $derived.by(() => {
     const nextElements: RoomElement[] = []
