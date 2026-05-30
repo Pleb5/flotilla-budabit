@@ -31,6 +31,7 @@
       pathname.startsWith("/people/") ||
       pathname === "/git" ||
       pathname.startsWith("/git/") ||
+      pathname === "/settings/about" ||
       isGuestCommunityRoute ||
       routeId === "/[bech32]"
     )
@@ -54,12 +55,10 @@
 </script>
 
 <div class="flex h-screen overflow-hidden">
-  {#if $pubkey || (isPublicRoute && !isGuestCommunityRoute)}
+  {#if $pubkey || isPublicRoute}
     <PrimaryNav>
       {@render children?.()}
     </PrimaryNav>
-  {:else if isPublicRoute}
-    {@render children?.()}
   {:else if !$modals[$page.url.hash.slice(1)]}
     <Landing />
   {/if}

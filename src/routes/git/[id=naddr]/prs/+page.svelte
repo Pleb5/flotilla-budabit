@@ -28,6 +28,7 @@
     setCheckedForRepoNotifications,
   } from "@app/util/notifications"
   import FilterPanel from "@app/components/FilterPanel.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
@@ -886,6 +887,11 @@
   }
 
   const onNewPR = () => {
+    if (!$pubkey) {
+      pushModal(LogIn)
+      return
+    }
+
     const evt = repoClass.repoEvent
     if (!evt) {
       toast.push({
@@ -1116,12 +1122,10 @@
         <h2 class="text-xl font-semibold">PRs</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge pull requests</p>
       </div>
-      {#if $pubkey}
-        <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
-          <GitPullRequest class="h-4 w-4" />
-          New PR
-        </Button>
-      {/if}
+      <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
+        <GitPullRequest class="h-4 w-4" />
+        New PR
+      </Button>
     </div>
     <div class="row-2 input grow overflow-x-hidden">
       <Icon icon={Magnifer} />

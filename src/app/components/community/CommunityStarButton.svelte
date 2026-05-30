@@ -3,6 +3,7 @@
   import {type TrustedEvent} from "@welshman/util"
   import Star from "@assets/icons/star.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import {publishDelete} from "@app/core/commands"
   import {
     activeCommunityStarByCommunity,
@@ -11,6 +12,7 @@
   } from "@app/core/community-state"
   import {makeCommunityDefinitionAddress} from "@app/core/community-forms"
   import {pushToast} from "@app/util/toast"
+  import {pushModal} from "@app/util/modal"
   import {makeCommunityStarReaction} from "@app/util/community-stars"
 
   type Props = {
@@ -31,7 +33,7 @@
 
   const toggleStar = () => {
     if (!$pubkey) {
-      pushToast({theme: "warning", message: "Sign in to star communities."})
+      pushModal(LogIn)
       return
     }
     if (!communityPubkey || relays.length === 0) {

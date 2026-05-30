@@ -4,7 +4,9 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import {pushToast} from "@app/util/toast"
+  import {pushModal} from "@app/util/modal"
   import {normalizeRelays, parseCommunityInput} from "@app/core/community"
   import {
     DEFAULT_COMMUNITY_INPUT,
@@ -51,7 +53,10 @@
   const SELECTOR_RELAY_RETRY_MS = 30_000
   const PREFERRED_HYDRATION_MAX_ATTEMPTS = 2
 
-  const createCommunity = () => goto("/explore/create-community")
+  const createCommunity = () => {
+    if ($pubkey) goto("/explore/create-community")
+    else pushModal(LogIn)
+  }
 
   const loadCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
     const discoveryRelays = getCommunityBootstrapRelays(relayHints)

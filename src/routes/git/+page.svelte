@@ -3003,7 +3003,7 @@
   const toggleRepoCardBookmark = async (event?: RepoAnnouncementEvent | null) => {
     if (!event || !$pubkey) {
       if (!$pubkey) {
-        pushToast({message: "Sign in to star repositories", theme: "warning"})
+        pushModal(LogIn)
       }
       return
     }
@@ -3386,10 +3386,7 @@
     console.log("[+page.svelte] onImportRepo called")
 
     if (!$session || !$pubkey) {
-      pushToast({
-        theme: "error",
-        message: "Please log in to import a repository.",
-      })
+      pushModal(LogIn)
       return
     }
 

@@ -5,6 +5,7 @@
   import Settings from "@assets/icons/settings-minimalistic.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
+  import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Plugins from "@assets/icons/plug-circle.svg?dataurl"
@@ -13,9 +14,13 @@
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import LogOut from "@app/components/LogOut.svelte"
+  import {pubkey} from "@welshman/app"
   import {clearModals, pushModal} from "@app/util/modal"
   import {theme} from "@app/util/theme"
+
+  const login = () => pushModal(LogIn)
 
   const logout = () => pushModal(LogOut)
 
@@ -33,103 +38,120 @@
 <svelte:window onkeydown={dismissOnEscape} />
 
 <div class="column menu gap-2">
-  <Link replaceState href="/settings/profile">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={UserRounded} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Profile</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Customize your user profile</div>
-      {/snippet}
-    </CardButton>
-  </Link>
-  {#if __ALERTS__}
-    <Link replaceState href="/settings/alerts">
-      <CardButton class="btn-neutral">
+  {#if !$pubkey}
+    <Button onclick={login}>
+      <CardButton class="btn-primary">
         {#snippet icon()}
-          <div><Icon icon={Bell} size={7} /></div>
+          <div><Icon icon={Key} size={7} /></div>
         {/snippet}
         {#snippet title()}
-          <div>Alerts</div>
+          <div>Log in</div>
         {/snippet}
         {#snippet info()}
-          <div>Set up email digests and push notifications</div>
+          <div>Connect your Nostr identity to publish and manage account settings</div>
+        {/snippet}
+      </CardButton>
+    </Button>
+  {/if}
+  {#if $pubkey}
+    <Link replaceState href="/settings/profile">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={UserRounded} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Profile</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Customize your user profile</div>
+        {/snippet}
+      </CardButton>
+    </Link>
+    {#if __ALERTS__}
+      <Link replaceState href="/settings/alerts">
+        <CardButton class="btn-neutral">
+          {#snippet icon()}
+            <div><Icon icon={Bell} size={7} /></div>
+          {/snippet}
+          {#snippet title()}
+            <div>Alerts</div>
+          {/snippet}
+          {#snippet info()}
+            <div>Set up email digests and push notifications</div>
+          {/snippet}
+        </CardButton>
+      </Link>
+    {/if}
+    <Link replaceState href="/settings/wallet">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Wallet} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Wallet</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Connect a bitcoin wallet for sending social tips</div>
+        {/snippet}
+      </CardButton>
+    </Link>
+    <Link replaceState href="/settings/relays">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Server} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Relays</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Control relay and network access</div>
+        {/snippet}
+      </CardButton>
+    </Link>
+    <Link replaceState href="/settings/blossom">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Flower} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Blossom</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Manage media servers, uploads, optimization, and mirroring</div>
+        {/snippet}
+      </CardButton>
+    </Link>
+    <Link replaceState href="/settings/content">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Settings} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Content Settings</div>
+        {/snippet}
+        {#snippet info()}
+          {#if __ALERTS__}
+            <div>Manage how you view and publish content</div>
+          {:else}
+            <div>Manage content display, editor, and in-app notification preferences</div>
+          {/if}
+        {/snippet}
+      </CardButton>
+    </Link>
+    <Link replaceState href="/settings/extensions">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Plugins} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Extensions</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Install and manage extensions</div>
         {/snippet}
       </CardButton>
     </Link>
   {/if}
-  <Link replaceState href="/settings/wallet">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={Wallet} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Wallet</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Connect a bitcoin wallet for sending social tips</div>
-      {/snippet}
-    </CardButton>
-  </Link>
-  <Link replaceState href="/settings/relays">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={Server} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Relays</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Control relay and network access</div>
-      {/snippet}
-    </CardButton>
-  </Link>
-  <Link replaceState href="/settings/blossom">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={Flower} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Blossom</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Manage media servers, uploads, optimization, and mirroring</div>
-      {/snippet}
-    </CardButton>
-  </Link>
-  <Link replaceState href="/settings/content">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={Settings} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Content Settings</div>
-      {/snippet}
-      {#snippet info()}
-        {#if __ALERTS__}
-          <div>Manage how you view and publish content</div>
-        {:else}
-          <div>Manage content display, editor, and in-app notification preferences</div>
-        {/if}
-      {/snippet}
-    </CardButton>
-  </Link>
-  <Link replaceState href="/settings/extensions">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={Plugins} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Extensions</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Install and manage extensions</div>
-      {/snippet}
-    </CardButton>
-  </Link>
   <Button onclick={toggleTheme}>
     <CardButton class="btn-neutral">
       {#snippet icon()}
@@ -156,7 +178,9 @@
       {/snippet}
     </CardButton>
   </Link>
-  <Button onclick={logout} class="btn btn-neutral">
-    <Icon icon={Exit} /> Log Out
-  </Button>
+  {#if $pubkey}
+    <Button onclick={logout} class="btn btn-neutral">
+      <Icon icon={Exit} /> Log Out
+    </Button>
+  {/if}
 </div>

@@ -38,6 +38,7 @@
   } from "@app/util/notifications"
   import {postComment} from "@app/core/git-commands.js"
   import FilterPanel from "@app/components/FilterPanel.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import {getInteractiveCardTarget, isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
@@ -1067,6 +1068,11 @@
   }
 
   const onNewIssue = () => {
+    if (!$pubkey) {
+      pushModal(LogIn)
+      return
+    }
+
     const evt: any = (repoClass as any).repoEvent
     const aTag = evt ? (getTag("d", evt.tags) as string[]) : undefined
     const repoDtag = aTag ? aTag[1] : ""
@@ -1081,6 +1087,8 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     postComment(comment, repoBoundRelays)
   }
+
+  const requireLogin = () => pushModal(LogIn)
 
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
@@ -1150,12 +1158,10 @@
         <p class="text-sm text-muted-foreground max-sm:hidden">Track bugs and feature requests</p>
       </div>
       <div class="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-        {#if $pubkey}
-          <GitButton class="w-full gap-2 sm:w-auto" variant="git" size="sm" onclick={onNewIssue}>
-            <Plus class="h-4 w-4" />
-            <span class="">New Issue</span>
-          </GitButton>
-        {/if}
+        <GitButton class="w-full gap-2 sm:w-auto" variant="git" size="sm" onclick={onNewIssue}>
+          <Plus class="h-4 w-4" />
+          <span class="">New Issue</span>
+        </GitButton>
       </div>
     </div>
     <div class="row-2 input mt-4 grow overflow-x-hidden">
@@ -1240,6 +1246,7 @@
               comments={commentsOrdered[issue.id]}
               currentCommenter={$pubkey || ""}
               onCommentCreated={$pubkey ? onCommentCreated : undefined}
+              onLoginRequired={requireLogin}
               extraLabels={labelsByIssue.get(issue.id) || []}
               repo={repoClass}
               statusEvents={statusEventsByRoot?.get(issue.id) || []}

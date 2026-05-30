@@ -74,9 +74,11 @@
   import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
   import Profile from "@src/app/components/Profile.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
+  import {pushModal} from "@app/util/modal"
   import type {Repo} from "@nostr-git/ui"
   import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
@@ -1732,6 +1734,8 @@
     }
   }
 
+  const requireLogin = () => pushModal(LogIn)
+
   /** PR event with commit/parent-commit tags for DiffViewer permalinks and comments */
   const prDiffRootEvent = $derived.by(() => {
     if (!prEvent) return undefined
@@ -2813,6 +2817,7 @@
           actorPubkey={$pubkey}
           isMirrored={isImportedPr}
           ProfileComponent={NostrGitProfileComponent}
+          onLoginRequired={requireLogin}
           onPublish={handlePrStatusPublish} />
       </div>
 
@@ -3744,8 +3749,9 @@
             issueId={prEvent?.id || ""}
             issueKind={"1618"}
             comments={prThreadCommentsArray}
-            currentCommenter={$pubkey!}
-            {onCommentCreated}
+            currentCommenter={$pubkey || ""}
+            onCommentCreated={$pubkey ? onCommentCreated : undefined}
+            onLoginRequired={requireLogin}
             relays={repoRelays?.length ? repoRelays : repoClass.relays || []}
             repoAddress={repoClass.address || ""}
             rootEvent={prEvent}

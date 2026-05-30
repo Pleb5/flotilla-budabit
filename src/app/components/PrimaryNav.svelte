@@ -4,6 +4,7 @@
   import {userProfile, pubkey} from "@welshman/app"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
@@ -28,11 +29,15 @@
 
   const openProfile = () => {
     if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
+    else pushModal(LogIn)
   }
 
   const showSettingsMenu = () => pushModal(MenuSettings)
 
-  const openChat = () => goto("/chat")
+  const openChat = () => {
+    if ($pubkey) goto("/chat")
+    else pushModal(LogIn)
+  }
 
   const gitNotification = $derived($notifications.has("/git"))
 
@@ -113,14 +118,20 @@
       {/each}
       <SlotRenderer slotId="community:sidebar:widgets" context={{urls: []}} />
       <div class="hidden md:block lg:hidden">
-        <PrimaryNavItem title="Settings" href="/settings" prefix="/settings" class="tooltip-right">
+        <PrimaryNavItem
+          title="Settings"
+          href={$pubkey ? "/settings" : ""}
+          onclick={$pubkey ? undefined : showSettingsMenu}
+          prefix="/settings"
+          class="tooltip-right">
           <ImageIcon alt="Settings" src={Settings} size={7} />
         </PrimaryNavItem>
       </div>
       <div class="hidden lg:block">
         <PrimaryNavItem
           title="Settings"
-          href="/settings/profile"
+          href={$pubkey ? "/settings/profile" : ""}
+          onclick={$pubkey ? undefined : showSettingsMenu}
           prefix="/settings"
           class="tooltip-right">
           <ImageIcon alt="Settings" src={Settings} size={7} />

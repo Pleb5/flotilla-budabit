@@ -33,6 +33,8 @@
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
   import {publishDelete, publishReaction} from "@app/core/commands"
+  import LogIn from "@app/components/LogIn.svelte"
+  import {pushModal} from "@app/util/modal"
   import EventActions from "@app/components/EventActions.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import {ROLE_NS, buildRoleLabelEvent} from "@app/util/labels"
@@ -575,6 +577,8 @@
     postComment(comment, getPublishRelays())
   }
 
+  const requireLogin = () => pushModal(LogIn)
+
   const isMaintainerOrAuthor = $derived.by(() => {
     if (!issue || !$pubkey) return false
     if ($pubkey === issue.author.pubkey) return true
@@ -902,6 +906,7 @@
           compact={false}
           {isMirrored}
           ProfileComponent={NostrGitProfileComponent}
+          onLoginRequired={requireLogin}
           onPublish={handleStatusPublish} />
       </div>
 
@@ -918,6 +923,7 @@
         comments={visibleThreadComments}
         currentCommenter={$pubkey || ""}
         onCommentCreated={$pubkey ? onCommentCreated : undefined}
+        onLoginRequired={requireLogin}
         relays={repoBoundRelays}
         repoAddress={issueEditRepoAddress}
         rootEvent={issueEvent as any}

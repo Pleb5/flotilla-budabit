@@ -1,3 +1,11 @@
+<style>
+  @media (max-width: 1023.98px) {
+    :global(.community-with-floating-menu [data-component="PageBar"]) {
+      padding-right: calc(var(--sair) + 4rem);
+    }
+  }
+</style>
+
 <script lang="ts">
   import {onDestroy, type Snippet} from "svelte"
   import {page} from "$app/stores"
@@ -67,13 +75,11 @@
     ].includes($page.route.id || ""),
   )
   const pageClass = $derived(
-    !$pubkey
-      ? "cw-full"
-      : parsedCommunity
-        ? hasInlineCommunityMenu
-          ? "community-with-menu"
-          : "community-with-menu community-with-floating-menu"
-        : "",
+    parsedCommunity
+      ? hasInlineCommunityMenu
+        ? "community-with-menu"
+        : "community-with-menu community-with-floating-menu"
+      : "cw-full",
   )
 
   let authRelayUrl = $state("")
@@ -94,7 +100,9 @@
     deriveEventsAsc(deriveEventsById({repository, filters: communityTargetingFilters})),
   )
   const admissionFormAddresses = $derived(
-    normalizeCommunityLiveValues(Object.values($activeCommunityAdmissionForms).map(form => form.address)),
+    normalizeCommunityLiveValues(
+      Object.values($activeCommunityAdmissionForms).map(form => form.address),
+    ),
   )
   const admissionResponseFilters = $derived(
     admissionFormAddresses.length
@@ -121,7 +129,8 @@
   }
 
   const openCommunityMenu = () => {
-    if (parsedCommunity) pushDrawer(CommunityMenu, {community: parsedCommunity.pubkey}, {replaceState: true})
+    if (parsedCommunity)
+      pushDrawer(CommunityMenu, {community: parsedCommunity.pubkey}, {replaceState: true})
   }
 
   $effect(() => {
@@ -134,7 +143,9 @@
         return
       }
 
-      const session = setActiveCommunityInput(decodeURIComponent(routeCommunity)) || makeCommunitySession(parsedCommunity)
+      const session =
+        setActiveCommunityInput(decodeURIComponent(routeCommunity)) ||
+        makeCommunitySession(parsedCommunity)
       const communityKey = getCommunityBootstrapKey(session, currentPubkey)
 
       try {
@@ -162,7 +173,6 @@
       relayAuthError = error || ""
 
       if (!error) return
-
 
       const key = `${url}:${error}`
 
@@ -261,7 +271,7 @@
   })
 </script>
 
-{#if parsedCommunity && $pubkey}
+{#if parsedCommunity}
   <SecondaryNav>
     <CommunityMenu community={parsedCommunity.pubkey} />
   </SecondaryNav>
@@ -294,11 +304,3 @@
     {@render children?.()}
   {/if}
 </Page>
-
-<style>
-  @media (max-width: 1023.98px) {
-    :global(.community-with-floating-menu [data-component="PageBar"]) {
-      padding-right: calc(var(--sair) + 4rem);
-    }
-  }
-</style>
