@@ -37,6 +37,7 @@
     REPO_PROFILE_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     REPO_ACTIONS_KEY,
+    getRepoMaintainers,
     type RepoActions,
   } from "@app/core/git-state"
   import {
@@ -238,6 +239,18 @@
   }
 
   const repoOwnerPubkey = $derived.by(() => normalizePubkey(repoClass?.repoEvent?.pubkey))
+  const repoMaintainerPubkeys = $derived.by(() => {
+    const owner = repoOwnerPubkey
+    const fromEvent = getRepoMaintainers(repoClass?.repoEvent as any)
+    const fallback = repoClass?.maintainers || []
+    const maintainers = fromEvent.length > 0 ? fromEvent : fallback
+
+    return Array.from(
+      new Set(
+        maintainers.map(normalizePubkey).filter(pubkey => pubkey && pubkey !== owner),
+      ),
+    )
+  })
 
   const branchCount = $derived(repoClass.branches?.length || 0)
 
@@ -685,6 +698,14 @@
     }
   }
 
+  function openRepoProfile(pubkey: string) {
+    pushModal(ProfileDetail, {
+      pubkey,
+      url: repoCommunityProfileRelays[0],
+      relays: repoCommunityProfileRelays,
+    })
+  }
+
   function closeCloneDropdownOnOutsideClick(event: MouseEvent) {
     const target = event.target
 
@@ -814,7 +835,7 @@
               Details
             </span>
             <div
-              class="col-start-1 row-start-2 min-w-0 justify-self-end sm:col-start-2 sm:row-start-1 lg:col-start-1 lg:row-start-3 lg:justify-self-start">
+              class="col-start-1 row-start-2 min-w-0 justify-self-stretch sm:col-start-2 sm:row-start-1 lg:col-start-1 lg:row-start-3">
               <BranchSelector repo={repoClass} />
             </div>
             {#if repoCloneUrlItems.length > 0}
@@ -1111,35 +1132,73 @@
               </div>
 
               <!-- Nostr Information -->
-              <div class="space-y-3">
-                {#if repoOwnerPubkey}
-                  <div>
-                    <span class="mb-2 block text-sm text-muted-foreground">Owner</span>
-                    <div class="grid grid-cols-2 gap-x-3 gap-y-2">
+              {#if repoOwnerPubkey || repoMaintainerPubkeys.length > 0}
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  {#if repoOwnerPubkey}
+                    <div class="min-w-0 rounded-lg border border-border/70 bg-secondary/15 p-2">
+                      <div class="mb-2 flex items-center justify-between gap-2">
+                        <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                          >Owner</span>
+                        <span
+                          class="rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          >Primary</span>
+                      </div>
                       <button
                         type="button"
-                        class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
-                        onclick={() =>
-                          pushModal(ProfileDetail, {
-                            pubkey: repoOwnerPubkey,
-                            url: repoCommunityProfileRelays[0],
-                            relays: repoCommunityProfileRelays,
-                          })}>
+                        class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-secondary/30"
+                        onclick={() => openRepoProfile(repoOwnerPubkey)}>
                         <ProfileCircle
                           pubkey={repoOwnerPubkey}
                           relays={repoCommunityProfileRelays}
                           size={8}
                           class="border border-border" />
-                        <span class="min-w-0 truncate text-sm hover:underline">
+                        <span class="min-w-0 truncate text-sm font-medium hover:underline">
                           <ProfileName
                             pubkey={repoOwnerPubkey}
                             relays={repoCommunityProfileRelays} />
                         </span>
                       </button>
                     </div>
-                  </div>
-                {/if}
-              </div>
+                  {/if}
+
+                  {#if repoMaintainerPubkeys.length > 0}
+                    <div class="min-w-0 rounded-lg border border-primary/20 bg-primary/5 p-2">
+                      <div class="mb-2 flex items-center justify-between gap-2">
+                        <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                          >Maintainers</span>
+                        <span
+                          class="rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
+                          >{repoMaintainerPubkeys.length}</span>
+                      </div>
+                      <div class="flex flex-wrap gap-1.5">
+                        {#each repoMaintainerPubkeys.slice(0, 6) as maintainerPubkey (maintainerPubkey)}
+                          <button
+                            type="button"
+                            class="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-background/70 py-0.5 pl-0.5 pr-2 text-left text-xs hover:border-primary/40 hover:bg-primary/10"
+                            onclick={() => openRepoProfile(maintainerPubkey)}>
+                            <ProfileCircle
+                              pubkey={maintainerPubkey}
+                              relays={repoCommunityProfileRelays}
+                              size={5}
+                              class="border border-border" />
+                            <span class="min-w-0 max-w-[7rem] truncate hover:underline">
+                              <ProfileName
+                                pubkey={maintainerPubkey}
+                                relays={repoCommunityProfileRelays} />
+                            </span>
+                          </button>
+                        {/each}
+                        {#if repoMaintainerPubkeys.length > 6}
+                          <span
+                            class="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-xs text-muted-foreground">
+                            +{repoMaintainerPubkeys.length - 6}
+                          </span>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           </section>
 
