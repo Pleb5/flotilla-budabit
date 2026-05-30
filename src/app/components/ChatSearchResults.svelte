@@ -21,6 +21,8 @@
     type PeopleSearchResult,
   } from "@app/util/people-search"
 
+  const SEARCH_DEBOUNCE_MS = 200
+
   type Props = {
     term: string
     chatItemClass?: string
@@ -39,8 +41,19 @@
     empty,
   }: Props = $props()
 
-  const normalizedTerm = $derived(term.trim())
-  const chats = $derived($chatSearch.searchOptions(term))
+  let debouncedTerm = $state("")
+
+  $effect(() => {
+    const value = term
+    const timeout = setTimeout(() => {
+      debouncedTerm = value
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => clearTimeout(timeout)
+  })
+
+  const normalizedTerm = $derived(debouncedTerm.trim())
+  const chats = $derived($chatSearch.searchOptions(debouncedTerm))
   const shownChatPubkeys = $derived(new Set(chats.map(chat => chat.id)))
   const recentConversationPubkeys = $derived($chatSearch.searchOptions("").map(chat => chat.id))
   const profileMatches = $derived.by(() =>
@@ -97,7 +110,7 @@
           excludePubkeys: Array.from(shownChatPubkeys),
           communityAssessments,
           getProfile: pubkey => $profilesByPubkey.get(pubkey),
-          limit: 12,
+          limit: 8,
         })
       : ([] as PeopleSearchResult[]),
   )

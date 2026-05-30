@@ -39,6 +39,7 @@
 
   const INITIAL_MESSAGE_COUNT = 120
   const MESSAGE_BATCH_SIZE = 120
+  const INITIAL_THREAD_LOAD_TIMEOUT = 3000
 
   const {pubkeys, info}: Props = $props()
 
@@ -168,9 +169,16 @@
   let visibleMessageCount = $state(INITIAL_MESSAGE_COUNT)
   let olderMessagesLoading = $state(false)
   let olderMessagesExhausted = $state(false)
-  let initialThreadLoadKey = $state("")
+  let initialThreadLoadKey = ""
+  let initialThreadLoadId = 0
   let initialThreadLoading = $state(false)
   let activeChatId = $state("")
+
+  const finishInitialThreadLoad = (loadId: number) => {
+    if (loadId === initialThreadLoadId) {
+      initialThreadLoading = false
+    }
+  }
 
   const sortedMessages = $derived.by(() =>
     sortBy((e: TrustedEvent) => e.created_at, $chat?.messages || []),
@@ -278,6 +286,7 @@
       olderMessagesLoading = false
       olderMessagesExhausted = false
       initialThreadLoadKey = ""
+      initialThreadLoadId += 1
       initialThreadLoading = false
     }
   })
@@ -295,22 +304,26 @@
     const key = [selfPubkey, recipient, relays.join("|")].join(":")
     if (key === initialThreadLoadKey) return
 
-    let cancelled = false
     initialThreadLoadKey = key
+    const loadId = ++initialThreadLoadId
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      controller.abort()
+      finishInitialThreadLoad(loadId)
+    }, INITIAL_THREAD_LOAD_TIMEOUT)
+
     initialThreadLoading = true
 
     load({
       relays,
       filters: makeConversationFilters(selfPubkey, recipient, {limit: MESSAGE_BATCH_SIZE}),
+      signal: controller.signal,
     })
       .catch(() => undefined)
       .finally(() => {
-        if (!cancelled) initialThreadLoading = false
+        clearTimeout(timeout)
+        finishInitialThreadLoad(loadId)
       })
-
-    return () => {
-      cancelled = true
-    }
   })
 
   $effect(() => {
@@ -421,7 +434,7 @@
 
   setTimeout(() => {
     loading = false
-  }, 5000)
+  }, INITIAL_THREAD_LOAD_TIMEOUT)
 </script>
 
 <PageBar>

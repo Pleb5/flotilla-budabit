@@ -84,7 +84,7 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
   return Promise.all(promises)
 }
 
-const dmLoad = makeLoader({delay: 200, threshold: 0.5})
+const dmLoad = makeLoader({delay: 200, timeout: 3000, threshold: 0.5})
 
 const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
 const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__

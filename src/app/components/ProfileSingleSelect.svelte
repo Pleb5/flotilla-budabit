@@ -2,7 +2,8 @@
   import {writable} from "svelte/store"
   import type {Writable} from "svelte/store"
   import type {Instance} from "tippy.js"
-  import {profileSearch} from "@welshman/app"
+  import type {TrustedEvent} from "@welshman/util"
+  import {getFollows, profileSearch, profilesByPubkey, pubkey as sessionPubkey} from "@welshman/app"
   import Suggestions from "@lib/components/Suggestions.svelte"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
@@ -14,6 +15,17 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
   import {normalizePubkey} from "@app/core/community"
+  import {chatSearch} from "@app/core/state"
+  import {
+    communityAdminDefinitionEvents,
+    communityMemberDefinitionEvents,
+    communityMemberProfileListEvents,
+    communityMemberReportStates,
+    communityModeratorDefinitionEvents,
+    communityModeratorProfileListEvents,
+  } from "@app/core/community-state"
+  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {buildPeopleSearchResults, getCommunityPeoplePubkeys} from "@app/util/people-search"
 
   interface Props {
     value: string
@@ -24,7 +36,54 @@
 
   let {value = $bindable(), term = writable(""), autofocus = false, relays = []}: Props = $props()
 
-  const search = (term: string) => $profileSearch.searchValues(term)
+  const search = (term: string) => {
+    const query = term.trim()
+    if (!query) return []
+
+    const profileMatches = $profileSearch.searchValues(query) as string[]
+    const recentConversationPubkeys = $chatSearch.searchOptions("").map(chat => chat.id)
+    const directFollowPubkeys = $sessionPubkey ? getFollows($sessionPubkey) : []
+    const communityDefinitionEvents = [
+      ...$communityAdminDefinitionEvents,
+      ...$communityMemberDefinitionEvents,
+      ...$communityModeratorDefinitionEvents,
+    ] as TrustedEvent[]
+    const communityProfileListEvents = [
+      ...$communityMemberProfileListEvents,
+      ...$communityModeratorProfileListEvents,
+    ] as TrustedEvent[]
+    const communityPubkeys = getCommunityPeoplePubkeys({
+      definitionEvents: communityDefinitionEvents,
+      profileListEvents: communityProfileListEvents,
+    })
+    const candidatePubkeys = Array.from(
+      new Set([
+        ...recentConversationPubkeys,
+        ...communityPubkeys,
+        ...directFollowPubkeys,
+        ...profileMatches,
+      ]),
+    )
+    const communityAssessments = buildCommunityTrustAssessments({
+      candidatePubkeys,
+      viewerPubkey: $sessionPubkey || undefined,
+      context: {scope: "global_discovery"},
+      definitionEvents: communityDefinitionEvents,
+      profileListEvents: communityProfileListEvents,
+      reportStates: $communityMemberReportStates,
+    })
+
+    return buildPeopleSearchResults({
+      query,
+      recentConversationPubkeys,
+      communityPubkeys,
+      directFollowPubkeys,
+      profileMatches,
+      communityAssessments,
+      getProfile: pubkey => $profilesByPubkey.get(pubkey),
+      limit: 8,
+    }).map(result => result.pubkey)
+  }
 
   const selectPubkey = (pubkey: string) => {
     term.set("")
@@ -81,12 +140,12 @@
       </div>
     {/if}
   </div>
-  <label class="input input-bordered flex w-full items-center gap-2" bind:this={input}>
+  <label class="input input-bordered flex min-w-0 w-full items-center gap-2" bind:this={input}>
     <Icon icon={Magnifier} />
     <!-- svelte-ignore a11y_autofocus -->
     <input
       {autofocus}
-      class="grow"
+      class="min-w-0 grow"
       type="text"
       placeholder={inputDisabled ? "Recipient selected" : "Search for profiles..."}
       bind:value={$term}

@@ -9,7 +9,6 @@
   import Page from "@lib/components/Page.svelte"
   import Button from "@lib/components/Button.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
-  import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import ChatMenu from "@app/components/ChatMenu.svelte"
   import ChatSearchResults from "@app/components/ChatSearchResults.svelte"
@@ -24,18 +23,8 @@
   const openMenu = () => pushModal(ChatMenu)
 
   let term = $state("")
-  let searchTerm = $state("")
 
   const promise = sleep(10000)
-
-  $effect(() => {
-    const value = term
-    const timeout = setTimeout(() => {
-      searchTerm = value
-    }, 200)
-
-    return () => clearTimeout(timeout)
-  })
 
   onMount(() => {
     document.body.classList.add("chat-md-sidebar")
@@ -48,23 +37,25 @@
 
 <SecondaryNav visibleClass="md:flex">
   <SecondaryNavSection>
-    <SecondaryNavHeader>
-      Recent Conversations
-      <Button onclick={openMenu}>
-        <Icon icon={MenuDots} />
+    <div class="flex items-center gap-3 px-4 py-2">
+      <span class="shrink-0 whitespace-nowrap text-xs font-bold uppercase tracking-wide">
+        Recent Conversations
+      </span>
+      <Button class="btn btn-primary btn-square h-7 min-h-7 w-7 shrink-0 p-0" onclick={openMenu}>
+        <Icon icon={MenuDots} size={3} />
       </Button>
-    </SecondaryNavHeader>
+    </div>
   </SecondaryNavSection>
-  <label class="input input-sm input-bordered mx-6 -mt-4 mb-2 flex items-center gap-2">
-    <Icon icon={Magnifier} />
+  <label class="input input-sm input-bordered mx-4 -mt-4 mb-2 flex min-w-0 items-center gap-2">
+    <Icon icon={Magnifier} size={4} />
     <input
       bind:value={term}
-      class="grow"
+      class="min-w-0 grow text-[11px] placeholder:text-[11px]"
       type="text"
-      placeholder="Search conversations or people..." />
+      placeholder="Search chats or people..." />
   </label>
   <div class="overflow-auto">
-    <ChatSearchResults term={searchTerm} loadingPromise={promise} />
+    <ChatSearchResults {term} loadingPromise={promise} />
   </div>
 </SecondaryNav>
 <Page>

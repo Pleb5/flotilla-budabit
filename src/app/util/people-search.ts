@@ -216,8 +216,11 @@ const upsertCandidate = (
   candidates.set(normalizedPubkey, {...candidate, ...source})
 }
 
+const hasCommunityEvidence = (assessment: TrustAssessment | undefined) =>
+  Boolean(assessment && !assessment.suppressed && assessment.score > 0)
+
 const getCommunityEvidenceLabels = (assessment: TrustAssessment | undefined) =>
-  assessment?.displayLabels?.length ? assessment.displayLabels : ["Community member"]
+  assessment?.displayLabels?.length ? assessment.displayLabels : ["Community match"]
 
 const getBucket = (
   candidate: Candidate,
@@ -225,7 +228,7 @@ const getBucket = (
 ): PeopleSearchBucketKey => {
   if (candidate.identity) return "identity"
   if (candidate.recentConversation) return "recent_conversation"
-  if (candidate.community || (assessment && assessment.score > 0)) return "community"
+  if (hasCommunityEvidence(assessment)) return "community"
   if (candidate.directFollow) return "direct_follow"
   return "known_profile"
 }

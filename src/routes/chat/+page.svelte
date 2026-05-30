@@ -15,20 +15,10 @@
   import {setChecked} from "@app/util/notifications"
 
   let term = $state("")
-  let searchTerm = $state("")
 
   const startChat = () => pushModal(ChatStart)
 
   const openMenu = () => pushModal(ChatMenu)
-
-  $effect(() => {
-    const value = term
-    const timeout = setTimeout(() => {
-      searchTerm = value
-    }, 200)
-
-    return () => clearTimeout(timeout)
-  })
 
   onDestroy(() => {
     setChecked($page.url.pathname)
@@ -52,23 +42,23 @@
 <ContentSearch class="md:hidden">
   {#snippet input()}
     <div class="row-2 min-w-0 flex-grow items-center">
-      <label class="input input-bordered flex flex-grow items-center gap-2">
-        <Icon icon={Magnifier} />
+      <label class="input input-sm input-bordered flex min-w-0 flex-grow items-center gap-2">
+        <Icon icon={Magnifier} size={4} />
         <input
           bind:value={term}
-          class="grow"
+          class="min-w-0 grow text-xs placeholder:text-xs"
           type="text"
           placeholder="Search conversations or people..." />
       </label>
-      <Button class="btn btn-primary" onclick={openMenu}>
-        <Icon icon={MenuDots} />
+      <Button class="btn btn-primary btn-square btn-sm shrink-0" onclick={openMenu}>
+        <Icon icon={MenuDots} size={4} />
       </Button>
     </div>
   {/snippet}
   {#snippet content()}
     <div class="col-2">
       <ChatSearchResults
-        term={searchTerm}
+        {term}
         chatItemClass="bg-alt card2"
         peopleItemClass="bg-alt card2"
         showEmpty>

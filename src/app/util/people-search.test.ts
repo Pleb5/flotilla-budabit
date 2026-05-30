@@ -44,10 +44,25 @@ describe("people-search", () => {
     ])
   })
 
+  it("does not label unvalidated community candidates as members", () => {
+    const candidate = "d".repeat(64)
+
+    const results = buildPeopleSearchResults({
+      query: "alice",
+      communityPubkeys: [candidate],
+      profileMatches: [candidate],
+      getProfile: pubkey => (pubkey === candidate ? {name: "Alice Maybe"} : null),
+    })
+
+    expect(results).toEqual([
+      expect.objectContaining({pubkey: candidate, bucket: "known_profile", label: "Known profile"}),
+    ])
+  })
+
   it("collects people from community profile lists", () => {
-    const listOwner = "d".repeat(64)
-    const member = "e".repeat(64)
-    const unrelated = "f".repeat(64)
+    const listOwner = "e".repeat(64)
+    const member = "f".repeat(64)
+    const unrelated = "0".repeat(64)
 
     const pubkeys = getCommunityPeoplePubkeys({
       profileListEvents: [
