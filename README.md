@@ -1,8 +1,6 @@
 # Budabit
 
-Budabit is a community-first Nostr client for social Git collaboration. Communities are identified by Communikey pubkeys, not relay URLs, and Git collaboration is exposed through Nostr Git events and a canonical `/git` surface.
-
-If you would like to be interoperable with Flotilla, please check out this guide: https://habla.news/u/hodlbod@coracle.social/1741286140797
+Budabit is a community-first Nostr client for social Git collaboration.
 
 ## Prerequisites
 
