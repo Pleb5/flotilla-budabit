@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {loadProfile, pubkey as sessionPubkey} from "@welshman/app"
+  import {pubkey as sessionPubkey} from "@welshman/app"
   import type {TrustedEvent} from "@welshman/util"
   import Git from "@assets/icons/git.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
@@ -12,8 +12,8 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {
-    PROFILE_CODE_TRUST_WINDOW_DAYS,
     getProfileCodeTrustAnalysisKey,
     loadProfileCodeTrustAnalysis,
     profileCodeTrustAnalyses,
@@ -83,6 +83,7 @@
     communityDefinition ? "the active community" : "loaded community context",
   )
   const matchedCollaboratorLabel = "Community collaborators"
+  const communityProfileRelays = $derived(communityDefinition?.relays || [])
   const analysisActionLabel = $derived.by(() => {
     if (analysis) return "Refresh analysis"
     if (loading) return "Analyzing"
@@ -136,7 +137,12 @@
       : [],
   )
 
-  const openProfile = (pubkey: string) => pushModal(ProfileDetail, {pubkey})
+  const openProfile = (pubkey: string) =>
+    pushModal(ProfileDetail, {
+      pubkey,
+      url: communityProfileRelays[0],
+      relays: communityProfileRelays,
+    })
 
   const getRepoHref = (_repoAddress: string) => ""
 
@@ -148,7 +154,9 @@
 
   const loadProfiles = (pubkeys: Array<string | undefined>) => {
     for (const targetPubkey of pubkeys.filter(Boolean) as string[]) {
-      loadProfile(targetPubkey).catch(() => undefined)
+      loadBudabitProfile(targetPubkey, {communityRelays: communityProfileRelays}).catch(
+        () => undefined,
+      )
     }
   }
 
@@ -420,7 +428,9 @@
                                       type="button"
                                       class="truncate p-0 text-xs font-medium"
                                       onclick={() => openProfile(context.pubkey)}>
-                                      <ProfileName pubkey={context.pubkey} />
+                                      <ProfileName
+                                        pubkey={context.pubkey}
+                                        relays={communityProfileRelays} />
                                     </Button>
                                   {:else}
                                     <span>{context.text}</span>
@@ -438,14 +448,19 @@
                                     type="button"
                                     class="shrink-0 p-0"
                                     onclick={() => openProfile(collaborator.pubkey)}>
-                                    <ProfileCircle pubkey={collaborator.pubkey} size={6} />
+                                    <ProfileCircle
+                                      pubkey={collaborator.pubkey}
+                                      relays={communityProfileRelays}
+                                      size={6} />
                                   </Button>
                                   <div class="min-w-0">
                                     <Button
                                       type="button"
                                       class="truncate p-0 text-sm font-medium"
                                       onclick={() => openProfile(collaborator.pubkey)}>
-                                      <ProfileName pubkey={collaborator.pubkey} />
+                                      <ProfileName
+                                        pubkey={collaborator.pubkey}
+                                        relays={communityProfileRelays} />
                                     </Button>
                                     <div class="text-xs opacity-70">
                                       {collaborator.totalInteractions} interaction{collaborator.totalInteractions ===
@@ -493,14 +508,17 @@
                       type="button"
                       class="shrink-0 p-0"
                       onclick={() => openProfile(collaborator.pubkey)}>
-                      <ProfileCircle pubkey={collaborator.pubkey} size={7} />
+                      <ProfileCircle
+                        pubkey={collaborator.pubkey}
+                        relays={communityProfileRelays}
+                        size={7} />
                     </Button>
                     <div class="min-w-0">
                       <Button
                         type="button"
                         class="truncate p-0 text-sm font-medium"
                         onclick={() => openProfile(collaborator.pubkey)}>
-                        <ProfileName pubkey={collaborator.pubkey} />
+                        <ProfileName pubkey={collaborator.pubkey} relays={communityProfileRelays} />
                       </Button>
                       <div class="text-xs opacity-60">
                         Recent community-aligned collaboration match

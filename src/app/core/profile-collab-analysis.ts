@@ -1,7 +1,7 @@
 import {get, writable} from "svelte/store"
 import {makeLoader} from "@welshman/net"
 import {getTagValue, type TrustedEvent} from "@welshman/util"
-import {loadProfile, pubkey} from "@welshman/app"
+import {pubkey} from "@welshman/app"
 import {
   GIT_REPO_ANNOUNCEMENT,
   GIT_PULL_REQUEST,
@@ -18,6 +18,7 @@ import {
 } from "@app/core/git-state"
 import type {CommunityDefinition} from "@app/core/community"
 import type {EffectiveCommunityReportState} from "@app/core/community-reports"
+import {loadBudabitProfile} from "@app/core/profile-resolver"
 import {buildCommunityTrustAssessments} from "./community-trust"
 
 export const PROFILE_CODE_TRUST_WINDOW_DAYS = 180
@@ -373,7 +374,9 @@ export const buildProfileCodeTrustAnalysis = ({
 
     communityAlignedMaintainerMerges += 1
     communityAlignedMaintainerMergeDetails = takeRecentDetails([
-      ...communityAlignedMaintainerMergeDetails.filter(existing => existing.rootId !== detail.rootId),
+      ...communityAlignedMaintainerMergeDetails.filter(
+        existing => existing.rootId !== detail.rootId,
+      ),
       detail,
     ])
     addCollaboratorInteraction(collaborators, {
@@ -639,7 +642,7 @@ export const loadProfileCodeTrustAnalysis = async (
 
   await Promise.all(
     analysis.collaborators.map(collaborator =>
-      loadProfile(collaborator.pubkey).catch(() => undefined),
+      loadBudabitProfile(collaborator.pubkey).catch(() => undefined),
     ),
   )
 

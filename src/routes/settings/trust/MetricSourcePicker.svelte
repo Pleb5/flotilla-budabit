@@ -1,11 +1,12 @@
 <script lang="ts">
-  import {loadProfile, profilesByPubkey} from "@welshman/app"
+  import {profilesByPubkey} from "@welshman/app"
   import {displayProfile, displayPubkey} from "@welshman/util"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import InlinePopover from "@lib/components/InlinePopover.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import type {TrustGraphMetricSource} from "@app/core/trust-graph-config"
 
   export type MetricSourcePickerOption = {
@@ -58,7 +59,7 @@
 
     for (const option of filteredOptions.slice(0, 12)) {
       if (option.source.type === "nip85") {
-        loadProfile(option.source.serviceKey).catch(() => undefined)
+        loadBudabitProfile(option.source.serviceKey).catch(() => undefined)
       }
     }
   })

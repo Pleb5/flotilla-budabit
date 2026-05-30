@@ -14,8 +14,10 @@
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ModerationReportList from "@app/components/community/ModerationReportList.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
+  import {preventDefault, stopPropagation} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {
@@ -27,6 +29,7 @@
     activeCommunityProfile,
     activeCommunityReportState,
     activeCommunityRelays,
+    hydratePubkeyProfiles,
     loadCommunityEvents,
     makeCommunityModeratorRequestDeleteFilters,
     makeCommunityModeratorRequestFilters,
@@ -211,6 +214,27 @@
   const communityRootPublishRelays = $derived(
     getCommunityRootPublishRelays(communityPublishRelays, $activeCommunityDefinition?.pubkey),
   )
+  let moderatorProfileHydrationKey = ""
+  $effect(() => {
+    const pubkeys = moderatorGrantPeople.map(person => person.pubkey)
+    const key = `${communityProfileRelays.join(",")}:${pubkeys.join(",")}`
+    if (!communityBootstrapReady || pubkeys.length === 0 || key === moderatorProfileHydrationKey)
+      return
+
+    moderatorProfileHydrationKey = key
+    hydratePubkeyProfiles({pubkeys, relayHints: communityProfileRelays}).catch(error => {
+      console.warn("[community/admin] Failed to hydrate moderator profiles", error)
+    })
+  })
+
+  const openProfile = (profilePubkey: string) => {
+    pushModal(ProfileDetail, {
+      pubkey: profilePubkey,
+      url: communityProfileRelays[0],
+      relays: communityProfileRelays,
+    })
+  }
+
   const moderationActionsByReporter = $derived.by((): Map<string, CommunityModerationAction[]> => {
     const reports = new Map<string, CommunityModerationAction[]>()
 
@@ -589,10 +613,16 @@
                 <div
                   class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center justify-between gap-3 align-top">
                   <div class="flex min-w-0 items-center gap-3">
-                    <ProfileCircle
-                      pubkey={person.pubkey}
-                      relays={communityProfileRelays}
-                      size={9} />
+                    <Button
+                      class="rounded-full p-0"
+                      aria-label="View moderator profile"
+                      title="View moderator profile"
+                      onclick={stopPropagation(preventDefault(() => openProfile(person.pubkey)))}>
+                      <ProfileCircle
+                        pubkey={person.pubkey}
+                        relays={communityProfileRelays}
+                        size={9} />
+                    </Button>
                     <div class="min-w-0">
                       <strong
                         ><ProfileLink

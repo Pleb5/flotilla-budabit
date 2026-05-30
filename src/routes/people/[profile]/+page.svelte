@@ -15,7 +15,7 @@
     type TrustedEvent,
   } from "@welshman/util"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {loadProfile, profilesByPubkey, pubkey as sessionPubkey, repository} from "@welshman/app"
+  import {profilesByPubkey, pubkey as sessionPubkey, repository} from "@welshman/app"
   import {
     GIT_COMMENT,
     GIT_ISSUE,
@@ -61,6 +61,7 @@
   import {selectUserCommunityRefs} from "@app/core/community-membership"
   import {makeCommunityDefinitionProfileListRefFilters} from "@app/util/community-preferences"
   import {getRepoAnnouncementRelays, getRepoMaintainers} from "@app/core/git-state"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {formatShortNpub, normalizePubkey} from "@app/util/pubkeys"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {makeChatPath, makeCommunityPath} from "@app/util/routes"
@@ -895,7 +896,7 @@
   $effect(() => {
     if (!targetPubkey) return
 
-    loadProfile(targetPubkey, profileRelayHints).catch(() => undefined)
+    loadBudabitProfile(targetPubkey, {relays: profileRelayHints}).catch(() => undefined)
   })
 
   $effect(() => {

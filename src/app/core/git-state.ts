@@ -44,6 +44,8 @@ export const REPO_KEY = Symbol("repo")
 
 export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
+export const REPO_PROFILE_RELAYS_KEY = Symbol("repo-profile-relays")
+
 export const REPO_CLONE_URLS_KEY = Symbol("repo-clone-urls")
 
 export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")

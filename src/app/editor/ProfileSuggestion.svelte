@@ -1,8 +1,8 @@
 <script lang="ts">
-  import {removeUndefined} from "@welshman/lib"
   import {displayPubkey} from "@welshman/util"
-  import {deriveHandleForPubkey, displayHandle, deriveProfileDisplay} from "@welshman/app"
+  import {deriveHandleForPubkey, displayHandle} from "@welshman/app"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
 
   type Props = {
     value: string
@@ -12,7 +12,7 @@
   const {value, url}: Props = $props()
 
   const pubkey = value
-  const profileDisplay = deriveProfileDisplay(pubkey, removeUndefined([url]))
+  const profileDisplay = deriveBudabitProfileDisplay(pubkey, {url})
   const handle = deriveHandleForPubkey(pubkey)
 </script>
 

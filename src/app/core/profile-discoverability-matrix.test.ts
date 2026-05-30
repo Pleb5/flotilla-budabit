@@ -11,9 +11,13 @@ describe("profile discoverability test matrix", () => {
     const resolverTests = readProjectFile("./profile-resolver.test.ts")
 
     expect(resolver).toContain("INDEXER_RELAYS")
+    expect(resolver).toContain("getPubkeyOutboxRelays")
     expect(resolver).toContain("loadProfile")
     expect(resolverTests).toContain("uses indexer-backed Welshman loadProfile")
     expect(resolverTests).toContain("force-loads a missing profile when new relay hints appear")
+    expect(resolverTests).toContain(
+      "force-loads derived missing profiles when fixed relay hints improve",
+    )
   })
 
   it("covers community profile reads and banned community fanout exclusion", () => {
@@ -21,6 +25,7 @@ describe("profile discoverability test matrix", () => {
     const membershipTests = readProjectFile("./community-membership.test.ts")
 
     expect(communityHints).toContain("passes scoped community profile relays")
+    expect(communityHints).toContain("makes member avatars open profiles")
     expect(membershipTests).toContain("excludes person-banned non-admin refs")
     expect(membershipTests).toContain("returns relay hints only for eligible active community refs")
   })

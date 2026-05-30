@@ -225,9 +225,10 @@ describe("markdownRenderers", () => {
     it("renders nprofile link as profile placeholder", () => {
       const renderers = createRenderers()
       const pubkey = "b".repeat(64)
+      const relays = ["wss://profile.example.com"]
       vi.mocked(nip19.decode).mockReturnValue({
         type: "nprofile",
-        data: {pubkey},
+        data: {pubkey, relays},
       } as any)
 
       const token = {
@@ -237,6 +238,7 @@ describe("markdownRenderers", () => {
       const html = renderers.link!(token as any)
       expect(html).toContain("nostr-profile-placeholder")
       expect(html).toContain(`data-pubkey="${pubkey}"`)
+      expect(html).toContain(`data-relays="${encodeURIComponent(JSON.stringify(relays))}"`)
     })
 
     it("renders note as quote placeholder when event provided", () => {

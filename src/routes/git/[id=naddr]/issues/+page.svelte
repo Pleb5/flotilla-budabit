@@ -48,6 +48,7 @@
   import {getContext} from "svelte"
   import {
     REPO_KEY,
+    REPO_PROFILE_RELAYS_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     RESOLVED_STATUS_BY_ROOT_KEY,
@@ -62,6 +63,7 @@
   import {fade} from "svelte/transition"
   import {resolveIssueEdits} from "@app/util/issue-edits"
   import {publishDelete, publishReaction} from "@app/core/commands"
+  import {normalizeRelays} from "@app/core/community"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -93,8 +95,15 @@
   const lastIssuesSeen = $derived.by(() => normalizeChecked($checked[issuesSeenKey] || 0))
   const repoAddress = $derived.by(() => repoClass?.address || "")
   const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
+  const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const repoBoundRelays = $derived.by(() => {
     return getRepoScopedRelays((repoClass as any).repoEvent, naddrRelays)
+  })
+  const repoCommunityProfileRelays = $derived.by(() => {
+    const relays = repoProfileRelays?.() || []
+    if (relays.length > 0) return relays
+
+    return normalizeRelays([repoClass.community?.relay || ""])
   })
   const reactionRelays = $derived.by(() => {
     const scoped = [...repoBoundRelays].filter(Boolean)
@@ -490,8 +499,9 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
-  const resolvedStatusByRootStore =
-    getContext<Readable<Map<string, ResolvedRootStatus>>>(RESOLVED_STATUS_BY_ROOT_KEY)
+  const resolvedStatusByRootStore = getContext<Readable<Map<string, ResolvedRootStatus>>>(
+    RESOLVED_STATUS_BY_ROOT_KEY,
+  )
   const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
 
@@ -506,7 +516,9 @@
   const resolvedStatusByRoot = $derived.by(() =>
     resolvedStatusByRootStore ? $resolvedStatusByRootStore : new Map<string, ResolvedRootStatus>(),
   )
-  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
+  const hiddenRootIds = $derived.by(() =>
+    hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>(),
+  )
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
 
   const allIssues = $derived.by(() => repoClass.issues || [])
@@ -1214,6 +1226,7 @@
               assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
               assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
               relays={repoRelays}
+              profileRelays={repoCommunityProfileRelays}
               onDeleteReaction={deleteReaction}
               onCreateReaction={template =>
                 createReaction(issue.event as TrustedEvent, template)} />

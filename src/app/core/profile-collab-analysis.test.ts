@@ -5,10 +5,12 @@ const mocks = vi.hoisted(() => {
     if (!event) return []
 
     return Array.from(
-      new Set([
-        event.pubkey || "",
-        ...((event.tags || []).find(tag => tag[0] === "maintainers")?.slice(1) || []),
-      ].filter(Boolean)),
+      new Set(
+        [
+          event.pubkey || "",
+          ...((event.tags || []).find(tag => tag[0] === "maintainers")?.slice(1) || []),
+        ].filter(Boolean),
+      ),
     )
   })
 
@@ -42,6 +44,10 @@ vi.mock("@welshman/app", () => ({
       return () => undefined
     },
   },
+}))
+
+vi.mock("@app/core/profile-resolver", () => ({
+  loadBudabitProfile: mocks.loadProfile,
 }))
 
 vi.mock("@welshman/net", async importOriginal => {

@@ -1,9 +1,13 @@
-import {deriveProfile, forceLoadProfile, loadProfile, profilesByPubkey} from "@welshman/app"
+import {forceLoadProfile, loadProfile, profilesByPubkey} from "@welshman/app"
 import {displayProfile, displayPubkey, type PublishedProfile} from "@welshman/util"
 import {derived, get, readable, type Readable} from "svelte/store"
 import {normalizePubkey, normalizeRelays} from "@app/core/community"
 import {INDEXER_RELAYS} from "@app/core/state"
-import {activeUserCommunityRelays, getActiveUserCommunityRelays} from "@app/core/community-relays"
+import {
+  activeUserCommunityRelays,
+  getActiveUserCommunityRelays,
+  getPubkeyOutboxRelays,
+} from "@app/core/community-relays"
 import {logProfileLoadSummary, type ProfileLoadReason} from "@app/core/diagnostics"
 
 export type ProfileResolutionOptions = {
@@ -19,6 +23,9 @@ const profileLoadPromisesByKey = new Map<string, Promise<PublishedProfile | unde
 const completedProfileLoadTimesByKey = new Map<string, number>()
 const PROFILE_LOAD_RETRY_MS = 60_000
 
+const hasProfileDisplayData = (profile: PublishedProfile | undefined) =>
+  Boolean(profile?.display_name || profile?.name || profile?.picture)
+
 export const getBudabitProfileRelays = (
   options: ProfileResolutionOptions = {},
   activeCommunityRelays = options.includeActiveCommunityRelays
@@ -31,6 +38,16 @@ export const getBudabitProfileRelays = (
     ...(options.relays || []),
     ...(options.communityRelays || []),
     ...(options.includeActiveCommunityRelays ? activeCommunityRelays : []),
+  ])
+
+const getBudabitProfileLoadRelays = (
+  pubkey: string,
+  options: ProfileResolutionOptions = {},
+  activeCommunityRelays?: string[],
+) =>
+  normalizeRelays([
+    ...getBudabitProfileRelays(options, activeCommunityRelays),
+    ...getPubkeyOutboxRelays(pubkey),
   ])
 
 const rememberProfileLoadAttempt = (pubkey: string, relays: string[]) => {
@@ -62,10 +79,10 @@ export const loadBudabitProfile = async (
   const normalizedPubkey = normalizePubkey(pubkey)
   if (!normalizedPubkey) return undefined
 
+  const relays = getBudabitProfileLoadRelays(normalizedPubkey, options, activeCommunityRelays)
   const currentProfile = get(profilesByPubkey).get(normalizedPubkey)
-  if (currentProfile) return currentProfile
+  if (hasProfileDisplayData(currentProfile)) return currentProfile
 
-  const relays = getBudabitProfileRelays(options, activeCommunityRelays)
   const attempt = rememberProfileLoadAttempt(normalizedPubkey, relays)
   const loadKey = `${normalizedPubkey}\n${relays.join("\n")}`
   logProfileLoadSummary({
@@ -104,20 +121,24 @@ export const deriveBudabitProfile = (
   const normalizedPubkey = normalizePubkey(pubkey || "")
   if (!normalizedPubkey) return readable(undefined)
 
-  const initialRelays = getBudabitProfileRelays(options)
-  const profile = deriveProfile(normalizedPubkey, initialRelays)
-  let lastRequestedRelayKey: string | undefined = initialRelays.join("\n")
-  const initialAttempt = rememberProfileLoadAttempt(normalizedPubkey, initialRelays)
-  if (!get(profilesByPubkey).get(normalizedPubkey)) {
-    logProfileLoadSummary({
-      pubkey: normalizedPubkey,
-      relays: initialRelays,
-      reason: initialAttempt.reason,
-      force: false,
-    })
+  const profile = derived(profilesByPubkey, $profiles => $profiles.get(normalizedPubkey))
+  let lastRequestedRelayKey: string | undefined
+
+  const requestLoad = (activeCommunityRelays?: string[]) => {
+    if (hasProfileDisplayData(get(profilesByPubkey).get(normalizedPubkey))) return
+
+    const relays = getBudabitProfileLoadRelays(normalizedPubkey, options, activeCommunityRelays)
+    const relayKey = relays.join("\n")
+    if (relayKey === lastRequestedRelayKey) return
+
+    lastRequestedRelayKey = relayKey
+    loadBudabitProfile(normalizedPubkey, options, activeCommunityRelays).catch(() => undefined)
   }
 
-  if (!options.includeActiveCommunityRelays) return profile
+  if (!options.includeActiveCommunityRelays) {
+    requestLoad()
+    return profile
+  }
 
   return derived<
     [Readable<PublishedProfile | undefined>, Readable<string[]>],
@@ -128,14 +149,7 @@ export const deriveBudabitProfile = (
       set($profile)
 
       if (!$profile) {
-        const relays = getBudabitProfileRelays(options, $activeUserCommunityRelays)
-        const relayKey = relays.join("\n")
-        if (relayKey === lastRequestedRelayKey) return
-
-        lastRequestedRelayKey = relayKey
-        loadBudabitProfile(normalizedPubkey, options, $activeUserCommunityRelays).catch(
-          () => undefined,
-        )
+        requestLoad($activeUserCommunityRelays)
       }
     },
     undefined as PublishedProfile | undefined,

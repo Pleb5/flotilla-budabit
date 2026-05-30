@@ -123,6 +123,7 @@
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
+    REPO_PROFILE_RELAYS_KEY,
     REPO_CLONE_URLS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     RESOLVED_STATUS_BY_ROOT_KEY,
@@ -236,6 +237,24 @@
     const community = repoClass?.community
     if (!community) return ""
     return getCommunityOptionLabel(community.pubkey)
+  })
+  const repoCommunityProfileRelays = $derived.by(() => {
+    const community = repoClass?.community
+    if (!community) return []
+
+    const option = repoCommunityOptions.find(item => item.pubkey === community.pubkey)
+    const ref = $activeUserCommunityRefs.find(ref => ref.communityPubkey === community.pubkey)
+    return Array.from(
+      new Set(
+        [
+          community.relay || "",
+          option?.relay || "",
+          ...(option?.relays || []),
+          ...(ref?.relayHints || []),
+          ...(ref?.definition.relays || []),
+        ].filter(Boolean),
+      ),
+    )
   })
 
   const COMMENT_LOAD_DEBOUNCE_MS = 300
@@ -1910,6 +1929,7 @@
   // Set context for child components (only once, not in effect)
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
+  setContext(REPO_PROFILE_RELAYS_KEY, () => repoCommunityProfileRelays)
   setContext(REPO_CLONE_URLS_KEY, repoCloneUrlsStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(RESOLVED_STATUS_BY_ROOT_KEY, resolvedStatusByRootStore)
@@ -3034,7 +3054,7 @@
         display_name: profile.display_name,
       }
     }
-    await loadBudabitProfile(pubkey)
+    await loadBudabitProfile(pubkey, {communityRelays: repoCommunityProfileRelays})
     const loadedProfile = $profilesByPubkey.get(pubkey)
     if (loadedProfile) {
       return {
@@ -3675,9 +3695,14 @@
         <button
           type="button"
           class="whitespace-nowrap rounded-md px-1 py-0.5 transition-colors hover:bg-secondary/40"
-          onclick={() => pushModal(ProfileDetail, {pubkey: repoPubkey})}
+          onclick={() =>
+            pushModal(ProfileDetail, {
+              pubkey: repoPubkey,
+              url: repoCommunityProfileRelays[0],
+              relays: repoCommunityProfileRelays,
+            })}
           title="View owner profile">
-          <ProfileName pubkey={repoPubkey} />
+          <ProfileName pubkey={repoPubkey} relays={repoCommunityProfileRelays} />
         </button>
         <span class="text-muted-foreground">/</span>
       {/if}

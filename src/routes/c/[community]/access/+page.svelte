@@ -23,9 +23,10 @@
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {preventDefault} from "@lib/html"
+  import {preventDefault, stopPropagation} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {FORM_RESPONSE_KIND, getCommunitySectionDisplayName} from "@app/core/community"
@@ -38,6 +39,7 @@
     activeCommunityRelays,
     activeCommunityUserModeratorRequestStates,
     activeCommunityUserModeratorRequestsLoading,
+    hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
   import {
@@ -307,6 +309,27 @@
     })
   })
   const moderatorMemberCount = $derived(memberItems.filter(member => member.isModerator).length)
+
+  let memberProfileHydrationKey = ""
+  $effect(() => {
+    const pubkeys = memberItems.map(member => member.pubkey)
+    const key = `${communityProfileRelays.join(",")}:${pubkeys.join(",")}`
+    if (!communityBootstrapReady || pubkeys.length === 0 || key === memberProfileHydrationKey)
+      return
+
+    memberProfileHydrationKey = key
+    hydratePubkeyProfiles({pubkeys, relayHints: communityProfileRelays}).catch(error => {
+      console.warn("[community/access] Failed to hydrate member profiles", error)
+    })
+  })
+
+  const openProfile = (memberPubkey: string) => {
+    pushModal(ProfileDetail, {
+      pubkey: memberPubkey,
+      url: communityProfileRelays[0],
+      relays: communityProfileRelays,
+    })
+  }
 
   const getAnswer = (
     sectionName: string,
@@ -820,10 +843,16 @@
               <article class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4">
                 <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div class="flex min-w-0 items-start gap-3">
-                    <ProfileCircle
-                      pubkey={member.pubkey}
-                      relays={communityProfileRelays}
-                      size={9} />
+                    <Button
+                      class="rounded-full p-0"
+                      aria-label="View member profile"
+                      title="View member profile"
+                      onclick={stopPropagation(preventDefault(() => openProfile(member.pubkey)))}>
+                      <ProfileCircle
+                        pubkey={member.pubkey}
+                        relays={communityProfileRelays}
+                        size={9} />
+                    </Button>
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
                         <strong class="min-w-0"

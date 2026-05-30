@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {loadProfile} from "@welshman/app"
   import {displayPubkey, displayRelayUrl} from "@welshman/util"
   import Global from "@assets/icons/global.svg?dataurl"
   import Lock from "@assets/icons/lock.svg?dataurl"
@@ -11,6 +10,7 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import type {
     Nip85ConfiguredProvider,
     Nip85Provider,
@@ -70,6 +70,7 @@
     "badge border border-base-content/15 bg-base-200 font-medium text-base-content/80"
 
   const usageLabel = $derived(usageCount === 1 ? "1 user" : `${usageCount} users`)
+  const providerProfileRelays = $derived(provider.relayHint ? [provider.relayHint] : [])
   const verificationSummary = $derived.by(() => {
     if (!verification) return ""
 
@@ -109,25 +110,26 @@
     }
   })
 
-  const openProfile = (pubkey: string) => pushModal(ProfileDetail, {pubkey})
+  const openProfile = (pubkey: string, relays: string[] = []) =>
+    pushModal(ProfileDetail, {pubkey, url: relays[0], relays})
 
   $effect(() => {
     if (!verification) return
 
     for (const pubkey of verification.matchedPubkeys) {
-      loadProfile(pubkey).catch(() => undefined)
+      loadBudabitProfile(pubkey).catch(() => undefined)
     }
   })
 
   $effect(() => {
-    loadProfile(provider.serviceKey, [provider.relayHint]).catch(() => undefined)
+    loadBudabitProfile(provider.serviceKey, {url: provider.relayHint}).catch(() => undefined)
   })
 
   $effect(() => {
     if (!showRecommenders) return
 
     for (const recommender of recommenders) {
-      loadProfile(recommender.pubkey).catch(() => undefined)
+      loadBudabitProfile(recommender.pubkey).catch(() => undefined)
     }
   })
 </script>
@@ -136,15 +138,18 @@
   class={`rounded-box border bg-base-100/40 p-3 sm:p-4 ${selectedProvider ? "border-primary/50" : "border-base-300/60"}`}>
   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
     <div class="flex min-w-0 gap-3">
-      <Button type="button" class="shrink-0 p-0" onclick={() => openProfile(provider.serviceKey)}>
-        <ProfileCircle pubkey={provider.serviceKey} size={8} />
+      <Button
+        type="button"
+        class="shrink-0 p-0"
+        onclick={() => openProfile(provider.serviceKey, providerProfileRelays)}>
+        <ProfileCircle pubkey={provider.serviceKey} relays={providerProfileRelays} size={8} />
       </Button>
       <div class="min-w-0">
         <Button
           type="button"
           class="truncate p-0 text-sm font-medium sm:text-base"
-          onclick={() => openProfile(provider.serviceKey)}>
-          <ProfileName pubkey={provider.serviceKey} />
+          onclick={() => openProfile(provider.serviceKey, providerProfileRelays)}>
+          <ProfileName pubkey={provider.serviceKey} relays={providerProfileRelays} />
         </Button>
         <div class="text-xs opacity-60">{displayPubkey(provider.serviceKey)}</div>
       </div>

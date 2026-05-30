@@ -24,15 +24,20 @@ describe("empty image source guards", () => {
 
   it("uses safe AvatarImage for Nostr Git UI avatar fallbacks", () => {
     const layout = readProjectFile("../../routes/+layout.svelte")
-    const gitPage = readProjectFile("../../routes/git/+page.svelte")
     const safeAvatar = readProjectFile("../components/SafeAvatarImage.svelte")
 
     expect(layout).toContain("@app/components/SafeAvatarImage.svelte")
-    expect(gitPage).toContain("@app/components/SafeAvatarImage.svelte")
     expect(safeAvatar).toContain("{#if safeSrc && !imageFailed}")
     expect(safeAvatar).toContain("warnEmptyImageSource")
     expect(safeAvatar).toContain("onerror={markImageFailed}")
     expect(safeAvatar).toContain("<BaseAvatarImage")
+  })
+
+  it("uses profile avatar fallback for Git page profile avatars", () => {
+    const gitPage = readProjectFile("../../routes/git/+page.svelte")
+
+    expect(gitPage).toContain("ProfileCircle")
+    expect(gitPage).not.toContain("AvatarImage src={prof?.picture}")
   })
 
   it("falls back when community profile images fail to load", () => {

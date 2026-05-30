@@ -52,6 +52,20 @@ function parseRelaysAttribute(value: string | null, label: string): string[] {
   }
 }
 
+function parseProfileRelayHints(value: string | null): string[] {
+  if (!value) return []
+
+  try {
+    const relays = JSON.parse(decodeURIComponent(value))
+    return Array.isArray(relays)
+      ? relays.filter((relay): relay is string => typeof relay === "string")
+      : []
+  } catch (e) {
+    console.error("Failed to parse profile relays:", e)
+    return []
+  }
+}
+
 /**
  * Mounts shared community preview components
  */
@@ -94,10 +108,11 @@ function mountProfilePlaceholders(
   profilePlaceholders.forEach(placeholder => {
     const pubkey = placeholder.getAttribute("data-pubkey")
     const profileUrl = placeholder.getAttribute("data-url")
+    const profileRelays = parseProfileRelayHints(placeholder.getAttribute("data-relays"))
 
     if (pubkey) {
       try {
-        const wrapper = document.createElement("div")
+        const wrapper = document.createElement("span")
         wrapper.className = "inline-flex items-center gap-1 align-middle"
         wrapper.style.verticalAlign = "middle"
 
@@ -114,6 +129,7 @@ function mountProfilePlaceholders(
           props: {
             pubkey,
             url: profileUrl || undefined,
+            relays: profileRelays,
             avatarSize: 6,
             hideDetails: true,
           },
@@ -124,6 +140,7 @@ function mountProfilePlaceholders(
           props: {
             pubkey,
             url: profileUrl || undefined,
+            relays: profileRelays,
           },
         })
 

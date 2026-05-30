@@ -20,7 +20,6 @@ import {
   ensurePlaintext,
   getFollows,
   getWotGraph,
-  loadProfile,
   makeOutboxLoader,
   makeUserData,
   makeUserLoader,
@@ -31,6 +30,7 @@ import {
   repository,
   signer,
 } from "@welshman/app"
+import {loadBudabitProfile} from "@app/core/profile-resolver"
 import {
   NIP85_PROVIDER_CONFIG_KIND,
   NIP85_USER_ASSERTION_KIND,
@@ -521,7 +521,7 @@ export const loadNip85RecommendedUserProviders = async () => {
       )
 
       void withTimeout(
-        loadProfile(serviceKey, relayHints).catch(() => undefined),
+        loadBudabitProfile(serviceKey, {relays: relayHints}).catch(() => undefined),
         NIP85_RECOMMENDATION_PROFILE_LOAD_TIMEOUT,
       ).then(() => {
         if (currentRun !== recommendationRun) return
@@ -744,7 +744,7 @@ export const discoverNip85ExtraCapabilities = async (
             discovered.set(serviceKey, existing)
           }
 
-          loadProfile(serviceKey, relays).catch(() => undefined)
+          loadBudabitProfile(serviceKey, {relays}).catch(() => undefined)
         }
       } catch {
         errors += 1

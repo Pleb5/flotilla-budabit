@@ -40,6 +40,7 @@
     deriveRoleAssignments,
     getRepoMaintainers,
     getRepoScopedRelays,
+    REPO_PROFILE_RELAYS_KEY,
     loadRepoContext,
     repoAnnouncementsByAddress,
   } from "@app/core/git-state"
@@ -53,6 +54,7 @@
   import type {Readable} from "svelte/store"
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
 
   if (!repoClass) {
@@ -63,9 +65,12 @@
   const repoBoundRelays = $derived.by(() => {
     return getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays)
   })
-  const repoCommunityProfileRelays = $derived.by(() =>
-    normalizeRelays([repoClass.community?.relay || ""]),
-  )
+  const repoCommunityProfileRelays = $derived.by(() => {
+    const relays = repoProfileRelays?.() || []
+    if (relays.length > 0) return relays
+
+    return normalizeRelays([repoClass.community?.relay || ""])
+  })
 
   const issueId = $page.params.issueid
   const hiddenRootIds = $derived.by(() =>

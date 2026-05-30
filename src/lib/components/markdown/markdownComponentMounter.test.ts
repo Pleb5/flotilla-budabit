@@ -42,8 +42,9 @@ describe("markdownComponentMounter", () => {
 
     it("mounts profile placeholders and replaces with Profile + ProfileLink", () => {
       const pubkey = "a".repeat(64)
+      const relays = ["wss://profile.example.com"]
       const container = document.createElement("div")
-      container.innerHTML = `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
+      container.innerHTML = `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url="" data-relays="${encodeURIComponent(JSON.stringify(relays))}"></span>`
 
       const result = mountPlaceholderComponents(container, {})
 
@@ -56,8 +57,19 @@ describe("markdownComponentMounter", () => {
           target: expect.any(HTMLSpanElement),
           props: expect.objectContaining({
             pubkey,
+            relays,
             avatarSize: 6,
             hideDetails: true,
+          }),
+        }),
+      )
+      expect(mockMount).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({
+          props: expect.objectContaining({
+            pubkey,
+            relays,
           }),
         }),
       )

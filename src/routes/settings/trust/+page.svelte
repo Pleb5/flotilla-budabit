@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {loadProfile, profilesByPubkey} from "@welshman/app"
+  import {profilesByPubkey} from "@welshman/app"
   import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Refresh from "@assets/icons/refresh.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -12,6 +12,7 @@
   import Link from "@lib/components/Link.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {displayProfile, displayPubkey} from "@welshman/util"
   import MetricSourcePicker, {type MetricSourcePickerOption} from "./MetricSourcePicker.svelte"
   import ProviderRecommendationRow from "./ProviderRecommendationRow.svelte"
@@ -700,12 +701,12 @@
     if (!NIP85_ENABLED) return
 
     for (const provider of managedProviders) {
-      loadProfile(provider.serviceKey, [provider.relayHint]).catch(() => undefined)
+      loadBudabitProfile(provider.serviceKey, {url: provider.relayHint}).catch(() => undefined)
     }
 
     for (const option of graphMetricSourceOptions) {
       if (option.source.type === "nip85") {
-        loadProfile(option.source.serviceKey).catch(() => undefined)
+        loadBudabitProfile(option.source.serviceKey).catch(() => undefined)
       }
     }
   })
@@ -775,7 +776,7 @@
       verificationState = "done"
 
       await Promise.all(
-        verification.samplePubkeys.map(pubkey => loadProfile(pubkey).catch(() => undefined)),
+        verification.samplePubkeys.map(pubkey => loadBudabitProfile(pubkey).catch(() => undefined)),
       )
     } catch (error: any) {
       const message = error?.message || "Provider verification failed"
@@ -928,7 +929,7 @@
     customRelayHint = ""
     customKindTagOverride = ""
 
-    await loadProfile(provider.serviceKey, [provider.relayHint]).catch(() => undefined)
+    await loadBudabitProfile(provider.serviceKey, {url: provider.relayHint}).catch(() => undefined)
 
     pushToast({message: `Added ${getNip85CapabilityLabel(provider.kindTag)} provider`})
   }

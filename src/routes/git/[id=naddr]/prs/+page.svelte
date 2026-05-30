@@ -49,6 +49,7 @@
     PULL_REQUESTS_KEY,
     COMMENT_EVENTS_KEY,
     REPO_KEY,
+    REPO_PROFILE_RELAYS_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     RESOLVED_STATUS_BY_ROOT_KEY,
@@ -110,6 +111,7 @@
   })
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const resolvedStatusByRootStore = getContext<Readable<Map<string, ResolvedRootStatus>>>(
@@ -144,9 +146,10 @@
   const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:prs`)
   const relayUrl = $derived.by(() => (($page.data as any)?.url || "") as string)
   const repoCommunityProfileRelays = $derived.by(() => {
-    const community = repoClass.community
+    const relays = repoProfileRelays?.() || []
+    if (relays.length > 0) return relays
 
-    return normalizeRelays([community?.relay || ""])
+    return normalizeRelays([repoClass.community?.relay || ""])
   })
   const reactionRelays = $derived.by(() => {
     const scoped = [...repoRelays].filter(Boolean)

@@ -16,7 +16,6 @@ import {Router} from "@welshman/router"
 import {
   pubkey,
   loadRelay,
-  loadProfile,
   tracker,
   repository,
   hasNegentropy,
@@ -51,6 +50,7 @@ import {
 import {loadNip85ProviderConfig} from "@app/core/nip85"
 import {loadRepoWatch} from "@app/core/repo-watch"
 import {loadTrustGraphConfig} from "@app/core/trust-graph-config"
+import {loadBudabitProfile} from "@app/core/profile-resolver"
 
 // Utils
 
@@ -187,7 +187,7 @@ const syncUserData = () => {
       loadUserBlossomServerList($userRelayList.event.pubkey)
       loadUserFollowList($userRelayList.event.pubkey)
       loadUserMuteList($userRelayList.event.pubkey)
-      loadProfile($userRelayList.event.pubkey)
+      loadBudabitProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
       if (NIP85_ENABLED) {
         loadNip85ProviderConfig($userRelayList.event.pubkey)
@@ -205,7 +205,7 @@ const syncUserData = () => {
       await Promise.all(
         pubkeys.map(async pk => {
           await loadUserRelayList(pk)
-          await loadProfile(pk)
+          await loadBudabitProfile(pk)
           await loadUserFollowList(pk)
           await loadUserMuteList(pk)
         }),

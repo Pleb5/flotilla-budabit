@@ -8,11 +8,11 @@
   import Markdown from "@lib/components/Markdown.svelte"
   import {makeCommunityPath} from "@app/util/routes"
   import {getInteractiveCardTarget} from "@lib/html"
-  import {profilesByPubkey} from "@welshman/app"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {GIT_RELAYS} from "@app/core/git-state"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {parseRepoCommunityBinding} from "@nostr-git/core/events"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {Star} from "@lucide/svelte"
 
   const {
@@ -26,6 +26,7 @@
     showIssues = true,
     showActions = true,
     hideDate = false,
+    profileRelays = [],
   }: {
     url: string
     event: TrustedEvent
@@ -37,15 +38,21 @@
     showIssues?: boolean
     showActions?: boolean
     hideDate?: boolean
+    profileRelays?: string[]
   } = $props()
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
   const community = $derived.by(() => parseRepoCommunityBinding(event))
+  const communityProfileRelays = $derived.by(() =>
+    Array.from(new Set([community?.relay || "", ...profileRelays].filter(Boolean))),
+  )
+  const communityDisplay = $derived(
+    deriveBudabitProfileDisplay(community?.pubkey, {communityRelays: communityProfileRelays}),
+  )
   const communityLabel = $derived.by(() => {
     if (!community) return ""
-    const profile = $profilesByPubkey.get(community.pubkey)
-    return profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
+    return $communityDisplay || `${community.pubkey.slice(0, 8)}...`
   })
   const browseHref = $derived.by(() => makeRepoHrefFromEvent(event, {url, gitRelays: GIT_RELAYS}))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
@@ -139,7 +146,7 @@
 </script>
 
 {#snippet cardContent()}
-  <NoteCard {event} class="card2 sm:card2-sm bg-alt relative" {hideDate}>
+  <NoteCard {event} class="card2 sm:card2-sm bg-alt relative" relays={profileRelays} {hideDate}>
     {#if name}
       <div class="flex w-full items-start justify-between gap-2">
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">

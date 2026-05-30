@@ -46,6 +46,7 @@ vi.mock("@app/core/state", () => ({
 vi.mock("@app/core/community-relays", () => ({
   activeUserCommunityRelays: mocks.activeCommunityRelays,
   getActiveUserCommunityRelays: () => ["wss://active.example"],
+  getPubkeyOutboxRelays: () => ["wss://outbox.example"],
 }))
 
 const pubkey = "a".repeat(64)
@@ -90,6 +91,7 @@ describe("Budabit profile resolver", () => {
     expect(mocks.loadProfile).toHaveBeenCalledWith(pubkey, [
       "wss://indexer.example/",
       "wss://hint.example/",
+      "wss://outbox.example/",
     ])
     expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
   })
@@ -99,7 +101,10 @@ describe("Budabit profile resolver", () => {
 
     await expect(loadBudabitProfile(pubkey)).resolves.toBeUndefined()
 
-    expect(mocks.loadProfile).toHaveBeenCalledWith(pubkey, ["wss://indexer.example/"])
+    expect(mocks.loadProfile).toHaveBeenCalledWith(pubkey, [
+      "wss://indexer.example/",
+      "wss://outbox.example/",
+    ])
     expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
   })
 
@@ -116,7 +121,30 @@ describe("Budabit profile resolver", () => {
       "wss://indexer.example/",
       "wss://hint.example/",
       "wss://new-hint.example/",
+      "wss://outbox.example/",
     ])
+  })
+
+  it("force-loads derived missing profiles when fixed relay hints improve", async () => {
+    const {deriveBudabitProfile} = await import("./profile-resolver")
+
+    const unsubscribeBare = deriveBudabitProfile(pubkey).subscribe(() => {})
+    const unsubscribeHinted = deriveBudabitProfile(pubkey, {
+      relays: ["wss://hint.example"],
+    }).subscribe(() => {})
+
+    expect(mocks.loadProfile).toHaveBeenCalledWith(pubkey, [
+      "wss://indexer.example/",
+      "wss://outbox.example/",
+    ])
+    expect(mocks.forceLoadProfile).toHaveBeenCalledWith(pubkey, [
+      "wss://indexer.example/",
+      "wss://hint.example/",
+      "wss://outbox.example/",
+    ])
+
+    unsubscribeBare()
+    unsubscribeHinted()
   })
 
   it("deduplicates repeated missing-profile loads for the same relay set", async () => {
@@ -143,6 +171,21 @@ describe("Budabit profile resolver", () => {
     expect(mocks.forceLoadProfile).not.toHaveBeenCalled()
   })
 
+  it("retries sparse cached profiles when better relay hints arrive", async () => {
+    const {loadBudabitProfile} = await import("./profile-resolver")
+
+    mocks.profilesByPubkey.set(new Map([[pubkey, {}]]))
+
+    await loadBudabitProfile(pubkey)
+    await loadBudabitProfile(pubkey, {relays: ["wss://hint.example"]})
+
+    expect(mocks.forceLoadProfile).toHaveBeenCalledWith(pubkey, [
+      "wss://indexer.example/",
+      "wss://hint.example/",
+      "wss://outbox.example/",
+    ])
+  })
+
   it("retries derived missing profiles when active community relays improve", async () => {
     const {deriveBudabitProfile} = await import("./profile-resolver")
 
@@ -154,6 +197,7 @@ describe("Budabit profile resolver", () => {
     expect(mocks.loadProfile).toHaveBeenCalledWith(pubkey, [
       "wss://indexer.example/",
       "wss://active.example/",
+      "wss://outbox.example/",
     ])
 
     mocks.activeCommunityRelays.set(["wss://active.example", "wss://community.example"])
@@ -162,6 +206,7 @@ describe("Budabit profile resolver", () => {
       "wss://indexer.example/",
       "wss://active.example/",
       "wss://community.example/",
+      "wss://outbox.example/",
     ])
 
     unsubscribe()

@@ -76,6 +76,7 @@
   import Profile from "@src/app/components/Profile.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
   import type {Repo} from "@nostr-git/ui"
   import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
@@ -351,6 +352,21 @@
     )
   })
   const prThreadCommentsCount = $derived.by(() => prThreadCommentsArray.length)
+
+  let prCommentProfileLoadKey = ""
+  $effect(() => {
+    const pubkeys = Array.from(
+      new Set(prThreadCommentsArray.map(comment => comment.pubkey)),
+    ).filter(Boolean)
+    const key = `${profileRelays.join(",")}:${pubkeys.join(",")}`
+    if (pubkeys.length === 0 || key === prCommentProfileLoadKey) return
+
+    prCommentProfileLoadKey = key
+    for (const commentPubkey of pubkeys) {
+      if ($profilesByPubkey.get(commentPubkey)) continue
+      loadBudabitProfile(commentPubkey, {communityRelays: profileRelays}).catch(() => undefined)
+    }
+  })
 
   let prCommentParentIdsKey = ""
   $effect(() => {

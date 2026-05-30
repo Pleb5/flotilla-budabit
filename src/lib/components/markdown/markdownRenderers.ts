@@ -200,14 +200,17 @@ function renderNostrLink(
 
     if (result.type === "nprofile" || result.type === "npub") {
       let pubkey = ""
+      let relays: string[] = []
       if (result.type === "nprofile") {
         pubkey = result.data.pubkey
+        relays = Array.isArray(result.data.relays) ? result.data.relays : []
       } else if (result.type === "npub") {
         pubkey = result.data
       }
 
       if (pubkey) {
-        return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
+        const relayData = encodeURIComponent(JSON.stringify(relays))
+        return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url="" data-relays="${relayData}"></span>`
       }
     }
 

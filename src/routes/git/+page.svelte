@@ -16,7 +16,6 @@
     tracker,
     profileSearch,
     getFollows,
-    loadProfile,
     relaySearch,
     pubkey,
     session,
@@ -35,8 +34,10 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
   import LogIn from "@app/components/LogIn.svelte"
-  import {getInteractiveCardTarget} from "@lib/html"
+  import {getInteractiveCardTarget, preventDefault, stopPropagation} from "@lib/html"
   import GitItem from "@app/components/GitItem.svelte"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
@@ -60,8 +61,6 @@
   import {getTaggedRelaysFromRepoEvent, resolveRepoRelayPolicy} from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
-    Avatar,
-    AvatarFallback,
     bookmarksStore,
     repositoriesStore,
     Tabs,
@@ -72,7 +71,6 @@
     NewRepoWizard,
     ImportRepoDialog,
   } from "@nostr-git/ui"
-  import AvatarImage from "@app/components/SafeAvatarImage.svelte"
   import type {ImportResult, NewRepoResult, RepoCommunityOption} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
   import {
@@ -167,6 +165,7 @@
     type RepoDiscoveryPrioritySetting,
     type RepoOwnerProfile,
   } from "@app/util/repo-discovery-search"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
 
   const url = GIT_RELAYS[0] || ""
 
@@ -594,6 +593,12 @@
   const getCommunityOptionRelayHints = (option?: RepoCommunityOption) =>
     Array.from(new Set([...(option?.relays || []), option?.relay || ""].filter(Boolean)))
 
+  const selectedCommunityProfileRelays = $derived.by(() =>
+    getCommunityOptionRelayHints(selectedCommunityOption)
+      .map(relay => safeNormalizeRelay(relay))
+      .filter(Boolean),
+  )
+
   const selectGitCommunity = (communityPubkey: string) => {
     selectedCommunityPubkey = communityPubkey
     if (!communityPubkey) return
@@ -624,6 +629,26 @@
       ),
     ),
   )
+
+  const getRepoCardProfileRelays = (event?: RepoAnnouncementEvent | null) => {
+    const community = event ? parseRepoCommunityBinding(event) : undefined
+    return Array.from(
+      new Set(
+        [
+          ...(activeMode === "community" ? selectedCommunityProfileRelays : []),
+          community?.relay || "",
+        ].filter(Boolean),
+      ),
+    )
+  }
+
+  const openRepoCardProfile = (profilePubkey: string, profileRelays: string[] = []) => {
+    pushModal(ProfileDetail, {
+      pubkey: profilePubkey,
+      url: profileRelays[0],
+      relays: profileRelays,
+    })
+  }
 
   const selectedCommunityRef = $derived.by(() =>
     $activeUserCommunityRefs.find(ref => ref.communityPubkey === selectedCommunityPubkey),
@@ -1157,13 +1182,19 @@
     for (const event of $communityStarReactionEvents as TrustedEvent[]) {
       const star = parseRepoStarReaction(event)
       if (!star || !event.pubkey) continue
-      if ($profilesByPubkey.get(event.pubkey) || communityStarProfileRequests.has(event.pubkey))
+      const profileRequestKey = `${event.pubkey}:${selectedCommunityProfileRelays.join(",")}`
+      if (
+        $profilesByPubkey.get(event.pubkey) ||
+        communityStarProfileRequests.has(profileRequestKey)
+      )
         continue
 
-      communityStarProfileRequests.add(event.pubkey)
-      loadProfile(event.pubkey, []).catch(error => {
-        console.warn("[git/+page] Failed to load community stargazer profile", error)
-      })
+      communityStarProfileRequests.add(profileRequestKey)
+      loadBudabitProfile(event.pubkey, {communityRelays: selectedCommunityProfileRelays}).catch(
+        error => {
+          console.warn("[git/+page] Failed to load community stargazer profile", error)
+        },
+      )
     }
   })
 
@@ -3218,7 +3249,9 @@
         }
       }
 
-      await loadProfile(pubkey, [])
+      await loadBudabitProfile(pubkey, {
+        communityRelays: activeMode === "community" ? selectedCommunityProfileRelays : [],
+      })
       const refreshed = getStore(profilesByPubkey)?.get(pubkey)
       if (refreshed) {
         return {
@@ -3780,6 +3813,9 @@
       {#if sortedAccountSearchRepoCards.length > 0}
         <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedAccountSearchRepoCards as g, i (getRepoCardStableKey(g))}
+            {@const cardProfileRelays = g.first
+              ? getRepoCardProfileRelays(g.first as RepoAnnouncementEvent)
+              : []}
             <div
               class="min-w-0 rounded-md border border-border bg-card p-3"
               role="link"
@@ -3795,6 +3831,7 @@
                 <GitItem
                   {url}
                   event={g.first as any}
+                  profileRelays={cardProfileRelays}
                   tabbable={false}
                   bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
                     ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent)
@@ -3814,16 +3851,19 @@
                 <div class="flex items-center gap-2">
                   <div class="flex -space-x-2">
                     {#if g.owner}
-                      {@const prof = $profilesByPubkey.get(g.owner)}
-                      <Avatar
-                        class="h-6 w-6 border"
-                        title={prof?.display_name || prof?.name || g.owner}>
-                        <AvatarImage src={prof?.picture} alt={prof?.name || g.owner} />
-                        <AvatarFallback
-                          >{(prof?.display_name || prof?.name || g.owner)
-                            .slice(0, 2)
-                            .toUpperCase()}</AvatarFallback>
-                      </Avatar>
+                      <Button
+                        class="rounded-full p-0"
+                        aria-label="View owner profile"
+                        title="View owner profile"
+                        onclick={stopPropagation(
+                          preventDefault(() => openRepoCardProfile(g.owner, cardProfileRelays)),
+                        )}>
+                        <ProfileCircle
+                          pubkey={g.owner}
+                          relays={cardProfileRelays}
+                          size={6}
+                          class="border" />
+                      </Button>
                     {/if}
                   </div>
                   <span class="text-xs opacity-60">Owner</span>
@@ -3947,6 +3987,9 @@
       {:else if sortedRepoCards.length > 0}
         <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
+            {@const cardProfileRelays = g.first
+              ? getRepoCardProfileRelays(g.first as RepoAnnouncementEvent)
+              : []}
             {@const communityStargazers = g.first
               ? getCommunityRepoStargazerPubkeys(g.first as RepoAnnouncementEvent)
               : []}
@@ -3965,6 +4008,7 @@
                 <GitItem
                   {url}
                   event={g.first as any}
+                  profileRelays={cardProfileRelays}
                   tabbable={false}
                   bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
                     ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent)
@@ -3988,16 +4032,19 @@
                   <div class="flex min-w-0 items-center gap-2">
                     <div class="flex shrink-0 -space-x-2">
                       {#if g.owner}
-                        {@const prof = $profilesByPubkey.get(g.owner)}
-                        <Avatar
-                          class="h-6 w-6 border"
-                          title={prof?.display_name || prof?.name || g.owner}>
-                          <AvatarImage src={prof?.picture} alt={prof?.name || g.owner} />
-                          <AvatarFallback
-                            >{(prof?.display_name || prof?.name || g.owner)
-                              .slice(0, 2)
-                              .toUpperCase()}</AvatarFallback>
-                        </Avatar>
+                        <Button
+                          class="rounded-full p-0"
+                          aria-label="View owner profile"
+                          title="View owner profile"
+                          onclick={stopPropagation(
+                            preventDefault(() => openRepoCardProfile(g.owner, cardProfileRelays)),
+                          )}>
+                          <ProfileCircle
+                            pubkey={g.owner}
+                            relays={cardProfileRelays}
+                            size={6}
+                            class="border" />
+                        </Button>
                       {/if}
                     </div>
                     <span class="text-xs opacity-60">Owner</span>
@@ -4006,16 +4053,15 @@
                     <div class="flex min-w-0 items-center gap-2">
                       <div class="flex shrink-0 -space-x-2">
                         {#each communityStargazers.slice(0, 5) as pk (pk)}
-                          {@const prof = $profilesByPubkey.get(pk)}
-                          <Avatar
-                            class="h-6 w-6 border border-background"
-                            title={prof?.display_name || prof?.name || pk}>
-                            <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                            <AvatarFallback
-                              >{(prof?.display_name || prof?.name || pk)
-                                .slice(0, 2)
-                                .toUpperCase()}</AvatarFallback>
-                          </Avatar>
+                          <Button
+                            class="rounded-full border border-background p-0"
+                            aria-label="View community stargazer profile"
+                            title="View community stargazer profile"
+                            onclick={stopPropagation(
+                              preventDefault(() => openRepoCardProfile(pk, cardProfileRelays)),
+                            )}>
+                            <ProfileCircle pubkey={pk} relays={cardProfileRelays} size={6} />
+                          </Button>
                         {/each}
                       </div>
                       <span class="min-w-0 truncate text-xs opacity-60">

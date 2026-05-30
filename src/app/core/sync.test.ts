@@ -151,6 +151,10 @@ vi.mock("@app/core/state", () => ({
   bootstrapPubkeys: mocks.bootstrapPubkeys,
 }))
 
+vi.mock("@app/core/profile-resolver", () => ({
+  loadBudabitProfile: mocks.loadProfile,
+}))
+
 vi.mock("@app/core/requests", () => ({
   loadAlerts: mocks.loadAlerts,
   loadAlertStatuses: mocks.loadAlertStatuses,

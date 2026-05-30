@@ -34,6 +34,7 @@
   import {
     PULL_REQUESTS_KEY,
     REPO_KEY,
+    REPO_PROFILE_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     REPO_ACTIONS_KEY,
     type RepoActions,
@@ -64,6 +65,7 @@
 
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
@@ -383,9 +385,10 @@
     return profile?.display_name || profile?.name || `${community.pubkey.slice(0, 8)}...`
   })
   const repoCommunityProfileRelays = $derived.by(() => {
-    const community = repoMetadata.community
+    const relays = repoProfileRelays?.() || []
+    if (relays.length > 0) return relays
 
-    return normalizeRelays([community?.relay || ""])
+    return normalizeRelays([repoMetadata.community?.relay || ""])
   })
 
   $effect(() => {
