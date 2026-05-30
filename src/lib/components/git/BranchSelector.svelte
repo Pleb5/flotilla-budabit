@@ -86,7 +86,7 @@
   }
 </script>
 
-<div class="flex max-w-full items-center gap-2 min-w-0">
+<div class="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2">
   <div class="relative max-w-full min-w-0">
     <select
       value={selectedBranch}
@@ -139,7 +139,7 @@
   </div>
   {#if sourceLabel}
     <span
-      class="hidden max-w-[10rem] truncate rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground sm:inline-block"
+      class="hidden min-w-0 max-w-full truncate rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground sm:inline-block"
       title={sourceTitle}
     >
       {sourceLabel}
