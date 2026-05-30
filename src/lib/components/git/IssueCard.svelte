@@ -34,6 +34,7 @@
     assignees?: string[]; // Array of assignee pubkeys
     assigneeCount?: number; // Optional prop for displaying number of assignees
     relays?: string[]; // Relay URLs for EventActions
+    profileRelays?: string[]; // Relay hints for author/assignee profiles
     onDeleteReaction?: (event: any) => void | Promise<void>;
     onCreateReaction?: (template: { content: string; tags?: string[][] }) => void | Promise<void>;
   }
@@ -51,6 +52,7 @@
     assigneeCount = 0,
     assignees = [],
     relays = [],
+    profileRelays = [],
     onDeleteReaction,
     onCreateReaction,
   }: Props = $props();
@@ -213,8 +215,8 @@
       <span class="whitespace-nowrap">Opened <TimeAgo date={displayDate} /></span>
       <div class="flex items-center gap-1">
         <span class="whitespace-nowrap">• By </span>
-        <NostrAvatar pubkey={event.pubkey} title={title || "Issue author"} />
-        <ProfileLink pubkey={event.pubkey} />
+        <NostrAvatar pubkey={event.pubkey} relays={profileRelays} title={title || "Issue author"} />
+        <ProfileLink pubkey={event.pubkey} relays={profileRelays} />
       </div>
       {#if isMirrored}
         <span class="whitespace-nowrap">• Imported <TimeAgo date={createdAt} /></span>
@@ -228,6 +230,7 @@
               {#each assigneePreview as assignee (assignee)}
                 <NostrAvatar
                   pubkey={assignee}
+                  relays={profileRelays}
                   size={18}
                   class="ring-2 ring-background"
                   title="Assignee"

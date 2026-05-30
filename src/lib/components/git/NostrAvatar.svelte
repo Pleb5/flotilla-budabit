@@ -12,6 +12,7 @@
     avatarUrl?: string;
     // Nostr data
     pubkey?: string;
+    relays?: string[];
     nip05?: string; // e.g. name@domain
     nip39?: string; // optional extended profile image URL or mapping
     // Fallbacks
@@ -27,6 +28,7 @@
   let {
     avatarUrl,
     pubkey,
+    relays = [],
     nip05,
     nip39,
     email,
@@ -90,6 +92,7 @@
   <!-- Let host app render a Nostr avatar (handles caching, cdn, etc.) -->
   <ProfileComponent
     pubkey={pubkey}
+    relays={relays}
     class={`inline-block ${shape} overflow-hidden ${className}`}
     hideDetails={true}
     title={title}
