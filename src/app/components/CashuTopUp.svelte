@@ -96,7 +96,7 @@
   })
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex min-w-0 flex-col gap-4">
   {#if success}
     <div class="rounded-lg bg-success/10 p-4 text-center text-success">
       <p class="text-lg font-bold">+{amount.toLocaleString()} sats received!</p>
@@ -105,7 +105,7 @@
       </Button>
     </div>
   {:else if invoice}
-    <div class="flex flex-col items-center gap-4">
+    <div class="flex min-w-0 flex-col items-center gap-4">
       <p class="text-sm opacity-75">
         Pay this Lightning invoice to top up <strong>{amount.toLocaleString()} sats</strong>
       </p>
@@ -113,17 +113,17 @@
         <img
           src={qrDataUrl}
           alt="Lightning invoice QR code"
-          class="rounded-lg"
+          class="h-auto w-full max-w-[200px] rounded-lg"
           width="200"
           height="200" />
       {/if}
-      <div class="flex w-full gap-2">
+      <div class="flex w-full min-w-0 flex-col gap-2 sm:flex-row">
         <input
-          class="input input-xs input-bordered flex-1 font-mono"
+          class="input input-xs input-bordered min-w-0 flex-1 font-mono"
           type="text"
           readonly
           value={invoice} />
-        <Button class="btn btn-neutral btn-xs" onclick={copyInvoice}>
+        <Button class="btn btn-neutral btn-xs inline-flex justify-center" onclick={copyInvoice}>
           {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
@@ -136,7 +136,10 @@
     <div class="flex flex-col gap-3">
       <div class="flex flex-col gap-1">
         <label class="text-sm font-medium" for="topup-mint">Mint</label>
-        <select id="topup-mint" class="select select-bordered select-sm" bind:value={selectedMint}>
+        <select
+          id="topup-mint"
+          class="select select-bordered select-sm min-w-0"
+          bind:value={selectedMint}>
           {#each mints as mint (mint)}
             <option value={mint}>{mint}</option>
           {/each}
@@ -146,7 +149,7 @@
         <label class="text-sm font-medium" for="topup-amount">Amount (sats)</label>
         <input
           id="topup-amount"
-          class="input input-sm input-bordered"
+          class="input input-sm input-bordered min-w-0"
           type="number"
           min="1"
           bind:value={amount} />
@@ -158,7 +161,7 @@
     {/if}
 
     <Button
-      class="btn btn-primary"
+      class="btn btn-primary inline-flex w-full justify-center"
       onclick={requestInvoice}
       disabled={loading || !selectedMint || amount <= 0}>
       {loading ? "Requesting…" : "Get Lightning Invoice"}

@@ -4,6 +4,7 @@
     cashuBalancesByMint,
     cashuMints,
     cashuBackupConfirmed,
+    cashuSeedLocked,
   } from "@app/core/cashu"
   import CashuReceive from "@app/components/CashuReceive.svelte"
   import CashuTopUp from "@app/components/CashuTopUp.svelte"
@@ -16,7 +17,7 @@
 
   let activeTab = $state<Tab>("balance")
 
-  const needsBackup = $derived(!$cashuBackupConfirmed)
+  const needsBackup = $derived($cashuSeedLocked || !$cashuBackupConfirmed)
   const totalBalance = $derived($cashuTotalBalance)
   const balancesByMint = $derived($cashuBalancesByMint)
   const mints = $derived($cashuMints)
@@ -30,28 +31,31 @@
   ]
 </script>
 
-<div class="flex min-h-[400px] w-full flex-col gap-4 p-4">
+<div class="flex min-h-[400px] w-full min-w-0 flex-col gap-3 p-2 sm:gap-4 sm:p-4">
   {#if needsBackup}
     <CashuSeedBackup />
   {:else}
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
       <h2 class="text-xl font-bold">Cashu Wallet</h2>
-      <span class="font-mono text-lg font-semibold">{totalBalance.toLocaleString()} sats</span>
+      <span class="font-mono text-base font-semibold sm:text-lg"
+        >{totalBalance.toLocaleString()} sats</span>
     </div>
 
     <!-- Tab bar -->
-    <div class="tabs tabs-bordered">
-      {#each tabs as tab}
-        <button
-          class="tab {activeTab === tab.id ? 'tab-active' : ''}"
-          onclick={() => (activeTab = tab.id)}>
-          {tab.label}
-        </button>
-      {/each}
+    <div class="scroll-container -mx-2 overflow-x-auto px-2 pb-1 sm:mx-0 sm:px-0">
+      <div class="tabs tabs-bordered flex-nowrap whitespace-nowrap">
+        {#each tabs as tab}
+          <button
+            class="tab shrink-0 {activeTab === tab.id ? 'tab-active' : ''}"
+            onclick={() => (activeTab = tab.id)}>
+            {tab.label}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <!-- Tab content -->
-    <div class="flex-1">
+    <div class="min-w-0 flex-1">
       {#if activeTab === "balance"}
         <div class="flex flex-col gap-3">
           {#if mints.length === 0}
@@ -60,9 +64,10 @@
             </p>
           {:else}
             {#each mints as mint (mint)}
-              <div class="card2 bg-alt flex items-center justify-between px-3 py-2 text-sm">
-                <span class="truncate font-mono text-xs">{mint}</span>
-                <span class="font-semibold"
+              <div
+                class="card2 bg-alt flex min-w-0 flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span class="max-w-full break-all font-mono text-xs sm:truncate">{mint}</span>
+                <span class="font-semibold sm:shrink-0"
                   >{(balancesByMint.get(mint) ?? 0).toLocaleString()} sats</span>
               </div>
             {/each}

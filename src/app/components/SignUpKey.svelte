@@ -17,6 +17,7 @@
   import SignUpComplete from "@app/components/SignUpComplete.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
+  import {cleanupBackupCopy} from "@app/util/secret-file"
 
   type Props = {
     profile: Profile
@@ -27,13 +28,6 @@
   const secret = makeSecret()
 
   const back = () => history.back()
-
-  const cleanupCopy = (copy: string) =>
-    copy
-      .replace(/\n\s*\n\s*/g, "NEWLINE")
-      .replace(/\s+/g, " ")
-      .replace(/NEWLINE/g, "\n\n")
-      .trim()
 
   const downloadKey = () => {
     const sharedCopy = `
@@ -71,7 +65,7 @@
       place to look), and import your key.
       `
 
-      downloadText("Nostr Secret Key.txt", cleanupCopy(instructions))
+      downloadText("Nostr Secret Key.txt", cleanupBackupCopy(instructions))
     } else {
       const nsec = nsecEncode(hexToBytes(secret))
       const instructions = `
@@ -87,7 +81,7 @@
       place to look), and import your key.
       `
 
-      downloadText("Nostr Secret Key.txt", cleanupCopy(instructions))
+      downloadText("Nostr Secret Key.txt", cleanupBackupCopy(instructions))
     }
 
     didDownload = true

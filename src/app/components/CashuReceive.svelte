@@ -1,10 +1,6 @@
 <script lang="ts">
   import {getDecodedToken} from "@cashu/coco-core"
-  import {
-    receiveCashuToken,
-    trustCashuMint,
-    recoverCashuMint,
-  } from "@app/core/cashu"
+  import {receiveCashuToken, trustCashuMint, recoverCashuMint} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
 
   // Recognize the untrusted-mint error by any of the surface markers — class
@@ -16,7 +12,8 @@
     if (!e || typeof e !== "object") return null
     const code = (e as {code?: string}).code
     const name = (e as {name?: string}).name
-    const msg = typeof (e as {message?: unknown}).message === "string" ? (e as {message: string}).message : ""
+    const msg =
+      typeof (e as {message?: unknown}).message === "string" ? (e as {message: string}).message : ""
     const looksUntrusted =
       code === "untrusted_mint" || name === "UntrustedMintError" || /\bis not trusted\b/i.test(msg)
     if (!looksUntrusted) return null
@@ -34,8 +31,7 @@
   let trustPrompt = $state<string | null>(null)
   let recoverPrompt = $state<string | null>(null)
 
-  const isOutputsSignedError = (msg: string) =>
-    /outputs?\s+already\s+signed/i.test(msg)
+  const isOutputsSignedError = (msg: string) => /outputs?\s+already\s+signed/i.test(msg)
 
   const extractMintUrl = (raw: string): string => {
     try {
@@ -108,7 +104,7 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex min-w-0 flex-col gap-4">
   {#if received !== null}
     <div class="rounded-lg bg-success/10 p-4 text-center text-success">
       <p class="text-lg font-bold">+{received.toLocaleString()} sats received!</p>
@@ -121,7 +117,7 @@
       <label class="text-sm font-medium" for="cashu-token-input">Paste Cashu Token</label>
       <textarea
         id="cashu-token-input"
-        class="textarea textarea-bordered font-mono text-xs"
+        class="textarea textarea-bordered min-w-0 break-all font-mono text-xs"
         rows={4}
         placeholder="cashuA..."
         bind:value={token}></textarea>
@@ -134,23 +130,23 @@
     {#if recoverPrompt}
       <div class="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
         <p class="text-sm">
-          The mint says these outputs were already signed. The wallet's counter is out of
-          sync with the mint and is reusing blinded messages it shouldn't.
+          The mint says these outputs were already signed. The wallet's counter is out of sync with
+          the mint and is reusing blinded messages it shouldn't.
         </p>
         <p class="break-all font-mono text-xs">{recoverPrompt}</p>
         <p class="text-xs opacity-70">
-          Recovery cancels the stuck operation and asks the mint for any proofs we missed,
-          advancing the counter past the collision range. Then we'll retry.
+          Recovery cancels the stuck operation and asks the mint for any proofs we missed, advancing
+          the counter past the collision range. Then we'll retry.
         </p>
-        <div class="flex gap-2">
+        <div class="flex flex-col gap-2 sm:flex-row">
           <Button
-            class="btn btn-warning btn-sm flex-1"
+            class="btn btn-warning btn-sm inline-flex flex-1 justify-center"
             onclick={recoverAndRedeem}
             disabled={loading}>
             {loading ? "Recovering…" : "Recover and retry"}
           </Button>
           <Button
-            class="btn btn-ghost btn-sm"
+            class="btn btn-ghost btn-sm inline-flex justify-center"
             onclick={() => (recoverPrompt = null)}
             disabled={loading}>
             Cancel
@@ -159,22 +155,20 @@
       </div>
     {:else if trustPrompt}
       <div class="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
-        <p class="text-sm">
-          This token is from a mint you don't trust yet:
-        </p>
+        <p class="text-sm">This token is from a mint you don't trust yet:</p>
         <p class="break-all font-mono text-xs">{trustPrompt}</p>
         <p class="text-xs opacity-70">
           Trusting a mint means relying on it to honor your ecash. Only trust mints you know.
         </p>
-        <div class="flex gap-2">
+        <div class="flex flex-col gap-2 sm:flex-row">
           <Button
-            class="btn btn-warning btn-sm flex-1"
+            class="btn btn-warning btn-sm inline-flex flex-1 justify-center"
             onclick={trustAndRedeem}
             disabled={loading}>
             {loading ? "Working…" : "Trust mint and redeem"}
           </Button>
           <Button
-            class="btn btn-ghost btn-sm"
+            class="btn btn-ghost btn-sm inline-flex justify-center"
             onclick={() => (trustPrompt = null)}
             disabled={loading}>
             Cancel
@@ -183,7 +177,7 @@
       </div>
     {:else}
       <Button
-        class="btn btn-primary"
+        class="btn btn-primary inline-flex w-full justify-center"
         onclick={redeem}
         disabled={loading || !token.trim()}>
         {loading ? "Redeeming…" : "Redeem Token"}

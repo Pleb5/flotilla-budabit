@@ -45,9 +45,10 @@
   }
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex min-w-0 flex-col gap-4">
   {#if mints.length === 0}
-    <div class="flex flex-col gap-2 rounded-lg border border-base-300 p-4 text-sm opacity-75">
+    <div
+      class="flex flex-col gap-2 rounded-lg border border-base-300 p-3 text-sm opacity-75 sm:p-4">
       <p>No mints added yet.</p>
       <button class="btn btn-ghost btn-xs self-start" onclick={addSuggested}>
         + Add Minibits (suggested)
@@ -56,27 +57,33 @@
   {:else}
     <div class="flex flex-col gap-2">
       {#each mints as mint (mint)}
-        <div class="card2 bg-alt flex items-center justify-between gap-2 px-3 py-2 text-sm">
-          <div class="flex flex-col gap-0.5 overflow-hidden">
-            <span class="truncate font-mono text-xs">{mint}</span>
+        <div
+          class="card2 bg-alt flex min-w-0 flex-col items-start gap-2 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex min-w-0 flex-col gap-0.5 overflow-hidden">
+            <span class="max-w-full break-all font-mono text-xs sm:truncate">{mint}</span>
             <span class="text-xs opacity-60">
               {(balances.get(mint) ?? 0).toLocaleString()} sats
             </span>
           </div>
-          <Button class="btn btn-ghost btn-xs text-error" onclick={() => remove(mint)}>✕</Button>
+          <Button
+            class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
+            onclick={() => remove(mint)}>✕</Button>
         </div>
       {/each}
     </div>
   {/if}
 
-  <div class="flex gap-2">
+  <div class="flex flex-col gap-2 sm:flex-row">
     <input
-      class="input input-sm input-bordered flex-1 font-mono text-xs"
+      class="input input-sm input-bordered min-w-0 flex-1 font-mono text-xs"
       type="url"
       placeholder="https://mint.example.com"
       bind:value={newMintUrl}
       onkeydown={e => e.key === "Enter" && add()} />
-    <Button class="btn btn-primary btn-sm" onclick={add} disabled={adding || !newMintUrl.trim()}>
+    <Button
+      class="btn btn-primary btn-sm inline-flex w-full justify-center sm:w-auto"
+      onclick={add}
+      disabled={adding || !newMintUrl.trim()}>
       {adding ? "Adding…" : "+ Add"}
     </Button>
   </div>
@@ -86,7 +93,7 @@
   {/if}
 
   {#if mints.length === 0}
-    <p class="text-xs opacity-50">
+    <p class="break-all text-xs opacity-50">
       Suggested: <button class="link" onclick={addSuggested}>{SUGGESTED_MINT}</button>
     </p>
   {/if}

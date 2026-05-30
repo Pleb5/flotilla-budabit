@@ -20,6 +20,8 @@
   import {
     cashuTotalBalance,
     cashuBackupConfirmed,
+    cashuSeedEncrypted,
+    cashuSeedLocked,
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
     recoverAllTrustedMints,
@@ -44,6 +46,8 @@
 
   const cashuBalance = $derived($cashuTotalBalance)
   const backupConfirmed = $derived($cashuBackupConfirmed)
+  const seedEncrypted = $derived($cashuSeedEncrypted)
+  const seedLocked = $derived($cashuSeedLocked)
   const autoPayWhitelist = $derived($cashuAutoPayWhitelist)
 
   const openCashuWallet = () => pushModal(CashuWalletModal)
@@ -69,20 +73,22 @@
   }
 </script>
 
-<div class="content column gap-4">
-  <div class="card2 bg-alt flex flex-col gap-6 shadow-md">
-    <div class="flex items-center justify-between">
-      <strong class="flex items-center gap-3">
+<div class="content column gap-4 overflow-x-hidden">
+  <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <strong class="flex min-w-0 items-center gap-3">
         <Icon icon={Wallet2} />
         Wallet
       </strong>
       {#if $session?.wallet}
-        <div class="flex items-center gap-2 text-sm text-success">
+        <div class="flex items-center gap-2 text-sm text-success sm:justify-end">
           <Icon icon={CheckCircle} size={4} />
           Connected
         </div>
       {:else}
-        <Button class="btn btn-primary btn-sm" onclick={connect}>
+        <Button
+          class="btn btn-primary btn-sm inline-flex w-full items-center justify-center sm:w-auto"
+          onclick={connect}>
           <Icon icon={AddCircle} />
           Connect Wallet
         </Button>
@@ -92,12 +98,13 @@
       {#if $session?.wallet}
         {#if $session.wallet.type === "webln"}
           {@const {node, version} = $session.wallet.info}
-          <div class="flex flex-col justify-between gap-2 lg:flex-row">
-            <p>
-              Connected to <strong>{node?.alias || version || "unknown wallet"}</strong>
+          <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
+            <p class="min-w-0 break-words">
+              Connected to <strong class="break-all"
+                >{node?.alias || version || "unknown wallet"}</strong>
               via <strong>{$session.wallet.type}</strong>
             </p>
-            <p class="flex gap-2 whitespace-nowrap">
+            <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
               Balance:
               {#await getWebLn()
                 ?.enable()
@@ -113,11 +120,12 @@
           </div>
         {:else if $session.wallet.type === "nwc"}
           {@const {lud16, relayUrl, nostrWalletConnectUrl} = $session.wallet.info}
-          <div class="flex flex-col justify-between gap-2 lg:flex-row">
-            <p>
-              Connected to <strong>{lud16}</strong> via <strong>{displayRelayUrl(relayUrl)}</strong>
+          <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
+            <p class="min-w-0 break-words">
+              Connected to <strong class="break-all">{lud16}</strong> via
+              <strong class="break-all">{displayRelayUrl(relayUrl)}</strong>
             </p>
-            <p class="flex gap-2 whitespace-nowrap">
+            <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
               Balance:
               {#await new nwc.NWCClient({nostrWalletConnectUrl}).getBalance()}
                 <span class="loading loading-spinner loading-sm"></span>
@@ -130,7 +138,9 @@
             </p>
           </div>
         {/if}
-        <Button class="btn btn-neutral btn-sm" onclick={disconnect}>
+        <Button
+          class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center sm:w-auto"
+          onclick={disconnect}>
           <Icon icon={CloseCircle} />
           Disconnect Wallet
         </Button>
@@ -140,39 +150,44 @@
     </div>
   </div>
   <div
-    class="card2 bg-alt flex flex-col shadow-md"
+    class="card2 bg-alt flex min-w-0 flex-col shadow-md"
     class:gap-6={profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}>
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <strong>Lightning Address</strong>
-      <div class="flex items-center gap-2">
-        <span class={profileLightningAddress ? "" : "text-warning"}>
+      <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+        <span class={profileLightningAddress ? "break-all text-sm" : "text-sm text-warning"}>
           {profileLightningAddress ? profileLightningAddress : "Not set"}
         </span>
-        <Button class="btn btn-neutral btn-xs ml-3" onclick={updateReceivingAddress}>Update</Button>
+        <Button
+          class="btn btn-neutral btn-xs inline-flex w-full justify-center sm:ml-3 sm:w-auto"
+          onclick={updateReceivingAddress}>Update</Button>
       </div>
     </div>
     {#if profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}
-      <div class="card2 bg-alt flex items-center gap-2 text-xs">
+      <div class="card2 bg-alt flex items-start gap-2 text-xs">
         <Icon icon={InfoCircle} size={4} />
         Your profile has a different lightning address than your connected wallet.
       </div>
     {/if}
   </div>
   <div class="flex justify-center py-12">
-    <Button class="btn btn-primary" onclick={pay}>
+    <Button
+      class="btn btn-primary inline-flex w-full items-center justify-center sm:w-auto"
+      onclick={pay}>
       <Icon icon={Bolt} />
       Pay With Lightning
     </Button>
   </div>
 
   <!-- Cashu Wallet Section -->
-  <div class="card2 bg-alt flex flex-col gap-6 shadow-md">
-    <div class="flex items-center justify-between">
+  <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <strong class="flex items-center gap-3">
         <span class="text-warning">₿</span>
         Cashu Wallet
       </strong>
-      <span class="font-mono text-sm font-semibold">{cashuBalance.toLocaleString()} sats</span>
+      <span class="font-mono text-sm font-semibold sm:text-right"
+        >{cashuBalance.toLocaleString()} sats</span>
     </div>
 
     <div class="flex flex-col gap-4">
@@ -181,18 +196,27 @@
         <CashuMintManager />
       </div>
 
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <span class="text-sm font-medium">Seed Phrase</span>
-        <div class="flex items-center gap-2">
-          {#if backupConfirmed}
+        <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+          {#if seedLocked}
+            <div class="flex items-center gap-2 text-sm text-warning">Encrypted and locked</div>
+          {:else if backupConfirmed && seedEncrypted}
+            <div class="flex items-center gap-2 text-sm text-success">
+              <Icon icon={CheckCircle} size={4} />
+              Encrypted
+            </div>
+          {:else if backupConfirmed}
             <div class="flex items-center gap-2 text-sm text-success">
               <Icon icon={CheckCircle} size={4} />
               Backed up
             </div>
           {:else}
-            <Button class="btn btn-warning btn-sm" onclick={openBackup}>⚠ Backup Now</Button>
+            <Button class="btn btn-warning btn-sm inline-flex justify-center" onclick={openBackup}
+              >⚠ Backup Now</Button>
           {/if}
-          <Button class="btn btn-neutral btn-xs" onclick={openBackup}>View</Button>
+          <Button class="btn btn-neutral btn-xs inline-flex justify-center" onclick={openBackup}
+            >View</Button>
         </div>
       </div>
 
@@ -200,10 +224,10 @@
         <div class="flex flex-col gap-2">
           <p class="text-sm font-medium">Auto-pay whitelist</p>
           {#each autoPayWhitelist as extId (extId)}
-            <div class="flex items-center justify-between text-sm">
-              <span class="font-mono text-xs">{extId}</span>
+            <div class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <span class="min-w-0 break-all font-mono text-xs">{extId}</span>
               <Button
-                class="btn btn-ghost btn-xs text-error"
+                class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
                 onclick={() => removeAutoPayWhitelist(extId)}>
                 Revoke
               </Button>
@@ -212,7 +236,9 @@
         </div>
       {/if}
 
-      <Button class="btn btn-neutral btn-sm self-start" onclick={openCashuWallet}>
+      <Button
+        class="btn btn-neutral btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
+        onclick={openCashuWallet}>
         Open Wallet
       </Button>
 
@@ -224,13 +250,13 @@
           <div>
             <p class="font-medium">Recover wallet</p>
             <p class="text-xs opacity-70">
-              Cancels stuck receive operations and asks every trusted mint for any
-              proofs the wallet may have missed. Use after token redeems fail with
-              "outputs already signed" or after restoring from a seed backup.
+              Cancels stuck receive operations and asks every trusted mint for any proofs the wallet
+              may have missed. Use after token redeems fail with "outputs already signed" or after
+              restoring from a seed backup.
             </p>
           </div>
           <Button
-            class="btn btn-warning btn-sm self-start"
+            class="btn btn-warning btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
             onclick={runRecovery}
             disabled={recovering}>
             {recovering ? "Recovering…" : "Recover from all trusted mints"}
@@ -242,13 +268,18 @@
               <div class="flex flex-col gap-1 text-xs">
                 {#if recoverResult.succeeded.length > 0}
                   <p class="text-success">
-                    Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded.length === 1 ? "" : "s"}.
+                    Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded
+                      .length === 1
+                      ? ""
+                      : "s"}.
                   </p>
                 {/if}
                 {#if recoverResult.failed.length > 0}
                   <div class="flex flex-col gap-1">
                     <p class="text-error">
-                      {recoverResult.failed.length} mint{recoverResult.failed.length === 1 ? "" : "s"} failed:
+                      {recoverResult.failed.length} mint{recoverResult.failed.length === 1
+                        ? ""
+                        : "s"} failed:
                     </p>
                     {#each recoverResult.failed as f (f.mintUrl)}
                       <p class="break-all opacity-80">

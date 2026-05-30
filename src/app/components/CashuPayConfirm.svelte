@@ -41,13 +41,13 @@
   }
 </script>
 
-<div class="flex flex-col gap-6 p-4">
+<div class="flex min-w-0 flex-col gap-4 p-2 sm:gap-6 sm:p-4">
   <div class="flex flex-col gap-2">
     <h3 class="text-lg font-bold">Payment Request</h3>
     <p class="text-sm opacity-75">
       <strong>{label || extensionId}</strong> wants to spend
       <strong>{amount.toLocaleString()} sats</strong>
-      from <span class="font-mono text-xs">{mintUrl}</span>
+      from <span class="break-all font-mono text-xs">{mintUrl}</span>
     </p>
     <p class="text-xs opacity-50">
       Your balance at this mint: {balance.toLocaleString()} sats
@@ -60,18 +60,25 @@
     </div>
   {/if}
 
-  <label class="flex cursor-pointer items-center gap-2 text-sm">
+  <label class="flex cursor-pointer items-start gap-2 text-sm">
     <input type="checkbox" class="checkbox checkbox-sm" bind:checked={alwaysAllow} />
-    Always allow <strong>{label || extensionId}</strong> to deduct from this wallet
+    <span
+      >Always allow <strong class="break-all">{label || extensionId}</strong> to deduct from this wallet</span>
   </label>
 
   {#if error}
     <p class="text-sm text-error">{error}</p>
   {/if}
 
-  <div class="flex gap-3">
-    <Button class="btn btn-ghost flex-1" onclick={reject} disabled={loading}>Reject</Button>
-    <Button class="btn btn-primary flex-1" onclick={approve} disabled={loading || balance < amount}>
+  <div class="flex flex-col gap-2 sm:flex-row sm:gap-3">
+    <Button
+      class="btn btn-ghost inline-flex flex-1 justify-center"
+      onclick={reject}
+      disabled={loading}>Reject</Button>
+    <Button
+      class="btn btn-primary inline-flex flex-1 justify-center"
+      onclick={approve}
+      disabled={loading || balance < amount}>
       {loading ? "Processing…" : "Approve"}
     </Button>
   </div>

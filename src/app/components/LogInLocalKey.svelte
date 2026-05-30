@@ -18,19 +18,14 @@
   import Eye from "@assets/icons/eye.svg?dataurl"
   import EyeClosed from "@assets/icons/eye-closed.svg?dataurl"
   import {LOCAL_KEY_SECRET_ENCRYPTION, cacheUnlockedLocalKeySecret} from "@app/core/session-storage"
+  import {
+    SECRET_FILE_ACCEPT,
+    SECRET_FILE_MAX_BYTES,
+    isSupportedSecretFile,
+  } from "@app/util/secret-file"
   import {clearModals} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
-
-  const KEY_FILE_ACCEPT = ".txt,.text,.md,.json,text/plain,text/markdown,application/json"
-  const KEY_FILE_MAX_BYTES = 1024 * 1024
-  const KEY_FILE_NAME_PATTERN = /\.(txt|text|md|json)$/i
-
-  const isSupportedKeyFile = (file: File) =>
-    !file.type ||
-    file.type.startsWith("text/") ||
-    file.type === "application/json" ||
-    KEY_FILE_NAME_PATTERN.test(file.name)
 
   const back = () => history.back()
 
@@ -98,12 +93,12 @@
     selectedFileName = file.name
     fileError = ""
 
-    if (!isSupportedKeyFile(file)) {
+    if (!isSupportedSecretFile(file)) {
       showFileError("Choose a text key file, such as Nostr Secret Key.txt.")
       return
     }
 
-    if (file.size > KEY_FILE_MAX_BYTES) {
+    if (file.size > SECRET_FILE_MAX_BYTES) {
       showFileError("Choose a key file smaller than 1 MB.")
       return
     }
@@ -335,7 +330,7 @@
       <input
         id="local-key-file"
         type="file"
-        accept={KEY_FILE_ACCEPT}
+        accept={SECRET_FILE_ACCEPT}
         disabled={loading}
         class="hidden"
         onchange={onFileChange} />

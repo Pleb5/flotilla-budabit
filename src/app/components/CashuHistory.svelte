@@ -45,14 +45,15 @@
   }
 </script>
 
-<div class="flex flex-col gap-2">
+<div class="flex min-w-0 flex-col gap-2">
   {#if history.length === 0}
     <p class="py-4 text-center text-sm opacity-50">No transaction history yet.</p>
   {:else}
     {#each displayed as entry (entry.id)}
-      <div class="card2 bg-alt flex items-center justify-between gap-2 px-3 py-2 text-sm">
-        <div class="flex flex-col gap-0.5">
-          <div class="flex items-center gap-2">
+      <div
+        class="card2 bg-alt flex min-w-0 flex-col gap-2 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 flex-col gap-0.5">
+          <div class="flex flex-wrap items-center gap-2">
             <span class={`font-semibold ${directionClass(entry)}`}>
               {directionLabel(entry)}
             </span>
@@ -64,7 +65,7 @@
         </div>
         {#if entry.direction === "sent" && entry.token}
           <Button
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs inline-flex w-full justify-center sm:w-auto"
             onclick={() => copyToken(entry)}
             title="Re-copy token">
             {copiedId === entry.id ? "Copied!" : "Re-copy"}

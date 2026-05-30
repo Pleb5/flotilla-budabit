@@ -11,11 +11,20 @@ import type {HistoryEntry} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
 import {wordlist} from "@scure/bip39/wordlists/english"
-import {storageGet, storageSet} from "@app/core/cashu-storage"
+import {deleteIndexedDB} from "@lib/util"
+import {storageGet, storageRemove, storageSet} from "@app/core/cashu-storage"
+import {
+  decryptCashuBackupData,
+  encryptCashuBackupData,
+  validateCashuMnemonic,
+} from "@app/util/cashu-backup"
+import type {CashuBackupData, CashuEncryptedPayload} from "@app/util/cashu-backup"
 
 const KEY_MNEMONIC = "budabit_cashu_mnemonic"
+const KEY_MNEMONIC_ENCRYPTED = "budabit_cashu_mnemonic_encrypted"
 const KEY_BACKUP_CONFIRMED = "budabit_cashu_backup_confirmed"
 const KEY_AUTOPAY_WHITELIST = "budabit_cashu_autopay_whitelist"
+const KEY_UNLOCKED_MNEMONIC = "budabit/unlocked-cashu-mnemonic"
 const DB_NAME = "budabit-coco-wallet"
 const HISTORY_PAGE_SIZE = 100
 
@@ -35,10 +44,14 @@ export const cashuBalancesByMint: Writable<Map<string, number>> = writable(new M
 export const cashuMints: Writable<string[]> = writable([])
 export const cashuTokenHistory: Writable<TokenHistoryEntry[]> = writable([])
 export const cashuAutoPayWhitelist: Writable<string[]> = writable([])
+export const cashuSeedEncrypted: Writable<boolean> = writable(false)
+export const cashuSeedLocked: Writable<boolean> = writable(false)
 
 // Internal manager reference
 let manager: Manager | null = null
+let repo: IndexedDbRepositories | null = null
 let _mnemonic: string | null = null
+let _encryptedMnemonic: CashuEncryptedPayload | null = null
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 
@@ -50,6 +63,42 @@ let _initPromise: Promise<void> | null = null
 let _managerReadyPromise: Promise<void> | null = null
 let _resolveManagerReady: (() => void) | null = null
 
+const canUseBrowserSessionStorage = () => typeof sessionStorage !== "undefined"
+
+const getUnlockedCashuMnemonic = () => {
+  if (!canUseBrowserSessionStorage()) return null
+  return sessionStorage.getItem(KEY_UNLOCKED_MNEMONIC)
+}
+
+const cacheUnlockedCashuMnemonic = (mnemonic: string) => {
+  if (!canUseBrowserSessionStorage()) return
+  sessionStorage.setItem(KEY_UNLOCKED_MNEMONIC, mnemonic)
+}
+
+const clearUnlockedCashuMnemonic = () => {
+  if (!canUseBrowserSessionStorage()) return
+  sessionStorage.removeItem(KEY_UNLOCKED_MNEMONIC)
+}
+
+const resetManagerRuntime = () => {
+  try {
+    repo?.db.close()
+  } catch {
+    // pass
+  }
+
+  manager = null
+  repo = null
+  cashuInitialized.set(false)
+  cashuTotalBalance.set(0)
+  cashuBalancesByMint.set(new Map())
+  cashuMints.set([])
+  cashuTokenHistory.set([])
+  _initPromise = null
+  _managerReadyPromise = null
+  _resolveManagerReady = null
+}
+
 const ensureManagerReady = async (): Promise<void> => {
   if (!_managerReadyPromise) {
     _managerReadyPromise = new Promise<void>(resolve => {
@@ -60,7 +109,6 @@ const ensureManagerReady = async (): Promise<void> => {
   // promise here, only the manager-ready half.
   if (!_initPromise) initializeCashuWallet()
   await _managerReadyPromise
-
 }
 
 export const initializeCashuWallet = (): Promise<void> => {
@@ -76,22 +124,48 @@ export const initializeCashuWallet = (): Promise<void> => {
 
 const _doInitialize = async (): Promise<void> => {
   try {
-    const existing = await storageGet(KEY_MNEMONIC)
-    if (existing) {
-      _mnemonic = existing
-    } else {
-      _mnemonic = bip39.generateMnemonic(wordlist)
-      await storageSet(KEY_MNEMONIC, _mnemonic)
-    }
-
     const backupFlag = await storageGet(KEY_BACKUP_CONFIRMED)
     cashuBackupConfirmed.set(backupFlag === "true")
+
+    const encryptedRaw = await storageGet(KEY_MNEMONIC_ENCRYPTED)
+    if (encryptedRaw) {
+      cashuSeedEncrypted.set(true)
+      _encryptedMnemonic = JSON.parse(encryptedRaw)
+
+      const unlocked = getUnlockedCashuMnemonic()
+      if (unlocked) {
+        try {
+          _mnemonic = validateCashuMnemonic(unlocked)
+        } catch {
+          clearUnlockedCashuMnemonic()
+        }
+      }
+
+      if (!_mnemonic) {
+        cashuSeedLocked.set(true)
+        _resolveManagerReady?.()
+        return
+      }
+
+      cashuSeedLocked.set(false)
+    } else {
+      cashuSeedEncrypted.set(false)
+      cashuSeedLocked.set(false)
+
+      const existing = await storageGet(KEY_MNEMONIC)
+      if (existing) {
+        _mnemonic = validateCashuMnemonic(existing)
+      } else {
+        _mnemonic = bip39.generateMnemonic(wordlist)
+        await storageSet(KEY_MNEMONIC, _mnemonic)
+      }
+    }
 
     const whitelistRaw = localStorage.getItem(KEY_AUTOPAY_WHITELIST)
     const whitelist: string[] = whitelistRaw ? JSON.parse(whitelistRaw) : []
     cashuAutoPayWhitelist.set(whitelist)
 
-    const repo = new IndexedDbRepositories({name: DB_NAME})
+    repo = new IndexedDbRepositories({name: DB_NAME})
     await repo.init()
 
     const seedGetter = async () => bip39.mnemonicToSeedSync(_mnemonic!)
@@ -135,6 +209,7 @@ const _doInitialize = async (): Promise<void> => {
 // ─── Mnemonic / Backup ────────────────────────────────────────────────────────
 
 export const getCashuMnemonic = (): string => {
+  if (get(cashuSeedLocked)) throw new Error("Cashu wallet is locked")
   if (!_mnemonic) throw new Error("Wallet not initialized")
   return _mnemonic
 }
@@ -142,6 +217,94 @@ export const getCashuMnemonic = (): string => {
 export const confirmCashuBackup = async (): Promise<void> => {
   await storageSet(KEY_BACKUP_CONFIRMED, "true")
   cashuBackupConfirmed.set(true)
+}
+
+const persistCashuMnemonic = async (
+  data: CashuBackupData,
+  encryptPassphrase?: string,
+): Promise<void> => {
+  const mnemonic = validateCashuMnemonic(data.mnemonic)
+
+  if (encryptPassphrase) {
+    _encryptedMnemonic = await encryptCashuBackupData(
+      {mnemonic, mints: data.mints || []},
+      encryptPassphrase,
+    )
+    await storageSet(KEY_MNEMONIC_ENCRYPTED, JSON.stringify(_encryptedMnemonic))
+    await storageRemove(KEY_MNEMONIC)
+    cacheUnlockedCashuMnemonic(mnemonic)
+    cashuSeedEncrypted.set(true)
+    cashuSeedLocked.set(false)
+  } else {
+    _encryptedMnemonic = null
+    await storageSet(KEY_MNEMONIC, mnemonic)
+    await storageRemove(KEY_MNEMONIC_ENCRYPTED)
+    clearUnlockedCashuMnemonic()
+    cashuSeedEncrypted.set(false)
+    cashuSeedLocked.set(false)
+  }
+
+  _mnemonic = mnemonic
+}
+
+export const encryptCashuSeedAtRest = async (passphrase: string): Promise<void> => {
+  if (!_mnemonic) throw new Error("Wallet not initialized")
+
+  await persistCashuMnemonic({mnemonic: _mnemonic, mints: get(cashuMints)}, passphrase)
+}
+
+export const unlockEncryptedCashuSeed = async (passphrase: string): Promise<void> => {
+  const encryptedRaw = await storageGet(KEY_MNEMONIC_ENCRYPTED)
+  const encrypted = encryptedRaw
+    ? (JSON.parse(encryptedRaw) as CashuEncryptedPayload)
+    : _encryptedMnemonic
+
+  if (!encrypted) throw new Error("No encrypted Cashu seed is stored on this device")
+
+  const data = await decryptCashuBackupData(encrypted, passphrase)
+  _mnemonic = data.mnemonic
+  _encryptedMnemonic = encrypted
+  cacheUnlockedCashuMnemonic(data.mnemonic)
+  cashuSeedEncrypted.set(true)
+  cashuSeedLocked.set(false)
+  resetManagerRuntime()
+  await initializeCashuWallet()
+
+  for (const mintUrl of data.mints) {
+    try {
+      await trustCashuMint(mintUrl)
+    } catch (e) {
+      console.warn("[cashu] Failed to trust mint from encrypted seed:", e)
+    }
+  }
+}
+
+export const restoreCashuSeedBackup = async (
+  data: CashuBackupData,
+  options: {encryptPassphrase?: string} = {},
+): Promise<{succeeded: string[]; failed: {mintUrl: string; error: string}[]}> => {
+  const mnemonic = validateCashuMnemonic(data.mnemonic)
+  const mints = Array.from(new Set((data.mints || []).map(mint => mint.trim()).filter(Boolean)))
+
+  resetManagerRuntime()
+  await persistCashuMnemonic({mnemonic, mints}, options.encryptPassphrase)
+  await confirmCashuBackup()
+  await deleteIndexedDB(DB_NAME)
+  await initializeCashuWallet()
+
+  const failed: {mintUrl: string; error: string}[] = []
+  for (const mintUrl of mints) {
+    try {
+      await trustCashuMint(mintUrl)
+    } catch (e: any) {
+      failed.push({mintUrl, error: e?.message || String(e)})
+    }
+  }
+
+  if (mints.length === 0) return {succeeded: [], failed}
+
+  const recovered = await recoverAllTrustedMints()
+  return {succeeded: recovered.succeeded, failed: [...failed, ...recovered.failed]}
 }
 
 // ─── Mint Management ──────────────────────────────────────────────────────────
@@ -257,7 +420,6 @@ export const refreshCashuBalances = async (): Promise<void> => {
 export const receiveCashuToken = async (token: string): Promise<number> => {
   await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
-
 
   let mintUrl = ""
   try {
