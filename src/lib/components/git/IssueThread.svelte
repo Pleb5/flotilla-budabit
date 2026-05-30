@@ -9,7 +9,8 @@
   import { slide } from "svelte/transition";
   import RichText from "../RichText.svelte";
   import { toast } from "../../stores/toast";
-  const { Button, Textarea, Card, ProfileComponent, Markdown, CommentStatus, EventActions } = useRegistry();
+  const { Button, Textarea, Card, ProfileComponent, Markdown, CommentStatus, EventActions } =
+    useRegistry();
 
   interface Props {
     issueId: string;
@@ -19,9 +20,10 @@
     comments?: CommentEvent[] | undefined;
     commenterProfiles?: Profile[] | undefined;
     onCommentCreated?: (comment: CommentEvent) => Promise<void>;
+    onLoginRequired?: () => void;
     relays?: string[];
     repoAddress?: string;
-    rootEvent?: {id: string; kind: number | string; pubkey?: string; tags?: string[][]};
+    rootEvent?: { id: string; kind: number | string; pubkey?: string; tags?: string[][] };
     repoRefs?: string[];
     relayHint?: string;
     ownerPubkey?: string;
@@ -35,6 +37,7 @@
     comments = [],
     currentCommenter,
     onCommentCreated,
+    onLoginRequired,
     relays = [],
     repoAddress = "",
     rootEvent,
@@ -107,7 +110,9 @@
   const scrollToComment = async (id: string) => {
     if (!id || typeof window === "undefined") return;
     await tick();
-    document.getElementById(`comment-${id}`)?.scrollIntoView({behavior: "smooth", block: "center"});
+    document
+      .getElementById(`comment-${id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
     history.replaceState(null, "", `#comment-${id}`);
   };
 
@@ -252,7 +257,8 @@
           ? new Date(origSec * 1000).toISOString()
           : c.createdAt}
         {@const parentId = getCommentParentId(c.raw)}
-        {@const parentComment = parentId && parentId !== issueId ? getParsedCommentById(parentId) : undefined}
+        {@const parentComment =
+          parentId && parentId !== issueId ? getParsedCommentById(parentId) : undefined}
         {@const inlineLocation = getInlineCommentLocation(c.raw)}
         {@const inlineLocationLabel = getInlineLocationLabel(inlineLocation)}
         {@const isReply = Boolean(parentId && parentId !== issueId)}
@@ -260,10 +266,13 @@
         <div
           id={`comment-${c.id}`}
           data-event={c.id}
-          class="relative w-full flex-col gap-3 group animate-fade-in rounded-lg border border-border/70 bg-card/55 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)] {isReply ? 'ml-2 border-l-2 border-l-blue-500/35 bg-muted/25 sm:ml-4' : ''}"
+          class="relative w-full flex-col gap-3 group animate-fade-in rounded-lg border border-border/70 bg-card/55 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)] {isReply
+            ? 'ml-2 border-l-2 border-l-blue-500/35 bg-muted/25 sm:ml-4'
+            : ''}"
         >
           <div class="w-full grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-            <ProfileComponent pubkey={c.author.pubkey} hideDetails={false} class="min-w-0 text-sm"></ProfileComponent>
+            <ProfileComponent pubkey={c.author.pubkey} hideDetails={false} class="min-w-0 text-sm"
+            ></ProfileComponent>
             <div class="flex items-center gap-1 text-xs text-muted-foreground sm:gap-2">
               <span class="whitespace-nowrap"><TimeAgo date={dateToShow} compact /></span>
               {#if enableReplies && currentCommenter && onCommentCreated}
@@ -342,7 +351,9 @@
                 title={inlineLocationLabel}
               >
                 <FileCode class="h-3 w-3 shrink-0 text-blue-500/70" />
-                <span class="hidden shrink-0 text-muted-foreground/70 sm:inline">inline code comment on:</span>
+                <span class="hidden shrink-0 text-muted-foreground/70 sm:inline"
+                  >inline code comment on:</span
+                >
                 <span class="min-w-0 truncate font-mono">{inlineLocationLabel}</span>
               </button>
             {/if}
@@ -352,7 +363,9 @@
                 class="w-fit rounded border border-border bg-muted/40 px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
                 onclick={() => scrollToComment(parentId)}
               >
-                Replying to {parentComment ? previewText(parentComment.content) : parentId.slice(0, 8)}
+                Replying to {parentComment
+                  ? previewText(parentComment.content)
+                  : parentId.slice(0, 8)}
               </button>
             {/if}
             <div class="text-muted-foreground text-sm">
@@ -379,9 +392,22 @@
       {#if currentCommenter && onCommentCreated}
         <form onsubmit={submit} class="flex flex-col gap-3 pt-4 border-t">
           {#if enableReplies && replyParent}
-            <div class="flex items-center justify-between rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              <button type="button" class="min-w-0 truncate text-left hover:text-foreground" onclick={() => scrollToComment(replyParent?.id || "")}>Replying to {previewText(replyParent.content)}</button>
-              <Button type="button" variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={() => (replyParent = null)}>Cancel</Button>
+            <div
+              class="flex items-center justify-between rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+            >
+              <button
+                type="button"
+                class="min-w-0 truncate text-left hover:text-foreground"
+                onclick={() => scrollToComment(replyParent?.id || "")}
+                >Replying to {previewText(replyParent.content)}</button
+              >
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-xs"
+                onclick={() => (replyParent = null)}>Cancel</Button
+              >
             </div>
           {/if}
           <div class="flex gap-2 sm:gap-3">
@@ -397,7 +423,11 @@
             </div>
           </div>
           <div class="flex justify-end">
-            <Button type="submit" class="h-9 gap-2 px-3 text-sm" disabled={!newComment.trim() || isSubmitting}>
+            <Button
+              type="submit"
+              class="h-9 gap-2 px-3 text-sm"
+              disabled={!newComment.trim() || isSubmitting}
+            >
               <MessageSquare class="h-4 w-4" />
               {isSubmitting ? "Commenting..." : "Comment"}
             </Button>
@@ -405,7 +435,19 @@
         </form>
       {:else}
         <div class="pt-4 border-t text-center text-sm text-muted-foreground">
-          Sign in to comment
+          {#if onLoginRequired}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              class="gap-2"
+              onclick={onLoginRequired}
+            >
+              Sign in to comment
+            </Button>
+          {:else}
+            Sign in to comment
+          {/if}
         </div>
       {/if}
     </div>

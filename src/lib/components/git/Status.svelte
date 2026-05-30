@@ -30,6 +30,7 @@
     actorPubkey?: string;
     compact?: boolean;
     onPublish?: (event: StatusEvent) => Promise<any>;
+    onLoginRequired?: () => void;
     ProfileComponent?: any;
     isMirrored?: boolean;
   }
@@ -43,6 +44,7 @@
     actorPubkey,
     compact = false,
     onPublish,
+    onLoginRequired,
     ProfileComponent = ProfileLink,
     isMirrored = false,
   }: StatusProps = $props();
@@ -212,7 +214,7 @@
       case GIT_STATUS_APPLIED:
         return rootKind === 1621 ? "resolved" : "applied";
       default:
-      return "open";
+        return "open";
     }
   };
 
@@ -430,6 +432,15 @@
             >
               {showEditor ? "Cancel" : "Change Status"}
             </Button>
+          {:else if !actorPubkey && onLoginRequired && onPublish}
+            <Button
+              size="sm"
+              variant="outline"
+              onclick={onLoginRequired}
+              class="w-full sm:w-auto text-xs sm:text-sm"
+            >
+              Log in to change status
+            </Button>
           {/if}
           <Button
             size="sm"
@@ -497,7 +508,7 @@
                 />
               </div>
               <div>
-                  <Label for="applied-commits" class="text-[10px] sm:text-xs"
+                <Label for="applied-commits" class="text-[10px] sm:text-xs"
                   >Merged Commits (comma-separated)</Label
                 >
                 <Input
@@ -545,9 +556,7 @@
                   <Icon class={`mt-0.5 h-3 w-3 ${color} flex-shrink-0`} />
                   <div class="flex-1 min-w-0">
                     <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                      <span class="font-medium"
-                        >{getStateLabel(state)}</span
-                      >
+                      <span class="font-medium">{getStateLabel(state)}</span>
                       <span class="text-muted-foreground flex items-center gap-1 flex-wrap">
                         <span>by</span>
                         <ProfileComponent pubkey={event.pubkey} />
@@ -587,9 +596,7 @@
                     <Icon class={`mt-0.5 h-3 w-3 ${color} flex-shrink-0`} />
                     <div class="flex-1 min-w-0">
                       <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                        <span class="font-medium"
-                          >{getStateLabel(state)}</span
-                        >
+                        <span class="font-medium">{getStateLabel(state)}</span>
                         <span class="text-muted-foreground flex items-center gap-1 flex-wrap">
                           <span>by</span>
                           <ProfileComponent pubkey={event.pubkey} />
