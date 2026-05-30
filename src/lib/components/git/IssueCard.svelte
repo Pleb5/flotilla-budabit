@@ -25,6 +25,8 @@
     currentCommenter: string;
     onCommentCreated?: (comment: CommentEvent) => Promise<void>;
     onLoginRequired?: () => void;
+    canEditComment?: (comment: CommentEvent) => boolean;
+    onCommentEdited?: (comment: CommentEvent, content: string) => Promise<void>;
     extraLabels?: string[];
     // Optional for Status.svelte integration
     repo?: any;
@@ -47,6 +49,8 @@
     currentCommenter,
     onCommentCreated,
     onLoginRequired,
+    canEditComment,
+    onCommentEdited,
     extraLabels = [],
     repo,
     statusEvents = [],
@@ -323,6 +327,8 @@
       currentCommenter={currentCommenter}
       onCommentCreated={onCommentCreated}
       onLoginRequired={onLoginRequired}
+      canEditComment={canEditComment}
+      onCommentEdited={onCommentEdited}
       relays={commentRelays}
       repoAddress={repoAddress}
       rootEvent={event}

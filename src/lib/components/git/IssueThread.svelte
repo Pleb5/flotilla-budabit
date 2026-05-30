@@ -1,6 +1,6 @@
 <script lang="ts">
   import TimeAgo from "../../TimeAgo.svelte";
-  import { FileCode, MessageSquare, Reply } from "@lucide/svelte";
+  import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
   import { nip19 } from "nostr-tools";
   import { createGitCommentEvent, parseCommentEvent } from "@nostr-git/core/events";
   import type { CommentEvent, Profile } from "@nostr-git/core/events";
@@ -21,6 +21,8 @@
     commenterProfiles?: Profile[] | undefined;
     onCommentCreated?: (comment: CommentEvent) => Promise<void>;
     onLoginRequired?: () => void;
+    canEditComment?: (comment: CommentEvent) => boolean;
+    onCommentEdited?: (comment: CommentEvent, content: string) => Promise<void>;
     relays?: string[];
     repoAddress?: string;
     rootEvent?: { id: string; kind: number | string; pubkey?: string; tags?: string[][] };
@@ -38,6 +40,8 @@
     currentCommenter,
     onCommentCreated,
     onLoginRequired,
+    canEditComment = () => false,
+    onCommentEdited,
     relays = [],
     repoAddress = "",
     rootEvent,
@@ -51,6 +55,7 @@
   let newComment = $state("");
   let isSubmitting = $state(false);
   let replyParent = $state<CommentEvent | null>(null);
+  let editingComment = $state<CommentEvent | null>(null);
 
   const getCommentRootId = (comment: CommentEvent) => {
     const rootTag = (comment.tags || []).find(
@@ -202,7 +207,30 @@
   async function submit(event: Event) {
     event.preventDefault();
     event.stopPropagation();
-    if (!newComment.trim() || !onCommentCreated || isSubmitting) return;
+    if (!newComment.trim() || isSubmitting) return;
+
+    if (editingComment) {
+      if (!onCommentEdited) return;
+
+      try {
+        isSubmitting = true;
+        await onCommentEdited(editingComment, newComment.trim());
+        newComment = "";
+        editingComment = null;
+      } catch (error) {
+        console.error("Failed to edit comment:", error);
+        toast.push({
+          message: "Failed to edit comment",
+          timeout: 3000,
+          theme: "error",
+        });
+      } finally {
+        isSubmitting = false;
+      }
+      return;
+    }
+
+    if (!onCommentCreated) return;
 
     const commentEvent = createGitCommentEvent({
       content: newComment,
@@ -245,6 +273,12 @@
       isSubmitting = false;
     }
   }
+
+  function startEditingComment(comment: CommentEvent) {
+    replyParent = null;
+    editingComment = comment;
+    newComment = comment.content || "";
+  }
 </script>
 
 <div transition:slide>
@@ -282,12 +316,27 @@
                   size="icon"
                   class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
                   onclick={() => {
+                    editingComment = null;
+                    newComment = "";
                     replyParent = c.raw;
                   }}
                   aria-label="Reply to comment"
                   title="Reply"
                 >
                   <Reply class="h-4 w-4" />
+                </Button>
+              {/if}
+              {#if currentCommenter && onCommentEdited && canEditComment(c.raw)}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+                  onclick={() => startEditingComment(c.raw)}
+                  aria-label="Edit comment"
+                  title="Edit"
+                >
+                  <Pencil class="h-4 w-4" />
                 </Button>
               {/if}
               <Button
@@ -389,9 +438,25 @@
         </div>
       {/each}
 
-      {#if currentCommenter && onCommentCreated}
+      {#if currentCommenter && (onCommentCreated || onCommentEdited)}
         <form onsubmit={submit} class="flex flex-col gap-3 pt-4 border-t">
-          {#if enableReplies && replyParent}
+          {#if editingComment}
+            <div
+              class="flex items-center justify-between rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+            >
+              <span class="min-w-0 truncate">Editing comment</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-xs"
+                onclick={() => {
+                  editingComment = null;
+                  newComment = "";
+                }}>Cancel</Button
+              >
+            </div>
+          {:else if enableReplies && replyParent}
             <div
               class="flex items-center justify-between rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
             >
@@ -417,7 +482,11 @@
             <div class="flex-1">
               <Textarea
                 bind:value={newComment}
-                placeholder={replyParent ? "Write a reply..." : "Write a comment..."}
+                placeholder={editingComment
+                  ? "Edit your comment..."
+                  : replyParent
+                    ? "Write a reply..."
+                    : "Write a comment..."}
                 class="min-h-[64px] resize-none w-full text-sm sm:min-h-[80px]"
               />
             </div>
@@ -429,7 +498,13 @@
               disabled={!newComment.trim() || isSubmitting}
             >
               <MessageSquare class="h-4 w-4" />
-              {isSubmitting ? "Commenting..." : "Comment"}
+              {isSubmitting
+                ? editingComment
+                  ? "Editing..."
+                  : "Commenting..."
+                : editingComment
+                  ? "Save edit"
+                  : "Comment"}
             </Button>
           </div>
         </form>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MessageSquare, MessageSquarePlus, Loader2, X } from "@lucide/svelte";
+  import { MessageSquare, MessageSquarePlus, Loader2, Pencil, X } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
   import RichText from "../RichText.svelte";
   import TimeAgo from "../../TimeAgo.svelte";
@@ -95,6 +95,8 @@
     rootEvent,
     parentEvent,
     onComment,
+    canEditComment = () => false,
+    onCommentEdited,
     currentPubkey,
     repo,
     repoRefs,
@@ -115,6 +117,8 @@
     rootEvent?: DiffViewerRootEvent;
     parentEvent?: DiffViewerRootEvent;
     onComment?: (comment: Omit<CommentEvent, "id" | "pubkey" | "sig">) => void;
+    canEditComment?: (comment: CommentEvent) => boolean;
+    onCommentEdited?: (comment: CommentEvent, content: string) => Promise<void> | void;
     currentPubkey?: string | null;
     repo?: Repo;
     repoRefs?: string[];
@@ -146,6 +150,7 @@
   let newComment = $state("");
   let replyThreadRootId = $state<string | null>(null);
   let replyContent = $state("");
+  let editingCommentEvent = $state<CommentEvent | null>(null);
   let resolvingThreadRootId = $state<string | null>(null);
   let inlineThreadOpenById = $state<Record<string, boolean>>({});
   let expandedFiles = $state(new Set<string>());
@@ -1576,9 +1581,33 @@
       onComment(replyEvent);
       replyContent = "";
       replyThreadRootId = null;
+      editingCommentEvent = null;
     } finally {
       isSubmitting = false;
     }
+  }
+
+  async function submitEditedInlineComment() {
+    const content = replyContent.trim();
+    if (!content || !editingCommentEvent || !onCommentEdited || isSubmitting) return;
+
+    isSubmitting = true;
+    try {
+      await onCommentEdited(editingCommentEvent, content);
+      replyContent = "";
+      replyThreadRootId = null;
+      editingCommentEvent = null;
+    } finally {
+      isSubmitting = false;
+    }
+  }
+
+  function startEditingInlineComment(comment: Comment, rootComment: Comment) {
+    if (!comment.rawEvent) return;
+
+    editingCommentEvent = comment.rawEvent;
+    replyThreadRootId = rootComment.id;
+    replyContent = comment.rawEvent.content || comment.content || "";
   }
 
   async function resolveThread(rootComment: Comment) {
@@ -1873,6 +1902,18 @@
                                       >
                                         <TimeAgo date={c.createdAt} compact />
                                       </span>
+                                      {#if currentPubkey && onCommentEdited && c.rawEvent && canEditComment(c.rawEvent)}
+                                        <button
+                                          type="button"
+                                          class="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                                          onclick={() =>
+                                            startEditingInlineComment(c, rootComment || c)}
+                                          aria-label="Edit comment"
+                                          title="Edit"
+                                        >
+                                          <Pencil class="h-3.5 w-3.5" />
+                                        </button>
+                                      {/if}
                                     </div>
                                     <div
                                       class="inline-comment-body mt-1 min-w-0 text-muted-foreground"
@@ -1891,12 +1932,14 @@
                                 </div>
                               {/each}
                             </div>
-                            {#if !resolved && rootComment}
+                            {#if (!resolved || editingCommentEvent) && rootComment}
                               {#if replyThreadRootId === rootComment.id}
                                 <div class="border-t border-border/40 px-2 py-2 sm:px-3">
                                   <Textarea
                                     bind:value={replyContent}
-                                    placeholder="Write a reply..."
+                                    placeholder={editingCommentEvent
+                                      ? "Edit your comment..."
+                                      : "Write a reply..."}
                                     class="min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"
                                     disabled={isSubmitting}
                                   />
@@ -1909,6 +1952,7 @@
                                       onclick={() => {
                                         replyThreadRootId = null;
                                         replyContent = "";
+                                        editingCommentEvent = null;
                                       }}
                                       disabled={isSubmitting}>Cancel</Button
                                     >
@@ -1917,10 +1961,14 @@
                                       size="sm"
                                       class="h-8 px-2 text-xs"
                                       onclick={() =>
-                                        submitReply(
-                                          visibleComments[visibleComments.length - 1] || rootComment
-                                        )}
-                                      disabled={!replyContent.trim() || isSubmitting}>Reply</Button
+                                        editingCommentEvent
+                                          ? submitEditedInlineComment()
+                                          : submitReply(
+                                              visibleComments[visibleComments.length - 1] ||
+                                                rootComment
+                                            )}
+                                      disabled={!replyContent.trim() || isSubmitting}
+                                      >{editingCommentEvent ? "Save edit" : "Reply"}</Button
                                     >
                                   </div>
                                 </div>
@@ -1933,6 +1981,7 @@
                                     class="flex items-center gap-1.5 hover:text-foreground"
                                     onclick={() => {
                                       replyThreadRootId = rootComment.id;
+                                      editingCommentEvent = null;
                                       replyContent = "";
                                     }}
                                   >
