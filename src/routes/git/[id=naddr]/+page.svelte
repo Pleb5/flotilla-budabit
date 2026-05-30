@@ -117,6 +117,8 @@
   let openTrustMetricPopover = $state<
     "community-aligned-merged" | "community-aligned-maintainer" | "community-collaborators" | null
   >(null)
+  let maintainersPopoverOpen = $state(false)
+  const MAINTAINER_PREVIEW_COUNT = 4
   const repoTrustStatus = $derived.by(() => {
     if (repoTrustMetrics.status === "loading") {
       return "Refreshing community-aligned pull request activity..."
@@ -699,6 +701,7 @@
   }
 
   function openRepoProfile(pubkey: string) {
+    maintainersPopoverOpen = false
     pushModal(ProfileDetail, {
       pubkey,
       url: repoCommunityProfileRelays[0],
@@ -1133,7 +1136,7 @@
 
               <!-- Nostr Information -->
               {#if repoOwnerPubkey || repoMaintainerPubkeys.length > 0}
-                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                <div class="space-y-3">
                   {#if repoOwnerPubkey}
                     <div class="min-w-0 rounded-lg border border-border/70 bg-secondary/15 p-2">
                       <div class="mb-2 flex items-center justify-between gap-2">
@@ -1168,10 +1171,11 @@
                           >Maintainers</span>
                         <span
                           class="rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
+                          title={`${repoMaintainerPubkeys.length} maintainers`}
                           >{repoMaintainerPubkeys.length}</span>
                       </div>
                       <div class="flex flex-wrap gap-1.5">
-                        {#each repoMaintainerPubkeys.slice(0, 6) as maintainerPubkey (maintainerPubkey)}
+                        {#each repoMaintainerPubkeys.slice(0, MAINTAINER_PREVIEW_COUNT) as maintainerPubkey (maintainerPubkey)}
                           <button
                             type="button"
                             class="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-background/70 py-0.5 pl-0.5 pr-2 text-left text-xs hover:border-primary/40 hover:bg-primary/10"
@@ -1188,11 +1192,50 @@
                             </span>
                           </button>
                         {/each}
-                        {#if repoMaintainerPubkeys.length > 6}
-                          <span
-                            class="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-xs text-muted-foreground">
-                            +{repoMaintainerPubkeys.length - 6}
-                          </span>
+                        {#if repoMaintainerPubkeys.length > MAINTAINER_PREVIEW_COUNT}
+                          <div class="relative">
+                            <button
+                              type="button"
+                              class="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/15"
+                              aria-expanded={maintainersPopoverOpen}
+                              onclick={() => (maintainersPopoverOpen = !maintainersPopoverOpen)}>
+                              +{repoMaintainerPubkeys.length - MAINTAINER_PREVIEW_COUNT} more
+                            </button>
+                            {#if maintainersPopoverOpen}
+                              <InlinePopover
+                                onClose={() => (maintainersPopoverOpen = false)}
+                                align="right"
+                                widthClass="w-72">
+                                <div class="space-y-3">
+                                  <div>
+                                    <div class="text-sm font-semibold">Maintainers</div>
+                                    <div class="mt-1 text-xs text-muted-foreground">
+                                      {repoMaintainerPubkeys.length} people can maintain this repo.
+                                    </div>
+                                  </div>
+                                  <div class="space-y-1">
+                                    {#each repoMaintainerPubkeys as maintainerPubkey (maintainerPubkey)}
+                                      <button
+                                        type="button"
+                                        class="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-secondary/30"
+                                        onclick={() => openRepoProfile(maintainerPubkey)}>
+                                        <ProfileCircle
+                                          pubkey={maintainerPubkey}
+                                          relays={repoCommunityProfileRelays}
+                                          size={6}
+                                          class="border border-border" />
+                                        <span class="min-w-0 truncate font-medium hover:underline">
+                                          <ProfileName
+                                            pubkey={maintainerPubkey}
+                                            relays={repoCommunityProfileRelays} />
+                                        </span>
+                                      </button>
+                                    {/each}
+                                  </div>
+                                </div>
+                              </InlinePopover>
+                            {/if}
+                          </div>
                         {/if}
                       </div>
                     </div>
