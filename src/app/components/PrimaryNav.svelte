@@ -8,7 +8,7 @@
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
-  import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
+  import Home from "@assets/icons/home.svg?dataurl"
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
   import Settings from "@assets/icons/settings.svg?dataurl"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
@@ -49,10 +49,10 @@
   <div class="flex h-full flex-col justify-between">
     <div>
       <PrimaryNavItem title="Home" href="/home" prefix="/c" class="tooltip-right">
-        <ImageIcon alt="Home" src={HomeSmile} class="rounded-full" />
+        <ImageIcon alt="Home" src={Home} size={7} />
       </PrimaryNavItem>
       <PrimaryNavItem title="Explore" href="/explore" prefix="/explore" class="tooltip-right">
-        <ImageIcon alt="Explore" src={Compass} class="rounded-full" />
+        <ImageIcon alt="Explore" src={Compass} size={7} />
       </PrimaryNavItem>
     </div>
     <div>
@@ -140,7 +140,7 @@
   class="bottom-nav hide-on-keyboard border-top bottom-sai fixed left-0 right-0 z-nav h-14 border border-base-200 bg-base-100 md:hidden">
   <div class="content-padding-x content-sizing flex items-center gap-1 px-1">
     <PrimaryNavItem compact title="Home" href="/home" prefix="/c">
-      <ImageIcon alt="Home" src={HomeSmile} size={5} />
+      <ImageIcon alt="Home" src={Home} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Explore" href="/explore" prefix="/explore">
       <ImageIcon alt="Explore" src={Compass} size={5} />
