@@ -20,6 +20,18 @@ describe("community profile relay hints", () => {
     expect(link).toContain("communityRelays: displayRelays")
   })
 
+  it("parses community home descriptions instead of rendering raw text", () => {
+    const home = readProjectFile("../../routes/c/[community]/+page.svelte")
+
+    expect(home).toContain('import Content from "@app/components/Content.svelte"')
+    expect(home).toContain("const communityDescriptionEvent = $derived({content: communityDescription, tags: []})")
+    expect(home).toContain("<Content event={communityDescriptionEvent} showEntire />")
+    expect(home).not.toContain("kind: 1")
+    expect(home).not.toMatch(
+      /<div class="max-w-3xl text-center md:text-xl">\s*\{communityDescription\}\s*<\/div>/,
+    )
+  })
+
   it("passes scoped community profile relays through membership and moderation surfaces", () => {
     const access = readProjectFile("../../routes/c/[community]/access/+page.svelte")
     const admin = readProjectFile("../../routes/c/[community]/admin/+page.svelte")

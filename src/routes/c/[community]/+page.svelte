@@ -15,6 +15,7 @@
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import Content from "@app/components/Content.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
@@ -60,6 +61,7 @@
   const communityDescription = $derived(
     $activeCommunityProfile?.about || $activeCommunityDefinition?.description || "",
   )
+  const communityDescriptionEvent = $derived({content: communityDescription, tags: []})
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   const mainRelay = $derived($activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "")
   const communityShareRelays = $derived(
@@ -215,8 +217,8 @@
       </div>
     </div>
     {#if communityDescription}
-      <div class="max-w-3xl text-center md:text-xl">
-        {communityDescription}
+      <div class="w-full min-w-0 max-w-3xl break-words text-center md:text-xl">
+        <Content event={communityDescriptionEvent} showEntire />
       </div>
     {/if}
     {#if $activeCommunityDefinition?.tos}
