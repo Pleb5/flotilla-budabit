@@ -22,6 +22,8 @@
     cashuBackupConfirmed,
     cashuSeedEncrypted,
     cashuSeedLocked,
+    cashuSetupRequired,
+    cashuSetupResolved,
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
     recoverAllTrustedMints,
@@ -29,6 +31,13 @@
   import CashuMintManager from "@app/components/CashuMintManager.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
+
+  type WalletTab = "cashu" | "lightning"
+
+  const tabs: {id: WalletTab; label: string}[] = [
+    {id: "cashu", label: "Cashu"},
+    {id: "lightning", label: "Lightning"},
+  ]
 
   const connect = () => pushModal(WalletConnect)
 
@@ -48,12 +57,17 @@
   const backupConfirmed = $derived($cashuBackupConfirmed)
   const seedEncrypted = $derived($cashuSeedEncrypted)
   const seedLocked = $derived($cashuSeedLocked)
+  const setupRequired = $derived($cashuSetupRequired)
+  const setupResolved = $derived($cashuSetupResolved)
+  const cashuReady = $derived(setupResolved && backupConfirmed && !setupRequired && !seedLocked)
   const autoPayWhitelist = $derived($cashuAutoPayWhitelist)
 
   const openCashuWallet = () => pushModal(CashuWalletModal)
-  const openBackup = () => pushModal(CashuSeedBackup)
+  const openBackup = () => pushModal(CashuSeedBackup, {mode: "backup"})
+  const openRestore = () => pushModal(CashuSeedBackup, {mode: "restore"})
 
   let recovering = $state(false)
+  let activeTab = $state<WalletTab>("cashu")
   let recoverResult = $state<
     | {succeeded: string[]; failed: {mintUrl: string; error: string}[]}
     | {topLevelError: string}
@@ -74,228 +88,256 @@
 </script>
 
 <div class="content column gap-4 overflow-x-hidden">
-  <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <strong class="flex min-w-0 items-center gap-3">
-        <Icon icon={Wallet2} />
-        Wallet
-      </strong>
-      {#if $session?.wallet}
-        <div class="flex items-center gap-2 text-sm text-success sm:justify-end">
-          <Icon icon={CheckCircle} size={4} />
-          Connected
-        </div>
-      {:else}
-        <Button
-          class="btn btn-primary btn-sm inline-flex w-full items-center justify-center sm:w-auto"
-          onclick={connect}>
-          <Icon icon={AddCircle} />
-          Connect Wallet
-        </Button>
-      {/if}
-    </div>
-    <div class="col-4">
-      {#if $session?.wallet}
-        {#if $session.wallet.type === "webln"}
-          {@const {node, version} = $session.wallet.info}
-          <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
-            <p class="min-w-0 break-words">
-              Connected to <strong class="break-all"
-                >{node?.alias || version || "unknown wallet"}</strong>
-              via <strong>{$session.wallet.type}</strong>
-            </p>
-            <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
-              Balance:
-              {#await getWebLn()
-                ?.enable()
-                .then(() => getWebLn().getBalance())}
-                <span class="loading loading-spinner loading-sm"></span>
-              {:then res}
-                {new Intl.NumberFormat(LOCALE).format(res?.balance || 0)}
-              {:catch}
-                [unknown]
-              {/await}
-              sats
-            </p>
-          </div>
-        {:else if $session.wallet.type === "nwc"}
-          {@const {lud16, relayUrl, nostrWalletConnectUrl} = $session.wallet.info}
-          <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
-            <p class="min-w-0 break-words">
-              Connected to <strong class="break-all">{lud16}</strong> via
-              <strong class="break-all">{displayRelayUrl(relayUrl)}</strong>
-            </p>
-            <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
-              Balance:
-              {#await new nwc.NWCClient({nostrWalletConnectUrl}).getBalance()}
-                <span class="loading loading-spinner loading-sm"></span>
-              {:then res}
-                {new Intl.NumberFormat(LOCALE).format(fromMsats(res?.balance || 0))}
-              {:catch}
-                [unknown]
-              {/await}
-              sats
-            </p>
-          </div>
+  <div class="tabs-boxed tabs w-fit max-w-full overflow-x-auto">
+    {#each tabs as tab}
+      <button
+        type="button"
+        class="tab"
+        class:tab-active={activeTab === tab.id}
+        onclick={() => (activeTab = tab.id)}>
+        {tab.label}
+      </button>
+    {/each}
+  </div>
+
+  {#if activeTab === "cashu"}
+    <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <strong class="flex items-center gap-3">
+          <span class="text-warning">₿</span>
+          Cashu Wallet
+        </strong>
+        {#if cashuReady}
+          <span class="font-mono text-sm font-semibold sm:text-right"
+            >{cashuBalance.toLocaleString()} sats</span>
+        {:else if setupResolved && seedLocked}
+          <span class="text-sm text-warning sm:text-right">Locked</span>
+        {:else if setupResolved && !setupRequired}
+          <span class="text-sm text-warning sm:text-right">Backup needed</span>
+        {:else if setupResolved}
+          <span class="text-sm text-warning sm:text-right">Not set up</span>
         {/if}
-        <Button
-          class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center sm:w-auto"
-          onclick={disconnect}>
-          <Icon icon={CloseCircle} />
-          Disconnect Wallet
-        </Button>
+      </div>
+
+      {#if !setupResolved}
+        <div class="flex min-h-[220px] items-center justify-center text-sm opacity-70">
+          Loading Cashu wallet…
+        </div>
+      {:else if !cashuReady}
+        <CashuSeedBackup mode="backup" />
       {:else}
-        <p class="py-12 text-center opacity-75">No wallet connected</p>
-      {/if}
-    </div>
-  </div>
-  <div
-    class="card2 bg-alt flex min-w-0 flex-col shadow-md"
-    class:gap-6={profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}>
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <strong>Lightning Address</strong>
-      <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-        <span class={profileLightningAddress ? "break-all text-sm" : "text-sm text-warning"}>
-          {profileLightningAddress ? profileLightningAddress : "Not set"}
-        </span>
-        <Button
-          class="btn btn-neutral btn-xs inline-flex w-full justify-center sm:ml-3 sm:w-auto"
-          onclick={updateReceivingAddress}>Update</Button>
-      </div>
-    </div>
-    {#if profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}
-      <div class="card2 bg-alt flex items-start gap-2 text-xs">
-        <Icon icon={InfoCircle} size={4} />
-        Your profile has a different lightning address than your connected wallet.
-      </div>
-    {/if}
-  </div>
-  <div class="flex justify-center py-12">
-    <Button
-      class="btn btn-primary inline-flex w-full items-center justify-center sm:w-auto"
-      onclick={pay}>
-      <Icon icon={Bolt} />
-      Pay With Lightning
-    </Button>
-  </div>
-
-  <!-- Cashu Wallet Section -->
-  <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <strong class="flex items-center gap-3">
-        <span class="text-warning">₿</span>
-        Cashu Wallet
-      </strong>
-      <span class="font-mono text-sm font-semibold sm:text-right"
-        >{cashuBalance.toLocaleString()} sats</span>
-    </div>
-
-    <div class="flex flex-col gap-4">
-      <div>
-        <p class="mb-2 text-sm font-medium">Mints</p>
-        <CashuMintManager />
-      </div>
-
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span class="text-sm font-medium">Seed Phrase</span>
-        <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-          {#if seedLocked}
-            <div class="flex items-center gap-2 text-sm text-warning">Encrypted and locked</div>
-          {:else if backupConfirmed && seedEncrypted}
-            <div class="flex items-center gap-2 text-sm text-success">
-              <Icon icon={CheckCircle} size={4} />
-              Encrypted
-            </div>
-          {:else if backupConfirmed}
-            <div class="flex items-center gap-2 text-sm text-success">
-              <Icon icon={CheckCircle} size={4} />
-              Backed up
-            </div>
-          {:else}
-            <Button class="btn btn-warning btn-sm inline-flex justify-center" onclick={openBackup}
-              >⚠ Backup Now</Button>
-          {/if}
-          <Button class="btn btn-neutral btn-xs inline-flex justify-center" onclick={openBackup}
-            >View</Button>
-        </div>
-      </div>
-
-      {#if autoPayWhitelist.length > 0}
-        <div class="flex flex-col gap-2">
-          <p class="text-sm font-medium">Auto-pay whitelist</p>
-          {#each autoPayWhitelist as extId (extId)}
-            <div class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-              <span class="min-w-0 break-all font-mono text-xs">{extId}</span>
-              <Button
-                class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
-                onclick={() => removeAutoPayWhitelist(extId)}>
-                Revoke
-              </Button>
-            </div>
-          {/each}
-        </div>
-      {/if}
-
-      <Button
-        class="btn btn-neutral btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
-        onclick={openCashuWallet}>
-        Open Wallet
-      </Button>
-
-      <details class="rounded-md border border-base-300 bg-base-200/40">
-        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium">
-          Advanced
-        </summary>
-        <div class="flex flex-col gap-3 border-t border-base-300 px-3 py-3 text-sm">
+        <div class="flex flex-col gap-4">
           <div>
-            <p class="font-medium">Recover wallet</p>
-            <p class="text-xs opacity-70">
-              Cancels stuck receive operations and asks every trusted mint for any proofs the wallet
-              may have missed. Use after token redeems fail with "outputs already signed" or after
-              restoring from a seed backup.
-            </p>
+            <p class="mb-2 text-sm font-medium">Mints</p>
+            <CashuMintManager />
           </div>
+
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span class="text-sm font-medium">Seed Phrase</span>
+            <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+              {#if seedEncrypted}
+                <div class="flex items-center gap-2 text-sm text-success">
+                  <Icon icon={CheckCircle} size={4} />
+                  Encrypted
+                </div>
+              {:else}
+                <div class="flex items-center gap-2 text-sm text-success">
+                  <Icon icon={CheckCircle} size={4} />
+                  Backed up
+                </div>
+              {/if}
+              <Button class="btn btn-neutral btn-xs inline-flex justify-center" onclick={openBackup}
+                >Backup</Button>
+              <Button
+                class="btn btn-neutral btn-xs inline-flex justify-center"
+                onclick={openRestore}>Restore</Button>
+            </div>
+          </div>
+
+          {#if autoPayWhitelist.length > 0}
+            <div class="flex flex-col gap-2">
+              <p class="text-sm font-medium">Auto-pay whitelist</p>
+              {#each autoPayWhitelist as extId (extId)}
+                <div
+                  class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <span class="min-w-0 break-all font-mono text-xs">{extId}</span>
+                  <Button
+                    class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
+                    onclick={() => removeAutoPayWhitelist(extId)}>
+                    Revoke
+                  </Button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
           <Button
-            class="btn btn-warning btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
-            onclick={runRecovery}
-            disabled={recovering}>
-            {recovering ? "Recovering…" : "Recover from all trusted mints"}
+            class="btn btn-neutral btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
+            onclick={openCashuWallet}>
+            Open Wallet
           </Button>
-          {#if recoverResult}
-            {#if "topLevelError" in recoverResult}
-              <p class="text-xs text-error">{recoverResult.topLevelError}</p>
-            {:else}
-              <div class="flex flex-col gap-1 text-xs">
-                {#if recoverResult.succeeded.length > 0}
-                  <p class="text-success">
-                    Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded
-                      .length === 1
-                      ? ""
-                      : "s"}.
-                  </p>
-                {/if}
-                {#if recoverResult.failed.length > 0}
-                  <div class="flex flex-col gap-1">
-                    <p class="text-error">
-                      {recoverResult.failed.length} mint{recoverResult.failed.length === 1
-                        ? ""
-                        : "s"} failed:
-                    </p>
-                    {#each recoverResult.failed as f (f.mintUrl)}
-                      <p class="break-all opacity-80">
-                        <span class="font-mono">{f.mintUrl}</span>: {f.error}
+
+          <details class="rounded-md border border-base-300 bg-base-200/40">
+            <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+              Advanced
+            </summary>
+            <div class="flex flex-col gap-3 border-t border-base-300 px-3 py-3 text-sm">
+              <div>
+                <p class="font-medium">Recover wallet</p>
+                <p class="text-xs opacity-70">
+                  Cancels stuck receive operations and asks every trusted mint for any proofs the
+                  wallet may have missed. Use after token redeems fail with "outputs already signed"
+                  or after restoring from a seed backup.
+                </p>
+              </div>
+              <Button
+                class="btn btn-warning btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
+                onclick={runRecovery}
+                disabled={recovering}>
+                {recovering ? "Recovering…" : "Recover from all trusted mints"}
+              </Button>
+              {#if recoverResult}
+                {#if "topLevelError" in recoverResult}
+                  <p class="text-xs text-error">{recoverResult.topLevelError}</p>
+                {:else}
+                  <div class="flex flex-col gap-1 text-xs">
+                    {#if recoverResult.succeeded.length > 0}
+                      <p class="text-success">
+                        Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded
+                          .length === 1
+                          ? ""
+                          : "s"}.
                       </p>
-                    {/each}
+                    {/if}
+                    {#if recoverResult.failed.length > 0}
+                      <div class="flex flex-col gap-1">
+                        <p class="text-error">
+                          {recoverResult.failed.length} mint{recoverResult.failed.length === 1
+                            ? ""
+                            : "s"} failed:
+                        </p>
+                        {#each recoverResult.failed as f (f.mintUrl)}
+                          <p class="break-all opacity-80">
+                            <span class="font-mono">{f.mintUrl}</span>: {f.error}
+                          </p>
+                        {/each}
+                      </div>
+                    {/if}
+                    {#if recoverResult.succeeded.length === 0 && recoverResult.failed.length === 0}
+                      <p class="opacity-70">No trusted mints to recover.</p>
+                    {/if}
                   </div>
                 {/if}
-                {#if recoverResult.succeeded.length === 0 && recoverResult.failed.length === 0}
-                  <p class="opacity-70">No trusted mints to recover.</p>
-                {/if}
-              </div>
-            {/if}
-          {/if}
+              {/if}
+            </div>
+          </details>
         </div>
-      </details>
+      {/if}
     </div>
-  </div>
+  {:else}
+    <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <strong class="flex min-w-0 items-center gap-3">
+          <Icon icon={Wallet2} />
+          Wallet
+        </strong>
+        {#if $session?.wallet}
+          <div class="flex items-center gap-2 text-sm text-success sm:justify-end">
+            <Icon icon={CheckCircle} size={4} />
+            Connected
+          </div>
+        {:else}
+          <Button
+            class="btn btn-primary btn-sm inline-flex w-full items-center justify-center sm:w-auto"
+            onclick={connect}>
+            <Icon icon={AddCircle} />
+            Connect Wallet
+          </Button>
+        {/if}
+      </div>
+      <div class="col-4">
+        {#if $session?.wallet}
+          {#if $session.wallet.type === "webln"}
+            {@const {node, version} = $session.wallet.info}
+            <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
+              <p class="min-w-0 break-words">
+                Connected to <strong class="break-all"
+                  >{node?.alias || version || "unknown wallet"}</strong>
+                via <strong>{$session.wallet.type}</strong>
+              </p>
+              <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
+                Balance:
+                {#await getWebLn()
+                  ?.enable()
+                  .then(() => getWebLn().getBalance())}
+                  <span class="loading loading-spinner loading-sm"></span>
+                {:then res}
+                  {new Intl.NumberFormat(LOCALE).format(res?.balance || 0)}
+                {:catch}
+                  [unknown]
+                {/await}
+                sats
+              </p>
+            </div>
+          {:else if $session.wallet.type === "nwc"}
+            {@const {lud16, relayUrl, nostrWalletConnectUrl} = $session.wallet.info}
+            <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
+              <p class="min-w-0 break-words">
+                Connected to <strong class="break-all">{lud16}</strong> via
+                <strong class="break-all">{displayRelayUrl(relayUrl)}</strong>
+              </p>
+              <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
+                Balance:
+                {#await new nwc.NWCClient({nostrWalletConnectUrl}).getBalance()}
+                  <span class="loading loading-spinner loading-sm"></span>
+                {:then res}
+                  {new Intl.NumberFormat(LOCALE).format(fromMsats(res?.balance || 0))}
+                {:catch}
+                  [unknown]
+                {/await}
+                sats
+              </p>
+            </div>
+          {/if}
+          <Button
+            class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center sm:w-auto"
+            onclick={disconnect}>
+            <Icon icon={CloseCircle} />
+            Disconnect Wallet
+          </Button>
+        {:else}
+          <p class="py-12 text-center opacity-75">No wallet connected</p>
+        {/if}
+      </div>
+    </div>
+    <div
+      class="card2 bg-alt flex min-w-0 flex-col shadow-md"
+      class:gap-6={profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <strong>Lightning Address</strong>
+        <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+          <span class={profileLightningAddress ? "break-all text-sm" : "text-sm text-warning"}>
+            {profileLightningAddress ? profileLightningAddress : "Not set"}
+          </span>
+          <Button
+            class="btn btn-neutral btn-xs inline-flex w-full justify-center sm:ml-3 sm:w-auto"
+            onclick={updateReceivingAddress}>Update</Button>
+        </div>
+      </div>
+      {#if profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}
+        <div class="card2 bg-alt flex items-start gap-2 text-xs">
+          <Icon icon={InfoCircle} size={4} />
+          Your profile has a different lightning address than your connected wallet.
+        </div>
+      {/if}
+    </div>
+    <div class="flex justify-center py-12">
+      <Button
+        class="btn btn-primary inline-flex w-full items-center justify-center sm:w-auto"
+        onclick={pay}>
+        <Icon icon={Bolt} />
+        Pay With Lightning
+      </Button>
+    </div>
+  {/if}
 </div>

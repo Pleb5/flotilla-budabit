@@ -1,27 +1,31 @@
 <script lang="ts">
-  // CashuWalletWidget — floating balance chip, always visible when logged in
+  // CashuWalletWidget — floating balance chip, visible after Cashu setup is complete
   import {pubkey} from "@welshman/app"
-  import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
+  import {
+    cashuTotalBalance,
+    cashuBackupConfirmed,
+    cashuSeedLocked,
+    cashuSetupRequired,
+    cashuSetupResolved,
+  } from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
 
   const isLoggedIn = $derived(!!$pubkey)
   const balance = $derived($cashuTotalBalance)
-  const backupConfirmed = $derived($cashuBackupConfirmed)
+  const cashuReady = $derived(
+    $cashuSetupResolved && $cashuBackupConfirmed && !$cashuSetupRequired && !$cashuSeedLocked,
+  )
 
   const openWallet = () => pushModal(CashuWalletModal)
 </script>
 
-{#if isLoggedIn}
+{#if isLoggedIn && cashuReady}
   <button
     class="z-50 fixed bottom-20 right-4 flex items-center gap-1.5 rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-xs font-semibold shadow-md transition-opacity hover:opacity-90 md:bottom-4"
     onclick={openWallet}
     title="Open Cashu Wallet">
     <span class="text-warning">₿</span>
-    {#if !backupConfirmed}
-      <span class="opacity-50">Set up Cashu</span>
-    {:else}
-      <span>{balance.toLocaleString()} sats</span>
-    {/if}
+    <span>{balance.toLocaleString()} sats</span>
   </button>
 {/if}

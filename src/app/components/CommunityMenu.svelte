@@ -4,8 +4,13 @@
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
-  import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
+  import {
+    cashuTotalBalance,
+    cashuBackupConfirmed,
+    cashuSeedLocked,
+    cashuSetupRequired,
+    cashuSetupResolved,
+  } from "@app/core/cashu"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -139,7 +144,9 @@
       : [],
   )
   const badgeAwardFilters = $derived(
-    $pubkey ? makeCommunityBadgeAwardFilters({definitions: badgeDefinitions, recipientPubkey: $pubkey}) : [],
+    $pubkey
+      ? makeCommunityBadgeAwardFilters({definitions: badgeDefinitions, recipientPubkey: $pubkey})
+      : [],
   )
   const badgeAwardEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: badgeAwardFilters})),
@@ -208,10 +215,12 @@
 
   const walletLabel = $derived.by(() => {
     const balance = $cashuTotalBalance
-    if (!$cashuBackupConfirmed) return "Set up Cashu"
     if (balance >= 1000) return `${(balance / 1000).toFixed(balance % 1000 === 0 ? 0 : 1)}K sats`
     return `${balance} sats`
   })
+  const cashuReady = $derived(
+    $cashuSetupResolved && $cashuBackupConfirmed && !$cashuSetupRequired && !$cashuSeedLocked,
+  )
 
   onMount(() => {
     replaceState = Boolean(element?.closest(".drawer"))
@@ -279,16 +288,13 @@
     </Button>
 
     <div class="flex max-h-[calc(100vh-170px)] min-h-0 flex-col gap-1 overflow-auto">
-      {#if $pubkey}
+      {#if $pubkey && cashuReady}
         <SecondaryNavItem {replaceState} onclick={openWallet}>
-          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning">₿</span>
+          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning"
+            >₿</span>
           {walletLabel}
         </SecondaryNavItem>
       {/if}
-
-      <SecondaryNavItem {replaceState} href={homePath}>
-        <Icon icon={HomeSmile} /> Home
-      </SecondaryNavItem>
 
       {#if !$pubkey}
         <SecondaryNavItem {replaceState} onclick={login}>
