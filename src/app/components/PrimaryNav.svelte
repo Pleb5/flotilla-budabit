@@ -1,8 +1,7 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {goto} from "$app/navigation"
-  import {userProfile, pubkey} from "@welshman/app"
-  import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import {pubkey} from "@welshman/app"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
@@ -11,7 +10,6 @@
   import Compass from "@assets/icons/compass.svg?dataurl"
   import Home from "@assets/icons/home.svg?dataurl"
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
-  import Settings from "@assets/icons/settings.svg?dataurl"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import PrimaryNavItem from "@lib/components/PrimaryNavItem.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
@@ -26,11 +24,6 @@
   }
 
   const {children}: Props = $props()
-
-  const openProfile = () => {
-    if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
-    else pushModal(LogIn)
-  }
 
   const showSettingsMenu = () => pushModal(MenuSettings)
 
@@ -61,30 +54,6 @@
       </PrimaryNavItem>
     </div>
     <div>
-      <div class="hidden md:block lg:hidden">
-        <PrimaryNavItem title="Profile" onclick={openProfile} class="tooltip-right">
-          {#if $userProfile?.picture}
-            <img
-              alt="Profile"
-              src={$userProfile.picture}
-              class="h-7 min-h-7 w-7 min-w-7 rounded-full object-cover" />
-          {:else}
-            <ImageIcon alt="Profile" src={UserRounded} size={7} class="rounded-full" />
-          {/if}
-        </PrimaryNavItem>
-      </div>
-      <div class="hidden lg:block">
-        <PrimaryNavItem title="Profile" onclick={openProfile} class="tooltip-right">
-          {#if $userProfile?.picture}
-            <img
-              alt="Profile"
-              src={$userProfile.picture}
-              class="h-7 min-h-7 w-7 min-w-7 rounded-full object-cover" />
-          {:else}
-            <ImageIcon alt="Profile" src={UserRounded} size={7} class="rounded-full" />
-          {/if}
-        </PrimaryNavItem>
-      </div>
       <PrimaryNavItem
         title="Messages"
         onclick={openChat}
@@ -124,7 +93,11 @@
           onclick={$pubkey ? undefined : showSettingsMenu}
           prefix="/settings"
           class="tooltip-right">
-          <ImageIcon alt="Settings" src={Settings} size={7} />
+          {#if $pubkey}
+            <ProfileCircle pubkey={$pubkey} size={7} />
+          {:else}
+            <ImageIcon alt="Settings" src={UserRounded} size={7} class="rounded-full" />
+          {/if}
         </PrimaryNavItem>
       </div>
       <div class="hidden lg:block">
@@ -134,7 +107,11 @@
           onclick={$pubkey ? undefined : showSettingsMenu}
           prefix="/settings"
           class="tooltip-right">
-          <ImageIcon alt="Settings" src={Settings} size={7} />
+          {#if $pubkey}
+            <ProfileCircle pubkey={$pubkey} size={7} />
+          {:else}
+            <ImageIcon alt="Settings" src={UserRounded} size={7} class="rounded-full" />
+          {/if}
         </PrimaryNavItem>
       </div>
     </div>
