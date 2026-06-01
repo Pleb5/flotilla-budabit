@@ -84,6 +84,96 @@ export const makeGitPath = (_url?: string, eventId?: string) =>
 export const makeGitIssuePath = (url?: string, eventId?: string) =>
   `${makeGitPath(url, eventId)}/issues`
 
+const normalizeRoutePath = (pathname: string) => {
+  const path = pathname.split(/[?#]/)[0]?.replace(/\/+$/, "") || "/"
+
+  return path.startsWith("/") ? path : `/${path}`
+}
+
+const normalizeBreadcrumbPath = (value: string | null | undefined) =>
+  (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+
+const getParentDirectory = (value: string) => value.split("/").slice(0, -1).join("/")
+
+const appendSearchParams = (pathname: string, params: URLSearchParams) => {
+  const search = params.toString()
+
+  return search ? `${pathname}?${search}` : pathname
+}
+
+const gitSectionLabels: Record<string, string> = {
+  code: "Code",
+  commits: "Commits",
+  feed: "Activity",
+  issues: "Issues",
+  prs: "PRs",
+  settings: "Settings",
+}
+
+const getCodeTargetLabel = (dir: string) => dir || "Code"
+
+export type GitParentTarget = {
+  path: string
+  label: string
+}
+
+export const getGitParentTarget = (
+  pathname: string,
+  searchParams: URLSearchParams | string = "",
+): GitParentTarget => {
+  const normalizedPath = normalizeRoutePath(pathname)
+  const segments = normalizedPath.split("/").filter(Boolean)
+
+  if (segments[0] !== "git") return {path: "/git", label: "Repos"}
+  if (segments.length <= 1) return {path: "/", label: "Home"}
+  if (segments.length === 2) return {path: "/git", label: "Repos"}
+
+  const repoPath = `/${segments.slice(0, 2).join("/")}`
+  const section = segments[2]
+
+  if (section === "code") {
+    const params = new URLSearchParams(searchParams)
+    const filePath = normalizeBreadcrumbPath(params.get("path"))
+    const dirPath = normalizeBreadcrumbPath(params.get("dir"))
+    const currentDir = filePath ? getParentDirectory(filePath) : dirPath
+
+    if (filePath || dirPath) {
+      const parentDir = getParentDirectory(currentDir)
+      let targetDir = ""
+
+      if (filePath && currentDir) {
+        targetDir = currentDir
+        params.set("dir", targetDir)
+      } else if (dirPath && parentDir) {
+        targetDir = parentDir
+        params.set("dir", targetDir)
+      } else {
+        params.delete("dir")
+      }
+
+      params.delete("path")
+
+      return {
+        path: appendSearchParams(`${repoPath}/code`, params),
+        label: getCodeTargetLabel(targetDir),
+      }
+    }
+  }
+
+  if (section === "extensions") return {path: repoPath, label: "Overview"}
+  if (segments.length > 3) {
+    return {
+      path: `/${segments.slice(0, -1).join("/")}`,
+      label: gitSectionLabels[section] || "Overview",
+    }
+  }
+
+  return {path: repoPath, label: "Overview"}
+}
+
+export const getGitParentPath = (pathname: string, searchParams: URLSearchParams | string = "") =>
+  getGitParentTarget(pathname, searchParams).path
+
 export const makeCommunityPermalinkPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "permalinks", eventId)
 

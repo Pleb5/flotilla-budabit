@@ -147,7 +147,7 @@
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
-  import {makeCommunityPath, makeGitPath} from "@app/util/routes"
+  import {getGitParentTarget, makeCommunityPath, makeGitPath} from "@app/util/routes"
   import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import {getInitializedGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
@@ -3672,7 +3672,10 @@
     }
   })
 
-  const back = () => (activeTab === "code" ? overviewRepo() : history.back())
+  const backTarget = $derived.by(() =>
+    getGitParentTarget($page.url.pathname, $page.url.searchParams),
+  )
+  const back = () => goto(backTarget.path)
 </script>
 
 <svelte:head>
@@ -3682,9 +3685,13 @@
 <PageBar class="w-full pb-0">
   {#snippet icon()}
     <div>
-      <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
+      <Button
+        class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap"
+        onclick={back}
+        title={`Go to ${backTarget.label}`}
+        aria-label={`Go to ${backTarget.label}`}>
         <Icon icon={AltArrowLeft} />
-        <span class="hidden sm:inline">Go back</span>
+        <span class="hidden sm:inline">{backTarget.label}</span>
       </Button>
     </div>
   {/snippet}

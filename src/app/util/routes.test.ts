@@ -148,6 +148,54 @@ describe("routes", () => {
     })
   })
 
+  it("builds git parent paths without using browser history", async () => {
+    const {getGitParentPath} = await import("./routes")
+    const repoPath = "/git/naddr1repo"
+
+    expect(getGitParentPath(`${repoPath}/issues/issue-id`)).toBe(`${repoPath}/issues`)
+    expect(getGitParentPath(`${repoPath}/prs/pr-id`)).toBe(`${repoPath}/prs`)
+    expect(getGitParentPath(`${repoPath}/commits/commit-id`)).toBe(`${repoPath}/commits`)
+    expect(getGitParentPath(`${repoPath}/extensions/widget-id`)).toBe(repoPath)
+    expect(getGitParentPath(`${repoPath}/issues`)).toBe(repoPath)
+    expect(getGitParentPath(repoPath)).toBe("/git")
+    expect(getGitParentPath("/git")).toBe("/")
+  })
+
+  it("labels git parent targets by destination", async () => {
+    const {getGitParentTarget} = await import("./routes")
+    const repoPath = "/git/naddr1repo"
+
+    expect(getGitParentTarget(`${repoPath}/issues/issue-id`)).toMatchObject({label: "Issues"})
+    expect(getGitParentTarget(`${repoPath}/prs/pr-id`)).toMatchObject({label: "PRs"})
+    expect(getGitParentTarget(`${repoPath}/commits/commit-id`)).toMatchObject({
+      label: "Commits",
+    })
+    expect(getGitParentTarget(`${repoPath}/issues`)).toMatchObject({label: "Overview"})
+    expect(getGitParentTarget(repoPath)).toMatchObject({label: "Repos"})
+  })
+
+  it("steps up code query breadcrumb paths", async () => {
+    const {getGitParentPath} = await import("./routes")
+    const codePath = "/git/naddr1repo/code"
+
+    expect(getGitParentPath(codePath, "path=src/app/routes.ts")).toBe(`${codePath}?dir=src%2Fapp`)
+    expect(getGitParentPath(codePath, "dir=src/app")).toBe(`${codePath}?dir=src`)
+    expect(getGitParentPath(codePath, "dir=src")).toBe(codePath)
+    expect(getGitParentPath(codePath)).toBe("/git/naddr1repo")
+  })
+
+  it("labels code query breadcrumb parent targets", async () => {
+    const {getGitParentTarget} = await import("./routes")
+    const codePath = "/git/naddr1repo/code"
+
+    expect(getGitParentTarget(codePath, "path=src/app/routes.ts")).toMatchObject({
+      label: "src/app",
+    })
+    expect(getGitParentTarget(codePath, "dir=src/app")).toMatchObject({label: "src"})
+    expect(getGitParentTarget(codePath, "dir=src")).toMatchObject({label: "Code"})
+    expect(getGitParentTarget(codePath)).toMatchObject({label: "Overview"})
+  })
+
   it("keeps existing npub and nprofile route identifiers unchanged", async () => {
     const {makeProfilePath} = await import("./routes")
     const profilePubkey = "c".repeat(64)
