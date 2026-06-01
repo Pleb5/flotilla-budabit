@@ -3,7 +3,15 @@
   import {throttle, clamp} from "@welshman/lib"
   import {preventDefault, stopPropagation} from "@lib/html"
 
-  const {term, search, select, component: Component, style = "", allowCreate = false} = $props()
+  const {
+    term,
+    search,
+    select,
+    component: Component,
+    style = "",
+    allowCreate = false,
+    showEmpty = true,
+  } = $props()
 
   let index = $state(0)
   let items: string[] = $state([])
@@ -79,7 +87,7 @@
       </button>
     {/each}
   </div>
-  {#if items.length === 0}
+  {#if showEmpty && items.length === 0}
     <div class="tiptap-suggestions__empty">No results</div>
   {/if}
 </div>

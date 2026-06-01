@@ -1,13 +1,18 @@
 <script lang="ts">
+  import {writable} from "svelte/store"
+  import type {Instance} from "tippy.js"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Field from "@lib/components/Field.svelte"
+  import Suggestions from "@lib/components/Suggestions.svelte"
+  import Tippy from "@lib/components/Tippy.svelte"
   import {preventDefault} from "@lib/html"
   import {normalizeRelays} from "@app/core/community"
   import {hydratePubkeyProfiles} from "@app/core/community-state"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
+  import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
   import {deriveBudabitProfile, deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {formatShortNpub} from "@app/util/pubkeys"
 
@@ -28,6 +33,8 @@
     opening?: boolean
     notFound?: boolean
     onSubmit?: () => void
+    inputSearch?: (term: string) => string[]
+    onInputSelect?: (pubkey: string) => void
   }
 
   const EMPTY_PUBKEY = "0".repeat(64)
@@ -49,7 +56,11 @@
     opening = false,
     notFound = false,
     onSubmit = onOpen,
+    inputSearch,
+    onInputSelect,
   }: Props = $props()
+
+  const inputTerm = writable(inputValue)
 
   const profilePubkey = $derived(pubkey || EMPTY_PUBKEY)
   const profileRelays = $derived(normalizeRelays(relayHints))
@@ -77,11 +88,46 @@
   )
   let profileHydrationKey = ""
   let failedPicture = $state("")
+  let inputElement: Element | undefined = $state()
+  let inputPopover: Instance | undefined = $state()
+  let inputSuggestions: {onKeyDown?: (event: Event) => boolean} | undefined = $state()
 
   const picture = $derived(String($profile?.picture || "").trim())
   const showPicture = $derived(Boolean(picture && failedPicture !== picture))
 
   const submit = () => onSubmit?.()
+  const searchInputSuggestions = (term: string) => {
+    const items = inputSearch?.(term) || []
+
+    if (term.trim() && items.length > 0) inputPopover?.show()
+    else inputPopover?.hide()
+
+    return items
+  }
+  const selectInputSuggestion = (value: string) => {
+    if (onInputSelect) onInputSelect(value)
+    else inputTerm.set(value)
+
+    inputPopover?.hide()
+  }
+  const onInputKeyDown = (event: Event) => {
+    if (inputSuggestions?.onKeyDown?.(event)) {
+      event.preventDefault()
+    }
+  }
+
+  $effect(() => {
+    const value = inputValue
+
+    inputTerm.update(current => (current === value ? current : value))
+  })
+
+  $effect(() => {
+    const value = $inputTerm
+
+    if (inputValue !== value) inputValue = value
+    inputPopover?.hide()
+  })
 
   $effect(() => {
     const key = pubkey ? `${pubkey}:${profileRelays.join(",")}` : ""
@@ -155,10 +201,37 @@
         <p>{inputLabel}</p>
       {/snippet}
       {#snippet input()}
-        <label class="input input-bordered flex w-full items-center gap-2">
+        <label class="input input-bordered flex w-full items-center gap-2" bind:this={inputElement}>
           <Icon icon={HomeSmile} />
-          <input bind:value={inputValue} class="grow" type="text" placeholder={inputPlaceholder} />
+          <input
+            bind:value={$inputTerm}
+            class="grow"
+            type="text"
+            placeholder={inputPlaceholder}
+            onkeydown={onInputKeyDown} />
         </label>
+        {#if inputSearch}
+          <Tippy
+            bind:popover={inputPopover}
+            bind:instance={inputSuggestions}
+            component={Suggestions}
+            props={{
+              term: inputTerm,
+              search: searchInputSuggestions,
+              select: selectInputSuggestion,
+              component: ProfileSuggestion,
+              showEmpty: false,
+              style: `left: 4px; width: ${(inputElement?.clientWidth || 0) + 12}px`,
+            }}
+            params={{
+              trigger: "manual",
+              placement: "bottom-start",
+              offset: [0, 4],
+              interactive: true,
+              maxWidth: "none",
+              getReferenceClientRect: () => inputElement!.getBoundingClientRect(),
+            }} />
+        {/if}
       {/snippet}
       {#snippet info()}
         {inputInfo}

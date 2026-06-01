@@ -1,6 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {pubkey} from "@welshman/app"
+  import {getFollows, profileSearch, profilesByPubkey, pubkey} from "@welshman/app"
+  import type {TrustedEvent} from "@welshman/util"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -13,6 +14,12 @@
     activeCommunityDefinition,
     activeCommunitySession,
     activePreferredCommunities,
+    communityAdminDefinitionEvents,
+    communityMemberDefinitionEvents,
+    communityMemberProfileListEvents,
+    communityMemberReportStates,
+    communityModeratorDefinitionEvents,
+    communityModeratorProfileListEvents,
     communityPreferencesLoading,
     communityStarsLoading,
     getCommunityBootstrapRelays,
@@ -28,6 +35,15 @@
   import CommunitySelectorCard from "@app/components/community/CommunitySelectorCard.svelte"
   import {makeCommunityPath} from "@app/util/routes"
   import {makeCommunityInputValue} from "@app/util/community-stars"
+  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {
+    buildPeopleSearchCandidates,
+    getCommunityPeoplePubkeys,
+    PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
+    searchPeopleCandidates,
+  } from "@app/util/people-search"
+
+  const COMMUNITY_INPUT_SEARCH_LIMIT = 8
 
   type SelectorCommunity = {
     pubkey: string
@@ -147,6 +163,48 @@
     enterCommunity(defaultOpenInput)
   }
 
+  const selectCommunityInputProfile = (selectedPubkey: string) => {
+    const definition = selectLatestCommunityDefinition(communityDefinitionEvents, selectedPubkey)
+    const relayHints = getCommunityDefinitionRelayHints(definition, [
+      ...(selectorRelayHints[selectedPubkey] || []),
+      ...(selectedPubkey === $activeCommunitySession?.communityPubkey ? currentRelayHints : []),
+    ])
+
+    communityInput = makeCommunityInputValue({pubkey: selectedPubkey, relayHints}) || selectedPubkey
+  }
+
+  const searchCommunityInputProfiles = (term: string) => {
+    const query = term.trim()
+    if (!query) return []
+
+    const definitionEvents = communityDefinitionEvents
+    const profileListEvents = communityProfileListEvents
+    const candidates = buildPeopleSearchCandidates({
+      query,
+      communityPubkeys,
+      directFollowPubkeys,
+      knownPubkeys: selectorCommunities.map(community => community.pubkey),
+      profileMatches: $profileSearch.searchValues(query) as string[],
+    })
+
+    return searchPeopleCandidates({
+      query,
+      candidates,
+      getProfile: candidatePubkey => $profilesByPubkey.get(candidatePubkey),
+      getCommunityAssessments: candidatePubkeys =>
+        buildCommunityTrustAssessments({
+          candidatePubkeys,
+          viewerPubkey: $pubkey || undefined,
+          context: {scope: "global_discovery"},
+          definitionEvents,
+          profileListEvents,
+          reportStates: $communityMemberReportStates,
+        }),
+      scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
+      resultLimit: COMMUNITY_INPUT_SEARCH_LIMIT,
+    }).results.map(result => result.pubkey)
+  }
+
   const loadCommunityDefinitionRelays = async (communityPubkey: string, relayHints: string[]) => {
     const definition = await loadCommunityDefinition(communityPubkey, relayHints)
 
@@ -168,6 +226,22 @@
   const previewInput = $derived(parseCommunityInput(communityInput))
   const previewPubkey = $derived(hasCommunityInput ? previewInput?.pubkey || "" : "")
   const preferredCommunities = $derived($activePreferredCommunities)
+  const communityDefinitionEvents = $derived([
+    ...$communityAdminDefinitionEvents,
+    ...$communityMemberDefinitionEvents,
+    ...$communityModeratorDefinitionEvents,
+  ] as TrustedEvent[])
+  const communityProfileListEvents = $derived([
+    ...$communityMemberProfileListEvents,
+    ...$communityModeratorProfileListEvents,
+  ] as TrustedEvent[])
+  const communityPubkeys = $derived(
+    getCommunityPeoplePubkeys({
+      definitionEvents: communityDefinitionEvents,
+      profileListEvents: communityProfileListEvents,
+    }),
+  )
+  const directFollowPubkeys = $derived($pubkey ? getFollows($pubkey) : [])
   const preferredCommunityByPubkey = $derived.by(
     () => new Map(preferredCommunities.map(community => [community.communityPubkey, community])),
   )
@@ -434,10 +508,14 @@
             onOpen={openPreviewCommunity}
             bind:inputValue={communityInput}
             showInput
+            inputLabel="Search or paste a community"
+            inputPlaceholder="Search profiles, npub1..., or ncommunity://..."
             showActions={previewHasCommunityDefinition}
             loading={previewLoading}
             opening={previewOpening}
             notFound={previewCommunityNotFound}
+            inputSearch={searchCommunityInputProfiles}
+            onInputSelect={selectCommunityInputProfile}
             onSubmit={submitCommunityInput} />
 
           {#if defaultCommunityPubkey}
