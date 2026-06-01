@@ -22,6 +22,7 @@
     displayLocation?: WidgetDisplayLocation
     onDisplayLocationChange?: (location: WidgetDisplayLocation) => void
     manifestUrl?: string // URL to check for updates (NIP-89 extensions only)
+    isDefault?: boolean
   }
 
   const {
@@ -33,6 +34,7 @@
     displayLocation = "modal",
     onDisplayLocationChange,
     manifestUrl,
+    isDefault = false,
   }: Props = $props()
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
@@ -118,6 +120,9 @@
           >Update Available: v{updateAvailable.version}</span>
       {/if}
       <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
+      {#if isDefault}
+        <span class="badge badge-primary badge-sm">Community default</span>
+      {/if}
     </div>
     <div class="ml-auto flex items-center gap-3">
       {#if !isWidget && manifestUrl}

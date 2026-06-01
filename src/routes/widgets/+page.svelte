@@ -4,7 +4,7 @@
   import {onMount, onDestroy} from "svelte"
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import {get} from "svelte/store"
-  import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
+  import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
   import type {SmartWidgetEvent} from "@app/extensions/types"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import Page from "@lib/components/Page.svelte"
@@ -16,8 +16,8 @@
 
   // Derive widgets from settings reactively
   const widgets = $derived.by(() => {
-    // Subscribe to extensionSettings changes
-    const _ = $extensionSettings
+    // Subscribe to effective extension settings changes
+    const _ = $effectiveExtensionSettings
     return getWidgetsForLocation("menu-route")
   })
 

@@ -7,69 +7,69 @@
 <script lang="ts">
   import {onDestroy, untrack} from "svelte"
   import {extensionRegistry} from "./registry"
-  import {extensionSettings} from "./settings"
-  import type {LoadedExtension} from "./types"
-
-  // Get store from registry
-  const registryStore = extensionRegistry.asStore()
+  import {effectiveExtensionSettings} from "./settings"
 
   // Track enabled IDs from settings store
-  const settings = $derived($extensionSettings)
+  const settings = $derived($effectiveExtensionSettings)
   const enabledIds = $derived(new Set(settings.enabled || []))
 
   // Track loaded extension IDs
   let loadedIds = $state<Set<string>>(new Set())
   let loadingIds = $state<Set<string>>(new Set())
 
-  // Load/unload extensions when registry or enabled state changes
-  const extensions = $derived($registryStore as LoadedExtension[])
-
   $effect(() => {
-    const presentIds = new Set(extensions.map(ext => ext.id))
+    const installedIds = new Set([
+      ...Object.keys(settings.installed?.nip89 || {}),
+      ...Object.keys(settings.installed?.widget || {}),
+    ])
 
     // Use untrack to read loadedIds without creating a dependency loop
-    // This effect should only re-run when extensions or enabledIds change,
+    // This effect should only re-run when settings or enabledIds change,
     // not when loadedIds changes (which we write to below)
     const currentLoadedIds = untrack(() => loadedIds)
     const currentLoadingIds = untrack(() => loadingIds)
 
     // Load newly enabled extensions
-    for (const ext of extensions) {
-      if (!enabledIds.has(ext.id)) continue
-      if (currentLoadedIds.has(ext.id)) continue
-      if (currentLoadingIds.has(ext.id))
-        continue
+    for (const id of enabledIds) {
+      if (!installedIds.has(id)) continue
+      if (currentLoadedIds.has(id)) continue
+      if (currentLoadingIds.has(id)) continue
 
-        // Use async IIFE to handle loading
+      const manifest = settings.installed?.nip89?.[id]
+      const widget = settings.installed?.widget?.[id]
+
+      // Use async IIFE to handle loading
       ;(async () => {
-        loadingIds = new Set([...untrack(() => loadingIds), ext.id])
+        loadingIds = new Set([...untrack(() => loadingIds), id])
 
         try {
-          if (ext.type === "nip89") {
-            await extensionRegistry.loadIframeExtension(ext.manifest)
-          } else if (ext.type === "widget") {
-            await extensionRegistry.loadWidget(ext.widget)
+          if (manifest) {
+            await extensionRegistry.loadIframeExtension(manifest)
+          } else if (widget) {
+            await extensionRegistry.loadWidget(widget)
           }
           // Update loadedIds after successful load
-          loadedIds = new Set([...untrack(() => loadedIds), ext.id])
+          loadedIds = new Set([...untrack(() => loadedIds), id])
         } catch (e) {
           console.error("Failed to load extension runtime:", e)
         } finally {
           const nextLoadingIds = new Set(untrack(() => loadingIds))
-          nextLoadingIds.delete(ext.id)
+          nextLoadingIds.delete(id)
           loadingIds = nextLoadingIds
         }
       })()
     }
 
     // Drop ids that are no longer enabled or no longer registered
-    const filteredIds = [...currentLoadedIds].filter(id => enabledIds.has(id) && presentIds.has(id))
+    const filteredIds = [...currentLoadedIds].filter(
+      id => enabledIds.has(id) && installedIds.has(id),
+    )
     if (filteredIds.length !== currentLoadedIds.size) {
       loadedIds = new Set(filteredIds)
     }
 
     const filteredLoadingIds = [...currentLoadingIds].filter(
-      id => enabledIds.has(id) && presentIds.has(id),
+      id => enabledIds.has(id) && installedIds.has(id),
     )
     if (filteredLoadingIds.length !== currentLoadingIds.size) {
       loadingIds = new Set(filteredLoadingIds)

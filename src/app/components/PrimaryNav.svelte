@@ -19,7 +19,7 @@
   import {notifications} from "@app/util/notifications"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
-  import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
+  import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
 
   type Props = {
     children?: Snippet
@@ -43,8 +43,8 @@
 
   // Get widgets configured for menu display
   const menuWidgets = $derived.by(() => {
-    // Re-run when extensionSettings changes
-    const _ = $extensionSettings
+    // Re-run when effective extension settings change
+    const _ = $effectiveExtensionSettings
     return getWidgetsForLocation("menu-route")
   })
 </script>

@@ -27,8 +27,8 @@ This guide explains how to target both models, how they coexist inside Flotilla,
 
 | Capability        | Manifest Extensions                                                   | Smart Widgets – `basic`                                                                                  | Smart Widgets – `action` / `tool`                    |
 | ----------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Discovery         | Kind 31990 events (INDEXER_RELAYS) or manual URL                      | Kind 30033 events (YakiHonne relays)                                                                     | Kind 30033 events (YakiHonne relays)                 |
-| Install UX        | Paste manifest URL / select discovered entry                          | Paste naddr or install from discovery list                                                               | Same as `basic`                                      |
+| Discovery         | Manual URL under Advanced settings                                    | Community-curated kind 30033 events or direct naddr                                                      | Same as `basic`                                      |
+| Install UX        | Paste manifest URL under Advanced settings                            | Search a community's curated extensions or paste naddr under Advanced settings                           | Same as `basic`                                      |
 | Runtime Container | Sandboxed iframe (`allow-scripts allow-same-origin`)                  | Host-rendered via slot handler (no iframe)                                                               | Sandboxed iframe (appUrl)                            |
 | Storage Bucket    | `extensionSettings.installed.nip89[id]`                               | `extensionSettings.installed.widget[id]`                                                                 | `extensionSettings.installed.widget[id]`             |
 | Enable / Disable  | `extensionRegistry.loadIframeExtension()`                             | `extensionRegistry.loadWidget()` (metadata only)                                                         | `extensionRegistry.loadWidget()` (iframe + bridge)   |
@@ -63,16 +63,15 @@ type ExtensionSettings = {
 
 - **Relays:** `INDEXER_RELAYS` (same set used elsewhere in Flotilla).
 - **Install flows:**
-  - Paste manifest URL into **Settings → Extensions → Install by URL**.
-  - Select discovered manifest (kind 31990) from the discovery list.
+  - Paste manifest URL into **Settings → Extensions → Advanced → Install by URL**.
 - **Runtime:** Flotilla validates optional `sha256`, registers the manifest with the registry, and spawns an iframe when enabled.
 
 ### Smart Widgets
 
 - **Relays:** YakiHonne curated set (`SMART_WIDGET_RELAYS`, currently `wss://relay.yakihonne.com`). naddr installs honor relay hints in the address pointer.
 - **Install flows:**
-  - Paste `naddr` (kind 30033 address pointer) in **Install Smart Widget (naddr)**.
-  - Pick from **Discovered Smart Widgets** (loaded via `discoverSmartWidgets`).
+  - Search a valid community profile in **Settings → Extensions → Discover extensions** and pick from that community's curated widgets.
+  - Paste `naddr` (kind 30033 address pointer) in **Settings → Extensions → Advanced → Install Smart Widget (naddr)**.
 - **Event parsing:** Runtime extracts `identifier`, `widgetType`, `buttons`, `appUrl`, and permissions from event tags. See `parseSmartWidget` implementation for details.
 - **Container:**
   - `basic` widgets render through host slot handlers (no iframe).

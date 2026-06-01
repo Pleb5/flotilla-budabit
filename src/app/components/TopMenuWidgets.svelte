@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
+  import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
   import type {SmartWidgetEvent} from "@app/extensions/types"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
 
@@ -13,7 +13,7 @@
   )
 
   const topMenuWidgets = $derived.by(() => {
-    const _ = $extensionSettings
+    const _ = $effectiveExtensionSettings
     return getWidgetsForLocation("top-menu")
   })
 

@@ -229,8 +229,9 @@ type ExtensionMessage = {
 
 ```
 1. Discovery
-   - NIP-89: Fetch kind 31990 events from INDEXER_RELAYS
-   - Widget: Fetch kind 30033 events from SMART_WIDGET_RELAYS
+   - Default/community: Validate a community profile through latest kind 10222, then fetch its targeted kind 30033 widgets.
+   - Advanced NIP-89: Install a manifest URL directly.
+   - Advanced widget: Install a kind 30033 naddr directly.
 
 2. Installation
    - Parse manifest/event

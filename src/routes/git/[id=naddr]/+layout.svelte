@@ -143,7 +143,7 @@
   import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
-  import {extensionSettings} from "@app/extensions/settings"
+  import {effectiveExtensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -332,7 +332,7 @@
 
   // Get enabled extensions with repo-tab slots
   const repoTabExtensions = $derived.by(() => {
-    const settings = $extensionSettings
+    const settings = $effectiveExtensionSettings
     const enabledIds = settings.enabled
     const extensionsMap = new Map<
       string,

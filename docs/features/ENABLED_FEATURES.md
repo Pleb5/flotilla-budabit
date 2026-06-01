@@ -24,13 +24,15 @@ Budabit's current community architecture is Communikey-based:
 
 NIP-34 pull request support is always part of Budabit. Terminal UI has been removed for now. Strict NIP-29 validation is not part of the current community access-control model; current write permissions come from community definition sections and their referenced `kind:30000` profile lists.
 
-## Built-In Extensions
+## Default Community Extensions
 
-Built-in extensions are no longer bundled or auto-installed by this repo.
+Budabit does not bundle extension code, but it does load default extensions curated by the configured default community.
 
-`src/app/extensions/builtin.ts` intentionally keeps `installBuiltinExtensions()` as a no-op so the app shell can retain the call site without installing bundled extension manifests.
+`src/app/extensions/builtin.ts` resolves `VITE_DEFAULT_COMMUNITY`, validates that it has a latest `kind:10222` community definition, and loads that community's targeted `kind:30033` widgets as default extensions.
 
-Extensions are installed through Nostr `kind:30033` events or manifest URLs from Settings > Extensions.
+Default community extensions appear in Settings > Extensions as installed and enabled. Users can disable them, but cannot uninstall them because they come from community curation rather than user-installed storage.
+
+Additional extensions are installed through community-curated `kind:30033` discovery, direct Smart Widget `naddr` values, or advanced manifest URLs from Settings > Extensions.
 
 ## Optional Extension Packages
 
@@ -43,4 +45,5 @@ Run or publish those packages according to their package-level docs when you wan
 - `.env.example` for recommended environment defaults
 - `vite.config.ts` for compile-time flag definitions
 - `src/feature-flags.d.ts` for TypeScript declarations
-- `src/app/extensions/builtin.ts` for built-in extension behavior
+- `src/app/extensions/builtin.ts` for default community extension loading
+- `src/app/extensions/community-curation.ts` for community-curated extension discovery

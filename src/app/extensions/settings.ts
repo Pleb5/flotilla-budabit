@@ -1,5 +1,5 @@
 import {synced, localStorageProvider} from "@welshman/store"
-import {get} from "svelte/store"
+import {derived, get, writable} from "svelte/store"
 import {signer, pubkey} from "@welshman/app"
 import {APP_DATA, makeEvent} from "@welshman/util"
 import {postExtensionSettings} from "@app/core/git-commands"
@@ -51,6 +51,7 @@ const normalizeInstalled = (installed: any): InstalledExtensions => {
 
 export type ExtensionSettings = {
   enabled: string[]
+  disabledDefaultIds: string[]
   installed: InstalledExtensions
   widgetDisplay: Record<string, WidgetDisplayConfig>
   manifestUrls: Record<string, string> // Track manifest URLs for update checking
@@ -58,6 +59,7 @@ export type ExtensionSettings = {
 
 export const defaultExtensionSettings: ExtensionSettings = {
   enabled: [],
+  disabledDefaultIds: [],
   installed: {
     nip89: {},
     widget: {},
@@ -72,20 +74,107 @@ export const extensionSettings = synced({
   storage: localStorageProvider,
 })
 
-export const getInstalledExtensions = () => get(extensionSettings).installed
+export const defaultExtensionWidgets = writable<SmartWidgetEvent[]>([])
+
+export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void => {
+  const byId = new Map<string, SmartWidgetEvent>()
+
+  for (const widget of widgets) {
+    const current = byId.get(widget.identifier)
+    if (!current || (widget.created_at || 0) > (current.created_at || 0)) {
+      byId.set(widget.identifier, widget)
+    }
+  }
+
+  defaultExtensionWidgets.set(Array.from(byId.values()))
+}
+
+export const getDefaultExtensionIds = (widgets = get(defaultExtensionWidgets)) =>
+  widgets.map(widget => widget.identifier).filter(Boolean)
+
+export const isDefaultExtension = (id: string): boolean => getDefaultExtensionIds().includes(id)
+
+const getDefaultWidgetMap = (widgets = get(defaultExtensionWidgets)) =>
+  Object.fromEntries(widgets.map(widget => [widget.identifier, widget])) as Record<
+    string,
+    SmartWidgetEvent
+  >
+
+export const getEffectiveInstalledExtensions = (
+  settings = get(extensionSettings),
+  widgets = get(defaultExtensionWidgets),
+): InstalledExtensions => ({
+  nip89: settings.installed?.nip89 || {},
+  widget: {
+    ...(settings.installed?.widget || {}),
+    ...getDefaultWidgetMap(widgets),
+  },
+  legacy: settings.installed?.legacy,
+})
+
+export const getEffectiveEnabledExtensionIds = (
+  settings = get(extensionSettings),
+  widgets = get(defaultExtensionWidgets),
+) => {
+  const installed = getEffectiveInstalledExtensions(settings, widgets)
+  const installedIds = new Set([...Object.keys(installed.nip89), ...Object.keys(installed.widget)])
+  const disabledDefaults = new Set(settings.disabledDefaultIds || [])
+  const defaultIds = new Set(getDefaultExtensionIds(widgets))
+  const enabled = new Set(settings.enabled || [])
+
+  for (const id of defaultIds) {
+    if (!disabledDefaults.has(id)) enabled.add(id)
+  }
+
+  return Array.from(enabled).filter(
+    id => installedIds.has(id) && !(defaultIds.has(id) && disabledDefaults.has(id)),
+  )
+}
+
+export const getEffectiveExtensionSettings = (
+  settings = get(extensionSettings),
+  widgets = get(defaultExtensionWidgets),
+): ExtensionSettings => ({
+  ...settings,
+  enabled: getEffectiveEnabledExtensionIds(settings, widgets),
+  installed: getEffectiveInstalledExtensions(settings, widgets),
+  disabledDefaultIds: settings.disabledDefaultIds || [],
+})
+
+export const effectiveExtensionSettings = derived(
+  [extensionSettings, defaultExtensionWidgets],
+  ([$extensionSettings, $defaultExtensionWidgets]) =>
+    getEffectiveExtensionSettings($extensionSettings, $defaultExtensionWidgets),
+)
+
+export const getInstalledExtensions = () => getEffectiveInstalledExtensions()
 export const getInstalledExtension = (id: string) => {
-  const installed = get(extensionSettings).installed
+  const installed = getEffectiveInstalledExtensions()
   return installed.nip89[id] ?? installed.widget[id]
 }
 
 export const isExtensionEnabled = (id: string): boolean => {
-  const settings = get(extensionSettings)
+  const settings = get(effectiveExtensionSettings)
   return settings.enabled.includes(id)
 }
 
 export const isExtensionInstalled = (id: string): boolean => {
-  const installed = get(extensionSettings).installed
+  const installed = getEffectiveInstalledExtensions()
   return !!(installed.nip89[id] ?? installed.widget[id])
+}
+
+export const enableDefaultExtension = (id: string): void => {
+  extensionSettings.update(s => ({
+    ...s,
+    disabledDefaultIds: (s.disabledDefaultIds || []).filter(disabledId => disabledId !== id),
+  }))
+}
+
+export const disableDefaultExtension = (id: string): void => {
+  extensionSettings.update(s => ({
+    ...s,
+    disabledDefaultIds: Array.from(new Set([...(s.disabledDefaultIds || []), id])),
+  }))
 }
 
 export const getWidgetDisplayConfig = (id: string): WidgetDisplayConfig => {
@@ -102,7 +191,7 @@ export const setWidgetDisplayConfig = (id: string, config: WidgetDisplayConfig):
 }
 
 export const getWidgetsForLocation = (location: WidgetDisplayLocation): SmartWidgetEvent[] => {
-  const settings = get(extensionSettings)
+  const settings = get(effectiveExtensionSettings)
   const widgets: SmartWidgetEvent[] = []
   const installedWidgets = settings.installed?.widget || {}
   const widgetDisplay = settings.widgetDisplay || {}
@@ -126,6 +215,7 @@ export const getManifestUrl = (id: string): string | undefined => {
 extensionSettings.update(s => {
   return {
     enabled: s.enabled || [],
+    disabledDefaultIds: s.disabledDefaultIds || [],
     installed: normalizeInstalled(s.installed),
     widgetDisplay: s.widgetDisplay || {},
     manifestUrls: s.manifestUrls || {},
@@ -161,8 +251,11 @@ const mergeSettings = (local: ExtensionSettings, remote: ExtensionSettings): Ext
     ...(remote.manifestUrls || {}),
   }
 
+  const mergedDisabledDefaultIds = remote.disabledDefaultIds ?? local.disabledDefaultIds ?? []
+
   return {
     enabled: mergedEnabled,
+    disabledDefaultIds: mergedDisabledDefaultIds,
     installed: {
       nip89: mergedNip89,
       widget: mergedWidget,
@@ -179,6 +272,8 @@ export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSe
     const currentSettings = get(extensionSettings)
     const normalized: ExtensionSettings = {
       enabled: remoteSettings.enabled || [],
+      disabledDefaultIds:
+        remoteSettings.disabledDefaultIds ?? currentSettings.disabledDefaultIds ?? [],
       installed: normalizeInstalled(remoteSettings.installed),
       widgetDisplay: remoteSettings.widgetDisplay || {},
       manifestUrls: remoteSettings.manifestUrls || {},

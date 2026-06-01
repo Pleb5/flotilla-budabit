@@ -172,16 +172,20 @@ Communities are identified by a pubkey, not by a relay URL.
 
 ## Extension Architecture
 
-Built-in extensions are not bundled or auto-installed. `src/app/extensions/builtin.ts` intentionally leaves `installBuiltinExtensions()` as a no-op.
+Budabit does not bundle extension code. On startup, `src/app/extensions/builtin.ts` resolves the hardcoded default community, validates its latest `kind:10222` definition, and treats that community's curated `kind:30033` widgets as default extensions.
 
-Budabit supports two install paths:
+Default community extensions are overlaid into effective extension settings as installed and enabled. Users can disable them, which unloads the runtime and hides enabled surfaces, but they cannot uninstall them because they are not stored as user-installed extension records.
 
-- NIP-89-style manifest URLs from Settings > Extensions.
-- Smart Widget `kind:30033` events discovered from widget relays or installed directly.
+Budabit supports these install and discovery paths:
+
+- Community-curated Smart Widget `kind:30033` events targeted through `kind:30222` by a valid `kind:10222` community.
+- Direct Smart Widget `naddr` installs from Settings > Extensions > Advanced.
+- NIP-89-style manifest URLs from Settings > Extensions > Advanced.
 
 Runtime pieces:
 
 - `src/app/extensions/registry.ts` fetches manifests, parses Smart Widget metadata, validates embeddable URLs, registers origins, and tracks repo context.
+- `src/app/extensions/community-curation.ts` validates community profiles and loads community-targeted widgets.
 - `src/app/extensions/bridge.ts` provides the iframe host bridge and permissioned messaging.
 - `src/app/extensions/settings.ts` persists installed/enabled extension state.
 - `src/app/extensions/slots.ts` and `components/SlotRenderer.svelte` render extension slots.

@@ -100,9 +100,12 @@ import {platform, platformName, getPushInfo} from "@app/util/push"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
 import {
   extensionSettings,
+  disableDefaultExtension,
+  enableDefaultExtension,
   getInstalledExtensions,
   getInstalledExtension,
   isExtensionEnabled,
+  isDefaultExtension,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
@@ -162,6 +165,10 @@ export const installExtension = async (manifestUrl: string) => {
 }
 
 export const uninstallExtension = async (id: string) => {
+  if (isDefaultExtension(id)) {
+    throw new Error("Default community extensions can be disabled, but not uninstalled")
+  }
+
   // Unload runtime if present
   await extensionRegistry.unloadExtension(id)
 
@@ -305,11 +312,15 @@ export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
 }
 
 export const enableExtension = async (id: string) => {
-  // Persist enabled flag
-  extensionSettings.update(s => ({
-    ...s,
-    enabled: s.enabled.includes(id) ? s.enabled : [...s.enabled, id],
-  }))
+  if (isDefaultExtension(id)) {
+    enableDefaultExtension(id)
+  } else {
+    // Persist enabled flag
+    extensionSettings.update(s => ({
+      ...s,
+      enabled: s.enabled.includes(id) ? s.enabled : [...s.enabled, id],
+    }))
+  }
 
   // Load the extension iframe/runtime
   const installed = getInstalledExtensions()
@@ -335,10 +346,14 @@ export const disableExtension = async (id: string) => {
   // Unload runtime
   await extensionRegistry.unloadExtension(id)
 
-  extensionSettings.update(s => ({
-    ...s,
-    enabled: s.enabled.filter(e => e !== id),
-  }))
+  if (isDefaultExtension(id)) {
+    disableDefaultExtension(id)
+  } else {
+    extensionSettings.update(s => ({
+      ...s,
+      enabled: s.enabled.filter(e => e !== id),
+    }))
+  }
 }
 
 /**

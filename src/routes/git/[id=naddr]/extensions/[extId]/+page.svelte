@@ -57,7 +57,7 @@
   import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
   import {Router} from "@welshman/router"
-  import {extensionSettings} from "@app/extensions/settings"
+  import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
@@ -82,7 +82,7 @@
 
   // Get extension manifest or widget from settings
   const extension = $derived.by(() => {
-    const settings = $extensionSettings
+    const settings = $effectiveExtensionSettings
     if (!extId) return undefined
     // Check NIP-89 extensions first
     const manifest = settings.installed.nip89[extId] as ExtensionManifest | undefined
@@ -127,7 +127,7 @@
   })
 
   const isEnabled = $derived.by(() => {
-    const settings = $extensionSettings
+    const settings = $effectiveExtensionSettings
     if (!extId) return false
     return settings.enabled.includes(extId)
   })

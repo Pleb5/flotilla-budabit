@@ -51,8 +51,12 @@ vi.mock("@app/extensions/settings", () => ({
   extensionSettings: {
     update: vi.fn(),
   },
-  getInstalledExtensions: vi.fn(() => []),
+  disableDefaultExtension: vi.fn(),
+  enableDefaultExtension: vi.fn(),
+  getInstalledExtensions: vi.fn(() => ({nip89: {}, widget: {}})),
   getInstalledExtension: vi.fn(),
+  isDefaultExtension: vi.fn(() => false),
+  isExtensionEnabled: vi.fn(() => false),
 }))
 
 vi.mock("@app/core/git-state", () => ({
@@ -538,11 +542,7 @@ describe("commands", () => {
     expect(result?.type).toBe("text/markdown")
     expect(result?.url).toBe(`${backup}/blob.markdown`)
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(3)
-    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([
-      primary,
-      primary,
-      backup,
-    ])
+    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary, primary, backup])
     expect(utilMocks.uploadBlob.mock.calls[2][2].headers["Content-Type"]).toBe("text/markdown")
     expect(get(blossomDashboardState).uploads[0].canonical.url).toBe(`${backup}/blob.markdown`)
     expect(get(blossomDashboardState).uploads[0].mirrorJobs).toHaveLength(0)
@@ -583,7 +583,9 @@ describe("commands", () => {
     const communityBlossom = normalizeBlossomUrl("https://community-blossom.example")
     const file = makeUploadTestFile()
 
-    setActiveCommunityDefinition(makeCommunityDefinition("definition-with-blossom", [communityBlossom]))
+    setActiveCommunityDefinition(
+      makeCommunityDefinition("definition-with-blossom", [communityBlossom]),
+    )
     utilMocks.uploadBlob.mockResolvedValue(
       new Response(JSON.stringify({uploaded: 1, url: `${communityBlossom}/blob`})),
     )
