@@ -274,7 +274,6 @@
         </div>
         <div class="min-w-0">
           <strong class="ellipsize block">{communityName}</strong>
-          <span class="ellipsize block text-xs text-primary">{mainRelay || shortCommunity}</span>
         </div>
       </div>
     </Button>
