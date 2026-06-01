@@ -29,11 +29,11 @@
     GIT_STATUS_DRAFT,
     GIT_LABEL,
     parseRepoAnnouncementEvent,
-    type BookmarkAddress,
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
-  import {bookmarksStore} from "@nostr-git/ui"
   import {repoAnnouncements, getRepoAnnouncementRelays, GIT_RELAYS} from "@app/core/git-state"
+  import {activeRepoStars, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {repoStarToBookmarkAddress} from "@app/util/repo-stars"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
 
   const timezoneOffset = parseInt(TIMEZONE.split(":")?.[0] || "00")
@@ -55,28 +55,10 @@
   let notifyAssignments = $state(true)
   let notifyReviews = $state(true)
 
-  const normalizeBookmarks = (value: unknown): BookmarkAddress[] => {
-    if (!value) return []
-    if (Array.isArray(value)) return value as BookmarkAddress[]
-    return []
-  }
-
-  const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
-    bookmarks.map(
-      (b: BookmarkAddress): BookmarkAddress => ({
-        address: b.address,
-        author: b.address.split(":")[1] || "",
-        identifier: b.address.split(":")[2] || "",
-        relayHint: b.relayHint,
-      }),
-    )
-
-  const bookmarkedAddresses = $derived.by((): BookmarkAddress[] =>
-    toBookmarkAddresses(normalizeBookmarks($bookmarksStore)),
-  )
+  const starredRepoAddresses = $derived.by(() => $activeRepoStars.map(repoStarToBookmarkAddress))
 
   const repoOptions = $derived.by(() => {
-    const bookmarkSet = new Set(bookmarkedAddresses.map(b => b.address))
+    const starredRepoSet = new Set(starredRepoAddresses.map(star => star.address))
     const candidates: RepoAnnouncementEvent[] = []
 
     for (const event of $repoAnnouncements as RepoAnnouncementEvent[]) {
@@ -86,7 +68,7 @@
       }
       try {
         const address = Address.fromEvent(event).toString()
-        if (bookmarkSet.has(address)) {
+        if (starredRepoSet.has(address)) {
           candidates.push(event)
         }
       } catch {
@@ -237,7 +219,14 @@
     }
   }
 
-  let lastBookmarksKey = ""
+  let lastStarredReposKey = ""
+
+  $effect(() => {
+    if (!$pubkey) return
+    hydrateRepoStars({relayHints: getRepoAnnouncementRelays()}).catch(error => {
+      console.warn("[BudabitAlertAdd] Failed to hydrate repo stars", error)
+    })
+  })
 
   $effect(() => {
     if (!$pubkey) return
@@ -247,16 +236,18 @@
   })
 
   $effect(() => {
-    if (bookmarkedAddresses.length === 0) return
-    const authors = bookmarkedAddresses.map(b => b.author)
-    const identifiers = bookmarkedAddresses.map(b => b.identifier)
+    if (starredRepoAddresses.length === 0) return
+    const authors = starredRepoAddresses.map(star => star.author)
+    const identifiers = starredRepoAddresses.map(star => star.identifier)
     const key = `${authors.join(",")}|${identifiers.join(",")}`
-    if (key === lastBookmarksKey) return
-    lastBookmarksKey = key
+    if (key === lastStarredReposKey) return
+    lastStarredReposKey = key
 
     const relayHints = Array.from(
       new Set(
-        bookmarkedAddresses.map(b => b.relayHint).filter((hint): hint is string => Boolean(hint)),
+        starredRepoAddresses
+          .map(star => star.relayHint)
+          .filter((hint): hint is string => Boolean(hint)),
       ),
     )
     const relays = getRepoAnnouncementRelays(relayHints)

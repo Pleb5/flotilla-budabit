@@ -61,7 +61,6 @@
   import {getTaggedRelaysFromRepoEvent, resolveRepoRelayPolicy} from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
-    bookmarksStore,
     repositoriesStore,
     Tabs,
     TabsList,
@@ -134,13 +133,17 @@
   import {
     buildBookmarkRepoFilters,
     buildBookmarkRepoLoadKey,
-    getCanonicalRepoKeyFromBookmark,
     getCanonicalRepoKeyFromEvent,
     getRepoAddressFromEvent,
     isAnyBookmarked,
     matchBookmarkedRepoEvents,
   } from "@app/util/bookmarks"
-  import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {
+    activeRepoStars,
+    getRepoStarRelays,
+    hydrateRepoStars,
+    repoStarsLoading,
+  } from "@app/core/repo-stars-state"
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {
     makeRepoStarReaction,
@@ -452,23 +455,6 @@
     snippetsLoadedFor = $pubkey
   })
 
-  // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
-  // Include GIT_RELAYS to ensure we fetch repos from git-specific relays
-  const bookmarkRelays = Array.from(
-    new Set(
-      [url, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS]
-        .map(u => normalizeRelayUrl(u))
-        .filter(Boolean),
-    ),
-  ) as string[]
-
-  $effect(() => {
-    if (!$pubkey) return
-    hydratePreferredCommunities({relayHints: bookmarkRelays}).catch(error => {
-      console.warn("[git/+page] Failed to hydrate preferred communities", error)
-    })
-  })
-
   // Repo announcements should always be fetched from the current derived relay set
   // Memoize to prevent effect loops from array reference changes
   let cachedRepoRelays: string[] = []
@@ -484,11 +470,25 @@
     return relays
   })
 
-  const normalizeBookmarks = (value: unknown): BookmarkAddress[] => {
-    if (!value) return []
-    if (Array.isArray(value)) return value as BookmarkAddress[]
-    return []
-  }
+  // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues.
+  // Include resolved repo announcement relays so personal stars retry after user relays load.
+  const bookmarkRelays = $derived.by(
+    () =>
+      Array.from(
+        new Set(
+          [url, ...repoAnnouncementRelays, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS]
+            .map(u => normalizeRelayUrl(u))
+            .filter(Boolean),
+        ),
+      ) as string[],
+  )
+
+  $effect(() => {
+    if (!$pubkey) return
+    hydratePreferredCommunities({relayHints: bookmarkRelays}).catch(error => {
+      console.warn("[git/+page] Failed to hydrate preferred communities", error)
+    })
+  })
 
   const safeNormalizeRelay = (relay?: string) => {
     if (!relay) return ""
@@ -631,13 +631,33 @@
   )
 
   const getRepoCardProfileRelays = (event?: RepoAnnouncementEvent | null) => {
+    if (!event) return []
+
     const community = event ? parseRepoCommunityBinding(event) : undefined
+    const address = getRepoAddressFromEvent(event)
+    const trackedRelays = Array.from(tracker.getRelays(event.id) || [])
+    const pubkeyRelays = Router.get().getRelaysForPubkey(event.pubkey) || []
+    const repoRelays = (() => {
+      try {
+        return parseRepoAnnouncementEvent(event)?.relays || []
+      } catch {
+        return []
+      }
+    })()
+
     return Array.from(
       new Set(
         [
           ...(activeMode === "community" ? selectedCommunityProfileRelays : []),
           community?.relay || "",
-        ].filter(Boolean),
+          getRepoCardRelayHint(event, address),
+          ...trackedRelays,
+          ...pubkeyRelays,
+          ...repoRelays,
+          ...repoAnnouncementRelays,
+        ]
+          .map(relay => safeNormalizeRelay(relay))
+          .filter(Boolean),
       ),
     )
   }
@@ -802,77 +822,63 @@
     })
   })
 
-  const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
-    bookmarks.map(
-      (b: BookmarkAddress): BookmarkAddress => ({
-        address: b.address,
-        author: b.address.split(":")[1] || "",
-        identifier: b.address.split(":")[2] || "",
-        relayHint: b.relayHint,
-      }),
-    )
-
-  const getBookmarkRepoLoadRelays = (bookmarks: BookmarkAddress[]) =>
+  const getStarredRepoLoadRelays = (addresses: BookmarkAddress[]) =>
     Array.from(
       new Set(
         [
-          ...bookmarks.map(bookmark => safeNormalizeRelay(bookmark.relayHint)),
+          ...addresses.map(address => safeNormalizeRelay(address.relayHint)),
           ...repoAnnouncementRelays,
           ...GIT_RELAYS,
         ].filter(Boolean),
       ),
     ) as string[]
 
-  const legacyBookmarkedAddresses = $derived.by((): BookmarkAddress[] => {
-    const bookmarks = normalizeBookmarks($bookmarksStore)
-    return toBookmarkAddresses(bookmarks)
-  })
-
   const repoStarAddresses = $derived.by((): BookmarkAddress[] =>
     $activeRepoStars.map(repoStarToBookmarkAddress),
   )
 
-  const legacyUnstarredAddresses = $derived.by((): BookmarkAddress[] =>
-    legacyBookmarkedAddresses.filter(bookmark => {
-      const repoKey = getCanonicalRepoKeyFromBookmark({
-        bookmark,
-        getCachedEvent: address =>
-          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-      })
-
-      return !isAnyBookmarked(repoStarAddresses, [bookmark.address], {
-        candidateRepoKeys: repoKey ? [repoKey] : [],
-        getCachedEvent: address =>
-          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-      })
-    }),
+  const hasRepoStarAddresses = $derived(repoStarAddresses.length > 0)
+  const starredRepoRelaysToQuery = $derived.by(() => getStarredRepoLoadRelays(repoStarAddresses))
+  const starredRepoLoadKey = $derived.by(() =>
+    hasRepoStarAddresses
+      ? `${buildBookmarkRepoLoadKey(repoStarAddresses)}:${starredRepoRelaysToQuery.slice().sort().join(",")}`
+      : "",
   )
 
-  const bookmarkedAddresses = $derived.by((): BookmarkAddress[] => [
-    ...repoStarAddresses,
-    ...legacyUnstarredAddresses,
-  ])
-
-  const hasBookmarkedAddresses = $derived(bookmarkedAddresses.length > 0)
+  let repoStarsHydrationRequestId = 0
+  let repoStarsHydrationSettled = $state(false)
 
   $effect(() => {
-    if (!$pubkey) return
-    hydrateRepoStars({relayHints: bookmarkRelays}).catch(error => {
-      console.warn("[git/+page] Failed to hydrate repo stars", error)
-    })
+    if (!$pubkey) {
+      repoStarsHydrationRequestId += 1
+      repoStarsHydrationSettled = true
+      return
+    }
+
+    const requestId = ++repoStarsHydrationRequestId
+    repoStarsHydrationSettled = false
+    hydrateRepoStars({relayHints: bookmarkRelays})
+      .catch(error => {
+        console.warn("[git/+page] Failed to hydrate repo stars", error)
+      })
+      .finally(() => {
+        if (requestId === repoStarsHydrationRequestId) repoStarsHydrationSettled = true
+      })
   })
 
-  // Fetch actual repo events for bookmarked addresses
-  const attemptedBookmarkLoads = new Set<string>()
+  // Fetch actual repo events for starred addresses
+  const attemptedStarredRepoLoads = new Set<string>()
+  let settledStarredRepoLoadKey = $state("")
 
   const repos = $derived.by(() => {
-    if (!hasBookmarkedAddresses) return undefined
+    if (!hasRepoStarAddresses) return undefined
 
-    const addresses = bookmarkedAddresses
+    const addresses = repoStarAddresses
     const filters = buildBookmarkRepoFilters(addresses)
     if (filters.length === 0) return undefined
 
-    const loadKey = buildBookmarkRepoLoadKey(addresses)
+    const relaysToQuery = starredRepoRelaysToQuery
+    const loadKey = starredRepoLoadKey
 
     return _derived(deriveEventsDesc(deriveEventsById({repository, filters})), events => {
       const matched = matchBookmarkedRepoEvents({
@@ -883,25 +889,30 @@
       })
 
       if (matched.length !== addresses.length) {
-        if (!attemptedBookmarkLoads.has(loadKey)) {
-          attemptedBookmarkLoads.add(loadKey)
-          const relaysToQuery = getBookmarkRepoLoadRelays(addresses)
-          if (relaysToQuery.length > 0) {
-            load({relays: relaysToQuery, filters})
-          } else {
-            loadRepoAnnouncements()
-          }
+        if (!attemptedStarredRepoLoads.has(loadKey)) {
+          attemptedStarredRepoLoads.add(loadKey)
+          const loadPromise =
+            relaysToQuery.length > 0
+              ? load({relays: relaysToQuery, filters})
+              : loadRepoAnnouncements()
+          loadPromise
+            .catch(error => {
+              console.warn("[git/+page] Failed to load starred repos", error)
+            })
+            .finally(() => {
+              if (starredRepoLoadKey === loadKey) settledStarredRepoLoadKey = loadKey
+            })
         }
       }
       return events
     })
   })
 
-  // Loaded bookmarked repos - combines bookmark addresses with actual repo events
-  const loadedBookmarkedRepos = $derived.by(() => {
-    if (!$repos || !hasBookmarkedAddresses) return []
+  // Loaded starred repos - combines star addresses with actual repo events
+  const loadedStarredRepos = $derived.by(() => {
+    if (!$repos || !hasRepoStarAddresses) return []
 
-    const addresses = bookmarkedAddresses
+    const addresses = repoStarAddresses
     if (addresses.length === 0) return []
 
     return matchBookmarkedRepoEvents({
@@ -912,6 +923,11 @@
       getFallbackRelayHint: event => Router.get().getRelaysForPubkey(event.pubkey)?.[0] || "",
     })
   })
+  const starredRepoAnnouncementsLoading = $derived(
+    Boolean(starredRepoLoadKey) &&
+      loadedStarredRepos.length < repoStarAddresses.length &&
+      settledStarredRepoLoadKey !== starredRepoLoadKey,
+  )
 
   const myReposEvents = $derived.by(() => {
     if (!$pubkey) return undefined
@@ -1012,8 +1028,8 @@
     latestMyRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
   )
 
-  const hasBookmarkNotifications = $derived.by(() =>
-    loadedBookmarkedRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
+  const hasStarredRepoNotifications = $derived.by(() =>
+    loadedStarredRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
   )
 
   const mySnippetsEvents = $derived.by(() => {
@@ -1541,7 +1557,7 @@
       return
     }
     const filters = buildBookmarkRepoFilters(communityRepoStarAddresses)
-    const relays = getBookmarkRepoLoadRelays(communityRepoStarAddresses)
+    const relays = getStarredRepoLoadRelays(communityRepoStarAddresses)
     const key = buildBookmarkRepoLoadKey(communityRepoStarAddresses)
     if (key === communityStarRepoLoadKey) return
     communityStarRepoLoadKey = key
@@ -1556,7 +1572,7 @@
       return []
     }
     if (activeTab === "bookmarks") {
-      return activeMode === "community" ? loadedCommunityStarRepos : loadedBookmarkedRepos
+      return activeMode === "community" ? loadedCommunityStarRepos : loadedStarredRepos
     } else {
       return activeMode === "community" ? latestCommunityRepos : latestMyRepos
     }
@@ -1785,22 +1801,10 @@
 
   const knownRepoOwners = $derived.by(() => {
     const owners = new Set<string>()
-    const legacyUnstarredRepoKeys = new Set(
-      legacyUnstarredAddresses
-        .map(bookmark =>
-          getCanonicalRepoKeyFromBookmark({
-            bookmark,
-            getCachedEvent: address =>
-              repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-          }),
-        )
-        .filter(Boolean),
-    )
 
     latestMyRepos.forEach(repo => owners.add(repo.event.pubkey))
     repoStarAddresses.forEach(star => owners.add(star.author))
     ;(($repoAnnouncements as RepoAnnouncementEvent[]) || []).forEach(event => {
-      if (legacyUnstarredRepoKeys.has(getCanonicalRepoKeyFromEvent(event))) return
       owners.add(event.pubkey)
     })
 
@@ -2550,6 +2554,50 @@
     const cards = $repositoriesStore as any[]
     return trimmedSearchQuery ? cards : prioritizeFreshRepoCards(cards)
   })
+  const repoCardsContext = $derived(`${activeMode}:${activeTab}:${trimmedSearchQuery}`)
+  const personalStarredReposSettling = $derived(
+    activeMode === "personal" &&
+      activeTab === "bookmarks" &&
+      Boolean($pubkey) &&
+      !trimmedSearchQuery &&
+      (!repoStarsHydrationSettled || $repoStarsLoading || starredRepoAnnouncementsLoading),
+  )
+
+  const repoCardsForProfileHydration = $derived.by(() =>
+    isAccountSearch ? sortedAccountSearchRepoCards : sortedRepoCards,
+  )
+  let repoCardProfileLoadKey = ""
+
+  $effect(() => {
+    if (activeTab === "snippets") {
+      repoCardProfileLoadKey = ""
+      return
+    }
+
+    const requests = repoCardsForProfileHydration
+      .map(card => {
+        const event = card?.first as RepoAnnouncementEvent | undefined
+        const owner = String(card?.owner || event?.pubkey || "")
+        const relays = event ? getRepoCardProfileRelays(event) : []
+
+        return {owner, relays}
+      })
+      .filter(({owner}) => owner)
+
+    const key = requests
+      .map(({owner, relays}) => `${owner}:${relays.join(",")}`)
+      .sort()
+      .join("|")
+
+    if (!key || key === repoCardProfileLoadKey) return
+    repoCardProfileLoadKey = key
+
+    for (const {owner, relays} of requests) {
+      loadBudabitProfile(owner, {relays}).catch(error => {
+        console.warn("[git/+page] Failed to load repo card owner profile", error)
+      })
+    }
+  })
 
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
@@ -2563,6 +2611,24 @@
     }
 
     const reposToShow = searchFilteredRepos
+    const currentCards = getStore(repositoriesStore)
+    const hasCardsForCurrentContext =
+      cachedCardsKey.startsWith(`${repoCardsContext}:`) &&
+      (currentCards.length > 0 || cachedCards.length > 0)
+
+    if (personalStarredReposSettling && hasCardsForCurrentContext) {
+      loading = false
+      if (currentCards.length === 0 && cachedCards.length > 0) {
+        repositoriesStore.set(cachedCards)
+      }
+      return
+    }
+
+    if (reposToShow.length === 0 && personalStarredReposSettling) {
+      loading = true
+      return
+    }
+
     const shouldResolveEmpty =
       activeMode === "community" || activeTab === "bookmarks" || Boolean($pubkey)
     if (reposToShow.length > 0 || !loading || shouldResolveEmpty) {
@@ -2570,7 +2636,7 @@
       if (reposToShow.length > 0) {
         // Preserve visible order so search relevance changes invalidate the card cache.
         const repoIds = reposToShow.map((r: any) => (r.event ?? r).id).join(",")
-        const cardsKey = repoIds
+        const cardsKey = `${repoCardsContext}:${repoIds}`
 
         // Only recompute and push cards when the key has actually changed
         if (cardsKey !== cachedCardsKey) {
@@ -2633,13 +2699,13 @@
     event: RepoAnnouncementEvent,
     address = getRepoAddressFromEvent(event),
   ) => {
-    const fromLoadedBookmarks =
-      loadedBookmarkedRepos.find(repo => repo.address === address)?.relayHint || ""
+    const fromLoadedStars =
+      loadedStarredRepos.find(repo => repo.address === address)?.relayHint || ""
     const fromTracker = Array.from(tracker.getRelays(event.id) || [])[0] || ""
     const fromPubkey = Router.get().getRelaysForPubkey(event.pubkey)?.[0] || ""
     const relayTag = (event.tags || []).find((tag: string[]) => tag[0] === "relays")?.[1] || ""
 
-    return fromLoadedBookmarks || fromTracker || fromPubkey || relayTag || ""
+    return fromLoadedStars || fromTracker || fromPubkey || relayTag || ""
   }
 
   const getRepoCardCanonicalKeys = (event?: RepoAnnouncementEvent | null) => {
@@ -3016,50 +3082,6 @@
     } catch (error) {
       console.error("[git/+page] Failed to toggle star from repo card", error)
       pushToast({message: "Failed to update star", theme: "error"})
-    }
-  }
-
-  let migratingLegacyStars = $state(false)
-
-  const starLegacyBookmarks = async () => {
-    if (!$pubkey || migratingLegacyStars) return
-
-    const targets = legacyUnstarredAddresses
-    if (targets.length === 0) return
-
-    migratingLegacyStars = true
-    let starredCount = 0
-
-    try {
-      for (const bookmark of targets) {
-        const event =
-          (repository.getEvent(bookmark.address) as RepoAnnouncementEvent | undefined) ||
-          loadedBookmarkedRepos.find(repo => repo.address === bookmark.address)?.event
-        if (!event) continue
-
-        const relayHint = bookmark.relayHint || getRepoCardRelayHint(event, bookmark.address)
-        const relays = getRepoStarRelays([relayHint, ...bookmarkRelays])
-        const starEvent = makeRepoStarReaction({
-          event,
-          address: bookmark.address,
-          relayHints: [relayHint],
-        })
-        const thunk = publishThunk({event: starEvent, relays})
-        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-        starredCount += 1
-      }
-
-      pushToast({
-        message:
-          starredCount === 1
-            ? "Starred 1 saved repository"
-            : `Starred ${starredCount} saved repositories`,
-      })
-    } catch (error) {
-      console.error("[git/+page] Failed to star legacy bookmarks", error)
-      pushToast({message: "Failed to star saved repositories", theme: "error"})
-    } finally {
-      migratingLegacyStars = false
     }
   }
 
@@ -3658,7 +3680,7 @@
                 <Icon icon={Star} size={4} class="sm:hidden" />
                 <Icon icon={Star} class="hidden sm:inline-block" />
                 <span class="min-w-0 truncate">Starred</span>
-                {#if hasBookmarkNotifications}
+                {#if hasStarredRepoNotifications}
                   <span
                     class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2"
                     aria-label="Unread updates"></span>
@@ -3883,23 +3905,6 @@
   {:else}
     <!-- Tab-filtered Repos Grid -->
     <div class="min-w-0">
-      {#if activeMode === "personal" && activeTab === "bookmarks" && legacyUnstarredAddresses.length > 0}
-        <div
-          class="mb-3 flex flex-col gap-3 rounded-md border border-amber-400/30 bg-amber-400/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-amber-700 dark:text-amber-300">
-            {legacyUnstarredAddresses.length} saved repositor{legacyUnstarredAddresses.length === 1
-              ? "y is"
-              : "ies are"} still using the old bookmark format. Star them now before legacy bookmarks
-            are removed.
-          </p>
-          <Button
-            class="btn btn-outline btn-sm shrink-0 border-amber-400/50 text-amber-700 hover:bg-amber-400/20 dark:text-amber-300"
-            onclick={starLegacyBookmarks}
-            disabled={migratingLegacyStars}>
-            {migratingLegacyStars ? "Starring..." : "Star saved repos"}
-          </Button>
-        </div>
-      {/if}
       {#if repoDiscoveryStatusLines.length > 0}
         <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
           <div class="flex items-center gap-2 text-sm font-medium text-foreground">

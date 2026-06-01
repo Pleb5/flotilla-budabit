@@ -1,26 +1,16 @@
 import {
-  GIT_REPO_BOOKMARK_SET,
   GRASP_SET_KIND,
   GIT_REPO_ANNOUNCEMENT,
-  GIT_REPO_BOOKMARK_DTAG,
   DEFAULT_GRASP_SET_ID,
   validateGraspServerUrl,
-  type BookmarkAddress,
 } from "@nostr-git/core/events"
-import {tokens, type Token, bookmarksStore} from "@nostr-git/ui"
+import {tokens, type Token} from "@nostr-git/ui"
 import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
 import {repository, ensurePlaintext, signer, pubkey, publishThunk} from "@welshman/app"
 import {load, PublishStatus} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {get} from "svelte/store"
-import {
-  NAMED_BOOKMARKS,
-  APP_DATA,
-  getAddressTags,
-  makeEvent,
-  normalizeRelayUrl,
-  type TrustedEvent,
-} from "@welshman/util"
+import {APP_DATA, makeEvent, normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
 
 const safeNormalizeRelayUrl = (u: string): string => {
@@ -156,61 +146,11 @@ export function clearSyncedGitAuthTokens() {
 export const EXTENSION_SETTINGS_DTAG = "app/budabit/extensions"
 
 export const loadRepositories = async (pubkey: string, relays: string[] = []) => {
-  // Load both the named bookmark list and any legacy/set variants
+  // Repo stars are kind-7 reactions; this only hydrates the user's own announcements.
   load({
     relays,
-    filters: [
-      {kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG]},
-      {kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey]},
-      {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]},
-    ],
+    filters: [{kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]}],
   })
-}
-
-const getDTag = (tags: string[][] = []) => tags.find(tag => tag[0] === "d")?.[1] || ""
-
-const getRepoAddressParts = (address: string) => {
-  const parts = String(address || "").split(":")
-  const [kind, author, ...identifierParts] = parts
-  const identifier = identifierParts.join(":")
-
-  if (kind !== String(GIT_REPO_ANNOUNCEMENT) || !author || !identifier) return null
-
-  return {author, identifier}
-}
-
-const isDefined = <T>(value: T | null | undefined): value is T => Boolean(value)
-
-const mapRepoBookmarkAddresses = (event: {tags?: string[][]}): BookmarkAddress[] =>
-  getAddressTags(event.tags || [])
-    .map(([_, address, relayHint]: string[]) => {
-      const parts = getRepoAddressParts(address)
-      if (!parts) return null
-
-      return {
-        address,
-        relayHint: relayHint ? safeNormalizeRelayUrl(relayHint) : "",
-        author: parts.author,
-        identifier: parts.identifier,
-      }
-    })
-    .filter(isDefined)
-
-export const getGitRepoBookmarkAddressesFromEvents = (events: any[]) => {
-  const candidates = events
-    .filter(Boolean)
-    .map(event => ({
-      event,
-      bookmarks: mapRepoBookmarkAddresses(event),
-    }))
-    .sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0))
-
-  const canonical = candidates.find(
-    ({event}) => getDTag(event.tags || []) === GIT_REPO_BOOKMARK_DTAG,
-  )
-  if (canonical) return canonical.bookmarks
-
-  return candidates.find(({bookmarks}) => bookmarks.length > 0)?.bookmarks || []
 }
 
 export const loadGraspServers = async (pubkey: string, relays: string[] = []) => {
@@ -234,39 +174,6 @@ export const loadExtensionSettings = async (pk: string, relays: string[] = []) =
     relays,
     filters: [{kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG]}],
   })
-}
-
-// --- Bookmarks sync (centralized) ---
-let bookmarksUnsub: (() => void) | undefined
-
-export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
-  try {
-    bookmarksUnsub?.()
-  } catch {
-    // Existing subscriptions are best-effort cleanup before replacing them.
-  }
-
-  // Query for both new format (with d-tag) and legacy format (without d-tag)
-  const filters: any[] = [
-    {kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG]},
-    {kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey]},
-  ]
-
-  const store = deriveEventsAsc(deriveEventsById({repository, filters}))
-
-  bookmarksUnsub = store.subscribe((events: any[]) => {
-    if (!events || events.length === 0) {
-      console.log("[setupBookmarksSync] No events found")
-      return
-    }
-
-    bookmarksStore.set(getGitRepoBookmarkAddressesFromEvents(events))
-  })
-
-  // Ensure we fetch initial data for both formats
-  load({relays, filters})
-
-  return bookmarksUnsub
 }
 
 // --- GRASP servers sync (centralized) ---

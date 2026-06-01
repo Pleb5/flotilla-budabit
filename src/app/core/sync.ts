@@ -37,7 +37,6 @@ import {
   loadRepositories,
   loadTokens,
   loadExtensionSettings,
-  setupBookmarksSync,
   setupGraspServersSync,
   setupTokensSync,
   setupExtensionSettingsSync,
@@ -379,13 +378,6 @@ const syncUserGitData = () => {
       "mergedRelays:",
       mergedRelays,
     )
-
-    if (!unsubscribersByKey.has("bookmarks")) {
-      console.log("[syncUserGitData] Setting up bookmarks sync...")
-      const unsub = setupBookmarksSync(pk, mergedRelays)
-      if (unsub) unsubscribersByKey.set("bookmarks", unsub)
-      console.log("[syncUserGitData] Bookmarks sync setup complete")
-    }
 
     if (!unsubscribersByKey.has("grasp")) {
       const unsub = setupGraspServersSync(pk, mergedRelays)
