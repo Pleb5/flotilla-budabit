@@ -1,7 +1,3 @@
-[submodule "packages/nostr-git-core"]
-	path = packages/nostr-git-core
-	url = https://github.com/Pleb5/nostr-git-fork.git
-	branch = master
 [submodule "packages/nostr-git-ui"]
 	path = packages/nostr-git-ui
 	url = https://github.com/Pleb5/nostr-git-ui.git
