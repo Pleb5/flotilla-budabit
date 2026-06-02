@@ -175,8 +175,12 @@ export const uninstallExtension = async (id: string) => {
   extensionSettings.update(s => {
     const nip89 = {...(s.installed?.nip89 || {})}
     const widget = {...(s.installed?.widget || {})}
+    const manifestUrls = {...(s.manifestUrls || {})}
+    const widgetDisplay = {...(s.widgetDisplay || {})}
     delete nip89[id]
     delete widget[id]
+    delete manifestUrls[id]
+    delete widgetDisplay[id]
     return {
       ...s,
       installed: {
@@ -185,6 +189,8 @@ export const uninstallExtension = async (id: string) => {
         legacy: s.installed?.legacy,
       },
       enabled: s.enabled.filter(e => e !== id),
+      manifestUrls,
+      widgetDisplay,
     }
   })
 }

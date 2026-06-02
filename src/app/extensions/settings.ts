@@ -212,74 +212,30 @@ export const getManifestUrl = (id: string): string | undefined => {
   return settings.manifestUrls?.[id]
 }
 
-extensionSettings.update(s => {
-  return {
-    enabled: s.enabled || [],
-    disabledDefaultIds: s.disabledDefaultIds || [],
-    installed: normalizeInstalled(s.installed),
-    widgetDisplay: s.widgetDisplay || {},
-    manifestUrls: s.manifestUrls || {},
-  }
-})
-
-// Merge remote settings with local settings
-// Remote settings take precedence for enabled/widgetDisplay, but we merge installed
-const mergeSettings = (local: ExtensionSettings, remote: ExtensionSettings): ExtensionSettings => {
-  // Merge installed extensions - keep both local and remote
-  const mergedNip89 = {
-    ...(local.installed?.nip89 || {}),
-    ...(remote.installed?.nip89 || {}),
-  }
-  const mergedWidget = {
-    ...(local.installed?.widget || {}),
-    ...(remote.installed?.widget || {}),
-  }
-
-  // For enabled, use remote as source of truth but ensure all IDs exist in installed
-  const allInstalledIds = new Set([...Object.keys(mergedNip89), ...Object.keys(mergedWidget)])
-  const mergedEnabled = (remote.enabled || []).filter(id => allInstalledIds.has(id))
-
-  // Merge widgetDisplay - remote takes precedence
-  const mergedWidgetDisplay = {
-    ...(local.widgetDisplay || {}),
-    ...(remote.widgetDisplay || {}),
-  }
-
-  // Merge manifestUrls - keep both local and remote
-  const mergedManifestUrls = {
-    ...(local.manifestUrls || {}),
-    ...(remote.manifestUrls || {}),
-  }
-
-  const mergedDisabledDefaultIds = remote.disabledDefaultIds ?? local.disabledDefaultIds ?? []
+const normalizeExtensionSettings = (settings: Partial<ExtensionSettings>): ExtensionSettings => {
+  const installed = normalizeInstalled(settings.installed)
+  const installedIds = new Set([...Object.keys(installed.nip89), ...Object.keys(installed.widget)])
+  const nip89Ids = new Set(Object.keys(installed.nip89))
+  const manifestUrls = Object.fromEntries(
+    Object.entries(settings.manifestUrls || {}).filter(([id]) => nip89Ids.has(id)),
+  )
 
   return {
-    enabled: mergedEnabled,
-    disabledDefaultIds: mergedDisabledDefaultIds,
-    installed: {
-      nip89: mergedNip89,
-      widget: mergedWidget,
-    },
-    widgetDisplay: mergedWidgetDisplay,
-    manifestUrls: mergedManifestUrls,
+    enabled: (settings.enabled || []).filter(id => installedIds.has(id)),
+    disabledDefaultIds: settings.disabledDefaultIds || [],
+    installed,
+    widgetDisplay: settings.widgetDisplay || {},
+    manifestUrls,
   }
 }
+
+extensionSettings.update(s => normalizeExtensionSettings(s))
 
 // Apply settings loaded from relay
 export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSettings>) => {
   isApplyingRemoteSettings = true
   try {
-    const currentSettings = get(extensionSettings)
-    const normalized: ExtensionSettings = {
-      enabled: remoteSettings.enabled || [],
-      disabledDefaultIds:
-        remoteSettings.disabledDefaultIds ?? currentSettings.disabledDefaultIds ?? [],
-      installed: normalizeInstalled(remoteSettings.installed),
-      widgetDisplay: remoteSettings.widgetDisplay || {},
-      manifestUrls: remoteSettings.manifestUrls || {},
-    }
-    const merged = mergeSettings(currentSettings, normalized)
-    extensionSettings.set(merged)
+    extensionSettings.set(normalizeExtensionSettings(remoteSettings))
     console.log("[applyRemoteExtensionSettings] Applied remote settings")
   } finally {
     isApplyingRemoteSettings = false
