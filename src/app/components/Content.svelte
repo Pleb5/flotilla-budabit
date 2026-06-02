@@ -36,6 +36,7 @@
   import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
+  import {replaceCashuTokens} from "@app/util/cashu-token"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
   import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
 
@@ -65,7 +66,7 @@
     communitySectionName = "",
   }: Props = $props()
 
-  const fullContent = $derived(parse(event))
+  const fullContent = $derived(replaceCashuTokens(parse(event)))
 
   const expand = () => {
     showEntire = true
@@ -81,7 +82,7 @@
   }
 
   const isBlock = (i: number) => {
-    const parsed = fullContent[i]
+    const parsed = shortRawContent[i]
 
     if (!parsed || hideMediaAtDepth <= depth) return false
 
@@ -97,7 +98,7 @@
   }
 
   const isBoundary = (i: number) => {
-    const parsed = fullContent[i]
+    const parsed = shortRawContent[i]
 
     if (!parsed || isNewline(parsed)) return true
     if (isText(parsed)) return Boolean(parsed.value.match(/^\s+$/))

@@ -4,6 +4,7 @@
     cashuBalancesByMint,
     cashuMints,
     cashuBackupConfirmed,
+    cashuRecoveryInProgress,
     cashuSetupResolved,
     cashuSetupRequired,
     cashuSeedLocked,
@@ -13,6 +14,7 @@
   import CashuSend from "@app/components/CashuSend.svelte"
   import CashuHistory from "@app/components/CashuHistory.svelte"
   import CashuMintManager from "@app/components/CashuMintManager.svelte"
+  import CashuRecoveryLoader from "@app/components/CashuRecoveryLoader.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
   import CashuMintCard from "@app/components/CashuMintCard.svelte"
   import {formatCashuSats} from "@app/util/cashu-format"
@@ -28,24 +30,25 @@
   let activeTab = $state<Tab>("balance")
 
   const setupResolved = $derived($cashuSetupResolved)
+  const recoveryInProgress = $derived($cashuRecoveryInProgress)
   const needsSetup = $derived($cashuSetupRequired || $cashuSeedLocked || !$cashuBackupConfirmed)
   const totalBalance = $derived($cashuTotalBalance)
   const balancesByMint = $derived($cashuBalancesByMint)
   const mints = $derived($cashuMints)
 
-  const tabs = $derived(
-    [
-      {id: "balance", label: "Balance"},
-      {id: "receive", label: "Receive"},
-      {id: "send", label: "Send"},
-      {id: "history", label: "History"},
-      ...(showMintsTab ? [{id: "mints", label: "Mints"}] : []),
-    ] as {id: Tab; label: string}[],
-  )
+  const tabs = $derived([
+    {id: "balance", label: "Balance"},
+    {id: "receive", label: "Receive"},
+    {id: "send", label: "Send"},
+    {id: "history", label: "History"},
+    ...(showMintsTab ? [{id: "mints", label: "Mints"}] : []),
+  ] as {id: Tab; label: string}[])
 </script>
 
 <div class="flex min-h-[400px] w-full min-w-0 flex-col gap-3 p-2 sm:gap-4 sm:p-4">
-  {#if !setupResolved}
+  {#if recoveryInProgress}
+    <CashuRecoveryLoader />
+  {:else if !setupResolved}
     <div class="flex min-h-[320px] items-center justify-center text-sm opacity-70">
       Loading Cashu wallet…
     </div>
@@ -54,7 +57,12 @@
   {:else}
     {#if showHeader}
       <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <h2 class="text-xl font-bold">Cashu Wallet</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="text-xl font-bold">Cashu Wallet</h2>
+          <span class="rounded-full bg-warning/15 px-2 py-1 text-xs font-semibold text-warning">
+            Warning! Experimental, use at own risk!
+          </span>
+        </div>
         <span class="font-mono text-base font-semibold sm:text-lg"
           >{formatCashuSats(totalBalance)} sats</span>
       </div>

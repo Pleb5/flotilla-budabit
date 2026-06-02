@@ -2,6 +2,7 @@ import {describe, expect, it, vi, beforeEach} from "vitest"
 import {createRenderers} from "./markdownRenderers"
 import {nip19} from "nostr-tools"
 import {Marked} from "marked"
+import {getEncodedToken} from "@cashu/cashu-ts"
 
 vi.mock("nostr-tools", () => ({
   nip19: {
@@ -18,6 +19,19 @@ vi.mock("highlight.js", () => ({
 }))
 
 describe("markdownRenderers", () => {
+  const makeCashuToken = () =>
+    getEncodedToken({
+      mint: "https://mint.example",
+      proofs: [
+        {
+          id: "009a1f293253e41e",
+          amount: 2,
+          secret: "test-secret",
+          C: `02${"a".repeat(64)}`,
+        },
+      ],
+    })
+
   beforeEach(() => {
     vi.mocked(nip19.decode).mockReset()
   })
@@ -62,6 +76,16 @@ describe("markdownRenderers", () => {
       expect(html).toContain("View repo")
       expect(html).toContain('target="_blank"')
       expect(html).toContain("rel=")
+    })
+
+    it("renders Cashu links as token placeholders", () => {
+      const renderers = createRenderers()
+      const token = makeCashuToken()
+
+      const html = renderers.link!({href: token, text: "Redeem"} as any)
+
+      expect(html).toContain("markdown-cashu-placeholder")
+      expect(html).toContain(`data-token="${encodeURIComponent(token)}"`)
     })
 
     it("shortens standalone URL display when text matches href", () => {

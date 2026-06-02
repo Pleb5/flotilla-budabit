@@ -9,6 +9,7 @@ import type {TrustedEvent} from "@welshman/util"
 import {shortenUrl, isMediaUrl} from "./markdownUtils.js"
 import {parseNcommunityLink} from "@app/util/community-links"
 import type {ParsedCommunityInput} from "@app/core/community"
+import {getCashuTokenInfo} from "@app/util/cashu-token"
 
 export interface RendererOptions {
   event?: TrustedEvent
@@ -125,6 +126,11 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     link(token: Tokens.Link): string {
       const {href, text} = token
 
+      const cashu = getCashuTokenInfo(href)
+      if (cashu) {
+        return createCashuPlaceholder(cashu.token)
+      }
+
       const community = parseNcommunityLink(href)
       if (community) {
         return createCommunityPlaceholder(community)
@@ -181,6 +187,10 @@ function isPreviewableUrl(url: string): boolean {
 
 function createLinkBlockPlaceholder(href: string, eventId: string): string {
   return `<span class="markdown-link-block-placeholder" data-url="${href}" data-event-id="${eventId}"></span>`
+}
+
+function createCashuPlaceholder(token: string): string {
+  return `<span class="markdown-cashu-placeholder" data-token="${encodeURIComponent(token)}"></span>`
 }
 
 /**

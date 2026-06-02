@@ -28,6 +28,7 @@
   } from "@app/util/secret-file"
   import {downloadText} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
+  import CashuRecoveryLoader from "@app/components/CashuRecoveryLoader.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import UploadMinimalistic from "@assets/icons/upload-minimalistic.svg?dataurl"
@@ -43,7 +44,7 @@
 
   type RecoveryInputSource = "file" | "manual"
 
-  let source = $state<"choice" | RecoveryInputSource | "updated_backup">("choice")
+  let source = $state<"choice" | RecoveryInputSource | "restored">("choice")
   let lastRecoverySource = $state<RecoveryInputSource>("file")
   let selectedFileName = $state("")
   let parsedBackup = $state<ParsedCashuBackup | null>(null)
@@ -71,6 +72,8 @@
   let showRecoveredBackupPassphrase = $state(false)
   let showRecoveredBackupPassphraseConfirm = $state(false)
   let recoveredBackupDownloading = $state(false)
+  let recoveredBackupDownloaded = $state(false)
+  let recoveredBackupRequired = $state(false)
   let error = $state("")
   let status = $state("")
   let recommendationLoadKey = $state("")
@@ -183,7 +186,26 @@
       ...selectedRecommendationMints,
     ])
 
-  const setRecoveryComplete = (data: CashuBackupData, recoverySource: RecoveryInputSource) => {
+  const haveSameMints = (left: string[] = [], right: string[] = []) => {
+    const leftMints = normalizeCashuMintUrls(left)
+    const rightMints = normalizeCashuMintUrls(right)
+
+    return (
+      leftMints.length === rightMints.length && leftMints.every(mint => rightMints.includes(mint))
+    )
+  }
+
+  const completeRestore = async () => {
+    await confirmCashuBackup()
+    if (onconfirmed) onconfirmed()
+    else if (location.hash) history.back()
+  }
+
+  const setRecoveryComplete = async (
+    data: CashuBackupData,
+    recoverySource: RecoveryInputSource,
+    requiresUpdatedBackup: boolean,
+  ) => {
     recoveredBackup = {
       mnemonic: data.mnemonic,
       mints: normalizeCashuMintUrls(data.mints),
@@ -192,7 +214,30 @@
     recoveredBackupPassphrase = ""
     recoveredBackupPassphraseConfirm = ""
     recoveredBackupEncrypt = false
-    source = "updated_backup"
+    recoveredBackupDownloaded = false
+    recoveredBackupRequired = requiresUpdatedBackup
+
+    if (!requiresUpdatedBackup) {
+      await completeRestore()
+      return
+    }
+
+    source = "restored"
+  }
+
+  const finishRestore = async () => {
+    if (recoveredBackupRequired && !recoveredBackupDownloaded) {
+      showError(
+        "Download the updated backup before continuing. It includes the mint list used for recovery.",
+      )
+      return
+    }
+
+    try {
+      await completeRestore()
+    } catch (e: any) {
+      showError(e?.message || "Could not finish wallet restore.")
+    }
   }
 
   const backToRecoveryInput = () => {
@@ -229,8 +274,12 @@
       restoreResult = await restoreCashuSeedBackup(recoveryData, {
         encryptPassphrase: encryptRestoredSeed ? restorePassphrase : undefined,
       })
-      setRecoveryComplete(recoveryData, "file")
-      status = "Cashu seed restored. Download an updated backup before continuing."
+      await setRecoveryComplete(
+        recoveryData,
+        "file",
+        !haveSameMints(data.mints, recoveryData.mints),
+      )
+      status = "Cashu seed restored."
     } catch (e: any) {
       showError(e?.message || "Could not restore the selected Cashu backup.")
     } finally {
@@ -265,8 +314,8 @@
       restoreResult = await restoreCashuSeedBackup(recoveryData, {
         encryptPassphrase: encryptRestoredSeed ? restorePassphrase : undefined,
       })
-      setRecoveryComplete(recoveryData, "manual")
-      status = "Cashu seed restored. Download an updated backup before continuing."
+      await setRecoveryComplete(recoveryData, "manual", true)
+      status = "Cashu seed restored."
     } catch (e: any) {
       showError(e?.message || "Could not restore the Cashu seed.")
     } finally {
@@ -295,9 +344,8 @@
         : createCashuBackupText(recoveredBackup)
 
       downloadText("Budabit Cashu Wallet Seed.txt", text)
-      await confirmCashuBackup()
+      recoveredBackupDownloaded = true
       status = "Updated Cashu backup downloaded. Keep the file safe."
-      onconfirmed?.()
     } catch (e: any) {
       showError(e?.message || "Could not download the updated Cashu backup.")
     } finally {
@@ -333,7 +381,9 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-4 p-2 sm:gap-6 sm:p-4">
-  {#if source === "choice"}
+  {#if restoring}
+    <CashuRecoveryLoader />
+  {:else if source === "choice"}
     <div class="flex flex-col gap-2">
       <h3 class="text-lg font-bold">Restore Cashu Wallet</h3>
       <p class="text-sm opacity-75">
@@ -520,8 +570,8 @@
     <div class="flex flex-col gap-2">
       <h3 class="text-lg font-bold">Save Updated Backup</h3>
       <p class="text-sm opacity-75">
-        Recovery is not complete until you save this updated backup file. It includes the restored
-        seed and the mint list Budabit used for recovery.
+        Your wallet was restored with a mint list that is not in your existing backup. Download an
+        updated backup before continuing so future recovery can find these funds.
       </p>
     </div>
 
@@ -604,18 +654,25 @@
     {/if}
 
     <div class="flex flex-col-reverse gap-2 sm:flex-row sm:gap-3">
-      <Button class="btn btn-neutral btn-sm inline-flex justify-center" onclick={backToRecoveryInput}
-        >← Back</Button>
       <Button
-        class="btn btn-warning btn-sm inline-flex flex-1 justify-center"
+        class="btn btn-neutral btn-sm inline-flex justify-center"
+        onclick={backToRecoveryInput}>← Back</Button>
+      <Button
+        class="btn btn-neutral btn-sm inline-flex flex-1 justify-center"
         onclick={downloadRecoveredBackup}
         disabled={recoveredBackupDownloading}>
-        {recoveredBackupDownloading ? "Downloading…" : "Download updated backup file"}
+        {recoveredBackupDownloading ? "Downloading…" : "Download updated backup"}
+      </Button>
+      <Button
+        class="btn btn-primary btn-sm inline-flex flex-1 justify-center"
+        onclick={finishRestore}
+        disabled={recoveredBackupRequired && !recoveredBackupDownloaded}>
+        {recoveredBackupDownloaded ? "Continue" : "Continue after download"}
       </Button>
     </div>
   {/if}
 
-  {#if trustedMints.length > 0 && (source === "file" || source === "manual")}
+  {#if !restoring && trustedMints.length > 0 && (source === "file" || source === "manual")}
     <label
       class="flex cursor-pointer gap-3 rounded-box border border-base-content/10 bg-base-100/50 p-3 text-sm">
       <input bind:checked={includeTrustedRecoveryMints} type="checkbox" class="checkbox mt-0.5" />
@@ -633,7 +690,7 @@
     </label>
   {/if}
 
-  {#if source === "file" || source === "manual"}
+  {#if !restoring && (source === "file" || source === "manual")}
     <label
       class="flex cursor-pointer gap-3 rounded-box border border-base-content/10 bg-base-200/50 p-3 text-sm">
       <input bind:checked={encryptRestoredSeed} type="checkbox" class="checkbox mt-0.5" />
@@ -688,7 +745,7 @@
     {/if}
   {/if}
 
-  {#if source === "file"}
+  {#if !restoring && source === "file"}
     <div class="flex flex-col-reverse gap-2 sm:flex-row sm:gap-3">
       <Button
         class="btn btn-neutral btn-sm inline-flex justify-center"
@@ -700,7 +757,7 @@
         {restoring ? "Restoring…" : "Restore and recover"}
       </Button>
     </div>
-  {:else if source === "manual"}
+  {:else if !restoring && source === "manual"}
     <div class="flex flex-col-reverse gap-2 sm:flex-row sm:gap-3">
       <Button
         class="btn btn-neutral btn-sm inline-flex justify-center"

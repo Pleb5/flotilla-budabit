@@ -32,6 +32,7 @@
   import GitQuoteFallback from "@app/components/GitQuoteFallback.svelte"
   import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
+  import {replaceCashuTokens} from "@app/util/cashu-token"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
 
   interface Props {
@@ -42,7 +43,7 @@
 
   const {event, trimParent = false, url}: Props = $props()
 
-  const fullContent = parse(event)
+  const fullContent = replaceCashuTokens(parse(event))
 
   const isBoundary = (i: number) => {
     const parsed = fullContent[i]

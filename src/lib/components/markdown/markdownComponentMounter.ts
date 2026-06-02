@@ -8,6 +8,7 @@ import Profile from "@app/components/Profile.svelte"
 import ProfileLink from "@app/components/ProfileLink.svelte"
 import ContentLinkBlock from "@app/components/ContentLinkBlock.svelte"
 import ContentQuote from "@app/components/ContentQuote.svelte"
+import ContentToken from "@app/components/ContentToken.svelte"
 import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
 
 export interface MountedComponent {
@@ -34,11 +35,41 @@ export function mountPlaceholderComponents(
   const mountedComponents: MountedComponent[] = []
 
   mountProfilePlaceholders(container, mountedComponents)
+  mountCashuPlaceholders(container, mountedComponents)
   mountCommunityPlaceholders(container, mountedComponents)
   mountLinkBlockPlaceholders(container, options, mountedComponents)
   mountQuotePlaceholders(container, options, mountedComponents)
 
   return mountedComponents
+}
+
+/**
+ * Mounts Cashu token components
+ */
+function mountCashuPlaceholders(
+  container: HTMLElement,
+  mountedComponents: MountedComponent[],
+): void {
+  const cashuPlaceholders = container.querySelectorAll(".markdown-cashu-placeholder")
+  cashuPlaceholders.forEach(placeholder => {
+    const encodedToken = placeholder.getAttribute("data-token")
+    if (!encodedToken) return
+
+    try {
+      const token = decodeURIComponent(encodedToken)
+      const containerElement = document.createElement("span")
+      placeholder.replaceWith(containerElement)
+
+      const tokenComponent = mount(ContentToken, {
+        target: containerElement,
+        props: {value: token},
+      })
+
+      mountedComponents.push({target: containerElement, component: tokenComponent})
+    } catch (e) {
+      console.error("Failed to mount ContentToken:", e)
+    }
+  })
 }
 
 function parseRelaysAttribute(value: string | null, label: string): string[] {

@@ -6,11 +6,9 @@ import type {TokenizerAndRendererExtension, Tokens} from "marked"
 import {nip19} from "nostr-tools"
 import type {TrustedEvent} from "@welshman/util"
 import {shortenNostrUri} from "./markdownUtils.js"
-import {
-  findNcommunityLinkStart,
-  getNcommunityLinkAtStart,
-} from "@app/util/community-links"
+import {findNcommunityLinkStart, getNcommunityLinkAtStart} from "@app/util/community-links"
 import type {ParsedCommunityInput} from "@app/core/community"
+import {findCashuTokenStart, getCashuTokenAtStart} from "@app/util/cashu-token"
 
 export interface NostrTokenizerOptions {
   event?: TrustedEvent
@@ -20,8 +18,38 @@ export interface NostrTokenizerOptions {
   hideMediaAtDepth?: number
 }
 
-export interface EmailTokenizerOptions {
-  // Future: add options if needed
+export type EmailTokenizerOptions = Record<string, never>
+
+/**
+ * Creates a Cashu tokenizer extension
+ */
+export function createCashuTokenizer(): TokenizerAndRendererExtension {
+  return {
+    name: "cashu",
+    level: "inline",
+    start(src: string) {
+      return findCashuTokenStart(src)
+    },
+    tokenizer(src: string) {
+      const token = getCashuTokenAtStart(src)
+      if (!token) return
+
+      return {
+        type: "cashu",
+        raw: token.token,
+        text: token.token,
+        token: token.token,
+        tokens: [],
+      }
+    },
+    renderer(token: Tokens.Generic) {
+      return createCashuPlaceholder(`${token.token || token.raw || ""}`)
+    },
+  }
+}
+
+function createCashuPlaceholder(token: string): string {
+  return `<span class="markdown-cashu-placeholder" data-token="${encodeURIComponent(token)}"></span>`
 }
 
 const NOSTR_INLINE_REGEX = /(?:nostr:\s*)?n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,}/g

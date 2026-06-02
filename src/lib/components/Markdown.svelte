@@ -197,7 +197,11 @@
   import {REPO_RELAYS_KEY} from "@app/core/git-state"
   import {normalizeRelayUrl} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
-  import {createNostrTokenizer, createEmailTokenizer} from "./markdown/markdownTokenizers.js"
+  import {
+    createNostrTokenizer,
+    createEmailTokenizer,
+    createCashuTokenizer,
+  } from "./markdown/markdownTokenizers.js"
   import {createTokenWalker} from "./markdown/markdownTokenWalker.js"
   import {createRenderers} from "./markdown/markdownRenderers.js"
   import {
@@ -274,7 +278,7 @@
     }
 
     return new Marked({
-      extensions: [createNostrTokenizer(options), createEmailTokenizer()],
+      extensions: [createCashuTokenizer(), createNostrTokenizer(options), createEmailTokenizer()],
       async: true,
       breaks: true,
       walkTokens: createTokenWalker({defaultRelays: defaultRelays}),
@@ -318,6 +322,7 @@
             "data-minimal",
             "data-depth",
             "data-hide-media",
+            "data-token",
           ],
           ADD_TAGS: ["span"],
         })
@@ -375,10 +380,10 @@
   })
 </script>
 
-  <div
-    class="markdown w-full max-w-full overflow-hidden"
-    class:markdown--comment={variant === "comment"}
-    bind:this={containerElement}>
-    {@html sanitizedContent}
-  </div>
-  <BlossomAttachmentList {attachments} {event} />
+<div
+  class="markdown w-full max-w-full overflow-hidden"
+  class:markdown--comment={variant === "comment"}
+  bind:this={containerElement}>
+  {@html sanitizedContent}
+</div>
+<BlossomAttachmentList {attachments} {event} />

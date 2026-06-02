@@ -16,6 +16,7 @@ vi.mock("@app/components/Profile.svelte", () => ({default: "Profile"}))
 vi.mock("@app/components/ProfileLink.svelte", () => ({default: "ProfileLink"}))
 vi.mock("@app/components/ContentLinkBlock.svelte", () => ({default: "ContentLinkBlock"}))
 vi.mock("@app/components/ContentQuote.svelte", () => ({default: "ContentQuote"}))
+vi.mock("@app/components/ContentToken.svelte", () => ({default: "ContentToken"}))
 vi.mock("@app/components/community/CommunityLinkCard.svelte", () => ({
   default: "CommunityLinkCard",
 }))
@@ -95,6 +96,23 @@ describe("markdownComponentMounter", () => {
 
       expect(mockMount).not.toHaveBeenCalled()
       expect(result).toEqual([])
+    })
+
+    it("mounts Cashu token placeholders", () => {
+      const token = "cashuBo2FtdGh0dHBzOi8vbWludC5leGFtcGxlYXVjc2F0YXSA"
+      const container = document.createElement("div")
+      container.innerHTML = `<span class="markdown-cashu-placeholder" data-token="${encodeURIComponent(token)}"></span>`
+
+      const result = mountPlaceholderComponents(container, {})
+
+      expect(mockMount).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          props: {value: token},
+        }),
+      )
+      expect(result.length).toBe(1)
+      expect(container.querySelector(".markdown-cashu-placeholder")).toBeNull()
     })
 
     it("mounts link block placeholder when event provided and eventId matches", () => {

@@ -1,6 +1,11 @@
 import {describe, expect, it, vi, beforeEach} from "vitest"
-import {createEmailTokenizer, createNostrTokenizer} from "./markdownTokenizers"
+import {
+  createCashuTokenizer,
+  createEmailTokenizer,
+  createNostrTokenizer,
+} from "./markdownTokenizers"
 import {nip19} from "nostr-tools"
+import {getEncodedToken} from "@cashu/cashu-ts"
 
 vi.mock("nostr-tools", () => ({
   nip19: {
@@ -17,6 +22,53 @@ interface InlineTokenizerExtension {
 }
 
 describe("markdownTokenizers", () => {
+  const makeCashuToken = () =>
+    getEncodedToken({
+      mint: "https://mint.example",
+      proofs: [
+        {
+          id: "009a1f293253e41e",
+          amount: 2,
+          secret: "test-secret",
+          C: `02${"a".repeat(64)}`,
+        },
+      ],
+    })
+
+  describe("createCashuTokenizer", () => {
+    const cashuTokenizer = createCashuTokenizer() as InlineTokenizerExtension
+
+    it("has correct extension metadata", () => {
+      expect(cashuTokenizer.name).toBe("cashu")
+      expect(cashuTokenizer.level).toBe("inline")
+    })
+
+    it("finds generated Cashu token start index", () => {
+      const token = makeCashuToken()
+
+      expect(cashuTokenizer.start(`pay ${token}`)).toBe(4)
+      expect(cashuTokenizer.start("plain text")).toBe(-1)
+    })
+
+    it("tokenizes generated Cashu tokens", () => {
+      const token = makeCashuToken()
+
+      expect(cashuTokenizer.tokenizer(`${token}.`)).toMatchObject({
+        type: "cashu",
+        raw: token,
+        token,
+      })
+    })
+
+    it("renders Cashu placeholders", () => {
+      const token = makeCashuToken()
+      const html = cashuTokenizer.renderer({type: "cashu", token} as any)
+
+      expect(html).toContain("markdown-cashu-placeholder")
+      expect(html).toContain(`data-token="${encodeURIComponent(token)}"`)
+    })
+  })
+
   describe("createEmailTokenizer", () => {
     const emailTokenizer = createEmailTokenizer() as InlineTokenizerExtension
 

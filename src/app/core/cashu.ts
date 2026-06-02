@@ -48,6 +48,7 @@ export const cashuSetupResolved: Writable<boolean> = writable(false)
 export const cashuSetupRequired: Writable<boolean> = writable(false)
 export const cashuSeedEncrypted: Writable<boolean> = writable(false)
 export const cashuSeedLocked: Writable<boolean> = writable(false)
+export const cashuRecoveryInProgress: Writable<boolean> = writable(false)
 
 // Internal manager reference
 let manager: Manager | null = null
@@ -202,6 +203,9 @@ const _doInitialize = async (): Promise<void> => {
     manager.on("mint:updated", refreshCashuMints)
     manager.on("history:updated", refreshCashuHistory)
     manager.on("proofs:saved", refreshCashuBalances)
+    manager.on("proofs:state-changed", refreshCashuBalances)
+    manager.on("proofs:reserved", refreshCashuBalances)
+    manager.on("proofs:released", refreshCashuBalances)
     manager.on("proofs:deleted", refreshCashuBalances)
     manager.on("proofs:wiped", refreshCashuBalances)
 
@@ -313,26 +317,31 @@ export const restoreCashuSeedBackup = async (
   const mnemonic = validateCashuMnemonic(data.mnemonic)
   const mints = Array.from(new Set((data.mints || []).map(mint => mint.trim()).filter(Boolean)))
 
-  resetManagerRuntime()
-  await persistCashuMnemonic({mnemonic, mints}, options.encryptPassphrase)
-  await storageRemove(KEY_BACKUP_CONFIRMED)
-  cashuBackupConfirmed.set(false)
-  await deleteIndexedDB(DB_NAME)
-  await initializeCashuWallet()
+  cashuRecoveryInProgress.set(true)
+  try {
+    resetManagerRuntime()
+    await persistCashuMnemonic({mnemonic, mints}, options.encryptPassphrase)
+    await storageRemove(KEY_BACKUP_CONFIRMED)
+    cashuBackupConfirmed.set(false)
+    await deleteIndexedDB(DB_NAME)
+    await initializeCashuWallet()
 
-  const failed: {mintUrl: string; error: string}[] = []
-  for (const mintUrl of mints) {
-    try {
-      await trustCashuMint(mintUrl)
-    } catch (e: any) {
-      failed.push({mintUrl, error: e?.message || String(e)})
+    const failed: {mintUrl: string; error: string}[] = []
+    for (const mintUrl of mints) {
+      try {
+        await trustCashuMint(mintUrl)
+      } catch (e: any) {
+        failed.push({mintUrl, error: e?.message || String(e)})
+      }
     }
+
+    if (mints.length === 0) return {succeeded: [], failed}
+
+    const recovered = await recoverAllTrustedMints()
+    return {succeeded: recovered.succeeded, failed: [...failed, ...recovered.failed]}
+  } finally {
+    cashuRecoveryInProgress.set(false)
   }
-
-  if (mints.length === 0) return {succeeded: [], failed}
-
-  const recovered = await recoverAllTrustedMints()
-  return {succeeded: recovered.succeeded, failed: [...failed, ...recovered.failed]}
 }
 
 // ─── Mint Management ──────────────────────────────────────────────────────────
@@ -433,14 +442,21 @@ export const removeCashuMint = async (url: string): Promise<void> => {
 export const refreshCashuBalances = async (): Promise<void> => {
   if (!manager) return
   try {
-    const byMint = await manager.wallet.balances.byMint()
-    const map = new Map(Object.entries(byMint).map(([url, snap]) => [url, snap.total]))
-    cashuBalancesByMint.set(map)
-    const {total} = await manager.wallet.balances.total()
-    cashuTotalBalance.set(total)
+    await refreshCashuBalancesStrict()
   } catch (e) {
     console.error("[cashu] Failed to refresh balances:", e)
   }
+}
+
+const refreshCashuBalancesStrict = async (): Promise<number> => {
+  if (!manager) throw new Error("Wallet not initialized")
+
+  const byMint = await manager.wallet.balances.byMint()
+  const map = new Map(Object.entries(byMint).map(([url, snap]) => [url, snap.total]))
+  cashuBalancesByMint.set(map)
+  const {total} = await manager.wallet.balances.total()
+  cashuTotalBalance.set(total)
+  return total
 }
 
 // ─── Token Operations ─────────────────────────────────────────────────────────
@@ -460,10 +476,10 @@ export const receiveCashuToken = async (token: string): Promise<number> => {
     throw new UntrustedMintError(mintUrl)
   }
 
-  const before = get(cashuTotalBalance)
+  const before = await refreshCashuBalancesStrict()
   await manager.wallet.receive(token)
-  await refreshCashuBalances()
-  const after = get(cashuTotalBalance)
+  const after = await refreshCashuBalancesStrict()
+  await refreshCashuHistoryStrict()
   return after - before
 }
 
@@ -476,7 +492,8 @@ export const createCashuToken = async (amount: number, mintUrl: string): Promise
   }
   const prepared = await manager.ops.send.prepare({mintUrl, amount})
   const {token: tokenData} = await manager.ops.send.execute(prepared)
-  await refreshCashuBalances()
+  await refreshCashuBalancesStrict()
+  await refreshCashuHistoryStrict()
   return getEncodedToken(tokenData)
 }
 
@@ -544,8 +561,9 @@ export const removeAutoPayWhitelist = (extensionId: string): void => {
 // ─── History ──────────────────────────────────────────────────────────────────
 
 const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
+  const stableId = getHistoryEntryKey(entry)
   const base = {
-    id: entry.id,
+    id: stableId,
     mintUrl: entry.mintUrl,
     amount: (entry as any).amount ?? 0,
     createdAt: entry.createdAt,
@@ -568,12 +586,75 @@ const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
   }
 }
 
+const getHistoryEntryKey = (entry: HistoryEntry): string => {
+  const receivedTokenKey = getReceivedTokenHistoryKey(entry)
+  if (receivedTokenKey) return receivedTokenKey
+
+  const operationId = (entry as any).operationId
+  const quoteId = (entry as any).quoteId
+  return [entry.type, entry.mintUrl, operationId || quoteId || entry.id].join(":")
+}
+
+const getReceivedTokenHistoryKey = (entry: HistoryEntry): string => {
+  if (entry.type !== "receive" || !entry.token?.proofs?.length) return ""
+
+  const proofKey = entry.token.proofs
+    .map(proof => [proof.id, proof.amount, proof.secret, proof.C].join("|"))
+    .sort()
+    .join(";")
+
+  return [entry.type, entry.mintUrl, proofKey].join(":")
+}
+
+const getHistoryStateRank = (entry: HistoryEntry): number => {
+  const state = `${(entry as any).state || ""}`.toLowerCase()
+  if (["finalized", "paid", "issued"].includes(state)) return 4
+  if (["pending"].includes(state)) return 3
+  if (["prepared", "unpaid"].includes(state)) return 2
+  if (["rolledback", "rolled_back", "failed"].includes(state)) return 1
+  return 0
+}
+
+const shouldReplaceHistoryEntry = (current: HistoryEntry, next: HistoryEntry): boolean => {
+  const currentRank = getHistoryStateRank(current)
+  const nextRank = getHistoryStateRank(next)
+  if (nextRank !== currentRank) return nextRank > currentRank
+
+  const currentUpdatedAt = (current as any).updatedAt || current.createdAt || 0
+  const nextUpdatedAt = (next as any).updatedAt || next.createdAt || 0
+  return nextUpdatedAt > currentUpdatedAt
+}
+
+const dedupeHistoryEntries = (entries: HistoryEntry[]): HistoryEntry[] => {
+  const byKey = new Map<string, HistoryEntry>()
+
+  for (const entry of entries) {
+    const key = getHistoryEntryKey(entry)
+    const current = byKey.get(key)
+    if (!current || shouldReplaceHistoryEntry(current, entry)) {
+      byKey.set(key, entry)
+    }
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+}
+
 const refreshCashuHistory = async (): Promise<void> => {
   if (!manager) return
   try {
-    const entries = await manager.history.getPaginatedHistory(0, HISTORY_PAGE_SIZE)
-    cashuTokenHistory.set(entries.map(mapHistoryEntry).filter((e): e is TokenHistoryEntry => !!e))
+    await refreshCashuHistoryStrict()
   } catch (e) {
     console.error("[cashu] Failed to refresh history:", e)
   }
+}
+
+const refreshCashuHistoryStrict = async (): Promise<void> => {
+  if (!manager) throw new Error("Wallet not initialized")
+
+  const entries = await manager.history.getPaginatedHistory(0, HISTORY_PAGE_SIZE)
+  cashuTokenHistory.set(
+    dedupeHistoryEntries(entries)
+      .map(mapHistoryEntry)
+      .filter((e): e is TokenHistoryEntry => !!e),
+  )
 }

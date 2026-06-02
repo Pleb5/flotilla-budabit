@@ -2,6 +2,7 @@
   import {
     cashuBackupConfirmed,
     cashuMints,
+    cashuRecoveryInProgress,
     cashuSeedLocked,
     cashuSetupResolved,
     cashuSetupRequired,
@@ -29,6 +30,7 @@
   const setupResolved = $derived($cashuSetupResolved)
   const seedLocked = $derived($cashuSeedLocked)
   const backupConfirmed = $derived($cashuBackupConfirmed)
+  const recoveryInProgress = $derived($cashuRecoveryInProgress)
   const mints = $derived($cashuMints)
 
   const getInitialScreen = (): Screen => {
@@ -105,7 +107,7 @@
     onback={mode === "backup" || mode === "unlock" ? undefined : () => (screen = "create")} />
 {/if}
 
-{#if screen !== "choice" && screen !== "backup" && mode !== "backup" && mode !== "unlock"}
+{#if !recoveryInProgress && screen !== "choice" && screen !== "backup" && mode !== "backup" && mode !== "unlock"}
   <div class="px-2 pb-2 sm:px-4 sm:pb-4">
     <Button
       class="btn btn-ghost btn-xs inline-flex justify-center"
