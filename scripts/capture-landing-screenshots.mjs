@@ -185,12 +185,18 @@ async function waitForScreenshotReady(page, route) {
 }
 
 async function openLogin(page) {
-  const loginScreen = page.getByTestId("login-screen")
-  if (await loginScreen.isVisible().catch(() => false)) return
+  const localKeyOption = page.getByTestId("login-option-local-key")
+  if (await localKeyOption.isVisible().catch(() => false)) return
 
   const visibleLogin = page.getByRole("button", {name: /^log in$/i}).first()
   if (await visibleLogin.isVisible().catch(() => false)) {
     await visibleLogin.click()
+    return
+  }
+
+  const createCommunity = page.getByRole("button", {name: /create community/i}).first()
+  if (await createCommunity.isVisible().catch(() => false)) {
+    await createCommunity.click()
     return
   }
 
