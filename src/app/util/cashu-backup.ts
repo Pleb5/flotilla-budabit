@@ -10,7 +10,6 @@ export const CASHU_BACKUP_END = "-----END BUDABIT CASHU BACKUP-----"
 
 const TEXT_ENCODER = new TextEncoder()
 const TEXT_DECODER = new TextDecoder()
-const MNEMONIC_LENGTHS = [12, 15, 18, 21, 24]
 const ENCRYPTION_ITERATIONS = 250_000
 
 export type CashuBackupData = {
@@ -138,7 +137,7 @@ export const validateCashuMnemonic = (value: string) => {
   const mnemonic = normalizeCashuMnemonic(value)
 
   if (!bip39.validateMnemonic(mnemonic, wordlist)) {
-    throw new Error("The backup file does not contain a valid Cashu seed phrase.")
+    throw new Error("The Cashu seed phrase is not valid.")
   }
 
   return mnemonic
@@ -280,28 +279,6 @@ const extractPayloadJson = (text: string) => {
   return trimmed.startsWith("{") ? trimmed : ""
 }
 
-const parseUrlsFromText = (text: string) =>
-  normalizeMints(
-    [...text.matchAll(/\bhttps?:\/\/[^\s<>")']+/gi)].map(match =>
-      match[0].replace(/[),.;:]+$/g, ""),
-    ),
-  )
-
-const parseMnemonicFromText = (text: string): CashuBackupData | undefined => {
-  const words = text.toLowerCase().match(/[a-z]+/g) || []
-
-  for (const length of MNEMONIC_LENGTHS) {
-    for (let i = 0; i + length <= words.length; i++) {
-      const candidate = words.slice(i, i + length).join(" ")
-      if (bip39.validateMnemonic(candidate, wordlist)) {
-        return {mnemonic: candidate, mints: parseUrlsFromText(text)}
-      }
-    }
-  }
-
-  return undefined
-}
-
 export const parseCashuBackupText = (text: string): ParsedCashuBackup => {
   const payloadJson = extractPayloadJson(text)
 
@@ -319,8 +296,8 @@ export const parseCashuBackupText = (text: string): ParsedCashuBackup => {
     }
   }
 
-  const fallback = parseMnemonicFromText(text)
-  if (fallback) return {type: "plain", data: fallback}
-
-  return {type: "none", reason: "No valid Cashu seed phrase was found in the selected file."}
+  return {
+    type: "none",
+    reason: "This is not a Budabit Cashu backup file. Use manual seed restore for seed words.",
+  }
 }

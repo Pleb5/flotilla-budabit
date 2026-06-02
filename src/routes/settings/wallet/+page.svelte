@@ -33,10 +33,15 @@
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
 
   type WalletTab = "cashu" | "lightning"
+  type CashuTab = "wallet" | "settings"
 
   const tabs: {id: WalletTab; label: string}[] = [
     {id: "cashu", label: "Cashu"},
     {id: "lightning", label: "Lightning"},
+  ]
+  const cashuTabs: {id: CashuTab; label: string}[] = [
+    {id: "wallet", label: "Wallet"},
+    {id: "settings", label: "Settings"},
   ]
 
   const connect = () => pushModal(WalletConnect)
@@ -62,12 +67,17 @@
   const cashuReady = $derived(setupResolved && backupConfirmed && !setupRequired && !seedLocked)
   const autoPayWhitelist = $derived($cashuAutoPayWhitelist)
 
-  const openCashuWallet = () => pushModal(CashuWalletModal)
   const openBackup = () => pushModal(CashuSeedBackup, {mode: "backup"})
   const openRestore = () => pushModal(CashuSeedBackup, {mode: "restore"})
+  const startCashuSetup = () => {
+    activeCashuTab = "wallet"
+    showCashuSetup = true
+  }
 
   let recovering = $state(false)
   let activeTab = $state<WalletTab>("cashu")
+  let activeCashuTab = $state<CashuTab>("wallet")
+  let showCashuSetup = $state(false)
   let recoverResult = $state<
     | {succeeded: string[]; failed: {mintUrl: string; error: string}[]}
     | {topLevelError: string}
@@ -102,136 +112,176 @@
 
   {#if activeTab === "cashu"}
     <div class="card2 bg-alt flex min-w-0 flex-col gap-6 shadow-md">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <strong class="flex items-center gap-3">
-          <span class="text-warning">₿</span>
+      <div class="flex flex-col items-center gap-2 text-center">
+        <strong class="flex items-center justify-center gap-3 text-xl">
+          <span class="text-2xl text-warning">₿</span>
           Cashu Wallet
         </strong>
         {#if cashuReady}
-          <span class="font-mono text-sm font-semibold sm:text-right"
+          <span class="font-mono text-2xl font-bold"
             >{cashuBalance.toLocaleString()} sats</span>
         {:else if setupResolved && seedLocked}
-          <span class="text-sm text-warning sm:text-right">Locked</span>
+          <span class="text-base font-semibold text-warning">Locked</span>
         {:else if setupResolved && !setupRequired}
-          <span class="text-sm text-warning sm:text-right">Backup needed</span>
+          <span class="text-base font-semibold text-warning">Backup needed</span>
         {:else if setupResolved}
-          <span class="text-sm text-warning sm:text-right">Not set up</span>
+          <span class="text-base font-semibold text-warning">Not set up</span>
         {/if}
       </div>
 
-      {#if !setupResolved}
-        <div class="flex min-h-[220px] items-center justify-center text-sm opacity-70">
-          Loading Cashu wallet…
-        </div>
-      {:else if !cashuReady}
-        <CashuSeedBackup mode="backup" />
+      <div class="tabs tabs-bordered grid w-full grid-cols-2 overflow-hidden">
+        {#each cashuTabs as tab}
+          <button
+            type="button"
+            class="tab w-full text-base font-medium"
+            class:tab-active={activeCashuTab === tab.id}
+            onclick={() => (activeCashuTab = tab.id)}>
+            {tab.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if activeCashuTab === "wallet"}
+        {#if !setupResolved}
+          <div class="flex min-h-[220px] items-center justify-center text-sm opacity-70">
+            Loading Cashu wallet…
+          </div>
+        {:else if setupRequired && !showCashuSetup}
+          <div
+            class="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-box border border-base-300 bg-base-200/40 p-4 text-center">
+            <p class="max-w-md text-sm opacity-75">
+              Create a Cashu wallet before sending, receiving, or managing ecash.
+            </p>
+            <Button class="btn btn-primary btn-sm inline-flex justify-center" onclick={startCashuSetup}>
+              Create wallet
+            </Button>
+          </div>
+        {:else if setupRequired}
+          <CashuSeedBackup mode="setup" />
+        {:else if !cashuReady}
+          <CashuSeedBackup mode={seedLocked ? "unlock" : "backup"} />
+        {:else}
+          <CashuWalletModal showHeader={false} showMintsTab={false} />
+        {/if}
       {:else}
-        <div class="flex flex-col gap-4">
-          <div>
-            <p class="mb-2 text-sm font-medium">Mints</p>
-            <CashuMintManager />
+        {#if !setupResolved}
+          <div class="flex min-h-[220px] items-center justify-center text-sm opacity-70">
+            Loading Cashu wallet…
           </div>
-
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span class="text-sm font-medium">Seed Phrase</span>
-            <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-              {#if seedEncrypted}
-                <div class="flex items-center gap-2 text-sm text-success">
-                  <Icon icon={CheckCircle} size={4} />
-                  Encrypted
-                </div>
-              {:else}
-                <div class="flex items-center gap-2 text-sm text-success">
-                  <Icon icon={CheckCircle} size={4} />
-                  Backed up
-                </div>
-              {/if}
-              <Button class="btn btn-neutral btn-xs inline-flex justify-center" onclick={openBackup}
-                >Backup</Button>
-              <Button
-                class="btn btn-neutral btn-xs inline-flex justify-center"
-                onclick={openRestore}>Restore</Button>
-            </div>
+        {:else if setupRequired}
+          <div
+            class="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-box border border-base-300 bg-base-200/40 p-4 text-center">
+            <p class="max-w-md text-sm opacity-75">
+              Create a Cashu wallet before configuring wallet settings.
+            </p>
+            <Button class="btn btn-primary btn-sm inline-flex justify-center" onclick={startCashuSetup}>
+              Create wallet
+            </Button>
           </div>
-
-          {#if autoPayWhitelist.length > 0}
-            <div class="flex flex-col gap-2">
-              <p class="text-sm font-medium">Auto-pay whitelist</p>
-              {#each autoPayWhitelist as extId (extId)}
-                <div
-                  class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-                  <span class="min-w-0 break-all font-mono text-xs">{extId}</span>
-                  <Button
-                    class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
-                    onclick={() => removeAutoPayWhitelist(extId)}>
-                    Revoke
-                  </Button>
-                </div>
-              {/each}
+        {:else if !cashuReady}
+          <CashuSeedBackup mode={seedLocked ? "unlock" : "backup"} />
+        {:else}
+          <div class="flex flex-col gap-4">
+            <div>
+              <p class="mb-2 text-sm font-medium">Mints</p>
+              <CashuMintManager />
             </div>
-          {/if}
 
-          <Button
-            class="btn btn-neutral btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
-            onclick={openCashuWallet}>
-            Open Wallet
-          </Button>
-
-          <details class="rounded-md border border-base-300 bg-base-200/40">
-            <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium">
-              Advanced
-            </summary>
-            <div class="flex flex-col gap-3 border-t border-base-300 px-3 py-3 text-sm">
-              <div>
-                <p class="font-medium">Recover wallet</p>
-                <p class="text-xs opacity-70">
-                  Cancels stuck receive operations and asks every trusted mint for any proofs the
-                  wallet may have missed. Use after token redeems fail with "outputs already signed"
-                  or after restoring from a seed backup.
-                </p>
-              </div>
-              <Button
-                class="btn btn-warning btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
-                onclick={runRecovery}
-                disabled={recovering}>
-                {recovering ? "Recovering…" : "Recover from all trusted mints"}
-              </Button>
-              {#if recoverResult}
-                {#if "topLevelError" in recoverResult}
-                  <p class="text-xs text-error">{recoverResult.topLevelError}</p>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span class="text-sm font-medium">Seed Phrase</span>
+              <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                {#if seedEncrypted}
+                  <div class="flex items-center gap-2 text-sm text-success">
+                    <Icon icon={CheckCircle} size={4} />
+                    Encrypted
+                  </div>
                 {:else}
-                  <div class="flex flex-col gap-1 text-xs">
-                    {#if recoverResult.succeeded.length > 0}
-                      <p class="text-success">
-                        Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded
-                          .length === 1
-                          ? ""
-                          : "s"}.
-                      </p>
-                    {/if}
-                    {#if recoverResult.failed.length > 0}
-                      <div class="flex flex-col gap-1">
-                        <p class="text-error">
-                          {recoverResult.failed.length} mint{recoverResult.failed.length === 1
-                            ? ""
-                            : "s"} failed:
-                        </p>
-                        {#each recoverResult.failed as f (f.mintUrl)}
-                          <p class="break-all opacity-80">
-                            <span class="font-mono">{f.mintUrl}</span>: {f.error}
-                          </p>
-                        {/each}
-                      </div>
-                    {/if}
-                    {#if recoverResult.succeeded.length === 0 && recoverResult.failed.length === 0}
-                      <p class="opacity-70">No trusted mints to recover.</p>
-                    {/if}
+                  <div class="flex items-center gap-2 text-sm text-success">
+                    <Icon icon={CheckCircle} size={4} />
+                    Backed up
                   </div>
                 {/if}
-              {/if}
+                <Button class="btn btn-neutral btn-xs inline-flex justify-center" onclick={openBackup}
+                  >Backup</Button>
+                <Button
+                  class="btn btn-neutral btn-xs inline-flex justify-center"
+                  onclick={openRestore}>Restore</Button>
+              </div>
             </div>
-          </details>
-        </div>
+
+            {#if autoPayWhitelist.length > 0}
+              <div class="flex flex-col gap-2">
+                <p class="text-sm font-medium">Auto-pay whitelist</p>
+                {#each autoPayWhitelist as extId (extId)}
+                  <div
+                    class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                    <span class="min-w-0 break-all font-mono text-xs">{extId}</span>
+                    <Button
+                      class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
+                      onclick={() => removeAutoPayWhitelist(extId)}>
+                      Revoke
+                    </Button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            <details class="rounded-md border border-base-300 bg-base-200/40">
+              <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+                Advanced
+              </summary>
+              <div class="flex flex-col gap-3 border-t border-base-300 px-3 py-3 text-sm">
+                <div>
+                  <p class="font-medium">Recover wallet</p>
+                  <p class="text-xs opacity-70">
+                    Cancels stuck receive operations and asks every trusted mint for any proofs the
+                    wallet may have missed. Use after token redeems fail with "outputs already signed"
+                    or after restoring from a seed backup.
+                  </p>
+                </div>
+                <Button
+                  class="btn btn-warning btn-sm inline-flex w-full justify-center sm:w-auto sm:self-start"
+                  onclick={runRecovery}
+                  disabled={recovering}>
+                  {recovering ? "Recovering…" : "Recover from all trusted mints"}
+                </Button>
+                {#if recoverResult}
+                  {#if "topLevelError" in recoverResult}
+                    <p class="text-xs text-error">{recoverResult.topLevelError}</p>
+                  {:else}
+                    <div class="flex flex-col gap-1 text-xs">
+                      {#if recoverResult.succeeded.length > 0}
+                        <p class="text-success">
+                          Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded
+                            .length === 1
+                            ? ""
+                            : "s"}.
+                        </p>
+                      {/if}
+                      {#if recoverResult.failed.length > 0}
+                        <div class="flex flex-col gap-1">
+                          <p class="text-error">
+                            {recoverResult.failed.length} mint{recoverResult.failed.length === 1
+                              ? ""
+                              : "s"} failed:
+                          </p>
+                          {#each recoverResult.failed as f (f.mintUrl)}
+                            <p class="break-all opacity-80">
+                              <span class="font-mono">{f.mintUrl}</span>: {f.error}
+                            </p>
+                          {/each}
+                        </div>
+                      {/if}
+                      {#if recoverResult.succeeded.length === 0 && recoverResult.failed.length === 0}
+                        <p class="opacity-70">No trusted mints to recover.</p>
+                      {/if}
+                    </div>
+                  {/if}
+                {/if}
+              </div>
+            </details>
+          </div>
+        {/if}
       {/if}
     </div>
   {:else}

@@ -1,7 +1,22 @@
 <script lang="ts">
   import {getDecodedToken} from "@cashu/coco-core"
-  import {receiveCashuToken, trustCashuMint, recoverCashuMint} from "@app/core/cashu"
+  import {
+    cashuMints,
+    cashuBackupConfirmed,
+    cashuSeedLocked,
+    cashuSetupRequired,
+    cashuSetupResolved,
+    receiveCashuToken,
+    trustCashuMint,
+    recoverCashuMint,
+    confirmCashuBackup,
+    getCashuMnemonic,
+  } from "@app/core/cashu"
+  import {createCashuBackupText} from "@app/util/cashu-backup"
+  import {downloadText} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
+  import Confirm from "@lib/components/Confirm.svelte"
+  import {pushModal} from "@app/util/modal"
 
   // Recognize the untrusted-mint error by any of the surface markers — class
   // identity (instanceof) breaks across HMR / module duplication, and even
@@ -30,6 +45,11 @@
   let error = $state("")
   let trustPrompt = $state<string | null>(null)
   let recoverPrompt = $state<string | null>(null)
+
+  const mints = $derived($cashuMints)
+  const configuredWallet = $derived(
+    $cashuSetupResolved && $cashuBackupConfirmed && !$cashuSetupRequired && !$cashuSeedLocked,
+  )
 
   const isOutputsSignedError = (msg: string) => /outputs?\s+already\s+signed/i.test(msg)
 
@@ -74,7 +94,15 @@
     loading = true
     error = ""
     try {
+      const nextMints = Array.from(new Set([...mints, trustPrompt]))
+      const backupText = configuredWallet
+        ? createCashuBackupText({mnemonic: getCashuMnemonic(), mints: nextMints})
+        : ""
       await trustCashuMint(trustPrompt)
+      if (configuredWallet) {
+        downloadText("Budabit Cashu Wallet Seed.txt", backupText)
+        await confirmCashuBackup()
+      }
       trustPrompt = null
       const amount = await receiveCashuToken(token.trim())
       received = amount
@@ -84,6 +112,23 @@
     } finally {
       loading = false
     }
+  }
+
+  const confirmTrustAndRedeem = () => {
+    if (!trustPrompt || !configuredWallet) {
+      trustAndRedeem()
+      return
+    }
+
+    pushModal(Confirm, {
+      title: "Add Trusted Mint",
+      message: `You have 0 sats in this mint: ${trustPrompt}. Adding this mint changes what your Cashu backup can recover, so Budabit will download an updated backup file before redeeming this token.`,
+      confirmLabel: "Add and download backup",
+      confirm: async () => {
+        await trustAndRedeem()
+        history.back()
+      },
+    })
   }
 
   const recoverAndRedeem = async () => {
@@ -163,9 +208,9 @@
         <div class="flex flex-col gap-2 sm:flex-row">
           <Button
             class="btn btn-warning btn-sm inline-flex flex-1 justify-center"
-            onclick={trustAndRedeem}
+            onclick={confirmTrustAndRedeem}
             disabled={loading}>
-            {loading ? "Working…" : "Trust mint and redeem"}
+            {loading ? "Working…" : configuredWallet ? "Trust mint, back up, and redeem" : "Trust mint and redeem"}
           </Button>
           <Button
             class="btn btn-ghost btn-sm inline-flex justify-center"

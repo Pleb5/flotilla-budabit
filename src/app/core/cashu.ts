@@ -44,6 +44,8 @@ export const cashuBalancesByMint: Writable<Map<string, number>> = writable(new M
 export const cashuMints: Writable<string[]> = writable([])
 export const cashuTokenHistory: Writable<TokenHistoryEntry[]> = writable([])
 export const cashuAutoPayWhitelist: Writable<string[]> = writable([])
+export const cashuSetupResolved: Writable<boolean> = writable(false)
+export const cashuSetupRequired: Writable<boolean> = writable(false)
 export const cashuSeedEncrypted: Writable<boolean> = writable(false)
 export const cashuSeedLocked: Writable<boolean> = writable(false)
 
@@ -94,6 +96,7 @@ const resetManagerRuntime = () => {
   cashuBalancesByMint.set(new Map())
   cashuMints.set([])
   cashuTokenHistory.set([])
+  cashuSetupResolved.set(false)
   _initPromise = null
   _managerReadyPromise = null
   _resolveManagerReady = null
@@ -143,11 +146,15 @@ const _doInitialize = async (): Promise<void> => {
 
       if (!_mnemonic) {
         cashuSeedLocked.set(true)
+        cashuSetupResolved.set(true)
+        cashuSetupRequired.set(false)
         _resolveManagerReady?.()
         return
       }
 
       cashuSeedLocked.set(false)
+      cashuSetupResolved.set(true)
+      cashuSetupRequired.set(false)
     } else {
       cashuSeedEncrypted.set(false)
       cashuSeedLocked.set(false)
@@ -155,9 +162,15 @@ const _doInitialize = async (): Promise<void> => {
       const existing = await storageGet(KEY_MNEMONIC)
       if (existing) {
         _mnemonic = validateCashuMnemonic(existing)
+        cashuSetupResolved.set(true)
+        cashuSetupRequired.set(false)
       } else {
-        _mnemonic = bip39.generateMnemonic(wordlist)
-        await storageSet(KEY_MNEMONIC, _mnemonic)
+        await storageRemove(KEY_BACKUP_CONFIRMED)
+        cashuBackupConfirmed.set(false)
+        cashuSetupResolved.set(true)
+        cashuSetupRequired.set(true)
+        _resolveManagerReady?.()
+        return
       }
     }
 
@@ -202,6 +215,7 @@ const _doInitialize = async (): Promise<void> => {
     console.error("[cashu] Failed to initialize wallet:", e)
     // Unblock waiters even on failure so they hit the !manager throw rather
     // than hanging forever.
+    cashuSetupResolved.set(true)
     _resolveManagerReady?.()
   }
 }
@@ -245,6 +259,19 @@ const persistCashuMnemonic = async (
   }
 
   _mnemonic = mnemonic
+  cashuSetupResolved.set(true)
+  cashuSetupRequired.set(false)
+}
+
+export const createCashuWallet = async (): Promise<void> => {
+  const mnemonic = bip39.generateMnemonic(wordlist)
+
+  resetManagerRuntime()
+  await persistCashuMnemonic({mnemonic, mints: []})
+  await storageRemove(KEY_BACKUP_CONFIRMED)
+  cashuBackupConfirmed.set(false)
+  await deleteIndexedDB(DB_NAME)
+  await initializeCashuWallet()
 }
 
 export const encryptCashuSeedAtRest = async (passphrase: string): Promise<void> => {
@@ -288,7 +315,8 @@ export const restoreCashuSeedBackup = async (
 
   resetManagerRuntime()
   await persistCashuMnemonic({mnemonic, mints}, options.encryptPassphrase)
-  await confirmCashuBackup()
+  await storageRemove(KEY_BACKUP_CONFIRMED)
+  cashuBackupConfirmed.set(false)
   await deleteIndexedDB(DB_NAME)
   await initializeCashuWallet()
 

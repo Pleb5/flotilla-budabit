@@ -30,7 +30,7 @@
 
   const send = async () => {
     if (!backupConfirmed) {
-      pushModal(CashuSeedBackup, {onconfirmed: send})
+      pushModal(CashuSeedBackup, {mode: "backup", onconfirmed: send})
       return
     }
     if (!selectedMint || amount <= 0) return
@@ -45,7 +45,7 @@
       token = await createCashuToken(amount, selectedMint)
     } catch (e: any) {
       if (e?.message === "backup_required") {
-        pushModal(CashuSeedBackup, {onconfirmed: send})
+        pushModal(CashuSeedBackup, {mode: "backup", onconfirmed: send})
       } else {
         error = e?.message || "Failed to create token"
       }

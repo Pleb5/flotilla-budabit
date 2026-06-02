@@ -3,15 +3,7 @@
   import {goto} from "$app/navigation"
   import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
-  import {
-    cashuTotalBalance,
-    cashuBackupConfirmed,
-    cashuSeedLocked,
-    cashuSetupRequired,
-    cashuSetupResolved,
-  } from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
-  import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -54,16 +46,6 @@
   const activeChannels = $derived.by(() => $channelsByUrl.get(url) || [])
 
   const showDetail = () => pushModal(SpaceDetail, {url}, {replaceState})
-  const openWallet = () => pushModal(CashuWalletModal)
-
-  const walletLabel = $derived.by(() => {
-    const bal = $cashuTotalBalance
-    if (bal >= 1000) return `${(bal / 1000).toFixed(bal % 1000 === 0 ? 0 : 1)}K sats`
-    return `${bal} sats`
-  })
-  const cashuReady = $derived(
-    $cashuSetupResolved && $cashuBackupConfirmed && !$cashuSetupRequired && !$cashuSeedLocked,
-  )
 
   const goHome = () => goto(makeSpacePath(url))
 
@@ -103,14 +85,6 @@
     </div>
 
     <div class="flex max-h-[calc(100vh-250px)] min-h-0 flex-col gap-1 overflow-auto">
-      {#if $pubkey && cashuReady}
-        <SecondaryNavItem {replaceState} onclick={openWallet}>
-          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning"
-            >₿</span>
-          {walletLabel}
-        </SecondaryNavItem>
-      {/if}
-
       <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
         <Icon icon={HomeSmile} /> Home
       </SecondaryNavItem>

@@ -646,9 +646,8 @@
     // History, navigation, and application data
     unsubscribers.push(setupHistory(), setupGitCorsProxy(), syncApplicationData(), syncGitData())
 
-    // Initialize Cashu wallet eagerly so balance is available immediately.
-    // After init, cashuNeedsBackup will be true if backup hasn't been confirmed yet —
-    // the $effect below will open the seed backup modal automatically.
+    // Initialize an existing Cashu wallet eagerly so balance is available immediately.
+    // If no seed exists, setup remains explicit until the user creates or restores a wallet.
     void initializeCashuWallet()
 
     // Subscribe to badge count for changes

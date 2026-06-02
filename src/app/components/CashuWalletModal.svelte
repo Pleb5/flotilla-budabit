@@ -4,6 +4,8 @@
     cashuBalancesByMint,
     cashuMints,
     cashuBackupConfirmed,
+    cashuSetupResolved,
+    cashuSetupRequired,
     cashuSeedLocked,
   } from "@app/core/cashu"
   import CashuReceive from "@app/components/CashuReceive.svelte"
@@ -13,33 +15,48 @@
   import CashuMintManager from "@app/components/CashuMintManager.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
 
+  type Props = {
+    showHeader?: boolean
+    showMintsTab?: boolean
+  }
   type Tab = "balance" | "receive" | "send" | "history" | "mints"
+
+  const {showHeader = true, showMintsTab = true}: Props = $props()
 
   let activeTab = $state<Tab>("balance")
 
-  const needsBackup = $derived($cashuSeedLocked || !$cashuBackupConfirmed)
+  const setupResolved = $derived($cashuSetupResolved)
+  const needsSetup = $derived($cashuSetupRequired || $cashuSeedLocked || !$cashuBackupConfirmed)
   const totalBalance = $derived($cashuTotalBalance)
   const balancesByMint = $derived($cashuBalancesByMint)
   const mints = $derived($cashuMints)
 
-  const tabs: {id: Tab; label: string}[] = [
-    {id: "balance", label: "Balance"},
-    {id: "receive", label: "Receive"},
-    {id: "send", label: "Send"},
-    {id: "history", label: "History"},
-    {id: "mints", label: "Mints"},
-  ]
+  const tabs = $derived(
+    [
+      {id: "balance", label: "Balance"},
+      {id: "receive", label: "Receive"},
+      {id: "send", label: "Send"},
+      {id: "history", label: "History"},
+      ...(showMintsTab ? [{id: "mints", label: "Mints"}] : []),
+    ] as {id: Tab; label: string}[],
+  )
 </script>
 
 <div class="flex min-h-[400px] w-full min-w-0 flex-col gap-3 p-2 sm:gap-4 sm:p-4">
-  {#if needsBackup}
+  {#if !setupResolved}
+    <div class="flex min-h-[320px] items-center justify-center text-sm opacity-70">
+      Loading Cashu wallet…
+    </div>
+  {:else if needsSetup}
     <CashuSeedBackup />
   {:else}
-    <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-      <h2 class="text-xl font-bold">Cashu Wallet</h2>
-      <span class="font-mono text-base font-semibold sm:text-lg"
-        >{totalBalance.toLocaleString()} sats</span>
-    </div>
+    {#if showHeader}
+      <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="text-xl font-bold">Cashu Wallet</h2>
+        <span class="font-mono text-base font-semibold sm:text-lg"
+          >{totalBalance.toLocaleString()} sats</span>
+      </div>
+    {/if}
 
     <!-- Tab bar -->
     <div class="scroll-container -mx-2 overflow-x-auto px-2 pb-1 sm:mx-0 sm:px-0">
@@ -60,7 +77,9 @@
         <div class="flex flex-col gap-3">
           {#if mints.length === 0}
             <p class="py-4 text-center text-sm opacity-50">
-              No mints configured. Go to the Mints tab to add one.
+              {showMintsTab
+                ? "No mints configured. Go to the Mints tab to add one."
+                : "No mints configured. Go to Wallet Settings to add one."}
             </p>
           {:else}
             {#each mints as mint (mint)}
