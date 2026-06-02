@@ -1,0 +1,25 @@
+{
+  "name": "@flotilla/ext-manifest",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "generate-manifest": "./dist/cli.js",
+    "publish-widget": "./dist/publish.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "generate": "node dist/cli.js",
+    "publish-widget": "node dist/publish.js"
+  },
+  "dependencies": {
+    "@flotilla/ext-shared": "workspace:*",
+    "commander": "^12.1.0",
+    "nostr-tools": "^2.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
