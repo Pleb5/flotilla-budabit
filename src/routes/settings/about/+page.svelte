@@ -9,7 +9,7 @@
 <div class="mt-8 min-h-screen bg-base-200 sm:hero">
   <div class="hero-content">
     <div class="column content gap-6">
-      <h1 class="mb-4 text-center text-5xl font-bold uppercase">Thanks for using this app</h1>
+      <h1 class="mb-4 text-center text-5xl font-bold uppercase">Thanks for using BudaBit!</h1>
       <div class="flex flex-col gap-4">
         <div class="items-center text-center">
           {#if hash}
