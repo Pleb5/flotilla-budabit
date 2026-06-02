@@ -1,10 +1,9 @@
 <script lang="ts">
   import {untrack} from "svelte"
   import type {NativeEmoji} from "emoji-picker-element/shared"
-  import {signer, deriveZapperForPubkey} from "@welshman/app"
-  import {load} from "@welshman/net"
-  import {Router} from "@welshman/router"
-  import {requestZap, makeZapRequest, getZapResponseFilter} from "@welshman/util"
+  import {signer, deriveZapperForPubkey, repository, tracker} from "@welshman/app"
+  import {request} from "@welshman/net"
+  import {requestZap, type Filter, type TrustedEvent} from "@welshman/util"
   import Bolt from "@assets/icons/bolt.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -16,21 +15,26 @@
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {payInvoice} from "@app/core/commands"
+  import {clearModals} from "@app/util/modal"
+  import {getRecentZapReceiptFilters, getZapRelays, makeZapRequestForEvent} from "@app/util/zaps"
   import {pushToast} from "@app/util/toast"
 
   type Props = {
-    url: string
-    pubkey: string
-    eventId?: string
+    event: TrustedEvent
+    relayHints?: string[]
+    scopeH?: string
   }
 
-  const {url, pubkey, eventId}: Props = $props()
+  const {event, relayHints = [], scopeH = ""}: Props = $props()
 
   const minPos = 1
   const maxPos = 1000
   const minVal = 21
   const maxVal = 1000000
-  const zapperStore = deriveZapperForPubkey(pubkey)
+  const zapperStore = deriveZapperForPubkey(event.pubkey, relayHints)
+  const PAYMENT_TIMEOUT = 120_000
+  const RECEIPT_FOREGROUND_TIMEOUT = 10_000
+  const RECEIPT_BACKGROUND_TIMEOUT = 45_000
 
   const posToAmount = (pos: number) => {
     const normalizedPos = (pos - minPos) / (maxPos - minPos)
@@ -49,10 +53,64 @@
     return Math.round(minPos + normalizedPos * (maxPos - minPos))
   }
 
-  const back = () => history.back()
+  const back = () => clearModals()
 
   const onEmoji = (emoji: NativeEmoji) => {
     content = emoji.unicode
+  }
+
+  async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error(message)), timeoutMs)
+        }),
+      ])
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
+  }
+
+  const waitForZapReceipts = async (relays: string[], filters: Filter[], timeoutMs: number) => {
+    if (relays.length === 0 || filters.length === 0) return []
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const receipts: TrustedEvent[] = []
+
+    try {
+      await request({
+        relays,
+        filters,
+        autoClose: false,
+        signal: controller.signal,
+        onEvent: (event, url) => {
+          const receipt = event as TrustedEvent
+
+          if (url) tracker.track(receipt.id, url)
+          repository.publish(receipt)
+          receipts.push(receipt)
+          controller.abort()
+        },
+      })
+
+      return receipts
+    } catch {
+      return receipts
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  const waitForZapReceiptsInBackground = async (relays: string[], filters: Filter[]) => {
+    const receipts = await waitForZapReceipts(relays, filters, RECEIPT_BACKGROUND_TIMEOUT)
+
+    if (receipts.length > 0) {
+      pushToast({message: "Zap receipt received."})
+    }
   }
 
   const sendZap = async () => {
@@ -61,11 +119,17 @@
     try {
       const zapper = $zapperStore!
       const msats = amount * 1000
-      const relays = url ? [url] : Router.get().ForPubkey(pubkey).getUrls()
-      const filters = [getZapResponseFilter({zapper, pubkey, eventId})]
-      const params = {pubkey, content, eventId, msats, relays, zapper}
-      const event = await $signer!.sign(makeZapRequest(params))
-      const res = await requestZap({zapper, event})
+      const relays = getZapRelays({event, relayHints, scopeH})
+
+      if (relays.length === 0) {
+        throw new Error("No relay hints available for the zap receipt")
+      }
+
+      const filters = getRecentZapReceiptFilters({zapper, event})
+      const zapRequest = await $signer!.sign(
+        makeZapRequestForEvent({event, content, msats, relays, scopeH, zapper}),
+      )
+      const res = await requestZap({zapper, event: zapRequest})
 
       if (!res.invoice) {
         return pushToast({
@@ -74,10 +138,23 @@
         })
       }
 
-      await payInvoice(res.invoice)
-      await load({relays, filters})
+      await withTimeout(
+        payInvoice(res.invoice),
+        PAYMENT_TIMEOUT,
+        "Payment confirmation timed out. Check your wallet; the zap receipt may still appear shortly.",
+      )
+      const receipts = await waitForZapReceipts(relays, filters, RECEIPT_FOREGROUND_TIMEOUT)
 
-      pushToast({message: "Zap successfully sent!"})
+      if (receipts.length === 0) {
+        void waitForZapReceiptsInBackground(relays, filters)
+      }
+
+      pushToast({
+        message:
+          receipts.length > 0
+            ? "Zap successfully sent!"
+            : "Zap sent. The receipt may take a moment to appear.",
+      })
       back()
     } catch (e) {
       console.error(e)
@@ -125,7 +202,7 @@
       <div>Send a Zap</div>
     {/snippet}
     {#snippet info()}
-      <div>To <ProfileLink {pubkey} class="!text-primary" /></div>
+      <div>To <ProfileLink pubkey={event.pubkey} relays={relayHints} class="!text-primary" /></div>
     {/snippet}
   </ModalHeader>
   <FieldInline class="!grid-cols-3">

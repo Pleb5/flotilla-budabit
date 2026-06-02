@@ -48,6 +48,7 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
+    getTagValue,
     type Filter,
     type TrustedEvent,
   } from "@welshman/util"
@@ -198,6 +199,11 @@
   const repoMaintainerPubkeys = $derived.by(() => new Set(repoMaintainers))
   const repoOwnerPubkey = $derived.by(
     () => ((repoClass as any)?.repoEvent?.pubkey || (repoClass as any)?.owner || "") as string,
+  )
+  const repoCommunityScope = $derived(
+    repoClass.community?.pubkey ||
+      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      "",
   )
   const isImportedPr = $derived.by(() => isImportedEvent(prEvent as any))
   const repoAddresses = $derived.by(() => {
@@ -2670,6 +2676,7 @@
               relays={repoRelays}
               noun="pull request"
               ownerPubkey={repoOwnerPubkey}
+              zapScopeH={repoCommunityScope}
               showReport={true}
               menuOnly
               class="shrink-0" />

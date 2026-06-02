@@ -1,8 +1,6 @@
 <script lang="ts">
   import {debounce} from "throttle-debounce"
-  import {nwc} from "@getalby/sdk"
   import {sleep, assoc} from "@welshman/lib"
-  import type {NWCInfo} from "@welshman/util"
   import {pubkey, userProfile, updateSession} from "@welshman/app"
   import Link from "@lib/components/Link.svelte"
   import Cpu from "@assets/icons/cpu-bolt.svg?dataurl"
@@ -18,6 +16,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {getWebLn} from "@app/core/commands"
+  import {connectNwcWallet, getNwcErrorMessage} from "@app/core/nwc"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
   import WalletAsReceivingAddress from "@app/components/WalletAsReceivingAddress.svelte"
@@ -60,8 +59,8 @@
     loading = true
 
     try {
-      const client = new nwc.NWCClient({nostrWalletConnectUrl})
-      const [_, info] = await Promise.all([sleep(800), client.getInfo()])
+      const [_, wallet] = await Promise.all([sleep(800), connectNwcWallet(nostrWalletConnectUrl)])
+      const {info, walletInfo} = wallet
 
       if (!info) {
         pushToast({
@@ -69,11 +68,13 @@
           message: "Wallet failed to connect",
         })
       } else {
-        updateSession(
-          $pubkey!,
-          assoc("wallet", {type: "nwc", info: client.options as unknown as NWCInfo}),
-        )
-        pushToast({message: "Wallet successfully connected!"})
+        updateSession($pubkey!, assoc("wallet", {type: "nwc", info: walletInfo}))
+        pushToast({
+          message:
+            (walletInfo as any).encryptionType === "nip44_v2"
+              ? "Wallet connected with NIP-44 encryption!"
+              : "Wallet connected with NIP-04 fallback encryption.",
+        })
 
         await sleep(400)
 
@@ -87,7 +88,7 @@
       console.error(e)
       pushToast({
         theme: "error",
-        message: "Wallet failed to connect",
+        message: getNwcErrorMessage(e, "Wallet failed to connect"),
       })
     } finally {
       loading = false

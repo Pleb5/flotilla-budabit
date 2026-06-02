@@ -1,4 +1,3 @@
-import {nwc} from "@getalby/sdk"
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
 import type {Override, MakeOptional} from "@welshman/lib"
@@ -123,6 +122,7 @@ import {
   getCommunityBlossomServers,
 } from "@app/core/community-state"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
+import {payNwcInvoice} from "@app/core/nwc"
 import {
   blossomDashboardState,
   blossomSettings,
@@ -988,7 +988,7 @@ export const payInvoice = async (invoice: string, msats?: number) => {
   if ($session.wallet.type === "nwc") {
     const params: {invoice: string; amount?: number} = {invoice}
     if (msats) params.amount = msats
-    return new nwc.NWCClient($session.wallet.info).payInvoice(params)
+    return payNwcInvoice($session.wallet.info, params)
   } else if ($session.wallet.type === "webln") {
     if (msats) throw new Error("Unable to pay zero invoices with webln")
     return getWebLn()

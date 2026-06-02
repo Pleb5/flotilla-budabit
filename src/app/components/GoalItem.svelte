@@ -63,7 +63,7 @@
         expandMode="inline"
         minLength={50}
         maxLength={300} />
-      <GoalSummary {url} {event} />
+      <GoalSummary {url} {event} {relays} {scopeH} />
       <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
         <span class="whitespace-nowrap py-1 text-sm opacity-75">
           Posted by <ProfileLink pubkey={event.pubkey} {url} />

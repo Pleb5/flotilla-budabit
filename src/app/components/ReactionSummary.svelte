@@ -26,6 +26,7 @@
   import ReportDetails from "@app/components/ReportDetails.svelte"
   import {REACTION_KINDS} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
+  import {getZapReceiptFilters, getZapRelays} from "@app/util/zaps"
 
   interface Props {
     event: TrustedEvent
@@ -34,6 +35,7 @@
     url?: string
     relays?: string[]
     scopeH?: string
+    zapScopeH?: string
     reactionClass?: string
     noTooltip?: boolean
     readOnly?: boolean
@@ -48,6 +50,7 @@
     url = "",
     relays = [],
     scopeH = "",
+    zapScopeH = "",
     reactionClass = "",
     noTooltip = false,
     readOnly = false,
@@ -71,12 +74,13 @@
   const relaySet = $derived.by(() => new Set(relays.map(normalizeRelay).filter(Boolean)))
 
   const hasScopeH = $derived.by(() => Boolean(scopeH))
+  const effectiveZapScopeH = $derived(zapScopeH || scopeH)
   const allowedAuthorSet = $derived.by(() =>
     allowedAuthors
       ? new Set(allowedAuthors.map(author => author.toLowerCase()).filter(Boolean))
       : undefined,
   )
-  const permissionedReactionKinds = REACTION_KINDS.filter(kind => kind !== ZAP_RESPONSE)
+  const nonZapReactionKinds = REACTION_KINDS.filter(kind => kind !== ZAP_RESPONSE)
 
   const withScopeH = (filters: Filter[]) =>
     hasScopeH ? filters.map(filter => ({...filter, "#h": [scopeH]})) : filters
@@ -119,7 +123,7 @@
     deriveItemsByKey<Zap>({
       repository,
       getKey: zap => zap.response.id,
-      filters: [{kinds: [ZAP_RESPONSE], "#e": [event.id]}],
+      filters: getZapReceiptFilters({event}),
       eventToItem: (response: TrustedEvent) => getValidZap(response, event),
     }),
   )
@@ -137,8 +141,10 @@
   )
 
   const scopedZaps = $derived.by(() =>
-    Array.from($zaps.values()).filter(
-      zap => matchesRelayScope(zap.response) && matchesScopeH(zap.request),
+    Array.from($zaps.values()).filter(zap =>
+      effectiveZapScopeH
+        ? getTag("h", zap.request.tags)?.[1] === effectiveZapScopeH
+        : matchesRelayScope(zap.response),
     ),
   )
 
@@ -173,19 +179,20 @@
   const groupedZaps = $derived(groupBy(e => getReactionKey(e.request), scopedZaps))
   const reactionLoadFilters = $derived.by(() => {
     if (allowedAuthors === undefined) {
-      return withScopeH(getReplyFilters([event], {kinds: REACTION_KINDS}) as Filter[])
+      return withScopeH(getReplyFilters([event], {kinds: nonZapReactionKinds}) as Filter[])
     }
 
     const filters: Filter[] = withAllowedAuthors(
-      getReplyFilters([event], {kinds: permissionedReactionKinds}) as Filter[],
+      getReplyFilters([event], {kinds: nonZapReactionKinds}) as Filter[],
     )
-
-    if (REACTION_KINDS.includes(ZAP_RESPONSE)) {
-      filters.push(...withScopeH(getReplyFilters([event], {kinds: [ZAP_RESPONSE]}) as Filter[]))
-    }
 
     return withScopeH(filters)
   })
+
+  const zapLoadRelays = $derived.by(() =>
+    getZapRelays({event, relayHints: relays, scopeH: effectiveZapScopeH}),
+  )
+  const zapLoadFilters = $derived.by(() => getZapReceiptFilters({event}))
 
   const makeDeleteLoadFilters = (events: TrustedEvent[]) =>
     withScopeH(withAllowedAuthors(getReplyFilters(events, {kinds: [DELETE]}) as Filter[]))
@@ -207,6 +214,14 @@
             filters: deleteLoadFilters,
           })
         }),
+      })
+    }
+
+    if (zapLoadRelays.length > 0 && zapLoadFilters.length > 0) {
+      load({
+        relays: zapLoadRelays,
+        signal: controller.signal,
+        filters: zapLoadFilters,
       })
     }
 

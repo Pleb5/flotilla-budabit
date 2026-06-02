@@ -2,8 +2,7 @@
   import {getContext} from "svelte"
   import {page} from "$app/stores"
   import {formatTimestampAsDate} from "@welshman/lib"
-  import type {TrustedEvent} from "@welshman/util"
-  import {GIT_ISSUE} from "@welshman/util"
+  import {GIT_ISSUE, getTagValue, type TrustedEvent} from "@welshman/util"
   import type {Readable} from "svelte/store"
   import Spinner from "@lib/components/Spinner.svelte"
   import RepoFeedGitItem from "@app/components/RepoFeedGitItem.svelte"
@@ -37,6 +36,11 @@
   const repoRelays = $derived.by(() => $repoRelaysStore || [])
   const resolvedStatusByRoot = $derived.by(() => $resolvedStatusByRootStore || new Map())
   const defaultThreadCommunityPubkey = $derived(repoClass.community?.pubkey || "")
+  const repoCommunityScope = $derived(
+    repoClass.community?.pubkey ||
+      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      "",
+  )
 
   const activityEvents = $derived.by(() => {
     const deduped = new Map<string, TrustedEvent>()
@@ -109,6 +113,7 @@
           <RepoFeedGitItem
             url={routeUrl}
             interactionRelays={repoRelays}
+            zapScopeH={repoCommunityScope}
             event={element.value}
             openHref={getOpenHref(element.value)}
             statusState={statusStateById.get(element.value.id) || "open"}

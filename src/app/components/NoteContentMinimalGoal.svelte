@@ -2,12 +2,13 @@
   import type {ComponentProps} from "svelte"
   import {sum} from "@welshman/lib"
   import type {Zap, TrustedEvent} from "@welshman/util"
-  import {getTagValue, fromMsats, ZAP_RESPONSE} from "@welshman/util"
+  import {getTagValue, fromMsats} from "@welshman/util"
   import {deriveItemsByKey, deriveArray} from "@welshman/store"
   import {repository, getValidZap} from "@welshman/app"
   import Bolt from "@assets/icons/bolt.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ContentMinimal from "@app/components/ContentMinimal.svelte"
+  import {getZapReceiptFilters} from "@app/util/zaps"
 
   const props: ComponentProps<typeof ContentMinimal> = $props()
 
@@ -18,7 +19,7 @@
     deriveItemsByKey<Zap>({
       repository,
       getKey: zap => zap.response.id,
-      filters: [{kinds: [ZAP_RESPONSE], "#e": [props.event.id]}],
+      filters: getZapReceiptFilters({event: props.event}),
       eventToItem: (response: TrustedEvent) => getValidZap(response, props.event),
     }),
   )

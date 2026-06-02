@@ -17,6 +17,7 @@
     GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
+    getTagValue,
     type EventContent,
     type Filter,
     type TrustedEvent,
@@ -73,6 +74,11 @@
   const repoBoundRelays = $derived.by(() => {
     return getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays)
   })
+  const repoCommunityScope = $derived(
+    repoClass.community?.pubkey ||
+      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      "",
+  )
   const repoCommunityProfileRelays = $derived.by(() => {
     const relays = repoProfileRelays?.() || []
     if (relays.length > 0) return relays
@@ -744,6 +750,7 @@
                 event={issueEvent as any}
                 url={repoBoundRelays[0] || ""}
                 relays={repoBoundRelays}
+                zapScopeH={repoCommunityScope}
                 {deleteReaction}
                 {createReaction}
                 reactionClass="tooltip-left" />
@@ -751,6 +758,7 @@
                 event={issueEvent as any}
                 url={repoBoundRelays[0] || ""}
                 relays={repoBoundRelays}
+                zapScopeH={repoCommunityScope}
                 ownerPubkey={currentRepoOwner}
                 noun="issue" />
             </div>

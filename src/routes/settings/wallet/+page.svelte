@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {nwc} from "@getalby/sdk"
   import {LOCALE} from "@welshman/lib"
   import {displayRelayUrl, isNWCWallet, fromMsats} from "@welshman/util"
   import {session, pubkey, profilesByPubkey} from "@welshman/app"
@@ -12,6 +11,7 @@
   import WalletUpdateReceivingAddress from "@app/components/WalletUpdateReceivingAddress.svelte"
   import {pushModal} from "@app/util/modal"
   import {getWebLn} from "@app/core/commands"
+  import {getNwcBalance} from "@app/core/nwc"
   import Wallet2 from "@assets/icons/wallet.svg?dataurl"
   import CheckCircle from "@assets/icons/check-circle.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -331,15 +331,21 @@
               </p>
             </div>
           {:else if $session.wallet.type === "nwc"}
-            {@const {lud16, relayUrl, nostrWalletConnectUrl} = $session.wallet.info}
+            {@const {lud16, relayUrl} = $session.wallet.info}
+            {@const encryptionType = ($session.wallet.info as any).encryptionType}
             <div class="flex min-w-0 flex-col justify-between gap-2 lg:flex-row">
               <p class="min-w-0 break-words">
                 Connected to <strong class="break-all">{lud16}</strong> via
                 <strong class="break-all">{displayRelayUrl(relayUrl)}</strong>
+                {#if encryptionType === "nip44_v2"}
+                  using <strong>NIP-44</strong>
+                {:else if encryptionType === "nip04"}
+                  using <strong>NIP-04 fallback</strong>
+                {/if}
               </p>
               <p class="flex flex-wrap gap-2 sm:whitespace-nowrap">
                 Balance:
-                {#await new nwc.NWCClient({nostrWalletConnectUrl}).getBalance()}
+                {#await getNwcBalance($session.wallet.info)}
                   <span class="loading loading-spinner loading-sm"></span>
                 {:then res}
                   {new Intl.NumberFormat(LOCALE).format(fromMsats(res?.balance || 0))}

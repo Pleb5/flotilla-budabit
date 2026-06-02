@@ -408,7 +408,11 @@
               url={communityPubkey}
               communitySectionName={COMMUNITY_SECTION_GOALS}
               showEntire />
-            <GoalSummary event={approvedGoal} url={communityPubkey} />
+            <GoalSummary
+              event={approvedGoal}
+              url={communityPubkey}
+              relays={$activeCommunityRelays}
+              scopeH={communityPubkey} />
             <div class="flex w-full justify-end">
               <GoalActions
                 showRoom={false}

@@ -9,27 +9,33 @@
   import {pushModal} from "@app/util/modal"
 
   type Props = {
-    url?: string
     event: TrustedEvent
     children: Snippet
+    relayHints?: string[]
+    scopeH?: string
     replaceState?: boolean
     class?: string
   }
 
-  const {url, event, children, replaceState, ...props}: Props = $props()
-
-  const zapperPromise = loadZapperForPubkey(event.pubkey)
+  const {
+    event,
+    children,
+    relayHints = [],
+    scopeH = "",
+    replaceState,
+    ...props
+  }: Props = $props()
 
   const onClick = async () => {
     loading = true
 
     try {
-      const zapper = await zapperPromise
+      const zapper = await loadZapperForPubkey(event.pubkey, relayHints)
 
       if (!zapper?.allowsNostr) {
-        pushModal(InfoZapperError, {url, pubkey: event.pubkey, eventId: event.id}, {replaceState})
+        pushModal(InfoZapperError, {pubkey: event.pubkey}, {replaceState})
       } else if ($session?.wallet) {
-        pushModal(Zap, {url, pubkey: event.pubkey, eventId: event.id}, {replaceState})
+        pushModal(Zap, {event, relayHints, scopeH}, {replaceState})
       } else {
         pushModal(WalletConnect, {}, {replaceState})
       }

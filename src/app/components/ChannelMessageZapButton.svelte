@@ -3,9 +3,9 @@
   import Icon from "@lib/components/Icon.svelte"
   import ZapButton from "@app/components/ZapButton.svelte"
 
-  const {url, event} = $props()
+  const {event, relays = [], scopeH = ""} = $props()
 </script>
 
-<ZapButton {url} {event} class="btn join-item btn-xs">
+<ZapButton {event} relayHints={relays} {scopeH} class="btn join-item btn-xs">
   <Icon icon={Bolt} size={4} />
 </ZapButton>

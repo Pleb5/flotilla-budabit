@@ -305,7 +305,7 @@
       <div
         class="join rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
         {#if ENABLE_ZAPS && !readOnly}
-          <ChannelMessageZapButton {url} {event} />
+          <ChannelMessageZapButton {event} relays={relayTargets} {scopeH} />
         {/if}
         {#if !readOnly}
           <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />

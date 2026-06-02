@@ -213,7 +213,7 @@
         data-stop-link
         data-stop-tap>
         {#if ENABLE_ZAPS}
-          <RoomItemZapButton {url} {event} />
+          <RoomItemZapButton {event} relays={relayTargets} {scopeH} />
         {/if}
         <RoomItemEmojiButton {url} {event} relays={relayTargets} {scopeH} />
         {#if reply}
@@ -264,7 +264,7 @@
     <div class="z-10 absolute right-2 top-2 hidden items-center gap-1 text-xs sm:flex">
       <div class={actionGroupClass}>
         {#if ENABLE_ZAPS && !readOnly}
-          <RoomItemZapButton {url} {event} />
+          <RoomItemZapButton {event} relays={relayTargets} {scopeH} />
         {/if}
         {#if !readOnly}
           <RoomItemEmojiButton {url} {event} relays={relayTargets} {scopeH} />

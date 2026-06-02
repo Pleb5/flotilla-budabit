@@ -154,6 +154,11 @@
 
     return normalizeRelays([repoClass.community?.relay || ""])
   })
+  const repoCommunityScope = $derived(
+    repoClass.community?.pubkey ||
+      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      "",
+  )
   const reactionRelays = $derived.by(() => {
     const scoped = [...repoRelays].filter(Boolean)
 
@@ -1334,6 +1339,7 @@
                       event={pr.event as TrustedEvent}
                       url={relayUrl}
                       relays={repoRelays}
+                      zapScopeH={repoCommunityScope}
                       reactionClass="tooltip-left"
                       {deleteReaction}
                       createReaction={template =>
@@ -1343,6 +1349,7 @@
                       url={relayUrl}
                       noun="pull request"
                       ownerPubkey={(repoClass as any)?.repoEvent?.pubkey || ""}
+                      zapScopeH={repoCommunityScope}
                       relays={repoRelays} />
                   </div>
                 </div>

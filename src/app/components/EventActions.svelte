@@ -24,6 +24,7 @@
     customActions?: Snippet
     relays?: string[]
     scopeH?: string
+    zapScopeH?: string
     communitySectionName?: string
     ownerPubkey?: string
     readOnly?: boolean
@@ -42,6 +43,7 @@
     customActions,
     relays = [],
     scopeH = "",
+    zapScopeH = "",
     communitySectionName = "",
     ownerPubkey = "",
     readOnly = false,
@@ -86,7 +88,7 @@
   data-stop-tap
   oncontextmenu={onContextMenu}>
   {#if !menuOnly && ENABLE_ZAPS && !hideZap && !readOnly}
-    <ZapButton {url} {event} class="btn join-item btn-neutral btn-xs">
+    <ZapButton {event} relayHints={relays} scopeH={zapScopeH || scopeH} class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
     </ZapButton>
   {/if}

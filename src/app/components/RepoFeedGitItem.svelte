@@ -34,6 +34,7 @@
     openHref: string
     interactionRelays?: string[]
     scopeH?: string
+    zapScopeH?: string
     statusState?: RepoFeedStatusState
     defaultThreadCommunityPubkey?: string
   }
@@ -44,6 +45,7 @@
     openHref,
     interactionRelays = [],
     scopeH = "",
+    zapScopeH = "",
     statusState = "open",
     defaultThreadCommunityPubkey = "",
   }: Props = $props()
@@ -279,6 +281,7 @@
       <ReactionSummary
         {url}
         relays={relayTargets}
+        {zapScopeH}
         {scopeH}
         {event}
         {deleteReaction}

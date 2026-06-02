@@ -104,7 +104,7 @@
   </Button>
 
   {#if ENABLE_ZAPS}
-    <ZapButton replaceState {url} {event} class="btn btn-neutral w-full">
+    <ZapButton replaceState {event} relayHints={relays} {scopeH} class="btn btn-neutral w-full">
       <Icon size={4} icon={Bolt} />
       Send Zap
     </ZapButton>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import {type Instance} from "tippy.js"
+  import type {Snippet} from "svelte"
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import {onDestroy} from "svelte"
   import {between, throttle} from "@welshman/lib"
@@ -7,7 +8,13 @@
   import Tippy from "@lib/components/Tippy.svelte"
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
 
-  const {...props} = $props()
+  type Props = {
+    onEmoji: (emoji: NativeEmoji) => void
+    children?: Snippet
+    class?: string
+  }
+
+  let {onEmoji, children, class: className = ""}: Props = $props()
 
   const open = () => {
     if (!popover || popover.state.isDestroyed) return
@@ -22,7 +29,7 @@
   }
 
   const onClick = (emoji: NativeEmoji) => {
-    props.onEmoji(emoji)
+    onEmoji(emoji)
     close()
   }
 
@@ -63,7 +70,7 @@
   component={EmojiPicker}
   props={{onClick}}
   params={{trigger: "manual", interactive: true}}>
-  <Button onclick={open} class={props.class}>
-    {@render props.children?.()}
+  <Button onclick={open} class={className}>
+    {@render children?.()}
   </Button>
 </Tippy>

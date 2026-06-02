@@ -54,7 +54,7 @@ export const pushModal = (
 
   modals.update(assoc(id, {id, component, props, options}))
 
-  goto(path + "#" + id, {replaceState: options.replaceState})
+  goto(path + "#" + id, {replaceState: options.replaceState, noScroll: true, keepFocus: true})
 
   return id
 }
