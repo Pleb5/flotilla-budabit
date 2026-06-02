@@ -46,6 +46,7 @@
     getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays),
   )
   const LOAD_TIMEOUT_MS = 7000
+  const SCROLL_TO_TOP_THRESHOLD = 300
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
 
   let isResolving = $state(true)
@@ -198,12 +199,16 @@
     const scrollEl = scrollParent
     if (!scrollEl) return
     const syncScrollState = () => {
-      showScrollButton = scrollEl.scrollTop > 1500
+      showScrollButton = scrollEl.scrollTop > SCROLL_TO_TOP_THRESHOLD
     }
     syncScrollState()
     scrollEl.addEventListener("scroll", syncScrollState, {passive: true})
     return () => scrollEl.removeEventListener("scroll", syncScrollState)
   })
+
+  const scrollToTop = () => {
+    scrollParent?.scrollTo({top: 0, behavior: "smooth"})
+  }
 
   onDestroy(() => {
     hasStartedResolve = false
@@ -228,10 +233,8 @@
 </div>
 
 {#if showScrollButton}
-  <div in:fade class="chat__scroll-down">
-    <Button
-      class="btn btn-circle btn-neutral"
-      onclick={() => scrollParent?.scrollTo({top: 0, behavior: "smooth"})}>
+  <div in:fade class="chat__scroll-down !z-[20]">
+    <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
       <Icon icon={AltArrowUp} />
     </Button>
   </div>

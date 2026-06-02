@@ -3457,8 +3457,11 @@
                                 <div
                                   class="border-y border-border bg-background sm:rounded sm:border">
                                   <div
-                                    class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
-                                    <span class="truncate font-mono">{change.path}</span>
+                                    class="flex min-w-0 items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                                    <span
+                                      class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono">
+                                      {change.path}
+                                    </span>
                                     <div class="flex items-center gap-2 text-muted-foreground">
                                       {#if getPrFileStats(change.diffHunks).additions > 0}
                                         <span class="text-emerald-700 dark:text-emerald-300"
@@ -3549,14 +3552,17 @@
                       type="button"
                       onclick={() => togglePrFile(change.path)}
                       class="flex min-h-[44px] w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
-                      <div class="flex min-w-0 items-center gap-2">
+                      <div class="flex min-w-0 flex-1 items-center gap-2">
                         {#if isExpanded}
                           <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
                         {:else}
                           <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
                         {/if}
                         <IconComponent class="h-4 w-4 shrink-0 {statusInfo.class}" />
-                        <span class="truncate font-mono text-xs">{change.path}</span>
+                        <span
+                          class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs">
+                          {change.path}
+                        </span>
                         <span
                           class="shrink-0 rounded-full border px-2 py-0.5 text-xs {change.status ===
                           'added'
