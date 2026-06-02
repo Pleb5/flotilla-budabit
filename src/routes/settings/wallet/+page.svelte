@@ -314,7 +314,14 @@
       class="card2 bg-alt flex min-w-0 flex-col shadow-md"
       class:gap-6={profileLightningAddress && walletLud16 && profile?.lud16 !== walletLud16}>
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <strong>Lightning Address</strong>
+        <div class="flex items-center gap-2">
+          <strong>Lightning Address</strong>
+          <span
+            class="tooltip tooltip-right inline-flex cursor-help items-center opacity-75"
+            data-tip="Use this to accept bitcoin over the Lightning network.">
+            <Icon icon={InfoCircle} size={4} />
+          </span>
+        </div>
         <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
           <span class={profileLightningAddress ? "break-all text-sm" : "text-sm text-warning"}>
             {profileLightningAddress ? profileLightningAddress : "Not set"}

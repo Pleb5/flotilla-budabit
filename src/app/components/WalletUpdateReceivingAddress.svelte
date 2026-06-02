@@ -7,6 +7,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import CheckCircle from "@assets/icons/check-circle.svg?dataurl"
+  import InfoCircle from "@assets/icons/info-circle.svg?dataurl"
   import {updateProfile} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
 
@@ -54,7 +55,14 @@
 
   <div class="column gap-4">
     <div class="column gap-2">
-      <span> Lightning Address </span>
+      <div class="flex items-center gap-2">
+        <span>Lightning Address</span>
+        <span
+          class="tooltip tooltip-right inline-flex cursor-help items-center opacity-75"
+          data-tip="Use this to accept bitcoin over the Lightning network.">
+          <Icon icon={InfoCircle} size={4} />
+        </span>
+      </div>
       <input
         type="text"
         placeholder="user@domain.com"
