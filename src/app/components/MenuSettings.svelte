@@ -91,7 +91,7 @@
           <div>Wallet</div>
         {/snippet}
         {#snippet info()}
-          <div>Lightning for tipping, Cashu for CI jobs</div>
+          <div>Lightning and Cashu</div>
         {/snippet}
       </CardButton>
     </Link>
