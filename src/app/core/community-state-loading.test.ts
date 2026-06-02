@@ -226,4 +226,38 @@ describe("community relay loading", () => {
       }),
     )
   })
+
+  it("retries preference hydration after an empty early load", async () => {
+    pubkey.set(moderatorPubkey)
+    loadMock.mockResolvedValue([])
+
+    await hydrateCommunityPreferences({relayHints: [discoveryRelay], force: true})
+    loadMock.mockClear()
+
+    await hydrateCommunityPreferences({relayHints: [discoveryRelay]})
+
+    expect(loadMock).toHaveBeenCalled()
+  })
+
+  it("loads the signed-in admin community through preference relay hints", async () => {
+    pubkey.set(communityPubkey)
+    loadMock.mockImplementation(({relays, filters}: {relays: string[]; filters: Filter[]}) => {
+      const adminFilter = filters.find(filter => filter.kinds?.includes(COMMUNITY_DEFINITION_KIND))
+
+      if (relays[0] === relayA && adminFilter?.authors?.includes(communityPubkey)) {
+        return Promise.resolve([definitionEvent])
+      }
+
+      return Promise.resolve([])
+    })
+
+    await hydrateCommunityPreferences({relayHints: [relayA], force: true})
+
+    expect(get(activePreferredCommunities)).toContainEqual(
+      expect.objectContaining({
+        communityPubkey,
+        isAdmin: true,
+      }),
+    )
+  })
 })

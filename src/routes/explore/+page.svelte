@@ -1,7 +1,14 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {getFollows, profileSearch, profilesByPubkey, pubkey} from "@welshman/app"
-  import type {TrustedEvent} from "@welshman/util"
+  import {
+    getFollows,
+    loadUserRelayList,
+    profileSearch,
+    profilesByPubkey,
+    pubkey,
+    userRelayList,
+  } from "@welshman/app"
+  import {getRelaysFromList, type TrustedEvent} from "@welshman/util"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -65,6 +72,8 @@
   let selectorRelayHints = $state<Record<string, string[]>>({})
   let preferredHydrationKey = ""
   let preferredHydrationAttempts = 0
+  let userRelayListHydrationKey = $state("")
+  let userRelayListHydrationLoadingKey = $state("")
   const selectorRelayLoadAttempts = new Map<string, number>()
   const SELECTOR_RELAY_RETRY_MS = 30_000
   const PREFERRED_HYDRATION_MAX_ATTEMPTS = 2
@@ -168,6 +177,7 @@
     const relayHints = getCommunityDefinitionRelayHints(definition, [
       ...(selectorRelayHints[selectedPubkey] || []),
       ...(selectedPubkey === $activeCommunitySession?.communityPubkey ? currentRelayHints : []),
+      ...(selectedPubkey === $pubkey ? userRelayHints : []),
     ])
 
     communityInput = makeCommunityInputValue({pubkey: selectedPubkey, relayHints}) || selectedPubkey
@@ -260,6 +270,25 @@
       ...definitionRelays,
     ])
   })
+  const userRelayHints = $derived.by(() => normalizeRelays(getRelaysFromList($userRelayList)))
+  const preferredHydrationRelayHints = $derived.by(() =>
+    normalizeRelays([...currentRelayHints, ...userRelayHints]),
+  )
+  const userRelayListKey = $derived($userRelayList?.event?.id || userRelayHints.join(","))
+  const userRelayListHydrated = $derived(
+    Boolean(
+      $pubkey &&
+      (userRelayListHydrationKey === $pubkey || $userRelayList?.event?.pubkey === $pubkey),
+    ),
+  )
+  const missingOwnAdminCommunity = $derived(
+    Boolean(
+      $pubkey &&
+      !preferredCommunities.some(
+        community => community.communityPubkey === $pubkey && community.isAdmin,
+      ),
+    ),
+  )
   const selectorCommunities = $derived.by((): SelectorCommunity[] => {
     const session = $activeCommunitySession
     const currentPreference = session
@@ -297,6 +326,7 @@
     return normalizeRelays([
       ...(previewInput?.relays || []),
       ...(previewPubkey === $activeCommunitySession?.communityPubkey ? currentRelayHints : []),
+      ...(previewPubkey === $pubkey ? userRelayHints : []),
       ...(selectorRelayHints[previewPubkey] || []),
     ])
   })
@@ -371,24 +401,61 @@
       defaultLookupState === "not-found",
     ),
   )
+  const preferredCommunitiesLoading = $derived(
+    Boolean($pubkey && !userRelayListHydrated) ||
+      $communityStarsLoading ||
+      $communityPreferencesLoading,
+  )
+  const showPreferredCommunitiesLoading = $derived(
+    preferredCommunitiesLoading && selectorCommunities.length === 0,
+  )
 
   $effect(() => {
-    const key = $pubkey ? `${$pubkey}:${currentRelayHints.join(",")}` : ""
+    const user = $pubkey || ""
+
+    if (!user) {
+      userRelayListHydrationKey = ""
+      userRelayListHydrationLoadingKey = ""
+      return
+    }
+
+    if (userRelayListHydrationKey === user || userRelayListHydrationLoadingKey === user) return
+
+    userRelayListHydrationLoadingKey = user
+    loadUserRelayList([])
+      .catch(() => {})
+      .finally(() => {
+        if (userRelayListHydrationLoadingKey !== user) return
+
+        userRelayListHydrationKey = user
+        userRelayListHydrationLoadingKey = ""
+      })
+  })
+
+  $effect(() => {
+    const relayHints = preferredHydrationRelayHints
+    const key = $pubkey ? `${$pubkey}:${relayHints.join(",")}:${userRelayListKey}` : ""
 
     if (!$pubkey || !key) return
+    if (!userRelayListHydrated) return
 
     if (preferredHydrationKey !== key) {
       preferredHydrationKey = key
       preferredHydrationAttempts = 0
     }
 
-    if ($communityStarsLoading || $communityPreferencesLoading) return
-    if (preferredCommunities.length > 0 && preferredHydrationAttempts > 0) return
+    if (preferredCommunitiesLoading) return
+    if (
+      preferredCommunities.length > 0 &&
+      !missingOwnAdminCommunity &&
+      preferredHydrationAttempts > 0
+    )
+      return
     if (preferredHydrationAttempts >= PREFERRED_HYDRATION_MAX_ATTEMPTS) return
 
     preferredHydrationAttempts += 1
     hydratePreferredCommunities({
-      relayHints: currentRelayHints,
+      relayHints,
       force: preferredHydrationAttempts > 1,
     }).catch(() => {})
   })
@@ -451,9 +518,9 @@
 
   $effect(() => {
     const parsed = previewInput
-    const pubkey = previewPubkey
+    const targetPubkey = previewPubkey
 
-    if (!pubkey) {
+    if (!targetPubkey) {
       previewRequestKey = ""
       previewLookupState = "idle"
       return
@@ -464,7 +531,14 @@
       !parsed || parsed.pubkey === $activeCommunitySession?.communityPubkey
         ? $activeCommunityDefinition?.relays || []
         : []
-    const requestKey = [pubkey, ...relayHints, ...activeDefinitionRelays].join("|")
+    const signedInPubkeyRelays = targetPubkey === $pubkey ? userRelayHints : []
+    const requestKey = [
+      targetPubkey,
+      ...relayHints,
+      ...activeDefinitionRelays,
+      ...signedInPubkeyRelays,
+      targetPubkey === $pubkey ? userRelayListKey : "",
+    ].join("|")
 
     if (previewRequestKey === requestKey) return
     previewRequestKey = requestKey
@@ -472,7 +546,11 @@
 
     const requestId = ++previewRequestId
 
-    loadCommunityDefinitionRelays(pubkey, [...relayHints, ...activeDefinitionRelays])
+    loadCommunityDefinitionRelays(targetPubkey, [
+      ...relayHints,
+      ...activeDefinitionRelays,
+      ...signedInPubkeyRelays,
+    ])
       .then(relays => {
         if (requestId !== previewRequestId) return
         if (relays.length === 0) {
@@ -480,7 +558,7 @@
           return
         }
 
-        selectorRelayHints = {...selectorRelayHints, [pubkey]: relays}
+        selectorRelayHints = {...selectorRelayHints, [targetPubkey]: relays}
         previewLookupState = "found"
       })
       .catch(() => {
@@ -540,14 +618,14 @@
           </Button>
         </div>
 
-        {#if selectorCommunities.length > 0 || $communityStarsLoading || $communityPreferencesLoading}
+        {#if selectorCommunities.length > 0 || showPreferredCommunitiesLoading}
           <div class="card2 card2-sm bg-alt col-3 min-w-0 shadow-md lg:col-start-1 lg:row-start-1">
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
                   Preferred Communities
                 </p>
-                {#if $communityStarsLoading || $communityPreferencesLoading}
+                {#if showPreferredCommunitiesLoading}
                   <span class="loading loading-spinner loading-xs opacity-60"></span>
                 {/if}
               </div>

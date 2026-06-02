@@ -1143,6 +1143,13 @@ export const hydrateCommunityPreferences = async ({
         ...discoveredModeratorDefinitionEvents,
       ]),
     )
+    const hasPreferenceEvidence = definitions.length > 0 || formCommunityPubkeys.length > 0
+
+    if (!hasPreferenceEvidence) {
+      communityPreferenceHydratedAt = 0
+      return
+    }
+
     const communityRelays = normalizeRelays(definitions.flatMap(definition => definition.relays))
 
     if (communityRelays.length === 0) return
