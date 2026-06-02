@@ -91,7 +91,7 @@
           <div>Wallet</div>
         {/snippet}
         {#snippet info()}
-          <div>Connect a bitcoin wallet for sending social tips</div>
+          <div>Lightning for tipping, Cashu for CI jobs</div>
         {/snippet}
       </CardButton>
     </Link>
