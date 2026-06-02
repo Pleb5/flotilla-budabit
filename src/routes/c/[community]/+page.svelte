@@ -188,7 +188,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="flex flex-col gap-2 px-2 pb-10 pt-4">
+<PageContent class="flex flex-col gap-2 p-2 pt-4">
   <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
     {#if communityId}
       <div class="flex w-full justify-end gap-2">
