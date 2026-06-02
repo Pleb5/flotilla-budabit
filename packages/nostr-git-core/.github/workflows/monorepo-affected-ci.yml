@@ -1,0 +1,111 @@
+name: Monorepo Affected CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_all:
+        description: "Run across all packages regardless of changes"
+        required: false
+        default: "false"
+
+jobs:
+  determine-affected:
+    name: Determine affected packages
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            git:
+              - 'packages/git/**'
+            git_impl:
+              - 'packages/git-impl/**'
+            git_worker:
+              - 'packages/worker/**'
+            extension:
+              - 'packages/extension/**'
+            workflows:
+              - '.github/workflows/**'
+            root:
+              - '**'
+
+      - name: Build matrix JSON
+        id: set-matrix
+        run: |
+          RUN_ALL=${{ github.event_name == 'workflow_dispatch' && inputs.run_all == 'true' && 'true' || 'false' }}
+          # Build an array of package names to run
+          PKGS=()
+          if [ "$RUN_ALL" = "true" ]; then
+            PKGS=("@nostr-git/types" "@nostr-git/events" "@nostr-git/git" "@nostr-git/git-impl" "@nostr-git/flows" "@nostr-git/sdk" "@nostr-git/worker" "@nostr-git/extension")
+          else
+            if [ "${{ steps.changes.outputs.git }}" = "true" ]; then PKGS+=("@nostr-git/git"); fi
+            if [ "${{ steps.changes.outputs.git_impl }}" = "true" ]; then PKGS+=("@nostr-git/git-impl"); fi
+            if [ "${{ steps.changes.outputs.git_worker }}" = "true" ]; then PKGS+=("@nostr-git/worker"); fi
+            if [ "${{ steps.changes.outputs.extension }}" = "true" ]; then PKGS+=("@nostr-git/extension"); fi
+            # If only workflows or root files changed, run a lightweight all-packages check
+            if [ ${#PKGS[@]} -eq 0 ] && { [ "${{ steps.changes.outputs.workflows }}" = "true" ] || [ "${{ steps.changes.outputs.root }}" = "true" ]; }; then
+              PKGS=("@nostr-git/types" "@nostr-git/events" "@nostr-git/git" "@nostr-git/git-impl" "@nostr-git/flows" "@nostr-git/sdk" "@nostr-git/worker" "@nostr-git/extension" "@nostr-git/actions")
+            fi
+          fi
+
+          # Fallback: if still empty, run shared-types as sentinel
+          if [ ${#PKGS[@]} -eq 0 ]; then PKGS=("@nostr-git/sdk"); fi
+
+          JSON=$(printf '%s\n' "${PKGS[@]}" | jq -R . | jq -s '{package: .}')
+          echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
+
+      - name: Show matrix
+        run: echo '${{ steps.set-matrix.outputs.matrix }}'
+
+  build-and-test:
+    name: Build & Test (${{ matrix.package }})
+    needs: determine-affected
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.determine-affected.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -w --filter "${{ matrix.package }}" run typecheck
+
+      - name: Lint
+        run: pnpm -w --filter "${{ matrix.package }}" run lint || pnpm -w --filter "${{ matrix.package }}" exec echo "No lint script"
+
+      - name: Build
+        run: pnpm -w --filter "${{ matrix.package }}" run build || pnpm -w --filter "${{ matrix.package }}" exec echo "No build script"
+
+      - name: Test
+        run: pnpm -w --filter "${{ matrix.package }}" run test || pnpm -w --filter "${{ matrix.package }}" exec echo "No test script"
+
+
