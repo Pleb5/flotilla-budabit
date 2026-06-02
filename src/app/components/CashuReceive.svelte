@@ -13,9 +13,10 @@
     getCashuMnemonic,
   } from "@app/core/cashu"
   import {createCashuBackupText} from "@app/util/cashu-backup"
+  import {formatCashuSats} from "@app/util/cashu-format"
   import {downloadText} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
-  import Confirm from "@lib/components/Confirm.svelte"
+  import CashuMintChangeConfirm from "@app/components/CashuMintChangeConfirm.svelte"
   import {pushModal} from "@app/util/modal"
 
   // Recognize the untrusted-mint error by any of the surface markers — class
@@ -89,8 +90,8 @@
     }
   }
 
-  const trustAndRedeem = async () => {
-    if (!trustPrompt) return
+  const trustAndRedeem = async (recover = false): Promise<boolean | string> => {
+    if (!trustPrompt) return false
     loading = true
     error = ""
     try {
@@ -103,12 +104,15 @@
         downloadText("Budabit Cashu Wallet Seed.txt", backupText)
         await confirmCashuBackup()
       }
+      if (recover) await recoverCashuMint(trustPrompt)
       trustPrompt = null
       const amount = await receiveCashuToken(token.trim())
       received = amount
       token = ""
+      return true
     } catch (e: any) {
       error = e?.message || "Failed to redeem token"
+      return error
     } finally {
       loading = false
     }
@@ -116,18 +120,16 @@
 
   const confirmTrustAndRedeem = () => {
     if (!trustPrompt || !configuredWallet) {
-      trustAndRedeem()
+      trustAndRedeem(false)
       return
     }
 
-    pushModal(Confirm, {
-      title: "Add Trusted Mint",
-      message: `You have 0 sats in this mint: ${trustPrompt}. Adding this mint changes what your Cashu backup can recover, so Budabit will download an updated backup file before redeeming this token.`,
-      confirmLabel: "Add and download backup",
-      confirm: async () => {
-        await trustAndRedeem()
-        history.back()
-      },
+    pushModal(CashuMintChangeConfirm, {
+      action: "add",
+      mintUrl: trustPrompt,
+      addLabel: "Trust, back up, and redeem",
+      addRecoveryLabel: "Trust, recover, and redeem",
+      confirm: ({recover}: {recover: boolean}) => trustAndRedeem(recover),
     })
   }
 
@@ -152,7 +154,7 @@
 <div class="flex min-w-0 flex-col gap-4">
   {#if received !== null}
     <div class="rounded-lg bg-success/10 p-4 text-center text-success">
-      <p class="text-lg font-bold">+{received.toLocaleString()} sats received!</p>
+      <p class="text-lg font-bold">+{formatCashuSats(received)} sats received!</p>
       <Button class="btn btn-ghost btn-sm mt-2" onclick={() => (received = null)}>
         Redeem another
       </Button>

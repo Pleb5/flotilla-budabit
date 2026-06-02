@@ -1,6 +1,7 @@
 <script lang="ts">
   import {cashuTokenHistory} from "@app/core/cashu"
   import type {TokenHistoryEntry} from "@app/core/cashu"
+  import {formatCashuSats} from "@app/util/cashu-format"
   import Button from "@lib/components/Button.svelte"
 
   interface Props {
@@ -58,7 +59,7 @@
               {directionLabel(entry)}
             </span>
             <span class="font-mono font-bold">
-              {entry.direction === "sent" ? "-" : "+"}{entry.amount.toLocaleString()} sats
+              {entry.direction === "sent" ? "-" : "+"}{formatCashuSats(entry.amount)} sats
             </span>
           </div>
           <span class="text-xs opacity-50">{formatDate(entry.createdAt)}</span>

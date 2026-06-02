@@ -1,5 +1,6 @@
 <script lang="ts">
   import {cashuMints, requestMintQuote, checkMintQuote, mintTokensFromQuote} from "@app/core/cashu"
+  import {formatCashuSats} from "@app/util/cashu-format"
   import Button from "@lib/components/Button.svelte"
   import QRCode from "qrcode"
 
@@ -99,7 +100,7 @@
 <div class="flex min-w-0 flex-col gap-4">
   {#if success}
     <div class="rounded-lg bg-success/10 p-4 text-center text-success">
-      <p class="text-lg font-bold">+{amount.toLocaleString()} sats received!</p>
+      <p class="text-lg font-bold">+{formatCashuSats(amount)} sats received!</p>
       <Button class="btn btn-ghost btn-sm mt-2" onclick={() => (success = false)}>
         Top up again
       </Button>
@@ -107,7 +108,7 @@
   {:else if invoice}
     <div class="flex min-w-0 flex-col items-center gap-4">
       <p class="text-sm opacity-75">
-        Pay this Lightning invoice to top up <strong>{amount.toLocaleString()} sats</strong>
+        Pay this Lightning invoice to top up <strong>{formatCashuSats(amount)} sats</strong>
       </p>
       {#if qrDataUrl}
         <img

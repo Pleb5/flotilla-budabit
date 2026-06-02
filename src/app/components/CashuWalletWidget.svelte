@@ -10,6 +10,7 @@
   } from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
+  import {formatCashuSats} from "@app/util/cashu-format"
 
   const isLoggedIn = $derived(!!$pubkey)
   const balance = $derived($cashuTotalBalance)
@@ -26,6 +27,6 @@
     onclick={openWallet}
     title="Open Cashu Wallet">
     <span class="text-warning">₿</span>
-    <span>{balance.toLocaleString()} sats</span>
+    <span>{formatCashuSats(balance)} sats</span>
   </button>
 {/if}

@@ -6,7 +6,6 @@
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
-  import ModalFooter from "@lib/components/ModalFooter.svelte"
 
   interface Props {
     title?: string
@@ -43,14 +42,17 @@
     {/snippet}
   </ModalHeader>
   <p class="text-center">{message}</p>
-  <ModalFooter>
-    <Button class="btn btn-link" onclick={back}>
+  <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <Button class="btn btn-link inline-flex justify-center sm:justify-start" onclick={back}>
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={loading}>
+    <Button
+      type="submit"
+      class="btn btn-primary min-h-fit whitespace-normal text-center sm:text-left"
+      disabled={loading}>
       <Spinner {loading}>{confirmLabel}</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>
-  </ModalFooter>
+  </div>
 </form>

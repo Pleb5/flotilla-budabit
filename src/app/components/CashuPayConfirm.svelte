@@ -1,5 +1,6 @@
 <script lang="ts">
   import {cashuBalancesByMint, createCashuToken, addAutoPayWhitelist} from "@app/core/cashu"
+  import {formatCashuSats} from "@app/util/cashu-format"
   import Button from "@lib/components/Button.svelte"
 
   interface Props {
@@ -46,17 +47,17 @@
     <h3 class="text-lg font-bold">Payment Request</h3>
     <p class="text-sm opacity-75">
       <strong>{label || extensionId}</strong> wants to spend
-      <strong>{amount.toLocaleString()} sats</strong>
+      <strong>{formatCashuSats(amount)} sats</strong>
       from <span class="break-all font-mono text-xs">{mintUrl}</span>
     </p>
     <p class="text-xs opacity-50">
-      Your balance at this mint: {balance.toLocaleString()} sats
+      Your balance at this mint: {formatCashuSats(balance)} sats
     </p>
   </div>
 
   {#if balance < amount}
     <div class="rounded-lg bg-warning/10 p-3 text-sm text-warning">
-      Insufficient balance. You need {(amount - balance).toLocaleString()} more sats.
+      Insufficient balance. You need {formatCashuSats(amount - balance)} more sats.
     </div>
   {/if}
 

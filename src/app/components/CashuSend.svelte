@@ -5,6 +5,7 @@
     cashuBackupConfirmed,
     createCashuToken,
   } from "@app/core/cashu"
+  import {formatCashuSats} from "@app/util/cashu-format"
   import {pushModal} from "@app/util/modal"
   import Button from "@lib/components/Button.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
@@ -35,7 +36,7 @@
     }
     if (!selectedMint || amount <= 0) return
     if (amount > selectedBalance) {
-      error = `Insufficient balance. Available: ${selectedBalance.toLocaleString()} sats`
+      error = `Insufficient balance. Available: ${formatCashuSats(selectedBalance)} sats`
       return
     }
     loading = true
@@ -94,14 +95,14 @@
           class="select select-bordered select-sm min-w-0"
           bind:value={selectedMint}>
           {#each mints as mint (mint)}
-            <option value={mint}>{mint} ({(balances.get(mint) ?? 0).toLocaleString()} sats)</option>
+            <option value={mint}>{mint} ({formatCashuSats(balances.get(mint) ?? 0)} sats)</option>
           {/each}
         </select>
       </div>
       <div class="flex flex-col gap-1">
         <label class="text-sm font-medium" for="send-amount">
           Amount (sats)
-          <span class="ml-2 text-xs opacity-60">Available: {selectedBalance.toLocaleString()}</span>
+          <span class="ml-2 text-xs opacity-60">Available: {formatCashuSats(selectedBalance)}</span>
         </label>
         <input
           id="send-amount"

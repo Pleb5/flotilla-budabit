@@ -28,6 +28,7 @@
     removeAutoPayWhitelist,
     recoverAllTrustedMints,
   } from "@app/core/cashu"
+  import {formatCashuSats} from "@app/util/cashu-format"
   import CashuMintManager from "@app/components/CashuMintManager.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
@@ -119,7 +120,7 @@
         </strong>
         {#if cashuReady}
           <span class="font-mono text-2xl font-bold"
-            >{cashuBalance.toLocaleString()} sats</span>
+            >{formatCashuSats(cashuBalance)} sats</span>
         {:else if setupResolved && seedLocked}
           <span class="text-base font-semibold text-warning">Locked</span>
         {:else if setupResolved && !setupRequired}

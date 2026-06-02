@@ -8,6 +8,7 @@
     cashuSetupResolved,
     addCashuMint,
     removeCashuMint,
+    recoverCashuMint,
     confirmCashuBackup,
     getCashuMnemonic,
   } from "@app/core/cashu"
@@ -18,7 +19,7 @@
   } from "@app/core/cashu-mint-recommendations"
   import {createCashuBackupText, type CashuBackupData} from "@app/util/cashu-backup"
   import {downloadText} from "@lib/html"
-  import CashuMintRecommendationEvidence from "@app/components/CashuMintRecommendationEvidence.svelte"
+  import CashuMintCard from "@app/components/CashuMintCard.svelte"
   import {
     activeUserCommunityRefs,
     communityMemberProfileListEvents,
@@ -27,7 +28,7 @@
   } from "@app/core/community-state"
   import {pubkey} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
-  import Confirm from "@lib/components/Confirm.svelte"
+  import CashuMintChangeConfirm from "@app/components/CashuMintChangeConfirm.svelte"
   import {pushModal} from "@app/util/modal"
 
   let newMintUrl = $state("")
@@ -74,16 +75,13 @@
     action: "add" | "remove"
     mintUrl: string
     balance: number
-    confirm: () => Promise<boolean>
+    confirm: (options: {recover: boolean}) => Promise<boolean | string>
   }) => {
-    pushModal(Confirm, {
-      title: action === "add" ? "Add Trusted Mint" : "Remove Trusted Mint",
-      message: `You have ${balance.toLocaleString()} sats in this mint: ${mintUrl}. Changing trusted mints changes what your Cashu backup can recover, so Budabit will download an updated backup file after this ${action}.`,
-      confirmLabel: action === "add" ? "Add and download backup" : "Remove and download backup",
-      confirm: async () => {
-        await confirm()
-        history.back()
-      },
+    pushModal(CashuMintChangeConfirm, {
+      action,
+      mintUrl,
+      balance,
+      confirm,
     })
   }
 
@@ -119,7 +117,20 @@
       action: "add",
       mintUrl: url,
       balance: getMintBalance(url),
-      confirm: () => performAdd(url, source),
+      confirm: async ({recover}) => {
+        const added = await performAdd(url, source)
+        if (!added) return error || "Failed to add mint"
+
+        if (!recover) return true
+
+        try {
+          await recoverCashuMint(url)
+          return true
+        } catch (e: any) {
+          error = e?.message || "Failed to recover mint"
+          return error
+        }
+      },
     })
   }
 
@@ -157,7 +168,10 @@
       action: "remove",
       mintUrl: url,
       balance: getMintBalance(url),
-      confirm: () => performRemove(url),
+      confirm: async () => {
+        const removed = await performRemove(url)
+        return removed || error || "Failed to remove mint"
+      },
     })
   }
 
@@ -222,19 +236,14 @@
   {:else}
     <div class="flex flex-col gap-2">
       {#each mints as mint (mint)}
-        <div
-          class="card2 bg-alt flex min-w-0 flex-col items-start gap-2 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <div class="flex min-w-0 flex-col gap-0.5 overflow-hidden">
-            <span class="max-w-full break-all font-mono text-xs sm:truncate">{mint}</span>
-            <span class="text-xs opacity-60">
-              {(balances.get(mint) ?? 0).toLocaleString()} sats
-            </span>
-          </div>
-          <Button
-            class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
-            onclick={() => remove(mint)}
-            disabled={configuredWallet && mints.length <= 1}>✕</Button>
-        </div>
+        <CashuMintCard mintUrl={mint} balance={balances.get(mint) ?? 0}>
+          {#snippet action()}
+            <Button
+              class="btn btn-ghost btn-xs inline-flex w-full justify-center text-error sm:w-auto"
+              onclick={() => remove(mint)}
+              disabled={configuredWallet && mints.length <= 1}>✕</Button>
+          {/snippet}
+        </CashuMintCard>
       {/each}
       {#if configuredWallet && mints.length === 1}
         <p class="text-xs opacity-70">Add another trusted mint before removing this one.</p>
@@ -261,21 +270,16 @@
     {#if visibleRecommendations.length > 0}
       <div class="flex flex-col gap-2">
         {#each visibleRecommendations as recommendation (recommendation.mintUrl)}
-          <div
-            class="card2 bg-alt flex min-w-0 flex-col gap-3 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex min-w-0 flex-1 flex-col gap-1">
-              <span class="max-w-full break-all font-mono text-xs sm:truncate">
-                {recommendation.mintUrl}
-              </span>
-              <CashuMintRecommendationEvidence {recommendation} />
-            </div>
-            <Button
-              class="btn btn-neutral btn-xs inline-flex w-full justify-center sm:w-auto"
-              onclick={() => addRecommended(recommendation.mintUrl)}
-              disabled={Boolean(addingMintUrl)}>
-              {addingMintUrl === recommendation.mintUrl ? "Adding…" : "+ Add"}
-            </Button>
-          </div>
+          <CashuMintCard mintUrl={recommendation.mintUrl} {recommendation}>
+            {#snippet action()}
+              <Button
+                class="btn btn-neutral btn-xs inline-flex w-full justify-center sm:w-auto"
+                onclick={() => addRecommended(recommendation.mintUrl)}
+                disabled={Boolean(addingMintUrl)}>
+                {addingMintUrl === recommendation.mintUrl ? "Adding…" : "+ Add"}
+              </Button>
+            {/snippet}
+          </CashuMintCard>
         {/each}
       </div>
       {#if recommendations.length > 5}

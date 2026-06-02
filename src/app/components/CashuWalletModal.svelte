@@ -14,6 +14,8 @@
   import CashuHistory from "@app/components/CashuHistory.svelte"
   import CashuMintManager from "@app/components/CashuMintManager.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
+  import CashuMintCard from "@app/components/CashuMintCard.svelte"
+  import {formatCashuSats} from "@app/util/cashu-format"
 
   type Props = {
     showHeader?: boolean
@@ -54,7 +56,7 @@
       <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h2 class="text-xl font-bold">Cashu Wallet</h2>
         <span class="font-mono text-base font-semibold sm:text-lg"
-          >{totalBalance.toLocaleString()} sats</span>
+          >{formatCashuSats(totalBalance)} sats</span>
       </div>
     {/if}
 
@@ -83,12 +85,7 @@
             </p>
           {:else}
             {#each mints as mint (mint)}
-              <div
-                class="card2 bg-alt flex min-w-0 flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span class="max-w-full break-all font-mono text-xs sm:truncate">{mint}</span>
-                <span class="font-semibold sm:shrink-0"
-                  >{(balancesByMint.get(mint) ?? 0).toLocaleString()} sats</span>
-              </div>
+              <CashuMintCard mintUrl={mint} balance={balancesByMint.get(mint) ?? 0} />
             {/each}
           {/if}
           <div class="mt-2">
