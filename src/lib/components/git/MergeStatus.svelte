@@ -143,12 +143,14 @@
 
           <div class="space-y-2">
             {#each result.conflictDetails ?? [] as conflict (conflict.file)}
-              <Card class="border-amber-200 dark:border-amber-900">
-                <CardContent class="p-3">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-mono text-sm">{conflict.file}</span>
+              <Card class="min-w-0 overflow-hidden border-amber-200 dark:border-amber-900">
+                <CardContent class="min-w-0 p-3">
+                  <div class="mb-2 flex min-w-0 items-center justify-between gap-2">
+                    <span class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-sm">
+                      {conflict.file}
+                    </span>
                     {#if conflict.type === "content" && conflict.conflictMarkers && conflict.conflictMarkers.length > 0}
-                      <Badge variant="destructive" class="text-xs">
+                      <Badge variant="destructive" class="shrink-0 text-xs">
                         {conflict.conflictMarkers.length} conflicts
                       </Badge>
                     {/if}
