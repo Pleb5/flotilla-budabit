@@ -67,14 +67,16 @@ export const pushDrawer = (
 
 export const clearModals = () => {
   const currentPage = get(page)
-  const currentModalId = currentPage.url.hash.slice(1)
+  const liveUrl = typeof window === "undefined" ? undefined : new URL(window.location.href)
+  const liveModalId = liveUrl?.hash.slice(1) || ""
+  const currentModalId = liveModalId || currentPage.url.hash.slice(1)
   const currentModals = get(modals)
 
   modals.update(always({}))
   emitter.emit("close")
 
   if (currentModalId && currentModals[currentModalId]) {
-    const url = new URL(currentPage.url)
+    const url = liveUrl || new URL(currentPage.url)
     url.hash = ""
     replaceState(`${url.pathname}${url.search}`, currentPage.state)
   }

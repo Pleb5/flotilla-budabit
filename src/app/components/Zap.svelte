@@ -53,7 +53,10 @@
     return Math.round(minPos + normalizedPos * (maxPos - minPos))
   }
 
-  const back = () => clearModals()
+  const back = () => {
+    closing = true
+    clearModals()
+  }
 
   const onEmoji = (emoji: NativeEmoji) => {
     content = emoji.unicode
@@ -166,7 +169,7 @@
         message: `Failed to zap: ${message}`,
       })
     } finally {
-      loading = false
+      if (!closing) loading = false
     }
   }
 
@@ -174,6 +177,7 @@
   let amount = $state(minVal)
   let content = $state("⚡️")
   let loading = $state(false)
+  let closing = $state(false)
 
   // When slider (pos) changes, update amount.
   // Use untrack on amount to prevent this effect from re-running when amount changes.
@@ -241,7 +245,7 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button class="btn btn-primary" onclick={sendZap} disabled={loading}>
+    <Button class="btn btn-primary" onclick={sendZap} disabled={loading || closing}>
       <Spinner {loading}>
         <div class="flex items-center gap-2">
           {#if !loading}
