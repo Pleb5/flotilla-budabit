@@ -14,6 +14,8 @@
     allowCreate = false,
     showEmpty = true,
     throttleMs = SUGGESTIONS_SEARCH_THROTTLE_MS,
+    disabledValues = [],
+    disabledLabel = "",
   } = $props()
 
   let index = $state(0)
@@ -30,11 +32,13 @@
     index = clamp([0, items.length - 1], newIndex)
   }
 
+  const isDisabled = (value: string) => disabledValues.includes(value)
+
   export const onKeyDown = (e: any) => {
     if (["Enter", "Tab"].includes(e.code)) {
       const value = items[index]
 
-      if (value) {
+      if (value && !isDisabled(value)) {
         select(value)
         return true
       } else if ($term && allowCreate) {
@@ -82,13 +86,22 @@
       </button>
     {/if}
     {#each items as value, i (value)}
+      {@const disabled = isDisabled(value)}
       <button
         aria-label={value}
+        aria-disabled={disabled}
         class="tiptap-suggestions__item"
         class:tiptap-suggestions__selected={index === i}
+        class:tiptap-suggestions__disabled={disabled}
+        tabindex={disabled ? -1 : 0}
         {onmousedown}
-        onclick={stopPropagation(preventDefault(() => select(value)))}>
-        <Component {value}></Component>
+        onclick={stopPropagation(preventDefault(() => !disabled && select(value)))}>
+        <div class="flex w-full min-w-0 items-center justify-between gap-3">
+          <Component {value}></Component>
+          {#if disabled && disabledLabel}
+            <span class="badge badge-neutral badge-sm shrink-0">{disabledLabel}</span>
+          {/if}
+        </div>
       </button>
     {/each}
   </div>

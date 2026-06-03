@@ -119,10 +119,11 @@
             displayName: getCommunitySectionDisplayName(section),
             capability:
               $pubkey && $activeCommunityDefinition
-                ? getGrantCapability({
+                  ? getGrantCapability({
                     definition: $activeCommunityDefinition,
                     userPubkey: $pubkey,
                     sectionName: section.name,
+                    profileListEvents: $activeCommunityProfileListEvents,
                     reportState: $activeCommunityReportState,
                   })
                 : undefined,
@@ -225,6 +226,7 @@
         const moderators = getGrantCapableSectionModeratorPubkeys({
           definition: $activeCommunityDefinition!,
           sectionName: matched.sectionName,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         })
         const state = getAdmissionSubmissionState({
@@ -276,6 +278,7 @@
         definition: $activeCommunityDefinition!,
         reviewerPubkey: $pubkey || "",
         report,
+        profileListEvents: $activeCommunityProfileListEvents,
         reportState: $activeCommunityReportState,
       }),
     )
@@ -665,6 +668,7 @@
       definition: $activeCommunityDefinition,
       userPubkey: $pubkey || "",
       sectionName: application.sectionName,
+      profileListEvents: $activeCommunityProfileListEvents,
       reportState: $activeCommunityReportState,
     })
 

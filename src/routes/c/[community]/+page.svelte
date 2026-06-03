@@ -1,8 +1,9 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, repository} from "@welshman/app"
+  import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {makeEvent} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import BillList from "@assets/icons/bill-list.svg?dataurl"
@@ -12,6 +13,8 @@
   import Git from "@assets/icons/git.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import Button from "@lib/components/Button.svelte"
+  import Confirm from "@lib/components/Confirm.svelte"
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
@@ -34,15 +37,19 @@
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
-  import {COMMUNITY_SECTION_ROOMS} from "@app/core/community"
+  import {
+    getPendingCommunityModeratorInvites,
+    makeModeratorInviteResponseProfileList,
+  } from "@app/core/community-admin"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
   import {formatShortNpub} from "@app/util/pubkeys"
   import {
     makeCommunityCalendarPath,
@@ -63,7 +70,9 @@
   )
   const communityDescriptionEvent = $derived({content: communityDescription, tags: []})
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
-  const mainRelay = $derived($activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "")
+  const mainRelay = $derived(
+    $activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "",
+  )
   const communityShareRelays = $derived(
     $activeCommunityDefinition?.pubkey === communityId
       ? getCommunityDefinitionRelayHints($activeCommunityDefinition, parsedCommunity?.relays || [])
@@ -78,10 +87,10 @@
   const gitPath = "/git"
   const roomAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_ROOMS,
+          target: COMMUNITY_WRITE_TARGETS.roomRoot,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -89,9 +98,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityId &&
-        $activeCommunityDefinition?.pubkey === communityId &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityId &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -111,17 +120,24 @@
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.roomRoot,
-          reportState: $activeCommunityReportState,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomRoot,
+        reportState: $activeCommunityReportState,
+      }),
     ),
   )
+  const pendingModeratorInvites = $derived.by(() => {
+    return getPendingCommunityModeratorInvites({
+      definition: $activeCommunityDefinition,
+      moderatorPubkey: $pubkey || undefined,
+      profileListEvents: $activeCommunityProfileListEvents,
+    })
+  })
   let roomRootsLoading = $state(false)
   let roomRootsLoaded = $state(false)
   let roomLoadKey = ""
@@ -129,6 +145,40 @@
 
   const createRoom = () => {
     if (communityId) pushModal(CommunityRoomCreate, {communityPubkey: communityId})
+  }
+
+  const respondToModeratorInvite = (declined: boolean) => {
+    const invites = pendingModeratorInvites
+    if (invites.length === 0) return
+
+    const relays = $activeCommunityRelays
+    if (relays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
+      return
+    }
+
+    pushModal(Confirm, {
+      title: declined ? "Decline moderation request" : "Accept moderation request",
+      message: declined
+        ? "Publish declined moderator lists so this request stops showing for you?"
+        : "Publish empty moderator lists so this community can recognize your moderator role?",
+      confirm: () => {
+        for (const invite of invites) {
+          const response = makeModeratorInviteResponseProfileList({
+            profileList: invite.profileList,
+            declined,
+          })
+
+          publishThunk({relays, event: makeEvent(response.kind, response)})
+        }
+
+        pushToast({
+          theme: declined ? "warning" : "success",
+          message: declined ? "Moderator request declined." : "Moderator role accepted.",
+        })
+        history.back()
+      },
+    })
   }
 
   $effect(() => {
@@ -158,7 +208,12 @@
     roomRootsLoading = true
     roomRootsLoaded = false
 
-    request({relays: $activeCommunityRelays, autoClose: true, filters: roomFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: roomFilters,
+      signal: controller.signal,
+    })
       .catch(error => {
         if (!controller.signal.aborted) console.warn("[community-home] Failed to load rooms", error)
       })
@@ -224,7 +279,9 @@
     {#if $activeCommunityDefinition?.tos}
       <div class="flex flex-wrap justify-center gap-3">
         {#if $activeCommunityDefinition?.tos}
-          <Link href={$activeCommunityDefinition.tos.relay || "#"} class="badge badge-neutral flex gap-2">
+          <Link
+            href={$activeCommunityDefinition.tos.relay || "#"}
+            class="badge badge-neutral flex gap-2">
             <Icon icon={BillList} size={4} />
             Terms
           </Link>
@@ -233,8 +290,43 @@
     {/if}
   </div>
 
+  {#if pendingModeratorInvites.length > 0}
+    <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div class="min-w-0">
+          <h2 class="text-lg font-semibold text-warning">
+            You have been requested to moderate this group
+          </h2>
+          <p class="mt-1 text-sm opacity-75">
+            Accepting publishes empty moderator lists owned by your key, making the role active and
+            helping the community load faster for everyone.
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            {#each pendingModeratorInvites as invite (`${invite.profileList.address}:${invite.sectionName}`)}
+              <span class="badge badge-warning">{invite.displayName}</span>
+            {/each}
+          </div>
+        </div>
+        <div class="grid shrink-0 grid-cols-1 gap-2 sm:w-40">
+          <Button
+            class="btn btn-warning justify-center"
+            onclick={() => respondToModeratorInvite(false)}>
+            Accept
+          </Button>
+          <Button
+            class="btn btn-ghost justify-center"
+            onclick={() => respondToModeratorInvite(true)}>
+            Decline
+          </Button>
+        </div>
+      </div>
+    </section>
+  {/if}
+
   <div class="grid gap-2 max-sm:grid-cols-2 sm:grid-cols-3">
-    <Link href={gitPath} class="btn border-none bg-[#0284c7] text-white hover:bg-[#0369a1] md:text-lg">
+    <Link
+      href={gitPath}
+      class="btn border-none bg-[#0284c7] text-white hover:bg-[#0369a1] md:text-lg">
       <div class="relative flex items-center gap-2">
         <Icon icon={Git} />
         Git
@@ -247,42 +339,42 @@
       </div>
     </Link>
     {#if threadsPath}
-      <Link href={threadsPath} class="btn border-none bg-[#4f46e5] text-white hover:bg-[#4338ca] md:text-lg">
+      <Link
+        href={threadsPath}
+        class="btn border-none bg-[#4f46e5] text-white hover:bg-[#4338ca] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={NotesMinimalistic} size={6} />
           Threads
           {#if $notifications.has(threadsPath)}
-            <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"
-              transition:fade>
+            <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white" transition:fade>
             </div>
           {/if}
         </div>
       </Link>
     {/if}
     {#if calendarPath}
-      <Link href={calendarPath} class="btn border-none bg-[#c2410c] text-white hover:bg-[#9a3412] md:text-lg">
+      <Link
+        href={calendarPath}
+        class="btn border-none bg-[#c2410c] text-white hover:bg-[#9a3412] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={CalendarMinimalistic} size={6} />
           Calendar
           {#if $notifications.has(calendarPath)}
-            <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"
-              transition:fade>
+            <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white" transition:fade>
             </div>
           {/if}
         </div>
       </Link>
     {/if}
     {#if goalsPath}
-      <Link href={goalsPath} class="btn border-none bg-[#a16207] text-white hover:bg-[#854d0e] md:text-lg">
+      <Link
+        href={goalsPath}
+        class="btn border-none bg-[#a16207] text-white hover:bg-[#854d0e] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={StarFallMinimalistic} />
           Goals
           {#if $notifications.has(goalsPath)}
-            <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"
-              transition:fade>
+            <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white" transition:fade>
             </div>
           {/if}
         </div>
@@ -316,9 +408,7 @@
           </p>
         </div>
         {#if canCreateRoom}
-          <button class="btn btn-primary" type="button" onclick={createRoom}>
-            Create Room
-          </button>
+          <button class="btn btn-primary" type="button" onclick={createRoom}> Create Room </button>
         {/if}
       </div>
     {/if}

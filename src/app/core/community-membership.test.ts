@@ -166,7 +166,7 @@ describe("community membership", () => {
       memberManyPubkey,
       memberFewPubkey,
     ])
-    expect(members.map(member => member.grantCount)).toEqual([0, 2, 1, 3, 2])
+    expect(members.map(member => member.grantCount)).toEqual([0, 3, 3, 3, 2])
     expect(members.map(member => member.moderatorSectionCount)).toEqual([0, 2, 2, 0, 0])
     expect(members[0]).toMatchObject({isOwner: true, isAdmin: true})
     expect(members[1]).toMatchObject({isModerator: true})
@@ -221,13 +221,13 @@ describe("community membership", () => {
 
     expect(refs.map(ref => ({pubkey: ref.communityPubkey, roles: ref.roles}))).toEqual([
       {pubkey: userPubkey, roles: ["admin"]},
-      {pubkey: moderatorCommunityPubkey, roles: ["moderator"]},
+      {pubkey: moderatorCommunityPubkey, roles: ["moderator", "member"]},
       {pubkey: memberCommunityPubkey, roles: ["member"]},
     ])
     expect(refs.map(ref => ref.writableSections)).toEqual([["General"], ["Moderated"], ["Members"]])
   })
 
-  it("requires loaded profile-list evidence for moderator refs", () => {
+  it("treats missing moderator profile-list evidence as member access only", () => {
     const userPubkey = "b".repeat(64)
     const communityPubkey = "d".repeat(64)
 
@@ -242,7 +242,105 @@ describe("community membership", () => {
           }),
         ],
       }),
-    ).toEqual([])
+    ).toEqual([
+      expect.objectContaining({
+        communityPubkey,
+        roles: ["member"],
+        writableSections: ["General"],
+      }),
+    ])
+  })
+
+  it("marks missing moderator profile-list refs as pending moderation invites", () => {
+    const userPubkey = "b".repeat(64)
+    const communityPubkey = "d".repeat(64)
+    const definition = makeDefinition({
+      id: "moderator-definition",
+      pubkey: communityPubkey,
+      profileListAddress: `${PROFILE_LIST_KIND}:${userPubkey}:General`,
+    })
+
+    const members = selectCommunityMemberList({definition})
+    const pendingModerator = members.find(member => member.pubkey === userPubkey)
+
+    expect(members.map(member => member.pubkey)).toEqual([communityPubkey, userPubkey])
+    expect(pendingModerator).toMatchObject({
+      isModerator: false,
+      isPendingModerator: true,
+      moderatorSectionCount: 0,
+      pendingModeratorSectionCount: 1,
+      grantCount: 1,
+    })
+    expect(pendingModerator?.pendingModeratorSections.map(section => section.displayName)).toEqual([
+      "General",
+    ])
+    expect(pendingModerator?.sectionGrants.map(section => section.displayName)).toEqual(["General"])
+  })
+
+  it("marks existing empty moderator profile-list refs as active moderators", () => {
+    const userPubkey = "b".repeat(64)
+    const communityPubkey = "d".repeat(64)
+    const definition = makeDefinition({
+      id: "moderator-definition",
+      pubkey: communityPubkey,
+      profileListAddress: `${PROFILE_LIST_KIND}:${userPubkey}:General`,
+    })
+
+    const members = selectCommunityMemberList({
+      definition,
+      profileListEvents: [
+        makeProfileList({id: "moderator-list", pubkey: userPubkey, identifier: "General"}),
+      ],
+    })
+    const moderator = members.find(member => member.pubkey === userPubkey)
+
+    expect(moderator).toMatchObject({
+      isModerator: true,
+      isPendingModerator: false,
+      moderatorSectionCount: 1,
+      pendingModeratorSectionCount: 0,
+      grantCount: 1,
+    })
+    expect(moderator?.sectionGrants.map(section => section.displayName)).toEqual(["General"])
+  })
+
+  it("treats declined moderator refs as member access only", () => {
+    const userPubkey = "b".repeat(64)
+    const communityPubkey = "d".repeat(64)
+    const definition = makeDefinition({
+      id: "moderator-definition",
+      pubkey: communityPubkey,
+      profileListAddress: `${PROFILE_LIST_KIND}:${userPubkey}:General`,
+    })
+    const declinedList = makeProfileList({
+      id: "declined-list",
+      pubkey: userPubkey,
+      identifier: "General",
+    })
+    declinedList.tags.push(["status", "declined"])
+
+    expect(
+      selectUserCommunityRefs({
+        author: userPubkey,
+        definitions: [definition],
+        profileListEvents: [declinedList],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        communityPubkey,
+        roles: ["member"],
+        writableSections: ["General"],
+      }),
+    ])
+    expect(selectCommunityMemberList({definition, profileListEvents: [declinedList]})).toEqual([
+      expect.objectContaining({pubkey: communityPubkey, isOwner: true}),
+      expect.objectContaining({
+        pubkey: userPubkey,
+        isModerator: false,
+        isPendingModerator: false,
+        grantCount: 1,
+      }),
+    ])
   })
 
   it("excludes person-banned non-admin refs but keeps admin refs", () => {

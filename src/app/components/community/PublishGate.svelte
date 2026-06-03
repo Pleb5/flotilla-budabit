@@ -16,6 +16,7 @@
   } from "@app/core/community-state"
   import {FORM_RESPONSE_KIND} from "@app/core/community"
   import {
+    getCommunityWriteTargetSections,
     getCommunityPublishGateState,
     type CommunityPublishGateState,
     type CommunityWriteTarget,
@@ -51,23 +52,40 @@
   const communityPubkey = $derived(
     parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "",
   )
-  const accessPath = $derived(
-    communityPubkey
-      ? `${makeCommunityPath(communityPubkey, "access")}?section=${encodeURIComponent(target.sectionName)}`
-      : "",
-  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
-  const form = $derived($activeCommunityAdmissionForms[target.sectionName])
+  const targetSections = $derived.by(() =>
+    communityBootstrapReady && $activeCommunityDefinition
+      ? getCommunityWriteTargetSections($activeCommunityDefinition, target)
+      : [],
+  )
+  const formEntry = $derived.by(() => {
+    for (const section of targetSections) {
+      const form = $activeCommunityAdmissionForms[section.name]
+      if (form) return {sectionName: section.name, form}
+    }
+
+    const fallbackForm = $activeCommunityAdmissionForms[target.sectionName]
+    return fallbackForm ? {sectionName: target.sectionName, form: fallbackForm} : undefined
+  })
+  const form = $derived(formEntry?.form)
+  const targetSectionName = $derived(
+    formEntry?.sectionName || targetSections[0]?.name || target.sectionName,
+  )
+  const accessPath = $derived(
+    communityPubkey
+      ? `${makeCommunityPath(communityPubkey, "access")}?section=${encodeURIComponent(targetSectionName)}`
+      : "",
+  )
   const responseFilters = $derived(
     communityBootstrapReady && $pubkey && form
       ? [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey], "#a": [form.address]}]
@@ -97,6 +115,7 @@
           userPubkey: $pubkey,
           target,
           form,
+          formSectionName: formEntry?.sectionName,
           responseEvents: $responseEvents,
           deleteEvents: $deleteEvents,
           reviewEvents: $reviewEvents,
@@ -112,14 +131,14 @@
       : gateState.status === "banned"
         ? "You are banned from publishing in this community."
         : gateState.status === "pending"
-        ? `Your ${target.sectionName} membership request is pending.`
-        : gateState.status === "rejected"
-          ? `Your ${target.sectionName} membership request was rejected. Delete it before resubmitting.`
-          : gateState.status === "granted"
-            ? `Your ${target.sectionName} request was granted. Waiting for community permission state to sync.`
-            : !hasForm
-              ? `You need ${target.sectionName} permission to ${action}, but no application form is available yet.`
-              : `You need ${target.sectionName} permission to ${action}.`,
+          ? `Your ${gateState.sectionName} membership request is pending.`
+          : gateState.status === "rejected"
+            ? `Your ${gateState.sectionName} membership request was rejected. Delete it before resubmitting.`
+            : gateState.status === "granted"
+              ? `Your ${gateState.sectionName} request was granted. Waiting for community permission state to sync.`
+              : !hasForm
+                ? `You need ${gateState.sectionName} permission to ${action}, but no application form is available yet.`
+                : `You need ${gateState.sectionName} permission to ${action}.`,
   )
   const accessLabel = $derived(
     gateState.status === "pending"
@@ -127,12 +146,12 @@
       : gateState.status === "banned"
         ? "Banned"
         : gateState.status === "rejected"
-        ? "Revise access"
-        : gateState.status === "granted"
-          ? "Syncing access"
-          : hasForm
-            ? "Request access"
-            : "Access options",
+          ? "Revise access"
+          : gateState.status === "granted"
+            ? "Syncing access"
+            : hasForm
+              ? "Request access"
+              : "Access options",
   )
 
   const login = () => pushModal(LogIn)

@@ -318,14 +318,39 @@
   --tiptap-object-fg: var(--base-content);
   --tiptap-active-bg: var(--base-300);
   --tiptap-active-fg: var(--base-content);
+
+  @apply isolate overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-2xl ring-1 ring-base-content/10;
+}
+
+.tiptap-suggestions__content {
+  @apply overflow-y-auto bg-base-100;
 }
 
 .tiptap-suggestions__item {
-  @apply border-l-2 border-solid border-base-100;
+  @apply w-full border-l-2 border-solid border-base-100 bg-base-100 px-4 py-3 text-left text-base-content;
+}
+
+.tiptap-suggestions__item:hover,
+.tiptap-suggestions__selected {
+  @apply bg-base-200;
 }
 
 .tiptap-suggestions__selected {
   @apply border-primary;
+}
+
+.tiptap-suggestions__disabled {
+  @apply cursor-not-allowed bg-base-100 text-base-content/70;
+}
+
+.tiptap-suggestions__disabled:hover,
+.tiptap-suggestions__disabled.tiptap-suggestions__selected {
+  @apply bg-base-100;
+}
+
+.tiptap-suggestions__create,
+.tiptap-suggestions__empty {
+  @apply block w-full bg-base-100 px-4 py-3 text-left text-base-content;
 }
 
 .tiptap {

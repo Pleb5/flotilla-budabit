@@ -434,6 +434,7 @@ export const getCommunityDefinitionRelayHints = (
 }
 
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
+const COMMUNITY_AUTHORITY_LOAD_TIMEOUT = 3000
 const COMMUNITY_RELAY_AUTH_TIMEOUT = 2000
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
@@ -1902,6 +1903,7 @@ export const hydrateActiveCommunityUserModeratorRequests = async ({
 export const selectCommunityAdmissionForms = (
   definition: CommunityDefinition,
   events: TrustedEvent[],
+  profileListEvents?: TrustedEvent[],
   reportState?: EffectiveCommunityReportState,
 ): Record<string, CommunityAdmissionForm> =>
   Object.fromEntries(
@@ -1913,6 +1915,7 @@ export const selectCommunityAdmissionForms = (
         moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
           definition,
           sectionName: section.name,
+          profileListEvents,
           reportState,
         }),
       })
@@ -1930,16 +1933,23 @@ export const selectCommunityAdmissionForms = (
 
 export const activeCommunityAdmissionForms: Readable<Record<string, CommunityAdmissionForm>> =
   derived(
-    [activeCommunityDefinition, activeCommunityAdmissionFormEvents, activeCommunityReportState],
+    [
+      activeCommunityDefinition,
+      activeCommunityAdmissionFormEvents,
+      activeCommunityProfileListEvents,
+      activeCommunityReportState,
+    ],
     ([
       $activeCommunityDefinition,
       $activeCommunityAdmissionFormEvents,
+      $activeCommunityProfileListEvents,
       $activeCommunityReportState,
     ]) =>
       $activeCommunityDefinition
         ? selectCommunityAdmissionForms(
             $activeCommunityDefinition,
             $activeCommunityAdmissionFormEvents,
+            $activeCommunityProfileListEvents,
             $activeCommunityReportState,
           )
         : {},
@@ -1988,7 +1998,10 @@ export const loadCommunityBootstrap = async (
 
   const [authorityEvents, admissionFormEvents, reportEvents] = await Promise.all([
     authorityFilters.length > 0
-      ? loadCommunityEvents(communityRelays, authorityFilters, {settle: "first"})
+      ? loadCommunityEvents(communityRelays, authorityFilters, {
+          timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
+          settle: "first-non-empty",
+        })
       : [],
     admissionFormFilters.length > 0
       ? loadCommunityEvents(communityRelays, admissionFormFilters, {settle: "first"})

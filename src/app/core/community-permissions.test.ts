@@ -23,7 +23,12 @@ import {
   getCommunityPublishGateState,
   getCommunityPublishCapabilityMap,
   getCommunitySectionWriterPubkeys,
+  getCommunityTargetAuthorityPubkeys,
+  getCommunityWritableTargetSections,
+  getCommunityTargetWriterPubkeys,
+  getCommunityWriteTargetSections,
   getCommunityWriteTarget,
+  communityWritableSectionsSupportTarget,
   getGrantCapableSectionModeratorPubkeys,
   getGrantCapability,
 } from "./community-permissions"
@@ -96,6 +101,7 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(9, "room-message")).toEqual(COMMUNITY_WRITE_TARGETS.roomMessage)
     expect(getCommunityWriteTarget(11, "threads")).toEqual(COMMUNITY_WRITE_TARGETS.thread)
     expect(getCommunityWriteTarget(11, "forum")).toEqual(COMMUNITY_WRITE_TARGETS.thread)
+    expect(getCommunityWriteTarget(11)).toBeUndefined()
     expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
   })
@@ -224,7 +230,7 @@ describe("community permissions", () => {
     ).toEqual([])
   })
 
-  it("allows section authorities to bootstrap content before list events load", () => {
+  it("lets delegated moderator refs write as all-section members before accepting", () => {
     expect(
       canWriteCommunityTarget({
         definition,
@@ -256,25 +262,84 @@ describe("community permissions", () => {
         userPubkey: managerPubkey,
         target: COMMUNITY_WRITE_TARGETS.repository,
       }),
-    ).toBe(false)
+    ).toBe(true)
+    expect(
+      getGrantCapability({
+        definition,
+        userPubkey: managerPubkey,
+        sectionName: "General",
+        profileListEvents: [],
+      }),
+    ).toMatchObject({canManageList: false, canGrant: false})
   })
 
   it("uses profile-list manager authority for grants", () => {
     expect(
-      getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "General"}),
+      getGrantCapability({
+        definition,
+        userPubkey: managerPubkey,
+        sectionName: "General",
+        profileListEvents: [generalProfileList, repoProfileList],
+      }),
     ).toMatchObject({canManageList: true, canGrant: true})
     expect(
-      getGrantCapability({definition, userPubkey: repoManagerPubkey, sectionName: "Repositories"}),
+      getGrantCapability({
+        definition,
+        userPubkey: repoManagerPubkey,
+        sectionName: "Repositories",
+        profileListEvents: [generalProfileList, repoProfileList],
+      }),
     ).toMatchObject({canManageList: true, canGrant: true})
     expect(
       getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "Repositories"}),
     ).toMatchObject({canManageList: false, canGrant: false})
-    expect(getGrantCapableSectionModeratorPubkeys({definition, sectionName: "General"})).toEqual([
-      managerPubkey,
-    ])
+    expect(
+      getGrantCapableSectionModeratorPubkeys({
+        definition,
+        sectionName: "General",
+        profileListEvents: [generalProfileList, repoProfileList],
+      }),
+    ).toEqual([managerPubkey])
     expect(
       getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repositories"}),
     ).toEqual([repoManagerPubkey])
+  })
+
+  it("gives declined moderator refs member access without moderator authority", () => {
+    const declinedProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      tags: [
+        ["d", "General"],
+        ["status", "declined"],
+        ["p", memberPubkey],
+      ],
+    })
+
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [declinedProfileList],
+        userPubkey: managerPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(true)
+    expect(
+      getGrantCapability({
+        definition,
+        userPubkey: managerPubkey,
+        sectionName: "General",
+        profileListEvents: [declinedProfileList],
+      }),
+    ).toMatchObject({canManageList: false, canGrant: false})
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [declinedProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(false)
   })
 
   it("derives publish capabilities by kind and subtype", () => {
@@ -396,10 +461,10 @@ describe("community permissions", () => {
         profileListEvents: [generalProfileList, repoProfileList],
         sectionName: "General",
       }),
-    ).toEqual([communityPubkey, managerPubkey, memberPubkey])
+    ).toEqual([communityPubkey, managerPubkey, memberPubkey, repoManagerPubkey])
     expect(
       getCommunitySectionWriterPubkeys({definition, profileListEvents: [], sectionName: "General"}),
-    ).toEqual([communityPubkey, managerPubkey])
+    ).toEqual([communityPubkey, managerPubkey, repoManagerPubkey])
     expect(
       getCommunitySectionWriterPubkeys({
         definition,
@@ -407,7 +472,7 @@ describe("community permissions", () => {
         sectionName: "General",
         reportState: makePersonBanState(memberPubkey),
       }),
-    ).toEqual([communityPubkey, managerPubkey])
+    ).toEqual([communityPubkey, managerPubkey, repoManagerPubkey])
   })
 
   it("merges multiple section profile lists for write access", () => {
@@ -456,6 +521,7 @@ describe("community permissions", () => {
       getGrantCapableSectionModeratorPubkeys({
         definition: multiAuthorityDefinition,
         sectionName: "Apps",
+        profileListEvents: [appsProfileList, appsProProfileList],
       }),
     ).toEqual([managerPubkey, repoManagerPubkey])
   })
@@ -490,5 +556,101 @@ describe("community permissions", () => {
         target: COMMUNITY_WRITE_TARGETS.repository,
       }),
     ).toBe(true)
+    expect(
+      getCommunityPublishCapabilityMap({
+        definition: customDefinition,
+        profileListEvents: [codeProfileList],
+        userPubkey: memberPubkey,
+      })["30617"],
+    ).toMatchObject({sectionName: "Code", canWrite: true})
+    expect(
+      getCommunityTargetAuthorityPubkeys({
+        definition: customDefinition,
+        profileListEvents: [codeProfileList],
+        target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toEqual([communityPubkey, managerPubkey])
+  })
+
+  it("matches widget grants in the custom section assigned to kind 30033", () => {
+    const widgetDefinition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "Apps"],
+          ["k", "30033"],
+          ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:Apps`],
+        ],
+      }),
+    )!
+    const appsProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: repoManagerPubkey,
+      tags: [
+        ["d", "Apps"],
+        ["p", memberPubkey],
+      ],
+    })
+
+    expect(
+      getCommunityWriteTargetSections(widgetDefinition, COMMUNITY_WRITE_TARGETS.widget).map(
+        section => section.name,
+      ),
+    ).toEqual(["Apps"])
+    expect(
+      canWriteCommunityTarget({
+        definition: widgetDefinition,
+        profileListEvents: [appsProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
+    ).toBe(true)
+    expect(
+      getCommunityWritableTargetSections({
+        definition: widgetDefinition,
+        profileListEvents: [appsProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }).map(section => section.name),
+    ).toEqual(["Apps"])
+    expect(
+      getCommunityPublishCapabilityMap({
+        definition: widgetDefinition,
+        profileListEvents: [appsProfileList],
+        userPubkey: memberPubkey,
+      })["30033"],
+    ).toMatchObject({sectionName: "Apps", canWrite: true})
+    expect(
+      getCommunityPublishGateState({
+        definition: widgetDefinition,
+        profileListEvents: [appsProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
+    ).toMatchObject({sectionName: "Apps", status: "allowed"})
+    expect(
+      getCommunityPublishGateState({
+        definition: widgetDefinition,
+        profileListEvents: [appsProfileList],
+        userPubkey: outsiderPubkey,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+        formSectionName: "Apps",
+      }),
+    ).toMatchObject({sectionName: "Apps", status: "missing"})
+    expect(
+      communityWritableSectionsSupportTarget({
+        definition: widgetDefinition,
+        writableSections: ["Apps"],
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
+    ).toBe(true)
+    expect(
+      getCommunityTargetWriterPubkeys({
+        definition: widgetDefinition,
+        profileListEvents: [appsProfileList],
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
+    ).toEqual([communityPubkey, repoManagerPubkey, memberPubkey])
   })
 })

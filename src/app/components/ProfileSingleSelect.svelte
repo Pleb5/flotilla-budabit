@@ -1,6 +1,7 @@
 <script lang="ts">
   import {writable} from "svelte/store"
   import type {Writable} from "svelte/store"
+  import * as nip19 from "nostr-tools/nip19"
   import type {Instance} from "tippy.js"
   import type {TrustedEvent} from "@welshman/util"
   import {getFollows, profileSearch, profilesByPubkey, pubkey as sessionPubkey} from "@welshman/app"
@@ -37,9 +38,36 @@
     autofocus?: boolean
     term?: Writable<string>
     relays?: string[]
+    showSelection?: boolean
+    showSelectedValueInInput?: boolean
+    excludePubkeys?: string[]
+    onBlockedSelection?: (pubkey: string) => void
+    inputClass?: string
   }
 
-  let {value = $bindable(), term = writable(""), autofocus = false, relays = []}: Props = $props()
+  let {
+    value = $bindable(),
+    term = writable(""),
+    autofocus = false,
+    relays = [],
+    showSelection = true,
+    showSelectedValueInInput = false,
+    excludePubkeys = [],
+    onBlockedSelection,
+    inputClass = "",
+  }: Props = $props()
+
+  const excludedPubkeys = $derived(
+    new Set(excludePubkeys.map(pubkey => normalizePubkey(pubkey)).filter(Boolean)),
+  )
+
+  const encodeNpub = (pubkey: string) => {
+    try {
+      return nip19.npubEncode(pubkey)
+    } catch {
+      return pubkey
+    }
+  }
 
   const search = (term: string) => {
     const query = term.trim()
@@ -88,9 +116,18 @@
   }
 
   const selectPubkey = (pubkey: string) => {
-    term.set("")
+    const normalized = normalizePubkey(pubkey) || pubkey
+
+    if (excludedPubkeys.has(normalized)) {
+      term.set("")
+      popover?.hide()
+      onBlockedSelection?.(normalized)
+      return
+    }
+
+    term.set(showSelectedValueInInput ? encodeNpub(normalized) : "")
     popover?.hide()
-    value = pubkey
+    value = normalized
   }
 
   const clearSelection = () => {
@@ -105,22 +142,38 @@
   }
 
   const inputDisabled = $derived(Boolean(value))
+  const selectedInputValue = $derived(
+    showSelectedValueInInput && value ? encodeNpub(normalizePubkey(value) || value) : "",
+  )
 
   let input: Element | undefined = $state()
   let popover: Instance | undefined = $state()
   let instance: any = $state()
+  let syncedValue = ""
+
+  $effect(() => {
+    if (!showSelectedValueInInput) return
+
+    const normalized = normalizePubkey(value || "")
+    if (normalized === syncedValue) return
+
+    syncedValue = normalized
+    term.set(normalized ? encodeNpub(normalized) : "")
+  })
 
   $effect(() => {
     // @ts-ignore
     oninput?.($term)
 
     const typedPubkey = normalizePubkey($term)
-    if (typedPubkey && !inputDisabled) {
+    const currentPubkey = normalizePubkey(value || "")
+    const showingSelectedValue = Boolean(currentPubkey && $term === selectedInputValue)
+    if (typedPubkey && !inputDisabled && typedPubkey !== currentPubkey) {
       selectPubkey(typedPubkey)
       return
     }
 
-    if ($term && !inputDisabled) {
+    if ($term && !inputDisabled && !showingSelectedValue) {
       popover?.show()
     } else {
       popover?.hide()
@@ -129,9 +182,9 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  <div>
-    {#if value}
-      {@const onClick = () => pushModal(ProfileDetail, {pubkey: value, url: relays[0], relays})}
+  {#if value && showSelection}
+    {@const onClick = () => pushModal(ProfileDetail, {pubkey: value, url: relays[0], relays})}
+    <div>
       <div class="flex-inline badge badge-neutral mr-1 gap-1">
         <Button class="flex items-center" onclick={clearSelection}>
           <Icon icon={CloseCircle} size={4} class="-ml-1 mt-px" />
@@ -140,9 +193,11 @@
           <ProfileName pubkey={value} {relays} />
         </Button>
       </div>
-    {/if}
-  </div>
-  <label class="input input-bordered flex w-full min-w-0 items-center gap-2" bind:this={input}>
+    </div>
+  {/if}
+  <label
+    class={`input input-bordered flex w-full min-w-0 items-center gap-2 ${inputClass}`}
+    bind:this={input}>
     <Icon icon={Magnifier} />
     <!-- svelte-ignore a11y_autofocus -->
     <input
@@ -163,6 +218,8 @@
       search,
       select: selectPubkey,
       component: ProfileSuggestion,
+      disabledValues: Array.from(excludedPubkeys),
+      disabledLabel: "Already on the list",
       class: "rounded-box",
       style: `left: 4px; width: ${input?.clientWidth + 12}px`,
     }}

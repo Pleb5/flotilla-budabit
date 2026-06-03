@@ -416,23 +416,39 @@ export const isCommunityReportDeleted = (report: TrustedEvent, deleteEvents: Tru
     return kindTags.length === 0 || kindTags.some(tag => tag[1] === String(COMMUNITY_REPORT_KIND))
   })
 
-export const getAllSectionModeratorPubkeys = (definition: CommunityDefinition) => {
+export const getAllSectionModeratorPubkeys = (
+  definition: CommunityDefinition,
+  profileListEvents?: TrustedEvent[],
+) => {
   if (definition.sections.length === 0) return []
 
   const moderatorSets = definition.sections.map(
     section =>
-      new Set(getGrantCapableSectionModeratorPubkeys({definition, sectionName: section.name})),
+      new Set(
+        getGrantCapableSectionModeratorPubkeys({
+          definition,
+          sectionName: section.name,
+          profileListEvents,
+        }),
+      ),
   )
   const [firstSet, ...restSets] = moderatorSets
 
   return Array.from(firstSet || []).filter(pubkey => restSets.every(set => set.has(pubkey)))
 }
 
-export const getCurrentModeratorPubkeys = (definition: CommunityDefinition) =>
+export const getCurrentModeratorPubkeys = (
+  definition: CommunityDefinition,
+  profileListEvents?: TrustedEvent[],
+) =>
   Array.from(
     new Set(
       definition.sections.flatMap(section =>
-        getGrantCapableSectionModeratorPubkeys({definition, sectionName: section.name}),
+        getGrantCapableSectionModeratorPubkeys({
+          definition,
+          sectionName: section.name,
+          profileListEvents,
+        }),
       ),
     ),
   )
@@ -444,26 +460,32 @@ export const isProtectedCommunityModeratorTarget = ({
   definition,
   reporterPubkey,
   targetPubkey,
+  profileListEvents,
 }: {
   definition: CommunityDefinition
   reporterPubkey: string
   targetPubkey: string
+  profileListEvents?: TrustedEvent[]
 }) =>
   !isCommunityAdmin(definition, reporterPubkey) &&
   (isCommunityAdmin(definition, targetPubkey) ||
-    getCurrentModeratorPubkeys(definition).includes(normalizePubkey(targetPubkey)))
+    getCurrentModeratorPubkeys(definition, profileListEvents).includes(
+      normalizePubkey(targetPubkey),
+    ))
 
 export const canPublishCommunityEventReport = ({
   definition,
   reporterPubkey,
   targetPubkey,
   sectionName,
+  profileListEvents,
   reportState,
 }: {
   definition: CommunityDefinition
   reporterPubkey: string
   targetPubkey: string
   sectionName: string
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
 }) => {
   const reporter = normalizePubkey(reporterPubkey)
@@ -482,6 +504,7 @@ export const canPublishCommunityEventReport = ({
       definition,
       reporterPubkey: reporter,
       targetPubkey: target,
+      profileListEvents,
     })
   ) {
     return false
@@ -489,20 +512,25 @@ export const canPublishCommunityEventReport = ({
   if (isCommunityAdmin(definition, reporter)) return true
   if (isCommunityPersonBanned(reportState, reporter)) return false
 
-  return getGrantCapableSectionModeratorPubkeys({definition, sectionName, reportState}).includes(
-    reporter,
-  )
+  return getGrantCapableSectionModeratorPubkeys({
+    definition,
+    sectionName,
+    profileListEvents,
+    reportState,
+  }).includes(reporter)
 }
 
 export const canPublishCommunityPersonReport = ({
   definition,
   reporterPubkey,
   targetPubkey,
+  profileListEvents,
   reportState,
 }: {
   definition: CommunityDefinition
   reporterPubkey: string
   targetPubkey: string
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
 }) => {
   const reporter = normalizePubkey(reporterPubkey)
@@ -514,6 +542,7 @@ export const canPublishCommunityPersonReport = ({
       definition,
       reporterPubkey: reporter,
       targetPubkey: target,
+      profileListEvents,
     })
   ) {
     return false
@@ -521,18 +550,20 @@ export const canPublishCommunityPersonReport = ({
   if (isCommunityAdmin(definition, reporter)) return true
   if (isCommunityPersonBanned(reportState, reporter)) return false
 
-  return getAllSectionModeratorPubkeys(definition).includes(reporter)
+  return getAllSectionModeratorPubkeys(definition, profileListEvents).includes(reporter)
 }
 
 export const canReviewCommunityContentReport = ({
   definition,
   reviewerPubkey,
   report,
+  profileListEvents,
   reportState,
 }: {
   definition: CommunityDefinition
   reviewerPubkey: string
   report: ParsedCommunityReport
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
 }) => {
   const reviewer = normalizePubkey(reviewerPubkey)
@@ -544,6 +575,7 @@ export const canReviewCommunityContentReport = ({
   return getGrantCapableSectionModeratorPubkeys({
     definition,
     sectionName: report.sectionName,
+    profileListEvents,
     reportState,
   }).includes(reviewer)
 }
@@ -579,14 +611,16 @@ const isProtectedModeratorTarget = ({
   definition,
   report,
   reporterIsAdmin,
+  profileListEvents,
 }: {
   definition: CommunityDefinition
   report: ParsedCommunityReport
   reporterIsAdmin: boolean
+  profileListEvents?: TrustedEvent[]
 }) =>
   !reporterIsAdmin &&
   (isCommunityAdmin(definition, report.targetPubkey) ||
-    getCurrentModeratorPubkeys(definition).includes(report.targetPubkey))
+    getCurrentModeratorPubkeys(definition, profileListEvents).includes(report.targetPubkey))
 
 const isAuthorizedEventReport = (
   definition: CommunityDefinition,
@@ -716,6 +750,7 @@ export const getCommunityContentReports = ({
           reporterPubkey,
           targetPubkey: report.targetPubkey,
           sectionName: report.sectionName || "",
+          profileListEvents,
           reportState,
         })
       ) {
@@ -736,6 +771,7 @@ export const getCommunityContentReports = ({
           definition,
           reviewerPubkey: review.reviewerPubkey,
           report,
+          profileListEvents,
           reportState,
         }),
       )

@@ -67,6 +67,14 @@ const makeBadgeDefinitionEvent = (overrides: Partial<TrustedEvent> = {}) =>
     ...overrides,
   })
 
+const makeProfileListEvent = (pubkey: string, tags: string[][] = []) =>
+  makeEvent({
+    id: `profile-list-${pubkey[0]}`,
+    kind: PROFILE_LIST_KIND,
+    pubkey,
+    tags: [["d", "General"], ...tags],
+  })
+
 describe("community badges", () => {
   it("builds and parses community badge definitions", () => {
     const template = makeCommunityBadgeDefinitionEvent({
@@ -279,6 +287,42 @@ describe("community badges", () => {
       false,
     )
     expect(canCreateCommunityBadge({definition, pubkey: outsiderPubkey, reportState})).toBe(false)
+
+    const activeProfileListEvents = [
+      makeProfileListEvent(moderatorPubkey),
+      makeProfileListEvent(bannedModeratorPubkey),
+    ]
+
+    expect(
+      getCommunityBadgeCreatorPubkeys({
+        definition,
+        profileListEvents: activeProfileListEvents,
+        reportState,
+      }),
+    ).toEqual([communityPubkey, moderatorPubkey])
+    expect(
+      canCreateCommunityBadge({
+        definition,
+        pubkey: moderatorPubkey,
+        profileListEvents: activeProfileListEvents,
+        reportState,
+      }),
+    ).toBe(true)
+    expect(
+      canCreateCommunityBadge({
+        definition,
+        pubkey: moderatorPubkey,
+        profileListEvents: [],
+        reportState,
+      }),
+    ).toBe(false)
+    expect(
+      getCommunityBadgeCreatorPubkeys({
+        definition,
+        profileListEvents: [makeProfileListEvent(moderatorPubkey, [["status", "declined"]])],
+        reportState,
+      }),
+    ).toEqual([communityPubkey])
   })
 
   it("requires trusted issuer, recipient award, and profile acceptance for display", () => {
@@ -307,11 +351,22 @@ describe("community badges", () => {
       getAcceptedCommunityBadges({
         definition,
         badgeDefinitionEvents: [badgeDefinition],
+        profileListEvents: [makeProfileListEvent(moderatorPubkey)],
         badgeAwardEvents: [award],
         profileBadgeEvents: [profileBadges],
         profilePubkey: recipientPubkey,
       }),
     ).toHaveLength(1)
+    expect(
+      getAcceptedCommunityBadges({
+        definition,
+        badgeDefinitionEvents: [badgeDefinition],
+        profileListEvents: [],
+        badgeAwardEvents: [award],
+        profileBadgeEvents: [profileBadges],
+        profilePubkey: recipientPubkey,
+      }),
+    ).toHaveLength(0)
     expect(
       getAcceptedCommunityBadges({
         definition,

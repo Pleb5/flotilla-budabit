@@ -11,9 +11,11 @@
   import Tooltip from "@lib/components/Tooltip.svelte"
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import Profile from "@app/components/Profile.svelte"
+  import CommunityBootstrapPeopleEditor from "@app/components/community/CommunityBootstrapPeopleEditor.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityProfileListEvents,
     setActiveCommunityDefinition,
     setActiveCommunityInput,
     type CommunityProfile,
@@ -23,6 +25,8 @@
     DEFAULT_COMMUNITY_SECTION_NAMES,
     buildCommunityDefinition,
     getDefaultCommunitySectionKinds,
+    getCommunitySectionKindKey,
+    getCommunitySectionKindLabel,
     makeCommunityNcommunity,
     makeCommunitySetupSection,
     normalizeGeohash,
@@ -37,7 +41,12 @@
     type CommunityRetentionPolicy,
     type CommunitySectionKind,
   } from "@app/core/community"
-  import {makeCommunityProfileList} from "@app/core/community-admin"
+  import {
+    applyCommunityBootstrapGrants,
+    makeCommunityProfileList,
+    type CommunityBootstrapGrantDraft,
+    type CommunityProfileListDraftUpdate,
+  } from "@app/core/community-admin"
   import {getCommunityRootPublishRelays} from "@app/core/community-relays"
   import {uploadFile} from "@app/core/commands"
   import type {BlossomUploadStage} from "@app/core/blossom"
@@ -105,6 +114,7 @@
     geohash: string
     sections: CommunityDefinitionSectionInput[]
     newProfileLists: NewProfileList[]
+    profileListUpdates: CommunityProfileListDraftUpdate[]
   }
 
   const {mode = "create", definition, profile, embedded = false}: Props = $props()
@@ -321,14 +331,22 @@
 
   const validateSectionKinds = (drafts = sectionDrafts) => {
     const nextErrors = Object.fromEntries(
-      Object.entries(errors).filter(([key]) => !key.match(/^section-\d+-(kind|subtype)-\d+$/)),
+      Object.entries(errors).filter(
+        ([key]) =>
+          !key.match(/^section-\d+-(kind|subtype)-\d+$/) && !key.match(/^section-\d+-kinds$/),
+      ),
     )
+    const seenKinds = new Map<
+      string,
+      {sectionIndex: number; kindIndex: number; sectionName: string; label: string}
+    >()
 
     for (const [sectionIndex, section] of drafts.entries()) {
       for (const [kindIndex, draft] of section.kinds.entries()) {
         const kindValue = draft.kind.trim()
         const kind = Number.parseInt(kindValue, 10)
         const subtype = draft.subtype.trim()
+        let valid = true
 
         if (
           !KIND_DIGITS_RE.test(kindValue) ||
@@ -338,11 +356,38 @@
         ) {
           nextErrors[sectionKindField(sectionIndex, kindIndex)] =
             "Kind must be an integer between 0 and 39999."
+          valid = false
         }
         if (!SUBTYPE_RE.test(subtype)) {
           nextErrors[sectionSubtypeField(sectionIndex, kindIndex)] =
             "Subtype must be lowercase letters or dashes, up to 20 characters."
+          valid = false
         }
+
+        if (!valid) continue
+
+        const key = getCommunitySectionKindKey(kind, subtype || undefined)
+        const label = getCommunitySectionKindLabel(kind, subtype || undefined)
+        const previous = seenKinds.get(key)
+
+        if (previous) {
+          const message = `${label} is already assigned to ${previous.sectionName}. Move or remove the duplicate kind.`
+          nextErrors[sectionKindField(sectionIndex, kindIndex)] = message
+          nextErrors[sectionKindField(previous.sectionIndex, previous.kindIndex)] =
+            `${label} is also assigned to ${section.name.trim() || "another section"}. Kind/subtype pairs must be unique.`
+          nextErrors[sectionKindsField(sectionIndex)] =
+            "Each kind/subtype pair can belong to only one section."
+          nextErrors[sectionKindsField(previous.sectionIndex)] =
+            "Each kind/subtype pair can belong to only one section."
+          continue
+        }
+
+        seenKinds.set(key, {
+          sectionIndex,
+          kindIndex,
+          sectionName: section.name.trim() || `section ${sectionIndex + 1}`,
+          label,
+        })
       }
     }
 
@@ -449,6 +494,10 @@
   const normalizeSectionDrafts = (nextErrors: FieldErrors) => {
     const sections: CommunityDefinitionSectionInput[] = []
     const seenNames = new Map<string, number>()
+    const seenKinds = new Map<
+      string,
+      {sectionIndex: number; kindIndex: number; sectionName: string; label: string}
+    >()
 
     if (sectionDrafts.length === 0) nextErrors.sections = "Add at least one content section."
 
@@ -493,6 +542,28 @@
             "Subtype must be lowercase letters or dashes, up to 20 characters."
           continue
         }
+
+        const key = getCommunitySectionKindKey(kind, subtype || undefined)
+        const label = getCommunitySectionKindLabel(kind, subtype || undefined)
+        const previous = seenKinds.get(key)
+        if (previous) {
+          const message = `${label} is already assigned to ${previous.sectionName}. Move or remove the duplicate kind.`
+          nextErrors[sectionKindField(sectionIndex, kindIndex)] = message
+          nextErrors[sectionKindField(previous.sectionIndex, previous.kindIndex)] =
+            `${label} is also assigned to ${name || "another section"}. Kind/subtype pairs must be unique.`
+          nextErrors[sectionKindsField(sectionIndex)] =
+            "Each kind/subtype pair can belong to only one section."
+          nextErrors[sectionKindsField(previous.sectionIndex)] =
+            "Each kind/subtype pair can belong to only one section."
+          continue
+        }
+
+        seenKinds.set(key, {
+          sectionIndex,
+          kindIndex,
+          sectionName: name || `section ${sectionIndex + 1}`,
+          label,
+        })
 
         kinds.push({kind, subtype: subtype || undefined})
       }
@@ -596,6 +667,13 @@
       communityPubkey: community.pubkey,
       relays,
     })
+    const bootstrapGrants = applyCommunityBootstrapGrants({
+      sections: authority.sections,
+      communityPubkey: community.pubkey,
+      relays,
+      profileListEvents: $activeCommunityProfileListEvents,
+      grants: bootstrapGrantDrafts,
+    })
 
     return {
       name: trimmedName,
@@ -611,8 +689,9 @@
       tos: trimmedTosRef ? {ref: trimmedTosRef, relay: normalizedTosRelay || undefined} : undefined,
       location: location.trim(),
       geohash: normalizedGeohash,
-      sections: authority.sections,
+      sections: bootstrapGrants.sections,
       newProfileLists: authority.newProfileLists,
+      profileListUpdates: bootstrapGrants.profileListUpdates,
     }
   }
 
@@ -691,9 +770,19 @@
         location: validated.location,
         geohash: validated.geohash,
       })
-      const profileLists = validated.newProfileLists.map(({profileList}) =>
-        makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
+      const updatedProfileListAddresses = new Set(
+        validated.profileListUpdates.map(update => update.profileList.address),
       )
+      const profileLists = [
+        ...validated.profileListUpdates.map(update =>
+          makeCommunityProfileList({profileList: update.profileList, pubkeys: update.pubkeys}),
+        ),
+        ...validated.newProfileLists
+          .filter(({profileList}) => !updatedProfileListAddresses.has(profileList.address))
+          .map(({profileList}) =>
+            makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
+          ),
+      ]
       const signedCommunityProfile = await makeSignedEvent(validated.community, communityProfile)
       const signedDefinition = await makeSignedEvent(validated.community, communityDefinition)
       const signedProfileLists = await Promise.all(
@@ -716,6 +805,7 @@
       setActiveCommunityInput(communityInput)
       const parsedDefinition = parseCommunityDefinition(signedDefinition)
       if (parsedDefinition) setActiveCommunityDefinition(parsedDefinition)
+      bootstrapGrantDrafts = []
 
       pushToast({message: isEdit ? "Community settings updated." : "Community created."})
       if (!isEdit) goto(makeCommunityPath(validated.community.pubkey))
@@ -955,6 +1045,7 @@
   let geohash = $state("")
   let pictureUploadStage = $state<BlossomUploadStage>("idle")
   let sectionDrafts = $state<SectionDraft[]>(makeDefaultSectionDrafts())
+  let bootstrapGrantDrafts = $state<CommunityBootstrapGrantDraft[]>([])
   let expandedSectionIndex = $state(0)
   let websitePrefilled = $state(false)
   let initializedKey = $state("")
@@ -969,6 +1060,9 @@
   const sectionCount = $derived(sectionDrafts.length)
   const newAuthorityCount = $derived(
     sectionDrafts.filter(section => section.profileLists.length === 0).length,
+  )
+  const bootstrapDraftGrantCount = $derived(
+    bootstrapGrantDrafts.reduce((count, grant) => count + grant.sectionNames.length, 0),
   )
   const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
   const activeCommunityRelays = $derived.by(() =>
@@ -1016,6 +1110,7 @@
       geohash = definition.geohash || ""
       pictureUploadStage = "idle"
       sectionDrafts = makeSectionDraftsFromDefinition(definition)
+      bootstrapGrantDrafts = []
       expandedSectionIndex = 0
       websitePrefilled = true
       return
@@ -1035,6 +1130,7 @@
     geohash = ""
     pictureUploadStage = "idle"
     sectionDrafts = makeDefaultSectionDrafts()
+    bootstrapGrantDrafts = []
     expandedSectionIndex = 0
     websitePrefilled = Boolean(activePubkey)
   })
@@ -1548,6 +1644,22 @@
           </div>
         </section>
 
+        {#if isEdit && definition}
+          <CommunityBootstrapPeopleEditor
+            {definition}
+            sections={sectionDrafts
+              .map(section => ({
+                name: section.name.trim(),
+                displayName: section.name.trim() || "Unnamed section",
+                profileLists: section.profileLists,
+              }))
+              .filter(section => section.name)}
+            profileListEvents={$activeCommunityProfileListEvents}
+            relays={activeCommunityRelays}
+            bind:draftGrants={bootstrapGrantDrafts}
+            {disabled} />
+        {/if}
+
         <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
           <strong class="text-lg">What gets published</strong>
           <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
@@ -1560,6 +1672,13 @@
               <strong>{newAuthorityCount}</strong><br />new lists
             </div>
           </div>
+          {#if bootstrapDraftGrantCount > 0}
+            <p class="mt-3 rounded-xl bg-warning/10 p-3 text-xs leading-relaxed text-warning">
+              {bootstrapDraftGrantCount} draft member/moderator grant{bootstrapDraftGrantCount === 1
+                ? ""
+                : "s"} will publish with this update.
+            </p>
+          {/if}
           <p class="mt-3 text-xs leading-relaxed opacity-60">
             Profile and definition go to community, indexer, and community-key outbox relays. New
             lists stay on community relays.

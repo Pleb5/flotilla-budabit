@@ -1,10 +1,15 @@
 import {describe, expect, it} from "vitest"
 import {type TrustedEvent} from "@welshman/util"
-import {PROFILE_LIST_KIND} from "./community"
+import {PROFILE_LIST_KIND, getProfileListPubkeys, parseCommunityDefinition} from "./community"
 import {
   addPubkeyToCommunityProfileList,
+  applyCommunityBootstrapGrants,
+  findCommunityProfileListEvent,
+  getPendingCommunityModeratorInvites,
   makeCommunityGrantEvent,
+  makeManualModeratorProfileListRef,
   makeCommunityProfileList,
+  makeModeratorInviteResponseProfileList,
   makeCommunityRevokeEvent,
   removePubkeyFromCommunityProfileList,
 } from "./community-admin"
@@ -73,9 +78,7 @@ describe("community admin helpers", () => {
   })
 
   it("builds grant and revoke event templates", () => {
-    expect(
-      makeCommunityGrantEvent({profileList, profileListEvent, pubkey: memberPubkey}),
-    ).toEqual({
+    expect(makeCommunityGrantEvent({profileList, profileListEvent, pubkey: memberPubkey})).toEqual({
       kind: PROFILE_LIST_KIND,
       content: "",
       tags: [
@@ -89,5 +92,134 @@ describe("community admin helpers", () => {
       content: "",
       tags: [["d", "General"]],
     })
+  })
+
+  it("applies manual member grants to community-owned section lists", () => {
+    const definition = parseCommunityDefinition({
+      id: "definition",
+      kind: 10222,
+      pubkey: managerPubkey,
+      created_at: 1,
+      tags: [
+        ["r", "wss://relay.example.com"],
+        ["content", "General"],
+        ["k", "1111"],
+        ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:General`],
+      ],
+      content: "",
+      sig: "sig",
+    } as TrustedEvent)!
+
+    const result = applyCommunityBootstrapGrants({
+      sections: definition.sections,
+      communityPubkey: managerPubkey,
+      relays: definition.relays,
+      profileListEvents: [profileListEvent],
+      grants: [{pubkey: memberPubkey, role: "member", sectionNames: ["General"]}],
+    })
+
+    expect(result.sections[0].profileLists).toHaveLength(1)
+    expect(result.profileListUpdates).toEqual([
+      {profileList: definition.sections[0].profileLists[0], pubkeys: [otherPubkey, memberPubkey]},
+    ])
+  })
+
+  it("adds manual moderator refs and creates accept or decline list events", () => {
+    const moderatorRef = makeManualModeratorProfileListRef({
+      moderatorPubkey: memberPubkey,
+      sectionName: "General",
+      relays: ["wss://relay.example.com"],
+    })
+    const result = applyCommunityBootstrapGrants({
+      sections: [
+        {
+          name: "General",
+          kinds: [{kind: 1111}],
+          profileLists: [],
+          badges: [],
+          retention: [],
+        },
+      ],
+      communityPubkey: managerPubkey,
+      relays: ["wss://relay.example.com"],
+      grants: [{pubkey: memberPubkey, role: "moderator", sectionNames: ["General"]}],
+    })
+    const accepted = makeModeratorInviteResponseProfileList({profileList: moderatorRef})
+    const declined = makeModeratorInviteResponseProfileList({
+      profileList: moderatorRef,
+      declined: true,
+    })
+
+    expect(result.sections[0].profileLists).toEqual([moderatorRef])
+    expect(result.profileListUpdates).toEqual([])
+    expect(accepted.tags).toEqual([["d", "General"]])
+    expect(declined.tags).toEqual([
+      ["d", "General"],
+      ["status", "declined"],
+    ])
+    expect(getProfileListPubkeys(declined as TrustedEvent)).toEqual([])
+  })
+
+  it("selects the latest profile list event by address", () => {
+    const newer = {...profileListEvent, id: "newer", created_at: 2, tags: [["d", "General"]]}
+
+    expect(findCommunityProfileListEvent(profileList, [profileListEvent, newer])).toBe(newer)
+  })
+
+  it("detects pending moderator invites until the moderator responds", () => {
+    const moderatorRef = makeManualModeratorProfileListRef({
+      moderatorPubkey: memberPubkey,
+      sectionName: "General",
+      relays: ["wss://relay.example.com"],
+    })
+    const definition = parseCommunityDefinition({
+      id: "definition",
+      kind: 10222,
+      pubkey: managerPubkey,
+      created_at: 1,
+      tags: [
+        ["content", "General"],
+        ["k", "1111"],
+        ["a", moderatorRef.address, moderatorRef.relay || ""],
+      ],
+      content: "",
+      sig: "sig",
+    } as TrustedEvent)!
+    const accepted = {
+      ...makeModeratorInviteResponseProfileList({profileList: moderatorRef}),
+      id: "accepted",
+      pubkey: memberPubkey,
+      created_at: 1,
+      sig: "sig",
+    } as TrustedEvent
+    const declined = {
+      ...makeModeratorInviteResponseProfileList({profileList: moderatorRef, declined: true}),
+      id: "declined",
+      pubkey: memberPubkey,
+      created_at: 2,
+      sig: "sig",
+    } as TrustedEvent
+
+    expect(
+      getPendingCommunityModeratorInvites({
+        definition,
+        moderatorPubkey: memberPubkey,
+        profileListEvents: [],
+      }).map(invite => invite.profileList.address),
+    ).toEqual([moderatorRef.address])
+    expect(
+      getPendingCommunityModeratorInvites({
+        definition,
+        moderatorPubkey: memberPubkey,
+        profileListEvents: [accepted],
+      }),
+    ).toEqual([])
+    expect(
+      getPendingCommunityModeratorInvites({
+        definition,
+        moderatorPubkey: memberPubkey,
+        profileListEvents: [declined],
+      }),
+    ).toEqual([])
   })
 })

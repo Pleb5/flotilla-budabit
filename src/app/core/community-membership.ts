@@ -3,6 +3,7 @@ import {
   PROFILE_LIST_KIND,
   getCommunitySectionDisplayName,
   getProfileListPubkeys,
+  isProfileListDeclined,
   normalizePubkey,
   parseCommunityDefinition,
   type CommunityDefinition,
@@ -38,9 +39,12 @@ export type CommunityMemberListItem = {
   isOwner: boolean
   isAdmin: boolean
   isModerator: boolean
+  isPendingModerator: boolean
   moderatorSections: CommunityMemberSectionRef[]
+  pendingModeratorSections: CommunityMemberSectionRef[]
   sectionGrants: CommunityMemberSectionRef[]
   moderatorSectionCount: number
+  pendingModeratorSectionCount: number
   grantCount: number
 }
 
@@ -110,7 +114,7 @@ const hasValidatedModeratorRef = (
 
   const event = profileListsByAddress.get(ref.address)
 
-  return Boolean(event && event.pubkey === userPubkey)
+  return Boolean(event && event.pubkey === userPubkey && !isProfileListDeclined(event))
 }
 
 const hasMemberRef = (
@@ -118,6 +122,16 @@ const hasMemberRef = (
   userPubkey: string,
   profileListsByAddress: Map<string, TrustedEvent>,
 ) => getProfileListPubkeys(profileListsByAddress.get(ref.address)).includes(userPubkey)
+
+const hasModeratorRef = (definition: CommunityDefinition, userPubkey: string) => {
+  const normalizedUser = normalizePubkey(userPubkey)
+  const ownerPubkey = normalizePubkey(definition.pubkey)
+  if (!normalizedUser || normalizedUser === ownerPubkey) return false
+
+  return definition.sections.some(section =>
+    section.profileLists.some(ref => normalizePubkey(ref.pubkey) === normalizedUser),
+  )
+}
 
 const upsertSectionRef = (
   refs: CommunityMemberSectionRef[],
@@ -149,6 +163,11 @@ export const selectCommunityMemberList = ({
   const ownerPubkey = normalizePubkey(definition.pubkey)
   const profileListsByAddress = getLatestProfileListEventsByAddress(profileListEvents)
   const people = new Map<string, CommunityMemberListItem>()
+  const moderatorRefAddressesByPubkey = new Map<string, string[]>()
+  const allSectionRefs = definition.sections.map(section => ({
+    sectionName: section.name,
+    displayName: getCommunitySectionDisplayName(section),
+  }))
   const getPerson = (pubkey: string) => {
     const normalized = normalizePubkey(pubkey)
     if (!normalized) return undefined
@@ -163,9 +182,12 @@ export const selectCommunityMemberList = ({
       isOwner: normalized === ownerPubkey,
       isAdmin: normalized === ownerPubkey,
       isModerator: false,
+      isPendingModerator: false,
       moderatorSections: [],
+      pendingModeratorSections: [],
       sectionGrants: [],
       moderatorSectionCount: 0,
+      pendingModeratorSectionCount: 0,
       grantCount: 0,
     } satisfies CommunityMemberListItem
 
@@ -183,17 +205,38 @@ export const selectCommunityMemberList = ({
     }
 
     for (const profileList of section.profileLists) {
-      const moderator = getPerson(profileList.pubkey)
-
-      if (moderator && !moderator.isOwner) {
-        moderator.isModerator = true
-        upsertSectionRef(moderator.moderatorSections, {
-          ...sectionRef,
-          profileListAddresses: [profileList.address],
-        })
-      }
-
       const event = profileListsByAddress.get(profileList.address)
+      const moderatorPubkey = normalizePubkey(profileList.pubkey)
+      const isModeratorRef = moderatorPubkey && moderatorPubkey !== ownerPubkey
+
+      if (isModeratorRef) {
+        moderatorRefAddressesByPubkey.set(
+          moderatorPubkey,
+          Array.from(
+            new Set([...(moderatorRefAddressesByPubkey.get(moderatorPubkey) || []), profileList.address]),
+          ).sort((a, b) => a.localeCompare(b)),
+        )
+
+        if (event && !isProfileListDeclined(event)) {
+          const moderator = getPerson(moderatorPubkey)
+          if (!moderator) continue
+
+          moderator.isModerator = true
+          upsertSectionRef(moderator.moderatorSections, {
+            ...sectionRef,
+            profileListAddresses: [profileList.address],
+          })
+        } else if (!event) {
+          const moderator = getPerson(moderatorPubkey)
+          if (!moderator) continue
+
+          moderator.isPendingModerator = true
+          upsertSectionRef(moderator.pendingModeratorSections, {
+            ...sectionRef,
+            profileListAddresses: [profileList.address],
+          })
+        }
+      }
 
       for (const memberPubkey of getProfileListPubkeys(event)) {
         const member = getPerson(memberPubkey)
@@ -207,10 +250,22 @@ export const selectCommunityMemberList = ({
     }
   }
 
+  for (const [moderatorPubkey, profileListAddresses] of moderatorRefAddressesByPubkey) {
+    const member = getPerson(moderatorPubkey)
+    if (!member) continue
+
+    for (const sectionRef of allSectionRefs) {
+      upsertSectionRef(member.sectionGrants, {...sectionRef, profileListAddresses})
+    }
+  }
+
   return Array.from(people.values())
     .map(person => ({
       ...person,
       moderatorSections: person.moderatorSections.sort((a, b) =>
+        a.displayName.localeCompare(b.displayName),
+      ),
+      pendingModeratorSections: person.pendingModeratorSections.sort((a, b) =>
         a.displayName.localeCompare(b.displayName),
       ),
       sectionGrants: person.sectionGrants.sort((a, b) =>
@@ -220,17 +275,21 @@ export const selectCommunityMemberList = ({
     .map(person => ({
       ...person,
       moderatorSectionCount: person.moderatorSections.length,
+      pendingModeratorSectionCount: person.pendingModeratorSections.length,
       grantCount: person.sectionGrants.length,
     }))
     .sort((a, b) => {
-      const aGroup = a.isOwner ? 0 : a.isModerator ? 1 : 2
-      const bGroup = b.isOwner ? 0 : b.isModerator ? 1 : 2
+      const aGroup = a.isOwner ? 0 : a.isModerator ? 1 : a.isPendingModerator ? 2 : 3
+      const bGroup = b.isOwner ? 0 : b.isModerator ? 1 : b.isPendingModerator ? 2 : 3
 
       if (aGroup !== bGroup) return aGroup - bGroup
       if (aGroup === 0) return a.pubkey.localeCompare(b.pubkey)
       if (a.grantCount !== b.grantCount) return b.grantCount - a.grantCount
       if (a.moderatorSectionCount !== b.moderatorSectionCount) {
         return b.moderatorSectionCount - a.moderatorSectionCount
+      }
+      if (a.pendingModeratorSectionCount !== b.pendingModeratorSectionCount) {
+        return b.pendingModeratorSectionCount - a.pendingModeratorSectionCount
       }
 
       return a.pubkey.localeCompare(b.pubkey)
@@ -265,6 +324,11 @@ export const selectUserCommunityRefs = ({
 
       if (isAdmin) {
         roles.add("admin")
+        for (const section of definition.sections) writableSections.add(section.name)
+      }
+
+      if (!isAdmin && hasModeratorRef(definition, normalizedAuthor)) {
+        roles.add("member")
         for (const section of definition.sections) writableSections.add(section.name)
       }
 

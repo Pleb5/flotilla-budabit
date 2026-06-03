@@ -9,6 +9,7 @@ export const PROFILE_LIST_KIND = 30000
 export const FORM_TEMPLATE_KIND = 30168
 export const FORM_RESPONSE_KIND = 1069
 export const MAX_TARGET_COMMUNITIES = 12
+export const PROFILE_LIST_STATUS_DECLINED = "declined"
 
 export const COMMUNITY_SECTION_GENERAL = "General"
 export const COMMUNITY_SECTION_ROOMS = "Room-creator"
@@ -45,6 +46,15 @@ export const normalizeCommunitySectionSubtype = (subtype?: string) => {
   return trimmed === LEGACY_COMMUNITY_SUBTYPE_FORUM ? COMMUNITY_SUBTYPE_THREADS : trimmed
 }
 
+export const getCommunitySectionKindKey = (kind: number, subtype?: string) =>
+  `${kind}:${normalizeCommunitySectionSubtype(subtype) || ""}`
+
+export const getCommunitySectionKindLabel = (kind: number, subtype?: string) => {
+  const normalizedSubtype = normalizeCommunitySectionSubtype(subtype)
+
+  return normalizedSubtype ? `${kind}/${normalizedSubtype}` : String(kind)
+}
+
 export const TARGETED_PUBLICATION_KINDS = [31922, 9041, 30617, 1623, 30033] as const
 
 export type CommunityInputSource = "hex" | "npub" | "ncommunity"
@@ -74,6 +84,15 @@ export const normalizeCommunitySectionKind = (
 
   return subtype ? {kind: sectionKind.kind, subtype} : {kind: sectionKind.kind}
 }
+
+export const communitySectionKindsMatch = (
+  sectionKind: CommunitySectionKind,
+  kind: number,
+  subtype?: string,
+) =>
+  sectionKind.kind === kind &&
+  getCommunitySectionKindKey(sectionKind.kind, sectionKind.subtype) ===
+    getCommunitySectionKindKey(kind, subtype)
 
 export type CommunityProfileListRef = AddressRef & {
   relay?: string
@@ -156,6 +175,16 @@ export type CommunityDefinitionSectionInput = {
   profileLists?: CommunityProfileListRef[]
   badges?: CommunityBadgeRef[]
   retention?: CommunityRetentionPolicy[]
+}
+
+export type CommunitySectionKindAssignment = {
+  key: string
+  label: string
+  kind: number
+  subtype?: string
+  sectionName: string
+  sectionIndex: number
+  kindIndex: number
 }
 
 export type BuildCommunityDefinitionParams = {
@@ -241,6 +270,45 @@ const slugifyCommunityValue = (value: string) =>
 
 export const makeCommunityScopedIdentifier = (communityPubkey: string, value: string) =>
   `budabit-${normalizePubkey(communityPubkey).slice(0, 16)}-${slugifyCommunityValue(value)}`
+
+export const getCommunitySectionKindAssignments = (
+  sections: Array<Pick<CommunitySection, "name" | "kinds">>,
+): CommunitySectionKindAssignment[] =>
+  sections.flatMap((section, sectionIndex) =>
+    section.kinds.map((sectionKind, kindIndex) => {
+      const normalizedKind = normalizeCommunitySectionKind(sectionKind)
+
+      return {
+        key: getCommunitySectionKindKey(normalizedKind.kind, normalizedKind.subtype),
+        label: getCommunitySectionKindLabel(normalizedKind.kind, normalizedKind.subtype),
+        kind: normalizedKind.kind,
+        subtype: normalizedKind.subtype,
+        sectionName: section.name,
+        sectionIndex,
+        kindIndex,
+      }
+    }),
+  )
+
+export const getDuplicateCommunitySectionKindAssignments = (
+  sections: Array<Pick<CommunitySection, "name" | "kinds">>,
+) => {
+  const seen = new Map<string, CommunitySectionKindAssignment>()
+  const duplicates: CommunitySectionKindAssignment[] = []
+
+  for (const assignment of getCommunitySectionKindAssignments(sections)) {
+    const previous = seen.get(assignment.key)
+    if (previous) {
+      if (!duplicates.includes(previous)) duplicates.push(previous)
+      duplicates.push(assignment)
+      continue
+    }
+
+    seen.set(assignment.key, assignment)
+  }
+
+  return duplicates
+}
 
 export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionKind[] => {
   switch (normalizeCommunitySectionName(name)) {
@@ -360,6 +428,15 @@ export const buildCommunityDefinition = ({
   location,
   geohash,
 }: BuildCommunityDefinitionParams): EventContent & {kind: typeof COMMUNITY_DEFINITION_KIND} => {
+  const duplicateKinds = getDuplicateCommunitySectionKindAssignments(sections)
+  if (duplicateKinds.length > 0) {
+    const labels = Array.from(new Set(duplicateKinds.map(assignment => assignment.label))).join(
+      ", ",
+    )
+
+    throw new Error(`Community section kind/subtype pairs must be unique: ${labels}`)
+  }
+
   const tags: string[][] = [["alt", "BudaBit community definition"]]
 
   if (description?.trim()) tags.push(["description", description.trim()])
@@ -599,26 +676,23 @@ export const findCommunitySection = (definition: CommunityDefinition, name: stri
   }
 
   if (normalizedName === COMMUNITY_SECTION_GOALS) {
-    return definition.sections.find(section =>
-      section.kinds.some(sectionKind => sectionKind.kind === 9041),
-    )
+    return definition.sections.find(section => sectionSupportsKind(section, 9041))
   }
 }
+
+export const findCommunitySectionByKind = (
+  definition: CommunityDefinition,
+  kind: number,
+  subtype?: string,
+) => definition.sections.find(section => sectionSupportsKind(section, kind, subtype))
 
 export const sectionSupportsKind = (
   section: CommunitySection | undefined,
   kind: number,
   subtype?: string,
 ) => {
-  const normalizedSubtype = normalizeCommunitySectionSubtype(subtype)
-
   return Boolean(
-    section?.kinds.some(
-      sectionKind =>
-        sectionKind.kind === kind &&
-        (!normalizedSubtype ||
-          normalizeCommunitySectionSubtype(sectionKind.subtype) === normalizedSubtype),
-    ),
+    section?.kinds.some(sectionKind => communitySectionKindsMatch(sectionKind, kind, subtype)),
   )
 }
 
@@ -627,8 +701,15 @@ export const getCommunitySectionDisplayName = (section: CommunitySection) =>
     ? COMMUNITY_SECTION_GOALS
     : normalizeCommunitySectionName(section.name)
 
+export const getProfileListStatus = (event: TrustedEvent | undefined) =>
+  event?.tags.find(tag => tag[0] === "status")?.[1] || ""
+
+export const isProfileListDeclined = (event: TrustedEvent | undefined) =>
+  getProfileListStatus(event) === PROFILE_LIST_STATUS_DECLINED
+
 export const getProfileListPubkeys = (event: TrustedEvent | undefined) => {
   if (!event || event.kind !== PROFILE_LIST_KIND) return []
+  if (isProfileListDeclined(event)) return []
 
   return Array.from(
     new Set(

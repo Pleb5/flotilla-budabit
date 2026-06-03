@@ -17,6 +17,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityProfileListEvents,
     activeCommunityRelays,
     activeCommunityReportState,
     getCommunityBadgeRelays,
@@ -75,6 +76,7 @@
       canCreateCommunityBadge({
         definition: $activeCommunityDefinition,
         pubkey: $pubkey,
+        profileListEvents: $activeCommunityProfileListEvents,
         reportState: $activeCommunityReportState,
       }),
     ),
@@ -83,6 +85,7 @@
     communityBootstrapReady && $activeCommunityDefinition
       ? makeCommunityBadgeDefinitionFilters({
           definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -95,6 +98,7 @@
       ? selectCommunityBadgeDefinitions({
           definition: $activeCommunityDefinition,
           badgeDefinitionEvents: $badgeDefinitionEvents,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         })
       : [],

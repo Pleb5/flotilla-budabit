@@ -24,6 +24,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityProfileListEvents,
     activeCommunityReportState,
   } from "@app/core/community-state"
   import {canCreateCommunityBadge} from "@app/core/community-badges"
@@ -53,6 +54,7 @@
       canCreateCommunityBadge({
         definition: $activeCommunityDefinition,
         pubkey: $sessionPubkey,
+        profileListEvents: $activeCommunityProfileListEvents,
         reportState: $activeCommunityReportState,
       }),
     ),

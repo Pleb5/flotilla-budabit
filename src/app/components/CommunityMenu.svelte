@@ -119,6 +119,7 @@
     $activeCommunityDefinition
       ? makeCommunityBadgeDefinitionFilters({
           definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -131,6 +132,7 @@
       ? selectCommunityBadgeDefinitions({
           definition: $activeCommunityDefinition,
           badgeDefinitionEvents: $badgeDefinitionEvents,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -156,6 +158,7 @@
       ? getPendingCommunityBadgeAwards({
           definition: $activeCommunityDefinition,
           badgeDefinitionEvents: $badgeDefinitionEvents,
+          profileListEvents: $activeCommunityProfileListEvents,
           badgeAwardEvents: $badgeAwardEvents,
           badgeAwardDeleteEvents: $badgeAwardDeleteEvents,
           profileBadgeEvents: $profileBadgeEvents,
@@ -176,6 +179,7 @@
           definition,
           userPubkey,
           sectionName: section.name,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         }).canGrant,
     )

@@ -258,6 +258,28 @@ describe("community protocol helpers", () => {
     expect(sectionSupportsKind(apps, 32267)).toBe(true)
     expect(sectionSupportsKind(apps, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
     expect(sectionSupportsKind(apps, 11, "forum")).toBe(true)
+    expect(sectionSupportsKind(apps, 11)).toBe(false)
+  })
+
+  it("rejects duplicate section kind/subtype pairs when building definitions", () => {
+    expect(() =>
+      buildCommunityDefinition({
+        relays: ["wss://relay.example.com"],
+        sections: [
+          {name: "Widgets", kinds: [{kind: 30033}]},
+          {name: "Apps", kinds: [{kind: 30033}]},
+        ],
+      }),
+    ).toThrow(/30033/)
+    expect(() =>
+      buildCommunityDefinition({
+        relays: ["wss://relay.example.com"],
+        sections: [
+          {name: "Widgets", kinds: [{kind: 1234}]},
+          {name: "Code", kinds: [{kind: 1234, subtype: "code"}]},
+        ],
+      }),
+    ).not.toThrow()
   })
 
   it("normalizes legacy forum sections to threads", () => {

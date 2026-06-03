@@ -15,6 +15,7 @@
   import {MESSAGE_KINDS} from "@app/core/state"
   import {
     activeCommunityDefinition,
+    activeCommunityProfileListEvents,
     activeCommunityRelays,
     activeCommunityReportState,
     getCommunityBadgeReadRelays,
@@ -47,6 +48,7 @@
     $activeCommunityDefinition
       ? makeCommunityBadgeDefinitionFilters({
           definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -60,6 +62,7 @@
 
     const creators = getCommunityBadgeCreatorPubkeys({
       definition,
+      profileListEvents: $activeCommunityProfileListEvents,
       reportState: $activeCommunityReportState,
     })
 
@@ -87,6 +90,7 @@
       ? getAcceptedCommunityBadges({
           definition: $activeCommunityDefinition,
           badgeDefinitionEvents: $badgeDefinitionEvents,
+          profileListEvents: $activeCommunityProfileListEvents,
           badgeAwardEvents: $badgeAwardEvents,
           badgeAwardDeleteEvents: $badgeAwardDeleteEvents,
           profileBadgeEvents: $profileBadgeEvents,

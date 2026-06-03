@@ -153,9 +153,11 @@ export const getCommunityBadgeImageUrl = (
 
 export const getCommunityBadgeCreatorPubkeys = ({
   definition,
+  profileListEvents,
   reportState,
 }: {
   definition: CommunityDefinition
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
 }) =>
   unique([
@@ -164,6 +166,7 @@ export const getCommunityBadgeCreatorPubkeys = ({
       getGrantCapableSectionModeratorPubkeys({
         definition,
         sectionName: section.name,
+        profileListEvents,
         reportState,
       }),
     ),
@@ -172,16 +175,21 @@ export const getCommunityBadgeCreatorPubkeys = ({
 export const canCreateCommunityBadge = ({
   definition,
   pubkey,
+  profileListEvents,
   reportState,
 }: {
   definition: CommunityDefinition
   pubkey: string
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
 }) => {
   const normalized = normalizePubkey(pubkey)
 
   return Boolean(
-    normalized && getCommunityBadgeCreatorPubkeys({definition, reportState}).includes(normalized),
+    normalized &&
+      getCommunityBadgeCreatorPubkeys({definition, profileListEvents, reportState}).includes(
+        normalized,
+      ),
   )
 }
 
@@ -434,14 +442,16 @@ export const makeProfileBadgeRemovalEvent = ({
 
 export const makeCommunityBadgeDefinitionFilters = ({
   definition,
+  profileListEvents,
   reportState,
   limit = 200,
 }: {
   definition: CommunityDefinition
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
   limit?: number
 }): Filter[] => {
-  const authors = getCommunityBadgeCreatorPubkeys({definition, reportState})
+  const authors = getCommunityBadgeCreatorPubkeys({definition, profileListEvents, reportState})
   const communityAddress = makeCommunityDefinitionAddress(definition.pubkey)
 
   return authors.length && communityAddress
@@ -497,15 +507,19 @@ export const makeProfileBadgeFilters = (profilePubkey: string): Filter[] => {
 const getTrustedDefinitionsByAddress = ({
   definition,
   badgeDefinitionEvents,
+  profileListEvents,
   reportState,
   includeDeprecated = false,
 }: {
   definition: CommunityDefinition
   badgeDefinitionEvents: TrustedEvent[]
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
   includeDeprecated?: boolean
 }) => {
-  const creators = new Set(getCommunityBadgeCreatorPubkeys({definition, reportState}))
+  const creators = new Set(
+    getCommunityBadgeCreatorPubkeys({definition, profileListEvents, reportState}),
+  )
   const definitions = new Map<string, CommunityBadgeDefinition>()
 
   for (const event of badgeDefinitionEvents) {
@@ -533,11 +547,13 @@ const getTrustedDefinitionsByAddress = ({
 export const selectCommunityBadgeDefinitions = ({
   definition,
   badgeDefinitionEvents,
+  profileListEvents,
   reportState,
   includeDeprecated = false,
 }: {
   definition: CommunityDefinition
   badgeDefinitionEvents: TrustedEvent[]
+  profileListEvents?: TrustedEvent[]
   reportState?: EffectiveCommunityReportState
   includeDeprecated?: boolean
 }): CommunityBadgeDefinition[] =>
@@ -545,6 +561,7 @@ export const selectCommunityBadgeDefinitions = ({
     getTrustedDefinitionsByAddress({
       definition,
       badgeDefinitionEvents,
+      profileListEvents,
       reportState,
       includeDeprecated,
     }).values(),
@@ -604,6 +621,7 @@ export const getCommunityBadgeAward = ({
 export const getAcceptedCommunityBadges = ({
   definition,
   badgeDefinitionEvents,
+  profileListEvents,
   badgeAwardEvents,
   badgeAwardDeleteEvents = [],
   profileBadgeEvents,
@@ -612,6 +630,7 @@ export const getAcceptedCommunityBadges = ({
 }: {
   definition: CommunityDefinition
   badgeDefinitionEvents: TrustedEvent[]
+  profileListEvents?: TrustedEvent[]
   badgeAwardEvents: TrustedEvent[]
   badgeAwardDeleteEvents?: TrustedEvent[]
   profileBadgeEvents: TrustedEvent[]
@@ -624,6 +643,7 @@ export const getAcceptedCommunityBadges = ({
   const definitionsByAddress = getTrustedDefinitionsByAddress({
     definition,
     badgeDefinitionEvents,
+    profileListEvents,
     reportState,
   })
   const awards = badgeAwardEvents
@@ -645,6 +665,7 @@ export const getAcceptedCommunityBadges = ({
 export const getPendingCommunityBadgeAwards = ({
   definition,
   badgeDefinitionEvents,
+  profileListEvents,
   badgeAwardEvents,
   badgeAwardDeleteEvents = [],
   profileBadgeEvents,
@@ -653,6 +674,7 @@ export const getPendingCommunityBadgeAwards = ({
 }: {
   definition: CommunityDefinition
   badgeDefinitionEvents: TrustedEvent[]
+  profileListEvents?: TrustedEvent[]
   badgeAwardEvents: TrustedEvent[]
   badgeAwardDeleteEvents?: TrustedEvent[]
   profileBadgeEvents: TrustedEvent[]
@@ -662,12 +684,14 @@ export const getPendingCommunityBadgeAwards = ({
   const definitionsByAddress = getTrustedDefinitionsByAddress({
     definition,
     badgeDefinitionEvents,
+    profileListEvents,
     reportState,
   })
   const accepted = new Set(
     getAcceptedCommunityBadges({
       definition,
       badgeDefinitionEvents,
+      profileListEvents,
       badgeAwardEvents,
       badgeAwardDeleteEvents,
       profileBadgeEvents,

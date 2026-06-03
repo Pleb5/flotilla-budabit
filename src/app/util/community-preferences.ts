@@ -4,6 +4,7 @@ import {
   FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
   type CommunityDefinition,
+  isProfileListDeclined,
   normalizePubkey,
   normalizeRelays,
   parseCommunityDefinition,
@@ -147,6 +148,7 @@ export const getModeratorProfileListEventMap = (events: TrustedEvent[], author?:
 
   for (const event of events) {
     if (event.kind !== PROFILE_LIST_KIND) continue
+    if (isProfileListDeclined(event)) continue
     if (normalizedAuthor && event.pubkey !== normalizedAuthor) continue
 
     const address = getAddress(event)

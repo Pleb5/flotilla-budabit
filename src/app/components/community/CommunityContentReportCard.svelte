@@ -19,6 +19,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {
     activeCommunityDefinition,
+    activeCommunityProfileListEvents,
     activeCommunityReportState,
     loadCommunityEvents,
   } from "@app/core/community-state"
@@ -55,6 +56,7 @@
             definition: $activeCommunityDefinition!,
             reviewerPubkey: currentPubkey,
             report,
+            profileListEvents: $activeCommunityProfileListEvents,
             reportState: $activeCommunityReportState,
           }),
         )

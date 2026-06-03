@@ -128,12 +128,13 @@
       $pubkey &&
       $activeCommunityDefinition.sections.some(
         section =>
-          getGrantCapability({
-            definition: $activeCommunityDefinition!,
-            userPubkey: $pubkey,
-            sectionName: section.name,
-            reportState: $activeCommunityReportState,
-          }).canGrant,
+            getGrantCapability({
+              definition: $activeCommunityDefinition!,
+              userPubkey: $pubkey,
+              sectionName: section.name,
+              profileListEvents: $activeCommunityProfileListEvents,
+              reportState: $activeCommunityReportState,
+            }).canGrant,
       ),
     ),
   )
@@ -187,12 +188,14 @@
             ? getGrantCapableSectionModeratorPubkeys({
                 definition: $activeCommunityDefinition,
                 sectionName: section.name,
+                profileListEvents: $activeCommunityProfileListEvents,
                 reportState: $activeCommunityReportState,
               })
             : []
           const granted = Boolean(
             $pubkey &&
             userHasSectionProfileListAccess({
+              definition: $activeCommunityDefinition,
               section,
               profileListEvents: $activeCommunityProfileListEvents,
               userPubkey: $pubkey,
@@ -272,12 +275,13 @@
       const alreadyModerator = Boolean(
         $pubkey &&
         definition &&
-        getGrantCapability({
-          definition,
-          userPubkey: $pubkey,
-          sectionName: section.name,
-          reportState: $activeCommunityReportState,
-        }).canGrant,
+            getGrantCapability({
+              definition,
+              userPubkey: $pubkey,
+              sectionName: section.name,
+              profileListEvents: $activeCommunityProfileListEvents,
+              reportState: $activeCommunityReportState,
+            }).canGrant,
       )
       const status = alreadyModerator ? "accepted" : request?.status || "none"
       const publishState = moderatorRequestPublishStates[section.name]
@@ -293,7 +297,9 @@
       member.pubkey,
       member.isOwner ? "owner admin" : "",
       member.isModerator ? "moderator" : "",
+      member.isPendingModerator ? "pending moderator" : "",
       ...member.moderatorSections.map(section => section.displayName),
+      ...member.pendingModeratorSections.map(section => section.displayName),
       ...member.sectionGrants.map(section => section.displayName),
     ]
       .join(" ")
@@ -337,6 +343,9 @@
     })
   })
   const moderatorMemberCount = $derived(memberItems.filter(member => member.isModerator).length)
+  const pendingModeratorMemberCount = $derived(
+    memberItems.filter(member => member.isPendingModerator).length,
+  )
 
   let memberProfileHydrationKey = ""
   $effect(() => {
@@ -743,8 +752,10 @@
   const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
     `${count} ${count === 1 ? singular : plural}`
 
-  const getMemberPopoverKey = (member: CommunityMemberListItem, type: "grants" | "moderators") =>
-    `${member.pubkey}:${type}`
+  const getMemberPopoverKey = (
+    member: CommunityMemberListItem,
+    type: "grants" | "moderators" | "pending-moderators",
+  ) => `${member.pubkey}:${type}`
 
   const showMemberPopover = (key: string) => {
     openMemberPopover = key
@@ -854,13 +865,19 @@
           <div>
             <h2 class="text-xl font-semibold">Members</h2>
             <p class="mt-1 text-sm opacity-70">
-              Current non-banned members, moderators, and the community owner.
+              Current non-banned members, moderators, pending moderator invites, and the community
+              owner.
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
             <span class="badge badge-neutral"
               >{pluralize(memberItems.length, "person", "people")}</span>
             <span class="badge badge-info">{pluralize(moderatorMemberCount, "moderator")}</span>
+            {#if pendingModeratorMemberCount > 0}
+              <span class="badge badge-warning">
+                {pluralize(pendingModeratorMemberCount, "pending moderator")}
+              </span>
+            {/if}
           </div>
         </div>
 
@@ -903,6 +920,9 @@
                         {#if member.isModerator}
                           <span class="badge badge-info">moderator</span>
                         {/if}
+                        {#if member.isPendingModerator}
+                          <span class="badge badge-warning">pending moderator</span>
+                        {/if}
                         {#if member.grantCount > 0}
                           <span class="badge badge-neutral">member</span>
                         {/if}
@@ -921,8 +941,6 @@
                         <Button
                           class="btn btn-info btn-sm"
                           aria-expanded={openMemberPopover === moderatorKey}
-                          onfocus={() => showMemberPopover(moderatorKey)}
-                          onmouseenter={() => showMemberPopover(moderatorKey)}
                           onclick={() => showMemberPopover(moderatorKey)}>
                           {pluralize(member.moderatorSectionCount, "moderator section")}
                         </Button>
@@ -956,12 +974,53 @@
                       </div>
                     {/if}
 
+                    {#if member.isPendingModerator}
+                      {@const pendingModeratorKey = getMemberPopoverKey(member, "pending-moderators")}
+                      <div class="relative">
+                        <Button
+                          class="btn btn-warning btn-sm"
+                          aria-expanded={openMemberPopover === pendingModeratorKey}
+                          onclick={() => showMemberPopover(pendingModeratorKey)}>
+                          Pending {pluralize(
+                            member.pendingModeratorSectionCount,
+                            "moderator section",
+                          )}
+                        </Button>
+                        {#if openMemberPopover === pendingModeratorKey}
+                          <InlinePopover
+                            align="right"
+                            widthClass="w-80 sm:w-96"
+                            onClose={() => (openMemberPopover = null)}>
+                            <div class="flex flex-col gap-3 text-sm">
+                              <div>
+                                <h3 class="font-semibold">Pending moderator sections</h3>
+                                <p class="text-xs opacity-70">
+                                  Sections where this pubkey was invited to moderate but has not
+                                  published its profile list yet.
+                                </p>
+                              </div>
+                              {#each member.pendingModeratorSections as section}
+                                <div class="rounded-box bg-base-200 p-3">
+                                  <strong>{section.displayName}</strong>
+                                  <div class="mt-2 flex flex-col gap-1">
+                                    {#each section.profileListAddresses as address}
+                                      <p class="break-all font-mono text-[11px] opacity-70">
+                                        {address}
+                                      </p>
+                                    {/each}
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          </InlinePopover>
+                        {/if}
+                      </div>
+                    {/if}
+
                     <div class="relative">
                       <Button
                         class="btn btn-neutral btn-sm"
                         aria-expanded={openMemberPopover === grantsKey}
-                        onfocus={() => showMemberPopover(grantsKey)}
-                        onmouseenter={() => showMemberPopover(grantsKey)}
                         onclick={() => showMemberPopover(grantsKey)}>
                         {pluralize(member.grantCount, "grant")}
                       </Button>
@@ -971,12 +1030,12 @@
                           widthClass="w-80 sm:w-96"
                           onClose={() => (openMemberPopover = null)}>
                           <div class="flex flex-col gap-3 text-sm">
-                            <div>
-                              <h3 class="font-semibold">Section grants</h3>
-                              <p class="text-xs opacity-70">
-                                Explicit section profile-list grants.
-                              </p>
-                            </div>
+                              <div>
+                                <h3 class="font-semibold">Membership grants</h3>
+                                <p class="text-xs opacity-70">
+                                  Sections where this pubkey can publish as a member.
+                                </p>
+                              </div>
                             {#if member.sectionGrants.length > 0}
                               {#each member.sectionGrants as section}
                                 <div class="rounded-box bg-base-200 p-3">
@@ -992,7 +1051,7 @@
                               {/each}
                             {:else}
                               <p class="rounded-box bg-base-200 p-3 opacity-70">
-                                No explicit section grants.
+                                No membership grants.
                               </p>
                             {/if}
                           </div>
