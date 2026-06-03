@@ -4,10 +4,21 @@ import {pubkey, repository} from "@welshman/app"
 import {type Filter, type TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
 
-const {attemptAuthMock, loadMock} = vi.hoisted(() => ({
+const {attemptAuthMock, forceLoadRelayListMock, fromPubkeysMock, loadMock} = vi.hoisted(() => ({
   attemptAuthMock: vi.fn(),
+  forceLoadRelayListMock: vi.fn(),
+  fromPubkeysMock: vi.fn(),
   loadMock: vi.fn(),
 }))
+
+vi.mock("@welshman/app", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/app")>()
+
+  return {
+    ...actual,
+    forceLoadRelayList: forceLoadRelayListMock,
+  }
+})
 
 vi.mock("@welshman/net", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/net")>()
@@ -23,11 +34,21 @@ vi.mock("@welshman/net", async importOriginal => {
   }
 })
 
+vi.mock("@welshman/router", () => ({
+  Router: {
+    get: () => ({
+      FromUser: () => ({getUrls: () => []}),
+      FromPubkeys: fromPubkeysMock,
+    }),
+  },
+}))
+
 import {
   activeCommunityDefinition,
   activePreferredCommunities,
   clearActiveCommunity,
   hydrateCommunityPreferences,
+  loadCommunityDefinitionWithOutboxFallback,
   loadCommunityBootstrap,
   loadCommunityEvents,
 } from "./community-state"
@@ -132,7 +153,11 @@ describe("community relay loading", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     attemptAuthMock.mockReset()
+    forceLoadRelayListMock.mockReset()
+    fromPubkeysMock.mockReset()
     loadMock.mockReset()
+    forceLoadRelayListMock.mockResolvedValue(undefined)
+    fromPubkeysMock.mockReturnValue({getUrls: () => []})
     removeTestEvents()
     clearActiveCommunity()
     pubkey.set(undefined)
@@ -177,6 +202,127 @@ describe("community relay loading", () => {
     })
 
     expect(events).toEqual([])
+  })
+
+  it("falls back to hydrated community outbox relays when discovery misses", async () => {
+    let outboxHydrated = false
+    forceLoadRelayListMock.mockImplementation(async () => {
+      outboxHydrated = true
+    })
+    fromPubkeysMock.mockReturnValue({getUrls: () => (outboxHydrated ? [relayA] : [])})
+    loadMock.mockImplementation(({relays, filters}: {relays: string[]; filters: Filter[]}) => {
+      if (relays[0] === relayA && hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([definitionEvent])
+      }
+
+      return Promise.resolve([])
+    })
+
+    const definition = await loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints: [discoveryRelay],
+    })
+
+    expect(definition?.event.id).toBe(definitionEvent.id)
+    expect(forceLoadRelayListMock).toHaveBeenCalledWith(
+      communityPubkey,
+      expect.arrayContaining([discoveryRelay]),
+    )
+    expect(fromPubkeysMock).toHaveBeenCalledWith([communityPubkey])
+    expect(loadMock.mock.calls.map(([args]) => args.relays[0])).toEqual(
+      expect.arrayContaining([discoveryRelay, relayA]),
+    )
+  })
+
+  it("uses cached community outbox relays immediately while refreshing them", async () => {
+    forceLoadRelayListMock.mockReturnValue(new Promise(() => undefined))
+    fromPubkeysMock.mockReturnValue({getUrls: () => [relayA]})
+    loadMock.mockImplementation(({relays, filters}: {relays: string[]; filters: Filter[]}) => {
+      if (relays[0] === relayA && hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([definitionEvent])
+      }
+
+      return Promise.resolve([])
+    })
+
+    const definition = await loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints: [discoveryRelay],
+    })
+
+    expect(definition?.event.id).toBe(definitionEvent.id)
+    expect(forceLoadRelayListMock).toHaveBeenCalledWith(
+      communityPubkey,
+      expect.arrayContaining([discoveryRelay]),
+    )
+  })
+
+  it("returns discovery hits before community outbox hydration finishes", async () => {
+    forceLoadRelayListMock.mockReturnValue(new Promise(() => undefined))
+    fromPubkeysMock.mockReturnValue({getUrls: () => []})
+    loadMock.mockImplementation(({relays, filters}: {relays: string[]; filters: Filter[]}) => {
+      if (relays[0] === discoveryRelay && hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([definitionEvent])
+      }
+
+      return Promise.resolve([])
+    })
+
+    const definition = await loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints: [discoveryRelay],
+    })
+
+    expect(definition?.event.id).toBe(definitionEvent.id)
+    expect(forceLoadRelayListMock).toHaveBeenCalledWith(
+      communityPubkey,
+      expect.arrayContaining([discoveryRelay]),
+    )
+    expect(loadMock.mock.calls.map(([args]) => args.relays[0])).not.toContain(relayB)
+  })
+
+  it("times out community outbox relay hydration after three seconds", async () => {
+    forceLoadRelayListMock.mockReturnValue(new Promise(() => undefined))
+    fromPubkeysMock.mockReturnValue({getUrls: () => []})
+    loadMock.mockResolvedValue([])
+
+    let settled = false
+    const definitionPromise = loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints: [discoveryRelay],
+    }).then(definition => {
+      settled = true
+
+      return definition
+    })
+
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(settled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await definitionPromise).toBeUndefined()
+  })
+
+  it("times out community definition loads after three seconds", async () => {
+    fromPubkeysMock.mockReturnValue({getUrls: () => [relayA]})
+    loadMock.mockImplementation(({relays, filters}: {relays: string[]; filters: Filter[]}) => {
+      if (relays[0] === relayA && hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return new Promise(() => undefined)
+      }
+
+      return Promise.resolve([])
+    })
+
+    let settled = false
+    const definitionPromise = loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints: [discoveryRelay],
+    }).then(definition => {
+      settled = true
+
+      return definition
+    })
+
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(settled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await definitionPromise).toBeUndefined()
   })
 
   it("resolves bootstrap state from one responsive community relay", async () => {

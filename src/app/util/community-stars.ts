@@ -1,4 +1,5 @@
 import {DELETE, REACTION, makeEvent, type Filter, type TrustedEvent} from "@welshman/util"
+import * as nip19 from "nostr-tools/nip19"
 import {
   COMMUNITY_DEFINITION_KIND,
   makeCommunityNcommunity,
@@ -30,7 +31,7 @@ export const makeCommunityInputValue = ({
   const normalizedPubkey = normalizePubkey(pubkey)
   const relays = normalizeRelays(relayHints)
   if (!normalizedPubkey) return ""
-  if (relays.length === 0) return normalizedPubkey
+  if (relays.length === 0) return nip19.npubEncode(normalizedPubkey)
 
   return makeCommunityNcommunity({pubkey: normalizedPubkey, relayHints: relays})
 }

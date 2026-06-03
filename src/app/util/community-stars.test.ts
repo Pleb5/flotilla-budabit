@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest"
 import {DELETE, REACTION, type TrustedEvent} from "@welshman/util"
+import * as nip19 from "nostr-tools/nip19"
 import {COMMUNITY_DEFINITION_KIND} from "@app/core/community"
 import {makeCommunityDefinitionAddress} from "@app/core/community-forms"
 import {
@@ -139,5 +140,11 @@ describe("community stars", () => {
     expect(
       makeCommunityInputValue({pubkey: communityPubkey, relayHints: ["wss://relay.example.com"]}),
     ).toBe(`ncommunity://${communityPubkey}?relay=wss%3A%2F%2Frelay.example.com%2F`)
+  })
+
+  it("builds npub community input values without relay hints", () => {
+    expect(makeCommunityInputValue({pubkey: communityPubkey})).toBe(
+      nip19.npubEncode(communityPubkey),
+    )
   })
 })

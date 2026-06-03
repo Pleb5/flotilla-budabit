@@ -1,6 +1,6 @@
 import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
-import {deriveProfile, pubkey, repository, sign, tracker} from "@welshman/app"
+import {deriveProfile, forceLoadRelayList, pubkey, repository, sign, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {normalizeUrl, sortBy} from "@welshman/lib"
 import {AuthStatus, load, Pool} from "@welshman/net"
@@ -102,6 +102,11 @@ export type CommunityRelayLoadOptions = {
   timeout?: number
   authenticate?: boolean
   settle?: CommunityRelayLoadSettle
+}
+
+export type CommunityDefinitionLookupOptions = CommunityRelayLoadOptions & {
+  relayHints?: string[]
+  onOutboxDefinition?: (definition: CommunityDefinition) => void
 }
 
 export type CommunityProfile = {
@@ -340,6 +345,65 @@ export const getPubkeyOutboxRelays = (pubkeys: string[]) => {
   }
 }
 
+const COMMUNITY_OUTBOX_RELAY_LOAD_TIMEOUT = 3000
+const COMMUNITY_DEFINITION_LOOKUP_TIMEOUT = 3000
+const pubkeyOutboxRelayPromises = new Map<string, Promise<string[]>>()
+
+const loadPubkeyOutboxRelays = async (normalizedPubkey: string, relayHints: string[] = []) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    await Promise.race([
+      forceLoadRelayList(normalizedPubkey, normalizeRelays(relayHints)),
+      new Promise(resolve => {
+        timeout = setTimeout(resolve, COMMUNITY_OUTBOX_RELAY_LOAD_TIMEOUT)
+      }),
+    ])
+  } catch {
+    // Missing or unreachable NIP-65 relay lists are expected for some community pubkeys.
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+
+  return normalizeRelays(getPubkeyOutboxRelays([normalizedPubkey]))
+}
+
+export const hydratePubkeyOutboxRelays = async (
+  communityPubkey: string,
+  relayHints: string[] = [],
+) => {
+  const normalizedPubkey = normalizePubkey(communityPubkey)
+  if (!normalizedPubkey) return []
+
+  const cachedRelays = normalizeRelays(getPubkeyOutboxRelays([normalizedPubkey]))
+  const pending = pubkeyOutboxRelayPromises.get(normalizedPubkey)
+  if (cachedRelays.length > 0) {
+    if (!pending) {
+      const refreshPromise = loadPubkeyOutboxRelays(normalizedPubkey, relayHints).finally(() => {
+        if (pubkeyOutboxRelayPromises.get(normalizedPubkey) === refreshPromise) {
+          pubkeyOutboxRelayPromises.delete(normalizedPubkey)
+        }
+      })
+
+      pubkeyOutboxRelayPromises.set(normalizedPubkey, refreshPromise)
+    }
+
+    return cachedRelays
+  }
+
+  if (pending) return pending
+
+  const promise = loadPubkeyOutboxRelays(normalizedPubkey, relayHints).finally(() => {
+    if (pubkeyOutboxRelayPromises.get(normalizedPubkey) === promise) {
+      pubkeyOutboxRelayPromises.delete(normalizedPubkey)
+    }
+  })
+
+  pubkeyOutboxRelayPromises.set(normalizedPubkey, promise)
+
+  return promise
+}
+
 export const getCommunityBootstrapRelays = (relayHints: string[] = []) =>
   normalizeRelays([...relayHints, ...getUserOutboxRelays(), ...COMMUNITY_DISCOVERY_RELAYS])
 
@@ -508,6 +572,63 @@ export const loadCommunityEvents = async (
       })
     }
   })
+}
+
+export const loadCommunityDefinitionFromRelays = async (
+  communityPubkey: string,
+  relays: string[],
+  options: CommunityRelayLoadOptions = {},
+) => {
+  const normalizedPubkey = normalizePubkey(communityPubkey)
+  if (!normalizedPubkey) return undefined
+
+  const definitionEvents = await loadCommunityEvents(
+    normalizeRelays(relays),
+    [makeCommunityDefinitionFilter(normalizedPubkey)],
+    {settle: "first-non-empty", ...options},
+  )
+
+  return selectLatestCommunityDefinition(definitionEvents, normalizedPubkey)
+}
+
+export const loadCommunityDefinitionWithOutboxFallback = async (
+  communityPubkey: string,
+  {relayHints = [], onOutboxDefinition, ...loadOptions}: CommunityDefinitionLookupOptions = {},
+) => {
+  const normalizedPubkey = normalizePubkey(communityPubkey)
+  if (!normalizedPubkey) return undefined
+
+  const definitionLoadOptions = {
+    ...loadOptions,
+    timeout: loadOptions.timeout ?? COMMUNITY_DEFINITION_LOOKUP_TIMEOUT,
+  }
+  const discoveryRelays = normalizeRelays([...relayHints, ...COMMUNITY_DISCOVERY_RELAYS])
+  const outboxRelaysPromise = hydratePubkeyOutboxRelays(normalizedPubkey, discoveryRelays)
+  const indexerDefinition = await loadCommunityDefinitionFromRelays(
+    normalizedPubkey,
+    discoveryRelays,
+    definitionLoadOptions,
+  )
+  const loadOutboxDefinition = async () => {
+    const outboxRelays = await outboxRelaysPromise
+    const outboxDefinition = await loadCommunityDefinitionFromRelays(
+      normalizedPubkey,
+      outboxRelays,
+      definitionLoadOptions,
+    )
+
+    if (outboxDefinition) onOutboxDefinition?.(outboxDefinition)
+
+    return outboxDefinition
+  }
+
+  if (indexerDefinition) {
+    void loadOutboxDefinition().catch(() => undefined)
+
+    return indexerDefinition
+  }
+
+  return loadOutboxDefinition()
 }
 
 const profileHydratedAt = new Map<string, number>()
@@ -1833,10 +1954,10 @@ export const loadCommunityBootstrap = async (
     await authenticateCommunityRelays(session.communityRelayHints)
   }
 
-  const definitionEvents = await loadCommunityEvents(relays, [definitionFilter], {
-    settle: "first-non-empty",
+  let definition = await loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
+    relayHints: session.communityRelayHints,
   })
-  let definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
+  const definitionEvents = definition ? [definition.event] : []
   let communityRelays = definition ? definition.relays : relays
 
   if (definition?.relays.length) {

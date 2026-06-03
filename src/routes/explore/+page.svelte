@@ -15,7 +15,7 @@
   import LogIn from "@app/components/LogIn.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
-  import {normalizeRelays, parseCommunityInput} from "@app/core/community"
+  import {normalizeRelays, parseCommunityInput, type CommunityDefinition} from "@app/core/community"
   import {
     DEFAULT_COMMUNITY_INPUT,
     activeCommunityDefinition,
@@ -29,11 +29,9 @@
     communityModeratorProfileListEvents,
     communityPreferencesLoading,
     communityStarsLoading,
-    getCommunityBootstrapRelays,
     getCommunityDefinitionRelayHints,
     hydratePreferredCommunities,
-    loadCommunityEvents,
-    makeCommunityDefinitionFilter,
+    loadCommunityDefinitionWithOutboxFallback,
     selectLatestCommunityDefinition,
     setActiveCommunityDefinition,
     setActiveCommunityInput,
@@ -60,6 +58,7 @@
     isModerator: boolean
   }
 
+  let communitySearchInput = $state("")
   let communityInput = $state("")
   let previewRequestId = 0
   let previewRequestKey = ""
@@ -83,15 +82,23 @@
     else pushModal(LogIn)
   }
 
-  const loadCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
-    const discoveryRelays = getCommunityBootstrapRelays(relayHints)
-    const definitionEvents = await loadCommunityEvents(
-      discoveryRelays,
-      [makeCommunityDefinitionFilter(communityPubkey)],
-      {authenticate: true},
-    )
+  const rememberCommunityDefinitionRelays = (
+    definition: CommunityDefinition,
+    fallbackRelays: string[] = [],
+  ) => {
+    const relayHints = getCommunityDefinitionRelayHints(definition, fallbackRelays)
+    if (relayHints.length > 0) {
+      selectorRelayHints = {...selectorRelayHints, [definition.pubkey]: relayHints}
+    }
 
-    return selectLatestCommunityDefinition(definitionEvents, communityPubkey)
+    return relayHints
+  }
+
+  const loadCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
+    return loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints,
+      onOutboxDefinition: definition => rememberCommunityDefinitionRelays(definition, relayHints),
+    })
   }
 
   const makeEnteringCommunityKey = (parsed: NonNullable<ReturnType<typeof parseCommunityInput>>) =>
@@ -127,7 +134,7 @@
         return
       }
 
-      const relayHints = getCommunityDefinitionRelayHints(definition, parsed.relays)
+      const relayHints = rememberCommunityDefinitionRelays(definition, parsed.relays)
       const communityValue = makeCommunityInputValue({pubkey: parsed.pubkey, relayHints}) || input
       const session = setActiveCommunityInput(communityValue)
 
@@ -140,8 +147,8 @@
       }
 
       setActiveCommunityDefinition(definition)
-      selectorRelayHints = {...selectorRelayHints, [parsed.pubkey]: relayHints}
       await goto(makeCommunityPath(communityValue))
+      communitySearchInput = ""
       communityInput = ""
     } catch (error) {
       if (parsed.pubkey === previewPubkey) previewLookupState = "not-found"
@@ -152,8 +159,11 @@
   }
 
   const submitCommunityInput = () => {
-    if (!communityInput.trim()) return
-    enterCommunity(communityInput)
+    const input = communitySearchInput.trim()
+    if (!input) return
+
+    communityInput = input
+    enterCommunity(input)
   }
 
   const openPreviewCommunity = () => {
@@ -180,12 +190,41 @@
       ...(selectedPubkey === $pubkey ? userRelayHints : []),
     ])
 
-    communityInput = makeCommunityInputValue({pubkey: selectedPubkey, relayHints}) || selectedPubkey
+    const input = makeCommunityInputValue({pubkey: selectedPubkey, relayHints}) || selectedPubkey
+
+    communitySearchInput = input
+    communityInput = input
+  }
+
+  const searchLocalProfiles = (query: string) => {
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    if (!normalizedQuery) return []
+
+    return Array.from($profilesByPubkey.entries())
+      .map(([candidatePubkey, profile]) => {
+        const fields = [profile?.display_name, profile?.name, profile?.nip05]
+          .map(value => String(value || "").toLocaleLowerCase())
+          .filter(Boolean)
+        const score = fields.some(value => value === normalizedQuery)
+          ? 3
+          : fields.some(value => value.startsWith(normalizedQuery))
+            ? 2
+            : fields.some(value => value.includes(normalizedQuery))
+              ? 1
+              : 0
+
+        return {pubkey: candidatePubkey, score}
+      })
+      .filter(match => match.score > 0)
+      .sort((a, b) => b.score - a.score || a.pubkey.localeCompare(b.pubkey))
+      .slice(0, COMMUNITY_INPUT_SEARCH_LIMIT)
+      .map(match => match.pubkey)
   }
 
   const searchCommunityInputProfiles = (term: string) => {
     const query = term.trim()
     if (!query) return []
+    if (parseCommunityInput(query)) return []
 
     const definitionEvents = communityDefinitionEvents
     const profileListEvents = communityProfileListEvents
@@ -194,7 +233,10 @@
       communityPubkeys,
       directFollowPubkeys,
       knownPubkeys: selectorCommunities.map(community => community.pubkey),
-      profileMatches: $profileSearch.searchValues(query) as string[],
+      profileMatches: [
+        ...($profileSearch.searchValues(query) as string[]),
+        ...searchLocalProfiles(query),
+      ],
     })
 
     return searchPeopleCandidates({
@@ -220,7 +262,7 @@
 
     if (!definition) return []
 
-    return getCommunityDefinitionRelayHints(definition, relayHints)
+    return rememberCommunityDefinitionRelays(definition, relayHints)
   }
 
   const loadSelectorRelayHints = async (item: SelectorCommunity) => {
@@ -411,6 +453,16 @@
   )
 
   $effect(() => {
+    const searchInput = communitySearchInput
+
+    if (communityInput && searchInput !== communityInput) {
+      communityInput = ""
+      previewRequestKey = ""
+      previewLookupState = "idle"
+    }
+  })
+
+  $effect(() => {
     const user = $pubkey || ""
 
     if (!user) {
@@ -584,7 +636,7 @@
             label={previewLabel}
             emptyInfo={previewEmptyInfo}
             onOpen={openPreviewCommunity}
-            bind:inputValue={communityInput}
+            bind:inputValue={communitySearchInput}
             showInput
             inputLabel="Search or paste a community"
             inputPlaceholder="Search profiles, npub1..., or ncommunity://..."

@@ -3,6 +3,8 @@
   import {throttle, clamp} from "@welshman/lib"
   import {preventDefault, stopPropagation} from "@lib/html"
 
+  const SUGGESTIONS_SEARCH_THROTTLE_MS = 350
+
   const {
     term,
     search,
@@ -11,14 +13,17 @@
     style = "",
     allowCreate = false,
     showEmpty = true,
+    throttleMs = SUGGESTIONS_SEARCH_THROTTLE_MS,
   } = $props()
 
   let index = $state(0)
   let items: string[] = $state([])
-  const SUGGESTIONS_SEARCH_THROTTLE_MS = 350
 
-  const populateItems = throttle(SUGGESTIONS_SEARCH_THROTTLE_MS, term => {
-    items = search(term).slice(0, 5)
+  const populateItems = throttle(throttleMs, term => {
+    const nextItems = search(term).slice(0, 5)
+
+    items = nextItems
+    index = 0
   })
 
   const setIndex = (newIndex: number, block: any) => {

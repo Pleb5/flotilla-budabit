@@ -126,7 +126,6 @@
     const value = $inputTerm
 
     if (inputValue !== value) inputValue = value
-    inputPopover?.hide()
   })
 
   $effect(() => {
@@ -221,6 +220,7 @@
               select: selectInputSuggestion,
               component: ProfileSuggestion,
               showEmpty: false,
+              throttleMs: 0,
               style: `left: 4px; width: ${(inputElement?.clientWidth || 0) + 12}px`,
             }}
             params={{
