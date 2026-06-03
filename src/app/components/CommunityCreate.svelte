@@ -109,7 +109,7 @@
 
   const {mode = "create", definition, profile, embedded = false}: Props = $props()
 
-  const SECTION_NAME_RE = /^[A-Za-z]{1,50}$/
+  const SECTION_NAME_RE = /^[A-Za-z-]{1,50}$/
   const CUSTOM_KIND_VALUE = "custom"
   const KIND_DIGITS_RE = /^\d+$/
   const SUBTYPE_RE = /^[a-z-]{0,20}$/
@@ -302,7 +302,7 @@
       const field = sectionNameField(sectionIndex)
 
       if (!SECTION_NAME_RE.test(name)) {
-        nextErrors[field] = "Use only A-Z letters, with a maximum of 50 characters."
+        nextErrors[field] = "Use only A-Z letters and dashes, with a maximum of 50 characters."
         continue
       }
 
@@ -459,7 +459,7 @@
 
       if (!SECTION_NAME_RE.test(name)) {
         nextErrors[sectionNameField(sectionIndex)] =
-          "Use only A-Z letters, with a maximum of 50 characters."
+          "Use only A-Z letters and dashes, with a maximum of 50 characters."
       } else if (seenNames.has(nameKey)) {
         nextErrors[sectionNameField(sectionIndex)] = "Section names must be unique."
         nextErrors[sectionNameField(seenNames.get(nameKey)!)] = "Section names must be unique."

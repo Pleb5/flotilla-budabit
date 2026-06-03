@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 import {DELETE, type TrustedEvent} from "@welshman/util"
-import {FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND} from "./community"
+import {COMMUNITY_SECTION_THREADS, FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND} from "./community"
 import {
   COMMUNITY_FORM_REVIEW_KIND,
   getAdmissionReviewHistory,
@@ -177,7 +177,7 @@ describe("community admission forms", () => {
       created_at: 20,
       tags: makeFormEvent().tags.map(tag => {
         if (tag[0] === "d") return ["d", "threads-application"]
-        if (tag[0] === "content") return ["content", "Threads"]
+        if (tag[0] === "content") return ["content", COMMUNITY_SECTION_THREADS]
 
         return tag
       }),
@@ -611,7 +611,7 @@ describe("community admission responses", () => {
         applicantPubkey,
         formAddress,
         communityPubkey,
-        sectionName: "Threads",
+        sectionName: COMMUNITY_SECTION_THREADS,
         status: "rejected",
       }).tags,
       content: "-",

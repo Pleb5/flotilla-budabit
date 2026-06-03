@@ -27,10 +27,10 @@ The selected community is the root of the application session. A user may enter 
 | Badges | Badges drive engagement and endorsements; profile list inclusion is what Budabit enforces for write access. |
 | Rooms | Rooms are immutable `kind:11` roots with a `room` marker. |
 | Room messages | Room messages are `kind:9` chat events scoped to the community and room root. |
-| Forum threads | Forum threads remain `kind:11`, distinguished from rooms by absence of a `room` marker. |
+| Threads | Threads remain `kind:11`, distinguished from rooms by absence of a `room` marker. |
 | Global chat | There is no global community chat. Every chat message belongs to a room. |
 | Targeted publications | Calendar events, goals, repo announcements, permalinks, and smart widgets use `kind:30222`. |
-| Exclusive content | Rooms, room messages, forum threads, comments, reactions, labels, deletes, reports, profile data, badges, forms, and lists are not targeted publications. |
+| Exclusive content | Rooms, room messages, threads, comments, reactions, labels, deletes, reports, profile data, badges, forms, and lists are not targeted publications. |
 | Migration | This is a clean break. Legacy relay-space architecture is not preserved as a compatibility layer. |
 
 ## Community Resolution
@@ -99,14 +99,14 @@ Example target shape:
     ["a", "30000:<list-pubkey>:General", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
-    ["content", "Rooms"],
+    ["content", "Room-creator"],
     ["k", "11", "room"],
-    ["a", "30000:<list-pubkey>:Rooms", "wss://main.community.relay"],
+    ["a", "30000:<list-pubkey>:Room-creator", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:room-admin"],
 
-    ["content", "Forum"],
-    ["k", "11", "forum"],
-    ["a", "30000:<list-pubkey>:Forum", "wss://main.community.relay"],
+    ["content", "Thread-creator"],
+    ["k", "11", "threads"],
+    ["a", "30000:<list-pubkey>:Thread-creator", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
     ["content", "Calendar"],
@@ -143,7 +143,7 @@ The third value in a `k` tag is a Budabit subtype convention. It is needed when 
 | Tag | Meaning in Budabit |
 |---|---|
 | `["k", "11", "room"]` | `kind:11` room roots. |
-| `["k", "11", "forum"]` | `kind:11` forum thread roots. |
+| `["k", "11", "threads"]` | `kind:11` thread roots. |
 | `["k", "9", "room-message"]` | `kind:9` room chat messages. |
 
 ## Access Control
@@ -218,8 +218,8 @@ If a future standard defines explicit badge revocation, Budabit can support it f
 | Room message | `9` | No | Community-exclusive chat event with `h = communityPubkey` and room-root reference. |
 | Room reply | `9` | No | Same as room message, plus NIP-C7 `q` tag to parent message. |
 | Room archive label | `1985` | No | Admin label against room root. |
-| Forum thread | `11` | No | Community-exclusive thread with `h = communityPubkey`, no `room` marker. |
-| Forum reply | `1111` | No | NIP-22 comment against forum thread. |
+| Thread root | `11` | No | Community-exclusive thread with `h = communityPubkey`, no `room` marker. |
+| Thread reply | `1111` | No | NIP-22 comment against thread root. |
 | Calendar event | `31922` | Yes | Public publication targeted to the community. |
 | Calendar comments | `1111` | No | Comments against calendar event. |
 | Goal | `9041` | Yes | Public publication targeted to the community. |
@@ -333,22 +333,22 @@ The original publication is not deleted or modified.
 
 Exclusive community-native content uses `h = communityPubkey`.
 
-Exclusive content includes rooms, room messages, forum threads, comments that naturally belong to roots, reactions, labels, deletes, and reports.
+Exclusive content includes rooms, room messages, threads, comments that naturally belong to roots, reactions, labels, deletes, and reports.
 
-Example exclusive forum thread:
+Example exclusive thread:
 
 ```json
 {
   "kind": 11,
   "tags": [
     ["h", "<community-pubkey>"],
-    ["title", "Forum topic"]
+    ["title", "Thread topic"]
   ],
   "content": "Thread body"
 }
 ```
 
-Example forum reply:
+Example thread reply:
 
 ```json
 {
@@ -395,7 +395,7 @@ Room root rules:
 | Canonical ID | Event ID. |
 | URL identity | No relay URL in canonical ID. |
 
-Forum thread roots are also `kind:11`, but they do not include a `room` tag.
+Thread roots are also `kind:11`, but they do not include a `room` tag.
 
 ## Room Messages
 

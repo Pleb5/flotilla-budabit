@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest"
 import {DELETE, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_ROOMS,
   buildCommunityDefinition,
   findCommunitySection,
   makeCommunitySetupSection,
@@ -268,7 +269,7 @@ describe("community moderator promotion requests", () => {
       communityPubkey,
       profileListPubkey: requesterPubkey,
       relays: ["wss://relay.example.com"],
-      name: "Rooms",
+      name: COMMUNITY_SECTION_ROOMS,
     })
     const definition = parseCommunityDefinition(
       makeEvent({
@@ -312,7 +313,7 @@ describe("community moderator promotion requests", () => {
       }),
     )!
     const revokedGeneral = findCommunitySection(revoked, "General")!
-    const revokedRooms = findCommunitySection(revoked, "Rooms")!
+    const revokedRooms = findCommunitySection(revoked, COMMUNITY_SECTION_ROOMS)!
 
     expect(revoked.description).toBe("A community")
     expect(revoked.blossomServers).toEqual(["https://blossom.example.com"])

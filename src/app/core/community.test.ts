@@ -24,6 +24,7 @@ import {
   makeCommunitySetupRefs,
   getProfileListPubkeys,
   normalizeGeohash,
+  normalizeCommunitySectionName,
   normalizePubkey,
   parseAddressRef,
   parseCommunityDefinition,
@@ -116,7 +117,7 @@ describe("community protocol helpers", () => {
         ["retention", "9", "100", "count"],
         ["content", COMMUNITY_SECTION_ROOMS],
         ["k", "11", COMMUNITY_SUBTYPE_ROOM],
-        ["a", `${PROFILE_LIST_KIND}:${pubkeyC}:Rooms`],
+        ["a", `${PROFILE_LIST_KIND}:${pubkeyC}:${COMMUNITY_SECTION_ROOMS}`],
         ["badge", `${BADGE_DEFINITION}:${pubkeyC}:room-admin`],
         ["tos", "policy-id", "wss://relay.example.com"],
         ["location", "Internet"],
@@ -279,6 +280,11 @@ describe("community protocol helpers", () => {
     expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
     expect(sectionSupportsKind(threads, 11, "forum")).toBe(true)
     expect(threads.profileLists[0].address).toBe(`${PROFILE_LIST_KIND}:${pubkeyB}:Forum`)
+  })
+
+  it("normalizes legacy room and thread section names", () => {
+    expect(normalizeCommunitySectionName("Rooms")).toBe(COMMUNITY_SECTION_ROOMS)
+    expect(normalizeCommunitySectionName("Threads")).toBe(COMMUNITY_SECTION_THREADS)
   })
 
   it("builds community badge definition events", () => {

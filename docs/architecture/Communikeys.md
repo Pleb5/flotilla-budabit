@@ -51,9 +51,9 @@ The community's name, picture, and description are derived from the pubkey's [[k
     ["a", "30000:<pubkey>:Chat", "<relay-url>"],
     ["badge", "<badge-definition>"],
 
-    ["content", "Forum"],
-    ["k", "11"],
-    ["a", "30000:<pubkey>:Forum", "<relay-url>"],
+    ["content", "Thread-creator"],
+    ["k", "11", "threads"],
+    ["a", "30000:<pubkey>:Thread-creator", "<relay-url>"],
     ["badge", "<badge-definition>"],
 
     ["content", "Apps"],
@@ -163,7 +163,7 @@ Currently, we work with a maximum of 12 communities that can be tagged for one p
 
 ## Community-Exclusive Publications
 
-Chat messages [[kind-9]] and Forum posts [[kind-11]] are exclusive by default. They can only belong to one community and cannot be targeted to multiple communities.
+Chat messages [[kind-9]] and thread posts [[kind-11]] are exclusive by default. They can only belong to one community and cannot be targeted to multiple communities.
 
 For these exclusive content types, we don't need a Targeted Publication event. Instead, they use an `h` tag to reference their community directly.
 
@@ -183,7 +183,7 @@ For chat messages within a community, users should use [[kind-9]] events with a 
 }
 ```
 
-The same pattern applies to Forum posts, see [[kind-11]].
+The same pattern applies to thread posts, see [[kind-11]].
 
 ## Profile-List Write Access And Badges
 

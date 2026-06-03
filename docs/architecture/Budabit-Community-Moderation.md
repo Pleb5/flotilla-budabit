@@ -338,7 +338,7 @@ Examples of root-level events include:
 | Feature | Root event |
 |---|---|
 | Rooms | Room root `kind:11`/thread event with the Budabit room marker. |
-| Forum | Thread root `kind:11` without the room marker. |
+| Threads | Thread root `kind:11` without the room marker. |
 | Calendar | `kind:31922` event explicitly targeted to the community. |
 | Goals | `kind:9041` event explicitly targeted to the community. |
 | Repositories | `kind:30617` event explicitly targeted to the community. |
@@ -361,7 +361,7 @@ Examples:
 | Feature | Reply-like event |
 |---|---|
 | Rooms | Room message `kind:9`. |
-| Forum and targetable event discussions | Comment `kind:1111`. |
+| Threads and targetable event discussions | Comment `kind:1111`. |
 | Reactions and labels | `kind:7` and `kind:1985` where the current feature renders them. |
 
 Rules:

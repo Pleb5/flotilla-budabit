@@ -1,6 +1,11 @@
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
-import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_THREADS,
+  PROFILE_LIST_KIND,
+  parseCommunityDefinition,
+} from "./community"
 import type {EffectiveCommunityReportState} from "./community-reports"
 import {selectCommunityMemberList, selectUserCommunityRefs} from "./community-membership"
 
@@ -103,14 +108,14 @@ describe("community membership", () => {
     const removedPubkey = "9".repeat(64)
     const generalAddress = `${PROFILE_LIST_KIND}:${moderatorManyPubkey}:General`
     const generalExtraAddress = `${PROFILE_LIST_KIND}:${moderatorFewPubkey}:GeneralExtra`
-    const threadsAddress = `${PROFILE_LIST_KIND}:${moderatorManyPubkey}:Threads`
+    const threadsAddress = `${PROFILE_LIST_KIND}:${moderatorManyPubkey}:${COMMUNITY_SECTION_THREADS}`
     const reposAddress = `${PROFILE_LIST_KIND}:${moderatorFewPubkey}:Repos`
     const definition = makeMultiSectionDefinition({
       id: "community-definition",
       pubkey: ownerPubkey,
       sections: [
         {name: "General", profileListAddresses: [generalAddress, generalExtraAddress]},
-        {name: "Threads", profileListAddresses: [threadsAddress]},
+        {name: COMMUNITY_SECTION_THREADS, profileListAddresses: [threadsAddress]},
         {name: "Repos", profileListAddresses: [reposAddress]},
       ],
     })
@@ -141,7 +146,7 @@ describe("community membership", () => {
         makeProfileList({
           id: "threads",
           pubkey: moderatorManyPubkey,
-          identifier: "Threads",
+          identifier: COMMUNITY_SECTION_THREADS,
           members: [memberManyPubkey, moderatorManyPubkey],
         }),
         makeProfileList({
@@ -168,7 +173,7 @@ describe("community membership", () => {
     expect(members[3].sectionGrants.map(grant => grant.displayName)).toEqual([
       "General",
       "Repos",
-      "Threads",
+      COMMUNITY_SECTION_THREADS,
     ])
     expect(members[3].sectionGrants[0].profileListAddresses).toEqual([
       generalAddress,

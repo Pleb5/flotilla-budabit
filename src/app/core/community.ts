@@ -11,8 +11,8 @@ export const FORM_RESPONSE_KIND = 1069
 export const MAX_TARGET_COMMUNITIES = 12
 
 export const COMMUNITY_SECTION_GENERAL = "General"
-export const COMMUNITY_SECTION_ROOMS = "Rooms"
-export const COMMUNITY_SECTION_THREADS = "Threads"
+export const COMMUNITY_SECTION_ROOMS = "Room-creator"
+export const COMMUNITY_SECTION_THREADS = "Thread-creator"
 export const COMMUNITY_SECTION_CALENDAR = "Calendar"
 export const COMMUNITY_SECTION_GOALS = "Goals"
 export const COMMUNITY_SECTION_REPOSITORIES = "Repositories"
@@ -24,12 +24,18 @@ export const COMMUNITY_SUBTYPE_THREADS = "threads"
 export const COMMUNITY_SUBTYPE_ROOM_MESSAGE = "room-message"
 
 const LEGACY_COMMUNITY_SECTION_FORUM = "Forum"
+const LEGACY_COMMUNITY_SECTION_ROOMS = "Rooms"
+const LEGACY_COMMUNITY_SECTION_THREADS = "Threads"
 const LEGACY_COMMUNITY_SUBTYPE_FORUM = "forum"
 
 export const normalizeCommunitySectionName = (name: string) => {
   const trimmed = name.trim()
 
-  return trimmed === LEGACY_COMMUNITY_SECTION_FORUM ? COMMUNITY_SECTION_THREADS : trimmed
+  if (trimmed === LEGACY_COMMUNITY_SECTION_FORUM) return COMMUNITY_SECTION_THREADS
+  if (trimmed === LEGACY_COMMUNITY_SECTION_ROOMS) return COMMUNITY_SECTION_ROOMS
+  if (trimmed === LEGACY_COMMUNITY_SECTION_THREADS) return COMMUNITY_SECTION_THREADS
+
+  return trimmed
 }
 
 export const normalizeCommunitySectionSubtype = (subtype?: string) => {

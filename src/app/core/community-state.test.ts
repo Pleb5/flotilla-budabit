@@ -5,6 +5,7 @@ import * as nip19 from "nostr-tools/nip19"
 import {type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_THREADS,
   FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
   parseCommunityInput,
@@ -195,7 +196,7 @@ describe("community state helpers", () => {
       tags: [
         ["d", "threads-form"],
         ["a", makeCommunityDefinitionAddress(communityPubkey)],
-        ["content", "Threads"],
+        ["content", COMMUNITY_SECTION_THREADS],
       ],
     })
 

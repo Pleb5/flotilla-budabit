@@ -68,10 +68,13 @@ const makeDefinition = ({includeSectionModerator = true} = {}) =>
         ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:General`],
         ["content", COMMUNITY_SECTION_THREADS],
         ["k", "11", COMMUNITY_SUBTYPE_THREADS],
-        ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:Threads`],
-        ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:Threads`],
-        ["a", `${PROFILE_LIST_KIND}:${otherSectionModeratorPubkey}:Threads`],
-        ["badge", `${BADGE_DEFINITION}:${otherSectionModeratorPubkey}:Threads`],
+        ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:${COMMUNITY_SECTION_THREADS}`],
+        ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:${COMMUNITY_SECTION_THREADS}`],
+        ["a", `${PROFILE_LIST_KIND}:${otherSectionModeratorPubkey}:${COMMUNITY_SECTION_THREADS}`],
+        [
+          "badge",
+          `${BADGE_DEFINITION}:${otherSectionModeratorPubkey}:${COMMUNITY_SECTION_THREADS}`,
+        ],
       ],
     }),
   )!
