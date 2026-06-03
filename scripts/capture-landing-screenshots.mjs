@@ -21,7 +21,7 @@ const routes = [
   {
     name: "community-home",
     path: `/c/${community}`,
-    readyText: /Home|BudaBit|Git|Threads|Access Requests/i,
+    readyText: /Home|BudaBit|Git|Threads|Membership/i,
     waitForText: /Test|Introduction|Showcase|Onboarding/i,
     waitForNoText: /Looking for rooms/i,
     finalDelayMs: 3_500,
@@ -43,7 +43,7 @@ const routes = [
   {
     name: "moderation-access",
     path: `/c/${community}/access`,
-    readyText: /Access Requests|Publishing access requests|Your community permissions/i,
+    readyText: /Membership|Publishing requests|Your membership and permissions/i,
     waitForNoText: /Loading community permissions/i,
     waitForText: /General|Rooms|Threads|Calendar|8 sections/i,
     finalDelayMs: 3_500,
@@ -270,7 +270,7 @@ async function captureRoute(browser, storageState, route, profile, theme) {
 
   if (route.preloadPath) {
     await page.goto(`${baseUrl}${route.preloadPath}`, {waitUntil: "domcontentloaded"})
-    await waitForAppReady(page, /Home|BudaBit|Git|Threads|Access Requests/i)
+    await waitForAppReady(page, /Home|BudaBit|Git|Threads|Membership/i)
   }
 
   await page.goto(`${baseUrl}${route.path}`, {waitUntil: "domcontentloaded"})

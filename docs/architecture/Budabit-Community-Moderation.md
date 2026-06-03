@@ -307,7 +307,7 @@ Every publishing component should be wrapped by a generic publish gate that rece
 |---|---|
 | Allowed | Render the normal action. |
 | Logged out | Render the action as muted and ask the user to log in before applying or publishing. |
-| Missing permission | Render the action as muted, explain the required section permission, and link to Access Requests. |
+| Missing permission | Render the action as muted, explain the required section permission, and link to Membership. |
 | Pending | Show that an application is pending and link to the submission. |
 | Rejected | Show rejected state and link to delete/resubmit flow. |
 | Recently granted | Render normally and optionally highlight that access was granted. |
@@ -318,7 +318,7 @@ Examples:
 |---|---|
 | Chat composer | Replace input with a compact request-access component for room-message permission. |
 | Publish repo button | Keep visible but disabled with tooltip and link to repository access request. |
-| Reaction button | Keep visible; if reaction permission is missing, open the Access Requests page instead of publishing. |
+| Reaction button | Keep visible; if reaction permission is missing, open the Membership page instead of publishing. |
 | Create room button | Keep visible in muted state and explain that Rooms permission is required. |
 
 The user should always understand what permission is missing and where to request it.
@@ -443,9 +443,9 @@ This avoids overcomplicating positive reference permissions while still preventi
 
 Section-scoped person moderation is intentionally not supported. Person moderation is stronger than hiding one event and should require community-wide authority.
 
-## Access Requests Page
+## Membership Page
 
-Budabit should provide one community-level access page for normal users.
+Budabit should provide one community-level membership page for normal users.
 
 Suggested route:
 

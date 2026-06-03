@@ -666,7 +666,7 @@
   ) => {
     pushModal(Confirm, {
       title: "Delete submission",
-      message: `Delete your ${sectionDisplayName} access request so you can submit a revised application?`,
+      message: `Delete your ${sectionDisplayName} membership request so you can submit a revised application?`,
       confirm: async () => {
         if (communityPublishRelays.length === 0) {
           pushToast({
@@ -801,7 +801,7 @@
   {#snippet icon()}
     <div class="center"><Icon icon={ShieldUser} /></div>
   {/snippet}
-  {#snippet title()}<strong>Access Requests</strong>{/snippet}
+  {#snippet title()}<strong>Membership</strong>{/snippet}
   {#snippet action()}
     <CommunityMenuButton community={communityPubkey} />
   {/snippet}
@@ -816,9 +816,10 @@
     <p class="py-8 text-center opacity-70">Community definition is not loaded.</p>
   {:else}
     <div class="card2 bg-alt shrink-0 p-4 shadow-md">
-      <h2 class="text-xl font-semibold">Your community permissions</h2>
+      <h2 class="text-xl font-semibold">Your membership and permissions</h2>
       <p class="mt-1 text-sm opacity-70">
-        Request section access with moderator-curated forms, or browse current community members.
+        Review your section permissions, submit membership requests, or browse current community
+        members.
       </p>
     </div>
 
@@ -830,7 +831,7 @@
             : "border border-base-300 bg-base-100 text-base-content hover:border-primary/60 hover:bg-base-200"
         }`}
         onclick={() => selectTab("requests")}>
-        Access requests
+        Membership requests
       </Button>
       <Button
         class={`btn h-auto min-h-12 justify-center gap-2 px-4 py-3 text-center font-semibold ${
@@ -1055,7 +1056,7 @@
             <div
               class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-start justify-between gap-3 align-top">
               <div>
-                <h2 class="text-xl font-semibold">Publishing access requests</h2>
+                <h2 class="text-xl font-semibold">Publishing requests</h2>
                 <p class="mt-1 text-sm opacity-70">
                   Request normal section-level publishing access with moderator-curated forms.
                 </p>
@@ -1242,7 +1243,7 @@
           <div
             class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-start justify-between gap-3 align-top">
             <div>
-              <h2 class="text-xl font-semibold">Moderator access requests</h2>
+              <h2 class="text-xl font-semibold">Moderator requests</h2>
               <p class="mt-1 text-sm opacity-70">
                 Ask the community key to add your pubkey as a section moderator.
               </p>
@@ -1268,7 +1269,7 @@
                     <div>
                       <h3 class="font-semibold">{item.displayName}</h3>
                       <p class="text-sm opacity-70">
-                        Moderator authority can approve access requests and publish application
+                        Moderator authority can approve membership requests and publish application
                         forms.
                       </p>
                     </div>

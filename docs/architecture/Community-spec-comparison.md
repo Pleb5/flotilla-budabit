@@ -82,7 +82,7 @@ Plus relay-specific configuration not stored as events (NIP-11, NIP-42, NIP-43, 
 
 Content sections (Chat, Posts, Articles) have specific event kinds and profile-list write rules. Different sections can point at different profile lists, giving granular per-content-type permissions. Badges can add engagement and onboarding context, but they do not grant access in Budabit.
 
-Access requests use Forms (NIP-101), allowing communities to require anything: email verification, captcha, payments, invite codes, questionnaires, etc. Requirements are transparent in the Form Template events, and approved access is reflected in profile lists.
+Membership requests use Forms (NIP-101), allowing communities to require anything: email verification, captcha, payments, invite codes, questionnaires, etc. Requirements are transparent in the Form Template events, and approved access is reflected in profile lists.
 
 ### NIP-72
 

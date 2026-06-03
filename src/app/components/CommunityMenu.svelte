@@ -339,7 +339,7 @@
         {replaceState}
         href={accessPath}
         notification={$notifications.has(accessPath)}>
-        <Icon icon={ShieldUser} /> Access Requests
+        <Icon icon={ShieldUser} /> Membership
         {#if $notifications.has(accessPath)}
           <span class="badge badge-info badge-sm ml-auto">updated</span>
         {/if}

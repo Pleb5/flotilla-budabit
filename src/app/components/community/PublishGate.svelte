@@ -112,9 +112,9 @@
       : gateState.status === "banned"
         ? "You are banned from publishing in this community."
         : gateState.status === "pending"
-        ? `Your ${target.sectionName} access request is pending.`
+        ? `Your ${target.sectionName} membership request is pending.`
         : gateState.status === "rejected"
-          ? `Your ${target.sectionName} access request was rejected. Delete it before resubmitting.`
+          ? `Your ${target.sectionName} membership request was rejected. Delete it before resubmitting.`
           : gateState.status === "granted"
             ? `Your ${target.sectionName} request was granted. Waiting for community permission state to sync.`
             : !hasForm
