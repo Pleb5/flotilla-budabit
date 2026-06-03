@@ -8,6 +8,7 @@
     SmartWidgetEvent,
     WidgetDisplayLocation,
   } from "@app/extensions/types"
+  import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {checkForExtensionUpdate, refreshExtension} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
@@ -23,6 +24,9 @@
     onDisplayLocationChange?: (location: WidgetDisplayLocation) => void
     manifestUrl?: string // URL to check for updates (NIP-89 extensions only)
     isDefault?: boolean
+    communityOptions?: WidgetCommunityOption[]
+    targetedCommunityPubkeys?: string[]
+    onTargetedCommunitiesChange?: (pubkeys: string[]) => Promise<void> | void
   }
 
   const {
@@ -35,6 +39,9 @@
     onDisplayLocationChange,
     manifestUrl,
     isDefault = false,
+    communityOptions = [],
+    targetedCommunityPubkeys = [],
+    onTargetedCommunitiesChange,
   }: Props = $props()
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
@@ -47,6 +54,9 @@
   )
 
   let showWidgetModal = $state(false)
+  let showCommunityTargets = $state(false)
+  let selectedCommunityPubkeys = $state<string[]>([])
+  let savingCommunityTargets = $state(false)
 
   const openWidget = () => {
     showWidgetModal = true
@@ -55,6 +65,37 @@
   const closeWidget = () => {
     showWidgetModal = false
   }
+
+  const getCommunityLabel = (pubkey: string) =>
+    communityOptions.find(option => option.pubkey === pubkey)?.label || pubkey
+
+  const toggleCommunityTarget = (pubkey: string, checked: boolean) => {
+    selectedCommunityPubkeys = checked
+      ? Array.from(new Set([...selectedCommunityPubkeys, pubkey]))
+      : selectedCommunityPubkeys.filter(value => value !== pubkey)
+  }
+
+  const cancelCommunityTargetEdit = () => {
+    selectedCommunityPubkeys = [...targetedCommunityPubkeys]
+    showCommunityTargets = false
+  }
+
+  const saveCommunityTargets = async () => {
+    if (!onTargetedCommunitiesChange || savingCommunityTargets) return
+
+    savingCommunityTargets = true
+    try {
+      await onTargetedCommunitiesChange(selectedCommunityPubkeys)
+      showCommunityTargets = false
+    } finally {
+      savingCommunityTargets = false
+    }
+  }
+
+  $effect(() => {
+    if (!showCommunityTargets) selectedCommunityPubkeys = [...targetedCommunityPubkeys]
+  })
+
   const displayName = isWidget
     ? widget?.content || widget?.identifier || "Smart Widget"
     : extension?.name
@@ -120,6 +161,13 @@
           >Update Available: v{updateAvailable.version}</span>
       {/if}
       <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
+      {#if isWidget && targetedCommunityPubkeys.length > 0}
+        <span class="badge badge-secondary badge-sm">
+          {targetedCommunityPubkeys.length} communit{targetedCommunityPubkeys.length === 1
+            ? "y"
+            : "ies"}
+        </span>
+      {/if}
       {#if isDefault}
         <span class="badge badge-primary badge-sm">Community default</span>
       {/if}
@@ -207,6 +255,61 @@
         {/if}
       </div>
     {/if}
+    {#if communityOptions.length > 0 && onTargetedCommunitiesChange}
+      <div class="mt-2 rounded-box border border-base-300 bg-base-200/30 p-3 text-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <strong>Community targets</strong>
+            <p class="text-xs opacity-70">Curate this widget into eligible communities.</p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-outline btn-xs"
+            onclick={() => (showCommunityTargets = !showCommunityTargets)}>
+            {showCommunityTargets ? "Close" : "Edit targets"}
+          </button>
+        </div>
+        {#if targetedCommunityPubkeys.length > 0}
+          <div class="mt-2 flex flex-wrap gap-1">
+            {#each targetedCommunityPubkeys as communityPubkey (communityPubkey)}
+              <span class="badge badge-sm">{getCommunityLabel(communityPubkey)}</span>
+            {/each}
+          </div>
+        {:else}
+          <p class="mt-2 text-xs opacity-70">No community targets selected.</p>
+        {/if}
+        {#if showCommunityTargets}
+          <div class="mt-3 flex flex-col gap-2">
+            {#each communityOptions as option (option.pubkey)}
+              <label class="flex items-center gap-3 rounded-md border border-base-300 p-2">
+                <input
+                  type="checkbox"
+                  checked={selectedCommunityPubkeys.includes(option.pubkey)}
+                  onchange={event =>
+                    toggleCommunityTarget(option.pubkey, event.currentTarget.checked)} />
+                <span class="min-w-0 flex-1 truncate">{option.label || option.pubkey}</span>
+              </label>
+            {/each}
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                onclick={cancelCommunityTargetEdit}
+                disabled={savingCommunityTargets}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary btn-xs"
+                onclick={saveCommunityTargets}
+                disabled={savingCommunityTargets}>
+                {savingCommunityTargets ? "Saving..." : "Save targets"}
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
   {/if}
 
   {#if permissions && permissions.length > 0}
@@ -215,7 +318,6 @@
 </div>
 
 {#if showWidgetModal && widget?.appUrl}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
     role="dialog"

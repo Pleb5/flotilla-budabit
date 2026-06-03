@@ -1,7 +1,7 @@
-import type {TrustedEvent} from "@welshman/util"
+import {DELETE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
-  COMMUNITY_SECTION_WIDGETS,
   normalizeRelays,
+  normalizePubkey,
   parseCommunityInput,
   parseTargetedPublication,
 } from "@app/core/community"
@@ -17,7 +17,10 @@ import {
   makeCommunityTargetingFilter,
   makeTargetedPublicationOriginalFilters,
 } from "@app/core/community-feeds"
-import {getCommunitySectionWriterPubkeys} from "@app/core/community-permissions"
+import {
+  COMMUNITY_WRITE_TARGETS,
+  getCommunityTargetWriterPubkeys,
+} from "@app/core/community-permissions"
 import {parseSmartWidget} from "@app/extensions/registry"
 import type {SmartWidgetEvent} from "@app/extensions/types"
 
@@ -50,6 +53,31 @@ const dedupeWidgets = (widgets: SmartWidgetEvent[]) => {
   return Array.from(byId.values()).sort(
     (a, b) => (b.created_at || 0) - (a.created_at || 0) || a.identifier.localeCompare(b.identifier),
   )
+}
+
+const makeTargetDeleteFilters = (events: TrustedEvent[]): Filter[] => {
+  const ids = events.map(event => event.id).filter(Boolean)
+
+  return ids.length ? [{kinds: [DELETE], "#e": ids, limit: ids.length * 2}] : []
+}
+
+const getDeletedTargetEventIds = (targetEvents: TrustedEvent[], deleteEvents: TrustedEvent[]) => {
+  const targetAuthors = new Map(
+    targetEvents.map(event => [event.id, normalizePubkey(event.pubkey)]),
+  )
+  const deleted = new Set<string>()
+
+  for (const event of deleteEvents) {
+    if (event.kind !== DELETE) continue
+    const author = normalizePubkey(event.pubkey)
+
+    for (const tag of event.tags || []) {
+      if (tag[0] !== "e" || !tag[1]) continue
+      if (targetAuthors.get(tag[1]) === author) deleted.add(tag[1])
+    }
+  }
+
+  return deleted
 }
 
 export const loadCommunityCuratedWidgets = async (
@@ -97,12 +125,22 @@ export const loadCommunityCuratedWidgets = async (
       {authenticate: true},
     ),
   ])
-  const widgetAuthorPubkeys = getCommunitySectionWriterPubkeys({
+  const deleteFilters = makeTargetDeleteFilters(targetingEvents)
+  const targetDeleteEvents = deleteFilters.length
+    ? await loadCommunityEvents(communityRelays, deleteFilters, {authenticate: true})
+    : []
+  const deletedTargetIds = getDeletedTargetEventIds(targetingEvents, targetDeleteEvents)
+  const widgetTargetAuthorPubkeys = getCommunityTargetWriterPubkeys({
     definition,
     profileListEvents,
-    sectionName: COMMUNITY_SECTION_WIDGETS,
+    target: COMMUNITY_WRITE_TARGETS.widget,
   })
-  const widgetFilters = makeTargetedPublicationOriginalFilters(targetingEvents, widgetAuthorPubkeys)
+  const widgetTargetAuthorSet = new Set(widgetTargetAuthorPubkeys.map(normalizePubkey))
+  const eligibleTargetingEvents = targetingEvents.filter(
+    event =>
+      widgetTargetAuthorSet.has(normalizePubkey(event.pubkey)) && !deletedTargetIds.has(event.id),
+  )
+  const widgetFilters = makeTargetedPublicationOriginalFilters(eligibleTargetingEvents)
 
   if (widgetFilters.length === 0) {
     return {
@@ -114,7 +152,7 @@ export const loadCommunityCuratedWidgets = async (
   }
 
   const widgetEvents = await loadCommunityEvents(
-    normalizeRelays([...communityRelays, ...getTargetingRelayHints(targetingEvents)]),
+    normalizeRelays([...communityRelays, ...getTargetingRelayHints(eligibleTargetingEvents)]),
     widgetFilters,
     {authenticate: true},
   )

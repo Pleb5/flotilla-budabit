@@ -1,9 +1,10 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {profilesByPubkey, pubkey, repository} from "@welshman/app"
+  import {Router} from "@welshman/router"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {makeEvent, getTagValue} from "@welshman/util"
+  import {DELETE, makeEvent, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
   import {randomId} from "@welshman/lib"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -11,8 +12,8 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Field from "@lib/components/Field.svelte"
+  import Button from "@lib/components/Button.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
-  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -21,34 +22,38 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    activeUserCommunityRefs,
   } from "@app/core/community-state"
-  import {COMMUNITY_SECTION_WIDGETS, TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {normalizePubkey, normalizeRelays, parseTargetedPublication} from "@app/core/community"
   import {
     SMART_WIDGET_KIND,
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
   import {
-    makeAddressablePublicationRef,
-    makeTargetedPublicationForCommunity,
-    withPublicationTargetingId,
-  } from "@app/core/community-targeting"
-  import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    communityWritableSectionsSupportTarget,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {SMART_WIDGET_RELAYS} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
+  import {
+    getWidgetTargetPublishRelays,
+    publishWidgetEventToTargets,
+    publishWidgetTargetingEvent,
+    type WidgetCommunityOption,
+  } from "@app/extensions/widget-targeting"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -62,19 +67,38 @@
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
-  const widgetAuthorPubkeys = $derived(
+  const targetDeleteFilters = $derived.by(() => makeTargetDeleteFilters($targetingEvents))
+  const targetDeleteEvents = $derived(
+    targetDeleteFilters.length
+      ? deriveEventsAsc(deriveEventsById({repository, filters: targetDeleteFilters}))
+      : undefined,
+  )
+  const deletedTargetIds = $derived.by(() =>
+    getDeletedTargetEventIds(
+      $targetingEvents,
+      $targetDeleteEvents ? ($targetDeleteEvents as TrustedEvent[]) : [],
+    ),
+  )
+  const widgetTargetAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_WIDGETS,
+          target: COMMUNITY_WRITE_TARGETS.widget,
           reportState: $activeCommunityReportState,
         })
       : [],
   )
+  const eligibleTargetingEvents = $derived.by(() => {
+    const writerPubkeys = new Set(widgetTargetAuthorPubkeys.map(normalizePubkey))
+
+    return $targetingEvents.filter(
+      event => writerPubkeys.has(normalizePubkey(event.pubkey)) && !deletedTargetIds.has(event.id),
+    )
+  })
   const widgetFilters = $derived(
-    communityBootstrapReady && widgetAuthorPubkeys.length
-      ? makeTargetedPublicationOriginalFilters($targetingEvents, widgetAuthorPubkeys)
+    communityBootstrapReady && eligibleTargetingEvents.length
+      ? makeTargetedPublicationOriginalFilters(eligibleTargetingEvents)
       : [],
   )
   const widgets = $derived(deriveEventsAsc(deriveEventsById({repository, filters: widgetFilters})))
@@ -93,10 +117,85 @@
     ),
   )
 
+  const getCommunityOptionLabel = (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    return profile?.display_name || profile?.name || `${pubkey.slice(0, 8)}...${pubkey.slice(-6)}`
+  }
+
+  const widgetCommunityOptions = $derived.by((): WidgetCommunityOption[] => {
+    const options = $activeUserCommunityRefs
+      .filter(ref =>
+        communityWritableSectionsSupportTarget({
+          definition: ref.definition,
+          writableSections: ref.writableSections,
+          target: COMMUNITY_WRITE_TARGETS.widget,
+        }),
+      )
+      .map(ref => ({
+        pubkey: ref.communityPubkey,
+        label: getCommunityOptionLabel(ref.communityPubkey),
+        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+      }))
+
+    if (
+      canCreateWidget &&
+      communityPubkey &&
+      $activeCommunityDefinition &&
+      !options.some(option => option.pubkey === communityPubkey)
+    ) {
+      options.push({
+        pubkey: communityPubkey,
+        label: getCommunityOptionLabel(communityPubkey),
+        relays: $activeCommunityDefinition.relays,
+      })
+    }
+
+    return options
+  })
+
+  const getUserOutboxRelays = () => {
+    try {
+      return Router.get().FromUser().getUrls() || []
+    } catch {
+      return []
+    }
+  }
+
+  function makeTargetDeleteFilters(events: TrustedEvent[]): Filter[] {
+    const ids = events.map(event => event.id).filter(Boolean)
+
+    return ids.length ? [{kinds: [DELETE], "#e": ids, limit: ids.length * 2}] : []
+  }
+
+  function getDeletedTargetEventIds(targetEvents: TrustedEvent[], deleteEvents: TrustedEvent[]) {
+    const targetAuthors = new Map(
+      targetEvents.map(event => [event.id, normalizePubkey(event.pubkey)]),
+    )
+    const deleted = new Set<string>()
+
+    for (const event of deleteEvents) {
+      if (event.kind !== DELETE) continue
+      const author = normalizePubkey(event.pubkey)
+
+      for (const tag of event.tags || []) {
+        if (tag[0] !== "e" || !tag[1]) continue
+        if (targetAuthors.get(tag[1]) === author) deleted.add(tag[1])
+      }
+    }
+
+    return deleted
+  }
+
+  const toggleTargetCommunity = (pubkey: string, checked: boolean) => {
+    selectedTargetCommunityPubkeys = checked
+      ? Array.from(new Set([...selectedTargetCommunityPubkeys, pubkey]))
+      : selectedTargetCommunityPubkeys.filter(value => value !== pubkey)
+  }
+
   const createWidget = () => {
-    if (!$pubkey || !communityPubkey || !name.trim() || !appUrl.trim()) return
-    if (!canCreateWidget) {
-      pushToast({theme: "error", message: "You do not have permission to publish widgets."})
+    if (!$pubkey || !name.trim() || !appUrl.trim()) return
+    if (selectedTargetCommunityPubkeys.length === 0) {
+      pushToast({theme: "error", message: "Select at least one community target."})
       return
     }
     if (!isSecureEmbeddableUrl(appUrl.trim())) {
@@ -106,50 +205,40 @@
       })
       return
     }
-    const relays = $activeCommunityRelays
+    const baseRelays = normalizeRelays([...SMART_WIDGET_RELAYS, ...getUserOutboxRelays()])
+    const relays = getWidgetTargetPublishRelays({
+      baseRelays,
+      communityOptions: widgetCommunityOptions,
+      communityPubkeys: selectedTargetCommunityPubkeys,
+    })
     if (relays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+      pushToast({theme: "error", message: "No publish relays are available for selected targets."})
       return
     }
 
     const widgetId = slug.trim() || randomId()
-    const targetingId = randomId()
-    publishThunk({
-      relays,
-      event: makeEvent(
-        SMART_WIDGET_KIND,
-        withPublicationTargetingId(
-          {
-            content: description.trim(),
-            tags: [
-              ["d", widgetId],
-              ["title", name.trim()],
-              ["l", "basic"],
-              ["button", "Open", "app", appUrl.trim()],
-              ...(iconUrl.trim() ? [["icon", iconUrl.trim()]] : []),
-            ],
-          },
-          targetingId,
-        ),
-      ),
+    const widgetEvent = makeEvent(SMART_WIDGET_KIND, {
+      content: description.trim(),
+      tags: [
+        ["d", widgetId],
+        ["title", name.trim()],
+        ["l", "basic"],
+        ["button", "Open", "app", appUrl.trim()],
+        ...(iconUrl.trim() ? [["icon", iconUrl.trim()]] : []),
+      ],
     })
-    publishThunk({
-      relays,
-      event: makeEvent(
-        TARGETED_PUBLICATION_KIND,
-        makeTargetedPublicationForCommunity({
-          targetingId,
-          originalKind: SMART_WIDGET_KIND,
-          originalRef: makeAddressablePublicationRef({
-            kind: SMART_WIDGET_KIND,
-            pubkey: $pubkey,
-            identifier: widgetId,
-            relay: relays[0],
-          }),
-          communityPubkey,
-          communityRelay: relays[0],
-        }),
-      ),
+    publishWidgetEventToTargets({
+      event: widgetEvent,
+      baseRelays,
+      communityOptions: widgetCommunityOptions,
+      communityPubkeys: selectedTargetCommunityPubkeys,
+    })
+    publishWidgetTargetingEvent({
+      widget: {pubkey: $pubkey, identifier: widgetId},
+      baseRelays,
+      communityOptions: widgetCommunityOptions,
+      communityPubkeys: selectedTargetCommunityPubkeys,
+      originalRelay: relays[0],
     })
 
     name = ""
@@ -165,6 +254,8 @@
   let appUrl = $state("")
   let iconUrl = $state("")
   let description = $state("")
+  let selectedTargetCommunityPubkeys = $state<string[]>([])
+  let targetSelectionKey = ""
   let loadingTargets = $state(false)
   let targetRequestDone = $state(false)
   let loadingWidgets = $state(false)
@@ -192,7 +283,12 @@
     const controller = new AbortController()
     loadingTargets = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetingFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         if (controller.signal.aborted) return
@@ -204,7 +300,36 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || widgetFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      targetDeleteFilters.length === 0
+    ) {
+      return
+    }
+
+    const controller = new AbortController()
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetDeleteFilters,
+      signal: controller.signal,
+    }).catch(() => undefined)
+
+    return () => controller.abort()
+  })
+
+  $effect(() => {
+    const widgetRelayHints = normalizeRelays([
+      ...$activeCommunityRelays,
+      ...eligibleTargetingEvents.flatMap(event => {
+        const ref = parseTargetedPublication(event)?.ref
+
+        return ref?.relay ? [ref.relay] : []
+      }),
+    ])
+
+    if (!communityBootstrapReady || widgetRelayHints.length === 0 || widgetFilters.length === 0) {
       loadingWidgets = false
       widgetRequestDone = false
       return
@@ -213,7 +338,12 @@
     const controller = new AbortController()
     loadingWidgets = true
     widgetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: widgetFilters, signal: controller.signal})
+    request({
+      relays: widgetRelayHints,
+      autoClose: true,
+      filters: widgetFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         if (controller.signal.aborted) return
@@ -222,6 +352,19 @@
       })
 
     return () => controller.abort()
+  })
+
+  $effect(() => {
+    const optionsKey = widgetCommunityOptions.map(option => option.pubkey).join(",")
+    const key = `${communityPubkey}:${optionsKey}`
+    if (key === targetSelectionKey) return
+
+    targetSelectionKey = key
+    selectedTargetCommunityPubkeys = widgetCommunityOptions.some(
+      option => option.pubkey === communityPubkey,
+    )
+      ? [communityPubkey]
+      : []
   })
 </script>
 
@@ -260,10 +403,40 @@
           class="textarea textarea-bordered"
           rows="3"></textarea
         >{/snippet}</Field>
+    <div class="flex flex-col gap-2 rounded-box border border-base-300 bg-base-100 p-3">
+      <div>
+        <strong class="text-sm">Target communities</strong>
+        <p class="text-xs opacity-70">
+          The widget event is published to every selected community relay and curated with a
+          targeted publication.
+        </p>
+      </div>
+      {#if widgetCommunityOptions.length > 0}
+        <div class="flex flex-col gap-2">
+          {#each widgetCommunityOptions as option (option.pubkey)}
+            <label class="flex items-center gap-3 rounded-md border border-base-300 p-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedTargetCommunityPubkeys.includes(option.pubkey)}
+                onchange={event =>
+                  toggleTargetCommunity(option.pubkey, event.currentTarget.checked)} />
+              <span class="min-w-0 flex-1 truncate">{option.label || option.pubkey}</span>
+            </label>
+          {/each}
+        </div>
+      {:else}
+        <p class="text-sm opacity-70">
+          No widget-capable community grants are available for this account.
+        </p>
+      {/if}
+    </div>
     <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.widget} action="publish widgets" submit disabled={!name.trim() || !appUrl.trim()}>
+      <Button
+        type="submit"
+        class="btn btn-primary"
+        disabled={!name.trim() || !appUrl.trim() || selectedTargetCommunityPubkeys.length === 0}>
         Publish widget
-      </PublishGate>
+      </Button>
     </div>
   </form>
 
