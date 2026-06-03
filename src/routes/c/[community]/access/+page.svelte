@@ -870,9 +870,6 @@
                           <span class="badge badge-neutral">member</span>
                         {/if}
                       </div>
-                      <p class="mt-1 text-xs opacity-60">
-                        {member.pubkey.slice(0, 12)}...{member.pubkey.slice(-8)}
-                      </p>
                     </div>
                   </div>
 
