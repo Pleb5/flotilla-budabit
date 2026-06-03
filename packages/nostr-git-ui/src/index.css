@@ -1,0 +1,362 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Highlight.js syntax highlighting theme (GitHub style) */
+@import "highlight.js/styles/github.css";
+
+@layer base {
+  :root {
+    --ng-background: 214 42% 96%;
+    --ng-foreground: 216 33% 16%;
+    --ng-card: 0 0% 100%;
+    --ng-card-foreground: 216 33% 16%;
+    --ng-popover: 0 0% 100%;
+    --ng-popover-foreground: 216 33% 16%;
+    --ng-primary: 45 73% 52%;
+    --ng-primary-foreground: 222 47% 16%;
+    --ng-secondary: 214 38% 91%;
+    --ng-secondary-foreground: 216 33% 26%;
+    --ng-muted: 214 35% 92%;
+    --ng-muted-foreground: 215 20% 34%;
+    --ng-accent: 45 73% 52%;
+    --ng-accent-foreground: 222 47% 16%;
+    --ng-destructive: 0 72% 50%;
+    --ng-destructive-foreground: 0 0% 100%;
+    --ng-border: 214 30% 84%;
+    --ng-input: 214 30% 87%;
+    --ng-ring: 45 73% 52%;
+    --radius: 0.5rem;
+    --ng-sidebar-background: 214 42% 96%;
+    --ng-sidebar-foreground: 216 33% 16%;
+    --ng-sidebar-primary: 45 73% 52%;
+    --ng-sidebar-primary-foreground: 222 47% 16%;
+    --ng-sidebar-accent: 214 38% 91%;
+    --ng-sidebar-accent-foreground: 216 33% 26%;
+    --ng-sidebar-border: 214 30% 84%;
+    --ng-sidebar-ring: 45 73% 52%;
+    --ng-code-foreground: #1f2328;
+    --ng-syntax-keyword: #cf222e;
+    --ng-syntax-title: #8250df;
+    --ng-syntax-type: #6f42c1;
+    --ng-syntax-string: #0a3069;
+    --ng-syntax-number: #0550ae;
+    --ng-syntax-variable: #953800;
+    --ng-syntax-regexp: #087990;
+    --ng-syntax-comment: #57606a;
+    --ng-syntax-section: #0550ae;
+  }
+
+  body[data-theme="dark"],
+  .dark {
+    --ng-background: 220 20% 14%;
+    --ng-foreground: 220 10% 97%;
+    --ng-card: 220 22% 18%;
+    --ng-card-foreground: 220 10% 97%;
+    --ng-popover: 220 22% 18%;
+    --ng-popover-foreground: 220 10% 97%;
+    --ng-primary: 45 73% 52%;
+    --ng-primary-foreground: 222 47% 16%;
+    --ng-secondary: 240 5% 25%;
+    --ng-secondary-foreground: 210 10% 97%;
+    --ng-muted: 240 5% 25%;
+    --ng-muted-foreground: 240 5% 65%;
+    --ng-accent: 45 73% 52%;
+    --ng-accent-foreground: 222 47% 16%;
+    --ng-destructive: 0 84% 60%;
+    --ng-destructive-foreground: 210 10% 97%;
+    --ng-border: 240 5% 26%;
+    --ng-input: 240 5% 25%;
+    --ng-ring: 45 73% 52%;
+    --ng-sidebar-background: 220 25% 12%;
+    --ng-sidebar-foreground: 220 10% 90%;
+    --ng-sidebar-primary: 45 73% 52%;
+    --ng-sidebar-primary-foreground: 222 47% 16%;
+    --ng-sidebar-accent: 240 15% 20%;
+    --ng-sidebar-accent-foreground: 220 10% 90%;
+    --ng-sidebar-border: 240 15% 22%;
+    --ng-sidebar-ring: 45 73% 52%;
+    --ng-code-foreground: #abb2bf;
+    --ng-syntax-keyword: #c678dd;
+    --ng-syntax-title: #61afef;
+    --ng-syntax-type: #e5c07b;
+    --ng-syntax-string: #98c379;
+    --ng-syntax-number: #d19a66;
+    --ng-syntax-variable: #e06c75;
+    --ng-syntax-regexp: #56b6c2;
+    --ng-syntax-comment: #7d8799;
+    --ng-syntax-section: #61afef;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  .hljs {
+    background: transparent !important;
+    color: var(--ng-code-foreground) !important;
+  }
+
+  .diff-code-content .hljs,
+  .snippet-code .hljs,
+  .cq-snippet-code .hljs {
+    display: inline;
+    overflow: visible;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 0;
+    background: transparent !important;
+    line-height: inherit;
+    font: inherit;
+  }
+
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-literal,
+  .hljs-selector-attr {
+    color: #c678dd;
+    color: var(--ng-syntax-keyword);
+  }
+
+  .hljs-title,
+  .hljs-title.function_,
+  .hljs-selector-id {
+    color: #61afef;
+    color: var(--ng-syntax-title);
+  }
+
+  .hljs-title.class_,
+  .hljs-type,
+  .hljs-built_in,
+  .hljs-selector-class {
+    color: #e5c07b;
+    color: var(--ng-syntax-type);
+  }
+
+  .hljs-string,
+  .hljs-template-tag {
+    color: #98c379;
+    color: var(--ng-syntax-string);
+  }
+
+  .hljs-number,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-meta {
+    color: #d19a66;
+    color: var(--ng-syntax-number);
+  }
+
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-name,
+  .hljs-tag,
+  .hljs-property {
+    color: #e06c75;
+    color: var(--ng-syntax-variable);
+  }
+
+  .hljs-regexp,
+  .hljs-selector-pseudo,
+  .hljs-link {
+    color: #56b6c2;
+    color: var(--ng-syntax-regexp);
+  }
+
+  .hljs-comment,
+  .hljs-quote {
+    color: #7d8799;
+    color: var(--ng-syntax-comment);
+    font-style: italic;
+  }
+
+  .hljs-section {
+    color: #61afef;
+    color: var(--ng-syntax-section);
+  }
+
+  .hljs-meta .hljs-keyword {
+    color: #c678dd;
+    color: var(--ng-syntax-keyword);
+  }
+
+  .hljs-meta .hljs-string {
+    color: #98c379;
+    color: var(--ng-syntax-string);
+  }
+}
+
+/* These classes are necessary to be defined here */
+/* if we want to use them with @apply */
+@layer utilities {
+  /* Primary color utilities */
+  .text-primary-foreground {
+    color: hsl(var(--ng-primary-foreground));
+  }
+  .bg-primary-foreground {
+    background-color: hsl(var(--ng-primary-foreground));
+  }
+  .border-primary-foreground {
+    border-color: hsl(var(--ng-primary-foreground));
+  }
+
+  /* Secondary color utilities */
+  .text-secondary-foreground {
+    color: hsl(var(--ng-secondary-foreground));
+  }
+  .bg-secondary-foreground {
+    background-color: hsl(var(--ng-secondary-foreground));
+  }
+
+  /* Destructive color utilities */
+  .text-destructive-foreground {
+    color: hsl(var(--ng-destructive-foreground));
+  }
+  .bg-destructive-foreground {
+    background-color: hsl(var(--ng-destructive-foreground));
+  }
+
+  /* Muted color utilities */
+  .text-muted-foreground {
+    color: hsl(var(--ng-muted-foreground));
+  }
+  .bg-muted-foreground {
+    background-color: hsl(var(--ng-muted-foreground));
+  }
+
+  /* Accent color utilities */
+  .text-accent-foreground {
+    color: hsl(var(--ng-accent-foreground));
+  }
+  .bg-accent-foreground {
+    background-color: hsl(var(--ng-accent-foreground));
+  }
+
+  /* Popover color utilities */
+  .text-popover-foreground {
+    color: hsl(var(--ng-popover-foreground));
+  }
+  .bg-popover-foreground {
+    background-color: hsl(var(--ng-popover-foreground));
+  }
+
+  /* Card color utilities */
+  .text-card-foreground {
+    color: hsl(var(--ng-card-foreground));
+  }
+  .bg-card-foreground {
+    background-color: hsl(var(--ng-card-foreground));
+  }
+}
+
+body[data-theme="light"] .ng-themed-modal.bg-gray-900,
+body[data-theme="light"] .ng-themed-modal .bg-gray-900,
+body[data-theme="light"] .ng-themed-modal .bg-gray-900\/60,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800\/40,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800\/50,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800\/60 {
+  background-color: hsl(var(--ng-card)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .bg-gray-700,
+body[data-theme="light"] .ng-themed-modal .bg-gray-700\/50,
+body[data-theme="light"] .ng-themed-modal .bg-gray-600 {
+  background-color: hsl(var(--ng-muted)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .text-white,
+body[data-theme="light"] .ng-themed-modal .text-gray-100,
+body[data-theme="light"] .ng-themed-modal .text-gray-200,
+body[data-theme="light"] .ng-themed-modal .text-gray-300 {
+  color: hsl(var(--ng-foreground)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .text-gray-400,
+body[data-theme="light"] .ng-themed-modal .text-gray-500 {
+  color: hsl(var(--ng-muted-foreground)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .border-gray-700,
+body[data-theme="light"] .ng-themed-modal .border-gray-600,
+body[data-theme="light"] .ng-themed-modal .border-gray-500,
+body[data-theme="light"] .ng-themed-modal .border-gray-300 {
+  border-color: hsl(var(--ng-border)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .placeholder-gray-400::placeholder,
+body[data-theme="light"] .ng-themed-modal .placeholder-gray-500::placeholder {
+  color: hsl(var(--ng-muted-foreground) / 0.72) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal input.bg-gray-800,
+body[data-theme="light"] .ng-themed-modal input.bg-gray-900,
+body[data-theme="light"] .ng-themed-modal textarea.bg-gray-800,
+body[data-theme="light"] .ng-themed-modal textarea.bg-gray-900,
+body[data-theme="light"] .ng-themed-modal select.bg-gray-800,
+body[data-theme="light"] .ng-themed-modal select.bg-gray-900 {
+  background-color: hsl(var(--ng-background)) !important;
+  color: hsl(var(--ng-foreground)) !important;
+}
+
+@layer components {
+  .git-menu-item {
+    @apply flex items-center gap-2 rounded-md px-4 py-3 font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground;
+  }
+
+  .git-menu-item.active {
+    @apply bg-accent/20 text-accent;
+  }
+
+  .git-avatar {
+    @apply rounded-full bg-secondary flex items-center justify-center text-secondary-foreground font-medium;
+  }
+
+  .git-card {
+    @apply rounded-md border border-border bg-card p-5 transition-colors hover:bg-muted/20 hover:border-border/80;
+  }
+
+  .git-tag {
+    @apply rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .git-btn {
+    @apply px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2;
+  }
+
+  .git-btn-primary {
+    @apply bg-git hover:bg-git-hover text-primary-foreground;
+  }
+
+  .git-btn-secondary {
+    @apply bg-secondary hover:bg-secondary/80 text-secondary-foreground;
+  }
+
+  .git-btn-outline {
+    @apply border border-border bg-transparent transition-colors hover:bg-muted/40 hover:border-border/80;
+  }
+
+  .git-diff-view {
+    @apply font-mono text-sm bg-card border border-border rounded-md p-4 overflow-x-auto;
+  }
+
+  .git-diff-line-add {
+    @apply bg-green-950/30 border-l-4 border-green-500 pl-2;
+  }
+
+  .git-diff-line-remove {
+    @apply bg-red-950/30 border-l-4 border-red-500 pl-2;
+  }
+
+  .git-separator {
+    @apply border-t border-border my-4;
+  }
+}
