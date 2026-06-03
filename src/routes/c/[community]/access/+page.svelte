@@ -1,5 +1,6 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
+  import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {
@@ -64,10 +65,10 @@
     selectCommunityMemberList,
     type CommunityMemberListItem,
   } from "@app/core/community-membership"
-  import {isCommunityPersonBanned} from "@app/core/community-reports"
+  import {isCommunityAdmin, isCommunityPersonBanned} from "@app/core/community-reports"
   import {getPeopleSearchTextScore} from "@app/util/people-search"
   import {checked, normalizeChecked, setChecked} from "@app/util/notifications"
-  import {parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type AccessPageTab = "requests" | "members"
 
@@ -108,6 +109,33 @@
   )
   const communityProfileRelays = $derived(
     $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityPublishRelays,
+  )
+  const moderationPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "moderation") : "",
+  )
+  const adminPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "admin") : "")
+  const currentUserAdmin = $derived(
+    Boolean(
+      $activeCommunityDefinition &&
+      $pubkey &&
+      isCommunityAdmin($activeCommunityDefinition, $pubkey),
+    ),
+  )
+  const currentUserModerator = $derived(
+    Boolean(
+      !currentUserAdmin &&
+      $activeCommunityDefinition &&
+      $pubkey &&
+      $activeCommunityDefinition.sections.some(
+        section =>
+          getGrantCapability({
+            definition: $activeCommunityDefinition!,
+            userPubkey: $pubkey,
+            sectionName: section.name,
+            reportState: $activeCommunityReportState,
+          }).canGrant,
+      ),
+    ),
   )
 
   const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
@@ -704,6 +732,14 @@
     openMemberPopover = null
   }
 
+  const openAdminPanel = () => {
+    if (adminPath) void goto(adminPath)
+  }
+
+  const openModerationDashboard = () => {
+    if (moderationPath) void goto(moderationPath)
+  }
+
   const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
     `${count} ${count === 1 ? singular : plural}`
 
@@ -984,6 +1020,16 @@
           Community content remains readable, but applications must be tied to your pubkey.
         </p>
       </div>
+    {:else if currentUserAdmin}
+      <div class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+        <strong>You have access to all sections of this group</strong>
+        <div class="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+          <Button class="btn btn-primary justify-center" onclick={openAdminPanel}
+            >Go to Admin panel</Button>
+          <Button class="btn btn-neutral justify-center" onclick={openModerationDashboard}
+            >Go to Moderation dashboard</Button>
+        </div>
+      </div>
     {:else if currentUserBanned}
       <div class="card2 bg-alt p-4 text-center shadow-md">
         <strong>Community access is blocked</strong>
@@ -993,189 +1039,200 @@
         </p>
       </div>
     {:else}
-      <details
-        class="card2 bg-alt shrink-0 overflow-hidden shadow-md"
-        bind:open={publishingAccessOpen}>
-        <summary class="cursor-pointer p-4 marker:text-primary">
-          <div
-            class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-start justify-between gap-3 align-top">
-            <div>
-              <h2 class="text-xl font-semibold">Publishing access requests</h2>
-              <p class="mt-1 text-sm opacity-70">
-                Request normal section-level publishing access with moderator-curated forms.
-              </p>
-            </div>
-            <span class="badge badge-neutral">{sectionItems.length} sections</span>
+      {#if currentUserModerator}
+        <div class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+          <strong>You can publish in all sections of this group</strong>
+          <div class="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+            <Button class="btn btn-primary justify-center" onclick={openModerationDashboard}
+              >Go to Moderation dashboard</Button>
           </div>
-        </summary>
+        </div>
+      {:else}
+        <details
+          class="card2 bg-alt shrink-0 overflow-hidden shadow-md"
+          bind:open={publishingAccessOpen}>
+          <summary class="cursor-pointer p-4 marker:text-primary">
+            <div
+              class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-start justify-between gap-3 align-top">
+              <div>
+                <h2 class="text-xl font-semibold">Publishing access requests</h2>
+                <p class="mt-1 text-sm opacity-70">
+                  Request normal section-level publishing access with moderator-curated forms.
+                </p>
+              </div>
+              <span class="badge badge-neutral">{sectionItems.length} sections</span>
+            </div>
+          </summary>
 
-        <div class="border-t border-base-300 p-4">
-          <div class="grid gap-3 lg:grid-cols-2">
-            {#each sectionItems as item (item.section.name)}
-              <section
-                id={getPublishingAccessRequestId(item.section.name)}
-                class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md"
-                class:border-success={item.state.status === "granted"}
-                class:border-error={item.state.status === "rejected"}
-                class:border-warning={item.state.status === "pending"}>
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 class="text-lg font-semibold">{item.displayName}</h3>
-                    <p class="text-sm opacity-70">
-                      Grants {item.section.kinds
-                        .map(kind => (kind.subtype ? `${kind.kind}:${kind.subtype}` : kind.kind))
-                        .join(", ")}
-                    </p>
-                  </div>
-                  <span class={`badge ${statusClass(item.state.status)}`}>{item.state.status}</span>
-                </div>
-
-                {#if item.state.status !== "granted" && item.history?.latestPriorReview}
-                  {@const priorReview = item.history.latestPriorReview}
-                  <p
-                    class={`rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
-                    {reviewHistoryLabel(priorReview.status)} by
-                    <ProfileLink
-                      pubkey={priorReview.event.pubkey}
-                      relays={communityProfileRelays} /> on {new Date(
-                      priorReview.event.created_at * 1000,
-                    ).toLocaleString()}.
-                  </p>
-                {/if}
-
-                {#if item.state.status === "granted"}
-                  <p class="rounded-box bg-success/10 p-3 text-sm text-success">
-                    Access is granted for this section.
-                  </p>
-                {:else if item.form}
-                  <form
-                    class="flex flex-col gap-3"
-                    onsubmit={preventDefault(() =>
-                      submitApplication(item.section.name, item.displayName, item.form!),
-                    )}>
+          <div class="border-t border-base-300 p-4">
+            <div class="grid gap-3 lg:grid-cols-2">
+              {#each sectionItems as item (item.section.name)}
+                <section
+                  id={getPublishingAccessRequestId(item.section.name)}
+                  class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md"
+                  class:border-success={item.state.status === "granted"}
+                  class:border-error={item.state.status === "rejected"}
+                  class:border-warning={item.state.status === "pending"}>
+                  <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <strong>{item.form.name}</strong>
-                      {#if item.form.description}
-                        <p class="text-sm opacity-70">{item.form.description}</p>
-                      {/if}
+                      <h3 class="text-lg font-semibold">{item.displayName}</h3>
+                      <p class="text-sm opacity-70">
+                        Grants {item.section.kinds
+                          .map(kind => (kind.subtype ? `${kind.kind}:${kind.subtype}` : kind.kind))
+                          .join(", ")}
+                      </p>
                     </div>
+                    <span class={`badge ${statusClass(item.state.status)}`}
+                      >{item.state.status}</span>
+                  </div>
 
-                    {#each item.form.fieldOrder as fieldId}
-                      {@const field = item.form.fields[fieldId]}
-                      {#if field?.type === "label"}
-                        <p class="rounded-box bg-base-200 p-3 text-sm">{field.label}</p>
-                      {:else if field?.type === "option"}
-                        {@const selectedValues = getChoiceValues(
-                          item.section.name,
-                          field,
-                          item.state.response,
-                        )}
-                        <Field>
-                          {#snippet label()}<p>{field.label}</p>{/snippet}
-                          {#snippet input()}
-                            <fieldset
-                              class="flex flex-col gap-2"
-                              disabled={item.state.status !== "none"}>
-                              {#each field.options as option}
-                                {@const isSelected = selectedValues.includes(option.id)}
-                                <div class="flex flex-col gap-2">
-                                  <label class="flex items-center gap-2 text-sm">
-                                    <input
-                                      type={isMultipleChoiceField(field) ? "checkbox" : "radio"}
-                                      name={`${item.section.name}-${field.id}`}
-                                      class={isMultipleChoiceField(field)
-                                        ? "checkbox checkbox-sm"
-                                        : "radio radio-sm"}
-                                      required={!isMultipleChoiceField(field) &&
-                                        isRequiredField(field)}
-                                      checked={isSelected}
-                                      onchange={event =>
-                                        setChoiceAnswer(
-                                          item.section.name,
-                                          field,
-                                          option.id,
-                                          event.currentTarget.checked,
-                                        )} />
-                                    <span>{option.label}</span>
-                                  </label>
-                                  {#if option.settings.isOther === true && isSelected}
-                                    <input
-                                      class="input input-sm input-bordered ml-7 w-[calc(100%-1.75rem)]"
-                                      placeholder="Please explain"
-                                      required
-                                      value={getOtherAnswer(
-                                        item.section.name,
-                                        field.id,
-                                        option.id,
-                                        item.state.response,
-                                      )}
-                                      oninput={event =>
-                                        setOtherAnswer(
+                  {#if item.state.status !== "granted" && item.history?.latestPriorReview}
+                    {@const priorReview = item.history.latestPriorReview}
+                    <p
+                      class={`rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
+                      {reviewHistoryLabel(priorReview.status)} by
+                      <ProfileLink
+                        pubkey={priorReview.event.pubkey}
+                        relays={communityProfileRelays} /> on {new Date(
+                        priorReview.event.created_at * 1000,
+                      ).toLocaleString()}.
+                    </p>
+                  {/if}
+
+                  {#if item.state.status === "granted"}
+                    <p class="rounded-box bg-success/10 p-3 text-sm text-success">
+                      Access is granted for this section.
+                    </p>
+                  {:else if item.form}
+                    <form
+                      class="flex flex-col gap-3"
+                      onsubmit={preventDefault(() =>
+                        submitApplication(item.section.name, item.displayName, item.form!),
+                      )}>
+                      <div>
+                        <strong>{item.form.name}</strong>
+                        {#if item.form.description}
+                          <p class="text-sm opacity-70">{item.form.description}</p>
+                        {/if}
+                      </div>
+
+                      {#each item.form.fieldOrder as fieldId}
+                        {@const field = item.form.fields[fieldId]}
+                        {#if field?.type === "label"}
+                          <p class="rounded-box bg-base-200 p-3 text-sm">{field.label}</p>
+                        {:else if field?.type === "option"}
+                          {@const selectedValues = getChoiceValues(
+                            item.section.name,
+                            field,
+                            item.state.response,
+                          )}
+                          <Field>
+                            {#snippet label()}<p>{field.label}</p>{/snippet}
+                            {#snippet input()}
+                              <fieldset
+                                class="flex flex-col gap-2"
+                                disabled={item.state.status !== "none"}>
+                                {#each field.options as option}
+                                  {@const isSelected = selectedValues.includes(option.id)}
+                                  <div class="flex flex-col gap-2">
+                                    <label class="flex items-center gap-2 text-sm">
+                                      <input
+                                        type={isMultipleChoiceField(field) ? "checkbox" : "radio"}
+                                        name={`${item.section.name}-${field.id}`}
+                                        class={isMultipleChoiceField(field)
+                                          ? "checkbox checkbox-sm"
+                                          : "radio radio-sm"}
+                                        required={!isMultipleChoiceField(field) &&
+                                          isRequiredField(field)}
+                                        checked={isSelected}
+                                        onchange={event =>
+                                          setChoiceAnswer(
+                                            item.section.name,
+                                            field,
+                                            option.id,
+                                            event.currentTarget.checked,
+                                          )} />
+                                      <span>{option.label}</span>
+                                    </label>
+                                    {#if option.settings.isOther === true && isSelected}
+                                      <input
+                                        class="input input-sm input-bordered ml-7 w-[calc(100%-1.75rem)]"
+                                        placeholder="Please explain"
+                                        required
+                                        value={getOtherAnswer(
                                           item.section.name,
                                           field.id,
                                           option.id,
-                                          event.currentTarget.value,
-                                        )} />
-                                  {/if}
-                                </div>
-                              {/each}
-                            </fieldset>
-                          {/snippet}
-                        </Field>
-                      {:else if field}
-                        <Field>
-                          {#snippet label()}<p>{field.label}</p>{/snippet}
-                          {#snippet input()}
-                            <textarea
-                              class="textarea textarea-bordered min-h-24 w-full"
-                              disabled={item.state.status !== "none"}
-                              required={isRequiredField(field)}
-                              value={getAnswer(item.section.name, field, item.state.response)}
-                              oninput={event =>
-                                setAnswer(item.section.name, field.id, event.currentTarget.value)}
-                            ></textarea>
-                          {/snippet}
-                        </Field>
-                      {/if}
-                    {/each}
-
-                    {#if item.state.status === "none"}
-                      <div class="flex justify-end">
-                        <Button type="submit" class="btn btn-primary">Submit application</Button>
-                      </div>
-                    {:else if item.state.response}
-                      <div class="rounded-box bg-base-200 p-3 text-sm">
-                        {#if item.state.status === "pending"}
-                          This application is pending moderator review.
-                        {:else if item.state.status === "rejected"}
-                          This application was rejected. Delete it before submitting a revised
-                          application.
+                                          item.state.response,
+                                        )}
+                                        oninput={event =>
+                                          setOtherAnswer(
+                                            item.section.name,
+                                            field.id,
+                                            option.id,
+                                            event.currentTarget.value,
+                                          )} />
+                                    {/if}
+                                  </div>
+                                {/each}
+                              </fieldset>
+                            {/snippet}
+                          </Field>
+                        {:else if field}
+                          <Field>
+                            {#snippet label()}<p>{field.label}</p>{/snippet}
+                            {#snippet input()}
+                              <textarea
+                                class="textarea textarea-bordered min-h-24 w-full"
+                                disabled={item.state.status !== "none"}
+                                required={isRequiredField(field)}
+                                value={getAnswer(item.section.name, field, item.state.response)}
+                                oninput={event =>
+                                  setAnswer(item.section.name, field.id, event.currentTarget.value)}
+                              ></textarea>
+                            {/snippet}
+                          </Field>
                         {/if}
-                      </div>
-                      <div class="flex justify-end">
-                        <Button
-                          class="btn btn-error"
-                          onclick={() =>
-                            deleteSubmission(
-                              item.section.name,
-                              item.displayName,
-                              item.state.response!,
-                            )}>
-                          Delete submission
-                        </Button>
-                      </div>
-                    {/if}
-                  </form>
-                {:else}
-                  <p class="rounded-box bg-base-200 p-3 text-sm opacity-75">
-                    No application form is currently available for this section.
-                  </p>
-                {/if}
-              </section>
-            {/each}
+                      {/each}
+
+                      {#if item.state.status === "none"}
+                        <div class="flex justify-end">
+                          <Button type="submit" class="btn btn-primary">Submit application</Button>
+                        </div>
+                      {:else if item.state.response}
+                        <div class="rounded-box bg-base-200 p-3 text-sm">
+                          {#if item.state.status === "pending"}
+                            This application is pending moderator review.
+                          {:else if item.state.status === "rejected"}
+                            This application was rejected. Delete it before submitting a revised
+                            application.
+                          {/if}
+                        </div>
+                        <div class="flex justify-end">
+                          <Button
+                            class="btn btn-error"
+                            onclick={() =>
+                              deleteSubmission(
+                                item.section.name,
+                                item.displayName,
+                                item.state.response!,
+                              )}>
+                            Delete submission
+                          </Button>
+                        </div>
+                      {/if}
+                    </form>
+                  {:else}
+                    <p class="rounded-box bg-base-200 p-3 text-sm opacity-75">
+                      No application form is currently available for this section.
+                    </p>
+                  {/if}
+                </section>
+              {/each}
+            </div>
           </div>
-        </div>
-      </details>
+        </details>
+      {/if}
 
       <details
         class="card2 bg-alt shrink-0 overflow-hidden shadow-md"
