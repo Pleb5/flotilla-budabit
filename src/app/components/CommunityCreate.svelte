@@ -1078,7 +1078,7 @@
           </p>
         </div>
         <div
-          class="rounded-2xl border border-warning/35 bg-warning/15 p-4 text-sm leading-relaxed text-base-content shadow-sm shadow-warning/5">
+          class="min-w-0 rounded-2xl border border-warning/35 bg-warning/15 p-4 text-sm leading-relaxed text-base-content shadow-sm shadow-warning/5">
           <strong class="block text-base font-semibold text-warning">Community signer</strong>
           <span class="mt-1 block text-base-content/80">
             {#if activeCommunityPubkey}
@@ -1098,6 +1098,13 @@
               Log in with the npub that should own this community.
             {/if}
           </span>
+          {#if !isEdit}
+            <p
+              class="mt-4 break-words rounded-xl border border-error/40 bg-error/10 p-3 text-sm font-semibold leading-snug text-error">
+              Warning: The Community you create with this key overwrites Profile, and possibly other
+              metadata this account already has!
+            </p>
+          {/if}
         </div>
       </div>
     </section>
