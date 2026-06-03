@@ -59,7 +59,11 @@
   import {checked, setChecked} from "@app/util/notifications"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {
+    makeCommunityPath,
+    makeCommunityRoomPath,
+    parseCommunityRouteParam,
+  } from "@app/util/routes"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   type RoomElement =
@@ -71,7 +75,10 @@
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const roomId = $derived($page.params.room || "")
   const mounted = now()
-  const lastChecked = $checked[$page.url.pathname]
+  const roomPath = $derived(
+    communityPubkey && roomId ? makeCommunityRoomPath(communityPubkey, roomId) : $page.url.pathname,
+  )
+  const lastChecked = $derived($checked[roomPath])
 
   const roomAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -489,10 +496,12 @@
   })
 
   onDestroy(() => {
+    const checkedPath = roomPath
+
     resetFeed()
 
     setTimeout(() => {
-      setChecked($page.url.pathname)
+      setChecked(checkedPath)
     }, 800)
   })
 </script>

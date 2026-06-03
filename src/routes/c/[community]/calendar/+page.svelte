@@ -44,7 +44,7 @@
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeCalendarFeed} from "@app/core/requests"
   import {setChecked} from "@app/util/notifications"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityCalendarPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type CalendarItem = {
     event: TrustedEvent
@@ -67,8 +67,11 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const calendarPath = $derived(
+    communityPubkey ? makeCommunityCalendarPath(communityPubkey) : $page.url.pathname,
+  )
   const createPath = $derived(
-    communityPubkey ? makeCommunityPath(communityPubkey, "calendar", "create") : "",
+    communityPubkey ? makeCommunityCalendarPath(communityPubkey, "create") : "",
   )
   const communityBootstrapReady = $derived(
     Boolean(
@@ -354,7 +357,7 @@
 
   onDestroy(() => {
     resetFeed()
-    setChecked($page.url.pathname)
+    setChecked(calendarPath)
   })
 </script>
 

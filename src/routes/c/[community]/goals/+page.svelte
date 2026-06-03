@@ -42,7 +42,7 @@
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {setChecked} from "@app/util/notifications"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityGoalPath, parseCommunityRouteParam} from "@app/util/routes"
 
   let loadingTargets = $state(false)
   let targetRequestDone = $state(false)
@@ -56,8 +56,11 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const goalsPath = $derived(
+    communityPubkey ? makeCommunityGoalPath(communityPubkey) : $page.url.pathname,
+  )
   const createPath = $derived(
-    communityPubkey ? makeCommunityPath(communityPubkey, "goals", "create") : "",
+    communityPubkey ? makeCommunityGoalPath(communityPubkey, "create") : "",
   )
   const communityBootstrapReady = $derived(
     Boolean(
@@ -282,7 +285,7 @@
 
   onDestroy(() => {
     resetFeed()
-    setChecked($page.url.pathname)
+    setChecked(goalsPath)
   })
 </script>
 

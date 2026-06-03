@@ -60,7 +60,7 @@
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityGoalPath, parseCommunityRouteParam} from "@app/util/routes"
 
   let loadingGoal = $state(false)
   let goalRequestDone = $state(false)
@@ -75,7 +75,12 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const goalId = $derived($page.params.goal || "")
-  const goalsPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "goals") : "")
+  const goalsPath = $derived(
+    communityPubkey ? makeCommunityGoalPath(communityPubkey) : $page.url.pathname,
+  )
+  const goalPath = $derived(
+    communityPubkey && goalId ? makeCommunityGoalPath(communityPubkey, goalId) : goalsPath,
+  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
@@ -372,7 +377,7 @@
   })
 
   onDestroy(() => {
-    setChecked($page.url.pathname)
+    setChecked(goalPath)
   })
 </script>
 

@@ -1,12 +1,51 @@
 import {derived, get, readable, writable, type Readable} from "svelte/store"
-import {synced, throttled} from "@welshman/store"
-import {pubkey} from "@welshman/app"
+import {request} from "@welshman/net"
+import {deriveEventsAsc, deriveEventsById, synced, throttled} from "@welshman/store"
+import {pubkey, repository} from "@welshman/app"
 import {identity, now, prop} from "@welshman/lib"
-import {Address, type TrustedEvent} from "@welshman/util"
+import {
+  Address,
+  EVENT_TIME,
+  MESSAGE,
+  THREAD,
+  ZAP_GOAL,
+  getTagValue,
+  type TrustedEvent,
+} from "@welshman/util"
 import {chatsById, userSettingsValues} from "@app/core/state"
-import {activeCommunityUserModeratorRequestStates} from "@app/core/community-state"
+import {
+  activeCommunityDefinition,
+  activeCommunityProfileListEvents,
+  activeCommunityRelays,
+  activeCommunityReportState,
+  activeCommunityUserModeratorRequestStates,
+} from "@app/core/community-state"
+import {
+  COMMUNITY_SECTION_CALENDAR,
+  COMMUNITY_SECTION_GENERAL,
+  COMMUNITY_SECTION_GOALS,
+  COMMUNITY_SECTION_THREADS,
+  normalizePubkey,
+  parseTargetedPublication,
+} from "@app/core/community"
+import {
+  makeCommunityExclusiveFilter,
+  makeCommunityTargetingFilter,
+  makeTargetedPublicationOriginalFilters,
+} from "@app/core/community-feeds"
+import {readCommunityRoomMessage} from "@app/core/community-messages"
+import {readCommunityThread} from "@app/core/community-threads"
+import {getCommunitySectionWriterPubkeys} from "@app/core/community-permissions"
+import {isCommunityPersonBanned} from "@app/core/community-reports"
 import {kv} from "@app/core/storage"
-import {makeChatPath, makeCommunityPath} from "@app/util/routes"
+import {
+  makeChatPath,
+  makeCommunityCalendarPath,
+  makeCommunityGoalPath,
+  makeCommunityPath,
+  makeCommunityRoomPath,
+  makeCommunityThreadPath,
+} from "@app/util/routes"
 
 export const checked = synced<Record<string, number>>({
   key: "checked",
@@ -24,6 +63,30 @@ export const setCheckedAt = (key: string, timestamp: number) =>
 export type NotificationCandidate = {
   path: string
   latestEvent?: TrustedEvent
+}
+
+export type RoomMessageNotificationCandidateOptions = {
+  events: TrustedEvent[]
+  communityPubkey: string
+  currentPubkey?: string
+  allowPubkey?: (pubkey: string) => boolean
+}
+
+export type SectionRootNotificationCandidateOptions = {
+  events: TrustedEvent[]
+  path: string
+  currentPubkey?: string
+  allowEvent?: (event: TrustedEvent) => boolean
+}
+
+export type TargetedPublicationRootNotificationCandidateOptions = {
+  targetingEvents: TrustedEvent[]
+  rootEvents: TrustedEvent[]
+  communityPubkey: string
+  path: string
+  kind: number
+  currentPubkey?: string
+  allowPubkey?: (pubkey: string) => boolean
 }
 
 export type NotificationsConfig = {
@@ -50,6 +113,143 @@ const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
 export const normalizeChecked = (value: number) =>
   value > 10_000_000_000 ? Math.round(value / 1000) : value
 
+const isNewerEvent = (event: TrustedEvent, current: TrustedEvent) =>
+  event.created_at > current.created_at ||
+  (event.created_at === current.created_at && event.id > current.id)
+
+export const getRoomMessageNotificationCandidates = ({
+  events,
+  communityPubkey,
+  currentPubkey,
+  allowPubkey = () => true,
+}: RoomMessageNotificationCandidateOptions): NotificationCandidate[] => {
+  const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
+  const latestEventsByPath = new Map<string, TrustedEvent>()
+
+  if (!communityPubkey) return []
+
+  for (const event of events) {
+    if (normalizedCurrentPubkey && normalizePubkey(event.pubkey) === normalizedCurrentPubkey) {
+      continue
+    }
+    if (!allowPubkey(event.pubkey)) continue
+
+    const message = readCommunityRoomMessage(event, communityPubkey)
+    if (!message) continue
+
+    const path = makeCommunityRoomPath(communityPubkey, message.roomRootId)
+    const current = latestEventsByPath.get(path)
+
+    if (!current || isNewerEvent(event, current)) {
+      latestEventsByPath.set(path, event)
+    }
+  }
+
+  return Array.from(latestEventsByPath.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([path, latestEvent]) => ({path, latestEvent}))
+}
+
+export const getSectionRootNotificationCandidates = ({
+  events,
+  path,
+  currentPubkey,
+  allowEvent = () => true,
+}: SectionRootNotificationCandidateOptions): NotificationCandidate[] => {
+  const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
+  let latestEvent: TrustedEvent | undefined
+
+  if (!path) return []
+
+  for (const event of events) {
+    if (normalizedCurrentPubkey && normalizePubkey(event.pubkey) === normalizedCurrentPubkey) {
+      continue
+    }
+    if (!allowEvent(event)) continue
+
+    if (!latestEvent || isNewerEvent(event, latestEvent)) {
+      latestEvent = event
+    }
+  }
+
+  return latestEvent ? [{path, latestEvent}] : []
+}
+
+const targetedPublicationMatchesCommunity = (
+  event: TrustedEvent,
+  communityPubkey: string,
+  kind: number,
+) => {
+  const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
+  const targeting = parseTargetedPublication(event)
+
+  return Boolean(
+    targeting?.kind === kind &&
+    targeting.communities.some(
+      community => normalizePubkey(community.pubkey) === normalizedCommunityPubkey,
+    ),
+  )
+}
+
+const rootMatchesTargetingEvent = (
+  root: TrustedEvent,
+  targetingEvent: TrustedEvent,
+  kind: number,
+) => {
+  const targeting = parseTargetedPublication(targetingEvent)
+  if (!targeting || targeting.kind !== kind || root.kind !== kind) return false
+
+  const ref = targeting.ref
+  if (!ref) return getTagValue("h", root.tags) === targeting.id
+  if (ref.type === "e") return root.id === ref.value
+
+  const [refKind, refPubkey, ...identifierParts] = ref.value.split(":")
+  const identifier = identifierParts.join(":")
+
+  return (
+    Number.parseInt(refKind || "", 10) === root.kind &&
+    normalizePubkey(refPubkey || "") === normalizePubkey(root.pubkey) &&
+    getTagValue("d", root.tags) === identifier
+  )
+}
+
+export const getTargetedPublicationRootNotificationCandidates = ({
+  targetingEvents,
+  rootEvents,
+  communityPubkey,
+  path,
+  kind,
+  currentPubkey,
+  allowPubkey = () => true,
+}: TargetedPublicationRootNotificationCandidateOptions): NotificationCandidate[] => {
+  const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
+  let latestEvent: TrustedEvent | undefined
+
+  if (!communityPubkey || !path) return []
+
+  for (const targetingEvent of targetingEvents) {
+    if (!targetedPublicationMatchesCommunity(targetingEvent, communityPubkey, kind)) continue
+    if (
+      normalizedCurrentPubkey &&
+      normalizePubkey(targetingEvent.pubkey) === normalizedCurrentPubkey
+    ) {
+      continue
+    }
+
+    const root = rootEvents.find(event => rootMatchesTargetingEvent(event, targetingEvent, kind))
+    if (!root) continue
+    if (normalizedCurrentPubkey && normalizePubkey(root.pubkey) === normalizedCurrentPubkey)
+      continue
+    if (!allowPubkey(root.pubkey)) continue
+
+    if (!latestEvent || isNewerEvent(targetingEvent, latestEvent)) {
+      latestEvent = targetingEvent
+    }
+  }
+
+  return latestEvent ? [{path, latestEvent}] : []
+}
+
 const moderatorRequestStatusCandidates: Readable<NotificationCandidate[]> = derived(
   [pubkey, activeCommunityUserModeratorRequestStates],
   ([$pubkey, $activeCommunityUserModeratorRequestStates]) => {
@@ -64,6 +264,263 @@ const moderatorRequestStatusCandidates: Readable<NotificationCandidate[]> = deri
         latestEvent: request.statusEvent,
       }))
   },
+)
+
+const roomMessageNotificationCandidates: Readable<NotificationCandidate[]> = derived(
+  [pubkey, activeCommunityDefinition, activeCommunityProfileListEvents, activeCommunityReportState],
+  (
+    [
+      $pubkey,
+      $activeCommunityDefinition,
+      $activeCommunityProfileListEvents,
+      $activeCommunityReportState,
+    ],
+    set,
+  ) => {
+    if (!$pubkey || !$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const authorPubkeys = getCommunitySectionWriterPubkeys({
+      definition: $activeCommunityDefinition,
+      profileListEvents: $activeCommunityProfileListEvents,
+      sectionName: COMMUNITY_SECTION_GENERAL,
+      reportState: $activeCommunityReportState,
+    })
+
+    if (authorPubkeys.length === 0) {
+      set([])
+      return
+    }
+
+    const filters = [
+      makeCommunityExclusiveFilter($activeCommunityDefinition.pubkey, [MESSAGE], {
+        authors: authorPubkeys,
+      }),
+    ]
+    const events = deriveEventsAsc(deriveEventsById({repository, filters}))
+
+    return events.subscribe($events => {
+      set(
+        getRoomMessageNotificationCandidates({
+          events: $events,
+          communityPubkey: $activeCommunityDefinition.pubkey,
+          currentPubkey: $pubkey,
+          allowPubkey: candidatePubkey =>
+            !isCommunityPersonBanned($activeCommunityReportState, candidatePubkey),
+        }),
+      )
+    })
+  },
+  [] as NotificationCandidate[],
+)
+
+const threadRootNotificationCandidates: Readable<NotificationCandidate[]> = derived(
+  [pubkey, activeCommunityDefinition, activeCommunityProfileListEvents, activeCommunityReportState],
+  (
+    [
+      $pubkey,
+      $activeCommunityDefinition,
+      $activeCommunityProfileListEvents,
+      $activeCommunityReportState,
+    ],
+    set,
+  ) => {
+    if (!$pubkey || !$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const authorPubkeys = getCommunitySectionWriterPubkeys({
+      definition: $activeCommunityDefinition,
+      profileListEvents: $activeCommunityProfileListEvents,
+      sectionName: COMMUNITY_SECTION_THREADS,
+      reportState: $activeCommunityReportState,
+    })
+
+    if (authorPubkeys.length === 0) {
+      set([])
+      return
+    }
+
+    const filters = [
+      makeCommunityExclusiveFilter($activeCommunityDefinition.pubkey, [THREAD], {
+        authors: authorPubkeys,
+      }),
+    ]
+    const events = deriveEventsAsc(deriveEventsById({repository, filters}))
+
+    return events.subscribe($events => {
+      set(
+        getSectionRootNotificationCandidates({
+          events: $events,
+          path: makeCommunityThreadPath($activeCommunityDefinition.pubkey),
+          currentPubkey: $pubkey,
+          allowEvent: event =>
+            Boolean(readCommunityThread(event, $activeCommunityDefinition.pubkey)) &&
+            !isCommunityPersonBanned($activeCommunityReportState, event.pubkey),
+        }),
+      )
+    })
+  },
+  [] as NotificationCandidate[],
+)
+
+const makeTargetedPublicationRootNotificationCandidates = ({
+  kind,
+  sectionName,
+  makePath,
+}: {
+  kind: number
+  sectionName: string
+  makePath: (communityPubkey: string) => string
+}): Readable<NotificationCandidate[]> =>
+  derived(
+    [
+      pubkey,
+      activeCommunityDefinition,
+      activeCommunityProfileListEvents,
+      activeCommunityRelays,
+      activeCommunityReportState,
+    ],
+    (
+      [
+        $pubkey,
+        $activeCommunityDefinition,
+        $activeCommunityProfileListEvents,
+        $activeCommunityRelays,
+        $activeCommunityReportState,
+      ],
+      set,
+    ) => {
+      if (!$pubkey || !$activeCommunityDefinition || $activeCommunityRelays.length === 0) {
+        set([])
+        return
+      }
+
+      const authorPubkeys = getCommunitySectionWriterPubkeys({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        sectionName,
+        reportState: $activeCommunityReportState,
+      })
+
+      if (authorPubkeys.length === 0) {
+        set([])
+        return
+      }
+
+      const targetingFilters = [
+        makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, [kind]),
+      ]
+      const targetingController = new AbortController()
+
+      request({
+        relays: $activeCommunityRelays,
+        filters: targetingFilters,
+        autoClose: true,
+        signal: targetingController.signal,
+      }).catch(error => {
+        if (!targetingController.signal.aborted) {
+          console.warn("[notifications] Failed to load targeted publication notifications", error)
+        }
+      })
+
+      const targetingEvents = deriveEventsAsc(
+        deriveEventsById({
+          repository,
+          filters: targetingFilters,
+        }),
+      )
+      let rootController: AbortController | undefined
+      let unsubscribeRootEvents: (() => void) | undefined
+
+      const unsubscribeTargetingEvents = targetingEvents.subscribe($targetingEvents => {
+        rootController?.abort()
+        rootController = undefined
+        unsubscribeRootEvents?.()
+        unsubscribeRootEvents = undefined
+
+        const rootFilters = makeTargetedPublicationOriginalFilters($targetingEvents, authorPubkeys)
+        if (rootFilters.length === 0) {
+          set([])
+          return
+        }
+
+        const controller = new AbortController()
+        rootController = controller
+        request({
+          relays: $activeCommunityRelays,
+          filters: rootFilters,
+          autoClose: true,
+          signal: controller.signal,
+        }).catch(error => {
+          if (!controller.signal.aborted) {
+            console.warn("[notifications] Failed to load targeted publication roots", error)
+          }
+        })
+
+        const rootEvents = deriveEventsAsc(deriveEventsById({repository, filters: rootFilters}))
+        unsubscribeRootEvents = rootEvents.subscribe($rootEvents => {
+          set(
+            getTargetedPublicationRootNotificationCandidates({
+              targetingEvents: $targetingEvents,
+              rootEvents: $rootEvents,
+              communityPubkey: $activeCommunityDefinition.pubkey,
+              path: makePath($activeCommunityDefinition.pubkey),
+              kind,
+              currentPubkey: $pubkey,
+              allowPubkey: candidatePubkey =>
+                !isCommunityPersonBanned($activeCommunityReportState, candidatePubkey),
+            }),
+          )
+        })
+      })
+
+      return () => {
+        targetingController.abort()
+        rootController?.abort()
+        unsubscribeTargetingEvents()
+        unsubscribeRootEvents?.()
+      }
+    },
+    [] as NotificationCandidate[],
+  )
+
+const calendarRootNotificationCandidates = makeTargetedPublicationRootNotificationCandidates({
+  kind: EVENT_TIME,
+  sectionName: COMMUNITY_SECTION_CALENDAR,
+  makePath: makeCommunityCalendarPath,
+})
+
+const goalRootNotificationCandidates = makeTargetedPublicationRootNotificationCandidates({
+  kind: ZAP_GOAL,
+  sectionName: COMMUNITY_SECTION_GOALS,
+  makePath: makeCommunityGoalPath,
+})
+
+const budabitNotificationCandidates: Readable<NotificationCandidate[]> = derived(
+  [
+    moderatorRequestStatusCandidates,
+    roomMessageNotificationCandidates,
+    threadRootNotificationCandidates,
+    calendarRootNotificationCandidates,
+    goalRootNotificationCandidates,
+  ],
+  ([
+    $moderatorRequestStatusCandidates,
+    $roomMessageNotificationCandidates,
+    $threadRootNotificationCandidates,
+    $calendarRootNotificationCandidates,
+    $goalRootNotificationCandidates,
+  ]) => [
+    ...$moderatorRequestStatusCandidates,
+    ...$roomMessageNotificationCandidates,
+    ...$threadRootNotificationCandidates,
+    ...$calendarRootNotificationCandidates,
+    ...$goalRootNotificationCandidates,
+  ],
 )
 
 export const notifications = derived(
@@ -141,7 +598,7 @@ export const clearBadges = async () => {
 
 export const setupBudabitNotifications = () => {
   setNotificationsConfig({})
-  setNotificationCandidates(moderatorRequestStatusCandidates)
+  setNotificationCandidates(budabitNotificationCandidates)
 
   return () => undefined
 }

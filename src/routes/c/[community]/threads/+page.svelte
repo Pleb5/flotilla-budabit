@@ -35,12 +35,15 @@
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {setChecked} from "@app/util/notifications"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const threadsPath = $derived(
+    communityPubkey ? makeCommunityThreadPath(communityPubkey) : $page.url.pathname,
+  )
   const createPath = $derived(
-    communityPubkey ? makeCommunityPath(communityPubkey, "threads", "create") : "",
+    communityPubkey ? makeCommunityThreadPath(communityPubkey, "create") : "",
   )
   const threadAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -201,7 +204,7 @@
 
   onDestroy(() => {
     resetFeed()
-    setChecked($page.url.pathname)
+    setChecked(threadsPath)
   })
 </script>
 

@@ -53,11 +53,17 @@
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const threadId = $derived($page.params.thread || "")
+  const threadsPath = $derived(
+    communityPubkey ? makeCommunityThreadPath(communityPubkey) : $page.url.pathname,
+  )
+  const threadPath = $derived(
+    communityPubkey && threadId ? makeCommunityThreadPath(communityPubkey, threadId) : threadsPath,
+  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
@@ -338,14 +344,14 @@
   })
 
   onDestroy(() => {
-    setChecked($page.url.pathname)
+    setChecked(threadPath)
   })
 </script>
 
 <PageBar>
   {#snippet icon()}
     <div>
-      <a href={makeCommunityPath(communityPubkey, "threads")} class="btn btn-neutral btn-sm">
+      <a href={threadsPath} class="btn btn-neutral btn-sm">
         <Icon icon={AltArrowLeft} />
       </a>
     </div>

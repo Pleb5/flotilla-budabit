@@ -66,13 +66,18 @@
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityCalendarPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const eventParam = $derived($page.params.event || "")
   const calendarPath = $derived(
-    communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "",
+    communityPubkey ? makeCommunityCalendarPath(communityPubkey) : $page.url.pathname,
+  )
+  const eventPath = $derived(
+    communityPubkey && eventParam
+      ? makeCommunityCalendarPath(communityPubkey, eventParam)
+      : calendarPath,
   )
   const communityBootstrapReady = $derived(
     Boolean(
@@ -368,7 +373,7 @@
     const identifier = getTagValue("d", event.tags)
     if (!identifier || identifier === eventParam) return
 
-    goto(makeCommunityPath(communityPubkey, "calendar", identifier), {replaceState: true})
+    goto(makeCommunityCalendarPath(communityPubkey, identifier), {replaceState: true})
   })
 
   $effect(() => {
@@ -471,7 +476,7 @@
   })
 
   onDestroy(() => {
-    setChecked($page.url.pathname)
+    setChecked(eventPath)
   })
 </script>
 
