@@ -1,7 +1,8 @@
 <script lang="ts">
   import {tick} from "svelte"
+  import {writable} from "svelte/store"
   import {page} from "$app/stores"
-  import {request} from "@welshman/net"
+  import {PublishStatus, request} from "@welshman/net"
   import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
@@ -37,6 +38,7 @@
     activeCommunityReportReviewEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    loadCommunityEvents,
     makeCommunityReportReviewFilters,
   } from "@app/core/community-state"
   import {
@@ -81,6 +83,9 @@
   }
 
   type PageMode = "queue" | "forms" | "moderation"
+
+  const FORM_PUBLISH_TIMEOUT = 10_000
+  const FORM_PUBLISH_VERIFY_TIMEOUT = 5_000
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
@@ -518,10 +523,37 @@
   const reviewHistoryLabel = (status: string) =>
     status === "granted" ? "Previously granted" : "Previously rejected"
   const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === "success")
+    Object.values(thunk.results).some(result => result.status === PublishStatus.Success)
+
+  const findPublishedForm = async (event: TrustedEvent, relays: string[]) => {
+    const idMatches = await loadCommunityEvents(relays, [{ids: [event.id], limit: 1}], {
+      authenticate: true,
+      settle: "first-non-empty",
+      timeout: FORM_PUBLISH_VERIFY_TIMEOUT,
+    }).catch(() => [] as TrustedEvent[])
+    const idMatch = idMatches.find(match => match.id === event.id)
+    if (idMatch) return idMatch
+
+    const identifier = event.tags.find(tag => tag[0] === "d")?.[1]
+    if (!identifier) return undefined
+
+    const addressMatches = await loadCommunityEvents(
+      relays,
+      [{kinds: [event.kind], authors: [event.pubkey], "#d": [identifier], limit: 5}],
+      {
+        authenticate: true,
+        settle: "first-non-empty",
+        timeout: FORM_PUBLISH_VERIFY_TIMEOUT,
+      },
+    ).catch(() => [] as TrustedEvent[])
+
+    return addressMatches.find(match => match.id === event.id)
+  }
 
   const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
-    const result = Object.values(thunk.results).find(result => result.status !== "success")
+    const result = Object.values(thunk.results).find(
+      result => result.status !== PublishStatus.Success,
+    )
 
     return result ? `${result.relay}: ${result.detail || result.status}` : "No relay confirmed."
   }
@@ -560,10 +592,15 @@
       return
     }
 
+    const publishStatus = writable("")
+
     pushModal(Confirm, {
       title: "Publish application form",
       message: `Publish the application form for ${selected.displayName}?`,
+      status: publishStatus,
       confirm: async () => {
+        publishStatus.set("Signing and sending the form to community relays...")
+
         const template = makeAdmissionFormTemplate({
           identifier: selectedDraft.identifier,
           communityPubkey: $activeCommunityDefinition.pubkey,
@@ -577,16 +614,38 @@
         const thunk = publishThunk({
           relays: communityPublishRelays,
           event: makeEvent(template.kind, template),
+          timeout: FORM_PUBLISH_TIMEOUT,
         })
+
+        publishStatus.set("Waiting for relay confirmation...")
         await waitForThunkCompletion(thunk)
 
+        let verifiedEvent: TrustedEvent | undefined
+
         if (!hasSuccessfulRelay(thunk)) {
-          if (thunk.event) repository.removeEvent(thunk.event.id)
-          pushToast({theme: "error", message: `Form publish failed: ${getPublishError(thunk)}`})
-          return
+          publishStatus.set(
+            "Relay confirmation timed out. Checking the relay for the published form...",
+          )
+
+          if (thunk.event) {
+            verifiedEvent = await findPublishedForm(
+              thunk.event as TrustedEvent,
+              communityPublishRelays,
+            )
+          }
+
+          if (!verifiedEvent) {
+            publishStatus.set("")
+            if (thunk.event) repository.removeEvent(thunk.event.id)
+            pushToast({theme: "error", message: `Form publish failed: ${getPublishError(thunk)}`})
+            return
+          }
         }
 
-        if (thunk.event) repository.publish(thunk.event as TrustedEvent)
+        publishStatus.set("Form was found on a relay. Finalizing...")
+
+        if (verifiedEvent) repository.publish(verifiedEvent)
+        else if (thunk.event) repository.publish(thunk.event as TrustedEvent)
         drafts = Object.fromEntries(
           Object.entries(drafts).filter(([sectionName]) => sectionName !== selected.section.name),
         )
