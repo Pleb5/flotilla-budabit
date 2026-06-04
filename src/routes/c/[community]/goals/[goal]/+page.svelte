@@ -49,7 +49,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
   import {
@@ -94,19 +94,20 @@
   )
   const goalAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_GOALS,
+          target: COMMUNITY_WRITE_TARGETS.goal,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_GENERAL,
+          target: COMMUNITY_WRITE_TARGETS.comment,
           reportState: $activeCommunityReportState,
         })
       : [],

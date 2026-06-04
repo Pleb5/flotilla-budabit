@@ -169,7 +169,11 @@
     activeUserCommunityRefs,
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
-  import {COMMUNITY_SECTION_REPOSITORIES, TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
@@ -219,7 +223,13 @@
 
   const repoCommunityOptions = $derived.by((): RepoCommunityOption[] =>
     $activeUserCommunityRefs
-      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_REPOSITORIES))
+      .filter(ref =>
+        communityWritableSectionsSupportTarget({
+          definition: ref.definition,
+          writableSections: ref.writableSections,
+          target: COMMUNITY_WRITE_TARGETS.repository,
+        }),
+      )
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),

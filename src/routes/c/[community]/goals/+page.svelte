@@ -25,7 +25,6 @@
     markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {
-    COMMUNITY_SECTION_GENERAL,
     COMMUNITY_SECTION_GOALS,
     normalizePubkey,
     parseTargetedPublication,
@@ -37,7 +36,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
@@ -65,9 +64,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -83,20 +82,20 @@
   )
   const goalAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_GOALS,
+          target: COMMUNITY_WRITE_TARGETS.goal,
           reportState: $activeCommunityReportState,
         })
       : [],
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_GENERAL,
+          target: COMMUNITY_WRITE_TARGETS.comment,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -140,7 +139,10 @@
     return filters
   })
   const feedKey = $derived.by(() =>
-    communityBootstrapReady && communityPubkey && goalFeedFilters.length && $activeCommunityRelays.length
+    communityBootstrapReady &&
+    communityPubkey &&
+    goalFeedFilters.length &&
+    $activeCommunityRelays.length
       ? [
           communityPubkey,
           ...$activeCommunityRelays,
@@ -236,7 +238,11 @@
     }
 
     const controller = new AbortController()
-    const key = JSON.stringify({scope: "goals-targets", relays: $activeCommunityRelays, filters: targetingFilters})
+    const key = JSON.stringify({
+      scope: "goals-targets",
+      relays: $activeCommunityRelays,
+      filters: targetingFilters,
+    })
 
     if (hasCommunityHydrationCompleted(key)) {
       loadingTargets = false
@@ -252,7 +258,12 @@
 
     loadingTargets = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetingFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)

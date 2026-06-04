@@ -1,7 +1,6 @@
 import {Address, getTagValue, type TrustedEvent} from "@welshman/util"
 import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
 import {
-  COMMUNITY_SECTION_REPOSITORIES,
   normalizePubkey,
   normalizeRelay,
   parseTargetedPublication,
@@ -11,7 +10,7 @@ import {
 import {
   COMMUNITY_WRITE_TARGETS,
   canWriteCommunityTarget,
-  getCommunitySectionAuthorityPubkeys,
+  getCommunityTargetAuthorityPubkeys,
 } from "@app/core/community-permissions"
 import {
   isCommunityPersonBanned,
@@ -206,9 +205,10 @@ const validateAssociation = ({
 
   if (!definition) return "unknown"
 
-  const authorityPubkeys = getCommunitySectionAuthorityPubkeys({
+  const authorityPubkeys = getCommunityTargetAuthorityPubkeys({
     definition,
-    sectionName: COMMUNITY_SECTION_REPOSITORIES,
+    profileListEvents,
+    target: COMMUNITY_WRITE_TARGETS.repository,
     reportState,
   })
 

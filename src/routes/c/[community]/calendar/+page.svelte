@@ -6,7 +6,7 @@
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {formatTimestampAsDate, last, now} from "@welshman/lib"
-  import {COMMENT, EVENT_TIME, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
+  import {EVENT_TIME, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -28,7 +28,6 @@
   } from "@app/core/community-state"
   import {
     COMMUNITY_SECTION_CALENDAR,
-    COMMUNITY_SECTION_GENERAL,
     normalizePubkey,
     parseTargetedPublication,
   } from "@app/core/community"
@@ -39,7 +38,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeCalendarFeed} from "@app/core/requests"
@@ -94,20 +93,20 @@
   )
   const calendarAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_CALENDAR,
+          target: COMMUNITY_WRITE_TARGETS.calendar,
           reportState: $activeCommunityReportState,
         })
       : [],
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_GENERAL,
+          target: COMMUNITY_WRITE_TARGETS.comment,
           reportState: $activeCommunityReportState,
         })
       : [],

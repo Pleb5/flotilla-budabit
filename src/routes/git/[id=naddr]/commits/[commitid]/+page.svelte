@@ -50,7 +50,10 @@
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import {clearModals, pushModal} from "@app/util/modal"
   import {activeUserCommunityRefs} from "@app/core/community-state"
-  import {COMMUNITY_SECTION_PERMALINKS} from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {
     publishPermalinkToDestinations,
     type PublicationDestinationSelection,
@@ -227,12 +230,22 @@
 
   const getCommunityOptionLabel = (communityPubkey: string) => {
     const profile = $profilesByPubkey.get(communityPubkey)
-    return profile?.display_name || profile?.name || `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+    return (
+      profile?.display_name ||
+      profile?.name ||
+      `${communityPubkey.slice(0, 8)}...${communityPubkey.slice(-6)}`
+    )
   }
 
   const permalinkCommunityOptions = $derived.by((): RepoCommunityOption[] =>
     $activeUserCommunityRefs
-      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_PERMALINKS))
+      .filter(ref =>
+        communityWritableSectionsSupportTarget({
+          definition: ref.definition,
+          writableSections: ref.writableSections,
+          target: COMMUNITY_WRITE_TARGETS.permalink,
+        }),
+      )
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),

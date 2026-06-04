@@ -16,8 +16,7 @@ export const COMMUNITY_SECTION_ROOMS = "Room-creator"
 export const COMMUNITY_SECTION_THREADS = "Thread-creator"
 export const COMMUNITY_SECTION_CALENDAR = "Calendar"
 export const COMMUNITY_SECTION_GOALS = "Goals"
-export const COMMUNITY_SECTION_REPOSITORIES = "Repositories"
-export const COMMUNITY_SECTION_PERMALINKS = "Permalinks"
+export const COMMUNITY_SECTION_REPO_CURATOR = "Repo-curator"
 export const COMMUNITY_SECTION_WIDGETS = "Widgets"
 
 export const COMMUNITY_SUBTYPE_ROOM = "room"
@@ -328,10 +327,8 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
       return [{kind: 31922}]
     case COMMUNITY_SECTION_GOALS:
       return [{kind: 9041}]
-    case COMMUNITY_SECTION_REPOSITORIES:
-      return [{kind: 30617}]
-    case COMMUNITY_SECTION_PERMALINKS:
-      return [{kind: 1623}]
+    case COMMUNITY_SECTION_REPO_CURATOR:
+      return [{kind: 30617}, {kind: 1623}]
     case COMMUNITY_SECTION_WIDGETS:
       return [{kind: 30033}]
     default:
@@ -345,8 +342,7 @@ export const DEFAULT_COMMUNITY_SECTION_NAMES = [
   COMMUNITY_SECTION_THREADS,
   COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GOALS,
-  COMMUNITY_SECTION_REPOSITORIES,
-  COMMUNITY_SECTION_PERMALINKS,
+  COMMUNITY_SECTION_REPO_CURATOR,
   COMMUNITY_SECTION_WIDGETS,
 ] as const
 
@@ -699,7 +695,9 @@ export const sectionSupportsKind = (
 export const getCommunitySectionDisplayName = (section: CommunitySection) =>
   sectionSupportsKind(section, 9041)
     ? COMMUNITY_SECTION_GOALS
-    : normalizeCommunitySectionName(section.name)
+    : normalizeCommunitySectionName(section.name) === COMMUNITY_SECTION_REPO_CURATOR
+      ? "Repo curator"
+      : normalizeCommunitySectionName(section.name)
 
 export const getProfileListStatus = (event: TrustedEvent | undefined) =>
   event?.tags.find(tag => tag[0] === "status")?.[1] || ""

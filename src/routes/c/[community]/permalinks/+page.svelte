@@ -22,17 +22,20 @@
     activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {COMMUNITY_SECTION_PERMALINKS, TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     GIT_PERMALINK_KIND,
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
-  import {makeTargetedPublicationForCommunity, withPublicationTargetingId} from "@app/core/community-targeting"
+  import {
+    makeTargetedPublicationForCommunity,
+    withPublicationTargetingId,
+  } from "@app/core/community-targeting"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
@@ -41,9 +44,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -59,10 +62,10 @@
   )
   const permalinkAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_PERMALINKS,
+          target: COMMUNITY_WRITE_TARGETS.permalink,
           reportState: $activeCommunityReportState,
         })
       : [],
@@ -72,19 +75,21 @@
       ? makeTargetedPublicationOriginalFilters($targetingEvents, permalinkAuthorPubkeys)
       : [],
   )
-  const permalinks = $derived(deriveEventsAsc(deriveEventsById({repository, filters: permalinkFilters})))
+  const permalinks = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: permalinkFilters})),
+  )
   const canCreatePermalink = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.permalink,
-          reportState: $activeCommunityReportState,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.permalink,
+        reportState: $activeCommunityReportState,
+      }),
     ),
   )
 
@@ -173,7 +178,12 @@
     const controller = new AbortController()
     loadingTargets = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: targetingFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         if (controller.signal.aborted) return
@@ -185,7 +195,11 @@
   })
 
   $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || permalinkFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      permalinkFilters.length === 0
+    ) {
       loadingPermalinks = false
       permalinkRequestDone = false
       return
@@ -194,7 +208,12 @@
     const controller = new AbortController()
     loadingPermalinks = true
     permalinkRequestDone = false
-    request({relays: $activeCommunityRelays, autoClose: true, filters: permalinkFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: permalinkFilters,
+      signal: controller.signal,
+    })
       .catch(() => undefined)
       .finally(() => {
         if (controller.signal.aborted) return
@@ -219,13 +238,34 @@
 <PageContent class="content col-4 p-4">
   <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createPermalink)}>
     <strong>Create targeted permalink</strong>
-    <Field>{#snippet label()}<p>Repo address</p>{/snippet}{#snippet input()}<input bind:value={repo} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>File</p>{/snippet}{#snippet input()}<input bind:value={file} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>Commit</p>{/snippet}{#snippet input()}<input bind:value={commit} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>Line</p>{/snippet}{#snippet input()}<input bind:value={line} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea bind:value={description} class="textarea textarea-bordered" rows="3"></textarea>{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Repo address</p>{/snippet}{#snippet input()}<input
+          bind:value={repo}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>File</p>{/snippet}{#snippet input()}<input
+          bind:value={file}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Commit</p>{/snippet}{#snippet input()}<input
+          bind:value={commit}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Line</p>{/snippet}{#snippet input()}<input
+          bind:value={line}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea
+          bind:value={description}
+          class="textarea textarea-bordered"
+          rows="3"></textarea
+        >{/snippet}</Field>
     <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.permalink} action="publish permalinks" submit disabled={!repo.trim() || !file.trim() || !commit.trim()}>
+      <PublishGate
+        target={COMMUNITY_WRITE_TARGETS.permalink}
+        action="publish permalinks"
+        submit
+        disabled={!repo.trim() || !file.trim() || !commit.trim()}>
         Publish permalink
       </PublishGate>
     </div>
@@ -236,7 +276,11 @@
       <div class="card2 bg-alt p-4 shadow-md">
         <strong>{getTagValue("file", permalink.tags) || "Permalink"}</strong>
         <p class="break-all text-xs opacity-60">{getTagValue("repo", permalink.tags) || ""}</p>
-        <p class="text-sm opacity-70">{getTagValue("commit", permalink.tags) || ""}{getTagValue("line", permalink.tags) ? `:${getTagValue("line", permalink.tags)}` : ""}</p>
+        <p class="text-sm opacity-70">
+          {getTagValue("commit", permalink.tags) || ""}{getTagValue("line", permalink.tags)
+            ? `:${getTagValue("line", permalink.tags)}`
+            : ""}
+        </p>
         {#if permalink.content}<p class="whitespace-pre-wrap">{permalink.content}</p>{/if}
       </div>
     {:else}

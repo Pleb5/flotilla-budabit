@@ -22,7 +22,10 @@
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import {clearModals, pushModal} from "@app/util/modal"
   import {activeUserCommunityRefs} from "@app/core/community-state"
-  import {COMMUNITY_SECTION_PERMALINKS} from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {
     publishPermalinkToDestinations,
     type PublicationDestinationSelection,
@@ -77,8 +80,6 @@
   )
   const supportedCloneUrlKey = $derived.by(() => supportedCloneUrls.join("|"))
 
-  let branchLoadTrigger = $state(0)
-
   const normalizePath = (value: string | null | undefined) =>
     (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
 
@@ -131,7 +132,13 @@
 
   const permalinkCommunityOptions = $derived.by((): RepoCommunityOption[] =>
     $activeUserCommunityRefs
-      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_PERMALINKS))
+      .filter(ref =>
+        communityWritableSectionsSupportTarget({
+          definition: ref.definition,
+          writableSections: ref.writableSections,
+          target: COMMUNITY_WRITE_TARGETS.permalink,
+        }),
+      )
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
@@ -175,13 +182,6 @@
     updateQueryParams({dir: path, file: undefined})
   }
 
-  const breadcrumbPath = $derived.by(() => selectedFile?.path || path)
-  const breadcrumbSegments = $derived.by(() => {
-    const normalized = normalizePath(breadcrumbPath)
-    return normalized ? normalized.split("/") : []
-  })
-  const canGoUp = $derived.by(() => path.length > 0)
-  const parentPath = $derived.by(() => (path ? dirFromPath(path) : ""))
   const showBrowserList = $derived.by(() => !isDesktopViewport || isBrowserOpen)
 
   const urlSearch = $derived($page.url.search)
@@ -266,8 +266,6 @@
 
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
-  // Start with false - only show loading when actually loading refs
-  let loadingRefs = $state(false)
 
   // Track if we've already attempted clone check to prevent infinite retries
   let cloneCheckAttempted = $state(false)
@@ -384,13 +382,10 @@
     if (repoClass && !isCloning) {
       // Defer ref loading to avoid blocking initial render
       const timeout = setTimeout(() => {
-        loadingRefs = true
         repoClass
           .getAllRefsWithFallback()
           .then(loadedRefs => {
             refs = loadedRefs
-            loadingRefs = false
-            branchLoadTrigger++ // Trigger reactivity for dependent effects
           })
           .catch((err: Error) => {
             console.error("Failed to load repository references:", err)
@@ -408,7 +403,6 @@
               })
             }
             refs = []
-            loadingRefs = false
           })
       }, 100)
 
@@ -424,15 +418,15 @@
     const currentRepoEventId = repoEventId
     const currentCloneUrlKey = supportedCloneUrlKey
     const switchTrigger = repoClass.branchChangeTrigger // Increments when branch switch completes
-    const refs = repoClass.refs
+    const availableRefs = refs.length ? refs : repoClass.refs
     const cloneUrls = supportedCloneUrls
 
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
     const branchName = normalizeBranchRef(currentBranch)
     if (!branchName || !currentBranch || isCloning || path) return
-    if (!refs || refs.length === 0) return
-    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name)
+    if (!availableRefs || availableRefs.length === 0) return
+    const availableBranches = availableRefs.filter(ref => ref.type === "heads").map(ref => ref.name)
     if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
@@ -503,14 +497,14 @@
     const currentRepoEventId = repoEventId
     const currentCloneUrlKey = supportedCloneUrlKey
     const switchTrigger = repoClass.branchChangeTrigger // Track branch switches via Repo class
-    const refs = repoClass.refs
+    const availableRefs = refs.length ? refs : repoClass.refs
     const cloneUrls = supportedCloneUrls
 
     // Don't attempt to load files until we have a valid branch name
     const branchName = normalizeBranchRef(currentBranch)
     if (!branchName || !currentPath || !currentBranch || isCloning) return
-    if (!refs || refs.length === 0) return
-    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name)
+    if (!availableRefs || availableRefs.length === 0) return
+    const availableBranches = availableRefs.filter(ref => ref.type === "heads").map(ref => ref.name)
     if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false

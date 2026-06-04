@@ -39,7 +39,7 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
     ...overrides,
   }) as TrustedEvent
 
-const makeDefinition = (pubkey = communityPubkey) =>
+const makeDefinition = (pubkey = communityPubkey, sectionName = "Repo-curator") =>
   parseCommunityDefinition(
     makeEvent({
       id: `definition-${pubkey}`,
@@ -47,19 +47,19 @@ const makeDefinition = (pubkey = communityPubkey) =>
       kind: COMMUNITY_DEFINITION_KIND,
       tags: [
         ["r", "wss://relay.example.com"],
-        ["content", "Repositories"],
+        ["content", sectionName],
         ["k", String(GIT_REPO_ANNOUNCEMENT)],
-        ["a", `${PROFILE_LIST_KIND}:${moderatorPubkey}:Repositories`],
+        ["a", `${PROFILE_LIST_KIND}:${moderatorPubkey}:${sectionName}`],
       ],
     }),
   )!
 
-const makeProfileList = ({members = [granteePubkey]} = {}) =>
+const makeProfileList = ({members = [granteePubkey], sectionName = "Repo-curator"} = {}) =>
   makeEvent({
     id: "repo-profile-list",
     pubkey: moderatorPubkey,
     kind: PROFILE_LIST_KIND,
-    tags: [["d", "Repositories"], ...members.map(member => ["p", member])],
+    tags: [["d", sectionName], ...members.map(member => ["p", member])],
   })
 
 const makeRepo = (overrides: Partial<TrustedEvent> = {}) =>
@@ -118,6 +118,23 @@ describe("repo community context", () => {
     expect(adminContext).toMatchObject({validation: "strong", communityPubkey})
     expect(moderatorContext).toMatchObject({validation: "strong", communityPubkey})
     expect(adminContext?.evidence.map(item => item.label)).toContain("Associated by repo authority")
+  })
+
+  it("strongly validates repo authority from custom sections that support repositories", () => {
+    const definition = makeDefinition(communityPubkey, "Code")
+    const repoEvent = makeRepo()
+    const moderatorAssociation = makeAssociation({pubkey: moderatorPubkey})
+
+    const context = getPrimaryRepoCommunityContext({
+      repoEvent,
+      repoAddress,
+      associationEvents: [moderatorAssociation],
+      definitions: [definition],
+      profileListEvents: [makeProfileList({sectionName: "Code"})],
+    })
+
+    expect(context).toMatchObject({validation: "strong", communityPubkey})
+    expect(context?.evidence.map(item => item.label)).toContain("Associated by repo authority")
   })
 
   it("validates repo-section grantee associations but leaves outsider associations weak", () => {

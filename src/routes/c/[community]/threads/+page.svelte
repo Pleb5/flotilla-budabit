@@ -26,11 +26,11 @@
     makeCommunityThreadsFilter,
   } from "@app/core/community-feeds"
   import {readCommunityThreadReply, readCommunityThreads} from "@app/core/community-threads"
-  import {COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_THREADS} from "@app/core/community"
+  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunitySectionWriterPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
@@ -47,20 +47,20 @@
   )
   const threadAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_THREADS,
+          target: COMMUNITY_WRITE_TARGETS.thread,
           reportState: $activeCommunityReportState,
         })
       : [],
   )
   const replyAuthorPubkeys = $derived(
     $activeCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_GENERAL,
+          target: COMMUNITY_WRITE_TARGETS.comment,
           reportState: $activeCommunityReportState,
         })
       : [],

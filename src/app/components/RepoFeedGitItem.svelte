@@ -20,8 +20,11 @@
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import {getInteractiveCardTarget} from "@lib/html"
   import {publishReaction, publishSocialDelete} from "@app/core/commands"
-  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {clip} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
@@ -55,7 +58,13 @@
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
   )
   const canCreateThread = $derived.by(() =>
-    $activeUserCommunityRefs.some(ref => ref.writableSections.includes(COMMUNITY_SECTION_THREADS)),
+    $activeUserCommunityRefs.some(ref =>
+      communityWritableSectionsSupportTarget({
+        definition: ref.definition,
+        writableSections: ref.writableSections,
+        target: COMMUNITY_WRITE_TARGETS.thread,
+      }),
+    ),
   )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -227,11 +236,7 @@
 
           <div
             class="flex shrink-0 items-center gap-1 rounded-full border border-neutral bg-base-100/90 p-1">
-            <ChannelMessageEmojiButton
-              {url}
-              {event}
-              relays={relayTargets}
-              {scopeH} />
+            <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
             <Button
               class="btn btn-xs"
               onclick={shareItem}

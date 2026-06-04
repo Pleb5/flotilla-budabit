@@ -73,7 +73,7 @@ Community roles are the core positive trust evidence.
 | Community admin | Target authored the relevant kind `10222` definition | Very strong | `Community admin` |
 | Section moderator | Target owns a loaded profile list referenced by a section | Strong | `Moderator`, `Repo moderator` |
 | Community member/grantee | Target appears in a referenced profile list | Basic community trust | `Community member`, `Can participate` |
-| Shared section | Viewer and target can write in the same section | Small additive context | `Shared Repositories section` |
+| Shared section | Viewer and target can write in the same section | Small additive context | `Shared Repo curator section` |
 | Multiple shared communities | Viewer and target overlap in more than one community | Diminishing additive context | `3 shared communities` |
 
 The weakest valid community role must be stronger than the strongest possible aggregate social overlay. This ensures social-media relationships cannot outweigh community membership or grants.
@@ -131,8 +131,8 @@ Repositories need context. A repo associated with a community should be evaluate
 | Association evidence | Trust treatment |
 | --- | --- |
 | Association to active community exists | The active community becomes the primary repo trust context. |
-| Association was made by a current admin or Repositories-section moderator | Strong association evidence. |
-| Association was made by a user with current Repositories-section write grant | Valid association evidence. |
+| Association was made by a current admin or Repo curator moderator | Strong association evidence. |
+| Association was made by a user with current Repo curator write grant | Valid association evidence. |
 | Association was made by someone without current repo-scoped authority | Weak or ignored association evidence. |
 | Associating user is banned in that community | Association should not endorse the repo in that community. |
 | Repo owner is banned in that community | Do not show the repo as community-bound there. |

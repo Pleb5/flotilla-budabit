@@ -30,7 +30,7 @@ The moderation page opens in queue mode.
 At the top, show an application setup card:
 
 - If all grantable sections have forms, show a neutral/success state: `All grantable sections are accepting applications.`
-- If one or more grantable sections are missing forms, show a warning state: `Users cannot apply to: General, Repositories.`
+- If one or more grantable sections are missing forms, show a warning state: `Users cannot apply to: General, Repo curator.`
 - Put the `Edit forms` button inside this setup card.
 - The warning should visually surround the setup CTA so the moderator understands the fix is to edit forms.
 
@@ -175,6 +175,29 @@ Required template tags remain:
 - `field` tags
 
 Forms publish only to active community relays.
+
+## Section Lifecycle Changes
+
+Community admins can rename sections, move publish types between sections, or remove sections from the community setup form. These edits affect moderator setup because active forms and moderator permission requests are tied to the section identity used when they were published.
+
+Expected UX:
+
+- Show an immediate warning after a dangerous draft edit, before publish.
+- Make the main warning action reset only that edit: `Reset rename`, `Reset move`, or `Reset removal`.
+- Let the admin keep the draft change and continue editing.
+- Keep a persistent summary panel near publish with changed sections, members to migrate, moderators who must accept again, forms to copy, and pending requests that will be dropped.
+- Add `Reset changes` in edit mode to restore the originally loaded community metadata and definition, not Budabit defaults.
+
+Migration behavior:
+
+- Active granted members are merged into a new admin-owned permission list for the destination section.
+- Active moderators receive new destination-section permission requests and must accept them before they can grant access there.
+- Active forms are copied as admin-authored forms for destination sections that do not already have an active form.
+- Pending applications are not migrated and should be clearly warned about.
+- Applicant-authored submissions are not copied or faked.
+- User-authored reports are not copied or faked.
+
+The final publish modal is the only place where migration happens. Migration updates publish and verify before the updated community definition is published.
 
 ## Implementation Phases
 

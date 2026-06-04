@@ -119,15 +119,11 @@ Example target shape:
     ["a", "30000:<list-pubkey>:Goals", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
-    ["content", "Repositories"],
+    ["content", "Repo-curator"],
     ["k", "30617"],
-    ["a", "30000:<list-pubkey>:Repositories", "wss://main.community.relay"],
-    ["badge", "30009:<issuer-pubkey>:repo-curator"],
-
-    ["content", "Permalinks"],
     ["k", "1623"],
-    ["a", "30000:<list-pubkey>:Permalinks", "wss://main.community.relay"],
-    ["badge", "30009:<issuer-pubkey>:member"],
+    ["a", "30000:<list-pubkey>:Repo-curator", "wss://main.community.relay"],
+    ["badge", "30009:<issuer-pubkey>:repo-curator"],
 
     ["content", "Widgets"],
     ["k", "30033"],
@@ -145,6 +141,12 @@ The third value in a `k` tag is a Budabit subtype convention. It is needed when 
 | `["k", "11", "room"]` | `kind:11` room roots. |
 | `["k", "11", "threads"]` | `kind:11` thread roots. |
 | `["k", "9", "room-message"]` | `kind:9` room chat messages. |
+
+Each exact `(kind, subtype)` pair should appear in only one section per community definition. Empty subtype is exact and does not match non-empty subtypes. This lets publish gates, application forms, and member grants resolve to one section without fallback or wildcard behavior.
+
+Section names and their profile-list references are part of the permission lifecycle. Admin edits that rename a section, move a `(kind, subtype)` pair, or remove a section should be treated as dangerous changes. Budabit warns immediately while editing, then summarizes migration effects before publishing.
+
+When migration is selected, Budabit publishes and verifies replacement permission updates before publishing the new community definition. Granted members are merged into a new admin-owned list for destination sections. Moderators must accept new destination-section permissions. Active forms may be copied by the admin. Pending requests, applicant submissions, and user-authored reports are not copied.
 
 ## Access Control
 
@@ -224,7 +226,7 @@ If a future standard defines explicit badge revocation, Budabit can support it f
 | Calendar comments | `1111` | No | Comments against calendar event. |
 | Goal | `9041` | Yes | Public publication targeted to the community. |
 | Goal comments | `1111` | No | Comments against a goal. |
-| Repo announcement | `30617` | Yes | Public repo publication targeted to the community catalog. |
+| Repo announcement | `30617` | Yes | Public repo publication targeted to the community catalog. Controlled by the Repo curator section. |
 | Repo state | `30618` | No | Repo infrastructure state. Inherits repo context. |
 | Git issue | `1621` | No | Repo-scoped collaboration. Inherits repo context. |
 | Git PR | `1618` | No | Repo-scoped collaboration. Inherits repo context. |
@@ -233,7 +235,7 @@ If a future standard defines explicit badge revocation, Budabit can support it f
 | Git cover letter | `1624` | No | Repo/issue/PR body update. |
 | Git inline/file comments | `1111` | No | Comments against issue/PR/code root. |
 | Git labels | `1985` | No | Repo/issue/PR labels. |
-| Git permalink | `1623` | Yes | Public code reference targeted to the community. |
+| Git permalink | `1623` | Yes | Public code reference targeted to the community. Controlled by the Repo curator section. |
 | Smart widget | `30033` | Yes | Public widget/app publication targeted to the community. |
 | Reactions | `7` | No | General interaction event. |
 | Generic comments | `1111` | No | General interaction event. |

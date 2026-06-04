@@ -9,8 +9,11 @@
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import RepoActivityThreadCreate from "@app/components/RepoActivityThreadCreate.svelte"
-  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {clearModals, pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
@@ -35,7 +38,13 @@
 
   const relayTargets = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
   const canCreateThread = $derived.by(() =>
-    $activeUserCommunityRefs.some(ref => ref.writableSections.includes(COMMUNITY_SECTION_THREADS)),
+    $activeUserCommunityRefs.some(ref =>
+      communityWritableSectionsSupportTarget({
+        definition: ref.definition,
+        writableSections: ref.writableSections,
+        target: COMMUNITY_WRITE_TARGETS.thread,
+      }),
+    ),
   )
 
   const showInfo = () =>

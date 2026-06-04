@@ -4,6 +4,7 @@ import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_GENERAL,
+  COMMUNITY_SECTION_REPO_CURATOR,
   COMMUNITY_SECTION_ROOMS,
   COMMUNITY_SECTION_THREADS,
   COMMUNITY_SUBTYPE_ROOM,
@@ -200,6 +201,7 @@ describe("community protocol helpers", () => {
     )!
     const general = findCommunitySection(definition, COMMUNITY_SECTION_GENERAL)!
     const threads = findCommunitySection(definition, COMMUNITY_SECTION_THREADS)!
+    const repoCurator = findCommunitySection(definition, COMMUNITY_SECTION_REPO_CURATOR)!
 
     expect(template.kind).toBe(COMMUNITY_DEFINITION_KIND)
     expect(definition.description).toBe("A builder community")
@@ -210,6 +212,9 @@ describe("community protocol helpers", () => {
     expect(template.tags).toContainEqual(["g", "u4pruy"])
     expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_THREADS])
     expect(template.tags).toContainEqual(["k", "11", COMMUNITY_SUBTYPE_THREADS])
+    expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_REPO_CURATOR])
+    expect(template.tags).toContainEqual(["k", "30617"])
+    expect(template.tags).toContainEqual(["k", "1623"])
     expect(general.profileLists[0]).toMatchObject({
       pubkey: pubkeyB,
       relay: "wss://relay.example.com/",
@@ -219,6 +224,8 @@ describe("community protocol helpers", () => {
     expect(sectionSupportsKind(general, 1984)).toBe(true)
     expect(sectionSupportsKind(general, 1985)).toBe(true)
     expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
+    expect(sectionSupportsKind(repoCurator, 30617)).toBe(true)
+    expect(sectionSupportsKind(repoCurator, 1623)).toBe(true)
     expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_GENERAL)).toContainEqual({kind: 1984})
   })
 

@@ -43,7 +43,7 @@ Instead, forms self-associate with the community and section:
   "tags": [
     ["d", "repo-curator-application"],
     ["a", "10222:<community-pubkey>:", "wss://community.example"],
-    ["content", "Repositories"],
+    ["content", "Repo-curator"],
     ["name", "Repository curator application"],
     ["settings", "{\"description\":\"Tell us why you should curate repositories.\"}"],
     ["field", "experience", "text", "What relevant experience do you have?", "", "{\"required\":true}"],
@@ -169,7 +169,7 @@ Granting access publishes two events:
     "kind": 30000,
     "pubkey": "<profile-list-manager-pubkey>",
     "tags": [
-      ["d", "Repositories"],
+      ["d", "Repo-curator"],
       ["p", "<existing-writer-pubkey>"],
       ["p", "<applicant-pubkey>"]
     ],
@@ -184,7 +184,7 @@ Granting access publishes two events:
       ["k", "1069"],
       ["a", "30168:<form-author-pubkey>:repo-curator-application"],
       ["h", "<community-pubkey>"],
-      ["content", "Repositories"]
+      ["content", "Repo-curator"]
     ],
     "content": "+"
   }
@@ -203,7 +203,7 @@ Rejecting access publishes only a negative reaction:
     ["k", "1069"],
     ["a", "30168:<form-author-pubkey>:repo-curator-application"],
     ["h", "<community-pubkey>"],
-    ["content", "Repositories"]
+    ["content", "Repo-curator"]
   ],
   "content": "-"
 }
@@ -237,17 +237,42 @@ Example:
 | Section | Section grants | User result |
 |---|---|---|
 | General | `kind:9` room messages, `kind:1111` comments, `kind:7` reactions, `kind:1985` labels | User may chat, comment, react, and label where those actions are valid. |
-| Repositories | `kind:30617` repo announcements | User may publish repos targeted to the community. |
+| Repo curator | `kind:30617` repo announcements and `kind:1623` permalinks | User may publish repos and permalinks targeted to the community. |
 
-A user with General access but not Repositories access may react to a repository event but may not publish a new repository announcement for the community.
+A user with General access but not Repo curator access may react to a repository event but may not publish a new repository announcement or permalink for the community.
 
 This avoids coupling UI features directly to section names. UI components should declare what they publish, and the permission layer maps that publish effect to the relevant section and application flow.
 
-## Repositories
+### Exact section mapping
 
-The Repositories community section controls who may publish repository announcements into the community. It does not replace repository-level authority. Once a repository exists, issue and pull request moderation uses the repository owner and declared maintainers from the NIP-34 repo announcement.
+Permission resolution maps each exact `(kind, subtype)` pair to one section in the active community definition. Empty subtype is an exact value. It does not mean every subtype for that kind.
 
-Repository authority is intentionally narrower than community write access. A user with Repositories section access may publish a repo announcement, but they do not automatically become a maintainer of every repository in that section.
+Community setup should prevent duplicate exact pairs because duplicate pairs make access requests, form discovery, and publish gates ambiguous. If an external malformed definition contains duplicates, Budabit should resolve a publish target to one section only and avoid treating one grant as a wildcard for another subtype.
+
+### Section rename, move, and removal
+
+Renaming a section, moving a `(kind, subtype)` pair to another section, or removing a section changes permission identity. The edit may invalidate existing profile-list references, moderator form ownership, and pending applications.
+
+Budabit's admin form therefore uses two safety layers:
+
+- Immediate warning modals appear after a dangerous draft edit and offer `Reset rename`, `Reset move`, or `Reset removal` as the primary action.
+- The final publish modal summarizes the pending permission changes and offers publishing with or without migration.
+
+When migration is selected:
+
+- Granted members from old active lists are merged into a new admin-owned list for the destination section.
+- Active moderators get new destination-section permission requests and must accept them before they can grant again.
+- Active forms are copied as admin-authored forms for destination sections that need a form.
+- Reviewed report decisions can be recreated by the admin for the destination section when Budabit can identify the original decision.
+- Migration updates are published and verified on community relays before the updated community definition is published.
+
+Pending application requests are not migrated. Applicant submissions are not copied. User-authored event reports remain historical relay evidence and are not recreated by the admin.
+
+## Repo Curator
+
+The Repo curator community section controls who may publish repository announcements and permalinks into the community. It does not replace repository-level authority. Once a repository exists, issue and pull request moderation uses the repository owner and declared maintainers from the NIP-34 repo announcement.
+
+Repository authority is intentionally narrower than community write access. A user with Repo curator section access may publish repo announcements and permalinks, but they do not automatically become a maintainer of every repository in that section.
 
 Definitions:
 
@@ -341,8 +366,7 @@ Examples of root-level events include:
 | Threads | Thread root `kind:11` without the room marker. |
 | Calendar | `kind:31922` event explicitly targeted to the community. |
 | Goals | `kind:9041` event explicitly targeted to the community. |
-| Repositories | `kind:30617` event explicitly targeted to the community. |
-| Permalinks | `kind:1623` event explicitly targeted to the community. |
+| Repo curator | `kind:30617` repository announcements and `kind:1623` permalinks explicitly targeted to the community. |
 | Widgets | `kind:30033` event explicitly targeted to the community. |
 
 Rules:

@@ -64,9 +64,10 @@ const definition = parseCommunityDefinition(
       ["k", "1984"],
       ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:General`],
       ["badge", `${BADGE_DEFINITION}:${managerPubkey}:member`],
-      ["content", "Repositories"],
+      ["content", "Repo-curator"],
       ["k", "30617"],
-      ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:Repositories`],
+      ["k", "1623"],
+      ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:Repo-curator`],
       ["badge", `${BADGE_DEFINITION}:${managerPubkey}:repo-curator`],
     ],
   }),
@@ -85,7 +86,7 @@ const repoProfileList = makeEvent({
   kind: PROFILE_LIST_KIND,
   pubkey: repoManagerPubkey,
   tags: [
-    ["d", "Repositories"],
+    ["d", "Repo-curator"],
     ["p", repoManagerPubkey],
   ],
 })
@@ -104,6 +105,7 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(11)).toBeUndefined()
     expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
+    expect(getCommunityWriteTarget(1623)).toEqual(COMMUNITY_WRITE_TARGETS.permalink)
   })
 
   it("finds authoritative profile list events by address", () => {
@@ -181,6 +183,14 @@ describe("community permissions", () => {
       }),
     ).toBe(false)
     expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.permalink,
+      }),
+    ).toBe(false)
+    expect(
       communityWritableSectionsSupportTarget({
         definition,
         writableSections: ["General"],
@@ -208,6 +218,14 @@ describe("community permissions", () => {
         profileListEvents: [generalProfileList, repoProfileList],
         userPubkey: repoManagerPubkey,
         target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
+        userPubkey: repoManagerPubkey,
+        target: COMMUNITY_WRITE_TARGETS.permalink,
       }),
     ).toBe(true)
   })
@@ -316,12 +334,12 @@ describe("community permissions", () => {
       getGrantCapability({
         definition,
         userPubkey: repoManagerPubkey,
-        sectionName: "Repositories",
+        sectionName: "Repo-curator",
         profileListEvents: [generalProfileList, repoProfileList],
       }),
     ).toMatchObject({canManageList: true, canGrant: true})
     expect(
-      getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "Repositories"}),
+      getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "Repo-curator"}),
     ).toMatchObject({canManageList: false, canGrant: false})
     expect(
       getGrantCapableSectionModeratorPubkeys({
@@ -331,7 +349,7 @@ describe("community permissions", () => {
       }),
     ).toEqual([managerPubkey])
     expect(
-      getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repositories"}),
+      getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repo-curator"}),
     ).toEqual([repoManagerPubkey])
   })
 
@@ -385,7 +403,8 @@ describe("community permissions", () => {
     expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["1984"]).toMatchObject({sectionName: "General", canWrite: true})
-    expect(capabilities["30617"]).toMatchObject({sectionName: "Repositories", canWrite: false})
+    expect(capabilities["30617"]).toMatchObject({sectionName: "Repo-curator", canWrite: false})
+    expect(capabilities["1623"]).toMatchObject({sectionName: "Repo-curator", canWrite: false})
   })
 
   it("classifies publish gate state by login, write access, and admission status", () => {

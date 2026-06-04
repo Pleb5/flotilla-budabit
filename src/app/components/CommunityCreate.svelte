@@ -2,9 +2,18 @@
   import {tick} from "svelte"
   import {browser} from "$app/environment"
   import {goto} from "$app/navigation"
-  import {publish, PublishStatus} from "@welshman/net"
-  import {pubkey, signer as sessionSigner} from "@welshman/app"
-  import {createProfile, prep, type EventTemplate, type SignedEvent} from "@welshman/util"
+  import {publish, PublishStatus, request} from "@welshman/net"
+  import {pubkey, repository, signer as sessionSigner} from "@welshman/app"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {
+    DELETE,
+    createProfile,
+    prep,
+    type EventTemplate,
+    type Filter,
+    type SignedEvent,
+    type TrustedEvent,
+  } from "@welshman/util"
   import type {ISigner} from "@welshman/signer"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
@@ -12,10 +21,17 @@
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import Profile from "@app/components/Profile.svelte"
   import CommunityBootstrapPeopleEditor from "@app/components/community/CommunityBootstrapPeopleEditor.svelte"
+  import CommunitySectionChangeWarning from "@app/components/community/CommunitySectionChangeWarning.svelte"
+  import CommunitySectionPublishConfirm from "@app/components/community/CommunitySectionPublishConfirm.svelte"
   import {preventDefault} from "@lib/html"
+  import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityAdmissionForms,
     activeCommunityProfileListEvents,
+    activeCommunityReportReviewEvents,
+    activeCommunityReportState,
+    loadCommunityEvents,
     setActiveCommunityDefinition,
     setActiveCommunityInput,
     type CommunityProfile,
@@ -23,13 +39,18 @@
   import {makeCommunityPath} from "@app/util/routes"
   import {
     DEFAULT_COMMUNITY_SECTION_NAMES,
+    FORM_RESPONSE_KIND,
     buildCommunityDefinition,
+    getCommunitySectionKindAssignments,
     getDefaultCommunitySectionKinds,
     getCommunitySectionKindKey,
     getCommunitySectionKindLabel,
+    getProfileListPubkeys,
     makeCommunityNcommunity,
     makeCommunitySetupSection,
     normalizeGeohash,
+    normalizeCommunitySectionName,
+    normalizePubkey,
     normalizeRelay,
     normalizeRelays,
     parseCommunityDefinition,
@@ -43,10 +64,25 @@
   } from "@app/core/community"
   import {
     applyCommunityBootstrapGrants,
+    findCommunityProfileListEvent,
+    isActiveCommunityProfileListEvent,
+    makeManualModeratorProfileListRef,
     makeCommunityProfileList,
     type CommunityBootstrapGrantDraft,
     type CommunityProfileListDraftUpdate,
   } from "@app/core/community-admin"
+  import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_FORM_REVIEW_KIND,
+    getAdmissionSubmissionState,
+    makeAdmissionFormDraftFromForm,
+    makeAdmissionFormFieldsFromDraft,
+    makeAdmissionFormTemplate,
+  } from "@app/core/community-forms"
+  import {
+    makeCommunityReportReviewLabel,
+    parseCommunityReportReviewLabel,
+  } from "@app/core/community-reports"
   import {getCommunityRootPublishRelays} from "@app/core/community-relays"
   import {uploadFile} from "@app/core/commands"
   import type {BlossomUploadStage} from "@app/core/blossom"
@@ -117,6 +153,53 @@
     profileListUpdates: CommunityProfileListDraftUpdate[]
   }
 
+  type OriginalDraftState = {
+    name: string
+    description: string
+    website: string
+    picture: string
+    primaryRelay: string
+    extraRelays: string
+    blossomServers: string
+    mints: string
+    tosRef: string
+    tosRelay: string
+    location: string
+    geohash: string
+    sectionDrafts: SectionDraft[]
+  }
+
+  type SectionLifecycleChange =
+    | {type: "rename"; oldSectionName: string; newSectionName: string}
+    | {type: "move"; kindKey: string; kindLabel: string; oldSectionName: string; newSectionName: string}
+    | {type: "kind-remove"; kindKey: string; kindLabel: string; oldSectionName: string}
+    | {type: "remove"; oldSectionName: string}
+
+  type SectionMigrationPair = {
+    oldSectionName: string
+    newSectionName: string
+  }
+
+  type SectionMigrationSummary = {
+    changes: SectionLifecycleChange[]
+    migrationPairs: SectionMigrationPair[]
+    removedSectionNames: string[]
+    migratedMemberPubkeys: string[]
+    moderatorPubkeys: string[]
+    formCopyCount: number
+    reportReviewCopyCount: number
+    pendingRequestCount: number
+  }
+
+  type MigrationArtifactPlan = {
+    sections: CommunityDefinitionSectionInput[]
+    profileListUpdates: CommunityProfileListDraftUpdate[]
+    formTemplates: Array<EventTemplate & {kind: number}>
+    reportReviewLabels: Array<EventTemplate & {kind: number}>
+  }
+
+  type PublishStatusUpdate = (message: string) => void
+
   const {mode = "create", definition, profile, embedded = false}: Props = $props()
 
   const SECTION_NAME_RE = /^[A-Za-z-]{1,50}$/
@@ -133,6 +216,7 @@
   const STRFRY_RELAY_URL = "https://github.com/hoytech/strfry"
   const BLOSSOM_SERVER_URL =
     "https://budabit.club/git/naddr1qvzqqqrhnypzqfngzhsvjggdlgeycm96x4emzjlwf8dyyzdfg4hefp89zpkdgz99qyvhwumn8ghj7emfwsh8x6rpddjhxur9v9ex2tnyd9usz9rhwden5te0wfjkccte9ehxw6t59ejx2aspr9mhxue69uhhq7tjv9kkjepwve5kzar2v9nzucm0d5qqucnvdaehxmmd94ek2unkv4eqs93a9j"
+  const MIGRATION_VERIFY_TIMEOUT = 5_000
 
   const KNOWN_SECTION_KIND_OPTIONS = [
     {label: "Room Messages", kind: 9, subtype: "room-message"},
@@ -144,7 +228,7 @@
     {label: "Labels", kind: 1985},
     {label: "Calendar Events", kind: 31922},
     {label: "Goals", kind: 9041},
-    {label: "Repositories", kind: 30617},
+    {label: "Repository Announcements", kind: 30617},
     {label: "Permalinks", kind: 1623},
     {label: "Widgets", kind: 30033},
   ] satisfies Array<{label: string; kind: number; subtype?: string}>
@@ -191,6 +275,344 @@
       badges: section.badges,
       retention: section.retention,
     }))
+
+  const cloneSectionDrafts = (drafts: SectionDraft[]): SectionDraft[] =>
+    drafts.map(section => ({
+      name: section.name,
+      kinds: section.kinds.map(kind => ({...kind})),
+      profileLists: section.profileLists.map(ref => ({...ref})),
+      badges: section.badges.map(ref => ({...ref})),
+      retention: section.retention.map(policy => ({...policy})),
+    }))
+
+  const makeOriginalDraftState = (
+    communityDefinition: CommunityDefinition,
+    communityProfile?: CommunityProfile,
+  ): OriginalDraftState => ({
+    name: communityProfile?.display_name || communityProfile?.name || "",
+    description: communityDefinition.description || communityProfile?.about || "",
+    website: communityProfile?.website || "",
+    picture: communityProfile?.picture || "",
+    primaryRelay: communityDefinition.relays[0] || "",
+    extraRelays: communityDefinition.relays.slice(1).join("\n"),
+    blossomServers: communityDefinition.blossomServers.join("\n"),
+    mints: communityDefinition.mints
+      .map(mint => [mint.url, mint.type].filter(Boolean).join(" "))
+      .join("\n"),
+    tosRef: communityDefinition.tos?.ref || "",
+    tosRelay: communityDefinition.tos?.relay || "",
+    location: communityDefinition.location || "",
+    geohash: communityDefinition.geohash || "",
+    sectionDrafts: makeSectionDraftsFromDefinition(communityDefinition),
+  })
+
+  const parseSectionDraftKind = (draft: SectionKindDraft): CommunitySectionKind | undefined => {
+    const kindValue = draft.kind.trim()
+    const kind = Number.parseInt(kindValue, 10)
+    const subtype = draft.subtype.trim()
+
+    if (!KIND_DIGITS_RE.test(kindValue) || !Number.isInteger(kind) || kind < 0 || kind > 39999) {
+      return undefined
+    }
+    if (!SUBTYPE_RE.test(subtype)) return undefined
+
+    return {kind, subtype: subtype || undefined}
+  }
+
+  const makeSectionInputsFromDrafts = (drafts: SectionDraft[]) =>
+    drafts.map(section => ({
+      name: section.name.trim(),
+      kinds: section.kinds.map(parseSectionDraftKind).filter(Boolean) as CommunitySectionKind[],
+      profileLists: section.profileLists,
+      badges: section.badges,
+      retention: section.retention,
+    }))
+
+  const getSectionNameKey = (name: string) => normalizeCommunitySectionName(name).toLowerCase()
+
+  const getSectionKindSignature = (section: Pick<CommunityDefinitionSectionInput, "kinds">) =>
+    section.kinds
+      .map(kind => getCommunitySectionKindKey(kind.kind, kind.subtype))
+      .sort()
+      .join("|")
+
+  const getSectionAssignmentMap = (
+    sections: Array<Pick<CommunityDefinitionSectionInput, "name" | "kinds">>,
+  ) => new Map(getCommunitySectionKindAssignments(sections as any).map(item => [item.key, item]))
+
+  const getSectionLifecycleChanges = (
+    currentSections: CommunityDefinitionSectionInput[],
+  ): SectionLifecycleChange[] => {
+    if (!isEdit || !definition) return []
+
+    const originalSections = definition.sections
+    const originalByName = new Map(
+      originalSections.map(section => [getSectionNameKey(section.name), section]),
+    )
+    const currentByName = new Map(
+      currentSections.map(section => [getSectionNameKey(section.name), section]),
+    )
+    const renames: Array<{oldSectionName: string; newSectionName: string}> = []
+    const usedCurrentNames = new Set<string>()
+
+    for (const [index, originalSection] of originalSections.entries()) {
+      const originalKey = getSectionNameKey(originalSection.name)
+      if (currentByName.has(originalKey)) continue
+
+      const originalSignature = getSectionKindSignature(originalSection)
+      const sameIndexSection = currentSections[index]
+      const sameIndexKey = sameIndexSection ? getSectionNameKey(sameIndexSection.name) : ""
+      const renamedSection =
+        sameIndexSection &&
+        sameIndexSection.name.trim() &&
+        !originalByName.has(sameIndexKey) &&
+        !usedCurrentNames.has(sameIndexKey)
+          ? sameIndexSection
+          : currentSections.find(section => {
+              const sectionKey = getSectionNameKey(section.name)
+
+              return (
+                section.name.trim() &&
+                !originalByName.has(sectionKey) &&
+                !usedCurrentNames.has(sectionKey) &&
+                getSectionKindSignature(section) === originalSignature
+              )
+            })
+
+      if (!renamedSection) continue
+
+      const renamedKey = getSectionNameKey(renamedSection.name)
+      usedCurrentNames.add(renamedKey)
+      renames.push({oldSectionName: originalSection.name, newSectionName: renamedSection.name})
+    }
+
+    const renameByOldName = new Map(renames.map(rename => [getSectionNameKey(rename.oldSectionName), rename]))
+    const renamedOldNames = new Set(renameByOldName.keys())
+    const changes: SectionLifecycleChange[] = renames.map(rename => ({type: "rename", ...rename}))
+    const originalAssignments = getSectionAssignmentMap(originalSections)
+    const currentAssignments = getSectionAssignmentMap(currentSections)
+    const removedSectionKeys = new Set<string>()
+
+    for (const originalSection of originalSections) {
+      const sectionKey = getSectionNameKey(originalSection.name)
+      if (currentByName.has(sectionKey) || renamedOldNames.has(sectionKey)) continue
+
+      removedSectionKeys.add(sectionKey)
+      changes.push({type: "remove", oldSectionName: originalSection.name})
+    }
+
+    for (const [kindKey, originalAssignment] of originalAssignments) {
+      const currentAssignment = currentAssignments.get(kindKey)
+      if (!currentAssignment) {
+        if (!removedSectionKeys.has(getSectionNameKey(originalAssignment.sectionName))) {
+          changes.push({
+            type: "kind-remove",
+            kindKey,
+            kindLabel: originalAssignment.label,
+            oldSectionName: originalAssignment.sectionName,
+          })
+        }
+        continue
+      }
+
+      const originalSectionKey = getSectionNameKey(originalAssignment.sectionName)
+      const currentSectionKey = getSectionNameKey(currentAssignment.sectionName)
+      const rename = renameByOldName.get(originalSectionKey)
+
+      if (rename && getSectionNameKey(rename.newSectionName) === currentSectionKey) continue
+      if (originalSectionKey === currentSectionKey) continue
+
+      changes.push({
+        type: "move",
+        kindKey,
+        kindLabel: originalAssignment.label,
+        oldSectionName: originalAssignment.sectionName,
+        newSectionName: currentAssignment.sectionName,
+      })
+    }
+
+    return changes
+  }
+
+  const uniqueNormalizedPubkeys = (pubkeys: string[]) =>
+    Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean)))
+
+  const getOriginalSection = (sectionName: string) =>
+    definition?.sections.find(section => getSectionNameKey(section.name) === getSectionNameKey(sectionName))
+
+  const getActiveSectionMemberPubkeys = (sectionName: string) => {
+    const section = getOriginalSection(sectionName)
+    if (!section) return []
+
+    return uniqueNormalizedPubkeys(
+      section.profileLists.flatMap(ref =>
+        getProfileListPubkeys(findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents)),
+      ),
+    )
+  }
+
+  const getActiveSectionModeratorPubkeys = (sectionName: string) => {
+    const section = getOriginalSection(sectionName)
+    if (!section || !definition) return []
+    const owner = normalizePubkey(definition.pubkey)
+
+    return uniqueNormalizedPubkeys(
+      section.profileLists
+        .filter(ref => normalizePubkey(ref.pubkey) !== owner)
+        .filter(ref =>
+          isActiveCommunityProfileListEvent(
+            findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents),
+          ),
+        )
+        .map(ref => ref.pubkey),
+    )
+  }
+
+  const getMigrationPairs = (changes: SectionLifecycleChange[]) => {
+    const pairs = new Map<string, SectionMigrationPair>()
+
+    for (const change of changes) {
+      if (change.type === "remove" || change.type === "kind-remove") continue
+
+      const oldSectionName = change.oldSectionName
+      const newSectionName = change.newSectionName
+      const key = `${getSectionNameKey(oldSectionName)}>${getSectionNameKey(newSectionName)}`
+
+      pairs.set(key, {oldSectionName, newSectionName})
+    }
+
+    return Array.from(pairs.values())
+  }
+
+  const getDroppedSectionNames = (changes: SectionLifecycleChange[]) =>
+    Array.from(
+      new Set(
+        changes
+          .filter((change): change is Extract<SectionLifecycleChange, {type: "remove"}> =>
+            change.type === "remove",
+          )
+          .map(change => change.oldSectionName),
+      ),
+    )
+
+  const getActiveAdmissionResponseEvents = () =>
+    $admissionResponseEventsStore ? ($admissionResponseEventsStore as TrustedEvent[]) : []
+
+  const getAdmissionResponseDeleteEvents = () =>
+    $admissionResponseDeleteEventsStore
+      ? ($admissionResponseDeleteEventsStore as TrustedEvent[])
+      : []
+
+  const getAdmissionReviewEvents = () =>
+    $admissionReviewEventsStore ? ($admissionReviewEventsStore as TrustedEvent[]) : []
+
+  const getPendingRequestCountForSection = (sectionName: string) => {
+    if (!definition) return 0
+
+    const form = $activeCommunityAdmissionForms[sectionName]
+    if (!form) return 0
+
+    const responseEvents = getActiveAdmissionResponseEvents()
+    const applicantPubkeys = uniqueNormalizedPubkeys(
+      responseEvents
+        .filter(event => event.tags.some(tag => tag[0] === "a" && tag[1] === form.address))
+        .map(event => event.pubkey || ""),
+    )
+    const moderatorPubkeys = getGrantCapableSectionModeratorPubkeys({
+      definition,
+      sectionName,
+      profileListEvents: $activeCommunityProfileListEvents,
+      reportState: $activeCommunityReportState,
+    })
+
+    return applicantPubkeys.filter(applicantPubkey => {
+      const state = getAdmissionSubmissionState({
+        responseEvents,
+        deleteEvents: getAdmissionResponseDeleteEvents(),
+        reviewEvents: getAdmissionReviewEvents(),
+        formAddress: form.address,
+        applicantPubkey,
+        moderatorPubkeys,
+      })
+
+      return state.status === "pending"
+    }).length
+  }
+
+  const getFormCopyCount = (pairs: SectionMigrationPair[]) => {
+    const copiedDestinations = new Set<string>()
+
+    for (const pair of pairs) {
+      const destinationKey = getSectionNameKey(pair.newSectionName)
+      if (copiedDestinations.has(destinationKey)) continue
+      if ($activeCommunityAdmissionForms[pair.newSectionName]) continue
+      if (!$activeCommunityAdmissionForms[pair.oldSectionName]) continue
+
+      copiedDestinations.add(destinationKey)
+    }
+
+    return copiedDestinations.size
+  }
+
+  const getReportReviewCopyCount = (pairs: SectionMigrationPair[]) => {
+    const destinationBySource = new Map(
+      pairs.map(pair => [getSectionNameKey(pair.oldSectionName), pair.newSectionName]),
+    )
+    const copied = new Set<string>()
+
+    for (const event of $activeCommunityReportReviewEvents) {
+      const review = parseCommunityReportReviewLabel(event, definition?.pubkey)
+      if (!review) continue
+
+      const report = $activeCommunityReportState.eventReports.find(
+        report => report.event.id === review.reportId,
+      )
+      const nextSectionName = report?.sectionName
+        ? destinationBySource.get(getSectionNameKey(report.sectionName))
+        : undefined
+      if (!report || !nextSectionName) continue
+
+      copied.add(`${review.reportId}:${getSectionNameKey(nextSectionName)}`)
+    }
+
+    return copied.size
+  }
+
+  const buildSectionMigrationSummary = (
+    currentSections: CommunityDefinitionSectionInput[],
+  ): SectionMigrationSummary => {
+    const changes = getSectionLifecycleChanges(currentSections)
+    const migrationPairs = getMigrationPairs(changes)
+    const removedSectionNames = getDroppedSectionNames(changes)
+    const affectedOldSectionNames = Array.from(
+      new Set([
+        ...migrationPairs.map(pair => pair.oldSectionName),
+        ...removedSectionNames,
+      ]),
+    )
+    const owner = normalizePubkey(definition?.pubkey || "")
+    const migratedMemberPubkeys = uniqueNormalizedPubkeys(
+      migrationPairs.flatMap(pair => getActiveSectionMemberPubkeys(pair.oldSectionName)),
+    ).filter(pubkey => pubkey !== owner)
+    const moderatorPubkeys = uniqueNormalizedPubkeys(
+      migrationPairs.flatMap(pair => getActiveSectionModeratorPubkeys(pair.oldSectionName)),
+    )
+    const pendingRequestCount = affectedOldSectionNames.reduce(
+      (count, sectionName) => count + getPendingRequestCountForSection(sectionName),
+      0,
+    )
+
+    return {
+      changes,
+      migrationPairs,
+      removedSectionNames,
+      migratedMemberPubkeys,
+      moderatorPubkeys,
+      formCopyCount: getFormCopyCount(migrationPairs),
+      reportReviewCopyCount: getReportReviewCopyCount(migrationPairs),
+      pendingRequestCount,
+    }
+  }
 
   const makeEmptySectionDraft = (): SectionDraft => {
     const existingNames = new Set(sectionDrafts.map(section => section.name.toLowerCase()))
@@ -725,8 +1147,607 @@
     }
   }
 
+  const verifyPublishedEvent = async (event: SignedEvent, relays: string[]) => {
+    const matches = await loadCommunityEvents(relays, [{ids: [event.id], limit: 1}], {
+      authenticate: true,
+      settle: "first-non-empty",
+      timeout: MIGRATION_VERIFY_TIMEOUT,
+    })
+
+    if (!matches.some(match => match.id === event.id)) {
+      throw new Error("A migration update was not found on the community relays.")
+    }
+  }
+
+  const mergeProfileListUpdates = (updates: CommunityProfileListDraftUpdate[]) => {
+    const byAddress = new Map<string, CommunityProfileListDraftUpdate>()
+
+    for (const update of updates) {
+      const current = byAddress.get(update.profileList.address)
+
+      byAddress.set(update.profileList.address, {
+        profileList: update.profileList,
+        pubkeys: uniqueNormalizedPubkeys([...(current?.pubkeys || []), ...update.pubkeys]),
+      })
+    }
+
+    return Array.from(byAddress.values())
+  }
+
+  const dedupeProfileListRefs = (refs: CommunityProfileListRef[]) =>
+    Array.from(new Map(refs.map(ref => [ref.address, ref])).values())
+
+  const applySectionMigration = (
+    validated: ValidatedSetup,
+    summary: SectionMigrationSummary,
+  ): MigrationArtifactPlan => {
+    if (!definition || summary.migrationPairs.length === 0) {
+      return {
+        sections: validated.sections,
+        profileListUpdates: validated.profileListUpdates,
+        formTemplates: [],
+        reportReviewLabels: [],
+      }
+    }
+
+    const owner = normalizePubkey(validated.community.pubkey)
+    const sections = validated.sections.map(section => ({
+      ...section,
+      kinds: section.kinds.map(kind => ({...kind})),
+      profileLists: [...(section.profileLists || [])],
+      badges: [...(section.badges || [])],
+      retention: [...(section.retention || [])],
+    }))
+    const profileListUpdates: CommunityProfileListDraftUpdate[] = [...validated.profileListUpdates]
+    const formTemplates: MigrationArtifactPlan["formTemplates"] = []
+    const reportReviewLabels: MigrationArtifactPlan["reportReviewLabels"] = []
+    const sourceNamesByDestination = new Map<string, string[]>()
+
+    for (const pair of summary.migrationPairs) {
+      const destinationKey = getSectionNameKey(pair.newSectionName)
+
+      sourceNamesByDestination.set(destinationKey, [
+        ...(sourceNamesByDestination.get(destinationKey) || []),
+        pair.oldSectionName,
+      ])
+    }
+
+    for (const [destinationKey, sourceNames] of sourceNamesByDestination) {
+      const sectionIndex = sections.findIndex(
+        section => getSectionNameKey(section.name) === destinationKey,
+      )
+      const section = sections[sectionIndex]
+      if (!section) continue
+
+      const setup = makeCommunitySetupSection({
+        communityPubkey: owner,
+        profileListPubkey: owner,
+        relays: validated.relays,
+        name: section.name,
+        kinds: section.kinds,
+      })
+      const sourceProfileListAddresses = new Set(
+        sourceNames.flatMap(sectionName =>
+          (getOriginalSection(sectionName)?.profileLists || []).map(ref => ref.address),
+        ),
+      )
+      const moderatorRefs = uniqueNormalizedPubkeys(
+        sourceNames.flatMap(getActiveSectionModeratorPubkeys),
+      ).map(moderatorPubkey =>
+        makeManualModeratorProfileListRef({
+          moderatorPubkey,
+          sectionName: section.name,
+          relays: validated.relays,
+        }),
+      )
+      const existingDestinationPubkeys = uniqueNormalizedPubkeys(
+        section.profileLists.flatMap(ref =>
+          getProfileListPubkeys(findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents)),
+        ),
+      )
+      const migratedPubkeys = uniqueNormalizedPubkeys(
+        sourceNames.flatMap(getActiveSectionMemberPubkeys),
+      )
+
+      sections[sectionIndex] = {
+        ...section,
+        profileLists: dedupeProfileListRefs([
+          ...section.profileLists.filter(ref => !sourceProfileListAddresses.has(ref.address)),
+          setup.profileList,
+          ...moderatorRefs,
+        ]),
+      }
+      profileListUpdates.push({
+        profileList: setup.profileList,
+        pubkeys: uniqueNormalizedPubkeys([owner, ...existingDestinationPubkeys, ...migratedPubkeys]),
+      })
+    }
+
+    const copiedFormDestinations = new Set<string>()
+    for (const pair of summary.migrationPairs) {
+      const section = sections.find(
+        section => getSectionNameKey(section.name) === getSectionNameKey(pair.newSectionName),
+      )
+      if (!section) continue
+      const destinationKey = getSectionNameKey(section.name)
+      if (copiedFormDestinations.has(destinationKey)) continue
+      if ($activeCommunityAdmissionForms[section.name]) continue
+
+      const sourceForm = $activeCommunityAdmissionForms[pair.oldSectionName]
+      if (!sourceForm) continue
+
+      const draft = makeAdmissionFormDraftFromForm({
+        form: sourceForm,
+        communityPubkey: owner,
+        sectionName: section.name,
+      })
+
+      copiedFormDestinations.add(destinationKey)
+      formTemplates.push(
+        makeAdmissionFormTemplate({
+          identifier: draft.identifier,
+          communityPubkey: owner,
+          sectionName: section.name,
+          name: draft.name,
+          description: draft.description,
+          relays: validated.relays,
+          fields: makeAdmissionFormFieldsFromDraft(draft),
+        }),
+      )
+    }
+
+    const destinationBySource = new Map(
+      summary.migrationPairs.map(pair => [getSectionNameKey(pair.oldSectionName), pair.newSectionName]),
+    )
+    const copiedReportReviews = new Set<string>()
+
+    for (const event of $activeCommunityReportReviewEvents) {
+      const review = parseCommunityReportReviewLabel(event, owner)
+      if (!review) continue
+
+      const report = $activeCommunityReportState.eventReports.find(
+        report => report.event.id === review.reportId,
+      )
+      const nextSectionName = report?.sectionName
+        ? destinationBySource.get(getSectionNameKey(report.sectionName))
+        : undefined
+      if (!report || !nextSectionName) continue
+
+      const key = `${review.reportId}:${getSectionNameKey(nextSectionName)}`
+      if (copiedReportReviews.has(key)) continue
+
+      copiedReportReviews.add(key)
+      reportReviewLabels.push(
+        makeCommunityReportReviewLabel({
+          communityPubkey: owner,
+          reportId: review.reportId,
+          targetEventId: review.targetEventId || report.targetEventId || "",
+          targetEventKind: review.targetEventKind || report.targetEventKind,
+          sectionName: nextSectionName,
+          reporterPubkey: report.reporterPubkey,
+          content: event.content || "",
+        }),
+      )
+    }
+
+    return {sections, profileListUpdates: mergeProfileListUpdates(profileListUpdates), formTemplates, reportReviewLabels}
+  }
+
+  const makeChangeSummaryItems = (summary: SectionMigrationSummary) =>
+    summary.changes.map(change => {
+      if (change.type === "rename") {
+        return `${change.oldSectionName} renamed to ${change.newSectionName}`
+      }
+      if (change.type === "move") {
+        return `${change.kindLabel} moved from ${change.oldSectionName} to ${change.newSectionName}`
+      }
+      if (change.type === "kind-remove") {
+        return `${change.kindLabel} removed from ${change.oldSectionName}`
+      }
+
+      return `${change.oldSectionName} section removed`
+    })
+
+  const makeMigrationSummaryItems = (summary: SectionMigrationSummary) => {
+    const items: string[] = []
+
+    if (summary.migratedMemberPubkeys.length > 0) {
+      items.push(
+        `${summary.migratedMemberPubkeys.length} granted member${summary.migratedMemberPubkeys.length === 1 ? "" : "s"} will be migrated`,
+      )
+    }
+    if (summary.moderatorPubkeys.length > 0) {
+      items.push(
+        `${summary.moderatorPubkeys.length} moderator${summary.moderatorPubkeys.length === 1 ? "" : "s"} will need to accept new permissions`,
+      )
+    }
+    if (summary.formCopyCount > 0) {
+      items.push(
+        `${summary.formCopyCount} application form${summary.formCopyCount === 1 ? "" : "s"} will be copied to the new section`,
+      )
+    }
+    if (summary.reportReviewCopyCount > 0) {
+      items.push(
+        `${summary.reportReviewCopyCount} reviewed report decision${summary.reportReviewCopyCount === 1 ? "" : "s"} will be preserved`,
+      )
+    }
+    if (items.length > 0) {
+      items.push("Permission migration updates will be published and verified before the community update")
+    }
+
+    return items
+  }
+
+  const makeDropSummaryItems = (summary: SectionMigrationSummary) => {
+    const items: string[] = []
+
+    if (summary.pendingRequestCount > 0) {
+      items.push(
+        `${summary.pendingRequestCount} pending request${summary.pendingRequestCount === 1 ? "" : "s"} will be dropped`,
+      )
+    }
+    if (summary.removedSectionNames.length > 0) {
+      items.push("Removed sections will lose their old publishing permissions")
+    }
+    if (summary.changes.some(change => change.type === "kind-remove")) {
+      items.push("Removed publish types will lose their old publishing permissions")
+    }
+    if (summary.changes.length > 0) {
+      items.push("Applicant submissions and user reports will not be copied or impersonated")
+    }
+
+    return items
+  }
+
+  const makePublishSummarySections = (summary: SectionMigrationSummary) => [
+    {title: "Permission changes", items: makeChangeSummaryItems(summary), tone: "warning" as const},
+    {title: "Migration", items: makeMigrationSummaryItems(summary), tone: "success" as const},
+    {title: "Not migrated", items: makeDropSummaryItems(summary), tone: "info" as const},
+  ]
+
+  const publishMigrationEvents = async (
+    events: SignedEvent[],
+    relays: string[],
+    requiredRelay: string,
+    setStatus: PublishStatusUpdate,
+  ) => {
+    for (const [index, event] of events.entries()) {
+      setStatus(`Publishing migration update ${index + 1} of ${events.length}...`)
+      await publishRequiredEvent(event, relays, requiredRelay)
+      setStatus(`Verifying migration update ${index + 1} of ${events.length}...`)
+      await verifyPublishedEvent(event, relays)
+    }
+  }
+
+  const performCommunitySettingsPublish = async ({
+    validated,
+    migrate,
+    summary,
+    setStatus = () => undefined,
+  }: {
+    validated: ValidatedSetup
+    migrate: boolean
+    summary: SectionMigrationSummary
+    setStatus?: PublishStatusUpdate
+  }) => {
+    loading = true
+
+    try {
+      const migration = migrate
+        ? applySectionMigration(validated, summary)
+        : {
+            sections: validated.sections,
+            profileListUpdates: validated.profileListUpdates,
+            formTemplates: [],
+            reportReviewLabels: [],
+          }
+      const communityProfile = createProfile({
+        name: validated.name,
+        display_name: validated.name,
+        about: validated.description,
+        website: validated.website,
+        picture: validated.picture,
+      })
+      const communityDefinition = buildCommunityDefinition({
+        relays: validated.relays,
+        sections: migration.sections,
+        description: validated.description,
+        blossomServers: validated.blossomServers,
+        mints: validated.mints,
+        tos: validated.tos,
+        location: validated.location,
+        geohash: validated.geohash,
+      })
+      const profileListUpdates = mergeProfileListUpdates(migration.profileListUpdates)
+      const updatedProfileListAddresses = new Set(
+        profileListUpdates.map(update => update.profileList.address),
+      )
+      const profileLists = [
+        ...profileListUpdates.map(update =>
+          makeCommunityProfileList({profileList: update.profileList, pubkeys: update.pubkeys}),
+        ),
+        ...validated.newProfileLists
+          .filter(({profileList}) => !updatedProfileListAddresses.has(profileList.address))
+          .map(({profileList}) =>
+            makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
+          ),
+      ]
+      const signedCommunityProfile = await makeSignedEvent(validated.community, communityProfile)
+      const signedDefinition = await makeSignedEvent(validated.community, communityDefinition)
+      const signedProfileLists = await Promise.all(
+        profileLists.map(template => makeSignedEvent(validated.community, template)),
+      )
+      const signedMigrationEvents = migrate
+        ? await Promise.all(
+            [...migration.formTemplates, ...migration.reportReviewLabels].map(template =>
+              makeSignedEvent(validated.community, template),
+            ),
+          )
+        : []
+      const rootRelays = getCommunityRootPublishRelays(validated.relays, validated.community.pubkey)
+      const preDefinitionEvents = migrate
+        ? [...signedProfileLists, ...signedMigrationEvents]
+        : []
+      const postDefinitionEvents = migrate ? [] : signedProfileLists
+
+      if (preDefinitionEvents.length > 0) {
+        await publishMigrationEvents(
+          preDefinitionEvents,
+          validated.relays,
+          validated.primaryRelay,
+          setStatus,
+        )
+      }
+
+      setStatus("Publishing community profile...")
+      await publishRequiredEvent(signedCommunityProfile, rootRelays, validated.primaryRelay)
+      setStatus("Publishing community update...")
+      await publishRequiredEvent(signedDefinition, rootRelays, validated.primaryRelay)
+
+      for (const event of postDefinitionEvents) {
+        await publishRequiredEvent(event, validated.relays, validated.primaryRelay)
+      }
+
+      const communityInput = makeCommunityNcommunity({
+        pubkey: validated.community.pubkey,
+        relayHints: validated.relays,
+      })
+      setActiveCommunityInput(communityInput)
+      const parsedDefinition = parseCommunityDefinition(signedDefinition)
+      if (parsedDefinition) setActiveCommunityDefinition(parsedDefinition)
+      bootstrapGrantDrafts = []
+      keptImmediateWarningKeys = []
+      if (parsedDefinition) {
+        originalDraftState = makeOriginalDraftState(parsedDefinition, {
+          name: validated.name,
+          display_name: validated.name,
+          about: validated.description,
+          website: validated.website,
+          picture: validated.picture,
+        })
+      }
+
+      pushToast({message: isEdit ? "Community settings updated." : "Community created."})
+      if (!isEdit) goto(makeCommunityPath(validated.community.pubkey))
+    } catch (error) {
+      pushToast({theme: "error", message: `Community setup failed: ${String(error)}`})
+      throw error
+    } finally {
+      loading = false
+    }
+  }
+
   const cancel = () =>
     goto(isEdit && definition ? makeCommunityPath(definition.pubkey) : "/explore")
+
+  const applyOriginalDraftState = () => {
+    if (!originalDraftState) return
+
+    name = originalDraftState.name
+    description = originalDraftState.description
+    website = originalDraftState.website
+    picture = originalDraftState.picture
+    primaryRelay = originalDraftState.primaryRelay
+    extraRelays = originalDraftState.extraRelays
+    blossomServers = originalDraftState.blossomServers
+    mints = originalDraftState.mints
+    tosRef = originalDraftState.tosRef
+    tosRelay = originalDraftState.tosRelay
+    location = originalDraftState.location
+    geohash = originalDraftState.geohash
+    pictureUploadStage = "idle"
+    sectionDrafts = cloneSectionDrafts(originalDraftState.sectionDrafts)
+    bootstrapGrantDrafts = []
+    expandedSectionIndex = 0
+    errors = {}
+    keptImmediateWarningKeys = []
+  }
+
+  const keepImmediateWarning = (key: string) => {
+    keptImmediateWarningKeys = Array.from(new Set([...keptImmediateWarningKeys, key]))
+  }
+
+  const showImmediateWarning = ({
+    key,
+    title,
+    description,
+    details,
+    resetLabel,
+    onReset,
+  }: {
+    key: string
+    title: string
+    description: string
+    details?: string[]
+    resetLabel: string
+    onReset: () => void
+  }) => {
+    if (!isEdit || keptImmediateWarningKeys.includes(key)) return
+
+    pushModal(CommunitySectionChangeWarning, {
+      title,
+      description,
+      details,
+      resetLabel,
+      onReset,
+      onKeep: () => keepImmediateWarning(key),
+    })
+  }
+
+  const showDestructiveConfirm = ({
+    title,
+    description,
+    details,
+    confirmLabel,
+    onConfirm,
+  }: {
+    title: string
+    description: string
+    details?: string[]
+    confirmLabel: string
+    onConfirm: () => void
+  }) => {
+    pushModal(CommunitySectionChangeWarning, {
+      title,
+      description,
+      details,
+      resetLabel: confirmLabel,
+      keepLabel: "Cancel",
+      onReset: onConfirm,
+    })
+  }
+
+  const shouldDeferRenameWarning = (event: FocusEvent, sectionIndex: number) => {
+    const target = event.relatedTarget
+    if (!(target instanceof HTMLElement)) return false
+    if (target.closest("button")) return true
+
+    return Boolean(target.closest(`[data-section-accordion="${sectionIndex}"]`))
+  }
+
+  const maybeWarnSectionRename = (sectionIndex: number, event: FocusEvent) => {
+    if (!definition) return
+    if (shouldDeferRenameWarning(event, sectionIndex)) return
+
+    const originalSection = definition.sections[sectionIndex]
+    const draft = sectionDrafts[sectionIndex]
+    if (!originalSection || !draft) return
+
+    const originalName = originalSection.name
+    const nextName = draft.name.trim()
+    if (!SECTION_NAME_RE.test(nextName)) return
+    if (getSectionNameKey(originalName) === getSectionNameKey(nextName)) return
+
+    showImmediateWarning({
+      key: `rename:${getSectionNameKey(originalName)}>${getSectionNameKey(nextName)}`,
+      title: "Rename section?",
+      description: `Renaming ${originalName} to ${nextName} changes who can publish there until permissions are migrated.`,
+      details: [
+        "Existing member lists are tied to the old section name.",
+        "You can keep the rename and review the migration summary before publishing.",
+      ],
+      resetLabel: "Reset rename",
+      onReset: () => {
+        sectionDrafts = sectionDrafts.map((section, index) =>
+          index === sectionIndex ? {...section, name: originalName} : section,
+        )
+        validateSectionNames()
+      },
+    })
+  }
+
+  const parseDraftKindKey = (draft: SectionKindDraft) => {
+    const kind = parseSectionDraftKind(draft)
+
+    return kind ? getCommunitySectionKindKey(kind.kind, kind.subtype) : ""
+  }
+
+  const getOriginalAssignmentForKindKey = (kindKey: string) =>
+    kindKey ? getSectionAssignmentMap(definition?.sections || []).get(kindKey) : undefined
+
+  const applySectionKindUpdate = (
+    sectionIndex: number,
+    kindIndex: number,
+    update: Partial<SectionKindDraft>,
+  ) => {
+    const nextDrafts = sectionDrafts.map((section, index) => {
+      if (index !== sectionIndex) return section
+
+      return {
+        ...section,
+        kinds: section.kinds.map((kind, currentKindIndex) =>
+          currentKindIndex === kindIndex ? {...kind, ...update} : kind,
+        ),
+      }
+    })
+
+    sectionDrafts = nextDrafts
+    validateSectionKinds(nextDrafts)
+  }
+
+  const requestSectionKindUpdate = (
+    sectionIndex: number,
+    kindIndex: number,
+    update: Partial<SectionKindDraft>,
+  ) => {
+    const section = sectionDrafts[sectionIndex]
+    const currentDraft = section?.kinds[kindIndex]
+    if (!section || !currentDraft) return
+
+    const nextDraft = {...currentDraft, ...update}
+    const currentKindKey = parseDraftKindKey(currentDraft)
+    const nextKind = parseSectionDraftKind(nextDraft)
+    const nextKindKey = nextKind ? getCommunitySectionKindKey(nextKind.kind, nextKind.subtype) : ""
+    if (currentKindKey === nextKindKey) return
+
+    const previousDrafts = cloneSectionDrafts(sectionDrafts)
+    const currentAssignment = getOriginalAssignmentForKindKey(currentKindKey)
+    const nextAssignment = getOriginalAssignmentForKindKey(nextKindKey)
+    const applyUpdate = () => applySectionKindUpdate(sectionIndex, kindIndex, update)
+
+    if (
+      nextAssignment &&
+      getSectionNameKey(nextAssignment.sectionName) !== getSectionNameKey(section.name)
+    ) {
+      applyUpdate()
+      showImmediateWarning({
+        key: `move:${nextKindKey}:${getSectionNameKey(nextAssignment.sectionName)}>${getSectionNameKey(section.name)}`,
+        title: "Move permission?",
+        description: `${nextAssignment.label} was moved from ${nextAssignment.sectionName} to ${section.name}.`,
+        details: [
+          "People who could publish this content before may need migrated access to the new section.",
+          "Moderators for the old section will need to accept new permissions after publish.",
+        ],
+        resetLabel: "Reset move",
+        onReset: () => {
+          sectionDrafts = previousDrafts
+          validateSectionKinds(sectionDrafts)
+        },
+      })
+      return
+    }
+
+    if (currentAssignment && nextKind) {
+      applyUpdate()
+      showImmediateWarning({
+        key: `kind-change:${currentKindKey}>${nextKindKey}:${getSectionNameKey(section.name)}`,
+        title: "Change kind?",
+        description: `${currentAssignment.label} was changed to ${getCommunitySectionKindLabel(nextKind.kind, nextKind.subtype)} in ${section.name}.`,
+        details: [
+          "The old publishing permission will be removed from this section unless you reset the change.",
+          "You can keep the kind change and review the permission summary before publishing.",
+        ],
+        resetLabel: "Reset kind change",
+        onReset: () => {
+          sectionDrafts = previousDrafts
+          validateSectionKinds(sectionDrafts)
+        },
+      })
+      return
+    }
+
+    applyUpdate()
+  }
 
   const submitCommunitySettings = async () => {
     if (!$pubkey) {
@@ -750,69 +1771,29 @@
     location = validated.location
     geohash = validated.geohash
 
-    loading = true
+    const summary = buildSectionMigrationSummary(validated.sections)
+    const publishWithMode = (migrate: boolean, setStatus?: PublishStatusUpdate) =>
+      performCommunitySettingsPublish({
+        validated,
+        migrate,
+        summary,
+        setStatus,
+      })
+
+    if (isEdit && summary.changes.length > 0) {
+      pushModal(CommunitySectionPublishConfirm, {
+        sections: makePublishSummarySections(summary),
+        onPublishAndMigrate: (setStatus: PublishStatusUpdate) => publishWithMode(true, setStatus),
+        onPublishWithoutMigration: (setStatus: PublishStatusUpdate) =>
+          publishWithMode(false, setStatus),
+      })
+      return
+    }
 
     try {
-      const communityProfile = createProfile({
-        name: validated.name,
-        display_name: validated.name,
-        about: validated.description,
-        website: validated.website,
-        picture: validated.picture,
-      })
-      const communityDefinition = buildCommunityDefinition({
-        relays: validated.relays,
-        sections: validated.sections,
-        description: validated.description,
-        blossomServers: validated.blossomServers,
-        mints: validated.mints,
-        tos: validated.tos,
-        location: validated.location,
-        geohash: validated.geohash,
-      })
-      const updatedProfileListAddresses = new Set(
-        validated.profileListUpdates.map(update => update.profileList.address),
-      )
-      const profileLists = [
-        ...validated.profileListUpdates.map(update =>
-          makeCommunityProfileList({profileList: update.profileList, pubkeys: update.pubkeys}),
-        ),
-        ...validated.newProfileLists
-          .filter(({profileList}) => !updatedProfileListAddresses.has(profileList.address))
-          .map(({profileList}) =>
-            makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
-          ),
-      ]
-      const signedCommunityProfile = await makeSignedEvent(validated.community, communityProfile)
-      const signedDefinition = await makeSignedEvent(validated.community, communityDefinition)
-      const signedProfileLists = await Promise.all(
-        profileLists.map(template => makeSignedEvent(validated.community, template)),
-      )
-      const rootRelays = getCommunityRootPublishRelays(validated.relays, validated.community.pubkey)
-      const communityScopedEvents = signedProfileLists
-
-      await publishRequiredEvent(signedCommunityProfile, rootRelays, validated.primaryRelay)
-      await publishRequiredEvent(signedDefinition, rootRelays, validated.primaryRelay)
-
-      for (const event of communityScopedEvents) {
-        await publishRequiredEvent(event, validated.relays, validated.primaryRelay)
-      }
-
-      const communityInput = makeCommunityNcommunity({
-        pubkey: validated.community.pubkey,
-        relayHints: validated.relays,
-      })
-      setActiveCommunityInput(communityInput)
-      const parsedDefinition = parseCommunityDefinition(signedDefinition)
-      if (parsedDefinition) setActiveCommunityDefinition(parsedDefinition)
-      bootstrapGrantDrafts = []
-
-      pushToast({message: isEdit ? "Community settings updated." : "Community created."})
-      if (!isEdit) goto(makeCommunityPath(validated.community.pubkey))
-    } catch (error) {
-      pushToast({theme: "error", message: `Community setup failed: ${String(error)}`})
-    } finally {
-      loading = false
+      await publishWithMode(false)
+    } catch {
+      // performCommunitySettingsPublish already surfaced the failure to the user.
     }
   }
 
@@ -825,26 +1806,6 @@
     if (update.name !== undefined) validateSectionNames(nextDrafts)
   }
 
-  const updateSectionKind = (
-    sectionIndex: number,
-    kindIndex: number,
-    update: Partial<SectionKindDraft>,
-  ) => {
-    const nextDrafts = sectionDrafts.map((section, index) => {
-      if (index !== sectionIndex) return section
-
-      return {
-        ...section,
-        kinds: section.kinds.map((kind, currentKindIndex) =>
-          currentKindIndex === kindIndex ? {...kind, ...update} : kind,
-        ),
-      }
-    })
-
-    sectionDrafts = nextDrafts
-    validateSectionKinds(nextDrafts)
-  }
-
   const setKnownKind = (sectionIndex: number, kindIndex: number, value: string) => {
     if (value === CUSTOM_KIND_VALUE) return
 
@@ -853,7 +1814,7 @@
     )
     if (!option) return
 
-    updateSectionKind(sectionIndex, kindIndex, {
+    requestSectionKindUpdate(sectionIndex, kindIndex, {
       kind: String(option.kind),
       subtype: option.subtype || "",
     })
@@ -889,8 +1850,8 @@
     scrollToSection(nextSectionIndex)
   }
 
-  const restoreDefaultSections = () => {
-    sectionDrafts = DEFAULT_COMMUNITY_SECTION_NAMES.map(name => {
+  const makeRestoredDefaultSectionDrafts = () =>
+    DEFAULT_COMMUNITY_SECTION_NAMES.map(name => {
       const existing = sectionDrafts.find(
         section => section.name.toLowerCase() === name.toLowerCase(),
       )
@@ -903,18 +1864,67 @@
         retention: existing?.retention || [],
       }
     })
+
+  const applyDefaultSections = (nextDrafts = makeRestoredDefaultSectionDrafts()) => {
+    sectionDrafts = nextDrafts
     errors = Object.fromEntries(
       Object.entries(errors).filter(([key]) => !key.startsWith("section-") && key !== "sections"),
     )
     expandedSectionIndex = 0
   }
 
-  const removeSection = (sectionIndex: number) => {
+  const restoreDefaultSections = () => {
+    const nextDrafts = makeRestoredDefaultSectionDrafts()
+    const nextSummary = buildSectionMigrationSummary(makeSectionInputsFromDrafts(nextDrafts))
+    const removesExistingState = nextSummary.changes.some(
+      change => change.type === "remove" || change.type === "kind-remove",
+    )
+
+    if (isEdit && removesExistingState) {
+      showDestructiveConfirm({
+        title: "Restore default sections?",
+        description: "Restoring defaults will remove existing custom sections or publish types from this draft.",
+        details: [
+          "People with permissions for removed sections or publish types can lose publishing access after publish.",
+          "This change will be listed in the final permission summary.",
+        ],
+        confirmLabel: "Restore defaults",
+        onConfirm: () => applyDefaultSections(nextDrafts),
+      })
+      return
+    }
+
+    applyDefaultSections(nextDrafts)
+  }
+
+  const removeSectionAtIndex = (sectionIndex: number) => {
     const nextDrafts = sectionDrafts.filter((_, index) => index !== sectionIndex)
 
     sectionDrafts = nextDrafts
     expandedSectionIndex = Math.max(0, Math.min(expandedSectionIndex, nextDrafts.length - 1))
     validateSectionNames(nextDrafts)
+    validateSectionKinds(nextDrafts)
+  }
+
+  const removeSection = (sectionIndex: number) => {
+    const removedSection = sectionDrafts[sectionIndex]
+    if (!removedSection) return
+
+    if (removedSection && getOriginalSection(removedSection.name)) {
+      showDestructiveConfirm({
+        title: "Remove section?",
+        description: `Remove ${removedSection.name} from this community draft?`,
+        details: [
+          "People with permissions for this section will lose them when the update is published.",
+          "Pending requests for this section will not be migrated.",
+        ],
+        confirmLabel: "Remove section",
+        onConfirm: () => removeSectionAtIndex(sectionIndex),
+      })
+      return
+    }
+
+    removeSectionAtIndex(sectionIndex)
   }
 
   const addKind = async (sectionIndex: number) => {
@@ -933,7 +1943,7 @@
       ?.scrollIntoView({behavior: "smooth", block: "center"})
   }
 
-  const removeKind = (sectionIndex: number, kindIndex: number) => {
+  const removeKindAtIndex = (sectionIndex: number, kindIndex: number) => {
     const nextDrafts = sectionDrafts.map((section, index) =>
       index === sectionIndex
         ? {
@@ -945,6 +1955,31 @@
 
     sectionDrafts = nextDrafts
     validateSectionKinds(nextDrafts)
+  }
+
+  const removeKind = (sectionIndex: number, kindIndex: number) => {
+    const section = sectionDrafts[sectionIndex]
+    const kindDraft = section?.kinds[kindIndex]
+    if (!section || !kindDraft) return
+
+    const kindKey = parseDraftKindKey(kindDraft)
+    const originalAssignment = kindKey ? getSectionAssignmentMap(definition?.sections || []).get(kindKey) : undefined
+
+    if (originalAssignment) {
+      showDestructiveConfirm({
+        title: "Remove kind?",
+        description: `Remove ${originalAssignment.label} from ${section.name}?`,
+        details: [
+          "People with permissions for this publish type will lose them when the update is published.",
+          "This removal will be listed in the final permission summary.",
+        ],
+        confirmLabel: "Remove kind",
+        onConfirm: () => removeKindAtIndex(sectionIndex, kindIndex),
+      })
+      return
+    }
+
+    removeKindAtIndex(sectionIndex, kindIndex)
   }
 
   const addRecommendedCommunityRelay = (url: string) => {
@@ -1050,6 +2085,8 @@
   let websitePrefilled = $state(false)
   let initializedKey = $state("")
   let errors = $state<FieldErrors>({})
+  let originalDraftState = $state<OriginalDraftState | undefined>()
+  let keptImmediateWarningKeys = $state<string[]>([])
 
   const isEdit = $derived(mode === "edit")
   const disabled = $derived(loading ? true : undefined)
@@ -1067,6 +2104,54 @@
   const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
   const activeCommunityRelays = $derived.by(() =>
     normalizeRelays([primaryRelay, ...splitLines(extraRelays)]),
+  )
+  const activeAdmissionFormAddresses = $derived(
+    Object.values($activeCommunityAdmissionForms).map(form => form.address),
+  )
+  const admissionResponseFilters = $derived.by((): Filter[] =>
+    isEdit && activeAdmissionFormAddresses.length > 0
+      ? [{kinds: [FORM_RESPONSE_KIND], "#a": activeAdmissionFormAddresses, limit: 500}]
+      : [],
+  )
+  const admissionResponseEventsStore = $derived(
+    admissionResponseFilters.length > 0
+      ? deriveEventsAsc(deriveEventsById({repository, filters: admissionResponseFilters}))
+      : undefined,
+  )
+  const admissionResponseIds = $derived(
+    ($admissionResponseEventsStore ? ($admissionResponseEventsStore as TrustedEvent[]) : []).map(
+      event => event.id,
+    ),
+  )
+  const admissionResponseDeleteFilters = $derived.by((): Filter[] =>
+    admissionResponseIds.length > 0
+      ? [{kinds: [DELETE], "#e": admissionResponseIds, "#k": [String(FORM_RESPONSE_KIND)]}]
+      : [],
+  )
+  const admissionReviewFilters = $derived.by((): Filter[] =>
+    admissionResponseIds.length > 0
+      ? [
+          {
+            kinds: [COMMUNITY_FORM_REVIEW_KIND],
+            "#e": admissionResponseIds,
+            "#k": [String(FORM_RESPONSE_KIND)],
+            limit: 500,
+          },
+        ]
+      : [],
+  )
+  const admissionResponseDeleteEventsStore = $derived(
+    admissionResponseDeleteFilters.length > 0
+      ? deriveEventsAsc(deriveEventsById({repository, filters: admissionResponseDeleteFilters}))
+      : undefined,
+  )
+  const admissionReviewEventsStore = $derived(
+    admissionReviewFilters.length > 0
+      ? deriveEventsAsc(deriveEventsById({repository, filters: admissionReviewFilters}))
+      : undefined,
+  )
+  const sectionMigrationSummary = $derived.by(() =>
+    buildSectionMigrationSummary(makeSectionInputsFromDrafts(sectionDrafts)),
   )
   const recommendedCommunityRelays = $derived.by(() => {
     const active = new Set(activeCommunityRelays)
@@ -1094,24 +2179,8 @@
     errors = {}
 
     if (isEdit && definition) {
-      name = profile?.display_name || profile?.name || ""
-      description = definition.description || profile?.about || ""
-      website = profile?.website || ""
-      picture = profile?.picture || ""
-      primaryRelay = definition.relays[0] || ""
-      extraRelays = definition.relays.slice(1).join("\n")
-      blossomServers = definition.blossomServers.join("\n")
-      mints = definition.mints
-        .map(mint => [mint.url, mint.type].filter(Boolean).join(" "))
-        .join("\n")
-      tosRef = definition.tos?.ref || ""
-      tosRelay = definition.tos?.relay || ""
-      location = definition.location || ""
-      geohash = definition.geohash || ""
-      pictureUploadStage = "idle"
-      sectionDrafts = makeSectionDraftsFromDefinition(definition)
-      bootstrapGrantDrafts = []
-      expandedSectionIndex = 0
+      originalDraftState = makeOriginalDraftState(definition, profile)
+      applyOriginalDraftState()
       websitePrefilled = true
       return
     }
@@ -1132,6 +2201,8 @@
     sectionDrafts = makeDefaultSectionDrafts()
     bootstrapGrantDrafts = []
     expandedSectionIndex = 0
+    originalDraftState = undefined
+    keptImmediateWarningKeys = []
     websitePrefilled = Boolean(activePubkey)
   })
 
@@ -1142,6 +2213,24 @@
 
     if (!website.trim()) website = makeBudabitCommunityUrl($pubkey)
   })
+
+  $effect(() => {
+    if (!isEdit || activeCommunityRelays.length === 0) return
+
+    const filters = [
+      ...admissionResponseFilters,
+      ...admissionResponseDeleteFilters,
+      ...admissionReviewFilters,
+    ]
+    if (filters.length === 0) return
+
+    const controller = new AbortController()
+
+    request({relays: activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
+      .catch(() => undefined)
+
+    return () => controller.abort()
+  })
 </script>
 
 <form
@@ -1150,10 +2239,6 @@
   <div class={embedded ? "col-4" : "mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10"}>
     <section
       class="relative isolate overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8 lg:p-10">
-      <div class="-z-10 absolute -right-32 -top-40 h-80 w-80 rounded-full bg-primary/10 blur-3xl">
-      </div>
-      <div class="-z-10 absolute -bottom-40 left-20 h-72 w-72 rounded-full bg-warning/10 blur-3xl">
-      </div>
       <div class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-end">
         <div>
           <div
@@ -1299,6 +2384,14 @@
             </div>
             <div
               class="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:justify-end">
+              {#if isEdit && originalDraftState}
+                <Button
+                  class="btn btn-outline btn-sm w-full sm:w-auto"
+                  onclick={applyOriginalDraftState}
+                  {disabled}>
+                  Reset changes
+                </Button>
+              {/if}
               <Button
                 class="btn btn-ghost btn-sm w-full sm:w-auto"
                 onclick={restoreDefaultSections}
@@ -1361,7 +2454,10 @@
                               updateSection(sectionIndex, {
                                 name: (event.currentTarget as HTMLInputElement).value,
                               })}
-                            onblur={() => validateSectionNames()}
+                            onblur={event => {
+                              validateSectionNames()
+                              maybeWarnSectionRename(sectionIndex, event)
+                            }}
                             type="text" />{/snippet}
                       </Field>
                       <Button
@@ -1376,7 +2472,7 @@
                       <div class="flex items-center justify-between gap-3">
                         <strong class="text-sm">Event kinds</strong>
                         <Button
-                          class="btn btn-ghost btn-xs"
+                          class="btn btn-outline btn-sm shadow-sm"
                           onclick={() => addKind(sectionIndex)}
                           {disabled}>Add kind</Button>
                       </div>
@@ -1417,11 +2513,10 @@
                                   ? 'input-error'
                                   : ''}"
                                 inputmode="numeric"
-                                oninput={event =>
-                                  updateSectionKind(sectionIndex, kindIndex, {
-                                    kind: (event.currentTarget as HTMLInputElement).value,
+                                onblur={event =>
+                                  requestSectionKindUpdate(sectionIndex, kindIndex, {
+                                    kind: event.currentTarget.value,
                                   })}
-                                onblur={() => validateSectionKinds()}
                                 type="text" />{/snippet}
                           </Field>
                           <Field error={errors[sectionSubtypeField(sectionIndex, kindIndex)]}>
@@ -1444,11 +2539,10 @@
                                 ]
                                   ? 'input-error'
                                   : ''}"
-                                oninput={event =>
-                                  updateSectionKind(sectionIndex, kindIndex, {
-                                    subtype: (event.currentTarget as HTMLInputElement).value,
+                                onblur={event =>
+                                  requestSectionKindUpdate(sectionIndex, kindIndex, {
+                                    subtype: event.currentTarget.value,
                                   })}
-                                onblur={() => validateSectionKinds()}
                                 type="text" />{/snippet}
                           </Field>
                           <div class="flex sm:col-span-2 lg:col-span-1">
@@ -1662,6 +2756,41 @@
 
         <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
           <strong class="text-lg">What gets published</strong>
+          {#if isEdit && sectionMigrationSummary.changes.length > 0}
+            <div class="mt-4 rounded-2xl border border-warning/35 bg-warning/10 p-4 text-sm leading-relaxed">
+              <strong class="block text-warning">Permission changes to review</strong>
+              <div class="mt-3 space-y-3">
+                <div>
+                  <p class="font-semibold">Dangerous changes</p>
+                  <ul class="mt-1 list-disc space-y-1 pl-5">
+                    {#each makeChangeSummaryItems(sectionMigrationSummary) as item}
+                      <li>{item}</li>
+                    {/each}
+                  </ul>
+                </div>
+                {#if makeMigrationSummaryItems(sectionMigrationSummary).length > 0}
+                  <div>
+                    <p class="font-semibold">Migration available</p>
+                    <ul class="mt-1 list-disc space-y-1 pl-5">
+                      {#each makeMigrationSummaryItems(sectionMigrationSummary) as item}
+                        <li>{item}</li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
+                {#if makeDropSummaryItems(sectionMigrationSummary).length > 0}
+                  <div>
+                    <p class="font-semibold">Not migrated</p>
+                    <ul class="mt-1 list-disc space-y-1 pl-5">
+                      {#each makeDropSummaryItems(sectionMigrationSummary) as item}
+                        <li>{item}</li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/if}
           <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
             <div class="rounded-xl bg-base-200 p-3"><strong>1</strong><br />profile</div>
             <div class="rounded-xl bg-base-200 p-3"><strong>1</strong><br />definition</div>
@@ -1679,12 +2808,13 @@
                 : "s"} will publish with this update.
             </p>
           {/if}
-          <p class="mt-3 text-xs leading-relaxed opacity-60">
-            Profile and definition go to community, indexer, and community-key outbox relays. New
-            lists stay on community relays.
-          </p>
           <div class="mt-5 flex gap-2">
             <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>
+            {#if isEdit && originalDraftState}
+              <Button class="btn btn-outline flex-1" onclick={applyOriginalDraftState} {disabled}>
+                Reset changes
+              </Button>
+            {/if}
             <Button
               class="btn btn-primary flex-1"
               type="submit"

@@ -13,10 +13,13 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import {preventDefault} from "@lib/html"
   import ContentQuote from "@app/components/ContentQuote.svelte"
-  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {makeCommunityThread} from "@app/core/community-threads"
   import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {getQuoteEventTags} from "@app/util/git-quote"
   import {getEventShareRelayHints, makeEventShareNostrUri} from "@app/util/event-share"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -66,12 +69,14 @@
   const waitForFirstRelaySuccess = (thunk: PublishThunkResult, timeoutMs = 30_000) =>
     new Promise<void>((resolve, reject) => {
       let settled = false
-      let interval: ReturnType<typeof setInterval> | undefined
-      let timeout: ReturnType<typeof setTimeout> | undefined
+      const timers: {
+        interval?: ReturnType<typeof setInterval>
+        timeout?: ReturnType<typeof setTimeout>
+      } = {}
 
       const cleanup = () => {
-        if (interval) clearInterval(interval)
-        if (timeout) clearTimeout(timeout)
+        if (timers.interval) clearInterval(timers.interval)
+        if (timers.timeout) clearTimeout(timers.timeout)
       }
 
       const finish = (fn: () => void) => {
@@ -89,8 +94,8 @@
 
       if (check()) return
 
-      interval = setInterval(check, 100)
-      timeout = setTimeout(
+      timers.interval = setInterval(check, 100)
+      timers.timeout = setTimeout(
         () => finish(() => reject(new Error("No relay accepted the thread in time."))),
         timeoutMs,
       )
@@ -167,7 +172,11 @@
   })
   const threadCommunityOptions = $derived.by(() =>
     $activeUserCommunityRefs.filter(ref =>
-      ref.writableSections.includes(COMMUNITY_SECTION_THREADS),
+      communityWritableSectionsSupportTarget({
+        definition: ref.definition,
+        writableSections: ref.writableSections,
+        target: COMMUNITY_WRITE_TARGETS.thread,
+      }),
     ),
   )
   const selectedCommunity = $derived(

@@ -95,6 +95,30 @@ The community's name, picture, and description are derived from the pubkey's [[k
 | `g` | (optional) Geo hash of the community. |
 | `description` | (optional) Description of the community. |
 
+### Section kind uniqueness
+
+Within one community definition, each exact `(kind, subtype)` pair belongs to at most one content section. The subtype is the third value in a `k` tag. An empty subtype is an exact empty subtype, not a wildcard.
+
+Examples:
+
+- `["k", "11", "room"]` and `["k", "11", "threads"]` are different permissions.
+- `["k", "11"]` does not cover `["k", "11", "room"]` or `["k", "11", "threads"]`.
+- `["k", "30033"]` can be assigned to only one section in a community.
+
+Clients should reject new definitions that duplicate an exact `(kind, subtype)` pair. Existing malformed definitions may still be parsed defensively, but permission resolution should use a single direct section for each exact pair.
+
+### Section lifecycle safety
+
+Section names and profile-list identifiers are operational permission state. Renaming a section, moving a `(kind, subtype)` pair to another section, or removing a section can disconnect existing permissions, moderator ownership, application forms, and pending requests.
+
+Budabit treats those edits as dangerous changes:
+
+- Immediate warning modals protect against accidental edits and can reset only the triggering draft change.
+- Final publish confirmation summarizes what changed, what can be migrated, and what will be dropped.
+- Permission migration, when chosen, publishes and verifies replacement permission updates before publishing the new community definition.
+
+Migration preserves admin-authoritative state only. Granted members are merged into a new admin-owned profile list for the new section. Active moderators receive new section permission requests and must accept them again. Active application forms may be copied as admin-authored forms for the new section. Pending requests are not migrated. Applicant-authored submissions and user-authored reports are never recreated or impersonated.
+
 The pubkey of the key pair that creates this event serves as the unique identifier for the community. This means:
 
 1. Each key pair can only represent one community
