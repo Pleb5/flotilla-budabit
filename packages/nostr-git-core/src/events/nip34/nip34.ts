@@ -126,11 +126,13 @@ export interface ConflictMetadataEvent extends NostrEvent {
 // Issue (kind: 1621)
 // -------------------
 export type IssueTag =
-  | ["a", string]
-  | ["p", string]
+  | ["a", string, ...string[]]
+  | ["p", string, ...string[]]
   | ["subject", string]
   | ["t", string]
   | ["e", string]
+  | ["q", string, ...string[]]
+  | ["imeta", ...string[]]
 
 export interface IssueEvent extends NostrEvent {
   id: string
@@ -160,11 +162,13 @@ export interface CoverLetterEvent extends NostrEvent {
 // Pull Request (kind: 1618)
 // -------------------
 export type PullRequestTag =
-  | ["a", string]
+  | ["a", string, ...string[]]
   | ["r", string]
-  | ["p", string]
+  | ["p", string, ...string[]]
   | ["subject", string]
   | ["t", string]
+  | ["q", string, ...string[]]
+  | ["imeta", ...string[]]
   | ["c", string]
   | ["clone", ...string[]]
   | ["branch-name", string]

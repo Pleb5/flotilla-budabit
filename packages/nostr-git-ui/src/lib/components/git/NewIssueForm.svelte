@@ -2,19 +2,34 @@
   import { z } from "zod";
   import { CircleAlert } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
+  import type {
+    RichComposerContext,
+    RichContentPayload,
+    RichDescriptionEditorHandle,
+  } from "../../types/composer";
 
-  const { Button, Input, Textarea, Label, Checkbox } = useRegistry();
+  const { Button, Input, Textarea, Label, Checkbox, RichDescriptionEditor } = useRegistry();
   import { X, Plus } from "@lucide/svelte";
   import { createIssueEvent } from "@nostr-git/core/events";
-  import type { IssueEvent } from "@nostr-git/core/events";
+  import type { IssueEvent, IssueTag } from "@nostr-git/core/events";
 
   interface Props {
     repoId: string;
     repoOwnerPubkey: string;
     onIssueCreated: (issue: IssueEvent) => Promise<void>;
+    relays?: string[];
+    repoAddress?: string;
+    relayHint?: string;
   }
 
-  let { repoId, repoOwnerPubkey, onIssueCreated }: Props = $props();
+  let {
+    repoId,
+    repoOwnerPubkey,
+    onIssueCreated,
+    relays = [],
+    repoAddress = "",
+    relayHint,
+  }: Props = $props();
 
   const back = () => history.back();
 
@@ -31,6 +46,17 @@
   let newLabel = $state("");
   let errors = $state<{ subject?: string; content?: string }>({});
   let isSubmitting = $state(false);
+  let descriptionEditor = $state<RichDescriptionEditorHandle | null>(null);
+
+  const resolvedRepoAddress = $derived(repoAddress || `30617:${repoOwnerPubkey}:${repoId}`);
+  const descriptionContext = $derived.by(
+    (): RichComposerContext => ({
+      url: relays[0] || relayHint || "",
+      relays,
+      repoAddress: resolvedRepoAddress,
+      relayHint,
+    })
+  );
 
   const commonLabels = [
     "bug",
@@ -72,9 +98,24 @@
 
   async function onFormSubmit(e: Event) {
     e.preventDefault();
+    if (isSubmitting) return;
+
     errors = {};
     isSubmitting = true;
-    const result = issueSchema.safeParse({ subject, content, labels });
+
+    let descriptionPayload: RichContentPayload;
+    try {
+      descriptionPayload = RichDescriptionEditor && descriptionEditor
+        ? await descriptionEditor.getContent()
+        : { content, tags: [] };
+    } catch (error) {
+      errors.content = error instanceof Error ? error.message : "Failed to read description";
+      isSubmitting = false;
+      return;
+    }
+
+    content = descriptionPayload.content;
+    const result = issueSchema.safeParse({ subject, content: descriptionPayload.content, labels });
     if (!result.success) {
       for (const err of result.error.errors) {
         if (err.path[0]) errors[err.path[0] as "subject" | "content"] = err.message;
@@ -84,11 +125,12 @@
     }
     try {
       const issueEvent = createIssueEvent({
-        content,
-        repoAddr: `30617:${repoOwnerPubkey}:${repoId}`,
+        content: result.data.content,
+        repoAddr: resolvedRepoAddress,
         recipients: [repoOwnerPubkey],
-        subject,
-        labels,
+        subject: result.data.subject,
+        labels: result.data.labels,
+        tags: (descriptionPayload.tags || []) as IssueTag[],
       });
       await onIssueCreated(issueEvent);
 
@@ -125,13 +167,26 @@
   </div>
   <div>
     <Label for="content">Description</Label>
-    <Textarea
-      id="content"
-      bind:value={content}
-      class="mt-1"
-      rows={6}
-      placeholder="Describe the issue in detail. You can use Markdown formatting."
-    />
+    {#if RichDescriptionEditor}
+      <div class="mt-1">
+        <RichDescriptionEditor
+          initialContent={content}
+          placeholder="Describe the issue in detail. You can use Markdown formatting."
+          compact={true}
+          disabled={isSubmitting}
+          context={descriptionContext}
+          onReady={(handle) => (descriptionEditor = handle)}
+        />
+      </div>
+    {:else}
+      <Textarea
+        id="content"
+        bind:value={content}
+        class="mt-1"
+        rows={6}
+        placeholder="Describe the issue in detail. You can use Markdown formatting."
+      />
+    {/if}
     {#if errors.content}
       <div class="text-red-500 text-sm mt-1">{errors.content}</div>
     {/if}

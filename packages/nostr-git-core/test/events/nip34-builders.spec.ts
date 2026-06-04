@@ -15,6 +15,7 @@ import {
   getTags,
   getTagValue,
 } from "../../src/events/nip34/nip34-utils.js"
+import type {IssueTag, PullRequestTag} from "../../src/events/nip34/nip34.js"
 
 describe("NIP-34 builders", () => {
   it("createRepoAnnouncementEvent encodes all tag variants and sanitizes relays", () => {
@@ -125,6 +126,26 @@ describe("NIP-34 builders", () => {
       ["a", "30617:root:repo"],
       ["a", "30617:maintainer:repo"],
     ])
+  })
+
+  it("createIssueEvent preserves rich editor tags", () => {
+    const richTags: IssueTag[] = [
+      ["p", "mentioned-pubkey", "wss://relay.mention"],
+      ["q", "quoted-event-id", "wss://relay.quote"],
+      ["a", "30023:pubkey:article", "wss://relay.addr"],
+      ["imeta", "url https://cdn.example/issue.png", "m image/png"],
+    ]
+
+    const evt = createIssueEvent({
+      content: "issue body\nhttps://cdn.example/issue.png",
+      repoAddr: "30617:pubkey:repo",
+      subject: "Issue subject",
+      tags: richTags,
+    })
+
+    expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
+    expect(getTagValue(evt as any, "subject")).toBe("Issue subject")
+    for (const tag of richTags) expect(evt.tags).toContainEqual(tag)
   })
 
   it("createCoverLetterEvent encodes root, references, and recipients", () => {
@@ -244,6 +265,30 @@ describe("NIP-34 builders", () => {
 
     expect(getTagValue(evt as any, "branch-name")).toBe("main")
     expect(getTagValue(evt as any, "merge-base")).toBe("base-oid")
+  })
+
+  it("createPullRequestEvent preserves rich editor tags", () => {
+    const richTags: PullRequestTag[] = [
+      ["p", "mentioned-pubkey", "wss://relay.mention"],
+      ["q", "quoted-event-id", "wss://relay.quote"],
+      ["a", "30023:pubkey:article", "wss://relay.addr"],
+      ["imeta", "url https://cdn.example/pr.png", "m image/png"],
+    ]
+
+    const evt = createPullRequestEvent({
+      content: "pr body\nhttps://cdn.example/pr.png",
+      repoAddr: "30617:pubkey:repo",
+      subject: "PR subject",
+      tipCommitOid: "c2",
+      branchName: "main",
+      tags: richTags,
+    })
+
+    expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
+    expect(getTagValue(evt as any, "subject")).toBe("PR subject")
+    expect(getTagValue(evt as any, "c")).toBe("c2")
+    expect(getTagValue(evt as any, "branch-name")).toBe("main")
+    for (const tag of richTags) expect(evt.tags).toContainEqual(tag)
   })
 
   it("createPullRequestUpdateEvent encodes E/P, tip commit, clone URLs, merge base, recipients", () => {

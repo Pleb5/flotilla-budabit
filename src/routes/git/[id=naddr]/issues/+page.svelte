@@ -163,7 +163,13 @@
     repoAddress: string,
   ): IssueEvent => {
     const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
-    const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p" && tag[0] !== "a")
+    const recipientSet = new Set(dedupedRecipients)
+    const tags = (event.tags || []).filter((tag: string[]) => {
+      if (tag[0] === "a") return tag.length > 2 || tag[1] !== repoAddress
+      if (tag[0] !== "p") return true
+
+      return tag.length > 2 || !recipientSet.has(tag[1])
+    })
     if (repoAddress) tags.unshift(["a", repoAddress] as ["a", string])
     tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
     return {
@@ -1089,6 +1095,9 @@
     pushModal(NewIssueForm, {
       repoId: repoDtag,
       repoOwnerPubkey: evt?.pubkey,
+      relays: repoBoundRelays,
+      repoAddress,
+      relayHint: relayUrl,
       onIssueCreated,
     })
   }

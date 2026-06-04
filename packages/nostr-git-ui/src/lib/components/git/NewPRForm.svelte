@@ -3,11 +3,16 @@
   import { CircleAlert, GitBranch, ChevronRight, Loader2, GitFork } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
   import { createPullRequestEvent } from "@nostr-git/core/events";
-  import type { PullRequestEvent } from "@nostr-git/core/events";
+  import type { PullRequestEvent, PullRequestTag } from "@nostr-git/core/events";
+  import type {
+    RichComposerContext,
+    RichContentPayload,
+    RichDescriptionEditorHandle,
+  } from "../../types/composer";
   import { X, Plus } from "@lucide/svelte";
   import type { Repo } from "./Repo.svelte";
 
-  const { Button, Input, Textarea, Label, Checkbox } = useRegistry();
+  const { Button, Input, Textarea, Label, Checkbox, RichDescriptionEditor } = useRegistry();
 
   interface Props {
     repo: Repo;
@@ -43,6 +48,7 @@
   let newLabel = $state("");
   let errors = $state<Record<string, string>>({});
   let isSubmitting = $state(false);
+  let descriptionEditor = $state<RichDescriptionEditorHandle | null>(null);
   let sourceBranches = $state<Array<{ name: string }>>([]);
   let sourceBranchesLoading = $state(false);
   let sourceBranchesError = $state("");
@@ -59,6 +65,23 @@
   let previewLoading = $state(false);
 
   const commonLabels = ["enhancement", "bug", "documentation", "ready-for-review"];
+
+  const descriptionContext = $derived.by(
+    (): RichComposerContext => ({
+      url: repo.relays?.[0] || repo.cloneUrls?.[0] || "",
+      relays: repo.relays || [],
+      repoAddress: repo.address,
+      relayHint: repo.relays?.[0],
+      rootEvent: repo.repoEvent
+        ? {
+            id: repo.repoEvent.id,
+            kind: repo.repoEvent.kind,
+            pubkey: repo.repoEvent.pubkey,
+            tags: repo.repoEvent.tags,
+          }
+        : undefined,
+    })
+  );
 
   const parseForkCloneUrls = () =>
     cloneUrlsText
@@ -191,6 +214,8 @@
 
   async function onFormSubmit(e: Event) {
     e.preventDefault();
+    if (isSubmitting) return;
+
     errors = {};
     isSubmitting = true;
     const urls = fromFork ? parseForkCloneUrls() : cloneUrls;
@@ -222,9 +247,22 @@
       isSubmitting = false;
       return;
     }
+
+    let descriptionPayload: RichContentPayload;
+    try {
+      descriptionPayload = RichDescriptionEditor && descriptionEditor
+        ? await descriptionEditor.getContent()
+        : { content: result.data.content, tags: [] };
+    } catch (error) {
+      errors.general = error instanceof Error ? error.message : "Failed to read PR description";
+      isSubmitting = false;
+      return;
+    }
+
+    content = descriptionPayload.content;
     try {
       const prEvent = createPullRequestEvent({
-        content: result.data.content,
+        content: descriptionPayload.content,
         repoAddr: repo.address,
         subject: result.data.subject,
         labels: result.data.labels,
@@ -233,6 +271,7 @@
         branchName: result.data.targetBranch,
         mergeBase: prPreview.mergeBase,
         recipients: [repo.repoEvent?.pubkey ?? ""],
+        tags: (descriptionPayload.tags || []) as PullRequestTag[],
       });
       await onPRCreated(prEvent);
       back();
@@ -407,13 +446,26 @@
 
   <div>
     <Label for="pr-content">Description</Label>
-    <Textarea
-      id="pr-content"
-      bind:value={content}
-      class="mt-1"
-      rows={6}
-      placeholder="Describe the changes. Markdown supported."
-    />
+    {#if RichDescriptionEditor}
+      <div class="mt-1">
+        <RichDescriptionEditor
+          initialContent={content}
+          placeholder="Describe the changes. Markdown supported."
+          compact={true}
+          disabled={isSubmitting}
+          context={descriptionContext}
+          onReady={(handle) => (descriptionEditor = handle)}
+        />
+      </div>
+    {:else}
+      <Textarea
+        id="pr-content"
+        bind:value={content}
+        class="mt-1"
+        rows={6}
+        placeholder="Describe the changes. Markdown supported."
+      />
+    {/if}
     <p class="mt-1 text-xs text-muted-foreground">Supports Markdown</p>
   </div>
 
