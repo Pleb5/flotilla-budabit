@@ -4,10 +4,12 @@ import {COMMENT, MESSAGE, type TrustedEvent} from "@welshman/util"
 import {
   canEditMessageEvent,
   canEditReplyEvent,
+  areTagsEqual,
   editedTargetIds,
   filterVisibleAfterDeletesAndEdits,
   makeEditedMessageTemplate,
   makeEditedReplyTemplate,
+  mergeRichEditorTags,
   suppressEventAfterEdit,
 } from "./event-edits"
 
@@ -63,6 +65,7 @@ describe("event edit helpers", () => {
         ["f", "src/app.ts"],
         ["line", "12"],
         ["repo", "30617:pubkey:repo"],
+        ["imeta", "url https://cdn.example/file.png"],
         ["-", "draft-only"],
       ],
     })
@@ -88,9 +91,40 @@ describe("event edit helpers", () => {
         ["f", "src/app.ts"],
         ["line", "12"],
         ["repo", "30617:pubkey:repo"],
+        ["imeta", "url https://cdn.example/file.png"],
         ["t", "tag"],
       ],
     })
+  })
+
+  it("merges rich description tags while replacing simple repo context", () => {
+    const current = makeEvent({
+      tags: [
+        ["a", "30617:owner:repo"],
+        ["a", "30023:author:article", "wss://relay.example"],
+        ["p", pubkey],
+        ["imeta", "url https://cdn.example/old.png"],
+        ["t", "bug"],
+      ],
+    })
+
+    const merged = mergeRichEditorTags(
+      current,
+      [
+        ["q", "event-id", "wss://relay.example"],
+        ["-", "draft-only"],
+      ],
+      {repoAddress: "30617:owner:repo"},
+    )
+
+    expect(merged).toEqual([
+      ["a", "30023:author:article", "wss://relay.example"],
+      ["p", pubkey],
+      ["imeta", "url https://cdn.example/old.png"],
+      ["t", "bug"],
+      ["q", "event-id", "wss://relay.example"],
+    ])
+    expect(areTagsEqual(merged, [...merged].reverse())).toBe(true)
   })
 
   it("preserves room message context while replacing content", () => {

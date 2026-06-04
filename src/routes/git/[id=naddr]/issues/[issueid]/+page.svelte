@@ -62,8 +62,10 @@
   import {normalizeRelays} from "@app/core/community"
   import {
     canEditReplyEvent,
+    areTagsEqual,
     editedTargetIds,
     filterVisibleAfterDeletesAndEdits,
+    mergeRichEditorTags,
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
@@ -531,7 +533,13 @@
         ? await descriptionEditor.getContent()
         : {content: descriptionDraft.trim(), tags: []}
       const value = descriptionPayload.content.trim()
-      if (value === (issue.content || "")) {
+      const currentTags = mergeRichEditorTags(issueDescriptionEvent as any, [], {
+        repoAddress: issueEditRepoAddress,
+      })
+      const nextTags = mergeRichEditorTags(issueDescriptionEvent as any, descriptionPayload.tags || [], {
+        repoAddress: issueEditRepoAddress,
+      })
+      if (value === (issue.content || "") && areTagsEqual(nextTags, currentTags)) {
         editingDescription = false
         descriptionEditor = null
         return
@@ -541,7 +549,7 @@
         rootId: issue.id,
         repoAddr: issueEditRepoAddress || undefined,
         content: value,
-        tags: (descriptionPayload.tags || []) as CoverLetterTag[],
+        tags: nextTags as CoverLetterTag[],
       })
       publishThunk({event: coverLetterEvent as any, relays})
       await load({relays, filters: [getCoverLetterFilter()]})

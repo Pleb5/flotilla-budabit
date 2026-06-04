@@ -35,6 +35,8 @@
     h?: string
     blossomContext?: BlossomUploadContext
     content?: string
+    placeholder?: string
+    submitLabel?: string
     showMenu?: boolean
     disabled?: boolean
     submitting?: boolean
@@ -48,6 +50,8 @@
     h,
     blossomContext,
     content,
+    placeholder = "",
+    submitLabel = "Send message",
     showMenu = true,
     disabled = false,
     submitting = false,
@@ -62,6 +66,7 @@
   const uploading = writable(false)
   const uploadStage = writable<BlossomUploadStage>("idle")
   let attachments = $state<DraftAttachment[]>([])
+  let submitInFlight = $state(false)
 
   export const focus = () => editor.then(ed => ed.chain().focus().run())
 
@@ -79,7 +84,7 @@
   }
 
   const addFiles = (files?: FileList | null) => {
-    if (disabled || submitting || !files?.length) return
+    if (disabled || submitting || submitInFlight || !files?.length) return
 
     attachments = [...attachments, ...Array.from(files).map(makeDraftAttachment)]
   }
@@ -168,43 +173,50 @@
   const hideAttachmentPopover = () => attachmentPopover?.hide()
 
   const submit = async () => {
-    if (disabled || submitting || $uploading) return
+    if (disabled || submitting || submitInFlight || $uploading) return
 
-    const ed = await editor
-    const messageText = ed.getText({blockSeparator: "\n"}).trim()
-
-    if (!messageText && attachments.length === 0) return
-
-    let uploadedAttachments: PublishedAttachment[]
+    submitInFlight = true
 
     try {
-      uploadedAttachments = await uploadAttachments()
-    } catch (error) {
-      uploadStage.set("failed")
-      pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
-      return
+      const ed = await editor
+      const messageText = ed.getText({blockSeparator: "\n"}).trim()
+
+      if (!messageText && attachments.length === 0) return
+
+      let uploadedAttachments: PublishedAttachment[]
+
+      try {
+        uploadedAttachments = await uploadAttachments()
+      } catch (error) {
+        uploadStage.set("failed")
+        pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
+        return
+      }
+
+      const tags = ed.storage.nostr.getEditorTags()
+      tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
+      const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
+
+      try {
+        const result = onSubmit({content, tags})
+        if (result && typeof result.then === "function") await result
+      } catch {
+        return
+      }
+
+      ed.chain().clearContent().run()
+      clearAttachments()
+      uploadStage.set("idle")
+    } finally {
+      submitInFlight = false
     }
-
-    const tags = ed.storage.nostr.getEditorTags()
-    tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
-    const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
-
-    try {
-      const result = onSubmit({content, tags})
-      if (result && typeof result.then === "function") await result
-    } catch {
-      return
-    }
-
-    ed.chain().clearContent().run()
-    clearAttachments()
-    uploadStage.set("idle")
   }
 
   const editor = makeEditor({
     url,
     blossomContext,
     content,
+    placeholder,
     autofocus,
     submit,
     uploadStage,
@@ -241,7 +253,7 @@
     class="hidden"
     accept="image/*,video/*"
     multiple
-    disabled={disabled || submitting}
+    disabled={disabled || submitting || submitInFlight}
     onchange={event => {
       addFiles(event.currentTarget.files)
       event.currentTarget.value = ""
@@ -251,7 +263,7 @@
     type="file"
     class="hidden"
     multiple
-    disabled={disabled || submitting}
+    disabled={disabled || submitting || submitInFlight}
     onchange={event => {
       addFiles(event.currentTarget.files)
       event.currentTarget.value = ""
@@ -272,7 +284,7 @@
         <Button
           data-tip="Attach file"
           class="center join-item tooltip tooltip-right h-10 w-10 min-w-10 rounded-full border border-solid border-base-200 bg-base-300"
-          disabled={disabled || submitting || $uploading}
+          disabled={disabled || submitting || submitInFlight || $uploading}
           onclick={showAttachmentPopover}>
           {#if $uploading}
             <span class="loading loading-spinner loading-xs"></span>
@@ -290,7 +302,7 @@
           <Button
             data-tip="More options"
             class="center join-item tooltip tooltip-right h-10 w-10 min-w-10 rounded-full border border-solid border-base-200 bg-base-300"
-            disabled={disabled || submitting || $uploading}
+            disabled={disabled || submitting || submitInFlight || $uploading}
             onclick={showPopover}>
             <Icon icon={WidgetAdd} />
           </Button>
@@ -303,7 +315,8 @@
     <Button
       data-tip={!isMobile ? sendShortcut : undefined}
       class={`center absolute right-2 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
-      disabled={disabled || submitting || $uploading}
+      aria-label={submitLabel}
+      disabled={disabled || submitting || submitInFlight || $uploading}
       onclick={submit}>
       <Icon icon={Plane} />
     </Button>

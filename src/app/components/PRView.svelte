@@ -75,8 +75,10 @@
   import {HIDDEN_ROOT_IDS_KEY, getRepoMaintainers} from "@app/core/git-state"
   import {
     canEditReplyEvent,
+    areTagsEqual,
     editedTargetIds,
     filterVisibleAfterDeletesAndEdits,
+    mergeRichEditorTags,
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
@@ -2076,7 +2078,13 @@
         ? await descriptionEditor.getContent()
         : {content: descriptionDraft.trim(), tags: []}
       const nextDescription = descriptionPayload.content.trim()
-      if (nextDescription === (prDescription || "")) {
+      const currentTags = mergeRichEditorTags(prDescriptionEvent as any, [], {
+        repoAddress: prRepoAddress,
+      })
+      const nextTags = mergeRichEditorTags(prDescriptionEvent as any, descriptionPayload.tags || [], {
+        repoAddress: prRepoAddress,
+      })
+      if (nextDescription === (prDescription || "") && areTagsEqual(nextTags, currentTags)) {
         editingDescription = false
         descriptionEditor = null
         return
@@ -2086,7 +2094,7 @@
         rootId: prEvent.id,
         repoAddr: prRepoAddress || undefined,
         content: nextDescription,
-        tags: (descriptionPayload.tags || []) as CoverLetterTag[],
+        tags: nextTags as CoverLetterTag[],
       })
       publishThunk({event: coverLetterEvent as any, relays})
       await load({relays, filters: [getPrCoverLetterFilter()]})

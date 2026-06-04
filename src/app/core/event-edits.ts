@@ -14,7 +14,7 @@ export const EDIT_WINDOW_MINUTES = 5
 
 export const editedTargetIds = writable<Set<string>>(new Set())
 
-const MESSAGE_CONTEXT_TAGS = new Set(["h", "E", "K", "q"])
+const MESSAGE_CONTEXT_TAGS = new Set(["h", "E", "K", "q", "imeta", "t"])
 const REPLY_CONTEXT_TAGS = new Set([
   "h",
   "A",
@@ -35,12 +35,30 @@ const REPLY_CONTEXT_TAGS = new Set([
   "line",
   "l",
   "repo",
+  "imeta",
+  "t",
 ])
+const RICH_EDITOR_TAGS = new Set(["a", "p", "q", "imeta", "t"])
 
 const sanitizeEditorTags = (tags: string[][] = []) => tags.filter(tag => tag[0] !== "-")
 
 const preserveTags = (event: Pick<TrustedEvent, "tags">, tagNames: Set<string>) =>
   (event.tags || []).filter(tag => tagNames.has(tag[0]))
+
+export const mergeRichEditorTags = (
+  event: Pick<TrustedEvent, "tags"> | undefined,
+  tags: string[][] = [],
+  {repoAddress}: {repoAddress?: string} = {},
+) =>
+  uniqTags([...preserveTags(event || {tags: []}, RICH_EDITOR_TAGS), ...sanitizeEditorTags(tags)]).filter(
+    tag => tag[0] !== "a" || tag.length > 2 || tag[1] !== repoAddress,
+  )
+
+export const areTagsEqual = (left: string[][] = [], right: string[][] = []) => {
+  const serialize = (tags: string[][]) => tags.map(tag => JSON.stringify(tag)).sort().join("\n")
+
+  return serialize(left) === serialize(right)
+}
 
 export const canEditRecentOwnEvent = ({
   event,

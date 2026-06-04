@@ -6,6 +6,8 @@
 
   const {
     initialContent = "",
+    placeholder = "",
+    submitLabel = "Comment",
     mode = "comment",
     compact = false,
     disabled = false,
@@ -47,6 +49,8 @@
         url={getUrl(context)}
         blossomContext={getBlossomContext(context)}
         content={initialContent}
+        {placeholder}
+        {submitLabel}
         showMenu={false}
         {disabled}
         {submitting}
