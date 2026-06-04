@@ -13,6 +13,7 @@
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {parseRepoCommunityBinding} from "@nostr-git/core/events"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
+  import RepoCollectButton from "@app/components/RepoCollectButton.svelte"
   import {Star} from "@lucide/svelte"
 
   const {
@@ -21,6 +22,7 @@
     bookmarked = false,
     bookmarkDisabled = false,
     onToggleBookmark,
+    showCollectionButton = false,
     tabbable = true,
     showActivity = true,
     showIssues = true,
@@ -33,6 +35,7 @@
     bookmarked?: boolean
     bookmarkDisabled?: boolean
     onToggleBookmark?: () => void
+    showCollectionButton?: boolean
     tabbable?: boolean
     showActivity?: boolean
     showIssues?: boolean
@@ -164,7 +167,9 @@
           {/if}
         </div>
         <div class="flex items-center gap-2 {showActions ? 'mr-9' : ''}">
-          {#if onToggleBookmark}
+          {#if showCollectionButton}
+            <RepoCollectButton {event} relayHint={url} relayHints={profileRelays} />
+          {:else if onToggleBookmark}
             <button
               type="button"
               class={`rounded-full border p-1.5 transition-colors ${

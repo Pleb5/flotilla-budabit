@@ -89,8 +89,7 @@
       <div class="hidden md:block lg:hidden">
         <PrimaryNavItem
           title="Settings"
-          href={$pubkey ? "/settings" : ""}
-          onclick={$pubkey ? undefined : showSettingsMenu}
+          onclick={showSettingsMenu}
           prefix="/settings"
           class="tooltip-right">
           {#if $pubkey}
@@ -103,8 +102,7 @@
       <div class="hidden lg:block">
         <PrimaryNavItem
           title="Settings"
-          href={$pubkey ? "/settings" : ""}
-          onclick={$pubkey ? undefined : showSettingsMenu}
+          onclick={showSettingsMenu}
           prefix="/settings"
           class="tooltip-right">
           {#if $pubkey}

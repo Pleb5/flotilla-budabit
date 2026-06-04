@@ -142,7 +142,7 @@
   })
 </script>
 
-<div class="flex flex-wrap gap-2">
+<div class="flex flex-wrap items-center gap-2">
   {#each acceptedBadges as badge (badge.award.event.id)}
     {@const badgeImage = getCommunityBadgeImageUrl(badge.definition, 32)}
     <div class="relative max-w-full">
