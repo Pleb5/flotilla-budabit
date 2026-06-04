@@ -2070,7 +2070,7 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     try {
-      postComment(comment, relays)
+      await postComment(comment, relays)
     } catch (error) {
       toast.push({
         message: "Failed to start sending comment",
@@ -2083,11 +2083,12 @@
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
 
-  const onCommentEdited = async (comment: CommentEvent, content: string) => {
+  const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-    publishEditedReply({
+    await publishEditedReply({
       event: comment as unknown as TrustedEvent,
       content,
+      tags,
       relays,
       url: relays[0],
     })

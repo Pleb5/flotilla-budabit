@@ -36,9 +36,11 @@
     blossomContext?: BlossomUploadContext
     content?: string
     showMenu?: boolean
+    disabled?: boolean
+    submitting?: boolean
     onEscape?: () => void
     onEditPrevious?: () => void
-    onSubmit: (event: EventContent) => void
+    onSubmit: (event: EventContent) => void | Promise<void>
   }
 
   const {
@@ -47,6 +49,8 @@
     blossomContext,
     content,
     showMenu = true,
+    disabled = false,
+    submitting = false,
     onEscape,
     onEditPrevious,
     onSubmit,
@@ -75,7 +79,7 @@
   }
 
   const addFiles = (files?: FileList | null) => {
-    if (!files?.length) return
+    if (disabled || submitting || !files?.length) return
 
     attachments = [...attachments, ...Array.from(files).map(makeDraftAttachment)]
   }
@@ -164,7 +168,7 @@
   const hideAttachmentPopover = () => attachmentPopover?.hide()
 
   const submit = async () => {
-    if ($uploading) return
+    if (disabled || submitting || $uploading) return
 
     const ed = await editor
     const messageText = ed.getText({blockSeparator: "\n"}).trim()
@@ -185,7 +189,12 @@
     tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
     const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
 
-    onSubmit({content, tags})
+    try {
+      const result = onSubmit({content, tags})
+      if (result && typeof result.then === "function") await result
+    } catch {
+      return
+    }
 
     ed.chain().clearContent().run()
     clearAttachments()
@@ -232,6 +241,7 @@
     class="hidden"
     accept="image/*,video/*"
     multiple
+    disabled={disabled || submitting}
     onchange={event => {
       addFiles(event.currentTarget.files)
       event.currentTarget.value = ""
@@ -241,6 +251,7 @@
     type="file"
     class="hidden"
     multiple
+    disabled={disabled || submitting}
     onchange={event => {
       addFiles(event.currentTarget.files)
       event.currentTarget.value = ""
@@ -261,7 +272,7 @@
         <Button
           data-tip="Attach file"
           class="center join-item tooltip tooltip-right h-10 w-10 min-w-10 rounded-full border border-solid border-base-200 bg-base-300"
-          disabled={$uploading}
+          disabled={disabled || submitting || $uploading}
           onclick={showAttachmentPopover}>
           {#if $uploading}
             <span class="loading loading-spinner loading-xs"></span>
@@ -279,7 +290,7 @@
           <Button
             data-tip="More options"
             class="center join-item tooltip tooltip-right h-10 w-10 min-w-10 rounded-full border border-solid border-base-200 bg-base-300"
-            disabled={$uploading}
+            disabled={disabled || submitting || $uploading}
             onclick={showPopover}>
             <Icon icon={WidgetAdd} />
           </Button>
@@ -292,7 +303,7 @@
     <Button
       data-tip={!isMobile ? sendShortcut : undefined}
       class={`center absolute right-2 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
-      disabled={$uploading}
+      disabled={disabled || submitting || $uploading}
       onclick={submit}>
       <Icon icon={Plane} />
     </Button>

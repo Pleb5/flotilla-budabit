@@ -1094,15 +1094,16 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    postComment(comment, repoBoundRelays)
+    await postComment(comment, repoBoundRelays)
   }
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
 
-  const onCommentEdited = async (comment: CommentEvent, content: string) => {
-    publishEditedReply({
+  const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
+    await publishEditedReply({
       event: comment as unknown as TrustedEvent,
       content,
+      tags,
       relays: repoBoundRelays,
       url: repoBoundRelays[0],
     })

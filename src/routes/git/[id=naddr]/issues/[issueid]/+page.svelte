@@ -587,15 +587,16 @@
   // Remove inline status state and auto-publish; Status component handles publishing
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    postComment(comment, getPublishRelays())
+    await postComment(comment, getPublishRelays())
   }
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
 
-  const onCommentEdited = async (comment: CommentEvent, content: string) => {
-    publishEditedReply({
+  const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
+    await publishEditedReply({
       event: comment as unknown as TrustedEvent,
       content,
+      tags,
       relays: getPublishRelays(),
       url: repoBoundRelays[0],
     })

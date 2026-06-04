@@ -3,14 +3,27 @@
   import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
   import { nip19 } from "nostr-tools";
   import { createGitCommentEvent, parseCommentEvent } from "@nostr-git/core/events";
-  import type { CommentEvent, Profile } from "@nostr-git/core/events";
+  import type { CommentEvent, CommentTag, Profile } from "@nostr-git/core/events";
+  import type {
+    RichComposerContext,
+    RichComposerMode,
+    RichContentPayload,
+  } from "../../types/composer";
   import { useRegistry } from "../../useRegistry";
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
   import RichText from "../RichText.svelte";
   import { toast } from "../../stores/toast";
-  const { Button, Textarea, Card, ProfileComponent, Markdown, CommentStatus, EventActions } =
-    useRegistry();
+  const {
+    Button,
+    Textarea,
+    Card,
+    ProfileComponent,
+    Markdown,
+    CommentStatus,
+    EventActions,
+    RichCommentComposer,
+  } = useRegistry();
 
   interface Props {
     issueId: string;
@@ -22,7 +35,7 @@
     onCommentCreated?: (comment: CommentEvent) => Promise<void>;
     onLoginRequired?: () => void;
     canEditComment?: (comment: CommentEvent) => boolean;
-    onCommentEdited?: (comment: CommentEvent, content: string) => Promise<void>;
+    onCommentEdited?: (comment: CommentEvent, content: string, tags?: string[][]) => Promise<void>;
     relays?: string[];
     repoAddress?: string;
     rootEvent?: { id: string; kind: number | string; pubkey?: string; tags?: string[][] };
@@ -110,6 +123,44 @@
       hints.add(relay as string);
     }
     return Array.from(hints);
+  };
+
+  const composerMode = $derived.by((): RichComposerMode => {
+    if (editingComment) return "edit";
+    if (replyParent) return "reply";
+    return "comment";
+  });
+
+  const composerPlaceholder = $derived.by(() => {
+    if (editingComment) return "Edit your comment...";
+    if (replyParent) return "Write a reply...";
+    return "Write a comment...";
+  });
+
+  const composerContext = $derived.by(
+    (): RichComposerContext => ({
+      url: relays[0] || relayHint || "",
+      relays,
+      repoAddress,
+      relayHint,
+      rootEvent: rootEvent || {
+        id: issueId,
+        kind: issueKind,
+        pubkey: ownerPubkey || undefined,
+      },
+    })
+  );
+
+  const composerKey = $derived.by(
+    () => `${composerMode}:${editingComment?.id || replyParent?.id || "root"}`
+  );
+
+  const composerInitialContent = $derived.by(() => editingComment?.content || "");
+
+  const clearComposerTarget = () => {
+    editingComment = null;
+    replyParent = null;
+    newComment = "";
   };
 
   const scrollToComment = async (id: string) => {
@@ -204,17 +255,16 @@
     return () => window.removeEventListener("hashchange", handler);
   });
 
-  async function submit(event: Event) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!newComment.trim() || isSubmitting) return;
+  async function submitCommentPayload({ content, tags = [] }: RichContentPayload) {
+    const trimmedContent = content.trim();
+    if (!trimmedContent || isSubmitting) return;
 
     if (editingComment) {
       if (!onCommentEdited) return;
 
       try {
         isSubmitting = true;
-        await onCommentEdited(editingComment, newComment.trim());
+        await onCommentEdited(editingComment, trimmedContent, tags);
         newComment = "";
         editingComment = null;
       } catch (error) {
@@ -224,6 +274,7 @@
           timeout: 3000,
           theme: "error",
         });
+        throw error;
       } finally {
         isSubmitting = false;
       }
@@ -233,7 +284,7 @@
     if (!onCommentCreated) return;
 
     const commentEvent = createGitCommentEvent({
-      content: newComment,
+      content: trimmedContent,
       root: {
         id: rootEvent?.id || issueId,
         kind: rootEvent?.kind || issueKind,
@@ -255,6 +306,7 @@
           },
       repoRefs: repoRefs.length ? repoRefs : repoAddress ? [repoAddress] : [],
       relayHint,
+      extraTags: tags as CommentTag[],
     });
 
     try {
@@ -269,8 +321,20 @@
         timeout: 3000,
         theme: "error",
       });
+      throw error;
     } finally {
       isSubmitting = false;
+    }
+  }
+
+  async function submit(event: Event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      await submitCommentPayload({ content: newComment });
+    } catch {
+      // submitCommentPayload owns user-facing error reporting.
     }
   }
 
@@ -439,7 +503,7 @@
       {/each}
 
       {#if currentCommenter && (onCommentCreated || onCommentEdited)}
-        <form onsubmit={submit} class="flex flex-col gap-3 pt-4 border-t">
+        <div class="flex flex-col gap-3 pt-4 border-t">
           {#if editingComment}
             <div
               class="flex items-center justify-between rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
@@ -450,10 +514,7 @@
                 variant="ghost"
                 size="sm"
                 class="h-6 px-2 text-xs"
-                onclick={() => {
-                  editingComment = null;
-                  newComment = "";
-                }}>Cancel</Button
+                onclick={clearComposerTarget}>Cancel</Button
               >
             </div>
           {:else if enableReplies && replyParent}
@@ -471,43 +532,64 @@
                 variant="ghost"
                 size="sm"
                 class="h-6 px-2 text-xs"
-                onclick={() => (replyParent = null)}>Cancel</Button
+                onclick={clearComposerTarget}>Cancel</Button
               >
             </div>
           {/if}
-          <div class="flex gap-2 sm:gap-3">
-            <div class="hidden flex-shrink-0 sm:block">
-              <ProfileComponent pubkey={currentCommenter} hideDetails={true} />
+          {#if RichCommentComposer}
+            <div class="flex gap-2 sm:gap-3">
+              <div class="hidden flex-shrink-0 sm:block">
+                <ProfileComponent pubkey={currentCommenter} hideDetails={true} />
+              </div>
+              <div class="min-w-0 flex-1">
+                {#key composerKey}
+                  <RichCommentComposer
+                    initialContent={composerInitialContent}
+                    placeholder={composerPlaceholder}
+                    submitLabel={editingComment ? "Save edit" : "Comment"}
+                    mode={composerMode}
+                    compact={false}
+                    submitting={isSubmitting}
+                    context={composerContext}
+                    onSubmit={submitCommentPayload}
+                    onCancel={clearComposerTarget}
+                  />
+                {/key}
+              </div>
             </div>
-            <div class="flex-1">
-              <Textarea
-                bind:value={newComment}
-                placeholder={editingComment
-                  ? "Edit your comment..."
-                  : replyParent
-                    ? "Write a reply..."
-                    : "Write a comment..."}
-                class="min-h-[64px] resize-none w-full text-sm sm:min-h-[80px]"
-              />
-            </div>
-          </div>
-          <div class="flex justify-end">
-            <Button
-              type="submit"
-              class="h-9 gap-2 px-3 text-sm"
-              disabled={!newComment.trim() || isSubmitting}
-            >
-              <MessageSquare class="h-4 w-4" />
-              {isSubmitting
-                ? editingComment
-                  ? "Editing..."
-                  : "Commenting..."
-                : editingComment
-                  ? "Save edit"
-                  : "Comment"}
-            </Button>
-          </div>
-        </form>
+          {:else}
+            <form onsubmit={submit} class="flex flex-col gap-3">
+              <div class="flex gap-2 sm:gap-3">
+                <div class="hidden flex-shrink-0 sm:block">
+                  <ProfileComponent pubkey={currentCommenter} hideDetails={true} />
+                </div>
+                <div class="flex-1">
+                  <Textarea
+                    bind:value={newComment}
+                    placeholder={composerPlaceholder}
+                    class="min-h-[64px] resize-none w-full text-sm sm:min-h-[80px]"
+                  />
+                </div>
+              </div>
+              <div class="flex justify-end">
+                <Button
+                  type="submit"
+                  class="h-9 gap-2 px-3 text-sm"
+                  disabled={!newComment.trim() || isSubmitting}
+                >
+                  <MessageSquare class="h-4 w-4" />
+                  {isSubmitting
+                    ? editingComment
+                      ? "Editing..."
+                      : "Commenting..."
+                    : editingComment
+                      ? "Save edit"
+                      : "Comment"}
+                </Button>
+              </div>
+            </form>
+          {/if}
+        </div>
       {:else}
         <div class="pt-4 border-t text-center text-sm text-muted-foreground">
           {#if onLoginRequired}

@@ -26,7 +26,7 @@
     onCommentCreated?: (comment: CommentEvent) => Promise<void>;
     onLoginRequired?: () => void;
     canEditComment?: (comment: CommentEvent) => boolean;
-    onCommentEdited?: (comment: CommentEvent, content: string) => Promise<void>;
+    onCommentEdited?: (comment: CommentEvent, content: string, tags?: string[][]) => Promise<void>;
     extraLabels?: string[];
     // Optional for Status.svelte integration
     repo?: any;

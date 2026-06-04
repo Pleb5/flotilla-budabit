@@ -32,6 +32,8 @@ export type CommentTag =
   // Optional: citation and mention tags per NIP-21
   | ["q", string, ...string[]] // Cited event or address
   | ["p", string, ...string[]] // Mentioned pubkey
+  | ["imeta", ...string[]]
+  | ["t", string]
   | ["f", string]
   | ["c", string]
   | ["line", string]

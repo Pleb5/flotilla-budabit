@@ -152,6 +152,27 @@ describe('NIP-22: comments (create + parse)', () => {
     expect(evt.tags.some((tag) => tag[0] === 'repo')).toBe(false);
   });
 
+  it('preserves rich editor extra tags on NIP-34 comments', () => {
+    const extraTags: CommentTag[] = [
+      ['p', 'mentioned-pubkey', 'wss://relay.mention'],
+      ['q', 'quoted-event-id', 'wss://relay.quote'],
+      ['imeta', 'url https://cdn.example/file.png', 'm image/png']
+    ];
+
+    const evt = createGitCommentEvent({
+      content: 'Comment with rich tags',
+      root: { id: 'issue-id', kind: 1621, pubkey: 'issue-author' },
+      relayHint: 'wss://relay.example',
+      extraTags,
+      created_at: 1700003001
+    });
+
+    expect(evt.tags).toContainEqual(['E', 'issue-id', 'wss://relay.example', 'issue-author']);
+    for (const tag of extraTags) {
+      expect(evt.tags).toContainEqual(tag);
+    }
+  });
+
   it('creates a NIP-34 inline comment with file, commit, and deleted-line tags', () => {
     const evt = createGitInlineCommentEvent({
       content: 'This removed line needs explanation',

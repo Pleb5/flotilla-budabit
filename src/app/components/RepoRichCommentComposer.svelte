@@ -25,7 +25,7 @@
   const submit = ({content, tags = []}: EventContent) => {
     if (disabled || submitting) return
 
-    void onSubmit({content, tags})
+    return onSubmit({content, tags})
   }
 
   const escape = () => {
@@ -48,6 +48,8 @@
         blossomContext={getBlossomContext(context)}
         content={initialContent}
         showMenu={false}
+        {disabled}
+        {submitting}
         onSubmit={submit}
         onEscape={escape} />
     {/key}
