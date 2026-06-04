@@ -1,4 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from "vitest"
+import "fake-indexeddb/auto"
+import * as isogit from "isomorphic-git"
 import {
   inferProviderFromUrl,
   mergePRAndPushUtil,
@@ -7,6 +9,8 @@ import {
   type AnalyzePRMergeOptions,
 } from "../../src/worker/workers/pr-merge.js"
 import type {GitProvider} from "../../src/git/provider.js"
+import {createTestFs} from "../utils/lightningfs.js"
+import {initRepo, commitFile, createBranch, checkout, statusMatrix} from "../utils/git-harness.js"
 
 describe("pr-merge", () => {
   const graspRepoUrl =
@@ -135,6 +139,70 @@ describe("pr-merge", () => {
       expect(result.pushedRemotes).toEqual([])
       expect(baseDeps.pushToRemote).not.toHaveBeenCalled()
       expect(baseDeps.safePushToRemote).not.toHaveBeenCalled()
+      expect(mockGit.checkout).toHaveBeenCalledWith(
+        expect.objectContaining({ref: "main", force: true}),
+      )
+    })
+
+    it("materializes merged tree before returning a deferred push result", async () => {
+      const fs = createTestFs("pr-merge-skip-push-clean")
+      const dir = "/tmp/repos/test-repo"
+      const author = {name: "Test", email: "test@example.com"}
+      const harness = {fs: fs as any, dir, author}
+
+      await initRepo(harness, "main")
+      await commitFile(harness, "/README.md", "base\n", "base")
+      await createBranch(harness, "feature", true)
+      const featureOid = await commitFile(harness, "/README.md", "feature\n", "feature")
+      await checkout(harness, "main")
+
+      const realGit = {
+        addRemote: vi.fn(async (args: any) => await isogit.addRemote({fs: fs as any, ...args})),
+        deleteRemote: vi.fn(async (args: any) => {
+          if (typeof (isogit as any).deleteRemote === "function") {
+            await (isogit as any).deleteRemote({fs: fs as any, ...args})
+          }
+        }),
+        setConfig: vi.fn(async (args: any) => await isogit.setConfig({fs: fs as any, ...args})),
+        fetch: vi.fn(async () => undefined),
+        readCommit: vi.fn(async (args: any) => await isogit.readCommit({fs: fs as any, ...args})),
+        writeRef: vi.fn(async (args: any) => await isogit.writeRef({fs: fs as any, ...args})),
+        checkout: vi.fn(async (args: any) => await isogit.checkout({fs: fs as any, ...args})),
+        resolveRef: vi.fn(async (args: any) => await isogit.resolveRef({fs: fs as any, ...args})),
+        merge: vi.fn(async (args: any) => await isogit.merge({fs: fs as any, ...args})),
+        listRemotes: vi.fn(async (args: any) => await isogit.listRemotes({fs: fs as any, ...args})),
+        deleteRef: vi.fn(
+          async (args: any) => await (isogit as any).deleteRef({fs: fs as any, ...args}),
+        ),
+      } as any as GitProvider
+
+      const result = await mergePRAndPushUtil(
+        realGit,
+        {
+          repoId: "test-repo",
+          cloneUrls: ["https://github.com/user/fork.git"],
+          tipCommitOid: featureOid,
+          targetBranch: "main",
+          skipPush: true,
+        } as MergePRAndPushOptions,
+        {
+          ...baseDeps,
+          resolveBranchName: vi.fn().mockResolvedValue("main"),
+        } as any,
+      )
+
+      expect(result.success).toBe(true)
+      expect(result.mergeCommitOid).toBe(featureOid)
+      await expect(isogit.resolveRef({fs: fs as any, dir, ref: "refs/heads/main"})).resolves.toBe(
+        featureOid,
+      )
+
+      const status = await statusMatrix(harness)
+      const dirty = status.filter(([, head, workdir, stage]) => workdir !== head || stage !== head)
+      expect(dirty).toEqual([])
+
+      const readme = await (fs as any).promises.readFile(`${dir}/README.md`, "utf8")
+      expect(readme).toBe("feature\n")
     })
 
     it("returns error when fetch fails from all URLs", async () => {

@@ -302,6 +302,10 @@ export async function mergePRAndPushUtil(
       }
     }
 
+    // isomorphic-git.merge updates refs/objects but does not materialize the new
+    // tree into the workdir. Keep the worker clone clean before deferred pushes.
+    await git.checkout({dir, ref: effectiveTargetBranch, force: true})
+
     // Merge-only mode: return the new commit SHA so the caller can publish the
     // Nostr state event (kind 30618) before doing the push. GRASP requires this.
     if (skipPush) {
