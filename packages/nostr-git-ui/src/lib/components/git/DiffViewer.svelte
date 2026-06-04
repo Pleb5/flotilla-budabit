@@ -3,7 +3,8 @@
   import { useRegistry } from "../../useRegistry";
   import RichText from "../RichText.svelte";
   import TimeAgo from "../../TimeAgo.svelte";
-  const { Avatar, AvatarFallback, AvatarImage, Button, Textarea, Markdown } = useRegistry();
+  const { Avatar, AvatarFallback, AvatarImage, Button, Textarea, Markdown, RichInlineCommentComposer } =
+    useRegistry();
   import { tick } from "svelte";
   import parseDiff from "parse-diff";
   import { ChevronDown, ChevronRight, ChevronUp } from "@lucide/svelte";
@@ -12,7 +13,8 @@
     createGitInlineCommentEvent,
     getTagValue,
   } from "@nostr-git/core/events";
-  import type { CommentEvent } from "@nostr-git/core/events";
+  import type { CommentEvent, CommentTag } from "@nostr-git/core/events";
+  import type { RichComposerContext, RichContentPayload } from "../../types/composer";
   import { toast } from "../../stores/toast.js";
   import { toUserMessage } from "../../utils/gitErrorUi.js";
   import {
@@ -118,7 +120,7 @@
     parentEvent?: DiffViewerRootEvent;
     onComment?: (comment: Omit<CommentEvent, "id" | "pubkey" | "sig">) => void;
     canEditComment?: (comment: CommentEvent) => boolean;
-    onCommentEdited?: (comment: CommentEvent, content: string) => Promise<void> | void;
+    onCommentEdited?: (comment: CommentEvent, content: string, tags?: string[][]) => Promise<void> | void;
     currentPubkey?: string | null;
     repo?: Repo;
     repoRefs?: string[];
@@ -141,6 +143,22 @@
   const canComment = $derived(canUseInlineComments({ rootEvent, onComment, currentPubkey }));
   const canSelectDiffLines = $derived(enablePermalinks || canComment);
   const activeParentEvent = $derived(parentEvent || rootEvent);
+  const inlineComposerContext = $derived.by(
+    (): RichComposerContext => ({
+      url: relayHint || "",
+      relays: relayHint ? [relayHint] : [],
+      repoAddress: repo?.address,
+      relayHint,
+      rootEvent: rootEvent
+        ? {
+            id: rootEvent.id,
+            kind: rootEvent.kind || "",
+            pubkey: rootEvent.pubkey,
+            tags: rootEvent.tags,
+          }
+        : undefined,
+    })
+  );
 
   let selectedLine = $state<number | null>(null);
   let selectedFileIdx = $state<number | null>(null);
@@ -524,6 +542,12 @@
     newComment = "";
   }
 
+  function closeInlineReplyComposer() {
+    replyThreadRootId = null;
+    replyContent = "";
+    editingCommentEvent = null;
+  }
+
   $effect(() => {
     const handler = (e: MouseEvent) => {
       if (Date.now() < ignoreMenuCloseUntil) return;
@@ -542,7 +566,13 @@
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      if (target.closest(".diff-comment-composer, .diff-comment-trigger")) return;
+      if (
+        target.closest(
+          ".diff-comment-composer, .diff-comment-trigger, [data-tippy-root], .tippy-box"
+        )
+      ) {
+        return;
+      }
       closeCommentComposer();
     };
     window.addEventListener("mousedown", handler);
@@ -1453,14 +1483,15 @@
     newComment = "";
   }
 
-  async function submitComment(
+  async function submitCommentPayload(
+    payload: RichContentPayload,
     line: number,
     fileIdx: number,
     chunkIdx: number,
-    filePath: string,
-    lineNumber: number | null
+    filePath: string
   ) {
-    if (!newComment.trim() || !rootEvent || !onComment || !currentPubkey) {
+    const commentContent = payload.content.trim();
+    if (!commentContent || !rootEvent || !onComment || !currentPubkey) {
       console.warn("[DiffViewer] Cannot submit comment: missing required props");
       return;
     }
@@ -1497,7 +1528,6 @@
         actualLineNumber = (change as any).ln2 ?? (change as any).ln1 ?? null;
       }
 
-      const commentContent = newComment.trim();
       const commitId = (rootEvent as any)?.tags ? getTagValue(rootEvent as any, "commit") : "";
       const defaultRepoRef =
         repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
@@ -1526,27 +1556,31 @@
           selectedCommentLineRange ??
           (actualLineNumber !== null ? String(actualLineNumber) : undefined),
         lineSide: selectedCommentLineSide ?? (change.type === "del" ? "del" : undefined),
+        extraTags: (payload.tags || []) as CommentTag[],
       });
 
       // Publish the comment
       onComment(commentEvent);
 
       // Reset state
-      selectedLine = null;
-      selectedFileIdx = null;
-      selectedChunkIdx = null;
-      selectedCommentLineRange = null;
-      selectedCommentLineSide = undefined;
-      newComment = "";
+      closeCommentComposer();
     } catch (error) {
       console.error("[DiffViewer] Failed to submit comment:", error);
-      // Optionally show error to user via toast or other UI feedback
+      throw error;
     } finally {
       isSubmitting = false;
     }
   }
 
-  function makeCommentReplyEvent(parentComment: Comment, content: string, extraTags: any[] = []) {
+  async function submitComment(line: number, fileIdx: number, chunkIdx: number, filePath: string) {
+    try {
+      await submitCommentPayload({ content: newComment }, line, fileIdx, chunkIdx, filePath);
+    } catch {
+      // submitCommentPayload owns diagnostics; keep textarea content for retry.
+    }
+  }
+
+  function makeCommentReplyEvent(parentComment: Comment, content: string, extraTags: CommentTag[] = []) {
     if (!rootEvent || !onComment || !currentPubkey || !parentComment.rawEvent) return null;
     const defaultRepoRef =
       repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
@@ -1567,38 +1601,50 @@
       authorPubkey: currentPubkey,
       repoRefs: repoRefs?.length ? repoRefs : defaultRepoRef ? [defaultRepoRef] : [],
       relayHint,
-      extraTags: extraTags as any,
+      extraTags,
     });
   }
 
-  async function submitReply(parentComment: Comment) {
-    const content = replyContent.trim();
+  async function submitReplyPayload(parentComment: Comment, payload: RichContentPayload) {
+    const content = payload.content.trim();
     if (!content || isSubmitting) return;
-    const replyEvent = makeCommentReplyEvent(parentComment, content);
-    if (!replyEvent || !onComment) return;
+    const replyEvent = makeCommentReplyEvent(parentComment, content, (payload.tags || []) as CommentTag[]);
+    if (!replyEvent || !onComment) throw new Error("Cannot submit inline reply: missing required props");
     isSubmitting = true;
     try {
       onComment(replyEvent);
-      replyContent = "";
-      replyThreadRootId = null;
-      editingCommentEvent = null;
+      closeInlineReplyComposer();
+    } finally {
+      isSubmitting = false;
+    }
+  }
+
+  async function submitReply(parentComment: Comment) {
+    try {
+      await submitReplyPayload(parentComment, { content: replyContent });
+    } catch (error) {
+      console.error("[DiffViewer] Failed to submit inline reply:", error);
+    }
+  }
+
+  async function submitEditedInlineCommentPayload(payload: RichContentPayload) {
+    const content = payload.content.trim();
+    if (!content || !editingCommentEvent || !onCommentEdited || isSubmitting) return;
+
+    isSubmitting = true;
+    try {
+      await onCommentEdited(editingCommentEvent, content, payload.tags);
+      closeInlineReplyComposer();
     } finally {
       isSubmitting = false;
     }
   }
 
   async function submitEditedInlineComment() {
-    const content = replyContent.trim();
-    if (!content || !editingCommentEvent || !onCommentEdited || isSubmitting) return;
-
-    isSubmitting = true;
     try {
-      await onCommentEdited(editingCommentEvent, content);
-      replyContent = "";
-      replyThreadRootId = null;
-      editingCommentEvent = null;
-    } finally {
-      isSubmitting = false;
+      await submitEditedInlineCommentPayload({ content: replyContent });
+    } catch (error) {
+      console.error("[DiffViewer] Failed to edit inline comment:", error);
     }
   }
 
@@ -1612,7 +1658,7 @@
 
   async function resolveThread(rootComment: Comment) {
     if (resolvingThreadRootId || !rootComment.id) return;
-    const resolveEvent = makeCommentReplyEvent(rootComment, "Resolved", [["l", "resolved"]]);
+    const resolveEvent = makeCommentReplyEvent(rootComment, "Resolved", [["l", "resolved"] as CommentTag]);
     if (!resolveEvent || !onComment) return;
     resolvingThreadRootId = rootComment.id;
     try {
@@ -1922,7 +1968,7 @@
                                         <Markdown
                                           content={c.content}
                                           event={c.rawEvent as any}
-                                          variant="comment"
+                                          variant="inline"
                                         />
                                       {:else}
                                         <RichText content={c.content} prose={false} />
@@ -1935,42 +1981,74 @@
                             {#if (!resolved || editingCommentEvent) && rootComment}
                               {#if replyThreadRootId === rootComment.id}
                                 <div class="border-t border-border/40 px-2 py-2 sm:px-3">
-                                  <Textarea
-                                    bind:value={replyContent}
-                                    placeholder={editingCommentEvent
-                                      ? "Edit your comment..."
-                                      : "Write a reply..."}
-                                    class="min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"
-                                    disabled={isSubmitting}
-                                  />
-                                  <div class="mt-2 flex justify-end gap-2">
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      class="h-8 px-2 text-xs"
-                                      onclick={() => {
-                                        replyThreadRootId = null;
-                                        replyContent = "";
-                                        editingCommentEvent = null;
-                                      }}
-                                      disabled={isSubmitting}>Cancel</Button
-                                    >
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      class="h-8 px-2 text-xs"
-                                      onclick={() =>
-                                        editingCommentEvent
-                                          ? submitEditedInlineComment()
-                                          : submitReply(
-                                              visibleComments[visibleComments.length - 1] ||
-                                                rootComment
-                                            )}
-                                      disabled={!replyContent.trim() || isSubmitting}
-                                      >{editingCommentEvent ? "Save edit" : "Reply"}</Button
-                                    >
-                                  </div>
+                                  {#if RichInlineCommentComposer}
+                                    {#key `${editingCommentEvent ? "edit" : "reply"}:${editingCommentEvent?.id || rootComment.id}`}
+                                      <RichInlineCommentComposer
+                                        initialContent={editingCommentEvent ? replyContent : ""}
+                                        placeholder={editingCommentEvent
+                                          ? "Edit your comment..."
+                                          : "Write a reply..."}
+                                        submitLabel={editingCommentEvent ? "Save edit" : "Reply"}
+                                        mode={editingCommentEvent ? "edit" : "reply"}
+                                        compact={true}
+                                        submitting={isSubmitting}
+                                        context={inlineComposerContext}
+                                        onSubmit={(payload) =>
+                                          editingCommentEvent
+                                            ? submitEditedInlineCommentPayload(payload)
+                                            : submitReplyPayload(
+                                                visibleComments[visibleComments.length - 1] ||
+                                                  rootComment,
+                                                payload
+                                              )}
+                                        onCancel={closeInlineReplyComposer}
+                                        onEscape={closeInlineReplyComposer}
+                                      />
+                                    {/key}
+                                    <div class="mt-2 flex justify-end">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        class="h-8 px-2 text-xs"
+                                        onclick={closeInlineReplyComposer}
+                                        disabled={isSubmitting}>Cancel</Button
+                                      >
+                                    </div>
+                                  {:else}
+                                    <Textarea
+                                      bind:value={replyContent}
+                                      placeholder={editingCommentEvent
+                                        ? "Edit your comment..."
+                                        : "Write a reply..."}
+                                      class="min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"
+                                      disabled={isSubmitting}
+                                    />
+                                    <div class="mt-2 flex justify-end gap-2">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        class="h-8 px-2 text-xs"
+                                        onclick={closeInlineReplyComposer}
+                                        disabled={isSubmitting}>Cancel</Button
+                                      >
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        class="h-8 px-2 text-xs"
+                                        onclick={() =>
+                                          editingCommentEvent
+                                            ? submitEditedInlineComment()
+                                            : submitReply(
+                                                visibleComments[visibleComments.length - 1] ||
+                                                  rootComment
+                                              )}
+                                        disabled={!replyContent.trim() || isSubmitting}
+                                        >{editingCommentEvent ? "Save edit" : "Reply"}</Button
+                                      >
+                                    </div>
+                                  {/if}
                                 </div>
                               {:else}
                                 <div
@@ -2021,73 +2099,85 @@
                               type="button"
                               class="text-muted-foreground/50 transition-colors hover:text-muted-foreground"
                               aria-label="Close comment composer"
-                              onclick={() => {
-                                selectedLine = null;
-                                selectedFileIdx = null;
-                                selectedChunkIdx = null;
-                                selectedCommentLineRange = null;
-                                selectedCommentLineSide = undefined;
-                              }}
+                              onclick={closeCommentComposer}
                             >
                               <X class="h-3.5 w-3.5" />
                             </button>
                           </div>
-                          <div class="flex gap-2 px-2 py-2 sm:px-3 sm:py-3">
-                            <Avatar class="hidden h-8 w-8 sm:flex">
-                              <AvatarFallback>ME</AvatarFallback>
-                            </Avatar>
-                            <div class="min-w-0 flex-1 space-y-2">
-                              <Textarea
-                                bind:value={newComment}
-                                placeholder="Add a comment..."
-                                class={compact
-                                  ? "min-h-[44px] resize-none px-2 py-1.5 text-xs sm:text-sm"
-                                  : "min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"}
-                                disabled={isSubmitting}
-                              />
-                              <div class="flex justify-end gap-1.5 sm:gap-2">
+                          <div class="px-2 py-2 sm:px-3 sm:py-3">
+                            {#if RichInlineCommentComposer}
+                              {#key `inline:${currentFilePath}:${selectedCommentLineRange ?? ln}`}
+                                <RichInlineCommentComposer
+                                  initialContent=""
+                                  placeholder="Add a comment..."
+                                  submitLabel="Comment"
+                                  mode="inline"
+                                  compact={true}
+                                  submitting={isSubmitting}
+                                  context={inlineComposerContext}
+                                  onSubmit={(payload) =>
+                                    submitCommentPayload(payload, ln, fileIdx, chunkIdx, currentFilePath)}
+                                  onCancel={closeCommentComposer}
+                                  onEscape={closeCommentComposer}
+                                />
+                              {/key}
+                              <div class="mt-2 flex justify-end">
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   class="h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
-                                  onclick={() => {
-                                    selectedLine = null;
-                                    selectedFileIdx = null;
-                                    selectedChunkIdx = null;
-                                    selectedCommentLineRange = null;
-                                    selectedCommentLineSide = undefined;
-                                  }}
+                                  onclick={closeCommentComposer}
                                   disabled={isSubmitting}
                                 >
                                   Cancel
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  class="h-8 gap-1 bg-git px-2 text-xs hover:bg-git-hover sm:h-9 sm:px-3 sm:text-sm"
-                                  disabled={!newComment.trim() ||
-                                    isSubmitting ||
-                                    !rootEvent ||
-                                    !onComment ||
-                                    !currentPubkey}
-                                  onclick={() => {
-                                    const filePath = file.to || file.from || "unknown";
-                                    const lineNum = isAdd
-                                      ? (change.ln ?? null)
-                                      : isNormal
-                                        ? (change.ln2 ?? change.ln1 ?? null)
-                                        : (change.ln ?? null);
-                                    submitComment(ln, fileIdx, chunkIdx, filePath, lineNum);
-                                  }}
-                                >
-                                  {#if isSubmitting}
-                                    <Loader2 class="h-3 w-3 animate-spin sm:h-3.5 sm:w-3.5" />
-                                  {:else}
-                                    <MessageSquare class="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                                  {/if}
-                                  Comment
-                                </Button>
                               </div>
-                            </div>
+                            {:else}
+                              <div class="flex gap-2">
+                                <Avatar class="hidden h-8 w-8 sm:flex">
+                                  <AvatarFallback>ME</AvatarFallback>
+                                </Avatar>
+                                <div class="min-w-0 flex-1 space-y-2">
+                                  <Textarea
+                                    bind:value={newComment}
+                                    placeholder="Add a comment..."
+                                    class={compact
+                                      ? "min-h-[44px] resize-none px-2 py-1.5 text-xs sm:text-sm"
+                                      : "min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"}
+                                    disabled={isSubmitting}
+                                  />
+                                  <div class="flex justify-end gap-1.5 sm:gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      class="h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
+                                      onclick={closeCommentComposer}
+                                      disabled={isSubmitting}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      class="h-8 gap-1 bg-git px-2 text-xs hover:bg-git-hover sm:h-9 sm:px-3 sm:text-sm"
+                                      disabled={!newComment.trim() ||
+                                        isSubmitting ||
+                                        !rootEvent ||
+                                        !onComment ||
+                                        !currentPubkey}
+                                      onclick={() =>
+                                        submitComment(ln, fileIdx, chunkIdx, currentFilePath)}
+                                    >
+                                      {#if isSubmitting}
+                                        <Loader2 class="h-3 w-3 animate-spin sm:h-3.5 sm:w-3.5" />
+                                      {:else}
+                                        <MessageSquare class="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                                      {/if}
+                                      Comment
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            {/if}
                           </div>
                         </div>
                       {/if}

@@ -187,6 +187,34 @@
   .markdown--comment :global(img) {
     @apply my-3;
   }
+
+  .markdown--inline {
+    @apply text-xs leading-snug;
+  }
+
+  .markdown--inline :global(p) {
+    @apply my-1;
+  }
+
+  .markdown--inline :global(ul) {
+    @apply my-1 list-disc pl-4;
+  }
+
+  .markdown--inline :global(ol) {
+    @apply my-1 list-decimal pl-4;
+  }
+
+  .markdown--inline :global(blockquote) {
+    @apply my-2 border-l-2 pl-2;
+  }
+
+  .markdown--inline :global(pre) {
+    @apply my-2 p-2 text-xs;
+  }
+
+  .markdown--inline :global(img) {
+    @apply my-1 max-h-32 object-contain;
+  }
 </style>
 
 <script lang="ts">
@@ -221,7 +249,7 @@
     hideMediaAtDepth?: number
     depth?: number
     communitySectionName?: string
-    variant?: "default" | "comment"
+    variant?: "default" | "comment" | "inline"
   }
 
   const {
@@ -382,8 +410,9 @@
 
 <div
   class="markdown w-full max-w-full overflow-hidden"
-  class:markdown--comment={variant === "comment"}
+  class:markdown--comment={variant === "comment" || variant === "inline"}
+  class:markdown--inline={variant === "inline"}
   bind:this={containerElement}>
   {@html sanitizedContent}
 </div>
-<BlossomAttachmentList {attachments} {event} />
+<BlossomAttachmentList {attachments} {event} {variant} />

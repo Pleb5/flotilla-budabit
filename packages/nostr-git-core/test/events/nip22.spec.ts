@@ -195,4 +195,35 @@ describe('NIP-22: comments (create + parse)', () => {
     expect(evt.tags).toContainEqual(['q', '30617:maintainer:repo', 'wss://relay.example']);
     expect(evt.content).not.toContain('File:');
   });
+
+  it('preserves rich editor extra tags on inline comments after location tags', () => {
+    const extraTags: CommentTag[] = [
+      ['p', 'mentioned-pubkey', 'wss://relay.mention'],
+      ['q', 'quoted-event-id', 'wss://relay.quote'],
+      ['imeta', 'url https://cdn.example/file.png', 'm image/png'],
+      ['t', 'review']
+    ];
+
+    const evt = createGitInlineCommentEvent({
+      content: 'Inline comment with rich tags',
+      root: { id: 'pr-id', kind: 1618, pubkey: 'pr-author' },
+      authorPubkey: 'reviewer',
+      relayHint: 'wss://relay.example',
+      repoRefs: ['30617:maintainer:repo'],
+      filePath: 'src/example.ts',
+      commitId: 'abc123',
+      line: '42',
+      extraTags
+    });
+
+    expect(evt.tags).toContainEqual(['f', 'src/example.ts']);
+    expect(evt.tags).toContainEqual(['c', 'abc123']);
+    expect(evt.tags).toContainEqual(['line', '42']);
+    for (const tag of extraTags) {
+      expect(evt.tags).toContainEqual(tag);
+    }
+    expect(evt.tags.findIndex((tag) => tag[0] === 'f')).toBeLessThan(
+      evt.tags.findIndex((tag) => tag[0] === 'imeta')
+    );
+  });
 });
