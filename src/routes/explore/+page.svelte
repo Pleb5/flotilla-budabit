@@ -451,6 +451,9 @@
   const showPreferredCommunitiesLoading = $derived(
     preferredCommunitiesLoading && selectorCommunities.length === 0,
   )
+  const showPreferredCommunities = $derived(
+    selectorCommunities.length > 0 || showPreferredCommunitiesLoading,
+  )
 
   $effect(() => {
     const searchInput = communitySearchInput
@@ -627,8 +630,13 @@
         Explore Communities
       </h1>
       <div
-        class="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)] lg:items-start">
-        <div class="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1">
+        class="grid min-w-0 gap-4 lg:items-start {showPreferredCommunities
+          ? 'lg:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)]'
+          : 'lg:grid-cols-[minmax(24rem,28rem)] lg:justify-center'}">
+        <div
+          class="flex min-w-0 flex-col gap-4 lg:row-start-1 {showPreferredCommunities
+            ? 'lg:col-start-2'
+            : ''}">
           <CommunityPreviewCard
             pubkey={previewPubkey}
             relayHints={previewRelayHints}
@@ -670,7 +678,7 @@
           </Button>
         </div>
 
-        {#if selectorCommunities.length > 0 || showPreferredCommunitiesLoading}
+        {#if showPreferredCommunities}
           <div class="card2 card2-sm bg-alt col-3 min-w-0 shadow-md lg:col-start-1 lg:row-start-1">
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
