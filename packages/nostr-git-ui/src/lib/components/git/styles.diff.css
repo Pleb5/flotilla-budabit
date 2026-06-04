@@ -1,0 +1,331 @@
+/* Stacked Diff Component Styles */
+
+/* Base diff container */
+.stacked-diff {
+  --diff-bg-added: #f0fdf4;
+  --diff-bg-removed: #fef2f2;
+  --diff-bg-context: hsl(var(--ng-background));
+  --diff-border-added: #22c55e;
+  --diff-border-removed: #ef4444;
+  --diff-text-added: #14532d;
+  --diff-text-removed: #7f1d1d;
+  --diff-line-num-bg: hsl(var(--ng-muted));
+  --diff-line-num-text: hsl(var(--ng-muted-foreground));
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .stacked-diff {
+    --diff-bg-added: #052e16;
+    --diff-bg-removed: #450a0a;
+    --diff-text-added: #dcfce7;
+    --diff-text-removed: #fecaca;
+  }
+}
+
+/* Commit container animations */
+.commit-container {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.commit-container.expanded {
+  transform: translateY(0);
+}
+
+.commit-container.collapsed {
+  transform: translateY(-2px);
+}
+
+/* File diff animations */
+.file-diff {
+  transition: all 0.2s ease-in-out;
+}
+
+.file-diff.highlighted {
+  animation: highlight-pulse 2s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--ng-primary) / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px hsl(var(--ng-primary) / 0.1);
+  }
+}
+
+/* Line-level diff styling */
+.diff-line {
+  position: relative;
+  display: flex;
+  min-height: 1.5rem;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.diff-line-added {
+  background-color: var(--diff-bg-added);
+  color: var(--diff-text-added);
+  border-left: 2px solid var(--diff-border-added);
+}
+
+.diff-line-removed {
+  background-color: var(--diff-bg-removed);
+  color: var(--diff-text-removed);
+  border-left: 2px solid var(--diff-border-removed);
+}
+
+.diff-line-context {
+  background-color: var(--diff-bg-context);
+}
+
+.diff-line-context:hover {
+  background-color: hsl(var(--ng-muted) / 0.3);
+}
+
+/* Line numbers */
+.diff-line-number {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 3rem;
+  padding: 0.25rem 0.5rem;
+  background-color: var(--diff-line-num-bg);
+  color: var(--diff-line-num-text);
+  font-size: 0.75rem;
+  border-right: 1px solid hsl(var(--ng-border));
+  user-select: none;
+}
+
+.diff-line-number.added {
+  background-color: var(--diff-bg-added);
+  color: var(--diff-text-added);
+}
+
+.diff-line-number.removed {
+  background-color: var(--diff-bg-removed);
+  color: var(--diff-text-removed);
+}
+
+/* Change indicators */
+.diff-change-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  padding: 0.25rem;
+  background-color: var(--diff-line-num-bg);
+  border-right: 1px solid hsl(var(--ng-border));
+}
+
+.diff-change-indicator.added {
+  background-color: var(--diff-bg-added);
+  color: var(--diff-text-added);
+}
+
+.diff-change-indicator.removed {
+  background-color: var(--diff-bg-removed);
+  color: var(--diff-text-removed);
+}
+
+/* Code content */
+.diff-code-content {
+  flex: 1;
+  padding: 0.25rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+}
+
+/* Syntax highlighting overrides for diff context */
+.diff-code-content .hljs {
+  background: transparent !important;
+  color: inherit !important;
+  padding: 0 !important;
+}
+
+/* Comment button */
+.diff-comment-button {
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  width: 2rem;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.diff-line:hover .diff-comment-button {
+  opacity: 1;
+}
+
+.diff-comment-button button {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  background-color: hsl(var(--ng-background));
+  border: 1px solid hsl(var(--ng-border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-in-out;
+}
+
+.diff-comment-button button:hover {
+  background-color: hsl(var(--ng-muted));
+  border-color: hsl(var(--ng-border));
+}
+
+/* File status indicators */
+.file-status-added {
+  color: var(--diff-text-added);
+  background-color: var(--diff-bg-added);
+}
+
+.file-status-modified {
+  color: hsl(var(--ng-primary));
+  background-color: hsl(var(--ng-primary) / 0.15);
+}
+
+.file-status-deleted {
+  color: var(--diff-text-removed);
+  background-color: var(--diff-bg-removed);
+}
+
+.file-status-renamed {
+  color: hsl(var(--ng-accent));
+  background-color: hsl(var(--ng-accent) / 0.15);
+}
+
+/* Hunk headers */
+.diff-hunk-header {
+  background-color: hsl(var(--ng-muted));
+  color: hsl(var(--ng-muted-foreground));
+  padding: 0.5rem 1rem;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.875rem;
+  border-bottom: 1px solid hsl(var(--ng-border));
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Virtualization helpers */
+.diff-virtual-spacer {
+  background-color: hsl(var(--ng-muted) / 0.1);
+  border: 1px dashed hsl(var(--ng-border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--ng-muted-foreground));
+  font-size: 0.875rem;
+}
+
+/* Loading states */
+.diff-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: hsl(var(--ng-muted-foreground));
+}
+
+.diff-loading-spinner {
+  animation: spin 1s linear infinite;
+  margin-right: 0.5rem;
+}
+
+/* Error states */
+.diff-error {
+  background-color: hsl(var(--ng-destructive) / 0.12);
+  border: 1px solid hsl(var(--ng-destructive) / 0.45);
+  color: hsl(var(--ng-destructive));
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
+}
+
+.diff-error-icon {
+  color: hsl(var(--ng-destructive));
+  margin-right: 0.5rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .diff-line-number {
+    min-width: 2.5rem;
+    font-size: 0.6875rem;
+  }
+
+  .diff-code-content {
+    font-size: 0.8125rem;
+  }
+
+  .diff-hunk-header {
+    font-size: 0.8125rem;
+    padding: 0.375rem 0.75rem;
+  }
+}
+
+/* Print styles */
+@media print {
+  .diff-comment-button {
+    display: none !important;
+  }
+
+  .commit-container {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .file-diff {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+/* Accessibility improvements */
+.diff-line:focus-within {
+  outline: 2px solid hsl(var(--ng-primary));
+  outline-offset: -2px;
+}
+
+.diff-line-number:focus {
+  outline: 2px solid hsl(var(--ng-primary));
+  outline-offset: -2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .diff-line-added {
+    background-color: #e6ffe6;
+    border-left-color: #00aa00;
+  }
+
+  .diff-line-removed {
+    background-color: #ffe6e6;
+    border-left-color: #cc0000;
+  }
+
+  .diff-line-number {
+    border-right-color: #000000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .commit-container,
+  .file-diff,
+  .diff-comment-button {
+    transition: none;
+  }
+
+  .file-diff.highlighted {
+    animation: none;
+    box-shadow: 0 0 0 2px hsl(var(--ng-primary));
+  }
+}
