@@ -5,8 +5,12 @@
   let {
     ref = $bindable(null),
     class: className,
+    pubkey: _pubkey,
+    hideDetails: _hideDetails,
+    relays: _relays = [],
     ...restProps
-  }: AvatarPrimitive.RootProps & { pubkey?: string; hideDetails?: boolean } = $props();
+  }: AvatarPrimitive.RootProps & { pubkey?: string; hideDetails?: boolean; relays?: string[] } =
+    $props();
 </script>
 
 <AvatarPrimitive.Root

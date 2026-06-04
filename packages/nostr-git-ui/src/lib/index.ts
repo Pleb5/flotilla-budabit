@@ -7,6 +7,7 @@ export { bookmarksStore } from "./stores/repositories";
 export { commonHashtags } from "./stores/hashtags";
 export * from "./components";
 export * from "./types/signer";
+export * from "./types/composer";
 export * from "./utils/signer-context";
 export { useFunctions, useFunction } from "./useFunctions";
 export type { FunctionRegistry } from "./internal/function-registry";

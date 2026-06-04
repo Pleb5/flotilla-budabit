@@ -33,6 +33,8 @@
   import EventActions from "@app/components/EventActions.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
+  import RepoRichCommentComposer from "@app/components/RepoRichCommentComposer.svelte"
+  import RepoRichDescriptionEditor from "@app/components/RepoRichDescriptionEditor.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import NostrGitProfileLink from "@app/components/NostrGitProfileLink.svelte"
@@ -82,6 +84,9 @@
       EventActions,
       ReactionSummary,
       Markdown,
+      RichCommentComposer: RepoRichCommentComposer,
+      RichInlineCommentComposer: RepoRichCommentComposer,
+      RichDescriptionEditor: RepoRichDescriptionEditor,
     },
   })
 

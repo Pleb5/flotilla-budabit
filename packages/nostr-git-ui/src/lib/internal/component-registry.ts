@@ -1,3 +1,9 @@
+import type { Component } from "svelte";
+import type {
+  RichCommentComposerProps,
+  RichDescriptionEditorProps,
+} from "../types/composer";
+
 export const REGISTRY = Symbol("ui-component-registry");
 
 export type Registry = {
@@ -32,6 +38,9 @@ export type Registry = {
   Spinner: typeof import("../components/editor/Spinner.svelte").default;
   CommentStatus?: any; // Optional component provided by consuming app
   Markdown?: any; // Optional component provided by consuming app
+  RichCommentComposer?: Component<RichCommentComposerProps>;
+  RichInlineCommentComposer?: Component<RichCommentComposerProps>;
+  RichDescriptionEditor?: Component<RichDescriptionEditorProps>;
 };
 
 import Alert from "../components/ui/alert/alert.svelte";
@@ -96,4 +105,9 @@ export const defaultRegistry: Registry = {
   Spinner,
   CommentStatus: undefined,
   Markdown: undefined,
+  RichCommentComposer: undefined,
+  RichInlineCommentComposer: undefined,
+  RichDescriptionEditor: undefined,
 };
+
+export type { RichCommentComposerProps, RichDescriptionEditorProps };
