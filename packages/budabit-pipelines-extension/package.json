@@ -1,0 +1,59 @@
+{
+  "name": "budabit-pipelines-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CI/CD Pipelines extension for Flotilla - View and manage pipeline runs for your repository",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @flotilla/ext-iframe dev",
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:debug": "playwright test --debug",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm e2e",
+    "manifest:generate": "pnpm --filter @flotilla/ext-manifest generate --title 'CI/CD Pipelines' --type tool --app-url '${PIPELINES_APP_URL:-http://localhost:5173}' --icon 'Play' --image 'https://budabit.dev/images/pipelines-preview.png' --identifier 'budabit-pipelines' --permissions 'nostr:publish,nostr:query,nostr:subscribe,nostr:nip44Encrypt,ui:toast' --slot-type repo-tab --slot-label Pipelines --slot-path pipelines",
+    "manifest:publish": "pnpm --filter @flotilla/ext-manifest publish-widget",
+    "widget:build": "pnpm build && pnpm manifest:generate",
+    "widget:publish": "pnpm widget:build && pnpm manifest:publish",
+    "widget:publish:dry-run": "pnpm widget:build && pnpm --filter @flotilla/ext-manifest publish-widget --dry-run",
+    "widget:publish:blossom": "pnpm widget:build && pnpm --filter @flotilla/ext-manifest publish-widget --upload-first --blossom https://blossom.primal.net --artifact ../iframe-app/dist/index.html",
+    "widget:publish:github": "pnpm widget:build && pnpm --filter @flotilla/ext-manifest publish-widget --upload-first --github-repo ${GITHUB_REPO} --github-tag ${GITHUB_TAG} --artifact ../iframe-app/dist/index.html"
+  },
+  "keywords": [
+    "flotilla",
+    "nostr",
+    "smart-widget",
+    "cicd",
+    "pipelines",
+    "kind-30033"
+  ],
+  "author": "Budabit",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.48.2",
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/ui": "^2.1.8",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}

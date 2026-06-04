@@ -1,0 +1,42 @@
+{
+  "name": "@flotilla/ext-iframe",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@cashu/cashu-ts": "^3.6.2",
+    "@flotilla/ext-shared": "workspace:*",
+    "@lucide/svelte": "^0.562.0",
+    "@tursodatabase/database-wasm": "^0.5.3",
+    "anser": "^2.3.5",
+    "applesauce-core": "^5.2.0",
+    "applesauce-loaders": "^5.1.0",
+    "applesauce-relay": "^5.2.0",
+    "applesauce-sqlite": "^5.2.0",
+    "blossom-client-sdk": "^5.0.0",
+    "date-fns": "^4.1.0",
+    "js-yaml": "^4.1.1",
+    "nostr-tools": "^2.11.0",
+    "rxjs": "^7.8.2",
+    "strip-ansi": "^7.2.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "svelte": "^5.15.0",
+    "svelte-check": "^4.1.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-singlefile": "^2.0.4"
+  }
+}

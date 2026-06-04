@@ -1,0 +1,10 @@
+/// <reference types="svelte" />
+/// <reference types="vite/client" />
+
+declare module '*.svelte' {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const component: any;
+  export default component;
+}
+
+declare module 'js-yaml'
