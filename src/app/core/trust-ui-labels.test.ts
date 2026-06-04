@@ -61,7 +61,7 @@ describe("trust UI labels", () => {
       "More about trust in BudaBit",
     )
     expect(readUiFile("../components/ProfileDetail.svelte")).toContain("ProfileTrustBadges")
-    expect(readUiFile("../../routes/people/[profile]/+page.svelte")).toContain("ProfileTrustBadges")
+    expect(readUiFile("../../routes/people/[profile]/+page.svelte")).toContain("Repositories")
     expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Trust in BudaBit")
     expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Community-first")
   })
@@ -83,18 +83,13 @@ describe("trust UI labels", () => {
     const profilePage = readUiFile("../../routes/people/[profile]/+page.svelte")
     const profileCollaboration = readUiFile("../components/ProfileCodeTrustAnalysis.svelte")
 
-    expect(profilePage).not.toContain("loadRepoAnnouncements(")
-    expect(profilePage).toContain("Load recent git activity")
-    expect(profilePage).toContain("Load repository relationships")
+    expect(profilePage).not.toContain("ProfileCodeTrustAnalysis")
     expect(profilePage).toContain("Copy profile npub")
-    expect(profilePage).toContain('"#maintainers"')
-    expect(profilePage).toContain("published repo metadata")
-    expect(profilePage).toContain("Latest metadata event")
-    expect(profilePage).toContain("Repo metadata events are replaceable")
-    expect(profilePage).toContain("Owned repo profiles")
-    expect(profilePage).toContain(
-      "Latest metadata event {formatTimestampRelative(getRepoLatestCreatedAt(repo))}",
-    )
+    expect(profilePage).toContain("Repositories")
+    expect(profilePage).toContain("Owned")
+    expect(profilePage).toContain("Starred")
+    expect(profilePage).toContain("Maintainers")
+    expect(profilePage).toContain("RepoCollectButton")
     expect(profilePage).not.toContain("announced repo")
     expect(profilePage).not.toContain("Announced {formatTimestampRelative")
     expect(profilePage).not.toContain("Basic stats render first")

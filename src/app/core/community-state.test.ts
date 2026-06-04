@@ -92,6 +92,25 @@ const waitForAdmissionForm = (sectionName: string) =>
     })
   })
 
+const makeProfileListEvent = ({
+  id,
+  pubkey,
+  identifier,
+  created_at = 1,
+}: {
+  id: string
+  pubkey: string
+  identifier: string
+  created_at?: number
+}) =>
+  makeEvent({
+    id,
+    kind: PROFILE_LIST_KIND,
+    pubkey,
+    created_at,
+    tags: [["d", identifier]],
+  })
+
 describe("community state helpers", () => {
   it("creates community sessions from parsed input", () => {
     const parsed = parseCommunityInput(
@@ -208,16 +227,26 @@ describe("community state helpers", () => {
       },
     ])
 
-    setActiveCommunityDefinition(definition)
-    repository.publish(form)
-    repository.publish(wrongSectionForm)
+    const profileList = makeProfileListEvent({
+      id: "repo-moderator-list",
+      pubkey: badgePubkey,
+      identifier: "Repositories",
+    })
 
-    expect((await waitForAdmissionForm("Repositories")).Repositories?.event.id).toBe("repo-form")
+    try {
+      setActiveCommunityDefinition(definition)
+      repository.publish(profileList)
+      repository.publish(form)
+      repository.publish(wrongSectionForm)
 
-    repository.removeEvent(form.id)
-    repository.removeEvent(wrongSectionForm.id)
-    repository.removeEvent(definition.event.id)
-    clearActiveCommunity()
+      expect((await waitForAdmissionForm("Repositories")).Repositories?.event.id).toBe("repo-form")
+    } finally {
+      repository.removeEvent(form.id)
+      repository.removeEvent(wrongSectionForm.id)
+      repository.removeEvent(profileList.id)
+      repository.removeEvent(definition.event.id)
+      clearActiveCommunity()
+    }
   })
 
   it("derives active community relays from the loaded definition", () => {

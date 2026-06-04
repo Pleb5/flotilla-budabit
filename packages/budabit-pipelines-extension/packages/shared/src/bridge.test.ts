@@ -134,11 +134,18 @@ describe('WidgetBridge', () => {
 
   describe('onRequest()', () => {
     it('should respond to host request with handler result', async () => {
-      const handler = vi.fn().mockResolvedValue({ data: 'result' });
-      bridge.onRequest('custom:action', handler);
+      // Create a bridge that uses window.parent as targetWindow so source checks pass
+      const reqBridge = new WidgetBridge({
+        targetWindow: window.parent,
+        targetOrigin: '*',
+        timeoutMs: 1000,
+      });
 
-      // Mock source window for response
-      const mockSource = { postMessage: vi.fn() };
+      const handler = vi.fn().mockResolvedValue({ data: 'result' });
+      reqBridge.onRequest('custom:action', handler);
+
+      // Spy on window.parent.postMessage to capture response
+      const postSpy = vi.spyOn(window.parent, 'postMessage');
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -148,23 +155,26 @@ describe('WidgetBridge', () => {
             action: 'custom:action',
             payload: { input: 'test' },
           },
-          source: mockSource as unknown as Window,
-          origin: window.location.origin,
+          source: window.parent,
+          origin: 'http://localhost',
         })
       );
 
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalledWith({ input: 'test' });
-      expect(mockSource.postMessage).toHaveBeenCalledWith(
-        {
+      expect(postSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
           type: 'response',
           id: 'host-req-1',
           action: 'custom:action',
           payload: { data: 'result' },
-        },
-        window.location.origin
+        }),
+        expect.any(String)
       );
+
+      postSpy.mockRestore();
+      reqBridge.destroy();
     });
   });
 

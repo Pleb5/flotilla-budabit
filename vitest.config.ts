@@ -73,6 +73,14 @@ export default defineConfig({
         },
       },
       {
+        extends: "./packages/budabit-pipelines-extension/vitest.config.ts",
+        root: path.resolve(__dirname, "packages/budabit-pipelines-extension"),
+        test: {
+          name: "budabit-pipelines-extension",
+          include: ["packages/shared/src/**/*.{test,spec}.ts"],
+        },
+      },
+      {
         extends: "./packages/flotilla-extension-template/vitest.config.ts",
         root: path.resolve(__dirname, "packages/flotilla-extension-template"),
         test: {
