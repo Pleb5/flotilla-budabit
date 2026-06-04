@@ -1,0 +1,41 @@
+name: Lint
+
+on:
+  push:
+    paths:
+      - "**/*.ts"
+      - "**/*.js"
+      - "**/*.svelte"
+      - "eslint.config.js"
+      - ".github/workflows/lint.yml"
+  pull_request:
+    paths:
+      - "**/*.ts"
+      - "**/*.js"
+      - "**/*.svelte"
+      - "eslint.config.js"
+      - ".github/workflows/lint.yml"
+
+jobs:
+  eslint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run ESLint (root config)
+        run: pnpm run lint:eslint

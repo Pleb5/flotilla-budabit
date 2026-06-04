@@ -1,0 +1,51 @@
+# Root-level .gitignore for nostr-git-monorepo
+
+# Node
+node_modules/
+.pnpm/
+.pnpm-debug.log
+*.tsbuildinfo
+
+# Builds
+dist/
+build/
+.svelte-kit/
+.vite/
+
+# Extensions
+packages/extension/dist/
+
+# Env/Secrets
+.env
+.env.*
+
+# IDEs
+.vscode/
+.idea/
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# SvelteKit
+.svelte-kit/
+
+# Test / Coverage
+coverage/
+*.lcov
+
+# Miscellaneous
+*.local
+*.log
+*.tmp
+*.bak
+*.orig
+*.patch
+*.vsix
