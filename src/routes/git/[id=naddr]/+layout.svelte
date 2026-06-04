@@ -74,6 +74,7 @@
     GIT_PULL_REQUEST_UPDATE,
     GIT_LABEL,
     parseRepoAnnouncementEvent,
+    parseRepoCommunityBinding,
     isCommentEvent,
     createRepoStateEvent,
     isImportedEvent,
@@ -163,10 +164,12 @@
   } from "@app/util/bookmarks"
   import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
   import {
+    activeCommunitySession,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeUserCommunityRefs,
+    setActiveCommunityInput,
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
@@ -184,6 +187,7 @@
     type RepoStarRef,
   } from "@app/util/repo-stars"
   import {randomId} from "@welshman/lib"
+  import {makeCommunityInputValue} from "@app/util/community-stars"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
 
   const {id} = $page.params
@@ -1517,6 +1521,28 @@
 
   // Create stores at top level (not inside effect to avoid infinite loops)
   const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
+  const repoBoundCommunity = $derived.by(
+    () =>
+      repoClass?.community ||
+      ($repoEventStore ? parseRepoCommunityBinding($repoEventStore) : undefined),
+  )
+  const repoPageWidthClass = $derived(
+    $activeCommunitySession?.communityPubkey || repoBoundCommunity?.pubkey ? "" : "cw-full",
+  )
+  let autoAppliedRepoCommunityPubkey = ""
+
+  $effect(() => {
+    const activeCommunityPubkey = $activeCommunitySession?.communityPubkey || ""
+    const community = repoBoundCommunity
+
+    if (activeCommunityPubkey || !community?.pubkey) return
+
+    const relayHints = [community.relay || ""].filter(Boolean)
+    const input = makeCommunityInputValue({pubkey: community.pubkey, relayHints}) || community.pubkey
+    const session = setActiveCommunityInput(input)
+
+    if (session?.communityPubkey) autoAppliedRepoCommunityPubkey = session.communityPubkey
+  })
   const repoStateEventsStore = deriveRepoStateEvents(repoName, repoOwnerStore)
   const repoStateEventStore: Readable<RepoStateEvent | undefined> = derived(
     repoStateEventsStore,
@@ -2532,6 +2558,14 @@
     if (deleteSeenKey) {
       setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
     }
+
+    if (
+      autoAppliedRepoCommunityPubkey &&
+      getStore(activeCommunitySession)?.communityPubkey === autoAppliedRepoCommunityPubkey
+    ) {
+      activeCommunitySession.set(undefined)
+    }
+    autoAppliedRepoCommunityPubkey = ""
 
     stopRepoLiveSubscription()
     unsubscribers.forEach(unsub => unsub())
@@ -3692,7 +3726,7 @@
   <title>{repoClass?.name}</title>
 </svelte:head>
 
-<PageBar class="w-full pb-0">
+<PageBar class="{repoPageWidthClass} w-full pb-0">
   {#snippet icon()}
     <div>
       <Button
@@ -3750,7 +3784,7 @@
 <PageContent
   bind:element={pageContentElement}
   style={`--repo-tabs-height: ${repoTabsHeight}px; --mobile-code-breadcrumb-height: ${mobileCodeBreadcrumbHeight}px;`}
-  class="!top-[calc(var(--sait)+3.5rem)] flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden px-2 pb-4 pt-0 sm:px-3 sm:pb-6 sm:pt-0 lg:px-4 lg:pb-8 lg:pt-0">
+  class="{repoPageWidthClass} !top-[calc(var(--sait)+3.5rem)] flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden px-2 pb-4 pt-0 sm:px-3 sm:pb-6 sm:pt-0 lg:px-4 lg:pb-8 lg:pt-0">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}
