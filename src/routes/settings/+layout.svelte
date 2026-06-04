@@ -3,6 +3,7 @@
   import {page} from "$app/stores"
   import {fly} from "@lib/transition"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Server from "@assets/icons/server.svg?dataurl"
   import Moon from "@assets/icons/moon.svg?dataurl"
@@ -24,6 +25,7 @@
   import LogOut from "@app/components/LogOut.svelte"
   import {pubkey} from "@welshman/app"
   import {pushModal} from "@app/util/modal"
+  import {makeProfilePath} from "@app/util/routes"
   import {theme} from "@app/util/theme"
 
   type Props = {
@@ -37,44 +39,51 @@
   const logout = () => pushModal(LogOut)
 
   const toggleTheme = () => theme.set($theme === "dark" ? "light" : "dark")
+
+  const profilePath = $derived($pubkey ? makeProfilePath($pubkey) : "")
 </script>
 
 <SecondaryNav>
   <SecondaryNavSection>
     {#if $pubkey}
       <div in:fly|local>
-        <SecondaryNavItem href="/settings/profile">
+        <SecondaryNavItem href={profilePath}>
           <Icon icon={UserCircle} /> Profile
         </SecondaryNavItem>
       </div>
+      <div in:fly|local={{delay: 50}}>
+        <SecondaryNavItem href="/settings/git">
+          <Icon icon={Git} /> Git
+        </SecondaryNavItem>
+      </div>
       {#if __ALERTS__}
-        <div in:fly|local={{delay: 50}}>
+        <div in:fly|local={{delay: 100}}>
           <SecondaryNavItem href="/settings/alerts">
             <Icon icon={Bell} /> Alerts
           </SecondaryNavItem>
         </div>
       {/if}
-      <div in:fly|local={{delay: 100}}>
+      <div in:fly|local={{delay: 150}}>
         <SecondaryNavItem href="/settings/wallet">
           <Icon icon={Wallet} /> Wallet
         </SecondaryNavItem>
       </div>
-      <div in:fly|local={{delay: 150}}>
+      <div in:fly|local={{delay: 200}}>
         <SecondaryNavItem href="/settings/relays">
           <Icon icon={Server} /> Relays
         </SecondaryNavItem>
       </div>
-      <div in:fly|local={{delay: 200}}>
+      <div in:fly|local={{delay: 250}}>
         <SecondaryNavItem href="/settings/blossom">
           <Icon icon={Flower} /> Blossom
         </SecondaryNavItem>
       </div>
-      <div in:fly|local={{delay: 225}}>
+      <div in:fly|local={{delay: 300}}>
         <SecondaryNavItem href="/settings/content">
           <Icon icon={GalleryMinimalistic} /> Content
         </SecondaryNavItem>
       </div>
-      <div in:fly|local={{delay: 250}}>
+      <div in:fly|local={{delay: 350}}>
         <SecondaryNavItem href="/settings/extensions">
           <Icon icon={Plugins} /> Extensions
         </SecondaryNavItem>
@@ -86,18 +95,18 @@
         </SecondaryNavItem>
       </div>
     {/if}
-    <div in:fly|local={{delay: 275}}>
+    <div in:fly|local={{delay: 400}}>
       <SecondaryNavItem onclick={toggleTheme}>
         <Icon icon={Moon} /> Theme
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 300}}>
+    <div in:fly|local={{delay: 450}}>
       <SecondaryNavItem href="/settings/about">
         <Icon icon={InfoSquare} /> About
       </SecondaryNavItem>
     </div>
     {#if $pubkey}
-      <div in:fly|local={{delay: 350}} class="lg:mb-4">
+      <div in:fly|local={{delay: 500}} class="lg:mb-4">
         <SecondaryNavItem class="text-error hover:text-error" onclick={logout}>
           <Icon icon={Exit} /> Log Out
         </SecondaryNavItem>

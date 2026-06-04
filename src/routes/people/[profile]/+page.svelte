@@ -35,15 +35,19 @@
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
-  import Settings from "@assets/icons/settings.svg?dataurl"
+  import PenNewSquare from "@assets/icons/pen-new-square.svg?dataurl"
   import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import UsersGroup from "@assets/icons/users-group-rounded.svg?dataurl"
+  import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import ProfileAdvancedSettings from "@app/components/ProfileAdvancedSettings.svelte"
+  import ProfileAccountSettings from "@app/components/ProfileAccountSettings.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileEdit from "@app/components/ProfileEdit.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
   import ProfileTrustBadges from "@app/components/ProfileTrustBadges.svelte"
@@ -65,6 +69,7 @@
   import {formatShortNpub, normalizePubkey} from "@app/util/pubkeys"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {makeChatPath, makeCommunityPath} from "@app/util/routes"
+  import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
 
   type ParsedProfileRoute = {
@@ -755,6 +760,8 @@
     if (targetNpub) clip(targetNpub)
   }
 
+  const startEdit = () => pushModal(ProfileEdit)
+
   const recentActions = $derived.by<RecentAction[]>(() => {
     const actions: RecentAction[] = []
 
@@ -976,12 +983,7 @@
     </div>
   {/snippet}
   {#snippet action()}
-    {#if isSelf}
-      <Link href="/settings/profile" class="btn btn-circle btn-neutral btn-sm">
-        <Icon icon={Settings} />
-        <span class="sr-only">Profile settings</span>
-      </Link>
-    {:else if targetPubkey && chatPath}
+    {#if !isSelf && targetPubkey && chatPath}
       <Link href={chatPath} class="btn btn-circle btn-primary btn-sm">
         <Icon icon={Letter} />
       </Link>
@@ -989,7 +991,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="p-1.5 sm:p-4">
+<PageContent class="px-1.5 pb-1.5 pt-4 sm:px-4 sm:pb-4 sm:pt-8">
   {#if targetPubkey}
     <div class="mx-auto flex w-full max-w-7xl flex-col gap-2.5 pb-5 sm:gap-4 sm:pb-8">
       <section class="card2 bg-alt overflow-hidden !p-3 shadow-md sm:!p-6">
@@ -1012,23 +1014,33 @@
                 </h1>
                 {#if isSelf}
                   <span class="badge badge-primary badge-sm sm:badge-md">You</span>
+                  <Button
+                    class="btn btn-neutral btn-xs min-h-0 px-2 sm:btn-sm"
+                    onclick={startEdit}>
+                    <Icon icon={PenNewSquare} size={4} />
+                    Edit profile
+                  </Button>
                 {/if}
               </div>
-              <ProfileTrustBadges pubkey={targetPubkey} class="mt-2" />
-              <div
-                class="mt-1 flex flex-wrap items-center gap-1.5 break-all text-xs opacity-70 sm:gap-2 sm:text-sm">
-                <span>{profile?.nip05 || formatShortNpub(targetPubkey)}</span>
-                {#if targetNpub}
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs h-auto min-h-0 shrink-0 px-1 py-1"
-                    title="Copy profile npub"
-                    aria-label="Copy profile npub"
-                    onclick={copyTargetNpub}>
-                    <Icon size={4} icon={Copy} />
-                  </button>
-                {/if}
-              </div>
+              {#if !isSelf}
+                <ProfileTrustBadges pubkey={targetPubkey} class="mt-2" />
+              {/if}
+              {#if !isSelf}
+                <div
+                  class="mt-1 flex flex-wrap items-center gap-1.5 break-all text-xs opacity-70 sm:gap-2 sm:text-sm">
+                  <span>{profile?.nip05 || formatShortNpub(targetPubkey)}</span>
+                  {#if targetNpub}
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs h-auto min-h-0 shrink-0 px-1 py-1"
+                      title="Copy profile npub"
+                      aria-label="Copy profile npub"
+                      onclick={copyTargetNpub}>
+                      <Icon size={4} icon={Copy} />
+                    </button>
+                  {/if}
+                </div>
+              {/if}
               <div class="mt-3 max-w-3xl text-xs leading-relaxed opacity-90 sm:mt-4 sm:text-sm">
                 <ProfileInfo pubkey={targetPubkey} relays={profileRelayHints} />
               </div>
@@ -1040,7 +1052,87 @@
         </div>
       </section>
 
-      <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
+      {#if isSelf}
+        <ProfileAccountSettings />
+      {/if}
+
+      <details open class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
+        <summary
+          class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
+          <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
+            <Icon icon={Git} />
+            Repositories
+          </h2>
+          <div class="flex shrink-0 items-center gap-2">
+            <span class="badge badge-neutral badge-sm sm:badge-md">Repo metadata</span>
+            <div class="transition-transform group-open:rotate-180">
+              <Icon icon={AltArrowDown} />
+            </div>
+          </div>
+        </summary>
+
+        <div
+          class="mt-3 grid gap-2 border-t border-base-300/60 pt-3 sm:mt-4 sm:gap-3 sm:pt-4 md:grid-cols-2">
+          <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
+            <div class="text-xs font-semibold sm:text-sm">Owned repo profiles</div>
+            <p class="mt-1 text-xs opacity-60">
+              Repo metadata events are replaceable; these dates are not repository creation dates.
+            </p>
+            <div class="mt-2 flex flex-col gap-2 sm:mt-3">
+              {#each targetOwnedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
+                <Link
+                  href={getRepoHref(repo)}
+                  class="rounded-box bg-base-100/50 p-2.5 hover:bg-base-100 sm:p-3">
+                  <div class="text-sm font-medium sm:text-base">{getRepoName(repo)}</div>
+                  <div class="text-xs opacity-60">
+                    Latest metadata event {formatTimestampRelative(getRepoLatestCreatedAt(repo))}
+                  </div>
+                  {#if hasMultipleLoadedRepoMetadataEvents(repo)}
+                    <div class="text-xs opacity-60">
+                      Earliest loaded metadata event {formatTimestampRelative(
+                        getRepoFirstLoadedCreatedAt(repo),
+                      )}
+                    </div>
+                  {/if}
+                </Link>
+              {:else}
+                <div class="text-xs opacity-70 sm:text-sm">No owned repo metadata loaded.</div>
+              {/each}
+            </div>
+          </div>
+
+          <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
+            <div class="text-xs font-semibold sm:text-sm">Maintained repo profiles</div>
+            <div class="mt-2 flex flex-col gap-2 sm:mt-3">
+              {#if !loadRepositoryRelationships}
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-xs w-fit sm:btn-sm"
+                  onclick={requestRepositoryRelationships}>
+                  Load repository relationships
+                </button>
+              {:else}
+                {#each targetMaintainedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
+                  <Link
+                    href={getRepoHref(repo)}
+                    class="rounded-box bg-base-100/50 p-2.5 hover:bg-base-100 sm:p-3">
+                    <div class="text-sm font-medium sm:text-base">{getRepoName(repo)}</div>
+                    <div class="text-xs opacity-60">
+                      Owner <ProfileName pubkey={repo.pubkey} />
+                    </div>
+                  </Link>
+                {:else}
+                  <div class="text-xs opacity-70 sm:text-sm">
+                    No maintained repo metadata found.
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details open class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
         <summary
           class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
           <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
@@ -1232,82 +1324,6 @@
         <summary
           class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
           <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
-            <Icon icon={Git} />
-            Repositories
-          </h2>
-          <div class="flex shrink-0 items-center gap-2">
-            <span class="badge badge-neutral badge-sm sm:badge-md">Repo metadata</span>
-            <div class="transition-transform group-open:rotate-180">
-              <Icon icon={AltArrowDown} />
-            </div>
-          </div>
-        </summary>
-
-        <div
-          class="mt-3 grid gap-2 border-t border-base-300/60 pt-3 sm:mt-4 sm:gap-3 sm:pt-4 md:grid-cols-2">
-          <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
-            <div class="text-xs font-semibold sm:text-sm">Owned repo profiles</div>
-            <p class="mt-1 text-xs opacity-60">
-              Repo metadata events are replaceable; these dates are not repository creation dates.
-            </p>
-            <div class="mt-2 flex flex-col gap-2 sm:mt-3">
-              {#each targetOwnedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
-                <Link
-                  href={getRepoHref(repo)}
-                  class="rounded-box bg-base-100/50 p-2.5 hover:bg-base-100 sm:p-3">
-                  <div class="text-sm font-medium sm:text-base">{getRepoName(repo)}</div>
-                  <div class="text-xs opacity-60">
-                    Latest metadata event {formatTimestampRelative(getRepoLatestCreatedAt(repo))}
-                  </div>
-                  {#if hasMultipleLoadedRepoMetadataEvents(repo)}
-                    <div class="text-xs opacity-60">
-                      Earliest loaded metadata event {formatTimestampRelative(
-                        getRepoFirstLoadedCreatedAt(repo),
-                      )}
-                    </div>
-                  {/if}
-                </Link>
-              {:else}
-                <div class="text-xs opacity-70 sm:text-sm">No owned repo metadata loaded.</div>
-              {/each}
-            </div>
-          </div>
-
-          <div class="rounded-box bg-base-200/60 p-3 sm:p-4">
-            <div class="text-xs font-semibold sm:text-sm">Maintained repo profiles</div>
-            <div class="mt-2 flex flex-col gap-2 sm:mt-3">
-              {#if !loadRepositoryRelationships}
-                <button
-                  type="button"
-                  class="btn btn-neutral btn-xs w-fit sm:btn-sm"
-                  onclick={requestRepositoryRelationships}>
-                  Load repository relationships
-                </button>
-              {:else}
-                {#each targetMaintainedRepos.slice(0, 5) as repo (getRepoAddress(repo))}
-                  <Link
-                    href={getRepoHref(repo)}
-                    class="rounded-box bg-base-100/50 p-2.5 hover:bg-base-100 sm:p-3">
-                    <div class="text-sm font-medium sm:text-base">{getRepoName(repo)}</div>
-                    <div class="text-xs opacity-60">
-                      Owner <ProfileName pubkey={repo.pubkey} />
-                    </div>
-                  </Link>
-                {:else}
-                  <div class="text-xs opacity-70 sm:text-sm">
-                    No maintained repo metadata found.
-                  </div>
-                {/each}
-              {/if}
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <details class="card2 bg-alt group !p-3 shadow-md sm:!p-6">
-        <summary
-          class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-box pr-1 sm:gap-3 sm:py-1 sm:pr-2 [&::-webkit-details-marker]:hidden">
-          <h2 class="flex items-center gap-1.5 text-base font-semibold sm:gap-2 sm:text-xl">
             <Icon icon={UsersGroup} />
             Community participation
           </h2>
@@ -1406,6 +1422,10 @@
             communityReportState={$activeCommunityReportState} />
         </div>
       </details>
+
+      {#if isSelf}
+        <ProfileAdvancedSettings />
+      {/if}
     </div>
   {:else}
     <div class="card2 bg-alt mx-auto mt-3 max-w-xl !p-3 shadow-md sm:mt-4 sm:!p-6">

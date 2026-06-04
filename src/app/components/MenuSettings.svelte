@@ -4,6 +4,7 @@
   import Moon from "@assets/icons/moon.svg?dataurl"
   import Settings from "@assets/icons/settings-minimalistic.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
@@ -18,6 +19,7 @@
   import LogOut from "@app/components/LogOut.svelte"
   import {pubkey} from "@welshman/app"
   import {clearModals, pushModal} from "@app/util/modal"
+  import {makeProfilePath} from "@app/util/routes"
   import {theme} from "@app/util/theme"
 
   const login = () => pushModal(LogIn)
@@ -25,6 +27,8 @@
   const logout = () => pushModal(LogOut)
 
   const toggleTheme = () => theme.set($theme === "dark" ? "light" : "dark")
+
+  const profilePath = $derived($pubkey ? makeProfilePath($pubkey) : "")
 
   const dismissOnEscape = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return
@@ -54,7 +58,7 @@
     </Button>
   {/if}
   {#if $pubkey}
-    <Link replaceState href="/settings/profile">
+    <Link replaceState href={profilePath}>
       <CardButton class="btn-neutral">
         {#snippet icon()}
           <div><Icon icon={UserRounded} size={7} /></div>
@@ -64,6 +68,19 @@
         {/snippet}
         {#snippet info()}
           <div>Customize your user profile</div>
+        {/snippet}
+      </CardButton>
+    </Link>
+    <Link replaceState href="/settings/git">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Git} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Git</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Authentication tokens, CORS proxy, and GRASP servers</div>
         {/snippet}
       </CardButton>
     </Link>

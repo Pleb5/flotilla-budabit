@@ -103,7 +103,7 @@
       <div class="hidden lg:block">
         <PrimaryNavItem
           title="Settings"
-          href={$pubkey ? "/settings/profile" : ""}
+          href={$pubkey ? "/settings" : ""}
           onclick={$pubkey ? undefined : showSettingsMenu}
           prefix="/settings"
           class="tooltip-right">

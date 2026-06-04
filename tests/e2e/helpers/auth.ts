@@ -132,7 +132,7 @@ async function loginWithLocalDev(page: Page, options: LoginOptions): Promise<str
   // Verify logged in by checking for logged-in UI content
   // PrimaryNav uses <div> not <nav>, so we check for content that only appears when logged in
   // The desktop nav has "Settings" link which only shows when user is authenticated
-  const settingsLink = page.locator('a[href="/settings/profile"]')
+  const settingsLink = page.locator('a[href="/settings"]').first()
   await expect(settingsLink).toBeVisible({timeout: 10000})
   phaseHooks?.recordPhaseSnapshot?.(PHASE_C_IDENTITY_VISIBLE)
 

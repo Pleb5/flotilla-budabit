@@ -9,7 +9,7 @@ import {setGitWorkerConfig, terminateGitWorker} from "@app/core/worker-singleton
 const FALLBACK_GIT_CORS_PROXY = "https://corsproxy.budabit.club"
 export const GIT_CORS_PROXY_STORAGE_KEY = "budabit/git/corsProxy"
 const CORS_PROXY_TOAST_COOLDOWN_MS = 30_000
-const CORS_PROXY_SETTINGS_PATH = "/settings/profile"
+const CORS_PROXY_SETTINGS_PATH = "/settings/git"
 
 let lastCorsProxyToastAt = 0
 

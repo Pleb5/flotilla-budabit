@@ -39,6 +39,7 @@
   import AvatarImage from "@app/components/SafeAvatarImage.svelte"
   import {setupHistory} from "@app/util/history"
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
+  import {makeProfilePath} from "@app/util/routes"
   import {userSettingsValues} from "@app/core/state"
   import {db, kv} from "@app/core/storage"
   import {pubkeyStorage, sessionsStorage} from "@app/core/session-storage"
@@ -671,7 +672,7 @@
               message: "Your signer appears to be unresponsive.",
               action: {
                 message: "Details",
-                onclick: () => goto("/settings/profile"),
+                onclick: () => goto(get(pubkey) ? makeProfilePath(get(pubkey)!) : "/settings"),
               },
             })
           }
