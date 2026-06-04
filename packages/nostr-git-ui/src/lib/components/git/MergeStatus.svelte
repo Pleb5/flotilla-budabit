@@ -7,7 +7,14 @@
     Clock,
     Info,
     FileText,
+    ChevronDown,
+    ChevronRight,
   } from "@lucide/svelte";
+  import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+  } from "../../components";
   import { useRegistry } from "../../useRegistry";
   import type { MergeAnalysisResult } from "@nostr-git/core/git";
 
@@ -34,6 +41,30 @@
   }
 
   const { result, loading = false, targetBranch = "" }: Props = $props();
+
+  let conflictingFilesOpen = $state(false);
+
+  const getConflictCount = (result: ExtendedMergeAnalysisResult): number => {
+    const fileCount = result.conflictFiles?.length ?? 0;
+    return fileCount > 0 ? fileCount : (result.conflictDetails?.length ?? 0);
+  };
+
+  const getConflictRows = (result: ExtendedMergeAnalysisResult) => {
+    const detailsByFile = new Map(
+      (result.conflictDetails ?? []).map((detail) => [detail.file, detail]),
+    );
+    const files =
+      (result.conflictFiles?.length ?? 0) > 0
+        ? (result.conflictFiles ?? [])
+        : (result.conflictDetails ?? []).map((detail) => detail.file);
+
+    return Array.from(new Set(files)).map((file) => ({
+      file,
+      ...detailsByFile.get(file),
+    }));
+  };
+
+  const formatConflictType = (type?: string) => type?.replace(/-/g, " ") || "unknown";
 
   const getStatusIcon = (analysis: string) => {
     switch (analysis) {
@@ -134,47 +165,83 @@
         </div>
       {/if}
 
-      {#if result.analysis === "conflicts" && (result.conflictDetails?.length ?? 0) > 0}
+      {#if result.analysis === "conflicts"}
         <div class="space-y-3">
-          <h4 class="font-medium text-sm flex items-center gap-2">
-            <FileText class="h-4 w-4" />
-            Conflicting Files ({result.conflictFiles?.length ?? 0})
-          </h4>
-
-          <div class="space-y-2">
-            {#each result.conflictDetails ?? [] as conflict (conflict.file)}
-              <Card class="min-w-0 overflow-hidden border-amber-200 dark:border-amber-900">
-                <CardContent class="min-w-0 p-3">
-                  <div class="mb-2 flex min-w-0 items-center justify-between gap-2">
-                    <span class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-sm">
-                      {conflict.file}
-                    </span>
-                    {#if conflict.type === "content" && conflict.conflictMarkers && conflict.conflictMarkers.length > 0}
-                      <Badge variant="destructive" class="shrink-0 text-xs">
-                        {conflict.conflictMarkers.length} conflicts
-                      </Badge>
-                    {/if}
-                  </div>
-
-                  <div class="text-xs text-muted-foreground">
-                    Type: {conflict.type}
-                  </div>
-
-                  {#if (conflict.conflictMarkers?.length ?? 0) > 0}
-                    <div class="mt-2 space-y-1">
-                      {#each conflict.conflictMarkers ?? [] as marker (marker.start)}
-                        <div class="text-xs bg-secondary/50 p-2 rounded">
-                          <div class="text-muted-foreground mb-1">
-                            Lines {marker.start}-{marker.end}: {marker.type.replace(/-/g, " ")}
-                          </div>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                </CardContent>
-              </Card>
-            {/each}
+          <div class="space-y-1">
+            <div class="flex items-center gap-2 text-sm">
+              <AlertTriangle class="h-4 w-4 text-amber-600 dark:text-amber-300" />
+              <span class="font-medium">Cannot merge automatically</span>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              This PR has conflicts that must be resolved before merging. Commits and file changes
+              can still be reviewed below.
+            </p>
           </div>
+
+          <Collapsible
+            bind:open={conflictingFilesOpen}
+            class="overflow-hidden rounded-md border border-amber-200 bg-background/60 dark:border-amber-900"
+          >
+            <CollapsibleTrigger class="w-full">
+              <div
+                class="flex min-w-0 items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-amber-100/50 dark:hover:bg-amber-950/30"
+              >
+                <div class="flex min-w-0 items-center gap-2">
+                  {#if conflictingFilesOpen}
+                    <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
+                  {:else}
+                    <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                  {/if}
+                  <FileText class="h-4 w-4 shrink-0" />
+                  <span class="truncate text-sm font-medium">Conflicting files</span>
+                </div>
+                <Badge variant="outline" class="shrink-0 text-xs">
+                  {getConflictCount(result)} file{getConflictCount(result) === 1 ? "" : "s"}
+                </Badge>
+              </div>
+            </CollapsibleTrigger>
+
+            <CollapsibleContent>
+              <div class="space-y-2 border-t border-amber-200 p-3 dark:border-amber-900">
+                {#each getConflictRows(result) as conflict (conflict.file)}
+                  <Card class="min-w-0 overflow-hidden border-amber-200 dark:border-amber-900">
+                    <CardContent class="min-w-0 p-3">
+                      <div class="mb-2 flex min-w-0 items-center justify-between gap-2">
+                        <span class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-sm">
+                          {conflict.file}
+                        </span>
+                        {#if conflict.type === "content" && conflict.conflictMarkers && conflict.conflictMarkers.length > 0}
+                          <Badge variant="destructive" class="shrink-0 text-xs">
+                            {conflict.conflictMarkers.length} conflicts
+                          </Badge>
+                        {/if}
+                      </div>
+
+                      <div class="text-xs text-muted-foreground">
+                        Type: {formatConflictType(conflict.type)}
+                      </div>
+
+                      {#if (conflict.conflictMarkers?.length ?? 0) > 0}
+                        <div class="mt-2 space-y-1">
+                          {#each conflict.conflictMarkers ?? [] as marker (marker.start)}
+                            <div class="text-xs bg-secondary/50 p-2 rounded">
+                              <div class="text-muted-foreground mb-1">
+                                Lines {marker.start}-{marker.end}: {marker.type.replace(/-/g, " ")}
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    </CardContent>
+                  </Card>
+                {:else}
+                  <p class="text-sm text-muted-foreground">
+                    Conflict file details were not returned by the merge analysis.
+                  </p>
+                {/each}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       {/if}
 

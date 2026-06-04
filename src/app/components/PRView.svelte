@@ -607,6 +607,8 @@
   const prCommitOids = $derived.by(() => {
     const fromAnalysis = (prMergeAnalysisResult?.prCommits || []).map(commit => commit.oid)
     if (fromAnalysis.length > 0) return fromAnalysis
+    const fromPatchCommits = prMergeAnalysisResult?.patchCommits || []
+    if (fromPatchCommits.length > 0) return fromPatchCommits
     return prStatus?.appliedCommits || []
   })
 
@@ -1275,6 +1277,11 @@
     const mergeBase = prMergeAnalysisResult?.mergeBase
     if (mergeBase) {
       return {baseOid: mergeBase, headOid: tipOid}
+    }
+
+    const targetCommit = prMergeAnalysisResult?.targetCommit
+    if (targetCommit && prMergeAnalysisResult?.analysis !== "error" && !prMergeAnalysisResult?.upToDate) {
+      return {baseOid: targetCommit, headOid: tipOid}
     }
 
     if (prStatus?.appliedCommits && prStatus.appliedCommits.length > 0) {
@@ -3385,6 +3392,20 @@
           ? 'p-0 sm:p-4'
           : 'p-4'}"
         id="pr-changes">
+        {#if prMergeAnalysisResult?.analysis === "conflicts"}
+          <div
+            class="mb-3 flex items-start gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p class="font-medium">Merge conflicts detected</p>
+              <p class="mt-1 text-xs">
+                This PR cannot be merged until conflicts are resolved, but commits and file changes
+                are still available for review.
+              </p>
+            </div>
+          </div>
+        {/if}
+
         <Tabs bind:value={prReviewTab} class="w-full">
           <div
             class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between {prReviewHasExpandedItem
