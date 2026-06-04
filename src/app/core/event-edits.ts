@@ -40,10 +40,13 @@ const REPLY_CONTEXT_TAGS = new Set([
 ])
 const RICH_EDITOR_TAGS = new Set(["a", "p", "q", "imeta", "t"])
 
-const sanitizeEditorTags = (tags: string[][] = []) => tags.filter(tag => tag[0] !== "-")
+const cloneTag = (tag: string[]) => [...tag]
+
+const sanitizeEditorTags = (tags: string[][] = []) =>
+  tags.filter(tag => tag[0] !== "-").map(cloneTag)
 
 const preserveTags = (event: Pick<TrustedEvent, "tags">, tagNames: Set<string>) =>
-  (event.tags || []).filter(tag => tagNames.has(tag[0]))
+  (event.tags || []).filter(tag => tagNames.has(tag[0])).map(cloneTag)
 
 export const mergeRichEditorTags = (
   event: Pick<TrustedEvent, "tags"> | undefined,

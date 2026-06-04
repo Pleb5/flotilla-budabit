@@ -155,6 +155,28 @@ describe("event edit helpers", () => {
     )
   })
 
+  it("copies edited message tags into structured-clone-safe arrays", () => {
+    const proxiedContextTag = new Proxy(["h", "community"], {})
+    const proxiedEditorTag = new Proxy(["t", "chat"], {})
+    const original = makeEvent({
+      kind: MESSAGE,
+      tags: [proxiedContextTag],
+    })
+
+    const template = makeEditedMessageTemplate(original, {
+      content: "edited",
+      tags: [proxiedEditorTag],
+    })
+
+    expect(template.tags).toEqual([
+      ["h", "community"],
+      ["t", "chat"],
+    ])
+    expect(template.tags[0]).not.toBe(proxiedContextTag)
+    expect(template.tags[1]).not.toBe(proxiedEditorTag)
+    expect(() => structuredClone(template)).not.toThrow()
+  })
+
   it("filters locally suppressed and repository-deleted events", () => {
     const kept = makeEvent({id: "kept"})
     const suppressed = makeEvent({id: "suppressed"})

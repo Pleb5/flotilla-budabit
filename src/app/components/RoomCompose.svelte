@@ -14,7 +14,7 @@
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import ComposerAttachmentStrip from "@app/components/ComposerAttachmentStrip.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {makeEditor} from "@app/editor"
+  import {makeEditor, plainTextToTiptapHTML} from "@app/editor"
   import type {BlossomUploadContext, BlossomUploadStage} from "@app/core/blossom"
   import {uploadFile} from "@app/core/commands"
   import {promptBlossomMirrorUploads} from "@app/util/blossom-mirror-prompt"
@@ -215,7 +215,7 @@
   const editor = makeEditor({
     url,
     blossomContext,
-    content,
+    content: content ? plainTextToTiptapHTML(content) : "",
     placeholder,
     autofocus,
     submit,

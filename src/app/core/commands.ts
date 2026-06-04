@@ -604,7 +604,10 @@ const getRepoAddressForDelete = (event: TrustedEvent) => {
   return ""
 }
 
-const sanitizePublishTags = (tags: string[][] = []) => tags.filter(tag => tag[0] !== "-")
+const cloneTag = (tag: string[]) => [...tag]
+
+const sanitizePublishTags = (tags: string[][] = []) =>
+  tags.filter(tag => tag[0] !== "-").map(cloneTag)
 
 export const makeDelete = ({event, tags = []}: DeleteParams) => {
   const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...sanitizePublishTags(tags)]
@@ -615,7 +618,7 @@ export const makeDelete = ({event, tags = []}: DeleteParams) => {
   const groupTag = getTag("h", event.tags)
 
   if (groupTag) {
-    thisTags.push(groupTag)
+    thisTags.push(cloneTag(groupTag))
   }
 
   return makeEvent(DELETE, {tags: uniqTags(thisTags)})
@@ -754,7 +757,7 @@ export const makeReaction = ({content, event, tags: paramTags = []}: ReactionPar
   const groupTag = getTag("h", event.tags)
 
   if (groupTag) {
-    tags.push(groupTag)
+    tags.push(cloneTag(groupTag))
   }
 
   return makeEvent(REACTION, {content, tags})

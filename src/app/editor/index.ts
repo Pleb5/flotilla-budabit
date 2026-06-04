@@ -25,6 +25,7 @@ import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 import {getQuoteEventTags} from "@app/util/git-quote"
 import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
+export {plainTextToTiptapHTML} from "./text"
 
 type NEventNodeAttrs = {
   id: string
@@ -209,34 +210,4 @@ export const makeEditor = async ({
   expandNeventQTags(editor.storage.nostr)
 
   return editor
-}
-// Convert plain text (with \n) into HTML that Tiptap will keep as line breaks.
-const escapeHtml = (s: string) =>
-  s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-
-export const plainTextToTiptapHTML = (text: string) => {
-  const normalized = (text ?? "").replace(/\r\n?/g, "\n")
-  const lines = normalized.split("\n") // keeps empty lines as "" entries
-
-  const paragraphs: string[] = []
-  let current: string[] = []
-
-  for (const line of lines) {
-    if (line === "") {
-      // end current paragraph (if any)
-      if (current.length) {
-        paragraphs.push(current.join("<br>"))
-        current = []
-      }
-      // represent the empty line as an empty paragraph
-      paragraphs.push("")
-    } else {
-      current.push(escapeHtml(line))
-    }
-  }
-
-  if (current.length) paragraphs.push(current.join("<br>"))
-
-  // <p><br></p> ensures the empty paragraph is “real” in the editor
-  return paragraphs.map(p => `<p>${p}</p>`).join("")
 }

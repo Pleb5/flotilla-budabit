@@ -860,17 +860,20 @@ describe("commands", () => {
 
   it("makeDelete includes group tag when event has h tag", async () => {
     const {makeDelete} = await import("./commands")
+    const groupTag = new Proxy(["h", "room123"], {})
     const event = {
       id: "evt",
       pubkey: "a".repeat(64),
       kind: 1,
       created_at: 0,
       content: "",
-      tags: [["h", "room123"]],
+      tags: [groupTag],
       sig: "",
     } as any
     const del = makeDelete({event})
     expect(del.tags).toContainEqual(["h", "room123"])
+    expect(del.tags.find((tag: string[]) => tag[0] === "h")).not.toBe(groupTag)
+    expect(() => structuredClone(del)).not.toThrow()
   })
 
   it("makeDelete builds delete event with kind and event tags", async () => {
