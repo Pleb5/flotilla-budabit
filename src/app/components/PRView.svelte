@@ -2808,7 +2808,8 @@
           <Markdown
             content={prDescription || ""}
             event={prDescriptionEvent as any}
-            relays={repoRelays} />
+            relays={repoRelays}
+            variant="body" />
           {#if canEditPrDescription}
             <button
               class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"

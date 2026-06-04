@@ -40,6 +40,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
+  import Markdown from "@src/lib/components/Markdown.svelte"
   import {getContext, onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {beforeNavigate, goto} from "$app/navigation"
@@ -1311,7 +1312,13 @@
                     </div>
 
                     {#if pr.body}
-                      <p class="mt-3 line-clamp-2 text-sm text-muted-foreground">{pr.body}</p>
+                      <div class="mt-3 line-clamp-2 text-sm text-muted-foreground">
+                        <Markdown
+                          content={pr.body}
+                          event={pr.event as TrustedEvent}
+                          relays={repoRelays}
+                          variant="comment" />
+                      </div>
                     {/if}
 
                     <div

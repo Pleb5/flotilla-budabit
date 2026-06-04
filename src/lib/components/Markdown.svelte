@@ -249,7 +249,7 @@
     hideMediaAtDepth?: number
     depth?: number
     communitySectionName?: string
-    variant?: "default" | "comment" | "inline"
+    variant?: "default" | "body" | "comment" | "inline"
   }
 
   const {

@@ -876,7 +876,8 @@
           <Markdown
             content={issue.content}
             event={issueDescriptionEvent as any}
-            relays={repoBoundRelays} />
+            relays={repoBoundRelays}
+            variant="body" />
           {#if isMaintainerOrAuthor}
             <button
               class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"

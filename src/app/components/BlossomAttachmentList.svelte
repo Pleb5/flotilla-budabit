@@ -12,7 +12,7 @@
   type Props = {
     attachments?: PublishedAttachment[]
     event?: any
-    variant?: "default" | "comment" | "inline"
+    variant?: "default" | "body" | "comment" | "inline"
   }
 
   const {attachments = [], event, variant = "default"}: Props = $props()
@@ -63,6 +63,39 @@
               {getAttachmentName(attachment)}
             </div>
             <div class="mt-0.5 truncate text-[10px] opacity-70">
+              {attachment.type || "file"} · {formatAttachmentSize(attachment.size)}
+            </div>
+          </div>
+        </a>
+      {/each}
+    </div>
+  {:else if variant === "comment"}
+    <div class="mt-2 grid w-full max-w-full grid-cols-1 gap-2 sm:grid-cols-2" data-stop-link data-stop-tap>
+      {#each attachments as attachment (attachment.url)}
+        <a
+          href={attachment.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex min-w-0 max-w-full items-center overflow-hidden rounded-xl border border-base-content/10 bg-base-100 text-left no-underline shadow-sm transition hover:border-primary/30 hover:no-underline">
+          <div class="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden bg-base-200">
+            {#if isImageAttachment(attachment)}
+              <img alt="" src={attachment.url} class="h-full w-full object-cover" loading="lazy" />
+            {:else if isVideoAttachment(attachment)}
+              <video muted playsinline preload="metadata" src={attachment.url} class="h-full w-full object-cover">
+                <track kind="captions" />
+              </video>
+            {:else}
+              <Icon icon={File} size={9} />
+              <span class="absolute text-[10px] font-semibold">
+                {getAttachmentExtension(attachment)}
+              </span>
+            {/if}
+          </div>
+          <div class="min-w-0 flex-1 px-3 py-2">
+            <div class="line-clamp-2 break-words text-sm font-semibold leading-tight">
+              {getAttachmentName(attachment)}
+            </div>
+            <div class="mt-1 truncate text-xs opacity-70">
               {attachment.type || "file"} · {formatAttachmentSize(attachment.size)}
             </div>
           </div>
