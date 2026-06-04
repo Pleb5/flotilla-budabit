@@ -168,6 +168,36 @@ describe("community permissions", () => {
       canWriteCommunityTarget({
         definition,
         profileListEvents: [generalProfileList, repoProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toBe(false)
+    expect(
+      communityWritableSectionsSupportTarget({
+        definition,
+        writableSections: ["General"],
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
+    ).toBe(true)
+    expect(
+      communityWritableSectionsSupportTarget({
+        definition,
+        writableSections: ["General"],
+        target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toBe(false)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
         userPubkey: outsiderPubkey,
         target: COMMUNITY_WRITE_TARGETS.roomMessage,
       }),

@@ -94,13 +94,13 @@
     selectLatestCommunityDefinition,
     setActiveCommunityInput,
   } from "@app/core/community-state"
+  import {parseTargetedPublication, TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
-    COMMUNITY_SECTION_PERMALINKS,
-    COMMUNITY_SECTION_REPOSITORIES,
-    parseTargetedPublication,
-    TARGETED_PUBLICATION_KIND,
-  } from "@app/core/community"
-  import {getCommunitySectionWriterPubkeys} from "@app/core/community-permissions"
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+    getCommunityTargetWriterPubkeys,
+    type CommunityWriteTarget,
+  } from "@app/core/community-permissions"
   import {getEffectiveCommunityReportState} from "@app/core/community-reports"
   import {
     makeCommunityTargetingFilter,
@@ -506,7 +506,13 @@
 
   const repoPublishCommunityOptions = $derived.by((): RepoCommunityOption[] =>
     $activeUserCommunityRefs
-      .filter(ref => ref.writableSections.includes(COMMUNITY_SECTION_REPOSITORIES))
+      .filter(ref =>
+        communityWritableSectionsSupportTarget({
+          definition: ref.definition,
+          writableSections: ref.writableSections,
+          target: COMMUNITY_WRITE_TARGETS.repository,
+        }),
+      )
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
@@ -514,11 +520,27 @@
       })),
   )
 
-  const repoPublishCommunityRelays = $derived.by(() =>
+  const repoStarCommunityOptions = $derived.by((): RepoCommunityOption[] =>
+    $activeUserCommunityRefs
+      .filter(ref =>
+        communityWritableSectionsSupportTarget({
+          definition: ref.definition,
+          writableSections: ref.writableSections,
+          target: COMMUNITY_WRITE_TARGETS.reaction,
+        }),
+      )
+      .map(ref => ({
+        pubkey: ref.communityPubkey,
+        label: getCommunityOptionLabel(ref.communityPubkey),
+        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+      })),
+  )
+
+  const repoStarCommunityRelays = $derived.by(() =>
     Array.from(
       new Set(
         [
-          ...repoPublishCommunityOptions.flatMap(option => [
+          ...repoStarCommunityOptions.flatMap(option => [
             option.relay || "",
             ...(option.relays || []),
           ]),
@@ -764,22 +786,25 @@
         })
       : undefined,
   )
-  const getSelectedCommunityWriterPubkeys = (sectionName: string) =>
+  const getSelectedCommunityTargetWriterPubkeys = (target: CommunityWriteTarget) =>
     selectedCommunityDefinition
-      ? getCommunitySectionWriterPubkeys({
+      ? getCommunityTargetWriterPubkeys({
           definition: selectedCommunityDefinition,
           profileListEvents: $selectedCommunityProfileListEvents
             ? ($selectedCommunityProfileListEvents as TrustedEvent[])
             : [],
-          sectionName,
+          target,
           reportState: selectedCommunityReportState,
         })
       : []
   const selectedCommunityRepoWriterPubkeys = $derived.by(() =>
-    getSelectedCommunityWriterPubkeys(COMMUNITY_SECTION_REPOSITORIES),
+    getSelectedCommunityTargetWriterPubkeys(COMMUNITY_WRITE_TARGETS.repository),
+  )
+  const selectedCommunityStarWriterPubkeys = $derived.by(() =>
+    getSelectedCommunityTargetWriterPubkeys(COMMUNITY_WRITE_TARGETS.reaction),
   )
   const selectedCommunityPermalinkWriterPubkeys = $derived.by(() =>
-    getSelectedCommunityWriterPubkeys(COMMUNITY_SECTION_PERMALINKS),
+    getSelectedCommunityTargetWriterPubkeys(COMMUNITY_WRITE_TARGETS.permalink),
   )
 
   let selectedCommunityAuthorityLoadKey = ""
@@ -1099,14 +1124,14 @@
     )
     if (!selectedCommunityDefinition) return targetEvents
 
-    const writerPubkeys = new Set(selectedCommunityRepoWriterPubkeys)
+    const writerPubkeys = new Set(selectedCommunityStarWriterPubkeys)
     return targetEvents.filter(event => writerPubkeys.has(event.pubkey))
   })
   const communityStarReactionFilters = $derived.by(() =>
     eligibleCommunityStarTargetEvents.length
       ? makeTargetedPublicationOriginalFilters(
           eligibleCommunityStarTargetEvents,
-          selectedCommunityDefinition ? selectedCommunityRepoWriterPubkeys : undefined,
+          selectedCommunityDefinition ? selectedCommunityStarWriterPubkeys : undefined,
         )
       : [],
   )
@@ -1119,10 +1144,10 @@
   )
 
   const userCommunityStarTargetFilters = $derived.by((): Filter[] => {
-    if (!$pubkey || repoPublishCommunityOptions.length === 0) return []
+    if (!$pubkey || repoStarCommunityOptions.length === 0) return []
 
     const communityPubkeys = Array.from(
-      new Set(repoPublishCommunityOptions.map(option => option.pubkey).filter(Boolean)),
+      new Set(repoStarCommunityOptions.map(option => option.pubkey).filter(Boolean)),
     )
     if (communityPubkeys.length === 0) return []
 
@@ -1274,7 +1299,7 @@
       }
 
       const communityOptionsByPubkey = new Map(
-        repoPublishCommunityOptions.map(option => [option.pubkey, option]),
+        repoStarCommunityOptions.map(option => [option.pubkey, option]),
       )
       const targetsByTargetingId = new Map<
         string,
@@ -1488,18 +1513,18 @@
   $effect(() => {
     if (
       !$pubkey ||
-      repoPublishCommunityRelays.length === 0 ||
+      repoStarCommunityRelays.length === 0 ||
       userCommunityStarTargetFilters.length === 0
     ) {
       userCommunityStarTargetLoadKey = ""
       return
     }
 
-    const key = `${repoPublishCommunityRelays.join(",")}:${userCommunityStarTargetFilters.map(filter => JSON.stringify(filter)).join("|")}`
+    const key = `${repoStarCommunityRelays.join(",")}:${userCommunityStarTargetFilters.map(filter => JSON.stringify(filter)).join("|")}`
     if (key === userCommunityStarTargetLoadKey) return
     userCommunityStarTargetLoadKey = key
     load({
-      relays: repoPublishCommunityRelays,
+      relays: repoStarCommunityRelays,
       filters: userCommunityStarTargetFilters as any,
     }).catch(error => {
       console.warn("[git/+page] Failed to load user community repo star targets", error)
@@ -1510,18 +1535,18 @@
   $effect(() => {
     if (
       !$pubkey ||
-      repoPublishCommunityRelays.length === 0 ||
+      repoStarCommunityRelays.length === 0 ||
       userCommunityStarTargetDeleteFilters.length === 0
     ) {
       userCommunityStarTargetDeleteLoadKey = ""
       return
     }
 
-    const key = `${repoPublishCommunityRelays.join(",")}:${userCommunityStarTargetDeleteFilters.map(filter => JSON.stringify(filter)).join("|")}`
+    const key = `${repoStarCommunityRelays.join(",")}:${userCommunityStarTargetDeleteFilters.map(filter => JSON.stringify(filter)).join("|")}`
     if (key === userCommunityStarTargetDeleteLoadKey) return
     userCommunityStarTargetDeleteLoadKey = key
     load({
-      relays: repoPublishCommunityRelays,
+      relays: repoStarCommunityRelays,
       filters: userCommunityStarTargetDeleteFilters as any,
     }).catch(error => {
       console.warn("[git/+page] Failed to load user community repo star target deletes", error)
@@ -1532,18 +1557,18 @@
   $effect(() => {
     if (
       !$pubkey ||
-      repoPublishCommunityRelays.length === 0 ||
+      repoStarCommunityRelays.length === 0 ||
       userCommunityStarReactionFilters.length === 0
     ) {
       userCommunityStarReactionLoadKey = ""
       return
     }
 
-    const key = `${repoPublishCommunityRelays.join(",")}:${userCommunityStarReactionFilters.map(filter => JSON.stringify(filter)).join("|")}`
+    const key = `${repoStarCommunityRelays.join(",")}:${userCommunityStarReactionFilters.map(filter => JSON.stringify(filter)).join("|")}`
     if (key === userCommunityStarReactionLoadKey) return
     userCommunityStarReactionLoadKey = key
     load({
-      relays: repoPublishCommunityRelays,
+      relays: repoStarCommunityRelays,
       filters: userCommunityStarReactionFilters as any,
     }).catch(error => {
       console.warn("[git/+page] Failed to load user community repo stars", error)
@@ -2942,7 +2967,7 @@
     const existingCommunityByPubkey = new Map(
       existingCommunityStars.map(collection => [collection.community.pubkey, collection]),
     )
-    const communityOptions = [...repoPublishCommunityOptions]
+    const communityOptions = [...repoStarCommunityOptions]
 
     for (const collection of existingCommunityStars) {
       if (!communityOptions.some(option => option.pubkey === collection.community.pubkey)) {
@@ -3022,7 +3047,7 @@
           for (const [index, communityPubkey] of communityPubkeys.entries()) {
             if (existingCommunityByPubkey.has(communityPubkey)) continue
 
-            const community = repoPublishCommunityOptions.find(
+            const community = repoStarCommunityOptions.find(
               option => option.pubkey === communityPubkey,
             )
             if (!community) continue
