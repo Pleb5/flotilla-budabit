@@ -15,7 +15,7 @@ import {
   getTags,
   getTagValue,
 } from "../../src/events/nip34/nip34-utils.js"
-import type {IssueTag, PullRequestTag} from "../../src/events/nip34/nip34.js"
+import type {CoverLetterTag, IssueTag, PullRequestTag} from "../../src/events/nip34/nip34.js"
 
 describe("NIP-34 builders", () => {
   it("createRepoAnnouncementEvent encodes all tag variants and sanitizes relays", () => {
@@ -175,6 +175,27 @@ describe("NIP-34 builders", () => {
         ["p", "pk2"],
       ]),
     )
+  })
+
+  it("createCoverLetterEvent preserves rich editor tags", () => {
+    const richTags: CoverLetterTag[] = [
+      ["p", "mentioned-pubkey", "wss://relay.mention"],
+      ["q", "quoted-event-id", "wss://relay.quote"],
+      ["a", "30023:pubkey:article", "wss://relay.addr"],
+      ["imeta", "url https://cdn.example/edit.png", "m image/png"],
+      ["t", "release-notes"],
+    ]
+
+    const evt = createCoverLetterEvent({
+      rootId: "issue-id-1",
+      repoAddr: "30617:pubkey:repo",
+      content: "updated body\nhttps://cdn.example/edit.png",
+      tags: richTags,
+    })
+
+    expect(getTagValue(evt as any, "e")).toBe("issue-id-1")
+    expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
+    for (const tag of richTags) expect(evt.tags).toContainEqual(tag)
   })
 
   it("createStatusEvent encodes root/reply, recipients, repo, relay, merged/applied commit metadata", () => {

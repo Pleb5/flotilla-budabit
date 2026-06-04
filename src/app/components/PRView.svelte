@@ -56,12 +56,14 @@
   import {
     parseStatusEvent,
     parsePullRequestUpdateEvent,
+    createCoverLetterEvent,
     createPullRequestUpdateEvent,
     createStatusEvent,
     type CommentEvent,
     type StatusEvent,
     type PullRequestEvent,
     type CoverLetterEvent,
+    type CoverLetterTag,
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
@@ -84,9 +86,15 @@
   import LogIn from "@app/components/LogIn.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
+  import RepoRichDescriptionEditor from "@app/components/RepoRichDescriptionEditor.svelte"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {pushModal} from "@app/util/modal"
-  import type {Repo} from "@nostr-git/ui"
+  import type {
+    Repo,
+    RichComposerContext,
+    RichContentPayload,
+    RichDescriptionEditorHandle,
+  } from "@nostr-git/ui"
   import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
   import {
@@ -216,6 +224,28 @@
     const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     return relays[0] || undefined
   })
+  const prRepoAddress = $derived.by(
+    () =>
+      (prEvent?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
+      ((repoClass as any)?.address as string) ||
+      "",
+  )
+  const prDescriptionContext = $derived.by(
+    (): RichComposerContext => ({
+      url: commentRelayHint || strictPrEditRelays[0] || "",
+      relays: strictPrEditRelays.length ? strictPrEditRelays : repoRelays || [],
+      repoAddress: prRepoAddress,
+      relayHint: commentRelayHint,
+      rootEvent: prEvent
+        ? {
+            id: prEvent.id,
+            kind: prEvent.kind,
+            pubkey: prEvent.pubkey,
+            tags: (prEvent.tags || []) as string[][],
+          }
+        : undefined,
+    }),
+  )
   const repoTrustMetrics = $derived.by<RepoTrustMetrics>(() =>
     repoTrustMetricsStore
       ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics)
@@ -313,8 +343,8 @@
     return ($prCoverLetterEvents as CoverLetterEvent[]) || []
   })
 
-  const prDescription = $derived.by(() => {
-    if (!prEvent) return pr?.content || ""
+  const prDescriptionEvent = $derived.by(() => {
+    if (!prEvent) return undefined
 
     const authoritative = new Set<string>([prEvent.pubkey, ...Array.from(repoMaintainerPubkeys)])
     const coverLetters = [...prCoverLetterEventsArray]
@@ -330,11 +360,15 @@
         return (a.id || "").localeCompare(b.id || "")
       })
 
-    let content = pr?.content || ""
-    for (const coverLetter of coverLetters) {
-      content = coverLetter.content || ""
-    }
-    return content
+    return coverLetters[coverLetters.length - 1] || prEvent
+  })
+
+  const prDescription = $derived.by(() => {
+    if (!prEvent) return pr?.content || ""
+
+    return prDescriptionEvent?.kind === GIT_COVER_LETTER_KIND
+      ? prDescriptionEvent.content || ""
+      : pr?.content || ""
   })
 
   let prCommentParentIds = $state<string[]>([])
@@ -2016,6 +2050,7 @@
   let editingDescription = $state(false)
   let savingDescription = $state(false)
   let descriptionDraft = $state("")
+  let descriptionEditor = $state<RichDescriptionEditorHandle | null>(null)
 
   $effect(() => {
     if (editingDescription) return
@@ -2023,13 +2058,8 @@
   })
 
   const savePrDescriptionEdit = async () => {
+    if (savingDescription) return
     if (!prEvent || !canEditPrDescription) return
-
-    const nextDescription = descriptionDraft.trim()
-    if (nextDescription === (prDescription || "")) {
-      editingDescription = false
-      return
-    }
 
     const relays = strictPrEditRelays
     if (relays.length === 0) {
@@ -2040,22 +2070,29 @@
       return
     }
 
-    const repoAddress =
-      (prEvent.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
-      ((repoClass as any)?.address as string) ||
-      ""
-
     try {
       savingDescription = true
-      const coverLetterEvent = {
-        kind: GIT_COVER_LETTER_KIND,
-        content: nextDescription,
-        tags: [["e", prEvent.id], ...(repoAddress ? ([["a", repoAddress]] as string[][]) : [])],
-        created_at: Math.floor(Date.now() / 1000),
+      const descriptionPayload: RichContentPayload = descriptionEditor
+        ? await descriptionEditor.getContent()
+        : {content: descriptionDraft.trim(), tags: []}
+      const nextDescription = descriptionPayload.content.trim()
+      if (nextDescription === (prDescription || "")) {
+        editingDescription = false
+        descriptionEditor = null
+        return
       }
+
+      const coverLetterEvent = createCoverLetterEvent({
+        rootId: prEvent.id,
+        repoAddr: prRepoAddress || undefined,
+        content: nextDescription,
+        tags: (descriptionPayload.tags || []) as CoverLetterTag[],
+      })
       publishThunk({event: coverLetterEvent as any, relays})
       await load({relays, filters: [getPrCoverLetterFilter()]})
+      descriptionDraft = nextDescription
       editingDescription = false
+      descriptionEditor = null
       toast.push({message: "PR description updated"})
     } catch (error) {
       toast.push({
@@ -2739,16 +2776,19 @@
         class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
         {#if editingDescription && canEditPrDescription}
           <div class="not-prose space-y-3">
-            <textarea
-              class="min-h-[220px] w-full rounded-md border border-border bg-background p-3 text-sm text-foreground"
-              bind:value={descriptionDraft}
-              placeholder="PR description"></textarea>
+            <RepoRichDescriptionEditor
+              initialContent={descriptionDraft}
+              placeholder="PR description"
+              compact={true}
+              disabled={savingDescription}
+              context={prDescriptionContext}
+              onReady={handle => (descriptionEditor = handle)} />
             <div class="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onclick={savePrDescriptionEdit}
-                disabled={savingDescription}>
+                disabled={savingDescription || !descriptionEditor}>
                 {savingDescription ? "Saving..." : "Save description"}
               </Button>
               <Button
@@ -2757,6 +2797,7 @@
                 onclick={() => {
                   editingDescription = false
                   descriptionDraft = prDescription || ""
+                  descriptionEditor = null
                 }}
                 disabled={savingDescription}>
                 Cancel
@@ -2764,13 +2805,17 @@
             </div>
           </div>
         {:else}
-          <Markdown content={prDescription || ""} event={prEvent as any} relays={repoRelays} />
+          <Markdown
+            content={prDescription || ""}
+            event={prDescriptionEvent as any}
+            relays={repoRelays} />
           {#if canEditPrDescription}
             <button
               class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"
               onclick={() => {
                 editingDescription = true
                 descriptionDraft = prDescription || ""
+                descriptionEditor = null
               }}>
               Edit description
             </button>

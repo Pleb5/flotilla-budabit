@@ -98,7 +98,26 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
     const ann = createRepoAnnouncementEvent({repoId: "owner/repo"})
     const st = createRepoStateEvent({repoId: "owner/repo", head: "main"})
     const issue = createIssueEvent({content: "issue", repoAddr: "30617:pk:repo"})
+    const richIssue = createIssueEvent({
+      content: "issue with rich tags",
+      repoAddr: "30617:pk:repo",
+      tags: [
+        ["p", "mentioned-pubkey", "wss://relay.mention"],
+        ["q", "quoted-event-id", "wss://relay.quote"],
+        ["imeta", "url https://cdn.example/issue.png", "m image/png"],
+      ] as any,
+    })
     const cover = createCoverLetterEvent({content: "cover", rootId: "issue-root"})
+    const richCover = createCoverLetterEvent({
+      content: "cover with rich tags",
+      rootId: "issue-root",
+      tags: [
+        ["p", "mentioned-pubkey", "wss://relay.mention"],
+        ["q", "quoted-event-id", "wss://relay.quote"],
+        ["a", "30023:pk:article", "wss://relay.addr"],
+        ["imeta", "url https://cdn.example/edit.png", "m image/png"],
+      ] as any,
+    })
     const status = createStatusEvent({
       kind: 1630,
       content: "open",
@@ -109,6 +128,16 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
       content: "pr",
       repoAddr: "30617:pk:repo",
       tipCommitOid: "c1",
+    })
+    const richPr = createPullRequestEvent({
+      content: "pr with rich tags",
+      repoAddr: "30617:pk:repo",
+      tipCommitOid: "c1",
+      tags: [
+        ["p", "mentioned-pubkey", "wss://relay.mention"],
+        ["q", "quoted-event-id", "wss://relay.quote"],
+        ["imeta", "url https://cdn.example/pr.png", "m image/png"],
+      ] as any,
     })
     const pru = createPullRequestUpdateEvent({
       repoAddr: "30617:pk:repo",
@@ -133,9 +162,12 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
     expect(validateRepoAnnouncementEvent(ann).success).toBe(true)
     expect(validateRepoStateEvent(st).success).toBe(true)
     expect(validateIssueEvent(issue).success).toBe(true)
+    expect(validateIssueEvent(richIssue).success).toBe(true)
     expect(validateCoverLetterEvent(cover).success).toBe(true)
+    expect(validateCoverLetterEvent(richCover).success).toBe(true)
     expect(validateStatusEvent(status).success).toBe(true)
     expect(validatePullRequestEvent(pr).success).toBe(true)
+    expect(validatePullRequestEvent(richPr).success).toBe(true)
     expect(validatePullRequestUpdateEvent(pru).success).toBe(true)
     expect(validateUserGraspListEvent(grasp).success).toBe(true)
     expect(validateStackEvent(stack).success).toBe(true)

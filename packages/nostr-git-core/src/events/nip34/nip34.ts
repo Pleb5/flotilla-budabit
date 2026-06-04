@@ -146,11 +146,11 @@ export interface IssueEvent extends NostrEvent {
 // -------------------
 export type CoverLetterTag =
   | ["e", string]
-  | ["a", string]
-  | ["q", string]
-  | ["q", string, string]
-  | ["q", string, string, string]
-  | ["p", string]
+  | ["a", string, ...string[]]
+  | ["q", string, ...string[]]
+  | ["p", string, ...string[]]
+  | ["imeta", ...string[]]
+  | ["t", string]
 
 export interface CoverLetterEvent extends NostrEvent {
   kind: typeof GIT_COVER_LETTER

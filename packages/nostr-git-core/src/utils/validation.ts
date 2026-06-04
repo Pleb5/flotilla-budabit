@@ -70,24 +70,34 @@ export const DeletedTag = z.tuple([z.literal("deleted")]).rest(z.string())
 export const RepoStateTagSchema = z.union([DTag, RefsTag, HeadRefTag, DeletedTag])
 export const RepoStateTagsSchema = z.array(RepoStateTagSchema)
 
-export const AddressRepoTag = z.tuple([z.literal("a"), z.string()])
+export const AddressRepoTag = z.tuple([z.literal("a"), z.string()]).rest(z.string())
 export const RTag = z.tuple([z.literal("r"), z.string()])
-export const PTag = z.tuple([z.literal("p"), z.string()])
+export const PTag = z.tuple([z.literal("p"), z.string()]).rest(z.string())
 export const CTag = z.tuple([z.literal("c"), z.string()])
+export const QReferenceTag = z.tuple([z.literal("q"), z.string()]).rest(z.string())
+export const ImetaTag = z.tuple([z.literal("imeta")]).rest(z.string())
 
 // Issue tags (kind 1621)
 export const SubjectTag = z.tuple([z.literal("subject"), z.string()])
-export const IssueTagSchema = z.union([AddressRepoTag, PTag, SubjectTag, HashtagTag])
+export const IssueTagSchema = z.union([
+  AddressRepoTag,
+  PTag,
+  SubjectTag,
+  HashtagTag,
+  QReferenceTag,
+  ImetaTag,
+])
 export const IssueTagsSchema = z.array(IssueTagSchema)
 
 // Cover Letter tags (kind 1624)
 export const CoverLetterETag = z.tuple([z.literal("e"), z.string()])
-export const CoverLetterQTag = z.tuple([z.literal("q"), z.string()]).rest(z.string())
 export const CoverLetterTagSchema = z.union([
   CoverLetterETag,
   AddressRepoTag,
-  CoverLetterQTag,
+  QReferenceTag,
   PTag,
+  ImetaTag,
+  HashtagTag,
 ])
 export const CoverLetterTagsSchema = z.array(CoverLetterTagSchema)
 
@@ -120,6 +130,8 @@ export const PullRequestTagSchema = z.union([
   PTag,
   SubjectTag,
   HashtagTag,
+  QReferenceTag,
+  ImetaTag,
   CTag,
   CloneTag,
   z.tuple([z.literal("branch-name"), z.string()]),

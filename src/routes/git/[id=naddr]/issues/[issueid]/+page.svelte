@@ -1,14 +1,24 @@
 <script lang="ts">
   import {
     GIT_ISSUE,
+    createCoverLetterEvent,
     parseIssueEvent,
     extractLabelEvents,
+    type CoverLetterEvent,
+    type CoverLetterTag,
     type CommentEvent,
     type LabelEvent,
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {resolveIssueStatus} from "@nostr-git/core/events"
-  import {Card, IssueThread, Status} from "@nostr-git/ui"
+  import {
+    Card,
+    IssueThread,
+    Status,
+    type RichComposerContext,
+    type RichContentPayload,
+    type RichDescriptionEditorHandle,
+  } from "@nostr-git/ui"
   import {page} from "$app/stores"
   import {CircleCheck, CircleDot, FileCode, MessageSquare, SearchX} from "@lucide/svelte"
   import {
@@ -58,6 +68,7 @@
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
   import Markdown from "@src/lib/components/Markdown.svelte"
+  import RepoRichDescriptionEditor from "@app/components/RepoRichDescriptionEditor.svelte"
   import {HIDDEN_ROOT_IDS_KEY, REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
@@ -222,6 +233,22 @@
         : [],
   )
   const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
+  const issueDescriptionContext = $derived.by(
+    (): RichComposerContext => ({
+      url: issueCommentRelayHint || "",
+      relays: repoBoundRelays,
+      repoAddress: issueEditRepoAddress,
+      relayHint: issueCommentRelayHint,
+      rootEvent: issueEvent
+        ? {
+            id: issueEvent.id,
+            kind: issueEvent.kind,
+            pubkey: issueEvent.pubkey,
+            tags: (issueEvent.tags || []) as string[][],
+          }
+        : undefined,
+    }),
+  )
 
   const issueRepoEvent = $derived.by(() => {
     return (
@@ -264,6 +291,29 @@
       content: edits.content,
       labels: edits.labels,
     }
+  })
+
+  const issueDescriptionEvent = $derived.by(() => {
+    if (!issueEvent) return undefined
+
+    const editors = new Set<string>([
+      issueEvent.pubkey,
+      ...Array.from(issueMaintainers).filter(Boolean),
+    ])
+    const coverLetters = ((($coverLetterEvents || []) as CoverLetterEvent[]) || [])
+      .filter(
+        event =>
+          event.kind === GIT_COVER_LETTER_KIND &&
+          editors.has(event.pubkey) &&
+          (event.tags || []).some(tag => tag[0] === "e" && tag[1] === issueEvent.id),
+      )
+      .sort((a, b) => {
+        const byTime = (a.created_at || 0) - (b.created_at || 0)
+        if (byTime !== 0) return byTime
+        return (a.id || "").localeCompare(b.id || "")
+      })
+
+    return coverLetters[coverLetters.length - 1] || issueEvent
   })
 
   const authoritativeEditors = $derived.by(() => {
@@ -331,6 +381,7 @@
   let editingDescription = $state(false)
   let savingDescription = $state(false)
   let descriptionDraft = $state("")
+  let descriptionEditor = $state<RichDescriptionEditorHandle | null>(null)
 
   const rootIssueTags = $derived.by(() =>
     ((issueEvent?.tags as string[][]) || [])
@@ -468,30 +519,35 @@
   }
 
   const saveDescriptionEdit = async () => {
-    const value = descriptionDraft.trim()
+    if (savingDescription) return
     if (!issue || !isMaintainerOrAuthor) return
-    if (value === (issue.content || "")) {
-      editingDescription = false
-      return
-    }
 
     const relays = getPublishRelays()
     if (relays.length === 0) return
 
     try {
       savingDescription = true
-      const coverLetterEvent = {
-        kind: GIT_COVER_LETTER_KIND,
-        content: value,
-        tags: [
-          ["e", issue.id],
-          ...(issueEditRepoAddress ? ([["a", issueEditRepoAddress]] as string[][]) : []),
-        ],
-        created_at: Math.floor(Date.now() / 1000),
+      const descriptionPayload: RichContentPayload = descriptionEditor
+        ? await descriptionEditor.getContent()
+        : {content: descriptionDraft.trim(), tags: []}
+      const value = descriptionPayload.content.trim()
+      if (value === (issue.content || "")) {
+        editingDescription = false
+        descriptionEditor = null
+        return
       }
+
+      const coverLetterEvent = createCoverLetterEvent({
+        rootId: issue.id,
+        repoAddr: issueEditRepoAddress || undefined,
+        content: value,
+        tags: (descriptionPayload.tags || []) as CoverLetterTag[],
+      })
       publishThunk({event: coverLetterEvent as any, relays})
       await load({relays, filters: [getCoverLetterFilter()]})
+      descriptionDraft = value
       editingDescription = false
+      descriptionEditor = null
     } catch (error) {
       console.error("[IssueDetail] Failed to edit description", error)
     } finally {
@@ -790,15 +846,18 @@
         class="prose-sm dark:prose-invert prose mt-6 max-w-none break-words sm:mt-8 [&_*]:break-words [&_code]:break-words [&_pre]:overflow-x-auto">
         {#if editingDescription && isMaintainerOrAuthor}
           <div class="not-prose space-y-3">
-            <textarea
-              class="min-h-[220px] w-full rounded-md border border-border bg-background p-3 text-sm"
-              bind:value={descriptionDraft}
-              placeholder="Issue description"></textarea>
+            <RepoRichDescriptionEditor
+              initialContent={descriptionDraft}
+              placeholder="Issue description"
+              compact={true}
+              disabled={savingDescription}
+              context={issueDescriptionContext}
+              onReady={handle => (descriptionEditor = handle)} />
             <div class="flex items-center gap-2">
               <button
                 class="rounded-md border border-border px-3 py-1 text-sm"
                 onclick={saveDescriptionEdit}
-                disabled={savingDescription}>
+                disabled={savingDescription || !descriptionEditor}>
                 {savingDescription ? "Saving..." : "Save description"}
               </button>
               <button
@@ -806,6 +865,7 @@
                 onclick={() => {
                   editingDescription = false
                   descriptionDraft = issue.content || ""
+                  descriptionEditor = null
                 }}
                 disabled={savingDescription}>
                 Cancel
@@ -813,13 +873,17 @@
             </div>
           </div>
         {:else}
-          <Markdown content={issue.content} event={issueEvent as any} relays={repoBoundRelays} />
+          <Markdown
+            content={issue.content}
+            event={issueDescriptionEvent as any}
+            relays={repoBoundRelays} />
           {#if isMaintainerOrAuthor}
             <button
               class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"
               onclick={() => {
                 editingDescription = true
                 descriptionDraft = issue.content || ""
+                descriptionEditor = null
               }}>
               Edit description
             </button>
