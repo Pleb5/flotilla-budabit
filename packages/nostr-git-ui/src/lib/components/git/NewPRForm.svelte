@@ -219,6 +219,15 @@
     errors = {};
     isSubmitting = true;
     const urls = fromFork ? parseForkCloneUrls() : cloneUrls;
+
+    try {
+      content = RichDescriptionEditor && descriptionEditor ? await descriptionEditor.getText() : content;
+    } catch (error) {
+      errors.general = error instanceof Error ? error.message : "Failed to read PR description";
+      isSubmitting = false;
+      return;
+    }
+
     const result = prSchema.safeParse({
       subject,
       content,

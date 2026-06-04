@@ -103,19 +103,15 @@
     errors = {};
     isSubmitting = true;
 
-    let descriptionPayload: RichContentPayload;
     try {
-      descriptionPayload = RichDescriptionEditor && descriptionEditor
-        ? await descriptionEditor.getContent()
-        : { content, tags: [] };
+      content = RichDescriptionEditor && descriptionEditor ? await descriptionEditor.getText() : content;
     } catch (error) {
       errors.content = error instanceof Error ? error.message : "Failed to read description";
       isSubmitting = false;
       return;
     }
 
-    content = descriptionPayload.content;
-    const result = issueSchema.safeParse({ subject, content: descriptionPayload.content, labels });
+    const result = issueSchema.safeParse({ subject, content, labels });
     if (!result.success) {
       for (const err of result.error.errors) {
         if (err.path[0]) errors[err.path[0] as "subject" | "content"] = err.message;
@@ -123,9 +119,22 @@
       isSubmitting = false;
       return;
     }
+
+    let descriptionPayload: RichContentPayload;
+    try {
+      descriptionPayload = RichDescriptionEditor && descriptionEditor
+        ? await descriptionEditor.getContent()
+        : { content: result.data.content, tags: [] };
+    } catch (error) {
+      errors.content = error instanceof Error ? error.message : "Failed to read description";
+      isSubmitting = false;
+      return;
+    }
+
+    content = descriptionPayload.content;
     try {
       const issueEvent = createIssueEvent({
-        content: result.data.content,
+        content: descriptionPayload.content,
         repoAddr: resolvedRepoAddress,
         recipients: [repoOwnerPubkey],
         subject: result.data.subject,

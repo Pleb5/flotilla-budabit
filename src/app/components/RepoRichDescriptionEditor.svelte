@@ -126,9 +126,15 @@
     }
   }
 
+  const getText = async () => {
+    const ed = await editor
+
+    return ed.getText({blockSeparator: "\n"}).trim()
+  }
+
   const getContent = async (): Promise<RichContentPayload> => {
     const ed = await editor
-    const text = ed.getText({blockSeparator: "\n"}).trim()
+    const text = await getText()
 
     let uploadedAttachments: PublishedAttachment[]
     try {
@@ -175,7 +181,7 @@
   let fileInput: HTMLInputElement | undefined = $state()
 
   onMount(() => {
-    onReady?.({getContent, focus})
+    onReady?.({getText, getContent, focus})
   })
 
   onDestroy(clearAttachments)
@@ -241,10 +247,12 @@
   }
 
   .repo-rich-description-editor :global(.tiptap) {
+    min-height: 12rem;
     max-height: 24rem;
   }
 
   .repo-rich-description-editor--compact :global(.tiptap) {
+    min-height: 9rem;
     max-height: 14rem;
   }
 

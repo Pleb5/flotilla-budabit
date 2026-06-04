@@ -35,6 +35,7 @@ export type RichCommentComposerProps = {
 };
 
 export type RichDescriptionEditorHandle = {
+  getText: () => Promise<string>;
   getContent: () => Promise<RichContentPayload>;
   focus?: () => void;
 };
