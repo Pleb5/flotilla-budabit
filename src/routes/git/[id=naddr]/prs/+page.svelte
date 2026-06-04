@@ -1099,13 +1099,15 @@
 
   $effect(() => {
     const total = searchedPrs.length
-    if (visiblePrCount > total) {
-      visiblePrCount = total
+    const minimumVisibleCount = Math.min(ITEMS_PER_PAGE, total)
+
+    if (visiblePrCount < minimumVisibleCount) {
+      visiblePrCount = minimumVisibleCount
       return
     }
 
-    if (total > 0 && visiblePrCount === 0) {
-      visiblePrCount = Math.min(ITEMS_PER_PAGE, total)
+    if (visiblePrCount > total) {
+      visiblePrCount = total
     }
   })
 
