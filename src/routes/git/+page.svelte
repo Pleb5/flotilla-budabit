@@ -336,15 +336,45 @@
   const REPO_SEARCH_DEBOUNCE_MS = 300
   const REPO_SEARCH_PAGE_SIZE = 18
   const REPO_LOAD_SETTLE_DELAY_MS = 75
+  const REPO_LIST_LOAD_TIMEOUT_MS = 8_000
 
   const repoLoadSettleTimers = new Set<ReturnType<typeof setTimeout>>()
+  const repoLoadTimeoutTimers = new Set<ReturnType<typeof setTimeout>>()
+  let gitPageDestroyed = false
 
   const afterRepoLoadSettle = (callback: () => void) => {
     const timer = setTimeout(() => {
       repoLoadSettleTimers.delete(timer)
+      if (gitPageDestroyed) return
       callback()
     }, REPO_LOAD_SETTLE_DELAY_MS)
     repoLoadSettleTimers.add(timer)
+  }
+
+  const settleRepoLoad = ({
+    promise,
+    onSettled,
+    timeoutMs = REPO_LIST_LOAD_TIMEOUT_MS,
+  }: {
+    promise: Promise<unknown>
+    onSettled: () => void
+    timeoutMs?: number
+  }) => {
+    let settled = false
+    let timeout: ReturnType<typeof setTimeout>
+
+    const settle = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      repoLoadTimeoutTimers.delete(timeout)
+      if (gitPageDestroyed) return
+      afterRepoLoadSettle(onSettled)
+    }
+
+    timeout = setTimeout(settle, timeoutMs)
+    repoLoadTimeoutTimers.add(timeout)
+    void promise.finally(settle).catch(() => {})
   }
 
   const getInitialGitModeForContext = (): GitMode =>
@@ -438,7 +468,7 @@
 
     if (!repoAnnouncementRelays.length) {
       personalRepoLoadRequestId += 1
-      personalRepoAnnouncementsSettled = false
+      personalRepoAnnouncementsSettled = true
       lastLoadedPersonalRepoKey = ""
       return
     }
@@ -452,15 +482,14 @@
     const requestId = ++personalRepoLoadRequestId
 
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
-    load({relays: repoAnnouncementRelays, filters: [filter]})
-      .catch(error => {
+    settleRepoLoad({
+      promise: load({relays: repoAnnouncementRelays, filters: [filter]}).catch(error => {
         console.warn("[git/+page] Failed to load personal repos", error)
-      })
-      .finally(() => {
-        afterRepoLoadSettle(() => {
-          if (requestId === personalRepoLoadRequestId) personalRepoAnnouncementsSettled = true
-        })
-      })
+      }),
+      onSettled: () => {
+        if (requestId === personalRepoLoadRequestId) personalRepoAnnouncementsSettled = true
+      },
+    })
   })
 
   $effect(() => {
@@ -887,7 +916,10 @@
 
     const addresses = repoStarAddresses
     const filters = buildBookmarkRepoFilters(addresses)
-    if (filters.length === 0) return undefined
+    if (filters.length === 0) {
+      if (starredRepoLoadKey) settledStarredRepoLoadKey = starredRepoLoadKey
+      return undefined
+    }
 
     const relaysToQuery = starredRepoRelaysToQuery
     const loadKey = starredRepoLoadKey
@@ -907,15 +939,14 @@
             relaysToQuery.length > 0
               ? load({relays: relaysToQuery, filters})
               : loadRepoAnnouncements()
-          loadPromise
-            .catch(error => {
+          settleRepoLoad({
+            promise: loadPromise.catch(error => {
               console.warn("[git/+page] Failed to load starred repos", error)
-            })
-            .finally(() => {
-              afterRepoLoadSettle(() => {
-                if (starredRepoLoadKey === loadKey) settledStarredRepoLoadKey = loadKey
-              })
-            })
+            }),
+            onSettled: () => {
+              if (starredRepoLoadKey === loadKey) settledStarredRepoLoadKey = loadKey
+            },
+          })
         }
       }
       return events
@@ -1008,7 +1039,7 @@
     ) {
       communityRepoLoadRequestId += 1
       communityRepoLoadKey = ""
-      communityRepoAnnouncementsSettled = activeMode !== "community" || !selectedCommunityPubkey
+      communityRepoAnnouncementsSettled = true
       return
     }
 
@@ -1017,12 +1048,15 @@
     communityRepoLoadKey = key
     communityRepoAnnouncementsSettled = false
     const requestId = ++communityRepoLoadRequestId
-    load({relays: selectedCommunityRelays, filters: communityRepoFilters as any}).catch(error => {
-      console.warn("[git/+page] Failed to load community repos", error)
-    }).finally(() => {
-      afterRepoLoadSettle(() => {
+    settleRepoLoad({
+      promise: load({relays: selectedCommunityRelays, filters: communityRepoFilters as any}).catch(
+        error => {
+          console.warn("[git/+page] Failed to load community repos", error)
+        },
+      ),
+      onSettled: () => {
         if (requestId === communityRepoLoadRequestId) communityRepoAnnouncementsSettled = true
-      })
+      },
     })
   })
 
@@ -1283,7 +1317,7 @@
     ) {
       communityTargetLoadRequestId += 1
       communityTargetLoadKey = ""
-      communityTargetsSettled = activeMode !== "community" || !selectedCommunityPubkey
+      communityTargetsSettled = true
       return
     }
 
@@ -1298,12 +1332,13 @@
     communityTargetLoadKey = key
     communityTargetsSettled = false
     const requestId = ++communityTargetLoadRequestId
-    load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
-      console.warn("[git/+page] Failed to load community curation targets", error)
-    }).finally(() => {
-      afterRepoLoadSettle(() => {
+    settleRepoLoad({
+      promise: load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
+        console.warn("[git/+page] Failed to load community curation targets", error)
+      }),
+      onSettled: () => {
         if (requestId === communityTargetLoadRequestId) communityTargetsSettled = true
-      })
+      },
     })
   })
 
@@ -1311,10 +1346,14 @@
   let communityTargetDeleteLoadRequestId = 0
   let communityTargetDeletesSettled = $state(false)
   $effect(() => {
-    if (activeMode !== "community" || !selectedCommunityPubkey || selectedCommunityRelays.length === 0) {
+    if (
+      activeMode !== "community" ||
+      !selectedCommunityPubkey ||
+      selectedCommunityRelays.length === 0
+    ) {
       communityTargetDeleteLoadRequestId += 1
       communityTargetDeleteLoadKey = ""
-      communityTargetDeletesSettled = activeMode !== "community" || !selectedCommunityPubkey
+      communityTargetDeletesSettled = true
       return
     }
 
@@ -1329,12 +1368,13 @@
     communityTargetDeleteLoadKey = key
     communityTargetDeletesSettled = false
     const requestId = ++communityTargetDeleteLoadRequestId
-    load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
-      console.warn("[git/+page] Failed to load community curation deletes", error)
-    }).finally(() => {
-      afterRepoLoadSettle(() => {
+    settleRepoLoad({
+      promise: load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
+        console.warn("[git/+page] Failed to load community curation deletes", error)
+      }),
+      onSettled: () => {
         if (requestId === communityTargetDeleteLoadRequestId) communityTargetDeletesSettled = true
-      })
+      },
     })
   })
 
@@ -1342,10 +1382,14 @@
   let communityOriginalLoadRequestId = 0
   let communityOriginalsSettled = $state(false)
   $effect(() => {
-    if (activeMode !== "community" || !selectedCommunityPubkey || selectedCommunityRelays.length === 0) {
+    if (
+      activeMode !== "community" ||
+      !selectedCommunityPubkey ||
+      selectedCommunityRelays.length === 0
+    ) {
       communityOriginalLoadRequestId += 1
       communityOriginalLoadKey = ""
-      communityOriginalsSettled = activeMode !== "community" || !selectedCommunityPubkey
+      communityOriginalsSettled = true
       return
     }
 
@@ -1359,12 +1403,13 @@
     communityOriginalLoadKey = key
     communityOriginalsSettled = false
     const requestId = ++communityOriginalLoadRequestId
-    load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
-      console.warn("[git/+page] Failed to load community curated originals", error)
-    }).finally(() => {
-      afterRepoLoadSettle(() => {
+    settleRepoLoad({
+      promise: load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
+        console.warn("[git/+page] Failed to load community curated originals", error)
+      }),
+      onSettled: () => {
         if (requestId === communityOriginalLoadRequestId) communityOriginalsSettled = true
-      })
+      },
     })
   })
 
@@ -1384,6 +1429,10 @@
       communityStarReposSettled = true
       return
     }
+    if (relays.length === 0) {
+      communityStarReposSettled = true
+      return
+    }
     const key = `${buildBookmarkRepoLoadKey(communityRepoStarAddresses)}:${relays
       .slice()
       .sort()
@@ -1392,12 +1441,13 @@
     communityStarRepoLoadKey = key
     communityStarReposSettled = false
     const requestId = ++communityStarRepoLoadRequestId
-    load({relays, filters}).catch(error => {
-      console.warn("[git/+page] Failed to load community starred repos", error)
-    }).finally(() => {
-      afterRepoLoadSettle(() => {
+    settleRepoLoad({
+      promise: load({relays, filters}).catch(error => {
+        console.warn("[git/+page] Failed to load community starred repos", error)
+      }),
+      onSettled: () => {
         if (requestId === communityStarRepoLoadRequestId) communityStarReposSettled = true
-      })
+      },
     })
   })
 
@@ -2573,6 +2623,7 @@
   })
 
   onDestroy(() => {
+    gitPageDestroyed = true
     cardsComputeRequestId += 1
     accountSearchCardsComputeRequestId += 1
     if (cardsComputeTimer) {
@@ -2595,6 +2646,10 @@
       clearTimeout(timer)
     }
     repoLoadSettleTimers.clear()
+    for (const timer of repoLoadTimeoutTimers) {
+      clearTimeout(timer)
+    }
+    repoLoadTimeoutTimers.clear()
   })
 
   const back = () => history.back()
