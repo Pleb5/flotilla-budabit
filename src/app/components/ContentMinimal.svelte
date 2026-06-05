@@ -43,7 +43,10 @@
 
   const {event, trimParent = false, url}: Props = $props()
 
-  const fullContent = replaceCashuTokens(parse(event))
+  const fullContent = $derived(replaceCashuTokens(parse(event)))
+  const contentWarning = $derived(
+    $userSettingsValues.hide_sensitive && event.tags?.find(nthEq(0, "content-warning"))?.[1],
+  )
 
   const isBoundary = (i: number) => {
     const parsed = fullContent[i]
@@ -66,9 +69,11 @@
     warning = null
   }
 
-  let warning = $state(
-    $userSettingsValues.hide_sensitive && event.tags.find(nthEq(0, "content-warning"))?.[1],
-  )
+  let warning = $state<string | null>(null)
+
+  $effect(() => {
+    warning = contentWarning || null
+  })
 
   const dropWhile = <T,>(f: (x: T) => boolean, xs: Iterable<T>) => {
     const result: T[] = []

@@ -12,20 +12,37 @@
   const shouldBroadcast = true
   const initialValues = {profile, shouldBroadcast}
 
+  let saving = $state(false)
+
   const back = () => history.back()
 
-  const onsubmit = ({profile, shouldBroadcast}: {profile: Profile; shouldBroadcast: boolean}) => {
-    updateProfile({profile, shouldBroadcast})
-    pushToast({message: "Your profile has been updated!"})
-    clearModals()
+  const onsubmit = async ({profile, shouldBroadcast}: {profile: Profile; shouldBroadcast: boolean}) => {
+    if (saving) return
+
+    saving = true
+
+    try {
+      await updateProfile({profile, shouldBroadcast})
+      pushToast({message: "Your profile has been updated!"})
+      clearModals()
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to update profile",
+      })
+    } finally {
+      saving = false
+    }
   }
 </script>
 
 <ProfileEditForm {initialValues} {onsubmit} pubkey={$pubkey!}>
   {#snippet footer()}
     <div class="mt-4 flex flex-row items-center justify-between gap-4">
-      <Button class="btn btn-neutral" onclick={back}>Discard Changes</Button>
-      <Button type="submit" class="btn btn-primary">Save Changes</Button>
+      <Button class="btn btn-neutral" onclick={back} disabled={saving}>Discard Changes</Button>
+      <Button type="submit" class="btn btn-primary" disabled={saving}>
+        {saving ? "Saving..." : "Save Changes"}
+      </Button>
     </div>
   {/snippet}
 </ProfileEditForm>

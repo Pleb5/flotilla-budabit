@@ -29,7 +29,7 @@
 
   type Props = {
     initialValues: Values
-    onsubmit: (values: Values) => void
+    onsubmit: (values: Values) => unknown
     hideAddress?: boolean
     isSignup?: boolean
     footer: Snippet
