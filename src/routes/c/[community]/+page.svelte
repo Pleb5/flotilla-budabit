@@ -3,7 +3,7 @@
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {makeEvent} from "@welshman/util"
+  import {makeEvent, type TrustedEvent} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import BillList from "@assets/icons/bill-list.svg?dataurl"
@@ -138,10 +138,39 @@
       profileListEvents: $activeCommunityProfileListEvents,
     })
   })
+  const ROOM_ROOT_LOAD_TIMEOUT_MS = 8_000
+  const ROOM_ROOT_EMPTY_RETRY_DELAY_MS = 2_000
+  const ROOM_ROOT_EMPTY_RETRY_LIMIT = 2
   let roomRootsLoading = $state(false)
   let roomRootsLoaded = $state(false)
   let roomLoadKey = ""
+  let roomLoadHydrationKey = ""
+  let roomLoadRetryNonce = $state(0)
+  let roomLoadEmptyRetries = 0
+  let roomLoadRetryTimer: ReturnType<typeof setTimeout> | undefined
   const roomsLoading = $derived(communityBootstrapLoading || roomRootsLoading || !roomRootsLoaded)
+
+  const clearRoomLoadRetry = () => {
+    if (!roomLoadRetryTimer) return
+
+    clearTimeout(roomLoadRetryTimer)
+    roomLoadRetryTimer = undefined
+  }
+
+  const scheduleRoomLoadRetry = () => {
+    if (roomLoadRetryTimer || roomLoadEmptyRetries >= ROOM_ROOT_EMPTY_RETRY_LIMIT) return false
+
+    roomLoadEmptyRetries += 1
+    roomRootsLoading = true
+    roomRootsLoaded = false
+    roomLoadRetryTimer = setTimeout(() => {
+      roomLoadRetryTimer = undefined
+      roomLoadKey = ""
+      roomLoadRetryNonce += 1
+    }, ROOM_ROOT_EMPTY_RETRY_DELAY_MS * roomLoadEmptyRetries)
+
+    return true
+  }
 
   const createRoom = () => {
     if (communityId) pushModal(CommunityRoomCreate, {communityPubkey: communityId})
@@ -193,41 +222,90 @@
       roomRootsLoading = false
       roomRootsLoaded = false
       roomLoadKey = ""
+      roomLoadHydrationKey = ""
+      roomLoadEmptyRetries = 0
+      clearRoomLoadRetry()
       return
     }
 
     const key = JSON.stringify({relays: $activeCommunityRelays, filters: roomFilters})
-    if (roomLoadKey === key) return
+    if (roomLoadHydrationKey !== key) {
+      roomLoadHydrationKey = key
+      roomLoadEmptyRetries = 0
+      clearRoomLoadRetry()
+      roomLoadRetryNonce = 0
+    }
+
+    const requestKey = `${key}:${roomLoadRetryNonce}`
+
+    if (roomLoadKey === requestKey) return
     if (hasCommunityHydrationCompleted(key)) {
-      roomLoadKey = key
+      roomLoadKey = requestKey
       roomRootsLoading = false
       roomRootsLoaded = true
+      clearRoomLoadRetry()
       return
     }
 
     const controller = new AbortController()
-    roomLoadKey = key
+    let disposed = false
+    let interrupted = false
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, ROOM_ROOT_LOAD_TIMEOUT_MS)
+
+    roomLoadKey = requestKey
     roomRootsLoading = true
     roomRootsLoaded = false
+
+    const finishRoomLoad = (events: TrustedEvent[] = []) => {
+      if (disposed || roomLoadKey !== requestKey) return
+
+      const loadedRooms = readCommunityRoomRoots(events, communityId).filter(
+        room => !isCommunityPersonBanned($activeCommunityReportState, room.event.pubkey),
+      )
+      const hasLoadedRooms = loadedRooms.length > 0 || rooms.length > 0
+
+      if (hasLoadedRooms) {
+        markCommunityHydrationCompleted(key)
+        clearRoomLoadRetry()
+        roomRootsLoading = false
+        roomRootsLoaded = true
+        return
+      }
+
+      const shouldRetryEmpty = roomLoadEmptyRetries === 0 || interrupted || timedOut
+      if (shouldRetryEmpty && scheduleRoomLoadRetry()) return
+
+      roomRootsLoading = false
+      roomRootsLoaded = true
+    }
 
     request({
       relays: $activeCommunityRelays,
       autoClose: true,
       filters: roomFilters,
       signal: controller.signal,
+      onDisconnect: () => {
+        interrupted = true
+      },
     })
+      .then(finishRoomLoad)
       .catch(error => {
         if (!controller.signal.aborted) console.warn("[community-home] Failed to load rooms", error)
+        interrupted = true
+        finishRoomLoad()
       })
-      .finally(() => {
-        if (roomLoadKey === key) {
-          if (!controller.signal.aborted) markCommunityHydrationCompleted(key)
-          roomRootsLoading = false
-          roomRootsLoaded = true
-        }
-      })
+      .finally(() => clearTimeout(timeout))
 
-    return () => controller.abort()
+    return () => {
+      disposed = true
+      clearTimeout(timeout)
+      clearRoomLoadRetry()
+      controller.abort()
+    }
   })
 </script>
 

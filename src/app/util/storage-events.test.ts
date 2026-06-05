@@ -1,6 +1,23 @@
 import {describe, expect, it} from "vitest"
+import {EVENT_TIME, MESSAGE, THREAD, ZAP_GOAL} from "@welshman/util"
+import {DM_KIND} from "@app/core/state"
 import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
-import {isPersistedCommunityReportDeleteEvent, isPersistedGitDeleteEvent} from "./storage-events"
+import {
+  isPersistedCommunityReportDeleteEvent,
+  isPersistedGitDeleteEvent,
+  isPersistedMobileContentEvent,
+} from "./storage-events"
+
+const makeEvent = (kind: number) =>
+  ({
+    id: `event-${kind}`,
+    pubkey: "a".repeat(64),
+    sig: "b".repeat(128),
+    kind,
+    created_at: 1,
+    content: "",
+    tags: [],
+  }) as any
 
 describe("storage git delete persistence", () => {
   it("persists repo-scoped git delete events", () => {
@@ -104,5 +121,18 @@ describe("storage community report delete persistence", () => {
         ],
       } as any),
     ).toBe(false)
+  })
+})
+
+describe("storage mobile content persistence", () => {
+  it("persists non-message content kinds on mobile", () => {
+    expect(isPersistedMobileContentEvent(makeEvent(EVENT_TIME))).toBe(true)
+    expect(isPersistedMobileContentEvent(makeEvent(THREAD))).toBe(true)
+    expect(isPersistedMobileContentEvent(makeEvent(ZAP_GOAL))).toBe(true)
+  })
+
+  it("does not persist message-heavy content kinds on mobile", () => {
+    expect(isPersistedMobileContentEvent(makeEvent(MESSAGE))).toBe(false)
+    expect(isPersistedMobileContentEvent(makeEvent(DM_KIND))).toBe(false)
   })
 })

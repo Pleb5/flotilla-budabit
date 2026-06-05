@@ -1,10 +1,13 @@
 import {
   COMMENT,
   DELETE,
+  EVENT_TIME,
   GIT_STATUS_CLOSED,
   GIT_STATUS_COMPLETE,
   GIT_STATUS_DRAFT,
   GIT_STATUS_OPEN,
+  THREAD,
+  ZAP_GOAL,
   getTagValue,
   type TrustedEvent,
 } from "@welshman/util"
@@ -20,6 +23,7 @@ import {
 import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
 
 const GIT_COVER_LETTER_KIND = 1624
+const mobilePersistedContentKinds = new Set([EVENT_TIME, THREAD, ZAP_GOAL])
 
 const persistedGitDeleteKinds = new Set([
   GIT_REPO_ANNOUNCEMENT,
@@ -55,3 +59,6 @@ export const isPersistedCommunityReportDeleteEvent = (event: TrustedEvent) => {
 
   return event.tags.some(tag => tag[0] === "k" && tag[1] === String(COMMUNITY_REPORT_KIND))
 }
+
+export const isPersistedMobileContentEvent = (event: TrustedEvent) =>
+  mobilePersistedContentKinds.has(event.kind)

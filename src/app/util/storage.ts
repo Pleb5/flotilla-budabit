@@ -49,6 +49,7 @@ import {isMobile} from "@lib/html"
 import type {IDBTable} from "@lib/indexeddb"
 import {
   isPersistedCommunityReportDeleteEvent,
+  isPersistedMobileContentEvent,
   isPersistedGitDeleteEvent,
 } from "@app/util/storage-events"
 
@@ -82,7 +83,9 @@ const rankEvent = (event: TrustedEvent) => {
   if (isPersistedCommunityReportDeleteEvent(event)) return 9
   if (isCommunityStarDelete(event)) return 8
   if (kinds.alert.includes(event.kind)) return 8
-  if (!isMobile && kinds.content.includes(event.kind)) return 5
+  if (kinds.content.includes(event.kind) && (!isMobile || isPersistedMobileContentEvent(event))) {
+    return 5
+  }
   if (isPersistedGitDeleteEvent(event)) return 4
   return 0
 }
