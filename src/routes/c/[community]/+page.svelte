@@ -160,8 +160,8 @@
     pushModal(Confirm, {
       title: declined ? "Decline moderation request" : "Accept moderation request",
       message: declined
-        ? "Publish declined moderator lists so this request stops showing for you?"
-        : "Publish empty moderator lists so this community can recognize your moderator role?",
+        ? `Are you sure you decline moderator role in ${communityName} community?`
+        : `Do you really accept moderator role in ${communityName} community?`,
       confirm: () => {
         for (const invite of invites) {
           const response = makeModeratorInviteResponseProfileList({
@@ -174,7 +174,9 @@
 
         pushToast({
           theme: declined ? "warning" : "success",
-          message: declined ? "Moderator request declined." : "Moderator role accepted.",
+          message: declined
+            ? `You will still remain a member with full access to ${communityName}`
+            : "Moderator role accepted.",
         })
         history.back()
       },
