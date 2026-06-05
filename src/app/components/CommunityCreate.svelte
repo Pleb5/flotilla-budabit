@@ -2,7 +2,7 @@
   import {tick} from "svelte"
   import {browser} from "$app/environment"
   import {goto} from "$app/navigation"
-  import {publish, PublishStatus, request} from "@welshman/net"
+  import {request} from "@welshman/net"
   import {pubkey, repository, signer as sessionSigner} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {
@@ -17,6 +17,7 @@
   import type {ISigner} from "@welshman/signer"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import Tooltip from "@lib/components/Tooltip.svelte"
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import Profile from "@app/components/Profile.svelte"
@@ -31,7 +32,7 @@
     activeCommunityProfileListEvents,
     activeCommunityReportReviewEvents,
     activeCommunityReportState,
-    loadCommunityEvents,
+    clearCommunityBootstrapCache,
     setActiveCommunityDefinition,
     setActiveCommunityInput,
     type CommunityProfile,
@@ -84,6 +85,11 @@
     parseCommunityReportReviewLabel,
   } from "@app/core/community-reports"
   import {getCommunityRootPublishRelays} from "@app/core/community-relays"
+  import {
+    getNextReplacementCreatedAt,
+    publishAndVerifyCommunityEvent,
+    type CommunityPublishStatusUpdate,
+  } from "@app/core/community-publish"
   import {uploadFile} from "@app/core/commands"
   import type {BlossomUploadStage} from "@app/core/blossom"
   import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
@@ -171,7 +177,13 @@
 
   type SectionLifecycleChange =
     | {type: "rename"; oldSectionName: string; newSectionName: string}
-    | {type: "move"; kindKey: string; kindLabel: string; oldSectionName: string; newSectionName: string}
+    | {
+        type: "move"
+        kindKey: string
+        kindLabel: string
+        oldSectionName: string
+        newSectionName: string
+      }
     | {type: "kind-remove"; kindKey: string; kindLabel: string; oldSectionName: string}
     | {type: "remove"; oldSectionName: string}
 
@@ -198,8 +210,6 @@
     reportReviewLabels: Array<EventTemplate & {kind: number}>
   }
 
-  type PublishStatusUpdate = (message: string) => void
-
   const {mode = "create", definition, profile, embedded = false}: Props = $props()
 
   const SECTION_NAME_RE = /^[A-Za-z-]{1,50}$/
@@ -216,8 +226,6 @@
   const STRFRY_RELAY_URL = "https://github.com/hoytech/strfry"
   const BLOSSOM_SERVER_URL =
     "https://budabit.club/git/naddr1qvzqqqrhnypzqfngzhsvjggdlgeycm96x4emzjlwf8dyyzdfg4hefp89zpkdgz99qyvhwumn8ghj7emfwsh8x6rpddjhxur9v9ex2tnyd9usz9rhwden5te0wfjkccte9ehxw6t59ejx2aspr9mhxue69uhhq7tjv9kkjepwve5kzar2v9nzucm0d5qqucnvdaehxmmd94ek2unkv4eqs93a9j"
-  const MIGRATION_VERIFY_TIMEOUT = 5_000
-
   const KNOWN_SECTION_KIND_OPTIONS = [
     {label: "Room Messages", kind: 9, subtype: "room-message"},
     {label: "Rooms", kind: 11, subtype: "room"},
@@ -386,7 +394,9 @@
       renames.push({oldSectionName: originalSection.name, newSectionName: renamedSection.name})
     }
 
-    const renameByOldName = new Map(renames.map(rename => [getSectionNameKey(rename.oldSectionName), rename]))
+    const renameByOldName = new Map(
+      renames.map(rename => [getSectionNameKey(rename.oldSectionName), rename]),
+    )
     const renamedOldNames = new Set(renameByOldName.keys())
     const changes: SectionLifecycleChange[] = renames.map(rename => ({type: "rename", ...rename}))
     const originalAssignments = getSectionAssignmentMap(originalSections)
@@ -438,7 +448,9 @@
     Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean)))
 
   const getOriginalSection = (sectionName: string) =>
-    definition?.sections.find(section => getSectionNameKey(section.name) === getSectionNameKey(sectionName))
+    definition?.sections.find(
+      section => getSectionNameKey(section.name) === getSectionNameKey(sectionName),
+    )
 
   const getActiveSectionMemberPubkeys = (sectionName: string) => {
     const section = getOriginalSection(sectionName)
@@ -446,7 +458,9 @@
 
     return uniqueNormalizedPubkeys(
       section.profileLists.flatMap(ref =>
-        getProfileListPubkeys(findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents)),
+        getProfileListPubkeys(
+          findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents),
+        ),
       ),
     )
   }
@@ -488,8 +502,9 @@
     Array.from(
       new Set(
         changes
-          .filter((change): change is Extract<SectionLifecycleChange, {type: "remove"}> =>
-            change.type === "remove",
+          .filter(
+            (change): change is Extract<SectionLifecycleChange, {type: "remove"}> =>
+              change.type === "remove",
           )
           .map(change => change.oldSectionName),
       ),
@@ -585,10 +600,7 @@
     const migrationPairs = getMigrationPairs(changes)
     const removedSectionNames = getDroppedSectionNames(changes)
     const affectedOldSectionNames = Array.from(
-      new Set([
-        ...migrationPairs.map(pair => pair.oldSectionName),
-        ...removedSectionNames,
-      ]),
+      new Set([...migrationPairs.map(pair => pair.oldSectionName), ...removedSectionNames]),
     )
     const owner = normalizePubkey(definition?.pubkey || "")
     const migratedMemberPubkeys = uniqueNormalizedPubkeys(
@@ -1122,43 +1134,6 @@
     template: EventTemplate,
   ): Promise<SignedEvent> => role.signer.sign(prep(template, role.pubkey))
 
-  const publishRequiredEvent = async (
-    event: SignedEvent,
-    relays: string[],
-    requiredRelay?: string,
-  ) => {
-    const results = await publish({event, relays, timeout: 12_000})
-    const normalizedRequiredRelay = normalizeRelay(requiredRelay)
-    const requiredResult = normalizedRequiredRelay
-      ? Object.entries(results).find(
-          ([relay]) => normalizeRelay(relay) === normalizedRequiredRelay,
-        )?.[1]
-      : undefined
-    const accepted = normalizedRequiredRelay
-      ? requiredResult?.status === PublishStatus.Success
-      : Object.values(results).some(result => result.status === PublishStatus.Success)
-
-    if (!accepted) {
-      const detail =
-        requiredResult?.detail ||
-        Object.values(results)[0]?.detail ||
-        "No relay accepted the event."
-      throw new Error(detail)
-    }
-  }
-
-  const verifyPublishedEvent = async (event: SignedEvent, relays: string[]) => {
-    const matches = await loadCommunityEvents(relays, [{ids: [event.id], limit: 1}], {
-      authenticate: true,
-      settle: "first-non-empty",
-      timeout: MIGRATION_VERIFY_TIMEOUT,
-    })
-
-    if (!matches.some(match => match.id === event.id)) {
-      throw new Error("A migration update was not found on the community relays.")
-    }
-  }
-
   const mergeProfileListUpdates = (updates: CommunityProfileListDraftUpdate[]) => {
     const byAddress = new Map<string, CommunityProfileListDraftUpdate>()
 
@@ -1242,7 +1217,9 @@
       )
       const existingDestinationPubkeys = uniqueNormalizedPubkeys(
         section.profileLists.flatMap(ref =>
-          getProfileListPubkeys(findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents)),
+          getProfileListPubkeys(
+            findCommunityProfileListEvent(ref, $activeCommunityProfileListEvents),
+          ),
         ),
       )
       const migratedPubkeys = uniqueNormalizedPubkeys(
@@ -1259,7 +1236,11 @@
       }
       profileListUpdates.push({
         profileList: setup.profileList,
-        pubkeys: uniqueNormalizedPubkeys([owner, ...existingDestinationPubkeys, ...migratedPubkeys]),
+        pubkeys: uniqueNormalizedPubkeys([
+          owner,
+          ...existingDestinationPubkeys,
+          ...migratedPubkeys,
+        ]),
       })
     }
 
@@ -1297,7 +1278,10 @@
     }
 
     const destinationBySource = new Map(
-      summary.migrationPairs.map(pair => [getSectionNameKey(pair.oldSectionName), pair.newSectionName]),
+      summary.migrationPairs.map(pair => [
+        getSectionNameKey(pair.oldSectionName),
+        pair.newSectionName,
+      ]),
     )
     const copiedReportReviews = new Set<string>()
 
@@ -1330,7 +1314,12 @@
       )
     }
 
-    return {sections, profileListUpdates: mergeProfileListUpdates(profileListUpdates), formTemplates, reportReviewLabels}
+    return {
+      sections,
+      profileListUpdates: mergeProfileListUpdates(profileListUpdates),
+      formTemplates,
+      reportReviewLabels,
+    }
   }
 
   const makeChangeSummaryItems = (summary: SectionMigrationSummary) =>
@@ -1372,7 +1361,9 @@
       )
     }
     if (items.length > 0) {
-      items.push("Permission migration updates will be published and verified before the community update")
+      items.push(
+        "Permission migration updates will be published and verified before the community update",
+      )
     }
 
     return items
@@ -1409,14 +1400,23 @@
     events: SignedEvent[],
     relays: string[],
     requiredRelay: string,
-    setStatus: PublishStatusUpdate,
+    setStatus: CommunityPublishStatusUpdate,
   ) => {
+    const verifiedEvents: TrustedEvent[] = []
+
     for (const [index, event] of events.entries()) {
-      setStatus(`Publishing migration update ${index + 1} of ${events.length}...`)
-      await publishRequiredEvent(event, relays, requiredRelay)
-      setStatus(`Verifying migration update ${index + 1} of ${events.length}...`)
-      await verifyPublishedEvent(event, relays)
+      verifiedEvents.push(
+        await publishAndVerifyCommunityEvent({
+          event,
+          relays,
+          requiredRelay,
+          label: `migration update ${index + 1} of ${events.length}`,
+          setStatus,
+        }),
+      )
     }
+
+    return verifiedEvents
   }
 
   const performCommunitySettingsPublish = async ({
@@ -1428,9 +1428,15 @@
     validated: ValidatedSetup
     migrate: boolean
     summary: SectionMigrationSummary
-    setStatus?: PublishStatusUpdate
+    setStatus?: CommunityPublishStatusUpdate
   }) => {
     loading = true
+    publishStatus = ""
+
+    const reportStatus: CommunityPublishStatusUpdate = message => {
+      publishStatus = message
+      setStatus(message)
+    }
 
     try {
       const migration = migrate
@@ -1441,36 +1447,59 @@
             formTemplates: [],
             reportReviewLabels: [],
           }
-      const communityProfile = createProfile({
-        name: validated.name,
-        display_name: validated.name,
-        about: validated.description,
-        website: validated.website,
-        picture: validated.picture,
-      })
-      const communityDefinition = buildCommunityDefinition({
-        relays: validated.relays,
-        sections: migration.sections,
-        description: validated.description,
-        blossomServers: validated.blossomServers,
-        mints: validated.mints,
-        tos: validated.tos,
-        location: validated.location,
-        geohash: validated.geohash,
-      })
+      const createdAt = getNextReplacementCreatedAt([])
+      const communityProfile = {
+        ...createProfile({
+          name: validated.name,
+          display_name: validated.name,
+          about: validated.description,
+          website: validated.website,
+          picture: validated.picture,
+        }),
+        created_at: createdAt,
+      }
+      const communityDefinition = {
+        ...buildCommunityDefinition({
+          relays: validated.relays,
+          sections: migration.sections,
+          description: validated.description,
+          blossomServers: validated.blossomServers,
+          mints: validated.mints,
+          tos: validated.tos,
+          location: validated.location,
+          geohash: validated.geohash,
+        }),
+        created_at: getNextReplacementCreatedAt([definition?.event], createdAt),
+      }
       const profileListUpdates = mergeProfileListUpdates(migration.profileListUpdates)
       const updatedProfileListAddresses = new Set(
         profileListUpdates.map(update => update.profileList.address),
       )
       const profileLists = [
-        ...profileListUpdates.map(update =>
-          makeCommunityProfileList({profileList: update.profileList, pubkeys: update.pubkeys}),
-        ),
+        ...profileListUpdates.map(update => {
+          const currentEvent = findCommunityProfileListEvent(
+            update.profileList,
+            $activeCommunityProfileListEvents,
+          )
+
+          return {
+            ...makeCommunityProfileList({profileList: update.profileList, pubkeys: update.pubkeys}),
+            created_at: getNextReplacementCreatedAt([currentEvent], createdAt),
+          }
+        }),
         ...validated.newProfileLists
           .filter(({profileList}) => !updatedProfileListAddresses.has(profileList.address))
-          .map(({profileList}) =>
-            makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
-          ),
+          .map(({profileList}) => {
+            const currentEvent = findCommunityProfileListEvent(
+              profileList,
+              $activeCommunityProfileListEvents,
+            )
+
+            return {
+              ...makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
+              created_at: getNextReplacementCreatedAt([currentEvent], createdAt),
+            }
+          }),
       ]
       const signedCommunityProfile = await makeSignedEvent(validated.community, communityProfile)
       const signedDefinition = await makeSignedEvent(validated.community, communityDefinition)
@@ -1485,33 +1514,59 @@
           )
         : []
       const rootRelays = getCommunityRootPublishRelays(validated.relays, validated.community.pubkey)
-      const preDefinitionEvents = migrate
-        ? [...signedProfileLists, ...signedMigrationEvents]
-        : []
+      const preDefinitionEvents = migrate ? [...signedProfileLists, ...signedMigrationEvents] : []
       const postDefinitionEvents = migrate ? [] : signedProfileLists
+      const verifiedEvents: TrustedEvent[] = []
 
       if (preDefinitionEvents.length > 0) {
-        await publishMigrationEvents(
-          preDefinitionEvents,
-          validated.relays,
-          validated.primaryRelay,
-          setStatus,
+        verifiedEvents.push(
+          ...(await publishMigrationEvents(
+            preDefinitionEvents,
+            validated.relays,
+            validated.primaryRelay,
+            reportStatus,
+          )),
         )
       }
 
-      setStatus("Publishing community profile...")
-      await publishRequiredEvent(signedCommunityProfile, rootRelays, validated.primaryRelay)
-      setStatus("Publishing community update...")
-      await publishRequiredEvent(signedDefinition, rootRelays, validated.primaryRelay)
+      verifiedEvents.push(
+        await publishAndVerifyCommunityEvent({
+          event: signedCommunityProfile,
+          relays: rootRelays,
+          requiredRelay: validated.primaryRelay,
+          label: "community profile",
+          setStatus: reportStatus,
+        }),
+      )
+      verifiedEvents.push(
+        await publishAndVerifyCommunityEvent({
+          event: signedDefinition,
+          relays: rootRelays,
+          requiredRelay: validated.primaryRelay,
+          label: "community definition",
+          setStatus: reportStatus,
+        }),
+      )
 
-      for (const event of postDefinitionEvents) {
-        await publishRequiredEvent(event, validated.relays, validated.primaryRelay)
+      for (const [index, event] of postDefinitionEvents.entries()) {
+        verifiedEvents.push(
+          await publishAndVerifyCommunityEvent({
+            event,
+            relays: validated.relays,
+            requiredRelay: validated.primaryRelay,
+            label: `member list update ${index + 1} of ${postDefinitionEvents.length}`,
+            setStatus: reportStatus,
+          }),
+        )
       }
+
+      for (const event of verifiedEvents) repository.publish(event)
 
       const communityInput = makeCommunityNcommunity({
         pubkey: validated.community.pubkey,
         relayHints: validated.relays,
       })
+      clearCommunityBootstrapCache(validated.community.pubkey)
       setActiveCommunityInput(communityInput)
       const parsedDefinition = parseCommunityDefinition(signedDefinition)
       if (parsedDefinition) setActiveCommunityDefinition(parsedDefinition)
@@ -1527,10 +1582,18 @@
         })
       }
 
-      pushToast({message: isEdit ? "Community settings updated." : "Community created."})
+      reportStatus(
+        isEdit ? "Community update verified on relay." : "Community creation verified on relay.",
+      )
+      pushToast({
+        theme: "success",
+        message: isEdit ? "Community settings updated." : "Community created.",
+      })
       if (!isEdit) goto(makeCommunityPath(validated.community.pubkey))
     } catch (error) {
-      pushToast({theme: "error", message: `Community setup failed: ${String(error)}`})
+      const message = error instanceof Error ? error.message : String(error)
+      publishStatus = message
+      pushToast({theme: "error", message: `Community setup failed: ${message}`})
       throw error
     } finally {
       loading = false
@@ -1772,7 +1835,7 @@
     geohash = validated.geohash
 
     const summary = buildSectionMigrationSummary(validated.sections)
-    const publishWithMode = (migrate: boolean, setStatus?: PublishStatusUpdate) =>
+    const publishWithMode = (migrate: boolean, setStatus?: CommunityPublishStatusUpdate) =>
       performCommunitySettingsPublish({
         validated,
         migrate,
@@ -1783,8 +1846,9 @@
     if (isEdit && summary.changes.length > 0) {
       pushModal(CommunitySectionPublishConfirm, {
         sections: makePublishSummarySections(summary),
-        onPublishAndMigrate: (setStatus: PublishStatusUpdate) => publishWithMode(true, setStatus),
-        onPublishWithoutMigration: (setStatus: PublishStatusUpdate) =>
+        onPublishAndMigrate: (setStatus: CommunityPublishStatusUpdate) =>
+          publishWithMode(true, setStatus),
+        onPublishWithoutMigration: (setStatus: CommunityPublishStatusUpdate) =>
           publishWithMode(false, setStatus),
       })
       return
@@ -1883,7 +1947,8 @@
     if (isEdit && removesExistingState) {
       showDestructiveConfirm({
         title: "Restore default sections?",
-        description: "Restoring defaults will remove existing custom sections or publish types from this draft.",
+        description:
+          "Restoring defaults will remove existing custom sections or publish types from this draft.",
         details: [
           "People with permissions for removed sections or publish types can lose publishing access after publish.",
           "This change will be listed in the final permission summary.",
@@ -1963,7 +2028,9 @@
     if (!section || !kindDraft) return
 
     const kindKey = parseDraftKindKey(kindDraft)
-    const originalAssignment = kindKey ? getSectionAssignmentMap(definition?.sections || []).get(kindKey) : undefined
+    const originalAssignment = kindKey
+      ? getSectionAssignmentMap(definition?.sections || []).get(kindKey)
+      : undefined
 
     if (originalAssignment) {
       showDestructiveConfirm({
@@ -2066,6 +2133,7 @@
   }
 
   let loading = $state(false)
+  let publishStatus = $state("")
   let name = $state("")
   let description = $state("")
   let website = $state("")
@@ -2226,8 +2294,12 @@
 
     const controller = new AbortController()
 
-    request({relays: activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
-      .catch(() => undefined)
+    request({
+      relays: activeCommunityRelays,
+      autoClose: true,
+      filters,
+      signal: controller.signal,
+    }).catch(() => undefined)
 
     return () => controller.abort()
   })
@@ -2757,7 +2829,8 @@
         <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
           <strong class="text-lg">What gets published</strong>
           {#if isEdit && sectionMigrationSummary.changes.length > 0}
-            <div class="mt-4 rounded-2xl border border-warning/35 bg-warning/10 p-4 text-sm leading-relaxed">
+            <div
+              class="mt-4 rounded-2xl border border-warning/35 bg-warning/10 p-4 text-sm leading-relaxed">
               <strong class="block text-warning">Permission changes to review</strong>
               <div class="mt-3 space-y-3">
                 <div>
@@ -2807,6 +2880,13 @@
                 ? ""
                 : "s"} will publish with this update.
             </p>
+          {/if}
+          {#if publishStatus}
+            <div
+              class="mt-4 rounded-box border border-base-300 bg-base-200 p-3 text-sm"
+              aria-live="polite">
+              <Spinner {loading}>{publishStatus}</Spinner>
+            </div>
           {/if}
           <div class="mt-5 flex gap-2">
             <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>

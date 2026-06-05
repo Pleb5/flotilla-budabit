@@ -176,6 +176,7 @@ export const activeCommunityBootstrapStatus = writable<CommunityBootstrapStatus>
 const communityBootstrapPromises = new Map<string, Promise<CommunityBootstrap>>()
 const completedCommunityBootstrap = new Map<string, CommunityBootstrap>()
 const completedCommunityHydrationKeys = new Set<string>()
+let communityBootstrapCacheVersion = 0
 
 export const getCommunityBootstrapKey = (session: CommunitySession, userPubkey = "") =>
   `${normalizePubkey(userPubkey)}:${session.communityPubkey}:${normalizeRelays(session.communityRelayHints).join(",")}`
@@ -185,6 +186,24 @@ export const hasCommunityHydrationCompleted = (key: string) =>
 
 export const markCommunityHydrationCompleted = (key: string) => {
   if (key) completedCommunityHydrationKeys.add(key)
+}
+
+export const clearCommunityBootstrapCache = (communityPubkey?: string) => {
+  const normalizedCommunityPubkey = normalizePubkey(communityPubkey || "")
+  const matchesCommunity = (key: string) =>
+    !normalizedCommunityPubkey || key.split(":")[1] === normalizedCommunityPubkey
+
+  communityBootstrapCacheVersion += 1
+
+  for (const key of completedCommunityBootstrap.keys()) {
+    if (matchesCommunity(key)) completedCommunityBootstrap.delete(key)
+  }
+  for (const key of completedCommunityHydrationKeys) {
+    if (matchesCommunity(key)) completedCommunityHydrationKeys.delete(key)
+  }
+  for (const key of communityBootstrapPromises.keys()) {
+    if (matchesCommunity(key)) communityBootstrapPromises.delete(key)
+  }
 }
 
 if (canUseLocalStorage()) {
@@ -2083,9 +2102,12 @@ export const ensureCommunityBootstrap = async (
 
   if (updateStatus) activeCommunityBootstrapStatus.set({key, loading: true, loaded: false})
 
+  const cacheVersion = communityBootstrapCacheVersion
   const promise = loadCommunityBootstrap(session)
     .then(bootstrap => {
-      completedCommunityBootstrap.set(key, bootstrap)
+      if (cacheVersion === communityBootstrapCacheVersion) {
+        completedCommunityBootstrap.set(key, bootstrap)
+      }
       if (updateStatus && get(activeCommunityBootstrapStatus).key === key) {
         activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
       }
