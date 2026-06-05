@@ -60,11 +60,6 @@
     deriveEffectiveLabels,
     getRepoMaintainers,
   } from "@app/core/git-state"
-  import {
-    REPO_TRUST_METRICS_KEY,
-    defaultRepoTrustMetrics,
-    type RepoTrustMetrics,
-  } from "@app/core/repo-trust-metrics"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
@@ -77,7 +72,6 @@
   }
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
-  type TrustFilterKey = "all" | "community" | "community-author" | "community-maintainer"
 
   type ResolvedRootStatus = {
     state: PrStatusKey | "resolved"
@@ -125,7 +119,6 @@
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
   const commentEventsStore = getContext<Readable<CommentEvent[]>>(COMMENT_EVENTS_KEY)
-  const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -143,9 +136,6 @@
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const allPullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
   const pullRequests = $derived.by(() => allPullRequests.filter(pr => !hiddenRootIds.has(pr.id)))
-  const repoTrustMetrics = $derived.by(() =>
-    repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
-  )
   const prsPath = $derived.by(() => `/git/${$page.params.id}/prs`)
   const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:prs`)
   const relayUrl = $derived.by(() => (($page.data as any)?.url || "") as string)
@@ -331,8 +321,6 @@
   let statusFilter = $state<string>("open")
   let sortBy = $state<string>("newest")
   let authorFilter = $state<string>("")
-  let trustFilter = $state<TrustFilterKey>("all")
-  let trustSortFirst = $state(false)
   let showFilters = $state(true)
   let searchTerm = $state("")
   let selectedLabels = $state<string[]>([])
@@ -340,68 +328,6 @@
   let prSearchSource: PrListItem[] | null = null
   let prSearchItems: PrSearchItem[] = []
   let prSearchCache: {searchOptions: (query: string) => PrSearchItem[]} | null = null
-
-  const trustFilterOptions: Array<{value: TrustFilterKey; label: string}> = [
-    {value: "all", label: "All activity"},
-    {value: "community", label: "Community-aligned only"},
-    {value: "community-author", label: "Community-aligned authors"},
-    {value: "community-maintainer", label: "Community-aligned merges"},
-  ]
-  const trustFilterStatus = $derived.by(() => {
-    if (repoTrustMetrics.status === "loading") {
-      return "Refreshing community-aligned metrics for this repository..."
-    }
-
-    if (repoTrustMetrics.status === "error") {
-      return repoTrustMetrics.error || "Unable to compute trust metrics right now."
-    }
-
-    if (repoTrustMetrics.totalPullRequests === 0) {
-      return "No pull requests loaded yet for community activity metrics."
-    }
-
-    return "Community evidence from PR authors and maintainer merges."
-  })
-
-  $effect(() => {
-    const searchParams = $page.url.searchParams
-    const trustParam = searchParams.get("trust") || ""
-    const sortParam = searchParams.get("trustSort") || ""
-    trustFilter = trustFilterOptions.find(option => option.value === trustParam)?.value || "all"
-    trustSortFirst = sortParam === "first"
-  })
-
-  $effect(() => {
-    const currentTrust = $page.url.searchParams.get("trust") || ""
-    const currentTrustSort = $page.url.searchParams.get("trustSort") || ""
-    const nextTrust = trustFilter === "all" ? "" : trustFilter
-    const nextTrustSort = trustSortFirst ? "first" : ""
-
-    if (currentTrust === nextTrust && currentTrustSort === nextTrustSort) {
-      return
-    }
-
-    const params = new URLSearchParams($page.url.searchParams)
-
-    if (nextTrust) {
-      params.set("trust", nextTrust)
-    } else {
-      params.delete("trust")
-    }
-
-    if (nextTrustSort) {
-      params.set("trustSort", nextTrustSort)
-    } else {
-      params.delete("trustSort")
-    }
-
-    goto(`${prsPath}${params.toString() ? `?${params.toString()}` : ""}`, {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true,
-      invalidateAll: false,
-    })
-  })
 
   const currentPrStateFor = (rootId: string): PrStatusKey => {
     const state = resolvedStatusByRoot.get(rootId)?.state
@@ -417,12 +343,9 @@
     const currentCommentsByPr = commentsByPr
     const currentStatusFilter = statusFilter
     const currentAuthorFilter = authorFilter
-    const currentTrustFilter = trustFilter
-    const currentTrustSortFirst = trustSortFirst
     const currentSortBy = sortBy
     const currentPrListCacheKey = prListCacheKey
     const currentResolvedStatusByRoot = resolvedStatusByRoot
-    const currentRepoTrustMetrics = repoTrustMetrics
 
     const timeout = setTimeout(() => {
       if (!currentPullRequests || currentPullRequests.length === 0) {
@@ -457,17 +380,8 @@
         commentsKey,
         currentStatusFilter,
         currentAuthorFilter,
-        currentTrustFilter,
-        currentTrustSortFirst ? "trust-first" : "trust-normal",
         currentSortBy,
         statusKey,
-        Array.from(currentRepoTrustMetrics.byRootId.entries())
-          .map(
-            ([id, metric]) =>
-              `${id}:${metric.communityAlignedActorCount}:${metric.communityAlignedAuthor ? 1 : 0}:${metric.communityAlignedMaintainerMerge ? 1 : 0}`,
-          )
-          .sort()
-          .join(","),
       ].join("|")
 
       if (currentPrListCacheKey === currentKey) return
@@ -504,22 +418,6 @@
         filteredPrs = filteredPrs.filter(pr => pr.pubkey === currentAuthorFilter)
       }
 
-      if (currentTrustFilter !== "all") {
-        filteredPrs = filteredPrs.filter(pr => {
-          const metric = currentRepoTrustMetrics.byRootId.get(pr.id)
-
-          if (!metric) return false
-
-          if (currentTrustFilter === "community") return metric.communityAlignedActorCount > 0
-          if (currentTrustFilter === "community-author") return metric.communityAlignedAuthor
-          if (currentTrustFilter === "community-maintainer") {
-            return metric.communityAlignedMaintainerMerge
-          }
-
-          return true
-        })
-      }
-
       const sortedPrs = [...filteredPrs]
       if (currentSortBy === "newest") {
         sortedPrs.sort((a, b) => b.created_at - a.created_at)
@@ -531,25 +429,6 @@
           return state === "open" ? 0 : state === "draft" ? 1 : state === "merged" ? 2 : 3
         }
         sortedPrs.sort((a, b) => priority(a.id) - priority(b.id))
-      }
-
-      if (currentTrustSortFirst) {
-        sortedPrs.sort((a, b) => {
-          const trustA = currentRepoTrustMetrics.byRootId.get(a.id)
-          const trustB = currentRepoTrustMetrics.byRootId.get(b.id)
-          const actorCountA = trustA?.communityAlignedActorCount || 0
-          const actorCountB = trustB?.communityAlignedActorCount || 0
-          const authorA = trustA?.communityAlignedAuthor ? 1 : 0
-          const authorB = trustB?.communityAlignedAuthor ? 1 : 0
-          const maintainerA = trustA?.communityAlignedMaintainerMerge ? 1 : 0
-          const maintainerB = trustB?.communityAlignedMaintainerMerge ? 1 : 0
-
-          if (actorCountA !== actorCountB) return actorCountB - actorCountA
-          if (authorA !== authorB) return authorB - authorA
-          if (maintainerA !== maintainerB) return maintainerB - maintainerA
-
-          return b.created_at - a.created_at
-        })
       }
 
       prList = sortedPrs
@@ -1088,8 +967,6 @@
       searchTerm,
       statusFilter,
       authorFilter,
-      trustFilter,
-      trustSortFirst,
       selectedLabels,
       matchAllLabels,
       sortBy,
@@ -1161,55 +1038,6 @@
     </div>
   </div>
 
-  <div class="mb-3 rounded-box bg-base-200/30 p-2 text-xs">
-    <div class="flex flex-col gap-1">
-      <div>
-        <div class="font-medium">Community activity</div>
-        <div class="text-[11px] opacity-60">{trustFilterStatus}</div>
-      </div>
-
-      <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] opacity-80">
-        <span
-          ><strong>{repoTrustMetrics.communityAlignedMergedContributions}</strong>
-          community-aligned PRs</span>
-        <span>
-          <strong>{repoTrustMetrics.communityAlignedMaintainerMerges}</strong>
-          community-aligned merges</span>
-        <span
-          ><strong>{repoTrustMetrics.communityCollaborators}</strong> community collaborators</span>
-      </div>
-    </div>
-
-    <div class="mt-2 flex flex-col gap-2 border-t border-base-300/30 pt-2">
-      <div class="flex flex-wrap gap-2 text-xs">
-        {#each trustFilterOptions as option (option.value)}
-          <Button
-            type="button"
-            class={trustFilter === option.value
-              ? "btn btn-primary btn-xs"
-              : "btn btn-neutral btn-xs"}
-            onclick={() => (trustFilter = option.value)}>
-            {option.label}
-          </Button>
-        {/each}
-
-        <Button
-          type="button"
-          class={trustSortFirst ? "btn btn-info btn-xs" : "btn btn-neutral btn-xs"}
-          onclick={() => (trustSortFirst = !trustSortFirst)}>
-          Community first
-        </Button>
-      </div>
-
-      {#if trustFilter !== "all" || trustSortFirst}
-        <div class="text-xs opacity-60">
-          Showing {searchedPrs.length} matching item{searchedPrs.length === 1 ? "" : "s"}
-          with trust filters applied.
-        </div>
-      {/if}
-    </div>
-  </div>
-
   {#if showFilters}
     <FilterPanel
       mode="prs"
@@ -1259,7 +1087,6 @@
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each visiblePrs as pr, index (pr.id)}
-        {@const trustMetric = repoTrustMetrics.byRootId.get(pr.id)}
         <div
           in:slideAndFade={{duration: 200}}
           class="cursor-pointer"
@@ -1370,21 +1197,6 @@
                 </div>
               </div>
             </div>
-            {#if trustMetric && (trustMetric.communityAlignedAuthor || trustMetric.communityAlignedMaintainerMerge || trustMetric.communityAlignedActorCount > 0)}
-              <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                {#if trustMetric.communityAlignedAuthor}
-                  <span class="badge badge-success badge-sm">Community-aligned author</span>
-                {/if}
-                {#if trustMetric.communityAlignedMaintainerMerge}
-                  <span class="badge badge-info badge-sm">Community-aligned merge</span>
-                {/if}
-                {#if trustMetric.communityAlignedActorCount > 1}
-                  <span class="badge badge-neutral badge-sm">
-                    {trustMetric.communityAlignedActorCount} community-aligned actors
-                  </span>
-                {/if}
-              </div>
-            {/if}
             {#if labelsByPr.get(pr.id)?.length}
               <div class="mt-2 flex flex-wrap gap-2 text-xs">
                 {#if pr.groups.Status.length}

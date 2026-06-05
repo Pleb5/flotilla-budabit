@@ -1195,7 +1195,7 @@
                     <button
                       type="button"
                       title={branchCopyFilterTooltip}
-                      aria-label="About trusted branch filtering"
+                      aria-label="About branch filtering"
                       class="text-gray-400 hover:text-gray-300 cursor-help"
                     >
                       <Info class="w-4 h-4" />
@@ -1239,7 +1239,7 @@
                   </p>
                 {:else}
                   <p class="text-sm text-gray-300">
-                    Trusted maintainer merges cover all {branchCopyFilterState.totalBranches}
+                    Maintainer merge targets cover all {branchCopyFilterState.totalBranches}
                     branch{branchCopyFilterState.totalBranches === 1 ? "" : "es"}; including all
                     branches in this fork.
                   </p>

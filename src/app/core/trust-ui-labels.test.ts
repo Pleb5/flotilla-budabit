@@ -17,6 +17,10 @@ const trustSurfaceFiles = [
   },
 ]
 
+const repoTrustSurfaceFiles = trustSurfaceFiles.filter(file =>
+  ["repo overview", "PR list", "PR detail"].includes(file.name),
+)
+
 const avoidedLabelPatterns = [
   /\bSocial-known\b/,
   /\bTrust score\b/i,
@@ -25,6 +29,14 @@ const avoidedLabelPatterns = [
   /\bDirect-follow\b/i,
   /\bTrusted (merged|maintainer|collaborators|author|Assertions)\b/i,
   /\btrusted (author|maintainer|collaborator|providers?|profiles|activity|assertions?)\b/i,
+]
+
+const avoidedRepoTrustLabelPatterns = [
+  /\bCommunity Activity\b/i,
+  /\bcommunity-aligned\b/i,
+  /\bCommunity evidence\b/i,
+  /\btrust filters?\b/i,
+  /\btrust metrics?\b/i,
 ]
 
 const trustModelDocHref =
@@ -43,11 +55,17 @@ describe("trust UI labels", () => {
     }
   })
 
-  it("keeps semantic evidence labels on the migrated surfaces", () => {
-    expect(readUiFile("../../routes/git/[id=naddr]/+page.svelte")).toContain(
-      "Community-aligned merged PRs",
-    )
-    expect(readUiFile("../../routes/git/[id=naddr]/+page.svelte")).toContain("Community Activity")
+  it("keeps repo and PR surfaces free of community evidence labels", () => {
+    for (const file of repoTrustSurfaceFiles) {
+      const source = readUiFile(file.path)
+
+      for (const pattern of avoidedRepoTrustLabelPatterns) {
+        expect(source, `${file.name} should not match ${pattern}`).not.toMatch(pattern)
+      }
+    }
+  })
+
+  it("keeps semantic evidence labels on profile surfaces", () => {
     expect(readUiFile("../components/ProfileCodeTrustAnalysis.svelte")).toContain(
       "Code collaboration activity",
     )

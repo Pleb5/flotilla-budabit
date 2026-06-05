@@ -99,11 +99,6 @@
   } from "@nostr-git/ui"
   import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
-  import {
-    REPO_TRUST_METRICS_KEY,
-    defaultRepoTrustMetrics,
-    type RepoTrustMetrics,
-  } from "@app/core/repo-trust-metrics"
 
   type PrChange = {
     path: string
@@ -161,9 +156,6 @@
   }
 
   const {pr, prEvent, repo: repoClass, repoRelays, prEditRelays}: Props = $props()
-  const repoTrustMetricsStore = hasContext(REPO_TRUST_METRICS_KEY)
-    ? getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
-    : undefined
   const hiddenRepoEventIdsStore = hasContext(HIDDEN_ROOT_IDS_KEY)
     ? getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
     : undefined
@@ -248,38 +240,9 @@
         : undefined,
     }),
   )
-  const repoTrustMetrics = $derived.by<RepoTrustMetrics>(() =>
-    repoTrustMetricsStore
-      ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics)
-      : defaultRepoTrustMetrics,
-  )
   const hiddenRepoEventIds = $derived.by(() =>
     hiddenRepoEventIdsStore ? ($hiddenRepoEventIdsStore ?? new Set<string>()) : new Set<string>(),
   )
-  const prTrustMetric = $derived.by(() => repoTrustMetrics.byRootId.get(prEvent?.id || ""))
-  const prTrustSummary = $derived.by(() => {
-    const metric = prTrustMetric
-
-    if (repoTrustMetrics.status === "loading") {
-      return "Refreshing community activity for this PR..."
-    }
-
-    if (repoTrustMetrics.status === "error") {
-      return repoTrustMetrics.error || "Unable to compute community activity for this PR."
-    }
-
-    if (!metric) {
-      return "No community activity data for this PR yet."
-    }
-
-    if (metric.communityAlignedActorCount > 0) {
-      return `${metric.communityAlignedActorCount} community-aligned actor${metric.communityAlignedActorCount === 1 ? "" : "s"} matched this PR.`
-    }
-
-    return metric.merged
-      ? "No community-aligned actors matched this merged PR."
-      : "No community-aligned actors matched this PR yet."
-  })
 
   const canManagePr = $derived.by(() => {
     if (!$pubkey) return false
@@ -2750,41 +2713,6 @@
             <span>{formatTimestamp(pr?.createdAt || "")}</span>
           </div>
         </div>
-      </div>
-
-      <div class="mb-6 rounded-lg border bg-muted/20 p-4 text-sm">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 class="font-medium">Community activity</h3>
-            <p class="mt-1 text-xs text-muted-foreground">{prTrustSummary}</p>
-          </div>
-
-          <div class="flex flex-wrap gap-2 text-xs">
-            {#if prTrustMetric?.communityAlignedAuthor}
-              <span
-                class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
-                Community-aligned author
-              </span>
-            {/if}
-            {#if prTrustMetric?.communityAlignedMaintainerMerge}
-              <span
-                class="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
-                Community-aligned merge
-              </span>
-            {/if}
-          </div>
-        </div>
-
-        {#if prTrustMetric?.mergedByPubkey && prTrustMetric.communityAlignedMaintainerMerge}
-          <div class="mt-3 text-xs text-muted-foreground">
-            Merged by
-            <ProfileLink
-              pubkey={prTrustMetric.mergedByPubkey}
-              relays={profileRelays}
-              unstyled
-              class="font-medium hover:underline" />
-          </div>
-        {/if}
       </div>
 
       <div

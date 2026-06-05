@@ -157,22 +157,20 @@ Text relevance and recency can sort within each bucket. Internal trust scores ca
 
 ## PR And Collaboration Policy
 
-PR metrics should distinguish community-aligned collaboration from social-only familiarity.
+Repo and PR surfaces should not render community-evidence labels, trust badges, or trust filters. Profiles can still show relationship evidence in profile modals or explicit profile analysis views.
 
-| Current concept | Replacement direction |
+| Current concept | Direction |
 | --- | --- |
-| Trusted author | `Community-aligned author` when community evidence exists. |
-| Trusted maintainer merge | `Merged by community moderator/admin` or `Community-aligned merge`. |
-| Trusted collaborators | `Community collaborators` or count-based phrasing. |
-| Social-only trusted actor | Do not count as trusted. Use ordering only. |
+| Trusted author on PRs | Do not show on PR or repo pages. Profile modals carry profile evidence instead. |
+| Trusted maintainer merge | Do not show on PR or repo pages. Maintainer profiles remain inspectable directly. |
+| Trusted collaborators | Keep collaboration evidence behind profile-focused analysis. |
+| Social-only trusted actor | Do not count as trusted. Use only profile/search context where appropriate. |
 | Raw trust score | Never display. |
 
 Examples of acceptable UI phrases:
 
 | UI phrase | Why it is acceptable |
 | --- | --- |
-| `2 community-aligned PRs` | Count-based and tied to a semantic category. |
-| `Merged by community moderator` | Explains the role-based evidence. |
 | `3 shared communities` | Count-based and understandable. |
 | `You follow` | Concrete direct social reason. |
 | `Banned here` | Conspicuous contextual moderation state. |
@@ -192,7 +190,7 @@ Examples to avoid:
 | Community feeds | Use community bans and event reports to suppress content in that community. |
 | Community repo catalog | Prefer validated repo associations and suppress banned owners/associators. |
 | Canonical repo page | Show community context if known, but do not hide the repo solely because of a community ban elsewhere. |
-| PR list | Sort and badge by community evidence first. Direct follows can break ties. |
+| PR list | Do not show, sort, or filter by community evidence. |
 | Profile page | Show common communities, community roles, and relevant bans/reports as semantic evidence. |
 | Settings | Describe BudaBit trust as community-based, not provider-based or social-rank-based. |
 

@@ -5,7 +5,6 @@
     CircleAlert,
     GitBranch,
     GitPullRequest,
-    Users,
     Eye,
     BookOpen,
     Copy,
@@ -16,7 +15,6 @@
     RotateCcw,
     ChevronDown,
     HeartPulse,
-    Info,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -26,7 +24,6 @@
   import {getTagValue} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
-  import ProfileLink from "@app/components/ProfileLink.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import {pushModal} from "@app/util/modal"
@@ -40,11 +37,6 @@
     getRepoMaintainers,
     type RepoActions,
   } from "@app/core/git-state"
-  import {
-    REPO_TRUST_METRICS_KEY,
-    defaultRepoTrustMetrics,
-    type RepoTrustMetrics,
-  } from "@app/core/repo-trust-metrics"
   import {
     parsePullRequestEvent,
     type IssueEvent,
@@ -71,7 +63,6 @@
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
-  const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -81,10 +72,6 @@
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
-  const repoTrustMetrics = $derived.by(() =>
-    repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
-  )
-  const prsHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/prs`)
   const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
 
   const isOwner = $derived.by(() => {
@@ -114,91 +101,8 @@
   })
   const activityHref = (item: {kind: "issue" | "pr"; id: string}) =>
     `${repoBasePath}/${item.kind === "issue" ? "issues" : "prs"}/${item.id}`
-  let openTrustMetricPopover = $state<
-    "community-aligned-merged" | "community-aligned-maintainer" | "community-collaborators" | null
-  >(null)
   let maintainersPopoverOpen = $state(false)
   const MAINTAINER_PREVIEW_COUNT = 4
-  const repoTrustStatus = $derived.by(() => {
-    if (repoTrustMetrics.status === "loading") {
-      return "Refreshing community-aligned pull request activity..."
-    }
-
-    if (repoTrustMetrics.status === "error") {
-      return repoTrustMetrics.error || "Unable to compute community-aligned activity."
-    }
-
-    if (repoTrustMetrics.totalPullRequests === 0) {
-      return "No pull requests loaded yet for community-aligned metrics."
-    }
-
-    return "Counting merged pull requests whose authors or mergers have community evidence for this repo context."
-  })
-
-  const getRepoTrustPrHref = (rootId: string) => `${prsHref}/${rootId}`
-
-  const getPullRequestSubject = (pullRequest: PullRequestEvent) =>
-    getTagValue("subject", pullRequest.tags) || "Pull Request"
-
-  const repoTrustMetricCards = $derived.by(() => {
-    const communityAlignedMergedDetails = pullRequests
-      .filter(pullRequest => {
-        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
-
-        return Boolean(metric?.merged && metric.communityAlignedAuthor)
-      })
-      .map(pullRequest => {
-        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
-
-        return {
-          rootId: pullRequest.id,
-          subject: getPullRequestSubject(pullRequest),
-          authorPubkey: pullRequest.pubkey,
-          mergedByPubkey: metric?.mergedByPubkey,
-        }
-      })
-      .slice(0, 5)
-    const communityAlignedMaintainerDetails = pullRequests
-      .filter(pullRequest => {
-        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
-
-        return Boolean(metric?.merged && metric.communityAlignedMaintainerMerge)
-      })
-      .map(pullRequest => ({
-        rootId: pullRequest.id,
-        subject: getPullRequestSubject(pullRequest),
-        authorPubkey: pullRequest.pubkey,
-        mergedByPubkey: undefined,
-      }))
-      .slice(0, 5)
-
-    return [
-      {
-        key: "community-aligned-merged" as const,
-        label: "Community-aligned merged PRs",
-        value: repoTrustMetrics.communityAlignedMergedContributions,
-        description:
-          "Merged pull requests whose authors have community evidence for this repo context.",
-        details: communityAlignedMergedDetails,
-      },
-      {
-        key: "community-aligned-maintainer" as const,
-        label: "Community-aligned maintainer merges",
-        value: repoTrustMetrics.communityAlignedMaintainerMerges,
-        description:
-          "Merged pull requests where the maintainer who applied the status has community evidence for this repo context.",
-        details: communityAlignedMaintainerDetails,
-      },
-      {
-        key: "community-collaborators" as const,
-        label: "Community collaborators",
-        value: repoTrustMetrics.communityCollaborators,
-        description:
-          "Distinct authors and maintainers with community evidence in merged pull request activity for this repo.",
-        actors: repoTrustMetrics.topActors.slice(0, 5),
-      },
-    ]
-  })
 
   // Progressive loading states - show immediate content right away
   const initialLoading = false
@@ -1306,152 +1210,6 @@
             </section>
           {/if}
 
-          <section class="py-3">
-            <div class="mb-2 flex items-center gap-2">
-              <h3 class="flex items-center gap-2 text-sm font-semibold">
-                <Users class="h-4 w-4" />
-                Community Activity
-              </h3>
-              <span class="ml-auto text-[11px] text-muted-foreground">Community evidence</span>
-            </div>
-            {#if repoTrustStatus}
-              <p class="mb-2 text-xs text-muted-foreground">{repoTrustStatus}</p>
-            {/if}
-            <div class="space-y-1">
-              {#each repoTrustMetricCards as metric (metric.key)}
-                {@const accent =
-                  metric.key === "community-aligned-merged"
-                    ? "text-emerald-400"
-                    : metric.key === "community-aligned-maintainer"
-                      ? "text-sky-400"
-                      : "text-amber-400"}
-                <div class="relative">
-                  <button
-                    type="button"
-                    class="group/trust flex w-full min-w-0 items-center gap-3 rounded px-1 py-1 text-left hover:bg-secondary/20"
-                    onclick={() =>
-                      (openTrustMetricPopover =
-                        openTrustMetricPopover === metric.key ? null : metric.key)}>
-                    <span
-                      class="flex-shrink-0 font-mono text-lg font-semibold tabular-nums {accent}"
-                      >{metric.value}</span>
-                    <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-                      >{metric.label}</span>
-                    <span
-                      class="flex-shrink-0 rounded p-1 group-hover/trust:bg-secondary/40 {openTrustMetricPopover ===
-                      metric.key
-                        ? accent
-                        : 'text-muted-foreground group-hover/trust:text-foreground'}">
-                      <Info class="h-3.5 w-3.5" />
-                    </span>
-                  </button>
-                  {#if openTrustMetricPopover === metric.key}
-                    {@const bgTint =
-                      metric.key === "community-aligned-merged"
-                        ? "bg-emerald-500/10"
-                        : metric.key === "community-aligned-maintainer"
-                          ? "bg-sky-500/10"
-                          : "bg-amber-500/10"}
-                    <InlinePopover
-                      onClose={() => (openTrustMetricPopover = null)}
-                      align="left"
-                      widthClass="w-80">
-                      <div class="-m-3 flex flex-col gap-3 rounded-box p-3 text-sm {bgTint}">
-                        <div>
-                          <div class="font-medium">{metric.label}</div>
-                          <div class="mt-1 text-xs opacity-70">{metric.description}</div>
-                        </div>
-                        {#if metric.key === "community-aligned-merged"}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.communityAlignedMergedContributions} of {repoTrustMetrics.mergedPullRequests}
-                            merged pull request{repoTrustMetrics.mergedPullRequests === 1
-                              ? ""
-                              : "s"} had a community-aligned author.
-                          </div>
-                        {:else if metric.key === "community-aligned-maintainer"}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.communityAlignedMaintainerMerges} merged pull request{repoTrustMetrics.communityAlignedMaintainerMerges ===
-                            1
-                              ? ""
-                              : "s"} were merged by community-aligned maintainers.
-                          </div>
-                        {:else}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.communityCollaborators} distinct community collaborator{repoTrustMetrics.communityCollaborators ===
-                            1
-                              ? ""
-                              : "s"} participated in merged pull request activity.
-                          </div>
-                        {/if}
-                        {#if metric.details && metric.details.length > 0}
-                          <div class="flex flex-col gap-2">
-                            {#each metric.details as detail (detail.rootId)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                <AppLink
-                                  href={getRepoTrustPrHref(detail.rootId)}
-                                  class="text-sm font-medium text-primary underline-offset-2 hover:underline">
-                                  {detail.subject}
-                                </AppLink>
-                                <div
-                                  class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                                  <span>Author</span>
-                                  <ProfileLink
-                                    pubkey={detail.authorPubkey}
-                                    relays={repoCommunityProfileRelays}
-                                    unstyled
-                                    class="font-medium text-primary underline-offset-2 hover:underline" />
-                                </div>
-                                {#if detail.mergedByPubkey}
-                                  <div
-                                    class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                                    <span>Merged by</span>
-                                    <ProfileLink
-                                      pubkey={detail.mergedByPubkey}
-                                      relays={repoCommunityProfileRelays}
-                                      unstyled
-                                      class="font-medium text-primary underline-offset-2 hover:underline" />
-                                  </div>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
-                        {:else if metric.actors && metric.actors.length > 0}
-                          <div class="flex flex-col gap-2">
-                            {#each metric.actors as actor (actor.pubkey)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                <div class="flex min-w-0 items-center gap-3">
-                                  <ProfileCircle
-                                    pubkey={actor.pubkey}
-                                    relays={repoCommunityProfileRelays}
-                                    size={6}
-                                    class="border border-border" />
-                                  <div class="min-w-0">
-                                    <ProfileLink
-                                      pubkey={actor.pubkey}
-                                      relays={repoCommunityProfileRelays}
-                                      unstyled
-                                      class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
-                                    <div class="text-xs opacity-70">
-                                      {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests}
-                                      maintainer merges
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
-                        {:else}
-                          <div class="text-xs opacity-60">
-                            No evidence captured for this metric yet.
-                          </div>
-                        {/if}
-                      </div>
-                    </InlinePopover>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          </section>
         </Card>
       </div>
 

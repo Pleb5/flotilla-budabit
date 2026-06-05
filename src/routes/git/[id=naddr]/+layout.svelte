@@ -142,7 +142,6 @@
     getRepoMaintainers,
   } from "@app/core/git-state"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
-  import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
@@ -165,13 +164,9 @@
   import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
   import {
     activeCommunitySession,
-    activeCommunityDefinition,
-    activeCommunityProfileListEvents,
-    activeCommunityReportState,
     activeUserCommunityRefs,
     setActiveCommunityInput,
   } from "@app/core/community-state"
-  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
@@ -1595,63 +1590,56 @@
     mergedStatusEventsStore,
     $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
   )
-  const communityAlignedScoresStore: Readable<Map<string, number>> = derived(
-    [
-      pullRequestsStore,
-      appliedStatusEventsStore,
-      activeCommunityDefinition,
-      activeCommunityProfileListEvents,
-      activeCommunityReportState,
-      pubkey,
-    ],
-    ([
-      $pullRequests,
-      $appliedStatuses,
-      $activeCommunityDefinition,
-      $activeCommunityProfileListEvents,
-      $activeCommunityReportState,
-      $viewerPubkey,
-    ]) => {
-      const repoCommunityPubkey =
-        (repoClass as any)?.community?.pubkey ||
-        getTagValue("h", (repoClass as any)?.repoEvent?.tags || [])
-      if (
-        !$activeCommunityDefinition ||
-        $activeCommunityDefinition.pubkey !== repoCommunityPubkey
-      ) {
-        return new Map<string, number>()
+  const getStatusRootId = (status: Pick<StatusEvent, "tags">) =>
+    status.tags.find(tag => tag[0] === "e" && tag[3] === "root")?.[1] ||
+    getTagValue("e", status.tags) ||
+    ""
+  const getPullRequestRepoAddress = (pullRequest: Pick<PullRequestEvent, "tags">) =>
+    getTagValue("a", pullRequest.tags) || ""
+  const getPullRequestTargetBranch = (pullRequest: Pick<PullRequestEvent, "tags">) =>
+    getTagValue("branch-name", pullRequest.tags) || ""
+  const getLatestMaintainerAppliedStatus = (
+    statuses: StatusEvent[],
+    maintainers: Set<string>,
+  ) =>
+    [...statuses]
+      .filter(status => maintainers.has(status.pubkey))
+      .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0]
+  const maintainerTargetBranchesStore: Readable<string[]> = derived(
+    [repoAddressesStore, pullRequestsStore, appliedStatusEventsStore, repoEventStore],
+    ([$repoAddresses, $pullRequests, $appliedStatuses, $repoEvent]) => {
+      const repoAddresses = new Set(($repoAddresses || []).filter(Boolean))
+      if (repoAddresses.size === 0) return []
+
+      const maintainers = new Set(getRepoMaintainers($repoEvent || null))
+      const owner = ($repoEvent as RepoAnnouncementEvent | undefined)?.pubkey || repoPubkey
+      if (owner) maintainers.add(owner)
+      if (maintainers.size === 0) return []
+
+      const statusesByRoot = new Map<string, StatusEvent[]>()
+      for (const status of $appliedStatuses || []) {
+        const rootId = getStatusRootId(status)
+        if (!rootId) continue
+
+        const statuses = statusesByRoot.get(rootId) || []
+        statuses.push(status)
+        statusesByRoot.set(rootId, statuses)
       }
 
-      const candidatePubkeys = Array.from(
-        new Set(
-          [
-            ...($pullRequests || []).map(event => event.pubkey),
-            ...($appliedStatuses || []).map(event => event.pubkey),
-          ].filter(Boolean),
-        ),
-      )
-      if (candidatePubkeys.length === 0) return new Map<string, number>()
+      const targetBranches = new Set<string>()
+      for (const pullRequest of $pullRequests || []) {
+        if (!repoAddresses.has(getPullRequestRepoAddress(pullRequest))) continue
+        const latestStatus = getLatestMaintainerAppliedStatus(
+          statusesByRoot.get(pullRequest.id) || [],
+          maintainers,
+        )
+        if (!latestStatus) continue
 
-      const assessments = buildCommunityTrustAssessments({
-        viewerPubkey: $viewerPubkey || "",
-        candidatePubkeys,
-        context: {
-          scope: "repo",
-          communityPubkey: repoCommunityPubkey,
-          repoAddress: repoClass?.address || "",
-        },
-        definitions: [$activeCommunityDefinition],
-        profileListEvents: $activeCommunityProfileListEvents || [],
-        reportStates: $activeCommunityReportState
-          ? new Map([[repoCommunityPubkey, $activeCommunityReportState]])
-          : undefined,
-      })
+        const targetBranch = getPullRequestTargetBranch(pullRequest).trim()
+        if (targetBranch) targetBranches.add(targetBranch)
+      }
 
-      return new Map(
-        Array.from(assessments.entries())
-          .filter(([, assessment]) => !assessment.suppressed && assessment.score > 0)
-          .map(([actor, assessment]) => [actor, assessment.score]),
-      )
+      return Array.from(targetBranches).sort((a, b) => a.localeCompare(b))
     },
   )
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
@@ -1687,18 +1675,10 @@
       )
     },
   )
-  const repoTrustMetricsStore = createRepoTrustMetricsStore({
-    repoAddresses: repoAddressesStore,
-    pullRequests: pullRequestsStore,
-    appliedStatuses: appliedStatusEventsStore,
-    communityAlignedScores: communityAlignedScoresStore,
-  })
   const forkBranchCopyFilter = $derived.by(() => {
-    const status = $repoTrustMetricsStore?.status || "idle"
-
     const branchNames = Array.from(
       new Set(
-        ($repoTrustMetricsStore?.maintainerTargetBranches || [])
+        ($maintainerTargetBranchesStore || [])
           .map(branch => branch.trim())
           .filter(Boolean),
       ),
@@ -1706,7 +1686,7 @@
 
     return {
       branchNames,
-      status,
+      status: "ready",
       label: "Copy only maintainer branches",
       description:
         "For repositories with many branches, limit the fork to the default branch plus branches targeted by accepted merges from repo maintainers.",
@@ -1973,7 +1953,6 @@
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(COMMENT_EVENTS_KEY, commentEventsStore)
   setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
-  setContext(REPO_TRUST_METRICS_KEY, repoTrustMetricsStore)
   setContext(REPO_ACTIONS_KEY, {
     refreshRepo: () => refreshRepo(),
     forkRepo: () => forkRepo(),

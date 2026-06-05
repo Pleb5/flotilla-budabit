@@ -24,7 +24,7 @@ The practical consequence is that route-level or layout-level live subscriptions
 The canonical Git routes are under `/git`:
 
 - `/git` loads self repositories, starred/legacy bookmarked repositories, snippets, and search/discovery results.
-- `/git/[id=naddr]/+layout.svelte` owns repo context stores: repo relays, the current repo address, issues, PRs, statuses, comments, repo feed activity, trust metrics, and repo actions.
+- `/git/[id=naddr]/+layout.svelte` owns repo context stores: repo relays, the current repo address, issues, PRs, statuses, comments, repo feed activity, and repo actions.
 - `/git/[id=naddr]/issues/+page.svelte` consumes repo context but still opens its own live comment request for visible issue roots.
 - `/git/[id=naddr]/prs/+page.svelte` consumes repo context but still opens its own live comment request for PR roots and keeps a local `comments` array.
 
