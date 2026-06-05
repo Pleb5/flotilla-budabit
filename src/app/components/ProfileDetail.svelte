@@ -109,7 +109,7 @@
       </div>
     {/if}
   </div>
-  <ProfileTrustBadges {pubkey} />
+  <ProfileTrustBadges {pubkey} relays={relayHints} />
   <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
   <ProfileBadges {pubkey} url={profileUrl} />
   {#if canAwardCommunityBadges}

@@ -948,7 +948,7 @@ const activeUserCommunityDefinitionEvents: Readable<TrustedEvent[]> = derived(
   [] as TrustedEvent[],
 )
 
-const communityMemberReportEvents: Readable<TrustedEvent[]> = derived(
+export const communityMemberReportEvents: Readable<TrustedEvent[]> = derived(
   activeUserCommunityDefinitionEvents,
   ($activeUserCommunityDefinitionEvents, set) => {
     const filters = selectLatestDefinitionsByPubkey($activeUserCommunityDefinitionEvents).flatMap(
@@ -965,7 +965,7 @@ const communityMemberReportEvents: Readable<TrustedEvent[]> = derived(
   [] as TrustedEvent[],
 )
 
-const communityMemberReportDeleteEvents: Readable<TrustedEvent[]> = derived(
+export const communityMemberReportDeleteEvents: Readable<TrustedEvent[]> = derived(
   communityMemberReportEvents,
   ($communityMemberReportEvents, set) => {
     const filters = makeCommunityReportDeleteFilters($communityMemberReportEvents)
