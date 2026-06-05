@@ -24,7 +24,10 @@
   import RoomItemContent from "@app/components/RoomItemContent.svelte"
   import {colors, ENABLE_ZAPS, deriveEventsForUrl} from "@app/core/state"
   import {activeCommunityReportState} from "@app/core/community-state"
-  import {getCommunityCensorReason} from "@app/core/community-reports"
+  import {
+    getCommunityCensorReason,
+    getCommunityReportEventAddress,
+  } from "@app/core/community-reports"
   import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {getRoomItemPath} from "@app/util/routes"
@@ -88,6 +91,7 @@
       ? getCommunityCensorReason({
           reportState: $activeCommunityReportState,
           eventId: event.id,
+          eventAddress: getCommunityReportEventAddress(event),
           pubkey: event.pubkey,
           sectionName: communitySectionName,
         })

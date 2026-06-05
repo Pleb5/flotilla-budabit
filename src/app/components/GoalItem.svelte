@@ -9,7 +9,10 @@
   import GoalSummary from "@app/components/GoalSummary.svelte"
   import RoomLink from "@app/components/RoomLink.svelte"
   import {activeCommunityReportState} from "@app/core/community-state"
-  import {getCommunityCensorReason} from "@app/core/community-reports"
+  import {
+    getCommunityCensorReason,
+    getCommunityReportEventAddress,
+  } from "@app/core/community-reports"
   import {makeGoalPath} from "@app/util/routes"
 
   type Props = {
@@ -41,6 +44,7 @@
       ? getCommunityCensorReason({
           reportState: $activeCommunityReportState,
           eventId: event.id,
+          eventAddress: getCommunityReportEventAddress(event),
           pubkey: event.pubkey,
           sectionName: communitySectionName,
         })

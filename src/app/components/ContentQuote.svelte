@@ -91,7 +91,10 @@
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import {deriveEvent, entityLink} from "@app/core/state"
   import {activeCommunityReportState} from "@app/core/community-state"
-  import {getCommunityCensorReason} from "@app/core/community-reports"
+  import {
+    getCommunityCensorReason,
+    getCommunityReportEventAddress,
+  } from "@app/core/community-reports"
   import {goToEvent, makeGitPath} from "@app/util/routes"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {pushToast} from "@app/util/toast"
@@ -139,6 +142,7 @@
     return getCommunityCensorReason({
       reportState: $activeCommunityReportState,
       eventId: $quote?.id || id,
+      eventAddress: $quote ? getCommunityReportEventAddress($quote) : id ? "" : idOrAddress,
       pubkey: $quote?.pubkey || pubkey,
       sectionName: communitySectionName,
     })

@@ -46,7 +46,11 @@
     canWriteCommunityTarget,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
+  import {
+    getCommunityCensorReason,
+    getCommunityReportEventAddress,
+    isCommunityPersonBanned,
+  } from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {userSettingsValues} from "@app/core/state"
   import {prependParent} from "@app/core/commands"
@@ -130,6 +134,7 @@
       ? getCommunityCensorReason({
           reportState: $activeCommunityReportState,
           eventId: room?.event.id || roomId,
+          eventAddress: room ? getCommunityReportEventAddress(room.event) : "",
           pubkey: room?.event.pubkey,
           sectionName: COMMUNITY_SECTION_ROOMS,
         })

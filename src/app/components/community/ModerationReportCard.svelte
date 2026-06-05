@@ -9,6 +9,7 @@
     NOTE,
     THREAD,
     ZAP_GOAL,
+    getIdFilters,
     getTagValue,
     makeEvent,
   } from "@welshman/util"
@@ -63,8 +64,10 @@
   }
 
   const targetEventFilters = $derived(
-    report.target === "event" && report.targetEventId
-      ? [{ids: [report.targetEventId]}]
+    report.target === "event" && (report.targetAddress || report.targetEventId)
+      ? report.targetAddress
+        ? getIdFilters([report.targetAddress])
+        : [{ids: [report.targetEventId!]}]
       : [{ids: [""]}],
   )
   const targetEvents = $derived(
@@ -158,17 +161,30 @@
   }
 
   $effect(() => {
-    if (report.target !== "event" || !report.targetEventId || reportRelays.length === 0) return
+    if (
+      report.target !== "event" ||
+      (!report.targetAddress && !report.targetEventId) ||
+      reportRelays.length === 0
+    ) {
+      return
+    }
 
-    const key = `${report.targetEventId}:${reportRelays.join(",")}`
+    const targetRef = report.targetAddress || report.targetEventId || ""
+    const key = `${targetRef}:${reportRelays.join(",")}`
     if (targetEventLoadKey === key) return
 
     targetEventLoadKey = key
     targetEventLoadStatus = "loading"
-    loadCommunityEvents(reportRelays, [{ids: [report.targetEventId]}], {
-      authenticate: true,
-      timeout: 3000,
-    })
+    loadCommunityEvents(
+      reportRelays,
+      report.targetAddress
+        ? getIdFilters([report.targetAddress])
+        : [{ids: [report.targetEventId!]}],
+      {
+        authenticate: true,
+        timeout: 3000,
+      },
+    )
       .catch(() => {})
       .finally(() => {
         if (targetEventLoadKey === key) targetEventLoadStatus = "done"
@@ -231,8 +247,14 @@
       </div>
       <div class="rounded-box bg-base-200 p-3 md:col-span-2">
         <strong>Event id</strong>
-        <p class="mt-1 break-all opacity-75">{report.targetEventId}</p>
+        <p class="mt-1 break-all opacity-75">{report.targetEventId || "Unavailable"}</p>
       </div>
+      {#if report.targetAddress}
+        <div class="rounded-box bg-base-200 p-3 md:col-span-2">
+          <strong>Event address</strong>
+          <p class="mt-1 break-all opacity-75">{report.targetAddress}</p>
+        </div>
+      {/if}
     {:else}
       <div class="rounded-box bg-base-200 p-3">
         <strong>Scope</strong>

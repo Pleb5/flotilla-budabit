@@ -8,6 +8,7 @@
     NOTE,
     THREAD,
     ZAP_GOAL,
+    getIdFilters,
     getTagValue,
     makeEvent,
     type TrustedEvent,
@@ -72,7 +73,11 @@
   )
 
   const targetEventFilters = $derived(
-    group.targetEventId ? [{ids: [group.targetEventId]}] : [{ids: [""]}],
+    group.targetAddress
+      ? getIdFilters([group.targetAddress])
+      : group.targetEventId
+        ? [{ids: [group.targetEventId]}]
+        : [{ids: [""]}],
   )
   const targetEvents = $derived(
     deriveEventsAsc(
@@ -208,17 +213,22 @@
   }
 
   $effect(() => {
-    if (!group.targetEventId || reportRelays.length === 0) return
+    if ((!group.targetAddress && !group.targetEventId) || reportRelays.length === 0) return
 
-    const key = `${group.targetEventId}:${reportRelays.join(",")}`
+    const targetRef = group.targetAddress || group.targetEventId || ""
+    const key = `${targetRef}:${reportRelays.join(",")}`
     if (targetEventLoadKey === key) return
 
     targetEventLoadKey = key
     targetEventLoadStatus = "loading"
-    loadCommunityEvents(reportRelays, [{ids: [group.targetEventId]}], {
-      authenticate: true,
-      timeout: 3000,
-    })
+    loadCommunityEvents(
+      reportRelays,
+      group.targetAddress ? getIdFilters([group.targetAddress]) : [{ids: [group.targetEventId!]}],
+      {
+        authenticate: true,
+        timeout: 3000,
+      },
+    )
       .catch(() => {})
       .finally(() => {
         if (targetEventLoadKey === key) targetEventLoadStatus = "done"

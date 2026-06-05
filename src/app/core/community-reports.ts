@@ -1,4 +1,13 @@
-import {DELETE, getTagValue, type EventContent, type TrustedEvent} from "@welshman/util"
+import {
+  Address,
+  DELETE,
+  getAddress,
+  getTagValue,
+  isParameterizedReplaceable,
+  isParameterizedReplaceableKind,
+  type EventContent,
+  type TrustedEvent,
+} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   findCommunitySection,
@@ -28,6 +37,7 @@ export type ParsedCommunityReport = {
   communityAddress: string
   communityPubkey: string
   targetPubkey: string
+  targetAddress?: string
   targetEventId?: string
   targetEventKind?: number
   targetEventSubtype?: string
@@ -71,6 +81,7 @@ export type CommunityContentReport = ParsedCommunityReport & {
 export type CommunityContentReportGroup = {
   key: string
   sectionName: string
+  targetAddress?: string
   targetEventId?: string
   targetEventKind?: number
   targetEventSubtype?: string
@@ -132,6 +143,26 @@ const hasReportReason = (tag: string[]) =>
 const getReasonTag = (event: TrustedEvent, tagName: "e" | "p") =>
   event.tags.find(tag => tag[0] === tagName && hasReportReason(tag))
 
+const parseReportTargetAddress = (address: string) => {
+  if (!Address.isAddress(address)) return undefined
+
+  const ref = Address.from(address)
+  const pubkey = normalizePubkey(ref.pubkey || "")
+  if (!isParameterizedReplaceableKind(ref.kind) || !pubkey || !ref.identifier) return undefined
+
+  return {
+    kind: ref.kind,
+    pubkey,
+    identifier: ref.identifier,
+    address: `${ref.kind}:${pubkey}:${ref.identifier}`,
+  }
+}
+
+const getReasonAddressTag = (event: TrustedEvent) =>
+  event.tags.find(
+    tag => tag[0] === "a" && hasReportReason(tag) && parseReportTargetAddress(tag[1] || ""),
+  )
+
 const getLoadedEventAuthor = (eventId: string, targetEvents: TrustedEvent[]) =>
   normalizePubkey(targetEvents.find(event => event.id === eventId)?.pubkey || "")
 
@@ -184,7 +215,16 @@ const makeOptionalTag = (name: string, value: unknown) => {
   return text ? [[name, text]] : []
 }
 
+export const getCommunityReportEventAddress = (
+  event: Pick<TrustedEvent, "kind" | "pubkey" | "tags" | "content">,
+) => {
+  if (!isParameterizedReplaceable(event)) return ""
+
+  return parseReportTargetAddress(getAddress(event))?.address || ""
+}
+
 export const getCommunityReportTargetContext = (event: TrustedEvent) => ({
+  targetAddress: getCommunityReportEventAddress(event),
   targetRootId: getTagValue("E", event.tags) || getTagValue("e", event.tags) || "",
   targetRootKind: getNumberTagValue(event, "K"),
   targetIdentifier: getTagValue("d", event.tags) || "",
@@ -204,6 +244,7 @@ export const makeCommunityEventReport = ({
   sectionName,
   eventId,
   eventPubkey,
+  targetAddress = "",
   eventKind,
   eventSubtype = "",
   eventTitle = "",
@@ -218,6 +259,7 @@ export const makeCommunityEventReport = ({
   sectionName: string
   eventId: string
   eventPubkey: string
+  targetAddress?: string
   eventKind?: number
   eventSubtype?: string
   eventTitle?: string
@@ -232,6 +274,10 @@ export const makeCommunityEventReport = ({
   content,
   tags: [
     ["e", eventId, COMMUNITY_REPORT_REASON],
+    ...makeOptionalTag("a", parseReportTargetAddress(targetAddress)?.address).map(tag => [
+      ...tag,
+      COMMUNITY_REPORT_REASON,
+    ]),
     ["p", normalizePubkey(eventPubkey)],
     ["a", makeCommunityDefinitionAddress(communityPubkey)],
     ["h", normalizePubkey(communityPubkey)],
@@ -360,17 +406,23 @@ export const parseCommunityReport = (
   if (communityPubkey && community.pubkey !== normalizePubkey(communityPubkey)) return undefined
 
   const eventTag = getReasonTag(event, "e")
+  const targetAddressTag = getReasonAddressTag(event)
+  const targetAddressRef = targetAddressTag
+    ? parseReportTargetAddress(targetAddressTag[1] || "")
+    : undefined
   const personReportTag = getReasonTag(event, "p")
+  const hasEventTarget = Boolean(eventTag?.[1] || targetAddressRef)
   const targetPubkey = normalizePubkey(
-    eventTag
+    hasEventTarget
       ? event.tags.find(tag => tag[0] === "p")?.[1] ||
-          getLoadedEventAuthor(eventTag[1] || "", targetEvents)
+          targetAddressRef?.pubkey ||
+          getLoadedEventAuthor(eventTag?.[1] || "", targetEvents)
       : personReportTag?.[1] || "",
   )
 
   if (!targetPubkey) return undefined
 
-  if (eventTag?.[1]) {
+  if (hasEventTarget) {
     const sectionName = getSectionName(event)
     if (!sectionName) return undefined
 
@@ -380,8 +432,9 @@ export const parseCommunityReport = (
       communityAddress: community.address,
       communityPubkey: community.pubkey,
       targetPubkey,
-      targetEventId: eventTag[1],
-      targetEventKind: getTargetEventKind(event),
+      targetEventId: eventTag?.[1],
+      targetAddress: targetAddressRef?.address,
+      targetEventKind: getTargetEventKind(event) ?? targetAddressRef?.kind,
       targetEventSubtype: normalizeCommunitySectionSubtype(
         getStringTagValue(event, "target-subtype"),
       ),
@@ -389,7 +442,7 @@ export const parseCommunityReport = (
       targetEventContent: getStringTagValue(event, "target-content"),
       targetRootId: getStringTagValue(event, "target-root-id") || undefined,
       targetRootKind: getNumberTagValue(event, "target-root-kind"),
-      targetIdentifier: getStringTagValue(event, "target-d") || undefined,
+      targetIdentifier: getStringTagValue(event, "target-d") || targetAddressRef?.identifier,
       targetScope: getStringTagValue(event, "target-h") || undefined,
       sectionName,
     }
@@ -791,13 +844,14 @@ export const getCommunityContentReportGroups = (
   const groups = new Map<string, CommunityContentReportGroup>()
 
   for (const report of reports) {
-    const key = `${report.sectionName || ""}:${report.targetEventId || report.event.id}`
+    const key = `${report.sectionName || ""}:${report.targetAddress || report.targetEventId || report.event.id}`
     const current = groups.get(key)
 
     if (!current) {
       groups.set(key, {
         key,
         sectionName: report.sectionName || "",
+        targetAddress: report.targetAddress,
         targetEventId: report.targetEventId,
         targetEventKind: report.targetEventKind,
         targetEventSubtype: report.targetEventSubtype,
@@ -824,22 +878,26 @@ export const getCommunityContentReportGroups = (
 export const getCommunityCensorReason = ({
   reportState,
   eventId,
+  eventAddress,
   pubkey,
   sectionName,
 }: {
   reportState: EffectiveCommunityReportState
   eventId?: string
+  eventAddress?: string
   pubkey?: string
   sectionName?: string
 }): "event" | "person" | undefined => {
   const normalizedPubkey = normalizePubkey(pubkey || "")
+  const normalizedEventAddress = parseReportTargetAddress(eventAddress || "")?.address || ""
 
   if (
-    eventId &&
+    (eventId || normalizedEventAddress) &&
     sectionName &&
     reportState.eventReports.some(
       report =>
-        report.targetEventId === eventId &&
+        ((eventId && report.targetEventId === eventId) ||
+          (normalizedEventAddress && report.targetAddress === normalizedEventAddress)) &&
         normalizeCommunitySectionName(report.sectionName || "") ===
           normalizeCommunitySectionName(sectionName),
     )

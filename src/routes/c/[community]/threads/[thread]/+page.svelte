@@ -45,7 +45,11 @@
     canWriteCommunityTarget,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
+  import {
+    getCommunityCensorReason,
+    getCommunityReportEventAddress,
+    isCommunityPersonBanned,
+  } from "@app/core/community-reports"
   import {
     canEditReplyEvent,
     editedTargetIds,
@@ -129,6 +133,7 @@
       ? getCommunityCensorReason({
           reportState: $activeCommunityReportState,
           eventId: thread?.event.id || threadId,
+          eventAddress: thread ? getCommunityReportEventAddress(thread.event) : "",
           pubkey: thread?.event.pubkey,
           sectionName: COMMUNITY_SECTION_THREADS,
         })

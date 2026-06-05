@@ -18,6 +18,7 @@ import {
   getCommunityCensorReason,
   getCommunityContentReportGroups,
   getCommunityContentReports,
+  getCommunityReportEventAddress,
   getEffectiveCommunityModerationActionsByReporter,
   getEffectiveCommunityReportState,
   isCommunityPersonBanned,
@@ -91,6 +92,7 @@ const generalProfileList = makeEvent({
 
 describe("community reports", () => {
   it("builds and parses community event and person spam reports", () => {
+    const targetAddress = `31922:${targetPubkey}:calendar-1`
     const eventReport = makeEvent({
       id: "event-report",
       kind: COMMUNITY_REPORT_KIND,
@@ -100,8 +102,8 @@ describe("community reports", () => {
         sectionName: "General",
         eventId: "reported-event",
         eventPubkey: targetPubkey,
-        eventKind: 9,
-        eventSubtype: "room-message",
+        targetAddress,
+        eventKind: 31922,
         eventTitle: "Reported title",
         eventContent: "Reported content",
       }).tags,
@@ -117,14 +119,16 @@ describe("community reports", () => {
       target: "event",
       sectionName: "General",
       targetEventId: "reported-event",
+      targetAddress,
       targetPubkey,
-      targetEventKind: 9,
-      targetEventSubtype: "room-message",
+      targetEventKind: 31922,
       targetEventTitle: "Reported title",
       targetEventContent: "Reported content",
+      targetIdentifier: "calendar-1",
     })
-    expect(eventReport.tags).toContainEqual(["target-kind", "9"])
-    expect(eventReport.tags).toContainEqual(["target-subtype", "room-message"])
+    expect(eventReport.tags).toContainEqual(["e", "reported-event", "spam"])
+    expect(eventReport.tags).toContainEqual(["a", targetAddress, "spam"])
+    expect(eventReport.tags).toContainEqual(["target-kind", "31922"])
     expect(eventReport.tags).toContainEqual(["target-title", "Reported title"])
     expect(eventReport.tags).toContainEqual(["target-content", "Reported content"])
     expect(eventReport.tags).toContainEqual(["h", communityPubkey])
@@ -133,6 +137,75 @@ describe("community reports", () => {
       targetPubkey,
     })
     expect(personReport.tags).toContainEqual(["h", communityPubkey])
+  })
+
+  it("derives addressable report targets with Welshman address semantics", () => {
+    const addressableEvent = makeEvent({
+      id: "calendar-event-v1",
+      kind: 31922,
+      pubkey: targetPubkey,
+      tags: [["d", "calendar-1"]],
+    })
+
+    expect(getCommunityReportEventAddress(addressableEvent)).toBe(
+      `31922:${targetPubkey}:calendar-1`,
+    )
+    expect(getCommunityReportEventAddress(makeEvent({kind: 1, pubkey: targetPubkey}))).toBe("")
+  })
+
+  it("ignores community definition a-tags as event report targets", () => {
+    const report = makeEvent({
+      id: "community-a-reason-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: [
+        ["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:`, "spam"],
+        ["p", targetPubkey],
+        ["content", "General"],
+      ],
+    })
+
+    expect(parseCommunityReport(report, communityPubkey)).toBeUndefined()
+  })
+
+  it("applies addressable event reports across replacements", () => {
+    const definition = makeDefinition()
+    const targetAddress = `31922:${targetPubkey}:calendar-1`
+    const report = makeEvent({
+      id: "addressable-event-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "calendar-event-v1",
+        eventPubkey: targetPubkey,
+        targetAddress,
+        eventKind: 31922,
+      }).tags,
+    })
+    const state = getEffectiveCommunityReportState({definition, reportEvents: [report]})
+
+    expect(state.eventReports[0]).toMatchObject({
+      targetEventId: "calendar-event-v1",
+      targetAddress,
+      targetPubkey,
+    })
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "calendar-event-v2",
+        eventAddress: targetAddress,
+        sectionName: "General",
+      }),
+    ).toBe("event")
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "calendar-event-v2",
+        sectionName: "General",
+      }),
+    ).toBeUndefined()
   })
 
   it("caps moderated event content snapshots", () => {
