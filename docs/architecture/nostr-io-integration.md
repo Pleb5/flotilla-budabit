@@ -69,7 +69,7 @@ The component reads and mutates `graspServersStore` from `@nostr-git/ui`, then p
 </script>
 ```
 
-It no longer receives `io` or `signEvent` props from `settings/profile`; signing and publication are owned by `src/app/core/git-commands.ts` and the app signer.
+It no longer receives `io` or `signEvent` props from `settings/git`; signing and publication are owned by `src/app/core/git-commands.ts` and the app signer.
 
 #### graspServers Store
 
@@ -157,7 +157,7 @@ Only pass explicit `EventIO` into lower-level package APIs when the call site ca
 - [x] Stores hold normalized state and leave publication to app commands
 - [x] Svelte 5 runes used ($state, $derived, $effect)
 - [x] Unit tests verify delegation to real app layer
-- [x] Integration tested in settings/profile route
+- [x] Integration tested in settings/git route
 
 ## Files Modified
 

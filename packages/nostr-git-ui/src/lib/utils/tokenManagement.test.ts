@@ -10,7 +10,7 @@ import {
 
 describe("token management helpers", () => {
   it("resolves provider settings links", () => {
-    expect(ACCESS_TOKEN_SETTINGS_PATH).toBe("/settings/profile");
+    expect(ACCESS_TOKEN_SETTINGS_PATH).toBe("/settings/git");
     expect(getAccessTokenSettingsLink("github.com")?.url).toBe(
       "https://github.com/settings/tokens"
     );

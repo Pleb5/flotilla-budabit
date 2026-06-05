@@ -27,6 +27,7 @@
     getEffectiveRepoRelayUrls,
     getSuccessfulGraspRelayUrls,
   } from "../../utils/grasp-pipeline.js";
+  import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement.js";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
   import type { RepoCommunityOption } from "./repo-community-options.js";
   import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
@@ -1632,7 +1633,7 @@
                     GitHub requires the workflow token scope to push files under
                     <span class="font-mono">.github/workflows</span>.
                     <a
-                      href="/settings/profile"
+                      href={ACCESS_TOKEN_SETTINGS_PATH}
                       target="_blank"
                       rel="noopener noreferrer"
                       class="ml-2 inline-flex items-center text-red-700 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100 underline"

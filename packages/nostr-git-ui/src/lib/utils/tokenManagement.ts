@@ -1,4 +1,4 @@
-export const ACCESS_TOKEN_SETTINGS_PATH = "/settings/profile";
+export const ACCESS_TOKEN_SETTINGS_PATH = "/settings/git";
 
 export interface AccessTokenSettingsLink {
   provider: "github" | "gitlab";

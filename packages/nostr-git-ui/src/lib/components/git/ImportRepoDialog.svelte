@@ -59,6 +59,7 @@
     getMandatoryGraspRelayUrls,
   } from "../../utils/grasp-pipeline.js";
   import {
+    ACCESS_TOKEN_SETTINGS_PATH,
     getAccessTokenManagementMessage,
     isWorkflowScopeIssue,
   } from "../../utils/tokenManagement.js";
@@ -2069,7 +2070,7 @@
                         <div class="mt-3 text-xs text-red-700/80 dark:text-red-200/80">
                           {getAccessTokenManagementMessage(currentProgress.error)}
                           <a
-                            href="/settings/profile"
+                            href={ACCESS_TOKEN_SETTINGS_PATH}
                             target="_blank"
                             rel="noopener noreferrer"
                             class="ml-2 inline-flex items-center text-red-700 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100 underline"

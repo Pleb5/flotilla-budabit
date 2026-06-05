@@ -223,7 +223,7 @@
                   Token configured for {provider.host}
                 </p>
               {:else if !provider.hasToken && provider.id !== "grasp"}
-                <p class="text-xs text-muted-foreground mt-1">
+                <p class="text-xs text-foreground mt-1">
                   Add a token in
                   <a
                     href={ACCESS_TOKEN_SETTINGS_PATH}
@@ -355,7 +355,7 @@
       <div class="text-4xl">🔐</div>
       <div class="space-y-2">
         <h4 class="font-medium text-foreground">No Authentication Tokens Found</h4>
-        <p class="text-sm text-muted-foreground max-w-md mx-auto">
+        <p class="text-sm text-foreground max-w-md mx-auto">
           You need to configure authentication tokens for at least one Git service before creating a
           repository. Go to Settings to add your GitHub, GitLab, Gitea, or Bitbucket tokens.
         </p>
