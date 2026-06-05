@@ -509,10 +509,6 @@
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 class="text-xl font-semibold">Moderator requests</h2>
-            <p class="text-sm opacity-70">
-              Review requester-owned profile-list refs, then accept by appending them to the
-              community definition.
-            </p>
           </div>
           {#if pendingModeratorRequests.length > 0}
             <span class="badge badge-warning">{pendingModeratorRequests.length} pending</span>

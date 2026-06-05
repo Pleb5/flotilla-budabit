@@ -2322,11 +2322,10 @@
           </h1>
           <p class="mt-5 max-w-2xl text-base leading-relaxed opacity-70 sm:text-lg">
             {#if isEdit}
-              Publish a fresh kind:10222 definition with updated relays, metadata, and content
+              Publish a fresh community definition with updated relays, metadata, and content
               sections.
             {:else}
-              Your logged-in signer becomes the community. BudaBit publishes the profile, kind:10222
-              definition, and initial publishing lists.
+              Publish the community definition. Your logged-in account becomes the community.
             {/if}
           </p>
         </div>

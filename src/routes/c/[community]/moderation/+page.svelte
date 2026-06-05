@@ -119,7 +119,7 @@
             displayName: getCommunitySectionDisplayName(section),
             capability:
               $pubkey && $activeCommunityDefinition
-                  ? getGrantCapability({
+                ? getGrantCapability({
                     definition: $activeCommunityDefinition,
                     userPubkey: $pubkey,
                     sectionName: section.name,
@@ -790,10 +790,12 @@
   {:else if !communityBootstrapReady || !$activeCommunityDefinition}
     <p class="py-8 text-center opacity-70">Community definition is not loaded.</p>
   {:else if !$pubkey}
-    <p class="py-8 text-center opacity-70">Log in with a moderator key to manage applications.</p>
+    <p class="py-8 text-center opacity-70">
+      Log in with a moderator account to manage applications.
+    </p>
   {:else if !canAccessModerationPage}
     <p class="py-8 text-center opacity-70">
-      This signer cannot manage this community's moderation workflows.
+      This account cannot manage this community's moderation workflows.
     </p>
   {:else}
     <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -1141,10 +1143,7 @@
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 class="text-xl font-semibold">Moderation</h2>
-            <p class="text-sm opacity-70">
-              Review active event censors and person bans published by this key. Revoking publishes
-              a kind:5 delete for the original report.
-            </p>
+            <p class="text-sm opacity-70">Review active event censors and person bans.</p>
           </div>
           <span class="badge badge-neutral">
             {currentModerationActions.length}
@@ -1158,7 +1157,6 @@
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-lg font-semibold">Event moderation</h3>
-              <p class="text-sm opacity-70">Section-scoped event censor reports from this key.</p>
             </div>
             <span class="badge badge-warning">{currentEventModerationActions.length}</span>
           </div>
@@ -1172,7 +1170,7 @@
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-lg font-semibold">Person bans</h3>
-              <p class="text-sm opacity-70">Community-wide person bans from this key.</p>
+              <p class="text-sm opacity-70">Community-wide person bans from this account.</p>
             </div>
             <span class="badge badge-error">{currentPersonModerationActions.length}</span>
           </div>
