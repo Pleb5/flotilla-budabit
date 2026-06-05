@@ -38,13 +38,17 @@ const getUserOutboxRelays = () => {
   }
 }
 
-const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T): Promise<T> => {
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  timeout: number,
+  fallback: T,
+): Promise<{timedOut: boolean; value: T}> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined
 
   return Promise.race([
-    promise,
-    new Promise<T>(resolve => {
-      timeoutId = setTimeout(() => resolve(fallback), timeout)
+    promise.then(value => ({timedOut: false, value})),
+    new Promise<{timedOut: boolean; value: T}>(resolve => {
+      timeoutId = setTimeout(() => resolve({timedOut: true, value: fallback}), timeout)
     }),
   ]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId)
@@ -129,9 +133,14 @@ export const hydrateRepoStars = async ({
     return
   }
 
+  if (!force && repoStarHydrationKey === key && get(repoStarsLoading)) {
+    return
+  }
+
   if (
     !force &&
     repoStarHydrationKey === key &&
+    repoStarHydratedAt > 0 &&
     Date.now() - repoStarHydratedAt < REPO_STAR_HYDRATION_TTL
   ) {
     return
@@ -139,19 +148,20 @@ export const hydrateRepoStars = async ({
 
   const requestId = ++repoStarHydrationRequestId
   repoStarHydrationKey = key
-  repoStarHydratedAt = Date.now()
   repoStarsLoading.set(true)
+  let completedWithoutTimeout = false
 
   try {
     const scopedReactionFilter = repoAddress
       ? {...reactionFilter, "#a": [repoAddress]}
       : reactionFilter
 
-    await withTimeout(
+    const reactionsResult = await withTimeout(
       load({relays, filters: [scopedReactionFilter] as Filter[]}),
       REPO_STAR_LOAD_TIMEOUT + 500,
       [],
     )
+    completedWithoutTimeout = !reactionsResult.timedOut
 
     if (requestId !== repoStarHydrationRequestId) return
 
@@ -162,9 +172,17 @@ export const hydrateRepoStars = async ({
     ].filter(Boolean) as Filter[]
 
     if (deleteFilters.length > 0) {
-      await withTimeout(load({relays, filters: deleteFilters}), REPO_STAR_LOAD_TIMEOUT + 500, [])
+      const deletesResult = await withTimeout(
+        load({relays, filters: deleteFilters}),
+        REPO_STAR_LOAD_TIMEOUT + 500,
+        [],
+      )
+      completedWithoutTimeout = completedWithoutTimeout && !deletesResult.timedOut
     }
   } finally {
-    if (requestId === repoStarHydrationRequestId) repoStarsLoading.set(false)
+    if (requestId === repoStarHydrationRequestId) {
+      repoStarHydratedAt = completedWithoutTimeout ? Date.now() : 0
+      repoStarsLoading.set(false)
+    }
   }
 }

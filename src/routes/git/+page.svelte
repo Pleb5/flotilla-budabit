@@ -335,6 +335,17 @@
 
   const REPO_SEARCH_DEBOUNCE_MS = 300
   const REPO_SEARCH_PAGE_SIZE = 18
+  const REPO_LOAD_SETTLE_DELAY_MS = 75
+
+  const repoLoadSettleTimers = new Set<ReturnType<typeof setTimeout>>()
+
+  const afterRepoLoadSettle = (callback: () => void) => {
+    const timer = setTimeout(() => {
+      repoLoadSettleTimers.delete(timer)
+      callback()
+    }, REPO_LOAD_SETTLE_DELAY_MS)
+    repoLoadSettleTimers.add(timer)
+  }
 
   const getInitialGitModeForContext = (): GitMode =>
     getStore(activeCommunitySession)?.communityPubkey ? getInitialGitMode() : "personal"
@@ -370,16 +381,6 @@
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
   let workerApi: any = null
   let workerInstance: Worker | null = null
-  onMount(async () => {
-    try {
-      const {api, worker} = await getInitializedGitWorker()
-      workerApi = api
-      workerInstance = worker
-      console.log("[+page.svelte] Worker API initialized successfully")
-    } catch (error) {
-      console.error("[+page.svelte] Failed to initialize worker:", error)
-    }
-  })
 
   onMount(() => {
     gitTabHydrated = true
@@ -424,18 +425,42 @@
 
   // Load repos reactively when pubkey or relays change
   // Consolidated from duplicate effects to prevent flickering
-  let lastLoadedRelays = $state<string>("")
+  let lastLoadedPersonalRepoKey = $state("")
+  let personalRepoLoadRequestId = 0
+  let personalRepoAnnouncementsSettled = $state(false)
   $effect(() => {
-    if (!$pubkey) return
-    if (!repoAnnouncementRelays.length) return
+    if (!$pubkey) {
+      personalRepoLoadRequestId += 1
+      personalRepoAnnouncementsSettled = true
+      lastLoadedPersonalRepoKey = ""
+      return
+    }
+
+    if (!repoAnnouncementRelays.length) {
+      personalRepoLoadRequestId += 1
+      personalRepoAnnouncementsSettled = false
+      lastLoadedPersonalRepoKey = ""
+      return
+    }
 
     // Prevent duplicate loads with same relay set
     const relayKey = repoAnnouncementRelays.slice().sort().join(",")
-    if (relayKey === lastLoadedRelays) return
-    lastLoadedRelays = relayKey
+    const loadKey = `${$pubkey}:${relayKey}`
+    if (loadKey === lastLoadedPersonalRepoKey) return
+    lastLoadedPersonalRepoKey = loadKey
+    personalRepoAnnouncementsSettled = false
+    const requestId = ++personalRepoLoadRequestId
 
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
     load({relays: repoAnnouncementRelays, filters: [filter]})
+      .catch(error => {
+        console.warn("[git/+page] Failed to load personal repos", error)
+      })
+      .finally(() => {
+        afterRepoLoadSettle(() => {
+          if (requestId === personalRepoLoadRequestId) personalRepoAnnouncementsSettled = true
+        })
+      })
   })
 
   $effect(() => {
@@ -847,7 +872,9 @@
         console.warn("[git/+page] Failed to hydrate repo stars", error)
       })
       .finally(() => {
-        if (requestId === repoStarsHydrationRequestId) repoStarsHydrationSettled = true
+        afterRepoLoadSettle(() => {
+          if (requestId === repoStarsHydrationRequestId) repoStarsHydrationSettled = true
+        })
       })
   })
 
@@ -885,7 +912,9 @@
               console.warn("[git/+page] Failed to load starred repos", error)
             })
             .finally(() => {
-              if (starredRepoLoadKey === loadKey) settledStarredRepoLoadKey = loadKey
+              afterRepoLoadSettle(() => {
+                if (starredRepoLoadKey === loadKey) settledStarredRepoLoadKey = loadKey
+              })
             })
         }
       }
@@ -895,14 +924,14 @@
 
   // Loaded starred repos - combines star addresses with actual repo events
   const loadedStarredRepos = $derived.by(() => {
-    if (!$repos || !hasRepoStarAddresses) return []
+    if (!hasRepoStarAddresses) return []
 
     const addresses = repoStarAddresses
     if (addresses.length === 0) return []
 
     return matchBookmarkedRepoEvents({
       bookmarks: addresses,
-      events: $repos as RepoAnnouncementEvent[],
+      events: $repos ? ($repos as RepoAnnouncementEvent[]) : [],
       getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       isDeleted: isDeletedRepoAnnouncement,
       getFallbackRelayHint: event => Router.get().getRelaysForPubkey(event.pubkey)?.[0] || "",
@@ -968,21 +997,32 @@
   )
 
   let communityRepoLoadKey = ""
+  let communityRepoLoadRequestId = 0
+  let communityRepoAnnouncementsSettled = $state(false)
   $effect(() => {
     if (
+      activeMode !== "community" ||
       !selectedCommunityPubkey ||
       selectedCommunityRelays.length === 0 ||
       communityRepoFilters.length === 0
     ) {
+      communityRepoLoadRequestId += 1
       communityRepoLoadKey = ""
+      communityRepoAnnouncementsSettled = activeMode !== "community" || !selectedCommunityPubkey
       return
     }
 
     const key = `${selectedCommunityPubkey}:${selectedCommunityRelays.join(",")}`
     if (key === communityRepoLoadKey) return
     communityRepoLoadKey = key
+    communityRepoAnnouncementsSettled = false
+    const requestId = ++communityRepoLoadRequestId
     load({relays: selectedCommunityRelays, filters: communityRepoFilters as any}).catch(error => {
       console.warn("[git/+page] Failed to load community repos", error)
+    }).finally(() => {
+      afterRepoLoadSettle(() => {
+        if (requestId === communityRepoLoadRequestId) communityRepoAnnouncementsSettled = true
+      })
     })
   })
 
@@ -1233,75 +1273,131 @@
   })
 
   let communityTargetLoadKey = ""
+  let communityTargetLoadRequestId = 0
+  let communityTargetsSettled = $state(false)
   $effect(() => {
     if (
       activeMode !== "community" ||
       !selectedCommunityPubkey ||
       selectedCommunityRelays.length === 0
     ) {
+      communityTargetLoadRequestId += 1
       communityTargetLoadKey = ""
+      communityTargetsSettled = activeMode !== "community" || !selectedCommunityPubkey
       return
     }
 
     const filters = [...communityStarTargetFilters, ...communitySnippetTargetFilters]
-    if (filters.length === 0) return
+    if (filters.length === 0) {
+      communityTargetsSettled = true
+      return
+    }
 
     const key = `${selectedCommunityPubkey}:${selectedCommunityRelays.join(",")}:targets`
     if (key === communityTargetLoadKey) return
     communityTargetLoadKey = key
+    communityTargetsSettled = false
+    const requestId = ++communityTargetLoadRequestId
     load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
       console.warn("[git/+page] Failed to load community curation targets", error)
+    }).finally(() => {
+      afterRepoLoadSettle(() => {
+        if (requestId === communityTargetLoadRequestId) communityTargetsSettled = true
+      })
     })
   })
 
   let communityTargetDeleteLoadKey = ""
+  let communityTargetDeleteLoadRequestId = 0
+  let communityTargetDeletesSettled = $state(false)
   $effect(() => {
-    if (activeMode !== "community" || selectedCommunityRelays.length === 0) {
+    if (activeMode !== "community" || !selectedCommunityPubkey || selectedCommunityRelays.length === 0) {
+      communityTargetDeleteLoadRequestId += 1
       communityTargetDeleteLoadKey = ""
+      communityTargetDeletesSettled = activeMode !== "community" || !selectedCommunityPubkey
       return
     }
 
     const filters = [...communityStarTargetDeleteFilters, ...communitySnippetTargetDeleteFilters]
-    if (filters.length === 0) return
+    if (filters.length === 0) {
+      communityTargetDeletesSettled = true
+      return
+    }
 
     const key = filters.map(filter => JSON.stringify(filter)).join("|")
     if (key === communityTargetDeleteLoadKey) return
     communityTargetDeleteLoadKey = key
+    communityTargetDeletesSettled = false
+    const requestId = ++communityTargetDeleteLoadRequestId
     load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
       console.warn("[git/+page] Failed to load community curation deletes", error)
+    }).finally(() => {
+      afterRepoLoadSettle(() => {
+        if (requestId === communityTargetDeleteLoadRequestId) communityTargetDeletesSettled = true
+      })
     })
   })
 
   let communityOriginalLoadKey = ""
+  let communityOriginalLoadRequestId = 0
+  let communityOriginalsSettled = $state(false)
   $effect(() => {
-    if (activeMode !== "community" || selectedCommunityRelays.length === 0) {
+    if (activeMode !== "community" || !selectedCommunityPubkey || selectedCommunityRelays.length === 0) {
+      communityOriginalLoadRequestId += 1
       communityOriginalLoadKey = ""
+      communityOriginalsSettled = activeMode !== "community" || !selectedCommunityPubkey
       return
     }
 
     const filters = [...communityStarReactionFilters, ...communitySnippetFilters]
-    if (filters.length === 0) return
+    if (filters.length === 0) {
+      communityOriginalsSettled = true
+      return
+    }
     const key = filters.map(filter => JSON.stringify(filter)).join("|")
     if (key === communityOriginalLoadKey) return
     communityOriginalLoadKey = key
+    communityOriginalsSettled = false
+    const requestId = ++communityOriginalLoadRequestId
     load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
       console.warn("[git/+page] Failed to load community curated originals", error)
+    }).finally(() => {
+      afterRepoLoadSettle(() => {
+        if (requestId === communityOriginalLoadRequestId) communityOriginalsSettled = true
+      })
     })
   })
 
   let communityStarRepoLoadKey = ""
+  let communityStarRepoLoadRequestId = 0
+  let communityStarReposSettled = $state(false)
   $effect(() => {
     if (activeMode !== "community" || communityRepoStarAddresses.length === 0) {
+      communityStarRepoLoadRequestId += 1
       communityStarRepoLoadKey = ""
+      communityStarReposSettled = true
       return
     }
     const filters = buildBookmarkRepoFilters(communityRepoStarAddresses)
     const relays = getStarredRepoLoadRelays(communityRepoStarAddresses)
-    const key = buildBookmarkRepoLoadKey(communityRepoStarAddresses)
+    if (filters.length === 0) {
+      communityStarReposSettled = true
+      return
+    }
+    const key = `${buildBookmarkRepoLoadKey(communityRepoStarAddresses)}:${relays
+      .slice()
+      .sort()
+      .join(",")}`
     if (key === communityStarRepoLoadKey) return
     communityStarRepoLoadKey = key
+    communityStarReposSettled = false
+    const requestId = ++communityStarRepoLoadRequestId
     load({relays, filters}).catch(error => {
       console.warn("[git/+page] Failed to load community starred repos", error)
+    }).finally(() => {
+      afterRepoLoadSettle(() => {
+        if (requestId === communityStarRepoLoadRequestId) communityStarReposSettled = true
+      })
     })
   })
 
@@ -2228,6 +2324,7 @@
   // Store for account search (naddr/npub) repo cards
   let accountSearchRepoCards = $state<any[]>([])
   let accountSearchCardsComputeTimer: ReturnType<typeof setTimeout> | null = null
+  let accountSearchCardsComputeRequestId = 0
   const sortedAccountSearchRepoCards = $derived.by(() =>
     prioritizeFreshRepoCards(accountSearchRepoCards),
   )
@@ -2239,6 +2336,7 @@
         clearTimeout(accountSearchCardsComputeTimer)
         accountSearchCardsComputeTimer = null
       }
+      accountSearchCardsComputeRequestId += 1
       accountSearchRepoCards = []
       return
     }
@@ -2248,7 +2346,9 @@
       if (accountSearchCardsComputeTimer) {
         clearTimeout(accountSearchCardsComputeTimer)
       }
-      accountSearchCardsComputeTimer = setTimeout(() => {
+      const requestId = ++accountSearchCardsComputeRequestId
+      const timer = setTimeout(() => {
+        if (requestId !== accountSearchCardsComputeRequestId || !isAccountSearch) return
         const cards = repositoriesStore.computeCards(repos, {
           parseRepoAnnouncementEvent,
           Router,
@@ -2256,36 +2356,85 @@
           gitRelays: GIT_RELAYS,
         })
         accountSearchRepoCards = cards
-        accountSearchCardsComputeTimer = null
+        if (accountSearchCardsComputeTimer === timer) accountSearchCardsComputeTimer = null
       }, 0)
+      accountSearchCardsComputeTimer = timer
     } else {
       if (accountSearchCardsComputeTimer) {
         clearTimeout(accountSearchCardsComputeTimer)
         accountSearchCardsComputeTimer = null
       }
+      accountSearchCardsComputeRequestId += 1
       accountSearchRepoCards = []
     }
   })
 
   // Memoize card computation to prevent jitter
+  type RepoCardsCacheEntry = {cardsKey: string; cards: any[]}
+  const repoCardsByContext = new Map<string, RepoCardsCacheEntry>()
   let cachedCards: any[] = []
   let cachedCardsKey = ""
   let cardsComputeTimer: ReturnType<typeof setTimeout> | null = null
+  let cardsComputeRequestId = 0
+  let renderedRepoCardsContext = $state("")
+  let repoCardsComputing = $state(false)
   const sortedRepoCards = $derived.by(() => {
     const cards = $repositoriesStore as any[]
     return trimmedActiveRepoSearchQuery ? cards : prioritizeFreshRepoCards(cards)
   })
   const repoCardsContext = $derived(`${activeMode}:${activeTab}:${trimmedActiveRepoSearchQuery}`)
-  const personalStarredReposSettling = $derived(
+  const personalStarredReposLoading = $derived(
     activeMode === "personal" &&
       activeTab === "bookmarks" &&
       Boolean($pubkey) &&
-      !trimmedSearchQuery &&
       (!repoStarsHydrationSettled || $repoStarsLoading || starredRepoAnnouncementsLoading),
+  )
+  const activeRepoDataLoading = $derived.by(() => {
+    if (activeTab === "snippets" || isAccountSearch) return false
+
+    if (activeMode === "personal") {
+      if (!$pubkey) return false
+      if (activeTab === "my-repos") return !personalRepoAnnouncementsSettled
+      if (activeTab === "bookmarks") return personalStarredReposLoading
+      return false
+    }
+
+    if (activeMode === "community") {
+      if (!selectedCommunityPubkey) return false
+      if (activeTab === "my-repos") return !communityRepoAnnouncementsSettled
+      if (activeTab === "bookmarks") {
+        return (
+          !communityTargetsSettled ||
+          !communityTargetDeletesSettled ||
+          !communityOriginalsSettled ||
+          !communityStarReposSettled
+        )
+      }
+    }
+
+    return false
+  })
+  const hasRenderedRepoCardsForCurrentContext = $derived(
+    renderedRepoCardsContext === repoCardsContext && sortedRepoCards.length > 0,
+  )
+  const repoListLoading = $derived.by(() => {
+    if (activeTab === "snippets" || isAccountSearch) return false
+    if (hasRenderedRepoCardsForCurrentContext) return false
+    return Boolean(loading || repoCardsComputing || activeRepoDataLoading)
+  })
+  const canShowRepoEmpty = $derived(
+    activeTab !== "snippets" &&
+      !isAccountSearch &&
+      !repoListLoading &&
+      searchFilteredRepos.length === 0,
   )
 
   const repoCardsForProfileHydration = $derived.by(() =>
-    isAccountSearch ? sortedAccountSearchRepoCards : sortedRepoCards,
+    isAccountSearch
+      ? sortedAccountSearchRepoCards
+      : hasRenderedRepoCardsForCurrentContext
+        ? sortedRepoCards
+        : [],
   )
   let repoCardProfileLoadKey = ""
 
@@ -2324,48 +2473,68 @@
   // Uses debouncing to wait for all repos to load before showing cards
   $effect(() => {
     if (activeTab === "snippets") {
+      if (cardsComputeTimer) {
+        clearTimeout(cardsComputeTimer)
+        cardsComputeTimer = null
+      }
+      cardsComputeRequestId += 1
+      repoCardsComputing = false
       return
     }
 
     if (isAccountSearch) {
+      if (cardsComputeTimer) {
+        clearTimeout(cardsComputeTimer)
+        cardsComputeTimer = null
+      }
+      cardsComputeRequestId += 1
+      repoCardsComputing = false
       return
     }
 
     const reposToShow = visibleSearchFilteredRepos
-    const currentCards = getStore(repositoriesStore)
-    const hasCardsForCurrentContext =
-      cachedCardsKey.startsWith(`${repoCardsContext}:`) &&
-      (currentCards.length > 0 || cachedCards.length > 0)
+    const context = repoCardsContext
+    const cachedEntry = repoCardsByContext.get(context)
 
-    if (personalStarredReposSettling && hasCardsForCurrentContext) {
-      loading = false
-      if (currentCards.length === 0 && cachedCards.length > 0) {
-        repositoriesStore.set(cachedCards)
+    if (activeRepoDataLoading && reposToShow.length === 0) {
+      if (cachedEntry?.cards.length) {
+        cachedCards = cachedEntry.cards
+        cachedCardsKey = cachedEntry.cardsKey
+        repositoriesStore.set(cachedEntry.cards)
+        renderedRepoCardsContext = context
+        repoCardsComputing = false
+        loading = false
+      } else {
+        loading = true
       }
       return
     }
 
-    if (reposToShow.length === 0 && personalStarredReposSettling) {
-      loading = true
-      return
-    }
-
     const shouldResolveEmpty =
-      activeMode === "community" || activeTab === "bookmarks" || Boolean($pubkey)
+      activeMode === "community" || activeMode === "personal" || activeTab === "bookmarks"
     if (reposToShow.length > 0 || !loading || shouldResolveEmpty) {
       loading = false
       if (reposToShow.length > 0) {
         // Preserve visible order so search relevance changes invalidate the card cache.
         const repoIds = reposToShow.map((r: any) => (r.event ?? r).id).join(",")
-        const cardsKey = `${repoCardsContext}:${repoIds}`
+        const cardsKey = `${context}:${repoIds}`
 
         // Only recompute and push cards when the key has actually changed
-        if (cardsKey !== cachedCardsKey) {
+        if (cachedEntry?.cardsKey === cardsKey) {
+          cachedCards = cachedEntry.cards
+          cachedCardsKey = cachedEntry.cardsKey
+          repositoriesStore.set(cachedEntry.cards)
+          renderedRepoCardsContext = context
+          repoCardsComputing = false
+        } else if (cardsKey !== cachedCardsKey || renderedRepoCardsContext !== context) {
           if (cardsComputeTimer) {
             clearTimeout(cardsComputeTimer)
             cardsComputeTimer = null
           }
-          cardsComputeTimer = setTimeout(() => {
+          repoCardsComputing = true
+          const requestId = ++cardsComputeRequestId
+          const timer = setTimeout(() => {
+            if (requestId !== cardsComputeRequestId || repoCardsContext !== context) return
             const cards = repositoriesStore.computeCards(reposToShow, {
               parseRepoAnnouncementEvent,
               Router,
@@ -2374,25 +2543,38 @@
             })
             cachedCards = cards
             cachedCardsKey = cardsKey
+            repoCardsByContext.set(context, {cardsKey, cards})
             repositoriesStore.set(cachedCards)
-            cardsComputeTimer = null
+            renderedRepoCardsContext = context
+            repoCardsComputing = false
+            if (cardsComputeTimer === timer) cardsComputeTimer = null
           }, 0)
-        } else if (getStore(repositoriesStore).length === 0 && cachedCards.length > 0) {
+          cardsComputeTimer = timer
+        } else if (renderedRepoCardsContext !== context && cachedCards.length > 0) {
           repositoriesStore.set(cachedCards)
+          renderedRepoCardsContext = context
         }
       } else {
         if (cardsComputeTimer) {
           clearTimeout(cardsComputeTimer)
           cardsComputeTimer = null
         }
+        cardsComputeRequestId += 1
+        repoCardsComputing = false
+        cachedCards = []
+        cachedCardsKey = ""
+        repoCardsByContext.delete(context)
         untrack(() => {
           repositoriesStore.clear()
         })
+        renderedRepoCardsContext = context
       }
     }
   })
 
   onDestroy(() => {
+    cardsComputeRequestId += 1
+    accountSearchCardsComputeRequestId += 1
     if (cardsComputeTimer) {
       clearTimeout(cardsComputeTimer)
       cardsComputeTimer = null
@@ -2409,6 +2591,10 @@
       repoDiscoveryController.abort()
       repoDiscoveryController = null
     }
+    for (const timer of repoLoadSettleTimers) {
+      clearTimeout(timer)
+    }
+    repoLoadSettleTimers.clear()
   })
 
   const back = () => history.back()
@@ -3335,23 +3521,21 @@
             {/if}
           {/if}
         </div>
-      {:else if loading}
+      {:else if repoListLoading}
         <p class="flex h-10 items-center justify-center py-20" out:fly>
-          <Spinner {loading}>
-            {#if loading}
-              {activeMode === "community"
-                ? "Looking for community Git repos..."
-                : "Looking for Your Git Repos..."}
-            {:else if $repositoriesStore.length === 0}
-              No Repos found.
-            {/if}
+          <Spinner loading={repoListLoading}>
+            {activeMode === "community"
+              ? "Looking for community Git repos..."
+              : "Looking for Your Git Repos..."}
           </Spinner>
         </p>
-      {:else if searchFilteredRepos.length === 0}
+      {:else if canShowRepoEmpty}
         <p class="mx-auto max-w-full break-words px-4 py-20 text-center text-muted-foreground">
           {#if searchQuery.trim()}
             No repositories found matching
             <span class="inline max-w-full break-all">"{searchQuery}"</span>.
+          {:else if !$pubkey && activeMode === "personal"}
+            Sign in to view your repositories.
           {:else if activeMode === "community" && !selectedCommunityPubkey}
             Select a community to view curated repositories.
           {:else if activeTab === "my-repos"}
@@ -3364,7 +3548,7 @@
               : "No starred repositories found."}
           {/if}
         </p>
-      {:else if sortedRepoCards.length > 0}
+      {:else if hasRenderedRepoCardsForCurrentContext}
         <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
             {@const cardProfileRelays = g.first
