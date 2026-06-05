@@ -15,7 +15,12 @@
   import LogIn from "@app/components/LogIn.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
-  import {normalizeRelays, parseCommunityInput, type CommunityDefinition} from "@app/core/community"
+  import {
+    makeCommunityNcommunity,
+    normalizeRelays,
+    parseCommunityInput,
+    type CommunityDefinition,
+  } from "@app/core/community"
   import {
     DEFAULT_COMMUNITY_INPUT,
     activeCommunityDefinition,
@@ -78,8 +83,21 @@
   const PREFERRED_HYDRATION_MAX_ATTEMPTS = 2
 
   const createCommunity = () => {
+    if (hasOwnCommunity || checkingOwnCommunity) return
+
     if ($pubkey) goto("/explore/create-community")
     else pushModal(LogIn)
+  }
+
+  const editOwnCommunity = () => {
+    const definition = ownCommunityDefinition
+    if (!definition) return
+
+    const communityInput = makeCommunityNcommunity({
+      pubkey: definition.pubkey,
+      relayHints: definition.relays,
+    })
+    goto(makeCommunityPath(communityInput, "admin"))
   }
 
   const rememberCommunityDefinitionRelays = (
@@ -297,6 +315,10 @@
   const preferredCommunityByPubkey = $derived.by(
     () => new Map(preferredCommunities.map(community => [community.communityPubkey, community])),
   )
+  const ownCommunityDefinition = $derived.by(() =>
+    $pubkey ? selectLatestCommunityDefinition($communityAdminDefinitionEvents, $pubkey) : undefined,
+  )
+  const hasOwnCommunity = $derived(Boolean(ownCommunityDefinition))
   const currentRelayHints = $derived.by(() => {
     const session = $activeCommunitySession
     if (!session) return []
@@ -324,12 +346,22 @@
     ),
   )
   const missingOwnAdminCommunity = $derived(
+    Boolean($pubkey && !hasOwnCommunity),
+  )
+  const checkingOwnCommunity = $derived(
     Boolean(
       $pubkey &&
-      !preferredCommunities.some(
-        community => community.communityPubkey === $pubkey && community.isAdmin,
-      ),
+        !hasOwnCommunity &&
+        (!userRelayListHydrated ||
+          $communityPreferencesLoading ||
+          preferredHydrationAttempts < PREFERRED_HYDRATION_MAX_ATTEMPTS),
     ),
+  )
+  const createCommunityDisabled = $derived(
+    Boolean($pubkey && (checkingOwnCommunity || hasOwnCommunity)),
+  )
+  const createCommunityLabel = $derived(
+    hasOwnCommunity ? "account is already a community" : "Create Community",
   )
   const selectorCommunities = $derived.by((): SelectorCommunity[] => {
     const session = $activeCommunitySession
@@ -670,12 +702,26 @@
               notFound={defaultCommunityNotFound} />
           {/if}
 
-          <Button
-            onclick={createCommunity}
-            class="btn btn-neutral min-h-14 w-full items-center justify-start gap-4 rounded-box px-5 py-4 text-base sm:min-h-16 sm:px-6">
-            <Icon icon={AddCircle} size={7} />
-            <span class="min-w-0 truncate font-bold leading-none">Create Community</span>
-          </Button>
+          <div class="flex min-w-0 flex-col gap-2 sm:flex-row">
+            <Button
+              onclick={createCommunity}
+              disabled={createCommunityDisabled}
+              class="btn btn-neutral min-h-10 min-w-0 flex-1 items-center justify-start gap-2 rounded-box px-3 py-2 text-sm sm:min-h-16 sm:gap-4 sm:px-6 sm:py-4 sm:text-base">
+              {#if checkingOwnCommunity}
+                <span class="loading loading-spinner loading-sm"></span>
+              {:else}
+                <Icon icon={AddCircle} size={7} />
+              {/if}
+              <span class="min-w-0 truncate font-bold leading-none">{createCommunityLabel}</span>
+            </Button>
+            {#if hasOwnCommunity}
+              <Button
+                onclick={editOwnCommunity}
+                class="btn btn-primary min-h-10 rounded-box px-4 py-2 text-sm font-bold sm:min-h-16 sm:px-6 sm:py-4 sm:text-base">
+                Edit
+              </Button>
+            {/if}
+          </div>
         </div>
 
         {#if showPreferredCommunities}

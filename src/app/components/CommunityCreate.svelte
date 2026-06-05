@@ -33,6 +33,9 @@
     activeCommunityReportReviewEvents,
     activeCommunityReportState,
     clearCommunityBootstrapCache,
+    communityAdminDefinitionEvents,
+    loadCommunityDefinitionWithOutboxFallback,
+    selectLatestCommunityDefinition,
     setActiveCommunityDefinition,
     setActiveCommunityInput,
     type CommunityProfile,
@@ -923,6 +926,60 @@
     const path = makeCommunityPath(communityPubkey)
 
     return browser ? new URL(path, window.location.origin).toString() : path
+  }
+
+  const redirectToExistingCommunity = (definition: CommunityDefinition) => {
+    const communityInput = makeCommunityNcommunity({
+      pubkey: definition.pubkey,
+      relayHints: definition.relays,
+    })
+
+    setActiveCommunityDefinition(definition)
+    goto(makeCommunityPath(communityInput, "admin"))
+  }
+
+  const findExistingCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
+    const localDefinition = selectLatestCommunityDefinition(
+      $communityAdminDefinitionEvents,
+      communityPubkey,
+    )
+    if (localDefinition) return localDefinition
+
+    return loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
+      relayHints,
+      authenticate: true,
+    })
+  }
+
+  const ensureCreateAllowed = async (validated: ValidatedSetup) => {
+    if (isEdit) return true
+
+    loading = true
+    publishStatus = "Checking for an existing community..."
+
+    try {
+      const existingDefinition = await findExistingCommunityDefinition(
+        validated.community.pubkey,
+        validated.relays,
+      )
+
+      if (!existingDefinition) return true
+
+      errors = {
+        ...errors,
+        auth: "This signer already has a community. Edit it from the community menu instead.",
+      }
+      pushToast({
+        theme: "error",
+        message: "This signer already has a community. Edit it from the community menu instead.",
+      })
+      redirectToExistingCommunity(existingDefinition)
+
+      return false
+    } finally {
+      loading = false
+      publishStatus = ""
+    }
   }
 
   const normalizeSectionDrafts = (nextErrors: FieldErrors) => {
@@ -1820,6 +1877,7 @@
 
     const validated = validateForm()
     if (!validated) return
+    if (!(await ensureCreateAllowed(validated))) return
 
     name = validated.name
     description = validated.description

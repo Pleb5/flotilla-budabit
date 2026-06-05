@@ -146,6 +146,10 @@
       aria-busy={loading || opening}
       disabled={!pubkey || loading || opening || notFound}
       onclick={onOpen}>
+      <p
+        class="break-words text-[0.7rem] font-semibold uppercase leading-snug tracking-wide opacity-60 sm:text-xs">
+        {label}
+      </p>
       <div class="flex min-w-0 items-center gap-2 sm:gap-4">
         <div
           class="center !flex h-10 w-10 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300 sm:h-16 sm:w-16">
@@ -160,10 +164,6 @@
           {/if}
         </div>
         <div class="min-w-0 flex-1">
-          <p
-            class="truncate text-[0.7rem] font-semibold uppercase tracking-wide opacity-60 sm:text-xs">
-            {label}
-          </p>
           <h2 class="truncate text-lg font-bold leading-snug sm:text-xl">{name}</h2>
         </div>
         {#if loading || opening}
@@ -176,7 +176,7 @@
           </div>
         {/if}
       </div>
-      <p class="truncate text-xs opacity-70 sm:text-sm">{info}</p>
+      <p class="break-words text-xs leading-snug opacity-70 sm:text-sm">{info}</p>
     </button>
     {#if pubkey && showActions}
       <CommunityShareButton
