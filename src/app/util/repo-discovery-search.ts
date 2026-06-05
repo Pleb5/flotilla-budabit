@@ -36,6 +36,15 @@ export type RepoOwnerProfile = {
   picture?: string
 }
 
+export type RepoSearchProfile = Pick<RepoOwnerProfile, "display_name" | "name" | "nip05">
+
+type RepoSearchMetadata = {
+  address: string
+  normalizedName: string
+  normalizedRepoId: string
+  normalizedDescription: string
+}
+
 export type RepoDiscoveryPriorityKey =
   | "profile_matches"
   | "viewer"
@@ -130,10 +139,7 @@ const normalizeSearchValue = (value: unknown) =>
     .trim()
     .toLocaleLowerCase()
 
-const getOwnerSearchValues = (
-  pubkey: string,
-  profile?: {display_name?: string; name?: string; nip05?: string} | null,
-) =>
+const getOwnerSearchValues = (pubkey: string, profile?: RepoSearchProfile | null) =>
   [profile?.display_name, profile?.name, profile?.nip05, pubkey]
     .map(normalizeSearchValue)
     .filter(Boolean)
@@ -183,6 +189,28 @@ export const getRepoAddressFromEvent = (event: RepoAnnouncementEvent): string =>
   }
 }
 
+const repoSearchMetadataCache = new WeakMap<RepoAnnouncementEvent, RepoSearchMetadata | null>()
+
+const getRepoSearchMetadata = (event: RepoAnnouncementEvent): RepoSearchMetadata | null => {
+  if (repoSearchMetadataCache.has(event)) return repoSearchMetadataCache.get(event) || null
+
+  try {
+    const parsed = parseRepoAnnouncementEvent(event)
+    const metadata = {
+      address: getRepoAddressFromEvent(event),
+      normalizedName: normalizeSearchValue(parsed?.name),
+      normalizedRepoId: normalizeSearchValue(parsed?.repoId),
+      normalizedDescription: normalizeSearchValue(parsed?.description),
+    }
+
+    repoSearchMetadataCache.set(event, metadata)
+    return metadata
+  } catch {
+    repoSearchMetadataCache.set(event, null)
+    return null
+  }
+}
+
 export const toLoadedRepoSearchItem = (
   event: RepoAnnouncementEvent,
   relayHint = "",
@@ -222,7 +250,7 @@ export const getRepoSearchRelevanceScore = ({
   viewerPubkey?: string | null
   starredOwners?: string[]
   starredAddresses?: string[]
-  profile?: {display_name?: string; name?: string; nip05?: string} | null
+  profile?: RepoSearchProfile | null
 }) => {
   const normalizedQuery = normalizeSearchValue(query)
   if (!normalizedQuery) return 0
@@ -230,50 +258,48 @@ export const getRepoSearchRelevanceScore = ({
   const event = getRepoSearchEvent(repo)
   if (!event) return 0
 
-  try {
-    const parsed = parseRepoAnnouncementEvent(event)
-    const address =
-      (repo as LoadedRepoSearchItem)?.address ||
-      (repo as {address?: string})?.address ||
-      getRepoAddressFromEvent(event)
-    let score = 0
+  const metadata = getRepoSearchMetadata(event)
+  if (!metadata) return 0
 
-    score += scoreSearchField(parsed?.name, normalizedQuery, {
-      exact: 1200,
-      prefix: 1100,
-      wordPrefix: 1000,
-      contains: 900,
+  const address =
+    (repo as LoadedRepoSearchItem)?.address ||
+    (repo as {address?: string})?.address ||
+    metadata.address
+  let score = 0
+
+  score += scoreSearchField(metadata.normalizedName, normalizedQuery, {
+    exact: 1200,
+    prefix: 1100,
+    wordPrefix: 1000,
+    contains: 900,
+  })
+  score += scoreSearchField(metadata.normalizedRepoId, normalizedQuery, {
+    exact: 1100,
+    prefix: 1000,
+    wordPrefix: 925,
+    contains: 825,
+  })
+  score += scoreSearchField(metadata.normalizedDescription, normalizedQuery, {
+    exact: 450,
+    prefix: 375,
+    wordPrefix: 325,
+    contains: 250,
+  })
+
+  for (const ownerValue of getOwnerSearchValues(event.pubkey, profile)) {
+    score += scoreSearchField(ownerValue, normalizedQuery, {
+      exact: 220,
+      prefix: 180,
+      wordPrefix: 140,
+      contains: 100,
     })
-    score += scoreSearchField(parsed?.repoId, normalizedQuery, {
-      exact: 1100,
-      prefix: 1000,
-      wordPrefix: 925,
-      contains: 825,
-    })
-    score += scoreSearchField(parsed?.description, normalizedQuery, {
-      exact: 450,
-      prefix: 375,
-      wordPrefix: 325,
-      contains: 250,
-    })
-
-    for (const ownerValue of getOwnerSearchValues(event.pubkey, profile)) {
-      score += scoreSearchField(ownerValue, normalizedQuery, {
-        exact: 220,
-        prefix: 180,
-        wordPrefix: 140,
-        contains: 100,
-      })
-    }
-
-    if (viewerPubkey && event.pubkey === viewerPubkey) score += 500
-    if (starredOwners.includes(event.pubkey)) score += 150
-    if (address && starredAddresses.includes(address)) score += 175
-
-    return score
-  } catch {
-    return 0
   }
+
+  if (viewerPubkey && event.pubkey === viewerPubkey) score += 500
+  if (starredOwners.includes(event.pubkey)) score += 150
+  if (address && starredAddresses.includes(address)) score += 175
+
+  return score
 }
 
 export const sortRepoSearchResults = <
@@ -291,7 +317,7 @@ export const sortRepoSearchResults = <
   viewerPubkey?: string | null
   starredOwners?: string[]
   starredAddresses?: string[]
-  getProfile?: (pubkey: string) => {display_name?: string; name?: string; nip05?: string} | null
+  getProfile?: (pubkey: string) => RepoSearchProfile | null
 }): T[] => {
   const normalizedQuery = normalizeSearchValue(query)
   if (!normalizedQuery) return items
@@ -447,7 +473,7 @@ export const repoMatchesSearchQuery = ({
 }: {
   repo: LoadedRepoSearchItem | {event: RepoAnnouncementEvent} | RepoAnnouncementEvent
   query: string
-  profile?: {display_name?: string; name?: string; nip05?: string} | null
+  profile?: RepoSearchProfile | null
 }) => {
   const normalizedQuery = normalizeSearchValue(query)
   if (!normalizedQuery) return true
@@ -455,22 +481,19 @@ export const repoMatchesSearchQuery = ({
   const event = getRepoSearchEvent(repo)
   if (!event) return false
 
-  try {
-    const parsed = parseRepoAnnouncementEvent(event)
-    const haystack = [
-      parsed?.name,
-      parsed?.description,
-      parsed?.repoId,
-      ...getOwnerSearchValues(event.pubkey, profile),
-    ]
-      .map(normalizeSearchValue)
-      .filter(Boolean)
-      .join(" ")
+  const metadata = getRepoSearchMetadata(event)
+  if (!metadata) return false
 
-    return haystack.includes(normalizedQuery)
-  } catch {
-    return false
-  }
+  const haystack = [
+    metadata.normalizedName,
+    metadata.normalizedDescription,
+    metadata.normalizedRepoId,
+    ...getOwnerSearchValues(event.pubkey, profile),
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  return haystack.includes(normalizedQuery)
 }
 
 export const buildRepoDiscoveryCandidatePubkeys = ({

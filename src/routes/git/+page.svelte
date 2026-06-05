@@ -103,9 +103,7 @@
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
-  import {
-    getPublicationTargetingId,
-  } from "@app/core/community-targeting"
+  import {getPublicationTargetingId} from "@app/core/community-targeting"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {createNip98AuthHeader} from "@app/core/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -133,11 +131,7 @@
     isAnyBookmarked,
     matchBookmarkedRepoEvents,
   } from "@app/util/bookmarks"
-  import {
-    activeRepoStars,
-    hydrateRepoStars,
-    repoStarsLoading,
-  } from "@app/core/repo-stars-state"
+  import {activeRepoStars, hydrateRepoStars, repoStarsLoading} from "@app/core/repo-stars-state"
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {
     parseRepoStarReaction,
@@ -339,6 +333,9 @@
     matchedRepos: 0,
   })
 
+  const REPO_SEARCH_DEBOUNCE_MS = 300
+  const REPO_SEARCH_PAGE_SIZE = 18
+
   const getInitialGitModeForContext = (): GitMode =>
     getStore(activeCommunitySession)?.communityPubkey ? getInitialGitMode() : "personal"
 
@@ -348,7 +345,9 @@
   let selectedCommunityPubkey = $state("")
   let gitTabHydrated = $state(false)
   let searchQuery = $state("")
+  let activeRepoSearchQuery = $state("")
   let activeTextSearchQuery = $state("")
+  let repoResultsVisibleLimit = $state(REPO_SEARCH_PAGE_SIZE)
   let repoDiscoveryRunMode = $state<RepoDiscoveryRunMode>("smart")
   let repoDiscoveryRunNonce = $state(0)
   let repoDiscoverySnapshot = $state<RepoDiscoverySnapshot | null>(null)
@@ -1498,6 +1497,7 @@
     if (shouldReset) {
       discoveredSearchRepoPool = []
       discoveredOwnerProfiles = {}
+      activeRepoSearchQuery = ""
       activeTextSearchQuery = ""
       repoDiscoveryRunMode = "smart"
       repoDiscoverySnapshot = null
@@ -1653,18 +1653,39 @@
   })
 
   const trimmedSearchQuery = $derived.by(() => searchQuery.trim())
+  const trimmedActiveRepoSearchQuery = $derived.by(() => activeRepoSearchQuery.trim())
 
-  const hasRepoSearchInput = $derived.by(
+  const hasRawRepoSearchInput = $derived.by(
     () => activeTab !== "snippets" && !isAccountSearch && trimmedSearchQuery.length > 0,
   )
 
+  const hasRepoSearchInput = $derived.by(
+    () => activeTab !== "snippets" && !isAccountSearch && trimmedActiveRepoSearchQuery.length > 0,
+  )
+
+  $effect(() => {
+    const query = trimmedSearchQuery
+
+    if (activeTab === "snippets" || isAccountSearch || !query) {
+      activeRepoSearchQuery = ""
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      activeRepoSearchQuery = query
+    }, REPO_SEARCH_DEBOUNCE_MS)
+
+    return () => clearTimeout(timeout)
+  })
+
   const localSearchFilteredRepos = $derived.by(() => {
-    if (activeTab === "snippets" || isAccountSearch || !searchQuery.trim()) return []
+    const query = trimmedActiveRepoSearchQuery
+    if (activeTab === "snippets" || isAccountSearch || !query) return []
 
     return filteredRepos.filter(repo =>
       repoMatchesSearchQuery({
         repo,
-        query: searchQuery.trim(),
+        query,
         profile: getSearchProfile(repo.event.pubkey),
       }),
     )
@@ -1676,7 +1697,7 @@
     return discoveredSearchRepoPool.filter(item =>
       repoMatchesSearchQuery({
         repo: item,
-        query: trimmedSearchQuery,
+        query: trimmedActiveRepoSearchQuery,
         profile: getSearchProfile(item.event.pubkey),
       }),
     )
@@ -1735,91 +1756,30 @@
     }
   }
 
-  const repoDiscoveryStatusLines = $derived.by(() => {
-    if (!hasRepoSearchInput) return [] as string[]
-
-    if (
-      !repoDiscoveryStatus.loading &&
-      !repoDiscoveryStatus.timedOut &&
-      repoDiscoveryStatus.phase === "idle" &&
-      repoDiscoveryStatus.searchedAuthors === 0 &&
-      repoDiscoveryStatus.foundRepos === 0
-    ) {
-      return [] as string[]
+  const repoDiscoveryStatusLabel = $derived.by(() => {
+    if (!hasRawRepoSearchInput) return ""
+    if (trimmedSearchQuery.length < 2) {
+      return "Type at least 2 characters to search beyond local repositories."
     }
-
-    const lines: string[] = []
-
-    if (repoDiscoveryStatus.phase === "preparing") {
-      lines.push(
-        repoDiscoveryRunMode === "exhaustive"
-          ? "Preparing exhaustive discovery across all enabled search sources."
-          : "Preparing discovery targets from your enabled search sources.",
-      )
+    if (repoDiscoveryStatus.loading) {
+      return repoDiscoveryRunMode === "exhaustive"
+        ? "Continuing search..."
+        : "Searching repositories..."
     }
-
-    if (repoDiscoveryStatus.phase === "typing") {
-      lines.push(
-        trimmedSearchQuery.length < 2
-          ? "Type at least 2 characters to discover repos beyond the local list."
-          : "Typing... waiting to launch a new search.",
-      )
+    if (repoDiscoveryStatus.phase === "typing" || trimmedSearchQuery !== activeTextSearchQuery) {
+      return "Searching..."
     }
+    if (repoDiscoveryStatus.timedOut) return "Search timed out. Showing current results."
+    if (repoDiscoveryStatus.phase === "aborted") return "Search stopped. Showing current results."
+    if (repoDiscoveryStatus.phase === "complete" && activeTextSearchQuery) return "Search complete."
 
-    if (
-      repoDiscoveryStatus.phase === "fetching_profiles" &&
-      repoDiscoveryStatus.currentBucketLabel
-    ) {
-      lines.push(`Loading owner profiles from ${repoDiscoveryStatus.currentBucketLabel}.`)
-    }
-
-    if (repoDiscoveryStatus.phase === "fetching_repos" && repoDiscoveryStatus.currentBucketLabel) {
-      lines.push(`Loading repository announcements from ${repoDiscoveryStatus.currentBucketLabel}.`)
-    }
-
-    if (repoDiscoveryStatus.loading && repoDiscoveryRunMode === "exhaustive") {
-      lines.push("Continuing search until all enabled targets are exhausted or you press Stop.")
-    }
-
-    if (repoDiscoveryStatus.totalBuckets > 0 && repoDiscoveryStatus.currentBucketLabel) {
-      lines.push(
-        `Target group ${repoDiscoveryStatus.currentBucketIndex}/${repoDiscoveryStatus.totalBuckets}: ${repoDiscoveryStatus.currentBucketLabel}.`,
-      )
-    }
-
-    if (repoDiscoveryStatus.totalAuthors > 0) {
-      lines.push(
-        `Owners processed ${Math.min(repoDiscoveryStatus.searchedAuthors, repoDiscoveryStatus.totalAuthors)}/${repoDiscoveryStatus.totalAuthors}.`,
-      )
-    }
-
-    if (repoDiscoveryStatus.currentBucketTotalAuthors > 0) {
-      lines.push(
-        `Current group progress ${Math.min(repoDiscoveryStatus.currentBucketProcessedAuthors, repoDiscoveryStatus.currentBucketTotalAuthors)}/${repoDiscoveryStatus.currentBucketTotalAuthors}.`,
-      )
-    }
-
-    lines.push(
-      `Profiles checked ${repoDiscoveryStatus.fetchedProfileAuthors}, repo owners checked ${repoDiscoveryStatus.fetchedRepoAuthors}.`,
-    )
-    lines.push(
-      `Found ${repoDiscoveryStatus.foundRepos} repositories, ${repoDiscoveryStatus.matchedRepos} matching this search.`,
-    )
-
-    if (repoDiscoveryStatus.timedOut) {
-      lines.push("Timed out after 30 seconds. Showing current results.")
-    } else if (repoDiscoveryStatus.phase === "aborted") {
-      lines.push("Search stopped. Showing results found so far.")
-    } else if (!repoDiscoveryStatus.loading && repoDiscoveryStatus.phase === "complete") {
-      lines.push(
-        repoDiscoveryRunMode === "exhaustive"
-          ? "Searched all enabled targets."
-          : "Discovery finished within the 30 second budget.",
-      )
-    }
-
-    return lines
+    return ""
   })
+  const repoDiscoveryStatusSpinning = $derived(
+    repoDiscoveryStatus.loading ||
+      (trimmedSearchQuery.length >= 2 &&
+        (repoDiscoveryStatus.phase === "typing" || trimmedSearchQuery !== activeTextSearchQuery)),
+  )
 
   $effect(() => {
     const query = trimmedSearchQuery
@@ -2230,19 +2190,40 @@
   // Filter repos based on search query (from current tab)
   const searchFilteredRepos = $derived.by(() => {
     const repos = filteredRepos
+    const query = trimmedActiveRepoSearchQuery
     if (isAccountSearch) return []
 
-    if (!trimmedSearchQuery) return repos
+    if (!query) return repos
 
     return sortRepoSearchResults({
       items: mergeLoadedRepoSearchItems(localSearchFilteredRepos, matchedDiscoveredSearchRepos),
-      query: trimmedSearchQuery,
+      query,
       viewerPubkey: $pubkey,
       starredOwners: [...starredRepoOwners],
       starredAddresses: repoStarAddresses.map(star => star.address),
       getProfile: getSearchProfile,
     })
   })
+
+  const repoResultsVisibleContext = $derived(
+    `${activeMode}:${activeTab}:${trimmedActiveRepoSearchQuery}`,
+  )
+  let lastRepoResultsVisibleContext = ""
+  $effect(() => {
+    if (repoResultsVisibleContext === lastRepoResultsVisibleContext) return
+
+    lastRepoResultsVisibleContext = repoResultsVisibleContext
+    repoResultsVisibleLimit = REPO_SEARCH_PAGE_SIZE
+  })
+  const visibleSearchFilteredRepos = $derived.by(() =>
+    searchFilteredRepos.slice(0, repoResultsVisibleLimit),
+  )
+  const hasMoreRepoResults = $derived(
+    searchFilteredRepos.length > visibleSearchFilteredRepos.length,
+  )
+  const loadMoreRepoResults = () => {
+    repoResultsVisibleLimit += REPO_SEARCH_PAGE_SIZE
+  }
 
   // Store for account search (naddr/npub) repo cards
   let accountSearchRepoCards = $state<any[]>([])
@@ -2292,9 +2273,9 @@
   let cardsComputeTimer: ReturnType<typeof setTimeout> | null = null
   const sortedRepoCards = $derived.by(() => {
     const cards = $repositoriesStore as any[]
-    return trimmedSearchQuery ? cards : prioritizeFreshRepoCards(cards)
+    return trimmedActiveRepoSearchQuery ? cards : prioritizeFreshRepoCards(cards)
   })
-  const repoCardsContext = $derived(`${activeMode}:${activeTab}:${trimmedSearchQuery}`)
+  const repoCardsContext = $derived(`${activeMode}:${activeTab}:${trimmedActiveRepoSearchQuery}`)
   const personalStarredReposSettling = $derived(
     activeMode === "personal" &&
       activeTab === "bookmarks" &&
@@ -2350,7 +2331,7 @@
       return
     }
 
-    const reposToShow = searchFilteredRepos
+    const reposToShow = visibleSearchFilteredRepos
     const currentCards = getStore(repositoriesStore)
     const hasCardsForCurrentContext =
       cachedCardsKey.startsWith(`${repoCardsContext}:`) &&
@@ -3270,7 +3251,9 @@
                   event={g.first as any}
                   profileRelays={cardProfileRelays}
                   tabbable={false}
-                  showCollectionButton={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)}
+                  showCollectionButton={shouldShowRepoCardBookmark(
+                    g.first as RepoAnnouncementEvent,
+                  )}
                   showActivity={true}
                   showIssues={true}
                   showActions={true}
@@ -3315,29 +3298,14 @@
   {:else}
     <!-- Tab-filtered Repos Grid -->
     <div class="min-w-0">
-      {#if repoDiscoveryStatusLines.length > 0}
+      {#if repoDiscoveryStatusLabel}
         <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
           <div class="flex items-center gap-2 text-sm font-medium text-foreground">
-            {#if repoDiscoveryStatus.loading}
-              <Spinner loading={repoDiscoveryStatus.loading}>
-                {repoDiscoveryRunMode === "exhaustive"
-                  ? "Continuing search..."
-                  : "Discovering new Repos..."}
-              </Spinner>
-            {:else if repoDiscoveryStatus.phase === "typing"}
-              <span>Waiting to search</span>
-            {:else if repoDiscoveryStatus.phase === "aborted"}
-              <span>Search stopped</span>
-            {:else if repoDiscoveryStatus.timedOut}
-              <span>Discovery timed out</span>
+            {#if repoDiscoveryStatusSpinning}
+              <Spinner loading={repoDiscoveryStatusSpinning}>{repoDiscoveryStatusLabel}</Spinner>
             {:else}
-              <span>Discovery complete</span>
+              <span>{repoDiscoveryStatusLabel}</span>
             {/if}
-          </div>
-          <div class="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
-            {#each repoDiscoveryStatusLines as line}
-              <p>{line}</p>
-            {/each}
           </div>
         </div>
       {/if}
@@ -3379,7 +3347,7 @@
             {/if}
           </Spinner>
         </p>
-      {:else if $repositoriesStore.length === 0}
+      {:else if searchFilteredRepos.length === 0}
         <p class="mx-auto max-w-full break-words px-4 py-20 text-center text-muted-foreground">
           {#if searchQuery.trim()}
             No repositories found matching
@@ -3422,7 +3390,9 @@
                   event={g.first as any}
                   profileRelays={cardProfileRelays}
                   tabbable={false}
-                  showCollectionButton={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)}
+                  showCollectionButton={shouldShowRepoCardBookmark(
+                    g.first as RepoAnnouncementEvent,
+                  )}
                   showActivity={true}
                   showIssues={true}
                   showActions={true}
@@ -3494,6 +3464,16 @@
             </div>
           {/each}
         </div>
+        {#if hasMoreRepoResults}
+          <div class="mt-4 flex flex-col items-center gap-2">
+            <button type="button" class="btn btn-outline btn-sm" onclick={loadMoreRepoResults}>
+              Show more repositories
+            </button>
+            <p class="text-xs text-muted-foreground">
+              Showing {visibleSearchFilteredRepos.length} of {searchFilteredRepos.length}
+            </p>
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}
