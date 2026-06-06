@@ -923,7 +923,7 @@
                         {#if member.isPendingModerator}
                           <span class="badge badge-warning">pending moderator</span>
                         {/if}
-                        {#if member.grantCount > 0}
+                        {#if member.grantCount > 0 && !member.isAdmin && !member.isModerator && !member.isPendingModerator}
                           <span class="badge badge-neutral">member</span>
                         {/if}
                       </div>
