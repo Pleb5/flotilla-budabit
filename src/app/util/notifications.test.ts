@@ -17,6 +17,7 @@ vi.mock("@app/core/state", () => ({
 
 vi.mock("@app/core/community-state", () => ({
   activeCommunityDefinition: readable(undefined),
+  activeCommunityModeratorRequestStates: readable([]),
   activeCommunityProfileListEvents: readable([]),
   activeCommunityRelays: readable([]),
   activeCommunityReportState: readable(undefined),

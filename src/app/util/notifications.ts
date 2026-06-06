@@ -15,6 +15,7 @@ import {
 import {chatsById, userSettingsValues} from "@app/core/state"
 import {
   activeCommunityDefinition,
+  activeCommunityModeratorRequestStates,
   activeCommunityProfileListEvents,
   activeCommunityRelays,
   activeCommunityReportState,
@@ -266,6 +267,37 @@ const moderatorRequestStatusCandidates: Readable<NotificationCandidate[]> = deri
   },
 )
 
+const moderatorRequestAdminCandidates: Readable<NotificationCandidate[]> = derived(
+  [pubkey, activeCommunityDefinition, activeCommunityModeratorRequestStates],
+  ([$pubkey, $activeCommunityDefinition, $activeCommunityModeratorRequestStates]) => {
+    if (
+      !$pubkey ||
+      !$activeCommunityDefinition ||
+      normalizePubkey($pubkey) !== normalizePubkey($activeCommunityDefinition.pubkey)
+    ) {
+      return []
+    }
+
+    let latestEvent: TrustedEvent | undefined
+
+    for (const request of $activeCommunityModeratorRequestStates) {
+      if (request.status !== "pending") continue
+
+      const event = request.profileList.event
+      if (!latestEvent || isNewerEvent(event, latestEvent)) latestEvent = event
+    }
+
+    return latestEvent
+      ? [
+          {
+            path: makeCommunityPath($activeCommunityDefinition.pubkey, "admin"),
+            latestEvent,
+          },
+        ]
+      : []
+  },
+)
+
 const roomMessageNotificationCandidates: Readable<NotificationCandidate[]> = derived(
   [pubkey, activeCommunityDefinition, activeCommunityProfileListEvents, activeCommunityReportState],
   (
@@ -503,6 +535,7 @@ const goalRootNotificationCandidates = makeTargetedPublicationRootNotificationCa
 const budabitNotificationCandidates: Readable<NotificationCandidate[]> = derived(
   [
     moderatorRequestStatusCandidates,
+    moderatorRequestAdminCandidates,
     roomMessageNotificationCandidates,
     threadRootNotificationCandidates,
     calendarRootNotificationCandidates,
@@ -510,12 +543,14 @@ const budabitNotificationCandidates: Readable<NotificationCandidate[]> = derived
   ],
   ([
     $moderatorRequestStatusCandidates,
+    $moderatorRequestAdminCandidates,
     $roomMessageNotificationCandidates,
     $threadRootNotificationCandidates,
     $calendarRootNotificationCandidates,
     $goalRootNotificationCandidates,
   ]) => [
     ...$moderatorRequestStatusCandidates,
+    ...$moderatorRequestAdminCandidates,
     ...$roomMessageNotificationCandidates,
     ...$threadRootNotificationCandidates,
     ...$calendarRootNotificationCandidates,

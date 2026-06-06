@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onMount} from "svelte"
+  import {onDestroy, onMount} from "svelte"
   import {get as getStore} from "svelte/store"
   import {page} from "$app/stores"
   import {pubkey, publishThunk} from "@welshman/app"
@@ -58,6 +58,7 @@
     getCommunityScopedPublishRelays,
   } from "@app/core/community-relays"
   import {communityAdminSelectedTab, type CommunityAdminTab} from "@app/util/community-admin-tabs"
+  import {setChecked} from "@app/util/notifications"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   type RequestStatusFilter = "pending" | "accepted" | "rejected"
@@ -347,14 +348,55 @@
   }
 
   const rejectModeratorRequest = (requestState: ModeratorPromotionRequestState) => {
-    if (!assertCanPublish()) return
+    if (!assertCanPublish() || !$activeCommunityDefinition) return
+
+    const revokeGrant = requestState.status === "accepted"
+
+    if (revokeGrant) {
+      const section = findCommunitySection($activeCommunityDefinition, requestState.sectionName)
+      const hasProfileListRef = section?.profileLists.some(
+        ref => ref.address === requestState.profileListRef.address,
+      )
+
+      if (!section || !hasProfileListRef) {
+        pushToast({theme: "error", message: "This moderator grant is no longer active."})
+        return
+      }
+    }
 
     pushModal(Confirm, {
-      title: "Reject moderator request",
-      message: `Reject this request for ${requestState.sectionName}?`,
+      title: revokeGrant ? "Revoke moderator grant" : "Reject moderator request",
+      message: revokeGrant
+        ? `Remove this pubkey as a moderator for ${requestState.sectionName}?`
+        : `Reject this request for ${requestState.sectionName}?`,
       confirm: () => {
+        if (revokeGrant) {
+          for (const reaction of getActiveReviewReactions(requestState)) {
+            const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
+
+            publishThunk({
+              relays: communityPublishRelays,
+              event: makeEvent(deleteEvent.kind, deleteEvent),
+            })
+          }
+
+          const definitionUpdate = makeModeratorGrantRevokeDefinitionUpdate({
+            definition: $activeCommunityDefinition!,
+            sectionName: requestState.sectionName,
+            moderatorPubkey: requestState.requesterPubkey,
+          })
+
+          publishThunk({
+            relays: communityRootPublishRelays,
+            event: makeEvent(definitionUpdate.kind, definitionUpdate),
+          })
+        }
+
         publishModeratorReview(requestState, "-")
-        pushToast({theme: "warning", message: "Moderator request rejected."})
+        pushToast({
+          theme: "warning",
+          message: revokeGrant ? "Moderator grant revoked." : "Moderator request rejected.",
+        })
         history.back()
       },
     })
@@ -451,6 +493,10 @@
     void loadCommunityEvents($activeCommunityRelays, moderatorRequestDeleteFilters).catch(error => {
       console.warn("[community] Failed to hydrate admin moderator review deletes", error)
     })
+  })
+
+  onDestroy(() => {
+    setChecked($page.url.pathname)
   })
 </script>
 
@@ -554,7 +600,7 @@
                     disabled={moderatorRequest.status === "rejected" ||
                       moderatorRequest.derivedFromGrant}
                     onclick={() => rejectModeratorRequest(moderatorRequest)}>
-                    Reject
+                    {moderatorRequest.status === "accepted" ? "Revoke grant" : "Reject"}
                   </Button>
                   <Button
                     class="btn btn-success btn-sm"
@@ -565,12 +611,6 @@
                 </div>
               </div>
 
-              <div class="mt-3 text-sm">
-                <div class="rounded-box bg-base-200 p-3">
-                  <strong>Profile list ref</strong>
-                  <p class="break-all opacity-75">{moderatorRequest.profileListRef.address}</p>
-                </div>
-              </div>
               {#if moderatorRequest.derivedFromGrant}
                 <p class="mt-3 rounded-box bg-info/10 p-3 text-sm text-info">
                   Grant exists; original request is unavailable.
@@ -671,10 +711,9 @@
                           <div>
                             <div class="flex flex-wrap items-center gap-2">
                               <strong>{grant.displayName}</strong>
-                              <span class="badge badge-success">profile list</span>
                             </div>
                             <p class="mt-1 text-xs opacity-60">
-                              Revoking removes this profile-list manager ref for the section.
+                              Revoking removes this user's moderator access for the section.
                             </p>
                           </div>
                           <Button
@@ -682,17 +721,6 @@
                             onclick={() => revokeModeratorGrant(grant)}>
                             Revoke grant
                           </Button>
-                        </div>
-
-                        <div class="mt-3 text-sm">
-                          <div class="rounded-box bg-base-100 p-3">
-                            <strong>Profile-list refs</strong>
-                            <div class="mt-2 flex flex-col gap-1">
-                              {#each grant.profileLists as ref (ref.address)}
-                                <p class="break-all opacity-75">{ref.address}</p>
-                              {/each}
-                            </div>
-                          </div>
                         </div>
                       </article>
                     {/each}

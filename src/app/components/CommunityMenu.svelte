@@ -29,7 +29,6 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
-    makeCommunityModeratorRequestFilters,
   } from "@app/core/community-state"
   import {
     getPendingCommunityBadgeAwards,
@@ -41,16 +40,12 @@
   } from "@app/core/community-badges"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
-  import {PROFILE_LIST_KIND, normalizePubkey} from "@app/core/community"
+  import {normalizePubkey} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
     getGrantCapability,
   } from "@app/core/community-permissions"
-  import {
-    getModeratorPromotionRequestStates,
-    getModeratorPromotionRequests,
-  } from "@app/core/community-moderator-requests"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
@@ -94,27 +89,6 @@
       room => !isCommunityPersonBanned($activeCommunityReportState, room.event.pubkey),
     ),
   )
-  const moderatorRequestFilters = $derived(
-    canViewAdmin && $activeCommunityDefinition
-      ? makeCommunityModeratorRequestFilters($activeCommunityDefinition, {limit: 200})
-      : [],
-  )
-  const moderatorRequestEvents = $derived(
-    deriveEventsAsc(deriveEventsById({repository, filters: moderatorRequestFilters})),
-  )
-  const pendingModeratorRequestCount = $derived.by(() => {
-    const definition = $activeCommunityDefinition
-    if (!canViewAdmin || !definition) return 0
-
-    const requests = getModeratorPromotionRequests({
-      profileListEvents: $moderatorRequestEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-      communityPubkey: definition.pubkey,
-    })
-
-    return getModeratorPromotionRequestStates({definition, requests}).filter(
-      request => request.status === "pending",
-    ).length
-  })
   const badgeDefinitionFilters = $derived(
     $activeCommunityDefinition
       ? makeCommunityBadgeDefinitionFilters({
@@ -218,20 +192,6 @@
 
     const controller = new AbortController()
     request({relays: $activeCommunityRelays, filters: roomFilters, signal: controller.signal})
-
-    return () => controller.abort()
-  })
-
-  $effect(() => {
-    if (!community || !canViewAdmin || $activeCommunityRelays.length === 0) return
-    if (moderatorRequestFilters.length === 0) return
-
-    const controller = new AbortController()
-    request({
-      relays: $activeCommunityRelays,
-      filters: moderatorRequestFilters,
-      signal: controller.signal,
-    })
 
     return () => controller.abort()
   })
@@ -359,7 +319,7 @@
         <SecondaryNavItem
           {replaceState}
           href={adminPath}
-          notification={pendingModeratorRequestCount > 0}>
+          notification={$notifications.has(adminPath)}>
           <Icon icon={ShieldUser} /> Admin
         </SecondaryNavItem>
       {/if}
