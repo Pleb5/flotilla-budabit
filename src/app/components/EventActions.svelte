@@ -82,7 +82,7 @@
 </script>
 
 <div
-  class="join rounded-full {className}"
+  class="{menuOnly ? 'inline-flex' : 'join'} rounded-full {className}"
   role="group"
   data-stop-link
   data-stop-tap
@@ -115,7 +115,7 @@
         allowAdminDelete,
       }}
       params={{trigger: "manual", interactive: true}}>
-      <Button class="btn join-item btn-neutral btn-xs" onclick={showPopover}>
+      <Button class="btn btn-neutral btn-xs {menuOnly ? 'rounded-full' : 'join-item'}" onclick={showPopover}>
         <Icon icon={MenuDots} size={4} />
       </Button>
     </Tippy>

@@ -54,27 +54,20 @@
   {#if censorReason}
     <ModeratedContent reason={censorReason} />
   {:else if title}
-    <div class="flex w-full items-center justify-between gap-2 pr-12 sm:pr-0">
-      <p class="text-xl">{title}</p>
-      <p class="text-sm opacity-75">
-        {formatTimestamp(event.created_at)}
-      </p>
-    </div>
-  {:else}
-    <p class="mb-3 h-0 text-xs opacity-75">
-      {formatTimestamp(event.created_at)}
-    </p>
+    <p class="min-w-0 break-words text-xl">{title}</p>
   {/if}
   {#if !censorReason}
     <Content {event} {url} {communitySectionName} expandMode="inline" />
-    <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
-      <span class="whitespace-nowrap py-1 text-sm opacity-75">
-        Posted by
-        <ProfileLink pubkey={event.pubkey} {url} />
-      </span>
+    <div class="flex w-full flex-wrap items-end justify-between gap-2">
+      <div class="flex flex-col items-start gap-1 py-1 text-sm opacity-75">
+        <span class="whitespace-nowrap">
+          Posted by
+          <ProfileLink pubkey={event.pubkey} {url} />
+        </span>
+        <span>{formatTimestamp(event.created_at)}</span>
+      </div>
       <ThreadActions
         showActivity
-        floatMobileMenu
         {url}
         {relays}
         {scopeH}

@@ -20,7 +20,6 @@
     communitySectionName?: string
     readOnly?: boolean
     allowedAuthors?: string[]
-    floatMobileMenu?: boolean
   }
 
   const {
@@ -33,7 +32,6 @@
     communitySectionName = "",
     readOnly = false,
     allowedAuthors = undefined,
-    floatMobileMenu = false,
   }: Props = $props()
 
   const h = getTagValue("h", event.tags)
@@ -50,22 +48,6 @@
       tags: [...(template.tags || []), ...(scopeH ? [["h", scopeH]] : [])],
     })
 </script>
-
-{#if floatMobileMenu}
-  <div class="z-10 absolute right-2 top-2 sm:hidden">
-    <EventActions
-      {url}
-      {relays}
-      {scopeH}
-      {communitySectionName}
-      {readOnly}
-      {event}
-      noun="Thread"
-      allowAdminDelete={false}
-      menuOnly
-      class="border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur" />
-  </div>
-{/if}
 
 <div class="flex flex-grow flex-wrap justify-end gap-2">
   {#if h && showRoom}
@@ -95,22 +77,5 @@
     {readOnly}
     {event}
     noun="Thread"
-    allowAdminDelete={false}
-    class={floatMobileMenu ? "hidden sm:flex" : ""} />
+    allowAdminDelete={false} />
 </div>
-
-{#if floatMobileMenu && !readOnly}
-  <div class="mt-2 flex justify-end sm:hidden">
-    <EventActions
-      {url}
-      {relays}
-      {scopeH}
-      {communitySectionName}
-      {readOnly}
-      {event}
-      noun="Thread"
-      allowAdminDelete={false}
-      hideMenu
-      class="border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur" />
-  </div>
-{/if}

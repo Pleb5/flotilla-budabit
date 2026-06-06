@@ -404,7 +404,6 @@
               communitySectionName={threadSectionName}
               allowedAuthors={replyAuthorPubkeys}
               readOnly={!canReact}
-              floatMobileMenu
               event={thread.event} />
           </div>
         </NoteCard>
