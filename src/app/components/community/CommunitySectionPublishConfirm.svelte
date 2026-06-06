@@ -1,9 +1,10 @@
 <script lang="ts">
   import Button from "@lib/components/Button.svelte"
-  import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {preventDefault} from "@lib/html"
+  import {pushModal} from "@app/util/modal"
+  import CommunitySectionPublishWithoutMigrationConfirm from "@app/components/community/CommunitySectionPublishWithoutMigrationConfirm.svelte"
 
   type SummarySection = {
     title: string
@@ -19,7 +20,7 @@
 
   const {sections, onPublishAndMigrate, onPublishWithoutMigration}: Props = $props()
 
-  let loading = $state<"migrate" | "plain" | "">("")
+  let loading = $state(false)
   let status = $state("")
 
   const sectionClass = (tone: SummarySection["tone"] = "info") => {
@@ -29,28 +30,37 @@
     return "border-info/25 bg-info/10 text-base-content"
   }
 
-  const run = async (mode: "migrate" | "plain") => {
+  const publishAndMigrate = async () => {
     if (loading) return
 
-    loading = mode
+    loading = true
     status = "Preparing update..."
 
     try {
       const setStatus = (message: string) => (status = message)
 
-      if (mode === "migrate") await onPublishAndMigrate(setStatus)
-      else await onPublishWithoutMigration(setStatus)
+      await onPublishAndMigrate(setStatus)
 
       history.back()
     } catch (error) {
       status = error instanceof Error ? error.message : String(error)
     } finally {
-      loading = ""
+      loading = false
     }
+  }
+
+  const confirmPublishWithoutMigration = () => {
+    if (loading) return
+
+    pushModal(CommunitySectionPublishWithoutMigrationConfirm, {
+      onPublish: onPublishWithoutMigration,
+    })
   }
 </script>
 
-<form class="column max-h-[80vh] gap-4 overflow-y-auto" onsubmit={preventDefault(() => run("migrate"))}>
+<form
+  class="column max-h-[80vh] gap-4 overflow-y-auto overflow-x-hidden"
+  onsubmit={preventDefault(publishAndMigrate)}>
   <ModalHeader>
     {#snippet title()}<div>Publish community changes?</div>{/snippet}
     {#snippet info()}<div>Review the permission impact before publishing.</div>{/snippet}
@@ -59,7 +69,8 @@
   <div class="space-y-3">
     {#each sections as section}
       {#if section.items.length > 0}
-        <section class={`rounded-box border p-4 text-sm leading-relaxed ${sectionClass(section.tone)}`}>
+        <section
+          class={`rounded-box border p-4 text-sm leading-relaxed ${sectionClass(section.tone)}`}>
           <strong class="block text-base">{section.title}</strong>
           <ul class="mt-2 list-disc space-y-1 pl-5">
             {#each section.items as item}
@@ -77,15 +88,27 @@
     </div>
   {/if}
 
-  <ModalFooter>
-    <Button class="btn btn-ghost" onclick={() => history.back()} disabled={Boolean(loading)}>
+  <div class="mt-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+    <Button
+      class="btn btn-success min-h-fit w-full whitespace-normal text-center lg:w-auto"
+      type="submit"
+      disabled={loading}>
+      <Spinner {loading}>Publish and migrate permissions</Spinner>
+    </Button>
+    <Button
+      class="btn btn-ghost w-full text-center lg:w-auto"
+      onclick={() => history.back()}
+      disabled={loading}>
       Cancel
     </Button>
-    <Button class="btn btn-outline" onclick={() => run("plain")} disabled={Boolean(loading)}>
-      <Spinner loading={loading === "plain"}>Publish without migration</Spinner>
-    </Button>
-    <Button class="btn btn-success" type="submit" disabled={Boolean(loading)}>
-      <Spinner loading={loading === "migrate"}>Publish and migrate permissions</Spinner>
-    </Button>
-  </ModalFooter>
+    <div
+      class="mt-3 border-t border-base-300 pt-4 lg:ml-auto lg:mt-0 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+      <Button
+        class="btn btn-outline btn-error btn-sm min-h-fit w-full whitespace-normal text-center lg:w-auto"
+        onclick={confirmPublishWithoutMigration}
+        disabled={loading}>
+        Publish without migration
+      </Button>
+    </div>
+  </div>
 </form>

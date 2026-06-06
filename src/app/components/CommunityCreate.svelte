@@ -2,6 +2,7 @@
   import {tick} from "svelte"
   import {browser} from "$app/environment"
   import {goto} from "$app/navigation"
+  import {randomId} from "@welshman/lib"
   import {request} from "@welshman/net"
   import {pubkey, repository, signer as sessionSigner} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -53,7 +54,6 @@
     makeCommunityNcommunity,
     makeCommunitySetupSection,
     normalizeGeohash,
-    normalizeCommunitySectionName,
     normalizePubkey,
     normalizeRelay,
     normalizeRelays,
@@ -66,6 +66,12 @@
     type CommunityRetentionPolicy,
     type CommunitySectionKind,
   } from "@app/core/community"
+  import {
+    getCommunitySectionNameKey,
+    getSectionLifecycleChanges,
+    type KeyedCommunitySectionInput,
+    type SectionLifecycleChange,
+  } from "@app/core/community-section-lifecycle"
   import {
     applyCommunityBootstrapGrants,
     findCommunityProfileListEvent,
@@ -131,6 +137,8 @@
   }
 
   type SectionDraft = {
+    draftKey: string
+    originalNameKey?: string
     name: string
     kinds: SectionKindDraft[]
     profileLists: CommunityProfileListRef[]
@@ -178,18 +186,6 @@
     sectionDrafts: SectionDraft[]
   }
 
-  type SectionLifecycleChange =
-    | {type: "rename"; oldSectionName: string; newSectionName: string}
-    | {
-        type: "move"
-        kindKey: string
-        kindLabel: string
-        oldSectionName: string
-        newSectionName: string
-      }
-    | {type: "kind-remove"; kindKey: string; kindLabel: string; oldSectionName: string}
-    | {type: "remove"; oldSectionName: string}
-
   type SectionMigrationPair = {
     oldSectionName: string
     newSectionName: string
@@ -201,6 +197,7 @@
     removedSectionNames: string[]
     migratedMemberPubkeys: string[]
     moderatorPubkeys: string[]
+    draftModeratorInvitePubkeys: string[]
     formCopyCount: number
     reportReviewCopyCount: number
     pendingRequestCount: number
@@ -267,8 +264,14 @@
     subtype: kind.subtype || "",
   })
 
+  const getSectionNameKey = getCommunitySectionNameKey
+  const makeDefaultSectionDraftKey = (name: string) => `default:${getSectionNameKey(name)}`
+  const makeOriginalSectionDraftKey = (name: string) => `original:${getSectionNameKey(name)}`
+  const makeNewSectionDraftKey = () => `new:${randomId()}`
+
   const makeDefaultSectionDrafts = (): SectionDraft[] =>
     DEFAULT_COMMUNITY_SECTION_NAMES.map(name => ({
+      draftKey: makeDefaultSectionDraftKey(name),
       name,
       kinds: getDefaultCommunitySectionKinds(name).map(toKindDraft),
       profileLists: [],
@@ -280,6 +283,8 @@
     communityDefinition: CommunityDefinition,
   ): SectionDraft[] =>
     communityDefinition.sections.map(section => ({
+      draftKey: makeOriginalSectionDraftKey(section.name),
+      originalNameKey: getSectionNameKey(section.name),
       name: section.name,
       kinds: section.kinds.map(toKindDraft),
       profileLists: section.profileLists,
@@ -289,6 +294,8 @@
 
   const cloneSectionDrafts = (drafts: SectionDraft[]): SectionDraft[] =>
     drafts.map(section => ({
+      draftKey: section.draftKey,
+      originalNameKey: section.originalNameKey,
       name: section.name,
       kinds: section.kinds.map(kind => ({...kind})),
       profileLists: section.profileLists.map(ref => ({...ref})),
@@ -330,130 +337,27 @@
     return {kind, subtype: subtype || undefined}
   }
 
-  const makeSectionInputsFromDrafts = (drafts: SectionDraft[]) =>
+  const makeSectionInputsFromDrafts = (drafts: SectionDraft[]): KeyedCommunitySectionInput[] =>
     drafts.map(section => ({
+      originalNameKey: section.originalNameKey,
       name: section.name.trim(),
       kinds: section.kinds.map(parseSectionDraftKind).filter(Boolean) as CommunitySectionKind[],
-      profileLists: section.profileLists,
-      badges: section.badges,
-      retention: section.retention,
     }))
-
-  const getSectionNameKey = (name: string) => normalizeCommunitySectionName(name).toLowerCase()
-
-  const getSectionKindSignature = (section: Pick<CommunityDefinitionSectionInput, "kinds">) =>
-    section.kinds
-      .map(kind => getCommunitySectionKindKey(kind.kind, kind.subtype))
-      .sort()
-      .join("|")
 
   const getSectionAssignmentMap = (
     sections: Array<Pick<CommunityDefinitionSectionInput, "name" | "kinds">>,
   ) => new Map(getCommunitySectionKindAssignments(sections as any).map(item => [item.key, item]))
 
-  const getSectionLifecycleChanges = (
-    currentSections: CommunityDefinitionSectionInput[],
-  ): SectionLifecycleChange[] => {
-    if (!isEdit || !definition) return []
-
-    const originalSections = definition.sections
-    const originalByName = new Map(
-      originalSections.map(section => [getSectionNameKey(section.name), section]),
-    )
-    const currentByName = new Map(
-      currentSections.map(section => [getSectionNameKey(section.name), section]),
-    )
-    const renames: Array<{oldSectionName: string; newSectionName: string}> = []
-    const usedCurrentNames = new Set<string>()
-
-    for (const [index, originalSection] of originalSections.entries()) {
-      const originalKey = getSectionNameKey(originalSection.name)
-      if (currentByName.has(originalKey)) continue
-
-      const originalSignature = getSectionKindSignature(originalSection)
-      const sameIndexSection = currentSections[index]
-      const sameIndexKey = sameIndexSection ? getSectionNameKey(sameIndexSection.name) : ""
-      const renamedSection =
-        sameIndexSection &&
-        sameIndexSection.name.trim() &&
-        !originalByName.has(sameIndexKey) &&
-        !usedCurrentNames.has(sameIndexKey)
-          ? sameIndexSection
-          : currentSections.find(section => {
-              const sectionKey = getSectionNameKey(section.name)
-
-              return (
-                section.name.trim() &&
-                !originalByName.has(sectionKey) &&
-                !usedCurrentNames.has(sectionKey) &&
-                getSectionKindSignature(section) === originalSignature
-              )
-            })
-
-      if (!renamedSection) continue
-
-      const renamedKey = getSectionNameKey(renamedSection.name)
-      usedCurrentNames.add(renamedKey)
-      renames.push({oldSectionName: originalSection.name, newSectionName: renamedSection.name})
-    }
-
-    const renameByOldName = new Map(
-      renames.map(rename => [getSectionNameKey(rename.oldSectionName), rename]),
-    )
-    const renamedOldNames = new Set(renameByOldName.keys())
-    const changes: SectionLifecycleChange[] = renames.map(rename => ({type: "rename", ...rename}))
-    const originalAssignments = getSectionAssignmentMap(originalSections)
-    const currentAssignments = getSectionAssignmentMap(currentSections)
-    const removedSectionKeys = new Set<string>()
-
-    for (const originalSection of originalSections) {
-      const sectionKey = getSectionNameKey(originalSection.name)
-      if (currentByName.has(sectionKey) || renamedOldNames.has(sectionKey)) continue
-
-      removedSectionKeys.add(sectionKey)
-      changes.push({type: "remove", oldSectionName: originalSection.name})
-    }
-
-    for (const [kindKey, originalAssignment] of originalAssignments) {
-      const currentAssignment = currentAssignments.get(kindKey)
-      if (!currentAssignment) {
-        if (!removedSectionKeys.has(getSectionNameKey(originalAssignment.sectionName))) {
-          changes.push({
-            type: "kind-remove",
-            kindKey,
-            kindLabel: originalAssignment.label,
-            oldSectionName: originalAssignment.sectionName,
-          })
-        }
-        continue
-      }
-
-      const originalSectionKey = getSectionNameKey(originalAssignment.sectionName)
-      const currentSectionKey = getSectionNameKey(currentAssignment.sectionName)
-      const rename = renameByOldName.get(originalSectionKey)
-
-      if (rename && getSectionNameKey(rename.newSectionName) === currentSectionKey) continue
-      if (originalSectionKey === currentSectionKey) continue
-
-      changes.push({
-        type: "move",
-        kindKey,
-        kindLabel: originalAssignment.label,
-        oldSectionName: originalAssignment.sectionName,
-        newSectionName: currentAssignment.sectionName,
-      })
-    }
-
-    return changes
-  }
-
   const uniqueNormalizedPubkeys = (pubkeys: string[]) =>
     Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean)))
 
+  const getOriginalSectionByKey = (sectionNameKey?: string) =>
+    sectionNameKey
+      ? definition?.sections.find(section => getSectionNameKey(section.name) === sectionNameKey)
+      : undefined
+
   const getOriginalSection = (sectionName: string) =>
-    definition?.sections.find(
-      section => getSectionNameKey(section.name) === getSectionNameKey(sectionName),
-    )
+    getOriginalSectionByKey(getSectionNameKey(sectionName))
 
   const getActiveSectionMemberPubkeys = (sectionName: string) => {
     const section = getOriginalSection(sectionName)
@@ -596,10 +500,18 @@
     return copied.size
   }
 
+  const getDraftModeratorInvitePubkeys = () =>
+    uniqueNormalizedPubkeys(
+      bootstrapGrantDrafts.flatMap(grant => (grant.role === "moderator" ? [grant.pubkey] : [])),
+    )
+
   const buildSectionMigrationSummary = (
-    currentSections: CommunityDefinitionSectionInput[],
+    currentSections: KeyedCommunitySectionInput[],
   ): SectionMigrationSummary => {
-    const changes = getSectionLifecycleChanges(currentSections)
+    const changes =
+      isEdit && definition
+        ? getSectionLifecycleChanges({originalSections: definition.sections, currentSections})
+        : []
     const migrationPairs = getMigrationPairs(changes)
     const removedSectionNames = getDroppedSectionNames(changes)
     const affectedOldSectionNames = Array.from(
@@ -611,6 +523,9 @@
     ).filter(pubkey => pubkey !== owner)
     const moderatorPubkeys = uniqueNormalizedPubkeys(
       migrationPairs.flatMap(pair => getActiveSectionModeratorPubkeys(pair.oldSectionName)),
+    ).filter(pubkey => pubkey !== owner)
+    const draftModeratorInvitePubkeys = getDraftModeratorInvitePubkeys().filter(
+      pubkey => pubkey !== owner,
     )
     const pendingRequestCount = affectedOldSectionNames.reduce(
       (count, sectionName) => count + getPendingRequestCountForSection(sectionName),
@@ -623,6 +538,7 @@
       removedSectionNames,
       migratedMemberPubkeys,
       moderatorPubkeys,
+      draftModeratorInvitePubkeys,
       formCopyCount: getFormCopyCount(migrationPairs),
       reportReviewCopyCount: getReportReviewCopyCount(migrationPairs),
       pendingRequestCount,
@@ -630,13 +546,14 @@
   }
 
   const makeEmptySectionDraft = (): SectionDraft => {
-    const existingNames = new Set(sectionDrafts.map(section => section.name.toLowerCase()))
+    const existingNames = new Set(sectionDrafts.map(section => getSectionNameKey(section.name)))
     const name =
       ["Custom", "Content", "Section", "Community"].find(
-        candidate => !existingNames.has(candidate.toLowerCase()),
+        candidate => !existingNames.has(getSectionNameKey(candidate)),
       ) || "Custom"
 
     return {
+      draftKey: makeNewSectionDraftKey(),
       name,
       kinds: [{kind: "", subtype: ""}],
       profileLists: [],
@@ -745,7 +662,7 @@
 
     for (const [sectionIndex, section] of drafts.entries()) {
       const name = section.name.trim()
-      const nameKey = name.toLowerCase()
+      const nameKey = getSectionNameKey(name)
       const field = sectionNameField(sectionIndex)
 
       if (!SECTION_NAME_RE.test(name)) {
@@ -994,7 +911,7 @@
 
     for (const [sectionIndex, section] of sectionDrafts.entries()) {
       const name = section.name.trim()
-      const nameKey = name.toLowerCase()
+      const nameKey = getSectionNameKey(name)
       const kinds: CommunitySectionKind[] = []
 
       if (!SECTION_NAME_RE.test(name)) {
@@ -1404,7 +1321,12 @@
     }
     if (summary.moderatorPubkeys.length > 0) {
       items.push(
-        `${summary.moderatorPubkeys.length} moderator${summary.moderatorPubkeys.length === 1 ? "" : "s"} will need to accept new permissions`,
+        `${summary.moderatorPubkeys.length} existing moderator${summary.moderatorPubkeys.length === 1 ? "" : "s"} will need to accept migrated permissions`,
+      )
+    }
+    if (summary.draftModeratorInvitePubkeys.length > 0) {
+      items.push(
+        `${summary.draftModeratorInvitePubkeys.length} draft moderator invite${summary.draftModeratorInvitePubkeys.length === 1 ? "" : "s"} will be published with this update`,
       )
     }
     if (summary.formCopyCount > 0) {
@@ -1749,10 +1671,11 @@
     if (!definition) return
     if (shouldDeferRenameWarning(event, sectionIndex)) return
 
-    const originalSection = definition.sections[sectionIndex]
     const draft = sectionDrafts[sectionIndex]
+    const originalSection = getOriginalSectionByKey(draft?.originalNameKey)
     if (!originalSection || !draft) return
 
+    const draftKey = draft.draftKey
     const originalName = originalSection.name
     const nextName = draft.name.trim()
     if (!SECTION_NAME_RE.test(nextName)) return
@@ -1768,8 +1691,8 @@
       ],
       resetLabel: "Reset rename",
       onReset: () => {
-        sectionDrafts = sectionDrafts.map((section, index) =>
-          index === sectionIndex ? {...section, name: originalName} : section,
+        sectionDrafts = sectionDrafts.map(section =>
+          section.draftKey === draftKey ? {...section, name: originalName} : section,
         )
         validateSectionNames()
       },
@@ -1823,20 +1746,21 @@
     const previousDrafts = cloneSectionDrafts(sectionDrafts)
     const currentAssignment = getOriginalAssignmentForKindKey(currentKindKey)
     const nextAssignment = getOriginalAssignmentForKindKey(nextKindKey)
+    const sectionOriginalNameKey = section.originalNameKey || ""
     const applyUpdate = () => applySectionKindUpdate(sectionIndex, kindIndex, update)
 
     if (
       nextAssignment &&
-      getSectionNameKey(nextAssignment.sectionName) !== getSectionNameKey(section.name)
+      getSectionNameKey(nextAssignment.sectionName) !== sectionOriginalNameKey
     ) {
       applyUpdate()
       showImmediateWarning({
-        key: `move:${nextKindKey}:${getSectionNameKey(nextAssignment.sectionName)}>${getSectionNameKey(section.name)}`,
+        key: `move:${nextKindKey}:${getSectionNameKey(nextAssignment.sectionName)}>${section.draftKey}`,
         title: "Move permission?",
         description: `${nextAssignment.label} was moved from ${nextAssignment.sectionName} to ${section.name}.`,
         details: [
           "People who could publish this content before may need migrated access to the new section.",
-          "Moderators for the old section will need to accept new permissions after publish.",
+          "Existing moderators for the old section will need to accept migrated permissions after publish.",
         ],
         resetLabel: "Reset move",
         onReset: () => {
@@ -1892,7 +1816,7 @@
     location = validated.location
     geohash = validated.geohash
 
-    const summary = buildSectionMigrationSummary(validated.sections)
+    const summary = buildSectionMigrationSummary(makeSectionInputsFromDrafts(sectionDrafts))
     const publishWithMode = (migrate: boolean, setStatus?: CommunityPublishStatusUpdate) =>
       performCommunitySettingsPublish({
         validated,
@@ -1974,16 +1898,26 @@
 
   const makeRestoredDefaultSectionDrafts = () =>
     DEFAULT_COMMUNITY_SECTION_NAMES.map(name => {
+      const nameKey = getSectionNameKey(name)
       const existing = sectionDrafts.find(
-        section => section.name.toLowerCase() === name.toLowerCase(),
+        section =>
+          section.originalNameKey === nameKey || getSectionNameKey(section.name) === nameKey,
       )
+      const originalSection = getOriginalSectionByKey(nameKey)
+      const originalNameKey = existing?.originalNameKey || (originalSection ? nameKey : undefined)
 
       return {
+        draftKey:
+          existing?.draftKey ||
+          (originalSection
+            ? makeOriginalSectionDraftKey(originalSection.name)
+            : makeDefaultSectionDraftKey(name)),
+        originalNameKey,
         name,
         kinds: getDefaultCommunitySectionKinds(name).map(toKindDraft),
-        profileLists: existing?.profileLists || [],
-        badges: existing?.badges || [],
-        retention: existing?.retention || [],
+        profileLists: existing?.profileLists || originalSection?.profileLists || [],
+        badges: existing?.badges || originalSection?.badges || [],
+        retention: existing?.retention || originalSection?.retention || [],
       }
     })
 
@@ -2033,7 +1967,7 @@
     const removedSection = sectionDrafts[sectionIndex]
     if (!removedSection) return
 
-    if (removedSection && getOriginalSection(removedSection.name)) {
+    if (getOriginalSectionByKey(removedSection.originalNameKey)) {
       showDestructiveConfirm({
         title: "Remove section?",
         description: `Remove ${removedSection.name} from this community draft?`,
@@ -2042,7 +1976,12 @@
           "Pending requests for this section will not be migrated.",
         ],
         confirmLabel: "Remove section",
-        onConfirm: () => removeSectionAtIndex(sectionIndex),
+        onConfirm: () => {
+          const currentIndex = sectionDrafts.findIndex(
+            section => section.draftKey === removedSection.draftKey,
+          )
+          if (currentIndex >= 0) removeSectionAtIndex(currentIndex)
+        },
       })
       return
     }
@@ -2539,7 +2478,7 @@
             <p class="mb-4 rounded-box bg-error/10 p-3 text-sm text-error">{errors.sections}</p>
           {/if}
           <div class="space-y-4">
-            {#each sectionDrafts as section, sectionIndex}
+            {#each sectionDrafts as section, sectionIndex (section.draftKey)}
               {@const isExpanded = expandedSectionIndex === sectionIndex}
               <div
                 class="scroll-mt-24 overflow-hidden rounded-2xl border border-base-300 bg-base-200/60"

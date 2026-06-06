@@ -65,6 +65,7 @@
   let openPopover = $state<string | null>(null)
   let peopleInput: Element | undefined = $state()
   let personGrantEditor: HTMLElement | undefined = $state()
+  let grantPicker: HTMLElement | undefined = $state()
   let addPersonButton: HTMLButtonElement | undefined = $state()
   let peoplePopover: Instance | undefined = $state()
   let peopleSuggestions: any = $state()
@@ -207,7 +208,7 @@
     return new Set([...existing, ...draft])
   }
 
-  const openGrantPicker = () => {
+  const openGrantPicker = async () => {
     if (!normalizedSelectedPubkey) {
       pushToast({theme: "error", message: "Select a person first."})
       return
@@ -215,6 +216,10 @@
 
     grantPickerSelection = [...selectedSectionNames]
     grantPickerOpen = true
+
+    await tick()
+
+    grantPicker?.scrollIntoView({behavior: "smooth", block: "start"})
   }
 
   const closeGrantPicker = () => {
@@ -438,7 +443,7 @@
           class="btn btn-neutral h-14 min-h-14 w-full justify-center"
           onclick={openGrantPicker}
           disabled={disabled || !normalizedSelectedPubkey}>
-          Add grant
+          Add grants
         </button>
       </div>
       <div class="flex items-end">
@@ -464,7 +469,9 @@
     {#if grantPickerOpen}
       {@const unavailableSections = getUnavailableSections(normalizedSelectedPubkey, selectedRole)}
       {@const pickerSelection = new Set(grantPickerSelection)}
-      <div class="mt-4 rounded-2xl border border-base-300 bg-base-100 p-4">
+      <div
+        class="mt-4 scroll-mt-24 rounded-2xl border border-base-300 bg-base-100 p-4"
+        bind:this={grantPicker}>
         <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <strong>
@@ -483,8 +490,8 @@
 
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {#each sections as section (section.name)}
-            {@const isAlreadyAdded = unavailableSections.has(section.name) &&
-              !selectedSectionNames.includes(section.name)}
+            {@const isAlreadyAdded =
+              unavailableSections.has(section.name) && !selectedSectionNames.includes(section.name)}
             <label
               class={`flex items-start gap-3 rounded-box border border-base-300 bg-base-200/50 p-3 ${isAlreadyAdded ? "opacity-60" : "cursor-pointer hover:border-primary/60"}`}>
               <input
@@ -654,10 +661,7 @@
                     class="btn btn-warning btn-sm"
                     aria-expanded={openPopover === pendingModeratorKey}
                     onclick={() => showPopover(pendingModeratorKey)}>
-                    Pending {pluralize(
-                      member.pendingModeratorSectionCount,
-                      "moderator section",
-                    )}
+                    Pending {pluralize(member.pendingModeratorSectionCount, "moderator section")}
                   </Button>
                   {#if openPopover === pendingModeratorKey}
                     <InlinePopover
@@ -719,9 +723,7 @@
                           </div>
                         {/each}
                       {:else}
-                        <p class="rounded-box bg-base-200 p-3 opacity-70">
-                          No membership grants.
-                        </p>
+                        <p class="rounded-box bg-base-200 p-3 opacity-70">No membership grants.</p>
                       {/if}
                     </div>
                   </InlinePopover>
