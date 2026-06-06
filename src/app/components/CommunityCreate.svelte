@@ -235,10 +235,10 @@
     {label: "Reports", kind: 1984},
     {label: "Labels", kind: 1985},
     {label: "Calendar Events", kind: 31922},
-    {label: "Goals", kind: 9041},
+    {label: "Fundraiser Goals", kind: 9041},
     {label: "Repository Announcements", kind: 30617},
     {label: "Permalinks", kind: 1623},
-    {label: "Widgets", kind: 30033},
+    {label: "Smart Widgets", kind: 30033},
   ] satisfies Array<{label: string; kind: number; subtype?: string}>
 
   const kindOptionValue = (kind: number, subtype = "") => `${kind}:${subtype}`

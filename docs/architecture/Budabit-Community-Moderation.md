@@ -41,10 +41,10 @@ Instead, forms self-associate with the community and section:
   "kind": 30168,
   "pubkey": "<moderator-pubkey>",
   "tags": [
-    ["d", "repo-curator-application"],
+    ["d", "code-curator-application"],
     ["a", "10222:<community-pubkey>:", "wss://community.example"],
-    ["content", "Repo-curator"],
-    ["name", "Repository curator application"],
+    ["content", "Code-curator"],
+    ["name", "Code curator application"],
     ["settings", "{\"description\":\"Tell us why you should curate repositories.\"}"],
     [
       "field",
@@ -129,7 +129,7 @@ Applications are public NIP-101 responses authored by the applicant.
   "kind": 1069,
   "pubkey": "<applicant-pubkey>",
   "tags": [
-    ["a", "30168:<form-pubkey>:repo-curator-application"],
+    ["a", "30168:<form-pubkey>:code-curator-application"],
     ["response", "experience", "I maintain several Nostr repositories.", "{}"],
     ["response", "focus", "Developer tooling and protocol libraries.", "{}"]
   ],
@@ -183,7 +183,7 @@ Granting access publishes two events:
     "kind": 30000,
     "pubkey": "<profile-list-manager-pubkey>",
     "tags": [
-      ["d", "Repo-curator"],
+      ["d", "Code-curator"],
       ["p", "<existing-writer-pubkey>"],
       ["p", "<applicant-pubkey>"]
     ],
@@ -196,9 +196,9 @@ Granting access publishes two events:
       ["e", "<form-response-event-id>"],
       ["p", "<applicant-pubkey>"],
       ["k", "1069"],
-      ["a", "30168:<form-author-pubkey>:repo-curator-application"],
+      ["a", "30168:<form-author-pubkey>:code-curator-application"],
       ["h", "<community-pubkey>"],
-      ["content", "Repo-curator"]
+      ["content", "Code-curator"]
     ],
     "content": "+"
   }
@@ -215,9 +215,9 @@ Rejecting access publishes only a negative reaction:
     ["e", "<form-response-event-id>"],
     ["p", "<applicant-pubkey>"],
     ["k", "1069"],
-    ["a", "30168:<form-author-pubkey>:repo-curator-application"],
+    ["a", "30168:<form-author-pubkey>:code-curator-application"],
     ["h", "<community-pubkey>"],
-    ["content", "Repo-curator"]
+    ["content", "Code-curator"]
   ],
   "content": "-"
 }
@@ -251,9 +251,9 @@ Example:
 | Section      | Section grants                                                                       | User result                                                             |
 | ------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | General      | `kind:9` room messages, `kind:1111` comments, `kind:7` reactions, `kind:1985` labels | User may chat, comment, react, and label where those actions are valid. |
-| Repo curator | `kind:30617` repo announcements and `kind:1623` permalinks                           | User may publish repos and permalinks targeted to the community.        |
+| Code curator | `kind:30617` repo announcements and `kind:1623` permalinks                           | User may publish repos and permalinks targeted to the community.        |
 
-A user with General access but not Repo curator access may react to a repository event but may not publish a new repository announcement or permalink for the community.
+A user with General access but not Code curator access may react to a repository event but may not publish a new repository announcement or permalink for the community.
 
 This avoids coupling UI features directly to section names. UI components should declare what they publish, and the permission layer maps that publish effect to the relevant section and application flow.
 
@@ -282,11 +282,11 @@ When migration is selected:
 
 Pending application requests are not migrated. Applicant submissions are not copied. User-authored event reports remain historical relay evidence and are not recreated by the admin.
 
-## Repo Curator
+## Code Curator
 
-The Repo curator community section controls who may publish repository announcements and permalinks into the community. It does not replace repository-level authority. Once a repository exists, issue and pull request moderation uses the repository owner and declared maintainers from the NIP-34 repo announcement.
+The Code curator community section controls who may publish repository announcements and permalinks into the community. It does not replace repository-level authority. Once a repository exists, issue and pull request moderation uses the repository owner and declared maintainers from the NIP-34 repo announcement.
 
-Repository authority is intentionally narrower than community write access. A user with Repo curator section access may publish repo announcements and permalinks, but they do not automatically become a maintainer of every repository in that section.
+Repository authority is intentionally narrower than community write access. A user with Code curator section access may publish repo announcements and permalinks, but they do not automatically become a maintainer of every repository in that section.
 
 Definitions:
 
@@ -374,14 +374,14 @@ Root-level events MUST only appear when they are explicitly allowed by the curre
 
 Examples of root-level events include:
 
-| Feature      | Root event                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------ |
-| Rooms        | Room root `kind:11`/thread event with the Budabit room marker.                                         |
-| Threads      | Thread root `kind:11` without the room marker.                                                         |
-| Calendar     | `kind:31922` event explicitly targeted to the community.                                               |
-| Goals        | `kind:9041` event explicitly targeted to the community.                                                |
-| Repo curator | `kind:30617` repository announcements and `kind:1623` permalinks explicitly targeted to the community. |
-| Widgets      | `kind:30033` event explicitly targeted to the community.                                               |
+| Feature                  | Root event                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Rooms                    | Room root `kind:11`/thread event with the Budabit room marker.                                         |
+| Threads                  | Thread root `kind:11` without the room marker.                                                         |
+| Calendar-event-creator   | `kind:31922` event explicitly targeted to the community.                                               |
+| Fundraiser-goals-creator | `kind:9041` event explicitly targeted to the community.                                                |
+| Code-curator             | `kind:30617` repository announcements and `kind:1623` permalinks explicitly targeted to the community. |
+| Widget-curator           | `kind:30033` event explicitly targeted to the community.                                               |
 
 Rules:
 

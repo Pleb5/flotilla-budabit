@@ -14,10 +14,10 @@ export const PROFILE_LIST_STATUS_DECLINED = "declined"
 export const COMMUNITY_SECTION_GENERAL = "General"
 export const COMMUNITY_SECTION_ROOMS = "Room-creator"
 export const COMMUNITY_SECTION_THREADS = "Thread-creator"
-export const COMMUNITY_SECTION_CALENDAR = "Calendar"
-export const COMMUNITY_SECTION_GOALS = "Goals"
-export const COMMUNITY_SECTION_REPO_CURATOR = "Repo-curator"
-export const COMMUNITY_SECTION_WIDGETS = "Widgets"
+export const COMMUNITY_SECTION_CALENDAR = "Calendar-event-creator"
+export const COMMUNITY_SECTION_GOALS = "Fundraiser-goals-creator"
+export const COMMUNITY_SECTION_REPO_CURATOR = "Code-curator"
+export const COMMUNITY_SECTION_WIDGETS = "Widget-curator"
 
 export const COMMUNITY_SUBTYPE_ROOM = "room"
 export const COMMUNITY_SUBTYPE_THREADS = "threads"
@@ -26,6 +26,10 @@ export const COMMUNITY_SUBTYPE_ROOM_MESSAGE = "room-message"
 const LEGACY_COMMUNITY_SECTION_FORUM = "Forum"
 const LEGACY_COMMUNITY_SECTION_ROOMS = "Rooms"
 const LEGACY_COMMUNITY_SECTION_THREADS = "Threads"
+const LEGACY_COMMUNITY_SECTION_CALENDAR = "Calendar"
+const LEGACY_COMMUNITY_SECTION_GOALS = "Goals"
+const LEGACY_COMMUNITY_SECTION_REPO_CURATOR = "Repo-curator"
+const LEGACY_COMMUNITY_SECTION_WIDGETS = "Widgets"
 const LEGACY_COMMUNITY_SUBTYPE_FORUM = "forum"
 
 export const normalizeCommunitySectionName = (name: string) => {
@@ -34,6 +38,10 @@ export const normalizeCommunitySectionName = (name: string) => {
   if (trimmed === LEGACY_COMMUNITY_SECTION_FORUM) return COMMUNITY_SECTION_THREADS
   if (trimmed === LEGACY_COMMUNITY_SECTION_ROOMS) return COMMUNITY_SECTION_ROOMS
   if (trimmed === LEGACY_COMMUNITY_SECTION_THREADS) return COMMUNITY_SECTION_THREADS
+  if (trimmed === LEGACY_COMMUNITY_SECTION_CALENDAR) return COMMUNITY_SECTION_CALENDAR
+  if (trimmed === LEGACY_COMMUNITY_SECTION_GOALS) return COMMUNITY_SECTION_GOALS
+  if (trimmed === LEGACY_COMMUNITY_SECTION_REPO_CURATOR) return COMMUNITY_SECTION_REPO_CURATOR
+  if (trimmed === LEGACY_COMMUNITY_SECTION_WIDGETS) return COMMUNITY_SECTION_WIDGETS
 
   return trimmed
 }
@@ -696,7 +704,7 @@ export const getCommunitySectionDisplayName = (section: CommunitySection) =>
   sectionSupportsKind(section, 9041)
     ? COMMUNITY_SECTION_GOALS
     : normalizeCommunitySectionName(section.name) === COMMUNITY_SECTION_REPO_CURATOR
-      ? "Repo curator"
+      ? "Code curator"
       : normalizeCommunitySectionName(section.name)
 
 export const getProfileListStatus = (event: TrustedEvent | undefined) =>

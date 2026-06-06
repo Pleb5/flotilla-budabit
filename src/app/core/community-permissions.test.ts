@@ -64,10 +64,10 @@ const definition = parseCommunityDefinition(
       ["k", "1984"],
       ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:General`],
       ["badge", `${BADGE_DEFINITION}:${managerPubkey}:member`],
-      ["content", "Repo-curator"],
+      ["content", "Code-curator"],
       ["k", "30617"],
       ["k", "1623"],
-      ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:Repo-curator`],
+      ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:Code-curator`],
       ["badge", `${BADGE_DEFINITION}:${managerPubkey}:repo-curator`],
     ],
   }),
@@ -86,7 +86,7 @@ const repoProfileList = makeEvent({
   kind: PROFILE_LIST_KIND,
   pubkey: repoManagerPubkey,
   tags: [
-    ["d", "Repo-curator"],
+    ["d", "Code-curator"],
     ["p", repoManagerPubkey],
   ],
 })
@@ -334,12 +334,12 @@ describe("community permissions", () => {
       getGrantCapability({
         definition,
         userPubkey: repoManagerPubkey,
-        sectionName: "Repo-curator",
+        sectionName: "Code-curator",
         profileListEvents: [generalProfileList, repoProfileList],
       }),
     ).toMatchObject({canManageList: true, canGrant: true})
     expect(
-      getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "Repo-curator"}),
+      getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "Code-curator"}),
     ).toMatchObject({canManageList: false, canGrant: false})
     expect(
       getGrantCapableSectionModeratorPubkeys({
@@ -349,7 +349,7 @@ describe("community permissions", () => {
       }),
     ).toEqual([managerPubkey])
     expect(
-      getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repo-curator"}),
+      getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Code-curator"}),
     ).toEqual([repoManagerPubkey])
   })
 
@@ -403,8 +403,8 @@ describe("community permissions", () => {
     expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["1984"]).toMatchObject({sectionName: "General", canWrite: true})
-    expect(capabilities["30617"]).toMatchObject({sectionName: "Repo-curator", canWrite: false})
-    expect(capabilities["1623"]).toMatchObject({sectionName: "Repo-curator", canWrite: false})
+    expect(capabilities["30617"]).toMatchObject({sectionName: "Code-curator", canWrite: false})
+    expect(capabilities["1623"]).toMatchObject({sectionName: "Code-curator", canWrite: false})
   })
 
   it("classifies publish gate state by login, write access, and admission status", () => {

@@ -3,10 +3,13 @@ import * as nip19 from "nostr-tools/nip19"
 import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GENERAL,
+  COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_REPO_CURATOR,
   COMMUNITY_SECTION_ROOMS,
   COMMUNITY_SECTION_THREADS,
+  COMMUNITY_SECTION_WIDGETS,
   COMMUNITY_SUBTYPE_ROOM,
   COMMUNITY_SUBTYPE_ROOM_MESSAGE,
   COMMUNITY_SUBTYPE_THREADS,
@@ -273,7 +276,7 @@ describe("community protocol helpers", () => {
       buildCommunityDefinition({
         relays: ["wss://relay.example.com"],
         sections: [
-          {name: "Widgets", kinds: [{kind: 30033}]},
+          {name: COMMUNITY_SECTION_WIDGETS, kinds: [{kind: 30033}]},
           {name: "Apps", kinds: [{kind: 30033}]},
         ],
       }),
@@ -282,7 +285,7 @@ describe("community protocol helpers", () => {
       buildCommunityDefinition({
         relays: ["wss://relay.example.com"],
         sections: [
-          {name: "Widgets", kinds: [{kind: 1234}]},
+          {name: COMMUNITY_SECTION_WIDGETS, kinds: [{kind: 1234}]},
           {name: "Code", kinds: [{kind: 1234, subtype: "code"}]},
         ],
       }),
@@ -311,9 +314,13 @@ describe("community protocol helpers", () => {
     expect(threads.profileLists[0].address).toBe(`${PROFILE_LIST_KIND}:${pubkeyB}:Forum`)
   })
 
-  it("normalizes legacy room and thread section names", () => {
+  it("normalizes legacy default section names", () => {
     expect(normalizeCommunitySectionName("Rooms")).toBe(COMMUNITY_SECTION_ROOMS)
     expect(normalizeCommunitySectionName("Threads")).toBe(COMMUNITY_SECTION_THREADS)
+    expect(normalizeCommunitySectionName("Calendar")).toBe(COMMUNITY_SECTION_CALENDAR)
+    expect(normalizeCommunitySectionName("Goals")).toBe(COMMUNITY_SECTION_GOALS)
+    expect(normalizeCommunitySectionName("Repo-curator")).toBe(COMMUNITY_SECTION_REPO_CURATOR)
+    expect(normalizeCommunitySectionName("Widgets")).toBe(COMMUNITY_SECTION_WIDGETS)
   })
 
   it("builds community badge definition events", () => {

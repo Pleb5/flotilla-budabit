@@ -16,22 +16,22 @@ The selected community is the root of the application session. A user may enter 
 
 ## Core Principles
 
-| Principle | Decision |
-|---|---|
-| Community identity | The community pubkey is the canonical durable identifier. |
-| Relay identity | Relay URLs are never community IDs. They are relay hints and publication targets. |
-| Session scope | A Budabit session stores the selected community pubkey and optional relay hints. |
-| Read visibility | All community content is publicly readable for now. |
-| Write access | Profile lists are the effective write-permission source. |
-| User-community membership | App-wide membership is derived from community definitions plus section profile lists: admin, moderator/list owner, or member/grantee. |
-| Badges | Badges drive engagement and endorsements; profile list inclusion is what Budabit enforces for write access. |
-| Rooms | Rooms are immutable `kind:11` roots with a `room` marker. |
-| Room messages | Room messages are `kind:9` chat events scoped to the community and room root. |
-| Threads | Threads remain `kind:11`, distinguished from rooms by absence of a `room` marker. |
-| Global chat | There is no global community chat. Every chat message belongs to a room. |
-| Targeted publications | Calendar events, goals, repo announcements, permalinks, and smart widgets use `kind:30222`. |
-| Exclusive content | Rooms, room messages, threads, comments, reactions, labels, deletes, reports, profile data, badges, forms, and lists are not targeted publications. |
-| Migration | This is a clean break. Legacy relay-space architecture is not preserved as a compatibility layer. |
+| Principle                 | Decision                                                                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Community identity        | The community pubkey is the canonical durable identifier.                                                                                           |
+| Relay identity            | Relay URLs are never community IDs. They are relay hints and publication targets.                                                                   |
+| Session scope             | A Budabit session stores the selected community pubkey and optional relay hints.                                                                    |
+| Read visibility           | All community content is publicly readable for now.                                                                                                 |
+| Write access              | Profile lists are the effective write-permission source.                                                                                            |
+| User-community membership | App-wide membership is derived from community definitions plus section profile lists: admin, moderator/list owner, or member/grantee.               |
+| Badges                    | Badges drive engagement and endorsements; profile list inclusion is what Budabit enforces for write access.                                         |
+| Rooms                     | Rooms are immutable `kind:11` roots with a `room` marker.                                                                                           |
+| Room messages             | Room messages are `kind:9` chat events scoped to the community and room root.                                                                       |
+| Threads                   | Threads remain `kind:11`, distinguished from rooms by absence of a `room` marker.                                                                   |
+| Global chat               | There is no global community chat. Every chat message belongs to a room.                                                                            |
+| Targeted publications     | Calendar events, goals, repo announcements, permalinks, and smart widgets use `kind:30222`.                                                         |
+| Exclusive content         | Rooms, room messages, threads, comments, reactions, labels, deletes, reports, profile data, badges, forms, and lists are not targeted publications. |
+| Migration                 | This is a clean break. Legacy relay-space architecture is not preserved as a compatibility layer.                                                   |
 
 ## Community Resolution
 
@@ -109,26 +109,26 @@ Example target shape:
     ["a", "30000:<list-pubkey>:Thread-creator", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
-    ["content", "Calendar"],
+    ["content", "Calendar-event-creator"],
     ["k", "31922"],
-    ["a", "30000:<list-pubkey>:Calendar", "wss://main.community.relay"],
+    ["a", "30000:<list-pubkey>:Calendar-event-creator", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
-    ["content", "Goals"],
+    ["content", "Fundraiser-goals-creator"],
     ["k", "9041"],
-    ["a", "30000:<list-pubkey>:Goals", "wss://main.community.relay"],
+    ["a", "30000:<list-pubkey>:Fundraiser-goals-creator", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
-    ["content", "Repo-curator"],
+    ["content", "Code-curator"],
     ["k", "30617"],
     ["k", "1623"],
-    ["a", "30000:<list-pubkey>:Repo-curator", "wss://main.community.relay"],
-    ["badge", "30009:<issuer-pubkey>:repo-curator"],
+    ["a", "30000:<list-pubkey>:Code-curator", "wss://main.community.relay"],
+    ["badge", "30009:<issuer-pubkey>:code-curator"],
 
-    ["content", "Widgets"],
+    ["content", "Widget-curator"],
     ["k", "30033"],
-    ["a", "30000:<list-pubkey>:Widgets", "wss://main.community.relay"],
-    ["badge", "30009:<issuer-pubkey>:app-curator"]
+    ["a", "30000:<list-pubkey>:Widget-curator", "wss://main.community.relay"],
+    ["badge", "30009:<issuer-pubkey>:widget-curator"]
   ],
   "content": ""
 }
@@ -136,10 +136,10 @@ Example target shape:
 
 The third value in a `k` tag is a Budabit subtype convention. It is needed when one event kind supports more than one community section.
 
-| Tag | Meaning in Budabit |
-|---|---|
-| `["k", "11", "room"]` | `kind:11` room roots. |
-| `["k", "11", "threads"]` | `kind:11` thread roots. |
+| Tag                          | Meaning in Budabit           |
+| ---------------------------- | ---------------------------- |
+| `["k", "11", "room"]`        | `kind:11` room roots.        |
+| `["k", "11", "threads"]`     | `kind:11` thread roots.      |
 | `["k", "9", "room-message"]` | `kind:9` room chat messages. |
 
 Each exact `(kind, subtype)` pair should appear in only one section per community definition. Empty subtype is exact and does not match non-empty subtypes. This lets publish gates, application forms, and member grants resolve to one section without fallback or wildcard behavior.
@@ -204,60 +204,60 @@ When a user is removed from the relevant section list, Budabit must treat that u
 
 Admin tooling that grants or revokes access must update profile lists. Badge awards may be published separately as recognition or onboarding context, but they are not effective permission state:
 
-| Action | Badge event | Profile list event | Effective result |
-|---|---|---|---|
-| Grant access | Optional endorsement award | Add pubkey to section list | User can publish. |
-| Revoke access | Existing badge award remains display state | Remove pubkey from section list | User cannot publish. |
-| User hides badge | User updates profile badges | No required change | Display changes, write access unchanged. |
+| Action           | Badge event                                | Profile list event              | Effective result                         |
+| ---------------- | ------------------------------------------ | ------------------------------- | ---------------------------------------- |
+| Grant access     | Optional endorsement award                 | Add pubkey to section list      | User can publish.                        |
+| Revoke access    | Existing badge award remains display state | Remove pubkey from section list | User cannot publish.                     |
+| User hides badge | User updates profile badges                | No required change              | Display changes, write access unchanged. |
 
 If a future standard defines explicit badge revocation, Budabit can support it for badge display and engagement. Profile lists remain the access-control source of truth unless Budabit intentionally adopts another permission signal.
 
 ## Event Taxonomy
 
-| Budabit feature | Kind | Targeted with `kind:30222` | Target model |
-|---|---:|---|---|
-| Room root | `11` | No | Community-exclusive immutable room root with `h = communityPubkey` and `room` marker. |
-| Room message | `9` | No | Community-exclusive chat event with `h = communityPubkey` and room-root reference. |
-| Room reply | `9` | No | Same as room message, plus NIP-C7 `q` tag to parent message. |
-| Room archive label | `1985` | No | Admin label against room root. |
-| Thread root | `11` | No | Community-exclusive thread with `h = communityPubkey`, no `room` marker. |
-| Thread reply | `1111` | No | NIP-22 comment against thread root. |
-| Calendar event | `31922` | Yes | Public publication targeted to the community. |
-| Calendar comments | `1111` | No | Comments against calendar event. |
-| Goal | `9041` | Yes | Public publication targeted to the community. |
-| Goal comments | `1111` | No | Comments against a goal. |
-| Repo announcement | `30617` | Yes | Public repo publication targeted to the community catalog. Controlled by the Repo curator section. |
-| Repo state | `30618` | No | Repo infrastructure state. Inherits repo context. |
-| Git issue | `1621` | No | Repo-scoped collaboration. Inherits repo context. |
-| Git PR | `1618` | No | Repo-scoped collaboration. Inherits repo context. |
-| Git PR update | `1619` | No | Repo-scoped update. Inherits PR context. |
-| Git statuses | `1630` to `1633` | No | Repo/issue/PR state. |
-| Git cover letter | `1624` | No | Repo/issue/PR body update. |
-| Git inline/file comments | `1111` | No | Comments against issue/PR/code root. |
-| Git labels | `1985` | No | Repo/issue/PR labels. |
-| Git permalink | `1623` | Yes | Public code reference targeted to the community. Controlled by the Repo curator section. |
-| Smart widget | `30033` | Yes | Public widget/app publication targeted to the community. |
-| Reactions | `7` | No | General interaction event. |
-| Generic comments | `1111` | No | General interaction event. |
-| Labels | `1985` | No | General/admin/moderation event. |
-| Deletes | `5` | No | Deletion request or moderation action. |
-| Reports | `1984` | No | Moderation signal. |
-| Zaps | `9734` / `9735` | No | Payment signal and receipt. Anyone may zap. |
-| Profile metadata | `0` | No | User/community identity metadata. |
-| Follow list | `3` | No | User graph and community following. |
-| Relay list | `10002` | No | User relay configuration. |
-| Messaging relay list | `10050` or equivalent | No | User DM relay configuration. |
-| Mute list | `10000` | No | User preference. |
-| Blossom server list | `10063` or equivalent | No | User preference. |
-| App settings and Git auth | `30078` | No | User-private app data. |
-| DMs | `4444` | No | Private messaging. |
-| Badge definition | `30009` | No | Access-control infrastructure. |
-| Badge award | `8` | No | Access-control infrastructure. |
-| Profile list | `30000` | No | Access-control infrastructure. |
-| Form template | `30168` | No | Admission workflow infrastructure. |
-| Form response | `1069` | No | Admission request. |
-| Community definition | `10222` | No | Community root configuration. |
-| Targeted publication | `30222` | Not applicable | Association between publication and community. |
+| Budabit feature           |                  Kind | Targeted with `kind:30222` | Target model                                                                                       |
+| ------------------------- | --------------------: | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| Room root                 |                  `11` | No                         | Community-exclusive immutable room root with `h = communityPubkey` and `room` marker.              |
+| Room message              |                   `9` | No                         | Community-exclusive chat event with `h = communityPubkey` and room-root reference.                 |
+| Room reply                |                   `9` | No                         | Same as room message, plus NIP-C7 `q` tag to parent message.                                       |
+| Room archive label        |                `1985` | No                         | Admin label against room root.                                                                     |
+| Thread root               |                  `11` | No                         | Community-exclusive thread with `h = communityPubkey`, no `room` marker.                           |
+| Thread reply              |                `1111` | No                         | NIP-22 comment against thread root.                                                                |
+| Calendar event            |               `31922` | Yes                        | Public publication targeted to the community.                                                      |
+| Calendar comments         |                `1111` | No                         | Comments against calendar event.                                                                   |
+| Goal                      |                `9041` | Yes                        | Public publication targeted to the community.                                                      |
+| Goal comments             |                `1111` | No                         | Comments against a goal.                                                                           |
+| Repo announcement         |               `30617` | Yes                        | Public repo publication targeted to the community catalog. Controlled by the Code curator section. |
+| Repo state                |               `30618` | No                         | Repo infrastructure state. Inherits repo context.                                                  |
+| Git issue                 |                `1621` | No                         | Repo-scoped collaboration. Inherits repo context.                                                  |
+| Git PR                    |                `1618` | No                         | Repo-scoped collaboration. Inherits repo context.                                                  |
+| Git PR update             |                `1619` | No                         | Repo-scoped update. Inherits PR context.                                                           |
+| Git statuses              |      `1630` to `1633` | No                         | Repo/issue/PR state.                                                                               |
+| Git cover letter          |                `1624` | No                         | Repo/issue/PR body update.                                                                         |
+| Git inline/file comments  |                `1111` | No                         | Comments against issue/PR/code root.                                                               |
+| Git labels                |                `1985` | No                         | Repo/issue/PR labels.                                                                              |
+| Git permalink             |                `1623` | Yes                        | Public code reference targeted to the community. Controlled by the Code curator section.           |
+| Smart widget              |               `30033` | Yes                        | Public widget/app publication targeted to the community.                                           |
+| Reactions                 |                   `7` | No                         | General interaction event.                                                                         |
+| Generic comments          |                `1111` | No                         | General interaction event.                                                                         |
+| Labels                    |                `1985` | No                         | General/admin/moderation event.                                                                    |
+| Deletes                   |                   `5` | No                         | Deletion request or moderation action.                                                             |
+| Reports                   |                `1984` | No                         | Moderation signal.                                                                                 |
+| Zaps                      |       `9734` / `9735` | No                         | Payment signal and receipt. Anyone may zap.                                                        |
+| Profile metadata          |                   `0` | No                         | User/community identity metadata.                                                                  |
+| Follow list               |                   `3` | No                         | User graph and community following.                                                                |
+| Relay list                |               `10002` | No                         | User relay configuration.                                                                          |
+| Messaging relay list      | `10050` or equivalent | No                         | User DM relay configuration.                                                                       |
+| Mute list                 |               `10000` | No                         | User preference.                                                                                   |
+| Blossom server list       | `10063` or equivalent | No                         | User preference.                                                                                   |
+| App settings and Git auth |               `30078` | No                         | User-private app data.                                                                             |
+| DMs                       |                `4444` | No                         | Private messaging.                                                                                 |
+| Badge definition          |               `30009` | No                         | Access-control infrastructure.                                                                     |
+| Badge award               |                   `8` | No                         | Access-control infrastructure.                                                                     |
+| Profile list              |               `30000` | No                         | Access-control infrastructure.                                                                     |
+| Form template             |               `30168` | No                         | Admission workflow infrastructure.                                                                 |
+| Form response             |                `1069` | No                         | Admission request.                                                                                 |
+| Community definition      |               `10222` | No                         | Community root configuration.                                                                      |
+| Targeted publication      |               `30222` | Not applicable             | Association between publication and community.                                                     |
 
 ## Targeted Publications
 
@@ -265,29 +265,29 @@ Budabit uses `kind:30222` for public publications that can be associated with on
 
 Targeted kinds:
 
-| Kind | Feature |
-|---:|---|
-| `31922` | Calendar events. |
-| `9041` | Goals. |
+|    Kind | Feature             |
+| ------: | ------------------- |
+| `31922` | Calendar events.    |
+|  `9041` | Fundraiser goals.   |
 | `30617` | Repo announcements. |
-| `1623` | Git permalinks. |
-| `30033` | Smart widgets. |
+|  `1623` | Git permalinks.     |
+| `30033` | Smart widgets.      |
 
 Budabit convention:
 
-| Field | Meaning |
-|---|---|
-| Original publication `h` tag | Targeting identifier, not community pubkey. |
-| Targeting event `d` tag | Same targeting identifier used in the original publication's `h` tag. |
-| Targeting event `p` tags | Community pubkeys being targeted. |
-| Targeting event `r` tags | Main relay hints for the corresponding communities. |
+| Field                        | Meaning                                                               |
+| ---------------------------- | --------------------------------------------------------------------- |
+| Original publication `h` tag | Targeting identifier, not community pubkey.                           |
+| Targeting event `d` tag      | Same targeting identifier used in the original publication's `h` tag. |
+| Targeting event `p` tags     | Community pubkeys being targeted.                                     |
+| Targeting event `r` tags     | Main relay hints for the corresponding communities.                   |
 
 This preserves a strict split:
 
-| `h` value | Used by |
-|---|---|
-| `communityPubkey` | Exclusive community-native content. |
-| `targeting d/id` | Targetable publications associated through `kind:30222`. |
+| `h` value         | Used by                                                  |
+| ----------------- | -------------------------------------------------------- |
+| `communityPubkey` | Exclusive community-native content.                      |
+| `targeting d/id`  | Targetable publications associated through `kind:30222`. |
 
 Example targeted calendar publication:
 
@@ -375,27 +375,23 @@ Room root example:
 ```json
 {
   "kind": 11,
-  "tags": [
-    ["h", "<community-pubkey>"],
-    ["room"],
-    ["title", "General"]
-  ],
+  "tags": [["h", "<community-pubkey>"], ["room"], ["title", "General"]],
   "content": "Room description"
 }
 ```
 
 Room root rules:
 
-| Rule | Decision |
-|---|---|
-| Kind | `11`. |
-| Community scope | `h = communityPubkey`. |
-| Room marker | Include a `room` tag. |
-| Title | Use NIP-7D `title`. |
-| Description | Use `content`. |
-| Mutability | Immutable. Create a new room if identity needs to change. |
-| Canonical ID | Event ID. |
-| URL identity | No relay URL in canonical ID. |
+| Rule            | Decision                                                  |
+| --------------- | --------------------------------------------------------- |
+| Kind            | `11`.                                                     |
+| Community scope | `h = communityPubkey`.                                    |
+| Room marker     | Include a `room` tag.                                     |
+| Title           | Use NIP-7D `title`.                                       |
+| Description     | Use `content`.                                            |
+| Mutability      | Immutable. Create a new room if identity needs to change. |
+| Canonical ID    | Event ID.                                                 |
+| URL identity    | No relay URL in canonical ID.                             |
 
 Thread roots are also `kind:11`, but they do not include a `room` tag.
 
@@ -470,13 +466,13 @@ To unarchive, Budabit can publish a newer authoritative label that removes or su
 
 ## Publishing Relay Policy
 
-| Event type | Publish relays |
-|---|---|
-| Exclusive community events | All `r` relays from latest `kind:10222`. |
-| Original targetable publication | User write relays plus community relays. |
-| `kind:30222` targeting event | Community relays. |
+| Event type                      | Publish relays                                                                          |
+| ------------------------------- | --------------------------------------------------------------------------------------- |
+| Exclusive community events      | All `r` relays from latest `kind:10222`.                                                |
+| Original targetable publication | User write relays plus community relays.                                                |
+| `kind:30222` targeting event    | Community relays.                                                                       |
 | Badge/profile-list admin events | Relays referenced by the community definition plus relevant issuer/list-manager relays. |
-| User-private app data | User relays only. |
+| User-private app data           | User relays only.                                                                       |
 
 This keeps community discovery reliable without making original publications permanently dependent on one community's relay set.
 
@@ -530,11 +526,11 @@ After loading `kind:30222`, Budabit fetches referenced original publications via
 
 Budabit should not require the community root key to be hot.
 
-| Key | Role |
-|---|---|
-| Community root key | Signs `kind:0` and `kind:10222`. Should be cold or rarely used. |
-| Moderator key | Updates delegated profile lists, reviews applications, creates community endorsements, and publishes admin labels. Can be hot or delegated. |
-| User key | Publishes user content when included in the relevant profile list. |
+| Key                | Role                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Community root key | Signs `kind:0` and `kind:10222`. Should be cold or rarely used.                                                                             |
+| Moderator key      | Updates delegated profile lists, reviews applications, creates community endorsements, and publishes admin labels. Can be hot or delegated. |
+| User key           | Publishes user content when included in the relevant profile list.                                                                          |
 
 The profile list `a` tags may reference lists managed by delegated pubkeys. Badge definitions and awards are discovered by badge-specific views and should not be required for community bootstrap or section access checks.
 
@@ -567,12 +563,12 @@ The route model should move away from relay-encoded spaces.
 
 Target direction:
 
-| Current concept | Target concept |
-|---|---|
-| `/spaces/[relay]` | Community route keyed by pubkey or ncommunity-derived identifier. |
-| Relay URL in route | Community pubkey in route/session. |
-| Room path `[h]` | Room path by room root event ID. |
-| Platform relays env | Optional default community npub or bootstrap hints. |
+| Current concept     | Target concept                                                    |
+| ------------------- | ----------------------------------------------------------------- |
+| `/spaces/[relay]`   | Community route keyed by pubkey or ncommunity-derived identifier. |
+| Relay URL in route  | Community pubkey in route/session.                                |
+| Room path `[h]`     | Room path by room root event ID.                                  |
+| Platform relays env | Optional default community npub or bootstrap hints.               |
 
 The deployed website may default to the Budabit community npub, but the app architecture must not derive community identity from deployment relays.
 
@@ -580,14 +576,14 @@ The deployed website may default to the Budabit community npub, but the app arch
 
 The target architecture removes these assumptions:
 
-| Removed assumption | Replacement |
-|---|---|
-| Relay URL is the community. | Pubkey is the community. |
-| `h` identifies a room. | `h` identifies the community for exclusive events. |
-| `39000` room metadata drives rooms. | `kind:11` immutable room roots drive rooms. |
-| Platform relays define the app space. | `kind:10222` defines community infrastructure. |
-| Relay auth is the main access model. | Profile-list write permission is the client-side model. |
-| Global roomless space chat exists. | Every chat message belongs to a room. |
+| Removed assumption                    | Replacement                                             |
+| ------------------------------------- | ------------------------------------------------------- |
+| Relay URL is the community.           | Pubkey is the community.                                |
+| `h` identifies a room.                | `h` identifies the community for exclusive events.      |
+| `39000` room metadata drives rooms.   | `kind:11` immutable room roots drive rooms.             |
+| Platform relays define the app space. | `kind:10222` defines community infrastructure.          |
+| Relay auth is the main access model.  | Profile-list write permission is the client-side model. |
+| Global roomless space chat exists.    | Every chat message belongs to a room.                   |
 
 ## Implementation Guardrails
 

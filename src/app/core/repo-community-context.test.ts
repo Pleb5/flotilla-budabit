@@ -39,7 +39,7 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
     ...overrides,
   }) as TrustedEvent
 
-const makeDefinition = (pubkey = communityPubkey, sectionName = "Repo-curator") =>
+const makeDefinition = (pubkey = communityPubkey, sectionName = "Code-curator") =>
   parseCommunityDefinition(
     makeEvent({
       id: `definition-${pubkey}`,
@@ -54,7 +54,7 @@ const makeDefinition = (pubkey = communityPubkey, sectionName = "Repo-curator") 
     }),
   )!
 
-const makeProfileList = ({members = [granteePubkey], sectionName = "Repo-curator"} = {}) =>
+const makeProfileList = ({members = [granteePubkey], sectionName = "Code-curator"} = {}) =>
   makeEvent({
     id: "repo-profile-list",
     pubkey: moderatorPubkey,

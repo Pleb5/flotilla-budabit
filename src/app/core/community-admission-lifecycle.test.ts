@@ -66,8 +66,8 @@ const repoListRef = {
 const calendarListRef = {
   kind: PROFILE_LIST_KIND,
   pubkey: moderatorPubkey,
-  identifier: "Calendar",
-  address: `${PROFILE_LIST_KIND}:${moderatorPubkey}:Calendar`,
+  identifier: "Calendar-event-creator",
+  address: `${PROFILE_LIST_KIND}:${moderatorPubkey}:Calendar-event-creator`,
 }
 const definition = parseCommunityDefinition(
   makeEvent({
@@ -84,7 +84,7 @@ const definition = parseCommunityDefinition(
       ["content", "Repositories"],
       ["k", "30617"],
       ["a", repoListRef.address],
-      ["content", "Calendar"],
+      ["content", "Calendar-event-creator"],
       ["k", "31922"],
       ["a", calendarListRef.address],
     ],
@@ -320,14 +320,14 @@ describe("community admission lifecycle integration", () => {
       kind: PROFILE_LIST_KIND,
       pubkey: moderatorPubkey,
       tags: [
-        ["d", "Calendar"],
+        ["d", "Calendar-event-creator"],
         ["p", approvedCalendarPubkey],
       ],
     })
     const calendarAuthors = getCommunitySectionWriterPubkeys({
       definition,
       profileListEvents: [calendarList],
-      sectionName: "Calendar",
+      sectionName: "Calendar-event-creator",
     })
     const approvedTargeting = makeEvent({
       id: "approved-targeting",
