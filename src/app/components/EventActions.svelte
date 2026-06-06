@@ -29,6 +29,7 @@
     ownerPubkey?: string
     readOnly?: boolean
     showReport?: boolean
+    showModeration?: boolean
     allowAdminDelete?: boolean
     hideMenu?: boolean
     menuOnly?: boolean
@@ -48,6 +49,7 @@
     ownerPubkey = "",
     readOnly = false,
     showReport = true,
+    showModeration = true,
     allowAdminDelete = true,
     hideMenu = false,
     menuOnly = false,
@@ -88,7 +90,11 @@
   data-stop-tap
   oncontextmenu={onContextMenu}>
   {#if !menuOnly && ENABLE_ZAPS && !hideZap && !readOnly}
-    <ZapButton {event} relayHints={relays} scopeH={zapScopeH || scopeH} class="btn join-item btn-neutral btn-xs">
+    <ZapButton
+      {event}
+      relayHints={relays}
+      scopeH={zapScopeH || scopeH}
+      class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
     </ZapButton>
   {/if}
@@ -112,10 +118,13 @@
         communitySectionName,
         ownerPubkey,
         showReport,
+        showModeration,
         allowAdminDelete,
       }}
       params={{trigger: "manual", interactive: true}}>
-      <Button class="btn btn-neutral btn-xs {menuOnly ? 'rounded-full' : 'join-item'}" onclick={showPopover}>
+      <Button
+        class="btn btn-neutral btn-xs {menuOnly ? 'rounded-full' : 'join-item'}"
+        onclick={showPopover}>
         <Icon icon={MenuDots} size={4} />
       </Button>
     </Tippy>

@@ -89,7 +89,7 @@
   })
   const repoCommunityScope = $derived(
     repoClass.community?.pubkey ||
-      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      getTagValue("h", ((repoClass as any)?.repoEvent?.tags || []) as string[][]) ||
       "",
   )
   const repoCommunityProfileRelays = $derived.by(() => {
@@ -427,6 +427,24 @@
     })
   }
 
+  const deleteCommentReaction = async (event: any) => {
+    const relays = getPublishRelays()
+    if (relays.length === 0) return
+
+    publishDelete({event: event as unknown as TrustedEvent, relays})
+  }
+
+  const createCommentReaction = async (comment: CommentEvent, template: EventContent) => {
+    const relays = getPublishRelays()
+    if (relays.length === 0) return
+
+    publishReaction({
+      ...template,
+      event: comment as unknown as TrustedEvent,
+      relays,
+    })
+  }
+
   const publishTagDeleteMarker = (labelValue: string, relays: string[], includeUgc = false) => {
     if (!issue) return
     const namespaces = includeUgc ? ["#t", "ugc"] : ["#t"]
@@ -536,9 +554,13 @@
       const currentTags = mergeRichEditorTags(issueDescriptionEvent as any, [], {
         repoAddress: issueEditRepoAddress,
       })
-      const nextTags = mergeRichEditorTags(issueDescriptionEvent as any, descriptionPayload.tags || [], {
-        repoAddress: issueEditRepoAddress,
-      })
+      const nextTags = mergeRichEditorTags(
+        issueDescriptionEvent as any,
+        descriptionPayload.tags || [],
+        {
+          repoAddress: issueEditRepoAddress,
+        },
+      )
       if (value === (issue.content || "") && areTagsEqual(nextTags, currentTags)) {
         editingDescription = false
         descriptionEditor = null
@@ -1027,11 +1049,15 @@
         onCommentEdited={$pubkey ? onCommentEdited : undefined}
         onLoginRequired={requireLogin}
         relays={repoBoundRelays}
+        profileRelays={repoCommunityProfileRelays}
         repoAddress={issueEditRepoAddress}
         rootEvent={issueEvent as any}
         repoRefs={issueCommentRepoRefs}
         relayHint={issueCommentRelayHint}
-        ownerPubkey={currentRepoOwner} />
+        deleteReaction={deleteCommentReaction}
+        createReaction={createCommentReaction}
+        ownerPubkey={currentRepoOwner}
+        enableReplies />
     </Card>
   </div>
 {:else if isResolvingIssue || !didResolveIssue}

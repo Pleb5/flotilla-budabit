@@ -1,7 +1,7 @@
 <script lang="ts">
   import TimeAgo from "../../TimeAgo.svelte";
   import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
-  import { nip19 } from "nostr-tools";
+  import { nip19, type NostrEvent } from "nostr-tools";
   import { createGitCommentEvent, parseCommentEvent } from "@nostr-git/core/events";
   import type { CommentEvent, CommentTag, Profile } from "@nostr-git/core/events";
   import type {
@@ -19,11 +19,18 @@
     Textarea,
     Card,
     ProfileComponent,
+    ProfileLink,
     Markdown,
     CommentStatus,
     EventActions,
+    ReactionSummary,
     RichCommentComposer,
   } = useRegistry();
+
+  type ReactionTemplate = {
+    content: string;
+    tags: string[][];
+  };
 
   interface Props {
     issueId: string;
@@ -37,12 +44,15 @@
     canEditComment?: (comment: CommentEvent) => boolean;
     onCommentEdited?: (comment: CommentEvent, content: string, tags?: string[][]) => Promise<void>;
     relays?: string[];
+    profileRelays?: string[];
     repoAddress?: string;
     rootEvent?: { id: string; kind: number | string; pubkey?: string; tags?: string[][] };
     repoRefs?: string[];
     relayHint?: string;
     ownerPubkey?: string;
     enableReplies?: boolean;
+    deleteReaction?: (event: NostrEvent) => void | Promise<void>;
+    createReaction?: (comment: CommentEvent, template: ReactionTemplate) => void | Promise<void>;
     onInlineCommentOpen?: (comment: CommentEvent) => void;
   }
 
@@ -56,12 +66,15 @@
     canEditComment = () => false,
     onCommentEdited,
     relays = [],
+    profileRelays = [],
     repoAddress = "",
     rootEvent,
     repoRefs = [],
     relayHint,
     ownerPubkey = "",
     enableReplies = false,
+    deleteReaction,
+    createReaction,
     onInlineCommentOpen,
   }: Props = $props();
 
@@ -124,6 +137,8 @@
     }
     return Array.from(hints);
   };
+
+  const getProfileRelayHints = () => (profileRelays.length > 0 ? profileRelays : relays);
 
   const composerMode = $derived.by((): RichComposerMode => {
     if (editingComment) return "edit";
@@ -361,6 +376,11 @@
         {@const inlineLocationLabel = getInlineLocationLabel(inlineLocation)}
         {@const isReply = Boolean(parentId && parentId !== issueId)}
         {@const eventActionUrl = relays[0] || relayHint || ""}
+        {@const commentRelayHints = getCommentRelayHints(c.raw)}
+        {@const commentProfileRelays = getProfileRelayHints()}
+        {@const canHideSpam = Boolean(
+          ownerPubkey && currentCommenter === ownerPubkey && c.raw.pubkey !== currentCommenter
+        )}
         <div
           id={`comment-${c.id}`}
           data-event={c.id}
@@ -368,90 +388,24 @@
             ? 'ml-2 border-l-2 border-l-blue-500/35 bg-muted/25 sm:ml-4'
             : ''}"
         >
-          <div class="w-full grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-            <ProfileComponent pubkey={c.author.pubkey} hideDetails={false} class="min-w-0 text-sm"
-            ></ProfileComponent>
-            <div class="flex items-center gap-1 text-xs text-muted-foreground sm:gap-2">
-              <span class="whitespace-nowrap"><TimeAgo date={dateToShow} compact /></span>
-              {#if enableReplies && currentCommenter && onCommentCreated}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
-                  onclick={() => {
-                    editingComment = null;
-                    newComment = "";
-                    replyParent = c.raw;
-                  }}
-                  aria-label="Reply to comment"
-                  title="Reply"
-                >
-                  <Reply class="h-4 w-4" />
-                </Button>
-              {/if}
-              {#if currentCommenter && onCommentEdited && canEditComment(c.raw)}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
-                  onclick={() => startEditingComment(c.raw)}
-                  aria-label="Edit comment"
-                  title="Edit"
-                >
-                  <Pencil class="h-4 w-4" />
-                </Button>
-              {/if}
-              <Button
-                variant="ghost"
-                size="icon"
-                class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
-                onclick={() => copyEventLink(c.raw)}
-                aria-label="Share comment"
-                title="Share"
-              >
-                <svg
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  ></path>
-                  <path
-                    d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  ></path>
-                  <path
-                    d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  ></path>
-                  <path
-                    d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                  ></path>
-                </svg>
-              </Button>
-              {#if ownerPubkey && currentCommenter === ownerPubkey && c.raw.pubkey !== currentCommenter && eventActionUrl}
-                <EventActions
-                  event={c.raw}
-                  url={eventActionUrl}
-                  noun="comment"
-                  relays={relays}
-                  ownerPubkey={ownerPubkey}
-                  showReport={true}
-                  menuOnly
-                  class="text-muted-foreground"
+          <div class="flex w-full items-start justify-between gap-3">
+            <div class="flex min-w-0 items-start gap-2">
+              <ProfileComponent
+                pubkey={c.author.pubkey}
+                relays={commentProfileRelays}
+                hideDetails={true}
+                class="h-8 w-8 shrink-0"
+              ></ProfileComponent>
+              <div class="min-w-0 pt-0.5">
+                <ProfileLink
+                  pubkey={c.author.pubkey}
+                  relays={commentProfileRelays}
+                  class="block max-w-full truncate text-sm font-semibold text-foreground"
                 />
-              {/if}
+              </div>
+            </div>
+            <div class="shrink-0 text-xs text-muted-foreground">
+              <span class="whitespace-nowrap"><TimeAgo date={dateToShow} compact /></span>
             </div>
           </div>
           <div class="w-full flex flex-col gap-y-2 mt-2">
@@ -493,6 +447,98 @@
                 <RichText content={c.content} prose={false} />
               {/if}
             </div>
+          </div>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            {#if eventActionUrl}
+              <EventActions
+                event={c.raw}
+                url={eventActionUrl}
+                noun="comment"
+                relays={commentRelayHints}
+                ownerPubkey={canHideSpam ? ownerPubkey : ""}
+                showReport={canHideSpam}
+                showModeration={false}
+                readOnly={!currentCommenter}
+                class="text-muted-foreground"
+              />
+            {/if}
+            {#if enableReplies && currentCommenter && onCommentCreated}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onclick={() => {
+                  editingComment = null;
+                  newComment = "";
+                  replyParent = c.raw;
+                }}
+                aria-label="Reply to comment"
+                title="Reply"
+              >
+                <Reply class="h-4 w-4" />
+              </Button>
+            {/if}
+            {#if currentCommenter && onCommentEdited && canEditComment(c.raw)}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onclick={() => startEditingComment(c.raw)}
+                aria-label="Edit comment"
+                title="Edit"
+              >
+                <Pencil class="h-4 w-4" />
+              </Button>
+            {/if}
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onclick={() => copyEventLink(c.raw)}
+              aria-label="Share comment"
+              title="Share"
+            >
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                ></path>
+                <path
+                  d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                ></path>
+                <path
+                  d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                ></path>
+                <path
+                  d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                ></path>
+              </svg>
+            </Button>
+            {#if ReactionSummary && deleteReaction && createReaction}
+              <ReactionSummary
+                event={c.raw as any}
+                url={eventActionUrl}
+                relays={commentRelayHints}
+                deleteReaction={(event: NostrEvent) => deleteReaction(event)}
+                createReaction={(template: ReactionTemplate) => createReaction(c.raw, template)}
+                reactionClass="tooltip-left"
+              />
+            {/if}
           </div>
           {#if CommentStatus}
             <div class="absolute bottom-0 right-0 flex items-center justify-end">
@@ -539,7 +585,11 @@
           {#if RichCommentComposer}
             <div class="flex gap-2 sm:gap-3">
               <div class="hidden flex-shrink-0 sm:block">
-                <ProfileComponent pubkey={currentCommenter} hideDetails={true} />
+                <ProfileComponent
+                  pubkey={currentCommenter}
+                  relays={getProfileRelayHints()}
+                  hideDetails={true}
+                />
               </div>
               <div class="min-w-0 flex-1">
                 {#key composerKey}
@@ -561,7 +611,11 @@
             <form onsubmit={submit} class="flex flex-col gap-3">
               <div class="flex gap-2 sm:gap-3">
                 <div class="hidden flex-shrink-0 sm:block">
-                  <ProfileComponent pubkey={currentCommenter} hideDetails={true} />
+                  <ProfileComponent
+                    pubkey={currentCommenter}
+                    relays={getProfileRelayHints()}
+                    hideDetails={true}
+                  />
                 </div>
                 <div class="flex-1">
                   <Textarea

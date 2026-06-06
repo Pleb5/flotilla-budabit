@@ -48,6 +48,7 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
+    type EventContent,
     getTagValue,
     type Filter,
     type TrustedEvent,
@@ -71,6 +72,7 @@
     resolveStatus,
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {HIDDEN_ROOT_IDS_KEY, getRepoMaintainers} from "@app/core/git-state"
   import {
@@ -204,7 +206,7 @@
   )
   const repoCommunityScope = $derived(
     repoClass.community?.pubkey ||
-      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      getTagValue("h", ((repoClass as any)?.repoEvent?.tags || []) as string[][]) ||
       "",
   )
   const isImportedPr = $derived.by(() => isImportedEvent(prEvent as any))
@@ -1243,7 +1245,11 @@
     }
 
     const targetCommit = prMergeAnalysisResult?.targetCommit
-    if (targetCommit && prMergeAnalysisResult?.analysis !== "error" && !prMergeAnalysisResult?.upToDate) {
+    if (
+      targetCommit &&
+      prMergeAnalysisResult?.analysis !== "error" &&
+      !prMergeAnalysisResult?.upToDate
+    ) {
       return {baseOid: targetCommit, headOid: tipOid}
     }
 
@@ -2051,9 +2057,13 @@
       const currentTags = mergeRichEditorTags(prDescriptionEvent as any, [], {
         repoAddress: prRepoAddress,
       })
-      const nextTags = mergeRichEditorTags(prDescriptionEvent as any, descriptionPayload.tags || [], {
-        repoAddress: prRepoAddress,
-      })
+      const nextTags = mergeRichEditorTags(
+        prDescriptionEvent as any,
+        descriptionPayload.tags || [],
+        {
+          repoAddress: prRepoAddress,
+        },
+      )
       if (nextDescription === (prDescription || "") && areTagsEqual(nextTags, currentTags)) {
         editingDescription = false
         descriptionEditor = null
@@ -2082,8 +2092,13 @@
     }
   }
 
+  const getCommentPublishRelays = () =>
+    (repoRelays?.length ? repoRelays : repoClass.relays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
+
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = getCommentPublishRelays()
     try {
       await postComment(comment, relays)
     } catch (error) {
@@ -2099,13 +2114,31 @@
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
 
   const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
-    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = getCommentPublishRelays()
     await publishEditedReply({
       event: comment as unknown as TrustedEvent,
       content,
       tags,
       relays,
       url: relays[0],
+    })
+  }
+
+  const deleteCommentReaction = async (event: any) => {
+    const relays = getCommentPublishRelays()
+    if (relays.length === 0) return
+
+    publishDelete({event: event as unknown as TrustedEvent, relays})
+  }
+
+  const createCommentReaction = async (comment: CommentEvent, template: EventContent) => {
+    const relays = getCommentPublishRelays()
+    if (relays.length === 0) return
+
+    publishReaction({
+      ...template,
+      event: comment as unknown as TrustedEvent,
+      relays,
     })
   }
 
@@ -3795,10 +3828,13 @@
             onCommentEdited={$pubkey ? onCommentEdited : undefined}
             onLoginRequired={requireLogin}
             relays={repoRelays?.length ? repoRelays : repoClass.relays || []}
+            {profileRelays}
             repoAddress={repoClass.address || ""}
             rootEvent={prEvent}
             repoRefs={commentRepoRefs}
             relayHint={commentRelayHint}
+            deleteReaction={deleteCommentReaction}
+            createReaction={createCommentReaction}
             ownerPubkey={repoOwnerPubkey}
             onInlineCommentOpen={openPrInlineCommentLocation}
             enableReplies />

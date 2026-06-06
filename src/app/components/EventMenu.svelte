@@ -34,6 +34,7 @@
     communitySectionName?: string
     ownerPubkey?: string
     showReport?: boolean
+    showModeration?: boolean
   }
 
   const {
@@ -46,6 +47,7 @@
     communitySectionName = "",
     ownerPubkey = "",
     showReport = true,
+    showModeration = true,
   }: Props = $props()
 
   const isRoot = event.kind !== COMMENT
@@ -137,5 +139,7 @@
       </Button>
     </li>
   {/if}
-  <ModerationAction {event} sectionName={communitySectionName} {onClick} />
+  {#if showModeration}
+    <ModerationAction {event} sectionName={communitySectionName} {onClick} />
+  {/if}
 </ul>

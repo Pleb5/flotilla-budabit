@@ -9,6 +9,8 @@
     relays?: string[];
     ownerPubkey?: string;
     showReport?: boolean;
+    showModeration?: boolean;
+    readOnly?: boolean;
     menuOnly?: boolean;
     class?: string;
   };
