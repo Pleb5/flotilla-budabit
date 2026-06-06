@@ -3,15 +3,7 @@ import {request} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById, synced, throttled} from "@welshman/store"
 import {pubkey, repository} from "@welshman/app"
 import {identity, now, prop} from "@welshman/lib"
-import {
-  Address,
-  EVENT_TIME,
-  MESSAGE,
-  THREAD,
-  ZAP_GOAL,
-  getTagValue,
-  type TrustedEvent,
-} from "@welshman/util"
+import {Address, MESSAGE, THREAD, getTagValue, type TrustedEvent} from "@welshman/util"
 import {chatsById, userSettingsValues} from "@app/core/state"
 import {
   activeCommunityDefinition,
@@ -21,14 +13,7 @@ import {
   activeCommunityReportState,
   activeCommunityUserModeratorRequestStates,
 } from "@app/core/community-state"
-import {
-  COMMUNITY_SECTION_CALENDAR,
-  COMMUNITY_SECTION_GENERAL,
-  COMMUNITY_SECTION_GOALS,
-  COMMUNITY_SECTION_THREADS,
-  normalizePubkey,
-  parseTargetedPublication,
-} from "@app/core/community"
+import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
 import {
   makeCommunityExclusiveFilter,
   makeCommunityTargetingFilter,
@@ -36,7 +21,11 @@ import {
 } from "@app/core/community-feeds"
 import {readCommunityRoomMessage} from "@app/core/community-messages"
 import {readCommunityThread} from "@app/core/community-threads"
-import {getCommunitySectionWriterPubkeys} from "@app/core/community-permissions"
+import {
+  COMMUNITY_WRITE_TARGETS,
+  getCommunityTargetWriterPubkeys,
+  type CommunityWriteTarget,
+} from "@app/core/community-permissions"
 import {isCommunityPersonBanned} from "@app/core/community-reports"
 import {kv} from "@app/core/storage"
 import {
@@ -314,10 +303,10 @@ const roomMessageNotificationCandidates: Readable<NotificationCandidate[]> = der
       return
     }
 
-    const authorPubkeys = getCommunitySectionWriterPubkeys({
+    const authorPubkeys = getCommunityTargetWriterPubkeys({
       definition: $activeCommunityDefinition,
       profileListEvents: $activeCommunityProfileListEvents,
-      sectionName: COMMUNITY_SECTION_GENERAL,
+      target: COMMUNITY_WRITE_TARGETS.roomMessage,
       reportState: $activeCommunityReportState,
     })
 
@@ -364,10 +353,10 @@ const threadRootNotificationCandidates: Readable<NotificationCandidate[]> = deri
       return
     }
 
-    const authorPubkeys = getCommunitySectionWriterPubkeys({
+    const authorPubkeys = getCommunityTargetWriterPubkeys({
       definition: $activeCommunityDefinition,
       profileListEvents: $activeCommunityProfileListEvents,
-      sectionName: COMMUNITY_SECTION_THREADS,
+      target: COMMUNITY_WRITE_TARGETS.thread,
       reportState: $activeCommunityReportState,
     })
 
@@ -400,12 +389,10 @@ const threadRootNotificationCandidates: Readable<NotificationCandidate[]> = deri
 )
 
 const makeTargetedPublicationRootNotificationCandidates = ({
-  kind,
-  sectionName,
+  target,
   makePath,
 }: {
-  kind: number
-  sectionName: string
+  target: CommunityWriteTarget
   makePath: (communityPubkey: string) => string
 }): Readable<NotificationCandidate[]> =>
   derived(
@@ -431,10 +418,10 @@ const makeTargetedPublicationRootNotificationCandidates = ({
         return
       }
 
-      const authorPubkeys = getCommunitySectionWriterPubkeys({
+      const authorPubkeys = getCommunityTargetWriterPubkeys({
         definition: $activeCommunityDefinition,
         profileListEvents: $activeCommunityProfileListEvents,
-        sectionName,
+        target,
         reportState: $activeCommunityReportState,
       })
 
@@ -444,7 +431,7 @@ const makeTargetedPublicationRootNotificationCandidates = ({
       }
 
       const targetingFilters = [
-        makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, [kind]),
+        makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, [target.kind]),
       ]
       const targetingController = new AbortController()
 
@@ -501,7 +488,7 @@ const makeTargetedPublicationRootNotificationCandidates = ({
               rootEvents: $rootEvents,
               communityPubkey: $activeCommunityDefinition.pubkey,
               path: makePath($activeCommunityDefinition.pubkey),
-              kind,
+              kind: target.kind,
               currentPubkey: $pubkey,
               allowPubkey: candidatePubkey =>
                 !isCommunityPersonBanned($activeCommunityReportState, candidatePubkey),
@@ -521,14 +508,12 @@ const makeTargetedPublicationRootNotificationCandidates = ({
   )
 
 const calendarRootNotificationCandidates = makeTargetedPublicationRootNotificationCandidates({
-  kind: EVENT_TIME,
-  sectionName: COMMUNITY_SECTION_CALENDAR,
+  target: COMMUNITY_WRITE_TARGETS.calendar,
   makePath: makeCommunityCalendarPath,
 })
 
 const goalRootNotificationCandidates = makeTargetedPublicationRootNotificationCandidates({
-  kind: ZAP_GOAL,
-  sectionName: COMMUNITY_SECTION_GOALS,
+  target: COMMUNITY_WRITE_TARGETS.goal,
   makePath: makeCommunityGoalPath,
 })
 

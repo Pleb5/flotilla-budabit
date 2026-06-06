@@ -27,6 +27,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {normalizeRelays} from "@app/core/community"
@@ -161,11 +162,18 @@
       }),
     ),
   )
+  const repoSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.repository,
+    ),
+  )
+  const repoAccessMessage = $derived(`Request ${repoSectionName} access to publish repositories.`)
 
   const createRepoAnnouncement = () => {
     if (!$pubkey || !communityPubkey || !name.trim()) return
     if (!canCreateRepo) {
-      pushToast({theme: "error", message: "You do not have permission to publish repositories."})
+      pushToast({theme: "error", message: repoAccessMessage})
       return
     }
     const relays = $activeCommunityRelays

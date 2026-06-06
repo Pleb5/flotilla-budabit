@@ -1,6 +1,6 @@
 import * as nip19 from "nostr-tools/nip19"
 import type {EventContent, TrustedEvent} from "@welshman/util"
-import {BADGE_DEFINITION, isRelayUrl, normalizeRelayUrl} from "@welshman/util"
+import {BADGE_DEFINITION, EVENT_TIME, isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {randomId} from "@welshman/lib"
 
 export const COMMUNITY_DEFINITION_KIND = 10222
@@ -41,7 +41,7 @@ export const getCommunitySectionKindLabel = (kind: number, subtype?: string) => 
   return normalizedSubtype ? `${kind}/${normalizedSubtype}` : String(kind)
 }
 
-export const TARGETED_PUBLICATION_KINDS = [31922, 9041, 30617, 1623, 30033] as const
+export const TARGETED_PUBLICATION_KINDS = [EVENT_TIME, 9041, 30617, 1623, 30033] as const
 
 export type CommunityInputSource = "hex" | "npub" | "ncommunity"
 
@@ -311,7 +311,7 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
     case COMMUNITY_SECTION_THREADS:
       return [{kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}]
     case COMMUNITY_SECTION_CALENDAR:
-      return [{kind: 31922}]
+      return [{kind: EVENT_TIME}]
     case COMMUNITY_SECTION_GOALS:
       return [{kind: 9041}]
     case COMMUNITY_SECTION_REPO_CURATOR:

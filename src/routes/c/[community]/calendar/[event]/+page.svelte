@@ -45,16 +45,12 @@
     activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {
-    COMMUNITY_SECTION_CALENDAR,
-    COMMUNITY_SECTION_GENERAL,
-    normalizePubkey,
-    parseTargetedPublication,
-  } from "@app/core/community"
+  import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {
@@ -94,6 +90,19 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const calendarSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.calendar,
+    ),
+  )
+  const commentSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.comment,
+    ),
+  )
+  const commentAccessMessage = $derived(`Request ${commentSectionName} access to comment.`)
   const calendarAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunityTargetWriterPubkeys({
@@ -180,7 +189,7 @@
           eventId: approvedEvent.id,
           eventAddress: getCommunityReportEventAddress(approvedEvent),
           pubkey: approvedEvent.pubkey,
-          sectionName: COMMUNITY_SECTION_CALENDAR,
+          sectionName: calendarSectionName,
         })
       : undefined,
   )
@@ -315,7 +324,7 @@
     const trimmed = content.trim()
     if (!approvedEvent || !trimmed) return
     if (!canReply) {
-      pushToast({theme: "error", message: "You do not have permission to comment."})
+      pushToast({theme: "error", message: commentAccessMessage})
       return
     }
     const relays = $activeCommunityRelays
@@ -524,7 +533,7 @@
               event={approvedEvent}
               url={communityPubkey}
               relays={$activeCommunityRelays}
-              communitySectionName={COMMUNITY_SECTION_CALENDAR} />
+              communitySectionName={calendarSectionName} />
           </div>
         </div>
         <div class="flex w-full flex-col justify-end sm:flex-row">
@@ -532,7 +541,7 @@
             url={communityPubkey}
             relays={$activeCommunityRelays}
             scopeH={communityPubkey}
-            communitySectionName={COMMUNITY_SECTION_CALENDAR}
+            communitySectionName={calendarSectionName}
             allowedAuthors={interactionAuthorPubkeys}
             readOnly={!canReact}
             redirectOnEdit
@@ -567,7 +576,7 @@
               profileRelays={$activeCommunityRelays}
               {interactionAuthorPubkeys}
               scopeH={communityPubkey}
-              communitySectionName={COMMUNITY_SECTION_GENERAL}
+              communitySectionName={commentSectionName}
               {replyParent}
               onReplyParentOpen={scrollToReplyParent}
               canEdit={canEditReply}

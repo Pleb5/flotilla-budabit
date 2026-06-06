@@ -28,7 +28,11 @@
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
+  } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -37,23 +41,30 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
+  const goalSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.goal,
+    ),
+  )
+  const goalAccessMessage = $derived(`Request ${goalSectionName} access to publish goals.`)
   const canCreateGoal = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.goal,
-          reportState: $activeCommunityReportState,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.goal,
+        reportState: $activeCommunityReportState,
+      }),
     ),
   )
 
@@ -66,7 +77,7 @@
       return
     }
     if (!canCreateGoal) {
-      pushToast({theme: "error", message: "You do not have permission to publish goals."})
+      pushToast({theme: "error", message: goalAccessMessage})
       return
     }
 

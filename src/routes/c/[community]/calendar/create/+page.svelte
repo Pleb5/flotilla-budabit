@@ -30,32 +30,47 @@
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
+  } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
-  const calendarPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "")
+  const calendarPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "",
+  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
+  )
+  const calendarSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.calendar,
+    ),
+  )
+  const calendarAccessMessage = $derived(
+    `Request ${calendarSectionName} access to publish calendar events.`,
   )
   const canCreateEvent = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.calendar,
-          reportState: $activeCommunityReportState,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.calendar,
+        reportState: $activeCommunityReportState,
+      }),
     ),
   )
 
@@ -67,7 +82,7 @@
       return
     }
     if (!canCreateEvent) {
-      pushToast({theme: "error", message: "You do not have permission to publish calendar events."})
+      pushToast({theme: "error", message: calendarAccessMessage})
       return
     }
     if (!start || !end) {
@@ -113,7 +128,10 @@
     })
     const originalRelays = normalizeRelays([...getUserOutboxRelays(), ...relays])
 
-    publishThunk({relays: originalRelays.length ? originalRelays : relays, event: makeEvent(EVENT_TIME, eventTemplate)})
+    publishThunk({
+      relays: originalRelays.length ? originalRelays : relays,
+      event: makeEvent(EVENT_TIME, eventTemplate),
+    })
     publishThunk({
       relays,
       event: makeEvent(

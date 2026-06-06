@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
+import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {TARGETED_PUBLICATION_KIND, buildTargetedPublication} from "./community"
 import {
   filterRoomRoots,
@@ -60,12 +60,14 @@ describe("community feed helpers", () => {
   })
 
   it("builds targeted publication filters", () => {
-    expect(makeCommunityTargetingFilter(communityPubkey, [31922, 9041], {limit: 100})).toEqual({
-      kinds: [TARGETED_PUBLICATION_KIND],
-      "#p": [communityPubkey],
-      "#k": ["31922", "9041"],
-      limit: 100,
-    })
+    expect(makeCommunityTargetingFilter(communityPubkey, [EVENT_TIME, 9041], {limit: 100})).toEqual(
+      {
+        kinds: [TARGETED_PUBLICATION_KIND],
+        "#p": [communityPubkey],
+        "#k": [String(EVENT_TIME), "9041"],
+        limit: 100,
+      },
+    )
   })
 
   it("separates room roots from thread roots", () => {
@@ -112,8 +114,8 @@ describe("community feed helpers", () => {
       kind: TARGETED_PUBLICATION_KIND,
       tags: buildTargetedPublication({
         id: "target-calendar",
-        kind: 31922,
-        ref: {type: "a", value: `31922:${authorPubkey}:calendar-1`},
+        kind: EVENT_TIME,
+        ref: {type: "a", value: `${EVENT_TIME}:${authorPubkey}:calendar-1`},
         communities: [{pubkey: communityPubkey}],
       }).tags,
     })
@@ -138,7 +140,7 @@ describe("community feed helpers", () => {
     expect(
       makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, goalTarget]),
     ).toEqual([
-      {kinds: [31922], authors: [authorPubkey], "#d": ["calendar-1"]},
+      {kinds: [EVENT_TIME], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"]},
       {kinds: [9041], "#h": ["target-goal"]},
     ])
@@ -148,7 +150,7 @@ describe("community feed helpers", () => {
         [authorPubkey],
       ),
     ).toEqual([
-      {kinds: [31922], authors: [authorPubkey], "#d": ["calendar-1"]},
+      {kinds: [EVENT_TIME], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"], authors: [authorPubkey]},
       {kinds: [9041], "#h": ["target-goal"], authors: [authorPubkey]},
     ])

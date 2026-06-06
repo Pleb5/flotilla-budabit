@@ -1,6 +1,10 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
-import {TARGETED_PUBLICATION_KIND, buildTargetedPublication, parseTargetedPublication} from "./community"
+import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {
+  TARGETED_PUBLICATION_KIND,
+  buildTargetedPublication,
+  parseTargetedPublication,
+} from "./community"
 import {
   getPublicationTargetingId,
   makeAddressablePublicationRef,
@@ -30,7 +34,8 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
 
 describe("community targeting helpers", () => {
   it("knows which kinds are targeted publications", () => {
-    expect(shouldTargetPublicationKind(31922)).toBe(true)
+    expect(shouldTargetPublicationKind(EVENT_TIME)).toBe(true)
+    expect(shouldTargetPublicationKind(31922)).toBe(false)
     expect(shouldTargetPublicationKind(9041)).toBe(true)
     expect(shouldTargetPublicationKind(30617)).toBe(true)
     expect(shouldTargetPublicationKind(1623)).toBe(true)
@@ -40,7 +45,13 @@ describe("community targeting helpers", () => {
 
   it("adds stable h targeting ids to original publication templates", () => {
     const template = withPublicationTargetingId(
-      {content: "Event", tags: [["h", "old"], ["title", "Demo"]]},
+      {
+        content: "Event",
+        tags: [
+          ["h", "old"],
+          ["title", "Demo"],
+        ],
+      },
       "target-id",
     )
 
@@ -58,14 +69,14 @@ describe("community targeting helpers", () => {
   it("builds publication refs", () => {
     expect(
       makeAddressablePublicationRef({
-        kind: 31922,
+        kind: EVENT_TIME,
         pubkey: authorPubkey,
         identifier: "calendar-1",
         relay: "wss://relay.example.com/",
       }),
     ).toEqual({
       type: "a",
-      value: `31922:${authorPubkey}:calendar-1`,
+      value: `${EVENT_TIME}:${authorPubkey}:calendar-1`,
       relay: "wss://relay.example.com/",
     })
     expect(makeEventPublicationRef({id: "event-id", relay: "wss://relay.example.com/"})).toEqual({
@@ -80,8 +91,8 @@ describe("community targeting helpers", () => {
     expect(
       makeTargetedPublicationForCommunity({
         targetingId: "target-id",
-        originalKind: 31922,
-        originalRef: {type: "a", value: `31922:${authorPubkey}:calendar-1`},
+        originalKind: EVENT_TIME,
+        originalRef: {type: "a", value: `${EVENT_TIME}:${authorPubkey}:calendar-1`},
         communityPubkey,
         communityRelay: "wss://community.example.com/",
       }),
@@ -89,8 +100,8 @@ describe("community targeting helpers", () => {
       content: "",
       tags: [
         ["d", "target-id"],
-        ["a", `31922:${authorPubkey}:calendar-1`],
-        ["k", "31922"],
+        ["a", `${EVENT_TIME}:${authorPubkey}:calendar-1`],
+        ["k", String(EVENT_TIME)],
         ["p", communityPubkey],
         ["r", "wss://community.example.com/"],
       ],
@@ -112,7 +123,9 @@ describe("community targeting helpers", () => {
       pubkey: otherCommunityPubkey,
       relay: "wss://new.example.com/",
     })!
-    expect(parseTargetedPublication(makeEvent({kind: TARGETED_PUBLICATION_KIND, tags: upserted.tags}))).toMatchObject({
+    expect(
+      parseTargetedPublication(makeEvent({kind: TARGETED_PUBLICATION_KIND, tags: upserted.tags})),
+    ).toMatchObject({
       communities: [
         {pubkey: communityPubkey, relay: "wss://old.example.com/"},
         {pubkey: otherCommunityPubkey, relay: "wss://new.example.com/"},
@@ -123,7 +136,9 @@ describe("community targeting helpers", () => {
       makeEvent({kind: TARGETED_PUBLICATION_KIND, tags: upserted.tags}),
       communityPubkey,
     )!
-    expect(parseTargetedPublication(makeEvent({kind: TARGETED_PUBLICATION_KIND, tags: removed.tags}))).toMatchObject({
+    expect(
+      parseTargetedPublication(makeEvent({kind: TARGETED_PUBLICATION_KIND, tags: removed.tags})),
+    ).toMatchObject({
       communities: [{pubkey: otherCommunityPubkey, relay: "wss://new.example.com/"}],
     })
   })

@@ -1,8 +1,9 @@
 import {describe, expect, it} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
-import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_REPO_CURATOR,
@@ -226,6 +227,9 @@ describe("community protocol helpers", () => {
     expect(sectionSupportsKind(general, 1984)).toBe(true)
     expect(sectionSupportsKind(general, 1985)).toBe(true)
     expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
+    expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_CALENDAR)).toContainEqual({
+      kind: EVENT_TIME,
+    })
     expect(sectionSupportsKind(repoCurator, 30617)).toBe(true)
     expect(sectionSupportsKind(repoCurator, 1623)).toBe(true)
     expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_GENERAL)).toContainEqual({kind: 1984})
@@ -350,8 +354,12 @@ describe("community protocol helpers", () => {
   it("builds and parses targeted publication events", () => {
     const template = buildTargetedPublication({
       id: "target-1",
-      kind: 31922,
-      ref: {type: "a", value: `31922:${pubkeyA}:calendar-1`, relay: "wss://author.example.com"},
+      kind: EVENT_TIME,
+      ref: {
+        type: "a",
+        value: `${EVENT_TIME}:${pubkeyA}:calendar-1`,
+        relay: "wss://author.example.com",
+      },
       communities: [
         {pubkey: pubkeyB, relay: "wss://relay.example.com"},
         {pubkey: nip19.npubEncode(pubkeyC), relay: "wss://relay2.example.com"},
@@ -362,8 +370,8 @@ describe("community protocol helpers", () => {
       content: "",
       tags: [
         ["d", "target-1"],
-        ["a", `31922:${pubkeyA}:calendar-1`, "wss://author.example.com/"],
-        ["k", "31922"],
+        ["a", `${EVENT_TIME}:${pubkeyA}:calendar-1`, "wss://author.example.com/"],
+        ["k", String(EVENT_TIME)],
         ["p", pubkeyB],
         ["r", "wss://relay.example.com/"],
         ["p", pubkeyC],
@@ -377,8 +385,12 @@ describe("community protocol helpers", () => {
 
     expect(parsed).toEqual({
       id: "target-1",
-      kind: 31922,
-      ref: {type: "a", value: `31922:${pubkeyA}:calendar-1`, relay: "wss://author.example.com/"},
+      kind: EVENT_TIME,
+      ref: {
+        type: "a",
+        value: `${EVENT_TIME}:${pubkeyA}:calendar-1`,
+        relay: "wss://author.example.com/",
+      },
       communities: [
         {pubkey: pubkeyB, relay: "wss://relay.example.com/"},
         {pubkey: pubkeyC, relay: "wss://relay2.example.com/"},

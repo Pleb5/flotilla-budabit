@@ -39,16 +39,12 @@
     activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {
-    COMMUNITY_SECTION_GENERAL,
-    COMMUNITY_SECTION_GOALS,
-    normalizePubkey,
-    parseTargetedPublication,
-  } from "@app/core/community"
+  import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {
@@ -96,6 +92,19 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const goalSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.goal,
+    ),
+  )
+  const commentSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.comment,
+    ),
+  )
+  const commentAccessMessage = $derived(`Request ${commentSectionName} access to comment.`)
   const goalAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunityTargetWriterPubkeys({
@@ -161,7 +170,7 @@
           eventId: approvedGoal.id,
           eventAddress: getCommunityReportEventAddress(approvedGoal),
           pubkey: approvedGoal.pubkey,
-          sectionName: COMMUNITY_SECTION_GOALS,
+          sectionName: goalSectionName,
         })
       : undefined,
   )
@@ -230,7 +239,7 @@
     const trimmed = content.trim()
     if (!approvedGoal || !trimmed) return
     if (!canReply) {
-      pushToast({theme: "error", message: "You do not have permission to comment."})
+      pushToast({theme: "error", message: commentAccessMessage})
       return
     }
     if ($activeCommunityRelays.length === 0) {
@@ -417,7 +426,7 @@
                 tags: approvedGoal.tags,
               }}
               url={communityPubkey}
-              communitySectionName={COMMUNITY_SECTION_GOALS}
+              communitySectionName={goalSectionName}
               showEntire />
             <GoalSummary
               event={approvedGoal}
@@ -431,7 +440,7 @@
                 url={communityPubkey}
                 relays={$activeCommunityRelays}
                 scopeH={communityPubkey}
-                communitySectionName={COMMUNITY_SECTION_GOALS}
+                communitySectionName={goalSectionName}
                 allowedAuthors={interactionAuthorPubkeys}
                 readOnly={!canReact} />
             </div>
@@ -457,7 +466,7 @@
             eventId: replyEvent.id,
             eventAddress: getCommunityReportEventAddress(replyEvent),
             pubkey: replyEvent.pubkey,
-            sectionName: COMMUNITY_SECTION_GENERAL,
+            sectionName: commentSectionName,
           })}
           {#if censorReason}
             <div class="card2 bg-alt z-feature w-full">
@@ -474,7 +483,7 @@
                 profileRelays={$activeCommunityRelays}
                 {interactionAuthorPubkeys}
                 scopeH={communityPubkey}
-                communitySectionName={COMMUNITY_SECTION_GENERAL}
+                communitySectionName={commentSectionName}
                 canEdit={canEditReply}
                 onEdit={openEditPrompt} />
             </div>

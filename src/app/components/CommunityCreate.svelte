@@ -8,6 +8,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {
     DELETE,
+    EVENT_TIME,
     createProfile,
     prep,
     type EventTemplate,
@@ -234,7 +235,7 @@
     {label: "Reactions", kind: 7},
     {label: "Reports", kind: 1984},
     {label: "Labels", kind: 1985},
-    {label: "Calendar Events", kind: 31922},
+    {label: "Calendar Events", kind: EVENT_TIME},
     {label: "Fundraiser Goals", kind: 9041},
     {label: "Repository Announcements", kind: 30617},
     {label: "Permalinks", kind: 1623},

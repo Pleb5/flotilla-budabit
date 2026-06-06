@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
@@ -26,6 +26,7 @@ import {
   getCommunityTargetAuthorityPubkeys,
   getCommunityWritableTargetSections,
   getCommunityTargetWriterPubkeys,
+  getCommunityWriteTargetSectionName,
   getCommunityWriteTargetSections,
   getCommunityWriteTarget,
   communityWritableSectionsSupportTarget,
@@ -104,6 +105,8 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(11, "forum")).toBeUndefined()
     expect(getCommunityWriteTarget(11)).toBeUndefined()
     expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
+    expect(getCommunityWriteTarget(EVENT_TIME)).toEqual(COMMUNITY_WRITE_TARGETS.calendar)
+    expect(getCommunityWriteTarget(31922)).toBeUndefined()
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
     expect(getCommunityWriteTarget(1623)).toEqual(COMMUNITY_WRITE_TARGETS.permalink)
   })
@@ -619,6 +622,35 @@ describe("community permissions", () => {
         target: COMMUNITY_WRITE_TARGETS.repository,
       }),
     ).toEqual([communityPubkey, managerPubkey])
+  })
+
+  it("resolves target section names from assigned kind and subtype", () => {
+    const customDefinition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "Room chat"],
+          ["k", "9", "room-message"],
+          ["content", "Plain kind 9"],
+          ["k", "9"],
+          ["content", "Events"],
+          ["k", String(EVENT_TIME)],
+        ],
+      }),
+    )!
+
+    expect(
+      getCommunityWriteTargetSectionName(customDefinition, COMMUNITY_WRITE_TARGETS.roomMessage),
+    ).toBe("Room chat")
+    expect(
+      getCommunityWriteTargetSections(customDefinition, {sectionName: "", kind: 9}).map(
+        section => section.name,
+      ),
+    ).toEqual(["Plain kind 9"])
+    expect(
+      getCommunityWriteTargetSectionName(customDefinition, COMMUNITY_WRITE_TARGETS.calendar),
+    ).toBe("Events")
   })
 
   it("matches widget grants in the custom section assigned to kind 30033", () => {

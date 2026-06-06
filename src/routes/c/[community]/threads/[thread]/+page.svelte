@@ -39,10 +39,10 @@
     readCommunityThread,
     readCommunityThreadReply,
   } from "@app/core/community-threads"
-  import {COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {
@@ -79,6 +79,19 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const threadSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.thread,
+    ),
+  )
+  const commentSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.comment,
+    ),
+  )
+  const commentAccessMessage = $derived(`Request ${commentSectionName} access to comment.`)
   const threadAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunityTargetWriterPubkeys({
@@ -135,7 +148,7 @@
           eventId: thread?.event.id || threadId,
           eventAddress: thread ? getCommunityReportEventAddress(thread.event) : "",
           pubkey: thread?.event.pubkey,
-          sectionName: COMMUNITY_SECTION_THREADS,
+          sectionName: threadSectionName,
         })
       : undefined,
   )
@@ -220,7 +233,7 @@
       return
     }
     if (!canReply) {
-      pushToast({theme: "error", message: "You do not have permission to reply."})
+      pushToast({theme: "error", message: commentAccessMessage})
       return
     }
 
@@ -381,14 +394,14 @@
           <Content
             event={thread.event}
             url={communityPubkey}
-            communitySectionName={COMMUNITY_SECTION_THREADS}
+            communitySectionName={threadSectionName}
             expandMode="inline" />
           <div class="mt-3 flex justify-end">
             <ThreadActions
               url={communityPubkey}
               relays={$activeCommunityRelays}
               scopeH={communityPubkey}
-              communitySectionName={COMMUNITY_SECTION_THREADS}
+              communitySectionName={threadSectionName}
               allowedAuthors={replyAuthorPubkeys}
               readOnly={!canReact}
               floatMobileMenu
@@ -425,7 +438,7 @@
                 profileRelays={$activeCommunityRelays}
                 interactionAuthorPubkeys={replyAuthorPubkeys}
                 scopeH={communityPubkey}
-                communitySectionName={COMMUNITY_SECTION_GENERAL}
+                communitySectionName={commentSectionName}
                 {replyParent}
                 onReplyParentOpen={scrollToReplyParent}
                 canEdit={canEditReply}

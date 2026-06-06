@@ -26,10 +26,10 @@
     makeCommunityThreadsFilter,
   } from "@app/core/community-feeds"
   import {readCommunityThreadReply, readCommunityThreads} from "@app/core/community-threads"
-  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
@@ -75,6 +75,12 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const threadSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.thread,
+    ),
   )
   const threadFilter = $derived(
     communityBootstrapReady && communityPubkey && threadAuthorPubkeys.length
@@ -239,7 +245,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
-        communitySectionName={COMMUNITY_SECTION_THREADS}
+        communitySectionName={threadSectionName}
         allowedAuthors={replyAuthorPubkeys}
         readOnly={!canReact}
         event={thread.event} />

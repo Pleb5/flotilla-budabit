@@ -40,10 +40,10 @@
   } from "@app/core/community-feeds"
   import {makeCommunityRoomMessage, readCommunityRoomMessages} from "@app/core/community-messages"
   import {readCommunityRoomRoot} from "@app/core/community-rooms"
-  import {COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_ROOMS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {
@@ -115,6 +115,21 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const roomRootSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.roomRoot,
+    ),
+  )
+  const roomMessageSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.roomMessage,
+    ),
+  )
+  const roomMessageAccessMessage = $derived(
+    `Request ${roomMessageSectionName} access to message this room.`,
+  )
   const roomFilters = $derived(
     communityBootstrapReady && communityPubkey && roomId && roomAuthorPubkeys.length
       ? [
@@ -136,7 +151,7 @@
           eventId: room?.event.id || roomId,
           eventAddress: room ? getCommunityReportEventAddress(room.event) : "",
           pubkey: room?.event.pubkey,
-          sectionName: COMMUNITY_SECTION_ROOMS,
+          sectionName: roomRootSectionName,
         })
       : undefined,
   )
@@ -218,7 +233,7 @@
       return
     }
     if (!canSendMessage) {
-      pushToast({theme: "error", message: "Request General access to message this room."})
+      pushToast({theme: "error", message: roomMessageAccessMessage})
       return
     }
 
@@ -572,7 +587,7 @@
             interactionRelays={$activeCommunityRelays}
             interactionAuthorPubkeys={messageAuthorPubkeys}
             scopeH={communityPubkey}
-            communitySectionName={COMMUNITY_SECTION_GENERAL}
+            communitySectionName={roomMessageSectionName}
             {event}
             readOnly={!canReact}
             {replyTo}
@@ -636,8 +651,8 @@
       <div
         class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
         <div class="min-w-0">
-          <strong class="block text-sm">Room access required</strong>
-          <p class="text-xs opacity-70">Request General access to message this room.</p>
+          <strong class="block text-sm">Access required</strong>
+          <p class="text-xs opacity-70">{roomMessageAccessMessage}</p>
         </div>
         <PublishGate
           target={COMMUNITY_WRITE_TARGETS.roomMessage}

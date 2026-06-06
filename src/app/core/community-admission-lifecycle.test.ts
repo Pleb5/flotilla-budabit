@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {DELETE, type TrustedEvent} from "@welshman/util"
+import {DELETE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
@@ -85,7 +85,7 @@ const definition = parseCommunityDefinition(
       ["k", "30617"],
       ["a", repoListRef.address],
       ["content", "Calendar-event-creator"],
-      ["k", "31922"],
+      ["k", String(EVENT_TIME)],
       ["a", calendarListRef.address],
     ],
   }),
@@ -335,9 +335,9 @@ describe("community admission lifecycle integration", () => {
       pubkey: approvedCalendarPubkey,
       tags: makeTargetedPublicationForCommunity({
         targetingId: "approved-event",
-        originalKind: 31922,
+        originalKind: EVENT_TIME,
         originalRef: makeAddressablePublicationRef({
-          kind: 31922,
+          kind: EVENT_TIME,
           pubkey: approvedCalendarPubkey,
           identifier: "approved-event",
         }),
@@ -350,9 +350,9 @@ describe("community admission lifecycle integration", () => {
       pubkey: unauthorizedCalendarPubkey,
       tags: makeTargetedPublicationForCommunity({
         targetingId: "unauthorized-event",
-        originalKind: 31922,
+        originalKind: EVENT_TIME,
         originalRef: makeAddressablePublicationRef({
-          kind: 31922,
+          kind: EVENT_TIME,
           pubkey: unauthorizedCalendarPubkey,
           identifier: "unauthorized-event",
         }),
@@ -365,7 +365,7 @@ describe("community admission lifecycle integration", () => {
         [approvedTargeting, unauthorizedTargeting],
         calendarAuthors,
       ),
-    ).toEqual([{kinds: [31922], authors: [approvedCalendarPubkey], "#d": ["approved-event"]}])
+    ).toEqual([{kinds: [EVENT_TIME], authors: [approvedCalendarPubkey], "#d": ["approved-event"]}])
   })
 
   it("ignores grants, forms, and reviews from a removed moderator", () => {

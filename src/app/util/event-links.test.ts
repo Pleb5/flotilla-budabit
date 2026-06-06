@@ -24,6 +24,7 @@ vi.mock("@welshman/router", () => ({
 
 vi.mock("@welshman/util", () => ({
   BADGE_DEFINITION: 30009,
+  EVENT_TIME: 31923,
   normalizeRelayUrl: (url: string) => (url.endsWith("/") ? url : `${url}/`),
   isRelayUrl: (url: string) => /^wss?:\/\//.test(url),
   getTagValue: (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1] || "",
@@ -54,6 +55,8 @@ const makeEvent = (overrides: Record<string, unknown> = {}) => ({
   sig: "3".repeat(128),
   ...overrides,
 })
+
+const EVENT_TIME = 31923
 
 describe("event link utilities", () => {
   beforeEach(() => {
@@ -115,14 +118,14 @@ describe("event link utilities", () => {
 
   it("adds community relays from matching targeted publication events", async () => {
     const communityPubkey = "a".repeat(64)
-    const event = makeEvent({kind: 31922, tags: [["h", "target-1"]]})
+    const event = makeEvent({kind: EVENT_TIME, tags: [["h", "target-1"]]})
     relayMocks.repositoryQuery.mockReturnValue([
       makeEvent({
         kind: 30222,
         tags: [
           ["d", "target-1"],
-          ["a", `31922:${event.pubkey}:calendar-1`, "wss://author-relay.example.com"],
-          ["k", "31922"],
+          ["a", `${EVENT_TIME}:${event.pubkey}:calendar-1`, "wss://author-relay.example.com"],
+          ["k", String(EVENT_TIME)],
           ["p", communityPubkey],
           ["r", "wss://community-relay.example.com"],
         ],
@@ -136,7 +139,7 @@ describe("event link utilities", () => {
       "wss://community-relay.example.com/",
     ])
     expect(relayMocks.repositoryQuery).toHaveBeenCalledWith(
-      [{kinds: [30222], "#d": ["target-1"], "#k": ["31922"]}],
+      [{kinds: [30222], "#d": ["target-1"], "#k": [String(EVENT_TIME)]}],
       {shouldSort: false},
     )
   })

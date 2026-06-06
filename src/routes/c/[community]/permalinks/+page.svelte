@@ -35,6 +35,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
@@ -92,11 +93,20 @@
       }),
     ),
   )
+  const permalinkSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.permalink,
+    ),
+  )
+  const permalinkAccessMessage = $derived(
+    `Request ${permalinkSectionName} access to publish permalinks.`,
+  )
 
   const createPermalink = () => {
     if (!$pubkey || !communityPubkey || !repo.trim() || !file.trim() || !commit.trim()) return
     if (!canCreatePermalink) {
-      pushToast({theme: "error", message: "You do not have permission to publish permalinks."})
+      pushToast({theme: "error", message: permalinkAccessMessage})
       return
     }
     const relays = $activeCommunityRelays

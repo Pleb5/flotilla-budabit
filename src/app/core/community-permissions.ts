@@ -1,4 +1,4 @@
-import type {TrustedEvent} from "@welshman/util"
+import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   getAdmissionSubmissionState,
   type CommunityAdmissionForm,
@@ -91,7 +91,7 @@ export const COMMUNITY_WRITE_TARGETS = {
   reaction: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 7},
   report: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1984},
   label: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1985},
-  calendar: {sectionName: COMMUNITY_SECTION_CALENDAR, kind: 31922},
+  calendar: {sectionName: COMMUNITY_SECTION_CALENDAR, kind: EVENT_TIME},
   goal: {sectionName: COMMUNITY_SECTION_GOALS, kind: 9041},
   repository: {sectionName: COMMUNITY_SECTION_REPO_CURATOR, kind: GIT_REPO_ANNOUNCEMENT},
   permalink: {sectionName: COMMUNITY_SECTION_REPO_CURATOR, kind: GIT_PERMALINK_KIND},
@@ -130,6 +130,13 @@ export const getCommunityWriteTargetSectionNames = (
   definition: CommunityDefinition,
   target: CommunityWriteTarget,
 ) => getCommunityWriteTargetSections(definition, target).map(section => section.name)
+
+export const getCommunityWriteTargetSectionName = (
+  definition: CommunityDefinition | undefined,
+  target: CommunityWriteTarget,
+) =>
+  (definition ? getCommunityWriteTargetSections(definition, target)[0]?.name : undefined) ||
+  target.sectionName
 
 export const communityWritableSectionsSupportTarget = ({
   definition,
@@ -190,7 +197,8 @@ export const userHasCommunityModeratorRefMembership = ({
   definition: CommunityDefinition
   userPubkey: string
   reportState?: EffectiveCommunityReportState
-}) => getCommunityModeratorRefPubkeys({definition, reportState}).includes(normalizePubkey(userPubkey))
+}) =>
+  getCommunityModeratorRefPubkeys({definition, reportState}).includes(normalizePubkey(userPubkey))
 
 const getAddress = (event: TrustedEvent) => {
   const d = event.tags.find(tag => tag[0] === "d")?.[1]
@@ -286,7 +294,9 @@ export const canWriteCommunitySection = ({
 
   if (definition.pubkey === normalizedUser) return true
   if (isCommunityReportStatePersonBanned(reportState, normalizedUser)) return false
-  if (userHasCommunityModeratorRefMembership({definition, userPubkey: normalizedUser, reportState})) {
+  if (
+    userHasCommunityModeratorRefMembership({definition, userPubkey: normalizedUser, reportState})
+  ) {
     return true
   }
   if (
@@ -624,7 +634,8 @@ export const getCommunitySectionWriterPubkeys = ({
   for (const pubkey of getSectionProfileListPubkeys({section, profileListEvents, reportState}))
     pubkeys.add(pubkey)
 
-  for (const pubkey of getCommunityModeratorRefPubkeys({definition, reportState})) pubkeys.add(pubkey)
+  for (const pubkey of getCommunityModeratorRefPubkeys({definition, reportState}))
+    pubkeys.add(pubkey)
 
   return Array.from(pubkeys)
 }

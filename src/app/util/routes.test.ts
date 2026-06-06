@@ -84,6 +84,8 @@ const makeEvent = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+const EVENT_TIME = 31923
+
 describe("routes", () => {
   beforeEach(() => {
     repositoryQuery.mockReset()
@@ -337,7 +339,7 @@ describe("routes", () => {
     const communityNpub = nip19.npubEncode(communityPubkey)
 
     expect(
-      getCommunityEventPath(makeEvent({kind: 31922, tags: [["h", communityPubkey]]}) as any),
+      getCommunityEventPath(makeEvent({kind: EVENT_TIME, tags: [["h", communityPubkey]]}) as any),
     ).toBe(`/c/${communityNpub}/calendar`)
     expect(
       getCommunityEventPath(makeEvent({kind: 9041, tags: [["h", communityPubkey]]}) as any),
@@ -357,7 +359,7 @@ describe("routes", () => {
         kind: 30222,
         tags: [
           ["d", "target-1"],
-          ["k", "31922"],
+          ["k", String(EVENT_TIME)],
           ["p", communityPubkey],
         ],
       }),
@@ -366,7 +368,7 @@ describe("routes", () => {
     expect(
       getCommunityEventPath(
         makeEvent({
-          kind: 31922,
+          kind: EVENT_TIME,
           tags: [
             ["h", "target-1"],
             ["d", "calendar-1"],

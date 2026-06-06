@@ -26,11 +26,7 @@
     hasCommunityHydrationCompleted,
     markCommunityHydrationCompleted,
   } from "@app/core/community-state"
-  import {
-    COMMUNITY_SECTION_CALENDAR,
-    normalizePubkey,
-    parseTargetedPublication,
-  } from "@app/core/community"
+  import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
@@ -38,6 +34,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
@@ -82,6 +79,12 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const calendarSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.calendar,
+    ),
   )
   const targetingFilters = $derived(
     communityBootstrapReady && communityPubkey
@@ -401,7 +404,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
-        communitySectionName={COMMUNITY_SECTION_CALENDAR}
+        communitySectionName={calendarSectionName}
         allowedAuthors={interactionAuthorPubkeys}
         readOnly={!canReact}
         {event} />

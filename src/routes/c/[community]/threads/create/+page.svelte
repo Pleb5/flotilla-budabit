@@ -21,7 +21,11 @@
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {makeCommunityThread} from "@app/core/community-threads"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
+  } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -35,6 +39,13 @@
       !$activeCommunityBootstrapStatus.loading,
     ),
   )
+  const threadSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.thread,
+    ),
+  )
+  const threadAccessMessage = $derived(`Request ${threadSectionName} access to create threads.`)
   const canCreateThread = $derived(
     Boolean(
       $pubkey &&
@@ -59,7 +70,7 @@
       return
     }
     if (!canCreateThread) {
-      pushToast({theme: "error", message: "You do not have permission to create threads."})
+      pushToast({theme: "error", message: threadAccessMessage})
       return
     }
 

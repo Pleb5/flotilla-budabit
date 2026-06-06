@@ -20,7 +20,11 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
   } from "@app/core/community-state"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
+  } from "@app/core/community-permissions"
   import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {pushToast} from "@app/util/toast"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -60,6 +64,13 @@
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
+  const roomRootSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.roomRoot,
+    ),
+  )
+  const roomRootAccessMessage = $derived(`Request ${roomRootSectionName} access to create rooms.`)
 
   const back = () => history.back()
 
@@ -71,7 +82,7 @@
       return
     }
     if (!canCreateRoom) {
-      pushToast({theme: "error", message: "You do not have permission to create rooms."})
+      pushToast({theme: "error", message: roomRootAccessMessage})
       return
     }
     if (communityPublishRelays.length === 0) {
@@ -137,8 +148,8 @@
     </Field>
   {:else}
     <div class="rounded-box bg-base-200 p-4">
-      <strong>Room creation access required</strong>
-      <p class="mt-1 text-sm opacity-70">You need Rooms permission to create rooms.</p>
+      <strong>Access required</strong>
+      <p class="mt-1 text-sm opacity-70">{roomRootAccessMessage}</p>
       <div class="mt-3 flex justify-end">
         <PublishGate
           target={COMMUNITY_WRITE_TARGETS.roomRoot}

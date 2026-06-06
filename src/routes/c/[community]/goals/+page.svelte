@@ -24,11 +24,7 @@
     hasCommunityHydrationCompleted,
     markCommunityHydrationCompleted,
   } from "@app/core/community-state"
-  import {
-    COMMUNITY_SECTION_GOALS,
-    normalizePubkey,
-    parseTargetedPublication,
-  } from "@app/core/community"
+  import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
@@ -36,6 +32,7 @@
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
@@ -71,6 +68,12 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const goalSectionName = $derived(
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      COMMUNITY_WRITE_TARGETS.goal,
+    ),
   )
   const targetingFilters = $derived(
     communityBootstrapReady && communityPubkey
@@ -330,7 +333,7 @@
       url={communityPubkey}
       relays={$activeCommunityRelays}
       scopeH={communityPubkey}
-      communitySectionName={COMMUNITY_SECTION_GOALS}
+      communitySectionName={goalSectionName}
       allowedAuthors={interactionAuthorPubkeys}
       readOnly={!canReact}
       event={$state.snapshot(event)} />
