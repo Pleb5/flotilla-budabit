@@ -6,13 +6,7 @@
   import Tippy from "@lib/components/Tippy.svelte"
   import RoomItemMenu from "@app/components/RoomItemMenu.svelte"
 
-  const {
-    url,
-    event,
-    readOnly = false,
-    relays = [],
-    communitySectionName = "",
-  } = $props()
+  const {url, event, readOnly = false, relays = [], communitySectionName = ""} = $props()
 
   const open = () => popover?.show()
 
@@ -34,12 +28,13 @@
 <svelte:document onclick={onDocumentClick} />
 
 <div bind:this={element} class="flex">
-  <Button class="btn join-item btn-xs" onclick={open}>
-    <Icon icon={MenuDots} size={4} />
-  </Button>
   <Tippy
     bind:popover
     component={RoomItemMenu}
     props={{url, event, onClick, readOnly, relays, communitySectionName}}
-    params={{trigger: "manual", interactive: true}} />
+    params={{trigger: "manual", interactive: true}}>
+    <Button class="btn join-item btn-xs" onclick={open}>
+      <Icon icon={MenuDots} size={4} />
+    </Button>
+  </Tippy>
 </div>

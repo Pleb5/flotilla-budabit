@@ -24,6 +24,7 @@
     event: TrustedEvent
     reply?: () => void
     edit?: () => void
+    readOnly?: boolean
     relays?: string[]
     scopeH?: string
     communitySectionName?: string
@@ -34,6 +35,7 @@
     event,
     reply,
     edit,
+    readOnly = false,
     relays = [],
     scopeH = "",
     communitySectionName = "",
@@ -91,7 +93,7 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  {#if event.pubkey === $pubkey}
+  {#if event.pubkey === $pubkey && !readOnly}
     <Button class="btn btn-neutral text-error" onclick={showDelete}>
       <Icon size={4} icon={TrashBin2} />
       Delete Message
@@ -103,31 +105,33 @@
     Message Info
   </Button>
 
-  {#if ENABLE_ZAPS}
+  {#if ENABLE_ZAPS && !readOnly}
     <ZapButton replaceState {event} relayHints={relays} {scopeH} class="btn btn-neutral w-full">
       <Icon size={4} icon={Bolt} />
       Send Zap
     </ZapButton>
   {/if}
 
-  {#if reply}
+  {#if reply && !readOnly}
     <Button class="btn btn-neutral w-full" onclick={sendReply}>
       <Icon size={4} icon={Reply} />
       Send Reply
     </Button>
   {/if}
 
-  {#if edit}
+  {#if edit && !readOnly}
     <Button class="btn btn-neutral w-full" onclick={editMessage}>
       <Icon size={4} icon={Pen} />
       Edit Message
     </Button>
   {/if}
 
-  <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
-    <Icon size={4} icon={SmileCircle} />
-    Send Reaction
-  </Button>
+  {#if !readOnly}
+    <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
+      <Icon size={4} icon={SmileCircle} />
+      Send Reaction
+    </Button>
+  {/if}
 
   <ModerationAction {event} sectionName={communitySectionName} mode="buttons" replaceState />
 </div>

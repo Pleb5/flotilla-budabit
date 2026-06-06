@@ -3,7 +3,6 @@
   import {hash, now, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
   import {COMMENT, getTag, type TrustedEvent, type EventContent} from "@welshman/util"
   import {thunks} from "@welshman/app"
-  import {isMobile} from "@lib/html"
   import TapTarget from "@lib/components/TapTarget.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
@@ -141,6 +140,7 @@
       event,
       reply,
       edit,
+      readOnly,
       relays: relayTargets,
       scopeH,
       communitySectionName,
@@ -184,28 +184,10 @@
   data-event={event.id}
   onTap={inert || censorReason ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left">
-  {#if isMobile && !inert && !censorReason}
-    <div
-      class="z-10 join absolute right-2 top-2 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
-      {#if !readOnly}
-        <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
-      {/if}
-      {#if reply}
-        <Button
-          class="btn join-item btn-xs"
-          onclick={reply}
-          aria-label="Reply to message"
-          data-stop-tap>
-          <Icon icon={Reply} size={4} />
-        </Button>
-      {/if}
-      {#if edit}
-        <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message" data-stop-tap>
-          <Icon icon={Pen} size={4} />
-        </Button>
-      {/if}
+  {#if !inert && !censorReason}
+    <div class="z-10 absolute right-2 top-2 sm:hidden">
       <Button
-        class="btn join-item btn-xs"
+        class="btn btn-neutral btn-xs rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur"
         onclick={openMobileMenu}
         aria-label="Open message actions"
         data-stop-tap>
@@ -228,7 +210,7 @@
     {/if}
     <div class="min-w-0 flex-grow">
       {#if showPubkey && !censorReason}
-        <div class="flex items-center gap-2 pr-24 sm:pr-32">
+        <div class="flex items-center gap-2 pr-12 sm:pr-32">
           <Button onclick={openProfile} class="text-sm font-bold" style="color: {colorValue}">
             {$profileDisplay}
           </Button>
@@ -290,6 +272,29 @@
       </div>
     </div>
   </div>
+  {#if !inert && !readOnly && !censorReason}
+    <div class="ml-10 mt-3 flex items-center gap-2 pl-1 sm:hidden">
+      <div
+        class="join rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur"
+        data-stop-link
+        data-stop-tap>
+        {#if ENABLE_ZAPS}
+          <ChannelMessageZapButton {event} relays={relayTargets} {scopeH} />
+        {/if}
+        <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+        {#if reply}
+          <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
+            <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
+        {#if edit}
+          <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message">
+            <Icon icon={Pen} size={4} />
+          </Button>
+        {/if}
+      </div>
+    </div>
+  {/if}
   {#if !censorReason}
     <div class="row-2 ml-10 mt-1 flex items-center gap-2 pl-1">
       <ReactionSummary
@@ -304,8 +309,8 @@
         reactionClass="tooltip-right" />
     </div>
   {/if}
-  {#if !isMobile && !censorReason}
-    <div class="z-10 absolute right-2 top-2 flex items-center gap-1 text-xs">
+  {#if !censorReason}
+    <div class="z-10 absolute right-2 top-2 hidden items-center gap-1 text-xs sm:flex">
       <div
         class="join rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
         {#if ENABLE_ZAPS && !readOnly}
