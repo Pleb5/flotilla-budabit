@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {tick} from "svelte"
   import {writable} from "svelte/store"
   import * as nip19 from "nostr-tools/nip19"
   import type {TrustedEvent} from "@welshman/util"
@@ -63,6 +64,8 @@
   let grantPickerSelection = $state<string[]>([])
   let openPopover = $state<string | null>(null)
   let peopleInput: Element | undefined = $state()
+  let personGrantEditor: HTMLElement | undefined = $state()
+  let addPersonButton: HTMLButtonElement | undefined = $state()
   let peoplePopover: Instance | undefined = $state()
   let peopleSuggestions: any = $state()
   const peopleSearchStore = writable("")
@@ -230,9 +233,14 @@
     grantPickerSelection = sectionNames.filter(sectionName => next.has(sectionName))
   }
 
-  const saveGrantPicker = () => {
+  const saveGrantPicker = async () => {
     selectedSectionNames = [...grantPickerSelection]
     closeGrantPicker()
+
+    await tick()
+
+    personGrantEditor?.scrollIntoView({behavior: "smooth", block: "start"})
+    addPersonButton?.focus({preventScroll: true})
   }
 
   const addDraftGrant = () => {
@@ -356,7 +364,9 @@
     </div>
   </div>
 
-  <div class="rounded-2xl border border-dashed border-base-300 bg-base-200/50 p-4">
+  <div
+    class="scroll-mt-24 rounded-2xl border border-dashed border-base-300 bg-base-200/50 p-4"
+    bind:this={personGrantEditor}>
     {#if normalizedSelectedPubkey}
       <div
         class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-box border border-base-300 bg-base-100 p-3">
@@ -433,6 +443,7 @@
       </div>
       <div class="flex items-end">
         <button
+          bind:this={addPersonButton}
           type="button"
           class="btn btn-primary h-14 min-h-14 w-full justify-center"
           onclick={addDraftGrant}
