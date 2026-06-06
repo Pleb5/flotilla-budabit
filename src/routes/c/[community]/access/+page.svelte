@@ -72,6 +72,18 @@
 
   type AccessPageTab = "requests" | "members"
 
+  const memberLabelButtonClass = "h-auto min-h-7 rounded-full px-3 py-1 text-xs font-medium"
+  const memberLabelBadgeClass = "h-auto min-h-6 rounded-full px-2.5 py-1 text-xs font-medium"
+  const memberLabelToneClasses = {
+    primary:
+      "border-primary/30 bg-primary/15 text-primary hover:border-primary/40 hover:bg-primary/25",
+    info: "border-info/30 bg-info/15 text-info hover:border-info/40 hover:bg-info/25",
+    warning:
+      "border-warning/30 bg-warning/15 text-warning hover:border-warning/40 hover:bg-warning/25",
+    neutral:
+      "border-base-content/10 bg-base-content/10 text-base-content/70 hover:border-base-content/15 hover:bg-base-content/15",
+  }
+
   type ModeratorRequestPublishStatus = "idle" | "publishing" | "sent" | "failed"
 
   type ModeratorRequestPublishState = {
@@ -129,13 +141,13 @@
       $pubkey &&
       $activeCommunityDefinition.sections.some(
         section =>
-            getGrantCapability({
-              definition: $activeCommunityDefinition!,
-              userPubkey: $pubkey,
-              sectionName: section.name,
-              profileListEvents: $activeCommunityProfileListEvents,
-              reportState: $activeCommunityReportState,
-            }).canGrant,
+          getGrantCapability({
+            definition: $activeCommunityDefinition!,
+            userPubkey: $pubkey,
+            sectionName: section.name,
+            profileListEvents: $activeCommunityProfileListEvents,
+            reportState: $activeCommunityReportState,
+          }).canGrant,
       ),
     ),
   )
@@ -276,13 +288,13 @@
       const alreadyModerator = Boolean(
         $pubkey &&
         definition &&
-            getGrantCapability({
-              definition,
-              userPubkey: $pubkey,
-              sectionName: section.name,
-              profileListEvents: $activeCommunityProfileListEvents,
-              reportState: $activeCommunityReportState,
-            }).canGrant,
+        getGrantCapability({
+          definition,
+          userPubkey: $pubkey,
+          sectionName: section.name,
+          profileListEvents: $activeCommunityProfileListEvents,
+          reportState: $activeCommunityReportState,
+        }).canGrant,
       )
       const status = alreadyModerator ? "accepted" : request?.status || "none"
       const publishState = moderatorRequestPublishStates[section.name]
@@ -933,14 +945,17 @@
 
                   <div class="flex flex-wrap items-center gap-2 sm:justify-end">
                     {#if member.isOwner}
-                      <span class="badge badge-primary">all admin sections</span>
+                      <span
+                        class={`badge badge-sm ${memberLabelBadgeClass} ${memberLabelToneClasses.primary}`}>
+                        all admin sections
+                      </span>
                     {/if}
 
                     {#if member.isModerator}
                       {@const moderatorKey = getMemberPopoverKey(member, "moderators")}
                       <div class="relative">
                         <Button
-                          class="btn btn-info btn-sm"
+                          class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.info}`}
                           aria-expanded={openMemberPopover === moderatorKey}
                           onclick={() => showMemberPopover(moderatorKey)}>
                           {pluralize(member.moderatorSectionCount, "moderator section")}
@@ -976,10 +991,13 @@
                     {/if}
 
                     {#if member.isPendingModerator}
-                      {@const pendingModeratorKey = getMemberPopoverKey(member, "pending-moderators")}
+                      {@const pendingModeratorKey = getMemberPopoverKey(
+                        member,
+                        "pending-moderators",
+                      )}
                       <div class="relative">
                         <Button
-                          class="btn btn-warning btn-sm"
+                          class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.warning}`}
                           aria-expanded={openMemberPopover === pendingModeratorKey}
                           onclick={() => showMemberPopover(pendingModeratorKey)}>
                           Pending {pluralize(
@@ -1020,7 +1038,7 @@
 
                     <div class="relative">
                       <Button
-                        class="btn btn-neutral btn-sm"
+                        class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.neutral}`}
                         aria-expanded={openMemberPopover === grantsKey}
                         onclick={() => showMemberPopover(grantsKey)}>
                         {pluralize(member.grantCount, "grant")}
@@ -1031,12 +1049,12 @@
                           widthClass="w-80 sm:w-96"
                           onClose={() => (openMemberPopover = null)}>
                           <div class="flex flex-col gap-3 text-sm">
-                              <div>
-                                <h3 class="font-semibold">Membership grants</h3>
-                                <p class="text-xs opacity-70">
-                                  Sections where this pubkey can publish as a member.
-                                </p>
-                              </div>
+                            <div>
+                              <h3 class="font-semibold">Membership grants</h3>
+                              <p class="text-xs opacity-70">
+                                Sections where this pubkey can publish as a member.
+                              </p>
+                            </div>
                             {#if member.sectionGrants.length > 0}
                               {#each member.sectionGrants as section}
                                 <div class="rounded-box bg-base-200 p-3">
