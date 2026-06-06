@@ -113,6 +113,7 @@
   const moderationPath = $derived(
     communityPubkey ? makeCommunityPath(communityPubkey, "moderation") : "",
   )
+  const accessPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "access") : "")
   const adminPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "admin") : "")
   const currentUserAdmin = $derived(
     Boolean(
@@ -234,7 +235,7 @@
   )
   const accessCheckedAt = $derived.by(() => {
     let checkedAt = 0
-    const path = $page.url.pathname
+    const path = accessPath || $page.url.pathname
 
     for (const [entryPath, timestamp] of Object.entries($checked)) {
       if (entryPath.endsWith(":seen")) continue
@@ -804,7 +805,7 @@
   })
 
   onDestroy(() => {
-    setChecked($page.url.pathname)
+    setChecked(accessPath || $page.url.pathname)
   })
 </script>
 

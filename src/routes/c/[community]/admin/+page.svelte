@@ -59,7 +59,7 @@
   } from "@app/core/community-relays"
   import {communityAdminSelectedTab, type CommunityAdminTab} from "@app/util/community-admin-tabs"
   import {setChecked} from "@app/util/notifications"
-  import {parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type RequestStatusFilter = "pending" | "accepted" | "rejected"
   type ModeratorPersonTab = "grants" | "actions"
@@ -80,6 +80,7 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const adminPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "admin") : "")
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
@@ -496,7 +497,7 @@
   })
 
   onDestroy(() => {
-    setChecked($page.url.pathname)
+    setChecked(adminPath || $page.url.pathname)
   })
 </script>
 

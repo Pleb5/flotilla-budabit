@@ -211,6 +211,47 @@ describe("community moderator promotion requests", () => {
     expect(secondSection.badges).toEqual([])
   })
 
+  it("uses acceptance reactions as accepted status events when available", () => {
+    const definition = makeDefinition()
+    const requestEvent = makeRequest()
+    const [request] = getModeratorPromotionRequests({
+      profileListEvents: [requestEvent.profileList],
+      communityPubkey,
+    })
+    const acceptedTemplate = makeModeratorPromotionDefinitionUpdate({definition, request})
+    const accepted = parseCommunityDefinition(
+      makeEvent({
+        id: "edited-after-acceptance",
+        created_at: 50,
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: acceptedTemplate.tags,
+      }),
+    )!
+    const acceptanceTemplate = makeModeratorRequestReaction({
+      request,
+      target: request.profileList,
+      content: "+",
+    })
+    const acceptanceReaction = makeEvent({
+      id: "acceptance-reaction",
+      created_at: 10,
+      kind: MODERATOR_REQUEST_REACTION_KIND,
+      pubkey: communityPubkey,
+      content: "+",
+      tags: acceptanceTemplate.tags,
+    })
+    const [state] = getModeratorPromotionRequestStates({
+      definition: accepted,
+      requests: [request],
+      reactionEvents: [acceptanceReaction],
+    })
+
+    expect(state.status).toBe("accepted")
+    expect(state.statusEvent?.id).toBe("acceptance-reaction")
+    expect(state.statusChangedAt).toBe(10)
+  })
+
   it("derives accepted request states from active grants when request events are incomplete", () => {
     const definition = makeDefinition()
     const requestEvent = makeRequest()

@@ -392,7 +392,7 @@ export const getModeratorPromotionRequestStates = ({
     const accepted = hasSectionRef(definition, request)
     const rejected = rejectedListReactions.length > 0
     const statusEvent = accepted
-      ? definition.event
+      ? getLatestEvent(acceptedListReactions) || definition.event
       : rejected
         ? getLatestEvent(rejectedListReactions)
         : request.profileList.event
