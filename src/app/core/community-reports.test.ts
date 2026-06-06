@@ -332,7 +332,7 @@ describe("community reports", () => {
     ).toBe("event")
     expect(
       getCommunityCensorReason({reportState: state, eventId: "thread-event", sectionName: "Forum"}),
-    ).toBe("event")
+    ).toBeUndefined()
     expect(
       getCommunityCensorReason({
         reportState: state,

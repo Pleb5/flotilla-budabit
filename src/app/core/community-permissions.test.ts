@@ -101,7 +101,7 @@ describe("community permissions", () => {
   it("maps write targets by kind and subtype", () => {
     expect(getCommunityWriteTarget(9, "room-message")).toEqual(COMMUNITY_WRITE_TARGETS.roomMessage)
     expect(getCommunityWriteTarget(11, "threads")).toEqual(COMMUNITY_WRITE_TARGETS.thread)
-    expect(getCommunityWriteTarget(11, "forum")).toEqual(COMMUNITY_WRITE_TARGETS.thread)
+    expect(getCommunityWriteTarget(11, "forum")).toBeUndefined()
     expect(getCommunityWriteTarget(11)).toBeUndefined()
     expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
@@ -398,7 +398,7 @@ describe("community permissions", () => {
     })
 
     expect(getCommunityCapabilityKey(9, "room-message")).toBe("9:room-message")
-    expect(getCommunityCapabilityKey(11, "forum")).toBe("11:threads")
+    expect(getCommunityCapabilityKey(11, "forum")).toBe("11:forum")
     expect(capabilities["9:room-message"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})

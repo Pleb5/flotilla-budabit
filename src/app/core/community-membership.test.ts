@@ -227,6 +227,39 @@ describe("community membership", () => {
     expect(refs.map(ref => ref.writableSections)).toEqual([["General"], ["Moderated"], ["Members"]])
   })
 
+  it("uses stored section names for member grant display", () => {
+    const ownerPubkey = "a".repeat(64)
+    const moderatorPubkey = "b".repeat(64)
+    const memberPubkey = "c".repeat(64)
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        id: "goals-community-definition",
+        pubkey: ownerPubkey,
+        kind: COMMUNITY_DEFINITION_KIND,
+        tags: [
+          ["content", "Goals"],
+          ["k", "9041"],
+          ["a", `${PROFILE_LIST_KIND}:${moderatorPubkey}:Goals`],
+        ],
+      }),
+    )!
+
+    const members = selectCommunityMemberList({
+      definition,
+      profileListEvents: [
+        makeProfileList({
+          id: "goals-list",
+          pubkey: moderatorPubkey,
+          identifier: "Goals",
+          members: [memberPubkey],
+        }),
+      ],
+    })
+    const member = members.find(item => item.pubkey === memberPubkey)
+
+    expect(member?.sectionGrants.map(section => section.displayName)).toEqual(["Goals"])
+  })
+
   it("treats missing moderator profile-list evidence as member access only", () => {
     const userPubkey = "b".repeat(64)
     const communityPubkey = "d".repeat(64)

@@ -23,34 +23,13 @@ export const COMMUNITY_SUBTYPE_ROOM = "room"
 export const COMMUNITY_SUBTYPE_THREADS = "threads"
 export const COMMUNITY_SUBTYPE_ROOM_MESSAGE = "room-message"
 
-const LEGACY_COMMUNITY_SECTION_FORUM = "Forum"
-const LEGACY_COMMUNITY_SECTION_ROOMS = "Rooms"
-const LEGACY_COMMUNITY_SECTION_THREADS = "Threads"
-const LEGACY_COMMUNITY_SECTION_CALENDAR = "Calendar"
-const LEGACY_COMMUNITY_SECTION_GOALS = "Goals"
-const LEGACY_COMMUNITY_SECTION_REPO_CURATOR = "Repo-curator"
-const LEGACY_COMMUNITY_SECTION_WIDGETS = "Widgets"
-const LEGACY_COMMUNITY_SUBTYPE_FORUM = "forum"
-
-export const normalizeCommunitySectionName = (name: string) => {
-  const trimmed = name.trim()
-
-  if (trimmed === LEGACY_COMMUNITY_SECTION_FORUM) return COMMUNITY_SECTION_THREADS
-  if (trimmed === LEGACY_COMMUNITY_SECTION_ROOMS) return COMMUNITY_SECTION_ROOMS
-  if (trimmed === LEGACY_COMMUNITY_SECTION_THREADS) return COMMUNITY_SECTION_THREADS
-  if (trimmed === LEGACY_COMMUNITY_SECTION_CALENDAR) return COMMUNITY_SECTION_CALENDAR
-  if (trimmed === LEGACY_COMMUNITY_SECTION_GOALS) return COMMUNITY_SECTION_GOALS
-  if (trimmed === LEGACY_COMMUNITY_SECTION_REPO_CURATOR) return COMMUNITY_SECTION_REPO_CURATOR
-  if (trimmed === LEGACY_COMMUNITY_SECTION_WIDGETS) return COMMUNITY_SECTION_WIDGETS
-
-  return trimmed
-}
+export const normalizeCommunitySectionName = (name: string) => name.trim()
 
 export const normalizeCommunitySectionSubtype = (subtype?: string) => {
   const trimmed = subtype?.trim()
   if (!trimmed) return undefined
 
-  return trimmed === LEGACY_COMMUNITY_SUBTYPE_FORUM ? COMMUNITY_SUBTYPE_THREADS : trimmed
+  return trimmed
 }
 
 export const getCommunitySectionKindKey = (kind: number, subtype?: string) =>
@@ -668,20 +647,8 @@ export const getCommunityMainRelay = (definition: CommunityDefinition) => defini
 
 export const findCommunitySection = (definition: CommunityDefinition, name: string) => {
   const normalizedName = normalizeCommunitySectionName(name)
-  const exactSection = definition.sections.find(
-    section => normalizeCommunitySectionName(section.name) === normalizedName,
-  )
-  if (exactSection) return exactSection
 
-  if (normalizedName === COMMUNITY_SECTION_THREADS) {
-    return definition.sections.find(section =>
-      sectionSupportsKind(section, 11, COMMUNITY_SUBTYPE_THREADS),
-    )
-  }
-
-  if (normalizedName === COMMUNITY_SECTION_GOALS) {
-    return definition.sections.find(section => sectionSupportsKind(section, 9041))
-  }
+  return definition.sections.find(section => section.name === normalizedName)
 }
 
 export const findCommunitySectionByKind = (
@@ -700,12 +667,7 @@ export const sectionSupportsKind = (
   )
 }
 
-export const getCommunitySectionDisplayName = (section: CommunitySection) =>
-  sectionSupportsKind(section, 9041)
-    ? COMMUNITY_SECTION_GOALS
-    : normalizeCommunitySectionName(section.name) === COMMUNITY_SECTION_REPO_CURATOR
-      ? "Code curator"
-      : normalizeCommunitySectionName(section.name)
+export const getCommunitySectionDisplayName = (section: CommunitySection) => section.name
 
 export const getProfileListStatus = (event: TrustedEvent | undefined) =>
   event?.tags.find(tag => tag[0] === "status")?.[1] || ""

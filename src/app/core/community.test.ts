@@ -3,7 +3,6 @@ import * as nip19 from "nostr-tools/nip19"
 import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
-  COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_REPO_CURATOR,
@@ -267,7 +266,7 @@ describe("community protocol helpers", () => {
     expect(apps.badges).toEqual([])
     expect(sectionSupportsKind(apps, 32267)).toBe(true)
     expect(sectionSupportsKind(apps, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
-    expect(sectionSupportsKind(apps, 11, "forum")).toBe(true)
+    expect(sectionSupportsKind(apps, 11, "forum")).toBe(false)
     expect(sectionSupportsKind(apps, 11)).toBe(false)
   })
 
@@ -292,7 +291,7 @@ describe("community protocol helpers", () => {
     ).not.toThrow()
   })
 
-  it("normalizes legacy forum sections to threads", () => {
+  it("preserves forum section names and subtypes exactly", () => {
     const definition = parseCommunityDefinition(
       makeEvent({
         kind: COMMUNITY_DEFINITION_KIND,
@@ -305,22 +304,29 @@ describe("community protocol helpers", () => {
         ],
       }),
     )!
-    const threads = findCommunitySection(definition, COMMUNITY_SECTION_THREADS)!
+    const forum = findCommunitySection(definition, "Forum")!
 
-    expect(threads.name).toBe(COMMUNITY_SECTION_THREADS)
-    expect(findCommunitySection(definition, "Forum")).toBe(threads)
-    expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
-    expect(sectionSupportsKind(threads, 11, "forum")).toBe(true)
-    expect(threads.profileLists[0].address).toBe(`${PROFILE_LIST_KIND}:${pubkeyB}:Forum`)
+    expect(forum.name).toBe("Forum")
+    expect(findCommunitySection(definition, COMMUNITY_SECTION_THREADS)).toBeUndefined()
+    expect(sectionSupportsKind(forum, 11, "forum")).toBe(true)
+    expect(sectionSupportsKind(forum, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(false)
+    expect(forum.profileLists[0].address).toBe(`${PROFILE_LIST_KIND}:${pubkeyB}:Forum`)
   })
 
-  it("normalizes legacy default section names", () => {
-    expect(normalizeCommunitySectionName("Rooms")).toBe(COMMUNITY_SECTION_ROOMS)
-    expect(normalizeCommunitySectionName("Threads")).toBe(COMMUNITY_SECTION_THREADS)
-    expect(normalizeCommunitySectionName("Calendar")).toBe(COMMUNITY_SECTION_CALENDAR)
-    expect(normalizeCommunitySectionName("Goals")).toBe(COMMUNITY_SECTION_GOALS)
-    expect(normalizeCommunitySectionName("Repo-curator")).toBe(COMMUNITY_SECTION_REPO_CURATOR)
-    expect(normalizeCommunitySectionName("Widgets")).toBe(COMMUNITY_SECTION_WIDGETS)
+  it("trims section names without aliasing old defaults", () => {
+    const template = buildCommunityDefinition({
+      relays: ["wss://relay.example.com"],
+      sections: [{name: "Goals", kinds: [{kind: 9041}]}],
+    })
+
+    expect(normalizeCommunitySectionName(" Rooms ")).toBe("Rooms")
+    expect(normalizeCommunitySectionName("Threads")).toBe("Threads")
+    expect(normalizeCommunitySectionName("Calendar")).toBe("Calendar")
+    expect(normalizeCommunitySectionName("Goals")).toBe("Goals")
+    expect(normalizeCommunitySectionName("Repo-curator")).toBe("Repo-curator")
+    expect(normalizeCommunitySectionName("Widgets")).toBe("Widgets")
+    expect(template.tags).toContainEqual(["content", "Goals"])
+    expect(template.tags).not.toContainEqual(["content", COMMUNITY_SECTION_GOALS])
   })
 
   it("builds community badge definition events", () => {

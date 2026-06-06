@@ -5,6 +5,7 @@ import * as nip19 from "nostr-tools/nip19"
 import {type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_THREADS,
   FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
@@ -21,6 +22,7 @@ import {
   makeCommunityDefinitionFilter,
   makeCommunityProfileListFilters,
   makeCommunitySession,
+  selectCommunityAdmissionForms,
   selectLatestCommunityDefinition,
   activeCommunityDefinition,
   activeCommunityProfile,
@@ -247,6 +249,35 @@ describe("community state helpers", () => {
       repository.removeEvent(definition.event.id)
       clearActiveCommunity()
     }
+  })
+
+  it("selects admission forms by stored section name only", () => {
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        id: "goals-definition",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "Goals"],
+          ["k", "9041"],
+          ["a", `${PROFILE_LIST_KIND}:${listPubkey}:Goals`],
+        ],
+      }),
+    )!
+    const form = makeEvent({
+      id: "goals-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: listPubkey,
+      tags: [
+        ["d", "goals-form"],
+        ["a", makeCommunityDefinitionAddress(communityPubkey)],
+        ["content", "Goals"],
+      ],
+    })
+    const forms = selectCommunityAdmissionForms(definition, [form])
+
+    expect(forms.Goals?.event.id).toBe("goals-form")
+    expect(forms[COMMUNITY_SECTION_GOALS]).toBeUndefined()
   })
 
   it("derives active community relays from the loaded definition", () => {

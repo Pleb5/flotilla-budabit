@@ -8,7 +8,6 @@ import {Router} from "@welshman/router"
 import {DELETE, PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
-  COMMUNITY_SECTION_GOALS,
   FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
   type CommunityDefinition,
@@ -18,7 +17,6 @@ import {
   normalizeRelays,
   parseCommunityDefinition,
   parseCommunityInput,
-  sectionSupportsKind,
 } from "@app/core/community"
 import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permissions"
 import {
@@ -1941,12 +1939,7 @@ export const selectCommunityAdmissionForms = (
 
       if (!form) return []
 
-      return sectionSupportsKind(section, 9041)
-        ? [
-            [section.name, form],
-            [COMMUNITY_SECTION_GOALS, form],
-          ]
-        : [[section.name, form]]
+      return [[section.name, form]]
     }),
   )
 
