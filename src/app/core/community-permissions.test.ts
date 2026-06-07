@@ -278,7 +278,7 @@ describe("community permissions", () => {
         sectionName: "General",
         reportState: bannedManagerState,
       }),
-    ).toEqual([])
+    ).toEqual([communityPubkey])
   })
 
   it("lets delegated moderator refs write as all-section members before accepting", () => {
@@ -328,6 +328,14 @@ describe("community permissions", () => {
     expect(
       getGrantCapability({
         definition,
+        userPubkey: communityPubkey,
+        sectionName: "General",
+        profileListEvents: [],
+      }),
+    ).toMatchObject({canManageList: false, canGrant: true})
+    expect(
+      getGrantCapability({
+        definition,
         userPubkey: managerPubkey,
         sectionName: "General",
         profileListEvents: [generalProfileList, repoProfileList],
@@ -350,10 +358,10 @@ describe("community permissions", () => {
         sectionName: "General",
         profileListEvents: [generalProfileList, repoProfileList],
       }),
-    ).toEqual([managerPubkey])
+    ).toEqual([communityPubkey, managerPubkey])
     expect(
       getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Code-curator"}),
-    ).toEqual([repoManagerPubkey])
+    ).toEqual([communityPubkey, repoManagerPubkey])
   })
 
   it("gives declined moderator refs member access without moderator authority", () => {
@@ -575,7 +583,7 @@ describe("community permissions", () => {
         sectionName: "Apps",
         profileListEvents: [appsProfileList, appsProProfileList],
       }),
-    ).toEqual([managerPubkey, repoManagerPubkey])
+    ).toEqual([communityPubkey, managerPubkey, repoManagerPubkey])
   })
 
   it("matches known write targets by kind when a section has a custom name", () => {

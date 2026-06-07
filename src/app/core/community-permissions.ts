@@ -538,16 +538,21 @@ export const getGrantCapableSectionModeratorPubkeys = ({
 }) => {
   const section = findCommunitySection(definition, sectionName)
   if (!section) return []
+  const ownerPubkey = normalizePubkey(definition.pubkey)
 
   return Array.from(
     new Set(
-      section.profileLists
-        .filter(ref => isActiveCommunityProfileListRef(ref, profileListEvents))
-        .map(ref => ref.pubkey)
+      [
+        ownerPubkey,
+        ...section.profileLists
+          .filter(ref => isActiveCommunityProfileListRef(ref, profileListEvents))
+          .map(ref => ref.pubkey),
+      ]
         .map(normalizePubkey)
-        .filter(Boolean)
-        .filter(pubkey => !isCommunityReportStatePersonBanned(reportState, pubkey)),
+        .filter(Boolean),
     ),
+  ).filter(
+    pubkey => pubkey === ownerPubkey || !isCommunityReportStatePersonBanned(reportState, pubkey),
   )
 }
 
@@ -682,9 +687,12 @@ export const getGrantCapability = ({
 }): CommunityGrantCapability => {
   const section = findCommunitySection(definition, sectionName)
   const normalizedUser = normalizePubkey(userPubkey)
+  const ownerPubkey = normalizePubkey(definition.pubkey)
+
+  if (!section || !normalizedUser) return {canManageList: false, canGrant: false}
 
   if (
-    normalizedUser !== normalizePubkey(definition.pubkey) &&
+    normalizedUser !== ownerPubkey &&
     isCommunityReportStatePersonBanned(reportState, normalizedUser)
   ) {
     return {canManageList: false, canGrant: false}
@@ -699,7 +707,7 @@ export const getGrantCapability = ({
 
   return {
     canManageList,
-    canGrant: canManageList,
+    canGrant: normalizedUser === ownerPubkey || canManageList,
     profileList,
   }
 }

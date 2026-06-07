@@ -27,7 +27,11 @@
     getProfileListPubkeys,
     normalizePubkey,
   } from "@app/core/community"
-  import {makeCommunityGrantEvent, makeCommunityRevokeEvent} from "@app/core/community-admin"
+  import {
+    getOwnerMembershipGrantProfileList,
+    makeCommunityGrantEvent,
+    makeCommunityRevokeEvent,
+  } from "@app/core/community-admin"
   import {
     activeCommunityAdmissionForms,
     activeCommunityBootstrapStatus,
@@ -70,7 +74,10 @@
     parseAdmissionResponse,
     validateAdmissionFormDraft,
   } from "@app/core/community-forms"
-  import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
+  import {
+    getCommunityRootPublishRelays,
+    getCommunityScopedPublishRelays,
+  } from "@app/core/community-relays"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   type ReviewApplication = {
@@ -107,40 +114,47 @@
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
+  const communityRootPublishRelays = $derived(
+    $activeCommunityDefinition
+      ? getCommunityRootPublishRelays(communityPublishRelays, $activeCommunityDefinition.pubkey)
+      : communityPublishRelays,
+  )
   const communityProfileRelays = $derived(
     $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityPublishRelays,
   )
 
-  const grantableSections = $derived(
+  const moderationSections = $derived(
     communityBootstrapReady
-      ? ($activeCommunityDefinition?.sections || [])
-          .map(section => ({
-            section,
-            displayName: getCommunitySectionDisplayName(section),
-            capability:
-              $pubkey && $activeCommunityDefinition
-                ? getGrantCapability({
-                    definition: $activeCommunityDefinition,
-                    userPubkey: $pubkey,
-                    sectionName: section.name,
-                    profileListEvents: $activeCommunityProfileListEvents,
-                    reportState: $activeCommunityReportState,
-                  })
-                : undefined,
-          }))
-          .filter(item => item.capability?.canGrant)
+      ? ($activeCommunityDefinition?.sections || []).map(section => ({
+          section,
+          displayName: getCommunitySectionDisplayName(section),
+          capability:
+            $pubkey && $activeCommunityDefinition
+              ? getGrantCapability({
+                  definition: $activeCommunityDefinition,
+                  userPubkey: $pubkey,
+                  sectionName: section.name,
+                  profileListEvents: $activeCommunityProfileListEvents,
+                  reportState: $activeCommunityReportState,
+                })
+              : undefined,
+        }))
       : [],
   )
+  const grantableSections = $derived(moderationSections.filter(item => item.capability?.canGrant))
+  const manageableFormSections = $derived(grantableSections)
   const selected = $derived(
-    grantableSections.find(item => item.section.name === selectedSectionName),
+    manageableFormSections.find(item => item.section.name === selectedSectionName),
   )
   const activeForm = $derived(
     selectedSectionName ? $activeCommunityAdmissionForms[selectedSectionName] : undefined,
   )
   const missingFormSections = $derived(
-    grantableSections.filter(item => !$activeCommunityAdmissionForms[item.section.name]),
+    manageableFormSections.filter(item => !$activeCommunityAdmissionForms[item.section.name]),
   )
-  const setupComplete = $derived(grantableSections.length > 0 && missingFormSections.length === 0)
+  const setupComplete = $derived(
+    manageableFormSections.length > 0 && missingFormSections.length === 0,
+  )
   const canAccessModerationPage = $derived.by(() => {
     if (!communityBootstrapReady || !$activeCommunityDefinition || !$pubkey) return false
     if (grantableSections.length > 0) return true
@@ -303,7 +317,7 @@
       mode: "forms" as const,
       label: "Application forms",
       count: missingFormSections.length,
-      disabled: grantableSections.length === 0,
+      disabled: manageableFormSections.length === 0,
       warning: missingFormSections.length > 0,
     },
     {
@@ -319,7 +333,8 @@
     JSON.parse(JSON.stringify(draft))
 
   const getSectionDisplayName = (sectionName: string) =>
-    grantableSections.find(item => item.section.name === sectionName)?.displayName || sectionName
+    manageableFormSections.find(item => item.section.name === sectionName)?.displayName ||
+    sectionName
   const formatSectionKinds = (kinds: Array<{kind: number; subtype?: string}>) =>
     kinds.length
       ? kinds
@@ -672,7 +687,7 @@
       reportState: $activeCommunityReportState,
     })
 
-    if (!capability.canGrant || !capability.profileList) {
+    if (!capability.canGrant) {
       pushToast({
         theme: "error",
         message: "You need moderator authority for this section.",
@@ -688,14 +703,40 @@
     const applicant = normalizePubkey(application.response.event.pubkey)
     if (!applicant) return
 
-    const profileListEvent = findProfileListEvent(
-      capability.profileList,
-      $activeCommunityProfileListEvents,
-    )
+    let profileList = capability.profileList
+    let definitionUpdate: ReturnType<typeof getOwnerMembershipGrantProfileList>["definitionUpdate"]
+
+    if (
+      status === "granted" &&
+      !profileList &&
+      isCommunityAdmin($activeCommunityDefinition, $pubkey || "")
+    ) {
+      const ownerGrantProfileList = getOwnerMembershipGrantProfileList({
+        definition: $activeCommunityDefinition,
+        sectionName: application.sectionName,
+        relays: communityPublishRelays,
+      })
+
+      profileList = ownerGrantProfileList.profileList
+      definitionUpdate = ownerGrantProfileList.definitionUpdate
+    }
 
     if (status === "granted") {
+      if (!profileList) {
+        pushToast({theme: "error", message: "No membership list is available for this section."})
+        return
+      }
+
+      if (definitionUpdate) {
+        publishThunk({
+          relays: communityRootPublishRelays,
+          event: makeEvent(definitionUpdate.kind, definitionUpdate),
+        })
+      }
+
+      const profileListEvent = findProfileListEvent(profileList, $activeCommunityProfileListEvents)
       const grant = makeCommunityGrantEvent({
-        profileList: capability.profileList,
+        profileList,
         profileListEvent,
         pubkey: applicant,
       })
@@ -704,17 +745,20 @@
         relays: communityPublishRelays,
         event: makeEvent(grant.kind, grant),
       })
-    } else if (profileListEvent && getProfileListPubkeys(profileListEvent).includes(applicant)) {
-      const revoke = makeCommunityRevokeEvent({
-        profileList: capability.profileList,
-        profileListEvent,
-        pubkey: applicant,
-      })
+    } else if (profileList) {
+      const profileListEvent = findProfileListEvent(profileList, $activeCommunityProfileListEvents)
+      if (profileListEvent && getProfileListPubkeys(profileListEvent).includes(applicant)) {
+        const revoke = makeCommunityRevokeEvent({
+          profileList,
+          profileListEvent,
+          pubkey: applicant,
+        })
 
-      publishThunk({
-        relays: communityPublishRelays,
-        event: makeEvent(revoke.kind, revoke),
-      })
+        publishThunk({
+          relays: communityPublishRelays,
+          event: makeEvent(revoke.kind, revoke),
+        })
+      }
     }
 
     const review = makeAdmissionReview({
@@ -738,8 +782,8 @@
   }
 
   $effect(() => {
-    if (!selectedSectionName && grantableSections[0])
-      selectedSectionName = grantableSections[0].section.name
+    if (!selectedSectionName && manageableFormSections[0])
+      selectedSectionName = manageableFormSections[0].section.name
   })
 
   $effect(() => {
@@ -832,7 +876,7 @@
           <div>
             <h2 class="text-xl font-semibold">Application forms</h2>
             <p class="text-sm opacity-70">
-              Create one active application form per section you can grant.
+              Create one active application form per section you manage.
             </p>
           </div>
           <Button class="btn btn-ghost" onclick={() => (pageMode = "queue")}
@@ -848,7 +892,7 @@
 
       <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
         <aside class="flex flex-col gap-2">
-          {#each grantableSections as item}
+          {#each manageableFormSections as item}
             {@const itemForm = $activeCommunityAdmissionForms[item.section.name]}
             {@const hasDraft = Boolean(drafts[item.section.name])}
             {@const isSelected = selectedSectionName === item.section.name}
@@ -1181,22 +1225,26 @@
         </section>
       </div>
     {:else}
-      {#if grantableSections.length > 0}
+      {#if manageableFormSections.length > 0}
         <section
           class={`card2 bg-alt col-4 flex flex-col gap-3 p-4 shadow-md ${setupComplete ? "" : "border-warning bg-warning/10"}`}>
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 class="text-xl font-semibold">Application setup</h2>
               {#if setupComplete}
-                <p class="text-sm opacity-70">All grantable sections are accepting applications.</p>
-              {:else}
-                <p class="text-sm text-warning">
-                  Users cannot apply to: {missingFormSections
-                    .map(item => item.displayName)
-                    .join(", ")}.
-                </p>
                 <p class="text-sm opacity-70">
-                  Create one application form for each section you moderate.
+                  All manageable sections are accepting applications.
+                </p>
+              {:else}
+                {#if missingFormSections.length > 0}
+                  <p class="text-sm text-warning">
+                    Users cannot apply to: {missingFormSections
+                      .map(item => item.displayName)
+                      .join(", ")}.
+                  </p>
+                {/if}
+                <p class="text-sm opacity-70">
+                  Create one application form for each section you manage.
                 </p>
               {/if}
             </div>

@@ -224,7 +224,7 @@ describe("community state helpers", () => {
     expect(makeCommunityAdmissionFormFilters(definition)).toEqual([
       {
         kinds: [FORM_TEMPLATE_KIND],
-        authors: [badgePubkey],
+        authors: [communityPubkey, badgePubkey],
         "#a": [makeCommunityDefinitionAddress(communityPubkey)],
       },
     ])
@@ -278,6 +278,33 @@ describe("community state helpers", () => {
 
     expect(forms.Goals?.event.id).toBe("goals-form")
     expect(forms[COMMUNITY_SECTION_GOALS]).toBeUndefined()
+  })
+
+  it("selects owner-authored admission forms for sections without list authority", () => {
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        id: "threads-definition",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", COMMUNITY_SECTION_THREADS],
+          ["k", "11", "threads"],
+        ],
+      }),
+    )!
+    const form = makeEvent({
+      id: "owner-threads-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: communityPubkey,
+      tags: [
+        ["d", "threads-form"],
+        ["a", makeCommunityDefinitionAddress(communityPubkey)],
+        ["content", COMMUNITY_SECTION_THREADS],
+      ],
+    })
+    const forms = selectCommunityAdmissionForms(definition, [form])
+
+    expect(forms[COMMUNITY_SECTION_THREADS]?.event.id).toBe("owner-threads-form")
   })
 
   it("derives active community relays from the loaded definition", () => {

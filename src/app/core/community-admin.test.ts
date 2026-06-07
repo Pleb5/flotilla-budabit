@@ -5,6 +5,7 @@ import {
   addPubkeyToCommunityProfileList,
   applyCommunityBootstrapGrants,
   findCommunityProfileListEvent,
+  getOwnerMembershipGrantProfileList,
   getPendingCommunityModeratorInvites,
   makeCommunityGrantEvent,
   makeManualModeratorProfileListRef,
@@ -122,6 +123,64 @@ describe("community admin helpers", () => {
     expect(result.profileListUpdates).toEqual([
       {profileList: definition.sections[0].profileLists[0], pubkeys: [otherPubkey, memberPubkey]},
     ])
+  })
+
+  it("creates an owner-managed member grant list only when a grant needs one", () => {
+    const moderatorRef = makeManualModeratorProfileListRef({
+      moderatorPubkey: memberPubkey,
+      sectionName: "Threads",
+      relays: ["wss://relay.example.com"],
+    })
+    const definition = parseCommunityDefinition({
+      id: "definition",
+      kind: 10222,
+      pubkey: managerPubkey,
+      created_at: 1,
+      tags: [
+        ["r", "wss://relay.example.com"],
+        ["content", "Threads"],
+        ["k", "11", "threads"],
+        ["a", moderatorRef.address, moderatorRef.relay || ""],
+      ],
+      content: "",
+      sig: "sig",
+    } as TrustedEvent)!
+    const result = getOwnerMembershipGrantProfileList({
+      definition,
+      sectionName: "Threads",
+      relays: ["wss://relay.example.com"],
+    })
+
+    expect(result.profileList).toMatchObject({pubkey: managerPubkey})
+    expect(result.definitionUpdate?.tags).toContainEqual([
+      "a",
+      result.profileList!.address,
+      "wss://relay.example.com/",
+    ])
+  })
+
+  it("reuses an existing owner member grant list ref", () => {
+    const definition = parseCommunityDefinition({
+      id: "definition",
+      kind: 10222,
+      pubkey: managerPubkey,
+      created_at: 1,
+      tags: [
+        ["content", "General"],
+        ["k", "1111"],
+        ["a", profileList.address],
+      ],
+      content: "",
+      sig: "sig",
+    } as TrustedEvent)!
+    const result = getOwnerMembershipGrantProfileList({
+      definition,
+      sectionName: "General",
+      relays: ["wss://relay.example.com"],
+    })
+
+    expect(result.profileList).toEqual(definition.sections[0].profileLists[0])
+    expect(result.definitionUpdate).toBeUndefined()
   })
 
   it("adds manual moderator refs and creates accept or decline list events", () => {

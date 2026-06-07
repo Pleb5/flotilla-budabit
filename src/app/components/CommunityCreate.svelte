@@ -989,33 +989,13 @@
     return sections
   }
 
-  const ensureSectionAuthorities = ({
-    sections,
-    communityPubkey,
-    relays,
-  }: {
-    sections: CommunityDefinitionSectionInput[]
-    communityPubkey: string
-    relays: string[]
-  }) => {
+  const ensureSectionAuthorities = ({sections}: {sections: CommunityDefinitionSectionInput[]}) => {
     const nextSections: CommunityDefinitionSectionInput[] = []
     const newProfileLists: NewProfileList[] = []
 
     for (const section of sections) {
-      const setup = makeCommunitySetupSection({
-        communityPubkey,
-        profileListPubkey: communityPubkey,
-        relays,
-        name: section.name,
-        kinds: section.kinds,
-      })
       const profileLists = [...(section.profileLists || [])]
       const badges = [...(section.badges || [])]
-
-      if (profileLists.length === 0) {
-        profileLists.push(setup.profileList)
-        newProfileLists.push({sectionName: section.name, profileList: setup.profileList})
-      }
 
       nextSections.push({...section, profileLists, badges})
     }
@@ -1073,8 +1053,6 @@
 
     const authority = ensureSectionAuthorities({
       sections: normalizedSections,
-      communityPubkey: community.pubkey,
-      relays,
     })
     const bootstrapGrants = applyCommunityBootstrapGrants({
       sections: authority.sections,
@@ -2160,13 +2138,6 @@
   const title = $derived(isEdit ? "Edit community settings." : "Create a BudaBit community.")
   const eyebrow = $derived(isEdit ? "Community Admin" : "Community Setup")
   const activeCommunityPubkey = $derived(definition?.pubkey || $pubkey || "")
-  const sectionCount = $derived(sectionDrafts.length)
-  const newAuthorityCount = $derived(
-    sectionDrafts.filter(section => section.profileLists.length === 0).length,
-  )
-  const bootstrapDraftGrantCount = $derived(
-    bootstrapGrantDrafts.reduce((count, grant) => count + grant.sectionNames.length, 0),
-  )
   const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
   const activeCommunityRelays = $derived.by(() =>
     normalizeRelays([primaryRelay, ...splitLines(extraRelays)]),
@@ -2823,89 +2794,34 @@
             {disabled} />
         {/if}
 
-        <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
-          <strong class="text-lg">What gets published</strong>
-          {#if isEdit && sectionMigrationSummary.changes.length > 0}
-            <div
-              class="mt-4 rounded-2xl border border-warning/35 bg-warning/10 p-4 text-sm leading-relaxed">
-              <strong class="block text-warning">Permission changes to review</strong>
-              <div class="mt-3 space-y-3">
-                <div>
-                  <p class="font-semibold">Dangerous changes</p>
-                  <ul class="mt-1 list-disc space-y-1 pl-5">
-                    {#each makeChangeSummaryItems(sectionMigrationSummary) as item}
-                      <li>{item}</li>
-                    {/each}
-                  </ul>
-                </div>
-                {#if makeMigrationSummaryItems(sectionMigrationSummary).length > 0}
-                  <div>
-                    <p class="font-semibold">Migration available</p>
-                    <ul class="mt-1 list-disc space-y-1 pl-5">
-                      {#each makeMigrationSummaryItems(sectionMigrationSummary) as item}
-                        <li>{item}</li>
-                      {/each}
-                    </ul>
-                  </div>
-                {/if}
-                {#if makeDropSummaryItems(sectionMigrationSummary).length > 0}
-                  <div>
-                    <p class="font-semibold">Not migrated</p>
-                    <ul class="mt-1 list-disc space-y-1 pl-5">
-                      {#each makeDropSummaryItems(sectionMigrationSummary) as item}
-                        <li>{item}</li>
-                      {/each}
-                    </ul>
-                  </div>
-                {/if}
-              </div>
-            </div>
-          {/if}
-          <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
-            <div class="rounded-xl bg-base-200 p-3"><strong>1</strong><br />profile</div>
-            <div class="rounded-xl bg-base-200 p-3"><strong>1</strong><br />definition</div>
-            <div class="rounded-xl bg-base-200 p-3">
-              <strong>{sectionCount}</strong><br />sections
-            </div>
-            <div class="rounded-xl bg-base-200 p-3">
-              <strong>{newAuthorityCount}</strong><br />new lists
-            </div>
+        {#if publishStatus}
+          <div
+            class="rounded-box border border-base-300 bg-base-200 p-3 text-sm"
+            aria-live="polite">
+            <Spinner {loading}>{publishStatus}</Spinner>
           </div>
-          {#if bootstrapDraftGrantCount > 0}
-            <p class="mt-3 rounded-xl bg-warning/10 p-3 text-xs leading-relaxed text-warning">
-              {bootstrapDraftGrantCount} draft member/moderator grant{bootstrapDraftGrantCount === 1
-                ? ""
-                : "s"} will publish with this update.
-            </p>
-          {/if}
-          {#if publishStatus}
-            <div
-              class="mt-4 rounded-box border border-base-300 bg-base-200 p-3 text-sm"
-              aria-live="polite">
-              <Spinner {loading}>{publishStatus}</Spinner>
-            </div>
-          {/if}
-          <div class="mt-5 flex gap-2">
-            <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>
-            {#if isEdit && originalDraftState}
-              <Button class="btn btn-outline flex-1" onclick={applyOriginalDraftState} {disabled}>
-                Reset changes
-              </Button>
-            {/if}
-            <Button
-              class="btn btn-primary flex-1"
-              type="submit"
-              disabled={disabled ||
-                !$pubkey ||
-                !name.trim() ||
-                !primaryRelay.trim() ||
-                pictureUploading ||
-                sectionDrafts.length === 0}>
-              {#if loading}<span class="loading loading-spinner mr-2"></span>{/if}
-              {actionLabel}
+        {/if}
+
+        <div class="flex gap-2">
+          <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>
+          {#if isEdit && originalDraftState}
+            <Button class="btn btn-outline flex-1" onclick={applyOriginalDraftState} {disabled}>
+              Reset changes
             </Button>
-          </div>
-        </section>
+          {/if}
+          <Button
+            class="btn btn-primary flex-1"
+            type="submit"
+            disabled={disabled ||
+              !$pubkey ||
+              !name.trim() ||
+              !primaryRelay.trim() ||
+              pictureUploading ||
+              sectionDrafts.length === 0}>
+            {#if loading}<span class="loading loading-spinner mr-2"></span>{/if}
+            {actionLabel}
+          </Button>
+        </div>
       </div>
     </div>
   </div>

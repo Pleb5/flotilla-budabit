@@ -1,7 +1,10 @@
 import {type EventContent, type TrustedEvent} from "@welshman/util"
 import {
+  COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
   PROFILE_LIST_STATUS_DECLINED,
+  buildCommunityDefinition,
+  findCommunitySection,
   type CommunityDefinition,
   type CommunityProfileListRef,
   type CommunityDefinitionSectionInput,
@@ -118,6 +121,58 @@ export const makeModeratorInviteResponseProfileList = ({
 
 export const isDeclinedModeratorInviteProfileList = (event: TrustedEvent | undefined) =>
   getProfileListStatus(event) === PROFILE_LIST_STATUS_DECLINED
+
+export const getOwnerMembershipGrantProfileList = ({
+  definition,
+  sectionName,
+  relays = [],
+}: {
+  definition: CommunityDefinition
+  sectionName: string
+  relays?: string[]
+}): {
+  profileList?: CommunityProfileListRef
+  definitionUpdate?: EventContent & {kind: typeof COMMUNITY_DEFINITION_KIND}
+} => {
+  const section = findCommunitySection(definition, sectionName)
+  const owner = normalizePubkey(definition.pubkey)
+  if (!section || !owner) return {}
+
+  const existing = section.profileLists.find(ref => normalizePubkey(ref.pubkey) === owner)
+  if (existing) return {profileList: existing}
+
+  const profileList = makeCommunitySetupSection({
+    communityPubkey: owner,
+    profileListPubkey: owner,
+    relays,
+    name: section.name,
+    kinds: section.kinds,
+  }).profileList
+  const sections: CommunityDefinitionSectionInput[] = definition.sections.map(currentSection => ({
+    name: currentSection.name,
+    kinds: currentSection.kinds,
+    profileLists:
+      currentSection.name === section.name
+        ? [...currentSection.profileLists, profileList]
+        : currentSection.profileLists,
+    badges: currentSection.badges,
+    retention: currentSection.retention,
+  }))
+
+  return {
+    profileList,
+    definitionUpdate: buildCommunityDefinition({
+      relays: definition.relays,
+      sections,
+      description: definition.description,
+      blossomServers: definition.blossomServers,
+      mints: definition.mints,
+      tos: definition.tos,
+      location: definition.location,
+      geohash: definition.geohash,
+    }),
+  }
+}
 
 export const getPendingCommunityModeratorInvites = ({
   definition,
