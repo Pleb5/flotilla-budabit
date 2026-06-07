@@ -1,9 +1,9 @@
 <script lang="ts">
   import {onDestroy, onMount} from "svelte"
-  import {get as getStore} from "svelte/store"
+  import {get as getStore, writable} from "svelte/store"
   import {page} from "$app/stores"
-  import {pubkey, publishThunk} from "@welshman/app"
-  import {makeEvent} from "@welshman/util"
+  import {pubkey, repository, signer as sessionSigner} from "@welshman/app"
+  import {prep, type EventTemplate, type SignedEvent, type TrustedEvent} from "@welshman/util"
   import Settings from "@assets/icons/settings.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
@@ -13,6 +13,7 @@
   import Confirm from "@lib/components/Confirm.svelte"
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import CommunityModeratorGrantEditor from "@app/components/community/CommunityModeratorGrantEditor.svelte"
   import ModerationReportList from "@app/components/community/ModerationReportList.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
@@ -29,16 +30,19 @@
     activeCommunityProfile,
     activeCommunityReportState,
     activeCommunityRelays,
+    clearCommunityBootstrapCache,
     hydratePubkeyProfiles,
     loadCommunityEvents,
     makeCommunityModeratorRequestDeleteFilters,
     makeCommunityModeratorRequestFilters,
     makeCommunityModeratorRequestReactionFilters,
+    setActiveCommunityDefinition,
   } from "@app/core/community-state"
   import {
     findCommunitySection,
     getCommunitySectionDisplayName,
     normalizePubkey,
+    parseCommunityDefinition,
     type CommunityProfileListRef,
   } from "@app/core/community"
   import {
@@ -47,6 +51,7 @@
     type CommunityModerationAction,
   } from "@app/core/community-reports"
   import {
+    makeModeratorGrantEditDefinitionUpdate,
     type ModeratorPromotionRequestState,
     makeModeratorGrantRevokeDefinitionUpdate,
     makeModeratorPromotionDefinitionUpdate,
@@ -56,7 +61,13 @@
   import {
     getCommunityRootPublishRelays,
     getCommunityScopedPublishRelays,
+    getPubkeyOutboxRelays,
   } from "@app/core/community-relays"
+  import {
+    getNextReplacementCreatedAt,
+    publishAndVerifyCommunityEvent,
+    type CommunityPublishStatusUpdate,
+  } from "@app/core/community-publish"
   import {communityAdminSelectedTab, type CommunityAdminTab} from "@app/util/community-admin-tabs"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
@@ -99,6 +110,7 @@
   let moderatorRequestHydrationKey = $state("")
   let moderatorReactionHydrationKey = $state("")
   let moderatorDeleteHydrationKey = $state("")
+  const adminPublishStatus = writable("")
 
   const makeHydrationKey = (relays: string[], filters: unknown[]) =>
     JSON.stringify({relays: relays.slice().sort(), filters})
@@ -213,9 +225,12 @@
   const communityProfileRelays = $derived(
     $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityPublishRelays,
   )
-  const communityRootPublishRelays = $derived(
-    getCommunityRootPublishRelays(communityPublishRelays, $activeCommunityDefinition?.pubkey),
+  const communityDefinitionPublishRelays = $derived(
+    getCommunityRootPublishRelays(communityPublishRelays, undefined, {
+      outboxRelays: getPubkeyOutboxRelays($pubkey || $activeCommunityDefinition?.pubkey),
+    }),
   )
+  const communityPrimaryRelay = $derived(communityPublishRelays[0] || "")
   let moderatorProfileHydrationKey = ""
   $effect(() => {
     const pubkeys = moderatorGrantPeople.map(person => person.pubkey)
@@ -287,6 +302,11 @@
       return false
     }
 
+    if (!$sessionSigner) {
+      pushToast({theme: "error", message: "No active signer is available."})
+      return false
+    }
+
     if (communityPublishRelays.length === 0) {
       pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return false
@@ -295,7 +315,79 @@
     return true
   }
 
-  const publishModeratorReview = (
+  const getAdminPublishErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error)
+
+  const signCommunityAdminEvent = async (
+    template: EventTemplate,
+    createdAt?: number,
+  ): Promise<SignedEvent> => {
+    if (!$activeCommunityDefinition || !$sessionSigner) {
+      throw new Error("Log in as this community pubkey first.")
+    }
+
+    return $sessionSigner.sign(prep(template, $activeCommunityDefinition.pubkey, createdAt))
+  }
+
+  const publishVerifiedAdminEvent = async ({
+    template,
+    relays,
+    label,
+    createdAt,
+    requiredRelay = communityPrimaryRelay,
+  }: {
+    template: EventTemplate
+    relays: string[]
+    label: string
+    createdAt?: number
+    requiredRelay?: string
+  }): Promise<TrustedEvent> => {
+    const event = await signCommunityAdminEvent(template, createdAt)
+    const verified = await publishAndVerifyCommunityEvent({
+      event,
+      relays,
+      requiredRelay,
+      label,
+      setStatus: adminPublishStatus.set as CommunityPublishStatusUpdate,
+    })
+
+    repository.publish(verified)
+
+    return verified
+  }
+
+  const publishVerifiedDefinitionUpdate = async (template: EventTemplate, label: string) => {
+    const verified = await publishVerifiedAdminEvent({
+      template,
+      relays: communityDefinitionPublishRelays,
+      requiredRelay: communityPrimaryRelay,
+      label,
+      createdAt: getNextReplacementCreatedAt([$activeCommunityDefinition?.event]),
+    })
+    const definition = parseCommunityDefinition(verified)
+
+    if (definition) {
+      clearCommunityBootstrapCache(definition.pubkey)
+      setActiveCommunityDefinition(definition)
+    }
+
+    return verified
+  }
+
+  const runVerifiedAdminAction = async (action: () => Promise<void>) => {
+    adminPublishStatus.set("")
+
+    try {
+      await action()
+    } catch (error) {
+      const message = getAdminPublishErrorMessage(error)
+      adminPublishStatus.set(message)
+      pushToast({theme: "error", message: `Admin update failed: ${message}`})
+      throw error
+    }
+  }
+
+  const publishModeratorReview = async (
     requestState: ModeratorPromotionRequestState,
     content: "+" | "-",
   ) => {
@@ -305,9 +397,42 @@
       content,
     })
 
-    publishThunk({
+    return publishVerifiedAdminEvent({
+      template: profileListReaction,
       relays: communityPublishRelays,
-      event: makeEvent(profileListReaction.kind, profileListReaction),
+      label: content === "+" ? "moderator request acceptance" : "moderator request rejection",
+    })
+  }
+
+  const deleteActiveReviewReactions = async (requestState: ModeratorPromotionRequestState) => {
+    const reactions = getActiveReviewReactions(requestState)
+
+    for (const [index, reaction] of reactions.entries()) {
+      const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
+
+      await publishVerifiedAdminEvent({
+        template: deleteEvent,
+        relays: communityPublishRelays,
+        label: `moderator review cleanup ${index + 1} of ${reactions.length}`,
+      })
+    }
+  }
+
+  const publishModeratorRequestAcceptance = async (
+    requestState: ModeratorPromotionRequestState,
+  ) => {
+    await runVerifiedAdminAction(async () => {
+      await deleteActiveReviewReactions(requestState)
+      await publishModeratorReview(requestState, "+")
+      const definitionUpdate = makeModeratorPromotionDefinitionUpdate({
+        definition: $activeCommunityDefinition!,
+        request: requestState,
+      })
+
+      await publishVerifiedDefinitionUpdate(definitionUpdate, "community definition update")
+      adminPublishStatus.set("Moderator request accepted and verified on relay.")
+      refreshModeratorRequests()
+      pushToast({theme: "success", message: "Moderator request accepted."})
     })
   }
 
@@ -319,32 +444,49 @@
       return
     }
 
+    adminPublishStatus.set("")
     pushModal(Confirm, {
       title: "Accept moderator request",
       message: `Add this pubkey as a moderator for ${requestState.sectionName}?`,
-      confirm: () => {
-        for (const reaction of getActiveReviewReactions(requestState)) {
-          const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
-
-          publishThunk({
-            relays: communityPublishRelays,
-            event: makeEvent(deleteEvent.kind, deleteEvent),
-          })
+      status: adminPublishStatus,
+      confirm: async () => {
+        try {
+          await publishModeratorRequestAcceptance(requestState)
+          history.back()
+        } catch {
+          // Keep the modal open so the verified publish error remains visible.
         }
-
-        publishModeratorReview(requestState, "+")
-        const definitionUpdate = makeModeratorPromotionDefinitionUpdate({
-          definition: $activeCommunityDefinition!,
-          request: requestState,
-        })
-
-        publishThunk({
-          relays: communityRootPublishRelays,
-          event: makeEvent(definitionUpdate.kind, definitionUpdate),
-        })
-        pushToast({theme: "success", message: "Moderator request accepted."})
-        history.back()
       },
+    })
+  }
+
+  const publishModeratorRequestRejection = async (
+    requestState: ModeratorPromotionRequestState,
+    revokeGrant: boolean,
+  ) => {
+    await runVerifiedAdminAction(async () => {
+      if (revokeGrant) {
+        await deleteActiveReviewReactions(requestState)
+        const definitionUpdate = makeModeratorGrantRevokeDefinitionUpdate({
+          definition: $activeCommunityDefinition!,
+          sectionName: requestState.sectionName,
+          moderatorPubkey: requestState.requesterPubkey,
+        })
+
+        await publishVerifiedDefinitionUpdate(definitionUpdate, "community definition update")
+      }
+
+      await publishModeratorReview(requestState, "-")
+      adminPublishStatus.set(
+        revokeGrant
+          ? "Moderator grant revoked and verified on relay."
+          : "Moderator request rejected and verified on relay.",
+      )
+      refreshModeratorRequests()
+      pushToast({
+        theme: "warning",
+        message: revokeGrant ? "Moderator grant revoked." : "Moderator request rejected.",
+      })
     })
   }
 
@@ -365,74 +507,59 @@
       }
     }
 
+    adminPublishStatus.set("")
     pushModal(Confirm, {
       title: revokeGrant ? "Revoke moderator grant" : "Reject moderator request",
       message: revokeGrant
         ? `Remove this pubkey as a moderator for ${requestState.sectionName}?`
         : `Reject this request for ${requestState.sectionName}?`,
-      confirm: () => {
-        if (revokeGrant) {
-          for (const reaction of getActiveReviewReactions(requestState)) {
-            const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
-
-            publishThunk({
-              relays: communityPublishRelays,
-              event: makeEvent(deleteEvent.kind, deleteEvent),
-            })
-          }
-
-          const definitionUpdate = makeModeratorGrantRevokeDefinitionUpdate({
-            definition: $activeCommunityDefinition!,
-            sectionName: requestState.sectionName,
-            moderatorPubkey: requestState.requesterPubkey,
-          })
-
-          publishThunk({
-            relays: communityRootPublishRelays,
-            event: makeEvent(definitionUpdate.kind, definitionUpdate),
-          })
+      status: adminPublishStatus,
+      confirm: async () => {
+        try {
+          await publishModeratorRequestRejection(requestState, revokeGrant)
+          history.back()
+        } catch {
+          // Keep the modal open so the verified publish error remains visible.
         }
-
-        publishModeratorReview(requestState, "-")
-        pushToast({
-          theme: "warning",
-          message: revokeGrant ? "Moderator grant revoked." : "Moderator request rejected.",
-        })
-        history.back()
       },
     })
   }
 
-  const revokeModeratorGrant = (grant: ModeratorSectionGrant) => {
+  const saveModeratorGrants = async (moderatorPubkey: string, sectionNames: string[]) => {
     if (!assertCanPublish() || !$activeCommunityDefinition) return
 
-    const section = findCommunitySection($activeCommunityDefinition, grant.sectionName)
-    const hasProfileListRefs = grant.profileLists.some(ref =>
-      section?.profileLists.some(sectionRef => sectionRef.address === ref.address),
-    )
+    await runVerifiedAdminAction(async () => {
+      const definitionUpdate = makeModeratorGrantEditDefinitionUpdate({
+        definition: $activeCommunityDefinition!,
+        moderatorPubkey,
+        sectionNames,
+        relays: communityPublishRelays,
+      })
 
-    if (!section || !hasProfileListRefs) {
-      pushToast({theme: "error", message: "This moderator grant is no longer active."})
-      return
-    }
+      await publishVerifiedDefinitionUpdate(definitionUpdate, "community definition update")
+      adminPublishStatus.set("Moderator grants verified on relay.")
+      pushToast({
+        theme: sectionNames.length > 0 ? "success" : "warning",
+        message:
+          sectionNames.length > 0 ? "Moderator grants updated." : "Moderator grants removed.",
+      })
+    })
+  }
 
-    pushModal(Confirm, {
-      title: "Revoke moderator access",
-      message: `Remove this pubkey as a moderator for ${grant.displayName}?`,
-      confirm: () => {
-        const definitionUpdate = makeModeratorGrantRevokeDefinitionUpdate({
-          definition: $activeCommunityDefinition!,
-          sectionName: grant.sectionName,
-          moderatorPubkey: grant.pubkey,
-        })
+  const openModeratorGrantEditor = (person: ModeratorGrantPerson) => {
+    if (!assertCanPublish() || !$activeCommunityDefinition) return
 
-        publishThunk({
-          relays: communityRootPublishRelays,
-          event: makeEvent(definitionUpdate.kind, definitionUpdate),
-        })
-        pushToast({theme: "warning", message: "Moderator ref revoked."})
-        history.back()
-      },
+    adminPublishStatus.set("")
+    pushModal(CommunityModeratorGrantEditor, {
+      pubkey: person.pubkey,
+      relays: communityProfileRelays,
+      sections: $activeCommunityDefinition.sections.map(section => ({
+        name: section.name,
+        displayName: getCommunitySectionDisplayName(section),
+      })),
+      selectedSectionNames: person.grants.map(grant => grant.sectionName),
+      onSave: (sectionNames: string[]) => saveModeratorGrants(person.pubkey, sectionNames),
+      status: adminPublishStatus,
     })
   }
 
@@ -671,6 +798,13 @@
                     </div>
                   </div>
                   <div class="flex flex-wrap gap-2">
+                    <Button
+                      class="btn btn-primary btn-sm"
+                      onclick={stopPropagation(
+                        preventDefault(() => openModeratorGrantEditor(person)),
+                      )}>
+                      Edit grants
+                    </Button>
                     <span class="badge badge-success">
                       {person.grantCount}
                       {person.grantCount === 1 ? "grant" : "grants"}
@@ -714,14 +848,9 @@
                               <strong>{grant.displayName}</strong>
                             </div>
                             <p class="mt-1 text-xs opacity-60">
-                              Revoking removes this user's moderator access for the section.
+                              This pubkey can moderate this section.
                             </p>
                           </div>
-                          <Button
-                            class="btn btn-error btn-sm"
-                            onclick={() => revokeModeratorGrant(grant)}>
-                            Revoke grant
-                          </Button>
                         </div>
                       </article>
                     {/each}

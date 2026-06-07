@@ -12,6 +12,7 @@ import {
   MODERATOR_REQUEST_REACTION_KIND,
   getModeratorPromotionRequestStates,
   getModeratorPromotionRequests,
+  makeModeratorGrantEditDefinitionUpdate,
   makeModeratorGrantRevokeDefinitionUpdate,
   makeModeratorProfileListRequest,
   makeModeratorPromotionDefinitionUpdate,
@@ -366,5 +367,100 @@ describe("community moderator promotion requests", () => {
     expect(revokedGeneral.badges).toEqual([])
     expect(revokedRooms.profileLists.map(ref => ref.pubkey)).toEqual([requesterPubkey])
     expect(revokedRooms.badges).toEqual([])
+  })
+
+  it("edits moderator refs across sections in one definition update", () => {
+    const general = makeCommunitySetupSection({
+      communityPubkey,
+      profileListPubkey: existingModeratorPubkey,
+      relays: ["wss://relay.example.com"],
+      name: "General",
+    })
+    const rooms = makeCommunitySetupSection({
+      communityPubkey,
+      profileListPubkey: existingModeratorPubkey,
+      relays: ["wss://relay.example.com"],
+      name: COMMUNITY_SECTION_ROOMS,
+    })
+    const goals = makeCommunitySetupSection({
+      communityPubkey,
+      profileListPubkey: requesterPubkey,
+      relays: ["wss://relay.example.com"],
+      name: "Goals",
+    })
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: buildCommunityDefinition({
+          relays: ["wss://relay.example.com"],
+          sections: [general, rooms, goals],
+          description: "A community",
+          blossomServers: ["https://blossom.example.com"],
+          mints: [{url: "https://mint.example.com", type: "cashu"}],
+          tos: {ref: "tos-document", relay: "wss://relay.example.com"},
+          location: "Online",
+          geohash: "u4pruydqqvj",
+        }).tags,
+      }),
+    )!
+    const requestEvent = makeRequest()
+    const [request] = getModeratorPromotionRequests({
+      profileListEvents: [requestEvent.profileList],
+      communityPubkey,
+    })
+    const acceptedTemplate = makeModeratorPromotionDefinitionUpdate({definition, request})
+    const accepted = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: acceptedTemplate.tags,
+      }),
+    )!
+    const acceptedGeneral = findCommunitySection(accepted, "General")!
+    const preservedRequestRef = acceptedGeneral.profileLists.find(
+      ref => ref.pubkey === requesterPubkey,
+    )!
+    const editTemplate = makeModeratorGrantEditDefinitionUpdate({
+      definition: accepted,
+      moderatorPubkey: requesterPubkey,
+      sectionNames: ["General", COMMUNITY_SECTION_ROOMS],
+      relays: ["wss://relay.example.com"],
+    })
+    const edited = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: editTemplate.tags,
+      }),
+    )!
+    const editedGeneral = findCommunitySection(edited, "General")!
+    const editedRooms = findCommunitySection(edited, COMMUNITY_SECTION_ROOMS)!
+    const editedGoals = findCommunitySection(edited, "Goals")!
+    const newRoomsRef = editedRooms.profileLists.find(ref => ref.pubkey === requesterPubkey)!
+
+    expect(edited.description).toBe("A community")
+    expect(edited.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(edited.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
+    expect(edited.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
+    expect(edited.location).toBe("Online")
+    expect(edited.geohash).toBe("u4pruydqqvj")
+    expect(editedGeneral.profileLists.map(ref => ref.pubkey)).toEqual([
+      existingModeratorPubkey,
+      requesterPubkey,
+    ])
+    expect(editedGeneral.profileLists.find(ref => ref.pubkey === requesterPubkey)?.address).toBe(
+      preservedRequestRef.address,
+    )
+    expect(editedRooms.profileLists.map(ref => ref.pubkey)).toEqual([
+      existingModeratorPubkey,
+      requesterPubkey,
+    ])
+    expect(newRoomsRef.identifier).toBe(COMMUNITY_SECTION_ROOMS)
+    expect(newRoomsRef.relay).toBe("wss://relay.example.com/")
+    expect(editedGoals.profileLists.map(ref => ref.pubkey)).toEqual([])
+    expect(editedGeneral.badges).toEqual([])
+    expect(editedRooms.badges).toEqual([])
+    expect(editedGoals.badges).toEqual([])
   })
 })

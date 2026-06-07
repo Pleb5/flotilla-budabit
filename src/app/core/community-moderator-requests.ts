@@ -223,9 +223,7 @@ export const getModeratorPromotionRequests = ({
 const hasSectionRef = (definition: CommunityDefinition, request: ModeratorPromotionRequest) => {
   const section = findCommunitySection(definition, request.sectionName)
 
-  return Boolean(
-    section?.profileLists.some(ref => ref.address === request.profileListRef.address),
-  )
+  return Boolean(section?.profileLists.some(ref => ref.address === request.profileListRef.address))
 }
 
 const makeGrantDerivedRequestEvent = ({
@@ -468,6 +466,84 @@ export const makeModeratorPromotionDefinitionUpdate = ({
     )
       ? section.profileLists
       : [...section.profileLists, request.profileListRef]
+
+    return {
+      name: section.name,
+      kinds: section.kinds,
+      profileLists,
+      badges: section.badges,
+      retention: section.retention,
+    }
+  })
+
+  return buildCommunityDefinition({
+    relays: definition.relays,
+    sections,
+    description: definition.description,
+    blossomServers: definition.blossomServers,
+    mints: definition.mints,
+    tos: definition.tos,
+    location: definition.location,
+    geohash: definition.geohash,
+  })
+}
+
+const makeManualModeratorProfileListRef = ({
+  moderatorPubkey,
+  sectionName,
+  relays = [],
+}: {
+  moderatorPubkey: string
+  sectionName: string
+  relays?: string[]
+}): CommunityProfileListRef => {
+  const pubkey = normalizePubkey(moderatorPubkey)
+  const identifier = sectionName.trim()
+  const relay = normalizeRelays(relays)[0]
+
+  return {
+    kind: PROFILE_LIST_KIND,
+    pubkey,
+    identifier,
+    address: makeAddress(PROFILE_LIST_KIND, pubkey, identifier),
+    relay,
+  }
+}
+
+export const makeModeratorGrantEditDefinitionUpdate = ({
+  definition,
+  moderatorPubkey,
+  sectionNames,
+  relays = definition.relays,
+}: {
+  definition: CommunityDefinition
+  moderatorPubkey: string
+  sectionNames: string[]
+  relays?: string[]
+}): EventContent & {kind: typeof COMMUNITY_DEFINITION_KIND} => {
+  const pubkey = normalizePubkey(moderatorPubkey)
+  const selectedSectionNames = new Set(sectionNames.map(name => name.trim()).filter(Boolean))
+  const sections: CommunityDefinitionSectionInput[] = definition.sections.map(section => {
+    let profileLists = section.profileLists
+
+    if (pubkey) {
+      if (selectedSectionNames.has(section.name)) {
+        const hasModeratorRef = profileLists.some(ref => normalizePubkey(ref.pubkey) === pubkey)
+
+        if (!hasModeratorRef) {
+          profileLists = [
+            ...profileLists,
+            makeManualModeratorProfileListRef({
+              moderatorPubkey: pubkey,
+              sectionName: section.name,
+              relays,
+            }),
+          ]
+        }
+      } else {
+        profileLists = profileLists.filter(ref => normalizePubkey(ref.pubkey) !== pubkey)
+      }
+    }
 
     return {
       name: section.name,
