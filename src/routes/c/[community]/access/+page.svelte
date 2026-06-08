@@ -597,30 +597,30 @@
       : "Relay did not confirm the request."
   }
 
-  const submitModeratorRequest = async (sectionName: string, sectionDisplayName: string) => {
+  const canSubmitModeratorRequest = (sectionName: string) => {
     if (!$pubkey) {
       pushToast({theme: "error", message: "Log in before requesting moderator permissions."})
-      return
+      return false
     }
 
     if (!communityBootstrapReady || !$activeCommunityDefinition) {
       pushToast({theme: "error", message: "Community definition is not loaded."})
-      return
+      return false
     }
 
     if (currentUserBanned) {
       pushToast({theme: "error", message: "You are banned from requesting moderator permissions."})
-      return
+      return false
     }
 
     if (communityPublishRelays.length === 0) {
       pushToast({theme: "error", message: "Community definition must declare at least one relay."})
-      return
+      return false
     }
 
     if ($activeCommunityUserModeratorRequestsLoading) {
       pushToast({theme: "warning", message: "Checking existing moderator requests first."})
-      return
+      return false
     }
 
     const existingState = moderatorRequestStates.find(
@@ -634,12 +634,23 @@
             ? "The admin can still grant your request later."
             : "This moderator request is already recorded.",
       })
-      return
+      return false
     }
 
+    return true
+  }
+
+  const submitModeratorRequest = async (sectionName: string, sectionDisplayName: string) => {
+    if (!canSubmitModeratorRequest(sectionName)) return false
+
+    const definition = $activeCommunityDefinition
+    const requesterPubkey = $pubkey
+
+    if (!definition || !requesterPubkey) return false
+
     const options = {
-      communityPubkey: $activeCommunityDefinition.pubkey,
-      requesterPubkey: $pubkey,
+      communityPubkey: definition.pubkey,
+      requesterPubkey,
       sectionName,
       relays: communityPublishRelays,
     }
@@ -663,14 +674,14 @@
       const detail = error instanceof Error ? error.message : String(error)
       setModeratorRequestPublishState(sectionName, {status: "failed", detail})
       pushToast({theme: "error", message: `Moderator request failed: ${detail}`})
-      return
+      return false
     }
 
     if (!hasSuccessfulRelay(profileListThunk)) {
       const detail = getPublishError([profileListThunk])
       setModeratorRequestPublishState(sectionName, {status: "failed", detail})
       pushToast({theme: "error", message: `Moderator request failed: ${detail}`})
-      return
+      return false
     }
 
     repository.publish(profileListThunk.event as TrustedEvent)
@@ -679,6 +690,20 @@
       detail: "Relay confirmed the request.",
     })
     pushToast({theme: "success", message: `Moderator request submitted for ${sectionDisplayName}.`})
+    return true
+  }
+
+  const confirmModeratorRequest = (sectionName: string, sectionDisplayName: string) => {
+    if (!canSubmitModeratorRequest(sectionName)) return
+
+    pushModal(Confirm, {
+      title: "Request moderator role",
+      message: `Submit a moderator request for ${sectionDisplayName}? Community admins will be able to review and approve this request.`,
+      confirmLabel: "Submit request",
+      confirm: async () => {
+        if (await submitModeratorRequest(sectionName, sectionDisplayName)) history.back()
+      },
+    })
   }
 
   const deleteSubmission = (
@@ -1398,7 +1423,7 @@
                         item.status === "accepted" ||
                         item.status === "rejected" ||
                         item.publishState?.status === "publishing"}
-                      onclick={() => submitModeratorRequest(item.section.name, item.displayName)}>
+                      onclick={() => confirmModeratorRequest(item.section.name, item.displayName)}>
                       {$activeCommunityUserModeratorRequestsLoading
                         ? "Checking..."
                         : item.publishState?.status === "publishing"
