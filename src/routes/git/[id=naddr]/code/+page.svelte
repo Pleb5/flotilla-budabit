@@ -94,6 +94,11 @@
   }
 
   const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
+  const selectedFileViewKey = $derived.by(() =>
+    [normalizeBranchRef(selectedBranch), repoClass.branchChangeTrigger, selectedFile?.path || ""].join(
+      ":",
+    ),
+  )
 
   const normalizeSearchValue = (value: unknown) =>
     String(value ?? "")
@@ -669,7 +674,7 @@
     </div>
   {:else if !isDesktopViewport && selectedFile}
     <div class="p-3 md:hidden">
-      {#key selectedFile.path}
+      {#key selectedFileViewKey}
         <FileView
           file={selectedFile}
           {getFileContent}
@@ -762,7 +767,7 @@
       </div>
       <div class="hidden p-3 md:block">
         {#if selectedFile}
-          {#key selectedFile.path}
+          {#key selectedFileViewKey}
             <FileView
               file={selectedFile}
               {getFileContent}

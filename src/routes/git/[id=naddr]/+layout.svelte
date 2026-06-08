@@ -6,6 +6,7 @@
   import {
     RepoHeader,
     RepoTab,
+    BranchSelector,
     toast,
     Repo,
     WorkerManager,
@@ -403,6 +404,9 @@
 
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/git/${id}`)
+  const showRepoBranchContext = $derived.by(
+    () => activeTab === "code" || (activeTab === "commits" && !$page.params.commitid),
+  )
   const issuesPath = $derived.by(() => `${basePath}/issues`)
   const prsPath = $derived.by(() => `${basePath}/prs`)
   const hasIssuesNotification = $derived.by(() => {
@@ -3852,52 +3856,66 @@
         {/snippet}
       </RepoHeader>
     {/key}
-    {#if activeTab === "code"}
+    {#if showRepoBranchContext}
       <div
-        data-mobile-code-breadcrumb
-        data-testid="repo-mobile-code-breadcrumb"
+        data-repo-branch-context
+        data-mobile-code-breadcrumb={activeTab === "code" ? "" : undefined}
+        data-testid={activeTab === "code" ? "repo-mobile-code-breadcrumb" : "repo-branch-context"}
         class="z-10 sticky -mt-1 rounded-md border border-border/60 bg-base-100/95 px-3 py-2 text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-base-100/80 md:px-4 md:py-2.5 md:text-sm"
         style="top: var(--repo-tabs-height, 0px);">
-        <div class="flex min-w-0 items-center gap-2">
-          {#if codeCanGoUp}
-            <button
-              type="button"
-              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
-              onclick={() => setCodeDirectory(codeParentPath)}
-              title="Up one folder">
-              <ChevronLeft class="h-4 w-4" />
-            </button>
-          {/if}
-          <nav
-            class="scrollbar-hide flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap"
-            aria-label="Code breadcrumb">
-            <button
-              type="button"
-              class="shrink-0 rounded-sm font-medium transition-colors hover:text-foreground hover:underline"
-              onclick={() => setCodeDirectory("")}
-              title="Repository root"
-              aria-label="Repository root">
-              /
-            </button>
-            {#each codeBreadcrumbSegments as segment, i}
-              {#if i > 0}
-                <span class="shrink-0 text-muted-foreground/50">/</span>
-              {/if}
-              {#if i === codeBreadcrumbSegments.length - 1}
-                <span class="font-medium text-foreground" title={segment}>
-                  {segment}
-                </span>
-              {:else}
+        <div class="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:gap-3">
+          <div class="flex min-w-0 shrink-0 items-center gap-2">
+            <span class="hidden shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:inline">
+              Branch
+            </span>
+            <div class="min-w-0">
+              <BranchSelector repo={repoClass} />
+            </div>
+          </div>
+          {#if activeTab === "code"}
+            <div
+              class="flex min-w-0 flex-1 items-center gap-2 border-t border-border/60 pt-2 md:border-t-0 md:pt-0">
+              {#if codeCanGoUp}
                 <button
                   type="button"
-                  class="rounded-sm transition-colors hover:text-foreground hover:underline"
-                  onclick={() =>
-                    setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}>
-                  {segment}
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+                  onclick={() => setCodeDirectory(codeParentPath)}
+                  title="Up one folder">
+                  <ChevronLeft class="h-4 w-4" />
                 </button>
               {/if}
-            {/each}
-          </nav>
+              <nav
+                class="scrollbar-hide flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap"
+                aria-label="Code breadcrumb">
+                <button
+                  type="button"
+                  class="shrink-0 rounded-sm font-medium transition-colors hover:text-foreground hover:underline"
+                  onclick={() => setCodeDirectory("")}
+                  title="Repository root"
+                  aria-label="Repository root">
+                  /
+                </button>
+                {#each codeBreadcrumbSegments as segment, i}
+                  {#if i > 0}
+                    <span class="shrink-0 text-muted-foreground/50">/</span>
+                  {/if}
+                  {#if i === codeBreadcrumbSegments.length - 1}
+                    <span class="font-medium text-foreground" title={segment}>
+                      {segment}
+                    </span>
+                  {:else}
+                    <button
+                      type="button"
+                      class="rounded-sm transition-colors hover:text-foreground hover:underline"
+                      onclick={() =>
+                        setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}>
+                      {segment}
+                    </button>
+                  {/if}
+                {/each}
+              </nav>
+            </div>
+          {/if}
         </div>
       </div>
     {/if}
