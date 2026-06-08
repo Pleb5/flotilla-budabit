@@ -119,6 +119,7 @@
   const APP_RELOAD_QUERY_KEY = "v"
   const APP_VERSION_STORAGE_KEY = "appVersion"
   const APP_SW_CLEANUP_KEY = "appSwCleanupDone"
+  const APP_CACHE_PREFIX = "budabit-app-"
   const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
   let updateCheckInterval: number | null = null
   let updateCheckOnFocus: (() => void) | null = null
@@ -530,7 +531,9 @@
 
     if ("caches" in window) {
       const keys = await caches.keys()
-      await Promise.all(keys.map(key => caches.delete(key)))
+      await Promise.all(
+        keys.filter(key => !key.startsWith(APP_CACHE_PREFIX)).map(key => caches.delete(key)),
+      )
     }
 
     forceReload()
