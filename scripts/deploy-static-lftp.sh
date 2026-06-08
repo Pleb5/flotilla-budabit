@@ -23,7 +23,7 @@ Environment:
   BUDABIT_DEPLOY_TRACE_FILE    Optional trace file for local mock verification
 
 Local config example, kept untracked in .deploy.local.env:
-  BUDABIT_SFTP_HOST='sftp://example.com'
+  BUDABIT_SFTP_HOST='sftp://example.com<:optional port>'
   BUDABIT_SFTP_USER='your-user'
   BUDABIT_REMOTE_PATH='.'
 USAGE
@@ -47,21 +47,21 @@ local_remote="${BUDABIT_DEPLOY_LOCAL_REMOTE:-}"
 
 while (($#)); do
   case "$1" in
-    --dry-run)
-      dry_run=1
-      ;;
-    --local-remote)
-      shift
-      [[ $# -gt 0 ]] || die '--local-remote requires a path'
-      local_remote="$1"
-      ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    *)
-      die "unknown argument: $1"
-      ;;
+  --dry-run)
+    dry_run=1
+    ;;
+  --local-remote)
+    shift
+    [[ $# -gt 0 ]] || die '--local-remote requires a path'
+    local_remote="$1"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    die "unknown argument: $1"
+    ;;
   esac
   shift
 done
