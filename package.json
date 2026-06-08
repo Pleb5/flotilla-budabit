@@ -10,6 +10,7 @@
     "build": "./build.sh",
     "build-in-production": "./build-in-production.sh",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json",
+    "check:deploy-cache": "node scripts/check-deploy-cache.mjs",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json --watch",
     "lint": "prettier --check \"src/**/*.{ts,js,css}\" && eslint src",
     "format": "git diff head --name-only --diff-filter d | grep -E '(js|ts|css)$' | xargs -r prettier --write",

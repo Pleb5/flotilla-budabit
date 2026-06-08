@@ -77,6 +77,12 @@ python3 spa-server.py
 
 If you're using Apache or LiteSpeed, the generated `build/.htaccess` handles SPA routing, cache headers, and CORS for `/.well-known/`. Point your vhost to `build/` and keep that file in place.
 
+After deployment, verify the effective live headers instead of assuming `.htaccess` was honored:
+
+```bash
+node scripts/check-deploy-cache.mjs https://your-domain.example
+```
+
 ## Alternative: Using Nginx
 
 Add this to your Nginx configuration:
@@ -90,17 +96,27 @@ server {
 
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
     }
 
     # Cache immutable static assets. SvelteKit content-hashes files under /_app/immutable/.
     location /_app/immutable/ {
         expires 1y;
-        add_header Cache-Control "public, immutable";
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
     }
 
-    # Keep service worker and manifest fresh.
-    location ~* ^/(service-worker\.js|manifest\.webmanifest|_app/version\.json)$ {
-        add_header Cache-Control "no-cache";
+    # Keep service workers, manifest, and update marker fresh.
+    location ~* ^/(service-worker\.js|sw\.js|manifest\.webmanifest|_app/version\.json)$ {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    }
+
+    location = /manifest.webmanifest {
+        types { application/manifest+json webmanifest; }
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
     }
 
     # CORS for .well-known
@@ -127,3 +143,13 @@ For SPAs to work, the server must:
 3. Let the client-side router (SvelteKit) handle the route
 
 This is what `serve -s`, `serve.json`, `build/.htaccess`, and the configurations above accomplish.
+
+## Cache Header Sanity Check
+
+Before trusting a deployment, run:
+
+```bash
+node scripts/check-deploy-cache.mjs https://your-domain.example
+```
+
+This checks that mutable app-shell files revalidate, `manifest.webmanifest` has the correct content type, and `/_app/immutable/*` is the only long-lived immutable cache area.

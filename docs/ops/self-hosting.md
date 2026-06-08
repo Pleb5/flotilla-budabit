@@ -122,10 +122,18 @@ The generated `build/.htaccess` already handles:
 
 - SPA rewrites
 - cache rules for hashed assets
-- no-cache for `service-worker.js`, `manifest.webmanifest`, and `_app/version.json`
+- no-cache/no-store for `service-worker.js`, `sw.js`, `manifest.webmanifest`, and `_app/version.json`
 - CORS headers for `/.well-known/`
 
 If you are on LiteSpeed or Apache, upload `build/` as-is.
+
+Some shared hosts override or ignore parts of `.htaccess`. After deployment, verify the live headers:
+
+```sh
+node scripts/check-deploy-cache.mjs https://your-domain.com
+```
+
+If this fails, fix the hosting-panel cache rules before trusting app updates.
 
 ### Other Static Hosts
 
@@ -269,6 +277,7 @@ Notes:
 
 - Do **not** add `--delete-excluded` in pass 2, or excluded immutable files may be removed.
 - If your SFTP server is unstable, reduce `--parallel=4` to `--parallel=2`.
+- After the atomic app-cache update work is implemented, use `scripts/deploy-static-lftp.sh` instead of these manual commands so `/_app/version.json` is published last.
 
 ### Remote storage growth and cleanup
 

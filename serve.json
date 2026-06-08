@@ -8,7 +8,24 @@
   ],
   "headers": [
     {
-      "source": "**/*.@(jpg|jpeg|gif|png|webp|svg|ico)",
+      "source": "**",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        },
+        {
+          "key": "Expires",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/_app/immutable/**",
       "headers": [
         {
           "key": "Cache-Control",
@@ -17,11 +34,11 @@
       ]
     },
     {
-      "source": "**/*.@(js|css|woff|woff2|ttf|eot)",
+      "source": "/manifest.webmanifest",
       "headers": [
         {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
+          "key": "Content-Type",
+          "value": "application/manifest+json"
         }
       ]
     },
