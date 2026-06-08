@@ -116,7 +116,7 @@ Requirements:
 - Rewrite unknown routes to `/index.html`
 - Do not strip the generated `.htaccess` if you use LiteSpeed or Apache
 
-### LiteSpeed / Apache
+### Apache / LiteSpeed
 
 The generated `build/.htaccess` already handles:
 
@@ -125,7 +125,15 @@ The generated `build/.htaccess` already handles:
 - no-cache/no-store for `service-worker.js`, `sw.js`, `manifest.webmanifest`, and `_app/version.json`
 - CORS headers for `/.well-known/`
 
-If you are on LiteSpeed or Apache, upload `build/` as-is.
+If you are on Apache, upload `build/` as-is.
+
+On shared hosting, prefer Apache/PHP-FPM over OpenLiteSpeed for Budabit unless you have verified the headers below. We have seen OpenLiteSpeed/LSCache serve correct files while ignoring or overriding `.htaccess` `Header` and `AddType` rules. Symptoms include `/settings` returning `200`, but `service-worker.js` and `sw.js` still getting a positive `max-age`, `manifest.webmanifest` being served as `application/octet-stream`, and `/_app/immutable/*` missing the long immutable cache header.
+
+If your host has these toggles, use:
+
+- Apache/PHP-FPM enabled
+- LSCache disabled
+- Force HTTPS/SSL enabled
 
 Some shared hosts override or ignore parts of `.htaccess`. After deployment, verify the live headers:
 
@@ -133,7 +141,7 @@ Some shared hosts override or ignore parts of `.htaccess`. After deployment, ver
 node scripts/check-deploy-cache.mjs https://your-domain.com
 ```
 
-If this fails, fix the hosting-panel cache rules before trusting app updates.
+If this fails, fix the hosting-panel cache rules before trusting app updates. `.htaccess` changes normally apply immediately; repeated failures usually mean the web server or host-level cache is ignoring or overriding those directives.
 
 ### Other Static Hosts
 

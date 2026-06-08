@@ -77,6 +77,8 @@ python3 spa-server.py
 
 If you're using Apache or LiteSpeed, the generated `build/.htaccess` handles SPA routing, cache headers, and CORS for `/.well-known/`. Point your vhost to `build/` and keep that file in place.
 
+On shared hosting, Apache/PHP-FPM is the safer choice for Budabit. OpenLiteSpeed/LSCache may serve the SPA correctly while ignoring or overriding `.htaccess` `Header` and `AddType` rules, which breaks service-worker update reliability. If your host exposes toggles, use Apache/PHP-FPM, disable LSCache, and enable forced HTTPS/SSL.
+
 After deployment, verify the effective live headers instead of assuming `.htaccess` was honored:
 
 ```bash
