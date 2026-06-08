@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import "@src/app.css"
   import "@src/lib/crypto-polyfill"
   import {throttle} from "throttle-debounce"
@@ -43,7 +44,7 @@
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {makeProfilePath} from "@app/util/routes"
   import {userSettingsValues} from "@app/core/state"
-  import {db, kv} from "@app/core/storage"
+  import {db} from "@app/core/storage"
   import {pubkeyStorage, sessionsStorage} from "@app/core/session-storage"
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
@@ -117,16 +118,21 @@
 
   const APP_UPDATE_INTERVAL = 2 * 60 * 1000
   const APP_RELOAD_QUERY_KEY = "v"
-  const APP_VERSION_STORAGE_KEY = "appVersion"
   const APP_SW_CLEANUP_KEY = "appSwCleanupDone"
   const APP_CACHE_PREFIX = "budabit-app-"
+  const APP_EXPECTED_BUILD_STORAGE_KEY = "appExpectedBuildId"
+  const APP_RELOAD_RECOVERY_ATTEMPT_KEY = "appReloadRecoveryAttempt"
+  const APP_IMPORT_RECOVERY_KEY = "appImportRecoveryBuildId"
   const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
   let updateCheckInterval: number | null = null
   let updateCheckOnFocus: (() => void) | null = null
   let updateCheckOnVisibilityChange: (() => void) | null = null
   let serviceWorkerMessageHandler: ((event: MessageEvent) => void) | null = null
+  let appShellErrorHandler: ((event: ErrorEvent | Event) => void) | null = null
+  let appShellRejectionHandler: ((event: PromiseRejectionEvent) => void) | null = null
   let serviceWorkerReloadInFlight = false
   let updateToastShown = false
+  let readyAppUpdateBuildId = ""
   let loadedUserModeratorRequestsKey = ""
   let loadingUserModeratorRequestsKey = ""
   let loadedUserProfileKey = ""
@@ -325,14 +331,37 @@
     return true
   }
 
+  const getAppCacheName = (buildId: string) => `${APP_CACHE_PREFIX}${buildId}`
+
+  const hasAppCacheForBuild = async (buildId: string) => {
+    if (!buildId) return false
+    if (!("caches" in window)) return false
+
+    const keys = await caches.keys()
+    return keys.includes(getAppCacheName(buildId))
+  }
+
+  const waitForAppCache = async (buildId: string) => {
+    const startedAt = Date.now()
+
+    while (Date.now() - startedAt < APP_SERVICE_WORKER_UPDATE_TIMEOUT) {
+      if (await hasAppCacheForBuild(buildId)) return true
+      await new Promise(resolve => window.setTimeout(resolve, 100))
+    }
+
+    return await hasAppCacheForBuild(buildId)
+  }
+
   const waitForInstallingServiceWorker = async (registration: ServiceWorkerRegistration) => {
     if (!registration.installing) return null
 
     const installingWorker = registration.installing
 
-    if (installingWorker.state === "installed") {
+    if (["installed", "activated"].includes(installingWorker.state)) {
       return registration.waiting || installingWorker
     }
+
+    if (installingWorker.state === "redundant") return null
 
     return await new Promise<ServiceWorker | null>(resolve => {
       const cleanup = () => {
@@ -341,9 +370,14 @@
       }
 
       const onStateChange = () => {
-        if (["installed", "activated", "redundant"].includes(installingWorker.state)) {
+        if (["installed", "activated"].includes(installingWorker.state)) {
           cleanup()
-          resolve(registration.waiting || null)
+          resolve(registration.waiting || installingWorker)
+        }
+
+        if (installingWorker.state === "redundant") {
+          cleanup()
+          resolve(null)
         }
       }
 
@@ -356,29 +390,62 @@
     })
   }
 
-  const activateUpdatedServiceWorker = async () => {
+  const waitForServiceWorkerUpdate = async (registration: ServiceWorkerRegistration) => {
+    if (registration.waiting) return registration.waiting
+    if (registration.installing) return await waitForInstallingServiceWorker(registration)
+
+    return await new Promise<ServiceWorker | null>(resolve => {
+      let settled = false
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        registration.removeEventListener("updatefound", onUpdateFound)
+      }
+
+      const finish = (worker: ServiceWorker | null) => {
+        if (settled) return
+
+        settled = true
+        cleanup()
+        resolve(worker)
+      }
+
+      const onUpdateFound = () => {
+        void waitForInstallingServiceWorker(registration).then(finish)
+      }
+
+      const timeout = window.setTimeout(() => {
+        finish(registration.waiting || null)
+      }, APP_SERVICE_WORKER_UPDATE_TIMEOUT)
+
+      registration.addEventListener("updatefound", onUpdateFound)
+    })
+  }
+
+  const prepareAppUpdate = async (buildId: string) => {
+    const registration = await getAppServiceWorkerRegistration()
+
+    if (!registration) return false
+    if (registration.waiting && (await waitForAppCache(buildId))) return true
+
+    const updateReady = waitForServiceWorkerUpdate(registration)
+    await registration.update()
+
+    const readyWorker = registration.waiting || (await updateReady)
+    if (!readyWorker) return false
+
+    return await waitForAppCache(buildId)
+  }
+
+  const activateReadyServiceWorker = async () => {
     const registration = await getAppServiceWorkerRegistration()
 
     if (!registration) return false
     if (postSkipWaiting(registration)) return true
 
-    await registration.update()
-
-    if (postSkipWaiting(registration)) return true
-
     await waitForInstallingServiceWorker(registration)
 
     return postSkipWaiting(registration)
-  }
-
-  const getStoredVersion = () => {
-    if (typeof localStorage === "undefined") return ""
-    return localStorage.getItem(APP_VERSION_STORAGE_KEY) || ""
-  }
-
-  const setStoredVersion = (version: string) => {
-    if (typeof localStorage === "undefined") return
-    localStorage.setItem(APP_VERSION_STORAGE_KEY, version)
   }
 
   const fetchAppVersion = async () => {
@@ -398,8 +465,19 @@
     }
   }
 
-  const requestAppReload = async () => {
+  const setExpectedBuildForReload = (buildId: string) => {
+    if (!buildId) return
+    if (typeof sessionStorage === "undefined") return
+
+    sessionStorage.setItem(APP_EXPECTED_BUILD_STORAGE_KEY, buildId)
+    sessionStorage.removeItem(APP_RELOAD_RECOVERY_ATTEMPT_KEY)
+  }
+
+  const requestAppReload = async (expectedBuildId = readyAppUpdateBuildId) => {
     if (!browser) return
+
+    setExpectedBuildForReload(expectedBuildId)
+
     if (!("serviceWorker" in navigator)) {
       forceReload()
       return
@@ -433,7 +511,7 @@
     fallbackTimer = window.setTimeout(finalizeReload, APP_SERVICE_WORKER_UPDATE_TIMEOUT)
 
     try {
-      const activated = await activateUpdatedServiceWorker()
+      const activated = await activateReadyServiceWorker()
 
       if (!activated) {
         finalizeReload()
@@ -443,16 +521,20 @@
     }
   }
 
-  const notifyUpdateReady = () => {
+  const notifyUpdateReady = (buildId: string) => {
+    if (!buildId || buildId === APP_BUILD_ID) return
+
+    readyAppUpdateBuildId = buildId
+
     if (updateToastShown) return
 
     updateToastShown = true
     pushToast({
-      message: "New app version is available",
+      message: "New app version is ready",
       timeout: 0,
       action: {
         message: "Reload",
-        onclick: () => void requestAppReload(),
+        onclick: () => void requestAppReload(readyAppUpdateBuildId || buildId),
       },
     })
   }
@@ -460,14 +542,15 @@
   const checkForAppUpdate = async () => {
     const version = await fetchAppVersion()
     if (!version) return
-    const storedVersion = getStoredVersion()
-    if (!storedVersion) {
-      setStoredVersion(version)
-      return
-    }
-    if (storedVersion !== version) {
-      setStoredVersion(version)
-      notifyUpdateReady()
+    if (version === APP_BUILD_ID) return
+    if (version === readyAppUpdateBuildId) return
+
+    try {
+      if (await prepareAppUpdate(version)) {
+        notifyUpdateReady(version)
+      }
+    } catch (error) {
+      console.warn("[app-update] Failed to prepare app update", error)
     }
   }
 
@@ -509,6 +592,89 @@
     }
   }
 
+  const getLegacyServiceWorkerRegistrations = async () => {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+
+    return registrations.filter(registration =>
+      isLegacyServiceWorker(getRegistrationScriptUrl(registration)),
+    )
+  }
+
+  const unregisterLegacyServiceWorkers = async () => {
+    const legacyRegistrations = await getLegacyServiceWorkerRegistrations()
+    await Promise.all(legacyRegistrations.map(registration => registration.unregister()))
+  }
+
+  const deleteCachesExcept = async (cacheNameToKeep: string) => {
+    if (!("caches" in window)) return
+
+    const keys = await caches.keys()
+    await Promise.all(keys.filter(key => key !== cacheNameToKeep).map(key => caches.delete(key)))
+  }
+
+  const recoverExpectedBuildReload = async (expectedBuildId: string) => {
+    if ("serviceWorker" in navigator) {
+      await unregisterLegacyServiceWorkers()
+    }
+
+    await deleteCachesExcept(getAppCacheName(expectedBuildId))
+    forceReload()
+  }
+
+  const resetAppCacheAndReload = async () => {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(APP_EXPECTED_BUILD_STORAGE_KEY)
+      sessionStorage.removeItem(APP_RELOAD_RECOVERY_ATTEMPT_KEY)
+    }
+
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map(registration => registration.unregister()))
+    }
+
+    if ("caches" in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(key => caches.delete(key)))
+    }
+
+    forceReload()
+  }
+
+  const showAppReloadRecoveryToast = (expectedBuildId: string) => {
+    pushToast({
+      message: `App update did not finish. Expected ${expectedBuildId}, still running ${APP_BUILD_ID}.`,
+      timeout: 0,
+      action: {
+        message: "Reset cache",
+        onclick: () => void resetAppCacheAndReload(),
+      },
+    })
+  }
+
+  const verifyExpectedBuildAfterReload = async () => {
+    if (!browser) return true
+    if (dev) return true
+    if (typeof sessionStorage === "undefined") return true
+
+    const expectedBuildId = sessionStorage.getItem(APP_EXPECTED_BUILD_STORAGE_KEY) || ""
+    if (!expectedBuildId) return true
+
+    if (expectedBuildId === APP_BUILD_ID) {
+      sessionStorage.removeItem(APP_EXPECTED_BUILD_STORAGE_KEY)
+      sessionStorage.removeItem(APP_RELOAD_RECOVERY_ATTEMPT_KEY)
+      return true
+    }
+
+    if (sessionStorage.getItem(APP_RELOAD_RECOVERY_ATTEMPT_KEY) !== "1") {
+      sessionStorage.setItem(APP_RELOAD_RECOVERY_ATTEMPT_KEY, "1")
+      await recoverExpectedBuildReload(expectedBuildId)
+      return false
+    }
+
+    showAppReloadRecoveryToast(expectedBuildId)
+    return false
+  }
+
   const cleanupLegacyServiceWorkers = async () => {
     if (!browser) return
     if (dev) return
@@ -516,10 +682,7 @@
     if (typeof localStorage === "undefined") return
     if (localStorage.getItem(APP_SW_CLEANUP_KEY) === "1") return
 
-    const registrations = await navigator.serviceWorker.getRegistrations()
-    const legacyRegistrations = registrations.filter(registration =>
-      isLegacyServiceWorker(getRegistrationScriptUrl(registration)),
-    )
+    const legacyRegistrations = await getLegacyServiceWorkerRegistrations()
 
     if (legacyRegistrations.length === 0) {
       localStorage.setItem(APP_SW_CLEANUP_KEY, "1")
@@ -539,21 +702,107 @@
     forceReload()
   }
 
+  const getEventTargetUrl = (event: Event) => {
+    const target = event.target
+
+    if (target instanceof HTMLScriptElement) return target.src
+    if (target instanceof HTMLLinkElement) return target.href
+
+    return ""
+  }
+
+  const getErrorText = (value: unknown): string => {
+    if (value instanceof Error) return `${value.message}\n${value.stack || ""}`
+    if (typeof value === "string") return value
+
+    try {
+      return JSON.stringify(value) || ""
+    } catch {
+      return String(value)
+    }
+  }
+
+  const isAppShellAssetReference = (text: string) => text.includes("/_app/immutable/")
+
+  const isDynamicModuleFailure = (text: string) =>
+    /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|ChunkLoadError|Loading chunk \d+ failed/i.test(
+      text,
+    )
+
+  const isAppShellLoadFailureEvent = (event: ErrorEvent | Event) => {
+    const targetUrl = getEventTargetUrl(event)
+    if (targetUrl && isAppShellAssetReference(targetUrl)) return true
+
+    if (!(event instanceof ErrorEvent)) return false
+
+    const text = [event.message, event.filename, getErrorText(event.error)].join("\n")
+    return isAppShellAssetReference(text) && isDynamicModuleFailure(text)
+  }
+
+  const isAppShellLoadFailureReason = (reason: unknown) => {
+    const text = getErrorText(reason)
+    return isAppShellAssetReference(text) && isDynamicModuleFailure(text)
+  }
+
+  const recoverFromAppShellLoadFailure = () => {
+    if (!browser) return
+    if (typeof sessionStorage === "undefined") return
+    if (sessionStorage.getItem(APP_IMPORT_RECOVERY_KEY) === APP_BUILD_ID) return
+
+    sessionStorage.setItem(APP_IMPORT_RECOVERY_KEY, APP_BUILD_ID)
+    forceReload()
+  }
+
+  const setupAppShellFailureRecovery = () => {
+    if (!browser) return
+    if (appShellErrorHandler || appShellRejectionHandler) return
+
+    appShellErrorHandler = event => {
+      if (!isAppShellLoadFailureEvent(event)) return
+
+      event.preventDefault()
+      recoverFromAppShellLoadFailure()
+    }
+
+    appShellRejectionHandler = event => {
+      if (!isAppShellLoadFailureReason(event.reason)) return
+
+      event.preventDefault()
+      recoverFromAppShellLoadFailure()
+    }
+
+    window.addEventListener("error", appShellErrorHandler, true)
+    window.addEventListener("unhandledrejection", appShellRejectionHandler)
+  }
+
   const initAppUpdates = async () => {
+    setupAppShellFailureRecovery()
     await cleanupLegacyServiceWorkers()
+
+    if (!(await verifyExpectedBuildAfterReload())) return
+
     setupAppUpdatePolling()
   }
 
-  void initAppUpdates()
-
   // Listen for navigation messages from service worker
   serviceWorkerMessageHandler = event => {
-    if (event.data && event.data.type === "NAVIGATE") {
-      goto(event.data.url)
+    const data = event.data
+
+    if (!data || typeof data !== "object") return
+
+    if (data.type === "NAVIGATE") {
+      goto(data.url)
+      return
+    }
+
+    if (data.type === "APP_CACHE_READY" && typeof data.version === "string") {
+      notifyUpdateReady(data.version)
     }
   }
 
   navigator.serviceWorker?.addEventListener("message", serviceWorkerMessageHandler)
+
+  void initAppUpdates()
 
   // Cleanup on page close
   window.addEventListener("beforeunload", () => db.close())
@@ -728,6 +977,16 @@
     if (serviceWorkerMessageHandler) {
       navigator.serviceWorker?.removeEventListener("message", serviceWorkerMessageHandler)
       serviceWorkerMessageHandler = null
+    }
+
+    if (appShellErrorHandler) {
+      window.removeEventListener("error", appShellErrorHandler, true)
+      appShellErrorHandler = null
+    }
+
+    if (appShellRejectionHandler) {
+      window.removeEventListener("unhandledrejection", appShellRejectionHandler)
+      appShellRejectionHandler = null
     }
   })
 </script>
