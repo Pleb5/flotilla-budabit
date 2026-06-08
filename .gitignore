@@ -2,6 +2,7 @@
 accounting.txt
 # Env
 .env
+.deploy.local.env
 .codex
 
 # Vite

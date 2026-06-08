@@ -190,94 +190,50 @@ If you deploy often, this can create very long delete phases as old immutable fi
 
 ### Recommended approach
 
-Use a two-pass deploy:
-
-1. Upload `build/_app/immutable` **without** `--delete`
-2. Upload the rest of `build/` **with** `--delete`, excluding `/_app/immutable`
-
-This keeps deploys fast and avoids deleting assets that may still be needed by users with older tabs open.
-
-### Password-safe dry run (no password in shell history)
+Use the ordered deploy wrapper after building:
 
 ```sh
-SFTP_HOST='sftp://example.com'
-SFTP_USER='your-user'
-REMOTE_PATH='.'              # e.g. '/public_html'
-
-read -rsp 'SFTP password: ' LFTP_PASSWORD
-printf '\n'
-export LFTP_PASSWORD
-
-lftp -u "$SFTP_USER" --env-password "$SFTP_HOST" <<LFTP
-set cmd:fail-exit yes
-
-# Pass 1: immutable assets (no delete)
-mirror -R \
-  --dry-run \
-  --verbose=1 \
-  --parallel=4 \
-  --ignore-time \
-  build/_app/immutable \
-  "$REMOTE_PATH/_app/immutable"
-
-# Pass 2: everything else (delete enabled, immutable excluded)
-mirror -R \
-  --dry-run \
-  --verbose=1 \
-  --parallel=4 \
-  --delete \
-  --exclude-rx '(^|/)_app/immutable(/|$)' \
-  build \
-  "$REMOTE_PATH"
-
-bye
-LFTP
-
-unset LFTP_PASSWORD
+pnpm run build-in-production
+BUDABIT_SFTP_HOST='sftp://example.com' \
+BUDABIT_SFTP_USER='your-user' \
+BUDABIT_REMOTE_PATH='.' \
+./scripts/deploy-static-lftp.sh
 ```
 
-### Actual deploy
+The script prompts for the SFTP password with `read -rsp` unless `LFTP_PASSWORD` is already set. Do not put passwords in command arguments.
+
+For less typing, create an untracked `.deploy.local.env`:
 
 ```sh
-SFTP_HOST='sftp://example.com'
-SFTP_USER='your-user'
-REMOTE_PATH='.'              # e.g. '/public_html'
+BUDABIT_SFTP_HOST='sftp://example.com'
+BUDABIT_SFTP_USER='your-user'
+BUDABIT_REMOTE_PATH='.' # e.g. '/public_html'
+```
 
-read -rsp 'SFTP password: ' LFTP_PASSWORD
-printf '\n'
-export LFTP_PASSWORD
+Then normal deploys are:
 
-lftp -u "$SFTP_USER" --env-password "$SFTP_HOST" <<LFTP
-set cmd:fail-exit yes
+```sh
+pnpm run build-in-production
+./scripts/deploy-static-lftp.sh
+```
 
-# Pass 1: immutable assets (no delete)
-mirror -R \
-  --verbose=1 \
-  --parallel=4 \
-  --ignore-time \
-  build/_app/immutable \
-  "$REMOTE_PATH/_app/immutable"
+The wrapper runs three passes:
 
-# Pass 2: everything else (delete enabled, immutable excluded)
-mirror -R \
-  --verbose=1 \
-  --parallel=4 \
-  --delete \
-  --exclude-rx '(^|/)_app/immutable(/|$)' \
-  build \
-  "$REMOTE_PATH"
+1. Upload new `/_app/immutable/*` files without deleting old immutable files.
+2. Upload mutable files with delete enabled, excluding `/_app/immutable/*` and `/_app/version.json`.
+3. Upload `/_app/version.json` last so browsers do not see an update before all files exist.
 
-bye
-LFTP
+Preview the generated lftp commands without connecting:
 
-unset LFTP_PASSWORD
+```sh
+./scripts/deploy-static-lftp.sh --dry-run
 ```
 
 Notes:
 
-- Do **not** add `--delete-excluded` in pass 2, or excluded immutable files may be removed.
-- If your SFTP server is unstable, reduce `--parallel=4` to `--parallel=2`.
-- After the atomic app-cache update work is implemented, use `scripts/deploy-static-lftp.sh` instead of these manual commands so `/_app/version.json` is published last.
+- Do **not** add `--delete-excluded` to the mutable pass, or excluded immutable files may be removed.
+- If your SFTP server is unstable, set `BUDABIT_LFTP_PARALLEL=2` or `BUDABIT_LFTP_PARALLEL=4`.
+- After deployment, run `node scripts/check-deploy-cache.mjs https://your-domain.com`.
 
 ### Remote storage growth and cleanup
 
