@@ -241,27 +241,24 @@ Because immutable files are not deleted on every deploy, remote storage will gro
 
 Recommended policy:
 
-- Keep fast, safe deploys day-to-day (strategy above)
-- Run cleanup in a maintenance window (for example weekly or monthly)
+- Keep fast, safe deploys day-to-day with `scripts/deploy-static-lftp.sh`.
+- Run cleanup only in a low-traffic maintenance window after your retention window has passed.
+- Keep at least the current and previous build's immutable files. Pass the previous build directory with `--keep-build-dir` when you have it archived.
+- Browser Cache Storage cleanup is automatic: the service worker keeps the current and previous `budabit-app-*` caches.
 
-For cleanup, you can temporarily run a full mirror with delete once during off-hours:
+Preview remote immutable cleanup first. Dry-run is the default:
 
 ```sh
-lftp -u "$SFTP_USER" --env-password "$SFTP_HOST" <<LFTP
-set cmd:fail-exit yes
-
-mirror -R \
-  --verbose=1 \
-  --parallel=2 \
-  --delete \
-  build \
-  "$REMOTE_PATH"
-
-bye
-LFTP
+./scripts/cleanup-static-lftp.sh --dry-run --keep-build-dir /path/to/previous-build
 ```
 
-This trades occasional planned cleanup time for much faster regular deploys.
+Apply only after reviewing the dry-run output:
+
+```sh
+./scripts/cleanup-static-lftp.sh --apply --keep-build-dir /path/to/previous-build
+```
+
+The cleanup script only targets `/_app/immutable/`; it does not touch mutable app files or `/_app/version.json`.
 
 ## External Runtime Dependencies
 
