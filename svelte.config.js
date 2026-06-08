@@ -1,6 +1,8 @@
 import adapter from "@sveltejs/adapter-static"
 import {vitePreprocess} from "@sveltejs/vite-plugin-svelte"
 
+const buildVersion = process.env.VITE_BUILD_ID || process.env.VITE_BUILD_HASH || "dev"
+
 /** @type {import('@sveltejs/kit').Config} */
 export default {
   preprocess: vitePreprocess(),
@@ -13,6 +15,9 @@ export default {
       "@app": "src/app",
       "@lib": "src/lib",
       "@assets": "src/assets",
+    },
+    version: {
+      name: buildVersion,
     },
     csp: {
       directives: {

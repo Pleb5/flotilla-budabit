@@ -40,6 +40,12 @@ if [[ -z $VITE_BUILD_HASH ]]; then
 	export VITE_BUILD_HASH=$(git rev-parse --short HEAD)
 fi
 
+if [[ -z $VITE_BUILD_ID ]]; then
+	build_id_base="${VITE_BUILD_HASH:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
+	build_id_base="${build_id_base:-dev}"
+	export VITE_BUILD_ID="${build_id_base}-$(date -u +%Y%m%d%H%M%S)"
+fi
+
 if [[ $VITE_PLATFORM_LOGO =~ ^https://* ]]; then
 	curl $VITE_PLATFORM_LOGO >static/logo.png
 	export VITE_PLATFORM_LOGO=static/logo.png

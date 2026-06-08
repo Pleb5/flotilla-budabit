@@ -62,6 +62,7 @@
   import {installBuiltinExtensions} from "@app/extensions/builtin"
   import {initializeCashuWallet} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
+  import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
   import CashuPayConfirm from "@app/components/CashuPayConfirm.svelte"
   import {
     activeCommunityDefinition,
@@ -148,6 +149,8 @@
     ...commands,
     ...requests,
     ...notifications,
+    budabitBuildHash: APP_BUILD_HASH,
+    budabitBuildId: APP_BUILD_ID,
   })
 
   // Initialize the external push handler only when email/push alerts are enabled.
