@@ -254,7 +254,11 @@ export class WorkerManager {
   /**
    * Execute a git operation in the worker
    */
-  async execute<T>(operation: string, params: any, options?: { timeoutMs?: number }): Promise<T> {
+  async execute<T>(
+    operation: string,
+    params: any,
+    options?: { timeoutMs?: number; returnWorkerErrors?: boolean }
+  ): Promise<T> {
     const ctxFrom = (p: any): string => {
       if (!p) return "";
       if (typeof p !== "object") return "";
@@ -335,6 +339,13 @@ export class WorkerManager {
 
         // Check if worker returned a structured error response
         if (isWorkerErrorResponse(result)) {
+          if (options?.returnWorkerErrors) {
+            try {
+              return JSON.parse(JSON.stringify(result)) as T;
+            } catch {
+              return result as T;
+            }
+          }
           throw createErrorFromWorkerResponse(result);
         }
 
@@ -349,6 +360,13 @@ export class WorkerManager {
 
         // Check if worker returned a structured error response
         if (isWorkerErrorResponse(result)) {
+          if (options?.returnWorkerErrors) {
+            try {
+              return JSON.parse(JSON.stringify(result)) as T;
+            } catch {
+              return result as T;
+            }
+          }
           throw createErrorFromWorkerResponse(result);
         }
 
@@ -632,7 +650,10 @@ export class WorkerManager {
     mergeBase?: string;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("getPRReviewData", params);
+    return this.execute("getPRReviewData", params, {
+      timeoutMs: 45000,
+      returnWorkerErrors: true,
+    });
   }
 
   /**

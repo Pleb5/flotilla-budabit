@@ -254,6 +254,7 @@ export interface PRMergeAnalysisResult extends MergeAnalysisResult {
 export interface PRReviewData {
   success: boolean
   error?: string
+  errorPhase?: "source" | "target" | "review"
   baseOid?: string
   headOid?: string
   targetCommit?: string

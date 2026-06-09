@@ -2164,24 +2164,31 @@ const api = {
     )
     const allCloneUrls = Array.from(new Set([...sourceUrls, ...targetUrls]))
     const initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
+    type PRReviewErrorPhase = "source" | "target" | "review"
+    let loadingPhase: PRReviewErrorPhase = targetUrls.length > 0 ? "target" : "source"
+    const failure = (error: string, errorPhase: PRReviewErrorPhase, extra: Record<string, any> = {}) =>
+      toPlain({
+        ...extra,
+        success: false,
+        error,
+        errorPhase,
+        commits: Array.isArray(extra.commits) ? extra.commits : [],
+        commitOids: Array.isArray(extra.commitOids) ? extra.commitOids : [],
+        changes: Array.isArray(extra.changes) ? extra.changes : [],
+      })
 
     if (!opts.tipCommitOid) {
-      return toPlain({
-        success: false,
-        error: "PR tip commit is missing",
-        commits: [],
-        commitOids: [],
-        changes: [],
-      })
+      return failure("PR tip commit is missing", "source")
     }
     if (initUrls.length === 0) {
-      return toPlain({
-        success: false,
-        error: "No clone URLs available for PR review",
-        commits: [],
-        commitOids: [],
-        changes: [],
-      })
+      return failure("No clone URLs available for PR review", "source")
+    }
+    const hasProvidedMergeBase = /^[0-9a-f]{40}$/i.test(opts.mergeBase || "")
+    if (!hasProvidedMergeBase && targetUrls.length === 0) {
+      return failure("No target clone URLs available for PR review", "target")
+    }
+    if (!hasProvidedMergeBase && !opts.targetBranch) {
+      return failure("PR target branch is missing", "target")
     }
 
     try {
@@ -2207,6 +2214,7 @@ const api = {
       let usedTargetCloneUrl: string | undefined
 
       if (targetUrls.length > 0 && opts.targetBranch) {
+        loadingPhase = "target"
         const targetFetchResult = await withUrlFallback(
           reorderUrlsByPreference(targetUrls, key),
           async (cloneUrl: string) => {
@@ -2243,20 +2251,21 @@ const api = {
           usedTargetCloneUrl = targetFetchResult.usedUrl
         } else {
           targetFetchError = `Failed to refresh target branch from remote: ${targetFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`
+          if (!hasProvidedMergeBase) {
+            return failure(targetFetchError, "target")
+          }
         }
       }
 
       let headOid = opts.tipCommitOid
       let usedCloneUrl: string | undefined
+      loadingPhase = "source"
       if (!(await hasCommitObject(dir, headOid))) {
         if (sourceUrls.length === 0) {
-          return toPlain({
-            success: false,
-            error: "PR tip commit is not available locally and no PR clone URL was provided",
-            commits: [],
-            commitOids: [],
-            changes: [],
-          })
+          return failure(
+            "PR tip commit is not available locally and no PR clone URL was provided",
+            "source",
+          )
         }
 
         const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
@@ -2292,29 +2301,28 @@ const api = {
         )
 
         if (!sourceFetchResult.success) {
-          return toPlain({
-            success: false,
-            error: `Failed to fetch PR source: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
-            commits: [],
-            commitOids: [],
-            changes: [],
-          })
+          return failure(
+            `Failed to fetch PR source: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
+            "source",
+          )
         }
 
         headOid = sourceFetchResult.result?.tipOid || opts.tipCommitOid
         usedCloneUrl = sourceFetchResult.usedUrl
       }
 
-      const preferredMergeBase = /^[0-9a-f]{40}$/i.test(opts.mergeBase || "")
-        ? opts.mergeBase
-        : undefined
+      const preferredMergeBase = hasProvidedMergeBase ? opts.mergeBase : undefined
+      loadingPhase = "review"
       if (preferredMergeBase && !(await hasCommitObject(dir, preferredMergeBase))) {
-        await fetchRefsUntilOidsAvailable({
+        const fetchedBase = await fetchRefsUntilOidsAvailable({
           key,
           dir,
           requiredOids: [headOid, preferredMergeBase],
           cloneUrls: allCloneUrls,
         })
+        if (!fetchedBase) {
+          return failure("Could not fetch PR diff base objects.", "review")
+        }
       }
 
       let review = await getPRReviewDataCore(git, dir, {
@@ -2331,12 +2339,11 @@ const api = {
       }
 
       if (!review.success || !review.baseOid || !review.headOid) {
-        return toPlain({
-          ...review,
-          success: false,
-          error: review.error || targetFetchError || "Failed to resolve PR review data",
-          changes: [],
-        })
+        return failure(
+          review.error || targetFetchError || "Failed to resolve PR review data",
+          targetFetchError ? "target" : "review",
+          review,
+        )
       }
 
       const diff = await api.getDiffBetween({
@@ -2347,11 +2354,8 @@ const api = {
       })
 
       if (!diff.success) {
-        return toPlain({
+        return failure(diff.error || "Failed to load PR file diffs", "review", {
           ...review,
-          success: false,
-          error: diff.error || "Failed to load PR file diffs",
-          changes: [],
           usedTargetCloneUrl,
           usedCloneUrl,
         })
@@ -2364,13 +2368,7 @@ const api = {
         usedCloneUrl,
       })
     } catch (error: any) {
-      return toPlain({
-        success: false,
-        error: error?.message || String(error),
-        commits: [],
-        commitOids: [],
-        changes: [],
-      })
+      return failure(error?.message || String(error), loadingPhase)
     }
   },
 

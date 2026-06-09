@@ -23,12 +23,17 @@
 ## Completed With Evidence
 
 - Session plan and checkpoint created under `docs/architecture/`.
-- Phase 1 code changes implemented.
+- Phase 1 code changes implemented, verified, committed, and pushed as `495037b6 refactor: decouple PR review loading`.
 - PR review data path loads commits/files independently of merge analysis.
 - Merge analysis no longer auto-runs on PR page load.
 - Analyze is disabled until PR review data is ready.
 - PR review and merge-analysis target fetches prefer `fetchHead`/`FETCH_HEAD` before remote-tracking refs.
 - UI branch-ref loading no longer hard-blocks explicit merge analysis.
+- Phase 2 code changes implemented and verified.
+- PR review loader now returns structured `errorPhase` metadata for `source`, `target`, and `review` failures.
+- `getPRReviewData` returns structured worker failures to the UI instead of converting them to generic thrown errors.
+- PR UI stores review loading error phase and renders `Retry fetching source`, `Retry fetching target`, or `Retry loading files`.
+- Inline comment navigation uses the same phase-specific failure detail as PR review loading.
 - Verification passed: `pnpm check`, `git diff --check`, and `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
 
 ## Decisions
@@ -39,12 +44,11 @@
 
 ## Current State
 
-- Phase 1 is verified and ready to commit/push.
-- Phase 2 should add structured PR loading phases and retry actions.
+- Phase 2 is verified and ready to commit/push.
 
 ## Next Action
 
-- Commit and push Phase 1, then start Phase 2 from this checkpoint and the Phase 2 section of the plan.
+- Commit and push Phase 2.
 
 ## Verification
 
@@ -54,7 +58,7 @@
 
 ## Risks Or Blockers
 
-- Branch was ahead of `origin/dev` by one existing commit before the Phase 1 commit; pushing Phase 1 will also publish that existing ahead commit.
+- No current blockers.
 
 ## Files
 

@@ -155,6 +155,8 @@
     usedUrl?: string
   }
 
+  type PrReviewErrorPhase = "source" | "target" | "review"
+
   interface Props {
     pr: ReturnType<typeof import("@nostr-git/core/events").parsePullRequestEvent>
     prEvent: PullRequestEvent
@@ -549,6 +551,7 @@
   let prChanges = $state<PrChange[] | null>(null)
   let prChangesLoading = $state(false)
   let prChangesError = $state<string | null>(null)
+  let prChangesErrorPhase = $state<PrReviewErrorPhase | null>(null)
   let prChangesProgress = $state("")
   let prChangesGeneration = $state(0)
   let prReviewCommits = $state<PrReviewCommit[]>([])
@@ -581,6 +584,54 @@
   const prReviewHasExpandedItem = $derived.by(() =>
     prReviewTab === "commits" ? prExpandedCommits.size > 0 : prExpandedFiles.size > 0,
   )
+
+  const normalizePrReviewErrorPhase = (value: unknown): PrReviewErrorPhase => {
+    if (value === "source" || value === "target" || value === "review") return value
+    return "review"
+  }
+
+  const getPrReviewRetryLabel = (phase?: PrReviewErrorPhase | null) => {
+    if (phase === "source") return "Retry fetching source"
+    if (phase === "target") return "Retry fetching target"
+    return "Retry loading files"
+  }
+
+  const prReviewRetryLabel = $derived.by(() => getPrReviewRetryLabel(prChangesErrorPhase))
+
+  const formatPrReviewLoadError = (message: string, phase: PrReviewErrorPhase) => {
+    const raw = (message || "Failed to load PR review data").trim()
+    const withDetails = (friendly: string) =>
+      friendly === raw ? friendly : `${friendly} Details: ${raw}`
+
+    if (phase === "source") {
+      return withDetails("Could not fetch PR source commits.")
+    }
+    if (phase === "target") {
+      return withDetails(`Could not fetch target branch ${prTargetBranch}.`)
+    }
+    return withDetails("Could not load PR files for review.")
+  }
+
+  const getPrReviewInlineFailure = () => {
+    const phase = prChangesErrorPhase || "review"
+    const detail = prChangesError || `${getPrReviewRetryLabel(phase)} from Files changed.`
+    if (phase === "source") {
+      return {
+        message: "Could not fetch the PR source for this inline comment.",
+        detail,
+      }
+    }
+    if (phase === "target") {
+      return {
+        message: "Could not fetch the target branch for this inline comment.",
+        detail,
+      }
+    }
+    return {
+      message: "Could not load file diffs for this inline comment.",
+      detail,
+    }
+  }
 
   const prReviewReady = $derived.by(() => {
     if (!prEffectiveTipOid || prChangesLoading || prChangesError || prChanges === null) return false
@@ -1200,6 +1251,7 @@
       prAnalysisProgress = ""
       prChanges = null
       prChangesError = null
+      prChangesErrorPhase = null
       prReviewCommits = []
       prDiffBaseOid = null
       prDiffHeadOid = null
@@ -1256,6 +1308,7 @@
     const currentGen = prChangesGeneration
     prChangesLoading = true
     prChangesError = null
+    prChangesErrorPhase = null
     prChangesProgress = "Resolving diff range..."
     prChanges = null
     prReviewCommits = []
@@ -1281,10 +1334,16 @@
           prReviewCommits = Array.isArray(res.commits) ? res.commits : []
           prChanges = Array.isArray(res.changes) ? res.changes : []
           prChangesError = null
+          prChangesErrorPhase = null
         } else {
+          const errorPhase = normalizePrReviewErrorPhase(res?.errorPhase)
           prChanges = []
           prReviewCommits = []
-          prChangesError = res?.error || "Failed to load PR review data"
+          prChangesErrorPhase = errorPhase
+          prChangesError = formatPrReviewLoadError(
+            res?.error || "Failed to load PR review data",
+            errorPhase,
+          )
         }
         return
       }
@@ -1292,9 +1351,13 @@
       const range = await resolvePrDiffRange()
       if (prChangesGeneration !== currentGen) return
       if (!range) {
+        const errorPhase: PrReviewErrorPhase = "review"
         prChanges = []
-        prChangesError =
-          "Unable to resolve a merged diff range for this PR yet. Retry loading files."
+        prChangesErrorPhase = errorPhase
+        prChangesError = formatPrReviewLoadError(
+          "Unable to resolve a merged diff range for this PR yet.",
+          errorPhase,
+        )
         return
       }
 
@@ -1313,20 +1376,29 @@
       if (res.success && res.changes) {
         prChanges = res.changes
         prChangesError = null
+        prChangesErrorPhase = null
       } else {
+        const errorPhase: PrReviewErrorPhase = "review"
         prChanges = []
-        prChangesError = res.error || "Failed to load diff"
+        prChangesErrorPhase = errorPhase
+        prChangesError = formatPrReviewLoadError(res.error || "Failed to load diff", errorPhase)
       }
     } catch (err) {
       if (prChangesGeneration !== currentGen) return
+      const errorPhase = normalizePrReviewErrorPhase((err as any)?.errorPhase)
       prChanges = []
-      prChangesError = err instanceof Error ? err.message : "Failed to load diff"
+      prChangesErrorPhase = errorPhase
+      prChangesError = formatPrReviewLoadError(getErrorText(err) || "Failed to load diff", errorPhase)
     } finally {
       if (prChangesGeneration === currentGen) {
         prChangesLoading = false
         prChangesProgress = ""
       }
     }
+  }
+
+  async function retryPrReviewLoad() {
+    await loadPrChanges()
   }
 
   async function ensurePrChangesReady() {
@@ -1507,10 +1579,11 @@
     const ready = await ensurePrChangesReady()
     if (generation !== prInlineTargetGeneration) return false
     if (!ready) {
+      const failure = getPrReviewInlineFailure()
       prInlineTargetStatus = {
         state: "error",
-        message: "Could not load file diffs for this inline comment.",
-        detail: prChangesError || "Try retrying the file diff load.",
+        message: failure.message,
+        detail: failure.detail,
       }
       return false
     }
@@ -1638,9 +1711,10 @@
     const ready = await ensurePrChangesReady()
     if (generation !== prInlineTargetGeneration) return
     if (!ready) {
+      const failure = getPrReviewInlineFailure()
       fail(
-        "Could not load file diffs for this inline comment.",
-        prChangesError || "Try retrying the file diff load.",
+        failure.message,
+        failure.detail,
       )
       return
     }
@@ -2967,9 +3041,24 @@
             </div>
           {/if}
         {:else if prEffectiveTipOid && !prReviewReady}
-          <p class="text-sm text-muted-foreground">
-            Load PR commits and file changes before analyzing mergeability.
-          </p>
+          {#if prChangesError}
+            <div
+              class="space-y-2 rounded border border-red-200 bg-red-50 px-2 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              <p>{prChangesError}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={() => retryPrReviewLoad()}
+                disabled={prChangesLoading}
+                class="h-7">
+                {prReviewRetryLabel}
+              </Button>
+            </div>
+          {:else}
+            <p class="text-sm text-muted-foreground">
+              Load PR commits and file changes before analyzing mergeability.
+            </p>
+          {/if}
         {:else if prEffectiveTipOid}
           <p class="text-sm text-muted-foreground">Click Analyze to check mergeability.</p>
         {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
@@ -3441,6 +3530,18 @@
                 <Loader2 class="h-4 w-4 animate-spin" />
                 {prChangesProgress || "Loading PR commits..."}
               </div>
+            {:else if prChangesError && !prCommitOids.length}
+              <div
+                class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                <p>{prChangesError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onclick={() => retryPrReviewLoad()}
+                  disabled={prChangesLoading}>
+                  {prReviewRetryLabel}
+                </Button>
+              </div>
             {:else if !prCommitOids.length}
               <p class="text-sm text-muted-foreground">No commits found for this PR.</p>
             {:else}
@@ -3587,8 +3688,12 @@
               <div
                 class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
                 <p>{prChangesError}</p>
-                <Button variant="outline" size="sm" onclick={() => loadPrChanges()}>
-                  Retry file diff
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onclick={() => retryPrReviewLoad()}
+                  disabled={prChangesLoading}>
+                  {prReviewRetryLabel}
                 </Button>
               </div>
             {:else if prChanges}
