@@ -73,6 +73,7 @@
   // that was causing effect_update_depth_exceeded errors.
   const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
   const repoEventId = $derived.by(() => repoClass.repoEvent?.id || "")
+  const repoLinkBasePath = $derived.by(() => `/git/${$page.params.id}`)
   const supportedCloneUrls = $derived.by(() =>
     filterValidCloneUrls(
       ($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || [],
@@ -681,6 +682,7 @@
           {setDirectory}
           {publish}
           repo={repoClass}
+          linkBasePath={repoLinkBasePath}
           displayMode="viewer"
           {autoOpenPath}
           onClose={closeFilePreview} />
@@ -751,6 +753,7 @@
                             {setDirectory}
                             {publish}
                             repo={repoClass}
+                            linkBasePath={repoLinkBasePath}
                             displayMode="list"
                             showActions={false}
                             isActive={selectedFile?.path === file.path}
@@ -774,6 +777,7 @@
               {setDirectory}
               {publish}
               repo={repoClass}
+              linkBasePath={repoLinkBasePath}
               displayMode="viewer"
               {autoOpenPath} />
           {/key}

@@ -52,6 +52,7 @@
     onClose,
     showActions = true,
     isActive = false,
+    linkBasePath = "",
   }: {
     file: FileEntry;
     getFileContent: (path: string) => Promise<string>;
@@ -65,6 +66,7 @@
     onClose?: () => void;
     showActions?: boolean;
     isActive?: boolean;
+    linkBasePath?: string;
   } = $props();
 
   const effectiveEditable = $derived.by(() =>
@@ -82,7 +84,7 @@
 
   const name = $derived(file.name);
   const type = $derived((file.type ?? "file") as string);
-  const path = $derived(file.path);
+  const path = $derived(file.path || file.name || "");
   const isList = $derived(displayMode === "list");
   const isViewer = $derived(displayMode === "viewer");
   const isInline = $derived(displayMode === "inline");
@@ -1238,8 +1240,21 @@
     return match[1];
   }
 
+  function deriveRouteRepoBasePath() {
+    if (typeof window === "undefined") return "";
+    const segments = window.location.pathname.split("/").filter(Boolean);
+    const gitIndex = segments.indexOf("git");
+    if (gitIndex === -1 || !segments[gitIndex + 1]) return "";
+    return `/${segments.slice(0, gitIndex + 2).join("/")}`;
+  }
+
   function deriveBasePath() {
     if (typeof window === "undefined") return "";
+    if (linkBasePath) return linkBasePath.replace(/\/+$/, "");
+
+    const routeBasePath = deriveRouteRepoBasePath();
+    if (routeBasePath) return routeBasePath;
+
     const repoAddress = repo?.address || "";
     const communityValue = deriveCommunityFromLocation();
     let repoNaddr = "";
@@ -1263,6 +1278,9 @@
     }
     if (repoNaddr && communityValue) {
       return `/c/${communityValue}/git/${repoNaddr}`;
+    }
+    if (repoNaddr) {
+      return `/git/${repoNaddr}`;
     }
     const match = window.location.pathname.match(/\/c\/[^/]+\/git\/[^/]+/);
     return match ? match[0] : "";
