@@ -251,6 +251,66 @@ export interface PRMergeAnalysisResult extends MergeAnalysisResult {
   prCommits?: Array<{oid: string; message: string; author?: {name?: string; email?: string}}>
 }
 
+export interface PRReviewData {
+  success: boolean
+  error?: string
+  baseOid?: string
+  headOid?: string
+  targetCommit?: string
+  mergeBase?: string
+  commits: Array<{oid: string; message: string; author?: {name?: string; email?: string}}>
+  commitOids: string[]
+}
+
+/**
+ * Lightweight PR review data for commits/files tabs. This intentionally avoids
+ * dry-run merge/conflict analysis so the PR diff can load independently.
+ */
+export async function getPRReviewData(
+  git: GitProvider,
+  repoDir: string,
+  opts: {
+    tipCommitOid: string
+    targetCommitOid?: string
+    mergeBase?: string
+    maxCommits?: number
+  },
+): Promise<PRReviewData> {
+  const empty: PRReviewData = {success: false, commits: [], commitOids: []}
+  const tipOid = opts.tipCommitOid
+  if (!tipOid) return {...empty, error: "PR tip commit is missing"}
+
+  const mergeBase =
+    opts.mergeBase ||
+    (opts.targetCommitOid
+      ? await findMergeBase(git, repoDir, tipOid, opts.targetCommitOid)
+      : undefined)
+  if (!mergeBase) {
+    return {
+      ...empty,
+      headOid: tipOid,
+      targetCommit: opts.targetCommitOid,
+      error: "Unable to resolve a PR diff base.",
+    }
+  }
+
+  const commits = await getPRCommitsOnly(git, repoDir, tipOid, mergeBase, opts.maxCommits ?? 100)
+  const effectiveCommits =
+    commits.length > 0 || tipOid === mergeBase
+      ? commits
+      : await getCommitMetadataForOids(git, repoDir, [tipOid])
+
+  return {
+    success: true,
+    baseOid: mergeBase,
+    headOid: tipOid,
+    targetCommit: opts.targetCommitOid,
+    mergeBase,
+    commits: effectiveCommits,
+    commitOids: effectiveCommits.map(commit => commit.oid),
+  }
+}
+
 /**
  * Analyze if a PR can be merged into the target branch.
  *
@@ -375,9 +435,17 @@ export async function analyzePRMergeability(
             fetchOptions.onAuth = getAuthCallback(targetUrl)
           }
 
-          await git.fetch(fetchOptions)
+          const fetchInfo = await git.fetch(fetchOptions)
           const remoteRef = `refs/remotes/${targetRemote}/${effectiveTargetBranch}`
-          const remoteOid = await git.resolveRef({dir: repoDir, ref: remoteRef})
+          const remoteOid =
+            fetchInfo?.fetchHead ||
+            (await git.resolveRef({dir: repoDir, ref: "FETCH_HEAD"}).catch(() => null)) ||
+            (await git.resolveRef({dir: repoDir, ref: remoteRef}).catch(() => null))
+          if (!remoteOid) {
+            throw new Error(
+              `Remote fetch completed but no target commit could be resolved for ${effectiveTargetBranch}.`,
+            )
+          }
           await git.writeRef({
             dir: repoDir,
             ref: `refs/heads/${effectiveTargetBranch}`,

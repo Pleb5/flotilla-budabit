@@ -122,6 +122,12 @@
     parents?: string[]
   }
 
+  type PrReviewCommit = {
+    oid: string
+    message: string
+    author?: {name?: string; email?: string}
+  }
+
   type PrCommitDiffState = {
     loading: boolean
     error?: string
@@ -474,6 +480,12 @@
     }
   })
 
+  const prEffectiveMergeBase = $derived.by(() => {
+    const updates = prUpdatesArray
+    if (updates.length > 0) return updates[updates.length - 1].mergeBase || ""
+    return pr?.mergeBase || ""
+  })
+
   /** Clone URLs for PR source (fork); from latest update if present, else original PR event */
   const prEffectiveCloneUrls = $derived.by(() => {
     const updates = prUpdatesArray
@@ -539,6 +551,7 @@
   let prChangesError = $state<string | null>(null)
   let prChangesProgress = $state("")
   let prChangesGeneration = $state(0)
+  let prReviewCommits = $state<PrReviewCommit[]>([])
   let lastPrChangesLoadKey: string | null = null
   let prDiffBaseOid = $state<string | null>(null)
   let prDiffHeadOid = $state<string | null>(null)
@@ -569,7 +582,15 @@
     prReviewTab === "commits" ? prExpandedCommits.size > 0 : prExpandedFiles.size > 0,
   )
 
+  const prReviewReady = $derived.by(() => {
+    if (!prEffectiveTipOid || prChangesLoading || prChangesError || prChanges === null) return false
+    if (prStatus?.status === "applied") return true
+    return Boolean(prDiffBaseOid && prDiffHeadOid)
+  })
+
   const prCommitOids = $derived.by(() => {
+    const fromReview = prReviewCommits.map(commit => commit.oid).filter(Boolean)
+    if (fromReview.length > 0) return fromReview
     const fromAnalysis = (prMergeAnalysisResult?.prCommits || []).map(commit => commit.oid)
     if (fromAnalysis.length > 0) return fromAnalysis
     const fromPatchCommits = prMergeAnalysisResult?.patchCommits || []
@@ -578,7 +599,8 @@
   })
 
   const prCommitMetaByOid = $derived.by(() => {
-    const commits = prMergeAnalysisResult?.prCommits || []
+    const commits =
+      prReviewCommits.length > 0 ? prReviewCommits : prMergeAnalysisResult?.prCommits || []
     return new Map(commits.map(c => [c.oid, c]))
   })
 
@@ -1083,46 +1105,7 @@
       return {ok: false, error: "PR target branch is missing"}
     }
 
-    try {
-      const refs =
-        typeof (repoClass as any)?.loadRefsForPRAnalysis === "function"
-          ? await (repoClass as any).loadRefsForPRAnalysis()
-          : (repoClass as any)?.refs || []
-      const heads = Array.from(
-        new Set<string>(
-          (refs || [])
-            .filter((ref: any) => ref?.type === "heads")
-            .map((ref: any) => normalizeBranchName(ref?.name))
-            .filter(Boolean),
-        ),
-      ).sort((a, b) => a.localeCompare(b))
-
-      if (heads.length === 0) {
-        return {
-          ok: false,
-          error: `Could not verify target branch ${targetBranch}; repository branches have not loaded yet.`,
-        }
-      }
-
-      if (!heads.includes(targetBranch)) {
-        const visibleBranches = heads.slice(0, 12).join(", ")
-        const moreBranches = heads.length > 12 ? `, and ${heads.length - 12} more` : ""
-        return {
-          ok: false,
-          error: `Target branch "${targetBranch}" is not advertised by this repository. Available branches: ${visibleBranches}${moreBranches}.`,
-        }
-      }
-
-      return {ok: true}
-    } catch (error) {
-      return {
-        ok: false,
-        error:
-          error instanceof Error
-            ? `Could not load repository branches before merge analysis: ${error.message}`
-            : "Could not load repository branches before merge analysis",
-      }
-    }
+    return {ok: true}
   }
 
   async function runPRMergeAnalysis() {
@@ -1212,14 +1195,19 @@
     const analysisKey = `${prEvent.id}-${tipOid}-${prTargetBranch}`
 
     if (lastPrAnalysisKey && lastPrAnalysisKey !== analysisKey) {
+      prMergeAnalysisResult = null
+      prAnalysisWarning = null
+      prAnalysisProgress = ""
       prChanges = null
       prChangesError = null
+      prReviewCommits = []
       prDiffBaseOid = null
       prDiffHeadOid = null
       lastPrChangesLoadKey = null
     }
-    if (lastPrAnalysisKey === analysisKey || isAnalyzingPRMerge) return
-    runPRMergeAnalysis()
+    if (lastPrAnalysisKey !== analysisKey) {
+      lastPrAnalysisKey = analysisKey
+    }
   })
 
   const resolvePrDiffRange = async () => {
@@ -1239,18 +1227,8 @@
       }
     }
 
-    const mergeBase = prMergeAnalysisResult?.mergeBase
-    if (mergeBase) {
-      return {baseOid: mergeBase, headOid: tipOid}
-    }
-
-    const targetCommit = prMergeAnalysisResult?.targetCommit
-    if (
-      targetCommit &&
-      prMergeAnalysisResult?.analysis !== "error" &&
-      !prMergeAnalysisResult?.upToDate
-    ) {
-      return {baseOid: targetCommit, headOid: tipOid}
+    if (prStatus?.status !== "applied" && prEffectiveMergeBase) {
+      return {baseOid: prEffectiveMergeBase, headOid: tipOid}
     }
 
     if (prStatus?.appliedCommits && prStatus.appliedCommits.length > 0) {
@@ -1280,18 +1258,43 @@
     prChangesError = null
     prChangesProgress = "Resolving diff range..."
     prChanges = null
+    prReviewCommits = []
     prDiffBaseOid = null
     prDiffHeadOid = null
 
     try {
+      if (prStatus?.status !== "applied") {
+        prChangesProgress = "Loading PR commits and file diffs..."
+        const res = await (repoClass.workerManager as any).getPRReviewData({
+          repoId: repoClass.key,
+          tipCommitOid: prEffectiveTipOid,
+          targetBranch: prTargetBranch,
+          cloneUrls: prTargetCloneUrls,
+          prCloneUrls: prEffectiveCloneUrls,
+          ...(prEffectiveMergeBase ? {mergeBase: prEffectiveMergeBase} : {}),
+        })
+
+        if (prChangesGeneration !== currentGen) return
+        if (res?.success) {
+          prDiffBaseOid = res.baseOid || res.mergeBase || null
+          prDiffHeadOid = res.headOid || prEffectiveTipOid
+          prReviewCommits = Array.isArray(res.commits) ? res.commits : []
+          prChanges = Array.isArray(res.changes) ? res.changes : []
+          prChangesError = null
+        } else {
+          prChanges = []
+          prReviewCommits = []
+          prChangesError = res?.error || "Failed to load PR review data"
+        }
+        return
+      }
+
       const range = await resolvePrDiffRange()
       if (prChangesGeneration !== currentGen) return
       if (!range) {
         prChanges = []
         prChangesError =
-          prStatus?.status === "applied"
-            ? "Unable to resolve a merged diff range for this PR yet. Re-run Analyze or retry loading files."
-            : "Merge analysis is incomplete. Re-run Analyze to load file changes."
+          "Unable to resolve a merged diff range for this PR yet. Retry loading files."
         return
       }
 
@@ -1330,7 +1333,7 @@
     if (!prChanges && !prChangesLoading) {
       await loadPrChanges()
     }
-    for (let attempt = 0; attempt < 80; attempt += 1) {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       if (!prChangesLoading && prChanges !== null) return !prChangesError
       await waitMs(100)
     }
@@ -1347,16 +1350,17 @@
 
   $effect(() => {
     if (!prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
-    if (!prMergeAnalysisResult && prStatus?.status !== "applied") return
 
     const changesKey = [
       prEvent?.id || "",
       prEffectiveTipOid,
+      prTargetBranch,
+      prEffectiveMergeBase,
+      prEffectiveCloneUrls.join(","),
+      prTargetCloneUrls.join(","),
       prStatus?.status || "",
       prStatus?.mergedCommit || "",
       (prStatus?.appliedCommits || []).join(","),
-      prMergeAnalysisResult?.mergeBase || "",
-      prMergeAnalysisResult?.analysis || "",
     ].join("|")
 
     if (lastPrChangesLoadKey === changesKey) return
@@ -2878,7 +2882,7 @@
             variant="outline"
             size="sm"
             onclick={() => runPRMergeAnalysis()}
-            disabled={isAnalyzingPRMerge || !prEffectiveTipOid}
+            disabled={isAnalyzingPRMerge || !prEffectiveTipOid || !prReviewReady}
             class="gap-2">
             {#if isAnalyzingPRMerge}
               <Loader2 class="h-4 w-4 animate-spin" />
@@ -2920,7 +2924,7 @@
                   variant="outline"
                   size="sm"
                   onclick={() => runPRMergeAnalysis()}
-                  disabled={isAnalyzingPRMerge}
+                  disabled={isAnalyzingPRMerge || !prReviewReady}
                   class="h-7">
                   Retry sync + analyze
                 </Button>
@@ -2962,6 +2966,10 @@
               </ul>
             </div>
           {/if}
+        {:else if prEffectiveTipOid && !prReviewReady}
+          <p class="text-sm text-muted-foreground">
+            Load PR commits and file changes before analyzing mergeability.
+          </p>
         {:else if prEffectiveTipOid}
           <p class="text-sm text-muted-foreground">Click Analyze to check mergeability.</p>
         {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
@@ -3427,7 +3435,13 @@
           </div>
 
           <TabsContent value="commits" class="mt-0" id="pr-commits-tab-panel">
-            {#if !prCommitOids.length}
+            {#if prChangesLoading && !prCommitOids.length}
+              <div
+                class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
+                <Loader2 class="h-4 w-4 animate-spin" />
+                {prChangesProgress || "Loading PR commits..."}
+              </div>
+            {:else if !prCommitOids.length}
               <p class="text-sm text-muted-foreground">No commits found for this PR.</p>
             {:else}
               <div

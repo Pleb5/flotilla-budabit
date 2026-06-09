@@ -621,6 +621,21 @@ export class WorkerManager {
   }
 
   /**
+   * Get PR commits and file diffs without running merge/conflict analysis.
+   */
+  async getPRReviewData(params: {
+    repoId: string;
+    tipCommitOid: string;
+    targetBranch: string;
+    cloneUrls: string[];
+    prCloneUrls?: string[];
+    mergeBase?: string;
+  }): Promise<any> {
+    await this.initialize();
+    return this.execute("getPRReviewData", params);
+  }
+
+  /**
    * Get commit count
    */
   async getCommitCount(params: { repoId: string; branch: string }): Promise<any> {

@@ -123,9 +123,11 @@ import {createGitProvider} from "../git/factory-browser.js"
 import {rootDir} from "../git/git.js"
 import {
   getPRPreviewData,
+  getPRReviewData as getPRReviewDataCore,
   getCommitsAheadOfTipData,
   getMergeBaseBetween as getMergeBaseBetweenData,
 } from "../git/merge-analysis.js"
+import {fetchPrSourceTip} from "../git/pr-source-fetch.js"
 
 import {
   wrapError,
@@ -2140,6 +2142,235 @@ const api = {
           /* ignore cleanup */
         }
       }
+    }
+  },
+
+  /**
+   * Load PR review data without running merge/conflict analysis.
+   * This powers commits/files tabs and inline-comment jumps independently of mergeability checks.
+   */
+  async getPRReviewData(opts: {
+    repoId: string
+    tipCommitOid: string
+    targetBranch: string
+    cloneUrls: string[]
+    prCloneUrls?: string[]
+    mergeBase?: string
+  }) {
+    const {key, dir} = repoKeyAndDir(opts.repoId)
+    const targetUrls = filterValidCloneUrls(opts.cloneUrls || [])
+    const sourceUrls = filterValidCloneUrls(
+      opts.prCloneUrls && opts.prCloneUrls.length > 0 ? opts.prCloneUrls : opts.cloneUrls || [],
+    )
+    const allCloneUrls = Array.from(new Set([...sourceUrls, ...targetUrls]))
+    const initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
+
+    if (!opts.tipCommitOid) {
+      return toPlain({
+        success: false,
+        error: "PR tip commit is missing",
+        commits: [],
+        commitOids: [],
+        changes: [],
+      })
+    }
+    if (initUrls.length === 0) {
+      return toPlain({
+        success: false,
+        error: "No clone URLs available for PR review",
+        commits: [],
+        commitOids: [],
+        changes: [],
+      })
+    }
+
+    try {
+      await smartInitializeRepoUtil(
+        git,
+        cacheManager,
+        {repoId: opts.repoId, cloneUrls: initUrls},
+        {
+          rootDir,
+          parseRepoId,
+          repoDataLevels,
+          clonedRepos,
+          isRepoCloned: async (g: GitProvider, d: string) => isRepoClonedFs(g, d),
+          resolveBranchName: async (d: string, requested?: string) =>
+            resolveRobustBranchUtil(git, d, requested),
+        },
+        makeProgress(opts.repoId, "clone-progress"),
+      )
+
+      const corsProxy = resolveDefaultCorsProxy()
+      let targetCommit: string | undefined
+      let targetFetchError = ""
+      let usedTargetCloneUrl: string | undefined
+
+      if (targetUrls.length > 0 && opts.targetBranch) {
+        const targetFetchResult = await withUrlFallback(
+          reorderUrlsByPreference(targetUrls, key),
+          async (cloneUrl: string) => {
+            await ensureOriginRemoteConfig(git, dir, cloneUrl)
+            const fetchInfo = await git.fetch({
+              dir,
+              url: cloneUrl,
+              ref: opts.targetBranch,
+              singleBranch: true,
+              depth: 100,
+              prune: true,
+              tags: false,
+              corsProxy: corsProxy ?? undefined,
+              onAuth: getAuthCallback(cloneUrl),
+            })
+            const oid =
+              fetchInfo?.fetchHead ||
+              (await git.resolveRef({dir, ref: "FETCH_HEAD"}).catch(() => null)) ||
+              (await git
+                .resolveRef({dir, ref: `refs/remotes/origin/${opts.targetBranch}`})
+                .catch(() => null))
+            if (!oid) {
+              throw new Error(
+                `Remote fetch completed but no target commit could be resolved for ${opts.targetBranch}.`,
+              )
+            }
+            return {oid}
+          },
+          {repoId: key, perUrlTimeoutMs: 15000},
+        )
+
+        if (targetFetchResult.success) {
+          targetCommit = targetFetchResult.result?.oid
+          usedTargetCloneUrl = targetFetchResult.usedUrl
+        } else {
+          targetFetchError = `Failed to refresh target branch from remote: ${targetFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`
+        }
+      }
+
+      let headOid = opts.tipCommitOid
+      let usedCloneUrl: string | undefined
+      if (!(await hasCommitObject(dir, headOid))) {
+        if (sourceUrls.length === 0) {
+          return toPlain({
+            success: false,
+            error: "PR tip commit is not available locally and no PR clone URL was provided",
+            commits: [],
+            commitOids: [],
+            changes: [],
+          })
+        }
+
+        const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+        const sourceFetchResult = await withUrlFallback(
+          reorderUrlsByPreference(sourceUrls, key),
+          async (url: string) => {
+            try {
+              await git.deleteRemote({dir, remote: prSourceRemote})
+            } catch {
+              /* ignore */
+            }
+            await git.addRemote({dir, remote: prSourceRemote, url})
+            try {
+              const source = await fetchPrSourceTip(git, {
+                dir,
+                remote: prSourceRemote,
+                url,
+                tipCommitOid: opts.tipCommitOid,
+                depth: 100,
+                corsProxy: corsProxy ?? undefined,
+                onAuth: getAuthCallback(url),
+              })
+              return source
+            } finally {
+              try {
+                await git.deleteRemote({dir, remote: prSourceRemote})
+              } catch {
+                /* ignore cleanup */
+              }
+            }
+          },
+          {repoId: key, perUrlTimeoutMs: 20000},
+        )
+
+        if (!sourceFetchResult.success) {
+          return toPlain({
+            success: false,
+            error: `Failed to fetch PR source: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
+            commits: [],
+            commitOids: [],
+            changes: [],
+          })
+        }
+
+        headOid = sourceFetchResult.result?.tipOid || opts.tipCommitOid
+        usedCloneUrl = sourceFetchResult.usedUrl
+      }
+
+      const preferredMergeBase = /^[0-9a-f]{40}$/i.test(opts.mergeBase || "")
+        ? opts.mergeBase
+        : undefined
+      if (preferredMergeBase && !(await hasCommitObject(dir, preferredMergeBase))) {
+        await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [headOid, preferredMergeBase],
+          cloneUrls: allCloneUrls,
+        })
+      }
+
+      let review = await getPRReviewDataCore(git, dir, {
+        tipCommitOid: headOid,
+        targetCommitOid: targetCommit,
+        mergeBase: preferredMergeBase,
+      })
+
+      if (!review.success && preferredMergeBase && targetCommit) {
+        review = await getPRReviewDataCore(git, dir, {
+          tipCommitOid: headOid,
+          targetCommitOid: targetCommit,
+        })
+      }
+
+      if (!review.success || !review.baseOid || !review.headOid) {
+        return toPlain({
+          ...review,
+          success: false,
+          error: review.error || targetFetchError || "Failed to resolve PR review data",
+          changes: [],
+        })
+      }
+
+      const diff = await api.getDiffBetween({
+        repoId: opts.repoId,
+        baseOid: review.baseOid,
+        headOid: review.headOid,
+        cloneUrls: allCloneUrls,
+      })
+
+      if (!diff.success) {
+        return toPlain({
+          ...review,
+          success: false,
+          error: diff.error || "Failed to load PR file diffs",
+          changes: [],
+          usedTargetCloneUrl,
+          usedCloneUrl,
+        })
+      }
+
+      return toPlain({
+        ...review,
+        changes: diff.changes || [],
+        usedTargetCloneUrl,
+        usedCloneUrl,
+      })
+    } catch (error: any) {
+      return toPlain({
+        success: false,
+        error: error?.message || String(error),
+        commits: [],
+        commitOids: [],
+        changes: [],
+      })
     }
   },
 
