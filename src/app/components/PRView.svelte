@@ -548,6 +548,19 @@
     return /timed out|timeout/.test(message.toLowerCase())
   })
 
+  const prAnalysisHasTerminalConflicts = $derived.by(
+    () => prMergeAnalysisResult?.analysis === "conflicts",
+  )
+
+  const prAnalysisRetryLabel = $derived.by(() => {
+    const message = (prAnalysisErrorMessage || "").toLowerCase()
+    if (/target|sync/.test(message)) return "Retry fetching target and Analyze"
+    if (/source|clone url|failed to fetch pr|pr refs/.test(message)) {
+      return "Retry fetching source and Analyze"
+    }
+    return "Retry Analyze"
+  })
+
   let prChanges = $state<PrChange[] | null>(null)
   let prChangesLoading = $state(false)
   let prChangesError = $state<string | null>(null)
@@ -638,6 +651,10 @@
     if (prStatus?.status === "applied") return true
     return Boolean(prDiffBaseOid && prDiffHeadOid)
   })
+
+  const prCanRunMergeAnalysis = $derived.by(() =>
+    Boolean(prEffectiveTipOid && prReviewReady && !isAnalyzingPRMerge && !prAnalysisHasTerminalConflicts),
+  )
 
   const prCommitOids = $derived.by(() => {
     const fromReview = prReviewCommits.map(commit => commit.oid).filter(Boolean)
@@ -793,11 +810,11 @@
       friendly === raw ? friendly : `${friendly} Details: ${raw}`
 
     if (!raw || raw === "error" || raw === "unknown" || raw === "unknown error") {
-      return "Merge analysis failed without a usable error message. Retry sync + analyze."
+      return "Merge analysis failed without a usable error message. Retry Analyze."
     }
     if (/timed out|timeout/.test(lower)) {
       return withDetails(
-        "Merge analysis timed out while fetching remote data. Retry sync + analyze. If it keeps timing out, reload this page and try again.",
+        "Merge analysis timed out while fetching remote data. Retry Analyze. If it keeps timing out, reload this page and try again.",
       )
     }
     if (lower.includes("no valid clone urls")) {
@@ -845,7 +862,7 @@
     }
     if (/cors|network|failed to fetch|timeout|econn|enotfound/.test(lower)) {
       return withDetails(
-        "Target sync failed due to network/CORS issues. Retry sync + analyze after network or CORS recovery.",
+        "Target sync failed due to network/CORS issues. Retry fetching target after network or CORS recovery.",
       )
     }
     if (/401|403|unauthorized|forbidden|auth|permission/.test(lower)) {
@@ -1161,6 +1178,7 @@
 
   async function runPRMergeAnalysis() {
     if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
+    if (prAnalysisHasTerminalConflicts) return
     const tipOid = prEffectiveTipOid
     const prCloneUrls = prEffectiveCloneUrls
     const cloneUrls = prCloneUrls.length > 0 ? prCloneUrls : (repoClass as any).cloneUrls || []
@@ -1209,7 +1227,7 @@
       if (prAnalysisGeneration === myGen) {
         if (!result) {
           prMergeAnalysisResult = toAnalysisErrorResult(
-            "Merge analysis returned no result. Retry sync + analyze.",
+            "Merge analysis returned no result. Retry Analyze.",
             [tipOid],
           )
           return
@@ -1314,6 +1332,11 @@
     prReviewCommits = []
     prDiffBaseOid = null
     prDiffHeadOid = null
+    if (prMergeAnalysisResult) {
+      prMergeAnalysisResult = null
+      prAnalysisWarning = null
+      prAnalysisProgress = ""
+    }
 
     try {
       if (prStatus?.status !== "applied") {
@@ -2265,6 +2288,40 @@
   let isMarkingApplied = $state(false)
   let markAsAppliedSuccess = $state(false)
 
+  const prHasCleanMergeAnalysis = $derived.by(() =>
+    Boolean(
+      prReviewReady &&
+        prMergeAnalysisResult?.analysis === "clean" &&
+        prMergeAnalysisResult.canMerge === true &&
+        prMergeAnalysisResult.upToDate !== true,
+    ),
+  )
+
+  const prCanShowMergeSection = $derived.by(() =>
+    Boolean(canManagePr && prStatus?.status === "open" && prHasCleanMergeAnalysis),
+  )
+
+  const prCanStartMerge = $derived.by(
+    () => prCanShowMergeSection && !isMergingPr && !mergePrSuccess && !mergePrMergedLocal,
+  )
+
+  const prMergeBlockedReason = $derived.by(() => {
+    if (!canManagePr) return "Only maintainers can merge this PR."
+    if (prStatus?.status !== "open") return "Only open PRs can be merged."
+    if (!prReviewReady) return "Load PR commits and file changes before merging."
+    if (isAnalyzingPRMerge) return "Wait for merge analysis to finish before merging."
+    if (!prMergeAnalysisResult) return "Run Analyze before merging."
+    if (prMergeAnalysisResult.analysis === "conflicts") {
+      return "Resolve conflicts or refetch the PR before merging."
+    }
+    if (prMergeAnalysisResult.analysis === "error") {
+      return "Retry Analyze and get a clean result before merging."
+    }
+    if (prMergeAnalysisResult.upToDate) return "This PR is already merged."
+    if (!prHasCleanMergeAnalysis) return "Run Analyze and get a clean result before merging."
+    return null
+  })
+
   const prPushCounts = $derived.by(() => {
     let pushed = 0
     let skipped = 0
@@ -2465,6 +2522,11 @@
   const applyPR = () => {
     if (!canManagePr) return
     if (!pr || !prEvent || !prEffectiveTipOid) return
+    if (prMergeBlockedReason) {
+      mergePrError = prMergeBlockedReason
+      toast.push({message: prMergeBlockedReason, timeout: 5000, variant: "destructive"})
+      return
+    }
     isMergingPr = false
     mergePrStep = ""
     mergePrError = null
@@ -2576,6 +2638,12 @@
       !$pubkey
     )
       return
+    if (prMergeBlockedReason) {
+      showPrMergeDialog = false
+      mergePrError = prMergeBlockedReason
+      toast.push({message: prMergeBlockedReason, timeout: 5000, variant: "destructive"})
+      return
+    }
 
     showPrMergeDialog = false
     isMergingPr = true
@@ -2956,7 +3024,7 @@
             variant="outline"
             size="sm"
             onclick={() => runPRMergeAnalysis()}
-            disabled={isAnalyzingPRMerge || !prEffectiveTipOid || !prReviewReady}
+            disabled={!prCanRunMergeAnalysis}
             class="gap-2">
             {#if isAnalyzingPRMerge}
               <Loader2 class="h-4 w-4 animate-spin" />
@@ -2989,8 +3057,8 @@
               <p>{prAnalysisErrorMessage}</p>
               {#if prAnalysisTimedOut}
                 <p class="mt-1 text-red-600 dark:text-red-400">
-                  Resolution: click Analyze to retry. If retries keep timing out, reload the page
-                  and try again.
+                  Resolution: click {prAnalysisRetryLabel}. If retries keep timing out, reload the
+                  page and try again.
                 </p>
               {/if}
               <div class="mt-2">
@@ -3000,9 +3068,26 @@
                   onclick={() => runPRMergeAnalysis()}
                   disabled={isAnalyzingPRMerge || !prReviewReady}
                   class="h-7">
-                  Retry sync + analyze
+                  {prAnalysisRetryLabel}
                 </Button>
               </div>
+            </div>
+          {/if}
+          {#if prAnalysisHasTerminalConflicts}
+            <div
+              class="mt-2 space-y-2 rounded border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <p>
+                Conflicts are a completed analysis result, not a retryable error. Refetch this PR or
+                wait for an update before running Analyze again.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={() => retryPrReviewLoad()}
+                disabled={prChangesLoading}
+                class="h-7">
+                Refetch PR
+              </Button>
             </div>
           {/if}
           {#if prMergeAnalysisResult.usedTargetCloneUrl}
@@ -3086,8 +3171,8 @@
         {/if}
       </div>
 
-      <!-- PR Merge section (maintainers only, when canMerge and open) -->
-      {#if canManagePr && prMergeAnalysisResult?.canMerge === true && prStatus?.status === "open" && !prMergeAnalysisResult?.upToDate}
+      <!-- PR Merge section (maintainers only, after clean analysis) -->
+      {#if prCanShowMergeSection}
         <div class="mb-6 rounded-lg border bg-card p-6">
           <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -3194,7 +3279,7 @@
             <Button
               onclick={applyPR}
               variant="default"
-              disabled={isMergingPr || mergePrSuccess || mergePrMergedLocal}
+              disabled={!prCanStartMerge}
               class="min-w-[120px]">
               {#if isMergingPr}
                 <Loader2 class="mr-2 h-4 w-4 animate-spin" />

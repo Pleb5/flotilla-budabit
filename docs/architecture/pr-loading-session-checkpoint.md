@@ -11,14 +11,14 @@
 
 ## Current Phase
 
-- Phase 2: Structured PR Fetch States And Retry Actions.
+- Phase 4: Fetch Performance And Depth Strategy.
 
 ## Phase Exit Criteria
 
-- PR review loader returns structured phase errors for `source`, `target`, and `review` failures.
-- UI renders specific retry actions such as `Retry fetching source`, `Retry fetching target`, or `Retry loading files` instead of generic analysis retries.
-- `Analyze` is hidden or disabled when source/target/review loading has failed.
-- Inline comment navigation reports the same phase-specific failure detail.
+- Target branch head fetch uses shallow depth where safe.
+- Source tip/merge-base fetch avoids all-ref deep fetch unless required.
+- Expensive deepening is deferred to review diff or merge analysis when objects are missing.
+- Repeated target/source fetches are deduped or avoided where practical.
 
 ## Completed With Evidence
 
@@ -30,11 +30,17 @@
 - PR review and merge-analysis target fetches prefer `fetchHead`/`FETCH_HEAD` before remote-tracking refs.
 - UI branch-ref loading no longer hard-blocks explicit merge analysis.
 - Phase 2 code changes implemented and verified.
+- Phase 2 committed and pushed as `a822d86d refactor: structure PR review loading errors`.
 - PR review loader now returns structured `errorPhase` metadata for `source`, `target`, and `review` failures.
 - `getPRReviewData` returns structured worker failures to the UI instead of converting them to generic thrown errors.
 - PR UI stores review loading error phase and renders `Retry fetching source`, `Retry fetching target`, or `Retry loading files`.
 - Inline comment navigation uses the same phase-specific failure detail as PR review loading.
-- Verification passed: `pnpm check`, `git diff --check`, and `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Phase 3 code changes implemented and verified.
+- Added derived PR analysis and clean-merge UI states in `PRView.svelte`.
+- Conflict analysis is terminal: `Analyze` is disabled for conflicts until `Refetch PR` reloads review data or the PR updates.
+- Merge entry points now refuse to run unless PR review data is ready and merge analysis is clean.
+- Runtime/fetch analysis errors now show retry labels such as `Retry fetching target and Analyze`, `Retry fetching source and Analyze`, or `Retry Analyze`.
+- Verification passed: `pnpm check`, `git diff --check`, and grep confirmed old `Retry sync + analyze` copy is removed.
 
 ## Decisions
 
@@ -44,17 +50,19 @@
 
 ## Current State
 
-- Phase 2 is verified and ready to commit/push.
+- Phase 3 is verified and ready to commit/push.
+- No targeted `PRView` or `MergeStatus` UI tests exist; Phase 3 UI branches were inspected manually.
 
 ## Next Action
 
-- Commit and push Phase 2.
+- Commit and push Phase 3, then start Phase 4 from the checkpoint and plan.
 
 ## Verification
 
 - Passed: `pnpm check`.
 - Passed: `git diff --check`.
-- Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Passed: grep for removed `Retry sync + analyze` copy.
+- Manual UI branch reasoning: pre-analysis shows `Analyze` without merge; analysis shows `Analyzing...`; clean analysis enables merge; conflicts show status plus `Refetch PR` without merge; errors show retry/refetch labels.
 
 ## Risks Or Blockers
 
