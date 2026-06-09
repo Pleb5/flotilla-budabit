@@ -1,5 +1,6 @@
 import { getGitWorker } from "@nostr-git/core";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
+import type { PRReviewData } from "@nostr-git/core/git";
 import {
   createAuthRequiredError,
   createNetworkError,
@@ -44,6 +45,12 @@ export interface CloneProgress {
   phase: string;
   progress?: number;
 }
+
+export type PRReviewDataResult = PRReviewData & {
+  changes?: any[];
+  usedCloneUrl?: string;
+  usedTargetCloneUrl?: string;
+};
 
 export interface AuthToken {
   host: string;
@@ -624,6 +631,15 @@ export class WorkerManager {
     return this.execute("getCommitDetails", params);
   }
 
+  async getCommitMeta(params: {
+    repoId: string;
+    commitId: string;
+    cloneUrls?: string[];
+  }): Promise<any> {
+    await this.initialize();
+    return this.execute("getCommitMeta", params);
+  }
+
   /**
    * Get diff between two commits (baseOid -> headOid).
    * Returns changes with diffHunks for PR diff display.
@@ -648,7 +664,8 @@ export class WorkerManager {
     cloneUrls: string[];
     prCloneUrls?: string[];
     mergeBase?: string;
-  }): Promise<any> {
+    targetCommitOid?: string;
+  }): Promise<PRReviewDataResult> {
     await this.initialize();
     return this.execute("getPRReviewData", params, {
       timeoutMs: 45000,

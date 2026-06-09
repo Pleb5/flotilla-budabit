@@ -113,7 +113,6 @@ function isLikelyMergeConflictError(error: unknown): boolean {
   const message = getErrorMessage(error).toLowerCase()
   return (
     name.includes("mergeconflict") ||
-    name.includes("mergenotsupported") ||
     message.includes("merge conflict") ||
     message.includes("automatic merge failed") ||
     message.includes("conflict markers")
@@ -259,7 +258,12 @@ export interface PRReviewData {
   headOid?: string
   targetCommit?: string
   mergeBase?: string
-  commits: Array<{oid: string; message: string; author?: {name?: string; email?: string}}>
+  commits: Array<{
+    oid: string
+    message: string
+    author?: {name?: string; email?: string}
+    parents?: string[]
+  }>
   commitOids: string[]
 }
 
@@ -398,10 +402,10 @@ export async function analyzePRMergeability(
   }
 
   if (validTargetUrls.length > 0) {
-    const targetRemote = `pr-target-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
     const targetFetchResult = await withUrlFallback(
       validTargetUrls,
       async (targetUrl: string) => {
+        const targetRemote = `pr-target-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
         try {
           try {
             await git.deleteRemote({dir: repoDir, remote: targetRemote})
@@ -440,19 +444,13 @@ export async function analyzePRMergeability(
           const remoteRef = `refs/remotes/${targetRemote}/${effectiveTargetBranch}`
           const remoteOid =
             fetchInfo?.fetchHead ||
-            (await git.resolveRef({dir: repoDir, ref: "FETCH_HEAD"}).catch(() => null)) ||
-            (await git.resolveRef({dir: repoDir, ref: remoteRef}).catch(() => null))
+            (await git.resolveRef({dir: repoDir, ref: remoteRef}).catch(() => null)) ||
+            (await git.resolveRef({dir: repoDir, ref: "FETCH_HEAD"}).catch(() => null))
           if (!remoteOid) {
             throw new Error(
               `Remote fetch completed but no target commit could be resolved for ${effectiveTargetBranch}.`,
             )
           }
-          await git.writeRef({
-            dir: repoDir,
-            ref: `refs/heads/${effectiveTargetBranch}`,
-            value: remoteOid,
-            force: true,
-          })
 
           return {oid: remoteOid}
         } finally {
@@ -476,6 +474,24 @@ export async function analyzePRMergeability(
     }
 
     usedTargetCloneUrl = targetFetchResult.usedUrl
+    const targetOid = targetFetchResult.result?.oid
+    if (!targetOid) {
+      return errResult(
+        `Failed to refresh target branch "${effectiveTargetBranch}" from remote: target commit was not resolved`,
+      )
+    }
+    try {
+      await git.writeRef({
+        dir: repoDir,
+        ref: `refs/heads/${effectiveTargetBranch}`,
+        value: targetOid,
+        force: true,
+      })
+    } catch (error) {
+      return errResult(
+        `Failed to update local target branch "${effectiveTargetBranch}" after refresh: ${getErrorMessage(error)}`,
+      )
+    }
   }
 
   let resolvedBranch: string
@@ -508,11 +524,10 @@ export async function analyzePRMergeability(
   )
 
   // Use unique remote name per invocation to avoid race when multiple analyses run concurrently
-  const prRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
-
   const result = await withUrlFallback(
     validUrls,
     async (url: string) => {
+      const prRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
       try {
         await git.addRemote({dir: repoDir, remote: prRemote, url})
         const onAuth = getAuthCallback ? getAuthCallback(url) : undefined
@@ -752,17 +767,24 @@ async function getPRCommitsOnly(
   prTipRef: string,
   stopAtOidOrRef: string,
   maxDepth: number,
-): Promise<Array<{oid: string; message: string; author?: {name?: string; email?: string}}>> {
+): Promise<
+  Array<{oid: string; message: string; author?: {name?: string; email?: string}; parents?: string[]}>
+> {
   try {
     const log = await git.log({dir: repoDir, ref: prTipRef, depth: maxDepth})
-    const result: Array<{oid: string; message: string; author?: {name?: string; email?: string}}> =
-      []
+    const result: Array<{
+      oid: string
+      message: string
+      author?: {name?: string; email?: string}
+      parents?: string[]
+    }> = []
     for (const c of log) {
       if (c.oid === stopAtOidOrRef) break // Reached merge base, stop (don't include it)
       result.push({
         oid: c.oid,
         message: c.commit?.message || "",
         author: c.commit?.author,
+        parents: Array.isArray(c.commit?.parent) ? c.commit.parent : [],
       })
     }
     return result
@@ -780,8 +802,15 @@ async function getCommitMetadataForOids(
   git: GitProvider,
   repoDir: string,
   oids: string[],
-): Promise<Array<{oid: string; message: string; author?: {name?: string; email?: string}}>> {
-  const result: Array<{oid: string; message: string; author?: {name?: string; email?: string}}> = []
+): Promise<
+  Array<{oid: string; message: string; author?: {name?: string; email?: string}; parents?: string[]}>
+> {
+  const result: Array<{
+    oid: string
+    message: string
+    author?: {name?: string; email?: string}
+    parents?: string[]
+  }> = []
   for (const oid of oids) {
     if (!oid) continue
     try {
@@ -790,6 +819,7 @@ async function getCommitMetadataForOids(
         oid,
         message: commit.commit?.message || "",
         author: commit.commit?.author,
+        parents: Array.isArray(commit.commit?.parent) ? commit.commit.parent : [],
       })
     } catch {
       // Ignore missing commits and continue with those available.
@@ -1102,9 +1132,8 @@ async function handleMergeConflicts(
     )
   }
 
-  // Early return for clean merges
   if (conflictFiles.length === 0) {
-    return {conflictFiles: [], conflictDetails: []}
+    throw new Error(`Merge failed but no conflict files could be identified: ${getErrorMessage(err)}`)
   }
 
   // Parse conflict markers from conflicted files

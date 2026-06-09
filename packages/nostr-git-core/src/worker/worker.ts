@@ -418,6 +418,7 @@ async function fetchRefsUntilOidsAvailable(opts: {
   dir: string
   requiredOids: string[]
   cloneUrls?: string[]
+  forceRefFetch?: boolean
 }): Promise<boolean> {
   const {key, dir} = opts
   const requiredOids = Array.from(new Set((opts.requiredOids || []).filter(Boolean)))
@@ -467,36 +468,38 @@ async function fetchRefsUntilOidsAvailable(opts: {
     return missingOids
   }
 
-  if ((await getMissingOids()).length === 0) return true
+  if (!opts.forceRefFetch && (await getMissingOids()).length === 0) return true
 
-  const directOidFetchResult = await withUrlFallback(
-    orderedUrls,
-    async (url: string) => {
-      const authCallback = getAuthCallback(url)
-      for (const oid of await getMissingOids()) {
-        await git.fetch({
-          dir,
-          url,
-          ref: oid,
-          singleBranch: true,
-          depth: 1,
-          tags: false,
-          corsProxy,
-          ...(authCallback && {onAuth: authCallback}),
-        })
-      }
+  if (!opts.forceRefFetch) {
+    const directOidFetchResult = await withUrlFallback(
+      orderedUrls,
+      async (url: string) => {
+        const authCallback = getAuthCallback(url)
+        for (const oid of await getMissingOids()) {
+          await git.fetch({
+            dir,
+            url,
+            ref: oid,
+            singleBranch: true,
+            depth: 1,
+            tags: false,
+            corsProxy,
+            ...(authCallback && {onAuth: authCallback}),
+          })
+        }
 
-      const missingOids = await getMissingOids()
-      if (missingOids.length > 0) {
-        throw new Error(`Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`)
-      }
+        const missingOids = await getMissingOids()
+        if (missingOids.length > 0) {
+          throw new Error(`Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`)
+        }
 
-      return true
-    },
-    {repoId: key, perUrlTimeoutMs: 15000},
-  )
+        return true
+      },
+      {repoId: key, perUrlTimeoutMs: 15000},
+    )
 
-  if (directOidFetchResult.success) return true
+    if (directOidFetchResult.success) return true
+  }
 
   const fetchRefs = async (url: string, opts: {depth?: number; tags: boolean}) => {
     const authCallback = getAuthCallback(url)
@@ -2202,6 +2205,7 @@ const api = {
     cloneUrls: string[]
     prCloneUrls?: string[]
     mergeBase?: string
+    targetCommitOid?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const targetUrls = filterValidCloneUrls(opts.cloneUrls || [])
@@ -2230,10 +2234,11 @@ const api = {
       return failure("No clone URLs available for PR review", "source")
     }
     const hasProvidedMergeBase = /^[0-9a-f]{40}$/i.test(opts.mergeBase || "")
-    if (!hasProvidedMergeBase && targetUrls.length === 0) {
+    const hasProvidedTargetCommit = /^[0-9a-f]{40}$/i.test(opts.targetCommitOid || "")
+    if (!hasProvidedMergeBase && !hasProvidedTargetCommit && targetUrls.length === 0) {
       return failure("No target clone URLs available for PR review", "target")
     }
-    if (!hasProvidedMergeBase && !opts.targetBranch) {
+    if (!hasProvidedMergeBase && !hasProvidedTargetCommit && !opts.targetBranch) {
       return failure("PR target branch is missing", "target")
     }
 
@@ -2255,39 +2260,57 @@ const api = {
       )
 
       const corsProxy = resolveDefaultCorsProxy()
-      let targetCommit: string | undefined
+      let targetCommit: string | undefined = hasProvidedTargetCommit ? opts.targetCommitOid : undefined
       let targetFetchError = ""
       let usedTargetCloneUrl: string | undefined
 
-      if (targetUrls.length > 0 && opts.targetBranch) {
+      if (!hasProvidedTargetCommit && targetUrls.length > 0 && opts.targetBranch) {
         loadingPhase = "target"
         const targetFetchResult = await withUrlFallback(
           reorderUrlsByPreference(targetUrls, key),
           async (cloneUrl: string) => {
-            await ensureOriginRemoteConfig(git, dir, cloneUrl)
-            const fetchInfo = await git.fetch({
-              dir,
-              url: cloneUrl,
-              ref: opts.targetBranch,
-              singleBranch: true,
-              depth: hasProvidedMergeBase ? 1 : 100,
-              prune: true,
-              tags: false,
-              corsProxy: corsProxy ?? undefined,
-              onAuth: getAuthCallback(cloneUrl),
-            })
-            const oid =
-              fetchInfo?.fetchHead ||
-              (await git.resolveRef({dir, ref: "FETCH_HEAD"}).catch(() => null)) ||
-              (await git
-                .resolveRef({dir, ref: `refs/remotes/origin/${opts.targetBranch}`})
-                .catch(() => null))
-            if (!oid) {
-              throw new Error(
-                `Remote fetch completed but no target commit could be resolved for ${opts.targetBranch}.`,
-              )
+            const targetRemote = `pr-target-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+            try {
+              await git.addRemote({dir, remote: targetRemote, url: cloneUrl})
+              try {
+                await git.setConfig({
+                  dir,
+                  path: `remote.${targetRemote}.fetch`,
+                  value: `+refs/heads/*:refs/remotes/${targetRemote}/*`,
+                })
+              } catch {
+                /* ignore */
+              }
+              const fetchInfo = await git.fetch({
+                dir,
+                remote: targetRemote,
+                url: cloneUrl,
+                ref: opts.targetBranch,
+                singleBranch: true,
+                depth: hasProvidedMergeBase ? 1 : 100,
+                prune: true,
+                tags: false,
+                corsProxy: corsProxy ?? undefined,
+                onAuth: getAuthCallback(cloneUrl),
+              })
+              const remoteRef = `refs/remotes/${targetRemote}/${opts.targetBranch}`
+              const oid =
+                fetchInfo?.fetchHead ||
+                (await git.resolveRef({dir, ref: remoteRef}).catch(() => null)) ||
+                (await git.resolveRef({dir, ref: "FETCH_HEAD"}).catch(() => null))
+              if (!oid) {
+                throw new Error(
+                  `Remote fetch completed but no target commit could be resolved for ${opts.targetBranch}.`,
+                )
+              }
+              return {oid}
+            } finally {
+              try {
+                await git.deleteRemote({dir, remote: targetRemote})
+              } catch {
+                /* ignore cleanup */
+              }
             }
-            return {oid}
           },
           {repoId: key, perUrlTimeoutMs: 15000},
         )
@@ -2297,9 +2320,7 @@ const api = {
           usedTargetCloneUrl = targetFetchResult.usedUrl
         } else {
           targetFetchError = `Failed to refresh target branch from remote: ${targetFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`
-          if (!hasProvidedMergeBase) {
-            return failure(targetFetchError, "target")
-          }
+          return failure(targetFetchError, "target")
         }
       }
 
@@ -2314,15 +2335,10 @@ const api = {
           )
         }
 
-        const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
         const sourceFetchResult = await withUrlFallback(
           reorderUrlsByPreference(sourceUrls, key),
           async (url: string) => {
-            try {
-              await git.deleteRemote({dir, remote: prSourceRemote})
-            } catch {
-              /* ignore */
-            }
+            const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
             await git.addRemote({dir, remote: prSourceRemote, url})
             try {
               const source = await fetchPrSourceTip(git, {
@@ -2359,6 +2375,18 @@ const api = {
 
       const preferredMergeBase = hasProvidedMergeBase ? opts.mergeBase : undefined
       loadingPhase = "review"
+      if (hasProvidedTargetCommit && targetCommit && !(await hasCommitObject(dir, targetCommit))) {
+        const fetchedTarget = await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [headOid, targetCommit],
+          cloneUrls: allCloneUrls,
+        })
+        if (!fetchedTarget) {
+          return failure("Could not fetch PR target commit objects.", "target")
+        }
+      }
+
       if (preferredMergeBase && !(await hasCommitObject(dir, preferredMergeBase))) {
         const fetchedBase = await fetchRefsUntilOidsAvailable({
           key,
@@ -2382,6 +2410,22 @@ const api = {
           tipCommitOid: headOid,
           targetCommitOid: targetCommit,
         })
+      }
+
+      if (!review.success && !preferredMergeBase && targetCommit) {
+        const deepened = await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [headOid, targetCommit],
+          cloneUrls: allCloneUrls,
+          forceRefFetch: true,
+        })
+        if (deepened) {
+          review = await getPRReviewDataCore(git, dir, {
+            tipCommitOid: headOid,
+            targetCommitOid: targetCommit,
+          })
+        }
       }
 
       if (!review.success || !review.baseOid || !review.headOid) {
@@ -2851,6 +2895,46 @@ const api = {
   },
 
   // Get detailed commit information including file changes
+  async getCommitMeta(opts: {repoId: string; commitId: string; cloneUrls?: string[]}) {
+    const {key, dir} = repoKeyAndDir(opts.repoId)
+
+    try {
+      if (!(await hasCommitObject(dir, opts.commitId))) {
+        const fetched = await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [opts.commitId],
+          cloneUrls: opts.cloneUrls,
+        })
+        if (!fetched) {
+          throw new Error(`Commit ${opts.commitId} not found`)
+        }
+      }
+
+      const commit = await git.readCommit({dir, oid: opts.commitId})
+      return toPlain({
+        success: true,
+        meta: {
+          sha: commit.oid,
+          author: commit.commit.author.name,
+          email: commit.commit.author.email,
+          date: commit.commit.author.timestamp * 1000,
+          message: commit.commit.message,
+          parents: commit.commit.parent || [],
+        },
+      })
+    } catch (error) {
+      return toPlain({
+        success: false,
+        ...formatError(error, {
+          naddr: opts.repoId,
+          ref: opts.commitId,
+          operation: "getCommitMeta",
+        }),
+      })
+    }
+  },
+
   async getCommitDetails(opts: {
     repoId: string
     commitId: string

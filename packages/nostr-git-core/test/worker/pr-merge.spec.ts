@@ -493,5 +493,35 @@ describe("pr-merge", () => {
       expect(gitWithInitialConflict.merge).toHaveBeenCalledTimes(1)
       expect(gitWithInitialConflict.statusMatrix).not.toHaveBeenCalled()
     })
+
+    it("returns an analysis error when merge is unsupported without conflict files", async () => {
+      const gitWithUnsupportedMerge = {
+        ...mockGit,
+        merge: vi.fn().mockRejectedValueOnce(
+          Object.assign(new Error("Merge not supported for unrelated histories"), {
+            name: "MergeNotSupported",
+          }),
+        ),
+        statusMatrix: vi.fn().mockResolvedValue([]),
+      } as any
+
+      const result = await analyzePRMergeUtil(
+        gitWithUnsupportedMerge,
+        {
+          repoId: "repo",
+          prCloneUrls: ["https://github.com/user/fork.git"],
+          targetCloneUrls: ["https://github.com/upstream/repo.git"],
+          tipCommitOid: "tip-oid",
+          targetBranch: "main",
+        } as AnalyzePRMergeOptions,
+        baseDeps as any,
+      )
+
+      expect(result.analysis).toBe("error")
+      expect(result.canMerge).toBe(false)
+      expect(result.hasConflicts).toBe(false)
+      expect(result.errorMessage).toContain("Merge not supported")
+      expect(gitWithUnsupportedMerge.statusMatrix).not.toHaveBeenCalled()
+    })
   })
 })

@@ -163,11 +163,10 @@ export async function mergePRAndPushUtil(
       }
     }
 
-    const prRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
-
     const fetchResult = await withUrlFallback(
       validUrls,
       async (url: string) => {
+        const prRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
         try {
           await git.addRemote({dir, remote: prRemote, url})
           onProgress("Fetching PR tip...", 20)
