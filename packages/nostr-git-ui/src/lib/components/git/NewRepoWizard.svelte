@@ -232,6 +232,14 @@
     }
   }
 
+  function getDefaultEditableRepoRelays(urls: string[] = graspRelayUrls): string[] {
+    const defaultRelaySet = dedupeStrings([...(defaultRelays || [])]);
+    return getEditableRepoRelayUrls(
+      defaultRelaySet,
+      selectedProviders.includes("grasp") ? urls || [] : []
+    );
+  }
+
   function getEffectiveRepoRelays(): string[] {
     return getEffectiveRepoRelayUrls(
       advancedSettings.relays || [],
@@ -269,6 +277,11 @@
     } catch {
       return undefined;
     }
+  }
+
+  function buildGitWorkshopRepoUrl(name: string): string | undefined {
+    if (!userPubkey) return undefined;
+    return `https://gitworkshop.dev/${nip19.npubEncode(userPubkey)}/${name}`;
   }
 
   function getProviderResult(provider: string) {
@@ -323,15 +336,13 @@
   function updateAdvancedDefaults() {
     const name = repoDetails.name?.trim();
     if (!name) return;
-    const ownerNpub = userPubkey ? nip19.npubEncode(userPubkey) : undefined;
     const providerDefaults = getProviderUrlDefaults(name);
 
     // 1) webUrls (primary web URL default)
     if (!userEditedWebUrl) {
       const defaultWebUrls = dedupeStrings([
-        ownerNpub ? `https://gitworkshop.dev/${ownerNpub}/${name}` : "",
         buildBudabitRepoUrl(name) || "",
-        ...providerDefaults.map((entry) => entry.webUrl),
+        buildGitWorkshopRepoUrl(name) || "",
       ]);
       if (!arraysEqual(advancedSettings.webUrls, defaultWebUrls)) {
         advancedSettings.webUrls = defaultWebUrls;
@@ -347,7 +358,7 @@
     }
 
     if (!userEditedRelays) {
-      const defaultRelaySet = dedupeStrings([...(defaultRelays || [])]);
+      const defaultRelaySet = getDefaultEditableRepoRelays();
       if (!arraysEqual(advancedSettings.relays, defaultRelaySet)) {
         advancedSettings.relays = defaultRelaySet;
       }
@@ -388,7 +399,7 @@
       (advancedSettings.relays?.length ?? 0) === 0 &&
       (defaultRelays?.length ?? 0) > 0
     ) {
-      advancedSettings.relays = [...defaultRelays];
+      advancedSettings.relays = getDefaultEditableRepoRelays();
     }
   });
 

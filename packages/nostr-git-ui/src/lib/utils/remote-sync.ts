@@ -58,6 +58,7 @@ export interface SyncLocalRepoToTargetsOptions {
   targets: RemoteTargetSelection[];
   userPubkey: string;
   relays?: string[];
+  webUrls?: string[];
   maintainers?: string[];
   community?: RepoCommunityBinding;
   onPublishEvent?: (event: NostrEvent) => Promise<unknown>;
@@ -307,6 +308,7 @@ export async function syncLocalRepoToTargets(
     targets,
     userPubkey,
     relays = [],
+    webUrls: configuredWebUrls = [],
     maintainers,
     community,
     onPublishEvent,
@@ -317,6 +319,9 @@ export async function syncLocalRepoToTargets(
     requireNonGraspSuccessBeforeGrasp = false,
     allowApiBranchFastPath = true,
   } = options;
+  const webUrls = Array.from(
+    new Set(configuredWebUrls.map((url) => String(url || "").trim()).filter(Boolean))
+  );
 
   if (!targets.length) return [];
 
@@ -432,7 +437,7 @@ export async function syncLocalRepoToTargets(
             relays: graspRelays,
             cloneUrls:
               selectedGraspCloneUrls.length > 0 ? selectedGraspCloneUrls : [graspRemoteUrl],
-            webUrls: webUrl ? [webUrl] : undefined,
+            webUrls: webUrls.length > 0 ? webUrls : webUrl ? [webUrl] : undefined,
             maintainers,
             community,
           });
@@ -542,9 +547,14 @@ export async function syncLocalRepoToTargets(
                 ),
                 cloneUrls:
                   selectedGraspCloneUrls.length > 0 ? selectedGraspCloneUrls : [graspRemoteUrl],
-                webUrls: [
-                  webUrl || guessWebUrl(graspRemoteUrl) || graspRemoteUrl.replace(/\.git$/, ""),
-                ],
+                webUrls:
+                  webUrls.length > 0
+                    ? webUrls
+                    : [
+                        webUrl ||
+                          guessWebUrl(graspRemoteUrl) ||
+                          graspRemoteUrl.replace(/\.git$/, ""),
+                      ],
                 maintainers,
                 community,
                 refs: stateRefs,

@@ -28,6 +28,22 @@ describe("NewRepoWizard modal surface", () => {
     expect(source).toContain("bg-card text-foreground hover:bg-muted hover:text-foreground");
   });
 
+  it("defaults new repo web URLs to Budabit then GitWorkshop only", async () => {
+    const source = await readPackageSource("src/lib/components/git/NewRepoWizard.svelte");
+
+    expect(source).toContain("buildBudabitRepoUrl(name) || \"\",");
+    expect(source).toContain("buildGitWorkshopRepoUrl(name) || \"\",");
+    expect(source).not.toContain("...providerDefaults.map((entry) => entry.webUrl)");
+  });
+
+  it("excludes GRASP target relays from editable default relays", async () => {
+    const source = await readPackageSource("src/lib/components/git/NewRepoWizard.svelte");
+
+    expect(source).toContain("function getDefaultEditableRepoRelays");
+    expect(source).toContain("const defaultRelaySet = getDefaultEditableRepoRelays();");
+    expect(source).toContain("selectedProviders.includes(\"grasp\") ? urls || [] : []");
+  });
+
   it("keeps GRASP relay chips readable on dark cards", async () => {
     const source = await readPackageSource("src/lib/components/git/ProviderSelectionStep.svelte");
 

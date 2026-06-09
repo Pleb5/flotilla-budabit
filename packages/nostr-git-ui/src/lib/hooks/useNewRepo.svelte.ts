@@ -25,6 +25,49 @@ export function getPublishedEventFromPublishResult(result: unknown): NostrEvent 
   return event?.id ? event : undefined;
 }
 
+type NewRepoWebUrlKind = "budabit" | "gitworkshop";
+
+function parseNewRepoWebUrl(value: string): URL | undefined {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return undefined;
+
+  try {
+    if (trimmed.startsWith("/")) return new URL(trimmed, "https://budabit.club");
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return new URL(`https://${trimmed}`);
+    return new URL(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+function getNewRepoWebUrlKind(value: string): NewRepoWebUrlKind | undefined {
+  const parsed = parseNewRepoWebUrl(value);
+  if (!parsed) return undefined;
+
+  const host = parsed.host.toLowerCase();
+  const pathname = parsed.pathname.toLowerCase();
+
+  if (host === "gitworkshop.dev" || host.endsWith(".gitworkshop.dev")) return "gitworkshop";
+  if (host === "budabit.club" || host.endsWith(".budabit.club")) return "budabit";
+  if (pathname.startsWith("/git/") || pathname.includes("/git/")) return "budabit";
+
+  return undefined;
+}
+
+export function selectNewRepoWebUrls(values: string[] | undefined): string[] {
+  const selected: Partial<Record<NewRepoWebUrlKind, string>> = {};
+
+  for (const value of values || []) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) continue;
+
+    const kind = getNewRepoWebUrlKind(trimmed);
+    if (kind && !selected[kind]) selected[kind] = trimmed;
+  }
+
+  return [selected.budabit, selected.gitworkshop].filter((value): value is string => Boolean(value));
+}
+
 async function checkGraspRepoAvailability(
   repoName: string,
   relayUrl?: string,
@@ -575,33 +618,6 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     return values.length > 0 ? values : [config.provider];
   }
 
-  function isProviderUrl(url: string, provider: string, relayUrls: string[]): boolean {
-    try {
-      const parsed = new URL(url);
-      const host = parsed.host.toLowerCase();
-      if (provider === "github") return host === "github.com";
-      if (provider === "gitlab") return host === "gitlab.com";
-      if (provider === "bitbucket") return host === "bitbucket.org";
-      if (provider === "gitea") return host.includes("gitea");
-      if (provider === "grasp") {
-        const relayHosts = relayUrls
-          .map((relay) => normalizeGraspOrigins(relay).httpOrigin)
-          .map((origin) => {
-            try {
-              return new URL(origin).host.toLowerCase();
-            } catch {
-              return "";
-            }
-          })
-          .filter(Boolean);
-        return relayHosts.includes(host);
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
   async function createRepository(config: NewRepoConfig): Promise<NewRepoResult | null> {
     if (isCreating) {
       throw new Error("Repository creation already in progress");
@@ -624,6 +640,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         config.relays || [],
         selectedGraspTargetRelays
       );
+      const configuredWebUrls = selectNewRepoWebUrls(config.webUrls || []);
 
       // Step 1: Create local repository
       updateProgress("local", "Creating local repository...", "running");
@@ -704,6 +721,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             targets: graspTargets,
             userPubkey: graspPubkey,
             relays: editableRelays,
+            webUrls: configuredWebUrls,
             maintainers:
               config.maintainers && config.maintainers.length > 0 ? config.maintainers : undefined,
             community: config.community,
@@ -825,29 +843,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           .filter(Boolean)
       );
 
-      const providerWebUrls = normalizeList(
-        providerPriority
-          .flatMap((provider) =>
-            (byProvider.get(provider) || []).map((remoteRepo) =>
-              (remoteRepo.webUrl || remoteRepo.url || "").replace(/\.git$/, "")
-            )
-          )
-          .filter(Boolean)
-      );
-
-      const preservedWebUrls = normalizeList(
-        (config.webUrls || []).filter((url) => {
-          const trimmed = String(url || "").trim();
-          if (!trimmed) return false;
-          if (trimmed.includes("gitworkshop.dev")) return true;
-          if (trimmed.includes("/c/") && trimmed.includes("/git/")) return true;
-          return !selectedProviders.some((provider) =>
-            isProviderUrl(trimmed, provider, config.relayUrls || [])
-          );
-        })
-      );
-
-      const finalWebUrls = normalizeList([...providerWebUrls, ...preservedWebUrls]);
+      const finalWebUrls = configuredWebUrls;
 
       updateProgress("events", "Creating Nostr events...", "running");
 
