@@ -1207,22 +1207,7 @@
         return
       }
 
-      prAnalysisProgress = "Syncing target branch..."
-      const sync = await syncTargetBranchForPR("analysis")
-      if (prAnalysisGeneration !== myGen) return
-      if (!sync.ok) {
-        const syncError = formatSyncError(
-          sync.error || `Failed to sync target branch ${prTargetBranch}`,
-        )
-        prMergeAnalysisResult = toAnalysisErrorResult(
-          `Cannot run merge analysis until target branch is synced: ${syncError}`,
-          [tipOid],
-        )
-        return
-      }
-      if (sync.warning) prAnalysisWarning = sync.warning
-
-      prAnalysisProgress = "Fetching PR from clone URL..."
+      prAnalysisProgress = "Fetching target and PR source..."
       const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch)
       if (prAnalysisGeneration === myGen) {
         if (!result) {

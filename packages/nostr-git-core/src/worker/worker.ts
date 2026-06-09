@@ -457,32 +457,78 @@ async function fetchRefsUntilOidsAvailable(opts: {
   }
 
   const corsProxy = resolveDefaultCorsProxy()
-  const fetchResult = await withUrlFallback(
+  const getMissingOids = async () => {
+    const missingOids: string[] = []
+    for (const oid of requiredOids) {
+      if (!(await hasCommitObject(dir, oid))) {
+        missingOids.push(oid)
+      }
+    }
+    return missingOids
+  }
+
+  if ((await getMissingOids()).length === 0) return true
+
+  const directOidFetchResult = await withUrlFallback(
     orderedUrls,
     async (url: string) => {
       const authCallback = getAuthCallback(url)
-      await git.fetch({
-        dir,
-        url,
-        singleBranch: false,
-        tags: true,
-        corsProxy,
-        ...(authCallback && {onAuth: authCallback}),
-      })
-
-      const missingOids: string[] = []
-      for (const oid of requiredOids) {
-        if (!(await hasCommitObject(dir, oid))) {
-          missingOids.push(oid)
-        }
+      for (const oid of await getMissingOids()) {
+        await git.fetch({
+          dir,
+          url,
+          ref: oid,
+          singleBranch: true,
+          depth: 1,
+          tags: false,
+          corsProxy,
+          ...(authCallback && {onAuth: authCallback}),
+        })
       }
 
+      const missingOids = await getMissingOids()
       if (missingOids.length > 0) {
-        throw new Error(`Fetched refs but missing commit(s): ${missingOids.join(", ")}`)
+        throw new Error(`Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`)
       }
 
       return true
     },
+    {repoId: key, perUrlTimeoutMs: 15000},
+  )
+
+  if (directOidFetchResult.success) return true
+
+  const fetchRefs = async (url: string, opts: {depth?: number; tags: boolean}) => {
+    const authCallback = getAuthCallback(url)
+    await git.fetch({
+      dir,
+      url,
+      singleBranch: false,
+      ...(opts.depth ? {depth: opts.depth} : {}),
+      tags: opts.tags,
+      corsProxy,
+      ...(authCallback && {onAuth: authCallback}),
+    })
+
+    const missingOids = await getMissingOids()
+    if (missingOids.length > 0) {
+      throw new Error(`Fetched refs but missing commit(s): ${missingOids.join(", ")}`)
+    }
+
+    return true
+  }
+
+  const shallowRefsResult = await withUrlFallback(
+    orderedUrls,
+    async (url: string) => fetchRefs(url, {depth: 100, tags: false}),
+    {repoId: key, perUrlTimeoutMs: 20000},
+  )
+
+  if (shallowRefsResult.success) return true
+
+  const fetchResult = await withUrlFallback(
+    orderedUrls,
+    async (url: string) => fetchRefs(url, {tags: true}),
     {repoId: key, perUrlTimeoutMs: 20000},
   )
 
@@ -2224,7 +2270,7 @@ const api = {
               url: cloneUrl,
               ref: opts.targetBranch,
               singleBranch: true,
-              depth: 100,
+              depth: hasProvidedMergeBase ? 1 : 100,
               prune: true,
               tags: false,
               corsProxy: corsProxy ?? undefined,
