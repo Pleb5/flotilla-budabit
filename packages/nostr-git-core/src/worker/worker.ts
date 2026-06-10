@@ -164,7 +164,10 @@ import {
   resolveDefaultCorsProxy,
 } from "./workers/git-config.js"
 import {createNip98HttpClient} from "../git/nip98-http-client.js"
-import {GitNaturalReadProvider} from "../git/natural-read-provider.js"
+import {
+  GitNaturalReadProvider,
+  type GitNaturalDiffBetweenResult,
+} from "../git/natural-read-provider.js"
 
 // Import event-based git operations
 import {
@@ -248,6 +251,48 @@ function toPlain<T>(val: T): T {
   } catch {
     return val
   }
+}
+
+function isHttpCloneUrl(url: string): boolean {
+  return /^https?:\/\//i.test(String(url || "").trim())
+}
+
+async function tryGitNaturalDiffBetween(params: {
+  key: string
+  baseOid: string
+  headOid: string
+  cloneUrls?: string[]
+}): Promise<(GitNaturalDiffBetweenResult & {usedUrl?: string}) | null> {
+  const urls = reorderUrlsByPreference(filterValidCloneUrls(params.cloneUrls || []), params.key).filter(
+    isHttpCloneUrl,
+  )
+  if (urls.length === 0) return null
+
+  const corsProxy = resolveDefaultCorsProxy()
+  const result = await withUrlFallback(
+    urls,
+    async (url: string) => {
+      const provider = getGitNaturalReadProvider(corsProxy)
+      return await provider.getDiffBetween({
+        url,
+        baseCommitHash: params.baseOid,
+        headCommitHash: params.headOid,
+        corsProxy,
+      })
+    },
+    {repoId: params.key, perUrlTimeoutMs: 15000},
+  )
+
+  if (result.success && result.result) {
+    return {...result.result, ...(result.usedUrl ? {usedUrl: result.usedUrl} : {})}
+  }
+
+  if (result.attempts.length > 0) {
+    console.info(
+      `[getDiffBetween] Git natural diff unavailable, falling back to worker clone: ${result.attempts.map(a => `${a.url}: ${a.error || "failed"}`).join("; ")}`,
+    )
+  }
+  return null
 }
 
 function buildModifiedFileDiffHunks(
@@ -976,6 +1021,26 @@ const api = {
         url: opts.url,
         ref: opts.ref,
         commitHash: opts.commitHash,
+        corsProxy,
+      }),
+    )
+  },
+
+  async gitNaturalGetDiffBetween(opts: {
+    url: string
+    baseCommitHash: string
+    headCommitHash: string
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(
+      await provider.getDiffBetween({
+        url: opts.url,
+        baseCommitHash: opts.baseCommitHash,
+        headCommitHash: opts.headCommitHash,
         corsProxy,
       }),
     )
@@ -3580,6 +3645,22 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
 
     try {
+      const naturalDiff = await tryGitNaturalDiffBetween({
+        key,
+        baseOid: opts.baseOid,
+        headOid: opts.headOid,
+        cloneUrls: opts.cloneUrls,
+      })
+      if (naturalDiff) {
+        return toPlain({
+          success: true,
+          changes: naturalDiff.changes,
+          source: "git-natural",
+          readSource: naturalDiff.source,
+          usedCloneUrl: naturalDiff.usedUrl,
+        })
+      }
+
       await ensureFullCloneUtil(
         git,
         {repoId: opts.repoId, depth: 100, cloneUrls: opts.cloneUrls},

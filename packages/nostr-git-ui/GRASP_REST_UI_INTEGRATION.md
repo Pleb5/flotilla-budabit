@@ -1,5 +1,7 @@
 # GRASP REST UI Integration
 
+> Historical note: Git natural Smart HTTP reads are now the primary UI read path when enabled. The older `grasp-rest` UI notes below are retained only as context for the discontinued REST-first direction.
+
 ## Overview
 
 The `nostr-git-ui` package has been successfully updated to support the `grasp-rest` vendor. This integration allows the UI components to interact with GRASP relays using the REST API approach.

@@ -1,5 +1,7 @@
 # GRASP REST API Implementation Roadmap
 
+> Historical note: this roadmap has been superseded for read-only browsing by the shared Git natural Smart HTTP provider in `src/git/natural-read-provider.ts`. Keep clone-backed `isomorphic-git` paths for merge, checkout, write, push, local editing, auth/CORS/protocol fallback, and full worktree operations.
+
 ## Current Status
 
 The GRASP REST API vendor (`grasp-rest`) has been successfully integrated into `nostr-git-core` with basic functionality:

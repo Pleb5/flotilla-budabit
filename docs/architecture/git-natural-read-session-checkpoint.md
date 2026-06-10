@@ -13,16 +13,11 @@
 
 ## Current Phase
 
-- Phase 7: Diff, Merge Analysis Reads, And Cleanup.
+- Complete.
 
 ## Phase Exit Criteria
 
-- Diff metadata can use object-addressed `blob:none` full-tree reads where compatible and fetch changed blobs lazily by hash.
-- Commit-range/merge-analysis read-only discovery can use natural reads where safe, while actual merge, checkout, write, and push remain `isomorphic-git`/worker clone responsibilities.
-- Clone-depth repair paths are no longer invoked for normal browsing when Git natural succeeds.
-- Dead or misleading GRASP REST read paths, docs, and flags are removed or clearly marked as non-primary.
-- Documentation explains remaining cases where clone fallback is intentionally required.
-- Cache metrics/debug logs center on source metadata and immutable object cache behavior.
+- Complete.
 
 ## Completed With Evidence
 
@@ -92,6 +87,13 @@
 - Phase 6 hosted observations from local Node fetch: GitHub Smart HTTP refs HTTP 200 in 558 ms with 2,384 bytes and `filter`; GitHub REST refs HTTP 200 in 415 ms with 9 refs; GitHub REST root directory HTTP 200 in 246 ms with 49 entries; GitHub REST README HTTP 200 in 475 ms with 12,419 bytes; GitHub REST commits HTTP 200 in 293 ms with 30 commits.
 - Phase 6 hosted observations from local Node fetch: GitLab Smart HTTP refs HTTP 200 in 408 ms with 11,656 bytes and `filter`; Gitea Smart HTTP refs HTTP 200 in 2,716 ms with 66,863 bytes and `filter`.
 - Phase 6 Bitbucket public-candidate observations: `atlassian/python-bitbucket.git`, `tutorials/tutorials.bitbucket.org.git`, `mirror/git.git`, and `pypy/pypy.git` Smart HTTP refs all returned HTTP 401 in this environment, so a confirmed public Bitbucket Smart HTTP fixture remains missing.
+- Phase 7 started by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan, the Phase 7 details, Gitworkshop `getCommitRange`/`fetchFullTree`/`getBlob` references, Budabit natural provider code, worker diff paths, PR review paths, and merge-analysis helpers.
+- Added `GitNaturalReadProvider.getDiffBetween()` with source metadata operation `getDiffBetween`; it fetches both commit trees with `blob:none`, recursively compares file object IDs, and lazily fetches only changed blobs by object hash to build diff hunks.
+- Added typed natural diff result/change/hunk contracts with old/new object IDs and source metadata, while preserving existing directory, file, refs, and commit APIs.
+- Added worker RPC `gitNaturalGetDiffBetween()` and a natural-first attempt in worker `getDiffBetween()` for HTTP(S) clone URLs. Natural failures fall back to the existing `ensureFullCloneUtil()`/`git.walk()` path without changing merge, checkout, write, push, or worktree semantics.
+- Added `WorkerManager.gitNaturalGetDiffBetween()` type wrapper for parity with existing natural read RPCs.
+- Added natural-provider fixture coverage proving modified, added, and deleted file diffs use two `blob:none` tree reads and fetch changed blobs by hash while avoiding unchanged blob fetches.
+- Marked old GRASP REST implementation/roadmap/UI integration docs as historical/non-primary in favor of Git natural Smart HTTP reads, and documented clone fallback responsibilities for merge, checkout, write, push, local editing, auth/CORS/protocol fallback, and full worktree operations.
 
 ## Phase 1 Baseline Observations
 
@@ -129,15 +131,14 @@
 
 ## Current State
 
-- Phase 6 implementation and verification are complete in this checkpoint.
-- Current intentional Phase 6 changes are limited to `natural-read-client.ts`, `natural-read.spec.ts`, `VendorReadRouter.test.ts`, `Repo.svelte.ts`, and this checkpoint.
-- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited during Phase 6.
-- Phase 7 is next and should extend object-addressed natural reads to diff/merge-analysis read-only discovery where safe, while preserving worker clone paths for local git semantics.
+- Phase 7 implementation and verification are complete in this checkpoint.
+- Current intentional Phase 7 changes are limited to `packages/nostr-git-core/src/git/natural-read-provider.ts`, `packages/nostr-git-core/src/worker/worker.ts`, `packages/nostr-git-core/test/git/natural-read-provider.spec.ts`, `packages/nostr-git-ui/src/lib/components/git/WorkerManager.ts`, `packages/nostr-git-core/GRASP_REST_IMPLEMENTATION.md`, `packages/nostr-git-core/GRASP_REST_ROADMAP.md`, `packages/nostr-git-ui/GRASP_REST_UI_INTEGRATION.md`, and this checkpoint.
+- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited or staged during Phase 7.
+- The Git natural read pivot session plan is complete. Remaining validation is future/manual hardening, not a blocker for this plan.
 
 ## Next Action
 
-- Begin Phase 7 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 7 details, Gitworkshop `getCommitRange`, `fetchFullTree`, and `getBlob` references, and Budabit PR/merge worker paths.
-- Add or evaluate natural commit-range/read-only diff discovery using full-tree `blob:none` metadata and lazy blob fetches without replacing local merge, checkout, write, push, or worktree semantics.
+- Commit and push the completed Phase 7 changes, then reread this checkpoint and provide the final response.
 
 ## Verification
 
@@ -169,6 +170,13 @@
 - Phase 6 passed: `pnpm check`.
 - Phase 6 passed: `git diff --check`.
 - Phase 6 smoke observations recorded through Node `fetch` for GitHub REST and Smart HTTP, GitLab Smart HTTP, Gitea Smart HTTP, and Bitbucket Smart HTTP candidates.
+- Phase 7 passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read-provider.spec.ts`.
+- Phase 7 passed: `pnpm -F @nostr-git/core typecheck`.
+- Phase 7 passed: `pnpm -F @nostr-git/ui typecheck`.
+- Phase 7 passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Phase 7 passed: `pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false`.
+- Phase 7 passed: `pnpm check`.
+- Phase 7 passed: `git diff --check`.
 
 ## Risks Or Blockers
 
@@ -182,6 +190,8 @@
 - Bitbucket Smart HTTP public fixtures remain unconfirmed because all tested candidates returned HTTP 401.
 - Large live remotes, unusual delta ordering, thin packs, or server-specific upload-pack behavior may still expose parser/performance limits.
 - A confirmed public Bitbucket fixture and a server without `filter` support are still missing.
+- Phase 7 natural diff reads use full recursive `blob:none` tree metadata and may be memory-heavy for very large repositories; unsupported/auth/CORS/protocol/object-missing cases intentionally fall back to the worker clone path.
+- Merge-base discovery and conflict detection still rely on local `isomorphic-git` semantics when needed; natural reads only accelerate the read-only two-commit diff path in this phase.
 
 ## Files
 
@@ -202,5 +212,8 @@
 - `packages/nostr-git-core/test/git/natural-read-provider.spec.ts`
 - `packages/nostr-git-core/src/worker/worker.ts`
 - `packages/nostr-git-ui/src/lib/components/git/WorkerManager.ts`
+- `packages/nostr-git-core/GRASP_REST_IMPLEMENTATION.md`
+- `packages/nostr-git-core/GRASP_REST_ROADMAP.md`
+- `packages/nostr-git-ui/GRASP_REST_UI_INTEGRATION.md`
 - `packages/nostr-git-core/package.json`
 - `pnpm-lock.yaml`

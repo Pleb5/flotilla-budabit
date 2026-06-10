@@ -1,5 +1,7 @@
 # GRASP REST API Implementation
 
+> Historical note: Git natural Smart HTTP reads are now the primary read path for GRASP and hosted repositories. The older `grasp-rest` provider notes below are retained for context and should not be used as the roadmap for repository browsing, diff, or object reads.
+
 ## Overview
 
 This document describes the implementation of the GRASP REST API vendor support in `nostr-git-core`. This implementation provides an alternative to the event-based GRASP API by using the Smart HTTP Git protocol for querying repository data.

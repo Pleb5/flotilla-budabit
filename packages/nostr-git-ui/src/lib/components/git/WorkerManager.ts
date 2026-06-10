@@ -2,6 +2,7 @@ import { getGitWorker } from "@nostr-git/core";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
 import type {
   GitNaturalFileContentResult,
+  GitNaturalDiffBetweenResult,
   GitNaturalGetCommitResult,
   GitNaturalListCommitsResult,
   GitNaturalListDirectoryResult,
@@ -591,6 +592,17 @@ export class WorkerManager {
   }): Promise<GitNaturalGetCommitResult> {
     await this.initialize();
     return this.execute("gitNaturalGetCommit", params);
+  }
+
+  async gitNaturalGetDiffBetween(params: {
+    url: string;
+    baseCommitHash: string;
+    headCommitHash: string;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalDiffBetweenResult> {
+    await this.initialize();
+    return this.execute("gitNaturalGetDiffBetween", params);
   }
 
   async discoverRemoteBackfill(params: {

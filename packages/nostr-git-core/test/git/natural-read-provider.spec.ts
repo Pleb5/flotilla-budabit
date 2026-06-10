@@ -131,6 +131,44 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes("filter tree:0\n"))).toBe(true)
   })
 
+  it("builds diffs from blob:none tree metadata and fetches only changed blobs", async () => {
+    const fixture = createDiffFixture()
+    const fetcher = createDiffFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const diff = await provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+    })
+
+    expect(diff.baseCommitHash).toBe(fixture.baseHash)
+    expect(diff.headCommitHash).toBe(fixture.headHash)
+    expect(diff.source.operation).toBe("getDiffBetween")
+    expect(diff.source.capability).toBe("filter=blob:none,object-by-hash")
+    expect(diff.changes.map(change => [change.path, change.status])).toEqual([
+      ["README.md", "modified"],
+      ["added.txt", "added"],
+      ["delete.txt", "deleted"],
+    ])
+
+    const readme = diff.changes.find(change => change.path === "README.md")
+    expect(readme?.oldOid).toBe(fixture.oldReadmeHash)
+    expect(readme?.newOid).toBe(fixture.newReadmeHash)
+    expect(readme?.diffHunks[0]?.patches.map(patch => patch.type)).toContain("-")
+    expect(readme?.diffHunks[0]?.patches.map(patch => patch.type)).toContain("+")
+
+    const postBodies = fetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+    expect(postBodies.filter(body => body.includes("filter blob:none\n"))).toHaveLength(2)
+    expect(postBodies.some(body => body.includes(`want ${fixture.oldReadmeHash}`))).toBe(true)
+    expect(postBodies.some(body => body.includes(`want ${fixture.newReadmeHash}`))).toBe(true)
+    expect(postBodies.some(body => body.includes(`want ${fixture.addedHash}`))).toBe(true)
+    expect(postBodies.some(body => body.includes(`want ${fixture.deletedHash}`))).toBe(true)
+    expect(postBodies.some(body => body.includes(`want ${fixture.unchangedHash}`))).toBe(false)
+  })
+
   it("declines filtered operations when the server lacks filter support", async () => {
     const fixture = createGitFixture({capabilities: CAPABILITIES.filter(cap => cap !== "filter")})
     const fetcher = createFixtureFetcher(fixture)
@@ -196,6 +234,117 @@ function createGitFixture(options: {capabilities?: string[]} = {}) {
     ]),
     readmePack: packfile([{type: "blob", data: readmeData}]),
   }
+}
+
+function createDiffFixture() {
+  const oldReadmeData = encoder.encode("Hello old\n")
+  const newReadmeData = encoder.encode("Hello new\n")
+  const addedData = encoder.encode("Added file\n")
+  const deletedData = encoder.encode("Deleted file\n")
+  const unchangedData = encoder.encode("export const answer = 42\n")
+  const oldReadmeHash = computeGitNaturalObjectHash("blob", oldReadmeData)
+  const newReadmeHash = computeGitNaturalObjectHash("blob", newReadmeData)
+  const addedHash = computeGitNaturalObjectHash("blob", addedData)
+  const deletedHash = computeGitNaturalObjectHash("blob", deletedData)
+  const unchangedHash = computeGitNaturalObjectHash("blob", unchangedData)
+  const srcTreeData = treeData([{mode: "100644", name: "index.ts", hash: unchangedHash}])
+  const srcTreeHash = computeGitNaturalObjectHash("tree", srcTreeData)
+  const baseRootTreeData = treeData([
+    {mode: "100644", name: "README.md", hash: oldReadmeHash},
+    {mode: "100644", name: "delete.txt", hash: deletedHash},
+    {mode: "40000", name: "src", hash: srcTreeHash},
+  ])
+  const baseRootTreeHash = computeGitNaturalObjectHash("tree", baseRootTreeData)
+  const headRootTreeData = treeData([
+    {mode: "100644", name: "README.md", hash: newReadmeHash},
+    {mode: "100644", name: "added.txt", hash: addedHash},
+    {mode: "40000", name: "src", hash: srcTreeHash},
+  ])
+  const headRootTreeHash = computeGitNaturalObjectHash("tree", headRootTreeData)
+  const baseCommitData = commitData({tree: baseRootTreeHash, message: "base commit", timestamp: 1_700_000_000})
+  const baseHash = computeGitNaturalObjectHash("commit", baseCommitData)
+  const headCommitData = commitData({
+    tree: headRootTreeHash,
+    parent: baseHash,
+    message: "head commit",
+    timestamp: 1_700_000_100,
+  })
+  const headHash = computeGitNaturalObjectHash("commit", headCommitData)
+  const tagData = encoder.encode(
+    [`object ${headHash}`, "type commit", "tag v1.0.0", "tagger T <t@example.com> 1700000100 +0000", "", "release", ""].join("\n"),
+  )
+  const tagHash = computeGitNaturalObjectHash("tag", tagData)
+
+  return {
+    oldReadmeHash,
+    newReadmeHash,
+    addedHash,
+    deletedHash,
+    unchangedHash,
+    baseHash,
+    headHash,
+    advertisement: buildAdvertisement({tipHash: headHash, tagHash, capabilities: CAPABILITIES}),
+    blobNonePacks: new Map([
+      [
+        baseHash,
+        packfile([
+          {type: "commit", data: baseCommitData},
+          {type: "tree", data: baseRootTreeData},
+          {type: "tree", data: srcTreeData},
+        ]),
+      ],
+      [
+        headHash,
+        packfile([
+          {type: "commit", data: headCommitData},
+          {type: "tree", data: headRootTreeData},
+          {type: "tree", data: srcTreeData},
+        ]),
+      ],
+    ]),
+    blobPacks: new Map([
+      [oldReadmeHash, packfile([{type: "blob", data: oldReadmeData}])],
+      [newReadmeHash, packfile([{type: "blob", data: newReadmeData}])],
+      [addedHash, packfile([{type: "blob", data: addedData}])],
+      [deletedHash, packfile([{type: "blob", data: deletedData}])],
+      [unchangedHash, packfile([{type: "blob", data: unchangedData}])],
+    ]),
+  }
+}
+
+function createDiffFixtureFetcher(fixture: ReturnType<typeof createDiffFixture>) {
+  return vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "GET") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => fixture.advertisement,
+        arrayBuffer: async () => arrayBuffer(encoder.encode(fixture.advertisement)),
+      }
+    }
+
+    const body = String(init?.body || "")
+    let pack: Uint8Array | undefined
+    if (body.includes("filter blob:none")) {
+      pack = body.includes(fixture.baseHash)
+        ? fixture.blobNonePacks.get(fixture.baseHash)
+        : fixture.blobNonePacks.get(fixture.headHash)
+    } else {
+      for (const [hash, blobPack] of fixture.blobPacks) {
+        if (body.includes(hash)) {
+          pack = blobPack
+          break
+        }
+      }
+    }
+
+    const response = uploadPackResponse(pack ?? packfile([]))
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => arrayBuffer(response),
+    }
+  })
 }
 
 function createFixtureFetcher(fixture: ReturnType<typeof createGitFixture>) {

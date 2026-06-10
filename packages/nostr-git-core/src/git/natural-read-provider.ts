@@ -1,3 +1,5 @@
+import {diffArrays} from "diff"
+
 import {
   GitNaturalReadClient,
   GitNaturalReadError,
@@ -27,6 +29,7 @@ export type GitNaturalReadOperation =
   | "getFileContent"
   | "listCommits"
   | "getCommit"
+  | "getDiffBetween"
 
 export interface GitNaturalReadSourceMetadata {
   kind: "git-natural"
@@ -112,6 +115,31 @@ export interface GitNaturalGetCommitResult {
   source: GitNaturalReadSourceMetadata
 }
 
+export interface GitNaturalDiffHunk {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  patches: Array<{line: string; type: "+" | "-" | " "}>
+}
+
+export interface GitNaturalDiffChange {
+  path: string
+  status: "added" | "modified" | "deleted" | "renamed"
+  oldOid?: string
+  newOid?: string
+  oldMode?: string
+  newMode?: string
+  diffHunks: GitNaturalDiffHunk[]
+}
+
+export interface GitNaturalDiffBetweenResult {
+  baseCommitHash: string
+  headCommitHash: string
+  changes: GitNaturalDiffChange[]
+  source: GitNaturalReadSourceMetadata
+}
+
 export interface GitNaturalReadProviderConfig {
   enabled?: boolean
   cache?: GitNaturalObjectCache
@@ -122,6 +150,12 @@ export interface GitNaturalReadProviderConfig {
 }
 
 type RefResolutionCore = Omit<GitNaturalResolveRefResult, "source">
+
+interface FlattenedTreeFile {
+  path: string
+  mode: string
+  hash: string
+}
 
 interface ObjectBatchResult {
   objects: Map<string, GitNaturalParsedObject>
@@ -134,6 +168,7 @@ interface BlobObjectResult {
 }
 
 const DEFAULT_REF = "HEAD"
+const utf8Decoder = new TextDecoder("utf-8")
 
 export class GitNaturalReadProvider {
   private readonly enabled: boolean
@@ -409,6 +444,53 @@ export class GitNaturalReadProvider {
     }
   }
 
+  async getDiffBetween(params: {
+    url: string
+    baseCommitHash: string
+    headCommitHash: string
+    corsProxy?: string | null
+    signal?: AbortSignal
+  }): Promise<GitNaturalDiffBetweenResult> {
+    this.assertEnabled()
+    const startedAt = this.now()
+    const info = await this.fetchInfoRefs(params, "getDiffBetween")
+    const base = directCommitResolution(params.baseCommitHash, params.baseCommitHash)
+    const head = directCommitResolution(params.headCommitHash, params.headCommitHash)
+
+    const [baseBatch, headBatch] =
+      base.commitHash === head.commitHash
+        ? await this.getSameCommitBatches(params, info.infoRefs, base.commitHash)
+        : await Promise.all([
+            this.getBlobNoneObjects(params, info.infoRefs, base.commitHash),
+            this.getBlobNoneObjects(params, info.infoRefs, head.commitHash),
+          ])
+
+    const baseRootTreeHash = this.getRootTreeHash(baseBatch.objects, base.commitHash)
+    const headRootTreeHash = this.getRootTreeHash(headBatch.objects, head.commitHash)
+    const baseFiles = this.flattenFileTree(baseBatch.objects, baseRootTreeHash)
+    const headFiles = this.flattenFileTree(headBatch.objects, headRootTreeHash)
+    const changes = await this.buildDiffChanges(params, info.infoRefs, baseFiles, headFiles)
+
+    return {
+      baseCommitHash: base.commitHash,
+      headCommitHash: head.commitHash,
+      changes,
+      source: this.source({
+        operation: "getDiffBetween",
+        info,
+        pack: headBatch.pack ?? baseBatch.pack,
+        startedAt,
+        ref: head.resolvedRef,
+        commitHash: head.commitHash,
+        objectHash: headRootTreeHash,
+        capability: "filter=blob:none,object-by-hash",
+        defaultBranch: getDefaultBranch(info.infoRefs),
+        details:
+          "Diff metadata was fetched with Git Smart HTTP blob:none tree reads; changed file blobs were fetched lazily by object hash.",
+      }),
+    }
+  }
+
   private assertEnabled(): void {
     if (this.enabled) return
     throw new GitNaturalReadError(
@@ -525,6 +607,15 @@ export class GitNaturalReadProvider {
     return {object: this.getObject(parsed.objects, blobHash, "blob"), pack}
   }
 
+  private async getSameCommitBatches(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    commitHash: string,
+  ): Promise<[ObjectBatchResult, ObjectBatchResult]> {
+    const batch = await this.getBlobNoneObjects(params, infoRefs, commitHash)
+    return [batch, batch]
+  }
+
   private getRootTreeHash(objects: Map<string, GitNaturalParsedObject>, commitHash: string): string {
     const commitObject = this.getObject(objects, commitHash, "commit")
     return parseGitNaturalCommit(commitObject.data, commitHash).tree
@@ -562,6 +653,79 @@ export class GitNaturalReadProvider {
     }
 
     return undefined
+  }
+
+  private flattenFileTree(
+    objects: Map<string, GitNaturalParsedObject>,
+    treeHash: string,
+    parentPath = "",
+    files = new Map<string, FlattenedTreeFile>(),
+  ): Map<string, FlattenedTreeFile> {
+    const tree = this.getObject(objects, treeHash, "tree")
+    for (const entry of parseGitNaturalTree(tree.data)) {
+      const path = joinPath(parentPath, entry.name)
+      if (entry.type === "blob") {
+        files.set(path, {path, mode: entry.mode, hash: entry.hash})
+      } else if (entry.type === "tree") {
+        this.flattenFileTree(objects, entry.hash, path, files)
+      }
+    }
+    return files
+  }
+
+  private async buildDiffChanges(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    baseFiles: Map<string, FlattenedTreeFile>,
+    headFiles: Map<string, FlattenedTreeFile>,
+  ): Promise<GitNaturalDiffChange[]> {
+    const paths = Array.from(new Set([...baseFiles.keys(), ...headFiles.keys()])).sort()
+    const changes: GitNaturalDiffChange[] = []
+
+    for (const path of paths) {
+      const base = baseFiles.get(path)
+      const head = headFiles.get(path)
+      if (base?.hash === head?.hash) continue
+
+      if (!base && head) {
+        const blob = await this.getBlobObject(params, infoRefs, head.hash)
+        changes.push({
+          path,
+          status: "added",
+          newOid: head.hash,
+          newMode: head.mode,
+          diffHunks: buildAddedFileDiffHunks(utf8Decoder.decode(blob.object.data)),
+        })
+      } else if (base && !head) {
+        const blob = await this.getBlobObject(params, infoRefs, base.hash)
+        changes.push({
+          path,
+          status: "deleted",
+          oldOid: base.hash,
+          oldMode: base.mode,
+          diffHunks: buildDeletedFileDiffHunks(utf8Decoder.decode(blob.object.data)),
+        })
+      } else if (base && head) {
+        const [oldBlob, newBlob] = await Promise.all([
+          this.getBlobObject(params, infoRefs, base.hash),
+          this.getBlobObject(params, infoRefs, head.hash),
+        ])
+        changes.push({
+          path,
+          status: "modified",
+          oldOid: base.hash,
+          newOid: head.hash,
+          oldMode: base.mode,
+          newMode: head.mode,
+          diffHunks: buildModifiedFileDiffHunks(
+            utf8Decoder.decode(oldBlob.object.data),
+            utf8Decoder.decode(newBlob.object.data),
+          ),
+        })
+      }
+    }
+
+    return changes
   }
 
   private getObject(
@@ -810,4 +974,60 @@ function encodeBase64(bytes: Uint8Array): string {
     output += Number.isNaN(third) ? "=" : alphabet[third & 0x3f]
   }
   return output
+}
+
+function buildAddedFileDiffHunks(text: string): GitNaturalDiffHunk[] {
+  const lines = text.split("\n")
+  return [
+    {
+      oldStart: 0,
+      oldLines: 0,
+      newStart: 1,
+      newLines: lines.length,
+      patches: lines.map(line => ({line, type: "+" as const})),
+    },
+  ]
+}
+
+function buildDeletedFileDiffHunks(text: string): GitNaturalDiffHunk[] {
+  const lines = text.split("\n")
+  return [
+    {
+      oldStart: 1,
+      oldLines: lines.length,
+      newStart: 0,
+      newLines: 0,
+      patches: lines.map(line => ({line, type: "-" as const})),
+    },
+  ]
+}
+
+function buildModifiedFileDiffHunks(oldText: string, newText: string): GitNaturalDiffHunk[] {
+  const oldLines = oldText.split("\n")
+  const newLines = newText.split("\n")
+  const chunks = diffArrays(oldLines, newLines)
+  const patches: Array<{line: string; type: "+" | "-" | " "}> = []
+
+  for (const chunk of chunks) {
+    const lines = chunk.value || []
+    if (chunk.added) {
+      for (const line of lines) patches.push({line, type: "+"})
+    } else if (chunk.removed) {
+      for (const line of lines) patches.push({line, type: "-"})
+    } else {
+      for (const line of lines) patches.push({line, type: " "})
+    }
+  }
+
+  if (patches.length === 0) return []
+
+  return [
+    {
+      oldStart: 1,
+      oldLines: oldLines.length,
+      newStart: 1,
+      newLines: newLines.length,
+      patches,
+    },
+  ]
 }
