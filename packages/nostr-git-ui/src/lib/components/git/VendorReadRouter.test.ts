@@ -1,6 +1,28 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { VendorReadRouter, type RefDiscoverySource } from "./VendorReadRouter";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const gitNaturalSource = (
+  operation: "listRefs" | "listDirectory" | "getFileContent" | "listCommits",
+  remoteUrl: string,
+  overrides: Record<string, unknown> = {}
+) => ({
+  kind: "git-natural" as const,
+  label: "Git natural Smart HTTP",
+  operation,
+  remoteUrl,
+  effectiveUrl: `${remoteUrl}/info/refs?service=git-upload-pack`,
+  usesProxy: false,
+  attemptedUrls: [remoteUrl],
+  elapsedMs: 1,
+  ...overrides,
+});
+
+const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("VendorReadRouter.listRefs", () => {
   it("uses advertised git refs for non-vendor remotes", async () => {
@@ -118,6 +140,109 @@ describe("VendorReadRouter.listRefs", () => {
     expect(workerManager.listServerRefs).not.toHaveBeenCalled();
   });
 
+  it("uses Git natural before provider REST when enabled", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+    });
+    const vendorSpy = vi.spyOn(router as any, "vendorListRefs").mockResolvedValue({
+      refs: [
+        {
+          name: "provider",
+          type: "heads",
+          fullRef: "refs/heads/provider",
+          commitId: "999999",
+        },
+      ],
+      defaultBranch: "provider",
+    });
+
+    const workerManager = {
+      gitNaturalListRefs: vi.fn(async ({ url }: { url: string }) => ({
+        refs: [
+          { ref: "HEAD", oid: "111111", target: "refs/heads/main" },
+          { ref: "refs/heads/main", oid: "111111" },
+        ],
+        defaultBranch: "main",
+        source: gitNaturalSource("listRefs", url, { defaultBranch: "main", ref: "main" }),
+      })),
+      listServerRefs: vi.fn(async () => []),
+      listBranchesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listRefs({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      cloneUrls: ["https://github.com/example/repo.git"],
+    });
+
+    expect(result.source.kind).toBe("git-natural");
+    expect(result.fromVendor).toBe(false);
+    expect(result.defaultBranch).toBe("main");
+    expect(result.refs.map((ref) => ref.name)).toEqual(["main"]);
+    expect(workerManager.gitNaturalListRefs).toHaveBeenCalledTimes(1);
+    expect(vendorSpy).not.toHaveBeenCalled();
+    expect(workerManager.listServerRefs).not.toHaveBeenCalled();
+  });
+
+  it("keeps provider REST output unchanged in Git natural shadow mode", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "shadow",
+    });
+    vi.spyOn(router as any, "vendorListRefs").mockResolvedValue({
+      refs: [
+        {
+          name: "provider",
+          type: "heads",
+          fullRef: "refs/heads/provider",
+          commitId: "222222",
+        },
+      ],
+      defaultBranch: "provider",
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const workerManager = {
+      gitNaturalListRefs: vi.fn(async ({ url }: { url: string }) => ({
+        refs: [
+          { ref: "HEAD", oid: "111111", target: "refs/heads/main" },
+          { ref: "refs/heads/main", oid: "111111" },
+        ],
+        defaultBranch: "main",
+        source: gitNaturalSource("listRefs", url, { defaultBranch: "main", ref: "main" }),
+      })),
+      listServerRefs: vi.fn(async () => []),
+      listBranchesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listRefs({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      cloneUrls: ["https://github.com/example/repo.git"],
+    });
+
+    expect(result.source.kind).toBe("provider-rest");
+    expect(result.fromVendor).toBe(true);
+    expect(result.defaultBranch).toBe("provider");
+    expect(result.refs.map((ref) => ref.name)).toEqual(["provider"]);
+    expect(workerManager.gitNaturalListRefs).toHaveBeenCalledTimes(1);
+
+    await nextTick();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[VendorReadRouter] Git natural shadow mismatch",
+      expect.objectContaining({
+        operation: "listRefs",
+        remoteUrl: "https://github.com/example/repo.git",
+        ref: "provider",
+        baselineSource: expect.objectContaining({ kind: "provider-rest" }),
+        naturalSource: expect.objectContaining({ kind: "git-natural" }),
+      })
+    );
+  });
+
   it("does not promote a secondary vendor URL ahead of the first remote", async () => {
     const router = new VendorReadRouter({
       getTokens: async () => [],
@@ -185,7 +310,147 @@ describe("VendorReadRouter.listRefs", () => {
   });
 });
 
+describe("VendorReadRouter natural read fallback", () => {
+  it("falls back to provider REST when Git natural directory listing fails", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+    });
+    const vendorSpy = vi.spyOn(router as any, "vendorListDirectory").mockResolvedValue({
+      files: [{ path: "README.md", type: "file", oid: "222222" }],
+      path: "",
+      ref: "main",
+      fromVendor: true,
+    });
+
+    const workerManager = {
+      gitNaturalListDirectory: vi.fn(async () => {
+        throw new Error("natural unavailable");
+      }),
+      listRepoFilesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listDirectory({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/repo",
+      cloneUrls: ["https://github.com/example/repo.git"],
+      branch: "main",
+      path: "",
+    });
+
+    expect(result.source?.kind).toBe("provider-rest");
+    expect(result.source?.fallbackReason).toBe("git-natural-failed");
+    expect(result.files.map((file) => file.path)).toEqual(["README.md"]);
+    expect(workerManager.gitNaturalListDirectory).toHaveBeenCalledTimes(1);
+    expect(vendorSpy).toHaveBeenCalledTimes(1);
+    expect(workerManager.gitNaturalListDirectory.mock.invocationCallOrder[0]).toBeLessThan(
+      vendorSpy.mock.invocationCallOrder[0]
+    );
+    expect(workerManager.listRepoFilesFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the worker clone when Git natural and provider REST file reads fail", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+    });
+    vi.spyOn(router as any, "vendorGetFileContent").mockRejectedValue(new Error("REST failed"));
+
+    const workerManager = {
+      gitNaturalGetFileContent: vi.fn(async () => {
+        throw new Error("natural unavailable");
+      }),
+      getRepoFileContentFromEvent: vi.fn(async () => "worker content"),
+    } as any;
+
+    const result = await router.getFileContent({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/repo",
+      cloneUrls: ["https://github.com/example/repo.git"],
+      branch: "main",
+      path: "README.md",
+    });
+
+    expect(result.source?.kind).toBe("worker-clone");
+    expect(result.source?.fallbackReason).toBe(
+      "git-natural-and-provider-rest-unavailable-or-failed"
+    );
+    expect(result.content).toBe("worker content");
+    expect(workerManager.gitNaturalGetFileContent).toHaveBeenCalledTimes(1);
+    expect(workerManager.getRepoFileContentFromEvent).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("VendorReadRouter.listCommits", () => {
+  it("uses Git natural commits before provider REST when enabled", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+    });
+    const vendorSpy = vi.spyOn(router as any, "vendorListCommits").mockResolvedValue({
+      commits: [],
+      ref: "main",
+      fromVendor: true,
+      hasMore: false,
+    });
+    const commitHash = "a".repeat(40);
+
+    const workerManager = {
+      gitNaturalListCommits: vi.fn(async ({ url }: { url: string }) => ({
+        ref: "refs/heads/main",
+        commitHash,
+        commits: [
+          {
+            hash: commitHash,
+            tree: "b".repeat(40),
+            parents: [],
+            author: {
+              name: "Alice",
+              email: "alice@example.com",
+              timestamp: 1,
+              timezone: "+0000",
+            },
+            committer: {
+              name: "Alice",
+              email: "alice@example.com",
+              timestamp: 1,
+              timezone: "+0000",
+            },
+            message: "Initial commit",
+          },
+        ],
+        source: gitNaturalSource("listCommits", url, {
+          ref: "refs/heads/main",
+          commitHash,
+          capability: "filter=tree:0",
+        }),
+      })),
+      getCommitHistory: vi.fn(async () => ({ success: true, commits: [] })),
+    } as any;
+
+    const result = await router.listCommits({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/repo",
+      cloneUrls: ["https://github.com/example/repo.git"],
+      branch: "main",
+      depth: 10,
+    });
+
+    expect(result.source?.kind).toBe("git-natural");
+    expect(result.fromVendor).toBe(false);
+    expect(result.ref).toBe("main");
+    expect(result.commits.map((commit) => commit.sha)).toEqual([commitHash]);
+    expect(workerManager.gitNaturalListCommits).toHaveBeenCalledTimes(1);
+    expect(vendorSpy).not.toHaveBeenCalled();
+    expect(workerManager.getCommitHistory).not.toHaveBeenCalled();
+  });
+
   it("does not persist a branch-specific vendor 404 when git fallback succeeds", async () => {
     const router = new VendorReadRouter({
       getTokens: async () => [],

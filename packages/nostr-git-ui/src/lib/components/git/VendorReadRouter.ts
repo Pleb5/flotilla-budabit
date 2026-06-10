@@ -7,7 +7,14 @@ import {
   createUnknownError,
   wrapError,
 } from "@nostr-git/core/errors";
-import { detectVendorFromUrl } from "@nostr-git/core/git";
+import {
+  detectVendorFromUrl,
+  type GitNaturalFileContentResult,
+  type GitNaturalListCommitsResult,
+  type GitNaturalListDirectoryResult,
+  type GitNaturalListRefsResult,
+  type GitNaturalReadSourceMetadata,
+} from "@nostr-git/core/git";
 import { withUrlFallback, filterValidCloneUrls } from "@nostr-git/core/utils";
 import { nip19 } from "nostr-tools";
 
@@ -19,7 +26,16 @@ import { isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
 export interface VendorReadRouterConfig {
   getTokens: () => Promise<Token[]>;
   preferVendorReads?: boolean; // default true
+  /**
+   * Git natural reads use Git Smart HTTP through worker RPCs.
+   * Default is disabled so production-visible read order remains unchanged.
+   */
+  gitNaturalReads?: GitNaturalReadMode;
+  /** Override the worker/default CORS proxy for Git natural reads. Use null to force direct. */
+  gitNaturalCorsProxy?: string | null;
 }
+
+export type GitNaturalReadMode = "disabled" | "enabled" | "shadow";
 
 export type ReadSourceKind =
   | "repo-state"
@@ -144,12 +160,16 @@ export type CloneUrlSuccessCallback = (url: string) => void;
 export class VendorReadRouter {
   private getTokens: () => Promise<Token[]>;
   private preferVendorReads: boolean;
+  private gitNaturalReads: GitNaturalReadMode;
+  private gitNaturalCorsProxy?: string | null;
   private onCloneUrlError?: CloneUrlErrorCallback;
   private onCloneUrlSuccess?: CloneUrlSuccessCallback;
 
   constructor(config: VendorReadRouterConfig) {
     this.getTokens = config.getTokens;
     this.preferVendorReads = config.preferVendorReads ?? true;
+    this.gitNaturalReads = config.gitNaturalReads ?? "disabled";
+    this.gitNaturalCorsProxy = config.gitNaturalCorsProxy;
   }
 
   /**
@@ -191,6 +211,325 @@ export class VendorReadRouter {
     };
   }
 
+  private shouldTryGitNaturalReads(): boolean {
+    return this.gitNaturalReads === "enabled";
+  }
+
+  private shouldShadowGitNaturalReads(): boolean {
+    return this.gitNaturalReads === "shadow";
+  }
+
+  private getNaturalReadUrls(remotes: string[]): string[] {
+    return remotes.filter((url) => /^https?:\/\//i.test(url));
+  }
+
+  private naturalRequestBase(remoteUrl: string): {
+    url: string;
+    enabled: true;
+    corsProxy?: string | null;
+  } {
+    return {
+      url: remoteUrl,
+      enabled: true,
+      ...(this.gitNaturalCorsProxy !== undefined ? { corsProxy: this.gitNaturalCorsProxy } : {}),
+    };
+  }
+
+  private naturalReadSource(
+    source: GitNaturalReadSourceMetadata,
+    operation: ReadOperation,
+    attemptedUrls: string[],
+    startedAt: number
+  ): ReadSourceMetadata {
+    const { operation: _operation, ref, ...rest } = source;
+    return this.readSource({
+      ...rest,
+      operation,
+      attemptedUrls,
+      ref: ref ? normalizeGitRefName(ref) : undefined,
+      startedAt,
+    });
+  }
+
+  private naturalListRefsToVendor(
+    result: GitNaturalListRefsResult,
+    attemptedUrls: string[],
+    startedAt: number
+  ): {
+    refs: VendorRef[];
+    fromVendor: boolean;
+    source: RefDiscoverySource;
+    defaultBranch?: string;
+  } {
+    const parsed = this.parseServerRefs(result.refs || []);
+    const defaultBranch = result.defaultBranch || parsed.defaultBranch;
+    return {
+      refs: parsed.refs.filter((ref) => isDisplayableGitRef(ref)),
+      fromVendor: false,
+      defaultBranch,
+      source: this.naturalReadSource(
+        {
+          ...result.source,
+          ...(defaultBranch ? { defaultBranch } : {}),
+        },
+        "listRefs",
+        attemptedUrls,
+        startedAt
+      ),
+    };
+  }
+
+  private naturalListDirectoryToVendor(
+    result: GitNaturalListDirectoryResult,
+    attemptedUrls: string[],
+    startedAt: number
+  ): VendorDirectoryResult {
+    return {
+      files: (result.entries || []).map((entry) => ({
+        path: entry.path || entry.name || "",
+        type: entry.type === "directory" ? "directory" : entry.type === "file" ? "file" : entry.type,
+        mode: entry.mode,
+        oid: entry.oid,
+      })),
+      path: result.path || "",
+      ref: normalizeGitRefName(result.ref),
+      fromVendor: false,
+      source: this.naturalReadSource(result.source, "listDirectory", attemptedUrls, startedAt),
+    };
+  }
+
+  private naturalGetFileContentToVendor(
+    result: GitNaturalFileContentResult,
+    attemptedUrls: string[],
+    startedAt: number
+  ): VendorFileContentResult {
+    const content = this.decodeBase64ToUtf8(result.content || "");
+    return {
+      content,
+      path: result.path,
+      ref: normalizeGitRefName(result.ref),
+      encoding: "utf-8",
+      size: content.length,
+      fromVendor: false,
+      source: this.naturalReadSource(result.source, "getFileContent", attemptedUrls, startedAt),
+    };
+  }
+
+  private naturalListCommitsToVendor(
+    result: GitNaturalListCommitsResult,
+    attemptedUrls: string[],
+    startedAt: number,
+    depth: number
+  ): VendorCommitResult {
+    const commits: VendorCommit[] = (result.commits || []).map((commit) => ({
+      sha: commit.hash,
+      message: commit.message,
+      author: {
+        name: commit.author.name,
+        email: commit.author.email,
+        date: this.gitTimestampToIso(commit.author.timestamp),
+      },
+      committer: {
+        name: commit.committer.name,
+        email: commit.committer.email,
+        date: this.gitTimestampToIso(commit.committer.timestamp),
+      },
+      parents: (commit.parents || []).map((sha) => ({ sha })),
+    }));
+
+    return {
+      commits,
+      ref: normalizeGitRefName(result.ref),
+      fromVendor: false,
+      hasMore: commits.length >= depth,
+      source: this.naturalReadSource(result.source, "listCommits", attemptedUrls, startedAt),
+    };
+  }
+
+  private gitTimestampToIso(timestamp: number | undefined): string {
+    if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return "";
+    return new Date(timestamp * 1000).toISOString();
+  }
+
+  private runGitNaturalShadow<T extends { source?: any }>(params: {
+    operation: ReadOperation;
+    remotes: string[];
+    repoKey?: string;
+    ref?: string;
+    path?: string;
+    baseline: T;
+    readNatural: (remoteUrl: string, attemptedUrls: string[], startedAt: number) => Promise<T>;
+    matches: (natural: T, baseline: T) => boolean;
+    summarize: (value: T) => unknown;
+  }): void {
+    if (!this.shouldShadowGitNaturalReads()) return;
+    const naturalUrls = this.getNaturalReadUrls(params.remotes);
+    if (naturalUrls.length === 0) return;
+
+    void (async () => {
+      const startedAt = Date.now();
+      const fallbackResult = await withUrlFallback(
+        naturalUrls,
+        async (remoteUrl: string) => {
+          return await params.readNatural(remoteUrl, [remoteUrl], startedAt);
+        },
+        { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+      );
+
+      if (!fallbackResult.success || !fallbackResult.result) return;
+
+      const natural = fallbackResult.result;
+      if (natural.source) {
+        natural.source = {
+          ...natural.source,
+          attemptedUrls: fallbackResult.attempts.map((attempt) => attempt.url),
+        };
+      }
+
+      if (params.matches(natural, params.baseline)) return;
+
+      const naturalSource = natural.source;
+      const baselineSource = params.baseline.source;
+      console.warn("[VendorReadRouter] Git natural shadow mismatch", {
+        operation: params.operation,
+        remoteUrl: fallbackResult.usedUrl || naturalUrls[0],
+        ref: params.ref || naturalSource?.ref || baselineSource?.ref,
+        commitHash: naturalSource?.commitHash || baselineSource?.commitHash,
+        path: params.path,
+        objectHash: naturalSource?.objectHash || baselineSource?.objectHash,
+        baseline: params.summarize(params.baseline),
+        natural: params.summarize(natural),
+        baselineSource: this.summarizeReadSource(baselineSource),
+        naturalSource: this.summarizeReadSource(naturalSource),
+      });
+    })().catch((error) => {
+      console.debug("[VendorReadRouter] Git natural shadow read failed", {
+        operation: params.operation,
+        remotes: naturalUrls,
+        ref: params.ref,
+        path: params.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  private summarizeReadSource(source?: Partial<ReadSourceMetadata>): Record<string, unknown> | undefined {
+    if (!source) return undefined;
+    return {
+      kind: source.kind,
+      operation: source.operation,
+      remoteUrl: source.remoteUrl,
+      effectiveUrl: source.effectiveUrl,
+      usesProxy: source.usesProxy,
+      attemptedUrls: source.attemptedUrls,
+      ref: source.ref,
+      commitHash: source.commitHash,
+      objectHash: source.objectHash,
+      capability: source.capability,
+      fallbackReason: source.fallbackReason,
+    };
+  }
+
+  private summarizeRefsResult(result: {
+    refs?: VendorRef[];
+    defaultBranch?: string;
+  }): unknown {
+    return {
+      defaultBranch: result.defaultBranch,
+      refs: (result.refs || [])
+        .map((ref) => ({
+          name: ref.name,
+          type: ref.type,
+          fullRef: ref.fullRef,
+          commitId: ref.commitId,
+        }))
+        .sort((a, b) => `${a.type}:${a.name}`.localeCompare(`${b.type}:${b.name}`)),
+    };
+  }
+
+  private summarizeDirectoryResult(result: Pick<VendorDirectoryResult, "files" | "path" | "ref">): unknown {
+    return {
+      path: result.path,
+      ref: normalizeGitRefName(result.ref),
+      files: (result.files || [])
+        .map((file) => ({
+          path: file.path,
+          type: file.type,
+          oid: file.oid,
+        }))
+        .sort((a, b) => String(a.path).localeCompare(String(b.path))),
+    };
+  }
+
+  private summarizeFileContentResult(
+    result: Pick<VendorFileContentResult, "content" | "encoding" | "path" | "ref" | "size">
+  ): unknown {
+    return {
+      path: result.path,
+      ref: normalizeGitRefName(result.ref),
+      encoding: result.encoding,
+      size: result.size,
+      contentLength: result.content.length,
+    };
+  }
+
+  private summarizeCommitResult(result: Pick<VendorCommitResult, "commits" | "ref" | "hasMore">): unknown {
+    return {
+      ref: normalizeGitRefName(result.ref),
+      hasMore: result.hasMore,
+      commits: (result.commits || []).map((commit) => ({
+        sha: commit.sha,
+        parents: (commit.parents || []).map((parent) => parent.sha),
+      })),
+    };
+  }
+
+  private refsMatch(
+    natural: { refs?: VendorRef[]; defaultBranch?: string },
+    baseline: { refs?: VendorRef[]; defaultBranch?: string }
+  ): boolean {
+    return JSON.stringify(this.summarizeRefsResult(natural)) === JSON.stringify(this.summarizeRefsResult(baseline));
+  }
+
+  private directoriesMatch(
+    natural: Pick<VendorDirectoryResult, "files" | "path" | "ref">,
+    baseline: Pick<VendorDirectoryResult, "files" | "path" | "ref">
+  ): boolean {
+    return (
+      JSON.stringify(this.summarizeDirectoryResult(natural)) ===
+      JSON.stringify(this.summarizeDirectoryResult(baseline))
+    );
+  }
+
+  private fileContentsMatch(
+    natural: Pick<VendorFileContentResult, "content" | "path" | "ref" | "size">,
+    baseline: Pick<VendorFileContentResult, "content" | "path" | "ref" | "size">
+  ): boolean {
+    return (
+      natural.content === baseline.content &&
+      natural.path === baseline.path &&
+      normalizeGitRefName(natural.ref) === normalizeGitRefName(baseline.ref)
+    );
+  }
+
+  private commitsMatch(
+    natural: Pick<VendorCommitResult, "commits" | "ref" | "hasMore">,
+    baseline: Pick<VendorCommitResult, "commits" | "ref" | "hasMore">
+  ): boolean {
+    return (
+      JSON.stringify(this.summarizeCommitResult(natural)) ===
+      JSON.stringify(this.summarizeCommitResult(baseline))
+    );
+  }
+
+  private logGitNaturalFallback(operation: ReadOperation, attempts: Array<{ url: string; error?: string }>): void {
+    if (attempts.length === 0) return;
+    console.warn("[VendorReadRouter] Git natural read failed, falling back", {
+      operation,
+      attempts: attempts.map((attempt) => ({ url: attempt.url, error: attempt.error })),
+    });
+  }
+
   /**
    * Extract HTTP status code from error message if present
    */
@@ -216,8 +555,44 @@ export class VendorReadRouter {
     const branch = params.branch || "";
     const remotes = this.getValidRemotes(params.cloneUrls);
     const startedAt = Date.now();
+    let naturalAttempted = false;
 
-    // 1) Vendor fast path only for the selected remote policy. A later GitHub/GitLab
+    // 1) Optional Git natural fast path. This stays feature-flagged because it
+    // changes the production-visible source order when enabled.
+    if (this.shouldTryGitNaturalReads()) {
+      const naturalUrls = this.getNaturalReadUrls(remotes);
+      if (naturalUrls.length > 0) {
+        naturalAttempted = true;
+        console.log(`[VendorReadRouter] Trying Git natural for listDirectory...`);
+        const naturalResult = await withUrlFallback(
+          naturalUrls,
+          async (remoteUrl: string) => {
+            return await params.workerManager.gitNaturalListDirectory({
+              ...this.naturalRequestBase(remoteUrl),
+              ref: branch,
+              path,
+            });
+          },
+          { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+        );
+
+        if (naturalResult.success && naturalResult.result) {
+          if (naturalResult.usedUrl) {
+            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+          }
+          console.log(`[VendorReadRouter] Git natural success`);
+          return this.naturalListDirectoryToVendor(
+            naturalResult.result,
+            naturalResult.attempts.map((attempt) => attempt.url),
+            startedAt
+          );
+        }
+
+        this.logGitNaturalFallback("listDirectory", naturalResult.attempts);
+      }
+    }
+
+    // 2) Vendor fast path only for the selected remote policy. A later GitHub/GitLab
     // URL must not jump ahead of the first clone URL just because it has an API.
     if (this.preferVendorReads && remotes.length > 0) {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
@@ -244,7 +619,7 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return {
+          const result = {
             ...vendorResult.result,
             fromVendor: true,
             source: this.readSource({
@@ -254,10 +629,30 @@ export class VendorReadRouter {
               remoteUrl: vendorResult.usedUrl || vendorUrls[0],
               attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
               ref: normalizeGitRefName(branch),
+              fallbackReason: naturalAttempted ? "git-natural-failed" : undefined,
               startedAt,
               details: "Directory listing comes from the remote provider REST API.",
             }),
           };
+          this.runGitNaturalShadow({
+            operation: "listDirectory",
+            remotes,
+            repoKey: params.repoKey,
+            ref: normalizeGitRefName(branch),
+            path,
+            baseline: result,
+            readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+              const natural = await params.workerManager.gitNaturalListDirectory({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+                path,
+              });
+              return this.naturalListDirectoryToVendor(natural, attemptedUrls, shadowStartedAt);
+            },
+            matches: (natural, baseline) => this.directoriesMatch(natural, baseline),
+            summarize: (value) => this.summarizeDirectoryResult(value),
+          });
+          return result;
         }
 
         // All vendor URLs failed, fall back to git worker
@@ -276,7 +671,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 2) Git worker fallback
+    // 3) Git worker fallback
     console.log(`[VendorReadRouter] Using git worker fallback`);
     try {
       const filesRaw = await params.workerManager.listRepoFilesFromEvent({
@@ -295,7 +690,7 @@ export class VendorReadRouter {
         oid: f.oid || f.sha,
       }));
 
-      return {
+      const result = {
         files,
         path,
         ref: normalizeGitRefName(branch),
@@ -306,11 +701,32 @@ export class VendorReadRouter {
           operation: "listDirectory",
           attemptedUrls: remotes,
           ref: normalizeGitRefName(branch),
-          fallbackReason: "provider-rest-unavailable-or-failed",
+          fallbackReason: naturalAttempted
+            ? "git-natural-and-provider-rest-unavailable-or-failed"
+            : "provider-rest-unavailable-or-failed",
           startedAt,
           details: "Directory listing comes from the worker-backed local git fallback.",
         }),
       };
+      this.runGitNaturalShadow({
+        operation: "listDirectory",
+        remotes,
+        repoKey: params.repoKey,
+        ref: normalizeGitRefName(branch),
+        path,
+        baseline: result,
+        readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+          const natural = await params.workerManager.gitNaturalListDirectory({
+            ...this.naturalRequestBase(remoteUrl),
+            ref: branch,
+            path,
+          });
+          return this.naturalListDirectoryToVendor(natural, attemptedUrls, shadowStartedAt);
+        },
+        matches: (natural, baseline) => this.directoriesMatch(natural, baseline),
+        summarize: (value) => this.summarizeDirectoryResult(value),
+      });
+      return result;
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
       throw err;
@@ -329,8 +745,43 @@ export class VendorReadRouter {
     const remotes = this.getValidRemotes(params.cloneUrls);
     const ctx = this.ctx({ op: "getFileContent", remote: remotes[0], branch, path: params.path });
     const startedAt = Date.now();
+    let naturalAttempted = false;
 
-    // 1) Vendor fast path only for the selected remote policy.
+    // 1) Optional Git natural fast path.
+    if (this.shouldTryGitNaturalReads()) {
+      const naturalUrls = this.getNaturalReadUrls(remotes);
+      if (naturalUrls.length > 0) {
+        naturalAttempted = true;
+        console.log(`[VendorReadRouter] Trying Git natural for getFileContent...`);
+        const naturalResult = await withUrlFallback(
+          naturalUrls,
+          async (remoteUrl: string) => {
+            return await params.workerManager.gitNaturalGetFileContent({
+              ...this.naturalRequestBase(remoteUrl),
+              ref: branch,
+              path: params.path,
+            });
+          },
+          { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+        );
+
+        if (naturalResult.success && naturalResult.result) {
+          if (naturalResult.usedUrl) {
+            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+          }
+          console.log(`[VendorReadRouter] Git natural success`);
+          return this.naturalGetFileContentToVendor(
+            naturalResult.result,
+            naturalResult.attempts.map((attempt) => attempt.url),
+            startedAt
+          );
+        }
+
+        this.logGitNaturalFallback("getFileContent", naturalResult.attempts);
+      }
+    }
+
+    // 2) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
@@ -356,7 +807,7 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return {
+          const result = {
             ...vendorResult.result,
             fromVendor: true,
             source: this.readSource({
@@ -366,10 +817,30 @@ export class VendorReadRouter {
               remoteUrl: vendorResult.usedUrl || vendorUrls[0],
               attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
               ref: normalizeGitRefName(branch),
+              fallbackReason: naturalAttempted ? "git-natural-failed" : undefined,
               startedAt,
               details: "File content comes from the remote provider REST API.",
             }),
           };
+          this.runGitNaturalShadow({
+            operation: "getFileContent",
+            remotes,
+            repoKey: params.repoKey,
+            ref: normalizeGitRefName(branch),
+            path: params.path,
+            baseline: result,
+            readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+              const natural = await params.workerManager.gitNaturalGetFileContent({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+                path: params.path,
+              });
+              return this.naturalGetFileContentToVendor(natural, attemptedUrls, shadowStartedAt);
+            },
+            matches: (natural, baseline) => this.fileContentsMatch(natural, baseline),
+            summarize: (value) => this.summarizeFileContentResult(value),
+          });
+          return result;
         }
 
         // All vendor URLs failed, fall back to git worker
@@ -386,7 +857,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 2) Git worker fallback
+    // 3) Git worker fallback
     console.log(`[VendorReadRouter] Using git worker fallback`);
     try {
       const contentRaw = await params.workerManager.getRepoFileContentFromEvent({
@@ -397,7 +868,7 @@ export class VendorReadRouter {
       });
       const content = typeof contentRaw === "string" ? contentRaw : String(contentRaw ?? "");
 
-      return {
+      const result = {
         content,
         path: params.path,
         ref: normalizeGitRefName(branch),
@@ -410,11 +881,32 @@ export class VendorReadRouter {
           operation: "getFileContent",
           attemptedUrls: remotes,
           ref: normalizeGitRefName(branch),
-          fallbackReason: "provider-rest-unavailable-or-failed",
+          fallbackReason: naturalAttempted
+            ? "git-natural-and-provider-rest-unavailable-or-failed"
+            : "provider-rest-unavailable-or-failed",
           startedAt,
           details: "File content comes from the worker-backed local git fallback.",
         }),
       };
+      this.runGitNaturalShadow({
+        operation: "getFileContent",
+        remotes,
+        repoKey: params.repoKey,
+        ref: normalizeGitRefName(branch),
+        path: params.path,
+        baseline: result,
+        readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+          const natural = await params.workerManager.gitNaturalGetFileContent({
+            ...this.naturalRequestBase(remoteUrl),
+            ref: branch,
+            path: params.path,
+          });
+          return this.naturalGetFileContentToVendor(natural, attemptedUrls, shadowStartedAt);
+        },
+        matches: (natural, baseline) => this.fileContentsMatch(natural, baseline),
+        summarize: (value) => this.summarizeFileContentResult(value),
+      });
+      return result;
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
       err.message = `${err.message}${ctx}`;
@@ -434,8 +926,42 @@ export class VendorReadRouter {
   }> {
     const remotes = this.getValidRemotes(params.cloneUrls);
     const startedAt = Date.now();
+    let naturalAttempted = false;
 
-    // 1) Vendor fast path only for the selected remote policy.
+    // 1) Optional Git natural fast path.
+    if (this.shouldTryGitNaturalReads()) {
+      const naturalUrls = this.getNaturalReadUrls(remotes);
+      if (naturalUrls.length > 0) {
+        naturalAttempted = true;
+        console.log(`[VendorReadRouter] Trying Git natural for listRefs...`);
+        const naturalResult = await withUrlFallback(
+          naturalUrls,
+          async (remoteUrl: string) => {
+            return await params.workerManager.gitNaturalListRefs({
+              ...this.naturalRequestBase(remoteUrl),
+              symrefs: true,
+            });
+          },
+          { repoId: this.pickRemote(params.cloneUrls) || undefined, perUrlTimeoutMs: 15_000 }
+        );
+
+        if (naturalResult.success && naturalResult.result) {
+          if (naturalResult.usedUrl) {
+            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+          }
+          console.log(`[VendorReadRouter] Git natural success`);
+          return this.naturalListRefsToVendor(
+            naturalResult.result,
+            naturalResult.attempts.map((attempt) => attempt.url),
+            startedAt
+          );
+        }
+
+        this.logGitNaturalFallback("listRefs", naturalResult.attempts);
+      }
+    }
+
+    // 2) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
@@ -451,7 +977,12 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return {
+          const result: {
+            refs: VendorRef[];
+            fromVendor: boolean;
+            source: RefDiscoverySource;
+            defaultBranch?: string;
+          } = {
             refs: vendorResult.result.refs.filter((ref) => isDisplayableGitRef(ref)),
             fromVendor: true,
             defaultBranch: vendorResult.result.defaultBranch,
@@ -462,10 +993,27 @@ export class VendorReadRouter {
               remoteUrl: vendorResult.usedUrl || vendorUrls[0],
               attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
               defaultBranch: vendorResult.result.defaultBranch,
+              fallbackReason: naturalAttempted ? "git-natural-failed" : undefined,
               elapsedMs: Math.max(0, Date.now() - startedAt),
               details: "Ref list comes from the remote provider API.",
             },
           };
+          this.runGitNaturalShadow({
+            operation: "listRefs",
+            remotes,
+            ref: vendorResult.result.defaultBranch,
+            baseline: result,
+            readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+              const natural = await params.workerManager.gitNaturalListRefs({
+                ...this.naturalRequestBase(remoteUrl),
+                symrefs: true,
+              });
+              return this.naturalListRefsToVendor(natural, attemptedUrls, shadowStartedAt);
+            },
+            matches: (natural, baseline) => this.refsMatch(natural, baseline),
+            summarize: (value) => this.summarizeRefsResult(value),
+          });
+          return result;
         }
 
         console.warn(`[VendorReadRouter] REST API failed, falling back to git`);
@@ -481,7 +1029,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 2) Git remote advertised refs fallback
+    // 3) Git remote advertised refs fallback
     if (remotes.length > 0) {
       console.log(`[VendorReadRouter] Using git advertised refs fallback`);
       const gitResult = await withUrlFallback(
@@ -501,7 +1049,12 @@ export class VendorReadRouter {
           this.reportCloneUrlSuccess(gitResult.usedUrl);
         }
 
-        return {
+        const result: {
+          refs: VendorRef[];
+          fromVendor: boolean;
+          source: RefDiscoverySource;
+          defaultBranch?: string;
+        } = {
           refs: gitResult.result.refs,
           fromVendor: false,
           defaultBranch: gitResult.result.defaultBranch,
@@ -513,10 +1066,27 @@ export class VendorReadRouter {
             attemptedUrls: gitResult.attempts.map((attempt) => attempt.url),
             ref: gitResult.result.defaultBranch,
             defaultBranch: gitResult.result.defaultBranch,
+            fallbackReason: naturalAttempted ? "git-natural-failed" : undefined,
             elapsedMs: Math.max(0, Date.now() - startedAt),
             details: "Ref list comes from advertised refs on the git remote.",
           },
         };
+        this.runGitNaturalShadow({
+          operation: "listRefs",
+          remotes,
+          ref: gitResult.result.defaultBranch,
+          baseline: result,
+          readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+            const natural = await params.workerManager.gitNaturalListRefs({
+              ...this.naturalRequestBase(remoteUrl),
+              symrefs: true,
+            });
+            return this.naturalListRefsToVendor(natural, attemptedUrls, shadowStartedAt);
+          },
+          matches: (natural, baseline) => this.refsMatch(natural, baseline),
+          summarize: (value) => this.summarizeRefsResult(value),
+        });
+        return result;
       }
 
       for (const attempt of gitResult.attempts) {
@@ -527,7 +1097,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 3) Local clone fallback
+    // 4) Local clone fallback
     console.log(`[VendorReadRouter] Falling back to locally known refs`);
     const branches = await params.workerManager.listBranchesFromEvent({
       repoEvent: params.repoEvent,
@@ -545,7 +1115,12 @@ export class VendorReadRouter {
       })
       .filter((ref: VendorRef) => isDisplayableGitRef(ref));
 
-    return {
+    const result: {
+      refs: VendorRef[];
+      fromVendor: boolean;
+      source: RefDiscoverySource;
+      defaultBranch?: string;
+    } = {
       refs,
       fromVendor: false,
       source: {
@@ -553,11 +1128,28 @@ export class VendorReadRouter {
         label: "Local clone",
         operation: "listRefs",
         attemptedUrls: remotes,
-        fallbackReason: "remote-ref-discovery-failed",
+        fallbackReason: naturalAttempted
+          ? "git-natural-and-remote-ref-discovery-failed"
+          : "remote-ref-discovery-failed",
         elapsedMs: Math.max(0, Date.now() - startedAt),
         details: "Remote ref discovery failed, so only locally known refs are shown.",
       },
     };
+    this.runGitNaturalShadow({
+      operation: "listRefs",
+      remotes,
+      baseline: result,
+      readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+        const natural = await params.workerManager.gitNaturalListRefs({
+          ...this.naturalRequestBase(remoteUrl),
+          symrefs: true,
+        });
+        return this.naturalListRefsToVendor(natural, attemptedUrls, shadowStartedAt);
+      },
+      matches: (natural, baseline) => this.refsMatch(natural, baseline),
+      summarize: (value) => this.summarizeRefsResult(value),
+    });
+    return result;
   }
 
   private parseServerRefs(
@@ -629,8 +1221,44 @@ export class VendorReadRouter {
     const perPage = params.perPage || 30;
     let pendingVendorFailures: Array<{ url: string; error?: string }> = [];
     const startedAt = Date.now();
+    let naturalAttempted = false;
 
-    // 1) Vendor fast path only for the selected remote policy.
+    // 1) Optional Git natural fast path.
+    if (this.shouldTryGitNaturalReads()) {
+      const naturalUrls = this.getNaturalReadUrls(remotes);
+      if (naturalUrls.length > 0) {
+        naturalAttempted = true;
+        console.log(`[VendorReadRouter] Trying Git natural for listCommits...`);
+        const naturalResult = await withUrlFallback(
+          naturalUrls,
+          async (remoteUrl: string) => {
+            return await params.workerManager.gitNaturalListCommits({
+              ...this.naturalRequestBase(remoteUrl),
+              ref: branch,
+              depth,
+            });
+          },
+          { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+        );
+
+        if (naturalResult.success && naturalResult.result) {
+          if (naturalResult.usedUrl) {
+            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+          }
+          console.log(`[VendorReadRouter] Git natural success`);
+          return this.naturalListCommitsToVendor(
+            naturalResult.result,
+            naturalResult.attempts.map((attempt) => attempt.url),
+            startedAt,
+            depth
+          );
+        }
+
+        this.logGitNaturalFallback("listCommits", naturalResult.attempts);
+      }
+    }
+
+    // 2) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
@@ -656,7 +1284,7 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return {
+          const result = {
             ...vendorResult.result,
             fromVendor: true,
             source: this.readSource({
@@ -666,10 +1294,29 @@ export class VendorReadRouter {
               remoteUrl: vendorResult.usedUrl || vendorUrls[0],
               attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
               ref: normalizeGitRefName(branch),
+              fallbackReason: naturalAttempted ? "git-natural-failed" : undefined,
               startedAt,
               details: "Commit history comes from the remote provider REST API.",
             }),
           };
+          this.runGitNaturalShadow({
+            operation: "listCommits",
+            remotes,
+            repoKey: params.repoKey,
+            ref: normalizeGitRefName(branch),
+            baseline: result,
+            readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+              const natural = await params.workerManager.gitNaturalListCommits({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+                depth,
+              });
+              return this.naturalListCommitsToVendor(natural, attemptedUrls, shadowStartedAt, depth);
+            },
+            matches: (natural, baseline) => this.commitsMatch(natural, baseline),
+            summarize: (value) => this.summarizeCommitResult(value),
+          });
+          return result;
         }
 
         console.warn(`[VendorReadRouter] REST API failed, falling back to git`);
@@ -685,7 +1332,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 2) Git worker fallback
+    // 3) Git worker fallback
     console.log(`[VendorReadRouter] Using git worker fallback`);
     let commitsResult: any;
 
@@ -699,7 +1346,7 @@ export class VendorReadRouter {
       if (
         pendingVendorFailures.some((attempt) => this.isBenignEmptyRepoCommitError(attempt.error))
       ) {
-        return {
+        const result = {
           commits: [],
           ref: normalizeGitRefName(branch),
           fromVendor: false,
@@ -710,11 +1357,31 @@ export class VendorReadRouter {
             operation: "listCommits",
             attemptedUrls: remotes,
             ref: normalizeGitRefName(branch),
-            fallbackReason: "provider-rest-empty-repo",
+            fallbackReason: naturalAttempted
+              ? "git-natural-and-provider-rest-empty-repo"
+              : "provider-rest-empty-repo",
             startedAt,
             details: "Commit history fallback treated a provider empty-repo response as empty history.",
           }),
         };
+        this.runGitNaturalShadow({
+          operation: "listCommits",
+          remotes,
+          repoKey: params.repoKey,
+          ref: normalizeGitRefName(branch),
+          baseline: result,
+          readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+            const natural = await params.workerManager.gitNaturalListCommits({
+              ...this.naturalRequestBase(remoteUrl),
+              ref: branch,
+              depth,
+            });
+            return this.naturalListCommitsToVendor(natural, attemptedUrls, shadowStartedAt, depth);
+          },
+          matches: (natural, baseline) => this.commitsMatch(natural, baseline),
+          summarize: (value) => this.summarizeCommitResult(value),
+        });
+        return result;
       }
 
       for (const attempt of pendingVendorFailures) {
@@ -728,7 +1395,7 @@ export class VendorReadRouter {
       if (
         pendingVendorFailures.some((attempt) => this.isBenignEmptyRepoCommitError(attempt.error))
       ) {
-        return {
+        const result = {
           commits: [],
           ref: normalizeGitRefName(branch),
           fromVendor: false,
@@ -739,11 +1406,31 @@ export class VendorReadRouter {
             operation: "listCommits",
             attemptedUrls: remotes,
             ref: normalizeGitRefName(branch),
-            fallbackReason: "provider-rest-empty-repo",
+            fallbackReason: naturalAttempted
+              ? "git-natural-and-provider-rest-empty-repo"
+              : "provider-rest-empty-repo",
             startedAt,
             details: "Commit history fallback treated a provider empty-repo response as empty history.",
           }),
         };
+        this.runGitNaturalShadow({
+          operation: "listCommits",
+          remotes,
+          repoKey: params.repoKey,
+          ref: normalizeGitRefName(branch),
+          baseline: result,
+          readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+            const natural = await params.workerManager.gitNaturalListCommits({
+              ...this.naturalRequestBase(remoteUrl),
+              ref: branch,
+              depth,
+            });
+            return this.naturalListCommitsToVendor(natural, attemptedUrls, shadowStartedAt, depth);
+          },
+          matches: (natural, baseline) => this.commitsMatch(natural, baseline),
+          summarize: (value) => this.summarizeCommitResult(value),
+        });
+        return result;
       }
 
       for (const attempt of pendingVendorFailures.filter(
@@ -785,7 +1472,7 @@ export class VendorReadRouter {
       ),
     }));
 
-    return {
+    const result = {
       commits,
       ref: normalizeGitRefName(branch),
       fromVendor: false,
@@ -796,13 +1483,35 @@ export class VendorReadRouter {
         operation: "listCommits",
         attemptedUrls: remotes,
         ref: normalizeGitRefName(branch),
-        fallbackReason: pendingVendorFailures.length
-          ? "provider-rest-failed"
-          : "provider-rest-unavailable",
+        fallbackReason: naturalAttempted
+          ? pendingVendorFailures.length
+            ? "git-natural-and-provider-rest-failed"
+            : "git-natural-failed"
+          : pendingVendorFailures.length
+            ? "provider-rest-failed"
+            : "provider-rest-unavailable",
         startedAt,
         details: "Commit history comes from the worker-backed local git fallback.",
       }),
     };
+    this.runGitNaturalShadow({
+      operation: "listCommits",
+      remotes,
+      repoKey: params.repoKey,
+      ref: normalizeGitRefName(branch),
+      baseline: result,
+      readNatural: async (remoteUrl, attemptedUrls, shadowStartedAt) => {
+        const natural = await params.workerManager.gitNaturalListCommits({
+          ...this.naturalRequestBase(remoteUrl),
+          ref: branch,
+          depth,
+        });
+        return this.naturalListCommitsToVendor(natural, attemptedUrls, shadowStartedAt, depth);
+      },
+      matches: (natural, baseline) => this.commitsMatch(natural, baseline),
+      summarize: (value) => this.summarizeCommitResult(value),
+    });
+    return result;
   }
 
   // -------------------------

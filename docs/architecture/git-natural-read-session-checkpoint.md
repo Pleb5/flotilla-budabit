@@ -13,16 +13,17 @@
 
 ## Current Phase
 
-- Phase 4: VendorReadRouter Shadow Integration With Git-Natural Preference.
+- Phase 5: Enable GRASP And Generic Smart HTTP Natural Reads.
 
 ## Phase Exit Criteria
 
-- `VendorReadRouter` can call Git natural worker RPCs for refs, directory, file content, and commit history under a feature flag or shadow mode.
-- When enabled, Git natural is attempted before provider REST for supported operations.
-- Shadow mode compares Git natural results against existing provider REST or worker results without changing user-visible output.
-- Mismatch logs include operation, remote URL, ref, commit hash, path, object hash, and source result summaries.
-- Stale result suppression is preserved during fast branch switches, path navigation, repo changes, and tab changes.
-- Existing router fallback behavior and tests continue to pass.
+- GRASP Smart HTTP repo browsing can list refs, list directories, open files, and list commit history through Git natural when server capabilities allow.
+- GRASP Smart HTTP natural reads go direct by default and do not use the generic CORS proxy.
+- Generic HTTP(S) Git remotes use Git natural for the same operations when browser/proxy access and capabilities allow.
+- Incomplete GRASP REST endpoints remain disabled or secondary and are not required for browsing.
+- Worker clone fallback still handles unsupported filters, protocol errors, CORS/proxy failures, auth failures, and object-missing cases.
+- User-visible errors distinguish Git natural read fallback from local clone initialization failure.
+- Git natural read success does not update `clonedRepos`, `repoDataLevels`, or any local clone-ready state.
 
 ## Completed With Evidence
 
@@ -63,6 +64,14 @@
 - Added opt-in internal worker RPCs `gitNaturalListRefs`, `gitNaturalResolveRef`, `gitNaturalListDirectory`, `gitNaturalGetFileContent`, `gitNaturalListCommits`, and `gitNaturalGetCommit`; each requires `enabled: true` before executing.
 - Added typed `WorkerManager` wrappers for the opt-in natural RPCs without changing production router read order.
 - Added `packages/nostr-git-core/test/git/natural-read-provider.spec.ts` with in-memory valid packfile fixtures covering feature gating, refs/ref resolution, `blob:none` directory reads, object-hash blob reads, `tree:0` commit history, single commit, missing filter capability, missing refs, and source metadata.
+- Phase 4 started by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md`, Phase 4 details, Gitworkshop `pool.ts`/`useGitExplorer.ts`, `~/Work/git-natural-api/refs.ts`, and Budabit `VendorReadRouter.ts`, `Repo.svelte.ts`, `WorkerManager.ts`, and router tests.
+- Added `gitNaturalReads?: "disabled" | "enabled" | "shadow"` and `gitNaturalCorsProxy?: string | null` to `VendorReadRouterConfig`, defaulting Git natural reads to disabled so existing production-visible read order remains unchanged unless explicitly enabled.
+- Added Git natural normalization helpers in `VendorReadRouter.ts` for refs, directory entries, file content, and commit history, preserving source metadata with effective URL, proxy use, attempted URLs, ref, commit hash, object hash, capabilities, fallback reason, and elapsed time.
+- In enabled mode, `VendorReadRouter` now tries worker Git natural RPCs before provider REST for `listRefs`, `listDirectory`, `getFileContent`, and `listCommits`, then falls back to existing provider REST and worker/local clone paths.
+- In shadow mode, `VendorReadRouter` keeps the existing provider REST/git-remote/worker output as the returned result and runs a Git natural comparison in the background.
+- Shadow mismatch logs include operation, remote URL, ref, commit hash, path, object hash, baseline and natural summaries, and baseline/natural source summaries.
+- Worker clone fallback metadata now distinguishes natural-read fallback reasons when enabled, while preserving existing fallback behavior by default.
+- Added `VendorReadRouter.test.ts` coverage for Git natural before provider REST, provider REST fallback after natural failure, worker clone fallback after natural and REST failure, shadow mode preserving provider output, and Git natural commit history before provider REST.
 
 ## Phase 1 Baseline Observations
 
@@ -100,14 +109,15 @@
 
 ## Current State
 
-- Phase 3 implementation and verification are complete in this checkpoint.
-- Current working tree changes are intentional Phase 3 closeout changes.
-- Phase 4 is next and should integrate natural worker RPCs into `VendorReadRouter` under a feature flag or shadow mode, without changing user-visible behavior unless explicitly enabled.
+- Phase 4 implementation and verification are complete in this checkpoint.
+- Current intentional Phase 4 changes are limited to `VendorReadRouter.ts`, `VendorReadRouter.test.ts`, and this checkpoint.
+- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited during Phase 4.
+- Phase 5 is next and should enable/validate Git natural reads for GRASP and generic HTTP(S) remotes while preserving direct GRASP transport and worker clone fallback.
 
 ## Next Action
 
-- Begin Phase 4 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 4 details, and the references in Gitworkshop `pool.ts`/`useGitExplorer.ts`, Budabit `VendorReadRouter.ts`, `Repo.svelte.ts`, and `WorkerManager.ts`.
-- Add natural-read router configuration flags and shadow/feature-flagged calls to the opt-in worker RPCs while preserving existing fallback behavior by default.
+- Begin Phase 5 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 5 details, and the references in Gitworkshop `git-grasp-pool`, Budabit `grasp-url.ts`, `grasp-capabilities.ts`, `advertised-refs.ts`, `grasp.ts`, and `grasp-rest.ts`.
+- Add or validate natural-read URL eligibility for GRASP repo HTTP URLs and generic HTTP(S) clone URLs, ensuring GRASP direct Smart HTTP is never accidentally proxied by default.
 
 ## Verification
 
@@ -122,6 +132,11 @@
 - Passed: `pnpm check`.
 - Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
 - Passed: `git diff --check`.
+- Phase 4 passed: `pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false packages/nostr-git-ui/src/lib/components/git/VendorReadRouter.test.ts`.
+- Phase 4 passed: `pnpm -F @nostr-git/ui typecheck`.
+- Phase 4 passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read-provider.spec.ts`.
+- Phase 4 passed: `pnpm check`.
+- Phase 4 passed: `git diff --check`.
 
 ## Risks Or Blockers
 
@@ -129,6 +144,7 @@
 - Node fetch timings are not browser CORS validation and should not be treated as proof of browser reachability.
 - If GRASP direct reads fail because CORS headers are missing, treat that as a GRASP server/endpoint conformance problem rather than silently proxying the request.
 - Phase 3 parser/provider coverage uses mocked valid packfile fixtures; no live public-remote smoke test was run in this phase.
+- Phase 4 did not run a manual shadow-mode browser/network comparison; Phase 5 should cover live GRASP/generic HTTP(S) smoke testing if network and server behavior allow.
 - Large live remotes, unusual delta ordering, thin packs, or server-specific upload-pack behavior may still expose parser/performance limits.
 - A confirmed public Bitbucket fixture and a server without `filter` support are still missing.
 
