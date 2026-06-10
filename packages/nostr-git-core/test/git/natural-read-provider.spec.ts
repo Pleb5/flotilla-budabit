@@ -1,0 +1,350 @@
+import {afterEach, describe, expect, it, vi} from "vitest"
+import {zlibSync} from "fflate"
+
+import {encodePktLine} from "../../src/git/natural-read-client.js"
+import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
+import {computeGitNaturalObjectHash} from "../../src/git/natural-read-objects.js"
+
+const encoder = new TextEncoder()
+
+const REMOTE_URL = "https://example.com/owner/repo.git"
+const CAPABILITIES = [
+  "ofs-delta",
+  "no-progress",
+  "multi_ack_detailed",
+  "side-band-64k",
+  "shallow",
+  "object-format=sha1",
+  "filter",
+]
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe("GitNaturalReadProvider", () => {
+  it("is disabled unless the caller opts in", async () => {
+    const provider = new GitNaturalReadProvider()
+
+    await expect(provider.listRefs({url: REMOTE_URL})).rejects.toMatchObject({
+      code: "feature-disabled",
+    })
+  })
+
+  it("lists refs and resolves HEAD, branches, peeled tags, and direct commits", async () => {
+    const fixture = createGitFixture()
+    const fetcher = createFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const refs = await provider.listRefs({url: REMOTE_URL, symrefs: true})
+    const head = refs.refs.find(ref => ref.ref === "HEAD")
+
+    expect(refs.defaultBranch).toBe("main")
+    expect(head?.target).toBe("refs/heads/main")
+    expect(refs.source.kind).toBe("git-natural")
+    expect(refs.source.remoteUrl).toBe(REMOTE_URL)
+
+    await expect(provider.resolveRef({url: REMOTE_URL, ref: "HEAD"})).resolves.toMatchObject({
+      resolvedRef: "refs/heads/main",
+      commitHash: fixture.tipHash,
+    })
+    await expect(provider.resolveRef({url: REMOTE_URL, ref: "main"})).resolves.toMatchObject({
+      resolvedRef: "refs/heads/main",
+      commitHash: fixture.tipHash,
+    })
+    await expect(provider.resolveRef({url: REMOTE_URL, ref: "refs/heads/main"})).resolves.toMatchObject({
+      commitHash: fixture.tipHash,
+    })
+    await expect(provider.resolveRef({url: REMOTE_URL, ref: "v1.0.0"})).resolves.toMatchObject({
+      resolvedRef: "refs/tags/v1.0.0",
+      commitHash: fixture.tipHash,
+      objectHash: fixture.tagHash,
+      peeled: true,
+    })
+    await expect(provider.resolveRef({url: REMOTE_URL, ref: fixture.tipHash})).resolves.toMatchObject({
+      commitHash: fixture.tipHash,
+    })
+    await expect(provider.resolveRef({url: REMOTE_URL, ref: "missing"})).rejects.toMatchObject({
+      code: "ref-not-found",
+    })
+  })
+
+  it("lists directories with blob:none and fetches file content by object hash", async () => {
+    const fixture = createGitFixture()
+    const fetcher = createFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const root = await provider.listDirectory({url: REMOTE_URL, ref: "main"})
+    expect(root.commitHash).toBe(fixture.tipHash)
+    expect(root.treeHash).toBe(fixture.rootTreeHash)
+    expect(root.entries).toEqual([
+      {
+        name: "README.md",
+        path: "README.md",
+        type: "file",
+        mode: "100644",
+        oid: fixture.readmeHash,
+      },
+      {
+        name: "src",
+        path: "src",
+        type: "directory",
+        mode: "40000",
+        oid: fixture.srcTreeHash,
+      },
+    ])
+    expect(root.source.capability).toBe("filter=blob:none")
+
+    const src = await provider.listDirectory({url: REMOTE_URL, ref: "main", path: "src"})
+    expect(src.entries.map(entry => entry.path)).toEqual(["src/index.ts"])
+
+    const file = await provider.getFileContent({url: REMOTE_URL, ref: "main", path: "README.md"})
+    expect(file.objectHash).toBe(fixture.readmeHash)
+    expect(file.encoding).toBe("base64")
+    expect(file.content).toBe("SGVsbG8gbmF0dXJhbAo=")
+    expect(file.size).toBe(fixture.readmeData.length)
+
+    const postBodies = fetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+    expect(postBodies.some(body => body.includes("filter blob:none\n"))).toBe(true)
+    expect(postBodies.some(body => body.includes(`want ${fixture.readmeHash}`))).toBe(true)
+  })
+
+  it("lists commit history with tree:0 and returns one commit", async () => {
+    const fixture = createGitFixture()
+    const fetcher = createFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const history = await provider.listCommits({url: REMOTE_URL, ref: "main", depth: 2})
+    expect(history.commits.map(commit => commit.hash)).toEqual([fixture.tipHash, fixture.parentHash])
+    expect(history.commits[0].message).toBe("tip commit\n")
+    expect(history.source.capability).toBe("filter=tree:0")
+
+    const commit = await provider.getCommit({url: REMOTE_URL, ref: "main"})
+    expect(commit.commit.hash).toBe(fixture.tipHash)
+    expect(commit.source.operation).toBe("getCommit")
+
+    const postBodies = fetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+    expect(postBodies.some(body => body.includes("filter tree:0\n"))).toBe(true)
+  })
+
+  it("declines filtered operations when the server lacks filter support", async () => {
+    const fixture = createGitFixture({capabilities: CAPABILITIES.filter(cap => cap !== "filter")})
+    const fetcher = createFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    await expect(provider.listDirectory({url: REMOTE_URL, ref: "main"})).rejects.toMatchObject({
+      code: "missing-filter-capability",
+      capability: "filter",
+    })
+    await expect(provider.listCommits({url: REMOTE_URL, ref: "main"})).rejects.toMatchObject({
+      code: "missing-filter-capability",
+      capability: "filter",
+    })
+  })
+})
+
+function createGitFixture(options: {capabilities?: string[]} = {}) {
+  const capabilities = options.capabilities ?? CAPABILITIES
+  const readmeData = encoder.encode("Hello natural\n")
+  const indexData = encoder.encode("export const answer = 42\n")
+  const readmeHash = computeGitNaturalObjectHash("blob", readmeData)
+  const indexHash = computeGitNaturalObjectHash("blob", indexData)
+  const srcTreeData = treeData([{mode: "100644", name: "index.ts", hash: indexHash}])
+  const srcTreeHash = computeGitNaturalObjectHash("tree", srcTreeData)
+  const rootTreeData = treeData([
+    {mode: "100644", name: "README.md", hash: readmeHash},
+    {mode: "40000", name: "src", hash: srcTreeHash},
+  ])
+  const rootTreeHash = computeGitNaturalObjectHash("tree", rootTreeData)
+  const parentCommitData = commitData({tree: rootTreeHash, message: "parent commit", timestamp: 1_700_000_000})
+  const parentHash = computeGitNaturalObjectHash("commit", parentCommitData)
+  const tipCommitData = commitData({
+    tree: rootTreeHash,
+    parent: parentHash,
+    message: "tip commit",
+    timestamp: 1_700_000_100,
+  })
+  const tipHash = computeGitNaturalObjectHash("commit", tipCommitData)
+  const tagData = encoder.encode(
+    [`object ${tipHash}`, "type commit", "tag v1.0.0", "tagger T <t@example.com> 1700000100 +0000", "", "release", ""].join("\n"),
+  )
+  const tagHash = computeGitNaturalObjectHash("tag", tagData)
+
+  return {
+    capabilities,
+    readmeData,
+    readmeHash,
+    indexHash,
+    srcTreeHash,
+    rootTreeHash,
+    parentHash,
+    tipHash,
+    tagHash,
+    advertisement: buildAdvertisement({tipHash, tagHash, capabilities}),
+    blobNonePack: packfile([
+      {type: "commit", data: tipCommitData},
+      {type: "tree", data: rootTreeData},
+      {type: "tree", data: srcTreeData},
+    ]),
+    historyPack: packfile([
+      {type: "commit", data: parentCommitData},
+      {type: "commit", data: tipCommitData},
+    ]),
+    readmePack: packfile([{type: "blob", data: readmeData}]),
+  }
+}
+
+function createFixtureFetcher(fixture: ReturnType<typeof createGitFixture>) {
+  return vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === "GET") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => fixture.advertisement,
+        arrayBuffer: async () => arrayBuffer(encoder.encode(fixture.advertisement)),
+      }
+    }
+
+    const body = String(init?.body || "")
+    const pack = body.includes("filter blob:none")
+      ? fixture.blobNonePack
+      : body.includes("filter tree:0")
+        ? fixture.historyPack
+        : fixture.readmePack
+    const response = uploadPackResponse(pack)
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => arrayBuffer(response),
+    }
+  })
+}
+
+function buildAdvertisement(params: {
+  tipHash: string
+  tagHash: string
+  capabilities: string[]
+}): string {
+  const capabilities = [...params.capabilities, "symref=HEAD:refs/heads/main", "agent=git/2.0"].join(" ")
+  return [
+    encodePktLine("# service=git-upload-pack\n"),
+    "0000",
+    encodePktLine(`${params.tipHash} HEAD\0${capabilities}\n`),
+    encodePktLine(`${params.tipHash} refs/heads/main\n`),
+    encodePktLine(`${params.tagHash} refs/tags/v1.0.0\n`),
+    encodePktLine(`${params.tipHash} refs/tags/v1.0.0^{}\n`),
+    "0000",
+  ].join("")
+}
+
+function commitData(params: {
+  tree: string
+  parent?: string
+  message: string
+  timestamp: number
+}): Uint8Array {
+  return encoder.encode(
+    [
+      `tree ${params.tree}`,
+      params.parent ? `parent ${params.parent}` : undefined,
+      `author A <a@example.com> ${params.timestamp} +0000`,
+      `committer C <c@example.com> ${params.timestamp} +0000`,
+      "",
+      params.message,
+      "",
+    ]
+      .filter(line => line !== undefined)
+      .join("\n"),
+  )
+}
+
+function treeData(entries: Array<{mode: string; name: string; hash: string}>): Uint8Array {
+  return concatBytes(
+    ...entries.flatMap(entry => [
+      encoder.encode(`${entry.mode} ${entry.name}`),
+      new Uint8Array([0]),
+      hexToBytes(entry.hash),
+    ]),
+  )
+}
+
+function packfile(objects: Array<{type: "commit" | "tree" | "blob" | "tag"; data: Uint8Array}>): Uint8Array {
+  return concatBytes(
+    encoder.encode("PACK"),
+    uint32(2),
+    uint32(objects.length),
+    ...objects.map(object => packObject(object.type, object.data)),
+    new Uint8Array(20),
+  )
+}
+
+function packObject(type: "commit" | "tree" | "blob" | "tag", data: Uint8Array): Uint8Array {
+  return concatBytes(packObjectHeader(typeCode(type), data.length), zlibSync(data))
+}
+
+function packObjectHeader(type: number, objectSize: number): Uint8Array {
+  let size = objectSize
+  const bytes: number[] = []
+  let first = (type << 4) | (size & 0x0f)
+  size >>>= 4
+  if (size > 0) first |= 0x80
+  bytes.push(first)
+  while (size > 0) {
+    let byte = size & 0x7f
+    size >>>= 7
+    if (size > 0) byte |= 0x80
+    bytes.push(byte)
+  }
+  return new Uint8Array(bytes)
+}
+
+function typeCode(type: "commit" | "tree" | "blob" | "tag"): number {
+  if (type === "commit") return 1
+  if (type === "tree") return 2
+  if (type === "blob") return 3
+  return 4
+}
+
+function uploadPackResponse(pack: Uint8Array): Uint8Array {
+  return concatBytes(pktBytes("NAK\n"), pktBytes(concatBytes(new Uint8Array([1]), pack)), encoder.encode("0000"))
+}
+
+function pktBytes(payload: string | Uint8Array): Uint8Array {
+  const payloadBytes = typeof payload === "string" ? encoder.encode(payload) : payload
+  const length = encoder.encode((payloadBytes.length + 4).toString(16).padStart(4, "0"))
+  return concatBytes(length, payloadBytes)
+}
+
+function uint32(value: number): Uint8Array {
+  const bytes = new Uint8Array(4)
+  new DataView(bytes.buffer).setUint32(0, value, false)
+  return bytes
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16)
+  }
+  return bytes
+}
+
+function concatBytes(...chunks: Uint8Array[]): Uint8Array {
+  const length = chunks.reduce((total, chunk) => total + chunk.length, 0)
+  const out = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.length
+  }
+  return out
+}
+
+function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes)
+  return copy.buffer
+}

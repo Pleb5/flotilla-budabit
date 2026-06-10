@@ -3,13 +3,17 @@ import type {GitNaturalInfoRefs} from "./natural-read-cache.js"
 import {GitNaturalObjectCache} from "./natural-read-cache.js"
 
 export type GitNaturalReadErrorCode =
+  | "feature-disabled"
   | "auth-required"
   | "http-error"
   | "network-error"
+  | "cors-proxy-failure"
+  | "transient-network-failure"
   | "protocol-error"
   | "missing-capability"
   | "missing-filter-capability"
   | "ref-not-found"
+  | "object-not-found"
 
 export class GitNaturalReadError extends Error {
   readonly code: GitNaturalReadErrorCode
@@ -448,8 +452,9 @@ export class GitNaturalReadClient {
     try {
       response = await this.fetcher(effectiveUrl, init)
     } catch (error) {
+      const code = classifyFetchFailure(error, effectiveUrl, remoteUrl)
       throw new GitNaturalReadError(
-        "network-error",
+        code,
         `Git natural request failed for ${remoteUrl}: ${error instanceof Error ? error.message : String(error)}`,
         {remoteUrl, effectiveUrl, cause: error},
       )
@@ -504,6 +509,19 @@ function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
     offset += chunk.length
   }
   return out
+}
+
+function classifyFetchFailure(
+  error: unknown,
+  effectiveUrl: string,
+  remoteUrl: string,
+): GitNaturalReadErrorCode {
+  const message = error instanceof Error ? error.message : String(error)
+  const directRequest = effectiveUrl.startsWith(`${trimTrailingSlashes(remoteUrl)}/`)
+  if (!directRequest || /cors|failed to fetch|networkerror|load failed/i.test(message)) {
+    return "cors-proxy-failure"
+  }
+  return "transient-network-failure"
 }
 
 function trimTrailingSlashes(value: string): string {

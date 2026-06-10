@@ -164,6 +164,7 @@ import {
   resolveDefaultCorsProxy,
 } from "./workers/git-config.js"
 import {createNip98HttpClient} from "../git/nip98-http-client.js"
+import {GitNaturalReadProvider} from "../git/natural-read-provider.js"
 
 // Import event-based git operations
 import {
@@ -224,6 +225,22 @@ import {
 } from "./workers/repo-management.js"
 
 type DataLevel = "refs" | "shallow" | "full"
+
+let gitNaturalReadProvider: GitNaturalReadProvider | null = null
+let gitNaturalReadProviderCorsProxy: string | null | undefined
+
+function getGitNaturalReadProvider(corsProxy: string | null | undefined): GitNaturalReadProvider {
+  if (!gitNaturalReadProvider || gitNaturalReadProviderCorsProxy !== corsProxy) {
+    gitNaturalReadProvider = new GitNaturalReadProvider({enabled: true, corsProxy})
+    gitNaturalReadProviderCorsProxy = corsProxy
+  }
+  return gitNaturalReadProvider
+}
+
+function assertGitNaturalReadEnabled(enabled?: boolean): void {
+  if (enabled === true) return
+  throw new Error("Git natural read worker RPCs are disabled. Pass enabled: true to opt in.")
+}
 
 function toPlain<T>(val: T): T {
   try {
@@ -844,6 +861,124 @@ const api = {
       }
       throw error
     }
+  },
+
+  async gitNaturalListRefs(opts: {
+    url: string
+    prefix?: string
+    symrefs?: boolean
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(
+      await provider.listRefs({
+        url: opts.url,
+        prefix: opts.prefix,
+        symrefs: opts.symrefs ?? true,
+        corsProxy,
+      }),
+    )
+  },
+
+  async gitNaturalResolveRef(opts: {
+    url: string
+    ref: string
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(await provider.resolveRef({url: opts.url, ref: opts.ref, corsProxy}))
+  },
+
+  async gitNaturalListDirectory(opts: {
+    url: string
+    ref?: string
+    commitHash?: string
+    path?: string
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(
+      await provider.listDirectory({
+        url: opts.url,
+        ref: opts.ref,
+        commitHash: opts.commitHash,
+        path: opts.path,
+        corsProxy,
+      }),
+    )
+  },
+
+  async gitNaturalGetFileContent(opts: {
+    url: string
+    ref?: string
+    commitHash?: string
+    path: string
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(
+      await provider.getFileContent({
+        url: opts.url,
+        ref: opts.ref,
+        commitHash: opts.commitHash,
+        path: opts.path,
+        corsProxy,
+      }),
+    )
+  },
+
+  async gitNaturalListCommits(opts: {
+    url: string
+    ref?: string
+    commitHash?: string
+    depth?: number
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(
+      await provider.listCommits({
+        url: opts.url,
+        ref: opts.ref,
+        commitHash: opts.commitHash,
+        depth: opts.depth,
+        corsProxy,
+      }),
+    )
+  },
+
+  async gitNaturalGetCommit(opts: {
+    url: string
+    ref?: string
+    commitHash?: string
+    enabled?: boolean
+    corsProxy?: string | null
+  }) {
+    assertGitNaturalReadEnabled(opts.enabled)
+    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const provider = getGitNaturalReadProvider(corsProxy)
+    return toPlain(
+      await provider.getCommit({
+        url: opts.url,
+        ref: opts.ref,
+        commitHash: opts.commitHash,
+        corsProxy,
+      }),
+    )
   },
 
   async discoverRemoteBackfill(opts: {

@@ -13,17 +13,16 @@
 
 ## Current Phase
 
-- Phase 3: GitNaturalReadProvider Operations Behind A Feature Flag.
+- Phase 4: VendorReadRouter Shadow Integration With Git-Natural Preference.
 
 ## Phase Exit Criteria
 
-- `GitNaturalReadProvider` or equivalent worker RPC can list refs, resolve refs, list a directory, fetch a file blob, list commit history, and get one commit from compatible public remotes.
-- Results include source metadata: source kind, remote URL, effective URL/proxy, ref, commit hash, object hash when applicable, and fallback/capability info.
-- Ref resolution handles full refs, short branches, tags, peeled annotated tags, `HEAD` symrefs, and direct 40-character commit hashes.
-- Directory reads fetch tree metadata with `blob:none`; file content fetches selected blobs by object hash.
-- Commit history uses `tree:0` where supported and has a fallback/decline path when `filter` is missing.
-- Structured errors exist for missing filter capability, CORS/proxy failure, auth required, ref not found, object not found, protocol error, and transient network failure.
-- Feature flag or internal-only worker RPC prevents production UI from depending on the provider yet.
+- `VendorReadRouter` can call Git natural worker RPCs for refs, directory, file content, and commit history under a feature flag or shadow mode.
+- When enabled, Git natural is attempted before provider REST for supported operations.
+- Shadow mode compares Git natural results against existing provider REST or worker results without changing user-visible output.
+- Mismatch logs include operation, remote URL, ref, commit hash, path, object hash, and source result summaries.
+- Stale result suppression is preserved during fast branch switches, path navigation, repo changes, and tab changes.
+- Existing router fallback behavior and tests continue to pass.
 
 ## Completed With Evidence
 
@@ -51,6 +50,19 @@
 - Exported the Phase 2 natural-read cache/client from `packages/nostr-git-core/src/git/index.ts`.
 - Added `packages/nostr-git-core/test/git/natural-read.spec.ts` covering cache keys/TTL, infoRefs parsing, dedupe, GRASP direct/no-proxy policy, capability selection, missing filter errors, side-band extraction, and upload-pack primitive request bodies.
 - No UI or worker read path depends on Git natural yet.
+- Phase 3 started by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md`, Phase 3 details, Gitworkshop `git-http.ts`/`useGitExplorer.ts`, and `~/Work/git-natural-api` operation/parser code.
+- Added direct `@nostr-git/core` dependencies on `@noble/hashes@2.0.1` and `fflate@0.8.2` for explicit pack parser hashing/decompression imports.
+- Added `packages/nostr-git-core/src/git/natural-read-objects.ts` with local packfile parsing for commit/tree/blob/tag objects, OFS/REF delta handling, Git object hashing, tree parsing, commit parsing, and annotated-tag parsing primitives.
+- Added `packages/nostr-git-core/src/git/natural-read-provider.ts` with disabled-by-default `GitNaturalReadProvider` operations for `listRefs`, `resolveRef`, `listDirectory`, `getFileContent`, `listCommits`, and `getCommit`.
+- Phase 3 provider results include `git-natural` source metadata with operation, remote URL, effective URL/proxy use, attempted URL, ref, commit hash, object hash, capability/filter detail, elapsed time, default branch, and details.
+- Ref resolution now handles `HEAD` symrefs, full refs, short branches, short tags, peeled annotated tag advertisements, and direct 40-character commit hashes.
+- Directory listing fetches and caches `blob:none` raw object batches, derives the root tree from the commit object, traverses tree metadata, and returns normalized directory/file entries without blob content.
+- File content resolves the path through `blob:none` tree metadata, then fetches the selected blob by object hash and returns base64 content plus object/source metadata.
+- Commit history fetches `tree:0` packs, parses commit objects, normalizes first-parent order from the requested tip, caches history batches, and `getCommit` uses the same path with depth 1.
+- Extended structured natural-read errors to include `feature-disabled`, `cors-proxy-failure`, `transient-network-failure`, and `object-not-found` in addition to Phase 2 codes.
+- Added opt-in internal worker RPCs `gitNaturalListRefs`, `gitNaturalResolveRef`, `gitNaturalListDirectory`, `gitNaturalGetFileContent`, `gitNaturalListCommits`, and `gitNaturalGetCommit`; each requires `enabled: true` before executing.
+- Added typed `WorkerManager` wrappers for the opt-in natural RPCs without changing production router read order.
+- Added `packages/nostr-git-core/test/git/natural-read-provider.spec.ts` with in-memory valid packfile fixtures covering feature gating, refs/ref resolution, `blob:none` directory reads, object-hash blob reads, `tree:0` commit history, single commit, missing filter capability, missing refs, and source metadata.
 
 ## Phase 1 Baseline Observations
 
@@ -88,14 +100,14 @@
 
 ## Current State
 
-- Phase 2 implementation and verification are complete in this checkpoint.
-- Current working tree changes are intentional Phase 2 closeout changes.
-- Phase 3 is next and should add worker/provider operations behind a feature flag or internal-only RPC, without production UI dependence.
+- Phase 3 implementation and verification are complete in this checkpoint.
+- Current working tree changes are intentional Phase 3 closeout changes.
+- Phase 4 is next and should integrate natural worker RPCs into `VendorReadRouter` under a feature flag or shadow mode, without changing user-visible behavior unless explicitly enabled.
 
 ## Next Action
 
-- Begin Phase 3 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 3 details, and the operation references in Gitworkshop `git-http.ts`, Gitworkshop UI async code, `~/Work/git-natural-api/index.ts`, and Budabit worker RPC read methods.
-- Implement natural read provider or worker RPC operations for refs, ref resolution, directory listing, file content, commit history, and single commit behind a disabled/opt-in feature flag or internal-only path.
+- Begin Phase 4 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 4 details, and the references in Gitworkshop `pool.ts`/`useGitExplorer.ts`, Budabit `VendorReadRouter.ts`, `Repo.svelte.ts`, and `WorkerManager.ts`.
+- Add natural-read router configuration flags and shadow/feature-flagged calls to the opt-in worker RPCs while preserving existing fallback behavior by default.
 
 ## Verification
 
@@ -105,13 +117,19 @@
 - Passed: `git diff --check`.
 - Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts`.
 - Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts packages/nostr-git-core/test/git/natural-read-provider.spec.ts`.
+- Passed: `pnpm -F @nostr-git/core typecheck`.
+- Passed: `pnpm check`.
+- Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Passed: `git diff --check`.
 
 ## Risks Or Blockers
 
 - Future benchmark/manual validation may be limited by network, browser CORS, or authentication availability.
 - Node fetch timings are not browser CORS validation and should not be treated as proof of browser reachability.
 - If GRASP direct reads fail because CORS headers are missing, treat that as a GRASP server/endpoint conformance problem rather than silently proxying the request.
-- Phase 2 intentionally did not add a packfile object parser dependency; upload-pack primitives return unwrapped packfile bytes and Phase 3 must parse or integrate parsing before object operations return content.
+- Phase 3 parser/provider coverage uses mocked valid packfile fixtures; no live public-remote smoke test was run in this phase.
+- Large live remotes, unusual delta ordering, thin packs, or server-specific upload-pack behavior may still expose parser/performance limits.
 - A confirmed public Bitbucket fixture and a server without `filter` support are still missing.
 
 ## Files
@@ -126,5 +144,12 @@
 - `packages/nostr-git-ui/src/lib/components/git/BranchSelector.svelte`
 - `packages/nostr-git-core/src/git/natural-read-cache.ts`
 - `packages/nostr-git-core/src/git/natural-read-client.ts`
+- `packages/nostr-git-core/src/git/natural-read-objects.ts`
+- `packages/nostr-git-core/src/git/natural-read-provider.ts`
 - `packages/nostr-git-core/src/git/index.ts`
 - `packages/nostr-git-core/test/git/natural-read.spec.ts`
+- `packages/nostr-git-core/test/git/natural-read-provider.spec.ts`
+- `packages/nostr-git-core/src/worker/worker.ts`
+- `packages/nostr-git-ui/src/lib/components/git/WorkerManager.ts`
+- `packages/nostr-git-core/package.json`
+- `pnpm-lock.yaml`

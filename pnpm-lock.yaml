@@ -424,6 +424,9 @@ importers:
       '@isomorphic-git/lightning-fs':
         specifier: ^4.6.2
         version: 4.6.2
+      '@noble/hashes':
+        specifier: 2.0.1
+        version: 2.0.1
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -433,6 +436,9 @@ importers:
       diff:
         specifier: ^8.0.2
         version: 8.0.3
+      fflate:
+        specifier: 0.8.2
+        version: 0.8.2
       file-type:
         specifier: ^20.0.0
         version: 20.5.0

@@ -35,6 +35,8 @@ export * from "./branches.js"
 export * from "./commits.js"
 export * from "./natural-read-cache.js"
 export * from "./natural-read-client.js"
+export * from "./natural-read-objects.js"
+export * from "./natural-read-provider.js"
 
 export { type ImportConfig, DEFAULT_IMPORT_CONFIG, createImportConfig } from "./import-config.js"
 export { ImportAbortedError, ImportAbortController } from "./abort-controller.js"

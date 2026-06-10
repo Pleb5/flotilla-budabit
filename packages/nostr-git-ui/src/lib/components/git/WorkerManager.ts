@@ -1,6 +1,14 @@
 import { getGitWorker } from "@nostr-git/core";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
-import type { PRReviewData } from "@nostr-git/core/git";
+import type {
+  GitNaturalFileContentResult,
+  GitNaturalGetCommitResult,
+  GitNaturalListCommitsResult,
+  GitNaturalListDirectoryResult,
+  GitNaturalListRefsResult,
+  GitNaturalResolveRefResult,
+  PRReviewData,
+} from "@nostr-git/core/git";
 import {
   createAuthRequiredError,
   createNetworkError,
@@ -515,6 +523,74 @@ export class WorkerManager {
   }): Promise<Array<{ ref?: string; oid?: string; target?: string }>> {
     await this.initialize();
     return this.execute("listServerRefs", params);
+  }
+
+  async gitNaturalListRefs(params: {
+    url: string;
+    prefix?: string;
+    symrefs?: boolean;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalListRefsResult> {
+    await this.initialize();
+    return this.execute("gitNaturalListRefs", params);
+  }
+
+  async gitNaturalResolveRef(params: {
+    url: string;
+    ref: string;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalResolveRefResult> {
+    await this.initialize();
+    return this.execute("gitNaturalResolveRef", params);
+  }
+
+  async gitNaturalListDirectory(params: {
+    url: string;
+    ref?: string;
+    commitHash?: string;
+    path?: string;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalListDirectoryResult> {
+    await this.initialize();
+    return this.execute("gitNaturalListDirectory", params);
+  }
+
+  async gitNaturalGetFileContent(params: {
+    url: string;
+    ref?: string;
+    commitHash?: string;
+    path: string;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalFileContentResult> {
+    await this.initialize();
+    return this.execute("gitNaturalGetFileContent", params);
+  }
+
+  async gitNaturalListCommits(params: {
+    url: string;
+    ref?: string;
+    commitHash?: string;
+    depth?: number;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalListCommitsResult> {
+    await this.initialize();
+    return this.execute("gitNaturalListCommits", params);
+  }
+
+  async gitNaturalGetCommit(params: {
+    url: string;
+    ref?: string;
+    commitHash?: string;
+    enabled: true;
+    corsProxy?: string | null;
+  }): Promise<GitNaturalGetCommitResult> {
+    await this.initialize();
+    return this.execute("gitNaturalGetCommit", params);
   }
 
   async discoverRemoteBackfill(params: {

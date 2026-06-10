@@ -154,14 +154,19 @@ export class GitNaturalObjectCache {
     )
   }
 
-  getHistoryBatch(startCommitHash: string, limit: number): GitNaturalHistoryBatch | undefined {
-    return this.historyBatches.get(gitNaturalCacheKeys.historyBatch(startCommitHash, limit))
+  getHistoryBatch<TCommit = GitNaturalCommitObject>(
+    startCommitHash: string,
+    limit: number,
+  ): GitNaturalHistoryBatch<TCommit> | undefined {
+    return this.historyBatches.get(gitNaturalCacheKeys.historyBatch(startCommitHash, limit)) as
+      | GitNaturalHistoryBatch<TCommit>
+      | undefined
   }
 
-  putHistoryBatch(batch: GitNaturalHistoryBatch): void {
+  putHistoryBatch<TCommit extends GitNaturalCommitObject>(batch: GitNaturalHistoryBatch<TCommit>): void {
     this.historyBatches.set(
       gitNaturalCacheKeys.historyBatch(batch.startCommitHash, batch.limit),
-      batch,
+      batch as GitNaturalHistoryBatch,
     )
   }
 
