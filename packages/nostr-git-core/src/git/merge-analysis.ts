@@ -254,6 +254,8 @@ export interface PRReviewData {
   success: boolean
   error?: string
   errorPhase?: "source" | "target" | "review"
+  warning?: string
+  unrelatedHistory?: boolean
   baseOid?: string
   headOid?: string
   targetCommit?: string
@@ -279,6 +281,7 @@ export async function getPRReviewData(
     targetCommitOid?: string
     mergeBase?: string
     maxCommits?: number
+    allowUnrelatedHistoryFallback?: boolean
   },
 ): Promise<PRReviewData> {
   const empty: PRReviewData = {success: false, commits: [], commitOids: []}
@@ -290,7 +293,10 @@ export async function getPRReviewData(
     (opts.targetCommitOid
       ? await findMergeBase(git, repoDir, tipOid, opts.targetCommitOid)
       : undefined)
-  if (!mergeBase) {
+  const unrelatedHistoryFallback =
+    !mergeBase && Boolean(opts.targetCommitOid) && opts.allowUnrelatedHistoryFallback !== false
+  const diffBase = mergeBase || (unrelatedHistoryFallback ? opts.targetCommitOid : undefined)
+  if (!diffBase) {
     return {
       ...empty,
       headOid: tipOid,
@@ -299,18 +305,22 @@ export async function getPRReviewData(
     }
   }
 
-  const commits = await getPRCommitsOnly(git, repoDir, tipOid, mergeBase, opts.maxCommits ?? 100)
+  const commits = await getPRCommitsOnly(git, repoDir, tipOid, diffBase, opts.maxCommits ?? 100)
   const effectiveCommits =
-    commits.length > 0 || tipOid === mergeBase
+    commits.length > 0 || tipOid === diffBase
       ? commits
       : await getCommitMetadataForOids(git, repoDir, [tipOid])
 
   return {
     success: true,
-    baseOid: mergeBase,
+    baseOid: diffBase,
     headOid: tipOid,
     targetCommit: opts.targetCommitOid,
     mergeBase,
+    warning: unrelatedHistoryFallback
+      ? "No common history was found for this PR. Showing files changed against the target branch head; merge analysis still needs to be run separately."
+      : undefined,
+    unrelatedHistory: unrelatedHistoryFallback || undefined,
     commits: effectiveCommits,
     commitOids: effectiveCommits.map(commit => commit.oid),
   }
@@ -565,12 +575,12 @@ export async function analyzePRMergeability(
             fastForward: false,
             targetCommit,
             remoteCommit: undefined,
-            patchCommits,
+            patchCommits: [],
             analysis: "up-to-date",
             filesChanged: [],
             usedTargetCloneUrl,
             usedCloneUrl: url,
-            prCommits: await getCommitMetadataForOids(git, repoDir, patchCommits),
+            prCommits: [],
           } as PRMergeAnalysisResult
         }
 

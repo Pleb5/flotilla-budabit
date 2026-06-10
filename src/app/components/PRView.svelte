@@ -599,6 +599,7 @@
   let prChangesLoading = $state(false)
   let prChangesError = $state<string | null>(null)
   let prChangesErrorPhase = $state<PrReviewErrorPhase | null>(null)
+  let prChangesWarning = $state<string | null>(null)
   let prChangesProgress = $state("")
   let prChangesGeneration = $state(0)
   let prReviewCommits = $state<PrReviewCommit[]>([])
@@ -1368,6 +1369,7 @@
       prChanges = null
       prChangesError = null
       prChangesErrorPhase = null
+      prChangesWarning = null
       prReviewCommits = []
       prDiffBaseOid = null
       prDiffHeadOid = null
@@ -1555,6 +1557,7 @@
     prChangesLoading = true
     prChangesError = null
     prChangesErrorPhase = null
+    prChangesWarning = null
     prChangesProgress = "Resolving diff range..."
     if (!options.preserveAnalysisUntilSuccess) {
       prChanges = null
@@ -1586,6 +1589,7 @@
           prChanges = Array.isArray(res.changes) ? res.changes : []
           prChangesError = null
           prChangesErrorPhase = null
+          prChangesWarning = typeof res.warning === "string" ? res.warning : null
           if (options.preserveAnalysisUntilSuccess) clearPrMergeAnalysis()
         } else {
           const errorPhase = normalizePrReviewErrorPhase(res?.errorPhase)
@@ -1606,6 +1610,7 @@
               ? prReviewCommits
               : []
           prChangesErrorPhase = errorPhase
+          prChangesWarning = null
           prChangesError = formatPrReviewLoadError(
             res?.error || "Failed to load PR review data",
             errorPhase,
@@ -1625,6 +1630,7 @@
         const errorPhase: PrReviewErrorPhase = "review"
         prChanges = []
         prChangesErrorPhase = errorPhase
+        prChangesWarning = null
         prChangesError = formatPrReviewLoadError(
           "Unable to resolve a merged diff range for this PR yet.",
           errorPhase,
@@ -1648,10 +1654,12 @@
         prChanges = res.changes
         prChangesError = null
         prChangesErrorPhase = null
+        prChangesWarning = null
       } else {
         const errorPhase: PrReviewErrorPhase = "review"
         prChanges = []
         prChangesErrorPhase = errorPhase
+        prChangesWarning = null
         prChangesError = formatPrReviewLoadError(res.error || "Failed to load diff", errorPhase)
       }
     } catch (err) {
@@ -1659,6 +1667,7 @@
       const errorPhase = normalizePrReviewErrorPhase((err as any)?.errorPhase)
       prChanges = []
       prChangesErrorPhase = errorPhase
+      prChangesWarning = null
       prChangesError = formatPrReviewLoadError(getErrorText(err) || "Failed to load diff", errorPhase)
     } finally {
       if (prChangesGeneration === currentGen) {
@@ -1681,6 +1690,7 @@
       prChangesLoading = true
       prChangesProgress = "Loading file diffs..."
       prChangesError = null
+      prChangesWarning = null
 
       try {
         const res = await repoClass.workerManager.getDiffBetween({
@@ -3860,6 +3870,13 @@
               </div>
             {/if}
           </div>
+
+          {#if prChangesWarning && !prChangesError}
+            <div
+              class="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              {prChangesWarning}
+            </div>
+          {/if}
 
           <TabsContent value="commits" class="mt-0" id="pr-commits-tab-panel">
             {#if prChangesLoading && !prCommitOids.length}

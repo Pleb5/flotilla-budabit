@@ -11,16 +11,15 @@
 
 ## Current Phase
 
-- Phase 2: PR Review Edge Cases
+- Phase 3: Clean Non-FF Analysis Regression
 
 ## Phase Exit Criteria
 
-- Up-to-date analysis returns no PR commits or patch commits for UI commit counts.
-- Up-to-date PR review remains able to show zero changed files and no commits before and after analysis.
-- `getPRReviewData` handles no merge base by using target commit as review diff base when target commit is available.
-- Orphan/unrelated-history review returns a clear warning/flag and usable diff data instead of `Unable to resolve a PR diff base`.
-- Orphan/unrelated-history merge analysis remains non-mergeable unless explicit support is implemented.
-- Tests cover up-to-date commit counts and no-merge-base review fallback.
+- A regression test reproduces a clean non-FF PR where target changed README and PR adds an unrelated file from an older base.
+- The clean non-FF case returns `analysis: clean`, `canMerge: true`, and `hasConflicts: false`.
+- A real same-file conflict test still returns `analysis: conflicts`.
+- A rename/delete or modify/delete conflict remains classified as a conflict if covered by existing or new tests.
+- Dry-run merge cleanup leaves no stale worktree/index state that can poison later analyses.
 - `pnpm check`, targeted core tests, and `git diff --check` pass.
 
 ## Completed With Evidence
@@ -33,6 +32,13 @@
 - Phase 1 targeted status tests passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/status-resolver.spec.ts test/git/status-resolver.spec.ts`.
 - Phase 1 full check passed: `corepack pnpm check`.
 - Phase 1 diff check passed: `git diff --check`.
+- Phase 2 changed up-to-date merge analysis to return empty `patchCommits` and `prCommits`.
+- Phase 2 changed PR review data to optionally fall back to target-head diff base when no merge base exists, with `warning` and `unrelatedHistory` fields.
+- Phase 2 keeps the worker's deeper-fetch path by deferring unrelated-history fallback on the first no-merge-base review attempt.
+- Phase 2 surfaces PR review warnings in `PRView.svelte`.
+- Phase 2 targeted tests passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/git/merge-analysis.spec.ts test/worker/pr-merge.spec.ts`.
+- Phase 2 full check passed: `corepack pnpm check`.
+- Phase 2 diff check passed: `git diff --check`.
 
 ## Decisions
 
@@ -45,16 +51,18 @@
 
 - Branch: `dev` tracking `origin/dev`.
 - Existing unrelated worktree change: `docs/architecture/git-natural-read-pivot.md` formatting/doc edits. Do not stage or modify it.
-- Phase 1 changed files are ready to commit and push with this checkpoint update.
-- Next phase should address up-to-date commit inflation and orphan/unrelated-history review fallback.
+- Phase 1 was committed and pushed as `e2856318 fix: default PR status gates to open`.
+- Phase 2 implementation and verification are complete in the current phase closeout.
+- Next phase should investigate the clean non-FF false conflict while preserving real conflict behavior.
 
 ## Next Action
 
-- Implement Phase 2 up-to-date analysis commit-count fix and orphan-history review fallback.
+- Begin Phase 3 startup: reread this checkpoint, reread `docs/architecture/pr-status-merge-session-plan.md`, inspect repository state, then reproduce/fix the clean non-FF false conflict.
 
 ## Verification
 
 - Passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/status-resolver.spec.ts test/git/status-resolver.spec.ts`.
+- Passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/git/merge-analysis.spec.ts test/worker/pr-merge.spec.ts`.
 - Passed: `corepack pnpm check`.
 - Passed: `git diff --check`.
 
@@ -71,6 +79,9 @@
 - `packages/nostr-git-core/src/events/nip34/status-resolver.ts`
 - `packages/nostr-git-core/test/status-resolver.spec.ts`
 - `packages/nostr-git-core/test/git/status-resolver.spec.ts`
+- `packages/nostr-git-core/test/git/merge-analysis.spec.ts`
+- `packages/nostr-git-core/src/git/merge-analysis.ts`
+- `packages/nostr-git-core/src/worker/worker.ts`
 - `src/app/components/PRView.svelte`
 - `src/routes/git/[id=naddr]/+layout.svelte`
 - `packages/nostr-git-ui/src/lib/components/git/Status.svelte`

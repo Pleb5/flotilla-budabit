@@ -2603,6 +2603,7 @@ const api = {
         tipCommitOid: headOid,
         targetCommitOid: targetCommit,
         mergeBase: preferredMergeBase,
+        allowUnrelatedHistoryFallback: Boolean(preferredMergeBase),
       })
 
       if (!review.success && preferredMergeBase && targetCommit) {
