@@ -13,17 +13,15 @@
 
 ## Current Phase
 
-- Phase 5: Enable GRASP And Generic Smart HTTP Natural Reads.
+- Phase 6: Hosted Provider Adoption And REST Demotion.
 
 ## Phase Exit Criteria
 
-- GRASP Smart HTTP repo browsing can list refs, list directories, open files, and list commit history through Git natural when server capabilities allow.
-- GRASP Smart HTTP natural reads go direct by default and do not use the generic CORS proxy.
-- Generic HTTP(S) Git remotes use Git natural for the same operations when browser/proxy access and capabilities allow.
-- Incomplete GRASP REST endpoints remain disabled or secondary and are not required for browsing.
-- Worker clone fallback still handles unsupported filters, protocol errors, CORS/proxy failures, auth failures, and object-missing cases.
-- User-visible errors distinguish Git natural read fallback from local clone initialization failure.
-- Git natural read success does not update `clonedRepos`, `repoDataLevels`, or any local clone-ready state.
+- Git natural reads are attempted before provider REST for compatible hosted remotes when enabled.
+- Provider REST remains as fallback for CORS-blocked Smart HTTP, auth-specific cases, missing filter support, or host/operation cases where measured evidence says REST is better.
+- Benchmarks or recorded observations compare Git natural and REST for refs, directory, file open, and commit history on available hosted providers.
+- Hosted provider auth and token handling are not regressed.
+- Rate-limit and CORS errors are classified separately from Git protocol/capability errors.
 
 ## Completed With Evidence
 
@@ -72,6 +70,16 @@
 - Shadow mismatch logs include operation, remote URL, ref, commit hash, path, object hash, baseline and natural summaries, and baseline/natural source summaries.
 - Worker clone fallback metadata now distinguishes natural-read fallback reasons when enabled, while preserving existing fallback behavior by default.
 - Added `VendorReadRouter.test.ts` coverage for Git natural before provider REST, provider REST fallback after natural failure, worker clone fallback after natural and REST failure, shadow mode preserving provider output, and Git natural commit history before provider REST.
+- Phase 4 committed and pushed as `74b8f327 feat: add git natural router shadow mode`.
+- Phase 5 started by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md`, Phase 5 details, Gitworkshop `git-grasp-pool` references, `~/Work/git-natural-api/refs.ts`, and Budabit GRASP/natural-read router references.
+- Added `GitNaturalReadPolicy = "all-http" | "grasp-and-generic"` and `VendorReadRouterConfig.gitNaturalReadPolicy`, defaulting explicit router opt-in to `"all-http"` while allowing the app rollout to scope natural reads to GRASP and generic HTTP(S) first.
+- Updated natural-read URL eligibility so `"grasp-and-generic"` includes GRASP repo HTTP URLs and non-vendor generic HTTP(S) clone URLs, while excluding hosted providers from Phase 5 natural-first behavior.
+- Updated `Repo.svelte.ts` to enable Git natural reads with `gitNaturalReadPolicy: "grasp-and-generic"`, keeping hosted providers REST-first until Phase 6 adoption work.
+- Verified GRASP natural-read router calls do not pass a generic `corsProxy` override by default, so core/worker GRASP URL policy keeps direct Smart HTTP behavior.
+- Added Git natural failure summaries and user-visible fallback context for worker fallback failures, so clone initialization failures can report that they happened after Git natural read failure.
+- Preserved worker clone fallback after natural failures for unsupported filters, protocol/CORS/proxy/auth/object errors, while Git natural successes return without clone-state calls.
+- Added Phase 5 router tests for GRASP natural browsing without clone-state calls, generic HTTP natural eligibility, hosted-provider REST-first scoped rollout behavior, and natural failure context.
+- Live direct GRASP `info/refs` smoke succeeded from the local Node environment: `https://pyramid.fiatjaf.com/.../societybuilder.git/info/refs?service=git-upload-pack`, HTTP 200, `application/x-git-upload-pack-advertisement`, 429 bytes, advertised `filter` capability.
 
 ## Phase 1 Baseline Observations
 
@@ -109,15 +117,15 @@
 
 ## Current State
 
-- Phase 4 implementation and verification are complete in this checkpoint.
-- Current intentional Phase 4 changes are limited to `VendorReadRouter.ts`, `VendorReadRouter.test.ts`, and this checkpoint.
-- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited during Phase 4.
-- Phase 5 is next and should enable/validate Git natural reads for GRASP and generic HTTP(S) remotes while preserving direct GRASP transport and worker clone fallback.
+- Phase 5 implementation and verification are complete in this checkpoint.
+- Current intentional Phase 5 changes are limited to `VendorReadRouter.ts`, `VendorReadRouter.test.ts`, `Repo.svelte.ts`, and this checkpoint.
+- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited during Phase 5.
+- Phase 6 is next and should expand Git natural reads to hosted providers where compatible while keeping provider REST as fallback or measured exception.
 
 ## Next Action
 
-- Begin Phase 5 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 5 details, and the references in Gitworkshop `git-grasp-pool`, Budabit `grasp-url.ts`, `grasp-capabilities.ts`, `advertised-refs.ts`, `grasp.ts`, and `grasp-rest.ts`.
-- Add or validate natural-read URL eligibility for GRASP repo HTTP URLs and generic HTTP(S) clone URLs, ensuring GRASP direct Smart HTTP is never accidentally proxied by default.
+- Begin Phase 6 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 6 details, Gitworkshop `CorsProxyManager`/`GitHttpClient` references, and Budabit hosted provider REST implementations in `VendorReadRouter.ts`.
+- Update router policy so compatible hosted providers can use Git natural before provider REST under the selected rollout flag, while preserving REST fallback for CORS/proxy, auth, missing capability, protocol, or measured host/operation exception cases.
 
 ## Verification
 
@@ -137,6 +145,12 @@
 - Phase 4 passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read-provider.spec.ts`.
 - Phase 4 passed: `pnpm check`.
 - Phase 4 passed: `git diff --check`.
+- Phase 5 passed: `pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false packages/nostr-git-ui/src/lib/components/git/VendorReadRouter.test.ts`.
+- Phase 5 passed: `pnpm -F @nostr-git/ui typecheck`.
+- Phase 5 passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Phase 5 passed: `pnpm check`.
+- Phase 5 passed: `git diff --check`.
+- Phase 5 smoke passed: Node direct GRASP `info/refs?service=git-upload-pack` fetch returned HTTP 200 with upload-pack advertisement and `filter` capability.
 
 ## Risks Or Blockers
 
@@ -145,6 +159,7 @@
 - If GRASP direct reads fail because CORS headers are missing, treat that as a GRASP server/endpoint conformance problem rather than silently proxying the request.
 - Phase 3 parser/provider coverage uses mocked valid packfile fixtures; no live public-remote smoke test was run in this phase.
 - Phase 4 did not run a manual shadow-mode browser/network comparison; Phase 5 should cover live GRASP/generic HTTP(S) smoke testing if network and server behavior allow.
+- Phase 5 live smoke covered direct GRASP `info/refs` reachability from Node, but did not complete a full browser/worker directory/file/commit natural-read smoke against a live public remote.
 - Large live remotes, unusual delta ordering, thin packs, or server-specific upload-pack behavior may still expose parser/performance limits.
 - A confirmed public Bitbucket fixture and a server without `filter` support are still missing.
 

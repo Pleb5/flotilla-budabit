@@ -545,11 +545,13 @@ export class Repo {
 
     this.mergeAnalysisCacheManager = new MergeAnalysisCacheManager(this.cacheManager);
 
-    // Initialize VendorReadRouter for API-first reads with git fallback
-    // This enables branch/tag discovery from vendor APIs (GitHub, GitLab, etc.) when no Repo State event is available
+    // Initialize VendorReadRouter for natural Smart HTTP reads with REST/worker fallback.
+    // Phase 5 enables GRASP and generic HTTP(S) remotes first; hosted providers stay on REST until measured adoption.
     this.vendorReadRouter = new VendorReadRouter({
       getTokens: () => tokens.waitForInitialization(),
       preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalReadPolicy: "grasp-and-generic",
     });
 
     // Wire up error callback to surface clone URL errors (404s, auth errors, etc.) to the UI

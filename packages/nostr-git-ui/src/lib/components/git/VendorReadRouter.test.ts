@@ -23,6 +23,8 @@ const gitNaturalSource = (
 });
 
 const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const graspUrl =
+  "https://gitnostr.com/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git";
 
 describe("VendorReadRouter.listRefs", () => {
   it("uses advertised git refs for non-vendor remotes", async () => {
@@ -382,6 +384,237 @@ describe("VendorReadRouter natural read fallback", () => {
     expect(result.content).toBe("worker content");
     expect(workerManager.gitNaturalGetFileContent).toHaveBeenCalledTimes(1);
     expect(workerManager.getRepoFileContentFromEvent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("VendorReadRouter GRASP and generic natural rollout", () => {
+  it("uses Git natural for GRASP browsing operations without clone-state calls", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalReadPolicy: "grasp-and-generic",
+    });
+    const commitHash = "a".repeat(40);
+    const treeHash = "b".repeat(40);
+    const blobHash = "c".repeat(40);
+
+    const workerManager = {
+      gitNaturalListRefs: vi.fn(async ({ url, corsProxy }: { url: string; corsProxy?: string }) => ({
+        refs: [
+          { ref: "HEAD", oid: commitHash, target: "refs/heads/main" },
+          { ref: "refs/heads/main", oid: commitHash },
+        ],
+        defaultBranch: "main",
+        source: gitNaturalSource("listRefs", url, {
+          defaultBranch: "main",
+          ref: "main",
+          usesProxy: Boolean(corsProxy),
+        }),
+      })),
+      gitNaturalListDirectory: vi.fn(async ({ url }: { url: string }) => ({
+        path: "",
+        ref: "refs/heads/main",
+        commitHash,
+        treeHash,
+        entries: [{ name: "README.md", path: "README.md", type: "file", mode: "100644", oid: blobHash }],
+        source: gitNaturalSource("listDirectory", url, {
+          ref: "refs/heads/main",
+          commitHash,
+          objectHash: treeHash,
+          capability: "filter=blob:none",
+        }),
+      })),
+      gitNaturalGetFileContent: vi.fn(async ({ url }: { url: string }) => ({
+        path: "README.md",
+        ref: "refs/heads/main",
+        commitHash,
+        objectHash: blobHash,
+        content: "SGVsbG8=",
+        encoding: "base64",
+        size: 5,
+        source: gitNaturalSource("getFileContent", url, {
+          ref: "refs/heads/main",
+          commitHash,
+          objectHash: blobHash,
+          capability: "object-by-hash",
+        }),
+      })),
+      gitNaturalListCommits: vi.fn(async ({ url }: { url: string }) => ({
+        ref: "refs/heads/main",
+        commitHash,
+        commits: [
+          {
+            hash: commitHash,
+            tree: treeHash,
+            parents: [],
+            author: { name: "Alice", email: "alice@example.com", timestamp: 1, timezone: "+0000" },
+            committer: { name: "Alice", email: "alice@example.com", timestamp: 1, timezone: "+0000" },
+            message: "Initial commit",
+          },
+        ],
+        source: gitNaturalSource("listCommits", url, {
+          ref: "refs/heads/main",
+          commitHash,
+          capability: "filter=tree:0",
+        }),
+      })),
+      listServerRefs: vi.fn(async () => []),
+      listBranchesFromEvent: vi.fn(async () => []),
+      listRepoFilesFromEvent: vi.fn(async () => []),
+      getRepoFileContentFromEvent: vi.fn(async () => "worker content"),
+      getCommitHistory: vi.fn(async () => ({ success: true, commits: [] })),
+      initializeRepo: vi.fn(),
+      smartInitializeRepo: vi.fn(),
+      ensureShallowClone: vi.fn(),
+      ensureFullClone: vi.fn(),
+    } as any;
+    const repoEvent = { id: "repo", pubkey: "owner", tags: [] } as any;
+
+    const refs = await router.listRefs({ workerManager, repoEvent, cloneUrls: [graspUrl] });
+    const directory = await router.listDirectory({
+      workerManager,
+      repoEvent,
+      repoKey: "owner/repo",
+      cloneUrls: [graspUrl],
+      branch: "main",
+      path: "",
+    });
+    const file = await router.getFileContent({
+      workerManager,
+      repoEvent,
+      repoKey: "owner/repo",
+      cloneUrls: [graspUrl],
+      branch: "main",
+      path: "README.md",
+    });
+    const commits = await router.listCommits({
+      workerManager,
+      repoEvent,
+      repoKey: "owner/repo",
+      cloneUrls: [graspUrl],
+      branch: "main",
+      depth: 10,
+    });
+
+    expect(refs.source.kind).toBe("git-natural");
+    expect(directory.source?.kind).toBe("git-natural");
+    expect(file.source?.kind).toBe("git-natural");
+    expect(file.content).toBe("Hello");
+    expect(commits.source?.kind).toBe("git-natural");
+    expect(workerManager.gitNaturalListRefs).toHaveBeenCalledWith(
+      expect.objectContaining({ url: graspUrl, enabled: true })
+    );
+    expect(workerManager.gitNaturalListRefs.mock.calls[0][0]).not.toHaveProperty("corsProxy");
+    expect(workerManager.listServerRefs).not.toHaveBeenCalled();
+    expect(workerManager.listRepoFilesFromEvent).not.toHaveBeenCalled();
+    expect(workerManager.getRepoFileContentFromEvent).not.toHaveBeenCalled();
+    expect(workerManager.getCommitHistory).not.toHaveBeenCalled();
+    expect(workerManager.initializeRepo).not.toHaveBeenCalled();
+    expect(workerManager.smartInitializeRepo).not.toHaveBeenCalled();
+    expect(workerManager.ensureShallowClone).not.toHaveBeenCalled();
+    expect(workerManager.ensureFullClone).not.toHaveBeenCalled();
+  });
+
+  it("uses Git natural for generic HTTP remotes under the GRASP/generic policy", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalReadPolicy: "grasp-and-generic",
+    });
+    const workerManager = {
+      gitNaturalListDirectory: vi.fn(async ({ url }: { url: string }) => ({
+        path: "src",
+        ref: "refs/heads/main",
+        commitHash: "a".repeat(40),
+        treeHash: "b".repeat(40),
+        entries: [{ name: "index.ts", path: "src/index.ts", type: "file", mode: "100644", oid: "c".repeat(40) }],
+        source: gitNaturalSource("listDirectory", url, {
+          ref: "refs/heads/main",
+          commitHash: "a".repeat(40),
+          objectHash: "b".repeat(40),
+          capability: "filter=blob:none",
+        }),
+      })),
+      listRepoFilesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listDirectory({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/repo",
+      cloneUrls: ["https://example.com/owner/repo.git"],
+      branch: "main",
+      path: "src",
+    });
+
+    expect(result.source?.kind).toBe("git-natural");
+    expect(result.files.map((file) => file.path)).toEqual(["src/index.ts"]);
+    expect(workerManager.listRepoFilesFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps hosted provider REST first under the GRASP/generic policy", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalReadPolicy: "grasp-and-generic",
+    });
+    vi.spyOn(router as any, "vendorListRefs").mockResolvedValue({
+      refs: [{ name: "main", type: "heads", fullRef: "refs/heads/main", commitId: "111111" }],
+      defaultBranch: "main",
+    });
+    const workerManager = {
+      gitNaturalListRefs: vi.fn(async () => ({ refs: [] })),
+      listServerRefs: vi.fn(async () => []),
+      listBranchesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listRefs({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      cloneUrls: ["https://github.com/example/repo.git"],
+    });
+
+    expect(result.source.kind).toBe("provider-rest");
+    expect(workerManager.gitNaturalListRefs).not.toHaveBeenCalled();
+  });
+
+  it("adds Git natural failure context when the worker clone fallback also fails", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalReadPolicy: "grasp-and-generic",
+    });
+    const reportCloneUrlError = vi.fn();
+    router.setCloneUrlErrorCallback(reportCloneUrlError);
+    const workerManager = {
+      gitNaturalGetFileContent: vi.fn(async () => {
+        throw new Error("missing filter capability");
+      }),
+      getRepoFileContentFromEvent: vi.fn(async () => {
+        throw new Error("clone initialization failed");
+      }),
+    } as any;
+
+    await expect(
+      router.getFileContent({
+        workerManager,
+        repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+        repoKey: "owner/repo",
+        cloneUrls: ["https://example.com/owner/repo.git"],
+        branch: "main",
+        path: "README.md",
+      })
+    ).rejects.toThrow("after Git natural read failed");
+
+    expect(reportCloneUrlError).toHaveBeenCalledWith(
+      "https://example.com/owner/repo.git",
+      expect.stringContaining("Git natural read failed"),
+      undefined
+    );
   });
 });
 

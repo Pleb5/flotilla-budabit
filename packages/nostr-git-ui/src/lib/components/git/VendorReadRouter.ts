@@ -15,7 +15,7 @@ import {
   type GitNaturalListRefsResult,
   type GitNaturalReadSourceMetadata,
 } from "@nostr-git/core/git";
-import { withUrlFallback, filterValidCloneUrls } from "@nostr-git/core/utils";
+import { withUrlFallback, filterValidCloneUrls, isGraspRepoHttpUrl } from "@nostr-git/core/utils";
 import { nip19 } from "nostr-tools";
 
 import type { Token } from "$lib/stores/tokens";
@@ -31,11 +31,14 @@ export interface VendorReadRouterConfig {
    * Default is disabled so production-visible read order remains unchanged.
    */
   gitNaturalReads?: GitNaturalReadMode;
+  /** Scope Git natural rollout. `enabled` defaults to all HTTP(S); app rollout can use GRASP/generic first. */
+  gitNaturalReadPolicy?: GitNaturalReadPolicy;
   /** Override the worker/default CORS proxy for Git natural reads. Use null to force direct. */
   gitNaturalCorsProxy?: string | null;
 }
 
 export type GitNaturalReadMode = "disabled" | "enabled" | "shadow";
+export type GitNaturalReadPolicy = "all-http" | "grasp-and-generic";
 
 export type ReadSourceKind =
   | "repo-state"
@@ -151,16 +154,18 @@ const ENABLE_GRASP_REST_READS: boolean = false;
  */
 export type CloneUrlErrorCallback = (url: string, error: string, status?: number) => void;
 export type CloneUrlSuccessCallback = (url: string) => void;
+type ReadFailureSummary = { url: string; error?: string };
 
 /**
- * VendorReadRouter performs vendor API reads first (when supported) and falls back to worker git RPC.
- * - Vendor reads are best-effort and should never block fallback git reads.
+ * VendorReadRouter coordinates remote reads across Git natural, provider REST, and worker fallback.
+ * - Remote fast paths are best-effort and should never block fallback git reads.
  * - Heavy git/FS operations always go through WorkerManager RPC.
  */
 export class VendorReadRouter {
   private getTokens: () => Promise<Token[]>;
   private preferVendorReads: boolean;
   private gitNaturalReads: GitNaturalReadMode;
+  private gitNaturalReadPolicy: GitNaturalReadPolicy;
   private gitNaturalCorsProxy?: string | null;
   private onCloneUrlError?: CloneUrlErrorCallback;
   private onCloneUrlSuccess?: CloneUrlSuccessCallback;
@@ -169,6 +174,7 @@ export class VendorReadRouter {
     this.getTokens = config.getTokens;
     this.preferVendorReads = config.preferVendorReads ?? true;
     this.gitNaturalReads = config.gitNaturalReads ?? "disabled";
+    this.gitNaturalReadPolicy = config.gitNaturalReadPolicy ?? "all-http";
     this.gitNaturalCorsProxy = config.gitNaturalCorsProxy;
   }
 
@@ -220,7 +226,13 @@ export class VendorReadRouter {
   }
 
   private getNaturalReadUrls(remotes: string[]): string[] {
-    return remotes.filter((url) => /^https?:\/\//i.test(url));
+    const httpRemotes = remotes.filter((url) => /^https?:\/\//i.test(url));
+    if (this.gitNaturalReadPolicy === "all-http") return httpRemotes;
+
+    return httpRemotes.filter((url) => {
+      if (isGraspRepoHttpUrl(url)) return true;
+      return this.getSupportedVendor(url) === null;
+    });
   }
 
   private naturalRequestBase(remoteUrl: string): {
@@ -522,12 +534,37 @@ export class VendorReadRouter {
     );
   }
 
-  private logGitNaturalFallback(operation: ReadOperation, attempts: Array<{ url: string; error?: string }>): void {
-    if (attempts.length === 0) return;
+  private failedAttemptSummaries(attempts: Array<{ url: string; success: boolean; error?: string }>): ReadFailureSummary[] {
+    return attempts
+      .filter((attempt) => !attempt.success)
+      .map((attempt) => ({ url: attempt.url, error: attempt.error || "Unknown error" }));
+  }
+
+  private formatFailureContext(label: string, failures: ReadFailureSummary[]): string {
+    if (failures.length === 0) return "";
+    return ` ${label}: ${failures
+      .map((attempt) => `${attempt.url}: ${attempt.error || "Unknown error"}`)
+      .join(" | ")}`;
+  }
+
+  private reportGitNaturalFailures(failures: ReadFailureSummary[]): void {
+    for (const attempt of failures) {
+      const message = `Git natural read failed: ${attempt.error || "Unknown error"}`;
+      this.reportCloneUrlError(attempt.url, message, this.extractHttpStatus(attempt.error));
+    }
+  }
+
+  private logGitNaturalFallback(
+    operation: ReadOperation,
+    attempts: Array<{ url: string; success: boolean; error?: string }>
+  ): ReadFailureSummary[] {
+    const failures = this.failedAttemptSummaries(attempts);
+    if (failures.length === 0) return [];
     console.warn("[VendorReadRouter] Git natural read failed, falling back", {
       operation,
-      attempts: attempts.map((attempt) => ({ url: attempt.url, error: attempt.error })),
+      attempts: failures.map((attempt) => ({ url: attempt.url, error: attempt.error })),
     });
+    return failures;
   }
 
   /**
@@ -556,6 +593,8 @@ export class VendorReadRouter {
     const remotes = this.getValidRemotes(params.cloneUrls);
     const startedAt = Date.now();
     let naturalAttempted = false;
+    let providerReadAttempted = false;
+    let pendingNaturalFailures: ReadFailureSummary[] = [];
 
     // 1) Optional Git natural fast path. This stays feature-flagged because it
     // changes the production-visible source order when enabled.
@@ -588,7 +627,7 @@ export class VendorReadRouter {
           );
         }
 
-        this.logGitNaturalFallback("listDirectory", naturalResult.attempts);
+        pendingNaturalFailures = this.logGitNaturalFallback("listDirectory", naturalResult.attempts);
       }
     }
 
@@ -598,6 +637,7 @@ export class VendorReadRouter {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
+        providerReadAttempted = true;
         // Try each vendor URL with fallback
         console.log(`[VendorReadRouter] Trying REST API for listDirectory...`);
         const vendorResult = await withUrlFallback(
@@ -702,7 +742,9 @@ export class VendorReadRouter {
           attemptedUrls: remotes,
           ref: normalizeGitRefName(branch),
           fallbackReason: naturalAttempted
-            ? "git-natural-and-provider-rest-unavailable-or-failed"
+            ? providerReadAttempted
+              ? "git-natural-and-provider-rest-unavailable-or-failed"
+              : "git-natural-failed"
             : "provider-rest-unavailable-or-failed",
           startedAt,
           details: "Directory listing comes from the worker-backed local git fallback.",
@@ -729,6 +771,13 @@ export class VendorReadRouter {
       return result;
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
+      if (pendingNaturalFailures.length > 0) {
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+        err.message = `${err.message}${this.formatFailureContext(
+          "after Git natural read failed",
+          pendingNaturalFailures
+        )}`;
+      }
       throw err;
     }
   }
@@ -746,6 +795,8 @@ export class VendorReadRouter {
     const ctx = this.ctx({ op: "getFileContent", remote: remotes[0], branch, path: params.path });
     const startedAt = Date.now();
     let naturalAttempted = false;
+    let providerReadAttempted = false;
+    let pendingNaturalFailures: ReadFailureSummary[] = [];
 
     // 1) Optional Git natural fast path.
     if (this.shouldTryGitNaturalReads()) {
@@ -777,7 +828,7 @@ export class VendorReadRouter {
           );
         }
 
-        this.logGitNaturalFallback("getFileContent", naturalResult.attempts);
+        pendingNaturalFailures = this.logGitNaturalFallback("getFileContent", naturalResult.attempts);
       }
     }
 
@@ -786,6 +837,7 @@ export class VendorReadRouter {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
+        providerReadAttempted = true;
         // Try each vendor URL with fallback
         console.log(`[VendorReadRouter] Trying REST API for getFileContent...`);
         const vendorResult = await withUrlFallback(
@@ -882,7 +934,9 @@ export class VendorReadRouter {
           attemptedUrls: remotes,
           ref: normalizeGitRefName(branch),
           fallbackReason: naturalAttempted
-            ? "git-natural-and-provider-rest-unavailable-or-failed"
+            ? providerReadAttempted
+              ? "git-natural-and-provider-rest-unavailable-or-failed"
+              : "git-natural-failed"
             : "provider-rest-unavailable-or-failed",
           startedAt,
           details: "File content comes from the worker-backed local git fallback.",
@@ -909,7 +963,13 @@ export class VendorReadRouter {
       return result;
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
-      err.message = `${err.message}${ctx}`;
+      if (pendingNaturalFailures.length > 0) {
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+      }
+      const naturalContext = pendingNaturalFailures.length
+        ? this.formatFailureContext("after Git natural read failed", pendingNaturalFailures)
+        : "";
+      err.message = `${err.message}${ctx}${naturalContext}`;
       throw err;
     }
   }
@@ -927,6 +987,7 @@ export class VendorReadRouter {
     const remotes = this.getValidRemotes(params.cloneUrls);
     const startedAt = Date.now();
     let naturalAttempted = false;
+    let providerReadAttempted = false;
 
     // 1) Optional Git natural fast path.
     if (this.shouldTryGitNaturalReads()) {
@@ -966,6 +1027,7 @@ export class VendorReadRouter {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
+        providerReadAttempted = true;
         console.log(`[VendorReadRouter] Trying REST API for listRefs...`);
         const vendorResult = await withUrlFallback(vendorUrls, async (remoteUrl: string) => {
           const vendor = this.getSupportedVendor(remoteUrl)!;
@@ -1066,7 +1128,11 @@ export class VendorReadRouter {
             attemptedUrls: gitResult.attempts.map((attempt) => attempt.url),
             ref: gitResult.result.defaultBranch,
             defaultBranch: gitResult.result.defaultBranch,
-            fallbackReason: naturalAttempted ? "git-natural-failed" : undefined,
+            fallbackReason: naturalAttempted
+              ? providerReadAttempted
+                ? "git-natural-and-provider-rest-failed"
+                : "git-natural-failed"
+              : undefined,
             elapsedMs: Math.max(0, Date.now() - startedAt),
             details: "Ref list comes from advertised refs on the git remote.",
           },
@@ -1129,7 +1195,9 @@ export class VendorReadRouter {
         operation: "listRefs",
         attemptedUrls: remotes,
         fallbackReason: naturalAttempted
-          ? "git-natural-and-remote-ref-discovery-failed"
+          ? providerReadAttempted
+            ? "git-natural-provider-rest-and-remote-ref-discovery-failed"
+            : "git-natural-and-remote-ref-discovery-failed"
           : "remote-ref-discovery-failed",
         elapsedMs: Math.max(0, Date.now() - startedAt),
         details: "Remote ref discovery failed, so only locally known refs are shown.",
@@ -1222,6 +1290,8 @@ export class VendorReadRouter {
     let pendingVendorFailures: Array<{ url: string; error?: string }> = [];
     const startedAt = Date.now();
     let naturalAttempted = false;
+    let providerReadAttempted = false;
+    let pendingNaturalFailures: ReadFailureSummary[] = [];
 
     // 1) Optional Git natural fast path.
     if (this.shouldTryGitNaturalReads()) {
@@ -1254,7 +1324,7 @@ export class VendorReadRouter {
           );
         }
 
-        this.logGitNaturalFallback("listCommits", naturalResult.attempts);
+        pendingNaturalFailures = this.logGitNaturalFallback("listCommits", naturalResult.attempts);
       }
     }
 
@@ -1263,6 +1333,7 @@ export class VendorReadRouter {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
+        providerReadAttempted = true;
         console.log(`[VendorReadRouter] Trying REST API for listCommits...`);
         const vendorResult = await withUrlFallback(
           vendorUrls,
@@ -1388,7 +1459,15 @@ export class VendorReadRouter {
         const status = this.extractHttpStatus(attempt.error);
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
       }
-      throw error;
+      if (pendingNaturalFailures.length > 0) {
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+      }
+      const err = error instanceof Error ? error : new Error(String(error));
+      err.message = `${err.message}${this.formatFailureContext(
+        "after Git natural read failed",
+        pendingNaturalFailures
+      )}`;
+      throw err;
     }
 
     if (commitsResult?.success === false) {
@@ -1439,14 +1518,21 @@ export class VendorReadRouter {
         const status = this.extractHttpStatus(attempt.error);
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
       }
+      if (pendingNaturalFailures.length > 0) {
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+      }
 
+      const naturalContext = this.formatFailureContext(
+        "after Git natural read failed",
+        pendingNaturalFailures
+      );
       const vendorContext = pendingVendorFailures.length
         ? ` after vendor REST failed: ${pendingVendorFailures
             .map((attempt) => `${attempt.url}: ${attempt.error || "Unknown error"}`)
             .join(" | ")}`
         : "";
       throw createUnknownError(
-        `${commitsResult.error || "Git worker commit history fallback failed"}${vendorContext}`
+        `${commitsResult.error || "Git worker commit history fallback failed"}${naturalContext}${vendorContext}`
       );
     }
 
@@ -1484,7 +1570,7 @@ export class VendorReadRouter {
         attemptedUrls: remotes,
         ref: normalizeGitRefName(branch),
         fallbackReason: naturalAttempted
-          ? pendingVendorFailures.length
+          ? providerReadAttempted
             ? "git-natural-and-provider-rest-failed"
             : "git-natural-failed"
           : pendingVendorFailures.length
