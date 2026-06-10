@@ -330,7 +330,10 @@ export class GitNaturalReadClient {
     })()
 
     this.inFlightInfoRefs.set(inFlightKey, promise)
-    promise.finally(() => this.inFlightInfoRefs.delete(inFlightKey))
+    void promise.then(
+      () => this.inFlightInfoRefs.delete(inFlightKey),
+      () => this.inFlightInfoRefs.delete(inFlightKey),
+    )
     return promise
   }
 

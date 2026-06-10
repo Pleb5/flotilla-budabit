@@ -155,6 +155,60 @@ describe("natural read infoRefs", () => {
       corsProxy: "https://cors.example",
     })
   })
+
+  it("classifies hosted auth, rate-limit, CORS, protocol, and capability failures distinctly", async () => {
+    const responseBuffer = arrayBuffer(encoder.encode(""))
+    const response = (status: number) => ({
+      ok: false,
+      status,
+      arrayBuffer: async () => responseBuffer,
+    })
+
+    const authClient = new GitNaturalReadClient({fetcher: vi.fn(async () => response(403))})
+    await expect(authClient.fetchInfoRefs({url: "https://github.com/example/repo.git"})).rejects.toMatchObject({
+      code: "auth-required",
+      status: 403,
+    })
+
+    const rateLimitClient = new GitNaturalReadClient({fetcher: vi.fn(async () => response(429))})
+    await expect(rateLimitClient.fetchInfoRefs({url: "https://github.com/example/repo.git"})).rejects.toMatchObject({
+      code: "http-error",
+      status: 429,
+    })
+
+    const corsClient = new GitNaturalReadClient({
+      fetcher: vi.fn(async () => {
+        throw new TypeError("Failed to fetch")
+      }),
+    })
+    await expect(
+      corsClient.fetchInfoRefs({
+        url: "https://github.com/example/repo.git",
+        corsProxy: "https://cors.example",
+      }),
+    ).rejects.toMatchObject({code: "cors-proxy-failure"})
+
+    const protocolClient = new GitNaturalReadClient({
+      fetcher: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        arrayBuffer: async () => responseBuffer,
+      })),
+    })
+    await expect(protocolClient.fetchInfoRefs({url: "https://github.com/example/repo.git"})).rejects.toMatchObject({
+      code: "protocol-error",
+    })
+
+    try {
+      selectUploadPackCapabilities(CAPABILITIES.filter(capability => capability !== "filter"), {
+        requireFilter: true,
+      })
+      throw new Error("Expected missing filter capability")
+    } catch (error) {
+      expect(error).toMatchObject({code: "missing-filter-capability"})
+    }
+  })
 })
 
 describe("natural read upload-pack primitives", () => {

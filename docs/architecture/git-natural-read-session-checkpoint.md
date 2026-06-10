@@ -13,15 +13,16 @@
 
 ## Current Phase
 
-- Phase 6: Hosted Provider Adoption And REST Demotion.
+- Phase 7: Diff, Merge Analysis Reads, And Cleanup.
 
 ## Phase Exit Criteria
 
-- Git natural reads are attempted before provider REST for compatible hosted remotes when enabled.
-- Provider REST remains as fallback for CORS-blocked Smart HTTP, auth-specific cases, missing filter support, or host/operation cases where measured evidence says REST is better.
-- Benchmarks or recorded observations compare Git natural and REST for refs, directory, file open, and commit history on available hosted providers.
-- Hosted provider auth and token handling are not regressed.
-- Rate-limit and CORS errors are classified separately from Git protocol/capability errors.
+- Diff metadata can use object-addressed `blob:none` full-tree reads where compatible and fetch changed blobs lazily by hash.
+- Commit-range/merge-analysis read-only discovery can use natural reads where safe, while actual merge, checkout, write, and push remain `isomorphic-git`/worker clone responsibilities.
+- Clone-depth repair paths are no longer invoked for normal browsing when Git natural succeeds.
+- Dead or misleading GRASP REST read paths, docs, and flags are removed or clearly marked as non-primary.
+- Documentation explains remaining cases where clone fallback is intentionally required.
+- Cache metrics/debug logs center on source metadata and immutable object cache behavior.
 
 ## Completed With Evidence
 
@@ -80,6 +81,17 @@
 - Preserved worker clone fallback after natural failures for unsupported filters, protocol/CORS/proxy/auth/object errors, while Git natural successes return without clone-state calls.
 - Added Phase 5 router tests for GRASP natural browsing without clone-state calls, generic HTTP natural eligibility, hosted-provider REST-first scoped rollout behavior, and natural failure context.
 - Live direct GRASP `info/refs` smoke succeeded from the local Node environment: `https://pyramid.fiatjaf.com/.../societybuilder.git/info/refs?service=git-upload-pack`, HTTP 200, `application/x-git-upload-pack-advertisement`, 429 bytes, advertised `filter` capability.
+- Phase 5 committed and pushed as `e365e297 feat: enable scoped git natural reads`.
+- Phase 6 started by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md`, Phase 6 details, Gitworkshop `CorsProxyManager` and `GitHttpClient` references, `~/Work/git-natural-api/refs.ts`, Budabit `natural-read-client.ts`, `grasp-url.ts`, and hosted provider REST implementation seams in `VendorReadRouter.ts`.
+- Updated `Repo.svelte.ts` to use `gitNaturalReadPolicy: "all-http"`, expanding production natural-read eligibility to hosted provider HTTP(S) clone URLs while preserving REST fallback and the core GRASP direct/no-proxy rule.
+- Confirmed default hosted natural transport can use `https://cors.isomorphic-git.org` through `loadConfig()` unless `GIT_DEFAULT_CORS_PROXY=none`, while `resolveCorsProxyForUrl()` still returns `null` for GRASP repo HTTP URLs.
+- Added hosted-provider router tests proving GitHub, GitLab, Gitea, and Bitbucket clone URLs try Git natural before provider REST under `"all-http"` and do not call REST when natural succeeds.
+- Added hosted-provider fallback tests proving REST still runs after natural CORS/proxy, missing filter capability, auth, and protocol failures.
+- Added natural-client tests for distinct hosted failure classification: 403 as `auth-required`, 429 as `http-error` with status, fetch/CORS failure as `cors-proxy-failure`, empty advertised refs as `protocol-error`, and missing filter as `missing-filter-capability`.
+- Fixed `GitNaturalReadClient.fetchInfoRefs()` in-flight cleanup to avoid unhandled rejections when a rejected in-flight request is cleaned up.
+- Phase 6 hosted observations from local Node fetch: GitHub Smart HTTP refs HTTP 200 in 558 ms with 2,384 bytes and `filter`; GitHub REST refs HTTP 200 in 415 ms with 9 refs; GitHub REST root directory HTTP 200 in 246 ms with 49 entries; GitHub REST README HTTP 200 in 475 ms with 12,419 bytes; GitHub REST commits HTTP 200 in 293 ms with 30 commits.
+- Phase 6 hosted observations from local Node fetch: GitLab Smart HTTP refs HTTP 200 in 408 ms with 11,656 bytes and `filter`; Gitea Smart HTTP refs HTTP 200 in 2,716 ms with 66,863 bytes and `filter`.
+- Phase 6 Bitbucket public-candidate observations: `atlassian/python-bitbucket.git`, `tutorials/tutorials.bitbucket.org.git`, `mirror/git.git`, and `pypy/pypy.git` Smart HTTP refs all returned HTTP 401 in this environment, so a confirmed public Bitbucket Smart HTTP fixture remains missing.
 
 ## Phase 1 Baseline Observations
 
@@ -117,15 +129,15 @@
 
 ## Current State
 
-- Phase 5 implementation and verification are complete in this checkpoint.
-- Current intentional Phase 5 changes are limited to `VendorReadRouter.ts`, `VendorReadRouter.test.ts`, `Repo.svelte.ts`, and this checkpoint.
-- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited during Phase 5.
-- Phase 6 is next and should expand Git natural reads to hosted providers where compatible while keeping provider REST as fallback or measured exception.
+- Phase 6 implementation and verification are complete in this checkpoint.
+- Current intentional Phase 6 changes are limited to `natural-read-client.ts`, `natural-read.spec.ts`, `VendorReadRouter.test.ts`, `Repo.svelte.ts`, and this checkpoint.
+- `docs/architecture/git-natural-read-pivot.md` still has pre-existing unstaged modifications that were present before Phase 4 work and were intentionally not edited during Phase 6.
+- Phase 7 is next and should extend object-addressed natural reads to diff/merge-analysis read-only discovery where safe, while preserving worker clone paths for local git semantics.
 
 ## Next Action
 
-- Begin Phase 6 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 6 details, Gitworkshop `CorsProxyManager`/`GitHttpClient` references, and Budabit hosted provider REST implementations in `VendorReadRouter.ts`.
-- Update router policy so compatible hosted providers can use Git natural before provider REST under the selected rollout flag, while preserving REST fallback for CORS/proxy, auth, missing capability, protocol, or measured host/operation exception cases.
+- Begin Phase 7 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 7 details, Gitworkshop `getCommitRange`, `fetchFullTree`, and `getBlob` references, and Budabit PR/merge worker paths.
+- Add or evaluate natural commit-range/read-only diff discovery using full-tree `blob:none` metadata and lazy blob fetches without replacing local merge, checkout, write, push, or worktree semantics.
 
 ## Verification
 
@@ -151,6 +163,12 @@
 - Phase 5 passed: `pnpm check`.
 - Phase 5 passed: `git diff --check`.
 - Phase 5 smoke passed: Node direct GRASP `info/refs?service=git-upload-pack` fetch returned HTTP 200 with upload-pack advertisement and `filter` capability.
+- Phase 6 passed: `pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false packages/nostr-git-ui/src/lib/components/git/VendorReadRouter.test.ts`.
+- Phase 6 passed: `pnpm -F @nostr-git/ui typecheck`.
+- Phase 6 passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
+- Phase 6 passed: `pnpm check`.
+- Phase 6 passed: `git diff --check`.
+- Phase 6 smoke observations recorded through Node `fetch` for GitHub REST and Smart HTTP, GitLab Smart HTTP, Gitea Smart HTTP, and Bitbucket Smart HTTP candidates.
 
 ## Risks Or Blockers
 
@@ -160,6 +178,8 @@
 - Phase 3 parser/provider coverage uses mocked valid packfile fixtures; no live public-remote smoke test was run in this phase.
 - Phase 4 did not run a manual shadow-mode browser/network comparison; Phase 5 should cover live GRASP/generic HTTP(S) smoke testing if network and server behavior allow.
 - Phase 5 live smoke covered direct GRASP `info/refs` reachability from Node, but did not complete a full browser/worker directory/file/commit natural-read smoke against a live public remote.
+- Phase 6 live hosted-provider observation did not execute full natural directory/file/commit reads through the TypeScript provider because `tsx`/`vite-node` were unavailable and inline `ts-node` ESM imports were blocked by repo module settings.
+- Bitbucket Smart HTTP public fixtures remain unconfirmed because all tested candidates returned HTTP 401.
 - Large live remotes, unusual delta ordering, thin packs, or server-specific upload-pack behavior may still expose parser/performance limits.
 - A confirmed public Bitbucket fixture and a server without `filter` support are still missing.
 
