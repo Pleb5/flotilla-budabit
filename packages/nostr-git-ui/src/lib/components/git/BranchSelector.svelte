@@ -47,7 +47,12 @@
   });
   const sourceLabel = $derived.by(() => {
     if (!discoverySource) return "";
-    if (discoverySource.kind === "vendor") return sourceHost ? `API: ${sourceHost}` : "Provider API";
+    if (discoverySource.kind === "provider-rest") {
+      return sourceHost ? `API: ${sourceHost}` : "Provider API";
+    }
+    if (discoverySource.kind === "git-natural") {
+      return sourceHost ? `Natural: ${sourceHost}` : "Git natural";
+    }
     if (discoverySource.kind === "git-remote") {
       return sourceHost ? `Remote: ${sourceHost}` : "Git remote";
     }

@@ -243,6 +243,7 @@ export class Repo {
         this.refDiscoverySource = {
           kind: "repo-state",
           label: "Repo state snapshot",
+          operation: "listRefs",
           details: "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
         };
       }
@@ -318,6 +319,7 @@ export class Repo {
         this.refDiscoverySource = {
           kind: "repo-state",
           label: "Repo state snapshot",
+          operation: "listRefs",
           details: "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
         };
       }

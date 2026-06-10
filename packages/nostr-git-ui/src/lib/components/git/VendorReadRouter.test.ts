@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { VendorReadRouter } from "./VendorReadRouter";
+import { VendorReadRouter, type RefDiscoverySource } from "./VendorReadRouter";
 
 describe("VendorReadRouter.listRefs", () => {
   it("uses advertised git refs for non-vendor remotes", async () => {
@@ -27,6 +27,14 @@ describe("VendorReadRouter.listRefs", () => {
     });
 
     expect(result.source.kind).toBe("git-remote");
+    expect(result.source).toEqual(
+      expect.objectContaining({
+        operation: "listRefs",
+        remoteUrl: "https://example.com/owner/repo.git",
+        attemptedUrls: ["https://example.com/owner/repo.git"],
+        elapsedMs: expect.any(Number),
+      })
+    );
     expect(result.defaultBranch).toBe("openwrt-packaging");
     expect(result.source.defaultBranch).toBe("openwrt-packaging");
     expect(result.refs.map((ref) => ref.name)).toEqual([
@@ -102,7 +110,8 @@ describe("VendorReadRouter.listRefs", () => {
       cloneUrls: ["https://github.com/example/repo.git"],
     });
 
-    expect(result.source.kind).toBe("vendor");
+    expect(result.source.kind).toBe("provider-rest");
+    expect(result.source.operation).toBe("listRefs");
     expect(result.defaultBranch).toBe("master");
     expect(result.source.defaultBranch).toBe("master");
     expect(result.refs.map((ref) => ref.name)).toEqual(["dev", "master"]);
@@ -154,6 +163,25 @@ describe("VendorReadRouter.listRefs", () => {
       ])
     ).toBe(false);
     expect(router.hasVendorSupport(["https://github.com/example/repo.git"])).toBe(true);
+  });
+
+  it("accepts the planned git-natural source metadata shape", () => {
+    const source: RefDiscoverySource = {
+      kind: "git-natural",
+      label: "Git natural",
+      operation: "listDirectory",
+      remoteUrl: "https://example.com/owner/repo.git",
+      effectiveUrl: "https://example.com/owner/repo.git/info/refs?service=git-upload-pack",
+      usesProxy: false,
+      ref: "main",
+      commitHash: "a".repeat(40),
+      capability: "filter",
+      fallbackReason: "missing-filter-capability",
+      elapsedMs: 12,
+    };
+
+    expect(source.kind).toBe("git-natural");
+    expect(source.operation).toBe("listDirectory");
   });
 });
 

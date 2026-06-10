@@ -599,6 +599,7 @@ export class BranchManager {
           ? {
               kind: "repo-state",
               label: "Repo state snapshot",
+              operation: "listRefs",
               details:
                 "Using signed repo-state refs until remote discovery confirms the live ref set.",
             }

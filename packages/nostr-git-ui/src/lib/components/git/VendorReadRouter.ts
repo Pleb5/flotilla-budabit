@@ -21,6 +21,42 @@ export interface VendorReadRouterConfig {
   preferVendorReads?: boolean; // default true
 }
 
+export type ReadSourceKind =
+  | "repo-state"
+  | "git-natural"
+  | "provider-rest"
+  | "git-remote"
+  | "worker-clone"
+  | "local";
+
+export type ReadOperation =
+  | "listDirectory"
+  | "getFileContent"
+  | "listRefs"
+  | "listCommits"
+  | "getCommit"
+  | "getCommitCount"
+  | "diff";
+
+export interface ReadSourceMetadata {
+  kind: ReadSourceKind;
+  label: string;
+  operation?: ReadOperation;
+  remoteUrl?: string;
+  effectiveUrl?: string;
+  usesProxy?: boolean;
+  attemptedUrls?: string[];
+  ref?: string;
+  commitHash?: string;
+  objectHash?: string;
+  capability?: string;
+  capabilities?: string[];
+  fallbackReason?: string;
+  elapsedMs?: number;
+  defaultBranch?: string;
+  details?: string;
+}
+
 export interface VendorRef {
   name: string;
   type: "heads" | "tags";
@@ -46,6 +82,7 @@ export interface VendorDirectoryResult {
   path: string;
   ref: string;
   fromVendor: boolean;
+  source?: ReadSourceMetadata;
 }
 
 export interface VendorFileContentResult {
@@ -55,6 +92,7 @@ export interface VendorFileContentResult {
   encoding?: string;
   size: number;
   fromVendor: boolean;
+  source?: ReadSourceMetadata;
 }
 
 /**
@@ -81,16 +119,10 @@ export interface VendorCommitResult {
   ref: string;
   fromVendor: boolean;
   hasMore?: boolean;
+  source?: ReadSourceMetadata;
 }
 
-export interface RefDiscoverySource {
-  kind: "vendor" | "git-remote" | "repo-state" | "local";
-  label: string;
-  remoteUrl?: string;
-  attemptedUrls?: string[];
-  defaultBranch?: string;
-  details?: string;
-}
+export type RefDiscoverySource = ReadSourceMetadata;
 
 type SupportedVendor = "github" | "gitlab" | "gitea" | "bitbucket" | "grasp-rest";
 
@@ -147,6 +179,18 @@ export class VendorReadRouter {
     }
   }
 
+  private readSource(
+    params: ReadSourceMetadata & {
+      startedAt: number;
+    }
+  ): ReadSourceMetadata {
+    const { startedAt, elapsedMs, ...source } = params;
+    return {
+      ...source,
+      elapsedMs: elapsedMs ?? Math.max(0, Date.now() - startedAt),
+    };
+  }
+
   /**
    * Extract HTTP status code from error message if present
    */
@@ -171,6 +215,7 @@ export class VendorReadRouter {
     const path = params.path || "";
     const branch = params.branch || "";
     const remotes = this.getValidRemotes(params.cloneUrls);
+    const startedAt = Date.now();
 
     // 1) Vendor fast path only for the selected remote policy. A later GitHub/GitLab
     // URL must not jump ahead of the first clone URL just because it has an API.
@@ -199,7 +244,20 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return { ...vendorResult.result, fromVendor: true };
+          return {
+            ...vendorResult.result,
+            fromVendor: true,
+            source: this.readSource({
+              kind: "provider-rest",
+              label: "Provider REST API",
+              operation: "listDirectory",
+              remoteUrl: vendorResult.usedUrl || vendorUrls[0],
+              attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
+              ref: normalizeGitRefName(branch),
+              startedAt,
+              details: "Directory listing comes from the remote provider REST API.",
+            }),
+          };
         }
 
         // All vendor URLs failed, fall back to git worker
@@ -242,6 +300,16 @@ export class VendorReadRouter {
         path,
         ref: normalizeGitRefName(branch),
         fromVendor: false,
+        source: this.readSource({
+          kind: "worker-clone",
+          label: "Worker clone fallback",
+          operation: "listDirectory",
+          attemptedUrls: remotes,
+          ref: normalizeGitRefName(branch),
+          fallbackReason: "provider-rest-unavailable-or-failed",
+          startedAt,
+          details: "Directory listing comes from the worker-backed local git fallback.",
+        }),
       };
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
@@ -260,6 +328,7 @@ export class VendorReadRouter {
     const branch = params.branch || "";
     const remotes = this.getValidRemotes(params.cloneUrls);
     const ctx = this.ctx({ op: "getFileContent", remote: remotes[0], branch, path: params.path });
+    const startedAt = Date.now();
 
     // 1) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
@@ -287,7 +356,20 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return { ...vendorResult.result, fromVendor: true };
+          return {
+            ...vendorResult.result,
+            fromVendor: true,
+            source: this.readSource({
+              kind: "provider-rest",
+              label: "Provider REST API",
+              operation: "getFileContent",
+              remoteUrl: vendorResult.usedUrl || vendorUrls[0],
+              attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
+              ref: normalizeGitRefName(branch),
+              startedAt,
+              details: "File content comes from the remote provider REST API.",
+            }),
+          };
         }
 
         // All vendor URLs failed, fall back to git worker
@@ -322,6 +404,16 @@ export class VendorReadRouter {
         encoding: "utf-8",
         size: content.length,
         fromVendor: false,
+        source: this.readSource({
+          kind: "worker-clone",
+          label: "Worker clone fallback",
+          operation: "getFileContent",
+          attemptedUrls: remotes,
+          ref: normalizeGitRefName(branch),
+          fallbackReason: "provider-rest-unavailable-or-failed",
+          startedAt,
+          details: "File content comes from the worker-backed local git fallback.",
+        }),
       };
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
@@ -341,6 +433,7 @@ export class VendorReadRouter {
     defaultBranch?: string;
   }> {
     const remotes = this.getValidRemotes(params.cloneUrls);
+    const startedAt = Date.now();
 
     // 1) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
@@ -363,11 +456,13 @@ export class VendorReadRouter {
             fromVendor: true,
             defaultBranch: vendorResult.result.defaultBranch,
             source: {
-              kind: "vendor",
-              label: "Vendor API",
+              kind: "provider-rest",
+              label: "Provider REST API",
+              operation: "listRefs",
               remoteUrl: vendorResult.usedUrl || vendorUrls[0],
               attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
               defaultBranch: vendorResult.result.defaultBranch,
+              elapsedMs: Math.max(0, Date.now() - startedAt),
               details: "Ref list comes from the remote provider API.",
             },
           };
@@ -413,9 +508,13 @@ export class VendorReadRouter {
           source: {
             kind: "git-remote",
             label: "Git remote",
+            operation: "listRefs",
             remoteUrl: gitResult.usedUrl || remotes[0],
             attemptedUrls: gitResult.attempts.map((attempt) => attempt.url),
+            ref: gitResult.result.defaultBranch,
             defaultBranch: gitResult.result.defaultBranch,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            details: "Ref list comes from advertised refs on the git remote.",
           },
         };
       }
@@ -452,7 +551,10 @@ export class VendorReadRouter {
       source: {
         kind: "local",
         label: "Local clone",
+        operation: "listRefs",
         attemptedUrls: remotes,
+        fallbackReason: "remote-ref-discovery-failed",
+        elapsedMs: Math.max(0, Date.now() - startedAt),
         details: "Remote ref discovery failed, so only locally known refs are shown.",
       },
     };
@@ -526,6 +628,7 @@ export class VendorReadRouter {
     const page = params.page || 1;
     const perPage = params.perPage || 30;
     let pendingVendorFailures: Array<{ url: string; error?: string }> = [];
+    const startedAt = Date.now();
 
     // 1) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
@@ -553,7 +656,20 @@ export class VendorReadRouter {
             this.reportCloneUrlSuccess(vendorResult.usedUrl);
           }
           console.log(`[VendorReadRouter] REST API success (fromVendor: true)`);
-          return { ...vendorResult.result, fromVendor: true };
+          return {
+            ...vendorResult.result,
+            fromVendor: true,
+            source: this.readSource({
+              kind: "provider-rest",
+              label: "Provider REST API",
+              operation: "listCommits",
+              remoteUrl: vendorResult.usedUrl || vendorUrls[0],
+              attemptedUrls: vendorResult.attempts.map((attempt) => attempt.url),
+              ref: normalizeGitRefName(branch),
+              startedAt,
+              details: "Commit history comes from the remote provider REST API.",
+            }),
+          };
         }
 
         console.warn(`[VendorReadRouter] REST API failed, falling back to git`);
@@ -588,6 +704,16 @@ export class VendorReadRouter {
           ref: normalizeGitRefName(branch),
           fromVendor: false,
           hasMore: false,
+          source: this.readSource({
+            kind: "worker-clone",
+            label: "Worker clone fallback",
+            operation: "listCommits",
+            attemptedUrls: remotes,
+            ref: normalizeGitRefName(branch),
+            fallbackReason: "provider-rest-empty-repo",
+            startedAt,
+            details: "Commit history fallback treated a provider empty-repo response as empty history.",
+          }),
         };
       }
 
@@ -607,6 +733,16 @@ export class VendorReadRouter {
           ref: normalizeGitRefName(branch),
           fromVendor: false,
           hasMore: false,
+          source: this.readSource({
+            kind: "worker-clone",
+            label: "Worker clone fallback",
+            operation: "listCommits",
+            attemptedUrls: remotes,
+            ref: normalizeGitRefName(branch),
+            fallbackReason: "provider-rest-empty-repo",
+            startedAt,
+            details: "Commit history fallback treated a provider empty-repo response as empty history.",
+          }),
         };
       }
 
@@ -654,6 +790,18 @@ export class VendorReadRouter {
       ref: normalizeGitRefName(branch),
       fromVendor: false,
       hasMore: commits.length >= depth,
+      source: this.readSource({
+        kind: "worker-clone",
+        label: "Worker clone fallback",
+        operation: "listCommits",
+        attemptedUrls: remotes,
+        ref: normalizeGitRefName(branch),
+        fallbackReason: pendingVendorFailures.length
+          ? "provider-rest-failed"
+          : "provider-rest-unavailable",
+        startedAt,
+        details: "Commit history comes from the worker-backed local git fallback.",
+      }),
     };
   }
 

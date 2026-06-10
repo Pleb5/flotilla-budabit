@@ -128,8 +128,8 @@ describe("BranchManager", () => {
         defaultBranch: "master",
         fromVendor: true,
         source: {
-          kind: "vendor",
-          label: "Vendor API",
+          kind: "provider-rest",
+          label: "Provider REST API",
           remoteUrl: "https://github.com/example/repo.git",
           defaultBranch: "master",
         },

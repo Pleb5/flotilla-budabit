@@ -39,6 +39,25 @@ repo-state snapshot for signed refs/UI seed
 - Hosted providers such as GitHub, GitLab, Gitea, and Bitbucket should still try Git natural first when the clone URL is browser-reachable or proxy-reachable and the needed capability exists.
 - Provider REST should not be the default first read source for directory, blob, refs, or commits once the Git natural path for that operation is implemented and enabled.
 
+## Read Source Contract
+
+- Read results that can come from more than one path should expose source metadata, not just a `fromVendor` boolean.
+- Source kinds are `repo-state`, `git-natural`, `provider-rest`, `git-remote`, `worker-clone`, and `local`.
+- Source metadata can include `operation`, `remoteUrl`, `effectiveUrl`, `usesProxy`, `attemptedUrls`, `ref`, `commitHash`, `objectHash`, `capability`, `capabilities`, `fallbackReason`, `elapsedMs`, `defaultBranch`, and `details`.
+- `repo-state` is only an immediate signed ref/UI seed. It is not a substitute for object reads.
+- `git-natural` means the shared Smart HTTP object/read provider planned in later phases. Existing advertised-ref calls that still use the current worker/isomorphic-git helper remain labeled `git-remote` until they are routed through the new natural provider.
+- `provider-rest` means GitHub/GitLab/Gitea/Bitbucket or future compatible GRASP REST APIs.
+- `worker-clone` means worker-backed `isomorphic-git` clone/fetch fallback for browsing operations.
+- `local` means locally known refs are shown because remote ref discovery failed.
+
+| Operation | Current Phase 1 Baseline | Target Default Order |
+| --- | --- | --- |
+| Directory listing | Selected provider REST if available, then worker clone fallback | Repo-state UI seed when applicable, Git natural tree read, provider REST fallback/exception, worker clone fallback |
+| File content | Selected provider REST if available, then worker clone fallback | Git natural blob read, provider REST fallback/exception, worker clone fallback |
+| Refs | Repo-state seed, selected provider REST if available, git advertised refs, local refs | Repo-state seed, Git natural/info-refs, provider REST fallback/exception, worker/local fallback |
+| Commit history | Selected provider REST if available, then worker clone fallback | Git natural `tree:0` history read, provider REST fallback/exception, worker clone fallback |
+| Future diff reads | Worker clone/read paths | Git natural `blob:none` tree/object reads, worker clone fallback where local git semantics are required |
+
 ## Reference Lessons To Carry Through Every Phase
 
 - Gitworkshop routes all read operations through a pool abstraction, not ad hoc `Promise.any(cloneUrls.map(...))` calls. See `~/Work/gitworkshop/src/lib/git-grasp-pool/pool.ts:1-16` and `~/Work/gitworkshop/src/lib/git-grasp-pool/pool.ts:1673-1741`.
