@@ -13,17 +13,17 @@
 
 ## Current Phase
 
-- Phase 2: Git Object Cache And Low-Level Natural Client Foundation.
+- Phase 3: GitNaturalReadProvider Operations Behind A Feature Flag.
 
 ## Phase Exit Criteria
 
-- A Git natural cache exists with object-addressed keys for commits, blobs, trees, raw `blob:none` object batches, and history batches, plus short-TTL URL-scoped `infoRefs`.
-- `infoRefs` fetches are cached, deduped, parse capabilities and symrefs, and can use existing CORS/proxy policy.
-- The CORS/proxy policy treats GRASP repo HTTP URLs as direct-only by default; no generic CORS proxy is used for GRASP natural reads unless a later explicit override is designed.
-- Low-level `git-upload-pack` fetch primitives exist for object-by-hash, `blob:none`, and `tree:0` requests.
-- Capability selection happens from cached `infoRefs`; high-level helpers that refetch capabilities are avoided unless benchmarks prove acceptable.
-- The incomplete `grasp-rest-utils.ts` path is not expanded as the primary implementation; useful parsing concepts are either replaced by a tested dependency or moved into the shared natural client.
-- No UI read path depends on Git natural yet.
+- `GitNaturalReadProvider` or equivalent worker RPC can list refs, resolve refs, list a directory, fetch a file blob, list commit history, and get one commit from compatible public remotes.
+- Results include source metadata: source kind, remote URL, effective URL/proxy, ref, commit hash, object hash when applicable, and fallback/capability info.
+- Ref resolution handles full refs, short branches, tags, peeled annotated tags, `HEAD` symrefs, and direct 40-character commit hashes.
+- Directory reads fetch tree metadata with `blob:none`; file content fetches selected blobs by object hash.
+- Commit history uses `tree:0` where supported and has a fallback/decline path when `filter` is missing.
+- Structured errors exist for missing filter capability, CORS/proxy failure, auth required, ref not found, object not found, protocol error, and transient network failure.
+- Feature flag or internal-only worker RPC prevents production UI from depending on the provider yet.
 
 ## Completed With Evidence
 
@@ -41,6 +41,16 @@
 - Updated `BranchManager.test.ts` fixtures for the `provider-rest` source-kind split.
 - Documented the read source contract in `docs/architecture/git-natural-read-pivot.md`, including current Phase 1 baseline behavior and the target default order.
 - No production read ordering was changed in Phase 1: selected provider REST still runs first where currently supported, refs still use current git advertised refs before local fallback, and directory/file/commit worker fallback remains unchanged.
+- Phase 1 committed and pushed as `3e52a4d3 feat: add read source metadata contract`.
+- Phase 2 started by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md`, Phase 2 details, Gitworkshop cache/client code, and `~/Work/git-natural-api` protocol/parser code.
+- Phase 2 used a narrow local implementation instead of adding `@fiatjaf/git-natural-api` because the reference parser source uses Deno-style `npm:` imports and Budabit does not currently depend on that package.
+- Added `packages/nostr-git-core/src/git/natural-read-cache.ts` with short-TTL URL-scoped `infoRefs` and object-addressed keys for commits, blobs, trees, raw object batches, and history batches.
+- Added `packages/nostr-git-core/src/git/natural-read-client.ts` with `info/refs` parsing, in-flight `infoRefs` dedupe, CORS/proxy transport resolution, upload-pack want request construction, capability selection, side-band packfile extraction, and fetch primitives for object-by-hash, `blob:none`, and `tree:0` requests.
+- Natural-read transport resolution reuses `resolveCorsProxyForUrl()`, so GRASP repo HTTP URLs stay direct even when a generic CORS proxy is configured.
+- Added structured `GitNaturalReadError` codes including auth, HTTP, network, protocol, missing capability, missing filter capability, and ref-not-found cases.
+- Exported the Phase 2 natural-read cache/client from `packages/nostr-git-core/src/git/index.ts`.
+- Added `packages/nostr-git-core/test/git/natural-read.spec.ts` covering cache keys/TTL, infoRefs parsing, dedupe, GRASP direct/no-proxy policy, capability selection, missing filter errors, side-band extraction, and upload-pack primitive request bodies.
+- No UI or worker read path depends on Git natural yet.
 
 ## Phase 1 Baseline Observations
 
@@ -78,14 +88,14 @@
 
 ## Current State
 
-- Phase 1 implementation and documentation are complete locally.
-- Phase 1 verification passed.
-- The working tree contains intentional Phase 1 changes only, pending commit and push.
+- Phase 2 implementation and verification are complete in this checkpoint.
+- Current working tree changes are intentional Phase 2 closeout changes.
+- Phase 3 is next and should add worker/provider operations behind a feature flag or internal-only RPC, without production UI dependence.
 
 ## Next Action
 
-- Begin Phase 2 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 2 details, and the cache/protocol references in `~/Work/gitworkshop` and `~/Work/git-natural-api`.
-- Decide whether to add `@fiatjaf/git-natural-api` as a dependency or implement a narrow local low-level module, based on build/test compatibility and browser/worker import boundaries.
+- Begin Phase 3 by rereading this checkpoint, the whole `docs/architecture/git-natural-read-pivot.md` plan from start to finish, Phase 3 details, and the operation references in Gitworkshop `git-http.ts`, Gitworkshop UI async code, `~/Work/git-natural-api/index.ts`, and Budabit worker RPC read methods.
+- Implement natural read provider or worker RPC operations for refs, ref resolution, directory listing, file content, commit history, and single commit behind a disabled/opt-in feature flag or internal-only path.
 
 ## Verification
 
@@ -93,13 +103,15 @@
 - Passed: `pnpm check`.
 - Passed: `pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false packages/nostr-git-ui/src/lib/components/git/BranchManager.test.ts`.
 - Passed: `git diff --check`.
+- Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts`.
+- Passed: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false`.
 
 ## Risks Or Blockers
 
 - Future benchmark/manual validation may be limited by network, browser CORS, or authentication availability.
 - Node fetch timings are not browser CORS validation and should not be treated as proof of browser reachability.
 - If GRASP direct reads fail because CORS headers are missing, treat that as a GRASP server/endpoint conformance problem rather than silently proxying the request.
-- The dependency choice for `@fiatjaf/git-natural-api` versus local low-level helpers remains a Phase 2 decision.
+- Phase 2 intentionally did not add a packfile object parser dependency; upload-pack primitives return unwrapped packfile bytes and Phase 3 must parse or integrate parsing before object operations return content.
 - A confirmed public Bitbucket fixture and a server without `filter` support are still missing.
 
 ## Files
@@ -112,3 +124,7 @@
 - `packages/nostr-git-ui/src/lib/components/git/BranchManager.test.ts`
 - `packages/nostr-git-ui/src/lib/components/git/Repo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/components/git/BranchSelector.svelte`
+- `packages/nostr-git-core/src/git/natural-read-cache.ts`
+- `packages/nostr-git-core/src/git/natural-read-client.ts`
+- `packages/nostr-git-core/src/git/index.ts`
+- `packages/nostr-git-core/test/git/natural-read.spec.ts`

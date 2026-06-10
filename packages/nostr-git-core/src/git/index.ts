@@ -33,6 +33,8 @@ export * from "./vendor-providers.js"
 export * from "./event.js"
 export * from "./branches.js"
 export * from "./commits.js"
+export * from "./natural-read-cache.js"
+export * from "./natural-read-client.js"
 
 export { type ImportConfig, DEFAULT_IMPORT_CONFIG, createImportConfig } from "./import-config.js"
 export { ImportAbortedError, ImportAbortController } from "./abort-controller.js"
