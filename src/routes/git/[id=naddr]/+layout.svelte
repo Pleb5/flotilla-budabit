@@ -79,7 +79,7 @@
     isCommentEvent,
     createRepoStateEvent,
     isImportedEvent,
-    resolveStatus,
+    resolveStatusState,
   } from "@nostr-git/core/events"
   import {
     parseRepoId,
@@ -1340,7 +1340,7 @@
 
         const resolveRoot = (root: IssueEvent | PullRequestEvent) => {
           const statusEvents = $statusEventsByRoot.get(root.id) || []
-          const {final} = resolveStatus({
+          const resolved = resolveStatusState({
             statuses: statusEvents as any,
             rootAuthor: root.pubkey,
             maintainers,
@@ -1348,19 +1348,18 @@
             importedRoot: isImportedEvent(root as any),
           })
           const state = (() => {
-            switch (final?.kind) {
-              case GIT_STATUS_DRAFT:
+            switch (resolved.state) {
+              case "draft":
                 return "draft"
-              case GIT_STATUS_CLOSED:
+              case "closed":
                 return "closed"
-              case GIT_STATUS_COMPLETE:
+              case "applied":
                 return root.kind === GIT_ISSUE ? "resolved" : "merged"
-              case GIT_STATUS_OPEN:
               default:
                 return "open"
             }
           })()
-          map.set(root.id, {state, event: final as StatusEvent | undefined})
+          map.set(root.id, {state, event: resolved.final as StatusEvent | undefined})
         }
 
         for (const issue of $issues || []) resolveRoot(issue)

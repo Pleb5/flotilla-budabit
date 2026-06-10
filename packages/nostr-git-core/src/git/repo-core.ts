@@ -11,7 +11,11 @@ import type {
 } from "../events/index.js"
 import {buildRepoKey, parseEucTag, GitIssueStatus, parseRepoStateEvent} from "../events/index.js"
 import {assembleIssueThread, resolveIssueStatus, type IssueThread} from "../events/nip34/issues.js"
-import {isImportedEvent, resolveStatus} from "../events/nip34/status-resolver.js"
+import {
+  isImportedEvent,
+  resolveStatusState,
+  statusKindToState,
+} from "../events/nip34/status-resolver.js"
 import {buildRepoSubscriptions, type RepoSubscriptions} from "../git/subscriptions.js"
 
 // ============================================================
@@ -170,17 +174,10 @@ export class RepoCore {
       (ctx.pullRequests || []).find(pr => pr.id === rootId)
     const rootAuthor = root?.pubkey || ""
     const rootIsIssue = root?.kind === 1621
-    const kindToState = (kind: number): "open" | "draft" | "closed" | "merged" | "resolved" => {
-      if (kind === 1630) return "open"
-      if (kind === 1633) return "draft"
-      if (kind === 1632) return "closed"
-      if (kind === 1631) return rootIsIssue ? "resolved" : "merged"
-      return "open"
-    }
 
     const events = allStatus
       .filter(ev => (ev.tags || []).some((t: string[]) => t[0] === "e" && t[1] === rootId))
-    const {final} = resolveStatus({
+    const {final, state: resolvedState} = resolveStatusState({
       statuses: events as any,
       rootAuthor,
       maintainers: new Set(ctx.maintainers || ctx.repo?.maintainers || []),
@@ -189,7 +186,8 @@ export class RepoCore {
     })
 
     if (!final) return null
-    const state = kindToState((final as any).kind)
+    const state =
+      resolvedState === "applied" ? (rootIsIssue ? "resolved" : "merged") : resolvedState
     return {
       state,
       by: final.pubkey,
@@ -417,18 +415,11 @@ export class RepoCore {
       importedRoot: options.importedRoot ?? isImportedEvent(thread.root as any),
     })
     const mapKindToEnum = (k?: number): GitIssueStatus => {
-      switch (k) {
-        case 1632:
-          return GitIssueStatus.CLOSED
-        case 1631:
-          return GitIssueStatus.RESOLVED
-        case 1630:
-          return GitIssueStatus.OPEN
-        case 1633:
-          return GitIssueStatus.DRAFT
-        default:
-          return GitIssueStatus.OPEN
-      }
+      const state = statusKindToState(k)
+      if (state === "closed") return GitIssueStatus.CLOSED
+      if (state === "applied") return GitIssueStatus.RESOLVED
+      if (state === "draft") return GitIssueStatus.DRAFT
+      return GitIssueStatus.OPEN
     }
     return {
       status: mapKindToEnum(final?.kind),

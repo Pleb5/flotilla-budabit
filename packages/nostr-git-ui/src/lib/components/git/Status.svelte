@@ -2,12 +2,8 @@
   import type { Repo } from "./Repo.svelte";
   import type { StatusEvent } from "@nostr-git/core/events";
   import {
-    GIT_STATUS_OPEN,
-    GIT_STATUS_DRAFT,
-    GIT_STATUS_CLOSED,
-    GIT_STATUS_APPLIED,
     isStatusAuthorized,
-    resolveStatus,
+    resolveStatusState,
   } from "@nostr-git/core/events";
   import { CircleCheck, CircleDot, Clock, AlertCircle, X } from "@lucide/svelte";
   import { Button } from "../ui/button";
@@ -90,30 +86,23 @@
     );
   });
 
-  const currentStatusEvent = $derived.by(() => {
-    return resolveStatus({
+  const resolvedStatus = $derived.by(() => {
+    return resolveStatusState({
       statuses: statusEvents as any,
       rootAuthor,
       maintainers: maintainerPubkeys,
       repoOwner,
       importedRoot: isMirrored,
-    }).final as StatusEvent | undefined;
+    });
+  });
+
+  const currentStatusEvent = $derived.by(() => {
+    return resolvedStatus.final as StatusEvent | undefined;
   });
 
   const currentState = $derived.by((): StatusState => {
-    if (!currentStatusEvent) return "open";
-    switch (currentStatusEvent.kind) {
-      case GIT_STATUS_OPEN:
-        return "open";
-      case GIT_STATUS_DRAFT:
-        return "draft";
-      case GIT_STATUS_CLOSED:
-        return "closed";
-      case GIT_STATUS_APPLIED:
-        return rootKind === 1621 ? "resolved" : "applied";
-      default:
-        return "open";
-    }
+    if (resolvedStatus.state === "applied") return rootKind === 1621 ? "resolved" : "applied";
+    return resolvedStatus.state;
   });
 
   // History sorted by recency

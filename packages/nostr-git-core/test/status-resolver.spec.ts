@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { resolveStatus, type LocalStatusEvent } from '../src/events/nip34/status-resolver.js';
+import {
+  resolveStatus,
+  resolveStatusState,
+  statusKindToState,
+  type LocalStatusEvent,
+} from '../src/events/nip34/status-resolver.js';
 
 function makeStatus(
   id: string,
@@ -96,5 +101,35 @@ describe('resolveStatus', () => {
       importedRoot: true,
     });
     expect(final?.id).toBe('s3');
+  });
+
+  it('maps status kinds to effective states with open fallback', () => {
+    expect(statusKindToState(1630)).toBe('open');
+    expect(statusKindToState(1631)).toBe('applied');
+    expect(statusKindToState(1632)).toBe('closed');
+    expect(statusKindToState(1633)).toBe('draft');
+    expect(statusKindToState(1)).toBe('open');
+    expect(statusKindToState(undefined)).toBe('open');
+  });
+
+  it('resolves missing authorized status as effective open', () => {
+    const resolved = resolveStatusState({
+      statuses: [],
+      rootAuthor: 'root',
+      maintainers: new Set(),
+    });
+    expect(resolved.final).toBeUndefined();
+    expect(resolved.state).toBe('open');
+    expect(resolved.reason).toBe('no-authorized-status-events');
+  });
+
+  it('resolves unauthorized statuses as effective open', () => {
+    const resolved = resolveStatusState({
+      statuses: [makeStatus('closed-by-other', 1632, 'other', 1000)],
+      rootAuthor: 'root',
+      maintainers: new Set(),
+    });
+    expect(resolved.final).toBeUndefined();
+    expect(resolved.state).toBe('open');
   });
 });

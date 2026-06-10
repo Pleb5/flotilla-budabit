@@ -69,7 +69,7 @@
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
     isImportedEvent,
-    resolveStatus,
+    resolveStatusState,
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
   import {publishDelete, publishReaction} from "@app/core/commands"
@@ -292,17 +292,23 @@
     return $prStatusEvents as StatusEvent[]
   })
 
-  const prStatus = $derived.by(() => {
-    if (!prEvent) return undefined
-    const latest = resolveStatus({
+  const prResolvedStatus = $derived.by(() => {
+    if (!prEvent) return {state: "open" as const, final: undefined, reason: "missing-pr-event"}
+    return resolveStatusState({
       statuses: prStatusEventsArray as any,
       rootAuthor: prEvent.pubkey,
       maintainers: repoMaintainerPubkeys,
       repoOwner: repoOwnerPubkey,
       importedRoot: isImportedPr,
-    }).final
+    })
+  })
+
+  const prStatus = $derived.by(() => {
+    const latest = prResolvedStatus.final
     return latest ? parseStatusEvent(latest as StatusEvent) : undefined
   })
+
+  const prEffectiveStatus = $derived.by(() => prResolvedStatus.state)
 
   const getPrCoverLetterFilter = () => ({
     kinds: [GIT_COVER_LETTER_KIND],
@@ -523,13 +529,13 @@
 
   const canPublishPrUpdates = $derived.by(() => {
     if (!prEvent || !$pubkey || $pubkey !== prEvent.pubkey) return false
-    return prStatus?.status !== "applied" && prStatus?.status !== "closed"
+    return prEffectiveStatus !== "applied" && prEffectiveStatus !== "closed"
   })
 
   const prUpdateBlockedReason = $derived.by(() => {
     if (!prEvent || !$pubkey || $pubkey !== prEvent.pubkey) return null
-    if (prStatus?.status === "applied") return "PR is already merged"
-    if (prStatus?.status === "closed") return "PR is closed"
+    if (prEffectiveStatus === "applied") return "PR is already merged"
+    if (prEffectiveStatus === "closed") return "PR is closed"
     return null
   })
 
@@ -676,7 +682,7 @@
 
   const prReviewReady = $derived.by(() => {
     if (prChangesLoading || prChangesError || prChanges === null) return false
-    if (prStatus?.status === "applied") return true
+    if (prEffectiveStatus === "applied") return true
     if (!prEffectiveTipOid) return false
     return Boolean(prDiffBaseOid && prDiffHeadOid)
   })
@@ -1376,7 +1382,7 @@
     const tipOid = prEffectiveTipOid
     if (!repoClass.key || !repoClass.workerManager) return null
 
-    if (prStatus?.status === "applied" && prStatus.mergedCommit) {
+    if (prEffectiveStatus === "applied" && prStatus?.mergedCommit) {
       prChangesProgress = "Loading merged commit..."
       const mergeDetails = await repoClass.workerManager.getCommitMeta({
         repoId: repoClass.key,
@@ -1391,7 +1397,7 @@
 
     if (!tipOid) return null
 
-    if (prStatus?.status !== "applied" && prEffectiveMergeBase) {
+    if (prEffectiveStatus !== "applied" && prEffectiveMergeBase) {
       return {baseOid: prEffectiveMergeBase, headOid: tipOid}
     }
 
@@ -1561,7 +1567,7 @@
     }
 
     try {
-      if (prStatus?.status !== "applied") {
+      if (prEffectiveStatus !== "applied") {
         prChangesProgress = "Loading PR commits and file diffs..."
         const res = await repoClass.workerManager.getPRReviewData({
           repoId: repoClass.key,
@@ -1744,7 +1750,7 @@
       prEffectiveMergeBase,
       prEffectiveCloneUrls.join(","),
       prTargetCloneUrls.join(","),
-      prStatus?.status || "",
+      prEffectiveStatus,
       prStatus?.mergedCommit || "",
       (prStatus?.appliedCommits || []).join(","),
     ].join("|")
@@ -2598,7 +2604,7 @@
   )
 
   const prCanShowMergeSection = $derived.by(() =>
-    Boolean(canManagePr && prStatus?.status === "open" && prHasCleanMergeAnalysis),
+    Boolean(canManagePr && prEffectiveStatus === "open" && prHasCleanMergeAnalysis),
   )
 
   const prCanStartMerge = $derived.by(
@@ -2607,7 +2613,7 @@
 
   const prMergeBlockedReason = $derived.by(() => {
     if (!canManagePr) return "Only maintainers can merge this PR."
-    if (prStatus?.status !== "open") return "Only open PRs can be merged."
+    if (prEffectiveStatus !== "open") return "Only open PRs can be merged."
     if (!prReviewReady) return "Load PR commits and file changes before merging."
     if (isAnalyzingPRMerge) return "Wait for merge analysis to finish before merging."
     if (!prCurrentMergeAnalysisResult) return "Run Analyze before merging."
@@ -3180,8 +3186,8 @@
 
         <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
           <div
-            class={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-sm font-semibold ${getStatusBadgeClass(prStatus?.status)}`}>
-            {getStatusLabel(prStatus?.status)}
+            class={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-sm font-semibold ${getStatusBadgeClass(prEffectiveStatus)}`}>
+            {getStatusLabel(prEffectiveStatus)}
           </div>
           <div class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
             {#if prEvent?.pubkey}
@@ -3561,7 +3567,7 @@
       {/if}
 
       <!-- Mark as merged (maintainers only, when up-to-date and open - no git ops) -->
-      {#if canManagePr && prStatus?.status === "open" && prCurrentMergeAnalysisResult && prCurrentMergeAnalysisResult.upToDate === true}
+      {#if canManagePr && prEffectiveStatus === "open" && prCurrentMergeAnalysisResult && prCurrentMergeAnalysisResult.upToDate === true}
         <div class="mb-6 rounded-lg border bg-card p-6">
           <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -4120,7 +4126,7 @@
       </div>
 
       <!-- PR updates (1619) timeline + merge status -->
-      {#if prUpdatesArray.length > 0 || (prStatus?.status === "applied" && prStatus?.createdAt)}
+      {#if prUpdatesArray.length > 0 || (prEffectiveStatus === "applied" && prStatus?.createdAt)}
         <div class="mb-6 space-y-2">
           <h2 class="flex items-center gap-2 text-lg font-medium">
             <GitCommit class="h-5 w-5" />
@@ -4142,7 +4148,7 @@
                 <ProfileLink pubkey={update.author.pubkey} relays={profileRelays} />
               </li>
             {/each}
-            {#if prStatus?.status === "applied" && prStatus?.createdAt}
+            {#if prEffectiveStatus === "applied" && prStatus?.createdAt}
               <li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <CheckCircle class="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
                 <span class="text-muted-foreground">Merged</span>
