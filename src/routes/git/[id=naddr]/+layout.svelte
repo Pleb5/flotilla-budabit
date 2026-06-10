@@ -131,6 +131,7 @@
     RESOLVED_STATUS_BY_ROOT_KEY,
     HIDDEN_ROOT_IDS_KEY,
     PULL_REQUESTS_KEY,
+    REPO_VERIFIED_MAINTAINERS_KEY,
     COMMENT_EVENTS_KEY,
     REPO_FEED_ACTIVITY_KEY,
     REPO_ACTIONS_KEY,
@@ -141,6 +142,8 @@
     getRepoAnnouncementRelays,
     getRepoScopedRelays,
     getRepoMaintainers,
+    getVerifiedRepoMaintainers,
+    groupStatusEventsByRoot,
   } from "@app/core/git-state"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {userRepoWatchValues} from "@app/core/repo-watch"
@@ -1279,22 +1282,9 @@
   }
 
   function deriveStatusEventsByRoot(statusEvents: Readable<StatusEvent[]>) {
-    return derived(statusEvents, (events: StatusEvent[]) => {
-      const map = new Map<string, StatusEvent[]>()
-      for (const event of events) {
-        const rootTag = (event.tags || []).find(
-          (tag: string[]) => tag[0] === "e" && tag[1] && tag[3] === "root",
-        )
-        const rootId = rootTag?.[1] || getTagValue("e", event.tags)
-        if (rootId) {
-          if (!map.has(rootId)) {
-            map.set(rootId, [])
-          }
-          map.get(rootId)!.push(event)
-        }
-      }
-      return map
-    }) as Readable<Map<string, StatusEvent[]>>
+    return derived(statusEvents, (events: StatusEvent[]) =>
+      groupStatusEventsByRoot(events),
+    ) as Readable<Map<string, StatusEvent[]>>
   }
 
   function deriveRootScopedReportEvents(rootIds: Readable<string[]>) {
@@ -1647,6 +1637,15 @@
     },
   )
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
+  const verifiedMaintainersStore: Readable<Set<string>> = derived(
+    [repoEventStore, pullRequestsStore, statusEventsByRootStore],
+    ([$repoEvent, $pullRequests, $statusEventsByRoot]) =>
+      getVerifiedRepoMaintainers({
+        repoEvent: $repoEvent,
+        pullRequests: $pullRequests,
+        statusEventsByRoot: $statusEventsByRoot,
+      }),
+  )
   const resolvedStatusByRootStore = deriveResolvedStatusByRoot(
     issuesStore,
     pullRequestsStore,
@@ -1955,6 +1954,10 @@
   setContext(RESOLVED_STATUS_BY_ROOT_KEY, resolvedStatusByRootStore)
   setContext(HIDDEN_ROOT_IDS_KEY, hiddenRootIdsStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
+  setContext(REPO_VERIFIED_MAINTAINERS_KEY, {
+    maintainers: verifiedMaintainersStore,
+    getProfileContext: () => ({repoName: repoClass?.name || repoName}),
+  })
   setContext(COMMENT_EVENTS_KEY, commentEventsStore)
   setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
   setContext(REPO_ACTIONS_KEY, {

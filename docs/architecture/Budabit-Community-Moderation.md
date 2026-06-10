@@ -294,10 +294,13 @@ Definitions:
 | ------------------- | ---------------------------------------------------------- |
 | Repo owner          | The pubkey that authored the repository announcement.      |
 | Declared maintainer | Pubkeys listed in the repo announcement `maintainers` tag. |
+| Verified maintainer | A declared maintainer with at least one owner-merged PR in the current repo. |
 | Issue author        | The pubkey that authored the issue root event.             |
 | PR author           | The pubkey that authored the pull request root event.      |
 
 Status resolution is shared in `@nostr-git/core`. Budabit should pass the same repository owner and maintainer set to both the status resolver and the status editor UI. This keeps the displayed final state and the visible “Change Status” affordance aligned.
+
+Verified maintainer is a repo-scoped UI signal, not a new permission class. It is derived from the current repo announcement plus PR/status evidence: the user is currently declared in the `maintainers` tag, authored a PR for this repo, and the repo owner authored the applied/merged status event for that PR. Removing the user from the current maintainer tag removes the signal.
 
 ### Issue Permissions
 

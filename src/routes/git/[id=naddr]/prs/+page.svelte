@@ -54,13 +54,15 @@
     REPO_PROFILE_RELAYS_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
+    REPO_VERIFIED_MAINTAINERS_KEY,
     RESOLVED_STATUS_BY_ROOT_KEY,
     HIDDEN_ROOT_IDS_KEY,
     deriveAssignmentsFor,
     deriveEffectiveLabels,
     getRepoMaintainers,
+    type RepoVerifiedMaintainersContext,
   } from "@app/core/git-state"
-  import type {Readable} from "svelte/store"
+  import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
   type LabelGroups = {
@@ -112,6 +114,9 @@
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const repoVerifiedMaintainersContext = getContext<RepoVerifiedMaintainersContext | undefined>(
+    REPO_VERIFIED_MAINTAINERS_KEY,
+  )
   const resolvedStatusByRootStore = getContext<Readable<Map<string, ResolvedRootStatus>>>(
     RESOLVED_STATUS_BY_ROOT_KEY,
   )
@@ -127,6 +132,10 @@
   const statusEventsByRoot = $derived.by(() =>
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
+  const emptyVerifiedMaintainers = readable(new Set<string>())
+  const repoVerifiedMaintainersStore =
+    repoVerifiedMaintainersContext?.maintainers ?? emptyVerifiedMaintainers
+  const verifiedMaintainers = $derived.by(() => $repoVerifiedMaintainersStore)
   const resolvedStatusByRoot = $derived.by(() =>
     resolvedStatusByRootStore ? $resolvedStatusByRootStore : new Map<string, ResolvedRootStatus>(),
   )
@@ -806,6 +815,9 @@
       pubkey: profilePubkey,
       url: repoCommunityProfileRelays[0],
       relays: repoCommunityProfileRelays,
+      verifiedMaintainerForRepo: verifiedMaintainers.has(profilePubkey)
+        ? repoVerifiedMaintainersContext?.getProfileContext()
+        : undefined,
     })
 
   const getLatestPrActivityAt = (pr: {

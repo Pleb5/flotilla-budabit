@@ -1,7 +1,11 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 import {
+  createPullRequestEvent,
   createRepoAnnouncementEvent,
+  createStatusEvent,
   DEFAULT_GRASP_SET_ID,
+  GIT_STATUS_APPLIED,
+  GIT_STATUS_CLOSED,
   GRASP_SET_KIND,
 } from "@nostr-git/core/events"
 import {repository, pubkey} from "@welshman/app"
@@ -33,6 +37,8 @@ import {
   getRepoAnnouncementRelays,
   getRepoMaintainers,
   getRepoScopedRelays,
+  getVerifiedRepoMaintainers,
+  groupStatusEventsByRoot,
 } from "./git-state"
 
 let eventCounter = 0
@@ -63,6 +69,51 @@ const makeRepoAnnouncement = ({
       created_at: eventCounter,
     }),
     id: eventCounter.toString(16).padStart(64, "0"),
+    pubkey,
+    sig: "0".repeat(128),
+  } as any
+}
+
+const nextId = () => {
+  eventCounter += 1
+  return eventCounter.toString(16).padStart(64, "0")
+}
+
+const makePullRequest = ({
+  pubkey,
+  repoAddr = `30617:${"a".repeat(64)}:demo`,
+}: {
+  pubkey: string
+  repoAddr?: string
+}) => {
+  const id = nextId()
+  return {
+    ...createPullRequestEvent({
+      content: "PR body",
+      repoAddr,
+      subject: "PR title",
+      tipCommitOid: "c".repeat(40),
+      created_at: eventCounter,
+    }),
+    id,
+    pubkey,
+    sig: "0".repeat(128),
+  } as any
+}
+
+const makeStatus = ({
+  pubkey,
+  rootId,
+  kind = GIT_STATUS_APPLIED,
+}: {
+  pubkey: string
+  rootId: string
+  kind?: typeof GIT_STATUS_APPLIED | typeof GIT_STATUS_CLOSED
+}) => {
+  const id = nextId()
+  return {
+    ...createStatusEvent({kind, content: "", rootId, created_at: eventCounter}),
+    id,
     pubkey,
     sig: "0".repeat(128),
   } as any
@@ -210,6 +261,107 @@ describe("budabit state", () => {
       })
 
       expect(getRepoMaintainers(event)).toEqual([root, mutual])
+    })
+  })
+
+  describe("getVerifiedRepoMaintainers", () => {
+    it("verifies a declared maintainer after the owner merges one of their PRs", () => {
+      const owner = "a".repeat(64)
+      const maintainer = "b".repeat(64)
+      const repoEvent = makeRepoAnnouncement({pubkey: owner, maintainers: [maintainer]})
+      const pullRequest = makePullRequest({pubkey: maintainer})
+      const mergedStatus = makeStatus({pubkey: owner, rootId: pullRequest.id})
+
+      const verified = getVerifiedRepoMaintainers({
+        repoEvent,
+        pullRequests: [pullRequest],
+        statusEventsByRoot: new Map([[pullRequest.id, [mergedStatus]]]),
+      })
+
+      expect(Array.from(verified)).toEqual([maintainer])
+    })
+
+    it("does not verify a maintainer when another maintainer merged their PR", () => {
+      const owner = "a".repeat(64)
+      const maintainer = "b".repeat(64)
+      const merger = "c".repeat(64)
+      const repoEvent = makeRepoAnnouncement({pubkey: owner, maintainers: [maintainer, merger]})
+      const pullRequest = makePullRequest({pubkey: maintainer})
+      const mergedStatus = makeStatus({pubkey: merger, rootId: pullRequest.id})
+
+      const verified = getVerifiedRepoMaintainers({
+        repoEvent,
+        pullRequests: [pullRequest],
+        statusEventsByRoot: new Map([[pullRequest.id, [mergedStatus]]]),
+      })
+
+      expect(verified.size).toBe(0)
+    })
+
+    it("does not verify the owner even if they are listed as a maintainer", () => {
+      const owner = "a".repeat(64)
+      const repoEvent = makeRepoAnnouncement({pubkey: owner, maintainers: [owner]})
+      const pullRequest = makePullRequest({pubkey: owner})
+      const mergedStatus = makeStatus({pubkey: owner, rootId: pullRequest.id})
+
+      const verified = getVerifiedRepoMaintainers({
+        repoEvent,
+        pullRequests: [pullRequest],
+        statusEventsByRoot: new Map([[pullRequest.id, [mergedStatus]]]),
+      })
+
+      expect(verified.size).toBe(0)
+    })
+
+    it("does not verify a maintainer who is no longer declared", () => {
+      const owner = "a".repeat(64)
+      const formerMaintainer = "b".repeat(64)
+      const repoEvent = makeRepoAnnouncement({pubkey: owner, maintainers: []})
+      const pullRequest = makePullRequest({pubkey: formerMaintainer})
+      const mergedStatus = makeStatus({pubkey: owner, rootId: pullRequest.id})
+
+      const verified = getVerifiedRepoMaintainers({
+        repoEvent,
+        pullRequests: [pullRequest],
+        statusEventsByRoot: new Map([[pullRequest.id, [mergedStatus]]]),
+      })
+
+      expect(verified.size).toBe(0)
+    })
+
+    it("requires a merged status for the maintainer PR root", () => {
+      const owner = "a".repeat(64)
+      const maintainer = "b".repeat(64)
+      const repoEvent = makeRepoAnnouncement({pubkey: owner, maintainers: [maintainer]})
+      const pullRequest = makePullRequest({pubkey: maintainer})
+      const closedStatus = makeStatus({
+        pubkey: owner,
+        rootId: pullRequest.id,
+        kind: GIT_STATUS_CLOSED,
+      })
+
+      const verified = getVerifiedRepoMaintainers({
+        repoEvent,
+        pullRequests: [pullRequest],
+        statusEventsByRoot: new Map([[pullRequest.id, [closedStatus]]]),
+      })
+
+      expect(verified.size).toBe(0)
+    })
+  })
+
+  describe("groupStatusEventsByRoot", () => {
+    it("groups status events by their root event id", () => {
+      const rootA = "a".repeat(64)
+      const rootB = "b".repeat(64)
+      const owner = "c".repeat(64)
+      const statusA = makeStatus({pubkey: owner, rootId: rootA})
+      const statusB = makeStatus({pubkey: owner, rootId: rootB})
+
+      const grouped = groupStatusEventsByRoot([statusA, statusB, statusA])
+
+      expect(grouped.get(rootA)).toEqual([statusA])
+      expect(grouped.get(rootB)).toEqual([statusB])
     })
   })
 })

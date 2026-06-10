@@ -36,6 +36,7 @@
   import GitItem from "@app/components/GitItem.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import RepoMaintainerList from "@app/components/RepoMaintainerList.svelte"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -48,12 +49,16 @@
   import {nip19, type NostrEvent} from "nostr-tools"
   import {ListFilter, X} from "@lucide/svelte"
   import {
+    GIT_PULL_REQUEST,
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
+    GIT_STATUS_APPLIED,
     parseRepoCommunityBinding,
     parseRepoAnnouncementEvent,
+    type PullRequestEvent,
     type BookmarkAddress,
     type RepoAnnouncementEvent,
+    type StatusEvent,
   } from "@nostr-git/core/events"
   import {getTaggedRelaysFromRepoEvent, resolveRepoRelayPolicy} from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
@@ -72,6 +77,9 @@
   import {
     loadRepoAnnouncements,
     GIT_RELAYS,
+    getRepoDeclaredMaintainers,
+    getVerifiedRepoMaintainers,
+    groupStatusEventsByRoot,
     getRepoAnnouncementPublishRelays,
     repoAnnouncementRelaysStore,
     repoAnnouncements,
@@ -704,6 +712,35 @@
       url: profileRelays[0],
       relays: profileRelays,
     })
+  }
+
+  const getRepoCardMaintainers = (event?: RepoAnnouncementEvent | null) =>
+    getRepoDeclaredMaintainers(event)
+
+  const getRepoCardAddress = (event?: RepoAnnouncementEvent | null) => {
+    if (!event) return ""
+
+    try {
+      return getRepoAddressFromEvent(event)
+    } catch {
+      return ""
+    }
+  }
+
+  const hasRepoAddressTag = (event: Pick<NostrEvent, "tags">, address: string) =>
+    Boolean(address && (event.tags || []).some(tag => tag[0] === "a" && tag[1] === address))
+
+  const REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE = 80
+  const EMPTY_VERIFIED_REPO_MAINTAINERS = new Set<string>()
+
+  const chunkBySize = <T,>(items: T[], size: number) => {
+    const chunks: T[][] = []
+
+    for (let i = 0; i < items.length; i += size) {
+      chunks.push(items.slice(i, i + size))
+    }
+
+    return chunks
   }
 
   const selectedCommunityRef = $derived.by(() =>
@@ -2486,7 +2523,121 @@
         ? sortedRepoCards
         : [],
   )
+  const repoCardEvidenceRepoEvents = $derived.by(() =>
+    repoCardsForProfileHydration
+      .map(card => card?.first as RepoAnnouncementEvent | undefined)
+      .filter((event): event is RepoAnnouncementEvent => Boolean(event)),
+  )
+  const repoCardEvidenceAddresses = $derived.by(() =>
+    Array.from(new Set(repoCardEvidenceRepoEvents.map(getRepoCardAddress).filter(Boolean))),
+  )
+  const repoCardEvidenceRelays = $derived.by(() =>
+    Array.from(
+      new Set(
+        repoCardEvidenceRepoEvents
+          .flatMap(event => getRepoCardProfileRelays(event))
+          .map(relay => safeNormalizeRelay(relay))
+          .filter(Boolean),
+      ),
+    ),
+  )
+  const repoCardPullRequestFilters = $derived.by(() =>
+    chunkBySize(repoCardEvidenceAddresses, REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE).map(
+      addresses =>
+        ({kinds: [GIT_PULL_REQUEST], "#a": addresses}) satisfies Filter,
+    ),
+  )
+  const repoCardPullRequestEventsStore = $derived.by(() =>
+    repoCardPullRequestFilters.length > 0
+      ? deriveEventsDesc(deriveEventsById({repository, filters: repoCardPullRequestFilters as any}))
+      : undefined,
+  )
+  const repoCardPullRequests = $derived.by(() =>
+    repoCardPullRequestEventsStore
+      ? (($repoCardPullRequestEventsStore || []) as PullRequestEvent[])
+      : [],
+  )
+  const repoCardPullRequestRootIds = $derived.by(() =>
+    Array.from(new Set(repoCardPullRequests.map(event => event.id).filter(Boolean))),
+  )
+  const repoCardStatusFilters = $derived.by(() => [
+    ...chunkBySize(repoCardEvidenceAddresses, REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE).map(
+      addresses =>
+        ({kinds: [GIT_STATUS_APPLIED], "#a": addresses}) satisfies Filter,
+    ),
+    ...chunkBySize(repoCardPullRequestRootIds, REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE).map(
+      rootIds =>
+        ({kinds: [GIT_STATUS_APPLIED], "#e": rootIds}) satisfies Filter,
+    ),
+  ])
+  const repoCardEvidenceFilters = $derived.by(() => [
+    ...repoCardPullRequestFilters,
+    ...repoCardStatusFilters,
+  ])
+  const repoCardStatusEventsStore = $derived.by(() =>
+    repoCardStatusFilters.length > 0
+      ? deriveEventsDesc(deriveEventsById({repository, filters: repoCardStatusFilters as any}))
+      : undefined,
+  )
+  const repoCardStatusEvents = $derived.by(() =>
+    repoCardStatusEventsStore ? (($repoCardStatusEventsStore || []) as StatusEvent[]) : [],
+  )
+  const repoCardStatusEventsByRoot = $derived.by(() =>
+    groupStatusEventsByRoot(repoCardStatusEvents),
+  )
+  const repoCardVerifiedMaintainersByAddress = $derived.by(() => {
+    const verifiedByAddress = new Map<string, Set<string>>()
+
+    for (const event of repoCardEvidenceRepoEvents) {
+      const address = getRepoCardAddress(event)
+      if (!address) continue
+
+      const pullRequests = repoCardPullRequests.filter(pullRequest =>
+        hasRepoAddressTag(pullRequest, address),
+      )
+
+      verifiedByAddress.set(
+        address,
+        getVerifiedRepoMaintainers({
+          repoEvent: event,
+          pullRequests,
+          statusEventsByRoot: repoCardStatusEventsByRoot,
+        }),
+      )
+    }
+
+    return verifiedByAddress
+  })
+  const getRepoCardVerifiedMaintainers = (event?: RepoAnnouncementEvent | null) => {
+    const address = getRepoCardAddress(event)
+    return address
+      ? repoCardVerifiedMaintainersByAddress.get(address) || EMPTY_VERIFIED_REPO_MAINTAINERS
+      : EMPTY_VERIFIED_REPO_MAINTAINERS
+  }
   let repoCardProfileLoadKey = ""
+
+  let repoCardEvidenceLoadKey = ""
+
+  $effect(() => {
+    const filters = repoCardEvidenceFilters
+    const relays = repoCardEvidenceRelays
+    const key = `${relays.join(",")}:${filters
+      .map(filter => JSON.stringify(filter))
+      .sort()
+      .join("|")}`
+
+    if (filters.length === 0 || relays.length === 0) {
+      repoCardEvidenceLoadKey = ""
+      return
+    }
+
+    if (key === repoCardEvidenceLoadKey) return
+    repoCardEvidenceLoadKey = key
+
+    load({relays, filters: filters as any}).catch(error => {
+      console.warn("[git/+page] Failed to load repo card maintainer verification evidence", error)
+    })
+  })
 
   $effect(() => {
     if (activeTab === "snippets") {
@@ -2495,26 +2646,27 @@
     }
 
     const requests = repoCardsForProfileHydration
-      .map(card => {
+      .flatMap(card => {
         const event = card?.first as RepoAnnouncementEvent | undefined
         const owner = String(card?.owner || event?.pubkey || "")
         const relays = event ? getRepoCardProfileRelays(event) : []
+        const maintainers = getRepoCardMaintainers(event)
 
-        return {owner, relays}
+        return [owner, ...maintainers].filter(Boolean).map(pubkey => ({pubkey, relays}))
       })
-      .filter(({owner}) => owner)
+      .filter(({pubkey}) => pubkey)
 
     const key = requests
-      .map(({owner, relays}) => `${owner}:${relays.join(",")}`)
+      .map(({pubkey, relays}) => `${pubkey}:${relays.join(",")}`)
       .sort()
       .join("|")
 
     if (!key || key === repoCardProfileLoadKey) return
     repoCardProfileLoadKey = key
 
-    for (const {owner, relays} of requests) {
-      loadBudabitProfile(owner, {relays}).catch(error => {
-        console.warn("[git/+page] Failed to load repo card owner profile", error)
+    for (const {pubkey, relays} of requests) {
+      loadBudabitProfile(pubkey, {relays}).catch(error => {
+        console.warn("[git/+page] Failed to load repo card profile", error)
       })
     }
   })
@@ -3475,6 +3627,12 @@
             {@const cardProfileRelays = g.first
               ? getRepoCardProfileRelays(g.first as RepoAnnouncementEvent)
               : []}
+            {@const repoCardMaintainers = g.first
+              ? getRepoCardMaintainers(g.first as RepoAnnouncementEvent)
+              : []}
+            {@const repoCardVerifiedMaintainers = g.first
+              ? getRepoCardVerifiedMaintainers(g.first as RepoAnnouncementEvent)
+              : EMPTY_VERIFIED_REPO_MAINTAINERS}
             <div
               class="min-w-0 rounded-md border border-border bg-card p-3"
               role="link"
@@ -3500,26 +3658,13 @@
                   showActions={true}
                   hideDate={true} />
               {/if}
-              <div class="mt-3 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="flex -space-x-2">
-                    {#if g.owner}
-                      <Button
-                        class="rounded-full p-0"
-                        aria-label="View owner profile"
-                        title="View owner profile"
-                        onclick={stopPropagation(
-                          preventDefault(() => openRepoCardProfile(g.owner, cardProfileRelays)),
-                        )}>
-                        <ProfileCircle
-                          pubkey={g.owner}
-                          relays={cardProfileRelays}
-                          size={6}
-                          class="border" />
-                      </Button>
-                    {/if}
-                  </div>
-                  <span class="text-xs opacity-60">Owner</span>
+              <div class="mt-3 flex min-w-0 items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <RepoMaintainerList
+                    maintainers={repoCardMaintainers}
+                    relays={cardProfileRelays}
+                    verifiedMaintainers={repoCardVerifiedMaintainers}
+                    repoName={g.title || ""} />
                 </div>
                 {#if g.first}
                   {@const date = new Date(g.first.created_at * 1000)}
@@ -3612,6 +3757,12 @@
             {@const communityStargazers = g.first
               ? getCommunityRepoStargazerPubkeys(g.first as RepoAnnouncementEvent)
               : []}
+            {@const repoCardMaintainers = g.first
+              ? getRepoCardMaintainers(g.first as RepoAnnouncementEvent)
+              : []}
+            {@const repoCardVerifiedMaintainers = g.first
+              ? getRepoCardVerifiedMaintainers(g.first as RepoAnnouncementEvent)
+              : EMPTY_VERIFIED_REPO_MAINTAINERS}
             <div
               class="min-w-0 rounded-md border border-border bg-card p-3"
               role="link"
@@ -3638,30 +3789,15 @@
                   hideDate={true} />
               {/if}
 
-              <!-- Owner, community stargazers, and date -->
+              <!-- Maintainers, community stargazers, and date -->
               <div
                 class="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-                  <div class="flex min-w-0 items-center gap-2">
-                    <div class="flex shrink-0 -space-x-2">
-                      {#if g.owner}
-                        <Button
-                          class="rounded-full p-0"
-                          aria-label="View owner profile"
-                          title="View owner profile"
-                          onclick={stopPropagation(
-                            preventDefault(() => openRepoCardProfile(g.owner, cardProfileRelays)),
-                          )}>
-                          <ProfileCircle
-                            pubkey={g.owner}
-                            relays={cardProfileRelays}
-                            size={6}
-                            class="border" />
-                        </Button>
-                      {/if}
-                    </div>
-                    <span class="text-xs opacity-60">Owner</span>
-                  </div>
+                  <RepoMaintainerList
+                    maintainers={repoCardMaintainers}
+                    relays={cardProfileRelays}
+                    verifiedMaintainers={repoCardVerifiedMaintainers}
+                    repoName={g.title || ""} />
                   {#if communityStargazers.length > 0}
                     <div class="flex min-w-0 items-center gap-2">
                       <div class="flex shrink-0 -space-x-2">

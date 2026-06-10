@@ -157,12 +157,12 @@ Text relevance and recency can sort within each bucket. Internal trust scores ca
 
 ## PR And Collaboration Policy
 
-Repo and PR surfaces should not render community-evidence labels, trust badges, or trust filters. Profiles can still show relationship evidence in profile modals or explicit profile analysis views.
+Repo and PR surfaces should not render community-evidence labels, trust badges, or trust filters. Profiles can still show relationship evidence in profile modals or explicit profile analysis views. Repo-scoped Git evidence is separate from community trust evidence and may be shown where it is explicitly tied to the current repo.
 
 | Current concept | Direction |
 | --- | --- |
 | Trusted author on PRs | Do not show on PR or repo pages. Profile modals carry profile evidence instead. |
-| Trusted maintainer merge | Do not show on PR or repo pages. Maintainer profiles remain inspectable directly. |
+| Verified maintainer | May show only in repo contexts when the current repo owner has marked at least one PR from a currently declared maintainer as merged. This is Git collaboration evidence, not community trust. |
 | Trusted collaborators | Keep collaboration evidence behind profile-focused analysis. |
 | Social-only trusted actor | Do not count as trusted. Use only profile/search context where appropriate. |
 | Raw trust score | Never display. |

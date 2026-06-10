@@ -1,5 +1,6 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
+  import {CircleCheck, Info} from "@lucide/svelte"
   import {removeUndefined} from "@welshman/lib"
   import {pubkey as sessionPubkey} from "@welshman/app"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
@@ -14,6 +15,7 @@
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import Popover from "@lib/components/Popover.svelte"
+  import Tooltip from "@lib/components/Tooltip.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import Profile from "@app/components/Profile.svelte"
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
@@ -31,14 +33,16 @@
   import {pushModal} from "@app/util/modal"
   import {makeChatPath, makeProfilePath} from "@app/util/routes"
   import {deriveBudabitProfile} from "@app/core/profile-resolver"
+  import type {VerifiedMaintainerForRepo} from "@app/core/git-state"
 
   export type Props = {
     pubkey: string
     url?: string
     relays?: string[]
+    verifiedMaintainerForRepo?: VerifiedMaintainerForRepo
   }
 
-  const {pubkey, url, relays = []}: Props = $props()
+  const {pubkey, url, relays = [], verifiedMaintainerForRepo}: Props = $props()
 
   const relayHints = $derived(
     Array.from(new Set(removeUndefined([url, ...relays]).filter(Boolean))),
@@ -64,6 +68,9 @@
 
   const chatPath = $derived(makeChatPath(pubkey))
   const fullProfilePath = $derived(makeProfilePath(pubkey, relayHints))
+  const verifiedMaintainerTooltip = $derived(
+    `Listed as a maintainer by this repository's owner${verifiedMaintainerForRepo?.repoName ? ` for ${verifiedMaintainerForRepo.repoName}` : ""}, and the owner has marked at least one of their pull requests as merged.`,
+  )
 
   const showInfo = () =>
     pushModal(EventInfo, {url: profileUrl, relays: relayHints, event: $profile!.event})
@@ -84,7 +91,12 @@
 
 <div class="flex flex-col gap-4">
   <div class="flex justify-between">
-    <Profile showPubkey avatarSize={14} {pubkey} url={profileUrl} relays={relayHints} />
+    <Profile
+      showPubkey
+      avatarSize={14}
+      {pubkey}
+      url={profileUrl}
+      relays={relayHints} />
     {#if $profile}
       <div class="relative">
         <Button class="btn btn-circle btn-ghost btn-sm" onclick={() => toggleMenu(pubkey)}>
@@ -109,6 +121,28 @@
       </div>
     {/if}
   </div>
+  {#if verifiedMaintainerForRepo}
+    <div class="flex flex-wrap items-center gap-2">
+      <span
+        class="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/70 bg-emerald-50/80 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+        <CircleCheck class="h-3.5 w-3.5" />
+        Verified maintainer
+        <Tooltip content={verifiedMaintainerTooltip} class="inline-flex">
+          <button
+            type="button"
+            class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-300/70 bg-white/60 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-950/60 dark:text-emerald-200"
+            aria-label={verifiedMaintainerTooltip}>
+            <Info class="h-3 w-3" />
+          </button>
+        </Tooltip>
+      </span>
+      {#if verifiedMaintainerForRepo.repoName}
+        <span class="min-w-0 truncate text-xs opacity-70">
+          for {verifiedMaintainerForRepo.repoName}
+        </span>
+      {/if}
+    </div>
+  {/if}
   <ProfileTrustBadges {pubkey} relays={relayHints} />
   <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
   <ProfileBadges {pubkey} url={profileUrl} />

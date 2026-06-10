@@ -65,9 +65,9 @@ This document summarizes how the Budabit client is structured and how the main p
   - `packages/nostr-git-ui/src/lib/components/git/`
   - Example: `NewRepoWizard.svelte` imports `AdvancedSettingsStep.svelte`, `RepoDetailsStep.svelte`, `RepoProgressStep.svelte`.
 - `useNewRepo.svelte` and related hooks in `packages/nostr-git-ui/src/lib` coordinate repo creation, progress, and publishing events.
-- The app-level state exposes repo announcements and maintainers using `@nostr-git/core` utilities.
+- The app-level state exposes repo announcements, maintainers, status grouping, and repo-scoped verified-maintainer derivation using `@nostr-git/core` utilities.
 - App-level Git worker access goes through `src/app/core/worker-singleton.ts`, which creates one shared worker, injects the Vite-resolved worker URL, configures EventIO, and applies the configured Git CORS proxy.
-- Repo routes decode `naddr` values in `src/routes/git/[id=naddr]/+layout.ts`, build a `Repo` context in `+layout.svelte`, and provide repo-scoped stores for issues, PRs, comments, status, feed activity, settings actions, clone URLs, and relays.
+- Repo routes decode `naddr` values in `src/routes/git/[id=naddr]/+layout.ts`, build a `Repo` context in `+layout.svelte`, and provide repo-scoped stores for issues, PRs, comments, status, verified maintainers, feed activity, settings actions, clone URLs, and relays.
 
 ## Extensions and Widgets
 

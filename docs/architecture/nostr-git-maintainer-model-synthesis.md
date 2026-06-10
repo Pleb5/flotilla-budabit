@@ -45,6 +45,20 @@ Repo maintainers are derived from one announcement:
 
 There is no pending-maintainer state in Budabit's default repo UX. If a listed maintainer has not published their own matching announcement, that does not matter for this repo's authority model.
 
+### Verified Maintainer UI
+
+Budabit also derives a repo-scoped verified maintainer display signal. This is not a separate authority role and does not grant permissions. It is only explanatory UI for maintainers who have already demonstrated owner-accepted collaboration in the current repo.
+
+A declared maintainer is shown as verified for a repo when all of the following are true:
+
+1. The pubkey is currently listed in the repo announcement `maintainers` tag.
+2. The pubkey authored at least one pull request event for the current repo address.
+3. The repo owner authored an applied/merged status event (`kind:1631`) for that pull request root.
+
+The repo owner is not shown as a verified maintainer. If a maintainer is removed from the current repo announcement, the verified display disappears even if historical owner-merged PRs remain.
+
+Verified maintainer indicators are repo-scoped. They can appear on repo overview maintainer chips, repo cards, profile links/avatars rendered from repo contexts, and profile modals opened from those contexts. Generic profile/community surfaces should not show this signal without explicit repo context.
+
 ## Infrastructure
 
 Clone URLs, web URLs, and relays come from the current repo announcement and normal route/relay hints. Budabit does not union infrastructure across other maintainers' announcements.
