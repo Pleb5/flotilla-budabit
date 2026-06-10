@@ -7,12 +7,25 @@ describe("empty image source guards", () => {
   it("prevents ImageIcon from rendering an img for empty sources", () => {
     const source = readProjectFile("../../lib/components/ImageIcon.svelte")
 
+    expect(source).toContain("fallbackSrc?: string | null")
     expect(source).toContain('const safeSrc = $derived(String(src || "").trim())')
+    expect(source).toContain("const safeFallbackSrc = $derived")
+    expect(source).toContain(
+      "const activeSrc = $derived(!safeSrc || imageFailed ? safeFallbackSrc : safeSrc)",
+    )
     expect(source).toContain("warnEmptyImageSource")
-    expect(source).toContain("{#if !safeSrc || imageFailed}")
-    expect(source).toContain("{:else if safeSrc.includes")
-    expect(source).toContain("src={safeSrc}")
+    expect(source).toContain("{#if !activeSrc || activeImageFailed}")
+    expect(source).toContain("{:else if activeSrc.includes")
+    expect(source).toContain("src={activeSrc}")
     expect(source).toContain("onerror={markImageFailed}")
+  })
+
+  it("uses the fallback avatar icon when profile images fail", () => {
+    const source = readProjectFile("../components/ProfileCircle.svelte")
+
+    expect(source).toContain("fallbackSrc={UserRounded}")
+    expect(source).toContain("src={$profile?.picture}")
+    expect(source).not.toContain("src={$profile?.picture || UserRounded}")
   })
 
   it("uses profile avatar fallback instead of empty ChannelMessage picture src", () => {

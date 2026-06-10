@@ -21,4 +21,5 @@
   {size}
   alt=""
   class={cx(props.class, "rounded-full")}
-  src={$profile?.picture || UserRounded} />
+  fallbackSrc={UserRounded}
+  src={$profile?.picture} />

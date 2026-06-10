@@ -4,20 +4,25 @@
 
   type Props = {
     src?: string | null
+    fallbackSrc?: string | null
     alt: string
     size?: number
     class?: string
   }
 
-  const {src, alt, size = 5, ...props}: Props = $props()
+  const {src, fallbackSrc, alt, size = 5, ...props}: Props = $props()
 
-  let failedSrc = $state("")
+  let failedSources = $state<string[]>([])
 
   const safeSrc = $derived(String(src || "").trim())
-  const imageFailed = $derived(Boolean(safeSrc && failedSrc === safeSrc))
+  const safeFallbackSrc = $derived(String(fallbackSrc || "").trim())
+  const imageFailed = $derived(Boolean(safeSrc && failedSources.includes(safeSrc)))
+  const activeSrc = $derived(!safeSrc || imageFailed ? safeFallbackSrc : safeSrc)
+  const activeImageFailed = $derived(Boolean(activeSrc && failedSources.includes(activeSrc)))
 
   const markImageFailed = () => {
-    failedSrc = safeSrc
+    if (activeSrc && !failedSources.includes(activeSrc))
+      failedSources = [...failedSources, activeSrc]
   }
 
   $effect(() => {
@@ -25,17 +30,17 @@
   })
 </script>
 
-{#if !safeSrc || imageFailed}
+{#if !activeSrc || activeImageFailed}
   <span
     role={alt ? "img" : undefined}
     aria-label={alt || undefined}
     class="inline-block h-{size} w-{size} min-w-{size} min-h-{size} aspect-square {props.class}">
   </span>
-{:else if safeSrc.includes("image/svg") || safeSrc.endsWith(".svg")}
-  <Icon icon={safeSrc} {size} class={props.class} />
+{:else if activeSrc.includes("image/svg") || activeSrc.endsWith(".svg")}
+  <Icon icon={activeSrc} {size} class={props.class} />
 {:else}
   <img
-    src={safeSrc}
+    src={activeSrc}
     {alt}
     onerror={markImageFailed}
     class="h-{size} w-{size} min-w-{size} min-h-{size} aspect-square object-cover {props.class}" />
