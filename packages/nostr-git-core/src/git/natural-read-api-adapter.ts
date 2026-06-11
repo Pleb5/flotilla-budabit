@@ -338,16 +338,33 @@ export class GitNaturalApiAdapter {
       if (error instanceof MissingRef) {
         throw new GitNaturalReadError(
           "object-not-found",
-          `Git object not found: ${params.objectHash}`,
-          {remoteUrl, effectiveUrl, cause: error},
+          `Git object not found: ${params.objectHash}${formatPackFailureDiagnostics({
+            remoteUrl,
+            effectiveUrl,
+            filter: params.filter,
+            depth: params.deepen,
+            parserFailureClass: "missing-ref",
+          })}`,
+          {
+            remoteUrl,
+            effectiveUrl,
+            filter: params.filter,
+            depth: params.deepen,
+            parserFailureClass: "missing-ref",
+            cause: error,
+          },
         )
       }
 
+      const parserFailureClass = classifyPackParserFailure(error)
       throw toGitNaturalReadError(error, {
         code: "protocol-error",
-        message: `Git natural API upload-pack failed for ${remoteUrl}`,
+        message: `Git natural API upload-pack failed for ${redactUrlForDiagnostics(remoteUrl)}`,
         remoteUrl,
         effectiveUrl,
+        filter: params.filter,
+        depth: params.deepen,
+        parserFailureClass,
       })
     }
   }
@@ -413,19 +430,89 @@ function toGitNaturalReadError(
     message: string
     remoteUrl: string
     effectiveUrl: string
+    filter?: string
+    depth?: number
+    parserFailureClass?: string
   },
 ): GitNaturalReadError {
   if (error instanceof GitNaturalReadError) return error
   if (isAbortError(error)) throw error
   return new GitNaturalReadError(
     fallback.code,
-    `${fallback.message}: ${error instanceof Error ? error.message : String(error)}`,
+    `${fallback.message}${formatPackFailureDiagnostics(fallback)}: ${error instanceof Error ? error.message : String(error)}`,
     {
       remoteUrl: fallback.remoteUrl,
       effectiveUrl: fallback.effectiveUrl,
+      filter: fallback.filter,
+      depth: fallback.depth,
+      parserFailureClass: fallback.parserFailureClass,
       cause: error,
     },
   )
+}
+
+function formatPackFailureDiagnostics(params: {
+  remoteUrl: string
+  effectiveUrl: string
+  filter?: string
+  depth?: number
+  parserFailureClass?: string
+}): string {
+  if (params.filter === undefined && params.depth === undefined && params.parserFailureClass === undefined) {
+    return ""
+  }
+
+  const fields = [
+    `remote=${redactUrlForDiagnostics(params.remoteUrl)}`,
+    `effective=${redactUrlForDiagnostics(params.effectiveUrl)}`,
+    `filter=${params.filter || "none"}`,
+    `depth=${params.depth ?? "none"}`,
+    `parser=${params.parserFailureClass || "unknown"}`,
+  ]
+  return ` (${fields.join(", ")})`
+}
+
+function classifyPackParserFailure(error: unknown): string {
+  const seen = new Set<unknown>()
+  let current: unknown = error
+  let fallbackName = "unknown"
+
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    const asAny = current as {name?: string; message?: string; cause?: unknown; constructor?: {name?: string}}
+    const name = asAny.name || asAny.constructor?.name || ""
+    const message = current instanceof Error ? current.message : String(current)
+    const text = `${name} ${message}`
+
+    if (name && fallbackName === "unknown") fallbackName = name
+    if (name === "BigBatchError" || /decompress too much data|too much data at the same time/i.test(text)) {
+      return "big-batch"
+    }
+    if (/pkt-line|packet line|side-?band/i.test(text)) return "pkt-line"
+    if (/zlib|inflate|deflate|decompress/i.test(text)) return "zlib"
+    if (/checksum|crc|sha-?1/i.test(text)) return "checksum"
+    if (/packfile|pack file|invalid pack/i.test(text)) return "pack-parser"
+
+    current = asAny.cause
+  }
+
+  return fallbackName
+}
+
+function redactUrlForDiagnostics(value: string): string {
+  try {
+    const url = new URL(value)
+    if (url.username) url.username = "redacted"
+    if (url.password) url.password = ""
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (/token|access_token|auth|password|secret|key/i.test(key)) {
+        url.searchParams.set(key, "redacted")
+      }
+    }
+    return url.toString()
+  } catch {
+    return String(value || "").replace(/\/\/([^/@\s]+)@/g, "//redacted@")
+  }
 }
 
 function isAbortError(error: unknown): boolean {

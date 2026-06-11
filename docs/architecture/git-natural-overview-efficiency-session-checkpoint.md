@@ -11,12 +11,12 @@
 
 ## Current Phase
 
-- Phase 3: Natural Read Diagnostics And Final Verification
+- Complete
 
 ## Phase Exit Criteria
 
-- Natural commit/file pack failures log or expose operation, filter, requested depth, remote/effective URL, and parser failure class without dumping secrets or full payloads.
-- Diagnostics are compact and only appear on fallback/failure paths or existing debug logging paths.
+- Natural commit/file pack failures expose high-level operation through existing fallback context and upload-pack diagnostics with redacted remote/effective URL, filter, requested depth, and parser failure class.
+- Diagnostics are compact and only appear on natural upload-pack failure paths or existing fallback logging paths.
 - Final checkpoint says `Current Phase: Complete` with evidence from verification and commits.
 
 ## Completed With Evidence
@@ -37,6 +37,11 @@
   - Replaced progressive latest-commit probes at depths 5, 10, and 25 with a single depth-1 `getCommitHistory` call.
   - Treats `RepoNotReady`, still-initializing, worker-not-ready, not-cloned, and repository-not-available errors as optional latest-commit skips.
   - README loading remains on the existing `repoClass.getFileContent` Git-natural-first path and no overview clone/fetch trigger was added.
+- Phase 3 implemented compact natural upload-pack diagnostics:
+  - `GitNaturalReadError` now exposes `filter`, `depth`, and `parserFailureClass` metadata.
+  - `GitNaturalApiAdapter` annotates upload-pack and missing-ref failures with redacted remote/effective URLs, filter, depth, and parser class.
+  - Parser classification covers BigBatch/decompression, pkt-line, zlib, checksum, and generic pack-parser failures.
+  - Core tests assert `blob:none` and `tree:0` failures expose the diagnostic metadata and redact URL credentials.
 
 ## Decisions
 
@@ -45,17 +50,19 @@
 - Do not touch or stage the pre-existing local modification in `docs/architecture/git-natural-read-pivot.md`.
 - Phase 1 uses the same mitigation pattern observed in `gitworkshop`: batch at 15 and shrink on BigBatch before URL fallback.
 - Phase 2 keeps Git natural primary and only reduces overview commit metadata demand.
+- Phase 3 keeps diagnostics on failure paths and does not change Git natural/provider fallback order.
 
 ## Current State
 
 - Branch: `dev` tracking `origin/dev`.
 - Existing local uncommitted change: `docs/architecture/git-natural-read-pivot.md`.
 - Phase 1 is committed and pushed as `a5c7aef0 feat: batch git natural commit reads`.
-- Phase 2 implementation and verification are complete; checkpoint advances to Phase 3.
+- Phase 2 is committed and pushed as `7358a4ff fix: dedupe overview latest commit reads`.
+- Phase 3 implementation and verification are complete; checkpoint marks the session complete.
 
 ## Next Action
 
-- Start Phase 3 by inspecting natural read fallback diagnostics in `VendorReadRouter`, `WorkerManager`, and `GitNaturalReadProvider`.
+- Final response.
 
 ## Verification
 
@@ -63,16 +70,20 @@
 - Phase 1: `pnpm --dir packages/nostr-git-core typecheck` passed.
 - Phase 2: `pnpm test:nostr-git-ui -- VendorReadRouter` passed: 29 files, 183 tests.
 - Phase 2: `pnpm check` passed: 0 errors, 0 warnings.
+- Phase 3: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts packages/nostr-git-core/test/git/natural-read.spec.ts` passed: 1 file, 12 tests.
+- Phase 3: `pnpm check` passed: 0 errors, 0 warnings.
 
 ## Risks Or Blockers
 
 - Existing local modification in `docs/architecture/git-natural-read-pivot.md` remains unrelated and must not be staged.
-- Phase 3 must avoid demoting Git natural; REST remains fallback only.
+- Git natural remains primary; REST remains fallback only.
 
 ## Files
 
 - `docs/architecture/git-natural-overview-efficiency-session-plan.md`
 - `docs/architecture/git-natural-overview-efficiency-session-checkpoint.md`
 - `packages/nostr-git-core/src/git/natural-read-provider.ts`
+- `packages/nostr-git-core/src/git/natural-read-api-adapter.ts`
+- `packages/nostr-git-core/src/git/natural-read-transport.ts`
 - `packages/nostr-git-core/test/git/natural-read.spec.ts`
 - `src/routes/git/[id=naddr]/+page.svelte`

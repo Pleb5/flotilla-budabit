@@ -478,7 +478,29 @@ describe("natural read API adapter", () => {
       }),
     ).rejects.toMatchObject({
       code: "protocol-error",
+      filter: "blob:none",
+      depth: 1,
+      parserFailureClass: "pack-parser",
       message: expect.stringContaining("invalid packfile header"),
+    })
+
+    vi.stubGlobal(
+      "fetch",
+      uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), sideBandPacket(1, "NOPE"), encoder.encode("0000"))),
+    )
+    await expect(
+      adapter.fetchTreeZeroObjects({
+        url: "https://user:secret@example.com/repo.git",
+        commitHash: "a".repeat(40),
+        serverCapabilities: CAPABILITIES,
+        maxCommits: 12,
+      }),
+    ).rejects.toMatchObject({
+      code: "protocol-error",
+      filter: "tree:0",
+      depth: 12,
+      parserFailureClass: "pack-parser",
+      message: expect.stringContaining("remote=https://redacted@example.com/repo.git"),
     })
   })
 

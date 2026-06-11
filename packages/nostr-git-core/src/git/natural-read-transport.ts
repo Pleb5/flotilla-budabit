@@ -20,6 +20,9 @@ export class GitNaturalReadError extends Error {
   readonly effectiveUrl?: string
   readonly status?: number
   readonly capability?: string
+  readonly filter?: string
+  readonly depth?: number
+  readonly parserFailureClass?: string
 
   constructor(
     code: GitNaturalReadErrorCode,
@@ -29,6 +32,9 @@ export class GitNaturalReadError extends Error {
       effectiveUrl?: string
       status?: number
       capability?: string
+      filter?: string
+      depth?: number
+      parserFailureClass?: string
       cause?: unknown
     } = {},
   ) {
@@ -39,6 +45,9 @@ export class GitNaturalReadError extends Error {
     this.effectiveUrl = details.effectiveUrl
     this.status = details.status
     this.capability = details.capability
+    this.filter = details.filter
+    this.depth = details.depth
+    this.parserFailureClass = details.parserFailureClass
     if (details.cause !== undefined) {
       ;(this as Error & {cause?: unknown}).cause = details.cause
     }
