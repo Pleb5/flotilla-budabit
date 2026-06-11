@@ -689,7 +689,9 @@
   })
 
   const prCanRunMergeAnalysis = $derived.by(() =>
-    Boolean(prEffectiveTipOid && prReviewReady && !isAnalyzingPRMerge && !prAnalysisHasTerminalConflicts),
+    Boolean(
+      prEffectiveTipOid && prReviewReady && !isAnalyzingPRMerge && !prAnalysisHasTerminalConflicts,
+    ),
   )
 
   const prCommitOids = $derived.by(() => {
@@ -726,6 +728,16 @@
     return stateAuthor || analysisAuthor || "Unknown author"
   }
 
+  const needsPrCommitMetaHydration = (oid: string) => {
+    const stateMeta = getPrCommitState(oid).meta
+    const reviewMeta = prCommitMetaByOid.get(oid)
+    const hasMessage = Boolean(stateMeta?.message?.trim() || reviewMeta?.message?.trim())
+    const hasAuthor = Boolean(stateMeta?.author?.trim() || reviewMeta?.author?.name?.trim())
+    return !hasMessage || !hasAuthor
+  }
+
+  const attemptedPrCommitMetaHydration = new Set<string>()
+
   async function loadPrCommitMetaOnly(oid: string): Promise<PrCommitMeta | null> {
     if (!repoClass?.workerManager || !repoClass?.key) return null
 
@@ -761,6 +773,33 @@
       return null
     }
   }
+
+  $effect(() => {
+    if (!repoClass?.workerManager || !repoClass?.key) return
+
+    const oids = prCommitOids
+    if (!oids.length) return
+
+    const hydrationScope = [
+      prEvent?.id || "",
+      prEffectiveTipOid,
+      prTargetBranch,
+      prFetchCloneUrls.join(","),
+    ].join("|")
+    const missing: string[] = []
+    for (const oid of oids) {
+      if (missing.length >= 100) break
+      if (!needsPrCommitMetaHydration(oid)) continue
+      const key = `${hydrationScope}:${oid}`
+      if (attemptedPrCommitMetaHydration.has(key)) continue
+      attemptedPrCommitMetaHydration.add(key)
+      missing.push(oid)
+    }
+
+    if (missing.length === 0) return
+
+    void Promise.all(missing.map(oid => loadPrCommitMetaOnly(oid)))
+  })
 
   const getMergeCommitDiffWarning = (parentCount: number) =>
     `This commit has ${parentCount} parents, so its inline diff is skipped to avoid rendering an oversized merge diff. Review the PR files or individual non-merge commits instead.`
@@ -804,6 +843,7 @@
     prCommitDiffByOid = {
       ...prCommitDiffByOid,
       [oid]: {
+        ...getPrCommitState(oid),
         loading: true,
       },
     }
@@ -819,6 +859,7 @@
         prCommitDiffByOid = {
           ...prCommitDiffByOid,
           [oid]: {
+            ...getPrCommitState(oid),
             loading: false,
             error: result?.error || "Failed to load commit diff",
           },
@@ -853,6 +894,7 @@
       prCommitDiffByOid = {
         ...prCommitDiffByOid,
         [oid]: {
+          ...getPrCommitState(oid),
           loading: false,
           error: error instanceof Error ? error.message : "Failed to load commit diff",
         },
@@ -1519,7 +1561,9 @@
       }
 
       const mergeCommitCandidate =
-        statusMergeCommit || candidateCommits.find(commit => (commit.parents || []).length > 1)?.oid || appliedCommits[0]
+        statusMergeCommit ||
+        candidateCommits.find(commit => (commit.parents || []).length > 1)?.oid ||
+        appliedCommits[0]
       try {
         const commitsFromMerge = await loadPrCommitsFromMergeCommit(mergeCommitCandidate)
         if (commitsFromMerge.length > 0) return commitsFromMerge
@@ -1669,7 +1713,10 @@
       prChanges = []
       prChangesErrorPhase = errorPhase
       prChangesWarning = null
-      prChangesError = formatPrReviewLoadError(getErrorText(err) || "Failed to load diff", errorPhase)
+      prChangesError = formatPrReviewLoadError(
+        getErrorText(err) || "Failed to load diff",
+        errorPhase,
+      )
     } finally {
       if (prChangesGeneration === currentGen) {
         prChangesLoading = false
@@ -1753,7 +1800,12 @@
   }
 
   $effect(() => {
-    if ((!prEffectiveTipOid && !prStatus?.mergedCommit) || !repoClass.key || !repoClass.workerManager) return
+    if (
+      (!prEffectiveTipOid && !prStatus?.mergedCommit) ||
+      !repoClass.key ||
+      !repoClass.workerManager
+    )
+      return
 
     const changesKey = [
       prEvent?.id || "",
@@ -2053,10 +2105,7 @@
     if (generation !== prInlineTargetGeneration) return
     if (!ready) {
       const failure = getPrReviewInlineFailure()
-      fail(
-        failure.message,
-        failure.detail,
-      )
+      fail(failure.message, failure.detail)
       return
     }
     if (!prExpandedFiles.has(location.filePath)) {
@@ -2610,9 +2659,9 @@
   const prHasCleanMergeAnalysis = $derived.by(() =>
     Boolean(
       prReviewReady &&
-        prCurrentMergeAnalysisResult?.analysis === "clean" &&
-        prCurrentMergeAnalysisResult.canMerge === true &&
-        prCurrentMergeAnalysisResult.upToDate !== true,
+      prCurrentMergeAnalysisResult?.analysis === "clean" &&
+      prCurrentMergeAnalysisResult.canMerge === true &&
+      prCurrentMergeAnalysisResult.upToDate !== true,
     ),
   )
 
@@ -3629,7 +3678,9 @@
             <div class="flex items-center gap-3">
               <GitMerge class="h-5 w-5 text-primary" />
               <DialogTitle>
-                {prCurrentMergeAnalysisResult?.fastForward ? "Confirm Fast-forward" : "Confirm Merge"}
+                {prCurrentMergeAnalysisResult?.fastForward
+                  ? "Confirm Fast-forward"
+                  : "Confirm Merge"}
               </DialogTitle>
             </div>
           </DialogHeader>

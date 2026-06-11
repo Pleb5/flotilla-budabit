@@ -35,7 +35,7 @@ import { WorkerManager, type WorkerProgressEvent, type CloneProgress } from "./W
 import { CacheManager, MergeAnalysisCacheManager, CacheType } from "./CacheManager";
 import { CommitManager } from "./CommitManager";
 import { BranchManager, type RefDiscoverySource } from "./BranchManager";
-import { FileManager } from "./FileManager";
+import { FileManager, type FileInfo, type FileListingResult } from "./FileManager";
 import {
   RepoCore,
   type RepoContext,
@@ -244,7 +244,8 @@ export class Repo {
           kind: "repo-state",
           label: "Repo state snapshot",
           operation: "listRefs",
-          details: "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
+          details:
+            "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
         };
       }
       this.#maybeSelectBranchFromRefs(sortedImmediateRefs, parsedState?.head);
@@ -320,7 +321,8 @@ export class Repo {
           kind: "repo-state",
           label: "Repo state snapshot",
           operation: "listRefs",
-          details: "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
+          details:
+            "Using owner-signed repo-state refs until remote discovery confirms the live ref set.",
         };
       }
       this.#maybeSelectBranchFromRefs(
@@ -1125,9 +1127,7 @@ export class Repo {
 
       const isOwner = this.viewerPubkey ? this.isAuthorized(this.viewerPubkey) : false;
 
-      console.log(
-        `[Repo] #loadCommitsFromRepo: hasVendorApi=${hasVendorApi}, isOwner=${isOwner}`
-      );
+      console.log(`[Repo] #loadCommitsFromRepo: hasVendorApi=${hasVendorApi}, isOwner=${isOwner}`);
 
       if (hasVendorApi && !isOwner) {
         // Non-owner with REST API: skip git clone entirely, use only REST API.
@@ -1325,7 +1325,9 @@ export class Repo {
 
   // Expose clone URLs from the parsed repo announcement
   get cloneUrls(): string[] {
-    return this.#effectiveCloneUrls.length > 0 ? this.#effectiveCloneUrls : (this.#repo?.clone ?? []);
+    return this.#effectiveCloneUrls.length > 0
+      ? this.#effectiveCloneUrls
+      : (this.#repo?.clone ?? []);
   }
 
   setCloneUrls(cloneUrls: string[]): void {
@@ -2011,12 +2013,89 @@ export class Repo {
     }
   }
 
+  #filesFromStatusMatrix(files: Array<{ path?: string }>, path = ""): FileInfo[] {
+    const normalizedPath = String(path || "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const entries = new Map<string, FileInfo>();
+
+    for (const file of files || []) {
+      const filePath = String(file?.path || "")
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "");
+      if (!filePath) continue;
+      if (
+        normalizedPath &&
+        filePath !== normalizedPath &&
+        !filePath.startsWith(`${normalizedPath}/`)
+      ) {
+        continue;
+      }
+
+      const relativePath = normalizedPath
+        ? filePath === normalizedPath
+          ? ""
+          : filePath.slice(normalizedPath.length + 1)
+        : filePath;
+      if (!relativePath) continue;
+
+      const [name] = relativePath.split("/");
+      if (!name) continue;
+
+      const entryPath = normalizedPath ? `${normalizedPath}/${name}` : name;
+      const isDirectory = relativePath.includes("/");
+      const existing = entries.get(entryPath);
+      if (existing?.type === "directory") continue;
+      entries.set(entryPath, {
+        path: entryPath,
+        type: isDirectory ? "directory" : "file",
+      });
+    }
+
+    return Array.from(entries.values()).sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+  }
+
+  async #listRepoFilesFromStatus({
+    branch,
+    path,
+  }: {
+    branch: string;
+    path?: string;
+  }): Promise<FileListingResult | null> {
+    try {
+      const status = await this.workerManager.getStatus({
+        repoId: this.key,
+        branch,
+      });
+      const files = this.#filesFromStatusMatrix(status?.files || [], path || "");
+      if (status?.success && files.length > 0) {
+        return {
+          files,
+          path: path || "/",
+          ref: status.branch || branch,
+          fromCache: false,
+        };
+      }
+    } catch (error) {
+      console.debug("[Repo.listRepoFiles] status fallback failed:", error);
+    }
+
+    return null;
+  }
+
   async listRepoFiles({ branch, path }: { branch?: string; path?: string }) {
     const target = branch || this.branchManager.getMainBranch();
+    const targetPath = String(path || "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const displayPath = targetPath || "/";
     if (!this.repoEvent) {
       return {
         files: [],
-        path: path || "/",
+        path: displayPath,
         ref: normalizeGitRefName(target),
         fromCache: false,
       } as const;
@@ -2032,18 +2111,25 @@ export class Repo {
           repoEvent: this.repoEvent,
           repoKey: this.key,
           commit: hit.commitId,
-          path: path || "/",
+          path: targetPath,
         });
       }
     } catch {}
 
     // Otherwise, treat as a branch
-    return this.fileManager.listRepoFiles({
+    const listing = await this.fileManager.listRepoFiles({
       repoEvent: this.repoEvent,
       repoKey: this.key,
       branch: target,
-      path: path || "/",
+      path: targetPath,
     });
+    if (listing.files.length > 0) return listing;
+
+    const fallback = await this.#listRepoFilesFromStatus({
+      branch: normalizeGitRefName(target) || target,
+      path: targetPath,
+    });
+    return fallback || listing;
   }
 
   async getFileContent({
@@ -2242,7 +2328,6 @@ export class Repo {
 
       // Force reload branches and other data
       await this.#loadBranchesFromRepo(this.repoEvent);
-
     }
 
     console.log("Repository reset complete");
@@ -2568,5 +2653,4 @@ export class Repo {
       return "";
     }
   }
-
 }

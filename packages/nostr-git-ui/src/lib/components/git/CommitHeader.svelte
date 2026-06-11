@@ -75,7 +75,7 @@
   const commitBody = commitLines.slice(1).join("\n").trim();
 </script>
 
-<div class="sticky z-10 border-b border-border bg-card" style="top: var(--repo-tabs-height, 0px);">
+<div class="border-b border-border bg-card">
   <div class="px-6 py-4">
     <!-- Commit Title -->
     <div class="mb-4">

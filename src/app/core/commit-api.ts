@@ -7,7 +7,9 @@ import {getGitServiceApi, parseRepoUrl} from "@nostr-git/core"
 import {filterValidCloneUrls, reorderUrlsByPreference, hasRestApiSupport} from "@nostr-git/core"
 
 function getRestApiBaseUrl(provider: string, host?: string): string | undefined {
-  const hostname = String(host || "").trim().toLowerCase()
+  const hostname = String(host || "")
+    .trim()
+    .toLowerCase()
   if (!hostname) return undefined
 
   switch (provider) {
@@ -108,7 +110,7 @@ export async function getCommitDetailsViaGitNatural(
   const validUrls = filterValidCloneUrls(cloneUrls)
   const orderedUrls = reorderUrlsByPreference(validUrls, repoId)
 
-  console.log("[commit-api] Checking URLs for Git natural commit details:", {
+  console.debug("[commit-api] Checking URLs for Git natural commit details:", {
     original: cloneUrls,
     valid: validUrls,
     ordered: orderedUrls,
@@ -116,7 +118,7 @@ export async function getCommitDetailsViaGitNatural(
 
   for (const url of orderedUrls) {
     try {
-      console.log(`[commit-api] Trying Git natural commit details for ${url}`)
+      console.debug(`[commit-api] Trying Git natural commit details for ${url}`)
       const commitResult = await workerManager.gitNaturalGetCommit({
         url,
         commitHash: commitId,
@@ -133,7 +135,8 @@ export async function getCommitDetailsViaGitNatural(
           meta,
           changes: [],
           diffAvailable: false,
-          warning: "Commit metadata loaded from Git natural. Root commit diff is not available yet.",
+          warning:
+            "Commit metadata loaded from Git natural. Root commit diff is not available yet.",
           source: "git-natural",
         }
       }
@@ -156,22 +159,26 @@ export async function getCommitDetailsViaGitNatural(
           source: "git-natural",
         }
       } catch (diffError) {
-        console.warn(`[commit-api] Git natural diff failed for ${url}:`, diffError)
+        console.debug(`[commit-api] Git natural diff failed for ${url}; falling back`, diffError)
         return {
           success: true,
           meta,
           changes: [],
           diffAvailable: false,
-          warning: "Commit metadata loaded from Git natural, but the Git natural diff could not be loaded.",
+          warning:
+            "Commit metadata loaded from Git natural, but the Git natural diff could not be loaded.",
           source: "git-natural",
         }
       }
     } catch (error) {
-      console.warn(`[commit-api] Git natural commit details failed for ${url}:`, error)
+      console.debug(
+        `[commit-api] Git natural commit details failed for ${url}; trying fallback`,
+        error,
+      )
     }
   }
 
-  console.log("[commit-api] No Git natural commit detail URLs succeeded")
+  console.debug("[commit-api] No Git natural commit detail URLs succeeded")
   return null
 }
 

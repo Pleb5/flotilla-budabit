@@ -61,7 +61,7 @@
     isActive = false,
     linkBasePath = "",
   }: {
-    file: FileEntry;
+    file: FileEntry | null;
     getFileContent: (path: string) => Promise<string | FileContentPayload>;
     setDirectory: (path: string) => void;
     repo?: Repo;
@@ -89,9 +89,17 @@
     });
   };
 
-  const name = $derived(file.name);
-  const type = $derived((file.type ?? "file") as string);
-  const path = $derived(file.path || file.name || "");
+  const safeFile = $derived(
+    file ??
+      ({
+        name: "",
+        path: "",
+        type: "file",
+      } as FileEntry)
+  );
+  const name = $derived(safeFile.name);
+  const type = $derived((safeFile.type ?? "file") as string);
+  const path = $derived(safeFile.path || safeFile.name || "");
   const isList = $derived(displayMode === "list");
   const isViewer = $derived(displayMode === "viewer");
   const isInline = $derived(displayMode === "inline");
@@ -304,7 +312,7 @@
       }
     }
     if (type === "file" && isList) {
-      onSelectFile?.(file);
+      if (file) onSelectFile?.(file);
       return;
     }
     isExpanded = !isExpanded;
@@ -361,7 +369,7 @@
   $effect(() => {
     if (!shouldAutoOpen || hasAutoOpened || type !== "file") return;
     if (isList) {
-      onSelectFile?.(file);
+      if (file) onSelectFile?.(file);
       hasAutoOpened = true;
       return;
     }
@@ -1320,9 +1328,7 @@
     if (repoAddress) {
       const parsed = parseRepoAddress(repoAddress);
       if (parsed) {
-        const relayHints = Array.from(
-          new Set([...(repo?.relays || [])].filter(Boolean))
-        );
+        const relayHints = Array.from(new Set([...(repo?.relays || [])].filter(Boolean)));
         try {
           repoNaddr = nip19.naddrEncode({
             kind: parsed.kind,
@@ -1735,7 +1741,7 @@
 
   <FileMetadataPanel
     bind:isOpen={isMetadataPanelOpen}
-    file={file}
+    file={safeFile}
     content={content}
     typeInfo={fileTypeInfo}
     metadata={metadata}

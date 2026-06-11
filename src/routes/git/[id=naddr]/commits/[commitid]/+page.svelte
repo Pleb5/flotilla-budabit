@@ -153,9 +153,8 @@
         return
       }
 
-      const {getCommitDetailsViaGitNatural, getCommitDetailsViaRestApi} = await import(
-        "@app/core/commit-api"
-      )
+      const {getCommitDetailsViaGitNatural, getCommitDetailsViaRestApi} =
+        await import("@app/core/commit-api")
       let commitDetails = await getCommitDetailsViaGitNatural(
         repoClass.workerManager,
         cloneUrls,
@@ -173,7 +172,7 @@
 
       // If remote reads didn't provide a usable diff payload, fall back to worker git data.
       if (needsWorkerDiff) {
-        console.log("[commit page] remote metadata-only or unavailable, using worker git diff")
+        console.debug("[commit page] remote metadata-only or unavailable, using worker git diff")
         const metadataOnlyDetails = commitDetails?.success ? commitDetails : undefined
         let canTryWorkerDiff = true
 
@@ -643,8 +642,7 @@
 {:else if !hasData}
   <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
     <div class="text-center text-muted-foreground">
-      <p class="text-lg">Loading commit details...</p>
-      <p class="text-sm">Initializing repository...</p>
+      <p class="text-lg">Loading commit...</p>
     </div>
   </div>
 {:else}

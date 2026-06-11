@@ -57,6 +57,7 @@
   let pageContainerRef: HTMLElement | undefined = $state()
   let fileSearchSource: FileEntry[] | null = null
   let fileSearchCache: {searchOptions: (query: string) => FileEntry[]} | null = null
+  let fileLoadSeq = 0
 
   const FILE_SEARCH_DEBOUNCE_MS = 350
 
@@ -64,6 +65,13 @@
   let isCloning = $state(false)
   let cloneProgress = $state<string>("")
   let cloneProgressPercent = $state<number | undefined>(undefined)
+  const normalizedCloneProgressPercent = $derived.by(() => {
+    if (cloneProgressPercent === undefined) return undefined
+    const raw = Number(cloneProgressPercent)
+    if (!Number.isFinite(raw)) return undefined
+    const percent = raw > 0 && raw < 1 ? raw * 100 : raw
+    return Math.max(0, Math.min(100, percent))
+  })
 
   // Guard to prevent multiple concurrent clone checks
   let cloneCheckInProgress = $state(false)
@@ -96,9 +104,11 @@
 
   const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
   const selectedFileViewKey = $derived.by(() =>
-    [normalizeBranchRef(selectedBranch), repoClass.branchChangeTrigger, selectedFile?.path || ""].join(
-      ":",
-    ),
+    [
+      normalizeBranchRef(selectedBranch),
+      repoClass.branchChangeTrigger,
+      selectedFile?.path || "",
+    ].join(":"),
   )
 
   const normalizeSearchValue = (value: unknown) =>
@@ -125,6 +135,74 @@
     }
 
     return fileSearchCache.searchOptions(query)
+  }
+
+  const mapFileListing = (result: {files: readonly any[]}): FileEntry[] =>
+    result.files.map(
+      file =>
+        ({
+          name: file.path.split("/").pop() || file.path,
+          path: file.path,
+          type: file.type as "file" | "directory" | "submodule" | "symlink",
+          oid: file.lastCommit,
+        }) as FileEntry,
+    )
+
+  const loadFilesForBranch = ({
+    branchName,
+    directory,
+    repoEventId: expectedRepoEventId,
+    cloneUrlKey: expectedCloneUrlKey,
+  }: {
+    branchName: string
+    directory: string
+    repoEventId: string
+    cloneUrlKey: string
+  }) => {
+    const requestId = ++fileLoadSeq
+    loading = true
+    error = null
+
+    const loadPromise = repoClass
+      .listRepoFiles({
+        branch: branchName,
+        path: directory || undefined,
+      })
+      .then(result => {
+        const activeBranch = normalizeBranchRef(selectedBranch)
+        const isStale =
+          requestId !== fileLoadSeq ||
+          repoEventId !== expectedRepoEventId ||
+          supportedCloneUrlKey !== expectedCloneUrlKey ||
+          (activeBranch && activeBranch !== branchName)
+        if (isStale) return []
+
+        const mapped = mapFileListing(result)
+        currentFiles = mapped
+        loading = false
+        error = null
+        console.log("✅ Files loaded:", mapped.length, "files")
+        return mapped
+      })
+      .catch(e => {
+        const activeBranch = normalizeBranchRef(selectedBranch)
+        const isStale =
+          requestId !== fileLoadSeq ||
+          repoEventId !== expectedRepoEventId ||
+          supportedCloneUrlKey !== expectedCloneUrlKey ||
+          (activeBranch && activeBranch !== branchName)
+        if (isStale) return []
+
+        loading = false
+        const message = e instanceof Error ? e.message : "Failed to load files"
+        error = message
+        console.error("❌ Failed to load files:", e)
+        currentFiles = []
+        return []
+      })
+
+    files = loadPromise
+    return loadPromise
   }
 
   const getCommunityOptionLabel = (communityPubkey: string) => {
@@ -236,6 +314,47 @@
     path = fileParam ? dirFromPath(fileParam) : dirParam
     if (!fileParam) {
       selectedFile = null
+    }
+  })
+
+  let lastHandledBranchChangeTrigger = $state<number | undefined>(undefined)
+
+  $effect(() => {
+    const switchTrigger = repoClass.branchChangeTrigger
+
+    if (lastHandledBranchChangeTrigger === undefined) {
+      lastHandledBranchChangeTrigger = switchTrigger
+      return
+    }
+    if (switchTrigger === lastHandledBranchChangeTrigger) return
+
+    lastHandledBranchChangeTrigger = switchTrigger
+    const branchName = normalizeBranchRef(selectedBranch)
+    const currentRepoEventId = repoEventId
+    const currentCloneUrlKey = supportedCloneUrlKey
+    path = ""
+    autoOpenPath = undefined
+    selectedFile = null
+    currentFiles = []
+    fileSearchQuery = ""
+    debouncedFileSearchQuery = ""
+
+    if ($page.url.searchParams.has("dir") || $page.url.searchParams.has("path")) {
+      updateQueryParams({dir: "", file: undefined})
+    }
+
+    if (branchName && currentRepoEventId && currentCloneUrlKey && !repoClass.isBranchSwitching) {
+      void loadFilesForBranch({
+        branchName,
+        directory: "",
+        repoEventId: currentRepoEventId,
+        cloneUrlKey: currentCloneUrlKey,
+      })
+    } else {
+      ++fileLoadSeq
+      loading = false
+      error = null
+      files = Promise.resolve([])
     }
   })
 
@@ -424,16 +543,13 @@
     const currentRepoEventId = repoEventId
     const currentCloneUrlKey = supportedCloneUrlKey
     const switchTrigger = repoClass.branchChangeTrigger // Increments when branch switch completes
-    const availableRefs = refs.length ? refs : repoClass.refs
     const cloneUrls = supportedCloneUrls
+    const isSwitching = repoClass.isBranchSwitching
 
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
     const branchName = normalizeBranchRef(currentBranch)
-    if (!branchName || !currentBranch || isCloning || path) return
-    if (!availableRefs || availableRefs.length === 0) return
-    const availableBranches = availableRefs.filter(ref => ref.type === "heads").map(ref => ref.name)
-    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return
+    if (!branchName || !currentBranch || isCloning || isSwitching || path) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
       return
@@ -450,46 +566,12 @@
       }
 
       console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger)
-      files = repoClass
-        .listRepoFiles({
-          branch: branchName,
-          path: undefined,
-        })
-        .then(result => {
-          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
-            return []
-          }
-
-          loading = false
-          console.log("✅ Files loaded:", result.files.length, "files")
-          const mapped = result.files.map(
-            file =>
-              ({
-                name: file.path.split("/").pop() || file.path,
-                path: file.path,
-                type: file.type as "file" | "directory" | "submodule" | "symlink",
-                oid: file.lastCommit,
-              }) as FileEntry,
-          )
-          currentFiles = mapped
-          error = null
-          return mapped
-        })
-        .catch(e => {
-          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
-            return []
-          }
-
-          loading = false
-          const message = e instanceof Error ? e.message : "Failed to load files"
-          const activeBranch = normalizeBranchRef(selectedBranch)
-          if (activeBranch && activeBranch !== branchName) return []
-          if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
-          error = message
-          console.error("❌ Failed to load files:", e)
-          currentFiles = []
-          return []
-        })
+      void loadFilesForBranch({
+        branchName,
+        directory: "",
+        repoEventId: currentRepoEventId,
+        cloneUrlKey: currentCloneUrlKey,
+      })
     }, 100)
 
     return () => {
@@ -503,15 +585,12 @@
     const currentRepoEventId = repoEventId
     const currentCloneUrlKey = supportedCloneUrlKey
     const switchTrigger = repoClass.branchChangeTrigger // Track branch switches via Repo class
-    const availableRefs = refs.length ? refs : repoClass.refs
     const cloneUrls = supportedCloneUrls
+    const isSwitching = repoClass.isBranchSwitching
 
     // Don't attempt to load files until we have a valid branch name
     const branchName = normalizeBranchRef(currentBranch)
-    if (!branchName || !currentPath || !currentBranch || isCloning) return
-    if (!availableRefs || availableRefs.length === 0) return
-    const availableBranches = availableRefs.filter(ref => ref.type === "heads").map(ref => ref.name)
-    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return
+    if (!branchName || !currentPath || !currentBranch || isCloning || isSwitching) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
       return
@@ -527,46 +606,12 @@
       "trigger:",
       switchTrigger,
     )
-    files = repoClass
-      .listRepoFiles({
-        branch: branchName,
-        path: currentPath,
-      })
-      .then(result => {
-        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
-          return []
-        }
-
-        loading = false
-        console.log("✅ Files loaded:", result.files.length, "files")
-        const mapped = result.files.map(
-          file =>
-            ({
-              name: file.path.split("/").pop() || file.path,
-              path: file.path,
-              type: file.type as "file" | "directory" | "submodule" | "symlink",
-              oid: file.lastCommit,
-            }) as FileEntry,
-        )
-        currentFiles = mapped
-        error = null
-        return mapped
-      })
-      .catch(e => {
-        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
-          return []
-        }
-
-        loading = false
-        const message = e instanceof Error ? e.message : "Failed to load files"
-        const activeBranch = normalizeBranchRef(selectedBranch)
-        if (activeBranch && activeBranch !== branchName) return []
-        if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
-        error = message
-        console.error("❌ Failed to load files:", e)
-        currentFiles = []
-        return []
-      })
+    void loadFilesForBranch({
+      branchName,
+      directory: currentPath,
+      repoEventId: currentRepoEventId,
+      cloneUrlKey: currentCloneUrlKey,
+    })
   })
 
   const getFileContent = async (filePath: string) => {
@@ -661,14 +706,17 @@
         <Spinner>Cloning repository...</Spinner>
         <div class="space-y-2 text-center">
           <p class="text-lg font-medium">{cloneProgress}</p>
-          {#if cloneProgressPercent !== undefined}
-            <div class="h-2.5 w-64 rounded-full bg-gray-200 dark:bg-gray-700">
+          {#if normalizedCloneProgressPercent !== undefined}
+            <div
+              class="mx-auto h-2.5 w-full max-w-[16rem] rounded-full bg-gray-200 dark:bg-gray-700">
               <div
                 class="h-2.5 rounded-full bg-blue-600 transition-all duration-300"
-                style="width: {Math.round(cloneProgressPercent * 100)}%">
+                style="width: {Math.round(normalizedCloneProgressPercent)}%">
               </div>
             </div>
-            <p class="text-sm text-muted-foreground">{Math.round(cloneProgressPercent * 100)}%</p>
+            <p class="text-sm text-muted-foreground">
+              {Math.round(normalizedCloneProgressPercent)}%
+            </p>
           {/if}
         </div>
       </div>

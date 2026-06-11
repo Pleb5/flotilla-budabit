@@ -393,7 +393,15 @@ export class WorkerManager {
         }
       }
     } catch (error) {
-      console.error("[WorkerManager] execute error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      const lowered = (msg || "").toLowerCase();
+      const isExpectedGitNaturalReadFailure = operation.startsWith("gitNatural");
+
+      if (isExpectedGitNaturalReadFailure) {
+        console.debug("[WorkerManager] git-natural read fallback:", error);
+      } else {
+        console.error("[WorkerManager] execute error:", error);
+      }
 
       // Pass through typed errors as-is
       if (error instanceof Error) {
@@ -402,9 +410,6 @@ export class WorkerManager {
           throw error;
         }
       }
-
-      const msg = error instanceof Error ? error.message : String(error);
-      const lowered = (msg || "").toLowerCase();
 
       // Comlink clone errors / worker capability mismatches should be fatal
       if (msg && msg.includes("Proxy object could not be cloned")) {
