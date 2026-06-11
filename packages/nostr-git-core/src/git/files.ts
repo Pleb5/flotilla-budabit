@@ -13,6 +13,7 @@ import {Buffer} from "buffer"
 import {assertRepoAnnouncementEvent} from "../events/nip34/validation.js"
 import {createInvalidInputError, wrapError, type GitErrorContext} from "../errors/index.js"
 import {withUrlFallback} from "../utils/clone-url-fallback.js"
+import {cacheObservedGitNaturalBlob} from "./natural-read-observed-cache.js"
 
 declare global {
   // Extend globalThis to include Buffer
@@ -381,7 +382,8 @@ export async function getRepoFileContentFromEvent(opts: {
   }
 
   try {
-    const {blob} = await git.readBlob({dir, oid, filepath: opts.path})
+    const {oid: blobOid, blob} = await git.readBlob({dir, oid, filepath: opts.path})
+    cacheObservedGitNaturalBlob(blobOid, blob)
     // Return raw binary data as string to preserve binary files (images, PDFs, etc.)
     // The UI layer will handle text vs binary detection and appropriate decoding
     return Array.from(new Uint8Array(blob))
@@ -396,7 +398,8 @@ export async function getRepoFileContentFromEvent(opts: {
           {repoEvent: event, branch: opts.branch, repoKey: opts.repoKey},
           1000,
         )
-        const {blob} = await git.readBlob({dir, oid, filepath: opts.path})
+        const {oid: blobOid, blob} = await git.readBlob({dir, oid, filepath: opts.path})
+        cacheObservedGitNaturalBlob(blobOid, blob)
         // Return raw binary data as string to preserve binary files
         return Array.from(new Uint8Array(blob))
           .map(byte => String.fromCharCode(byte))
@@ -447,7 +450,8 @@ export async function getRepoFileContent(opts: {
   await ensureRepo({host: opts.host, owner: opts.owner, repo: opts.repo, branch})
   const git = getGitProvider()
   const oid = await git.resolveRef({dir, ref: branch})
-  const {blob} = await git.readBlob({dir, oid, filepath: opts.path})
+  const {oid: blobOid, blob} = await git.readBlob({dir, oid, filepath: opts.path})
+  cacheObservedGitNaturalBlob(blobOid, blob)
   const decoder = new TextDecoder("utf-8")
   return decoder.decode(blob)
 }

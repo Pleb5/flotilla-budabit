@@ -12,15 +12,16 @@
 
 ## Current Phase
 
-- Phase 4: Add Clone-To-Natural Cache Bridge For Objects Already Fetched By Fallbacks
-- Status: ready to start after Phase 3 closeout commit is pushed.
+- Phase 5: Natural-First PR Preview And Observability Cleanup
+- Status: ready to start after Phase 4 closeout commit is pushed.
 
 ## Phase Exit Criteria
 
-- Clone-backed file/diff/commit paths opportunistically populate the natural immutable object cache when object hashes and bytes are available.
-- The bridge stores only immutable objects and never stores refs or mutable clone state.
-- Bridge failures are non-fatal and never break clone-backed fallback behavior.
-- Tests show a clone-backed fallback can populate cache entries that a later natural read can reuse.
+- PR update preview tries natural refs/history before clone-backed `getPRPreview` when enough OIDs/refs are available.
+- Merge-base helper uses natural history where safe before clone fallback, without changing merge analysis.
+- `ensureFullClone` logs on PR detail are reduced to merge analysis/merge/push or documented fallback cases.
+- Read source metadata or logs distinguish natural cache hit, natural network, provider REST, git remote refs, and clone fallback.
+- Documentation/checkpoint records the final read/fallback table.
 
 ## Completed With Evidence
 
@@ -45,6 +46,13 @@
   - PR applied/retry diff calls from `PRView.svelte` now pass `gitNaturalDiff: true`.
   - `getCommitMeta` and `getCommitDetails` now try natural metadata/details before clone-backed reads; commit details only short-circuit when natural diff succeeds.
   - Merge analysis and merge/push paths were not changed.
+- Phase 4: Add Clone-To-Natural Cache Bridge For Objects Already Fetched By Fallbacks.
+  - Added `GitNaturalObservedObjectBridge` and `cacheObservedGitNaturalBlob` for non-fatal observed blob caching.
+  - Clone-backed file content reads now cache blob OID+bytes when `git.readBlob` returns them.
+  - Clone-backed commit detail and diff walks now cache blob OID+bytes when walker entries are materialized for hunks.
+  - The bridge stores only immutable blobs and never stores refs, remotes, worktree/index state, or mutable clone state.
+  - Raw commit/tree bridging was intentionally skipped because those clone-backed paths do not safely expose canonical raw bytes without extra object parsing.
+  - Added a persistence/reuse test showing an observed clone-backed blob can be read by a fresh natural object cache.
 - Planning files were created for review, then Phase 1 was launched after user said to continue.
 
 ## Phase 1 Progress Evidence
@@ -86,13 +94,14 @@
 - Branch: `dev` tracking `origin/dev`.
 - Phase 1 closeout commit pushed: `619085f7 fix: align git natural content and commit reads`.
 - Phase 2 closeout commit pushed: `44053732 feat: add durable git natural object cache`.
-- Phase 3 changed files to commit and push:
+- Phase 3 closeout commit pushed: `846c1370 feat: prefer git natural PR review reads`.
+- Phase 4 changed files to commit and push:
   - `docs/architecture/git-natural-pr-cache-session-checkpoint.md`
+  - `packages/nostr-git-core/src/git/files.ts`
   - `packages/nostr-git-core/src/git/index.ts`
-  - `packages/nostr-git-core/src/git/natural-pr-review.ts`
+  - `packages/nostr-git-core/src/git/natural-read-observed-cache.ts`
   - `packages/nostr-git-core/src/worker/worker.ts`
-  - `packages/nostr-git-core/test/git/natural-pr-review.spec.ts`
-  - `src/app/components/PRView.svelte`
+  - `packages/nostr-git-core/test/git/natural-read.spec.ts`
 - `docs/architecture/git-natural-read-pivot.md` remains a pre-existing unrelated dirty file and should stay unstaged unless explicitly approved.
 - Verification passed during Phase 1 audit:
   - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
@@ -112,10 +121,15 @@
   - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
   - `git diff --check` passed.
 - Phase 3 closeout is committed and pushed by the commit containing this checkpoint update.
+- Verification passed during Phase 4:
+  - `nix develop -c pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts packages/nostr-git-core/test/git/natural-read-provider.spec.ts` passed.
+  - `nix develop -c pnpm -F @nostr-git/core typecheck` passed.
+  - `git diff --check` passed.
+- Phase 4 closeout is committed and pushed by the commit containing this checkpoint update.
 
 ## Next Action
 
-- Start Phase 4 startup: read this checkpoint, read the entire session plan, inspect current git state, then add the clone-to-natural cache bridge for immutable objects already fetched by clone-backed fallbacks.
+- Start Phase 5 startup: read this checkpoint, read the entire session plan, inspect current git state, then add natural-first PR preview/merge-base helpers and observability cleanup.
 
 ## Verification
 
@@ -129,6 +143,7 @@
 - `docs/architecture/git-natural-read-pivot.md` was dirty before this workflow and was audited as unrelated to this closeout; leave it unstaged unless explicitly approved.
 - Natural PR review uses bounded histories; deep/complex histories fall back to clone-backed review.
 - PR natural diff for forks may fail when base objects exist only on target remote and head objects exist only on source remote; clone fallback remains.
+- Clone-to-natural bridge currently stores observed blob bytes only; commit/tree raw object bridging remains skipped until canonical raw bytes are safely available.
 
 ## Files
 

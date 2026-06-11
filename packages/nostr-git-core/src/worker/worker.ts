@@ -169,6 +169,7 @@ import {
   type GitNaturalDiffBetweenResult,
 } from "../git/natural-read-provider.js"
 import {getGitNaturalPRReviewData} from "../git/natural-pr-review.js"
+import {cacheObservedGitNaturalBlob} from "../git/natural-read-observed-cache.js"
 import type {GitNaturalCommit} from "../git/natural-read-types.js"
 
 // Import event-based git operations
@@ -3619,6 +3620,7 @@ const api = {
               try {
                 if (status === "added") {
                   const blob = await B!.content()
+                  cacheObservedGitNaturalBlob(Boid, blob)
                   const lines = new TextDecoder().decode(blob).split("\n")
                   diffHunks = [
                     {
@@ -3631,6 +3633,7 @@ const api = {
                   ]
                 } else if (status === "deleted") {
                   const blob = await A!.content()
+                  cacheObservedGitNaturalBlob(Aoid, blob)
                   const lines = new TextDecoder().decode(blob).split("\n")
                   diffHunks = [
                     {
@@ -3645,6 +3648,8 @@ const api = {
                   // For modified files, compute aligned diff with LCS/Myers
                   const oldBlob = await A!.content()
                   const newBlob = await B!.content()
+                  cacheObservedGitNaturalBlob(Aoid, oldBlob)
+                  cacheObservedGitNaturalBlob(Boid, newBlob)
                   const oldText = new TextDecoder().decode(oldBlob)
                   const newText = new TextDecoder().decode(newBlob)
                   diffHunks = buildModifiedFileDiffHunks(oldText, newText)
@@ -3672,6 +3677,7 @@ const api = {
               try {
                 // When reading by OID, don't pass filepath - it's already resolved
                 const content = await (git as any).readBlob({dir, oid})
+                cacheObservedGitNaturalBlob(oid, content.blob)
                 const lines = new TextDecoder().decode(content.blob).split("\n")
                 return {
                   path: filepath,
@@ -3940,6 +3946,7 @@ const api = {
           try {
             if (status === "added") {
               const blob = await B!.content()
+              cacheObservedGitNaturalBlob(Boid, blob)
               const lines = new TextDecoder().decode(blob).split("\n")
               diffHunks = [
                 {
@@ -3952,6 +3959,7 @@ const api = {
               ]
             } else if (status === "deleted") {
               const blob = await A!.content()
+              cacheObservedGitNaturalBlob(Aoid, blob)
               const lines = new TextDecoder().decode(blob).split("\n")
               diffHunks = [
                 {
@@ -3965,6 +3973,8 @@ const api = {
             } else {
               const oldBlob = await A!.content()
               const newBlob = await B!.content()
+              cacheObservedGitNaturalBlob(Aoid, oldBlob)
+              cacheObservedGitNaturalBlob(Boid, newBlob)
               const oldText = new TextDecoder().decode(oldBlob)
               const newText = new TextDecoder().decode(newBlob)
               diffHunks = buildModifiedFileDiffHunks(oldText, newText)

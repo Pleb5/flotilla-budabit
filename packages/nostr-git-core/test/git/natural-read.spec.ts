@@ -11,6 +11,7 @@ import {
   type GitNaturalInfoRefs,
 } from "../../src/git/natural-read-cache.js"
 import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
+import {GitNaturalObservedObjectBridge} from "../../src/git/natural-read-observed-cache.js"
 import {
   GitNaturalApiAdapter,
   selectGitNaturalApiCapabilities,
@@ -229,6 +230,34 @@ describe("GitNaturalObjectCache", () => {
     cache.putBlob({hash: blobHash, data: Uint8Array.from([1, 2, 3])})
     await cache.flushPersistence()
     expect(Array.from(cache.getBlob(blobHash)?.data ?? [])).toEqual([1, 2, 3])
+  })
+
+  it("bridges observed clone-backed blobs into the natural persistent cache", async () => {
+    const dbName = testDbName("natural-observed-cache")
+    const blobHash = "e".repeat(40)
+    const observedCache = new GitNaturalObjectCache({
+      asyncStore: new GitNaturalIndexedObjectStore({
+        dbName,
+        indexedDB: fakeIndexedDB as unknown as IDBFactory,
+      }),
+    })
+    const bridge = new GitNaturalObservedObjectBridge(observedCache)
+
+    expect(bridge.cacheBlob(blobHash.toUpperCase(), Uint8Array.from([9, 8, 7]))).toBe(true)
+    expect(bridge.cacheBlob("not-a-hash", Uint8Array.from([1]))).toBe(false)
+    await bridge.flushPersistence()
+    bridge.close()
+
+    const naturalCache = new GitNaturalObjectCache({
+      asyncStore: new GitNaturalIndexedObjectStore({
+        dbName,
+        indexedDB: fakeIndexedDB as unknown as IDBFactory,
+      }),
+    })
+    expect(Array.from((await naturalCache.getBlobAsync(blobHash))?.data ?? [])).toEqual([9, 8, 7])
+
+    naturalCache.close()
+    await deleteTestDb(dbName)
   })
 })
 
