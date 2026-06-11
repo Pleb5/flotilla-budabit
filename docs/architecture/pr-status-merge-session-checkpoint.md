@@ -61,7 +61,7 @@
 
 ## Next Action
 
-- Commit and push Phase 3, then report completion.
+- No remaining implementation action in this session plan; report completion.
 
 ## Verification
 
