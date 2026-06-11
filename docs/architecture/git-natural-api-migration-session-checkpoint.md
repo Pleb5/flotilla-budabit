@@ -11,14 +11,15 @@
 
 ## Current Phase
 
-- Phase 3: Switch Natural Read Provider To Library Adapter
+- Phase 4: Align Caching, CORS, Binary, And Diff Behavior
 
 ## Phase Exit Criteria
 
-- `listDirectory`, `getFileContent`, `listCommits`, `getCommit`, and `getDiffBetween` no longer depend on Budabit's hand-rolled upload-pack extraction for normal paths.
-- `GitNaturalReadProvider` still returns the same external result contracts consumed by worker RPCs and `VendorReadRouter`.
-- Natural read failures remain typed and fall back cleanly through existing router/worker paths.
-- Tests cover directory, file content, commit history, and diff behavior using library-backed fixtures.
+- In-flight `blob:none` / `tree:0` fetches are deduped by URL, proxy mode, commit, and filter.
+- Explicit `corsProxy: null` means direct mode in worker natural RPCs.
+- Natural file content preserves bytes and byte size through the UI adapter.
+- Natural diff handles binary files or falls back intentionally.
+- Router rollout/fallback controls cover worker natural diff or worker natural diff has an explicit kill switch.
 
 ## Completed With Evidence
 
@@ -32,6 +33,11 @@
 - Evidence: adapter has cached `info/refs`, local capability selection from cached info, object-by-hash, `blob:none`, `tree:0`, tree loading, and commit parsing operations.
 - Evidence: protocol regressions in `packages/nostr-git-core/test/git/natural-read.spec.ts` cover `shallow <oid>`, `unshallow <oid>`, side-band progress, missing pack responses, and invalid pack responses.
 - Evidence: production natural-read provider still imports and uses `GitNaturalReadClient` and `natural-read-objects`; Phase 2 only exports the adapter for later phases.
+- Phase 3 completed: routed `GitNaturalReadProvider` normal read paths through `GitNaturalApiAdapter` while preserving public result/source shapes.
+- Evidence: `fetchInfoRefs`, `blob:none`, `tree:0`, and object-by-hash reads in `GitNaturalReadProvider` now call adapter methods.
+- Evidence: provider no longer imports or calls `GitNaturalReadClient`, `parseGitNaturalPackfile`, `parseGitNaturalTree`, or `parseGitNaturalCommit` for normal paths.
+- Evidence: provider adapts library parsed objects into Budabit cache/result shapes while source metadata remains in the provider layer.
+- Evidence: existing directory, file content, commit history, get-commit, diff, and missing-filter provider tests pass against the adapter-backed provider.
 
 ## Decisions
 
@@ -43,13 +49,13 @@
 
 ## Current State
 
-- Phase 2 complete; checkpoint advanced to Phase 3.
+- Phase 3 complete; checkpoint advanced to Phase 4.
 - Pre-existing unstaged change observed: `docs/architecture/git-natural-read-pivot.md`.
 - Previous hardening analysis is available at `docs/architecture/git-natural-read-hardening-analysis.md`.
 
 ## Next Action
 
-- Begin Phase 3 by rereading this checkpoint and the full plan, inspecting repo state, then route `GitNaturalReadProvider` through `GitNaturalApiAdapter` while preserving result contracts and fallback behavior.
+- Begin Phase 4 by rereading this checkpoint and the full plan, inspecting repo state, then harden Budabit-owned caching, CORS override, binary content, and diff rollout behavior around the adapter-backed provider.
 
 ## Verification
 
@@ -59,12 +65,17 @@
 - Phase 2: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts` passed with 13 tests.
 - Phase 2: `pnpm -F @nostr-git/core typecheck` passed.
 - Phase 2: `git diff --check` passed with no output.
+- Phase 3: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts packages/nostr-git-core/test/git/natural-read-provider.spec.ts` passed with 19 tests.
+- Phase 3: `pnpm -F @nostr-git/core typecheck` passed.
+- Phase 3: `git diff --check` passed with no output.
 
 ## Risks Or Blockers
 
-- `git-natural-api` high-level helpers refetch capabilities; Budabit should continue using `GitNaturalApiAdapter` low-level methods instead of high-level helpers in Phase 3.
-- The installed `@fiatjaf/git-natural-api@0.2.4` JavaScript omits `mode` fields from `loadTree()` results even though local source/types include them; Phase 3 should use raw objects/`parseTree` for mode-sensitive provider contracts unless the package is updated and verified.
-- Library `fetchPackfile` owns upload-pack parsing and pack parsing but uses global `fetch` and `Response.bytes()` with no fetcher injection; Phase 3 must preserve Budabit fallback semantics around any runtime/network failures.
+- `git-natural-api` high-level helpers refetch capabilities; Budabit should continue using `GitNaturalApiAdapter` low-level methods instead of high-level helpers.
+- The installed `@fiatjaf/git-natural-api@0.2.4` JavaScript omits `mode` fields from `loadTree()` results even though local source/types include them; provider now uses adapter `parseTree()` for mode-sensitive contracts.
+- Library `fetchPackfile` owns upload-pack parsing and pack parsing but uses global `fetch` and `Response.bytes()` with no fetcher injection; adapter uses a scoped temporary fetch bridge only when a Budabit test/custom fetcher is supplied.
+- Old `natural-read-client` and `natural-read-objects` remain for exported helpers/tests and should be removed or quarantined in Phase 5 after Phase 4 hardening.
+- Phase 4 still needs to handle in-flight raw-object dedupe, explicit direct `corsProxy: null`, binary file content/diffs, and worker diff rollout controls.
 - Pre-existing unstaged change remains: `docs/architecture/git-natural-read-pivot.md`.
 
 ## Files

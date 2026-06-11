@@ -4,10 +4,12 @@ import {
   getInfoRefs as getGitNaturalInfoRefs,
   loadTree as loadGitNaturalTree,
   parseCommit as parseGitNaturalApiCommit,
+  parseTree as parseGitNaturalApiTree,
   type Commit as GitNaturalApiCommit,
   type InfoRefsUploadPackResponse,
   type ParsedObject,
   type Tree as GitNaturalApiTree,
+  type TreeEntry as GitNaturalApiTreeEntry,
 } from "@fiatjaf/git-natural-api"
 
 import {
@@ -16,15 +18,19 @@ import {
   buildUploadPackUrl,
   resolveNaturalReadTransport,
   type FetchInfoRefsResult,
+  type FetchLike,
   type GitNaturalTransport,
 } from "./natural-read-client.js"
 import {GitNaturalObjectCache, type GitNaturalInfoRefs} from "./natural-read-cache.js"
 
 export interface GitNaturalApiAdapterConfig {
   cache?: GitNaturalObjectCache
+  fetcher?: FetchLike
   corsProxy?: string | null
   now?: () => number
 }
+
+export type {GitNaturalApiCommit, GitNaturalApiTree, GitNaturalApiTreeEntry, ParsedObject as GitNaturalApiParsedObject}
 
 export interface GitNaturalApiPackfileResult {
   version: number
@@ -130,12 +136,14 @@ export function toGitNaturalInfoRefs(infoRefs: InfoRefsUploadPackResponse): GitN
 
 export class GitNaturalApiAdapter {
   private readonly cache: GitNaturalObjectCache
+  private readonly fetcher?: FetchLike
   private readonly corsProxy?: string | null
   private readonly now: () => number
   private readonly inFlightInfoRefs = new Map<string, Promise<FetchInfoRefsResult>>()
 
   constructor(config: GitNaturalApiAdapterConfig = {}) {
     this.cache = config.cache ?? new GitNaturalObjectCache({now: config.now})
+    this.fetcher = config.fetcher
     this.corsProxy = config.corsProxy
     this.now = config.now ?? (() => Date.now())
   }
@@ -168,7 +176,9 @@ export class GitNaturalApiAdapter {
       }
 
       try {
-        const infoRefs = toGitNaturalInfoRefs(await getGitNaturalInfoRefs(transport.effectiveUrl))
+        const infoRefs = toGitNaturalInfoRefs(
+          await this.runWithFetch(() => getGitNaturalInfoRefs(transport.effectiveUrl)),
+        )
         if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
           throw new GitNaturalReadError(
             "protocol-error",
@@ -283,6 +293,10 @@ export class GitNaturalApiAdapter {
     return parseGitNaturalApiCommit(data, hash)
   }
 
+  parseTree(data: Uint8Array): GitNaturalApiTreeEntry[] {
+    return parseGitNaturalApiTree(data)
+  }
+
   private async fetchPackObjects(params: {
     url: string
     objectHash: string
@@ -309,7 +323,7 @@ export class GitNaturalApiAdapter {
 
     try {
       throwIfAborted(params.signal)
-      const pack = await fetchGitNaturalPackfile(transport.effectiveUrl, want)
+      const pack = await this.runWithFetch(() => fetchGitNaturalPackfile(transport.effectiveUrl, want))
       throwIfAborted(params.signal)
       return {
         ...transport,
@@ -334,7 +348,50 @@ export class GitNaturalApiAdapter {
       })
     }
   }
+
+  private runWithFetch<T>(operation: () => Promise<T>): Promise<T> {
+    if (!this.fetcher) return operation()
+    return withTemporaryGlobalFetch(createFetchOverride(this.fetcher), operation)
+  }
 }
+
+let temporaryFetchLock: Promise<void> = Promise.resolve()
+
+async function withTemporaryGlobalFetch<T>(fetcher: typeof fetch, operation: () => Promise<T>): Promise<T> {
+  const previousLock = temporaryFetchLock
+  let releaseLock: () => void = () => {}
+  temporaryFetchLock = new Promise(resolve => {
+    releaseLock = resolve
+  })
+  await previousLock
+
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = fetcher
+  try {
+    return await operation()
+  } finally {
+    globalThis.fetch = previousFetch
+    releaseLock()
+  }
+}
+
+function createFetchOverride(fetcher: FetchLike): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const response = await fetcher(String(input), init ?? {method: "GET"})
+    const responseWithBytes = response as Awaited<ReturnType<FetchLike>> & {
+      bytes?: () => Promise<Uint8Array>
+    }
+    return {
+      ...responseWithBytes,
+      text:
+        response.text ??
+        (async () => textDecoder.decode(new Uint8Array(await response.arrayBuffer()))),
+      bytes: responseWithBytes.bytes ?? (async () => new Uint8Array(await response.arrayBuffer())),
+    } as Response
+  }) as typeof fetch
+}
+
+const textDecoder = new TextDecoder("utf-8")
 
 function encodePktLine(payload: string): string {
   if (payload.length === 0) return "0000"
@@ -356,6 +413,7 @@ function toGitNaturalReadError(
   },
 ): GitNaturalReadError {
   if (error instanceof GitNaturalReadError) return error
+  if (isAbortError(error)) throw error
   return new GitNaturalReadError(
     fallback.code,
     `${fallback.message}: ${error instanceof Error ? error.message : String(error)}`,
@@ -365,6 +423,10 @@ function toGitNaturalReadError(
       cause: error,
     },
   )
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError"
 }
 
 function trimTrailingSlashes(value: string): string {

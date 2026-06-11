@@ -1,11 +1,15 @@
 import {diffArrays} from "diff"
 
 import {
-  GitNaturalReadClient,
+  GitNaturalApiAdapter,
+  type GitNaturalApiPackResult,
+  type GitNaturalApiParsedObject,
+  type GitNaturalApiTreeEntry,
+} from "./natural-read-api-adapter.js"
+import {
   GitNaturalReadError,
   type FetchInfoRefsResult,
   type FetchLike,
-  type FetchUploadPackResult,
 } from "./natural-read-client.js"
 import {
   GitNaturalObjectCache,
@@ -13,9 +17,6 @@ import {
   type GitNaturalRawObject,
 } from "./natural-read-cache.js"
 import {
-  parseGitNaturalCommit,
-  parseGitNaturalPackfile,
-  parseGitNaturalTree,
   type GitNaturalCommit,
   type GitNaturalParsedObject,
   type GitNaturalParsedObjectType,
@@ -143,7 +144,7 @@ export interface GitNaturalDiffBetweenResult {
 export interface GitNaturalReadProviderConfig {
   enabled?: boolean
   cache?: GitNaturalObjectCache
-  client?: GitNaturalReadClient
+  adapter?: GitNaturalApiAdapter
   fetcher?: FetchLike
   corsProxy?: string | null
   now?: () => number
@@ -159,12 +160,12 @@ interface FlattenedTreeFile {
 
 interface ObjectBatchResult {
   objects: Map<string, GitNaturalParsedObject>
-  pack?: FetchUploadPackResult
+  pack?: GitNaturalApiPackResult
 }
 
 interface BlobObjectResult {
   object: GitNaturalParsedObject
-  pack?: FetchUploadPackResult
+  pack?: GitNaturalApiPackResult
 }
 
 const DEFAULT_REF = "HEAD"
@@ -173,16 +174,16 @@ const utf8Decoder = new TextDecoder("utf-8")
 export class GitNaturalReadProvider {
   private readonly enabled: boolean
   private readonly cache: GitNaturalObjectCache
-  private readonly client: GitNaturalReadClient
+  private readonly adapter: GitNaturalApiAdapter
   private readonly corsProxy?: string | null
   private readonly now: () => number
 
   constructor(config: GitNaturalReadProviderConfig = {}) {
     this.enabled = config.enabled ?? false
     this.cache = config.cache ?? new GitNaturalObjectCache({now: config.now})
-    this.client =
-      config.client ??
-      new GitNaturalReadClient({cache: this.cache, fetcher: config.fetcher, corsProxy: config.corsProxy, now: config.now})
+    this.adapter =
+      config.adapter ??
+      new GitNaturalApiAdapter({cache: this.cache, fetcher: config.fetcher, corsProxy: config.corsProxy, now: config.now})
     this.corsProxy = config.corsProxy
     this.now = config.now ?? (() => Date.now())
   }
@@ -259,7 +260,7 @@ export class GitNaturalReadProvider {
     const normalizedPath = normalizePath(params.path)
     const treeHash = this.resolveTreeHashAtPath(batch.objects, rootTreeHash, normalizedPath)
     const tree = this.getObject(batch.objects, treeHash, "tree")
-    const entries = parseGitNaturalTree(tree.data).map(entry => directoryEntryFromTreeEntry(entry, normalizedPath))
+    const entries = this.parseTreeEntries(tree.data).map(entry => directoryEntryFromTreeEntry(entry, normalizedPath))
 
     return {
       path: normalizedPath,
@@ -370,7 +371,7 @@ export class GitNaturalReadProvider {
       }
     }
 
-    const pack = await this.client.fetchTreeZeroPackfile({
+    const pack = await this.adapter.fetchTreeZeroObjects({
       url: params.url,
       commitHash: resolved.commitHash,
       serverCapabilities: info.infoRefs.capabilities,
@@ -378,9 +379,9 @@ export class GitNaturalReadProvider {
       corsProxy: params.corsProxy ?? this.corsProxy,
       signal: params.signal,
     })
-    const parsed = parseGitNaturalPackfile(pack.packfile)
-    this.storeObjects(parsed.objects, resolved.commitHash, "tree:0")
-    const commits = orderCommitsFromTip(parseCommits(parsed.objects), resolved.commitHash, depth)
+    const objects = parsedObjectsFromApiObjects(pack.pack.objects)
+    this.storeObjects(objects, resolved.commitHash, "tree:0")
+    const commits = orderCommitsFromTip(this.parseCommits(objects), resolved.commitHash, depth)
     if (commits.length === 0) {
       throw new GitNaturalReadError(
         "object-not-found",
@@ -504,7 +505,7 @@ export class GitNaturalReadProvider {
     operation: GitNaturalReadOperation,
   ): Promise<FetchInfoRefsResult> {
     try {
-      return await this.client.fetchInfoRefs({
+      return await this.adapter.fetchInfoRefs({
         url: params.url,
         corsProxy: params.corsProxy ?? this.corsProxy,
         signal: params.signal,
@@ -564,16 +565,16 @@ export class GitNaturalReadProvider {
     const cached = this.cache.getRawObjectBatch(commitHash, "blob:none")
     if (cached) return {objects: parsedObjectsFromRawObjects(cached.objects)}
 
-    const pack = await this.client.fetchBlobNonePackfile({
+    const pack = await this.adapter.fetchBlobNoneObjects({
       url: params.url,
       commitHash,
       serverCapabilities: infoRefs.capabilities,
       corsProxy: params.corsProxy ?? this.corsProxy,
       signal: params.signal,
     })
-    const parsed = parseGitNaturalPackfile(pack.packfile)
-    this.storeObjects(parsed.objects, commitHash, "blob:none")
-    return {objects: parsed.objects, pack}
+    const objects = parsedObjectsFromApiObjects(pack.pack.objects)
+    this.storeObjects(objects, commitHash, "blob:none")
+    return {objects, pack}
   }
 
   private async getBlobObject(
@@ -595,16 +596,16 @@ export class GitNaturalReadProvider {
       }
     }
 
-    const pack = await this.client.fetchObjectPackfile({
+    const pack = await this.adapter.fetchObjectByHash({
       url: params.url,
       objectHash: blobHash,
       serverCapabilities: infoRefs.capabilities,
       corsProxy: params.corsProxy ?? this.corsProxy,
       signal: params.signal,
     })
-    const parsed = parseGitNaturalPackfile(pack.packfile)
-    this.storeObjects(parsed.objects)
-    return {object: this.getObject(parsed.objects, blobHash, "blob"), pack}
+    const objects = parsedObjectsFromApiObjects(pack.pack.objects)
+    this.storeObjects(objects)
+    return {object: this.getObject(objects, blobHash, "blob"), pack}
   }
 
   private async getSameCommitBatches(
@@ -618,7 +619,7 @@ export class GitNaturalReadProvider {
 
   private getRootTreeHash(objects: Map<string, GitNaturalParsedObject>, commitHash: string): string {
     const commitObject = this.getObject(objects, commitHash, "commit")
-    return parseGitNaturalCommit(commitObject.data, commitHash).tree
+    return this.adapter.parseCommit(commitObject.data, commitHash).tree
   }
 
   private resolveTreeHashAtPath(
@@ -645,7 +646,7 @@ export class GitNaturalReadProvider {
 
     for (const [index, segment] of segments.entries()) {
       const tree = this.getObject(objects, treeHash, "tree")
-      entry = parseGitNaturalTree(tree.data).find(item => item.name === segment)
+      entry = this.parseTreeEntries(tree.data).find(item => item.name === segment)
       if (!entry) return undefined
       if (index === segments.length - 1) return entry
       if (entry.type !== "tree") return undefined
@@ -662,7 +663,7 @@ export class GitNaturalReadProvider {
     files = new Map<string, FlattenedTreeFile>(),
   ): Map<string, FlattenedTreeFile> {
     const tree = this.getObject(objects, treeHash, "tree")
-    for (const entry of parseGitNaturalTree(tree.data)) {
+    for (const entry of this.parseTreeEntries(tree.data)) {
       const path = joinPath(parentPath, entry.name)
       if (entry.type === "blob") {
         files.set(path, {path, mode: entry.mode, hash: entry.hash})
@@ -754,10 +755,10 @@ export class GitNaturalReadProvider {
     for (const object of objects.values()) {
       if (object.type === "blob") this.cache.putBlob({hash: object.hash, data: object.data})
       else if (object.type === "tree") {
-        this.cache.putTree({hash: object.hash, data: object.data, entries: parseGitNaturalTree(object.data)})
+        this.cache.putTree({hash: object.hash, data: object.data, entries: this.parseTreeEntries(object.data)})
       } else if (object.type === "commit") {
         try {
-          const commit = parseGitNaturalCommit(object.data, object.hash)
+          const commit = this.adapter.parseCommit(object.data, object.hash)
           this.cache.putCommit({hash: commit.hash, tree: commit.tree, parents: commit.parents, data: object.data})
         } catch {
           this.cache.putCommit({hash: object.hash, data: object.data})
@@ -773,6 +774,19 @@ export class GitNaturalReadProvider {
         fetchedAt: this.now(),
       })
     }
+  }
+
+  private parseTreeEntries(data: Uint8Array): GitNaturalTreeEntry[] {
+    return this.adapter.parseTree(data).map(treeEntryFromApi)
+  }
+
+  private parseCommits(objects: Map<string, GitNaturalParsedObject>): GitNaturalCommit[] {
+    const commits: GitNaturalCommit[] = []
+    for (const object of objects.values()) {
+      if (object.type !== "commit") continue
+      commits.push(this.adapter.parseCommit(object.data, object.hash))
+    }
+    return commits
   }
 
   private filterRefs(
@@ -791,7 +805,7 @@ export class GitNaturalReadProvider {
   private source(params: {
     operation: GitNaturalReadOperation
     info: FetchInfoRefsResult
-    pack?: FetchUploadPackResult
+    pack?: GitNaturalApiPackResult
     startedAt: number
     ref?: string
     commitHash?: string
@@ -884,13 +898,21 @@ function directoryEntryType(entry: GitNaturalTreeEntry): GitNaturalDirectoryEntr
   return "unknown"
 }
 
-function parseCommits(objects: Map<string, GitNaturalParsedObject>): GitNaturalCommit[] {
-  const commits: GitNaturalCommit[] = []
-  for (const object of objects.values()) {
-    if (object.type !== "commit") continue
-    commits.push(parseGitNaturalCommit(object.data, object.hash))
+function treeEntryFromApi(entry: GitNaturalApiTreeEntry): GitNaturalTreeEntry {
+  return {
+    name: entry.path,
+    path: entry.path,
+    mode: entry.mode,
+    hash: entry.hash,
+    type: treeEntryTypeFromApi(entry),
   }
-  return commits
+}
+
+function treeEntryTypeFromApi(entry: GitNaturalApiTreeEntry): GitNaturalTreeEntry["type"] {
+  if (entry.isDir) return "tree"
+  if (entry.mode === "160000") return "commit"
+  if (entry.mode === "100644" || entry.mode === "100755" || entry.mode === "120000") return "blob"
+  return "unknown"
 }
 
 function orderCommitsFromTip(
@@ -945,11 +967,35 @@ function parsedObjectsFromRawObjects(rawObjects: Map<string, GitNaturalRawObject
   )
 }
 
+function parsedObjectsFromApiObjects(
+  objects: Map<string, GitNaturalApiParsedObject>,
+): Map<string, GitNaturalParsedObject> {
+  return new Map(Array.from(objects, ([hash, object]) => [hash, parsedObjectFromApi(object)]))
+}
+
+function parsedObjectFromApi(object: GitNaturalApiParsedObject): GitNaturalParsedObject {
+  return {
+    hash: object.hash,
+    type: objectTypeFromApiTypeCode(object.type),
+    typeCode: object.type,
+    size: object.size,
+    data: object.data,
+    offset: object.offset,
+  }
+}
+
 function typeCodeFromObjectType(type: GitNaturalParsedObjectType): number {
   if (type === "commit") return 1
   if (type === "tree") return 2
   if (type === "blob") return 3
   return 4
+}
+
+function objectTypeFromApiTypeCode(typeCode: number): GitNaturalParsedObjectType {
+  if (typeCode === 1) return "commit"
+  if (typeCode === 2) return "tree"
+  if (typeCode === 3) return "blob"
+  return "tag"
 }
 
 function normalizePath(path?: string): string {
