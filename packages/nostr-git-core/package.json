@@ -41,6 +41,7 @@
     "publish:latest": "npm publish --access public"
   },
   "dependencies": {
+    "@fiatjaf/git-natural-api": "npm:@jsr/fiatjaf__git-natural-api@^0.2.4",
     "@isomorphic-git/lightning-fs": "^4.6.2",
     "@noble/hashes": "2.0.1",
     "buffer": "^6.0.3",

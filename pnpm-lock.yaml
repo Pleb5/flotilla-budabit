@@ -421,6 +421,9 @@ importers:
 
   packages/nostr-git-core:
     dependencies:
+      '@fiatjaf/git-natural-api':
+        specifier: npm:@jsr/fiatjaf__git-natural-api@^0.2.4
+        version: '@jsr/fiatjaf__git-natural-api@0.2.4'
       '@isomorphic-git/lightning-fs':
         specifier: ^4.6.2
         version: 4.6.2
@@ -1414,6 +1417,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
+
+  '@jsr/fiatjaf__git-natural-api@0.2.4':
+    resolution: {integrity: sha512-Vg/bTWCj4cH21h0iWXLejmVxNd5UBM3+Y4S4ch1LNheodeJzqUG6F3vRl/ignQGintj5ATI/84PCJs0KYRFuwA==, tarball: https://npm.jsr.io/~/11/@jsr/fiatjaf__git-natural-api/0.2.4.tgz}
 
   '@jsr/fiatjaf__promenade-trusted-dealer@0.4.1':
     resolution: {integrity: sha512-K9WjpDkQGyLl5gUZBLr3Gb+b5b1r8miZmDOo4+ZlzGQgoXD2TaqT+dkBjL/yLj/pYwBcd1Bschv0xuNpguL2ZQ==, tarball: https://npm.jsr.io/~/11/@jsr/fiatjaf__promenade-trusted-dealer/0.4.1.tgz}
@@ -5370,6 +5376,11 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
     optional: true
+
+  '@jsr/fiatjaf__git-natural-api@0.2.4':
+    dependencies:
+      '@noble/hashes': 2.0.1
+      fflate: 0.8.2
 
   '@jsr/fiatjaf__promenade-trusted-dealer@0.4.1':
     dependencies:
