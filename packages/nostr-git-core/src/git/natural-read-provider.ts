@@ -172,6 +172,7 @@ interface BlobObjectResult {
 }
 
 const DEFAULT_REF = "HEAD"
+const COMMIT_HISTORY_BATCH_SIZE = 15
 const utf8Decoder = new TextDecoder("utf-8")
 
 export class GitNaturalReadProvider {
@@ -380,14 +381,12 @@ export class GitNaturalReadProvider {
       }
     }
 
-    const batch = await this.getTreeZeroObjects(params, info.infoRefs, resolved.commitHash, depth)
-    const objects = batch.objects
-    const commits = orderCommitsFromTip(this.parseCommits(objects), resolved.commitHash, depth)
+    const commits = await this.fetchCommitHistoryBatched(params, info.infoRefs, resolved.commitHash, depth)
     if (commits.length === 0) {
       throw new GitNaturalReadError(
         "object-not-found",
         `No commit objects returned for ${resolved.commitHash}`,
-        {remoteUrl: params.url, effectiveUrl: batch.pack?.effectiveUrl},
+        {remoteUrl: params.url},
       )
     }
     this.cache.putHistoryBatch({
@@ -404,15 +403,77 @@ export class GitNaturalReadProvider {
       source: this.source({
         operation: "listCommits",
         info,
-        pack: batch.pack,
         startedAt,
         ref: resolved.resolvedRef,
         commitHash: resolved.commitHash,
         capability: "filter=tree:0",
         defaultBranch: getDefaultBranch(info.infoRefs),
-        details: "Commit history was fetched with Git Smart HTTP tree:0 filtering.",
+        details: "Commit history was fetched with Git Smart HTTP tree:0 filtering in bounded batches.",
       }),
     }
+  }
+
+  private async fetchCommitHistoryBatched(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    startCommitHash: string,
+    depth: number,
+  ): Promise<GitNaturalCommit[]> {
+    const commits: GitNaturalCommit[] = []
+    const seen = new Set<string>()
+    let nextHash: string | undefined = startCommitHash
+    let batchSize = Math.min(COMMIT_HISTORY_BATCH_SIZE, depth)
+
+    while (nextHash && commits.length < depth) {
+      const remaining = depth - commits.length
+      const batchDepth = Math.min(batchSize, remaining)
+
+      try {
+        const batch = await this.fetchCommitHistoryBatch(params, infoRefs, nextHash, batchDepth)
+        if (batch.length === 0) break
+
+        for (const commit of batch) {
+          if (seen.has(commit.hash)) continue
+          commits.push(commit)
+          seen.add(commit.hash)
+          if (commits.length >= depth) break
+        }
+
+        const tail = batch[batch.length - 1]
+        if (!tail || tail.parents.length === 0 || batch.length < batchDepth) break
+        nextHash = tail.parents[0]
+      } catch (error) {
+        if (batchSize > 1 && isGitNaturalBigBatchError(error)) {
+          batchSize = Math.max(1, Math.floor(batchSize / 2))
+          continue
+        }
+        throw error
+      }
+    }
+
+    return commits
+  }
+
+  private async fetchCommitHistoryBatch(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    startCommitHash: string,
+    depth: number,
+  ): Promise<GitNaturalCommit[]> {
+    const cached = await this.cache.getHistoryBatchAsync<GitNaturalCommit>(startCommitHash, depth)
+    if (cached?.commits?.length) return cached.commits
+
+    const batch = await this.getTreeZeroObjects(params, infoRefs, startCommitHash, depth)
+    const commits = orderCommitsFromTip(this.parseCommits(batch.objects), startCommitHash, depth)
+    if (commits.length > 0) {
+      this.cache.putHistoryBatch({
+        startCommitHash,
+        limit: depth,
+        commits,
+        fetchedAt: this.now(),
+      })
+    }
+    return commits
   }
 
   async getCommit(params: {
@@ -1002,6 +1063,29 @@ function orderCommitsFromTip(
   }
 
   return ordered
+}
+
+function isGitNaturalBigBatchError(error: unknown): boolean {
+  const seen = new Set<unknown>()
+  let current: unknown = error
+
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    const asAny = current as {name?: string; message?: string; cause?: unknown; constructor?: {name?: string}}
+    const name = asAny.name || asAny.constructor?.name || ""
+    const message = current instanceof Error ? current.message : String(current)
+
+    if (
+      name === "BigBatchError" ||
+      /decompress too much data|too much data at the same time/i.test(message)
+    ) {
+      return true
+    }
+
+    current = asAny.cause
+  }
+
+  return false
 }
 
 function rawObjectFromParsed(object: GitNaturalParsedObject): GitNaturalRawObject {

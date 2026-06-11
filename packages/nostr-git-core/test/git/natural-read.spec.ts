@@ -16,7 +16,9 @@ import {
   GitNaturalApiAdapter,
   selectGitNaturalApiCapabilities,
 } from "../../src/git/natural-read-api-adapter.js"
-import {resolveNaturalReadTransport} from "../../src/git/natural-read-transport.js"
+import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
+import {GitNaturalReadError, resolveNaturalReadTransport} from "../../src/git/natural-read-transport.js"
+import type {GitNaturalCommit} from "../../src/git/natural-read-types.js"
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -122,6 +124,80 @@ const uploadPackResponseFetch = (response: Uint8Array) =>
 const arrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
   const copy = new Uint8Array(bytes)
   return copy.buffer
+}
+
+const hashForIndex = (index: number): string => (index + 1).toString(16).padStart(2, "0").repeat(20)
+
+const makeCommitChain = (count: number): GitNaturalCommit[] =>
+  Array.from({length: count}, (_, index) => ({
+    hash: hashForIndex(index),
+    tree: "f".repeat(40),
+    parents: index + 1 < count ? [hashForIndex(index + 1)] : [],
+    author: {name: "Ada", email: "ada@example.com", timestamp: 1_000 - index, timezone: "+0000"},
+    committer: {name: "Ada", email: "ada@example.com", timestamp: 1_000 - index, timezone: "+0000"},
+    message: `Commit ${index}\n`,
+  }))
+
+function makeFakeNaturalAdapter(
+  commits: GitNaturalCommit[],
+  opts: {
+    throwOnce?: (params: {commitHash: string; maxCommits: number}) => Error | undefined
+  } = {},
+) {
+  const byHash = new Map(commits.map((commit, index) => [commit.hash, {commit, index}]))
+  const fetchTreeZeroObjects = vi.fn(async (params: {url: string; commitHash: string; maxCommits?: number}) => {
+    const error = opts.throwOnce?.({
+      commitHash: params.commitHash,
+      maxCommits: params.maxCommits ?? 1,
+    })
+    if (error) throw error
+
+    const start = byHash.get(params.commitHash)?.index ?? commits.length
+    const selected = commits.slice(start, start + (params.maxCommits ?? 1))
+    const objects = new Map(
+      selected.map(commit => {
+        const data = encoder.encode(JSON.stringify(commit))
+        return [
+          commit.hash,
+          {
+            type: 1,
+            size: data.length,
+            data,
+            offset: 0,
+            hash: commit.hash,
+          },
+        ]
+      }),
+    )
+
+    return {
+      remoteUrl: params.url,
+      effectiveUrl: params.url,
+      usesProxy: false,
+      pack: {version: 2, count: objects.size, objects},
+      elapsedMs: 1,
+    }
+  })
+
+  const adapter = {
+    fetchInfoRefs: vi.fn(async (params: {url: string}) => ({
+      infoRefs: {
+        refs: {HEAD: commits[0].hash, "refs/heads/main": commits[0].hash},
+        capabilities: CAPABILITIES,
+        symrefs: {HEAD: "refs/heads/main"},
+        headRef: "refs/heads/main",
+        headCommit: commits[0].hash,
+      },
+      remoteUrl: params.url,
+      effectiveUrl: params.url,
+      usesProxy: false,
+      elapsedMs: 1,
+    })),
+    fetchTreeZeroObjects,
+    parseCommit: vi.fn((data: Uint8Array) => JSON.parse(decoder.decode(data)) as GitNaturalCommit),
+  } as unknown as GitNaturalApiAdapter
+
+  return {adapter, fetchTreeZeroObjects}
 }
 
 afterEach(() => {
@@ -428,5 +504,64 @@ describe("natural read API adapter", () => {
     expect(commit.tree).toBe(treeHash)
     expect(commit.parents).toEqual(["a".repeat(40)])
     expect(commit.message).toBe("Initial commit\n")
+  })
+})
+
+describe("GitNaturalReadProvider commit history batching", () => {
+  it("fetches commit history in bounded tree:0 batches", async () => {
+    const commits = makeCommitChain(20)
+    const cache = new GitNaturalObjectCache({asyncStore: false})
+    const {adapter, fetchTreeZeroObjects} = makeFakeNaturalAdapter(commits)
+    const provider = new GitNaturalReadProvider({enabled: true, cache, adapter})
+
+    const result = await provider.listCommits({
+      url: "https://example.com/repo.git",
+      ref: "main",
+      depth: 20,
+    })
+
+    expect(result.commits.map(commit => commit.hash)).toEqual(commits.map(commit => commit.hash))
+    expect(fetchTreeZeroObjects).toHaveBeenCalledTimes(2)
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([15, 5])
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([
+      commits[0].hash,
+      commits[15].hash,
+    ])
+    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 15))?.commits).toHaveLength(15)
+    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[15].hash, 5))?.commits).toHaveLength(5)
+    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 20))?.commits).toHaveLength(20)
+  })
+
+  it("retries smaller tree:0 batches on wrapped BigBatch parser errors", async () => {
+    const commits = makeCommitChain(10)
+    const cache = new GitNaturalObjectCache({asyncStore: false})
+    let threwBigBatch = false
+    const {adapter, fetchTreeZeroObjects} = makeFakeNaturalAdapter(commits, {
+      throwOnce: ({maxCommits}) => {
+        if (threwBigBatch || maxCommits !== 10) return undefined
+        threwBigBatch = true
+        return new GitNaturalReadError(
+          "protocol-error",
+          "Git natural API upload-pack failed: we tried to decompress too much data at the same time",
+          {cause: new Error("we tried to decompress too much data at the same time")},
+        )
+      },
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, cache, adapter})
+
+    const result = await provider.listCommits({
+      url: "https://example.com/repo.git",
+      ref: "main",
+      depth: 10,
+    })
+
+    expect(result.commits.map(commit => commit.hash)).toEqual(commits.map(commit => commit.hash))
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([10, 5, 5])
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([
+      commits[0].hash,
+      commits[0].hash,
+      commits[5].hash,
+    ])
+    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 10))?.commits).toHaveLength(10)
   })
 })
