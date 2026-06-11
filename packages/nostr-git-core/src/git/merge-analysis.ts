@@ -932,7 +932,7 @@ async function detectConflictsFromStatusMatrix(
   prTipRef: string,
   tipOid: string,
 ): Promise<string[]> {
-  await git.checkout({dir: repoDir, ref: targetBranch})
+  await git.checkout({dir: repoDir, ref: targetBranch, force: true})
   try {
     await git.deleteBranch({dir: repoDir, ref: tempBranch})
   } catch {
@@ -1258,11 +1258,19 @@ async function performPRDryRunMerge(
   } finally {
     // Restore repo state regardless of merge outcome
     try {
-      await git.checkout({dir: repoDir, ref: targetBranch})
+      await git.checkout({dir: repoDir, ref: targetBranch, force: true})
+    } catch (cleanupErr) {
+      console.warn("[performPRDryRunMerge] Cleanup checkout failed:", cleanupErr)
+    }
+    try {
       await git.deleteBranch({dir: repoDir, ref: tempBranch})
+    } catch (cleanupErr) {
+      console.warn("[performPRDryRunMerge] Cleanup temp branch failed:", cleanupErr)
+    }
+    try {
       await git.deleteRef({dir: repoDir, ref: prTipRef})
     } catch (cleanupErr) {
-      console.warn("[performPRDryRunMerge] Cleanup failed (checkout/branch/ref):", cleanupErr)
+      console.warn("[performPRDryRunMerge] Cleanup temp ref failed:", cleanupErr)
     }
   }
 }

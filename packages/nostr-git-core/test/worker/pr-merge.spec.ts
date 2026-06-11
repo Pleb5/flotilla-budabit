@@ -8,6 +8,7 @@ import {
   type MergePRAndPushOptions,
   type AnalyzePRMergeOptions,
 } from "../../src/worker/workers/pr-merge.js"
+import {analyzePRMergeability} from "../../src/git/merge-analysis.js"
 import type {GitProvider} from "../../src/git/provider.js"
 import {createTestFs} from "../utils/lightningfs.js"
 import {initRepo, commitFile, createBranch, checkout, statusMatrix} from "../utils/git-harness.js"
@@ -377,6 +378,37 @@ describe("pr-merge", () => {
       fetchedAnalysisTip = false
     })
 
+    const createRealGitProvider = (fs: any): GitProvider =>
+      ({
+        fs,
+        TREE: (args: any) => (isogit as any).TREE(args),
+        addRemote: vi.fn(async (args: any) => await isogit.addRemote({fs, ...args})),
+        deleteRemote: vi.fn(async (args: any) => {
+          if (typeof (isogit as any).deleteRemote === "function") {
+            await (isogit as any).deleteRemote({fs, ...args})
+          }
+        }),
+        setConfig: vi.fn(async (args: any) => await isogit.setConfig({fs, ...args})),
+        fetch: vi.fn(async () => undefined),
+        readCommit: vi.fn(async (args: any) => await isogit.readCommit({fs, ...args})),
+        writeRef: vi.fn(async (args: any) => await isogit.writeRef({fs, ...args})),
+        checkout: vi.fn(async (args: any) => await isogit.checkout({fs, ...args})),
+        branch: vi.fn(async (args: any) => await isogit.branch({fs, ...args})),
+        deleteBranch: vi.fn(async (args: any) => await isogit.deleteBranch({fs, ...args})),
+        deleteRef: vi.fn(async (args: any) => await (isogit as any).deleteRef({fs, ...args})),
+        log: vi.fn(async (args: any) => await isogit.log({fs, ...args})),
+        resolveRef: vi.fn(async (args: any) => await isogit.resolveRef({fs, ...args})),
+        merge: vi.fn(async (args: any) => await isogit.merge({fs, ...args})),
+        findMergeBase: vi.fn(async (args: any) => await (isogit as any).findMergeBase({fs, ...args})),
+        isDescendent: vi.fn(async (args: any) => await isogit.isDescendent({fs, ...args})),
+        listBranches: vi.fn(async (args: any) => await isogit.listBranches({fs, ...args})),
+        statusMatrix: vi.fn(async (args: any) => await isogit.statusMatrix({fs, ...args})),
+        walk: vi.fn(async (args: any) => await isogit.walk({fs, ...args})),
+      } as any as GitProvider)
+
+    const dirtyRows = (matrix: any[]) =>
+      matrix.filter(([, head, workdir, stage]) => workdir !== head || stage !== head)
+
     it("delegates to analyzePRMergeability and returns result shape", async () => {
       const opts: AnalyzePRMergeOptions = {
         repoId: "30617:npub123/repo",
@@ -428,6 +460,79 @@ describe("pr-merge", () => {
           singleBranch: true,
         }),
       )
+    })
+
+    it("keeps analysis clean after a real conflict analysis in the same repo", async () => {
+      const fs = createTestFs("pr-analysis-conflict-then-clean")
+      const dir = "/tmp/repos/test-repo"
+      const author = {name: "Test", email: "test@example.com"}
+      const harness = {fs: fs as any, dir, author}
+      const realGit = createRealGitProvider(fs as any)
+      const mergeWithConflictMetadata = realGit.merge
+      let strippedFirstConflict = false
+      realGit.merge = vi.fn(async (args: any) => {
+        if (args.abortOnConflict === true && !strippedFirstConflict) {
+          try {
+            return await mergeWithConflictMetadata(args)
+          } catch {
+            strippedFirstConflict = true
+            throw new Error("Automatic merge failed")
+          }
+        }
+        return mergeWithConflictMetadata(args)
+      })
+
+      await initRepo(harness, "main")
+      const baseOid = await commitFile(harness, "/README.md", "base\n", "base")
+
+      await createBranch(harness, "conflict-pr", true)
+      const conflictTip = await commitFile(
+        harness,
+        "/README.md",
+        "feature conflict\n",
+        "conflict feature",
+      )
+
+      await checkout(harness, "main")
+      await commitFile(harness, "/README.md", "target conflict\n", "target conflict")
+
+      await isogit.writeRef({
+        fs: fs as any,
+        dir,
+        ref: "refs/heads/clean-pr",
+        value: baseOid,
+        force: true,
+      })
+      await checkout(harness, "clean-pr")
+      const cleanTip = await commitFile(
+        harness,
+        "/docs/feature.txt",
+        "feature\n",
+        "clean feature",
+      )
+      await checkout(harness, "main")
+
+      const conflict = await analyzePRMergeability(realGit, dir, {
+        cloneUrls: ["https://github.com/user/fork.git"],
+        tipCommitOid: conflictTip,
+        targetBranch: "main",
+      })
+
+      expect(conflict.analysis).toBe("conflicts")
+      expect(conflict.hasConflicts).toBe(true)
+      expect(conflict.conflictFiles).toContain("README.md")
+      expect(dirtyRows(await statusMatrix(harness))).toEqual([])
+
+      const clean = await analyzePRMergeability(realGit, dir, {
+        cloneUrls: ["https://github.com/user/fork.git"],
+        tipCommitOid: cleanTip,
+        targetBranch: "main",
+      })
+
+      expect(clean.analysis).toBe("clean")
+      expect(clean.canMerge).toBe(true)
+      expect(clean.hasConflicts).toBe(false)
+      expect(dirtyRows(await statusMatrix(harness))).toEqual([])
     })
 
     it("returns conflicts when fallback merge reports conflict filepaths", async () => {

@@ -11,16 +11,12 @@
 
 ## Current Phase
 
-- Phase 3: Clean Non-FF Analysis Regression
+- Complete
 
 ## Phase Exit Criteria
 
-- A regression test reproduces a clean non-FF PR where target changed README and PR adds an unrelated file from an older base.
-- The clean non-FF case returns `analysis: clean`, `canMerge: true`, and `hasConflicts: false`.
-- A real same-file conflict test still returns `analysis: conflicts`.
-- A rename/delete or modify/delete conflict remains classified as a conflict if covered by existing or new tests.
-- Dry-run merge cleanup leaves no stale worktree/index state that can poison later analyses.
-- `pnpm check`, targeted core tests, and `git diff --check` pass.
+- All planned phases completed.
+- Latest targeted core tests, `pnpm check`, and `git diff --check` pass.
 
 ## Completed With Evidence
 
@@ -39,6 +35,13 @@
 - Phase 2 targeted tests passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/git/merge-analysis.spec.ts test/worker/pr-merge.spec.ts`.
 - Phase 2 full check passed: `corepack pnpm check`.
 - Phase 2 diff check passed: `git diff --check`.
+- Phase 3 reproduced stale cleanup in fallback conflict detection by stripping first real merge conflict metadata, forcing the status-matrix fallback, and observing dirty `README.md` before the fix.
+- Phase 3 fixed dry-run merge cleanup by forcing target checkout and separating checkout/temp-branch/temp-ref cleanup.
+- Phase 3 regression verifies a conflict analysis followed by a clean non-FF analysis in the same repo leaves no dirty status and returns `analysis: clean`, `canMerge: true`, `hasConflicts: false`.
+- Phase 3 real same-file conflict coverage remains `analysis: conflicts` via existing and new worker tests.
+- Phase 3 targeted tests passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/worker/pr-merge.spec.ts test/git/merge-analysis.spec.ts`.
+- Phase 3 full check passed: `corepack pnpm check`.
+- Phase 3 diff check passed: `git diff --check`.
 
 ## Decisions
 
@@ -52,17 +55,19 @@
 - Branch: `dev` tracking `origin/dev`.
 - Existing unrelated worktree change: `docs/architecture/git-natural-read-pivot.md` formatting/doc edits. Do not stage or modify it.
 - Phase 1 was committed and pushed as `e2856318 fix: default PR status gates to open`.
-- Phase 2 implementation and verification are complete in the current phase closeout.
-- Next phase should investigate the clean non-FF false conflict while preserving real conflict behavior.
+- Phase 2 was committed and pushed as `81345148 fix: handle PR review edge cases`.
+- Phase 3 implementation and verification are complete in the current phase closeout.
+- No remaining phases in this session plan.
 
 ## Next Action
 
-- Begin Phase 3 startup: reread this checkpoint, reread `docs/architecture/pr-status-merge-session-plan.md`, inspect repository state, then reproduce/fix the clean non-FF false conflict.
+- Commit and push Phase 3, then report completion.
 
 ## Verification
 
 - Passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/status-resolver.spec.ts test/git/status-resolver.spec.ts`.
 - Passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/git/merge-analysis.spec.ts test/worker/pr-merge.spec.ts`.
+- Passed: `corepack pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false test/worker/pr-merge.spec.ts test/git/merge-analysis.spec.ts`.
 - Passed: `corepack pnpm check`.
 - Passed: `git diff --check`.
 
