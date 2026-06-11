@@ -10,7 +10,7 @@ import {
   GitNaturalReadError,
   type FetchInfoRefsResult,
   type FetchLike,
-} from "./natural-read-client.js"
+} from "./natural-read-transport.js"
 import {
   GitNaturalObjectCache,
   normalizeObjectHash,
@@ -22,7 +22,7 @@ import {
   type GitNaturalParsedObject,
   type GitNaturalParsedObjectType,
   type GitNaturalTreeEntry,
-} from "./natural-read-objects.js"
+} from "./natural-read-types.js"
 
 export type GitNaturalReadOperation =
   | "listRefs"

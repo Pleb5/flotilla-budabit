@@ -29,6 +29,14 @@
 - Budabit's pack parser is close to the vendored `git-natural-api` parser used by `gitworkshop`, so it shares some limitations, including no support for forward `REF_DELTA` bases.
 - Budabit is missing the hardening patterns that make `gitworkshop` stable in practice: protocol-status filtering, in-flight raw-object dedupe, direct-then-proxy CORS learning, binary-aware diff generation, and deeper round-trip parser tests.
 
+## Migration Outcome
+
+- Production natural reads now use `@fiatjaf/git-natural-api` for Git protocol primitives: advertised refs, upload-pack response handling, pack parsing, object parsing, tree loading, and commit parsing.
+- Budabit-owned production code is limited to orchestration around those primitives: URL/proxy policy, source metadata, cache and in-flight request management, fallback routing, worker RPC integration, and UI result adaptation.
+- The old production low-level upload-pack client and pack parser files, `natural-read-client.ts` and `natural-read-objects.ts`, have been removed from `packages/nostr-git-core/src/git/`.
+- Shared production support now lives in small boundary modules: `natural-read-transport.ts` for errors, fetcher shape, URL construction, and CORS/direct transport selection; `natural-read-types.ts` for Budabit result-shape types.
+- Protocol regression coverage remains on the library-backed adapter path, including `shallow <oid>`, `unshallow <oid>`, side-band progress, missing pack responses, and invalid pack responses.
+
 ## Observed Failure Analysis
 
 ### Symptom

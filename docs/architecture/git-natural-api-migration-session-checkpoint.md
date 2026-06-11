@@ -11,15 +11,11 @@
 
 ## Current Phase
 
-- Phase 5: Remove Or Quarantine Legacy Low-Level Code And Validate
+- Complete
 
 ## Phase Exit Criteria
 
-- Legacy upload-pack extraction and pack parsing are deleted, moved to test helpers, or explicitly marked non-production if still needed for fixtures.
-- Documentation states Budabit uses `@fiatjaf/git-natural-api` for protocol primitives and owns only orchestration.
-- Full focused natural-read test suite passes.
-- Full project checks pass or any unrelated pre-existing blocker is recorded.
-- Checkpoint says `Current Phase: Complete`.
+- Complete.
 
 ## Completed With Evidence
 
@@ -45,6 +41,12 @@
 - Evidence: natural diff marks binary file changes as metadata-only with `binary: true` and empty text hunks.
 - Evidence: generic worker `getDiffBetween` natural diff fast path is now explicitly opt-in via `gitNaturalDiff: true`; the dedicated natural diff RPC remains guarded by `enabled: true`.
 - Evidence: `Status.svelte` missing status-constant imports were fixed after the mandated UI typecheck exposed the unrelated blocker.
+- Phase 5 completed: removed Budabit's obsolete low-level upload-pack extraction and pack parsing from production source.
+- Evidence: `packages/nostr-git-core/src/git/natural-read-client.ts` and `packages/nostr-git-core/src/git/natural-read-objects.ts` were deleted.
+- Evidence: shared production boundaries now live in `natural-read-transport.ts` for errors/fetcher/URL transport helpers and `natural-read-types.ts` for Budabit result-shape types.
+- Evidence: `natural-read-api-adapter.ts`, `natural-read-provider.ts`, and `src/git/index.ts` import/export the new boundary modules instead of the legacy client/parser modules.
+- Evidence: test fixtures now keep pkt-line encoding and Git object hashing as test-local helpers rather than importing production protocol/parser helpers.
+- Evidence: `docs/architecture/git-natural-read-hardening-analysis.md` states production natural reads use `@fiatjaf/git-natural-api` for protocol primitives while Budabit owns orchestration only.
 
 ## Decisions
 
@@ -56,13 +58,13 @@
 
 ## Current State
 
-- Phase 4 complete; checkpoint advanced to Phase 5.
+- Git natural API migration complete.
 - Pre-existing unstaged change observed: `docs/architecture/git-natural-read-pivot.md`.
 - Previous hardening analysis is available at `docs/architecture/git-natural-read-hardening-analysis.md`.
 
 ## Next Action
 
-- Begin Phase 5 by rereading this checkpoint and the full plan, inspecting repo state, then search for remaining production imports/usages of legacy natural-read upload-pack extraction and pack parsing.
+- Final response.
 
 ## Verification
 
@@ -82,14 +84,18 @@
 - Phase 4: `pnpm -F @nostr-git/core typecheck` passed.
 - Phase 4: `pnpm -F @nostr-git/ui typecheck` initially failed on missing `GIT_STATUS_*` imports in untouched `Status.svelte`; after fixing those imports it passed with 0 errors and 0 warnings.
 - Phase 4: `git diff --check` passed with no output.
+- Phase 5 focused: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-read.spec.ts packages/nostr-git-core/test/git/natural-read-provider.spec.ts` passed with 2 files and 16 tests.
+- Phase 5 focused: `pnpm -F @nostr-git/core typecheck` passed.
+- Phase 5: `pnpm check` passed with 0 errors and 0 warnings.
+- Phase 5: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false` passed with 119 files passed, 1 skipped; 923 tests passed, 2 skipped, 1 todo.
+- Phase 5: `pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false` passed with 29 files and 183 tests.
+- Phase 5: `git diff --check` passed with no output.
 
 ## Risks Or Blockers
 
 - `git-natural-api` high-level helpers refetch capabilities; Budabit should continue using `GitNaturalApiAdapter` low-level methods instead of high-level helpers.
 - The installed `@fiatjaf/git-natural-api@0.2.4` JavaScript omits `mode` fields from `loadTree()` results even though local source/types include them; provider now uses adapter `parseTree()` for mode-sensitive contracts.
 - Library `fetchPackfile` owns upload-pack parsing and pack parsing but uses global `fetch` and `Response.bytes()` with no fetcher injection; adapter uses a scoped temporary fetch bridge only when a Budabit test/custom fetcher is supplied.
-- Old `natural-read-client` and `natural-read-objects` remain for exported helpers/tests and should be removed or quarantined in Phase 5 after Phase 4 hardening.
-- Phase 5 must decide whether old `natural-read-client` and `natural-read-objects` can be deleted, moved to tests, or explicitly marked non-production without breaking exported helpers/tests.
 - Pre-existing unstaged change remains: `docs/architecture/git-natural-read-pivot.md`.
 
 ## Files
@@ -99,7 +105,8 @@
 - `packages/nostr-git-core/package.json`
 - `pnpm-lock.yaml`
 - `packages/nostr-git-core/src/git/natural-read-api-adapter.ts`
-- `packages/nostr-git-core/src/git/natural-read-client.ts`
+- `packages/nostr-git-core/src/git/natural-read-transport.ts`
+- `packages/nostr-git-core/src/git/natural-read-types.ts`
 - `packages/nostr-git-core/src/git/natural-read-provider.ts`
 - `packages/nostr-git-core/src/git/natural-read-cache.ts`
 - `packages/nostr-git-core/src/git/index.ts`
@@ -110,6 +117,7 @@
 - `packages/nostr-git-core/test/git/natural-read.spec.ts`
 - `packages/nostr-git-core/test/git/natural-read-provider.spec.ts`
 - `packages/nostr-git-ui/src/lib/components/git/VendorReadRouter.test.ts`
+- `docs/architecture/git-natural-read-hardening-analysis.md`
 - `~/Work/gitworkshop/src/lib/git-grasp-pool/git-http.ts`
 - `~/Work/gitworkshop/src/lib/git-grasp-pool/pool.ts`
 - `~/Work/gitworkshop/src/lib/git-grasp-pool/diff-utils.ts`

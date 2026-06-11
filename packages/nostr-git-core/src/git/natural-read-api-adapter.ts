@@ -20,7 +20,7 @@ import {
   type FetchInfoRefsResult,
   type FetchLike,
   type GitNaturalTransport,
-} from "./natural-read-client.js"
+} from "./natural-read-transport.js"
 import {GitNaturalObjectCache, type GitNaturalInfoRefs} from "./natural-read-cache.js"
 
 export interface GitNaturalApiAdapterConfig {

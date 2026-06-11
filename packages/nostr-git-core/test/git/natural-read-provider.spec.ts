@@ -1,9 +1,9 @@
+import {createHash} from "node:crypto"
+
 import {afterEach, describe, expect, it, vi} from "vitest"
 import {zlibSync} from "fflate"
 
-import {encodePktLine} from "../../src/git/natural-read-client.js"
 import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
-import {computeGitNaturalObjectHash} from "../../src/git/natural-read-objects.js"
 
 const encoder = new TextEncoder()
 
@@ -21,6 +21,15 @@ const CAPABILITIES = [
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+function encodePktLine(payload: string): string {
+  if (payload.length === 0) return "0000"
+  return (payload.length + 4).toString(16).padStart(4, "0") + payload
+}
+
+function computeGitNaturalObjectHash(type: "blob" | "commit" | "tag" | "tree", data: Uint8Array): string {
+  return createHash("sha1").update(`${type} ${data.length}\0`).update(data).digest("hex")
+}
 
 describe("GitNaturalReadProvider", () => {
   it("is disabled unless the caller opts in", async () => {
