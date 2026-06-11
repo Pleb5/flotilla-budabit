@@ -1,13 +1,16 @@
 import {createHash} from "node:crypto"
 import {deflateSync} from "node:zlib"
 
+import {indexedDB as fakeIndexedDB} from "fake-indexeddb"
 import {afterEach, describe, expect, it, vi} from "vitest"
 
 import {
   GitNaturalObjectCache,
   gitNaturalCacheKeys,
+  type GitNaturalAsyncObjectStore,
   type GitNaturalInfoRefs,
 } from "../../src/git/natural-read-cache.js"
+import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
 import {
   GitNaturalApiAdapter,
   selectGitNaturalApiCapabilities,
@@ -153,7 +156,94 @@ describe("GitNaturalObjectCache", () => {
     cache.putCommit({hash: "D".repeat(40), tree: "e".repeat(40)})
     expect(cache.getCommit("d".repeat(40))?.tree).toBe("e".repeat(40))
   })
+
+  it("persists immutable objects through IndexedDB without persisting infoRefs", async () => {
+    const dbName = testDbName("natural-cache")
+    const commitHash = "a".repeat(40)
+    const treeHash = "b".repeat(40)
+    const blobHash = "c".repeat(40)
+    const blobData = Uint8Array.from([0, 1, 2, 255])
+    const commit = {hash: commitHash, tree: treeHash, parents: [], data: encoder.encode("commit data")}
+    const tree = {
+      hash: treeHash,
+      data: encoder.encode("tree data"),
+      entries: [{name: "file.bin", mode: "100644", hash: blobHash, type: "blob" as const}],
+    }
+
+    const store = new GitNaturalIndexedObjectStore({
+      dbName,
+      indexedDB: fakeIndexedDB as unknown as IDBFactory,
+      cleanupEveryWrites: 1,
+    })
+    const cache = new GitNaturalObjectCache({asyncStore: store})
+    cache.putInfoRefs("https://example.com/repo.git", {
+      refs: {HEAD: commitHash},
+      capabilities: ["filter"],
+      symrefs: {},
+      headCommit: commitHash,
+    })
+    cache.putCommit(commit)
+    cache.putTree(tree)
+    cache.putBlob({hash: blobHash, data: blobData})
+    cache.putRawObjectBatch({
+      commitHash,
+      filter: "blob:none",
+      objects: new Map([[blobHash, {hash: blobHash, type: "blob", data: blobData}]]),
+      fetchedAt: 1,
+    })
+    cache.putHistoryBatch({startCommitHash: commitHash, limit: 1, commits: [commit], fetchedAt: 2})
+    await cache.flushPersistence()
+    cache.close()
+
+    const nextStore = new GitNaturalIndexedObjectStore({
+      dbName,
+      indexedDB: fakeIndexedDB as unknown as IDBFactory,
+    })
+    const nextCache = new GitNaturalObjectCache({asyncStore: nextStore})
+
+    expect(await nextCache.getCommitAsync(commitHash)).toMatchObject({hash: commitHash, tree: treeHash})
+    expect(await nextCache.getTreeAsync(treeHash)).toMatchObject({hash: treeHash})
+    expect(Array.from((await nextCache.getBlobAsync(blobHash))?.data ?? [])).toEqual([0, 1, 2, 255])
+    const raw = await nextCache.getRawObjectBatchAsync(commitHash, "blob:none")
+    expect(Array.from(raw?.objects.get(blobHash)?.data ?? [])).toEqual([0, 1, 2, 255])
+    expect((await nextCache.getHistoryBatchAsync(commitHash, 1))?.commits[0]?.hash).toBe(commitHash)
+    expect(nextCache.getInfoRefs("https://example.com/repo.git")).toBeUndefined()
+
+    nextCache.close()
+    await deleteTestDb(dbName)
+  })
+
+  it("falls back to memory-only behavior when the async store throws", async () => {
+    const throwingStore = new Proxy(
+      {},
+      {
+        get: () => async () => {
+          throw new Error("indexeddb unavailable")
+        },
+      },
+    ) as GitNaturalAsyncObjectStore
+    const cache = new GitNaturalObjectCache({asyncStore: throwingStore})
+    const blobHash = "d".repeat(40)
+
+    expect(await cache.getBlobAsync(blobHash)).toBeUndefined()
+    cache.putBlob({hash: blobHash, data: Uint8Array.from([1, 2, 3])})
+    await cache.flushPersistence()
+    expect(Array.from(cache.getBlob(blobHash)?.data ?? [])).toEqual([1, 2, 3])
+  })
 })
+
+function testDbName(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+async function deleteTestDb(dbName: string): Promise<void> {
+  await new Promise<void>(resolve => {
+    const request = fakeIndexedDB.deleteDatabase(dbName)
+    request.onsuccess = () => resolve()
+    request.onerror = () => resolve()
+    request.onblocked = () => resolve()
+  })
+}
 
 describe("natural read transport", () => {
   it("keeps GRASP natural reads direct while proxying generic remotes when configured", () => {

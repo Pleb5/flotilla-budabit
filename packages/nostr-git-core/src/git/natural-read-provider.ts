@@ -17,6 +17,7 @@ import {
   type GitNaturalInfoRefs,
   type GitNaturalRawObject,
 } from "./natural-read-cache.js"
+import {createGitNaturalIndexedObjectStore} from "./natural-read-indexed-cache.js"
 import {
   type GitNaturalCommit,
   type GitNaturalParsedObject,
@@ -183,7 +184,12 @@ export class GitNaturalReadProvider {
 
   constructor(config: GitNaturalReadProviderConfig = {}) {
     this.enabled = config.enabled ?? false
-    this.cache = config.cache ?? new GitNaturalObjectCache({now: config.now})
+    this.cache =
+      config.cache ??
+      new GitNaturalObjectCache({
+        now: config.now,
+        asyncStore: createGitNaturalIndexedObjectStore({now: config.now}),
+      })
     this.adapter =
       config.adapter ??
       new GitNaturalApiAdapter({cache: this.cache, fetcher: config.fetcher, corsProxy: config.corsProxy, now: config.now})
@@ -355,7 +361,7 @@ export class GitNaturalReadProvider {
       ? directCommitResolution(params.commitHash, params.ref ?? params.commitHash)
       : this.resolveRefFromInfo(info.infoRefs, params.ref ?? DEFAULT_REF)
 
-    const cached = this.cache.getHistoryBatch<GitNaturalCommit>(resolved.commitHash, depth)
+    const cached = await this.cache.getHistoryBatchAsync<GitNaturalCommit>(resolved.commitHash, depth)
     if (cached?.commits?.length) {
       return {
         ref: resolved.resolvedRef,
@@ -601,7 +607,7 @@ export class GitNaturalReadProvider {
     cacheFilter: string
     request: (corsProxy: string | null | undefined) => Promise<GitNaturalApiPackResult>
   }): Promise<ObjectBatchResult> {
-    const cached = this.cache.getRawObjectBatch(params.commitHash, params.cacheFilter)
+    const cached = await this.cache.getRawObjectBatchAsync(params.commitHash, params.cacheFilter)
     if (cached) return {objects: parsedObjectsFromRawObjects(cached.objects)}
 
     const corsProxy = this.resolveCorsProxy(params.params.corsProxy)
@@ -636,7 +642,7 @@ export class GitNaturalReadProvider {
     infoRefs: GitNaturalInfoRefs,
     blobHash: string,
   ): Promise<BlobObjectResult> {
-    const cached = this.cache.getBlob(blobHash)
+    const cached = await this.cache.getBlobAsync(blobHash)
     if (cached) {
       return {
         object: {

@@ -1,8 +1,11 @@
 import {createHash} from "node:crypto"
 
+import {indexedDB as fakeIndexedDB} from "fake-indexeddb"
 import {afterEach, describe, expect, it, vi} from "vitest"
 import {zlibSync} from "fflate"
 
+import {GitNaturalObjectCache} from "../../src/git/natural-read-cache.js"
+import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
 import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
 
 const encoder = new TextEncoder()
@@ -118,6 +121,45 @@ describe("GitNaturalReadProvider", () => {
       .map(([, init]) => String(init?.body || ""))
     expect(postBodies.some(body => body.includes("filter blob:none\n"))).toBe(true)
     expect(postBodies.some(body => body.includes(`want ${fixture.readmeHash}`))).toBe(true)
+  })
+
+  it("hydrates raw batches and blobs from IndexedDB after provider re-instantiation", async () => {
+    const dbName = testDbName("natural-provider-cache")
+    const fixture = createGitFixture()
+    const firstCache = new GitNaturalObjectCache({
+      asyncStore: new GitNaturalIndexedObjectStore({
+        dbName,
+        indexedDB: fakeIndexedDB as unknown as IDBFactory,
+        cleanupEveryWrites: 1,
+      }),
+    })
+    const firstFetcher = createFixtureFetcher(fixture)
+    const firstProvider = new GitNaturalReadProvider({enabled: true, fetcher: firstFetcher, cache: firstCache})
+
+    await firstProvider.listDirectory({url: REMOTE_URL, ref: "main"})
+    await firstProvider.getFileContent({url: REMOTE_URL, ref: "main", path: "README.md"})
+    await firstCache.flushPersistence()
+    firstCache.close()
+
+    const secondCache = new GitNaturalObjectCache({
+      asyncStore: new GitNaturalIndexedObjectStore({
+        dbName,
+        indexedDB: fakeIndexedDB as unknown as IDBFactory,
+      }),
+    })
+    const secondFetcher = createFixtureFetcher(fixture)
+    const secondProvider = new GitNaturalReadProvider({enabled: true, fetcher: secondFetcher, cache: secondCache})
+
+    const root = await secondProvider.listDirectory({url: REMOTE_URL, ref: "main"})
+    const file = await secondProvider.getFileContent({url: REMOTE_URL, ref: "main", path: "README.md"})
+
+    expect(root.entries.map(entry => entry.path)).toEqual(["README.md", "src"])
+    expect(file.content).toBe("SGVsbG8gbmF0dXJhbAo=")
+    expect(secondFetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0)
+    expect(secondFetcher.mock.calls.filter(([, init]) => init?.method === "GET")).toHaveLength(1)
+
+    secondCache.close()
+    await deleteTestDb(dbName)
   })
 
   it("dedupes concurrent filtered object fetches", async () => {
@@ -315,6 +357,19 @@ function createGitFixture(options: {capabilities?: string[]} = {}) {
     ]),
     readmePack: packfile([{type: "blob", data: readmeData}]),
   }
+}
+
+function testDbName(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+async function deleteTestDb(dbName: string): Promise<void> {
+  await new Promise<void>(resolve => {
+    const request = fakeIndexedDB.deleteDatabase(dbName)
+    request.onsuccess = () => resolve()
+    request.onerror = () => resolve()
+    request.onblocked = () => resolve()
+  })
 }
 
 function createDiffFixture() {
