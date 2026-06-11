@@ -1,3 +1,6 @@
+import {createHash} from "node:crypto"
+import {deflateSync} from "node:zlib"
+
 import {afterEach, describe, expect, it, vi} from "vitest"
 
 import {
@@ -15,6 +18,10 @@ import {
   resolveNaturalReadTransport,
   selectUploadPackCapabilities,
 } from "../../src/git/natural-read-client.js"
+import {
+  GitNaturalApiAdapter,
+  selectGitNaturalApiCapabilities,
+} from "../../src/git/natural-read-api-adapter.js"
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -60,6 +67,57 @@ const concatBytes = (...chunks: Uint8Array[]): Uint8Array => {
   }
   return out
 }
+
+const uint32 = (value: number): Uint8Array =>
+  Uint8Array.from([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff])
+
+const hexBytes = (hash: string): Uint8Array =>
+  Uint8Array.from(hash.match(/../g)?.map(byte => Number.parseInt(byte, 16)) ?? [])
+
+const packObjectHeader = (type: number, size: number): Uint8Array => {
+  const bytes: number[] = []
+  let remaining = size >>> 4
+  let first = (type << 4) | (size & 0x0f)
+  if (remaining > 0) first |= 0x80
+  bytes.push(first)
+  while (remaining > 0) {
+    let next = remaining & 0x7f
+    remaining >>>= 7
+    if (remaining > 0) next |= 0x80
+    bytes.push(next)
+  }
+  return Uint8Array.from(bytes)
+}
+
+const gitObjectHash = (type: string, data: Uint8Array): string =>
+  createHash("sha1").update(`${type} ${data.length}\0`).update(data).digest("hex")
+
+const buildBlobPack = (content: string): {hash: string; data: Uint8Array; packfile: Uint8Array} => {
+  const data = encoder.encode(content)
+  const packfile = concatBytes(
+    encoder.encode("PACK"),
+    uint32(2),
+    uint32(1),
+    packObjectHeader(3, data.length),
+    new Uint8Array(deflateSync(data)),
+  )
+  return {hash: gitObjectHash("blob", data), data, packfile}
+}
+
+const buildTreeData = (entries: Array<{mode: string; name: string; hash: string}>): Uint8Array =>
+  concatBytes(...entries.map(entry => concatBytes(encoder.encode(`${entry.mode} ${entry.name}\0`), hexBytes(entry.hash))))
+
+const sideBandPacket = (channel: number, payload: string | Uint8Array): Uint8Array => {
+  const payloadBytes = typeof payload === "string" ? encoder.encode(payload) : payload
+  return pktBytes(concatBytes(Uint8Array.of(channel), payloadBytes))
+}
+
+const uploadPackResponseFetch = (response: Uint8Array) =>
+  vi.fn(async () => ({
+    status: 200,
+    text: async () => decoder.decode(response),
+    bytes: async () => response,
+  }))
 
 const arrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
   const copy = new Uint8Array(bytes)
@@ -294,5 +352,143 @@ describe("natural read upload-pack primitives", () => {
         body: expect.stringContaining("filter tree:0\n"),
       }),
     )
+  })
+})
+
+describe("natural read API adapter", () => {
+  it("fetches and caches infoRefs through the library primitive", async () => {
+    const advertisement = buildAdvertisement()
+    const fetcher = vi.fn(async () => ({
+      status: 200,
+      text: async () => advertisement,
+      bytes: async () => encoder.encode(advertisement),
+    }))
+    vi.stubGlobal("fetch", fetcher)
+    const cache = new GitNaturalObjectCache()
+    const adapter = new GitNaturalApiAdapter({cache})
+
+    const first = await adapter.fetchInfoRefs({url: "https://example.com/repo.git"})
+    const second = await adapter.fetchInfoRefs({url: "https://example.com/repo.git"})
+
+    expect(first.infoRefs.headRef).toBe("refs/heads/main")
+    expect(second.infoRefs.headCommit).toBe("1".repeat(40))
+    expect(selectGitNaturalApiCapabilities(first.infoRefs.capabilities, {requireFilter: true})).toEqual([
+      "multi_ack_detailed",
+      "side-band-64k",
+      "filter",
+    ])
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledWith("https://example.com/repo.git/info/refs?service=git-upload-pack")
+  })
+
+  it("parses library packfiles that include shallow, unshallow, and side-band progress packets", async () => {
+    const blob = buildBlobPack("hello from git-natural-api\n")
+    const response = concatBytes(
+      pktBytes(`shallow ${"a".repeat(40)}\n`),
+      pktBytes("NAK\n"),
+      pktBytes(`unshallow ${"b".repeat(40)}\n`),
+      sideBandPacket(2, "counting objects: 1\n"),
+      sideBandPacket(1, blob.packfile.subarray(0, 9)),
+      sideBandPacket(1, blob.packfile.subarray(9)),
+      encoder.encode("0000"),
+    )
+    const fetcher = uploadPackResponseFetch(response)
+    vi.stubGlobal("fetch", fetcher)
+    const adapter = new GitNaturalApiAdapter()
+
+    const result = await adapter.fetchObjectByHash({
+      url: "https://example.com/repo.git",
+      objectHash: blob.hash,
+      serverCapabilities: CAPABILITIES,
+    })
+
+    expect(decoder.decode(result.object.data)).toBe("hello from git-natural-api\n")
+    expect(result.pack.count).toBe(1)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe("https://example.com/repo.git/git-upload-pack")
+    expect(init.method).toBe("POST")
+    expect(String(init.body)).toContain(`want ${blob.hash}`)
+    expect(fetcher.mock.calls.some(([calledUrl]) => String(calledUrl).includes("/info/refs"))).toBe(false)
+  })
+
+  it("builds blob:none and tree:0 requests from supplied cached capabilities", async () => {
+    const blob = buildBlobPack("filtered response\n")
+    const response = concatBytes(pktBytes("NAK\n"), sideBandPacket(1, blob.packfile), encoder.encode("0000"))
+    const fetcher = uploadPackResponseFetch(response)
+    vi.stubGlobal("fetch", fetcher)
+    const adapter = new GitNaturalApiAdapter()
+
+    await adapter.fetchBlobNoneObjects({
+      url: "https://example.com/repo.git",
+      commitHash: "c".repeat(40),
+      serverCapabilities: CAPABILITIES,
+    })
+    await adapter.fetchTreeZeroObjects({
+      url: "https://example.com/repo.git",
+      commitHash: "d".repeat(40),
+      serverCapabilities: CAPABILITIES,
+      maxCommits: 12,
+    })
+
+    const firstBody = String((fetcher.mock.calls[0] as [string, RequestInit])[1].body)
+    const secondBody = String((fetcher.mock.calls[1] as [string, RequestInit])[1].body)
+    expect(firstBody).toContain("filter blob:none\n")
+    expect(firstBody).toContain("deepen 1\n")
+    expect(secondBody).toContain("filter tree:0\n")
+    expect(secondBody).toContain("deepen 12\n")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports missing and invalid library pack responses as protocol errors", async () => {
+    const adapter = new GitNaturalApiAdapter()
+
+    vi.stubGlobal("fetch", uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), encoder.encode("0000"))))
+    await expect(
+      adapter.fetchBlobNoneObjects({
+        url: "https://example.com/repo.git",
+        commitHash: "e".repeat(40),
+        serverCapabilities: CAPABILITIES,
+      }),
+    ).rejects.toMatchObject({code: "protocol-error"})
+
+    vi.stubGlobal(
+      "fetch",
+      uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), sideBandPacket(1, "NOPE"), encoder.encode("0000"))),
+    )
+    await expect(
+      adapter.fetchBlobNoneObjects({
+        url: "https://example.com/repo.git",
+        commitHash: "f".repeat(40),
+        serverCapabilities: CAPABILITIES,
+      }),
+    ).rejects.toMatchObject({
+      code: "protocol-error",
+      message: expect.stringContaining("invalid packfile header"),
+    })
+  })
+
+  it("exposes library tree loading and commit parsing", () => {
+    const adapter = new GitNaturalApiAdapter()
+    const blobData = encoder.encode("readme\n")
+    const blobHash = gitObjectHash("blob", blobData)
+    const treeData = buildTreeData([{mode: "100644", name: "README.md", hash: blobHash}])
+    const treeHash = gitObjectHash("tree", treeData)
+    const treeObject = {type: 2, size: treeData.length, data: treeData, offset: 0, hash: treeHash}
+    const blobObject = {type: 3, size: blobData.length, data: blobData, offset: 0, hash: blobHash}
+    const tree = adapter.loadTree(treeObject, new Map([[treeHash, treeObject], [blobHash, blobObject]]), 1)
+
+    expect(tree.files[0]).toMatchObject({name: "README.md", hash: blobHash})
+    expect(decoder.decode(tree.files[0]?.content ?? new Uint8Array())).toBe("readme\n")
+
+    const commit = adapter.parseCommit(
+      encoder.encode(
+        `tree ${treeHash}\nparent ${"a".repeat(40)}\nauthor Ada <ada@example.com> 1 +0000\ncommitter Ada <ada@example.com> 2 +0000\n\nInitial commit\n`,
+      ),
+      "b".repeat(40),
+    )
+    expect(commit.tree).toBe(treeHash)
+    expect(commit.parents).toEqual(["a".repeat(40)])
+    expect(commit.message).toBe("Initial commit\n")
   })
 })
