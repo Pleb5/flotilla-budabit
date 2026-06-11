@@ -13,7 +13,7 @@
 ## Current Phase
 
 - Complete
-- Status: all planned phases are implemented and verified; Phase 5 closeout commit is being pushed.
+- Status: all planned phases are implemented, verified, committed, and pushed.
 
 ## Phase Exit Criteria
 
@@ -113,10 +113,7 @@
 - Phase 2 closeout commit pushed: `44053732 feat: add durable git natural object cache`.
 - Phase 3 closeout commit pushed: `846c1370 feat: prefer git natural PR review reads`.
 - Phase 4 closeout commit pushed: `d79557ce feat: bridge clone blobs into natural cache`.
-- Phase 5 changed files to commit and push:
-  - `docs/architecture/git-natural-pr-cache-session-checkpoint.md`
-  - `packages/nostr-git-core/src/worker/worker.ts`
-  - `src/app/components/PRView.svelte`
+- Phase 5 closeout commit pushed: `87f367bb feat: add natural-first PR preview reads`.
 - `docs/architecture/git-natural-read-pivot.md` remains a pre-existing unrelated dirty file and should stay unstaged unless explicitly approved.
 - Verification passed during Phase 1 audit:
   - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
@@ -150,7 +147,7 @@
   - `nix develop -c pnpm check` passed.
   - `git diff --check` passed.
   - Manual browser check was not run in this non-browser session.
-- Phase 5 closeout is committed and pushed by the commit containing this checkpoint update.
+- Phase 5 closeout commit was pushed as `87f367bb feat: add natural-first PR preview reads`.
 
 ## Next Action
 
