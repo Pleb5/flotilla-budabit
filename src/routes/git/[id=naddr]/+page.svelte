@@ -538,9 +538,28 @@
     }
   }
 
-  function formatDate(date: Date | null) {
-    if (!date) return "Unknown"
+  function formatDate(date: Date | null | undefined) {
+    if (!date || Number.isNaN(date.getTime())) return "Unknown"
     return formatDistanceToNow(date, {addSuffix: true})
+  }
+
+  function getCommitDate(commit: any): Date | null {
+    const timestamp = [
+      commit?.commit?.author?.timestamp,
+      commit?.commit?.committer?.timestamp,
+    ].find(value => value !== undefined && value !== null && value !== "" && Number.isFinite(Number(value)))
+    if (timestamp === undefined) return null
+
+    const date = new Date(Number(timestamp) * 1000)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  function getCommitAuthorName(commit: any): string {
+    return commit?.commit?.author?.name || commit?.commit?.committer?.name || "?"
+  }
+
+  function getCommitMessage(commit: any): string {
+    return commit?.commit?.message || ""
   }
 
   function truncateHash(hash: string, length = 8) {
@@ -783,7 +802,7 @@
             </span>
             <div
               class="col-start-1 row-start-2 min-w-0 justify-self-stretch sm:col-start-2 sm:row-start-1 lg:col-start-1 lg:row-start-3">
-              <BranchSelector repo={repoClass} />
+              <BranchSelector repo={repoClass} loadData={false} />
             </div>
             {#if repoCloneUrlItems.length > 0}
               <details
@@ -1055,10 +1074,10 @@
                       class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
                       <span class="flex-shrink-0 text-muted-foreground">Latest</span>
                       <span class="flex min-w-0 flex-1 items-center gap-2 font-mono text-xs">
-                        <span>{truncateHash(lastCommit.oid)}</span>
+                        <span>{truncateHash(lastCommit.oid || lastCommit.sha)}</span>
                         <span class="text-muted-foreground">·</span>
                         <span class="truncate text-muted-foreground"
-                          >{formatDate(new Date(lastCommit.commit.author.timestamp * 1000))}</span>
+                          >{formatDate(getCommitDate(lastCommit))}</span>
                       </span>
                       <ChevronDown
                         class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/commit:rotate-180" />
@@ -1066,13 +1085,13 @@
                     <div class="mt-1 flex items-center gap-1.5 text-xs">
                       <span
                         class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-semibold uppercase text-muted-foreground">
-                        {(lastCommit.commit.author.name || "?").charAt(0)}
+                        {getCommitAuthorName(lastCommit).charAt(0)}
                       </span>
                       <span class="flex-shrink-0 font-medium"
-                        >{lastCommit.commit.author.name}:</span>
+                        >{getCommitAuthorName(lastCommit)}:</span>
                       <span
                         class="min-w-0 flex-1 truncate text-muted-foreground"
-                        title={lastCommit.commit.message}>{lastCommit.commit.message}</span>
+                        title={getCommitMessage(lastCommit)}>{getCommitMessage(lastCommit)}</span>
                     </div>
                   </details>
                 {/if}

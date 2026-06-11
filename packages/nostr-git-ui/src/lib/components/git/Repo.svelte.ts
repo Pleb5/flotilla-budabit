@@ -448,6 +448,7 @@ export class Repo {
     workerManager: existingWorkerManager,
     authorName: initialAuthorName,
     authorEmail: initialAuthorEmail,
+    eagerLoadCommits = false,
   }: {
     repoEvent: Readable<RepoAnnouncementEvent>;
     repoStateEvent: Readable<RepoStateEvent>;
@@ -464,6 +465,8 @@ export class Repo {
     authorName?: string;
     /** User's email (nip-05 or npub-based) for git commit author */
     authorEmail?: string;
+    /** Load the first commit page during repo initialization. Defaults to lazy loading. */
+    eagerLoadCommits?: boolean;
   }) {
     // Set author info if provided
     if (initialAuthorName) this.authorName = initialAuthorName;
@@ -731,7 +734,9 @@ export class Repo {
           await this.#loadBranchesFromRepo(initialRepoEvent);
         }
 
-        await this.#loadCommitsFromRepo();
+        if (eagerLoadCommits) {
+          await this.#loadCommitsFromRepo();
+        }
 
         // Only sync with remote if vendor API is NOT available
         // When vendor API is available (GitHub, GitLab, etc.), we can get data immediately
@@ -1691,7 +1696,10 @@ export class Repo {
     );
   }
 
-  async setSelectedBranch(branchName: string, options: { persist?: boolean } = { persist: true }) {
+  async setSelectedBranch(
+    branchName: string,
+    options: { persist?: boolean; loadData?: boolean } = { persist: true }
+  ) {
     const previousBranch = this.selectedBranch;
 
     // Set switching flag to prevent premature loads
@@ -1721,6 +1729,13 @@ export class Repo {
     } catch {}
 
     try {
+      if (options.loadData === false) {
+        this.commitManager.reset(true);
+        this.commitManager.setCurrentBranch(shortBranch, this.branchManager.getMainBranch());
+        this.invalidateBranchCache();
+        return;
+      }
+
       // Gather clone URLs for remote operations
       const cloneUrls = [...(this.#repo?.clone || [])];
 

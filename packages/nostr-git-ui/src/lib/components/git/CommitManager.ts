@@ -165,6 +165,13 @@ export class CommitManager {
     return [];
   }
 
+  private parseVendorDateTimestamp(value: unknown): number | undefined {
+    if (!value) return undefined;
+    const time = new Date(String(value)).getTime();
+    if (!Number.isFinite(time)) return undefined;
+    return Math.floor(time / 1000);
+  }
+
   /**
    * Set the current branch for commit loading
    * This is useful when switching branches to ensure subsequent operations use the correct branch
@@ -451,16 +458,12 @@ export class CommitManager {
                 author: {
                   name: c.author.name,
                   email: c.author.email,
-                  timestamp: c.author.date
-                    ? Math.floor(new Date(c.author.date).getTime() / 1000)
-                    : undefined,
+                  timestamp: this.parseVendorDateTimestamp(c.author.date),
                 },
                 committer: {
                   name: c.committer.name,
                   email: c.committer.email,
-                  timestamp: c.committer.date
-                    ? Math.floor(new Date(c.committer.date).getTime() / 1000)
-                    : undefined,
+                  timestamp: this.parseVendorDateTimestamp(c.committer.date),
                 },
                 parent: c.parents?.map((p: any) => p.sha) || [],
               },
@@ -708,16 +711,12 @@ export class CommitManager {
             author: {
               name: c.author.name,
               email: c.author.email,
-              timestamp: c.author.date
-                ? Math.floor(new Date(c.author.date).getTime() / 1000)
-                : undefined,
+              timestamp: this.parseVendorDateTimestamp(c.author.date),
             },
             committer: {
               name: c.committer.name,
               email: c.committer.email,
-              timestamp: c.committer.date
-                ? Math.floor(new Date(c.committer.date).getTime() / 1000)
-                : undefined,
+              timestamp: this.parseVendorDateTimestamp(c.committer.date),
             },
             parent: c.parents?.map((p: any) => p.sha) || [],
           },

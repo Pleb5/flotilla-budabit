@@ -14,12 +14,12 @@
       author: {
         name: string;
         email: string;
-        timestamp: number;
+        timestamp?: number;
       };
       committer: {
         name: string;
         email: string;
-        timestamp: number;
+        timestamp?: number;
       };
       parent: string[];
     };
@@ -64,8 +64,26 @@
     return hash.substring(0, 7);
   }
 
-  function formatDate(timestamp: number): string {
-    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
+  function getCommitTimestamp(commit: GitCommitData): number | undefined {
+    const timestamp = [commit.commit.author?.timestamp, commit.commit.committer?.timestamp].find(
+      (value) => typeof value === "number" && Number.isFinite(value)
+    );
+    return timestamp;
+  }
+
+  function formatDate(timestamp: number | undefined): string {
+    if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return "Unknown";
+    const date = new Date(timestamp * 1000);
+    if (Number.isNaN(date.getTime())) return "Unknown";
+    return formatDistanceToNow(date, { addSuffix: true });
+  }
+
+  function getAuthorName(commit: GitCommitData): string {
+    return commit.commit.author?.name || commit.commit.committer?.name || "Unknown";
+  }
+
+  function getAuthorEmail(commit: GitCommitData): string {
+    return commit.commit.author?.email || commit.commit.committer?.email || "";
   }
 
   function copyHash() {
@@ -122,21 +140,21 @@
         avatarUrl={avatarUrl}
         nip05={nip05}
         nip39={nip39}
-        email={commit.commit.author.email || commit.commit.committer?.email}
-        displayName={displayName || commit.commit.author.name}
+        email={getAuthorEmail(commit)}
+        displayName={displayName || getAuthorName(commit)}
         size={40}
         class="h-10 w-10"
-        title={displayName || commit.commit.author.name}
+        title={displayName || getAuthorName(commit)}
         responsive={true}
       />
-      <span class="font-semibold text-sm truncate">{displayName || commit.commit.author.name}</span>
-      {#if commit.commit.author.email}
-        <span class="truncate text-xs text-muted-foreground" title={commit.commit.author.email}>
-          {commit.commit.author.email}
+      <span class="font-semibold text-sm truncate">{displayName || getAuthorName(commit)}</span>
+      {#if getAuthorEmail(commit)}
+        <span class="truncate text-xs text-muted-foreground" title={getAuthorEmail(commit)}>
+          {getAuthorEmail(commit)}
         </span>
       {/if}
       <span class="text-xs text-muted-foreground whitespace-nowrap">
-        • {formatDate(commit.commit.author.timestamp)}
+        • {formatDate(getCommitTimestamp(commit))}
       </span>
       <button
         onclick={copyHash}

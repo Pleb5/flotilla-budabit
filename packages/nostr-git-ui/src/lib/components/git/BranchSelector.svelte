@@ -3,7 +3,7 @@
   import type { Repo } from "./Repo.svelte";
   import { isDisplayableGitRef } from "./branch-ref";
 
-  const { repo }: { repo: Repo } = $props();
+  const { repo, loadData = true }: { repo: Repo; loadData?: boolean } = $props();
 
   // Get all refs (branches and tags) from repo
   const refs = $derived.by(() => repo.refs);
@@ -86,7 +86,7 @@
     const branchName = target.value;
     const currentSelected = repo.selectedBranch;
     if (branchName && !isSwitching && branchName !== currentSelected) {
-      repo.setSelectedBranch(branchName, { persist: true });
+      repo.setSelectedBranch(branchName, { persist: true, loadData });
     }
   }
 </script>
