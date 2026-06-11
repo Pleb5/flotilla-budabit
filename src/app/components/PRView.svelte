@@ -2406,6 +2406,7 @@
           headOid: updateTipOid,
           targetBranch: prTargetBranch,
           cloneUrls: targetCloneUrls,
+          ...(prEffectiveCloneUrls.length > 0 ? {sourceCloneUrls: prEffectiveCloneUrls} : {}),
         })
         mergeBase = mbResult?.mergeBase
         if (mbResult?.error && !mergeBase) {

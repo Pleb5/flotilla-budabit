@@ -167,6 +167,8 @@ import {createNip98HttpClient} from "../git/nip98-http-client.js"
 import {
   GitNaturalReadProvider,
   type GitNaturalDiffBetweenResult,
+  type GitNaturalListCommitsResult,
+  type GitNaturalResolveRefResult,
 } from "../git/natural-read-provider.js"
 import {getGitNaturalPRReviewData} from "../git/natural-pr-review.js"
 import {cacheObservedGitNaturalBlob} from "../git/natural-read-observed-cache.js"
@@ -346,6 +348,189 @@ async function tryGitNaturalPRReviewData(params: {
   }
 }
 
+async function tryGitNaturalPRPreview(params: {
+  key: string
+  sourceBranch: string
+  targetBranch: string
+  sourceUrls: string[]
+  targetUrls: string[]
+}) {
+  const source = await tryGitNaturalResolveRefFromUrls({
+    key: params.key,
+    ref: params.sourceBranch,
+    cloneUrls: params.sourceUrls,
+  })
+  if (!source) return null
+
+  const review = await tryGitNaturalPRReviewData({
+    key: params.key,
+    tipCommitOid: source.result.commitHash,
+    targetBranch: params.targetBranch,
+    sourceUrls: params.sourceUrls,
+    targetUrls: params.targetUrls,
+  })
+  if (!review) return null
+
+  console.info(`[getPRPreview] Git natural preview loaded for ${params.sourceBranch}`)
+  return {
+    success: true,
+    mergeBase: review.mergeBase,
+    tipCommit: review.headOid,
+    commits: review.commits,
+    commitOids: review.commitOids,
+    filesChanged: Array.from(new Set((review.changes || []).map(change => change.path).filter(Boolean))),
+    source: "git-natural",
+    readSource: review.readSource,
+    usedCloneUrl: review.usedCloneUrl,
+    usedTargetCloneUrl: review.usedTargetCloneUrl,
+  }
+}
+
+async function tryGitNaturalCommitsAheadOfTip(params: {
+  key: string
+  tipOid: string
+  sourceUrls: string[]
+}) {
+  const tipOid = normalizeFullOid(params.tipOid)
+  if (!tipOid) return null
+  const urls = gitNaturalHttpUrls(params.sourceUrls, params.key)
+  if (urls.length === 0) return null
+  const corsProxy = resolveGitNaturalCorsProxy(undefined)
+
+  const result = await withUrlFallback(
+    urls,
+    async (url: string) => {
+      const provider = getGitNaturalReadProvider(corsProxy)
+      const refs = await provider.listRefs({url, prefix: "refs/heads/", symrefs: false, corsProxy})
+      const branchHeads = refs.refs
+        .map(ref => ({ref: ref.ref || "", oid: normalizeFullOid(ref.oid)}))
+        .filter((ref): ref is {ref: string; oid: string} => Boolean(ref.ref && ref.oid && ref.oid !== tipOid))
+        .slice(0, 50)
+      const candidates: Array<{commits: GitNaturalCommit[]; branch: string}> = []
+
+      for (const branch of branchHeads) {
+        try {
+          const history = await provider.listCommits({url, commitHash: branch.oid, depth: 100, corsProxy})
+          const tipIndex = history.commits.findIndex(commit => commit.hash === tipOid)
+          if (tipIndex > 0) candidates.push({branch: branch.ref, commits: history.commits.slice(0, tipIndex)})
+        } catch {
+          // Try the next branch head.
+        }
+      }
+
+      if (candidates.length === 0) throw new Error("No natural branch history contains the PR tip")
+      const best = candidates.reduce((left, right) =>
+        left.commits.length >= right.commits.length ? left : right,
+      )
+      if (best.commits.length === 0) throw new Error("No natural commits ahead of tip")
+
+      const commits = best.commits.map(naturalCommitToReviewCommit)
+      return {
+        success: true,
+        commits,
+        commitOids: commits.map(commit => commit.oid),
+        source: "git-natural",
+        usedCloneUrl: url,
+        sourceBranch: best.branch,
+      }
+    },
+    {repoId: params.key, perUrlTimeoutMs: 20000},
+  )
+
+  if (result.success) {
+    console.info(`[getCommitsAheadOfTip] Git natural preview loaded for ${tipOid}`)
+    return result.result
+  }
+  return null
+}
+
+async function tryGitNaturalMergeBaseBetween(params: {
+  key: string
+  headOid: string
+  targetBranch: string
+  targetUrls: string[]
+  sourceUrls?: string[]
+}) {
+  const headOid = normalizeFullOid(params.headOid)
+  if (!headOid) return null
+  const target = await tryGitNaturalResolveRefFromUrls({
+    key: params.key,
+    ref: params.targetBranch,
+    cloneUrls: params.targetUrls,
+  })
+  if (!target) return null
+  const headUrls = params.sourceUrls?.length ? params.sourceUrls : params.targetUrls
+
+  const headHistory = await tryGitNaturalListCommitsFromUrls({
+    key: params.key,
+    commitHash: headOid,
+    cloneUrls: headUrls,
+    depth: 100,
+  })
+  const targetHistory = await tryGitNaturalListCommitsFromUrls({
+    key: params.key,
+    commitHash: target.result.commitHash,
+    cloneUrls: params.targetUrls,
+    depth: 100,
+  })
+  if (!headHistory || !targetHistory) return null
+
+  const mergeBase = firstCommonNaturalCommit(headHistory.result.commits, targetHistory.result.commits)
+  if (!mergeBase) return null
+  console.info(`[getMergeBaseBetween] Git natural merge base resolved for ${headOid}`)
+  return {
+    mergeBase,
+    source: "git-natural",
+    usedCloneUrl: headHistory.usedUrl,
+    usedTargetCloneUrl: target.usedUrl,
+  }
+}
+
+async function tryGitNaturalResolveRefFromUrls(params: {
+  key: string
+  ref: string
+  cloneUrls: string[]
+}): Promise<{result: GitNaturalResolveRefResult; usedUrl: string} | null> {
+  const urls = gitNaturalHttpUrls(params.cloneUrls, params.key)
+  if (urls.length === 0) return null
+  const corsProxy = resolveGitNaturalCorsProxy(undefined)
+  const result = await withUrlFallback(
+    urls,
+    async (url: string) => {
+      const provider = getGitNaturalReadProvider(corsProxy)
+      return await provider.resolveRef({url, ref: params.ref, corsProxy})
+    },
+    {repoId: params.key, perUrlTimeoutMs: 15000},
+  )
+  return result.success && result.result && result.usedUrl
+    ? {result: result.result, usedUrl: result.usedUrl}
+    : null
+}
+
+async function tryGitNaturalListCommitsFromUrls(params: {
+  key: string
+  commitHash: string
+  cloneUrls: string[]
+  depth: number
+}): Promise<{result: GitNaturalListCommitsResult; usedUrl: string} | null> {
+  const commitHash = normalizeFullOid(params.commitHash)
+  if (!commitHash) return null
+  const urls = gitNaturalHttpUrls(params.cloneUrls, params.key)
+  if (urls.length === 0) return null
+  const corsProxy = resolveGitNaturalCorsProxy(undefined)
+  const result = await withUrlFallback(
+    urls,
+    async (url: string) => {
+      const provider = getGitNaturalReadProvider(corsProxy)
+      return await provider.listCommits({url, commitHash, depth: params.depth, corsProxy})
+    },
+    {repoId: params.key, perUrlTimeoutMs: 15000},
+  )
+  return result.success && result.result && result.usedUrl
+    ? {result: result.result, usedUrl: result.usedUrl}
+    : null
+}
+
 async function tryGitNaturalCommitMeta(params: {
   key: string
   commitId: string
@@ -439,6 +624,23 @@ function naturalCommitToWorkerMeta(commit: GitNaturalCommit) {
     message: commit.message || "",
     parents: Array.isArray(commit.parents) ? commit.parents : [],
   }
+}
+
+function naturalCommitToReviewCommit(commit: GitNaturalCommit) {
+  return {
+    oid: commit.hash,
+    message: commit.message || "",
+    author: {
+      name: commit.author?.name,
+      email: commit.author?.email,
+    },
+    parents: Array.isArray(commit.parents) ? commit.parents : [],
+  }
+}
+
+function firstCommonNaturalCommit(sourceCommits: GitNaturalCommit[], targetCommits: GitNaturalCommit[]) {
+  const targetHashes = new Set(targetCommits.map(commit => commit.hash))
+  return sourceCommits.find(commit => targetHashes.has(commit.hash))?.hash
 }
 
 function statsFromNaturalChanges(changes: Array<{diffHunks?: Array<{patches?: Array<{type?: string}>}>}>) {
@@ -2398,9 +2600,19 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
+    const naturalSourceUrls = isForkPR ? filterValidCloneUrls(opts.sourceCloneUrls || []) : targetUrls
     let sourceRemote: string | undefined
 
     try {
+      const naturalPreview = await tryGitNaturalPRPreview({
+        key,
+        sourceBranch: opts.sourceBranch,
+        targetBranch: opts.targetBranch,
+        sourceUrls: naturalSourceUrls,
+        targetUrls,
+      }).catch(() => null)
+      if (naturalPreview) return toPlain(naturalPreview)
+
       await smartInitializeRepoUtil(
         git,
         cacheManager,
@@ -2460,8 +2672,8 @@ const api = {
       }
 
       if (isForkPR) {
-        const sourceUrls = filterValidCloneUrls(opts.sourceCloneUrls!)
-        if (sourceUrls.length === 0) {
+        const forkSourceUrls = filterValidCloneUrls(opts.sourceCloneUrls!)
+        if (forkSourceUrls.length === 0) {
           return toPlain({
             success: false,
             error: "No valid fork clone URLs provided",
@@ -2470,7 +2682,7 @@ const api = {
             filesChanged: [],
           })
         }
-        const sourceOrdered = reorderUrlsByPreference(sourceUrls, key)
+        const sourceOrdered = reorderUrlsByPreference(forkSourceUrls, key)
         const prSourceRemote = `pr-source-${Date.now().toString(36)}`
         const sourceFetchResult = await withUrlFallback(
           sourceOrdered,
@@ -2850,9 +3062,17 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
+    const naturalSourceUrls = isForkPR ? filterValidCloneUrls(opts.sourceCloneUrls || []) : targetUrls
     let sourceRemote: string | undefined
 
     try {
+      const naturalAhead = await tryGitNaturalCommitsAheadOfTip({
+        key,
+        tipOid: opts.tipOid,
+        sourceUrls: naturalSourceUrls,
+      }).catch(() => null)
+      if (naturalAhead) return toPlain(naturalAhead)
+
       await smartInitializeRepoUtil(
         git,
         cacheManager,
@@ -3014,6 +3234,15 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
     try {
+      const naturalMergeBase = await tryGitNaturalMergeBaseBetween({
+        key,
+        headOid: opts.headOid,
+        targetBranch: opts.targetBranch,
+        targetUrls,
+        sourceUrls: filterValidCloneUrls(opts.sourceCloneUrls || []),
+      }).catch(() => null)
+      if (naturalMergeBase) return toPlain(naturalMergeBase)
+
       if (targetUrls.length > 0) {
         const orderedUrls = reorderUrlsByPreference(targetUrls, key)
         const corsProxy = resolveDefaultCorsProxy()

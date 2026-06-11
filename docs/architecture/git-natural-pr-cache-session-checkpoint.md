@@ -12,16 +12,12 @@
 
 ## Current Phase
 
-- Phase 5: Natural-First PR Preview And Observability Cleanup
-- Status: ready to start after Phase 4 closeout commit is pushed.
+- Complete
+- Status: all planned phases are implemented and verified; Phase 5 closeout commit is being pushed.
 
 ## Phase Exit Criteria
 
-- PR update preview tries natural refs/history before clone-backed `getPRPreview` when enough OIDs/refs are available.
-- Merge-base helper uses natural history where safe before clone fallback, without changing merge analysis.
-- `ensureFullClone` logs on PR detail are reduced to merge analysis/merge/push or documented fallback cases.
-- Read source metadata or logs distinguish natural cache hit, natural network, provider REST, git remote refs, and clone fallback.
-- Documentation/checkpoint records the final read/fallback table.
+- No remaining phases.
 
 ## Completed With Evidence
 
@@ -53,7 +49,28 @@
   - The bridge stores only immutable blobs and never stores refs, remotes, worktree/index state, or mutable clone state.
   - Raw commit/tree bridging was intentionally skipped because those clone-backed paths do not safely expose canonical raw bytes without extra object parsing.
   - Added a persistence/reuse test showing an observed clone-backed blob can be read by a fresh natural object cache.
+- Phase 5: Natural-First PR Preview And Observability Cleanup.
+  - PR branch preview now resolves source branches naturally and reuses natural PR review data before clone-backed `getPRPreview`.
+  - Tip-based PR update preview scans natural branch refs/histories before clone-backed `getCommitsAheadOfTip`.
+  - PR update merge-base helper resolves target refs and bounded source/target histories naturally before clone-backed `getMergeBaseBetween`.
+  - Natural preview/merge-base paths return source metadata/logs with `source: "git-natural"` and used URLs where available.
+  - Existing clone-backed preview, commit-ahead, merge-base, merge analysis, merge, and push paths remain fallbacks or unchanged.
+  - Final read/fallback table is recorded in this checkpoint.
 - Planning files were created for review, then Phase 1 was launched after user said to continue.
+
+## Final Read/Fallback Table
+
+| Area | Default Read Order | Notes |
+| --- | --- | --- |
+| Code refs/listing/file/commits | Git natural, provider REST where supported, git remote/worker clone fallback | `infoRefs` stays memory-only with TTL; immutable natural objects use L1 memory plus IndexedDB L2. |
+| Commit detail page | Git natural commit plus first-parent diff, REST metadata, worker clone diff fallback | Metadata-only natural/REST results are preserved if clone diff cannot load. |
+| PR commits/files tabs | Natural PR review helper, natural diff fast path during clone-backed review, clone-backed review/diff fallback | Natural helper requires safe base resolution and a remote that can serve both diff sides. |
+| PR applied/retry diff | Worker `getDiffBetween` with `gitNaturalDiff`, clone-backed `getDiffBetween` fallback | Fork/object availability failures fall back cleanly. |
+| PR commit expansion | Natural commit metadata plus natural first-parent diff, clone-backed `getCommitDetails` fallback | Root commits or natural diff misses fall back to clone-backed details. |
+| PR update preview | Natural refs/history/review, clone-backed `getPRPreview` or `getCommitsAheadOfTip` fallback | Bounded natural branch-history scan; deep/complex histories fall back. |
+| PR update merge base | Natural target ref plus bounded source/target histories, clone-backed `getMergeBaseBetween` fallback | Merge analysis itself is unchanged. |
+| Merge analysis, merge, push | Clone-backed only | Requires local repo refs, index/worktree, merge, and push semantics. |
+| Clone-to-natural cache bridge | Observed clone-backed blob OID+bytes populate natural immutable blob cache | No refs, remotes, worktree/index state, or guessed commit/tree raw bytes are stored. |
 
 ## Phase 1 Progress Evidence
 
@@ -95,13 +112,11 @@
 - Phase 1 closeout commit pushed: `619085f7 fix: align git natural content and commit reads`.
 - Phase 2 closeout commit pushed: `44053732 feat: add durable git natural object cache`.
 - Phase 3 closeout commit pushed: `846c1370 feat: prefer git natural PR review reads`.
-- Phase 4 changed files to commit and push:
+- Phase 4 closeout commit pushed: `d79557ce feat: bridge clone blobs into natural cache`.
+- Phase 5 changed files to commit and push:
   - `docs/architecture/git-natural-pr-cache-session-checkpoint.md`
-  - `packages/nostr-git-core/src/git/files.ts`
-  - `packages/nostr-git-core/src/git/index.ts`
-  - `packages/nostr-git-core/src/git/natural-read-observed-cache.ts`
   - `packages/nostr-git-core/src/worker/worker.ts`
-  - `packages/nostr-git-core/test/git/natural-read.spec.ts`
+  - `src/app/components/PRView.svelte`
 - `docs/architecture/git-natural-read-pivot.md` remains a pre-existing unrelated dirty file and should stay unstaged unless explicitly approved.
 - Verification passed during Phase 1 audit:
   - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
@@ -126,10 +141,20 @@
   - `nix develop -c pnpm -F @nostr-git/core typecheck` passed.
   - `git diff --check` passed.
 - Phase 4 closeout is committed and pushed by the commit containing this checkpoint update.
+- Verification passed during Phase 5:
+  - `nix develop -c pnpm -F @nostr-git/core typecheck` passed.
+  - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
+  - `nix develop -c pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-pr-review.spec.ts packages/nostr-git-core/test/git/natural-read-provider.spec.ts` passed.
+  - `nix develop -c pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false` passed: 120 files passed, 1 skipped; 930 tests passed, 2 skipped, 1 todo.
+  - `nix develop -c pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts --coverage.enabled=false` passed: 29 files passed; 183 tests passed.
+  - `nix develop -c pnpm check` passed.
+  - `git diff --check` passed.
+  - Manual browser check was not run in this non-browser session.
+- Phase 5 closeout is committed and pushed by the commit containing this checkpoint update.
 
 ## Next Action
 
-- Start Phase 5 startup: read this checkpoint, read the entire session plan, inspect current git state, then add natural-first PR preview/merge-base helpers and observability cleanup.
+- Stop after final status report unless the user asks for follow-up work.
 
 ## Verification
 
@@ -144,6 +169,7 @@
 - Natural PR review uses bounded histories; deep/complex histories fall back to clone-backed review.
 - PR natural diff for forks may fail when base objects exist only on target remote and head objects exist only on source remote; clone fallback remains.
 - Clone-to-natural bridge currently stores observed blob bytes only; commit/tree raw object bridging remains skipped until canonical raw bytes are safely available.
+- Manual browser verification remains a residual gap.
 
 ## Files
 
