@@ -69,8 +69,7 @@
   }
 
   function getFileIsBinary(file: AnyFileChange): boolean {
-    // parse-diff does not provide isBinary, so always return false for now
-    return false;
+    return (file as any).binary === true;
   }
 
   const getFileLanguage = (filepath: string): string => getHighlightLanguageForPath(filepath);

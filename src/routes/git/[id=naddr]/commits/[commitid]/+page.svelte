@@ -139,7 +139,7 @@
         }
       }
 
-      // Try REST API first (much faster for GitHub/GitLab repos)
+      // Try Git natural first, then REST metadata, before clone-backed fallback.
       const cloneUrls = Array.from(
         new Set(
           (
@@ -153,17 +153,29 @@
         return
       }
 
-      const {getCommitDetailsViaRestApi} = await import("@app/core/commit-api")
-      let commitDetails = await getCommitDetailsViaRestApi(cloneUrls, commitid, repoClass.key)
+      const {getCommitDetailsViaGitNatural, getCommitDetailsViaRestApi} = await import(
+        "@app/core/commit-api"
+      )
+      let commitDetails = await getCommitDetailsViaGitNatural(
+        repoClass.workerManager,
+        cloneUrls,
+        commitid,
+        repoClass.key,
+      )
+      if (!commitDetails?.success) {
+        commitDetails = await getCommitDetailsViaRestApi(cloneUrls, commitid, repoClass.key)
+      }
       const needsWorkerDiff =
         !commitDetails ||
         !commitDetails.success ||
         commitDetails.diffAvailable === false ||
         !Array.isArray(commitDetails.changes)
 
-      // If REST API didn't provide a usable diff payload, fall back to worker git data
+      // If remote reads didn't provide a usable diff payload, fall back to worker git data.
       if (needsWorkerDiff) {
-        console.log("[commit page] REST metadata-only or unavailable, using worker git diff")
+        console.log("[commit page] remote metadata-only or unavailable, using worker git diff")
+        const metadataOnlyDetails = commitDetails?.success ? commitDetails : undefined
+        let canTryWorkerDiff = true
 
         if (!isCloned) {
           const result = await repoClass.workerManager.smartInitializeRepo({
@@ -175,17 +187,58 @@
 
           if (!result.success) {
             notifyCorsProxyIssue(result)
-            loadError = result.error || "Failed to initialize repository"
-            return
+            if (metadataOnlyDetails) {
+              canTryWorkerDiff = false
+              commitDetails = {
+                ...metadataOnlyDetails,
+                changes: Array.isArray(metadataOnlyDetails.changes)
+                  ? metadataOnlyDetails.changes
+                  : [],
+                diffAvailable: false,
+                warning:
+                  metadataOnlyDetails.warning ||
+                  result.error ||
+                  "Commit metadata loaded, but the git diff could not be loaded.",
+              }
+            } else {
+              loadError = result.error || "Failed to initialize repository"
+              return
+            }
           }
         }
 
-        commitDetails = await repoClass.workerManager.getCommitDetails({
-          repoId: repoClass.key,
-          commitId: commitid,
-          ...(selectedBranch ? {branch: selectedBranch} : {}),
-          cloneUrls,
-        })
+        if (
+          canTryWorkerDiff &&
+          (!commitDetails ||
+            commitDetails.diffAvailable === false ||
+            !Array.isArray(commitDetails.changes))
+        ) {
+          const workerCommitDetails = await repoClass.workerManager.getCommitDetails({
+            repoId: repoClass.key,
+            commitId: commitid,
+            ...(selectedBranch ? {branch: selectedBranch} : {}),
+            cloneUrls,
+          })
+
+          if (workerCommitDetails?.success && Array.isArray(workerCommitDetails.changes)) {
+            commitDetails = workerCommitDetails
+          } else if (metadataOnlyDetails) {
+            notifyCorsProxyIssue(workerCommitDetails)
+            commitDetails = {
+              ...metadataOnlyDetails,
+              changes: Array.isArray(metadataOnlyDetails.changes)
+                ? metadataOnlyDetails.changes
+                : [],
+              diffAvailable: false,
+              warning:
+                metadataOnlyDetails.warning ||
+                workerCommitDetails?.error ||
+                "Commit metadata loaded, but the git diff could not be loaded.",
+            }
+          } else {
+            commitDetails = workerCommitDetails
+          }
+        }
       }
 
       if (!commitDetails?.success || !commitDetails.meta || !Array.isArray(commitDetails.changes)) {
@@ -210,6 +263,7 @@
       changes = commitDetails.changes.map((change: any) => ({
         path: change.path,
         status: change.status,
+        binary: change.binary === true,
         diffHunks: change.diffHunks,
       }))
 

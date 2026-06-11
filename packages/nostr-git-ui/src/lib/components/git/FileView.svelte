@@ -19,6 +19,7 @@
   import CodeMirror from "svelte-codemirror-editor";
   import { oneDark } from "@codemirror/theme-one-dark";
   import { detectFileType, type FileTypeInfo } from "../../utils/fileTypeDetection.js";
+  import { createBlob } from "../../utils/binaryHelpers";
   import FileMetadataPanel from "./FileMetadataPanel.svelte";
   import {
     ImageViewer,
@@ -39,6 +40,12 @@
     setSelectedLineEffect,
   } from "./file-view-selection";
 
+  type FileContentPayload = {
+    content?: string;
+    encoding?: string;
+    size?: number;
+  };
+
   const {
     file,
     getFileContent,
@@ -55,7 +62,7 @@
     linkBasePath = "",
   }: {
     file: FileEntry;
-    getFileContent: (path: string) => Promise<string>;
+    getFileContent: (path: string) => Promise<string | FileContentPayload>;
     setDirectory: (path: string) => void;
     repo?: Repo;
     publish?: (permalink: PermalinkEvent) => Promise<void | boolean>;
@@ -97,6 +104,8 @@
   let showFileMenu = $state(false);
 
   let fileTypeInfo = $state<FileTypeInfo | null>(null);
+  let contentEncoding = $state("utf-8");
+  let contentSize = $state<number | undefined>(undefined);
   let metadata = $state<Record<string, string>>({});
   let selectedStart: number | null = $state(null);
   let selectedEnd: number | null = $state(null);
@@ -191,6 +200,8 @@
     if (path === lastFilePath) return;
     lastFilePath = path;
     content = "";
+    contentEncoding = "utf-8";
+    contentSize = undefined;
     fileTypeInfo = null;
     metadata = {};
     selectedStart = null;
@@ -211,6 +222,54 @@
   function handleEditorReady(view: EditorView) {
     editorView = view;
     void applyHashSelection();
+  }
+
+  function binaryFileTypeInfo(): FileTypeInfo {
+    return {
+      category: "binary",
+      mimeType: "application/octet-stream",
+      icon: "Binary",
+      canPreview: false,
+      canEdit: false,
+    };
+  }
+
+  function resolveLoadedFileTypeInfo(
+    fileIdentifier: string,
+    loadedContent: string,
+    encoding: string
+  ): FileTypeInfo | null {
+    if (encoding === "base64") {
+      const extensionInfo = detectFileType(fileIdentifier, "");
+      if (extensionInfo && extensionInfo.category !== "text") return extensionInfo;
+      return binaryFileTypeInfo();
+    }
+
+    return detectFileType(fileIdentifier, loadedContent);
+  }
+
+  async function applyLoadedFileContent(
+    loaded: string | FileContentPayload,
+    fileIdentifier: string
+  ) {
+    const payload: FileContentPayload =
+      typeof loaded === "string"
+        ? { content: loaded, encoding: "utf-8", size: loaded.length }
+        : loaded;
+    const nextContent = typeof payload.content === "string" ? payload.content : "";
+    const nextEncoding = payload.encoding || "utf-8";
+
+    content = nextContent;
+    contentEncoding = nextEncoding;
+    contentSize = typeof payload.size === "number" ? payload.size : nextContent.length;
+    fileTypeInfo = resolveLoadedFileTypeInfo(fileIdentifier, nextContent, nextEncoding);
+    await loadLanguageExtension(fileIdentifier, fileTypeInfo);
+  }
+
+  async function ensureContentLoaded() {
+    if (content) return;
+    const fileIdentifier = path || name;
+    await applyLoadedFileContent(await getFileContent(path), fileIdentifier);
   }
 
   const containerClass = $derived.by(() => {
@@ -283,10 +342,7 @@
         const fileIdentifier = path || name;
         getFileContent(path)
           .then(async (c) => {
-            fileTypeInfo = detectFileType(fileIdentifier, c);
-            await loadLanguageExtension(fileIdentifier, fileTypeInfo);
-
-            content = c;
+            await applyLoadedFileContent(c, fileIdentifier);
             isLoading = false;
           })
           .catch((error) => {
@@ -1178,10 +1234,10 @@
     event?.stopPropagation();
     try {
       if (!content) {
-        content = await getFileContent(path);
+        await ensureContentLoaded();
       }
 
-      if (fileTypeInfo?.category === "binary") {
+      if (contentEncoding === "base64" || fileTypeInfo?.category === "binary") {
         toast.push({
           title: "Cannot copy binary file",
           description: "Binary files cannot be copied to clipboard. Use download instead.",
@@ -1204,12 +1260,15 @@
     event?.stopPropagation();
     try {
       if (!content) {
-        content = await getFileContent(path);
+        await ensureContentLoaded();
       }
 
       // Use application/octet-stream for binary files to prevent extension changes
       const mimeType = fileTypeInfo?.mimeType || "application/octet-stream";
-      const blob = new Blob([content], { type: mimeType });
+      const blob =
+        contentEncoding === "base64"
+          ? createBlob(content, mimeType)
+          : new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1621,7 +1680,7 @@
           </div>
         {:else if fileTypeInfo?.category === "binary" || fileTypeInfo?.category === "archive"}
           <div class="p-3 sm:p-4">
-            <BinaryViewer content={content} filename={name} />
+            <BinaryViewer content={content} filename={name} fileSize={contentSize} />
           </div>
         {:else}
           <div class="p-3 sm:p-4 border-t" style="border-color: hsl(var(--ng-border));">

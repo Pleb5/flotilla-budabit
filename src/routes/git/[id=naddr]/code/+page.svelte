@@ -586,7 +586,7 @@
         path: filePath,
         commit: undefined as any,
       })
-      return result.content
+      return result
     } catch (e) {
       pushToast({
         message: "Failed to load file: " + e,

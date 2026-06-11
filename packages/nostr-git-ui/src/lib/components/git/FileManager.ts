@@ -3,7 +3,8 @@ import { CacheManager } from "./CacheManager";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
 import { parseRepoAnnouncementEvent } from "@nostr-git/core/events";
 import { toast } from "$lib/stores/toast";
-import type { VendorReadRouter } from "./VendorReadRouter";
+import { detectFileType } from "../../utils/fileTypeDetection";
+import type { VendorFileContentResult, VendorReadRouter } from "./VendorReadRouter";
 import { createTimeoutError } from "@nostr-git/core/errors";
 import { normalizeGitRefName } from "./branch-ref";
 
@@ -156,6 +157,71 @@ export class FileManager {
   // Toast spam guard per key
   private lastToastAt: Map<string, number> = new Map();
   private static readonly MIN_TOAST_INTERVAL_MS = 10_000; // 10s per key
+
+  private normalizeVendorFileContent(
+    path: string,
+    fallbackRef: string,
+    vendorRes: VendorFileContentResult
+  ): FileContent {
+    const rawContent = vendorRes.content || "";
+
+    if (vendorRes.encoding === "base64") {
+      const bytes = this.decodeBase64ToBytes(rawContent);
+      const keepBase64 = this.shouldKeepBase64FileContent(path, bytes);
+      return {
+        content: keepBase64
+          ? rawContent
+          : new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+        path,
+        ref: vendorRes.ref || fallbackRef,
+        encoding: keepBase64 ? "base64" : "utf-8",
+        size: typeof vendorRes.size === "number" ? vendorRes.size : bytes.length,
+        fromCache: false,
+      };
+    }
+
+    return {
+      content: rawContent,
+      path,
+      ref: vendorRes.ref || fallbackRef,
+      encoding: vendorRes.encoding || "utf-8",
+      size: typeof vendorRes.size === "number" ? vendorRes.size : rawContent.length,
+      fromCache: false,
+    };
+  }
+
+  private shouldKeepBase64FileContent(path: string, bytes: Uint8Array): boolean {
+    const fileType = detectFileType(path, "");
+    if (fileType && fileType.category !== "text") return true;
+    return this.hasBinaryBytes(bytes);
+  }
+
+  private hasBinaryBytes(bytes: Uint8Array): boolean {
+    const limit = Math.min(bytes.length, 8192);
+    for (let index = 0; index < limit; index += 1) {
+      if (bytes[index] === 0) return true;
+    }
+    return false;
+  }
+
+  private decodeBase64ToBytes(base64: string): Uint8Array {
+    const b64 = String(base64 || "").replace(/\s+/g, "");
+    if (!b64) return new Uint8Array();
+
+    if (typeof globalThis.atob === "function") {
+      const binary = globalThis.atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    const BufferCtor = (globalThis as any).Buffer;
+    if (BufferCtor) return new Uint8Array(BufferCtor.from(b64, "base64"));
+
+    throw new Error("No base64 decoder available in this environment");
+  }
 
   /**
    * List files and directories at a specific commit (used for tags)
@@ -597,15 +663,7 @@ export class FileManager {
           path,
         });
 
-        const result: FileContent = {
-          content: vendorRes.content || "",
-          path,
-          ref: vendorRes.ref || ref,
-          encoding: vendorRes.encoding || "utf-8",
-          size:
-            typeof vendorRes.size === "number" ? vendorRes.size : (vendorRes.content || "").length,
-          fromCache: false,
-        };
+        const result = this.normalizeVendorFileContent(path, ref, vendorRes);
 
         // Cache the result if enabled and file is not too large
         if (

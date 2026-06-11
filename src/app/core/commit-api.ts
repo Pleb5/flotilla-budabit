@@ -45,7 +45,134 @@ export interface CommitDetails {
     total: number
   }
   error?: string
-  source?: "rest-api" | "worker"
+  source?: "git-natural" | "rest-api" | "worker"
+}
+
+type GitNaturalCommitWorker = {
+  gitNaturalGetCommit(params: {
+    url: string
+    commitHash: string
+    enabled: true
+    corsProxy?: string | null
+  }): Promise<any>
+  gitNaturalGetDiffBetween(params: {
+    url: string
+    baseCommitHash: string
+    headCommitHash: string
+    enabled: true
+    corsProxy?: string | null
+  }): Promise<any>
+}
+
+function naturalCommitToMeta(commit: any, fallbackSha: string): CommitMeta {
+  const timestamp = Number(commit?.author?.timestamp || 0)
+  return {
+    sha: String(commit?.hash || fallbackSha),
+    author: String(commit?.author?.name || "Unknown"),
+    email: String(commit?.author?.email || ""),
+    date: Number.isFinite(timestamp) && timestamp > 0 ? timestamp * 1000 : Date.now(),
+    message: String(commit?.message || ""),
+    parents: Array.isArray(commit?.parents)
+      ? commit.parents.map((parent: any) => String(parent))
+      : [],
+  }
+}
+
+function statsFromChanges(changes: any[]): CommitDetails["stats"] {
+  let additions = 0
+  let deletions = 0
+
+  for (const change of changes || []) {
+    for (const hunk of change?.diffHunks || []) {
+      for (const patch of hunk?.patches || []) {
+        if (patch?.type === "+" || patch?.type === "add") additions += 1
+        if (patch?.type === "-" || patch?.type === "del") deletions += 1
+      }
+    }
+  }
+
+  return {additions, deletions, total: additions + deletions}
+}
+
+export async function getCommitDetailsViaGitNatural(
+  workerManager: GitNaturalCommitWorker,
+  cloneUrls: string[],
+  commitId: string,
+  repoId?: string,
+): Promise<CommitDetails | null> {
+  if (!cloneUrls?.length) {
+    console.log("[commit-api] No clone URLs provided for Git natural commit details")
+    return null
+  }
+
+  const validUrls = filterValidCloneUrls(cloneUrls)
+  const orderedUrls = reorderUrlsByPreference(validUrls, repoId)
+
+  console.log("[commit-api] Checking URLs for Git natural commit details:", {
+    original: cloneUrls,
+    valid: validUrls,
+    ordered: orderedUrls,
+  })
+
+  for (const url of orderedUrls) {
+    try {
+      console.log(`[commit-api] Trying Git natural commit details for ${url}`)
+      const commitResult = await workerManager.gitNaturalGetCommit({
+        url,
+        commitHash: commitId,
+        enabled: true,
+      })
+      const commit = commitResult?.commit
+      if (!commit) throw new Error("Git natural did not return a commit object")
+
+      const meta = naturalCommitToMeta(commit, commitId)
+      const firstParent = meta.parents[0]
+      if (!firstParent) {
+        return {
+          success: true,
+          meta,
+          changes: [],
+          diffAvailable: false,
+          warning: "Commit metadata loaded from Git natural. Root commit diff is not available yet.",
+          source: "git-natural",
+        }
+      }
+
+      try {
+        const diffResult = await workerManager.gitNaturalGetDiffBetween({
+          url,
+          baseCommitHash: firstParent,
+          headCommitHash: meta.sha,
+          enabled: true,
+        })
+        const changes = Array.isArray(diffResult?.changes) ? diffResult.changes : []
+        console.log(`[commit-api] Git natural commit details success for ${commitId}`)
+        return {
+          success: true,
+          meta,
+          changes,
+          diffAvailable: true,
+          stats: statsFromChanges(changes),
+          source: "git-natural",
+        }
+      } catch (diffError) {
+        console.warn(`[commit-api] Git natural diff failed for ${url}:`, diffError)
+        return {
+          success: true,
+          meta,
+          changes: [],
+          diffAvailable: false,
+          warning: "Commit metadata loaded from Git natural, but the Git natural diff could not be loaded.",
+          source: "git-natural",
+        }
+      }
+    } catch (error) {
+      console.warn(`[commit-api] Git natural commit details failed for ${url}:`, error)
+    }
+  }
+
+  console.log("[commit-api] No Git natural commit detail URLs succeeded")
+  return null
 }
 
 /**

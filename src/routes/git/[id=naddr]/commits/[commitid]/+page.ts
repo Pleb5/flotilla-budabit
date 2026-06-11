@@ -6,6 +6,7 @@ import {parseRepoId} from "@nostr-git/core/utils"
 export interface CommitChange {
   path: string
   status: "added" | "modified" | "deleted" | "renamed"
+  binary?: boolean
   diffHunks: Array<{
     oldStart: number
     oldLines: number
@@ -67,6 +68,7 @@ export const load: PageLoad = async ({params, parent}) => {
     const changes: CommitChange[] = commitDetails.changes.map((change: any) => ({
       path: change.path,
       status: change.status,
+      binary: change.binary === true,
       diffHunks: change.diffHunks,
     }))
 

@@ -4,6 +4,7 @@ import parseDiff from "parse-diff";
 export interface PrChangeInput {
   path: string;
   status: "added" | "modified" | "deleted" | "renamed";
+  binary?: boolean;
   diffHunks: Array<{
     oldStart: number;
     oldLines: number;
@@ -194,7 +195,14 @@ function createParseDiffFile(change: PrChangeInput, chunks: parseDiff.Chunk[]): 
   const to = change.status === "deleted" ? "/dev/null" : path;
   const { additions, deletions } = countStats(change.diffHunks);
 
-  return { from, to, chunks, additions, deletions };
+  return {
+    from,
+    to,
+    chunks,
+    additions,
+    deletions,
+    ...(change.binary ? { binary: true } : {}),
+  } as parseDiff.File;
 }
 
 /** Convert PrChange (worker diffHunks format) to parse-diff File for DiffViewer */
