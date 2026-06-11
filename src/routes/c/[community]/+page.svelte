@@ -70,6 +70,8 @@
   )
   const communityDescriptionEvent = $derived({content: communityDescription, tags: []})
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
+  let failedPicture = $state("")
+  const showCommunityPicture = $derived(Boolean(communityPicture && failedPicture !== communityPicture))
   const mainRelay = $derived(
     $activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "",
   )
@@ -338,8 +340,12 @@
         <div class="avatar relative">
           <div
             class="center !flex h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-solid border-base-300 bg-base-300 sm:h-20 sm:w-20">
-            {#if communityPicture}
-              <img alt="" src={communityPicture} class="h-full w-full object-cover" />
+            {#if showCommunityPicture}
+              <img
+                alt=""
+                src={communityPicture}
+                class="h-full w-full object-cover"
+                onerror={() => (failedPicture = communityPicture)} />
             {:else}
               <Icon icon={Ghost} size={6} />
             {/if}

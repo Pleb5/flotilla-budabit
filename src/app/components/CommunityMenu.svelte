@@ -69,6 +69,8 @@
     $activeCommunityProfile?.display_name || $activeCommunityProfile?.name || shortCommunity,
   )
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
+  let failedPicture = $state("")
+  const showCommunityPicture = $derived(Boolean(communityPicture && failedPicture !== communityPicture))
   const mainRelay = $derived($activeCommunityDefinition?.relays[0] || "")
   const homePath = $derived(makeCommunityPath(community))
   const threadsPath = $derived(makeCommunityThreadPath(community))
@@ -221,8 +223,12 @@
       onclick={goHome}>
       <div class="flex items-center gap-3">
         <div class="center h-9 w-9 shrink-0 overflow-hidden rounded-full bg-base-300">
-          {#if communityPicture}
-            <img alt="" src={communityPicture} class="h-full w-full object-cover" />
+          {#if showCommunityPicture}
+            <img
+              alt=""
+              src={communityPicture}
+              class="h-full w-full object-cover"
+              onerror={() => (failedPicture = communityPicture)} />
           {:else}
             <Icon icon={Ghost} />
           {/if}
