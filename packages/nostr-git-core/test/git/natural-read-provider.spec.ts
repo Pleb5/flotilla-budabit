@@ -111,6 +111,56 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes(`want ${fixture.readmeHash}`))).toBe(true)
   })
 
+  it("dedupes concurrent filtered object fetches", async () => {
+    const blobNoneFixture = createGitFixture()
+    const blobNoneFetcher = createFixtureFetcher(blobNoneFixture)
+    const blobNoneProvider = new GitNaturalReadProvider({enabled: true, fetcher: blobNoneFetcher})
+
+    await Promise.all([
+      blobNoneProvider.listDirectory({url: REMOTE_URL, ref: "main"}),
+      blobNoneProvider.listDirectory({url: REMOTE_URL, ref: "main"}),
+    ])
+
+    const blobNonePostBodies = blobNoneFetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+    expect(blobNonePostBodies.filter(body => body.includes("filter blob:none\n"))).toHaveLength(1)
+
+    const treeZeroFixture = createGitFixture()
+    const treeZeroFetcher = createFixtureFetcher(treeZeroFixture)
+    const treeZeroProvider = new GitNaturalReadProvider({enabled: true, fetcher: treeZeroFetcher})
+
+    await Promise.all([
+      treeZeroProvider.listCommits({url: REMOTE_URL, ref: "main", depth: 2}),
+      treeZeroProvider.listCommits({url: REMOTE_URL, ref: "main", depth: 2}),
+    ])
+
+    const treeZeroPostBodies = treeZeroFetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+    expect(treeZeroPostBodies.filter(body => body.includes("filter tree:0\n"))).toHaveLength(1)
+  })
+
+  it("keeps concurrent filtered fetches separate across proxy modes", async () => {
+    const fixture = createGitFixture()
+    const fetcher = createFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher,
+      corsProxy: "https://proxy.example.test",
+    })
+
+    await Promise.all([
+      provider.listDirectory({url: REMOTE_URL, ref: "main"}),
+      provider.listDirectory({url: REMOTE_URL, ref: "main", corsProxy: null}),
+    ])
+
+    const postBodies = fetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+    expect(postBodies.filter(body => body.includes("filter blob:none\n"))).toHaveLength(2)
+  })
+
   it("lists commit history with tree:0 and returns one commit", async () => {
     const fixture = createGitFixture()
     const fetcher = createFixtureFetcher(fixture)
@@ -167,6 +217,28 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes(`want ${fixture.addedHash}`))).toBe(true)
     expect(postBodies.some(body => body.includes(`want ${fixture.deletedHash}`))).toBe(true)
     expect(postBodies.some(body => body.includes(`want ${fixture.unchangedHash}`))).toBe(false)
+  })
+
+  it("returns metadata-only changes for binary diffs", async () => {
+    const fixture = createBinaryDiffFixture()
+    const fetcher = createDiffFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const diff = await provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+    })
+
+    expect(diff.changes).toHaveLength(1)
+    expect(diff.changes[0]).toMatchObject({
+      path: "logo.png",
+      status: "modified",
+      oldOid: fixture.oldImageHash,
+      newOid: fixture.newImageHash,
+      binary: true,
+      diffHunks: [],
+    })
   })
 
   it("declines filtered operations when the server lacks filter support", async () => {
@@ -312,7 +384,64 @@ function createDiffFixture() {
   }
 }
 
-function createDiffFixtureFetcher(fixture: ReturnType<typeof createDiffFixture>) {
+type DiffFixtureLike = Pick<
+  ReturnType<typeof createDiffFixture>,
+  "advertisement" | "baseHash" | "blobNonePacks" | "blobPacks" | "headHash"
+>
+
+function createBinaryDiffFixture() {
+  const oldImageData = new Uint8Array([0, 1, 2, 3])
+  const newImageData = new Uint8Array([0, 1, 2, 4])
+  const oldImageHash = computeGitNaturalObjectHash("blob", oldImageData)
+  const newImageHash = computeGitNaturalObjectHash("blob", newImageData)
+  const baseRootTreeData = treeData([{mode: "100644", name: "logo.png", hash: oldImageHash}])
+  const headRootTreeData = treeData([{mode: "100644", name: "logo.png", hash: newImageHash}])
+  const baseRootTreeHash = computeGitNaturalObjectHash("tree", baseRootTreeData)
+  const headRootTreeHash = computeGitNaturalObjectHash("tree", headRootTreeData)
+  const baseCommitData = commitData({tree: baseRootTreeHash, message: "base commit", timestamp: 1_700_000_000})
+  const baseHash = computeGitNaturalObjectHash("commit", baseCommitData)
+  const headCommitData = commitData({
+    tree: headRootTreeHash,
+    parent: baseHash,
+    message: "head commit",
+    timestamp: 1_700_000_100,
+  })
+  const headHash = computeGitNaturalObjectHash("commit", headCommitData)
+  const tagData = encoder.encode(
+    [`object ${headHash}`, "type commit", "tag v1.0.0", "tagger T <t@example.com> 1700000100 +0000", "", "release", ""].join("\n"),
+  )
+  const tagHash = computeGitNaturalObjectHash("tag", tagData)
+
+  return {
+    oldImageHash,
+    newImageHash,
+    baseHash,
+    headHash,
+    advertisement: buildAdvertisement({tipHash: headHash, tagHash, capabilities: CAPABILITIES}),
+    blobNonePacks: new Map([
+      [
+        baseHash,
+        packfile([
+          {type: "commit", data: baseCommitData},
+          {type: "tree", data: baseRootTreeData},
+        ]),
+      ],
+      [
+        headHash,
+        packfile([
+          {type: "commit", data: headCommitData},
+          {type: "tree", data: headRootTreeData},
+        ]),
+      ],
+    ]),
+    blobPacks: new Map([
+      [oldImageHash, packfile([{type: "blob", data: oldImageData}])],
+      [newImageHash, packfile([{type: "blob", data: newImageData}])],
+    ]),
+  }
+}
+
+function createDiffFixtureFetcher(fixture: DiffFixtureLike) {
   return vi.fn(async (_url: string, init?: RequestInit) => {
     if (init?.method === "GET") {
       return {

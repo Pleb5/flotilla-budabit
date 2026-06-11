@@ -737,6 +737,8 @@ export class WorkerManager {
     baseOid: string;
     headOid: string;
     cloneUrls?: string[];
+    gitNaturalDiff?: boolean;
+    corsProxy?: string | null;
   }): Promise<{ success: boolean; changes?: any[]; error?: string }> {
     await this.initialize();
     return this.execute("getDiffBetween", params);

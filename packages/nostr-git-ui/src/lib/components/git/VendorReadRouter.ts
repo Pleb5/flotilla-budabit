@@ -315,13 +315,13 @@ export class VendorReadRouter {
     attemptedUrls: string[],
     startedAt: number
   ): VendorFileContentResult {
-    const content = this.decodeBase64ToUtf8(result.content || "");
+    const content = result.content || "";
     return {
       content,
       path: result.path,
       ref: normalizeGitRefName(result.ref),
-      encoding: "utf-8",
-      size: content.length,
+      encoding: result.encoding,
+      size: typeof result.size === "number" ? result.size : this.base64ByteLength(content),
       fromVendor: false,
       source: this.naturalReadSource(result.source, "getFileContent", attemptedUrls, startedAt),
     };
@@ -2937,6 +2937,13 @@ export class VendorReadRouter {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const decoder = new TextDecoder("utf-8", { fatal: false });
     return decoder.decode(bytes);
+  }
+
+  private base64ByteLength(base64: string): number {
+    const b64 = String(base64 || "").replace(/\s+/g, "");
+    if (!b64) return 0;
+    const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((b64.length * 3) / 4) - padding);
   }
 
   private async fetchJsonWithOptionalTokenRetry(params: {

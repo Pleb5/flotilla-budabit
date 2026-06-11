@@ -2,6 +2,10 @@
   import type { Repo } from "./Repo.svelte";
   import type { StatusEvent } from "@nostr-git/core/events";
   import {
+    GIT_STATUS_APPLIED,
+    GIT_STATUS_CLOSED,
+    GIT_STATUS_DRAFT,
+    GIT_STATUS_OPEN,
     isStatusAuthorized,
     resolveStatusState,
   } from "@nostr-git/core/events";

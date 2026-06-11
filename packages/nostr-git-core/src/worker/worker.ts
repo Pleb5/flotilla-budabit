@@ -245,6 +245,10 @@ function assertGitNaturalReadEnabled(enabled?: boolean): void {
   throw new Error("Git natural read worker RPCs are disabled. Pass enabled: true to opt in.")
 }
 
+function resolveGitNaturalCorsProxy(corsProxy: string | null | undefined): string | null {
+  return corsProxy !== undefined ? corsProxy : resolveDefaultCorsProxy()
+}
+
 function toPlain<T>(val: T): T {
   try {
     return JSON.parse(JSON.stringify(val))
@@ -262,13 +266,16 @@ async function tryGitNaturalDiffBetween(params: {
   baseOid: string
   headOid: string
   cloneUrls?: string[]
+  enabled?: boolean
+  corsProxy?: string | null
 }): Promise<(GitNaturalDiffBetweenResult & {usedUrl?: string}) | null> {
+  if (params.enabled !== true) return null
   const urls = reorderUrlsByPreference(filterValidCloneUrls(params.cloneUrls || []), params.key).filter(
     isHttpCloneUrl,
   )
   if (urls.length === 0) return null
 
-  const corsProxy = resolveDefaultCorsProxy()
+  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
   const result = await withUrlFallback(
     urls,
     async (url: string) => {
@@ -916,7 +923,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(
       await provider.listRefs({
@@ -935,7 +942,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(await provider.resolveRef({url: opts.url, ref: opts.ref, corsProxy}))
   },
@@ -949,7 +956,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(
       await provider.listDirectory({
@@ -971,7 +978,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(
       await provider.getFileContent({
@@ -993,7 +1000,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(
       await provider.listCommits({
@@ -1014,7 +1021,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(
       await provider.getCommit({
@@ -1034,7 +1041,7 @@ const api = {
     corsProxy?: string | null
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
-    const corsProxy = opts.corsProxy ?? resolveDefaultCorsProxy()
+    const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
     return toPlain(
       await provider.getDiffBetween({
@@ -3628,6 +3635,8 @@ const api = {
     baseOid: string
     headOid: string
     cloneUrls?: string[]
+    gitNaturalDiff?: boolean
+    corsProxy?: string | null
   }): Promise<{
     success: boolean
     changes?: Array<{
@@ -3651,6 +3660,8 @@ const api = {
         baseOid: opts.baseOid,
         headOid: opts.headOid,
         cloneUrls: opts.cloneUrls,
+        enabled: opts.gitNaturalDiff === true,
+        corsProxy: opts.corsProxy,
       })
       if (naturalDiff) {
         return toPlain({

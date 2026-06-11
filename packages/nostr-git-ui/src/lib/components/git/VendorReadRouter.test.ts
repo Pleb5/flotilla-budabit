@@ -506,7 +506,9 @@ describe("VendorReadRouter GRASP and generic natural rollout", () => {
     expect(refs.source.kind).toBe("git-natural");
     expect(directory.source?.kind).toBe("git-natural");
     expect(file.source?.kind).toBe("git-natural");
-    expect(file.content).toBe("Hello");
+    expect(file.content).toBe("SGVsbG8=");
+    expect(file.encoding).toBe("base64");
+    expect(file.size).toBe(5);
     expect(commits.source?.kind).toBe("git-natural");
     expect(workerManager.gitNaturalListRefs).toHaveBeenCalledWith(
       expect.objectContaining({ url: graspUrl, enabled: true })
@@ -520,6 +522,80 @@ describe("VendorReadRouter GRASP and generic natural rollout", () => {
     expect(workerManager.smartInitializeRepo).not.toHaveBeenCalled();
     expect(workerManager.ensureShallowClone).not.toHaveBeenCalled();
     expect(workerManager.ensureFullClone).not.toHaveBeenCalled();
+  });
+
+  it("preserves Git natural file bytes as base64 with byte size", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: false,
+      gitNaturalReads: "enabled",
+    });
+    const remoteUrl = "https://example.com/owner/repo.git";
+    const workerManager = {
+      gitNaturalGetFileContent: vi.fn(async ({ url }: { url: string }) => ({
+        path: "image.bin",
+        ref: "refs/heads/main",
+        commitHash: "a".repeat(40),
+        objectHash: "b".repeat(40),
+        content: "AP8Q",
+        encoding: "base64",
+        size: 3,
+        source: gitNaturalSource("getFileContent", url, {
+          ref: "refs/heads/main",
+          commitHash: "a".repeat(40),
+          objectHash: "b".repeat(40),
+          capability: "object-by-hash",
+        }),
+      })),
+      getRepoFileContentFromEvent: vi.fn(async () => "worker content"),
+    } as any;
+
+    const result = await router.getFileContent({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/repo",
+      cloneUrls: [remoteUrl],
+      branch: "main",
+      path: "image.bin",
+    });
+
+    expect(result.source?.kind).toBe("git-natural");
+    expect(result.content).toBe("AP8Q");
+    expect(result.encoding).toBe("base64");
+    expect(result.size).toBe(3);
+    expect(workerManager.getRepoFileContentFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit null Git natural CORS proxy override", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalCorsProxy: null,
+    });
+    const remoteUrl = "https://example.com/owner/repo.git";
+    const workerManager = {
+      gitNaturalListRefs: vi.fn(async ({ url }: { url: string; corsProxy: null }) => ({
+        refs: [
+          { ref: "HEAD", oid: "a".repeat(40), target: "refs/heads/main" },
+          { ref: "refs/heads/main", oid: "a".repeat(40) },
+        ],
+        defaultBranch: "main",
+        source: gitNaturalSource("listRefs", url, { defaultBranch: "main", ref: "main" }),
+      })),
+      listServerRefs: vi.fn(async () => []),
+      listBranchesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    await router.listRefs({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      cloneUrls: [remoteUrl],
+    });
+
+    expect(workerManager.gitNaturalListRefs).toHaveBeenCalledWith(
+      expect.objectContaining({ url: remoteUrl, enabled: true, corsProxy: null })
+    );
   });
 
   it("uses Git natural for generic HTTP remotes under the GRASP/generic policy", async () => {

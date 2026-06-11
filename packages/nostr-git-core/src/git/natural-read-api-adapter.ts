@@ -155,7 +155,7 @@ export class GitNaturalApiAdapter {
   }): Promise<FetchInfoRefsResult> {
     const startedAt = this.now()
     const remoteUrl = trimTrailingSlashes(params.url)
-    const corsProxy = params.corsProxy ?? this.corsProxy
+    const corsProxy = resolveCorsProxyOverride(params.corsProxy, this.corsProxy)
     const inFlightKey = `${remoteUrl}\0${corsProxy ?? ""}`
     const existing = this.inFlightInfoRefs.get(inFlightKey)
     if (existing) return existing
@@ -309,7 +309,10 @@ export class GitNaturalApiAdapter {
   }): Promise<GitNaturalApiPackResult> {
     const startedAt = this.now()
     const remoteUrl = trimTrailingSlashes(params.url)
-    const transport = resolveNaturalReadTransport(remoteUrl, params.corsProxy ?? this.corsProxy)
+    const transport = resolveNaturalReadTransport(
+      remoteUrl,
+      resolveCorsProxyOverride(params.corsProxy, this.corsProxy),
+    )
     const effectiveUrl = buildUploadPackUrl(transport.effectiveUrl)
     const capabilities = selectGitNaturalApiCapabilities(params.serverCapabilities, {
       requireFilter: params.requireFilter,
@@ -431,4 +434,11 @@ function isAbortError(error: unknown): boolean {
 
 function trimTrailingSlashes(value: string): string {
   return String(value || "").trim().replace(/\/+$/, "")
+}
+
+function resolveCorsProxyOverride(
+  override: string | null | undefined,
+  fallback: string | null | undefined,
+): string | null | undefined {
+  return override !== undefined ? override : fallback
 }
