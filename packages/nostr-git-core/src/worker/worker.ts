@@ -168,6 +168,8 @@ import {
   GitNaturalReadProvider,
   type GitNaturalDiffBetweenResult,
 } from "../git/natural-read-provider.js"
+import {getGitNaturalPRReviewData} from "../git/natural-pr-review.js"
+import type {GitNaturalCommit} from "../git/natural-read-types.js"
 
 // Import event-based git operations
 import {
@@ -300,6 +302,156 @@ async function tryGitNaturalDiffBetween(params: {
     )
   }
   return null
+}
+
+async function tryGitNaturalPRReviewData(params: {
+  key: string
+  tipCommitOid: string
+  targetBranch: string
+  sourceUrls: string[]
+  targetUrls: string[]
+  mergeBase?: string
+  targetCommitOid?: string
+  corsProxy?: string | null
+}) {
+  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
+  const provider = getGitNaturalReadProvider(corsProxy)
+  try {
+    const review = await getGitNaturalPRReviewData({
+      repoId: params.key,
+      tipCommitOid: params.tipCommitOid,
+      targetBranch: params.targetBranch,
+      sourceUrls: params.sourceUrls,
+      targetUrls: params.targetUrls,
+      mergeBase: params.mergeBase,
+      targetCommitOid: params.targetCommitOid,
+      corsProxy,
+      reader: {
+        resolveRef: request => provider.resolveRef(request),
+        listCommits: request => provider.listCommits(request),
+        getDiffBetween: request => provider.getDiffBetween(request),
+      },
+    })
+
+    if (review) {
+      console.info(`[getPRReviewData] Git natural PR review data loaded for ${params.tipCommitOid}`)
+    }
+    return review
+  } catch (error) {
+    console.info(
+      `[getPRReviewData] Git natural PR review unavailable, falling back to worker clone: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return null
+  }
+}
+
+async function tryGitNaturalCommitMeta(params: {
+  key: string
+  commitId: string
+  cloneUrls?: string[]
+  corsProxy?: string | null
+}) {
+  const commitId = normalizeFullOid(params.commitId)
+  if (!commitId) return null
+  const urls = gitNaturalHttpUrls(params.cloneUrls || [], params.key)
+  if (urls.length === 0) return null
+
+  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
+  const result = await withUrlFallback(
+    urls,
+    async (url: string) => {
+      const provider = getGitNaturalReadProvider(corsProxy)
+      const commit = await provider.getCommit({url, commitHash: commitId, corsProxy})
+      return {
+        success: true,
+        meta: naturalCommitToWorkerMeta(commit.commit),
+        source: "git-natural",
+        readSource: commit.source,
+        usedCloneUrl: url,
+      }
+    },
+    {repoId: params.key, perUrlTimeoutMs: 15000},
+  )
+
+  return result.success ? result.result : null
+}
+
+async function tryGitNaturalCommitDetails(params: {
+  key: string
+  commitId: string
+  cloneUrls?: string[]
+  corsProxy?: string | null
+}) {
+  const commitId = normalizeFullOid(params.commitId)
+  if (!commitId) return null
+  const urls = gitNaturalHttpUrls(params.cloneUrls || [], params.key)
+  if (urls.length === 0) return null
+
+  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
+  const result = await withUrlFallback(
+    urls,
+    async (url: string) => {
+      const provider = getGitNaturalReadProvider(corsProxy)
+      const commitResult = await provider.getCommit({url, commitHash: commitId, corsProxy})
+      const firstParent = commitResult.commit.parents[0]
+      if (!firstParent) throw new Error("Root commit diff requires clone-backed fallback")
+
+      const diff = await provider.getDiffBetween({
+        url,
+        baseCommitHash: firstParent,
+        headCommitHash: commitResult.commit.hash,
+        corsProxy,
+      })
+
+      return {
+        success: true,
+        meta: naturalCommitToWorkerMeta(commitResult.commit),
+        changes: diff.changes,
+        stats: statsFromNaturalChanges(diff.changes),
+        diffAvailable: true,
+        source: "git-natural",
+        readSource: diff.source,
+        usedCloneUrl: url,
+      }
+    },
+    {repoId: params.key, perUrlTimeoutMs: 15000},
+  )
+
+  return result.success ? result.result : null
+}
+
+function gitNaturalHttpUrls(urls: string[], repoId: string): string[] {
+  return reorderUrlsByPreference(filterValidCloneUrls(urls), repoId).filter(isHttpCloneUrl)
+}
+
+function normalizeFullOid(value?: string): string | undefined {
+  const normalized = String(value || "").trim().toLowerCase()
+  return /^[0-9a-f]{40}$/.test(normalized) ? normalized : undefined
+}
+
+function naturalCommitToWorkerMeta(commit: GitNaturalCommit) {
+  return {
+    sha: commit.hash,
+    author: commit.author?.name || "Unknown",
+    email: commit.author?.email || "",
+    date: Number(commit.author?.timestamp || 0) * 1000,
+    message: commit.message || "",
+    parents: Array.isArray(commit.parents) ? commit.parents : [],
+  }
+}
+
+function statsFromNaturalChanges(changes: Array<{diffHunks?: Array<{patches?: Array<{type?: string}>}>}>) {
+  let additions = 0
+  let deletions = 0
+  for (const change of changes || []) {
+    for (const hunk of change.diffHunks || []) {
+      for (const patch of hunk.patches || []) {
+        if (patch.type === "+" || patch.type === "add") additions += 1
+        if (patch.type === "-" || patch.type === "del") deletions += 1
+      }
+    }
+  }
+  return {additions, deletions, total: additions + deletions}
 }
 
 function buildModifiedFileDiffHunks(
@@ -2449,6 +2601,17 @@ const api = {
       return failure("PR target branch is missing", "target")
     }
 
+    const naturalReview = await tryGitNaturalPRReviewData({
+      key,
+      tipCommitOid: opts.tipCommitOid,
+      targetBranch: opts.targetBranch,
+      sourceUrls,
+      targetUrls,
+      ...(hasProvidedMergeBase ? {mergeBase: opts.mergeBase} : {}),
+      ...(hasProvidedTargetCommit ? {targetCommitOid: opts.targetCommitOid} : {}),
+    })
+    if (naturalReview) return toPlain(naturalReview)
+
     try {
       await smartInitializeRepoUtil(
         git,
@@ -2649,6 +2812,7 @@ const api = {
         baseOid: review.baseOid,
         headOid: review.headOid,
         cloneUrls: allCloneUrls,
+        gitNaturalDiff: true,
       })
 
       if (!diff.success) {
@@ -3107,6 +3271,13 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
 
     try {
+      const naturalMeta = await tryGitNaturalCommitMeta({
+        key,
+        commitId: opts.commitId,
+        cloneUrls: opts.cloneUrls,
+      }).catch(() => null)
+      if (naturalMeta) return toPlain(naturalMeta)
+
       if (!(await hasCommitObject(dir, opts.commitId))) {
         const fetched = await fetchRefsUntilOidsAvailable({
           key,
@@ -3172,6 +3343,13 @@ const api = {
       })
 
     try {
+      const naturalDetails = await tryGitNaturalCommitDetails({
+        key,
+        commitId: opts.commitId,
+        cloneUrls: opts.cloneUrls,
+      }).catch(() => null)
+      if (naturalDetails) return toPlain(naturalDetails)
+
       // Optimization: Try to read commit locally first before triggering expensive fetch
       let commits: any[] = []
       try {

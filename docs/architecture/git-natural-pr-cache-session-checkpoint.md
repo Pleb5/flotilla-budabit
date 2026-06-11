@@ -12,17 +12,15 @@
 
 ## Current Phase
 
-- Phase 3: Make PR Read-Only Review Data Git Natural First
-- Status: ready to start after Phase 2 closeout commit is pushed.
+- Phase 4: Add Clone-To-Natural Cache Bridge For Objects Already Fetched By Fallbacks
+- Status: ready to start after Phase 3 closeout commit is pushed.
 
 ## Phase Exit Criteria
 
-- PR files changed tab tries git-natural diff before clone-backed `getDiffBetween`.
-- PR commits tab can load commit metadata from git-natural history/commit reads before clone fallback.
-- PR individual commit expansion tries natural commit details before clone-backed `getCommitDetails`.
-- Same-repo PRs and forks whose source remote contains the base objects can render commits/files without full clone.
-- Fork PRs whose base/head are not available from a single natural remote fall back cleanly to the current clone-backed behavior.
-- Merge analysis and merge/push remain clone-backed and unchanged.
+- Clone-backed file/diff/commit paths opportunistically populate the natural immutable object cache when object hashes and bytes are available.
+- The bridge stores only immutable objects and never stores refs or mutable clone state.
+- Bridge failures are non-fatal and never break clone-backed fallback behavior.
+- Tests show a clone-backed fallback can populate cache entries that a later natural read can reuse.
 
 ## Completed With Evidence
 
@@ -39,6 +37,14 @@
   - Kept `infoRefs` memory-only with the existing TTL behavior.
   - Updated `GitNaturalReadProvider` to hydrate history batches, raw object batches, and blobs from async L2 before network fetches.
   - Added tests for IndexedDB re-instantiation, binary blob round trip, raw batch round trip, non-persistence of `infoRefs`, provider re-instantiation, and memory-only fallback when the async store throws.
+- Phase 3: Make PR Read-Only Review Data Git Natural First.
+  - Added a core `getGitNaturalPRReviewData` helper that loads PR commit history and base-to-head diffs via git-natural when a safe base can be resolved.
+  - The helper uses provided merge bases, or resolves target refs and finds a natural merge base from bounded source/target histories.
+  - `getPRReviewData` now tries natural PR review before clone-backed initialization and preserves existing clone fallback on any natural miss.
+  - Clone-backed PR review now passes `gitNaturalDiff: true` to reuse the existing natural diff fast path before clone-backed `getDiffBetween`.
+  - PR applied/retry diff calls from `PRView.svelte` now pass `gitNaturalDiff: true`.
+  - `getCommitMeta` and `getCommitDetails` now try natural metadata/details before clone-backed reads; commit details only short-circuit when natural diff succeeds.
+  - Merge analysis and merge/push paths were not changed.
 - Planning files were created for review, then Phase 1 was launched after user said to continue.
 
 ## Phase 1 Progress Evidence
@@ -79,14 +85,14 @@
 
 - Branch: `dev` tracking `origin/dev`.
 - Phase 1 closeout commit pushed: `619085f7 fix: align git natural content and commit reads`.
-- Phase 2 changed files to commit and push:
+- Phase 2 closeout commit pushed: `44053732 feat: add durable git natural object cache`.
+- Phase 3 changed files to commit and push:
   - `docs/architecture/git-natural-pr-cache-session-checkpoint.md`
   - `packages/nostr-git-core/src/git/index.ts`
-  - `packages/nostr-git-core/src/git/natural-read-cache.ts`
-  - `packages/nostr-git-core/src/git/natural-read-indexed-cache.ts`
-  - `packages/nostr-git-core/src/git/natural-read-provider.ts`
-  - `packages/nostr-git-core/test/git/natural-read.spec.ts`
-  - `packages/nostr-git-core/test/git/natural-read-provider.spec.ts`
+  - `packages/nostr-git-core/src/git/natural-pr-review.ts`
+  - `packages/nostr-git-core/src/worker/worker.ts`
+  - `packages/nostr-git-core/test/git/natural-pr-review.spec.ts`
+  - `src/app/components/PRView.svelte`
 - `docs/architecture/git-natural-read-pivot.md` remains a pre-existing unrelated dirty file and should stay unstaged unless explicitly approved.
 - Verification passed during Phase 1 audit:
   - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
@@ -100,10 +106,16 @@
   - `nix develop -c pnpm -F @nostr-git/core typecheck` passed.
   - `git diff --check` passed.
 - Phase 2 closeout is committed and pushed by the commit containing this checkpoint update.
+- Verification passed during Phase 3:
+  - `nix develop -c pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts --coverage.enabled=false packages/nostr-git-core/test/git/natural-pr-review.spec.ts packages/nostr-git-core/test/git/natural-read-provider.spec.ts` passed.
+  - `nix develop -c pnpm -F @nostr-git/core typecheck` passed.
+  - `nix develop -c pnpm -F @nostr-git/ui typecheck` passed.
+  - `git diff --check` passed.
+- Phase 3 closeout is committed and pushed by the commit containing this checkpoint update.
 
 ## Next Action
 
-- Start Phase 3 startup: read this checkpoint, read the entire session plan, inspect current git state, then make PR read-only review data git-natural-first with clone fallback.
+- Start Phase 4 startup: read this checkpoint, read the entire session plan, inspect current git state, then add the clone-to-natural cache bridge for immutable objects already fetched by clone-backed fallbacks.
 
 ## Verification
 
@@ -115,9 +127,8 @@
 ## Risks Or Blockers
 
 - `docs/architecture/git-natural-read-pivot.md` was dirty before this workflow and was audited as unrelated to this closeout; leave it unstaged unless explicitly approved.
-- PR natural diff for forks may fail when base objects exist only on target remote and head objects exist only on source remote; clone fallback must remain.
-- IndexedDB quota and cleanup must be simple but safe in the first persistent-cache phase.
-- `CacheManager` advertises IndexedDB but its methods are stubs; do not rely on it for core natural object persistence without implementing it or adding a dedicated core cache.
+- Natural PR review uses bounded histories; deep/complex histories fall back to clone-backed review.
+- PR natural diff for forks may fail when base objects exist only on target remote and head objects exist only on source remote; clone fallback remains.
 
 ## Files
 

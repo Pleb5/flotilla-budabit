@@ -1647,6 +1647,7 @@
         baseOid: range.baseOid,
         headOid: range.headOid,
         ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
+        gitNaturalDiff: true,
       })
 
       if (prChangesGeneration !== currentGen) return
@@ -1698,6 +1699,7 @@
           baseOid: prDiffBaseOid,
           headOid: prDiffHeadOid,
           ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
+          gitNaturalDiff: true,
         })
 
         if (prChangesGeneration !== currentGen) return
