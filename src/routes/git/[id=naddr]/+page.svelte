@@ -152,6 +152,44 @@
       .replace(/^origin\//, "")
   }
 
+  function getLoadedLatestCommit(branchName: string): any | null {
+    const loadedBranch = normalizeBranchRef(repoClass.commitManager?.getCurrentBranch?.())
+    if (loadedBranch && loadedBranch !== branchName) return null
+
+    const loadedCommits = repoClass.commits
+    return Array.isArray(loadedCommits) && loadedCommits.length > 0 ? loadedCommits[0] : null
+  }
+
+  function getErrorChainText(error: unknown): string {
+    const parts: string[] = []
+    const seen = new Set<unknown>()
+    let current: unknown = error
+
+    while (current && !seen.has(current)) {
+      seen.add(current)
+      if (current instanceof Error) {
+        parts.push(current.name, current.message)
+        current = (current as Error & {cause?: unknown}).cause
+      } else {
+        parts.push(String(current))
+        break
+      }
+    }
+
+    return parts.join(" ")
+  }
+
+  function isOptionalLatestCommitError(error: unknown): boolean {
+    const message = getErrorChainText(error)
+    return (
+      /RepoNotReady/i.test(message) ||
+      /still being initialized/i.test(message) ||
+      /worker.*not ready/i.test(message) ||
+      /not cloned/i.test(message) ||
+      /Repository not/i.test(message)
+    )
+  }
+
   const repoOwnerPubkey = $derived.by(() => normalizePubkey(repoClass?.repoEvent?.pubkey))
   const repoMaintainerPubkeys = $derived.by(() => {
     const owner = repoOwnerPubkey
@@ -459,10 +497,15 @@
     commitLoadInProgress = true
 
     try {
-      // Use main branch directly - no need to try multiple branches
-      // Start with small depth (5) for faster loading, only increase if needed
-      const mainBranch = repoClass.mainBranch
+      const mainBranch = normalizeBranchRef(repoClass.mainBranch)
       if (!mainBranch) {
+        commitLoadInProgress = false
+        return
+      }
+
+      const loadedCommit = getLoadedLatestCommit(mainBranch)
+      if (loadedCommit) {
+        lastCommit = loadedCommit
         commitLoadInProgress = false
         return
       }
@@ -474,31 +517,18 @@
         return
       }
 
-      // Try depth 5 first (fast), then 10 if needed, then 25 as fallback
-      const depths = [5, 10, 25]
-
-      for (const depth of depths) {
-        try {
-          const res = await repoClass.getCommitHistory({branch: mainBranch, depth})
-          const list = Array.isArray(res) ? res : res?.commits
-          if (Array.isArray(list) && list.length > 0) {
-            lastCommit = list[0]
-            commitLoadInProgress = false
-            return
-          }
-        } catch (e) {
-          // If repo not cloned, that's okay - commit history is optional for overview
-          // Don't trigger clone just for commit history
-          if (String(e).includes("not cloned") || String(e).includes("Repository not")) {
-            console.debug(
-              "LatestCommit: Repository not cloned, skipping (overview page doesn't need clone)",
-            )
-            commitLoadInProgress = false
-            return
-          }
-          // Try next depth on other errors
-          console.debug("LatestCommit attempt failed", {depth, error: String(e)})
+      try {
+        const res = await repoClass.getCommitHistory({branch: mainBranch, depth: 1})
+        const list = Array.isArray(res) ? res : res?.commits
+        if (Array.isArray(list) && list.length > 0) {
+          lastCommit = list[0]
         }
+      } catch (e) {
+        if (isOptionalLatestCommitError(e)) {
+          console.debug("LatestCommit: Optional commit history unavailable, skipping")
+          return
+        }
+        console.debug("LatestCommit: Failed depth-1 attempt", {error: getErrorChainText(e)})
       }
     } catch (e) {
       // Silently fail - commit history is optional

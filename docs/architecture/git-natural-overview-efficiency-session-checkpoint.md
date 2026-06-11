@@ -11,14 +11,13 @@
 
 ## Current Phase
 
-- Phase 2: Overview Natural Read De-Duplication
+- Phase 3: Natural Read Diagnostics And Final Verification
 
 ## Phase Exit Criteria
 
-- Overview latest-commit loading does not request a 30-commit page when only one commit is needed.
-- Overview latest-commit loading reuses already loaded/cached natural commit metadata when available.
-- Optional latest-commit failures caused by repo initialization state remain quiet/benign and do not surface as fatal errors.
-- README loading remains Git-natural-first and does not trigger clone/fetch solely for overview.
+- Natural commit/file pack failures log or expose operation, filter, requested depth, remote/effective URL, and parser failure class without dumping secrets or full payloads.
+- Diagnostics are compact and only appear on fallback/failure paths or existing debug logging paths.
+- Final checkpoint says `Current Phase: Complete` with evidence from verification and commits.
 
 ## Completed With Evidence
 
@@ -33,6 +32,11 @@
   - Added BigBatch-style detection through wrapped causes/messages and retry by halving batch size.
   - Cached successful sub-batches and the original requested history depth.
   - Added provider-level unit tests for bounded batching and wrapped BigBatch retry.
+- Phase 2 implemented overview latest-commit de-duplication:
+  - Overview latest-commit loading reuses the first already loaded commit when `CommitManager` is on the overview main branch.
+  - Replaced progressive latest-commit probes at depths 5, 10, and 25 with a single depth-1 `getCommitHistory` call.
+  - Treats `RepoNotReady`, still-initializing, worker-not-ready, not-cloned, and repository-not-available errors as optional latest-commit skips.
+  - README loading remains on the existing `repoClass.getFileContent` Git-natural-first path and no overview clone/fetch trigger was added.
 
 ## Decisions
 
@@ -40,28 +44,30 @@
 - Start with core adaptive commit batching because it directly addresses `we tried to decompress too much data at the same time` without changing read-source policy.
 - Do not touch or stage the pre-existing local modification in `docs/architecture/git-natural-read-pivot.md`.
 - Phase 1 uses the same mitigation pattern observed in `gitworkshop`: batch at 15 and shrink on BigBatch before URL fallback.
+- Phase 2 keeps Git natural primary and only reduces overview commit metadata demand.
 
 ## Current State
 
-- Branch: `dev` tracking `origin/dev`, observed ahead by 1 before this workflow started.
+- Branch: `dev` tracking `origin/dev`.
 - Existing local uncommitted change: `docs/architecture/git-natural-read-pivot.md`.
-- Phase 1 code, tests, plan, and checkpoint are ready to commit; checkpoint already advances to Phase 2.
+- Phase 1 is committed and pushed as `a5c7aef0 feat: batch git natural commit reads`.
+- Phase 2 implementation and verification are complete; checkpoint advances to Phase 3.
 
 ## Next Action
 
-- Commit and push Phase 1, reread this checkpoint, then start Phase 2 by inspecting overview latest-commit and README paths.
+- Start Phase 3 by inspecting natural read fallback diagnostics in `VendorReadRouter`, `WorkerManager`, and `GitNaturalReadProvider`.
 
 ## Verification
 
 - Phase 1: `pnpm exec vitest run -c packages/nostr-git-core/vitest.config.ts packages/nostr-git-core/test/git/natural-read.spec.ts` passed: 1 file, 12 tests.
 - Phase 1: `pnpm --dir packages/nostr-git-core typecheck` passed.
+- Phase 2: `pnpm test:nostr-git-ui -- VendorReadRouter` passed: 29 files, 183 tests.
+- Phase 2: `pnpm check` passed: 0 errors, 0 warnings.
 
 ## Risks Or Blockers
 
-- The current branch already has an unpushed commit; phase push will push current branch history to the configured upstream.
-- The upstream push target exists (`origin/dev`), so no missing push target is currently known.
 - Existing local modification in `docs/architecture/git-natural-read-pivot.md` remains unrelated and must not be staged.
-- Phase 2 must avoid demoting Git natural; REST remains fallback only.
+- Phase 3 must avoid demoting Git natural; REST remains fallback only.
 
 ## Files
 
@@ -69,3 +75,4 @@
 - `docs/architecture/git-natural-overview-efficiency-session-checkpoint.md`
 - `packages/nostr-git-core/src/git/natural-read-provider.ts`
 - `packages/nostr-git-core/test/git/natural-read.spec.ts`
+- `src/routes/git/[id=naddr]/+page.svelte`
