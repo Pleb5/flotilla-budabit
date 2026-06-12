@@ -12,7 +12,6 @@
 
   const initialValues = {
     profile: makeProfile(),
-    shouldBroadcast: false,
   }
 
   const back = () => history.back()

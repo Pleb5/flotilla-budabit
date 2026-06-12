@@ -1,7 +1,6 @@
 <script lang="ts">
   import type {Profile} from "@welshman/util"
-  import {createProfile, PROFILE, makeEvent} from "@welshman/util"
-  import {publishThunk, loginWithNip01} from "@welshman/app"
+  import {loginWithNip01} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
@@ -10,6 +9,8 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {clearModals} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
+  import {PROFILE_PUBLISH_RETRY_MESSAGE, updateProfile} from "@app/core/commands"
 
   type Props = {
     secret: string
@@ -20,16 +21,24 @@
 
   const back = () => history.back()
 
-  const next = () => {
-    const template = createProfile(profile)
+  let saving = $state(false)
 
-    const event = makeEvent(PROFILE, template)
+  const next = async () => {
+    if (saving) return
 
-    // Log in first, then publish
+    saving = true
     loginWithNip01(secret)
 
-    // Don't publish anywhere yet; profile broadcast is controlled from settings.
-    publishThunk({event, relays: []})
+    try {
+      await updateProfile({profile})
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: `${error instanceof Error ? error.message : "Profile publish failed."} ${PROFILE_PUBLISH_RETRY_MESSAGE}`,
+      })
+    } finally {
+      saving = false
+    }
 
     clearModals()
   }
@@ -54,9 +63,9 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button class="btn btn-primary" type="submit">
+    <Button class="btn btn-primary" type="submit" disabled={saving}>
       <Icon icon={HomeSmile} />
-      Go to Dashboard
+      {saving ? "Publishing Profile..." : "Go to Dashboard"}
     </Button>
   </ModalFooter>
 </form>

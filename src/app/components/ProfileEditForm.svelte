@@ -8,7 +8,6 @@
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import MapPoint from "@assets/icons/map-point.svg?dataurl"
   import Field from "@lib/components/Field.svelte"
-  import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
   import InputProfilePicture from "@app/components/InputProfilePicture.svelte"
   import InfoHandle from "@app/components/InfoHandle.svelte"
@@ -20,7 +19,6 @@
 
   type Values = {
     profile: Profile
-    shouldBroadcast: boolean
     githubIdentity?: {
       username: string
       proof: string // GitHub Gist ID
@@ -302,19 +300,5 @@
       {/snippet}
     </Field>
   {/if}
-  <FieldInline>
-    {#snippet label()}
-      <p>Broadcast Profile</p>
-    {/snippet}
-    {#snippet input()}
-      <input type="checkbox" class="toggle toggle-primary" bind:checked={values.shouldBroadcast} />
-    {/snippet}
-    {#snippet info()}
-      <p>
-        If enabled, changes will be published to the broader nostr network in addition to your
-        configured relays.
-      </p>
-    {/snippet}
-  </FieldInline>
   {@render footer()}
 </form>

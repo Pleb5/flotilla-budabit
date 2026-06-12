@@ -24,8 +24,12 @@ describe("personal user-data relay policy wiring", () => {
       "relays:getUserDataPublishRelays(Router.get().FromUser().getUrls())",
     )
     expect(denseSource).toContain(
-      "constrelays=getUserDataPublishRelays(router.merge(scenarios).getUrls())",
+      "exportconstgetProfilePublishRelays=async()=>normalizeRelays([...INDEXER_RELAYS,...(awaitgetDefaultCommunityProfileRelays())])",
     )
+    expect(denseSource).toContain(
+      "loadCommunityDefinitionFromRelays(communityInput.pubkey,lookupRelays,",
+    )
+    expect(denseSource).toContain('publishAndVerifyCommunityEvent({event,relays,label:"profile"})')
   })
 
   it("adds active community relays to personal git app-data updates", () => {

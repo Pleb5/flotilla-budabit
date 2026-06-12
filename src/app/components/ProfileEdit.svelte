@@ -6,29 +6,28 @@
   import ProfileEditForm from "@app/components/ProfileEditForm.svelte"
   import {clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {updateProfile} from "@app/core/commands"
+  import {PROFILE_PUBLISH_RETRY_MESSAGE, updateProfile} from "@app/core/commands"
 
   const profile = $profilesByPubkey.get($pubkey!) || makeProfile()
-  const shouldBroadcast = true
-  const initialValues = {profile, shouldBroadcast}
+  const initialValues = {profile}
 
   let saving = $state(false)
 
   const back = () => history.back()
 
-  const onsubmit = async ({profile, shouldBroadcast}: {profile: Profile; shouldBroadcast: boolean}) => {
+  const onsubmit = async ({profile}: {profile: Profile}) => {
     if (saving) return
 
     saving = true
 
     try {
-      await updateProfile({profile, shouldBroadcast})
+      await updateProfile({profile})
       pushToast({message: "Your profile has been updated!"})
       clearModals()
     } catch (error) {
       pushToast({
         theme: "error",
-        message: error instanceof Error ? error.message : "Failed to update profile",
+        message: `${error instanceof Error ? error.message : "Failed to update profile"} ${PROFILE_PUBLISH_RETRY_MESSAGE}`,
       })
     } finally {
       saving = false

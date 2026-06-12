@@ -54,6 +54,7 @@ import {
   isPublishedProfile,
   editProfile,
   createProfile,
+  prep,
   uniqTags,
   MESSAGING_RELAYS,
 } from "@welshman/util"
@@ -119,9 +120,13 @@ import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/ut
 import {
   activeCommunityDefinition,
   activeUserCommunityBlossomRefs,
+  DEFAULT_COMMUNITY_INPUT,
   getCommunityBlossomServers,
+  loadCommunityDefinitionFromRelays,
 } from "@app/core/community-state"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
+import {normalizeRelays, parseCommunityInput} from "@app/core/community"
+import {publishAndVerifyCommunityEvent} from "@app/core/community-publish"
 import {payNwcInvoice} from "@app/core/nwc"
 import {
   blossomDashboardState,
@@ -1956,20 +1961,45 @@ export const uploadFile = async (
 
 // Update Profile
 
-export const updateProfile = async ({
-  profile,
-  shouldBroadcast = true,
-}: {
-  profile: Profile
-  shouldBroadcast?: boolean
-}) => {
-  const router = Router.get()
+export const PROFILE_PUBLISH_RETRY_MESSAGE =
+  "Please resubmit your profile from the profile page later."
+
+const PROFILE_PUBLISH_DEFAULT_COMMUNITY_LOOKUP_TIMEOUT = 3000
+
+const getDefaultCommunityProfileRelays = async () => {
+  const communityInput = parseCommunityInput(DEFAULT_COMMUNITY_INPUT)
+  if (!communityInput) return []
+
+  const lookupRelays = normalizeRelays([...communityInput.relays, ...INDEXER_RELAYS])
+  const definitionRelays = lookupRelays.length
+    ? await loadCommunityDefinitionFromRelays(communityInput.pubkey, lookupRelays, {
+        timeout: PROFILE_PUBLISH_DEFAULT_COMMUNITY_LOOKUP_TIMEOUT,
+      })
+        .then(definition => definition?.relays || [])
+        .catch(() => [])
+    : []
+
+  return normalizeRelays([...communityInput.relays, ...definitionRelays])
+}
+
+export const getProfilePublishRelays = async () =>
+  normalizeRelays([...INDEXER_RELAYS, ...(await getDefaultCommunityProfileRelays())])
+
+export const updateProfile = async ({profile}: {profile: Profile}) => {
+  const $pubkey = pubkey.get()
+  const $signer = signer.get()
   const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
   template.tags = sanitizePublishTags(template.tags)
-  const scenarios = shouldBroadcast ? [router.FromUser(), router.Index()] : [router.FromUser()]
 
-  const event = makeEvent(template.kind, template)
-  const relays = getUserDataPublishRelays(router.merge(scenarios).getUrls())
+  if (!$pubkey || !$signer) throw new Error("Log in before publishing your profile.")
 
-  await publishThunk({event, relays}).complete
+  const relays = await getProfilePublishRelays()
+  if (relays.length === 0) throw new Error("No profile publish relays are configured.")
+
+  const event = await $signer.sign(prep(template, $pubkey))
+  const verified = await publishAndVerifyCommunityEvent({event, relays, label: "profile"})
+
+  repository.publish(verified)
+
+  return verified
 }
