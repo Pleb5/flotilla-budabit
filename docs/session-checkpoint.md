@@ -40,6 +40,7 @@
 - Evidence: `pnpm --dir packages/nostr-git-core exec vitest run` passed.
 - Implemented deterministic in-memory count and byte limits for `GitNaturalObjectCache`, with least-recently-used eviction across commit, blob, tree, raw batch, and history batch memory maps.
 - Added `getMemoryStats()` diagnostics and focused tests for count eviction, byte eviction, hit refresh, and memory clear stats.
+- Phase 3 commit pushed: `fc6891ea fix: bound git natural memory cache`.
 
 ## Decisions
 
@@ -55,11 +56,11 @@
 - Branch `dev` tracks `origin/dev`.
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
-- Phase 3 code and checkpoint update are verified and ready for commit/push as the final transition.
+- Phase 3 is committed and pushed.
 
 ## Next Action
 
-- Commit and push Phase 3, then reread this checkpoint before the final response.
+- Final response can summarize the completed workflow.
 
 ## Verification
 
