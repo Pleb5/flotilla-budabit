@@ -345,6 +345,7 @@
   const REPO_SEARCH_PAGE_SIZE = 18
   const REPO_LOAD_SETTLE_DELAY_MS = 75
   const REPO_LIST_LOAD_TIMEOUT_MS = 8_000
+  const REPO_CARD_HYDRATION_DELAY_MS = 250
 
   const repoLoadSettleTimers = new Set<ReturnType<typeof setTimeout>>()
   const repoLoadTimeoutTimers = new Set<ReturnType<typeof setTimeout>>()
@@ -403,6 +404,7 @@
   let repoDiscoveryPrioritySettings = $state<RepoDiscoveryPrioritySetting[]>(
     getDefaultRepoDiscoveryPrioritySettings(),
   )
+  let navigatingRepoCardKey = $state("")
   let discoveredSearchRepoPool = $state<
     Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}>
   >([])
@@ -2543,8 +2545,7 @@
   )
   const repoCardPullRequestFilters = $derived.by(() =>
     chunkBySize(repoCardEvidenceAddresses, REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE).map(
-      addresses =>
-        ({kinds: [GIT_PULL_REQUEST], "#a": addresses}) satisfies Filter,
+      addresses => ({kinds: [GIT_PULL_REQUEST], "#a": addresses}) satisfies Filter,
     ),
   )
   const repoCardPullRequestEventsStore = $derived.by(() =>
@@ -2562,12 +2563,10 @@
   )
   const repoCardStatusFilters = $derived.by(() => [
     ...chunkBySize(repoCardEvidenceAddresses, REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE).map(
-      addresses =>
-        ({kinds: [GIT_STATUS_APPLIED], "#a": addresses}) satisfies Filter,
+      addresses => ({kinds: [GIT_STATUS_APPLIED], "#a": addresses}) satisfies Filter,
     ),
     ...chunkBySize(repoCardPullRequestRootIds, REPO_CARD_EVIDENCE_FILTER_CHUNK_SIZE).map(
-      rootIds =>
-        ({kinds: [GIT_STATUS_APPLIED], "#e": rootIds}) satisfies Filter,
+      rootIds => ({kinds: [GIT_STATUS_APPLIED], "#e": rootIds}) satisfies Filter,
     ),
   ])
   const repoCardEvidenceFilters = $derived.by(() => [
@@ -2615,8 +2614,28 @@
       : EMPTY_VERIFIED_REPO_MAINTAINERS
   }
   let repoCardProfileLoadKey = ""
-
   let repoCardEvidenceLoadKey = ""
+  let repoCardEvidenceLoadTimer: ReturnType<typeof setTimeout> | null = null
+  let repoCardEvidenceLoadController: AbortController | null = null
+  let repoCardProfileLoadTimer: ReturnType<typeof setTimeout> | null = null
+  let repoCardProfileLoadRequestId = 0
+
+  const cancelRepoCardEvidenceLoad = () => {
+    if (repoCardEvidenceLoadTimer) {
+      clearTimeout(repoCardEvidenceLoadTimer)
+      repoCardEvidenceLoadTimer = null
+    }
+    repoCardEvidenceLoadController?.abort()
+    repoCardEvidenceLoadController = null
+  }
+
+  const cancelRepoCardProfileLoad = () => {
+    repoCardProfileLoadRequestId += 1
+    if (repoCardProfileLoadTimer) {
+      clearTimeout(repoCardProfileLoadTimer)
+      repoCardProfileLoadTimer = null
+    }
+  }
 
   $effect(() => {
     const filters = repoCardEvidenceFilters
@@ -2628,20 +2647,35 @@
 
     if (filters.length === 0 || relays.length === 0) {
       repoCardEvidenceLoadKey = ""
+      cancelRepoCardEvidenceLoad()
       return
     }
 
     if (key === repoCardEvidenceLoadKey) return
     repoCardEvidenceLoadKey = key
 
-    load({relays, filters: filters as any}).catch(error => {
-      console.warn("[git/+page] Failed to load repo card maintainer verification evidence", error)
-    })
+    cancelRepoCardEvidenceLoad()
+    const controller = new AbortController()
+    repoCardEvidenceLoadController = controller
+    repoCardEvidenceLoadTimer = setTimeout(() => {
+      repoCardEvidenceLoadTimer = null
+      if (gitPageDestroyed || controller.signal.aborted) return
+
+      load({relays, filters: filters as any, signal: controller.signal}).catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn(
+            "[git/+page] Failed to load repo card maintainer verification evidence",
+            error,
+          )
+        }
+      })
+    }, REPO_CARD_HYDRATION_DELAY_MS)
   })
 
   $effect(() => {
     if (activeTab === "snippets") {
       repoCardProfileLoadKey = ""
+      cancelRepoCardProfileLoad()
       return
     }
 
@@ -2661,14 +2695,29 @@
       .sort()
       .join("|")
 
-    if (!key || key === repoCardProfileLoadKey) return
-    repoCardProfileLoadKey = key
-
-    for (const {pubkey, relays} of requests) {
-      loadBudabitProfile(pubkey, {relays}).catch(error => {
-        console.warn("[git/+page] Failed to load repo card profile", error)
-      })
+    if (!key) {
+      repoCardProfileLoadKey = ""
+      cancelRepoCardProfileLoad()
+      return
     }
+
+    if (key === repoCardProfileLoadKey) return
+    repoCardProfileLoadKey = key
+    cancelRepoCardProfileLoad()
+    const requestId = ++repoCardProfileLoadRequestId
+
+    repoCardProfileLoadTimer = setTimeout(() => {
+      repoCardProfileLoadTimer = null
+      if (gitPageDestroyed || requestId !== repoCardProfileLoadRequestId) return
+
+      for (const {pubkey, relays} of requests) {
+        loadBudabitProfile(pubkey, {relays}).catch(error => {
+          if (!gitPageDestroyed && requestId === repoCardProfileLoadRequestId) {
+            console.warn("[git/+page] Failed to load repo card profile", error)
+          }
+        })
+      }
+    }, REPO_CARD_HYDRATION_DELAY_MS)
   })
 
   // Update repositoriesStore whenever repos change
@@ -2794,6 +2843,8 @@
       repoDiscoveryController.abort()
       repoDiscoveryController = null
     }
+    cancelRepoCardEvidenceLoad()
+    cancelRepoCardProfileLoad()
     for (const timer of repoLoadSettleTimers) {
       clearTimeout(timer)
     }
@@ -2957,18 +3008,28 @@
   const getRepoBrowseHref = (event: RepoAnnouncementEvent) =>
     makeGitPath(url, buildRepoNaddrFromAnnouncement(event, event.pubkey || ""))
 
-  const navigateToRepoCard = (announcement: RepoAnnouncementEvent) =>
+  const getRepoCardNavigationKey = (announcement: RepoAnnouncementEvent) =>
+    announcement.id || getRepoBrowseHref(announcement)
+
+  const navigateToRepoCard = (announcement: RepoAnnouncementEvent) => {
+    const navigationKey = getRepoCardNavigationKey(announcement)
+    if (navigatingRepoCardKey === navigationKey) return
+
+    navigatingRepoCardKey = navigationKey
     void goto(getRepoBrowseHref(announcement)).catch(error => {
+      if (navigatingRepoCardKey === navigationKey) navigatingRepoCardKey = ""
       console.error("[+page.svelte] Failed to navigate to repository:", error)
       pushToast({
         message: `Failed to navigate to repository: ${String(error)}`,
         theme: "error",
       })
     })
+  }
 
   const handleRepoCardNeutralClick = (event: MouseEvent, announcement: RepoAnnouncementEvent) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
       return
+    if (navigatingRepoCardKey) return
     if (getInteractiveCardTarget(event.target, event.currentTarget)) return
 
     navigateToRepoCard(announcement)
@@ -2979,6 +3040,7 @@
     announcement: RepoAnnouncementEvent,
   ) => {
     if (event.key !== "Enter" && event.key !== " ") return
+    if (navigatingRepoCardKey) return
     if (getInteractiveCardTarget(event.target, event.currentTarget)) return
 
     event.preventDefault()
@@ -3633,10 +3695,19 @@
             {@const repoCardVerifiedMaintainers = g.first
               ? getRepoCardVerifiedMaintainers(g.first as RepoAnnouncementEvent)
               : EMPTY_VERIFIED_REPO_MAINTAINERS}
+            {@const repoCardNavigationKey = g.first
+              ? getRepoCardNavigationKey(g.first as RepoAnnouncementEvent)
+              : ""}
+            {@const repoCardNavigating = Boolean(
+              repoCardNavigationKey && navigatingRepoCardKey === repoCardNavigationKey,
+            )}
             <div
-              class="min-w-0 rounded-md border border-border bg-card p-3"
+              class="relative min-w-0 rounded-md border border-border bg-card p-3 transition {repoCardNavigating
+                ? 'cursor-wait opacity-70 ring-2 ring-primary/40'
+                : ''}"
               role="link"
               tabindex="0"
+              aria-busy={repoCardNavigating}
               onclick={g.first
                 ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
                 : undefined}
@@ -3644,6 +3715,12 @@
                 ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
                 : undefined}
               in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
+              {#if repoCardNavigating}
+                <span
+                  class="z-10 absolute right-3 top-3 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-sm">
+                  Opening...
+                </span>
+              {/if}
               {#if g.first}
                 <GitItem
                   {url}
@@ -3763,16 +3840,31 @@
             {@const repoCardVerifiedMaintainers = g.first
               ? getRepoCardVerifiedMaintainers(g.first as RepoAnnouncementEvent)
               : EMPTY_VERIFIED_REPO_MAINTAINERS}
+            {@const repoCardNavigationKey = g.first
+              ? getRepoCardNavigationKey(g.first as RepoAnnouncementEvent)
+              : ""}
+            {@const repoCardNavigating = Boolean(
+              repoCardNavigationKey && navigatingRepoCardKey === repoCardNavigationKey,
+            )}
             <div
-              class="min-w-0 rounded-md border border-border bg-card p-3"
+              class="relative min-w-0 rounded-md border border-border bg-card p-3 transition {repoCardNavigating
+                ? 'cursor-wait opacity-70 ring-2 ring-primary/40'
+                : ''}"
               role="link"
               tabindex="0"
+              aria-busy={repoCardNavigating}
               onclick={g.first
                 ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
                 : undefined}
               onkeydown={g.first
                 ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
                 : undefined}>
+              {#if repoCardNavigating}
+                <span
+                  class="z-10 absolute right-3 top-3 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-sm">
+                  Opening...
+                </span>
+              {/if}
               <!-- Use GitItem for consistent repo card rendering -->
               {#if g.first}
                 <GitItem

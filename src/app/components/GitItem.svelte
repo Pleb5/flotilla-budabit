@@ -4,7 +4,6 @@
   import {Address, type TrustedEvent} from "@welshman/util"
   import NoteCard from "./NoteCard.svelte"
   import GitActions from "./GitActions.svelte"
-  import Link from "@lib/components/Link.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import {makeCommunityPath} from "@app/util/routes"
   import {getInteractiveCardTarget} from "@lib/html"
@@ -126,8 +125,26 @@
   }
 
   const descriptionPreview = $derived.by(() => truncateDescription(description || ""))
+  let navigating = $state(false)
 
-  const navigateToRepo = () => void goto(browseHref)
+  const navigateToRepo = () => {
+    if (navigating) return
+    navigating = true
+    void goto(browseHref).catch(error => {
+      navigating = false
+      console.error("[GitItem] Failed to navigate to repository", error)
+    })
+  }
+
+  const handleRepoLinkClick = (event: MouseEvent) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    navigateToRepo()
+  }
 
   const handleCardClick = (event: MouseEvent) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -149,13 +166,25 @@
 </script>
 
 {#snippet cardContent()}
-  <NoteCard {event} class="card2 sm:card2-sm bg-alt relative" relays={profileRelays} {hideDate}>
+  <NoteCard
+    {event}
+    class="card2 sm:card2-sm bg-alt relative transition-opacity {navigating
+      ? 'opacity-70 ring-2 ring-primary/40'
+      : ''}"
+    relays={profileRelays}
+    {hideDate}>
+    {#if navigating}
+      <span
+        class="z-10 absolute right-3 top-3 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-sm">
+        Opening...
+      </span>
+    {/if}
     {#if name}
       <div class="flex w-full items-start justify-between gap-2">
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <Link href={browseHref} class="block min-w-0">
+          <a href={browseHref} class="block min-w-0" onclick={handleRepoLinkClick}>
             <p class="overflow-wrap-anywhere break-words text-xl">{name}</p>
-          </Link>
+          </a>
           {#if community}
             <a
               href={makeCommunityPath(community.pubkey)}
@@ -212,9 +241,10 @@
 
 {#if tabbable}
   <div
-    class="w-full"
+    class="w-full {navigating ? 'cursor-wait' : ''}"
     role="link"
     tabindex="0"
+    aria-busy={navigating}
     aria-label={name ? `Open repository ${name}` : "Open repository"}
     onclick={handleCardClick}
     onkeydown={handleCardKeydown}>
