@@ -17,11 +17,7 @@ import {getUserDataPublishRelays} from "@app/core/community-relays"
 
 export const REPO_WATCH_DTAG = "budabit/repo-watch"
 
-export type RepoWatchActivityFilter =
-  | "all"
-  | "community"
-  | "maintainers"
-  | "maintainers-community"
+export type RepoWatchActivityFilter = "all" | "community" | "maintainers" | "maintainers-community"
 
 const repoWatchActivityFilters = new Set<RepoWatchActivityFilter>([
   "all",
@@ -54,6 +50,7 @@ export type RepoWatchOptions = {
 export type RepoWatchState = {
   version: 1
   repos: Record<string, RepoWatchOptions>
+  notificationSeen: Record<string, number>
 }
 
 export type RepoWatchOptionsInput = {
@@ -98,6 +95,7 @@ export const normalizeRepoWatchActivityFilter = (
 export const defaultRepoWatchState: RepoWatchState = {
   version: 1,
   repos: {},
+  notificationSeen: {},
 }
 
 export const normalizeRepoWatchOptions = (
@@ -127,8 +125,33 @@ export const normalizeRepoWatchOptions = (
   }
 }
 
+const normalizeTimestamp = (value: unknown) => {
+  const timestamp = Number(value || 0)
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 0
+  return timestamp > 10_000_000_000 ? Math.round(timestamp / 1000) : Math.round(timestamp)
+}
+
+const normalizeRepoWatchNotificationSeen = (state?: {
+  notificationSeen?: Record<string, unknown>
+  seen?: Record<string, unknown>
+}) => {
+  const out: Record<string, number> = {}
+  const input = state?.notificationSeen || state?.seen || {}
+
+  for (const [path, timestamp] of Object.entries(input)) {
+    const normalized = normalizeTimestamp(timestamp)
+    if (path && normalized > 0) out[path] = normalized
+  }
+
+  return out
+}
+
 export const normalizeRepoWatchState = (
-  state?: {repos?: Record<string, RepoWatchOptionsInput>} | null,
+  state?: {
+    repos?: Record<string, RepoWatchOptionsInput>
+    notificationSeen?: Record<string, unknown>
+    seen?: Record<string, unknown>
+  } | null,
 ): RepoWatchState => {
   const repos: Record<string, RepoWatchOptions> = {}
   const entries = state?.repos ? Object.entries(state.repos) : []
@@ -138,6 +161,7 @@ export const normalizeRepoWatchState = (
   return {
     version: 1,
     repos,
+    notificationSeen: normalizeRepoWatchNotificationSeen(state || undefined),
   }
 }
 
@@ -174,10 +198,15 @@ export const userRepoWatchValues = derived(
   $data => $data?.values || defaultRepoWatchState,
 )
 
+export const repoWatchNotificationSeen = derived(
+  userRepoWatchValues,
+  $values => $values.notificationSeen || {},
+)
+
 export const getRepoWatchOptions = (repoAddr: string) =>
   derived(userRepoWatchValues, $values => $values.repos[repoAddr])
 
-export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOptions | null) => {
+const publishRepoWatchState = async (next: RepoWatchState) => {
   const $pubkey = pubkey.get()
   const $signer = signer.get()
 
@@ -185,6 +214,12 @@ export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOption
     throw new Error("Sign in to update watch settings.")
   }
 
+  const content = await $signer.nip44.encrypt($pubkey, JSON.stringify(next))
+  const event = makeEvent(APP_DATA, {content, tags: [["d", REPO_WATCH_DTAG]]})
+  await publishThunk({event, relays: getUserDataPublishRelays(Router.get().FromUser().getUrls())})
+}
+
+export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOptions | null) => {
   const current = get(userRepoWatchValues)
   const repos = {...current.repos}
 
@@ -194,8 +229,37 @@ export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOption
     delete repos[repoAddr]
   }
 
-  const next: RepoWatchState = {version: 1, repos}
-  const content = await $signer.nip44.encrypt($pubkey, JSON.stringify(next))
-  const event = makeEvent(APP_DATA, {content, tags: [["d", REPO_WATCH_DTAG]]})
-  await publishThunk({event, relays: getUserDataPublishRelays(Router.get().FromUser().getUrls())})
+  await publishRepoWatchState({
+    version: 1,
+    repos,
+    notificationSeen: current.notificationSeen || {},
+  })
+}
+
+export const updateRepoWatchNotificationSeen = async (updates: Record<string, number>) => {
+  const entries = Object.entries(updates)
+    .map(([path, timestamp]) => [path, normalizeTimestamp(timestamp)] as const)
+    .filter(([path, timestamp]) => path && timestamp > 0)
+
+  if (entries.length === 0) return
+
+  const current = get(userRepoWatchValues)
+  const notificationSeen = {...(current.notificationSeen || {})}
+  let changed = false
+
+  for (const [path, timestamp] of entries) {
+    const existing = normalizeTimestamp(notificationSeen[path])
+    if (existing >= timestamp) continue
+
+    notificationSeen[path] = timestamp
+    changed = true
+  }
+
+  if (!changed) return
+
+  await publishRepoWatchState({
+    version: 1,
+    repos: current.repos || {},
+    notificationSeen,
+  })
 }

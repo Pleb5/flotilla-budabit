@@ -64,6 +64,7 @@
   } from "@app/core/git-state"
   import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
+  import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
 
   type LabelGroups = {
     Status: string[]
@@ -156,7 +157,7 @@
   })
   const repoCommunityScope = $derived(
     repoClass.community?.pubkey ||
-      getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])) ||
+      getTagValue("h", ((repoClass as any)?.repoEvent?.tags || []) as string[][]) ||
       "",
   )
   const reactionRelays = $derived.by(() => {
@@ -916,6 +917,9 @@
     const seenAt = getPrsSeenAt()
     setCheckedAt(prsSeenKey, seenAt)
     setCheckedAt(prsPath, seenAt)
+    updateRepoWatchNotificationSeen({[prsPath]: seenAt}).catch(error => {
+      console.warn("[prs] Failed to sync repo watch seen timestamp", error)
+    })
     if (repoAddress && relayUrl) {
       setCheckedForRepoNotifications(
         $notifications,
@@ -975,14 +979,7 @@
   })
 
   $effect(() => {
-    void [
-      searchTerm,
-      statusFilter,
-      authorFilter,
-      selectedLabels,
-      matchAllLabels,
-      sortBy,
-    ]
+    void [searchTerm, statusFilter, authorFilter, selectedLabels, matchAllLabels, sortBy]
     visiblePrCount = ITEMS_PER_PAGE
   })
 

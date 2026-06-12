@@ -71,6 +71,7 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -1022,6 +1023,9 @@
     const seenAt = getIssuesSeenAt()
     setCheckedAt(issuesSeenKey, seenAt)
     setCheckedAt(issuesPath, seenAt)
+    updateRepoWatchNotificationSeen({[issuesPath]: seenAt}).catch(error => {
+      console.warn("[issues] Failed to sync repo watch seen timestamp", error)
+    })
     if (repoAddress && relayUrl) {
       setCheckedForRepoNotifications(
         $notifications,

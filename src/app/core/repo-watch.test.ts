@@ -41,6 +41,11 @@ describe("repo-watch normalization", () => {
           activityFilter: "maintainers",
         },
       },
+      notificationSeen: {
+        "/git/example/issues": 1_700_000_000_000,
+        "/git/example/prs": 1_700_000_001,
+        invalid: -1,
+      },
     })
 
     expect(state.repos["30617:alice:repo"]).toEqual({
@@ -50,6 +55,10 @@ describe("repo-watch normalization", () => {
       assignments: true,
       reviews: false,
       activityFilter: "maintainers",
+    })
+    expect(state.notificationSeen).toEqual({
+      "/git/example/issues": 1_700_000_000,
+      "/git/example/prs": 1_700_000_001,
     })
   })
 
