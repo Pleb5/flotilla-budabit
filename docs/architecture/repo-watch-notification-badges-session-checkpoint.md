@@ -13,14 +13,14 @@
 
 ## Current Phase
 
-- Phase 4: Final Verification And Cleanup
+- Complete
 
 ## Phase Exit Criteria
 
-- Focused tests pass or any failure is documented as a blocker.
-- `pnpm check` or a justified narrower check passes.
-- Checkpoint says `Current Phase: Complete`.
-- Any unrelated dirty changes remain unstaged and documented.
+- All phases complete.
+- Focused tests passed.
+- `pnpm check` passed.
+- Unrelated dirty changes remain unstaged and documented.
 
 ## Completed With Evidence
 
@@ -32,6 +32,9 @@
 - Phase 3: Watched Repo Badge Pipeline completed by adding `src/app/util/repo-watch-notifications.ts`, deriving unread `/git/{naddr}/issues` and `/git/{naddr}/prs` paths from explicit repo watch entries, loading watched repo announcements/activity/comments/statuses/labels/community metadata, applying maintainer/community/all author filters, ignoring reviewer labels, wiring setup from app startup, and making global Git badges roll up from repo notification paths instead of literal `/git`.
 - Evidence: `pnpm exec vitest run --project=main src/app/core/repo-watch.test.ts src/app/util/notifications.test.ts src/app/util/repo-watch-notifications.test.ts` passed 16 tests in 3 files; `pnpm check` completed with 0 errors and 0 warnings; grep for literal `$notifications.has("/git")` found no matches.
 - Changed files for Phase 3: `src/app/util/repo-watch-notifications.ts`, `src/app/util/repo-watch-notifications.test.ts`, `src/routes/+layout.svelte`, `src/app/components/PrimaryNav.svelte`, `src/app/components/CommunityMenu.svelte`, `src/routes/c/[community]/+page.svelte`, `src/app/components/RepoWatchModal.svelte`, and this checkpoint.
+- Phase 4: Final Verification And Cleanup completed by rerunning focused repo-watch/notification tests, rerunning `pnpm check`, inspecting remaining dirty state, and marking this checkpoint complete.
+- Evidence: `pnpm exec vitest run --project=main src/app/core/repo-watch.test.ts src/app/util/notifications.test.ts src/app/util/repo-watch-notifications.test.ts` passed 16 tests in 3 files; `pnpm check` completed with 0 errors and 0 warnings; `git status --short --branch` showed only unrelated dirty files remaining.
+- Changed files for Phase 4: this checkpoint.
 
 ## Decisions
 
@@ -49,7 +52,7 @@
 
 ## Next Action
 
-- Start Phase 4 by reading the checkpoint, reading the full plan, inspecting git status/diff, then running final verification and marking the checkpoint complete.
+- Final response.
 
 ## Verification
 
@@ -61,12 +64,15 @@
 - Phase 3: `pnpm exec vitest run --project=main src/app/core/repo-watch.test.ts src/app/util/notifications.test.ts src/app/util/repo-watch-notifications.test.ts` passed.
 - Phase 3: `pnpm check` passed with 0 diagnostics.
 - Phase 3: grep found no remaining literal `$notifications.has("/git")` checks under `src`.
+- Phase 4: `pnpm exec vitest run --project=main src/app/core/repo-watch.test.ts src/app/util/notifications.test.ts src/app/util/repo-watch-notifications.test.ts` passed.
+- Phase 4: `pnpm check` passed with 0 diagnostics.
+- Phase 4: `git diff --stat` showed remaining unrelated dirty files only: `src/app/util/notifications.ts`, `src/app/util/notifications.test.ts`, `src/routes/c/[community]/+layout.svelte`, `src/routes/c/[community]/access/+page.svelte`, `src/routes/c/[community]/rooms/[room]/+page.svelte`, and `src/service-worker.js`.
 
 ## Risks Or Blockers
 
 - Existing dirty changes overlap `src/app/util/notifications.ts` and tests; later phases should avoid or carefully isolate staging for those files.
 - `src/routes/c/[community]/+page.svelte` had unrelated dirty changes before Phase 3; only the Git badge rollup hunk should be staged for Phase 3.
-- Push target currently appears to be `origin/dev`; confirm before each commit/push.
+- Remaining dirty files are unrelated to the completed repo-watch notification badge phases and should remain unstaged unless intentionally handled separately.
 
 ## Files
 
