@@ -5,6 +5,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {pushToast} from "@app/util/toast"
@@ -40,6 +41,7 @@
   let options = $state<RepoWatchOptions>(cloneOptions(defaultRepoWatchOptions))
   let dirty = $state(false)
   let loading = $state(false)
+  let openActivityTooltip = $state<RepoWatchActivityFilter | null>(null)
 
   const activityFilterOptions: Array<{
     value: RepoWatchActivityFilter
@@ -56,7 +58,7 @@
       value: "community",
       label: "Community-only",
       tooltip:
-        "Only show badges for activity from eligible members of this repo's tagged community.",
+        "Only show badges for activity from eligible members of this repo's community.",
       requiresCommunity: true,
     },
     {
@@ -68,7 +70,7 @@
       value: "maintainers-community",
       label: "Maintainers + community only",
       tooltip:
-        "Only show badges for activity from declared maintainers or eligible tagged-community members.",
+        "Only show badges for activity from declared maintainers or eligible community members.",
       requiresCommunity: true,
     },
   ]
@@ -99,6 +101,11 @@
 
   const markDirty = () => {
     dirty = true
+  }
+
+  const toggleActivityTooltip = (event: Event, value: RepoWatchActivityFilter) => {
+    event.stopPropagation()
+    openActivityTooltip = openActivityTooltip === value ? null : value
   }
 
   const hasAnyOption = (opts: RepoWatchOptions) =>
@@ -206,22 +213,38 @@
       <strong class="mb-2 block">Filter activity</strong>
       <div class="grid gap-2">
         {#each visibleActivityFilterOptions as option (option.value)}
-          <label class="flex items-center gap-2">
-            <input
-              type="radio"
-              class="radio radio-primary radio-sm"
-              value={option.value}
-              bind:group={options.activityFilter}
-              oninput={markDirty}
-              disabled={!watchEnabled} />
-            <span>{option.label}</span>
-            <span
-              class="tooltip tooltip-left inline-flex cursor-help items-center rounded-full border border-base-300 px-1.5 text-xs opacity-70"
-              data-tip={option.tooltip}
-              title={option.tooltip}>
-              ?
-            </span>
-          </label>
+          <div class="flex items-center gap-2">
+            <label class="flex min-w-0 flex-1 items-center gap-2">
+              <input
+                type="radio"
+                class="radio radio-primary radio-sm"
+                value={option.value}
+                bind:group={options.activityFilter}
+                oninput={markDirty}
+                disabled={!watchEnabled} />
+              <span>{option.label}</span>
+            </label>
+            <div class="relative shrink-0">
+              <Button
+                class="center h-5 w-5 rounded-full border border-base-300 bg-base-100 p-0 text-xs font-semibold text-muted-foreground hover:border-primary/50 hover:text-primary"
+                aria-label={`Explain ${option.label}`}
+                aria-expanded={openActivityTooltip === option.value}
+                onclick={event => toggleActivityTooltip(event, option.value)}>
+                ?
+              </Button>
+              {#if openActivityTooltip === option.value}
+                <InlinePopover
+                  align="right"
+                  widthClass="w-72 sm:w-80"
+                  onClose={() => (openActivityTooltip = null)}>
+                  <div class="space-y-1 text-sm">
+                    <div class="font-semibold">{option.label}</div>
+                    <p class="text-xs text-muted-foreground">{option.tooltip}</p>
+                  </div>
+                </InlinePopover>
+              {/if}
+            </div>
+          </div>
         {/each}
       </div>
     </div>
