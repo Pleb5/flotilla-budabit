@@ -20,7 +20,8 @@ describe("repo-watch normalization", () => {
       prs: {new: true, comments: false, updates: false},
       status: {open: true, draft: true, applied: true, closed: false},
       assignments: false,
-      reviews: true,
+      reviews: false,
+      activityFilter: "all",
     })
   })
 
@@ -37,6 +38,7 @@ describe("repo-watch normalization", () => {
           prs: {comments: true},
           status: {draft: false, applied: false},
           reviews: false,
+          activityFilter: "maintainers",
         },
       },
     })
@@ -47,7 +49,12 @@ describe("repo-watch normalization", () => {
       status: {open: true, draft: false, applied: false, closed: true},
       assignments: true,
       reviews: false,
+      activityFilter: "maintainers",
     })
+  })
+
+  it("normalizes unknown activity filters to all activity", () => {
+    expect(normalizeRepoWatchOptions({activityFilter: "unknown"}).activityFilter).toBe("all")
   })
 
   it("migrates legacy patch watch options to PR options", () => {

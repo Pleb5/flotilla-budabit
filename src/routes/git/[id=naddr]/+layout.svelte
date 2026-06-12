@@ -471,12 +471,20 @@
     repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined,
   )
   const isWatching = $derived(Boolean(watchOptions))
+  const repoHasCommunity = $derived.by(() =>
+    Boolean(
+      repoClass?.community?.pubkey ||
+        getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])),
+    ),
+  )
 
   const openWatchModal = () => {
     if (!repoAddress) return
     pushModal(RepoWatchModal, {
       repoAddr: repoAddress,
       repoName: repoClass?.name || repoName,
+      repoBasePath: basePath,
+      hasCommunity: repoHasCommunity,
     })
   }
 

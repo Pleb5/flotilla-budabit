@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {now} from "@welshman/lib"
   import {preventDefault} from "@lib/html"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
@@ -6,19 +7,28 @@
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {pushToast} from "@app/util/toast"
+  import {setCheckedAt} from "@app/util/notifications"
   import {
     defaultRepoWatchOptions,
     updateRepoWatch,
     userRepoWatchValues,
+    type RepoWatchActivityFilter,
     type RepoWatchOptions,
   } from "@app/core/repo-watch"
 
   type Props = {
     repoAddr: string
     repoName?: string
+    repoBasePath?: string
+    hasCommunity?: boolean
   }
 
-  const {repoAddr, repoName = "Repository"}: Props = $props()
+  const {
+    repoAddr,
+    repoName = "Repository",
+    repoBasePath = "",
+    hasCommunity = false,
+  }: Props = $props()
 
   const existingOptions = $derived.by(() => $userRepoWatchValues.repos[repoAddr])
 
@@ -29,6 +39,45 @@
   let dirty = $state(false)
   let loading = $state(false)
 
+  const activityFilterOptions: Array<{
+    value: RepoWatchActivityFilter
+    label: string
+    tooltip: string
+    requiresCommunity?: boolean
+  }> = [
+    {
+      value: "all",
+      label: "All activity",
+      tooltip: "Show badges for enabled activity from anyone except you.",
+    },
+    {
+      value: "community",
+      label: "Community-only",
+      tooltip:
+        "Only show badges for activity from eligible members of this repo's tagged community.",
+      requiresCommunity: true,
+    },
+    {
+      value: "maintainers",
+      label: "Maintainer-only",
+      tooltip: "Only show badges for activity from the repo owner and declared maintainers.",
+    },
+    {
+      value: "maintainers-community",
+      label: "Maintainers + community only",
+      tooltip:
+        "Only show badges for activity from declared maintainers or eligible tagged-community members.",
+      requiresCommunity: true,
+    },
+  ]
+
+  const visibleActivityFilterOptions = $derived(
+    activityFilterOptions.filter(option => hasCommunity || !option.requiresCommunity),
+  )
+
+  const isCommunityActivityFilter = (value: RepoWatchActivityFilter) =>
+    value === "community" || value === "maintainers-community"
+
   $effect(() => {
     if (dirty) return
     if (existingOptions) {
@@ -37,6 +86,12 @@
     } else {
       watchEnabled = false
       options = cloneOptions(defaultRepoWatchOptions)
+    }
+  })
+
+  $effect(() => {
+    if (!hasCommunity && isCommunityActivityFilter(options.activityFilter)) {
+      options.activityFilter = "all"
     }
   })
 
@@ -54,10 +109,26 @@
     opts.status.draft ||
     opts.status.applied ||
     opts.status.closed ||
-    opts.assignments ||
-    opts.reviews
+    opts.assignments
 
   const back = () => history.back()
+
+  const normalizeOptionsForRepo = (opts: RepoWatchOptions): RepoWatchOptions => {
+    const next = cloneOptions(opts)
+    if (!hasCommunity && isCommunityActivityFilter(next.activityFilter)) {
+      next.activityFilter = "all"
+    }
+    next.reviews = false
+    return next
+  }
+
+  const markWatchedSectionsSeen = () => {
+    if (!repoBasePath) return
+
+    const checkedAt = now()
+    setCheckedAt(`${repoBasePath}/issues`, checkedAt)
+    setCheckedAt(`${repoBasePath}/prs`, checkedAt)
+  }
 
   const submit = async () => {
     if (!watchEnabled) {
@@ -83,7 +154,8 @@
 
     loading = true
     try {
-      await updateRepoWatch(repoAddr, options)
+      await updateRepoWatch(repoAddr, normalizeOptionsForRepo(options))
+      markWatchedSectionsSeen()
       pushToast({message: "Watch settings saved"})
       back()
     } catch (error: any) {
@@ -118,6 +190,30 @@
   </FieldInline>
 
   <div class="grid gap-4">
+    <div class="card2 bg-alt p-4 shadow-sm">
+      <strong class="mb-2 block">Filter activity</strong>
+      <div class="grid gap-2">
+        {#each visibleActivityFilterOptions as option (option.value)}
+          <label class="flex items-center gap-2">
+            <input
+              type="radio"
+              class="radio radio-primary radio-sm"
+              value={option.value}
+              bind:group={options.activityFilter}
+              oninput={markDirty}
+              disabled={!watchEnabled} />
+            <span>{option.label}</span>
+            <span
+              class="tooltip tooltip-left inline-flex cursor-help items-center rounded-full border border-base-300 px-1.5 text-xs opacity-70"
+              data-tip={option.tooltip}
+              title={option.tooltip}>
+              ?
+            </span>
+          </label>
+        {/each}
+      </div>
+    </div>
+
     <div class="card2 bg-alt p-4 shadow-sm">
       <strong class="mb-2 block">Issues</strong>
       <label class="flex items-center gap-2">
@@ -223,15 +319,6 @@
           oninput={markDirty}
           disabled={!watchEnabled} />
         Assigned to me
-      </label>
-      <label class="mt-2 flex items-center gap-2">
-        <input
-          type="checkbox"
-          class="checkbox"
-          bind:checked={options.reviews}
-          oninput={markDirty}
-          disabled={!watchEnabled} />
-        Review requested
       </label>
     </div>
   </div>

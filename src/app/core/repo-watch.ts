@@ -17,6 +17,19 @@ import {getUserDataPublishRelays} from "@app/core/community-relays"
 
 export const REPO_WATCH_DTAG = "budabit/repo-watch"
 
+export type RepoWatchActivityFilter =
+  | "all"
+  | "community"
+  | "maintainers"
+  | "maintainers-community"
+
+const repoWatchActivityFilters = new Set<RepoWatchActivityFilter>([
+  "all",
+  "community",
+  "maintainers",
+  "maintainers-community",
+])
+
 export type RepoWatchOptions = {
   issues: {
     new: boolean
@@ -35,6 +48,7 @@ export type RepoWatchOptions = {
   }
   assignments: boolean
   reviews: boolean
+  activityFilter: RepoWatchActivityFilter
 }
 
 export type RepoWatchState = {
@@ -49,6 +63,7 @@ export type RepoWatchOptionsInput = {
   status?: Partial<RepoWatchOptions["status"]>
   assignments?: boolean
   reviews?: boolean
+  activityFilter?: RepoWatchActivityFilter | string
 }
 
 export const defaultRepoWatchOptions: RepoWatchOptions = {
@@ -68,7 +83,16 @@ export const defaultRepoWatchOptions: RepoWatchOptions = {
     closed: true,
   },
   assignments: true,
-  reviews: true,
+  reviews: false,
+  activityFilter: "all",
+}
+
+export const normalizeRepoWatchActivityFilter = (
+  value?: RepoWatchActivityFilter | string | null,
+): RepoWatchActivityFilter => {
+  return repoWatchActivityFilters.has(value as RepoWatchActivityFilter)
+    ? (value as RepoWatchActivityFilter)
+    : defaultRepoWatchOptions.activityFilter
 }
 
 export const defaultRepoWatchState: RepoWatchState = {
@@ -99,6 +123,7 @@ export const normalizeRepoWatchOptions = (
     },
     assignments: options?.assignments ?? base.assignments,
     reviews: options?.reviews ?? base.reviews,
+    activityFilter: normalizeRepoWatchActivityFilter(options?.activityFilter),
   }
 }
 
