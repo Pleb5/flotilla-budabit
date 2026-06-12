@@ -67,7 +67,12 @@
   } from "@app/core/community-membership"
   import {isCommunityAdmin, isCommunityPersonBanned} from "@app/core/community-reports"
   import {getPeopleSearchTextScore} from "@app/util/people-search"
-  import {checked, normalizeChecked, setChecked} from "@app/util/notifications"
+  import {
+    checked,
+    communityNotificationBaselines,
+    getNotificationCheckedAt,
+    setChecked,
+  } from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type AccessPageTab = "requests" | "members"
@@ -245,19 +250,14 @@
   const moderatorRequestStates = $derived(
     communityBootstrapReady ? $activeCommunityUserModeratorRequestStates : [],
   )
-  const accessCheckedAt = $derived.by(() => {
-    let checkedAt = 0
-    const path = accessPath || $page.url.pathname
-
-    for (const [entryPath, timestamp] of Object.entries($checked)) {
-      if (entryPath.endsWith(":seen")) continue
-      if (entryPath === "*" || entryPath.startsWith(path)) {
-        checkedAt = Math.max(checkedAt, normalizeChecked(timestamp))
-      }
-    }
-
-    return checkedAt
-  })
+  const accessCheckedAt = $derived.by(() =>
+    getNotificationCheckedAt({
+      checked: $checked,
+      path: accessPath || $page.url.pathname,
+      currentPubkey: $pubkey || undefined,
+      communityBaselines: $communityNotificationBaselines,
+    }),
+  )
   const getModeratorRequestKey = ({
     requesterPubkey,
     sectionName,

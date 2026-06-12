@@ -21,7 +21,7 @@
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushDrawer} from "@app/util/modal"
-  import {checked, setCheckedAt} from "@app/util/notifications"
+  import {checked, ensureCommunityNotificationBaseline, setCheckedAt} from "@app/util/notifications"
   import {deriveRelayAuthError} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {
@@ -187,6 +187,13 @@
     }
 
     load()
+  })
+
+  $effect(() => {
+    ensureCommunityNotificationBaseline({
+      viewerPubkey: $pubkey || undefined,
+      communityPubkey: parsedCommunity?.pubkey,
+    })
   })
 
   $effect(() => {

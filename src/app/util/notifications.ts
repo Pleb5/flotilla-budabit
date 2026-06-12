@@ -43,6 +43,12 @@ export const checked = synced<Record<string, number>>({
   storage: kv,
 })
 
+export const communityNotificationBaselines = synced<Record<string, number>>({
+  key: "communityNotificationBaselines",
+  defaultValue: {},
+  storage: kv,
+})
+
 export const deriveChecked = (key: string) => derived(checked, prop(key))
 
 export const setChecked = (key: string) => checked.update(state => ({...state, [key]: now()}))
@@ -102,6 +108,127 @@ const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
 
 export const normalizeChecked = (value: number) =>
   value > 10_000_000_000 ? Math.round(value / 1000) : value
+
+type CommunityNotificationBaselineOptions = {
+  viewerPubkey?: string
+  communityPubkey?: string
+  timestamp?: number
+}
+
+type CommunityNotificationBaselineForPathOptions = {
+  path: string
+  currentPubkey?: string
+  communityBaselines?: Record<string, number>
+}
+
+type NotificationCheckedAtOptions = CommunityNotificationBaselineForPathOptions & {
+  checked?: Record<string, number>
+}
+
+type HasNotificationForPathOptions = NotificationCheckedAtOptions & {
+  latestEvent?: TrustedEvent
+}
+
+export const getCommunityNotificationBaselineKey = (
+  viewerPubkey: string | undefined,
+  communityPubkey: string | undefined,
+) => {
+  const viewer = normalizePubkey(viewerPubkey || "")
+  const community = normalizePubkey(communityPubkey || "")
+
+  return viewer && community ? `${viewer}:${community}` : ""
+}
+
+export const ensureCommunityNotificationBaseline = ({
+  viewerPubkey,
+  communityPubkey,
+  timestamp = now(),
+}: CommunityNotificationBaselineOptions) => {
+  const key = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
+  if (!key) return false
+
+  let added = false
+
+  communityNotificationBaselines.update(state => {
+    if (Object.prototype.hasOwnProperty.call(state, key)) return state
+
+    added = true
+    return {...state, [key]: timestamp}
+  })
+
+  return added
+}
+
+export const getCommunityNotificationBaselineForPath = ({
+  path,
+  currentPubkey,
+  communityBaselines = {},
+}: CommunityNotificationBaselineForPathOptions) => {
+  const viewer = normalizePubkey(currentPubkey || "")
+  if (!path || !viewer) return 0
+
+  let checkedAt = 0
+
+  for (const [key, timestamp] of Object.entries(communityBaselines)) {
+    const [baselineViewer, communityPubkey] = key.split(":")
+    if (baselineViewer !== viewer || !communityPubkey) continue
+
+    const communityPath = makeCommunityPath(communityPubkey)
+    if (path === communityPath || path.startsWith(`${communityPath}/`)) {
+      checkedAt = Math.max(checkedAt, normalizeChecked(timestamp))
+    }
+  }
+
+  return checkedAt
+}
+
+export const getNotificationCheckedAt = ({
+  checked: checkedState = {},
+  path,
+  currentPubkey,
+  communityBaselines = {},
+}: NotificationCheckedAtOptions) => {
+  let checkedAt = getCommunityNotificationBaselineForPath({
+    path,
+    currentPubkey,
+    communityBaselines,
+  })
+
+  for (const [entryPath, timestamp] of Object.entries(checkedState)) {
+    if (entryPath.endsWith(":seen")) continue
+
+    const isMatch =
+      entryPath === "*" ||
+      entryPath.startsWith(path) ||
+      (entryPath === "/chat/*" && path.startsWith("/chat/"))
+
+    if (isMatch) checkedAt = Math.max(checkedAt, normalizeChecked(timestamp))
+  }
+
+  return checkedAt
+}
+
+export const hasNotificationForPath = ({
+  path,
+  latestEvent,
+  currentPubkey,
+  checked: checkedState,
+  communityBaselines,
+}: HasNotificationForPathOptions) => {
+  const viewer = normalizePubkey(currentPubkey || "")
+
+  if (!latestEvent) return false
+  if (viewer && normalizePubkey(latestEvent.pubkey) === viewer) return false
+
+  return (
+    getNotificationCheckedAt({
+      checked: checkedState,
+      path,
+      currentPubkey,
+      communityBaselines,
+    }) < latestEvent.created_at
+  )
+}
 
 const isNewerEvent = (event: TrustedEvent, current: TrustedEvent) =>
   event.created_at > current.created_at ||
@@ -546,22 +673,34 @@ const budabitNotificationCandidates: Readable<NotificationCandidate[]> = derived
 export const notifications = derived(
   throttled(
     1000,
-    derived([pubkey, checked, chatsById, notificationsConfig, extraCandidates], identity),
+    derived(
+      [
+        pubkey,
+        checked,
+        communityNotificationBaselines,
+        chatsById,
+        notificationsConfig,
+        extraCandidates,
+      ],
+      identity,
+    ),
   ),
-  ([$pubkey, $checked, $chatsById, $notificationsConfig, $extraCandidates]) => {
+  ([
+    $pubkey,
+    $checked,
+    $communityNotificationBaselines,
+    $chatsById,
+    $notificationsConfig,
+    $extraCandidates,
+  ]) => {
     const hasNotification = (path: string, latestEvent: TrustedEvent | undefined) => {
-      if (!latestEvent || latestEvent.pubkey === $pubkey) return false
-
-      for (const [entryPath, ts] of Object.entries($checked)) {
-        if (entryPath.endsWith(":seen")) continue
-        const isMatch =
-          entryPath === "*" ||
-          entryPath.startsWith(path) ||
-          (entryPath === "/chat/*" && path.startsWith("/chat/"))
-        if (isMatch && normalizeChecked(ts) >= latestEvent.created_at) return false
-      }
-
-      return true
+      return hasNotificationForPath({
+        path,
+        latestEvent,
+        currentPubkey: $pubkey,
+        checked: $checked,
+        communityBaselines: $communityNotificationBaselines,
+      })
     }
 
     const paths = new Set<string>()

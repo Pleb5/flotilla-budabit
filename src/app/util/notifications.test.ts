@@ -285,4 +285,79 @@ describe("notifications", () => {
       }),
     ).toEqual([{path, latestEvent: newerTargeting}])
   })
+
+  it("uses community first-encounter baselines as checked timestamps", async () => {
+    const {getCommunityNotificationBaselineKey, getNotificationCheckedAt, hasNotificationForPath} =
+      await import("./notifications")
+    const viewerPubkey = "a".repeat(64)
+    const otherViewerPubkey = "b".repeat(64)
+    const communityPubkey = "c".repeat(64)
+    const otherCommunityPubkey = "d".repeat(64)
+    const authorPubkey = "e".repeat(64)
+    const path = `/c/${communityPubkey}/threads`
+    const baselineKey = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
+    const communityBaselines = {[baselineKey]: 100}
+
+    expect(
+      getNotificationCheckedAt({
+        checked: {},
+        path,
+        currentPubkey: viewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(100)
+    expect(
+      hasNotificationForPath({
+        checked: {},
+        path,
+        latestEvent: makeEvent({pubkey: authorPubkey, created_at: 99}),
+        currentPubkey: viewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(false)
+    expect(
+      hasNotificationForPath({
+        checked: {},
+        path,
+        latestEvent: makeEvent({pubkey: authorPubkey, created_at: 101}),
+        currentPubkey: viewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(true)
+    expect(
+      hasNotificationForPath({
+        checked: {},
+        path,
+        latestEvent: makeEvent({pubkey: authorPubkey, created_at: 99}),
+        currentPubkey: otherViewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(true)
+    expect(
+      hasNotificationForPath({
+        checked: {},
+        path: `/c/${otherCommunityPubkey}/threads`,
+        latestEvent: makeEvent({pubkey: authorPubkey, created_at: 99}),
+        currentPubkey: viewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(true)
+  })
+
+  it("does not apply community baselines to non-community paths", async () => {
+    const {getCommunityNotificationBaselineKey, getNotificationCheckedAt} =
+      await import("./notifications")
+    const viewerPubkey = "a".repeat(64)
+    const communityPubkey = "c".repeat(64)
+    const baselineKey = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
+
+    expect(
+      getNotificationCheckedAt({
+        checked: {},
+        path: "/chat/example",
+        currentPubkey: viewerPubkey,
+        communityBaselines: {[baselineKey]: 100},
+      }),
+    ).toBe(0)
+  })
 })

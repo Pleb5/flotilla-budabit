@@ -60,7 +60,12 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedMessage} from "@app/core/event-edit-publish"
-  import {checked, setChecked} from "@app/util/notifications"
+  import {
+    checked,
+    communityNotificationBaselines,
+    getNotificationCheckedAt,
+    setChecked,
+  } from "@app/util/notifications"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
   import {
@@ -82,7 +87,14 @@
   const roomPath = $derived(
     communityPubkey && roomId ? makeCommunityRoomPath(communityPubkey, roomId) : $page.url.pathname,
   )
-  const lastChecked = $derived($checked[roomPath])
+  const lastChecked = $derived.by(() =>
+    getNotificationCheckedAt({
+      checked: $checked,
+      path: roomPath,
+      currentPubkey: $pubkey || undefined,
+      communityBaselines: $communityNotificationBaselines,
+    }),
+  )
 
   const roomAuthorPubkeys = $derived(
     $activeCommunityDefinition
