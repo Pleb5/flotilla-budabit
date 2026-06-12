@@ -1,11 +1,11 @@
 /* global clients, __ALERTS__ */
 
-import {base, build, files, version} from "$service-worker"
+import {build, files, version} from "$service-worker"
 import * as nip19 from "nostr-tools/nip19"
 
 const APP_CACHE_PREFIX = "budabit-app-"
 const APP_CACHE_NAME = `${APP_CACHE_PREFIX}${version}`
-const APP_BASE = base === "/" ? "" : base
+const APP_BASE = new URL(self.registration.scope).pathname.replace(/\/$/, "")
 
 const toAppPath = path => {
   const pathname = path.startsWith("/") ? path : `/${path}`
