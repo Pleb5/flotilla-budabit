@@ -59,6 +59,7 @@
   import {syncApplicationData, syncGitData} from "@app/core/sync"
   import {setupChiiDevInjection} from "@app/util/chii-dev"
   import {setupBudabitNotifications} from "@app/util/notifications"
+  import {setupRepoWatchNotifications} from "@app/util/repo-watch-notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
   import {initializeCashuWallet} from "@app/core/cashu"
@@ -169,6 +170,7 @@
   shouldUnwrap.set(true)
 
   setupBudabitNotifications()
+  setupRepoWatchNotifications()
 
   $effect(() => {
     const session = $activeCommunitySession

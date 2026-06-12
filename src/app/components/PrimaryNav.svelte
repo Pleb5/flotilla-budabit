@@ -15,6 +15,7 @@
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import {pushModal} from "@app/util/modal"
   import {notifications} from "@app/util/notifications"
+  import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
@@ -32,7 +33,7 @@
     else pushModal(LogIn)
   }
 
-  const gitNotification = $derived($notifications.has("/git"))
+  const gitNotification = $derived(hasGitNotification($notifications))
 
   // Get widgets configured for menu display
   const menuWidgets = $derived.by(() => {

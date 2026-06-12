@@ -48,6 +48,7 @@
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {notifications} from "@app/util/notifications"
+  import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -416,7 +417,7 @@
       <div class="relative flex items-center gap-2">
         <Icon icon={Git} />
         Git
-        {#if $notifications.has(gitPath)}
+        {#if hasGitNotification($notifications)}
           <div
             class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
             transition:fade>

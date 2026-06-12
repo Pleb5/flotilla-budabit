@@ -49,6 +49,7 @@
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
+  import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {formatShortNpub} from "@app/util/pubkeys"
   import {
     makeCommunityCalendarPath,
@@ -246,7 +247,10 @@
         </SecondaryNavItem>
       {/if}
 
-      <SecondaryNavItem {replaceState} href={gitPath} notification={$notifications.has(gitPath)}>
+      <SecondaryNavItem
+        {replaceState}
+        href={gitPath}
+        notification={hasGitNotification($notifications)}>
         <Icon icon={Git} /> Git
       </SecondaryNavItem>
 

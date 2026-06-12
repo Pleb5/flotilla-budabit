@@ -1,5 +1,6 @@
 <script lang="ts">
   import {now} from "@welshman/lib"
+  import {Address} from "@welshman/util"
   import {preventDefault} from "@lib/html"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
@@ -8,6 +9,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import {pushToast} from "@app/util/toast"
   import {setCheckedAt} from "@app/util/notifications"
+  import {makeGitPath} from "@app/util/routes"
   import {
     defaultRepoWatchOptions,
     updateRepoWatch,
@@ -123,11 +125,21 @@
   }
 
   const markWatchedSectionsSeen = () => {
-    if (!repoBasePath) return
-
     const checkedAt = now()
-    setCheckedAt(`${repoBasePath}/issues`, checkedAt)
-    setCheckedAt(`${repoBasePath}/prs`, checkedAt)
+    const repoBasePaths = new Set<string>()
+
+    if (repoBasePath) repoBasePaths.add(repoBasePath)
+
+    try {
+      repoBasePaths.add(makeGitPath(undefined, Address.from(repoAddr).toNaddr()))
+    } catch {
+      // If the watch key is malformed, the current route path is the best available checkpoint.
+    }
+
+    for (const basePath of repoBasePaths) {
+      setCheckedAt(`${basePath}/issues`, checkedAt)
+      setCheckedAt(`${basePath}/prs`, checkedAt)
+    }
   }
 
   const submit = async () => {
