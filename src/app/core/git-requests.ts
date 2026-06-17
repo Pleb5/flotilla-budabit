@@ -7,7 +7,7 @@ import {
 import {tokens, type Token} from "@nostr-git/ui"
 import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
 import {repository, ensurePlaintext, signer, pubkey, publishThunk} from "@welshman/app"
-import {load, pull, PublishStatus} from "@welshman/net"
+import {load, request, PublishStatus} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {get} from "svelte/store"
 import {APP_DATA, makeEvent, normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
@@ -371,10 +371,14 @@ export function setupExtensionManifestSync(
     }
   })
 
-  // Open a persistent WebSocket subscription — events are pushed by the relay
+  // Open a persistent subscription — request() without autoClose keeps the relay
+  // connection open after EOSE so new events are pushed as they're published.
+  // Events flow through the Welshman Pool's global socket listener which calls
+  // repository.publish(), triggering the deriveEventsAsc store above.
   const controller = new AbortController()
   extensionManifestAbortController = controller
-  pull({relays, filters: [filter], signal: controller.signal, events: []})
+  // Fire-and-forget: never resolves until the signal aborts
+  void request({relays, filters: [filter], signal: controller.signal})
 
   return () => {
     extensionManifestUnsub?.()
