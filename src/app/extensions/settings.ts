@@ -241,10 +241,15 @@ export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSe
     const current = get(extensionSettings)
     const normalized = normalizeExtensionSettings(remoteSettings)
 
-    // Merge installed: preserve locally-installed extensions that aren't in the relay event yet
+    // Merge installed nip89: local wins for shared keys.
+    // The live kind 31990 subscription (setupExtensionManifestSync) is the authoritative
+    // source for manifest content — letting remote overwrite it on every applyRemoteExtensionSettings
+    // call causes a feedback loop (remote has stale manifest, manifest sync re-detects the diff,
+    // updates local, remote overwrites, repeat).  After a page refresh local starts empty so
+    // remote still supplies all known extensions — no regression for the settings-disappear fix.
     const mergedNip89 = {
-      ...(current.installed?.nip89 || {}),
-      ...normalized.installed.nip89, // remote wins for shared keys (applies manifest updates)
+      ...normalized.installed.nip89, // remote base (adds extensions not installed locally)
+      ...(current.installed?.nip89 || {}), // local wins for shared keys
     }
     const mergedWidgets = {
       ...(current.installed?.widget || {}),
