@@ -50,7 +50,8 @@
     COMMUNITY_CALENDAR_WRITE_TARGETS,
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunityCalendarWriteTarget,
+    getCommunityCalendarTargetWriterPubkeys,
+    getCommunityCalendarWriteTargetSectionName,
     getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
@@ -92,15 +93,13 @@
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
   const calendarSectionName = $derived(
-    getCommunityWriteTargetSectionName(
+    getCommunityCalendarWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
-      COMMUNITY_WRITE_TARGETS.calendar,
     ),
   )
-  const getCalendarEventSectionName = (kind: number) =>
-    getCommunityWriteTargetSectionName(
+  const getCalendarEventSectionName = (_kind: number) =>
+    getCommunityCalendarWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
-      getCommunityCalendarWriteTarget(kind),
     )
   const commentSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -109,20 +108,14 @@
     ),
   )
   const commentAccessMessage = $derived(`Request ${commentSectionName} access to comment.`)
-  const calendarAuthorPubkeysByKind = $derived.by(() =>
-    new Map(
-      COMMUNITY_CALENDAR_WRITE_TARGETS.map(target => [
-        target.kind,
-        $activeCommunityDefinition
-          ? getCommunityTargetWriterPubkeys({
-              definition: $activeCommunityDefinition,
-              profileListEvents: $activeCommunityProfileListEvents,
-              target,
-              reportState: $activeCommunityReportState,
-            })
-          : [],
-      ]),
-    ),
+  const calendarAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunityCalendarTargetWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          reportState: $activeCommunityReportState,
+        })
+      : [],
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -141,11 +134,11 @@
     const filters: Filter[] = []
 
     for (const target of COMMUNITY_CALENDAR_WRITE_TARGETS) {
-      const authors = calendarAuthorPubkeysByKind.get(target.kind) || []
-      if (authors.length === 0) continue
+      if (calendarAuthorPubkeys.length === 0) continue
 
-      if (isEventIdParam) filters.push({kinds: [target.kind], ids: [eventParam], authors})
-      filters.push({kinds: [target.kind], "#d": [eventParam], authors})
+      if (isEventIdParam)
+        filters.push({kinds: [target.kind], ids: [eventParam], authors: calendarAuthorPubkeys})
+      filters.push({kinds: [target.kind], "#d": [eventParam], authors: calendarAuthorPubkeys})
     }
 
     return filters
@@ -184,9 +177,7 @@
   const isTargetedToCommunity = $derived.by(() => {
     if (!event) return false
 
-    const allowedAuthors = new Set(
-      (calendarAuthorPubkeysByKind.get(event.kind) || []).map(normalizePubkey).filter(Boolean),
-    )
+    const allowedAuthors = new Set(calendarAuthorPubkeys.map(normalizePubkey).filter(Boolean))
     if (!allowedAuthors.has(normalizePubkey(event.pubkey))) return false
 
     return $targetingEvents.some(targetingEvent => {

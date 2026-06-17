@@ -40,8 +40,8 @@
     COMMUNITY_CALENDAR_WRITE_TARGETS,
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    getCommunityCalendarWriteTarget,
-    getCommunityWriteTargetSectionName,
+    getCommunityCalendarTargetWriterPubkeys,
+    getCommunityCalendarWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
@@ -87,10 +87,9 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
-  const getCalendarEventSectionName = (kind: number) =>
-    getCommunityWriteTargetSectionName(
+  const getCalendarEventSectionName = (_kind: number) =>
+    getCommunityCalendarWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
-      getCommunityCalendarWriteTarget(kind),
     )
   const targetingFilters = $derived(
     communityBootstrapReady && communityPubkey
@@ -100,23 +99,14 @@
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
-  const calendarAuthorPubkeysByKind = $derived.by(() =>
-    new Map(
-      COMMUNITY_CALENDAR_WRITE_TARGETS.map(target => [
-        target.kind,
-        $activeCommunityDefinition
-          ? getCommunityTargetWriterPubkeys({
-              definition: $activeCommunityDefinition,
-              profileListEvents: $activeCommunityProfileListEvents,
-              target,
-              reportState: $activeCommunityReportState,
-            })
-          : [],
-      ]),
-    ),
-  )
   const calendarAuthorPubkeys = $derived(
-    Array.from(new Set(Array.from(calendarAuthorPubkeysByKind.values()).flat())),
+    $activeCommunityDefinition
+      ? getCommunityCalendarTargetWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          reportState: $activeCommunityReportState,
+        })
+      : [],
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -130,18 +120,13 @@
   )
   const targetingIdsByKind = $derived.by(() => {
     const idsByKind = new Map<number, string[]>()
+    const allowedAuthors = new Set(calendarAuthorPubkeys.map(normalizePubkey).filter(Boolean))
 
     for (const event of $targetingEvents) {
       const targeting = parseTargetedPublication(event)
       if (!targeting || !isCalendarEventKind(targeting.kind)) continue
 
       if (targeting.ref?.type === "a") {
-        const allowedAuthors = new Set(
-          (calendarAuthorPubkeysByKind.get(targeting.kind) || [])
-            .map(normalizePubkey)
-            .filter(Boolean),
-        )
-
         const [, author] = targeting.ref.value.split(":")
         if (!allowedAuthors.has(normalizePubkey(author || ""))) continue
       }
@@ -153,27 +138,25 @@
     return idsByKind
   })
   const targetedOriginalFilters = $derived.by<Filter[]>(() => {
-    if (!communityBootstrapReady) return []
+    if (!communityBootstrapReady || calendarAuthorPubkeys.length === 0) return []
 
-    return COMMUNITY_CALENDAR_WRITE_TARGETS.flatMap(target => {
-      const authors = calendarAuthorPubkeysByKind.get(target.kind) || []
-      if (authors.length === 0) return []
+    return makeTargetedPublicationOriginalFilters(
+      $targetingEvents.filter(event => {
+        const targeting = parseTargetedPublication(event)
 
-      return makeTargetedPublicationOriginalFilters(
-        $targetingEvents.filter(event => parseTargetedPublication(event)?.kind === target.kind),
-        authors,
-      )
-    })
+        return Boolean(targeting && isCalendarEventKind(targeting.kind))
+      }),
+      calendarAuthorPubkeys,
+    )
   })
   const calendarFeedFilters = $derived.by<Filter[]>(() => {
     const filters: Filter[] = [...targetedOriginalFilters]
 
     for (const target of COMMUNITY_CALENDAR_WRITE_TARGETS) {
       const targetingIds = targetingIdsByKind.get(target.kind) || []
-      const authors = calendarAuthorPubkeysByKind.get(target.kind) || []
 
-      if (targetingIds.length > 0 && authors.length > 0) {
-        filters.unshift({kinds: [target.kind], authors, "#h": targetingIds})
+      if (targetingIds.length > 0 && calendarAuthorPubkeys.length > 0) {
+        filters.unshift({kinds: [target.kind], authors: calendarAuthorPubkeys, "#h": targetingIds})
       }
     }
 

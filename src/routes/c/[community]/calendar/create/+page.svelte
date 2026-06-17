@@ -38,9 +38,8 @@
   import {
     COMMUNITY_CALENDAR_WRITE_TARGETS,
     COMMUNITY_WRITE_TARGETS,
-    canWriteCommunityTarget,
-    getCommunityCalendarWriteTarget,
-    getCommunityWriteTargetSectionName,
+    canWriteCommunityCalendarTarget,
+    getCommunityCalendarWriteTargetSectionName,
   } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -63,53 +62,32 @@
   let location = $state("")
   let description = $state("")
   let eventKind = $state<CalendarEventKind>(EVENT_TIME)
-  let kindTouched = $state(false)
   let start = $state(initialStart)
   let end = $state(initialStart + HOUR)
   let startDate = $state(timestampToDateInputValue(initialStart))
   let endDate = $state(timestampToDateInputValue(initialStart))
 
   const isDateBased = $derived(eventKind === EVENT_DATE)
-  const selectedCalendarTarget = $derived(getCommunityCalendarWriteTarget(eventKind))
   const calendarSectionName = $derived(
-    getCommunityWriteTargetSectionName(
+    getCommunityCalendarWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
-      selectedCalendarTarget,
     ),
   )
   const calendarAccessMessage = $derived(
     `Request ${calendarSectionName} access to publish calendar events.`,
   )
-  const canCreateDateEvent = $derived(
-    Boolean(
-      $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.calendarDate,
-          reportState: $activeCommunityReportState,
-        }),
-    ),
-  )
-  const canCreateTimeEvent = $derived(
-    Boolean(
-      $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.calendar,
-          reportState: $activeCommunityReportState,
-        }),
-    ),
-  )
   const canCreateEvent = $derived(
-    eventKind === EVENT_DATE ? canCreateDateEvent : canCreateTimeEvent,
+    Boolean(
+      $pubkey &&
+        communityBootstrapReady &&
+        $activeCommunityDefinition &&
+        canWriteCommunityCalendarTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          reportState: $activeCommunityReportState,
+        }),
+    ),
   )
 
   const validateDateRange = () => {
@@ -229,15 +207,6 @@
     pushToast({message: "Calendar event published."})
     if (calendarPath) goto(calendarPath)
   }
-
-  $effect(() => {
-    if (!communityBootstrapReady || kindTouched) return
-    if (eventKind === EVENT_TIME && !canCreateTimeEvent && canCreateDateEvent) {
-      eventKind = EVENT_DATE
-    } else if (eventKind === EVENT_DATE && !canCreateDateEvent && canCreateTimeEvent) {
-      eventKind = EVENT_TIME
-    }
-  })
 </script>
 
 <PageBar>
@@ -275,7 +244,7 @@
         <p>Event type</p>
       {/snippet}
       {#snippet input()}
-        <select bind:value={eventKind} class="select select-bordered w-full" onchange={() => (kindTouched = true)}>
+        <select bind:value={eventKind} class="select select-bordered w-full">
           <option value={EVENT_TIME}>Timed event</option>
           <option value={EVENT_DATE}>All-day event</option>
         </select>

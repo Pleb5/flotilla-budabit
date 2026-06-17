@@ -147,6 +147,24 @@ export const getCommunityWriteTargetSectionName = (
   (definition ? getCommunityWriteTargetSections(definition, target)[0]?.name : undefined) ||
   target.sectionName
 
+export const getCommunityCalendarWriteTargetSections = (definition: CommunityDefinition) => {
+  const sections = new Map<string, CommunitySection>()
+
+  for (const target of COMMUNITY_CALENDAR_WRITE_TARGETS) {
+    for (const section of getCommunityWriteTargetSections(definition, target)) {
+      sections.set(normalizeCommunitySectionName(section.name), section)
+    }
+  }
+
+  return Array.from(sections.values())
+}
+
+export const getCommunityCalendarWriteTargetSectionName = (
+  definition: CommunityDefinition | undefined,
+) =>
+  (definition ? getCommunityCalendarWriteTargetSections(definition)[0]?.name : undefined) ||
+  COMMUNITY_WRITE_TARGETS.calendar.sectionName
+
 export const communityWritableSectionsSupportTarget = ({
   definition,
   writableSections,
@@ -353,6 +371,21 @@ export const canWriteCommunityTarget = ({
     }),
   )
 }
+
+export const canWriteCommunityCalendarTarget = ({
+  definition,
+  profileListEvents,
+  userPubkey,
+  reportState,
+}: {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  userPubkey: string
+  reportState?: EffectiveCommunityReportState
+}) =>
+  COMMUNITY_CALENDAR_WRITE_TARGETS.some(target =>
+    canWriteCommunityTarget({definition, profileListEvents, userPubkey, target, reportState}),
+  )
 
 export const getCommunityWritableTargetSections = ({
   definition,
@@ -680,6 +713,23 @@ export const getCommunityTargetWriterPubkeys = ({
 
   return Array.from(pubkeys)
 }
+
+export const getCommunityCalendarTargetWriterPubkeys = ({
+  definition,
+  profileListEvents,
+  reportState,
+}: {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
+}) =>
+  Array.from(
+    new Set(
+      COMMUNITY_CALENDAR_WRITE_TARGETS.flatMap(target =>
+        getCommunityTargetWriterPubkeys({definition, profileListEvents, target, reportState}),
+      ),
+    ),
+  )
 
 export const getGrantCapability = ({
   definition,

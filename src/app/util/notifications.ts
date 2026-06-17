@@ -601,7 +601,7 @@ const makeTargetedPublicationRootNotificationCandidates = ({
         unsubscribeRootEvents = undefined
 
         const rootFilters = targets.flatMap(currentTarget => {
-          const authors = authorPubkeysByKind.get(currentTarget.kind) || []
+          const authors = targets.length > 1 ? authorPubkeys : authorPubkeysByKind.get(currentTarget.kind) || []
           if (authors.length === 0) return []
 
           return makeTargetedPublicationOriginalFilters(

@@ -17,10 +17,13 @@ import {
 import {
   COMMUNITY_WRITE_TARGETS,
   COMMUNITY_CALENDAR_WRITE_TARGETS,
+  canWriteCommunityCalendarTarget,
   canWriteCommunitySection,
   canWriteCommunityTarget,
   findProfileListEvent,
+  getCommunityCalendarTargetWriterPubkeys,
   getCommunityCalendarWriteTarget,
+  getCommunityCalendarWriteTargetSectionName,
   getCommunityCapabilityKey,
   getCommunityPublishGateState,
   getCommunityPublishCapabilityMap,
@@ -753,6 +756,36 @@ describe("community permissions", () => {
         target: COMMUNITY_WRITE_TARGETS.calendarDate,
       }),
     ).toBe(false)
+
+    expect(getCommunityCalendarWriteTargetSectionName(dateOnlyDefinition)).toBe("All-day events")
+    expect(getCommunityCalendarWriteTargetSectionName(timeOnlyDefinition)).toBe("Timed events")
+    expect(
+      canWriteCommunityCalendarTarget({
+        definition: dateOnlyDefinition,
+        profileListEvents: [dateProfileList],
+        userPubkey: memberPubkey,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityCalendarTarget({
+        definition: timeOnlyDefinition,
+        profileListEvents: [timeProfileList],
+        userPubkey: memberPubkey,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityCalendarTarget({
+        definition: dateOnlyDefinition,
+        profileListEvents: [dateProfileList],
+        userPubkey: outsiderPubkey,
+      }),
+    ).toBe(false)
+    expect(
+      getCommunityCalendarTargetWriterPubkeys({
+        definition: dateOnlyDefinition,
+        profileListEvents: [dateProfileList],
+      }),
+    ).toContain(memberPubkey)
   })
 
   it("matches widget grants in the custom section assigned to kind 30033", () => {
