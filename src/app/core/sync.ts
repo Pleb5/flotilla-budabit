@@ -40,10 +40,12 @@ import {
   setupGraspServersSync,
   setupTokensSync,
   setupExtensionSettingsSync,
+  setupExtensionManifestSync,
   clearSyncedGitAuthTokens,
 } from "@app/core/git-requests"
 import {
   applyRemoteExtensionSettings,
+  extensionSettings,
   startExtensionSettingsAutoSync,
 } from "@app/extensions/settings"
 import {loadNip85ProviderConfig} from "@app/core/nip85"
@@ -399,6 +401,26 @@ const syncUserGitData = () => {
       const autoSyncUnsub = startExtensionSettingsAutoSync()
       unsubscribersByKey.set("extensions-autosync", autoSyncUnsub)
       console.log("[syncUserGitData] Extension settings sync setup complete")
+    }
+
+    if (!unsubscribersByKey.has("ext-manifests")) {
+      console.log("[syncUserGitData] Setting up extension manifest live subscription...")
+      const unsub = setupExtensionManifestSync(INDEXER_RELAYS, (id, freshManifest) => {
+        const current = get(extensionSettings)
+        const installed = current.installed?.nip89 || {}
+        if (!installed[id]) return
+        if (JSON.stringify(installed[id]) === JSON.stringify(freshManifest)) return
+        console.log(`[syncUserGitData] Manifest changed for ${id} — updating`)
+        extensionSettings.update(s => ({
+          ...s,
+          installed: {
+            ...s.installed,
+            nip89: {...(s.installed?.nip89 || {}), [id]: freshManifest},
+          },
+        }))
+      })
+      if (unsub) unsubscribersByKey.set("ext-manifests", unsub)
+      console.log("[syncUserGitData] Extension manifest sync setup complete")
     }
 
     loadRepositories(pk, mergedRelays)

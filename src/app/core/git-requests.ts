@@ -7,7 +7,7 @@ import {
 import {tokens, type Token} from "@nostr-git/ui"
 import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
 import {repository, ensurePlaintext, signer, pubkey, publishThunk} from "@welshman/app"
-import {load, PublishStatus} from "@welshman/net"
+import {load, pull, PublishStatus} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {get} from "svelte/store"
 import {APP_DATA, makeEvent, normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
@@ -283,6 +283,9 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
   return tokensUnsub
 }
 
+// Kind number for NIP-89 extension manifest events
+const EXTENSION_MANIFEST_KIND = 31990
+
 // --- Extension settings sync (centralized, encrypted) ---
 let extensionSettingsUnsub: (() => void) | undefined
 
@@ -328,4 +331,54 @@ export function setupExtensionSettingsSync(
   load({relays, filters: [filter]})
 
   return extensionSettingsUnsub
+}
+
+// --- Extension manifest sync (live Nostr subscription for kind 31990) ---
+let extensionManifestUnsub: (() => void) | undefined
+let extensionManifestAbortController: AbortController | undefined
+
+/**
+ * Establishes a live WebSocket subscription for kind 31990 extension manifest events.
+ * Calls `onManifestUpdated(id, manifest)` whenever a manifest event arrives whose
+ * parsed content has an `id` field. The caller is responsible for comparing against
+ * locally-stored manifests and deciding whether to apply the update.
+ */
+export function setupExtensionManifestSync(
+  relays: string[],
+  onManifestUpdated: (id: string, manifest: any) => void,
+): () => void {
+  try {
+    extensionManifestUnsub?.()
+    extensionManifestAbortController?.abort()
+  } catch {
+    // Best-effort cleanup of previous subscription before replacing
+  }
+
+  const filter = {kinds: [EXTENSION_MANIFEST_KIND]}
+  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
+
+  // React to any kind 31990 event that lands in the repository (via pull below)
+  extensionManifestUnsub = store.subscribe((events: TrustedEvent[]) => {
+    for (const ev of events) {
+      try {
+        const manifest = JSON.parse(ev.content)
+        const id = manifest?.id
+        if (!id) continue
+        onManifestUpdated(id, manifest)
+      } catch {
+        // Ignore malformed / non-JSON manifest events
+      }
+    }
+  })
+
+  // Open a persistent WebSocket subscription — events are pushed by the relay
+  const controller = new AbortController()
+  extensionManifestAbortController = controller
+  pull({relays, filters: [filter], signal: controller.signal, events: []})
+
+  return () => {
+    extensionManifestUnsub?.()
+    extensionManifestUnsub = undefined
+    controller.abort()
+  }
 }
