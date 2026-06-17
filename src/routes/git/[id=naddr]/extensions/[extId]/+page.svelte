@@ -207,21 +207,35 @@
     // Spread arrays to avoid reactive proxy serialization issues with postMessage
     const maintainers = repoClass.maintainers ? [...repoClass.maintainers] : []
     const relays = [...repoRelays]
+    const userPubkey = $pubkey ?? ""
 
-    const ctx = {
-      contextId: `repo:${repoClass.repoEvent?.pubkey}:${repoClass.name}`,
-      userPubkey: $pubkey,
-      relays,
-      repo: {
-        repoPubkey: repoClass.repoEvent?.pubkey,
-        repoName: repoClass.name,
-        repoNaddr: naddr,
-        repoRelays: relays,
-        maintainers,
-      },
+    // Flat RepoContext shape expected by budabit-sdk extensions
+    const repoCtx = {
+      repoPubkey: repoClass.repoEvent?.pubkey ?? "",
+      repoName: repoClass.name ?? "",
+      repoNaddr: naddr,
+      repoRelays: relays,
+      maintainers,
     }
 
-    bridge.post("context:update", ctx)
+    // widget:init — delivers user pubkey and host version on first connect.
+    // Send before context:repoUpdate so extensions can read pubkey synchronously.
+    bridge.post("widget:init", {
+      pubkey: userPubkey,
+      hostVersion: "1.0.0",
+      relays,
+    })
+
+    // context:repoUpdate — flat RepoContext for budabit-sdk bridge.onEvent('context:repoUpdate')
+    bridge.post("context:repoUpdate", repoCtx)
+
+    // context:update — legacy event for backwards-compatible extensions
+    bridge.post("context:update", {
+      contextId: `repo:${repoClass.repoEvent?.pubkey}:${repoClass.name}`,
+      userPubkey,
+      relays,
+      repo: repoCtx,
+    })
   }
 
   function handleIframeLoad(): void {

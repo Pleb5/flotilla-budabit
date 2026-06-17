@@ -102,6 +102,8 @@ const NIP100_ALLOWED_KINDS = new Set<number>([
   5402, // Hive CI workflow run / result
   30100, // Loom status
   10100, // Loom worker advertisement
+  30063, // NIP-51 release artifact sets
+  1063, // NIP-94 file metadata
 ])
 const MAX_NOSTR_QUERY_LIMIT = 500
 
@@ -137,7 +139,29 @@ const requireNonEmptyStringArray = (val: unknown, name: string): string[] => {
   return out
 }
 
-const normalizeNostrFilter = (filterRaw: unknown): Record<string, unknown> => {
+/**
+ * Extract the set of Nostr event kinds declared in the extension's nostrKinds tags.
+ * Falls back to the hardcoded NIP100_ALLOWED_KINDS set when no declaration is present.
+ */
+const getEffectiveAllowedKinds = (ext: LoadedExtension): Set<number> => {
+  // Widget extensions may declare kinds via nostrKinds tags on the kind 30033 event
+  if (ext.type === "widget" && Array.isArray(ext.widget.tags)) {
+    const declared = ext.widget.tags
+      .filter(t => t[0] === "nostrKinds" && t[1])
+      .map(t => parseInt(t[1], 10))
+      .filter(n => Number.isFinite(n) && n >= 0)
+    if (declared.length > 0) {
+      // Merge declared kinds with the baseline allowed set
+      return new Set([...NIP100_ALLOWED_KINDS, ...declared])
+    }
+  }
+  return NIP100_ALLOWED_KINDS
+}
+
+const normalizeNostrFilter = (
+  filterRaw: unknown,
+  allowedKinds: Set<number> = NIP100_ALLOWED_KINDS,
+): Record<string, unknown> => {
   if (!filterRaw || typeof filterRaw !== "object") {
     throw new Error("Invalid filter: expected object")
   }
@@ -153,7 +177,7 @@ const normalizeNostrFilter = (filterRaw: unknown): Record<string, unknown> => {
     if (typeof k !== "number" || !Number.isFinite(k)) {
       throw new Error("Invalid filter.kinds: expected non-empty number[]")
     }
-    if (!NIP100_ALLOWED_KINDS.has(k)) {
+    if (!allowedKinds.has(k)) {
       throw new Error(`Unsupported kind: ${k}`)
     }
   }
@@ -184,6 +208,7 @@ const normalizeNostrFilter = (filterRaw: unknown): Record<string, unknown> => {
 
 const parseNostrQueryPayload = (
   payload: unknown,
+  allowedKinds?: Set<number>,
 ): {relays: string[]; filter: Record<string, unknown>} => {
   if (!payload || typeof payload !== "object") {
     throw new Error("Invalid payload: expected { relays, filter }")
@@ -194,7 +219,7 @@ const parseNostrQueryPayload = (
     throw new Error("No valid relays provided")
   }
 
-  const filter = normalizeNostrFilter((payload as any).filter)
+  const filter = normalizeNostrFilter((payload as any).filter, allowedKinds)
 
   return {relays, filter}
 }
@@ -500,7 +525,7 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
 registerBridgeHandler("nostr:query", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:query from ${ext.id}`, payload)
   try {
-    const {relays, filter} = parseNostrQueryPayload(payload)
+    const {relays, filter} = parseNostrQueryPayload(payload, ext ? getEffectiveAllowedKinds(ext) : undefined)
     console.log(
       `[bridge] nostr:query querying ${relays.length} relays:`,
       relays,
@@ -572,6 +597,20 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
     return {status: "ok"}
   } catch (err: any) {
     console.error("Error in ui:toast bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+registerBridgeHandler("ui:resize", (payload, ext) => {
+  if (ext) console.log(`[bridge] ui:resize from ${ext.id}`, payload)
+  try {
+    const {height} = payload || {}
+    if (typeof height === "number" && height > 0 && ext.iframe) {
+      ext.iframe.style.height = `${Math.min(height, 4000)}px`
+    }
+    return {status: "ok"}
+  } catch (err: any) {
+    console.error("Error in ui:resize bridge handler:", err)
     return {error: err.message}
   }
 })
@@ -838,7 +877,7 @@ export function cleanupExtensionSubscriptions(extId: string): void {
 registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:subscribe from ${ext.id}`, payload)
   try {
-    const {relays, filter} = parseNostrQueryPayload(payload)
+    const {relays, filter} = parseNostrQueryPayload(payload, ext ? getEffectiveAllowedKinds(ext) : undefined)
 
     // Enforce per-extension subscription limit
     if (!extensionSubscriptions.has(ext.id)) {
@@ -849,7 +888,12 @@ registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
       throw new Error(`Subscription limit reached (max ${MAX_SUBSCRIPTIONS_PER_EXT})`)
     }
 
-    const subId = `sub-${ext.id.slice(0, 8)}-${++subscriptionCounter}`
+    // Use the extension-provided subscriptionId if valid, otherwise generate one.
+    // This lets the extension filter incoming events and call nostr:unsubscribe with the same ID.
+    const providedId = typeof payload?.subscriptionId === "string" && payload.subscriptionId.length > 0
+      ? payload.subscriptionId
+      : null
+    const subId = providedId ?? `sub-${ext.id.slice(0, 8)}-${++subscriptionCounter}`
     const pool = new SimplePool()
 
     console.log(
@@ -860,13 +904,14 @@ registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
     const sub = pool.subscribeMany(relays, [filter] as any, {
       onevent(event: any) {
         // Stream each event to the extension
-        postEventToExtension(ext, "nostr:subscription:event", {
+        postEventToExtension(ext, "nostr:event", {
           subscriptionId: subId,
           event,
         })
       },
       oneose() {
         console.log(`[bridge] subscription ${subId} EOSE`)
+        postEventToExtension(ext, "nostr:eose", {subscriptionId: subId})
       },
     })
 
