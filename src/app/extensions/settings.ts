@@ -231,12 +231,45 @@ const normalizeExtensionSettings = (settings: Partial<ExtensionSettings>): Exten
 
 extensionSettings.update(s => normalizeExtensionSettings(s))
 
-// Apply settings loaded from relay
+// Apply settings loaded from relay, merging with local state so that extensions
+// installed/enabled locally (but not yet published to relay, e.g. within the 2-second
+// debounce window or when publish failed silently) are never wiped on page refresh.
+// Remote values win for keys present on both sides so updated manifests are applied.
 export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSettings>) => {
   isApplyingRemoteSettings = true
   try {
-    extensionSettings.set(normalizeExtensionSettings(remoteSettings))
-    console.log("[applyRemoteExtensionSettings] Applied remote settings")
+    const current = get(extensionSettings)
+    const normalized = normalizeExtensionSettings(remoteSettings)
+
+    // Merge installed: preserve locally-installed extensions that aren't in the relay event yet
+    const mergedNip89 = {
+      ...(current.installed?.nip89 || {}),
+      ...normalized.installed.nip89, // remote wins for shared keys (applies manifest updates)
+    }
+    const mergedWidgets = {
+      ...(current.installed?.widget || {}),
+      ...normalized.installed.widget,
+    }
+    const mergedInstalledIds = new Set([
+      ...Object.keys(mergedNip89),
+      ...Object.keys(mergedWidgets),
+    ])
+
+    // Merge enabled: union of remote and local, filtered to merged installed set
+    const mergedEnabled = Array.from(
+      new Set([...(normalized.enabled || []), ...(current.enabled || [])]),
+    ).filter(id => mergedInstalledIds.has(id))
+
+    extensionSettings.set({
+      ...normalized,
+      installed: {
+        nip89: mergedNip89,
+        widget: mergedWidgets,
+        legacy: normalized.installed?.legacy || current.installed?.legacy,
+      },
+      enabled: mergedEnabled,
+    })
+    console.log("[applyRemoteExtensionSettings] Applied and merged remote settings")
   } finally {
     isApplyingRemoteSettings = false
   }

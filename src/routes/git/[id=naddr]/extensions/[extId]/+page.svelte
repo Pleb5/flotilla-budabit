@@ -165,12 +165,18 @@
   let retryCount = $state(0)
   let iframeSrc = $state<string | undefined>(undefined)
 
-  // Effect 1: track extId as a reactive dep (derived from $page.url.pathname —
-  // the same reactive source the layout uses for tab highlighting).
-  // The cleanup function runs before the effect re-runs on every navigation,
-  // so bridge and iframe state are always torn down cleanly between extensions.
+  // Signature of the current extension manifest — any field change (e.g. after
+  // the 30-second manifest poll detects a dev rebuild) triggers an iframe reload.
+  const manifestSignature = $derived(JSON.stringify(extension))
+
+  // Effect 1: track extId AND manifestSignature as reactive deps.
+  // - extId changes  → navigating between extension tabs   → reload iframe
+  // - manifestSignature changes → manifest updated (dev rebuild) → reload iframe
+  // The cleanup function runs before the effect re-runs, tearing down the old
+  // bridge and clearing iframeSrc so Effect 2 loads the fresh content.
   $effect(() => {
-    void extId // register extId as a reactive dependency
+    void extId           // same reactive source as layout's activeTab
+    void manifestSignature // reload when manifest content changes
     return () => {
       bridge?.detach()
       bridge = null
@@ -200,7 +206,8 @@
       name: repoClass.name,
       naddr: naddr,
       relays: [...repoRelays],
-    }
+      maintainers: repoClass.maintainers ? [...repoClass.maintainers] : [],
+    } as RepoContext
   }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
