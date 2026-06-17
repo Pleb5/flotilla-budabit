@@ -1,5 +1,5 @@
 import {publishThunk, signer, repository} from "@welshman/app"
-import {PublishStatus, load} from "@welshman/net"
+import {PublishStatus, load, request} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
 import {get} from "svelte/store"
@@ -538,6 +538,7 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
     }
 
     // Nothing in cache — fetch from the extension's specified relays.
+    // load() resolves on EOSE; the 5s timeout is a safety net for relays that never send it.
     console.debug(
       `[bridge] nostr:query fetching from ${relays.length} relays:`,
       relays,
@@ -546,22 +547,11 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
 
     const events: any[] = []
     const seenIds = new Set<string>()
-    let resolved = false
-    let resolveEarly: (() => void) | null = null
 
-    // Promise that resolves once we have events and a short settling window has passed
-    const earlyResolvePromise = new Promise<void>(resolve => {
-      resolveEarly = resolve
-    })
-
-    // Hard timeout — only logged at debug level; zero results is not an error
     const timeoutPromise = new Promise<void>(resolve => {
       setTimeout(() => {
-        if (!resolved) {
-          console.debug(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)
-          resolved = true
-          resolve()
-        }
+        console.debug(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)
+        resolve()
       }, 5000)
     })
 
@@ -572,23 +562,14 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
         if (!seenIds.has(event.id)) {
           seenIds.add(event.id)
           events.push(event)
-          // Once we have at least one event, wait 500ms for stragglers then resolve early
-          if (!resolved && resolveEarly) {
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true
-                resolveEarly!()
-              }
-            }, 500)
-          }
         }
       },
     }).catch((e: any) => {
       console.debug(`[bridge] nostr:query load error:`, e?.message || e)
     })
 
-    // Wait for load to complete, early resolve (events found), or timeout
-    await Promise.race([loadPromise, earlyResolvePromise, timeoutPromise])
+    // load() resolves at EOSE — timeout only fires if the relay never sends EOSE
+    await Promise.race([loadPromise, timeoutPromise])
 
     console.debug(`[bridge] nostr:query got ${events.length} events from network`)
     return {status: "ok", events}
@@ -847,9 +828,6 @@ registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
 
 // ── Nostr Subscriptions ─────────────────────────────────────────────
 // Persistent subscriptions that stream events back to extensions via bridge events.
-// Uses nostr-tools SimplePool since welshman/net only exposes one-shot load().
-
-import {SimplePool} from "nostr-tools"
 
 const MAX_SUBSCRIPTIONS_PER_EXT = 10
 let subscriptionCounter = 0
@@ -904,35 +882,35 @@ registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
       ? payload.subscriptionId
       : null
     const subId = providedId ?? `sub-${ext.id.slice(0, 8)}-${++subscriptionCounter}`
-    const pool = new SimplePool()
 
-    console.log(
+    console.debug(
       `[bridge] opening subscription ${subId} on ${relays.length} relays, filter:`,
       JSON.stringify(filter),
     )
 
-    const sub = pool.subscribeMany(relays, [filter] as any, {
-      onevent(event: any) {
-        // Stream each event to the extension
-        postEventToExtension(ext, "nostr:event", {
-          subscriptionId: subId,
-          event,
-        })
+    // Use Welshman request() — shares the app's relay pool and repository.
+    // request() opens per-relay subscriptions and streams events via callbacks;
+    // aborting the controller sends CLOSE to all relays and stops the stream.
+    const controller = new AbortController()
+    const eoseRelays = new Set<string>()
+
+    request({
+      relays,
+      filters: [filter as any],
+      signal: controller.signal,
+      onEvent: (event: any) => {
+        postEventToExtension(ext, "nostr:event", {subscriptionId: subId, event})
       },
-      oneose() {
-        console.log(`[bridge] subscription ${subId} EOSE`)
-        postEventToExtension(ext, "nostr:eose", {subscriptionId: subId})
+      onEose: (url: string) => {
+        eoseRelays.add(url)
+        // Fire extension EOSE once at least half the relays have sent it
+        if (eoseRelays.size >= Math.ceil(relays.length / 2)) {
+          postEventToExtension(ext, "nostr:eose", {subscriptionId: subId})
+        }
       },
     })
 
-    const cleanup = () => {
-      try {
-        sub.close()
-        pool.close(relays)
-      } catch {
-        // ignore cleanup errors
-      }
-    }
+    const cleanup = () => controller.abort()
 
     extSubs.set(subId, cleanup)
 
