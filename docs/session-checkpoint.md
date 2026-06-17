@@ -12,16 +12,17 @@
 
 ## Current Phase
 
-- Phase 2: Spec-Correct Calendar Event Utilities And Shared Form/Display
+- Phase 3: Community Calendar Create/List/Detail Integration
 
 ## Phase Exit Criteria
 
-- Shared calendar helper code distinguishes `31922` date strings from `31923` Unix timestamps.
-- Date-based event creation/editing writes `YYYY-MM-DD` `start` and exclusive `end` dates per NIP-52.
-- Time-based event creation/editing keeps Unix timestamp `start`/`end` and `D` tags.
-- Shared calendar form can create all-day/date-based and timed events without corrupting existing edits.
-- Calendar display components render date-based events without bogus epoch times and render time-based events as before.
-- Focused tests cover helper parsing, date exclusive-end conversion, timestamp parsing, serialization, and display-ready values.
+- Community calendar create page can publish either date-based `31922` all-day/multi-day events or time-based `31923` timed events.
+- Targeted publication events use the selected original kind and reference the selected event kind correctly.
+- Community calendar list and detail pages query and approve both calendar event kinds.
+- Calendar comments/replies use the approved event's actual kind in `K`/`k` tags and filters.
+- Calendar access gates allow users who can write either calendar kind to reach create flow, while final publish validation checks the selected kind.
+- Calendar notifications and live community hydration can discover targeted publications for both kinds.
+- Focused tests cover filters/helpers where practical, and `pnpm check` passes.
 
 ## Completed With Evidence
 
@@ -33,6 +34,11 @@
 - Added distinct `calendarDate` target plus `COMMUNITY_CALENDAR_WRITE_TARGETS` while keeping existing time-based `calendar` target.
 - Added focused tests for defaults, target mapping, distinct date/time permission resolution, and targeted publication filters.
 - Phase 1 commit pushed: `2ad52148 feat: add date calendar community targets`.
+- Phase 2: Spec-Correct Calendar Event Utilities And Shared Form/Display.
+- Evidence: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts` passed with 7 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Added `src/app/core/calendar-events.ts` helpers for NIP-52 kind checks, strict date parsing, local date arithmetic, timestamp parsing, display/sort ranges, and spec-correct tag serialization.
+- Updated shared calendar form/edit/display components so date-based events use date-only inputs and ISO date tags, time-based events retain Unix timestamps and `D` tags, and valid date strings are not parsed as epoch seconds.
 
 ## Decisions
 
@@ -46,22 +52,25 @@
 - Branch `dev` tracks `origin/dev`.
 - Worktree has pre-existing unrelated changes in extension/widget files; do not stage or modify those unless explicitly required.
 - Phase 1 is committed and pushed.
-- Current Phase 2 has not been implemented yet.
+- Phase 2 is verified and complete.
+- Current Phase 3 has not been implemented yet.
 
 ## Next Action
 
-- Start Phase 2 by adding a tested calendar event helper module, then update shared calendar form/edit/display components to use spec-correct date/time parsing and serialization.
+- Start Phase 3 by wiring both calendar kinds through community calendar create/list/detail routes, comments, feed loading, and access gates.
 
 ## Verification
 
 - Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts`.
 - Phase 1 project check passed: `pnpm check`.
+- Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts`.
+- Phase 2 project check passed: `pnpm check`.
 
 ## Risks Or Blockers
 
 - Push target appears to exist as `origin/dev`, but each phase push must still be verified.
 - Pre-existing unrelated dirty files must remain unstaged.
-- Full all-day support requires later phases because current create/list/detail UI is still mostly hardcoded to `EVENT_TIME` and numeric timestamp parsing.
+- Community create/list/detail routes still need Phase 3 integration because they are mostly hardcoded to `EVENT_TIME`.
 
 ## Files
 
@@ -75,4 +84,11 @@
 - `src/app/core/community-permissions.test.ts`
 - `src/app/core/community-targeting.test.ts`
 - `src/app/core/community-feeds.test.ts`
-- Expected Phase 2 files: calendar event helper module/tests, `CalendarEventForm.svelte`, `CalendarEventEdit.svelte`, and calendar display components.
+- `src/app/core/calendar-events.ts`
+- `src/app/core/calendar-events.test.ts`
+- `src/app/components/CalendarEventForm.svelte`
+- `src/app/components/CalendarEventEdit.svelte`
+- `src/app/components/CalendarEventDate.svelte`
+- `src/app/components/CalendarEventHeader.svelte`
+- `src/app/components/NoteContentMinimalEventTime.svelte`
+- Expected Phase 3 files: community calendar create/list/detail routes, `PublishGate.svelte`, calendar feed loading, and focused tests.

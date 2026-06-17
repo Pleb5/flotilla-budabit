@@ -3,6 +3,7 @@
   import {getTagValue} from "@welshman/util"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import CalendarEventForm from "@app/components/CalendarEventForm.svelte"
+  import {getCalendarEventRange, parseCalendarTimestamp} from "@app/core/calendar-events"
 
   type Props = {
     url: string
@@ -23,19 +24,7 @@
     return ""
   }
 
-  const parseCalendarTime = (value: string) => {
-    const trimmed = value.trim()
-    if (!trimmed) return undefined
-
-    const numeric = Number(trimmed)
-    if (Number.isFinite(numeric)) {
-      return Math.floor(numeric > 1_000_000_000_000 ? numeric / 1000 : numeric)
-    }
-
-    const timestamp = Date.parse(trimmed.length === 10 ? `${trimmed}T00:00:00` : trimmed)
-
-    return Number.isNaN(timestamp) ? undefined : Math.floor(timestamp / 1000)
-  }
+  const range = getCalendarEventRange(event)
 
   const initialValues = {
     kind: event.kind,
@@ -43,8 +32,10 @@
     d: getFirstTagValue("d"),
     title: getFirstTagValue("title", "name"),
     location: getFirstTagValue("location"),
-    start: parseCalendarTime(getFirstTagValue("start")),
-    end: parseCalendarTime(getFirstTagValue("end")),
+    start: range?.dateBased ? undefined : parseCalendarTimestamp(getFirstTagValue("start")),
+    end: range?.dateBased ? undefined : parseCalendarTimestamp(getFirstTagValue("end")),
+    startDate: range?.dateBased ? range.startDate : undefined,
+    endDate: range?.dateBased ? range.endDate : undefined,
     content: event.content || getFirstTagValue("description", "summary"),
     tags: event.tags,
   }
