@@ -165,25 +165,32 @@
   let retryCount = $state(0)
   let iframeSrc = $state<string | undefined>(undefined)
 
-  // Track the last URL we loaded so we can detect extension changes.
-  // Plain let (not $state) so reading it inside $effect doesn't add a dep.
-  let loadedUrl: string | undefined
-
-  // Whenever secureExtEntrypoint changes (driven by extId which is derived
-  // from $page.url.pathname — confirmed reactive in the layout), tear down
-  // the old bridge and point the iframe at the new extension URL.
+  // Effect 1: track extId as a reactive dep (derived from $page.url.pathname —
+  // the same reactive source the layout uses for tab highlighting).
+  // The cleanup function runs before the effect re-runs on every navigation,
+  // so bridge and iframe state are always torn down cleanly between extensions.
   $effect(() => {
-    const url = secureExtEntrypoint // reactive dep via derived chain
-    if (!url || url === loadedUrl) return
-    loadedUrl = url
-    bridge?.detach()
-    bridge = null
-    extInstance = null
-    ready = false
-    loading = true
-    error = null
-    retryCount = 0
-    iframeSrc = url
+    void extId // register extId as a reactive dependency
+    return () => {
+      bridge?.detach()
+      bridge = null
+      extInstance = null
+      ready = false
+      loading = true
+      error = null
+      retryCount = 0
+      iframeSrc = undefined
+    }
+  })
+
+  // Effect 2: set iframeSrc whenever a secure entrypoint is available and not yet loaded.
+  // Reading iframeSrc here makes it a dep — so when Effect 1's cleanup resets iframeSrc
+  // to undefined, this effect re-runs and reloads even if secureExtEntrypoint didn't change
+  // (e.g., two extensions with the same URL).
+  $effect(() => {
+    if (secureExtEntrypoint && !iframeSrc) {
+      iframeSrc = secureExtEntrypoint
+    }
   })
 
   function buildRepoContext(): RepoContext | undefined {
