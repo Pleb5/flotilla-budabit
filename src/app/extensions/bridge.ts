@@ -1,4 +1,4 @@
-import {publishThunk, signer} from "@welshman/app"
+import {publishThunk, signer, repository} from "@welshman/app"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
@@ -102,7 +102,9 @@ const NIP100_ALLOWED_KINDS = new Set<number>([
   5402, // Hive CI workflow run / result
   30100, // Loom status
   10100, // Loom worker advertisement
-  30063, // NIP-51 release artifact sets
+  30063, // NIP-82 Software Release
+  3063, // NIP-82 Software Asset
+  32267, // NIP-82 Software Application
   1063, // NIP-94 file metadata
 ])
 const MAX_NOSTR_QUERY_LIMIT = 500
@@ -523,31 +525,40 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
 })
 
 registerBridgeHandler("nostr:query", async (payload, ext) => {
-  if (ext) console.log(`[bridge] nostr:query from ${ext.id}`, payload)
+  if (ext) console.debug(`[bridge] nostr:query from ${ext.id}`, payload)
   try {
     const {relays, filter} = parseNostrQueryPayload(payload, ext ? getEffectiveAllowedKinds(ext) : undefined)
-    console.log(
-      `[bridge] nostr:query querying ${relays.length} relays:`,
+
+    // Check the local Welshman repository first — avoids a network round-trip when
+    // the host app has already fetched the relevant events via its own subscriptions.
+    const cached = repository.query([filter as any], {shouldSort: false})
+    if (cached.length > 0) {
+      console.debug(`[bridge] nostr:query returning ${cached.length} cached events (no network needed)`)
+      return {status: "ok", events: cached}
+    }
+
+    // Nothing in cache — fetch from the extension's specified relays.
+    console.debug(
+      `[bridge] nostr:query fetching from ${relays.length} relays:`,
       relays,
       JSON.stringify(filter),
     )
 
-    // Use @welshman/net load() for better relay connection management
     const events: any[] = []
     const seenIds = new Set<string>()
     let resolved = false
     let resolveEarly: (() => void) | null = null
 
-    // Promise that resolves when we get events (after a short delay to collect more)
+    // Promise that resolves once we have events and a short settling window has passed
     const earlyResolvePromise = new Promise<void>(resolve => {
       resolveEarly = resolve
     })
 
-    // Timeout after 5s (reduced from 10s)
+    // Hard timeout — only logged at debug level; zero results is not an error
     const timeoutPromise = new Promise<void>(resolve => {
       setTimeout(() => {
         if (!resolved) {
-          console.log(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)
+          console.debug(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)
           resolved = true
           resolve()
         }
@@ -561,12 +572,10 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
         if (!seenIds.has(event.id)) {
           seenIds.add(event.id)
           events.push(event)
-          console.log(`[bridge] nostr:query received event ${event.id}, total: ${events.length}`)
-          // Once we have events, wait 500ms for more then resolve early
+          // Once we have at least one event, wait 500ms for stragglers then resolve early
           if (!resolved && resolveEarly) {
             setTimeout(() => {
               if (!resolved) {
-                console.log(`[bridge] nostr:query early resolve with ${events.length} events`)
                 resolved = true
                 resolveEarly!()
               }
@@ -575,13 +584,13 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
         }
       },
     }).catch((e: any) => {
-      console.log(`[bridge] nostr:query load error:`, e?.message || e)
+      console.debug(`[bridge] nostr:query load error:`, e?.message || e)
     })
 
     // Wait for load to complete, early resolve (events found), or timeout
     await Promise.race([loadPromise, earlyResolvePromise, timeoutPromise])
 
-    console.log(`[bridge] nostr:query got ${events.length} events`)
+    console.debug(`[bridge] nostr:query got ${events.length} events from network`)
     return {status: "ok", events}
   } catch (err: any) {
     console.error("Error in nostr:query bridge handler:", err)
@@ -768,6 +777,7 @@ registerBridgeHandler("context:getRepo", (payload, ext) => {
         name: ext.repoContext.name,
         naddr: ext.repoContext.naddr,
         relays: ext.repoContext.relays,
+        maintainers: (ext.repoContext as any).maintainers ?? [],
         address: getRepoAddress(ext.repoContext), // Canonical "30617:pubkey:name" format
       },
     }
