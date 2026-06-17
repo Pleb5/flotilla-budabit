@@ -12,17 +12,15 @@
 
 ## Current Phase
 
-- Phase 3: Community Calendar Create/List/Detail Integration
+- Phase 4: Regression Sweep And Completion
 
 ## Phase Exit Criteria
 
-- Community calendar create page can publish either date-based `31922` all-day/multi-day events or time-based `31923` timed events.
-- Targeted publication events use the selected original kind and reference the selected event kind correctly.
-- Community calendar list and detail pages query and approve both calendar event kinds.
-- Calendar comments/replies use the approved event's actual kind in `K`/`k` tags and filters.
-- Calendar access gates allow users who can write either calendar kind to reach create flow, while final publish validation checks the selected kind.
-- Calendar notifications and live community hydration can discover targeted publications for both kinds.
-- Focused tests cover filters/helpers where practical, and `pnpm check` passes.
+- Searches show no remaining community calendar create/list/detail path hardcoded to only `EVENT_TIME` where both kinds are required.
+- Valid `EVENT_DATE` events are not parsed as Unix timestamps in calendar UI components touched by the community flow.
+- Default community creation/editing, permission grants, targeted publication routing, calendar feed loading, and comments are covered by focused tests or explicit verification notes.
+- Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
+- Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
 
@@ -39,6 +37,17 @@
 - Evidence: `pnpm check` passed with 0 errors and 0 warnings.
 - Added `src/app/core/calendar-events.ts` helpers for NIP-52 kind checks, strict date parsing, local date arithmetic, timestamp parsing, display/sort ranges, and spec-correct tag serialization.
 - Updated shared calendar form/edit/display components so date-based events use date-only inputs and ISO date tags, time-based events retain Unix timestamps and `D` tags, and valid date strings are not parsed as epoch seconds.
+- Phase 2 commit pushed: `9395e20b feat: support date calendar event forms`.
+- Phase 3: Community Calendar Create/List/Detail Integration.
+- Evidence: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts src/app/core/community-permissions.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts` passed with 36 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Updated community calendar create route with a type selector, date-only fields for `31922`, timestamp fields for `31923`, selected-kind permission validation, and targeted publication references that use the selected original kind.
+- Updated community calendar list and detail routes to request targeted publications and original events for both calendar kinds, with kind-specific writer author filters.
+- Updated calendar detail comments/replies to filter using the approved event's actual kind and section name.
+- Updated `PublishGate.svelte` with alternate write-target support so calendar create access can be granted by either calendar kind while final create validation remains exact-kind.
+- Updated `makeCalendarFeed` to load date-based calendar filters separately and retain `#D` windowing for time-based events.
+- Updated calendar notifications to request and resolve targeted publication roots for both calendar kinds with kind-specific original author filters.
+- Added focused tests for calendar feed filter splitting, multi-kind targeted publication notifications, and calendar write-target selection.
 
 ## Decisions
 
@@ -52,12 +61,12 @@
 - Branch `dev` tracks `origin/dev`.
 - Worktree has pre-existing unrelated changes in extension/widget files; do not stage or modify those unless explicitly required.
 - Phase 1 is committed and pushed.
-- Phase 2 is verified and complete.
-- Current Phase 3 has not been implemented yet.
+- Phase 2 is committed and pushed.
+- Phase 3 is verified and complete.
 
 ## Next Action
 
-- Start Phase 3 by wiring both calendar kinds through community calendar create/list/detail routes, comments, feed loading, and access gates.
+- Start Phase 4 by searching for remaining community calendar `EVENT_TIME` hardcoding and date-string timestamp parsing gaps.
 
 ## Verification
 
@@ -65,12 +74,14 @@
 - Phase 1 project check passed: `pnpm check`.
 - Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts`.
 - Phase 2 project check passed: `pnpm check`.
+- Phase 3 focused tests passed: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts src/app/core/community-permissions.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts`.
+- Phase 3 project check passed: `pnpm check`.
 
 ## Risks Or Blockers
 
 - Push target appears to exist as `origin/dev`, but each phase push must still be verified.
 - Pre-existing unrelated dirty files must remain unstaged.
-- Community create/list/detail routes still need Phase 3 integration because they are mostly hardcoded to `EVENT_TIME`.
+- Phase 4 regression sweep still needs to verify no missed community calendar references remain.
 
 ## Files
 
@@ -91,4 +102,11 @@
 - `src/app/components/CalendarEventDate.svelte`
 - `src/app/components/CalendarEventHeader.svelte`
 - `src/app/components/NoteContentMinimalEventTime.svelte`
-- Expected Phase 3 files: community calendar create/list/detail routes, `PublishGate.svelte`, calendar feed loading, and focused tests.
+- `src/app/components/community/PublishGate.svelte`
+- `src/routes/c/[community]/calendar/create/+page.svelte`
+- `src/routes/c/[community]/calendar/+page.svelte`
+- `src/routes/c/[community]/calendar/[event]/+page.svelte`
+- `src/app/core/requests.ts`
+- `src/app/core/requests.test.ts`
+- `src/app/util/notifications.ts`
+- `src/app/util/notifications.test.ts`

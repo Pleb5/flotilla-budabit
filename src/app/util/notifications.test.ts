@@ -286,6 +286,63 @@ describe("notifications", () => {
     ).toEqual([{path, latestEvent: newerTargeting}])
   })
 
+  it("creates targeted publication notification candidates across calendar kinds", async () => {
+    const {getTargetedPublicationRootNotificationCandidates} = await import("./notifications")
+    const communityPubkey = "a".repeat(64)
+    const currentPubkey = "b".repeat(64)
+    const incomingPubkey = "c".repeat(64)
+    const path = `/c/${communityPubkey}/calendar`
+    const timeTargeting = makeEvent({
+      id: "time-targeting",
+      pubkey: incomingPubkey,
+      created_at: 20,
+      kind: 30222,
+      tags: [
+        ["d", "target-time"],
+        ["k", "31923"],
+        ["a", `31923:${incomingPubkey}:calendar-time`],
+        ["p", communityPubkey],
+      ],
+    })
+    const timeRoot = makeEvent({
+      id: "time-root",
+      pubkey: incomingPubkey,
+      created_at: 19,
+      kind: 31923,
+      tags: [["d", "calendar-time"]],
+    })
+    const dateTargeting = makeEvent({
+      id: "date-targeting",
+      pubkey: incomingPubkey,
+      created_at: 30,
+      kind: 30222,
+      tags: [
+        ["d", "target-date"],
+        ["k", "31922"],
+        ["a", `31922:${incomingPubkey}:calendar-date`],
+        ["p", communityPubkey],
+      ],
+    })
+    const dateRoot = makeEvent({
+      id: "date-root",
+      pubkey: incomingPubkey,
+      created_at: 29,
+      kind: 31922,
+      tags: [["d", "calendar-date"]],
+    })
+
+    expect(
+      getTargetedPublicationRootNotificationCandidates({
+        targetingEvents: [timeTargeting, dateTargeting],
+        rootEvents: [timeRoot, dateRoot],
+        communityPubkey,
+        path,
+        kinds: [31922, 31923],
+        currentPubkey,
+      }),
+    ).toEqual([{path, latestEvent: dateTargeting}])
+  })
+
   it("uses community first-encounter baselines as checked timestamps", async () => {
     const {getCommunityNotificationBaselineKey, getNotificationCheckedAt, hasNotificationForPath} =
       await import("./notifications")

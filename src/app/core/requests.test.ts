@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import {describe, expect, it, vi} from "vitest"
+import {DAY} from "@welshman/lib"
+import {EVENT_DATE, EVENT_TIME, type Filter} from "@welshman/util"
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
@@ -46,5 +48,23 @@ describe("requests", () => {
     expect(result).toBeInstanceOf(Promise)
     const resolved = await result
     expect(Array.isArray(resolved)).toBe(true)
+  })
+
+  it("builds separate date and time calendar feed filters", async () => {
+    const {makeCalendarDateBasedFilters, makeCalendarTimeBasedFilters} = await import("./requests")
+    const filters: Filter[] = [
+      {kinds: [EVENT_DATE, EVENT_TIME], authors: ["a"], "#h": ["target"]},
+      {kinds: [EVENT_TIME], authors: ["b"]},
+      {kinds: [EVENT_DATE], authors: ["c"]},
+    ]
+
+    expect(makeCalendarDateBasedFilters(filters)).toEqual([
+      {kinds: [EVENT_DATE], authors: ["a"], "#h": ["target"]},
+      {kinds: [EVENT_DATE], authors: ["c"]},
+    ])
+    expect(makeCalendarTimeBasedFilters(filters, 0, DAY)).toEqual([
+      {kinds: [EVENT_TIME], authors: ["a"], "#h": ["target"], "#D": ["0"]},
+      {kinds: [EVENT_TIME], authors: ["b"], "#D": ["0"]},
+    ])
   })
 })

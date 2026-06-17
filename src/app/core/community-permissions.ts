@@ -104,6 +104,9 @@ export const COMMUNITY_CALENDAR_WRITE_TARGETS = [
   COMMUNITY_WRITE_TARGETS.calendar,
 ] as const
 
+export const getCommunityCalendarWriteTarget = (kind: number): CommunityWriteTarget =>
+  kind === EVENT_DATE ? COMMUNITY_WRITE_TARGETS.calendarDate : COMMUNITY_WRITE_TARGETS.calendar
+
 export const getCommunityWriteTarget = (
   kind: number,
   subtype?: string,

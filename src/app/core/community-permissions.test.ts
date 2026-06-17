@@ -20,6 +20,7 @@ import {
   canWriteCommunitySection,
   canWriteCommunityTarget,
   findProfileListEvent,
+  getCommunityCalendarWriteTarget,
   getCommunityCapabilityKey,
   getCommunityPublishGateState,
   getCommunityPublishCapabilityMap,
@@ -108,6 +109,8 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
     expect(getCommunityWriteTarget(EVENT_DATE)).toEqual(COMMUNITY_WRITE_TARGETS.calendarDate)
     expect(getCommunityWriteTarget(EVENT_TIME)).toEqual(COMMUNITY_WRITE_TARGETS.calendar)
+    expect(getCommunityCalendarWriteTarget(EVENT_DATE)).toEqual(COMMUNITY_WRITE_TARGETS.calendarDate)
+    expect(getCommunityCalendarWriteTarget(EVENT_TIME)).toEqual(COMMUNITY_WRITE_TARGETS.calendar)
     expect(COMMUNITY_CALENDAR_WRITE_TARGETS).toEqual([
       COMMUNITY_WRITE_TARGETS.calendarDate,
       COMMUNITY_WRITE_TARGETS.calendar,

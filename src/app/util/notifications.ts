@@ -22,6 +22,7 @@ import {
 import {readCommunityRoomMessage} from "@app/core/community-messages"
 import {readCommunityThread} from "@app/core/community-threads"
 import {
+  COMMUNITY_CALENDAR_WRITE_TARGETS,
   COMMUNITY_WRITE_TARGETS,
   getCommunityTargetWriterPubkeys,
   type CommunityWriteTarget,
@@ -80,7 +81,8 @@ export type TargetedPublicationRootNotificationCandidateOptions = {
   rootEvents: TrustedEvent[]
   communityPubkey: string
   path: string
-  kind: number
+  kind?: number
+  kinds?: readonly number[]
   currentPubkey?: string
   allowPubkey?: (pubkey: string) => boolean
 }
@@ -295,26 +297,27 @@ export const getSectionRootNotificationCandidates = ({
 const targetedPublicationMatchesCommunity = (
   event: TrustedEvent,
   communityPubkey: string,
-  kind: number,
+  kinds: readonly number[],
 ) => {
   const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
   const targeting = parseTargetedPublication(event)
 
   return Boolean(
-    targeting?.kind === kind &&
-    targeting.communities.some(
-      community => normalizePubkey(community.pubkey) === normalizedCommunityPubkey,
-    ),
+    targeting &&
+      kinds.includes(targeting.kind) &&
+      targeting.communities.some(
+        community => normalizePubkey(community.pubkey) === normalizedCommunityPubkey,
+      ),
   )
 }
 
 const rootMatchesTargetingEvent = (
   root: TrustedEvent,
   targetingEvent: TrustedEvent,
-  kind: number,
+  kinds: readonly number[],
 ) => {
   const targeting = parseTargetedPublication(targetingEvent)
-  if (!targeting || targeting.kind !== kind || root.kind !== kind) return false
+  if (!targeting || !kinds.includes(targeting.kind) || root.kind !== targeting.kind) return false
 
   const ref = targeting.ref
   if (!ref) return getTagValue("h", root.tags) === targeting.id
@@ -336,16 +339,18 @@ export const getTargetedPublicationRootNotificationCandidates = ({
   communityPubkey,
   path,
   kind,
+  kinds,
   currentPubkey,
   allowPubkey = () => true,
 }: TargetedPublicationRootNotificationCandidateOptions): NotificationCandidate[] => {
   const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
+  const targetKinds = kinds || (kind === undefined ? [] : [kind])
   let latestEvent: TrustedEvent | undefined
 
-  if (!communityPubkey || !path) return []
+  if (!communityPubkey || !path || targetKinds.length === 0) return []
 
   for (const targetingEvent of targetingEvents) {
-    if (!targetedPublicationMatchesCommunity(targetingEvent, communityPubkey, kind)) continue
+    if (!targetedPublicationMatchesCommunity(targetingEvent, communityPubkey, targetKinds)) continue
     if (
       normalizedCurrentPubkey &&
       normalizePubkey(targetingEvent.pubkey) === normalizedCurrentPubkey
@@ -353,7 +358,7 @@ export const getTargetedPublicationRootNotificationCandidates = ({
       continue
     }
 
-    const root = rootEvents.find(event => rootMatchesTargetingEvent(event, targetingEvent, kind))
+    const root = rootEvents.find(event => rootMatchesTargetingEvent(event, targetingEvent, targetKinds))
     if (!root) continue
     if (normalizedCurrentPubkey && normalizePubkey(root.pubkey) === normalizedCurrentPubkey)
       continue
@@ -517,9 +522,11 @@ const threadRootNotificationCandidates: Readable<NotificationCandidate[]> = deri
 
 const makeTargetedPublicationRootNotificationCandidates = ({
   target,
+  targets = [target],
   makePath,
 }: {
   target: CommunityWriteTarget
+  targets?: readonly CommunityWriteTarget[]
   makePath: (communityPubkey: string) => string
 }): Readable<NotificationCandidate[]> =>
   derived(
@@ -545,21 +552,26 @@ const makeTargetedPublicationRootNotificationCandidates = ({
         return
       }
 
-      const authorPubkeys = getCommunityTargetWriterPubkeys({
-        definition: $activeCommunityDefinition,
-        profileListEvents: $activeCommunityProfileListEvents,
-        target,
-        reportState: $activeCommunityReportState,
-      })
+      const targetKinds = Array.from(new Set(targets.map(target => target.kind)))
+      const authorPubkeysByKind = new Map(
+        targets.map(currentTarget => [
+          currentTarget.kind,
+          getCommunityTargetWriterPubkeys({
+            definition: $activeCommunityDefinition,
+            profileListEvents: $activeCommunityProfileListEvents,
+            target: currentTarget,
+            reportState: $activeCommunityReportState,
+          }),
+        ]),
+      )
+      const authorPubkeys = Array.from(new Set(Array.from(authorPubkeysByKind.values()).flat()))
 
       if (authorPubkeys.length === 0) {
         set([])
         return
       }
 
-      const targetingFilters = [
-        makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, [target.kind]),
-      ]
+      const targetingFilters = [makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, targetKinds)]
       const targetingController = new AbortController()
 
       request({
@@ -588,7 +600,17 @@ const makeTargetedPublicationRootNotificationCandidates = ({
         unsubscribeRootEvents?.()
         unsubscribeRootEvents = undefined
 
-        const rootFilters = makeTargetedPublicationOriginalFilters($targetingEvents, authorPubkeys)
+        const rootFilters = targets.flatMap(currentTarget => {
+          const authors = authorPubkeysByKind.get(currentTarget.kind) || []
+          if (authors.length === 0) return []
+
+          return makeTargetedPublicationOriginalFilters(
+            $targetingEvents.filter(
+              event => parseTargetedPublication(event)?.kind === currentTarget.kind,
+            ),
+            authors,
+          )
+        })
         if (rootFilters.length === 0) {
           set([])
           return
@@ -615,7 +637,7 @@ const makeTargetedPublicationRootNotificationCandidates = ({
               rootEvents: $rootEvents,
               communityPubkey: $activeCommunityDefinition.pubkey,
               path: makePath($activeCommunityDefinition.pubkey),
-              kind: target.kind,
+              kinds: targetKinds,
               currentPubkey: $pubkey,
               allowPubkey: candidatePubkey =>
                 !isCommunityPersonBanned($activeCommunityReportState, candidatePubkey),
@@ -636,6 +658,7 @@ const makeTargetedPublicationRootNotificationCandidates = ({
 
 const calendarRootNotificationCandidates = makeTargetedPublicationRootNotificationCandidates({
   target: COMMUNITY_WRITE_TARGETS.calendar,
+  targets: COMMUNITY_CALENDAR_WRITE_TARGETS,
   makePath: makeCommunityCalendarPath,
 })
 

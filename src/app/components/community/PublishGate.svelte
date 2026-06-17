@@ -28,6 +28,7 @@
 
   type Props = {
     target: CommunityWriteTarget
+    alternateTargets?: readonly CommunityWriteTarget[]
     action: string
     disabled?: boolean
     submit?: boolean
@@ -39,6 +40,7 @@
 
   const {
     target,
+    alternateTargets = [],
     action,
     disabled = false,
     submit = false,
@@ -63,9 +65,41 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const targets = $derived.by(() => {
+    const selected: CommunityWriteTarget[] = []
+
+    for (const currentTarget of [target, ...alternateTargets]) {
+      if (
+        !selected.some(
+          existing =>
+            existing.kind === currentTarget.kind &&
+            existing.sectionName === currentTarget.sectionName &&
+            existing.subtype === currentTarget.subtype,
+        )
+      ) {
+        selected.push(currentTarget)
+      }
+    }
+
+    return selected
+  })
   const targetSections = $derived.by(() =>
     communityBootstrapReady && $activeCommunityDefinition
-      ? getCommunityWriteTargetSections($activeCommunityDefinition, target)
+      ? targets.reduce(
+          (sections, currentTarget) => {
+            for (const section of getCommunityWriteTargetSections(
+              $activeCommunityDefinition!,
+              currentTarget,
+            )) {
+              if (!sections.some(existing => existing.name === section.name)) {
+                sections.push(section)
+              }
+            }
+
+            return sections
+          },
+          [] as ReturnType<typeof getCommunityWriteTargetSections>,
+        )
       : [],
   )
   const formEntry = $derived.by(() => {
@@ -74,8 +108,12 @@
       if (form) return {sectionName: section.name, form}
     }
 
-    const fallbackForm = $activeCommunityAdmissionForms[target.sectionName]
-    return fallbackForm ? {sectionName: target.sectionName, form: fallbackForm} : undefined
+    for (const currentTarget of targets) {
+      const fallbackForm = $activeCommunityAdmissionForms[currentTarget.sectionName]
+      if (fallbackForm) return {sectionName: currentTarget.sectionName, form: fallbackForm}
+    }
+
+    return undefined
   })
   const form = $derived(formEntry?.form)
   const targetSectionName = $derived(
@@ -107,21 +145,33 @@
   const reviewEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
   )
-  const gateState = $derived.by<CommunityPublishGateState>(() =>
+  const gateStates = $derived.by<CommunityPublishGateState[]>(() =>
     communityBootstrapReady && $activeCommunityDefinition
-      ? getCommunityPublishGateState({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target,
-          form,
-          formSectionName: formEntry?.sectionName,
-          responseEvents: $responseEvents,
-          deleteEvents: $deleteEvents,
-          reviewEvents: $reviewEvents,
-          reportState: $activeCommunityReportState,
-        })
-      : {...target, status: $pubkey ? "missing" : "login-required", form},
+      ? targets.map(currentTarget =>
+          getCommunityPublishGateState({
+            definition: $activeCommunityDefinition!,
+            profileListEvents: $activeCommunityProfileListEvents,
+            userPubkey: $pubkey,
+            target: currentTarget,
+            form,
+            formSectionName: formEntry?.sectionName,
+            responseEvents: $responseEvents,
+            deleteEvents: $deleteEvents,
+            reviewEvents: $reviewEvents,
+            reportState: $activeCommunityReportState,
+          }),
+        )
+      : [{...target, status: $pubkey ? "missing" : "login-required", form}],
+  )
+  const gateState = $derived.by<CommunityPublishGateState>(
+    () =>
+      gateStates.find(state => state.status === "allowed") ||
+      gateStates.find(state => state.status === "pending") ||
+      gateStates.find(state => state.status === "rejected") ||
+      gateStates.find(state => state.status === "granted") ||
+      gateStates.find(state => state.status === "missing" && state.form) ||
+      gateStates[0] ||
+      {...target, status: $pubkey ? "missing" : "login-required", form},
   )
   const canWrite = $derived(gateState.status === "allowed")
   const hasForm = $derived(Boolean(form))

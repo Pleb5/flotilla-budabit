@@ -6,7 +6,7 @@
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {formatTimestampAsDate, last, now} from "@welshman/lib"
-  import {EVENT_TIME, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
+  import {type Filter, type TrustedEvent} from "@welshman/util"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -28,12 +28,19 @@
   } from "@app/core/community-state"
   import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {
+    CALENDAR_EVENT_KINDS,
+    getCalendarEventRange,
+    isCalendarEventKind,
+  } from "@app/core/calendar-events"
+  import {
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
   import {
+    COMMUNITY_CALENDAR_WRITE_TARGETS,
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityCalendarWriteTarget,
     getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
@@ -80,29 +87,36 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
-  const calendarSectionName = $derived(
+  const getCalendarEventSectionName = (kind: number) =>
     getCommunityWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
-      COMMUNITY_WRITE_TARGETS.calendar,
-    ),
-  )
+      getCommunityCalendarWriteTarget(kind),
+    )
   const targetingFilters = $derived(
     communityBootstrapReady && communityPubkey
-      ? [makeCommunityTargetingFilter(communityPubkey, [EVENT_TIME])]
+      ? [makeCommunityTargetingFilter(communityPubkey, CALENDAR_EVENT_KINDS)]
       : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
+  const calendarAuthorPubkeysByKind = $derived.by(() =>
+    new Map(
+      COMMUNITY_CALENDAR_WRITE_TARGETS.map(target => [
+        target.kind,
+        $activeCommunityDefinition
+          ? getCommunityTargetWriterPubkeys({
+              definition: $activeCommunityDefinition,
+              profileListEvents: $activeCommunityProfileListEvents,
+              target,
+              reportState: $activeCommunityReportState,
+            })
+          : [],
+      ]),
+    ),
+  )
   const calendarAuthorPubkeys = $derived(
-    $activeCommunityDefinition
-      ? getCommunityTargetWriterPubkeys({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          target: COMMUNITY_WRITE_TARGETS.calendar,
-          reportState: $activeCommunityReportState,
-        })
-      : [],
+    Array.from(new Set(Array.from(calendarAuthorPubkeysByKind.values()).flat())),
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -114,31 +128,53 @@
         })
       : [],
   )
-  const targetingIds = $derived.by(() => {
-    const allowedAuthors = new Set(calendarAuthorPubkeys.map(normalizePubkey).filter(Boolean))
+  const targetingIdsByKind = $derived.by(() => {
+    const idsByKind = new Map<number, string[]>()
 
-    return $targetingEvents
-      .map(event => parseTargetedPublication(event))
-      .filter(targeting => targeting?.kind === EVENT_TIME)
-      .filter(targeting => {
-        if (!targeting?.ref || targeting.ref.type !== "a") return true
+    for (const event of $targetingEvents) {
+      const targeting = parseTargetedPublication(event)
+      if (!targeting || !isCalendarEventKind(targeting.kind)) continue
+
+      if (targeting.ref?.type === "a") {
+        const allowedAuthors = new Set(
+          (calendarAuthorPubkeysByKind.get(targeting.kind) || [])
+            .map(normalizePubkey)
+            .filter(Boolean),
+        )
 
         const [, author] = targeting.ref.value.split(":")
-        return allowedAuthors.has(normalizePubkey(author || ""))
-      })
-      .map(targeting => targeting?.id || "")
-      .filter(Boolean)
+        if (!allowedAuthors.has(normalizePubkey(author || ""))) continue
+      }
+
+      if (!targeting.id) continue
+      idsByKind.set(targeting.kind, [...(idsByKind.get(targeting.kind) || []), targeting.id])
+    }
+
+    return idsByKind
   })
-  const targetedOriginalFilters = $derived(
-    communityBootstrapReady && calendarAuthorPubkeys.length
-      ? makeTargetedPublicationOriginalFilters($targetingEvents, calendarAuthorPubkeys)
-      : [],
-  )
+  const targetedOriginalFilters = $derived.by<Filter[]>(() => {
+    if (!communityBootstrapReady) return []
+
+    return COMMUNITY_CALENDAR_WRITE_TARGETS.flatMap(target => {
+      const authors = calendarAuthorPubkeysByKind.get(target.kind) || []
+      if (authors.length === 0) return []
+
+      return makeTargetedPublicationOriginalFilters(
+        $targetingEvents.filter(event => parseTargetedPublication(event)?.kind === target.kind),
+        authors,
+      )
+    })
+  })
   const calendarFeedFilters = $derived.by<Filter[]>(() => {
     const filters: Filter[] = [...targetedOriginalFilters]
 
-    if (targetingIds.length > 0 && calendarAuthorPubkeys.length > 0) {
-      filters.unshift({kinds: [EVENT_TIME], authors: calendarAuthorPubkeys, "#h": targetingIds})
+    for (const target of COMMUNITY_CALENDAR_WRITE_TARGETS) {
+      const targetingIds = targetingIdsByKind.get(target.kind) || []
+      const authors = calendarAuthorPubkeysByKind.get(target.kind) || []
+
+      if (targetingIds.length > 0 && authors.length > 0) {
+        filters.unshift({kinds: [target.kind], authors, "#h": targetingIds})
+      }
     }
 
     return filters
@@ -172,7 +208,12 @@
     ),
   )
 
-  const getStart = (event: TrustedEvent) => parseInt(getTagValue("start", event.tags) || "")
+  const getRange = (event: TrustedEvent) => getCalendarEventRange(event)
+  const isActiveOrFutureEvent = (event: TrustedEvent) => {
+    const range = getRange(event)
+
+    return Boolean(range && (range.end ?? range.start) >= now())
+  }
 
   const items = $derived.by(() => {
     let haveSeenFutureEvent = false
@@ -180,12 +221,12 @@
 
     return $events
       .filter(event => !isCommunityPersonBanned($activeCommunityReportState, event.pubkey))
-      .filter(event => !isNaN(getStart(event)))
+      .filter(event => Boolean(getRange(event)))
       .map<CalendarItem>(event => {
-        const start = getStart(event)
-        const dateDisplayValue = formatTimestampAsDate(start)
+        const range = getRange(event)!
+        const dateDisplayValue = formatTimestampAsDate(range.start)
         const dateDisplay = previousDateDisplay === dateDisplayValue ? undefined : dateDisplayValue
-        const isFutureEvent = start >= now()
+        const isFutureEvent = isActiveOrFutureEvent(event)
         const isFirstFutureEvent = !haveSeenFutureEvent && isFutureEvent
 
         previousDateDisplay = dateDisplayValue
@@ -339,7 +380,7 @@
           if (delta > 0) element.scrollTop += delta
         }
       } else {
-        const firstFutureItem = items.find(({event}) => getStart(event) >= now()) || last(items)
+        const firstFutureItem = items.find(({event}) => isActiveOrFutureEvent(event)) || last(items)
         const eventElement = firstFutureItem
           ? (document.querySelector(`.calendar-event-${firstFutureItem.event.id}`) as HTMLElement)
           : undefined
@@ -376,6 +417,7 @@
     <div class="row-2">
       <PublishGate
         target={COMMUNITY_WRITE_TARGETS.calendar}
+        alternateTargets={COMMUNITY_CALENDAR_WRITE_TARGETS}
         action="publish calendar events"
         href={createPath}
         class="btn btn-primary btn-sm">
@@ -404,7 +446,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
-        communitySectionName={calendarSectionName}
+        communitySectionName={getCalendarEventSectionName(event.kind)}
         allowedAuthors={interactionAuthorPubkeys}
         readOnly={!canReact}
         {event} />

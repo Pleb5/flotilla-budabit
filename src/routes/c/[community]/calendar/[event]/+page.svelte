@@ -8,7 +8,6 @@
   import {sortBy} from "@welshman/lib"
   import {
     COMMENT,
-    EVENT_TIME,
     getTagValue,
     makeEvent,
     type EventContent,
@@ -48,8 +47,10 @@
   import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
   import {
+    COMMUNITY_CALENDAR_WRITE_TARGETS,
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityCalendarWriteTarget,
     getCommunityWriteTargetSectionName,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
@@ -96,6 +97,11 @@
       COMMUNITY_WRITE_TARGETS.calendar,
     ),
   )
+  const getCalendarEventSectionName = (kind: number) =>
+    getCommunityWriteTargetSectionName(
+      communityBootstrapReady ? $activeCommunityDefinition : undefined,
+      getCommunityCalendarWriteTarget(kind),
+    )
   const commentSectionName = $derived(
     getCommunityWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
@@ -103,15 +109,20 @@
     ),
   )
   const commentAccessMessage = $derived(`Request ${commentSectionName} access to comment.`)
-  const calendarAuthorPubkeys = $derived(
-    $activeCommunityDefinition
-      ? getCommunityTargetWriterPubkeys({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          target: COMMUNITY_WRITE_TARGETS.calendar,
-          reportState: $activeCommunityReportState,
-        })
-      : [],
+  const calendarAuthorPubkeysByKind = $derived.by(() =>
+    new Map(
+      COMMUNITY_CALENDAR_WRITE_TARGETS.map(target => [
+        target.kind,
+        $activeCommunityDefinition
+          ? getCommunityTargetWriterPubkeys({
+              definition: $activeCommunityDefinition,
+              profileListEvents: $activeCommunityProfileListEvents,
+              target,
+              reportState: $activeCommunityReportState,
+            })
+          : [],
+      ]),
+    ),
   )
   const interactionAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -124,16 +135,21 @@
       : [],
   )
   const isEventIdParam = $derived(/^[0-9a-f]{64}$/i.test(eventParam))
-  const eventFilters = $derived<Filter[]>(
-    communityBootstrapReady && eventParam && calendarAuthorPubkeys.length
-      ? [
-          ...(isEventIdParam
-            ? [{kinds: [EVENT_TIME], ids: [eventParam], authors: calendarAuthorPubkeys}]
-            : []),
-          {kinds: [EVENT_TIME], "#d": [eventParam], authors: calendarAuthorPubkeys},
-        ]
-      : [],
-  )
+  const eventFilters = $derived.by<Filter[]>(() => {
+    if (!communityBootstrapReady || !eventParam) return []
+
+    const filters: Filter[] = []
+
+    for (const target of COMMUNITY_CALENDAR_WRITE_TARGETS) {
+      const authors = calendarAuthorPubkeysByKind.get(target.kind) || []
+      if (authors.length === 0) continue
+
+      if (isEventIdParam) filters.push({kinds: [target.kind], ids: [eventParam], authors})
+      filters.push({kinds: [target.kind], "#d": [eventParam], authors})
+    }
+
+    return filters
+  })
   const eventEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: eventFilters})),
   )
@@ -156,7 +172,7 @@
       ? [
           makeCommunityTargetingFilter(
             communityPubkey,
-            [EVENT_TIME],
+            [event.kind],
             eventTargetingId ? {"#d": [eventTargetingId]} : {},
           ),
         ]
@@ -168,12 +184,14 @@
   const isTargetedToCommunity = $derived.by(() => {
     if (!event) return false
 
-    const allowedAuthors = new Set(calendarAuthorPubkeys.map(normalizePubkey).filter(Boolean))
+    const allowedAuthors = new Set(
+      (calendarAuthorPubkeysByKind.get(event.kind) || []).map(normalizePubkey).filter(Boolean),
+    )
     if (!allowedAuthors.has(normalizePubkey(event.pubkey))) return false
 
     return $targetingEvents.some(targetingEvent => {
       const targeting = parseTargetedPublication(targetingEvent)
-      if (!targeting || targeting.kind !== EVENT_TIME) return false
+      if (!targeting || targeting.kind !== event.kind) return false
       if (eventTargetingId && targeting.id === eventTargetingId) return true
       if (targeting.ref?.type === "e" && targeting.ref.value === event.id) return true
       if (targeting.ref?.type === "a" && targeting.ref.value === eventAddress) return true
@@ -182,6 +200,9 @@
     })
   })
   const approvedEvent = $derived(event && isTargetedToCommunity ? event : undefined)
+  const approvedEventSectionName = $derived(
+    approvedEvent ? getCalendarEventSectionName(approvedEvent.kind) : calendarSectionName,
+  )
   const approvedEventCensorReason = $derived.by(() =>
     approvedEvent
       ? getCommunityCensorReason({
@@ -189,7 +210,7 @@
           eventId: approvedEvent.id,
           eventAddress: getCommunityReportEventAddress(approvedEvent),
           pubkey: approvedEvent.pubkey,
-          sectionName: calendarSectionName,
+          sectionName: approvedEventSectionName,
         })
       : undefined,
   )
@@ -202,7 +223,7 @@
           {
             kinds: [COMMENT],
             "#E": [approvedEvent.id],
-            "#K": [String(EVENT_TIME)],
+            "#K": [String(approvedEvent.kind)],
             "#h": [communityPubkey],
             authors: interactionAuthorPubkeys,
           },
@@ -211,14 +232,14 @@
                 {
                   kinds: [COMMENT],
                   "#A": [eventAddress],
-                  "#K": [String(EVENT_TIME)],
+                  "#K": [String(approvedEvent.kind)],
                   "#h": [communityPubkey],
                   authors: interactionAuthorPubkeys,
                 },
                 {
                   kinds: [COMMENT],
                   "#a": [eventAddress],
-                  "#K": [String(EVENT_TIME)],
+                  "#K": [String(approvedEvent.kind)],
                   "#h": [communityPubkey],
                   authors: interactionAuthorPubkeys,
                 },
@@ -533,7 +554,7 @@
               event={approvedEvent}
               url={communityPubkey}
               relays={$activeCommunityRelays}
-              communitySectionName={calendarSectionName} />
+              communitySectionName={approvedEventSectionName} />
           </div>
         </div>
         <div class="flex w-full flex-col justify-end sm:flex-row">
@@ -541,7 +562,7 @@
             url={communityPubkey}
             relays={$activeCommunityRelays}
             scopeH={communityPubkey}
-            communitySectionName={calendarSectionName}
+            communitySectionName={approvedEventSectionName}
             allowedAuthors={interactionAuthorPubkeys}
             readOnly={!canReact}
             redirectOnEdit

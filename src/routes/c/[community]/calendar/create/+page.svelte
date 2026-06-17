@@ -3,7 +3,7 @@
   import {page} from "$app/stores"
   import {pubkey, publishThunk} from "@welshman/app"
   import {HOUR, now, randomId} from "@welshman/lib"
-  import {EVENT_TIME, makeEvent} from "@welshman/util"
+  import {EVENT_DATE, EVENT_TIME, makeEvent} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -14,8 +14,13 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
-  import {daysBetween} from "@lib/util"
   import {pushToast} from "@app/util/toast"
+  import {
+    makeCalendarEventTags,
+    parseCalendarDate,
+    timestampToDateInputValue,
+    type CalendarEventKind,
+  } from "@app/core/calendar-events"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
@@ -31,8 +36,10 @@
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
   import {
+    COMMUNITY_CALENDAR_WRITE_TARGETS,
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunityCalendarWriteTarget,
     getCommunityWriteTargetSectionName,
   } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
@@ -50,29 +57,106 @@
       !$activeCommunityBootstrapStatus.loading,
     ),
   )
+  const initialStart = Math.floor(Date.now() / 1000) + HOUR
+
+  let title = $state("")
+  let location = $state("")
+  let description = $state("")
+  let eventKind = $state<CalendarEventKind>(EVENT_TIME)
+  let kindTouched = $state(false)
+  let start = $state(initialStart)
+  let end = $state(initialStart + HOUR)
+  let startDate = $state(timestampToDateInputValue(initialStart))
+  let endDate = $state(timestampToDateInputValue(initialStart))
+
+  const isDateBased = $derived(eventKind === EVENT_DATE)
+  const selectedCalendarTarget = $derived(getCommunityCalendarWriteTarget(eventKind))
   const calendarSectionName = $derived(
     getCommunityWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
-      COMMUNITY_WRITE_TARGETS.calendar,
+      selectedCalendarTarget,
     ),
   )
   const calendarAccessMessage = $derived(
     `Request ${calendarSectionName} access to publish calendar events.`,
   )
-  const canCreateEvent = $derived(
+  const canCreateDateEvent = $derived(
     Boolean(
       $pubkey &&
-      communityBootstrapReady &&
-      $activeCommunityDefinition &&
-      canWriteCommunityTarget({
-        definition: $activeCommunityDefinition,
-        profileListEvents: $activeCommunityProfileListEvents,
-        userPubkey: $pubkey,
-        target: COMMUNITY_WRITE_TARGETS.calendar,
-        reportState: $activeCommunityReportState,
-      }),
+        communityBootstrapReady &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.calendarDate,
+          reportState: $activeCommunityReportState,
+        }),
     ),
   )
+  const canCreateTimeEvent = $derived(
+    Boolean(
+      $pubkey &&
+        communityBootstrapReady &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.calendar,
+          reportState: $activeCommunityReportState,
+        }),
+    ),
+  )
+  const canCreateEvent = $derived(
+    eventKind === EVENT_DATE ? canCreateDateEvent : canCreateTimeEvent,
+  )
+
+  const validateDateRange = () => {
+    const normalizedStartDate = parseCalendarDate(startDate)
+    const normalizedEndDate = parseCalendarDate(endDate) || normalizedStartDate
+
+    if (!normalizedStartDate) {
+      pushToast({theme: "error", message: "Please provide a valid start date."})
+      return undefined
+    }
+
+    if (!normalizedEndDate) {
+      pushToast({theme: "error", message: "Please provide a valid end date."})
+      return undefined
+    }
+
+    if (normalizedEndDate < normalizedStartDate) {
+      pushToast({theme: "error", message: "End date must be on or after start date."})
+      return undefined
+    }
+
+    if (normalizedEndDate < timestampToDateInputValue(now())) {
+      pushToast({theme: "error", message: "End date must be today or later."})
+      return undefined
+    }
+
+    return {startDate: normalizedStartDate, endDate: normalizedEndDate}
+  }
+
+  const validateTimeRange = () => {
+    if (!start || !end) {
+      pushToast({theme: "error", message: "Please provide start and end times."})
+      return undefined
+    }
+
+    if (start >= end) {
+      pushToast({theme: "error", message: "End time must be later than start time."})
+      return undefined
+    }
+
+    if (end <= now()) {
+      pushToast({theme: "error", message: "End time must be in the future."})
+      return undefined
+    }
+
+    return {start, end}
+  }
 
   const createEvent = () => {
     const trimmedTitle = title.trim()
@@ -85,18 +169,12 @@
       pushToast({theme: "error", message: calendarAccessMessage})
       return
     }
-    if (!start || !end) {
-      pushToast({theme: "error", message: "Please provide start and end times."})
-      return
-    }
-    if (start >= end) {
-      pushToast({theme: "error", message: "End time must be later than start time."})
-      return
-    }
-    if (end <= now()) {
-      pushToast({theme: "error", message: "End time must be in the future."})
-      return
-    }
+
+    const currentEventKind = eventKind
+    const dateRange = currentEventKind === EVENT_DATE ? validateDateRange() : undefined
+    const timeRange = currentEventKind === EVENT_TIME ? validateTimeRange() : undefined
+    if (currentEventKind === EVENT_DATE && !dateRange) return
+    if (currentEventKind === EVENT_TIME && !timeRange) return
 
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
@@ -109,19 +187,21 @@
     const eventTemplate = withPublicationTargetingId(
       {
         content: description.trim(),
-        tags: [
-          ["d", eventId],
-          ["title", trimmedTitle],
-          ["location", location.trim()],
-          ["start", String(start)],
-          ["end", String(end)],
-          ...daysBetween(start, end).map(day => ["D", String(day)]),
-        ],
+        tags: makeCalendarEventTags({
+          kind: currentEventKind,
+          identifier: eventId,
+          title: trimmedTitle,
+          location: location.trim(),
+          start: timeRange?.start,
+          end: timeRange?.end,
+          startDate: dateRange?.startDate,
+          endDate: dateRange?.endDate,
+        }),
       },
       targetingId,
     )
     const originalRef = makeAddressablePublicationRef({
-      kind: EVENT_TIME,
+      kind: currentEventKind,
       pubkey: $pubkey,
       identifier: eventId,
       relay: relays[0],
@@ -130,7 +210,7 @@
 
     publishThunk({
       relays: originalRelays.length ? originalRelays : relays,
-      event: makeEvent(EVENT_TIME, eventTemplate),
+      event: makeEvent(currentEventKind, eventTemplate),
     })
     publishThunk({
       relays,
@@ -138,7 +218,7 @@
         TARGETED_PUBLICATION_KIND,
         makeTargetedPublicationForCommunity({
           targetingId,
-          originalKind: EVENT_TIME,
+          originalKind: currentEventKind,
           originalRef,
           communityPubkey,
           communityRelay: relays[0],
@@ -150,12 +230,14 @@
     if (calendarPath) goto(calendarPath)
   }
 
-  const initialStart = Math.floor(Date.now() / 1000) + HOUR
-  let title = $state("")
-  let location = $state("")
-  let description = $state("")
-  let start = $state(initialStart)
-  let end = $state(initialStart + HOUR)
+  $effect(() => {
+    if (!communityBootstrapReady || kindTouched) return
+    if (eventKind === EVENT_TIME && !canCreateTimeEvent && canCreateDateEvent) {
+      eventKind = EVENT_DATE
+    } else if (eventKind === EVENT_DATE && !canCreateDateEvent && canCreateTimeEvent) {
+      eventKind = EVENT_TIME
+    }
+  })
 </script>
 
 <PageBar>
@@ -190,6 +272,35 @@
     </Field>
     <Field>
       {#snippet label()}
+        <p>Event type</p>
+      {/snippet}
+      {#snippet input()}
+        <select bind:value={eventKind} class="select select-bordered w-full" onchange={() => (kindTouched = true)}>
+          <option value={EVENT_TIME}>Timed event</option>
+          <option value={EVENT_DATE}>All-day event</option>
+        </select>
+      {/snippet}
+    </Field>
+    {#if isDateBased}
+      <Field>
+        {#snippet label()}
+          <p>Start date</p>
+        {/snippet}
+        {#snippet input()}
+          <input bind:value={startDate} class="input input-bordered w-full" type="date" />
+        {/snippet}
+      </Field>
+      <Field>
+        {#snippet label()}
+          <p>End date <span class="text-xs opacity-70">inclusive</span></p>
+        {/snippet}
+        {#snippet input()}
+          <input bind:value={endDate} class="input input-bordered w-full" type="date" />
+        {/snippet}
+      </Field>
+    {:else}
+    <Field>
+      {#snippet label()}
         <p>Start</p>
       {/snippet}
       {#snippet input()}
@@ -204,6 +315,7 @@
         <DateTimeInput bind:value={end} />
       {/snippet}
     </Field>
+    {/if}
     <Field>
       {#snippet label()}
         <p>Location</p>
@@ -223,6 +335,7 @@
     <div class="flex justify-end">
       <PublishGate
         target={COMMUNITY_WRITE_TARGETS.calendar}
+        alternateTargets={COMMUNITY_CALENDAR_WRITE_TARGETS}
         action="publish calendar events"
         submit
         disabled={!title.trim()}>

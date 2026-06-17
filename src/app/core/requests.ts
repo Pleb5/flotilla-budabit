@@ -15,6 +15,7 @@ import {
 } from "@welshman/lib"
 import {
   DELETE,
+  EVENT_DATE,
   EVENT_TIME,
   RELAY_INVITE,
   ALERT_EMAIL,
@@ -40,11 +41,38 @@ import {
   editedTargetIds,
   isVisibleAfterDeletesAndEdits,
 } from "@app/core/event-edits"
+import {CALENDAR_EVENT_KINDS, getCalendarEventRange} from "@app/core/calendar-events"
 
 // Utils
 
 const INITIAL_FEED_LOAD_TIMEOUT = 3000
 const CALENDAR_REQUEST_TIMEOUT = 3000
+
+const filterIncludesKind = (filter: Filter, kind: number) =>
+  filter.kinds
+    ? filter.kinds.includes(kind)
+    : CALENDAR_EVENT_KINDS.includes(kind as (typeof CALENDAR_EVENT_KINDS)[number])
+
+export const makeCalendarDateBasedFilters = (filters: Filter[]): Filter[] =>
+  filters.flatMap(filter => {
+    if (!filterIncludesKind(filter, EVENT_DATE)) return []
+
+    const {"#D": _dayTags, ...dateFilter} = filter
+
+    return [{...dateFilter, kinds: [EVENT_DATE]}]
+  })
+
+export const makeCalendarTimeBasedFilters = (
+  filters: Filter[],
+  since: number,
+  until: number,
+): Filter[] => {
+  const hashes = daysBetween(since, until).map(String)
+
+  return filters.flatMap(filter =>
+    filterIncludesKind(filter, EVENT_TIME) ? [{...filter, kinds: [EVENT_TIME], "#D": hashes}] : [],
+  )
+}
 
 const waitForSettled = async (promise: Promise<unknown>, timeoutMs: number) => {
   await Promise.race([Promise.allSettled([promise]), sleep(timeoutMs)])
@@ -291,9 +319,13 @@ export const makeCalendarFeed = ({
   let backwardWindow = [initialBackwardWindow[0] - interval, initialBackwardWindow[0]]
   let forwardWindow = [initialForwardWindow[1], initialForwardWindow[1] + interval]
 
-  const getStart = (event: TrustedEvent) => parseInt(getTagValue("start", event.tags) || "")
+  const getRange = (event: TrustedEvent) => getCalendarEventRange(event)
+  const getStart = (event: TrustedEvent) => getRange(event)?.start ?? Number.POSITIVE_INFINITY
+  const isValidCalendarEvent = (event: TrustedEvent) => {
+    const range = getRange(event)
 
-  const getEnd = (event: TrustedEvent) => parseInt(getTagValue("end", event.tags) || "")
+    return Boolean(range && (range.dateBased || range.end !== undefined))
+  }
 
   const getEventsForRelays = () =>
     Array.from(
@@ -305,17 +337,7 @@ export const makeCalendarFeed = ({
       ).values(),
     )
 
-  const makeTimeframeFilters = (since: number, until: number): Filter[] => {
-    const hashes = daysBetween(since, until).map(String)
-
-    return filters.flatMap(filter => {
-      if (filter.kinds && !filter.kinds.includes(EVENT_TIME)) return []
-
-      return [{...filter, kinds: filter.kinds || [EVENT_TIME], "#D": hashes}]
-    })
-  }
-
-  const initialEvents = sortBy(getStart, getEventsForRelays())
+  const initialEvents = sortBy(getStart, getEventsForRelays().filter(isValidCalendarEvent))
   const events = writable(initialEvents)
 
   const removeEvents = (predicate: (event: TrustedEvent) => boolean) => {
@@ -323,11 +345,11 @@ export const makeCalendarFeed = ({
   }
 
   const insertEvent = (event: TrustedEvent) => {
-    const start = getStart(event)
+    const range = getRange(event)
     const address = getAddress(event)
 
     if (!isVisibleAfterDeletesAndEdits(event)) return
-    if (isNaN(start) || isNaN(getEnd(event))) return
+    if (!range || (!range.dateBased && range.end === undefined)) return
 
     events.update($events => {
       const nextEvents = $events.filter(
@@ -335,7 +357,7 @@ export const makeCalendarFeed = ({
       )
 
       for (let i = 0; i < nextEvents.length; i++) {
-        if (getStart(nextEvents[i]) > start) return insertAt(i, event, nextEvents)
+        if (getStart(nextEvents[i]) > range.start) return insertAt(i, event, nextEvents)
       }
 
       return [...nextEvents, event]
@@ -386,7 +408,7 @@ export const makeCalendarFeed = ({
   }
 
   const loadTimeframe = async (since: number, until: number) => {
-    const timeframeFilters = makeTimeframeFilters(since, until)
+    const timeframeFilters = makeCalendarTimeBasedFilters(filters, since, until)
     if (timeframeFilters.length === 0 || loadRelays.length === 0) return
 
     await request({
@@ -394,6 +416,18 @@ export const makeCalendarFeed = ({
       autoClose: true,
       signal: withTimeoutSignal(controller.signal, CALENDAR_REQUEST_TIMEOUT),
       filters: timeframeFilters,
+    })
+  }
+
+  const loadDateBasedEvents = async () => {
+    const dateFilters = makeCalendarDateBasedFilters(filters)
+    if (dateFilters.length === 0 || loadRelays.length === 0) return
+
+    await request({
+      relays: loadRelays,
+      autoClose: true,
+      signal: withTimeoutSignal(controller.signal, CALENDAR_REQUEST_TIMEOUT),
+      filters: dateFilters,
     })
   }
 
@@ -439,6 +473,7 @@ export const makeCalendarFeed = ({
   const initialLoad =
     filters.length > 0 && loadRelays.length > 0
       ? Promise.allSettled([
+          loadDateBasedEvents(),
           loadTimeframe(...initialBackwardWindow),
           loadTimeframe(...initialForwardWindow),
         ]).finally(markInitialLoadComplete)
