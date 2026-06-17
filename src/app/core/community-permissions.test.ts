@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {BADGE_DEFINITION, EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
@@ -16,6 +16,7 @@ import {
 } from "./community-forms"
 import {
   COMMUNITY_WRITE_TARGETS,
+  COMMUNITY_CALENDAR_WRITE_TARGETS,
   canWriteCommunitySection,
   canWriteCommunityTarget,
   findProfileListEvent,
@@ -105,8 +106,12 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(11, "forum")).toBeUndefined()
     expect(getCommunityWriteTarget(11)).toBeUndefined()
     expect(getCommunityWriteTarget(1984)).toEqual(COMMUNITY_WRITE_TARGETS.report)
+    expect(getCommunityWriteTarget(EVENT_DATE)).toEqual(COMMUNITY_WRITE_TARGETS.calendarDate)
     expect(getCommunityWriteTarget(EVENT_TIME)).toEqual(COMMUNITY_WRITE_TARGETS.calendar)
-    expect(getCommunityWriteTarget(31922)).toBeUndefined()
+    expect(COMMUNITY_CALENDAR_WRITE_TARGETS).toEqual([
+      COMMUNITY_WRITE_TARGETS.calendarDate,
+      COMMUNITY_WRITE_TARGETS.calendar,
+    ])
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
     expect(getCommunityWriteTarget(1623)).toEqual(COMMUNITY_WRITE_TARGETS.permalink)
   })
@@ -643,6 +648,7 @@ describe("community permissions", () => {
           ["content", "Plain kind 9"],
           ["k", "9"],
           ["content", "Events"],
+          ["k", String(EVENT_DATE)],
           ["k", String(EVENT_TIME)],
         ],
       }),
@@ -657,8 +663,93 @@ describe("community permissions", () => {
       ),
     ).toEqual(["Plain kind 9"])
     expect(
+      getCommunityWriteTargetSectionName(customDefinition, COMMUNITY_WRITE_TARGETS.calendarDate),
+    ).toBe("Events")
+    expect(
       getCommunityWriteTargetSectionName(customDefinition, COMMUNITY_WRITE_TARGETS.calendar),
     ).toBe("Events")
+  })
+
+  it("keeps date-based and time-based calendar permissions distinct", () => {
+    const dateOnlyDefinition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "All-day events"],
+          ["k", String(EVENT_DATE)],
+          ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:All-day-events`],
+        ],
+      }),
+    )!
+    const timeOnlyDefinition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "Timed events"],
+          ["k", String(EVENT_TIME)],
+          ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:Timed-events`],
+        ],
+      }),
+    )!
+    const dateProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      tags: [
+        ["d", "All-day-events"],
+        ["p", memberPubkey],
+      ],
+    })
+    const timeProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      tags: [
+        ["d", "Timed-events"],
+        ["p", memberPubkey],
+      ],
+    })
+
+    expect(
+      getCommunityWriteTargetSections(dateOnlyDefinition, COMMUNITY_WRITE_TARGETS.calendarDate).map(
+        section => section.name,
+      ),
+    ).toEqual(["All-day events"])
+    expect(
+      getCommunityWriteTargetSections(dateOnlyDefinition, COMMUNITY_WRITE_TARGETS.calendar),
+    ).toEqual([])
+    expect(
+      canWriteCommunityTarget({
+        definition: dateOnlyDefinition,
+        profileListEvents: [dateProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.calendarDate,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition: dateOnlyDefinition,
+        profileListEvents: [dateProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.calendar,
+      }),
+    ).toBe(false)
+    expect(
+      canWriteCommunityTarget({
+        definition: timeOnlyDefinition,
+        profileListEvents: [timeProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.calendar,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition: timeOnlyDefinition,
+        profileListEvents: [timeProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.calendarDate,
+      }),
+    ).toBe(false)
   })
 
   it("matches widget grants in the custom section assigned to kind 30033", () => {

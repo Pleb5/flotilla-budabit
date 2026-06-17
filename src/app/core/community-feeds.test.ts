@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {TARGETED_PUBLICATION_KIND, buildTargetedPublication} from "./community"
 import {
   filterRoomRoots,
@@ -60,14 +60,14 @@ describe("community feed helpers", () => {
   })
 
   it("builds targeted publication filters", () => {
-    expect(makeCommunityTargetingFilter(communityPubkey, [EVENT_TIME, 9041], {limit: 100})).toEqual(
-      {
-        kinds: [TARGETED_PUBLICATION_KIND],
-        "#p": [communityPubkey],
-        "#k": [String(EVENT_TIME), "9041"],
-        limit: 100,
-      },
-    )
+    expect(
+      makeCommunityTargetingFilter(communityPubkey, [EVENT_DATE, EVENT_TIME, 9041], {limit: 100}),
+    ).toEqual({
+      kinds: [TARGETED_PUBLICATION_KIND],
+      "#p": [communityPubkey],
+      "#k": [String(EVENT_DATE), String(EVENT_TIME), "9041"],
+      limit: 100,
+    })
   })
 
   it("separates room roots from thread roots", () => {
@@ -119,6 +119,15 @@ describe("community feed helpers", () => {
         communities: [{pubkey: communityPubkey}],
       }).tags,
     })
+    const allDayCalendarTarget = makeEvent({
+      kind: TARGETED_PUBLICATION_KIND,
+      tags: buildTargetedPublication({
+        id: "target-all-day-calendar",
+        kind: EVENT_DATE,
+        ref: {type: "a", value: `${EVENT_DATE}:${authorPubkey}:all-day-calendar-1`},
+        communities: [{pubkey: communityPubkey}],
+      }).tags,
+    })
     const permalinkTarget = makeEvent({
       kind: TARGETED_PUBLICATION_KIND,
       tags: buildTargetedPublication({
@@ -138,18 +147,25 @@ describe("community feed helpers", () => {
     })
 
     expect(
-      makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, goalTarget]),
+      makeTargetedPublicationOriginalFilters([
+        allDayCalendarTarget,
+        calendarTarget,
+        permalinkTarget,
+        goalTarget,
+      ]),
     ).toEqual([
+      {kinds: [EVENT_DATE], authors: [authorPubkey], "#d": ["all-day-calendar-1"]},
       {kinds: [EVENT_TIME], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"]},
       {kinds: [9041], "#h": ["target-goal"]},
     ])
     expect(
       makeTargetedPublicationOriginalFilters(
-        [calendarTarget, permalinkTarget, goalTarget],
+        [allDayCalendarTarget, calendarTarget, permalinkTarget, goalTarget],
         [authorPubkey],
       ),
     ).toEqual([
+      {kinds: [EVENT_DATE], authors: [authorPubkey], "#d": ["all-day-calendar-1"]},
       {kinds: [EVENT_TIME], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"], authors: [authorPubkey]},
       {kinds: [9041], "#h": ["target-goal"], authors: [authorPubkey]},

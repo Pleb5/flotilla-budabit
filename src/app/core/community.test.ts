@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
-import {BADGE_DEFINITION, EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_CALENDAR,
@@ -203,6 +203,7 @@ describe("community protocol helpers", () => {
       makeEvent({kind: COMMUNITY_DEFINITION_KIND, pubkey: pubkeyA, tags: template.tags}),
     )!
     const general = findCommunitySection(definition, COMMUNITY_SECTION_GENERAL)!
+    const calendar = findCommunitySection(definition, COMMUNITY_SECTION_CALENDAR)!
     const threads = findCommunitySection(definition, COMMUNITY_SECTION_THREADS)!
     const repoCurator = findCommunitySection(definition, COMMUNITY_SECTION_REPO_CURATOR)!
 
@@ -215,6 +216,9 @@ describe("community protocol helpers", () => {
     expect(template.tags).toContainEqual(["g", "u4pruy"])
     expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_THREADS])
     expect(template.tags).toContainEqual(["k", "11", COMMUNITY_SUBTYPE_THREADS])
+    expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_CALENDAR])
+    expect(template.tags).toContainEqual(["k", String(EVENT_DATE)])
+    expect(template.tags).toContainEqual(["k", String(EVENT_TIME)])
     expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_REPO_CURATOR])
     expect(template.tags).toContainEqual(["k", "30617"])
     expect(template.tags).toContainEqual(["k", "1623"])
@@ -227,9 +231,12 @@ describe("community protocol helpers", () => {
     expect(sectionSupportsKind(general, 1984)).toBe(true)
     expect(sectionSupportsKind(general, 1985)).toBe(true)
     expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
-    expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_CALENDAR)).toContainEqual({
-      kind: EVENT_TIME,
-    })
+    expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_CALENDAR)).toEqual([
+      {kind: EVENT_DATE},
+      {kind: EVENT_TIME},
+    ])
+    expect(sectionSupportsKind(calendar, EVENT_DATE)).toBe(true)
+    expect(sectionSupportsKind(calendar, EVENT_TIME)).toBe(true)
     expect(sectionSupportsKind(repoCurator, 30617)).toBe(true)
     expect(sectionSupportsKind(repoCurator, 1623)).toBe(true)
     expect(getDefaultCommunitySectionKinds(COMMUNITY_SECTION_GENERAL)).toContainEqual({kind: 1984})

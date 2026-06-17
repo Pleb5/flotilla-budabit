@@ -7,87 +7,71 @@
 
 ## Goal
 
-- Improve Git UX and performance by bounding repo-watch notification work, adding repo-card navigation feedback/load cleanup, and bounding Git Natural cache memory growth.
+- Reintroduce spec-correct support for both NIP-52 community calendar event kinds: `31922` date-based all-day/multi-day events and `31923` time-based events.
+- Default new community Calendar sections to both kinds and wire creation, permissions, listing, detail, comments, notifications, and tests accordingly.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Spec-Correct Calendar Event Utilities And Shared Form/Display
 
 ## Phase Exit Criteria
 
-- Natural read cache in-memory object storage has deterministic count and byte limits.
-- Eviction preserves recent reads and removes least-recently-used entries when limits are exceeded.
-- IndexedDB durable cache behavior remains compatible with existing call sites.
-- Lightweight diagnostics or tests cover cache insertion, hit refresh, and eviction.
-- Focused nostr-git-core tests pass.
+- Shared calendar helper code distinguishes `31922` date strings from `31923` Unix timestamps.
+- Date-based event creation/editing writes `YYYY-MM-DD` `start` and exclusive `end` dates per NIP-52.
+- Time-based event creation/editing keeps Unix timestamp `start`/`end` and `D` tags.
+- Shared calendar form can create all-day/date-based and timed events without corrupting existing edits.
+- Calendar display components render date-based events without bogus epoch times and render time-based events as before.
+- Focused tests cover helper parsing, date exclusive-end conversion, timestamp parsing, serialization, and display-ready values.
 
 ## Completed With Evidence
 
-- Phase 1: Bounded Repo-Watch Notifications.
-- Evidence: `pnpm vitest run src/app/core/repo-watch.test.ts src/app/util/repo-watch-notifications.test.ts` passed with 9 tests.
+- Prior unrelated workflow in these session files was already complete and has been replaced for this calendar workflow.
+- Phase 1: Calendar Kinds In Community Model And Permissions.
+- Evidence: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts` passed with 44 tests.
 - Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Implemented repo-watch app-data `notificationSeen`, baseline publishing for missing watched repo paths, strict repo-declared activity relays after announcements, bounded `since`/`limit` filters, and abortable stale `load()` calls.
-- Issue and PR route seen closeout now updates repo-watch app-data seen timestamps in addition to local `checked`.
-- Phase 1 commit pushed: `370e2ca4 fix: bound repo watch notifications`.
-- Phase 2: Git Route Navigation And Load Cleanup.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Implemented pending visual feedback in `GitItem.svelte` and both `/git` wrapper card loops, with failed wrapper navigation clearing pending state and preserving toast behavior.
-- Deferred repo-card evidence/profile hydration with timers; evidence loads are abortable, profile hydration is ignored after route destruction/key changes, and cleanup runs on `/git` destroy.
-- Phase 2 commit pushed: `7bda8b02 fix: improve git card navigation feedback`.
-- Phase 3: Git Natural Cache Bounds.
-- Evidence: `pnpm vitest run -c packages/nostr-git-core/vitest.config.ts packages/nostr-git-core/test/git/natural-read-cache.test.ts` passed with 3 tests.
-- Evidence: `pnpm --dir packages/nostr-git-core typecheck` passed.
-- Evidence: `pnpm --dir packages/nostr-git-core exec vitest run` passed.
-- Implemented deterministic in-memory count and byte limits for `GitNaturalObjectCache`, with least-recently-used eviction across commit, blob, tree, raw batch, and history batch memory maps.
-- Added `getMemoryStats()` diagnostics and focused tests for count eviction, byte eviction, hit refresh, and memory clear stats.
-- Phase 3 commit pushed: `fc6891ea fix: bound git natural memory cache`.
+- Implemented both calendar kinds in default Calendar section setup, community targetable publication kind lists, community write-target mapping, and CommunityCreate kind picker options.
+- Added distinct `calendarDate` target plus `COMMUNITY_CALENDAR_WRITE_TARGETS` while keeping existing time-based `calendar` target.
+- Added focused tests for defaults, target mapping, distinct date/time permission resolution, and targeted publication filters.
 
 ## Decisions
 
-- Use `docs/session-plan.md` and `docs/session-checkpoint.md` because `docs/` exists and no existing session files were found.
-- Treat current repository state as authoritative before each phase.
-- Store repo-watch notification seen timestamps in app-data-backed repo-watch state while preserving existing local `checked` behavior.
-- Use the earliest section seen timestamp when building shared address-scoped repo-watch filters so viewing issues does not hide older unseen PR activity.
-- Keep Phase 2 scoped to card/list files; defer repo detail layout cancellation to a future phase unless it blocks current verification.
-- Bound only the Git Natural in-memory object cache; durable IndexedDB cache behavior remains unchanged.
+- Use `docs/session-plan.md` and `docs/session-checkpoint.md` because the repository already has durable session files there.
+- Keep existing `COMMUNITY_WRITE_TARGETS.calendar` as the time-based `EVENT_TIME` target for compatibility; add a distinct date-based calendar target.
+- Preserve the existing `Calendar Events` picker label for the current time-based kind and add `All-day Calendar Events` for `EVENT_DATE`.
+- Do not alias `31922` and `31923`; authorize and serialize each kind by exact kind semantics.
 
 ## Current State
 
 - Branch `dev` tracks `origin/dev`.
-- Phase 1 is committed and pushed.
-- Phase 2 is committed and pushed.
-- Phase 3 is committed and pushed.
+- Worktree has pre-existing unrelated changes in extension/widget files; do not stage or modify those unless explicitly required.
+- Phase 1 is verified locally and ready to commit/push.
+- Current Phase 2 has not been implemented yet.
 
 ## Next Action
 
-- Final response can summarize the completed workflow.
+- Start Phase 2 by adding a tested calendar event helper module, then update shared calendar form/edit/display components to use spec-correct date/time parsing and serialization.
 
 ## Verification
 
-- Phase 1 focused tests passed: `pnpm vitest run src/app/core/repo-watch.test.ts src/app/util/repo-watch-notifications.test.ts`.
+- Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts`.
 - Phase 1 project check passed: `pnpm check`.
-- Phase 2 project check passed: `pnpm check`.
-- Phase 3 focused cache tests passed: `pnpm vitest run -c packages/nostr-git-core/vitest.config.ts packages/nostr-git-core/test/git/natural-read-cache.test.ts`.
-- Phase 3 package typecheck passed: `pnpm --dir packages/nostr-git-core typecheck`.
-- Phase 3 package test suite passed: `pnpm --dir packages/nostr-git-core exec vitest run`.
 
 ## Risks Or Blockers
 
-- Remote push target exists as `origin/dev`; Phase 1 push succeeded.
-- App-data baseline publishing is batched per derived update and key-deduped in setup; route seen publishing is fire-and-forget on destroy.
-- Phase 2 did not add route-detail layout cancellation; if `/git/[id=naddr]` remains slow after card UX cleanup, handle it in a follow-up.
-- `pnpm test:nostr-git-core` runs coverage and failed existing global coverage thresholds, even though the package test suite passed; the generated coverage HTML artifact was not staged.
+- Push target appears to exist as `origin/dev`, but each phase push must still be verified.
+- Pre-existing unrelated dirty files must remain unstaged.
+- Full all-day support requires later phases because current create/list/detail UI is still mostly hardcoded to `EVENT_TIME` and numeric timestamp parsing.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `src/app/core/repo-watch.ts`
-- `src/app/core/repo-watch.test.ts`
-- `src/app/util/repo-watch-notifications.ts`
-- `src/routes/git/[id=naddr]/issues/+page.svelte`
-- `src/routes/git/[id=naddr]/prs/+page.svelte`
-- `src/app/components/GitItem.svelte`
-- `src/routes/git/+page.svelte`
-- `packages/nostr-git-core/src/git/natural-read-cache.ts`
-- `packages/nostr-git-core/test/git/natural-read-cache.test.ts`
+- `src/app/core/community.ts`
+- `src/app/core/community-permissions.ts`
+- `src/app/core/community-feeds.ts`
+- `src/app/components/CommunityCreate.svelte`
+- `src/app/core/community.test.ts`
+- `src/app/core/community-permissions.test.ts`
+- `src/app/core/community-targeting.test.ts`
+- `src/app/core/community-feeds.test.ts`
+- Expected Phase 2 files: calendar event helper module/tests, `CalendarEventForm.svelte`, `CalendarEventEdit.svelte`, and calendar display components.

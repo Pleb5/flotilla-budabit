@@ -1,4 +1,4 @@
-import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   getAdmissionSubmissionState,
   type CommunityAdmissionForm,
@@ -91,12 +91,18 @@ export const COMMUNITY_WRITE_TARGETS = {
   reaction: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 7},
   report: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1984},
   label: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1985},
+  calendarDate: {sectionName: COMMUNITY_SECTION_CALENDAR, kind: EVENT_DATE},
   calendar: {sectionName: COMMUNITY_SECTION_CALENDAR, kind: EVENT_TIME},
   goal: {sectionName: COMMUNITY_SECTION_GOALS, kind: 9041},
   repository: {sectionName: COMMUNITY_SECTION_REPO_CURATOR, kind: GIT_REPO_ANNOUNCEMENT},
   permalink: {sectionName: COMMUNITY_SECTION_REPO_CURATOR, kind: GIT_PERMALINK_KIND},
   widget: {sectionName: COMMUNITY_SECTION_WIDGETS, kind: SMART_WIDGET_KIND},
 } satisfies Record<string, CommunityWriteTarget>
+
+export const COMMUNITY_CALENDAR_WRITE_TARGETS = [
+  COMMUNITY_WRITE_TARGETS.calendarDate,
+  COMMUNITY_WRITE_TARGETS.calendar,
+] as const
 
 export const getCommunityWriteTarget = (
   kind: number,

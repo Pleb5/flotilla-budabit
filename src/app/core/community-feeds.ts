@@ -1,6 +1,7 @@
 import type {Filter, TrustedEvent} from "@welshman/util"
 import {
   COMMENT,
+  EVENT_DATE,
   EVENT_TIME,
   MESSAGE,
   REACTION,
@@ -22,6 +23,7 @@ export const SMART_WIDGET_KIND = 30033
 
 export const COMMUNITY_EXCLUSIVE_KINDS = [THREAD, MESSAGE, COMMENT, REACTION, 1985, 5, 1984]
 export const COMMUNITY_TARGETABLE_KINDS = [
+  EVENT_DATE,
   EVENT_TIME,
   ZAP_GOAL,
   GIT_REPO_ANNOUNCEMENT,

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {
   TARGETED_PUBLICATION_KIND,
   buildTargetedPublication,
@@ -35,7 +35,7 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
 describe("community targeting helpers", () => {
   it("knows which kinds are targeted publications", () => {
     expect(shouldTargetPublicationKind(EVENT_TIME)).toBe(true)
-    expect(shouldTargetPublicationKind(31922)).toBe(false)
+    expect(shouldTargetPublicationKind(EVENT_DATE)).toBe(true)
     expect(shouldTargetPublicationKind(9041)).toBe(true)
     expect(shouldTargetPublicationKind(30617)).toBe(true)
     expect(shouldTargetPublicationKind(1623)).toBe(true)
