@@ -77,8 +77,16 @@
     throw new Error("Repo context not available")
   }
 
-  const extId = $page.params.extId ?? ""
-  const naddr = $page.params.id ?? ""
+  // Derive extId from URL pathname — same reactive source as layout's activeTab.
+  // $page.params may be mutated in-place for same-route navigation (Svelte 5
+  // would see no ref change), but $page.url.pathname is always a new string.
+  const extId = $derived.by(() => {
+    const pathname = $page.url.pathname
+    const parts = pathname.split("/").filter(Boolean)
+    const idx = parts.indexOf("extensions")
+    return idx >= 0 ? (parts[idx + 1] ?? "") : ""
+  })
+  const naddr = $derived.by(() => $page.params.id ?? "")
 
   // Get extension manifest or widget from settings
   const extension = $derived.by(() => {
@@ -157,11 +165,25 @@
   let retryCount = $state(0)
   let iframeSrc = $state<string | undefined>(undefined)
 
-  // Initialize iframe src when entrypoint is available
+  // Track the last URL we loaded so we can detect extension changes.
+  // Plain let (not $state) so reading it inside $effect doesn't add a dep.
+  let loadedUrl: string | undefined
+
+  // Whenever secureExtEntrypoint changes (driven by extId which is derived
+  // from $page.url.pathname — confirmed reactive in the layout), tear down
+  // the old bridge and point the iframe at the new extension URL.
   $effect(() => {
-    if (secureExtEntrypoint && !iframeSrc) {
-      iframeSrc = secureExtEntrypoint
-    }
+    const url = secureExtEntrypoint // reactive dep via derived chain
+    if (!url || url === loadedUrl) return
+    loadedUrl = url
+    bridge?.detach()
+    bridge = null
+    extInstance = null
+    ready = false
+    loading = true
+    error = null
+    retryCount = 0
+    iframeSrc = url
   })
 
   function buildRepoContext(): RepoContext | undefined {

@@ -3853,7 +3853,7 @@
           {#if $pubkey}
             {#each repoTabExtensions as ext (ext.id)}
               <RepoTab
-                tabValue={ext.path}
+                tabValue={ext.id}
                 label={ext.label}
                 href={`${basePath}/extensions/${ext.id}`}
                 {activeTab}>
