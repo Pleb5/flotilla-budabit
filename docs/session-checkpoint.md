@@ -12,7 +12,7 @@
 
 ## Current Phase
 
-- Phase 4: Regression Sweep And Completion
+- Complete
 
 ## Phase Exit Criteria
 
@@ -48,6 +48,12 @@
 - Updated `makeCalendarFeed` to load date-based calendar filters separately and retain `#D` windowing for time-based events.
 - Updated calendar notifications to request and resolve targeted publication roots for both calendar kinds with kind-specific original author filters.
 - Added focused tests for calendar feed filter splitting, multi-kind targeted publication notifications, and calendar write-target selection.
+- Phase 3 commit pushed: `bb8e8bc7 feat: support community date calendar events`.
+- Phase 4: Regression Sweep And Completion.
+- Evidence: searched community calendar routes for remaining `EVENT_TIME` references; remaining route references are intentional timed-event selection/validation only.
+- Evidence: searched calendar UI components for blind `start` parsing; community calendar display/edit components use `getCalendarEventRange`/`parseCalendarTimestamp`, and the only remaining blind component match is outside the community flow in `DemoDayPromo.svelte`.
+- Evidence: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts src/app/core/calendar-events.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts` passed with 64 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
 
 ## Decisions
 
@@ -62,11 +68,12 @@
 - Worktree has pre-existing unrelated changes in extension/widget files; do not stage or modify those unless explicitly required.
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
-- Phase 3 is verified and complete.
+- Phase 3 is committed and pushed.
+- Phase 4 is verified and complete.
 
 ## Next Action
 
-- Start Phase 4 by searching for remaining community calendar `EVENT_TIME` hardcoding and date-string timestamp parsing gaps.
+- Final response summarizing completed work, verification, commits, and remaining unrelated dirty worktree files.
 
 ## Verification
 
@@ -76,12 +83,14 @@
 - Phase 2 project check passed: `pnpm check`.
 - Phase 3 focused tests passed: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts src/app/core/community-permissions.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts`.
 - Phase 3 project check passed: `pnpm check`.
+- Phase 4 final focused tests passed: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts src/app/core/calendar-events.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts`.
+- Phase 4 project check passed: `pnpm check`.
 
 ## Risks Or Blockers
 
 - Push target appears to exist as `origin/dev`, but each phase push must still be verified.
 - Pre-existing unrelated dirty files must remain unstaged.
-- Phase 4 regression sweep still needs to verify no missed community calendar references remain.
+- No blockers remain for the calendar workflow.
 
 ## Files
 
