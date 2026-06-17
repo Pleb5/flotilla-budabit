@@ -32,6 +32,7 @@
 - Implemented both calendar kinds in default Calendar section setup, community targetable publication kind lists, community write-target mapping, and CommunityCreate kind picker options.
 - Added distinct `calendarDate` target plus `COMMUNITY_CALENDAR_WRITE_TARGETS` while keeping existing time-based `calendar` target.
 - Added focused tests for defaults, target mapping, distinct date/time permission resolution, and targeted publication filters.
+- Phase 1 commit pushed: `2ad52148 feat: add date calendar community targets`.
 
 ## Decisions
 
@@ -44,7 +45,7 @@
 
 - Branch `dev` tracks `origin/dev`.
 - Worktree has pre-existing unrelated changes in extension/widget files; do not stage or modify those unless explicitly required.
-- Phase 1 is verified locally and ready to commit/push.
+- Phase 1 is committed and pushed.
 - Current Phase 2 has not been implemented yet.
 
 ## Next Action
