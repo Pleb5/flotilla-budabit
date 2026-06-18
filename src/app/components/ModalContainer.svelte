@@ -18,18 +18,23 @@
 
   let element: HTMLElement
   let instance: any | undefined
+  let mountedModalId = ""
   const modalContexts = getAllContexts()
 
   onMount(() => {
     return modal.subscribe($modal => {
+      if ($modal?.id === mountedModalId) return
+
       if (instance) {
         unmount(instance, {outro: true})
         instance = undefined
+        mountedModalId = ""
       }
 
       if ($modal) {
         const {options, component, props} = $modal
         const wrapper = options.drawer ? Drawer : Dialog
+        mountedModalId = $modal.id
 
         instance = mount(wrapper as any, {
           target: element,

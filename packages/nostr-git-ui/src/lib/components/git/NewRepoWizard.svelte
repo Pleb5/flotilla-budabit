@@ -51,7 +51,7 @@
     workerInstance?: Worker; // Worker instance for event signing
     onRepoCreated?: (repoData: NewRepoResult) => void;
     /** Called when user chooses to navigate to the newly created repo (app should goto repo URL) */
-    onNavigateToRepo?: (repoData: NewRepoResult) => void;
+    onNavigateToRepo?: (repoData: NewRepoResult) => void | Promise<void>;
     onCancel?: () => void;
     onPublishEvent?: (
       event: Omit<NostrEvent, "id" | "sig" | "pubkey" | "created_at">

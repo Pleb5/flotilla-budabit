@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import {
     X,
     GitFork,
@@ -75,7 +76,7 @@
     useForkRepoImpl?: (
       options?: Parameters<typeof useForkRepo>[0]
     ) => ReturnType<typeof useForkRepo>;
-    navigateToForkedRepo?: (result: ForkResult) => void;
+    navigateToForkedRepo?: (result: ForkResult) => void | Promise<void>;
     defaultRelays?: string[];
     sourceCloneUrls?: string[];
     defaultMaintainers?: string[];
@@ -127,6 +128,7 @@
   let initialFocusEl = $state<HTMLInputElement | null>(null);
   let shouldCloseAfterAbort = $state(false);
   let isCancelingFork = $state(false);
+  let isNavigatingToRepo = $state(false);
   let selectedCommunityPubkey = $state(defaultCommunityPubkey);
 
   const forkOptions = $derived.by(() => {
@@ -146,10 +148,6 @@
               : "Repository forked successfully!",
           variant: failedTargets.length > 0 ? "warning" : "default",
         });
-
-        if (navigateToForkedRepo && result.announcementEvent) {
-          navigateToForkedRepo(result);
-        }
       },
       onPublishEvent,
       onFetchRelayEvents,
@@ -765,7 +763,29 @@
     () => completedResult?.webUrl || completedResult?.forkUrl || ""
   );
 
+  async function waitForNavigationFeedbackPaint() {
+    await tick();
+    if (typeof requestAnimationFrame !== "function") return;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  async function handleNavigateToForkedRepo() {
+    if (!completedResult || !navigateToForkedRepo || isNavigatingToRepo) return;
+
+    isNavigatingToRepo = true;
+    try {
+      await waitForNavigationFeedbackPaint();
+      await navigateToForkedRepo(completedResult);
+    } catch (error) {
+      console.error("Failed to navigate to forked repository:", error);
+    } finally {
+      isNavigatingToRepo = false;
+    }
+  }
+
   function handleClose() {
+    if (isNavigatingToRepo) return;
+
     if (isForking) {
       shouldCloseAfterAbort = true;
       void requestForkAbort("User cancelled fork");
@@ -874,13 +894,13 @@
   }
 
   function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget && !isForking) {
+    if (event.target === event.currentTarget && !isForking && !isNavigatingToRepo) {
       handleClose();
     }
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape" && !isForking) {
+    if (event.key === "Escape" && !isForking && !isNavigatingToRepo) {
       handleClose();
     }
   }
@@ -916,7 +936,7 @@
 
   $effect(() => {
     return () => {
-      if (isForking) {
+      if (isForking && !isNavigatingToRepo) {
         forkState.abortFork?.("Fork dialog closed");
       }
     };
@@ -958,7 +978,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="fork-dialog-title"
-    aria-busy={isForking}
+    aria-busy={isForking || isNavigatingToRepo}
     tabindex="-1"
     onclick={handleBackdropClick}
     onkeydown={handleDialogKeydown}
@@ -973,7 +993,7 @@
           <GitFork class="w-6 h-6 text-blue-600 dark:text-blue-400" />
           <h2 id="fork-dialog-title" class="text-xl font-semibold text-white">Fork Repository</h2>
         </div>
-        {#if !isForking}
+        {#if !isForking && !isNavigatingToRepo}
           <button
             type="button"
             onclick={handleClose}
@@ -1906,11 +1926,28 @@
           <button
             type="button"
             onclick={handleClose}
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors inline-flex items-center gap-2"
+            disabled={isNavigatingToRepo}
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 !text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
           >
             <CheckCircle2 class="w-4 h-4" />
             <span>Done</span>
           </button>
+          {#if navigateToForkedRepo && completedResult}
+            <button
+              type="button"
+              onclick={handleNavigateToForkedRepo}
+              disabled={isNavigatingToRepo}
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            >
+              {#if isNavigatingToRepo}
+                <Loader2 class="w-4 h-4 animate-spin" />
+                <span>Opening repository...</span>
+              {:else}
+                <ExternalLink class="w-4 h-4" />
+                <span>Go to repo</span>
+              {/if}
+            </button>
+          {/if}
         </div>
       {/if}
     </div>

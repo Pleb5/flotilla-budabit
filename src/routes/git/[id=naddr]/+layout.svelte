@@ -3059,7 +3059,21 @@
     }
   }
 
-  function navigateToForkedRepo(result: ForkResult) {
+  const withCurrentModalHash = (destination: string) => {
+    if (typeof window === "undefined" || !window.location.hash) return destination
+    return `${destination}${window.location.hash}`
+  }
+
+  const hydrateForkRepoEvents = (result: Pick<ForkResult, "announcementEvent" | "stateEvent">) => {
+    for (const event of [result.announcementEvent, result.stateEvent]) {
+      const publishedEvent = event as TrustedEvent | undefined
+      if (publishedEvent?.id && !repository.getEvent(publishedEvent.id)) {
+        repository.publish(publishedEvent)
+      }
+    }
+  }
+
+  async function navigateToForkedRepo(result: ForkResult): Promise<void> {
     try {
       const parsed = parseRepoAnnouncementEvent(result.announcementEvent)
 
@@ -3110,18 +3124,15 @@
         return
       }
 
+      hydrateForkRepoEvents(result)
+
       // Encode relay URL for the route
       // Navigate to the forked repo page
-      const targetPath = `/git/${naddr}`
+      const targetPath = makeGitPath(effectiveRelay, naddr)
+      await goto(withCurrentModalHash(makeGitPath()), {replaceState: true})
+      await tick()
+      await goto(withCurrentModalHash(targetPath), {replaceState: true})
       clearModals()
-      void goto(targetPath).catch(error => {
-        console.error("Failed to navigate to forked repo:", error)
-        pushToast({
-          message:
-            "Fork completed, but navigation failed. Please manually navigate to the repository.",
-          theme: "error",
-        })
-      })
     } catch (error) {
       console.error("Failed to navigate to forked repo:", error)
       pushToast({
@@ -3129,6 +3140,7 @@
           "Fork completed, but navigation failed. Please manually navigate to the repository.",
         theme: "error",
       })
+      throw error
     }
   }
 
@@ -3408,39 +3420,44 @@
       }
     }
 
-    pushModal(ForkRepoDialog, {
-      repo: repoClass,
-      pubkey: $pubkey || "",
-      branchCopyFilter: forkBranchCopyFilter,
-      workerApi,
-      workerInstance,
-      onPublishEvent: async (event: any) => {
-        const taggedRelays = getEventRelayTargets(event)
-        const thunk = await publishRepoEventWithRelayPolicy(
-          event,
-          taggedRelays.length > 0 ? taggedRelays : defaultRelays,
-          {
-            timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
-            label:
-              event.kind === GIT_REPO_STATE
-                ? "Fork repo state publish"
-                : "Fork repo announcement publish",
-          },
-        )
-        return extractPublishedRelayAck(thunk)
+    pushModal(
+      ForkRepoDialog,
+      {
+        repo: repoClass,
+        pubkey: $pubkey || "",
+        branchCopyFilter: forkBranchCopyFilter,
+        workerApi,
+        workerInstance,
+        onPublishEvent: async (event: any) => {
+          const taggedRelays = getEventRelayTargets(event)
+          const thunk = await publishRepoEventWithRelayPolicy(
+            event,
+            taggedRelays.length > 0 ? taggedRelays : defaultRelays,
+            {
+              timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
+              label:
+                event.kind === GIT_REPO_STATE
+                  ? "Fork repo state publish"
+                  : "Fork repo announcement publish",
+            },
+          )
+          if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+          return extractPublishedRelayAck(thunk)
+        },
+        onFetchRelayEvents: fetchRepoRelayEvents,
+        onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
+        graspServerUrls: graspServerUrls,
+        navigateToForkedRepo: navigateToForkedRepo,
+        defaultRelays,
+        sourceCloneUrls,
+        defaultMaintainers,
+        communityOptions: repoCommunityOptions,
+        getProfile: getRepoProfile,
+        searchProfiles: searchRepoProfiles,
+        searchRelays: searchRepoRelays,
       },
-      onFetchRelayEvents: fetchRepoRelayEvents,
-      onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
-      graspServerUrls: graspServerUrls,
-      navigateToForkedRepo: navigateToForkedRepo,
-      defaultRelays,
-      sourceCloneUrls,
-      defaultMaintainers,
-      communityOptions: repoCommunityOptions,
-      getProfile: getRepoProfile,
-      searchProfiles: searchRepoProfiles,
-      searchRelays: searchRepoRelays,
-    })
+      {noEscape: true},
+    )
   }
 
   function settingsRepo(replaceState = false) {

@@ -3085,29 +3085,29 @@
     }
   }
 
-  const navigateToCreatedRepo = (
+  const withCurrentModalHash = (destination: string) => {
+    if (typeof window === "undefined" || !window.location.hash) return destination
+    return `${destination}${window.location.hash}`
+  }
+
+  const navigateToCreatedRepo = async (
     result: Pick<ImportResult | NewRepoResult, "announcementEvent" | "stateEvent">,
     failureContext: string,
-  ) => {
+  ): Promise<void> => {
     try {
       const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
       const destination = makeGitPath(url, naddr)
 
       hydrateRepoEvents(result)
+      await goto(withCurrentModalHash(destination))
       clearModals()
-      void goto(destination).catch(error => {
-        console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
-        pushToast({
-          message: `Failed to navigate to repository: ${String(error)}`,
-          theme: "error",
-        })
-      })
     } catch (error) {
       console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
       pushToast({
         message: `Failed to navigate to repository: ${String(error)}`,
         theme: "error",
       })
+      throw error
     }
   }
 
@@ -3236,9 +3236,7 @@
           onRepoCreated: (result: NewRepoResult) => {
             setTimeout(() => hydrateRepoEvents(result), 0)
           },
-          onNavigateToRepo: (result: NewRepoResult) => {
-            navigateToCreatedRepo(result, "new repo")
-          },
+          onNavigateToRepo: (result: NewRepoResult) => navigateToCreatedRepo(result, "new repo"),
           onCancel: back,
           defaultRelays: [...defaultRepoRelays],
           platformRelays: [...GIT_RELAYS],
@@ -3259,7 +3257,7 @@
           searchRelays: searchRelaysForWizard,
           createAuthHeader: createNip98AuthHeader, // For GRASP NIP-98 authentication
         },
-        {fullscreen: true},
+        {fullscreen: true, noEscape: true},
       )
       console.log("[+page.svelte] NewRepoWizard modal pushed with ID:", modalId)
     } catch (error) {
@@ -3402,9 +3400,7 @@
               message: `Successfully imported repository! Imported ${result.issuesImported} issues, ${result.commentsImported} comments, ${result.prsImported} PRs, and created ${result.profilesCreated} profiles.`,
             })
           },
-          onNavigateToRepo: (result: ImportResult) => {
-            navigateToCreatedRepo(result, "imported repo")
-          },
+          onNavigateToRepo: (result: ImportResult) => navigateToCreatedRepo(result, "imported repo"),
           onAbortImport: async () => {
             try {
               terminateGitWorker()
@@ -3419,7 +3415,7 @@
           searchRelays: searchRelaysForWizard,
           communityOptions: repoPublishCommunityOptions,
         },
-        {fullscreen: true},
+        {fullscreen: true, noEscape: true},
       )
       console.log("[+page.svelte] ImportRepoDialog modal pushed with ID:", modalId)
     } catch (error) {

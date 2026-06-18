@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import {
     X,
     Download,
@@ -85,7 +86,7 @@
       relays: string[];
     }) => Promise<void>;
     onImportComplete?: (result: ImportResult) => void;
-    onNavigateToRepo?: (result: ImportResult) => void; // Optional callback to navigate to the imported repo
+    onNavigateToRepo?: (result: ImportResult) => void | Promise<void>; // Optional callback to navigate to the imported repo
     onAbortImport?: () => Promise<void> | void;
     defaultRelays?: string[];
     searchRelays?: (query: string) => Promise<string[]>;
@@ -1110,6 +1111,13 @@
   // Track if we should close after abort completes
   let shouldCloseAfterAbort = $state(false);
   let isCancelingImport = $state(false);
+  let isNavigatingToRepo = $state(false);
+
+  async function waitForNavigationFeedbackPaint() {
+    await tick();
+    if (typeof requestAnimationFrame !== "function") return;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
 
   // Watch for when import completes after abort
   $effect(() => {
@@ -1138,6 +1146,8 @@
 
   // Handle explicit close (X button) - will abort if importing
   function handleClose() {
+    if (isNavigatingToRepo) return;
+
     if (importState.isImporting) {
       // Explicit close during import: abort and close after abort completes
       shouldCloseAfterAbort = true;
@@ -1149,7 +1159,7 @@
 
   // Prevent dialog close when importing (backdrop click)
   function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget && !importState.isImporting) {
+    if (event.target === event.currentTarget && !importState.isImporting && !isNavigatingToRepo) {
       onClose();
     }
   }
@@ -1160,8 +1170,22 @@
       event,
       importState: importState.isImporting,
     });
-    if (event.key === "Escape" && !importState.isImporting) {
+    if (event.key === "Escape" && !importState.isImporting && !isNavigatingToRepo) {
       onClose();
+    }
+  }
+
+  async function handleNavigateToRepo() {
+    if (!completedResult || !onNavigateToRepo || isNavigatingToRepo) return;
+
+    isNavigatingToRepo = true;
+    try {
+      await waitForNavigationFeedbackPaint();
+      await onNavigateToRepo(completedResult);
+    } catch (error) {
+      console.error("Failed to navigate to imported repository:", error);
+    } finally {
+      isNavigatingToRepo = false;
     }
   }
 
@@ -1276,7 +1300,7 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="import-dialog-title"
-  aria-busy={importState.isImporting}
+  aria-busy={importState.isImporting || isNavigatingToRepo}
   tabindex="-1"
   onclick={handleBackdropClick}
   onkeydown={handleBackdropKeydown}
@@ -1290,7 +1314,7 @@
         <Download class="w-6 h-6 text-blue-600 dark:text-blue-400" />
         <h2 id="import-dialog-title" class="text-xl font-semibold text-white">Import Repository</h2>
       </div>
-      {#if !importState.isImporting}
+      {#if !importState.isImporting && !isNavigatingToRepo}
         <button
           type="button"
           onclick={handleClose}
@@ -2147,22 +2171,25 @@
                 <button
                   type="button"
                   onclick={handleClose}
-                  class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                  disabled={isNavigatingToRepo}
+                  class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   Close
                 </button>
                 {#if onNavigateToRepo && completedResult}
                   <button
                     type="button"
-                    onclick={() => {
-                      if (completedResult) {
-                        onNavigateToRepo(completedResult);
-                      }
-                    }}
-                    class="px-4 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                    onclick={handleNavigateToRepo}
+                    disabled={isNavigatingToRepo}
+                    class="px-4 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
-                    <ExternalLink class="w-4 h-4" />
-                    View repository
+                    {#if isNavigatingToRepo}
+                      <Loader2 class="w-4 h-4 animate-spin" />
+                      <span>Opening repository...</span>
+                    {:else}
+                      <ExternalLink class="w-4 h-4" />
+                      <span>View repository</span>
+                    {/if}
                   </button>
                 {/if}
               </div>

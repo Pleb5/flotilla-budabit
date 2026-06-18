@@ -67,7 +67,7 @@ describe("NewRepoWizard modal surface", () => {
     expect(forkDialog).toContain("bg-blue-600 hover:bg-blue-700 !text-white");
     expect(forkDialog).not.toContain("bg-blue-600 hover:bg-blue-700 text-white");
 
-    expect(editPanel).toContain("bg-blue-600 hover:bg-blue-700 !text-white");
+    expect(editPanel).toContain("bg-blue-600 px-4 py-2 !text-white");
     expect(editPanel).toContain("bg-red-600 px-3 py-2 !text-white");
     expect(progressStep).toContain("font-medium !text-white bg-blue-600");
     expect(progressStep).toContain("font-medium !text-white bg-green-600");
@@ -109,6 +109,23 @@ describe("NewRepoWizard modal surface", () => {
     expect(progressStep).toContain("text-red-600 dark:text-red-400");
     expect(progressStep).toContain("text-green-600 dark:text-green-400");
     expect(editPanel).toContain("text-yellow-700 dark:text-yellow-400");
+  });
+
+  it("keeps repo navigation CTAs busy while async navigation is pending", async () => {
+    const importDialog = await readPackageSource("src/lib/components/git/ImportRepoDialog.svelte");
+    const forkDialog = await readPackageSource("src/lib/components/git/ForkRepoDialog.svelte");
+    const progressStep = await readPackageSource("src/lib/components/git/RepoProgressStep.svelte");
+
+    for (const source of [importDialog, forkDialog, progressStep]) {
+      expect(source).toContain("let isNavigatingToRepo = $state(false);");
+      expect(source).toContain("disabled={isNavigatingToRepo}");
+      expect(source).toContain("Opening repository...");
+    }
+
+    expect(importDialog).toContain("await onNavigateToRepo(completedResult);");
+    expect(progressStep).toContain("await onNavigateToRepo(createdRepoResult);");
+    expect(forkDialog).toContain("await navigateToForkedRepo(completedResult);");
+    expect(forkDialog).not.toContain("navigateToForkedRepo(result);");
   });
 
   it("renders fork Nostr owners separately from repository path suffixes", async () => {

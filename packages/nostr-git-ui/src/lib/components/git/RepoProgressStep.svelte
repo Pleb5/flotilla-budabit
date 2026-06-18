@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Loader2 } from "@lucide/svelte";
+  import { tick } from "svelte";
   import type { NewRepoResult } from "../../hooks/useNewRepo.svelte";
   import {
     ACCESS_TOKEN_SETTINGS_PATH,
@@ -18,7 +20,7 @@
     onClose?: () => void;
     /** Set when repo was just created; enables "Navigate to repo" when onNavigateToRepo is provided */
     createdRepoResult?: NewRepoResult | null;
-    onNavigateToRepo?: (result: NewRepoResult) => void;
+    onNavigateToRepo?: (result: NewRepoResult) => void | Promise<void>;
   }
 
   const {
@@ -35,6 +37,28 @@
   const progressPercentage = $derived(totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0);
   const hasErrors = $derived(progress.some((step) => step.error));
   const isComplete = $derived(completedSteps === totalSteps && !hasErrors);
+
+  let isNavigatingToRepo = $state(false);
+
+  async function waitForNavigationFeedbackPaint() {
+    await tick();
+    if (typeof requestAnimationFrame !== "function") return;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  async function handleNavigateToRepo() {
+    if (!createdRepoResult || !onNavigateToRepo || isNavigatingToRepo) return;
+
+    isNavigatingToRepo = true;
+    try {
+      await waitForNavigationFeedbackPaint();
+      await onNavigateToRepo(createdRepoResult);
+    } catch (error) {
+      console.error("Failed to navigate to created repository:", error);
+    } finally {
+      isNavigatingToRepo = false;
+    }
+  }
 </script>
 
 <div class="space-y-6">
@@ -175,17 +199,24 @@
 
       {#if isComplete && onNavigateToRepo && createdRepoResult}
         <button
-          onclick={() => onNavigateToRepo(createdRepoResult)}
-          class="px-4 py-2 text-sm font-medium !text-white bg-green-600 hover:bg-green-700 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
+          onclick={handleNavigateToRepo}
+          disabled={isNavigatingToRepo}
+          class="px-4 py-2 text-sm font-medium !text-white bg-green-600 hover:bg-green-700 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
         >
-          Go to repo
+          {#if isNavigatingToRepo}
+            <Loader2 class="h-4 w-4 animate-spin" />
+            <span>Opening repository...</span>
+          {:else}
+            <span>Go to repo</span>
+          {/if}
         </button>
       {/if}
 
       {#if onClose}
         <button
           onclick={onClose}
-          class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          disabled={isNavigatingToRepo}
+          class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {isComplete ? "Done" : "Close"}
         </button>
