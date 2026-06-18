@@ -1,5 +1,6 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
+  import {tick} from "svelte"
   import {nthEq} from "@welshman/lib"
   import {Address, type TrustedEvent} from "@welshman/util"
   import NoteCard from "./NoteCard.svelte"
@@ -127,13 +128,24 @@
   const descriptionPreview = $derived.by(() => truncateDescription(description || ""))
   let navigating = $state(false)
 
+  const waitForNavigationIntentPaint = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
   const navigateToRepo = () => {
     if (navigating) return
     navigating = true
-    void goto(browseHref).catch(error => {
-      navigating = false
-      console.error("[GitItem] Failed to navigate to repository", error)
-    })
+    void (async () => {
+      try {
+        await waitForNavigationIntentPaint()
+        await goto(browseHref)
+      } catch (error) {
+        navigating = false
+        console.error("[GitItem] Failed to navigate to repository", error)
+      }
+    })()
   }
 
   const handleRepoLinkClick = (event: MouseEvent) => {
@@ -175,7 +187,7 @@
     {hideDate}>
     {#if navigating}
       <span
-        class="z-10 absolute right-3 top-3 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-sm">
+        class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
         Opening...
       </span>
     {/if}

@@ -29,7 +29,7 @@
     Home,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
-  import {page} from "$app/stores"
+  import {navigating, page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {pushToast, popToast} from "@src/app/util/toast"
   import {notifications, hasRepoNotification, checked, setCheckedAt} from "@app/util/notifications"
@@ -343,39 +343,45 @@
     }
   })
 
+  const normalizeRepoTabExtensionPath = (value: string) => value.trim().replace(/^\/+|\/+$/g, "")
+
   // Get enabled extensions with repo-tab slots
   const repoTabExtensions = $derived.by(() => {
     const settings = $effectiveExtensionSettings
     const enabledIds = settings.enabled
     const extensionsMap = new Map<
       string,
-      {id: string; label: string; path: string; icon?: string}
+      {id: string; label: string; path: string; routeSegment: string; icon?: string}
     >()
 
     // Check NIP-89 extensions first
     for (const [extId, manifest] of Object.entries(settings.installed.nip89)) {
       if (enabledIds.includes(extId) && manifest.slot?.type === "repo-tab") {
-        extensionsMap.set(extId, {
+        const routeSegment = normalizeRepoTabExtensionPath(manifest.slot.path) || extId
+        extensionsMap.set(routeSegment, {
           id: extId,
           label: manifest.slot.label,
           path: manifest.slot.path,
+          routeSegment,
           icon: manifest.icon,
         })
       }
     }
 
-    // Check Smart Widget extensions - these override NIP-89 if same ID
+    // Check Smart Widget extensions - these override NIP-89 if they use the same tab path
     for (const [widgetId, widget] of Object.entries(settings.installed.widget || {})) {
       if (enabledIds.includes(widgetId) && widget.slot?.type === "repo-tab") {
+        const routeSegment = normalizeRepoTabExtensionPath(widget.slot.path) || widgetId
         // Use iconUrl, but fall back to LayoutGrid for known broken URLs
         let icon = widget.iconUrl
         if (icon && icon.includes("budabit.dev")) {
           icon = "LayoutGrid" // Fallback for broken budabit.dev URLs
         }
-        extensionsMap.set(widgetId, {
+        extensionsMap.set(routeSegment, {
           id: widgetId,
           label: widget.slot.label,
           path: widget.slot.path,
+          routeSegment,
           icon,
         })
       }
@@ -407,6 +413,63 @@
 
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/git/${id}`)
+  let pendingRepoTabHref = $state("")
+
+  const waitForNavigationIntentPaint = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
+  const normalizeRepoTabPath = (value: string) => value.replace(/\/+$/, "") || "/"
+  const isRepoTabPending = (href: string) => {
+    if (
+      pendingRepoTabHref &&
+      normalizeRepoTabPath(pendingRepoTabHref) === normalizeRepoTabPath(href)
+    ) {
+      return true
+    }
+
+    const navigation = $navigating
+    if (!navigation?.to?.url) return false
+
+    const targetPath = normalizeRepoTabPath(href)
+    const currentPath = normalizeRepoTabPath($page.url.pathname)
+    const nextPath = normalizeRepoTabPath(navigation.to.url.pathname)
+
+    return currentPath !== targetPath && nextPath === targetPath
+  }
+  const handleRepoTabNavigateIntent = (event: MouseEvent, href: string) => {
+    if (event.defaultPrevented) return
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return
+    }
+
+    const targetPath = normalizeRepoTabPath(href)
+    const currentPath = normalizeRepoTabPath($page.url.pathname)
+    if (targetPath === currentPath) return
+
+    event.preventDefault()
+    if (pendingRepoTabHref) return
+
+    pendingRepoTabHref = href
+    void (async () => {
+      try {
+        await waitForNavigationIntentPaint()
+        await goto(href)
+      } catch (error) {
+        if (pendingRepoTabHref === href) pendingRepoTabHref = ""
+        console.error("[repo/+layout] Failed to navigate repo tab:", error)
+        pushToast({message: `Failed to navigate: ${String(error)}`, theme: "error"})
+      }
+    })()
+  }
+  $effect(() => {
+    if (!pendingRepoTabHref) return
+    if (normalizeRepoTabPath($page.url.pathname) === normalizeRepoTabPath(pendingRepoTabHref)) {
+      pendingRepoTabHref = ""
+    }
+  })
   const showRepoBranchContext = $derived.by(
     () => activeTab === "code" || (activeTab === "commits" && !$page.params.commitid),
   )
@@ -3803,17 +3866,35 @@
         isCheckingRepoStateUpdate={updateStateActionChecking}
         resolveCloneUrlIssues={undefined}>
         {#snippet children(activeTab: string)}
-          <RepoTab tabValue="overview" label="Overview" href={basePath} {activeTab}>
+          <RepoTab
+            tabValue="overview"
+            label="Overview"
+            href={basePath}
+            pending={isRepoTabPending(basePath)}
+            onNavigateIntent={handleRepoTabNavigateIntent}
+            {activeTab}>
             {#snippet icon()}
               <Home class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab tabValue="feed" label="Activity" href={`${basePath}/feed`} {activeTab}>
+          <RepoTab
+            tabValue="feed"
+            label="Activity"
+            href={`${basePath}/feed`}
+            pending={isRepoTabPending(`${basePath}/feed`)}
+            onNavigateIntent={handleRepoTabNavigateIntent}
+            {activeTab}>
             {#snippet icon()}
               <Activity class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab tabValue="code" label="Code" href={`${basePath}/code`} {activeTab}>
+          <RepoTab
+            tabValue="code"
+            label="Code"
+            href={`${basePath}/code`}
+            pending={isRepoTabPending(`${basePath}/code`)}
+            onNavigateIntent={handleRepoTabNavigateIntent}
+            {activeTab}>
             {#snippet icon()}
               <GitBranch class="h-4 w-4" />
             {/snippet}
@@ -3822,6 +3903,8 @@
             tabValue="issues"
             label={issuesCount > 0 ? `Issues (${issuesCount})` : "Issues"}
             href={`${basePath}/issues`}
+            pending={isRepoTabPending(`${basePath}/issues`)}
+            onNavigateIntent={handleRepoTabNavigateIntent}
             notification={hasIssuesNotification}
             {activeTab}>
             {#snippet icon()}
@@ -3832,30 +3915,46 @@
             tabValue="prs"
             label={prsCount > 0 ? `PRs (${prsCount})` : "PRs"}
             href={`${basePath}/prs`}
+            pending={isRepoTabPending(`${basePath}/prs`)}
+            onNavigateIntent={handleRepoTabNavigateIntent}
             notification={hasPrsNotification}
             {activeTab}>
             {#snippet icon()}
               <GitPullRequest class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab tabValue="commits" label="Commits" href={`${basePath}/commits`} {activeTab}>
+          <RepoTab
+            tabValue="commits"
+            label="Commits"
+            href={`${basePath}/commits`}
+            pending={isRepoTabPending(`${basePath}/commits`)}
+            onNavigateIntent={handleRepoTabNavigateIntent}
+            {activeTab}>
             {#snippet icon()}
               <GitCommit class="h-4 w-4" />
             {/snippet}
           </RepoTab>
           {#if isOwnedRepo}
-            <RepoTab tabValue="settings" label="Settings" href={`${basePath}/settings`} {activeTab}>
+            <RepoTab
+              tabValue="settings"
+              label="Settings"
+              href={`${basePath}/settings`}
+              pending={isRepoTabPending(`${basePath}/settings`)}
+              onNavigateIntent={handleRepoTabNavigateIntent}
+              {activeTab}>
               {#snippet icon()}
                 <SettingsIcon class="h-4 w-4" />
               {/snippet}
             </RepoTab>
           {/if}
           {#if $pubkey}
-            {#each repoTabExtensions as ext (ext.id)}
+            {#each repoTabExtensions as ext (ext.routeSegment)}
               <RepoTab
-                tabValue={ext.path}
+                tabValue={ext.routeSegment}
                 label={ext.label}
-                href={`${basePath}/extensions/${ext.id}`}
+                href={`${basePath}/extensions/${ext.routeSegment}`}
+                pending={isRepoTabPending(`${basePath}/extensions/${ext.routeSegment}`)}
+                onNavigateIntent={handleRepoTabNavigateIntent}
                 {activeTab}>
                 {#snippet icon()}
                   <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />

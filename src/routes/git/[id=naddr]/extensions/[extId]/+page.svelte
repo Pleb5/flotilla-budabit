@@ -77,20 +77,43 @@
     throw new Error("Repo context not available")
   }
 
-  const extId = $page.params.extId ?? ""
+  const extRouteSegment = $page.params.extId ?? ""
   const naddr = $page.params.id ?? ""
+  const normalizeRepoTabRouteSegment = (value: string) => value.trim().replace(/^\/+|\/+$/g, "")
 
   // Get extension manifest or widget from settings
-  const extension = $derived.by(() => {
+  const resolvedExtension = $derived.by(() => {
     const settings = $effectiveExtensionSettings
-    if (!extId) return undefined
+    if (!extRouteSegment) return undefined
+
     // Check NIP-89 extensions first
-    const manifest = settings.installed.nip89[extId] as ExtensionManifest | undefined
-    if (manifest) return manifest
+    const manifest = settings.installed.nip89[extRouteSegment] as ExtensionManifest | undefined
+    if (manifest) return {id: extRouteSegment, extension: manifest}
+
     // Check Smart Widget extensions
-    const widget = settings.installed.widget?.[extId] as SmartWidgetEvent | undefined
-    return widget
+    const widget = settings.installed.widget?.[extRouteSegment] as SmartWidgetEvent | undefined
+    if (widget) return {id: extRouteSegment, extension: widget}
+
+    const routeSegment = normalizeRepoTabRouteSegment(extRouteSegment)
+
+    for (const [widgetId, installedWidget] of Object.entries(settings.installed.widget || {})) {
+      if (installedWidget.slot?.type !== "repo-tab") continue
+      if (normalizeRepoTabRouteSegment(installedWidget.slot.path) === routeSegment) {
+        return {id: widgetId, extension: installedWidget as SmartWidgetEvent}
+      }
+    }
+
+    for (const [manifestId, installedManifest] of Object.entries(settings.installed.nip89)) {
+      if (installedManifest.slot?.type !== "repo-tab") continue
+      if (normalizeRepoTabRouteSegment(installedManifest.slot.path) === routeSegment) {
+        return {id: manifestId, extension: installedManifest as ExtensionManifest}
+      }
+    }
+
+    return undefined
   })
+  const resolvedExtId = $derived(resolvedExtension?.id || extRouteSegment)
+  const extension = $derived(resolvedExtension?.extension)
 
   // Helper to determine if extension is a widget
   const isWidget = $derived(extension && "widgetType" in extension)
@@ -107,11 +130,11 @@
   )
 
   const extName = $derived.by(() => {
-    if (!extension) return extId
+    if (!extension) return extRouteSegment
     if ("name" in extension) return extension.name
     if ("content" in extension && extension.content) return extension.content
     if ("identifier" in extension) return extension.identifier
-    return extId
+    return extRouteSegment
   })
 
   const extIcon = $derived.by(() => {
@@ -128,8 +151,8 @@
 
   const isEnabled = $derived.by(() => {
     const settings = $effectiveExtensionSettings
-    if (!extId) return false
-    return settings.enabled.includes(extId)
+    if (!resolvedExtId) return false
+    return settings.enabled.includes(resolvedExtId)
   })
 
   // Get relays for the extension - use repo's relays, fallback to user relays
@@ -178,7 +201,7 @@
     if (!secureExtEntrypoint) return null
 
     const origin = new URL(secureExtEntrypoint).origin
-    const identifier = `${extId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
+    const identifier = `${resolvedExtId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
 
     return {
       type: "widget",
@@ -306,7 +329,7 @@
       <div>
         <h2 class="text-lg font-semibold">Extension Not Found</h2>
         <p class="text-sm text-muted-foreground">
-          The extension "{extId}" is not installed.
+          The extension "{extRouteSegment}" is not installed.
         </p>
       </div>
       <Button onclick={() => goto("/settings/extensions")}>Go to Extension Settings</Button>

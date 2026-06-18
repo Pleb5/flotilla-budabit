@@ -44,7 +44,7 @@
   import {APP_URL} from "@app/core/state"
   import {publishDelete} from "@app/core/commands"
   import {goto} from "$app/navigation"
-  import {onMount, onDestroy, untrack} from "svelte"
+  import {onMount, onDestroy, tick, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
   import {nip19, type NostrEvent} from "nostr-tools"
   import {ListFilter, X} from "@lucide/svelte"
@@ -405,6 +405,11 @@
     getDefaultRepoDiscoveryPrioritySettings(),
   )
   let navigatingRepoCardKey = $state("")
+  const waitForNavigationIntentPaint = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
   let discoveredSearchRepoPool = $state<
     Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}>
   >([])
@@ -3016,14 +3021,19 @@
     if (navigatingRepoCardKey === navigationKey) return
 
     navigatingRepoCardKey = navigationKey
-    void goto(getRepoBrowseHref(announcement)).catch(error => {
-      if (navigatingRepoCardKey === navigationKey) navigatingRepoCardKey = ""
-      console.error("[+page.svelte] Failed to navigate to repository:", error)
-      pushToast({
-        message: `Failed to navigate to repository: ${String(error)}`,
-        theme: "error",
-      })
-    })
+    void (async () => {
+      try {
+        await waitForNavigationIntentPaint()
+        await goto(getRepoBrowseHref(announcement))
+      } catch (error) {
+        if (navigatingRepoCardKey === navigationKey) navigatingRepoCardKey = ""
+        console.error("[+page.svelte] Failed to navigate to repository:", error)
+        pushToast({
+          message: `Failed to navigate to repository: ${String(error)}`,
+          theme: "error",
+        })
+      }
+    })()
   }
 
   const handleRepoCardNeutralClick = (event: MouseEvent, announcement: RepoAnnouncementEvent) => {
@@ -3717,7 +3727,7 @@
               in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
               {#if repoCardNavigating}
                 <span
-                  class="z-10 absolute right-3 top-3 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-sm">
+                  class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
                   Opening...
                 </span>
               {/if}
@@ -3861,7 +3871,7 @@
                 : undefined}>
               {#if repoCardNavigating}
                 <span
-                  class="z-10 absolute right-3 top-3 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-sm">
+                  class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
                   Opening...
                 </span>
               {/if}
