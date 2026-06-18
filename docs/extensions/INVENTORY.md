@@ -332,38 +332,31 @@ Note: Policy events are defined but not currently enforced in the runtime.
 
 ## Slot System
 
-### Available Slot IDs
+### Supported Smart Widget Slots
 
 ```typescript
-type ExtensionSlotId =
-  | "chat:composer:actions"
-  | "chat:message:actions"
-  | "room:header:actions"
-  | "room:panel"
-  | "global:menu"
-  | "settings:panel"
-  | "community:sidebar:widgets"
+type WidgetCommunityHomeSlotType =
+  | "community-home-before-quicklinks"
+  | "community-home-after-quicklinks"
+
+type WidgetActionSlotType = "chat-message-actions" | "global-menu"
+
+type WidgetSlotType = "repo-tab" | WidgetCommunityHomeSlotType | WidgetActionSlotType
 ```
 
-### Slot Configuration (for NIP-89)
+### Slot Tags
 
 ```typescript
-type ExtensionSlotConfig = {
-  type: "repo-tab"
-  label: string
-  path: string         // URL path segment
-  builtinRoute?: string // For built-in extensions
-}
+type RepoTabSlotTag = ["slot", "repo-tab", label: string, path: string]
+type CommunitySlotTag = ["slot", WidgetCommunityHomeSlotType | WidgetActionSlotType, label: string]
 ```
 
-### Slot API
+### Rendering Model
 
-```typescript
-registerSlotHandler(slot: ExtensionSlotId, handler: ExtensionSlotHandler)
-getSlotHandlers(slot: ExtensionSlotId): ExtensionSlotHandler[]
-invokeSlot(slot, {root, context, extension})
-renderSlot(slot, root, context, extension)
-```
+- `repo-tab` renders as a full repository tab iframe.
+- `community-home-before-quicklinks` and `community-home-after-quicklinks` render as community home cards/launchers.
+- `chat-message-actions` renders as compact per-message launchers and opens the widget iframe in a modal on click.
+- `global-menu` renders as a community-route top control launcher for the targeted community and opens the widget iframe in a modal on click.
 
 ---
 

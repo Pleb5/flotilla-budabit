@@ -15,14 +15,14 @@
 
 ## Current Phase
 
-- Phase 4: Regression Sweep And Completion
+- Complete
 
 ## Phase Exit Criteria
 
 - Searches show no remaining active Budabit UI mount for unsupported slots.
 - Searches show no remaining template docs/examples for removed colon slot names except explicit migration notes, if intentionally kept.
 - Supported slots parse, publish, display labels, and render as semantic launchers in their intended places.
-- Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
+- Final focused tests and `pnpm check` pass.
 - Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
@@ -60,6 +60,17 @@
 - Added focused generator/CLI validation tests for supported slot generation and invalid slot handling.
 - Rewrote template and scaffold slot docs to document only `repo-tab`, community home slots, `chat-message-actions`, and community-scoped `global-menu`.
 - Updated template quickstart and host bridge docs to use supported `repo-tab` examples.
+- Phase 3 template commit pushed: `481ac7c feat: align smart widget slots`.
+- Phase 3 root pointer/checkpoint commit pushed: `0f159489 feat: align smart widget template`.
+- Phase 4: Regression Sweep And Completion.
+- Evidence: removed colon slot scan across `docs/extensions` returned no files.
+- Evidence: removed colon slot scan across `packages/flotilla-extension-template` returned no files.
+- Evidence: removed colon slot scan across `src` returned only intentional negative parser assertions in `src/app/extensions/registry.test.ts`.
+- Evidence: `SlotRenderer`/slot handler scan showed no active UI mounts; remaining matches are unmounted helper definitions.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts` passed with 11 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Evidence: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts` passed with 22 tests in `packages/flotilla-extension-template`.
+- Updated `docs/extensions` developer docs and inventory to document the supported slot tag model and remove stale unsupported slot examples.
 
 ## Decisions
 
@@ -74,12 +85,12 @@
 
 - Branch `dev` tracks `origin/dev`.
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
-- Phase 3 is verified and ready to commit/push in the nested template repo, then record the updated template pointer and this checkpoint in the root repo.
+- Smart Widget slot workflow is complete and verified.
 - Several unrelated pre-existing git UI route/component files remain dirty and must not be staged for this phase.
 
 ## Next Action
 
-- Commit and push Phase 3 in `packages/flotilla-extension-template`, commit and push the root checkpoint/template pointer, then start Phase 4 regression sweep.
+- Commit and push this final checkpoint/docs closeout, reread this checkpoint to verify `Current Phase: Complete`, then provide the final response.
 
 ## Verification
 
@@ -92,6 +103,11 @@
 - Phase 3 SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
 - Phase 3 manifest typecheck passed after shared build: `pnpm --filter @budabit/ext-shared build && pnpm --filter @budabit/ext-manifest typecheck`.
 - Phase 3 removed-slot scan passed: no matches for unsupported colon slot names under `packages/flotilla-extension-template`.
+- Phase 4 removed colon slot scan passed for `docs/extensions` and `packages/flotilla-extension-template`; `src` matches are intentional negative parser assertions only.
+- Phase 4 old mount scan passed: no active `SlotRenderer` UI mounts remain.
+- Phase 4 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts`.
+- Phase 4 project check passed: `pnpm check`.
+- Phase 4 template focused test passed: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
 
 ## Risks Or Blockers
 
@@ -143,3 +159,5 @@
 - `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.test.ts`
 - `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.ts`
 - `packages/flotilla-extension-template/packages/sdk/src/manifest/index.ts`
+- `docs/extensions/README.md`
+- `docs/extensions/INVENTORY.md`

@@ -103,32 +103,23 @@ type ExtensionSettings = {
 
 ## 🎛️ UI Slot Integration
 
-Use the `extension` metadata provided to slot handlers to tailor rendering. Example:
+Smart Widgets declare one supported slot with a `slot` tag in the kind 30033 event. Current supported slots are:
 
-```ts
-import {registerSlotHandler} from "@app/extensions"
+| Slot | Tag shape | Rendering model |
+| --- | --- | --- |
+| `repo-tab` | `["slot", "repo-tab", label, path]` | Full repository tab iframe |
+| `community-home-before-quicklinks` | `["slot", "community-home-before-quicklinks", label]` | Community home card/launcher |
+| `community-home-after-quicklinks` | `["slot", "community-home-after-quicklinks", label]` | Community home card/launcher |
+| `chat-message-actions` | `["slot", "chat-message-actions", label]` | Compact message action launcher that opens a modal |
+| `global-menu` | `["slot", "global-menu", label]` | Community-route top control launcher that opens a modal |
 
-registerSlotHandler("chat:message:actions", ({root, extension}) => {
-  if (!extension) return
+Example `chat-message-actions` tag:
 
-  if (extension.type === "widget") {
-    const {widget} = extension
-    if (widget.widgetType === "basic") {
-      const button = document.createElement("button")
-      button.textContent = widget.content || "Widget"
-      button.onclick = () => {
-        // host-driven behavior for basic widgets
-      }
-      root.appendChild(button)
-    }
-  } else {
-    // NIP-89 iframe-backed extension
-    extension.bridge?.post("ui:toast", {message: "Manifest action"})
-  }
-})
+```json
+["slot", "chat-message-actions", "Summarize"]
 ```
 
-Slot handlers can use `extension.widget.widgetType` to branch between `basic`, `action`, and `tool` widget rendering strategies.
+`global-menu` is scoped to the targeted community route where the widget is installed, not to every route in the app.
 
 ---
 
@@ -201,6 +192,7 @@ Slot handlers can use `extension.widget.widgetType` to branch between `basic`, `
   "tags": [
     ["d", "weather-widget-123"],
     ["l", "basic"],
+    ["slot", "community-home-after-quicklinks", "Weather"],
     ["image", "https://example.com/widget.jpg"],
     ["button", "Get Weather", "redirect", "https://weather.example.com"],
     ["permission", "ui:toast"]
