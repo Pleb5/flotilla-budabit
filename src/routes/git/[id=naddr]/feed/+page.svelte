@@ -101,7 +101,9 @@
     <div class="flex flex-col gap-2">
       {#each elements as element (element.id)}
         {#if element.type === "date"}
-          <div class="z-10 sticky top-0 flex items-center gap-3 py-2">
+          <div
+            class="z-10 sticky flex items-center gap-3 py-2"
+            style="top: var(--repo-tabs-height, 0px);">
             <div class="h-px flex-1 bg-border"></div>
             <span
               class="rounded-full border border-border bg-base-100 px-3 py-1 text-xs text-muted-foreground shadow-sm">
