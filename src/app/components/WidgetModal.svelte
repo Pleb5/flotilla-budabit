@@ -3,6 +3,7 @@
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import {get} from "svelte/store"
   import type {SmartWidgetEvent} from "@app/extensions/types"
+  import {ExtensionBridge} from "@app/extensions/bridge"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {clearModals} from "@app/util/modal"
   import Icon from "@lib/components/Icon.svelte"
@@ -10,24 +11,24 @@
 
   type Props = {
     widget: SmartWidgetEvent
+    context?: Record<string, unknown>
   }
 
-  const {widget}: Props = $props()
+  const {widget, context = {}}: Props = $props()
 
   let iframeRef: HTMLIFrameElement | undefined = $state()
+  let bridge: ExtensionBridge | undefined = $state()
   let loaded = $state(false)
   const appUrl = $derived(
     widget.appUrl && isSecureEmbeddableUrl(widget.appUrl) ? widget.appUrl : undefined,
   )
 
-  const sendContext = () => {
-    if (!iframeRef?.contentWindow || !appUrl) return
-
+  const getUserContext = () => {
     const userPubkey = get(pubkey)
     const profiles = get(profilesByPubkey)
     const profile = userPubkey ? profiles.get(userPubkey) : undefined
 
-    const context = {
+    return {
       pubkey: userPubkey || "",
       display_name: profile?.display_name || profile?.name || "",
       name: profile?.name || "",
@@ -37,21 +38,75 @@
       lud06: profile?.lud06 || "",
       website: profile?.website || "",
     }
+  }
 
-    // Send context to widget iframe using postMessage
-    // Format per smart-widget-handler spec
+  const makeInitPayload = () => {
+    const user = getUserContext()
+
+    return {
+      extensionId: widget.identifier,
+      type: "widget",
+      origin: appUrl ? new URL(appUrl).origin : "",
+      hostVersion: "1.0.0",
+      pubkey: user.pubkey,
+      user,
+      context,
+      slot: widget.slot,
+      widget: {
+        identifier: widget.identifier,
+        widgetType: widget.widgetType,
+        content: widget.content,
+        imageUrl: widget.imageUrl,
+        iconUrl: widget.iconUrl,
+        inputLabel: widget.inputLabel,
+        buttons: widget.buttons,
+        permissions: widget.permissions,
+      },
+    }
+  }
+
+  const postLegacyContext = () => {
+    if (!iframeRef?.contentWindow || !appUrl) return
+
+    const targetOrigin = new URL(appUrl).origin
+    const user = getUserContext()
+
     iframeRef.contentWindow.postMessage(
       {
         kind: "user-metadata",
-        data: context,
+        data: user,
       },
-      new URL(appUrl).origin,
+      targetOrigin,
     )
+    iframeRef.contentWindow.postMessage(
+      {kind: "budabit-widget-context", data: makeInitPayload()},
+      targetOrigin,
+    )
+  }
+
+  const sendContext = () => {
+    bridge?.post("widget:init", makeInitPayload())
+    bridge?.post("widget:mounted", {timestamp: Date.now()})
+    postLegacyContext()
   }
 
   const onIframeLoad = () => {
     loaded = true
-    // Small delay to ensure iframe is ready to receive messages
+    bridge?.detach()
+
+    if (iframeRef?.contentWindow && appUrl) {
+      const origin = new URL(appUrl).origin
+      const ext = {
+        type: "widget" as const,
+        id: widget.identifier,
+        widget,
+        origin,
+        iframe: iframeRef,
+      }
+      bridge = new ExtensionBridge(ext)
+      bridge.attachHandlers(iframeRef.contentWindow)
+    }
+
     setTimeout(sendContext, 100)
   }
 
@@ -83,6 +138,8 @@
 
   onDestroy(() => {
     window.removeEventListener("message", handleMessage)
+    bridge?.post("widget:unmounting", {timestamp: Date.now()})
+    bridge?.detach()
   })
 </script>
 

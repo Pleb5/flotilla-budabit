@@ -29,7 +29,7 @@
   import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {pushModal} from "@app/util/modal"
-  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
+  import CommunityWidgetSlotLaunchers from "@app/components/community/CommunityWidgetSlotLaunchers.svelte"
   import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
 
   interface Props {
@@ -337,7 +337,12 @@
           readOnly={inert || readOnly} />
       </div>
       {#if !readOnly}
-        <SlotRenderer slotId="chat-message-actions" context={{url, event}} />
+        <CommunityWidgetSlotLaunchers
+          communityPubkey={url}
+          relayHints={relayTargets}
+          slotType="chat-message-actions"
+          variant="message-actions"
+          context={{message: event, scopeH, communitySectionName}} />
       {/if}
     </div>
   {/if}

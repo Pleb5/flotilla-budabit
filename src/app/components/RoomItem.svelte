@@ -32,7 +32,7 @@
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
-  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
+  import CommunityWidgetSlotLaunchers from "@app/components/community/CommunityWidgetSlotLaunchers.svelte"
   import {Thunk} from "@welshman/app"
 
   interface Props {
@@ -292,7 +292,12 @@
           {communitySectionName} />
       </div>
       {#if !readOnly}
-        <SlotRenderer slotId="chat-message-actions" context={{url, event}} />
+        <CommunityWidgetSlotLaunchers
+          communityPubkey={url}
+          relayHints={relayTargets}
+          slotType="chat-message-actions"
+          variant="message-actions"
+          context={{message: event, scopeH, communitySectionName}} />
       {/if}
     </div>
   {/if}

@@ -4,7 +4,10 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import WidgetModal from "@app/components/WidgetModal.svelte"
-  import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+  import {
+    getEnabledCommunitySlotWidgets,
+    loadCachedCommunityCuratedWidgets,
+  } from "@app/extensions/community-widget-slots"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import type {SmartWidgetEvent, WidgetHomeSlotType} from "@app/extensions/types"
   import {pushModal} from "@app/util/modal"
@@ -18,23 +21,18 @@
 
   const {communityPubkey, relayHints = [], slotType}: Props = $props()
 
-  let widgets = $state<SmartWidgetEvent[]>([])
+  let curatedWidgets = $state<SmartWidgetEvent[]>([])
   let loadKey = ""
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
   const slotWidgets = $derived.by(() => {
-    const selected: SmartWidgetEvent[] = []
-
-    for (const widget of widgets) {
-      if (widget.slot?.type !== slotType || !enabledWidgetIds.has(widget.identifier)) continue
-
-      const installedWidget = installedWidgets[widget.identifier]
-      if (installedWidget)
-        selected.push({...installedWidget, slot: widget.slot || installedWidget.slot})
-    }
-
-    return selected
+    return getEnabledCommunitySlotWidgets({
+      curatedWidgets,
+      installedWidgets,
+      enabledIds: enabledWidgetIds,
+      slotType,
+    })
   })
 
   const getWidgetTitle = (widget: SmartWidgetEvent) =>
@@ -52,8 +50,8 @@
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
     const key = input ? `${slotType}:${input}` : ""
 
-    if (!key) {
-      widgets = []
+    if (!key || !input) {
+      curatedWidgets = []
       loadKey = ""
       return
     }
@@ -63,14 +61,14 @@
 
     let disposed = false
 
-    loadCommunityCuratedWidgets(input)
+    loadCachedCommunityCuratedWidgets(input)
       .then(result => {
         if (disposed || key !== loadKey) return
-        widgets = result.status === "community" ? result.widgets : []
+        curatedWidgets = result?.status === "community" ? result.widgets : []
       })
       .catch(error => {
         if (!disposed) console.warn("[community-home-widgets] Failed to load widgets", error)
-        if (!disposed && key === loadKey) widgets = []
+        if (!disposed && key === loadKey) curatedWidgets = []
       })
 
     return () => {

@@ -15,17 +15,16 @@
 
 ## Current Phase
 
-- Phase 2: Community Slot Loading And Budabit Renderers
+- Phase 3: Extension Template And SDK Alignment
 
 ## Phase Exit Criteria
 
-- Old unsupported `SlotRenderer` mounts are removed from composer actions, room header actions, community sidebar widgets, settings panel, and room panel paths.
-- `chat-message-actions` renders compact action launchers in `ChannelMessage.svelte` and `RoomItem.svelte` and passes message/community context only when the user clicks.
-- `chat-message-actions` does not load curation data once per message row.
-- `global-menu` renders only on community routes and only for widgets targeted to that community, as an always-accessible community launcher.
-- Community home slots use the same supported slot typing and continue to render installed+enabled targeted widgets.
-- Widget launchers open widgets without inline iframes in compact slots.
-- Focused tests or `pnpm check` cover changed components/helpers.
+- Template/SDK manifest generator types define the supported slot union.
+- Generator emits `repo-tab` tags with label/path and non-repo slot tags with label only.
+- CLI validates supported slots and no longer documents unsupported colon slot names.
+- Template package tests cover supported slot generation and invalid slot handling.
+- Template app/docs explain only the supported slots and include dashed `chat-message-actions` and `global-menu` examples.
+- No template docs under `packages/flotilla-extension-template` mention removed slots except in intentional migration notes, if any.
 
 ## Completed With Evidence
 
@@ -40,6 +39,16 @@
 - Added focused parser tests for supported community slots, `repo-tab`, label fallback, and ignored legacy colon slot tags.
 - Removed unsupported old typed `SlotRenderer` mounts from composer, room header, and primary nav; message placeholder mounts now use `chat-message-actions` pending Phase 2 renderer replacement.
 - Incorporated current in-progress community widget curation/trust/home-slot/default-owner files that are required by the current community widget workflow.
+- Phase 1 commit pushed: `ca17e34e feat: narrow smart widget slots`.
+- Phase 2: Community Slot Loading And Budabit Renderers.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts` passed with 11 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Added cached community curation loading and slot filtering helper in `community-widget-slots.ts`.
+- Added shared `CommunityWidgetSlotLaunchers.svelte` for compact message actions and top-bar global menu launchers.
+- Rewired community home slots to use cached curation and shared installed/enabled filtering.
+- Replaced message placeholder `SlotRenderer` usage with compact `chat-message-actions` launchers that pass message/community context only on click.
+- Replaced old global top-menu widget display with community-route-only `global-menu` slot launchers in `TopMenuWidgets.svelte`.
+- Updated `WidgetModal.svelte` to pass slot/context/user data via bridge lifecycle events and legacy postMessage context, while keeping iframe rendering inside the modal only.
 
 ## Decisions
 
@@ -48,27 +57,29 @@
 - Do not render full iframes inline in compact chat message action rows.
 - `global-menu` means always accessible while browsing a targeted community, not globally across all Budabit routes.
 - Existing dirty extension/widget files are in-progress work and must be preserved rather than reverted.
+- Top-bar global widget launchers now come from community-targeted `global-menu` slots, not old `top-menu` display settings.
 
 ## Current State
 
-- Branch `dev` tracks `origin/dev` and was already ahead by one commit before this workflow began.
-- Phase 1 is verified and ready to commit/push with only related slot/community-widget files staged.
+- Branch `dev` tracks `origin/dev`.
+- Phase 2 is verified and ready to commit/push with only related widget-slot renderer files staged.
 - Several unrelated pre-existing git UI route/component files remain dirty and must not be staged for this phase.
 
 ## Next Action
 
-- Commit and push Phase 1, then reread this checkpoint and start Phase 2 by adding cached community slot loading plus chat/global semantic launchers.
+- Commit and push Phase 2, then reread this checkpoint and start Phase 3 by aligning `packages/flotilla-extension-template` SDK/generator/docs with the five supported slots.
 
 ## Verification
 
 - Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts`.
 - Phase 1 expanded focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts`.
 - Phase 1 project check passed: `pnpm check`.
+- Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts`.
+- Phase 2 project check passed: `pnpm check`.
 
 ## Risks Or Blockers
 
-- Pre-existing dirty files overlap the extension/widget area, so every phase must inspect diffs carefully and stage only intended files.
-- Branch is already ahead of `origin/dev`; a phase push will also push any pre-existing unpushed local commit on this branch.
+- Pre-existing unrelated dirty git UI files remain in the worktree; do not stage them unless a later phase explicitly requires them.
 - No blocker yet.
 
 ## Files
@@ -80,14 +91,19 @@
 - `src/app/components/ExtensionCard.svelte`
 - `src/app/components/PrimaryNav.svelte`
 - `src/app/components/RoomItem.svelte`
+- `src/app/components/TopMenuWidgets.svelte`
+- `src/app/components/WidgetModal.svelte`
 - `src/app/components/community/CommunityExtensionsPrompt.svelte`
 - `src/app/components/community/CommunityHomeWidgetSlot.svelte`
+- `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
 - `src/app/extensions/builtin-filter.ts`
 - `src/app/extensions/builtin.test.ts`
 - `src/app/extensions/builtin.ts`
 - `src/app/extensions/community-curation.test.ts`
 - `src/app/extensions/community-curation.ts`
 - `src/app/extensions/community-extension-prompt.ts`
+- `src/app/extensions/community-widget-slots.test.ts`
+- `src/app/extensions/community-widget-slots.ts`
 - `src/app/extensions/community-widget-trust.test.ts`
 - `src/app/extensions/community-widget-trust.ts`
 - `src/app/extensions/registry.test.ts`
