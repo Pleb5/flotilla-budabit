@@ -69,10 +69,10 @@
     const providers = [
       {
         id: "grasp",
-        name: "GRASP Relay",
+        name: "GRASP Server",
         host: "nostr-relay",
         icon: "⚡",
-        description: "Create decentralized repository on Nostr relay",
+        description: "Uses Nostr signer for authentication",
         hasToken: true, // GRASP uses Nostr signer, always available
       },
       {
@@ -234,10 +234,6 @@
                   </a>
                   to enable {provider.name}.
                 </p>
-              {:else if provider.id === "grasp"}
-                <p class="text-xs text-muted-foreground mt-1">
-                  Uses Nostr signer for authentication
-                </p>
               {/if}
 
               {#if provider.id === "grasp" && selectedProviders.includes("grasp")}
@@ -378,7 +374,7 @@
       <div class="flex items-center space-x-2">
         <div class="w-2 h-2 bg-green-500 rounded-full"></div>
         <p class="text-sm text-foreground">
-          Ready to create repository on <strong>GRASP Relay</strong>
+          Ready to create repository on <strong>GRASP Server</strong>
           {#if graspRelayUrls.length > 0}
             <span class="text-muted-foreground"
               >({graspRelayUrls.length} relay{graspRelayUrls.length > 1 ? "s" : ""})</span
