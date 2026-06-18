@@ -15,16 +15,15 @@
 
 ## Current Phase
 
-- Phase 3: Extension Template And SDK Alignment
+- Phase 4: Regression Sweep And Completion
 
 ## Phase Exit Criteria
 
-- Template/SDK manifest generator types define the supported slot union.
-- Generator emits `repo-tab` tags with label/path and non-repo slot tags with label only.
-- CLI validates supported slots and no longer documents unsupported colon slot names.
-- Template package tests cover supported slot generation and invalid slot handling.
-- Template app/docs explain only the supported slots and include dashed `chat-message-actions` and `global-menu` examples.
-- No template docs under `packages/flotilla-extension-template` mention removed slots except in intentional migration notes, if any.
+- Searches show no remaining active Budabit UI mount for unsupported slots.
+- Searches show no remaining template docs/examples for removed colon slot names except explicit migration notes, if intentionally kept.
+- Supported slots parse, publish, display labels, and render as semantic launchers in their intended places.
+- Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
+- Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
 
@@ -49,6 +48,18 @@
 - Replaced message placeholder `SlotRenderer` usage with compact `chat-message-actions` launchers that pass message/community context only on click.
 - Replaced old global top-menu widget display with community-route-only `global-menu` slot launchers in `TopMenuWidgets.svelte`.
 - Updated `WidgetModal.svelte` to pass slot/context/user data via bridge lifecycle events and legacy postMessage context, while keeping iframe rendering inside the modal only.
+- Phase 2 commit pushed: `e01003a6 feat: render community widget slots`.
+- Phase 3: Extension Template And SDK Alignment.
+- Evidence: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts` passed with 22 tests in `packages/flotilla-extension-template`.
+- Evidence: `pnpm --filter budabit-sdk typecheck` passed in `packages/flotilla-extension-template`.
+- Evidence: `pnpm --filter @budabit/ext-shared build && pnpm --filter @budabit/ext-manifest typecheck` passed in `packages/flotilla-extension-template`.
+- Evidence: `grep` search for removed colon slots under `packages/flotilla-extension-template` returned no files.
+- Added supported slot union types to the template SDK and manifest generators.
+- Updated generators to emit `repo-tab` slot tags with label/path and community slot tags with label only.
+- Added CLI slot validation for the five supported slots in both template generator CLIs.
+- Added focused generator/CLI validation tests for supported slot generation and invalid slot handling.
+- Rewrote template and scaffold slot docs to document only `repo-tab`, community home slots, `chat-message-actions`, and community-scoped `global-menu`.
+- Updated template quickstart and host bridge docs to use supported `repo-tab` examples.
 
 ## Decisions
 
@@ -62,12 +73,13 @@
 ## Current State
 
 - Branch `dev` tracks `origin/dev`.
-- Phase 2 is verified and ready to commit/push with only related widget-slot renderer files staged.
+- Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
+- Phase 3 is verified and ready to commit/push in the nested template repo, then record the updated template pointer and this checkpoint in the root repo.
 - Several unrelated pre-existing git UI route/component files remain dirty and must not be staged for this phase.
 
 ## Next Action
 
-- Commit and push Phase 2, then reread this checkpoint and start Phase 3 by aligning `packages/flotilla-extension-template` SDK/generator/docs with the five supported slots.
+- Commit and push Phase 3 in `packages/flotilla-extension-template`, commit and push the root checkpoint/template pointer, then start Phase 4 regression sweep.
 
 ## Verification
 
@@ -76,10 +88,16 @@
 - Phase 1 project check passed: `pnpm check`.
 - Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts`.
 - Phase 2 project check passed: `pnpm check`.
+- Phase 3 focused template tests passed: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
+- Phase 3 SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
+- Phase 3 manifest typecheck passed after shared build: `pnpm --filter @budabit/ext-shared build && pnpm --filter @budabit/ext-manifest typecheck`.
+- Phase 3 removed-slot scan passed: no matches for unsupported colon slot names under `packages/flotilla-extension-template`.
 
 ## Risks Or Blockers
 
 - Pre-existing unrelated dirty git UI files remain in the worktree; do not stage them unless a later phase explicitly requires them.
+- Template verification required installing template dependencies with `pnpm install --frozen-lockfile`; no lockfile changes were made.
+- Template manifest typecheck requires the shared package declarations to exist, so `pnpm --filter @budabit/ext-shared build` was run before typechecking `@budabit/ext-manifest`.
 - No blocker yet.
 
 ## Files
@@ -113,3 +131,15 @@
 - `src/routes/c/[community]/rooms/[room]/+page.svelte`
 - `src/routes/c/[community]/widgets/+page.svelte`
 - `src/routes/settings/extensions/+page.svelte`
+- `packages/flotilla-extension-template/docs/host-bridge.md`
+- `packages/flotilla-extension-template/docs/quickstart.md`
+- `packages/flotilla-extension-template/docs/slots.md`
+- `packages/flotilla-extension-template/packages/create-budabit-widget/template/docs/host-bridge.md`
+- `packages/flotilla-extension-template/packages/create-budabit-widget/template/docs/quickstart.md`
+- `packages/flotilla-extension-template/packages/create-budabit-widget/template/docs/slots.md`
+- `packages/flotilla-extension-template/packages/manifest/src/cli.ts`
+- `packages/flotilla-extension-template/packages/manifest/src/generator.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/cli.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.test.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/index.ts`
