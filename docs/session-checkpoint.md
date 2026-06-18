@@ -71,6 +71,7 @@
 - Evidence: `pnpm check` passed with 0 errors and 0 warnings.
 - Evidence: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts` passed with 22 tests in `packages/flotilla-extension-template`.
 - Updated `docs/extensions` developer docs and inventory to document the supported slot tag model and remove stale unsupported slot examples.
+- Phase 4 final closeout commit pushed: `7b09ba1b docs: complete smart widget slot sweep`.
 
 ## Decisions
 
@@ -90,7 +91,7 @@
 
 ## Next Action
 
-- Commit and push this final checkpoint/docs closeout, reread this checkpoint to verify `Current Phase: Complete`, then provide the final response.
+- Provide the final response.
 
 ## Verification
 
