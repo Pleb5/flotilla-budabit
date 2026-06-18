@@ -30,11 +30,24 @@ export type WidgetButton = {
 
 export type WidgetDisplayLocation = "modal" | "menu-route" | "top-menu"
 
-export type WidgetSlotConfig = {
-  type: "repo-tab"
-  label: string
-  path: string
-}
+export type WidgetHomeSlotType =
+  | "community-home-before-quicklinks"
+  | "community-home-after-quicklinks"
+
+export type WidgetActionSlotType = "chat-message-actions" | "global-menu"
+
+export type WidgetCommunitySlotType = WidgetHomeSlotType | WidgetActionSlotType
+
+export type WidgetSlotConfig =
+  | {
+      type: "repo-tab"
+      label: string
+      path: string
+    }
+  | {
+      type: WidgetCommunitySlotType
+      label: string
+    }
 
 export type SmartWidgetEvent = {
   id: string
@@ -107,14 +120,7 @@ export type LoadedWidgetExtension = {
 
 export type LoadedExtension = LoadedNip89Extension | LoadedWidgetExtension
 
-export type ExtensionSlotId =
-  | "chat:composer:actions"
-  | "chat:message:actions"
-  | "room:header:actions"
-  | "room:panel"
-  | "global:menu"
-  | "settings:panel"
-  | "community:sidebar:widgets"
+export type ExtensionSlotId = WidgetActionSlotType
 
 export type ExtensionSlotHandler = (args: {
   root: HTMLElement

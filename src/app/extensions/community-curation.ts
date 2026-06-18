@@ -19,6 +19,7 @@ import {
 } from "@app/core/community-feeds"
 import {
   COMMUNITY_WRITE_TARGETS,
+  getCommunityTargetAuthorityPubkeys,
   getCommunityTargetWriterPubkeys,
 } from "@app/core/community-permissions"
 import {parseSmartWidget} from "@app/extensions/registry"
@@ -30,6 +31,7 @@ export type CommunityCuratedExtensionsResult = {
   status: CommunityCuratedExtensionsStatus
   communityPubkey?: string
   relayHints: string[]
+  trustedWidgetAuthorPubkeys: string[]
   widgets: SmartWidgetEvent[]
 }
 
@@ -85,7 +87,8 @@ export const loadCommunityCuratedWidgets = async (
 ): Promise<CommunityCuratedExtensionsResult> => {
   const parsed = parseCommunityInput(input)
 
-  if (!parsed) return {status: "invalid-input", relayHints: [], widgets: []}
+  if (!parsed)
+    return {status: "invalid-input", relayHints: [], trustedWidgetAuthorPubkeys: [], widgets: []}
 
   const definitionEvents = await loadCommunityEvents(
     getCommunityBootstrapRelays(parsed.relays),
@@ -99,6 +102,7 @@ export const loadCommunityCuratedWidgets = async (
       status: "not-community",
       communityPubkey: parsed.pubkey,
       relayHints: parsed.relays,
+      trustedWidgetAuthorPubkeys: [],
       widgets: [],
     }
   }
@@ -111,6 +115,7 @@ export const loadCommunityCuratedWidgets = async (
       status: "community",
       communityPubkey: definition.pubkey,
       relayHints: communityRelays,
+      trustedWidgetAuthorPubkeys: [],
       widgets: [],
     }
   }
@@ -135,6 +140,11 @@ export const loadCommunityCuratedWidgets = async (
     profileListEvents,
     target: COMMUNITY_WRITE_TARGETS.widget,
   })
+  const trustedWidgetAuthorPubkeys = getCommunityTargetAuthorityPubkeys({
+    definition,
+    profileListEvents,
+    target: COMMUNITY_WRITE_TARGETS.widget,
+  })
   const widgetTargetAuthorSet = new Set(widgetTargetAuthorPubkeys.map(normalizePubkey))
   const eligibleTargetingEvents = targetingEvents.filter(
     event =>
@@ -147,6 +157,7 @@ export const loadCommunityCuratedWidgets = async (
       status: "community",
       communityPubkey: definition.pubkey,
       relayHints: communityRelays,
+      trustedWidgetAuthorPubkeys,
       widgets: [],
     }
   }
@@ -170,6 +181,7 @@ export const loadCommunityCuratedWidgets = async (
     status: "community",
     communityPubkey: definition.pubkey,
     relayHints: communityRelays,
+    trustedWidgetAuthorPubkeys,
     widgets: dedupeWidgets(widgets),
   }
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import {page} from "$app/stores"
+  import {tick} from "svelte"
   import {profilesByPubkey, pubkey, repository, tracker} from "@welshman/app"
   import {Router} from "@welshman/router"
   import {request} from "@welshman/net"
@@ -33,6 +35,10 @@
   import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
   import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
   import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+  import {
+    getManualCommunityWidgets,
+    getTrustedCommunityWidgets,
+  } from "@app/extensions/community-widget-trust"
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {pushToast} from "@app/util/toast"
   import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
@@ -98,11 +104,16 @@
   let communityDiscoveryState = $state<CommunityDiscoveryState>("idle")
   let communityDiscoveryMessage = $state("Select a community to see its curated widgets.")
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
+  let trustedWidgetAuthorPubkeys = $state<string[]>([])
   let communityDiscoveryRequestId = 0
   let selectedCommunityPubkey = $state("")
   let communityWidgetLoadKey = ""
   let widgetTargetLoadKey = ""
   let widgetTargetDeleteLoadKey = ""
+  let trustedInstallInProgress = $state(false)
+  let trustedSectionElement = $state<HTMLElement | null>(null)
+  let highlightTrustedSection = $state(false)
+  let focusedTrustedSectionKey = ""
 
   let manifestUrl = $state("")
   let installing = $state(false)
@@ -119,6 +130,13 @@
     )
   }
 
+  const communityDiscoveryOptions = $derived.by((): WidgetCommunityOption[] =>
+    $activeUserCommunityRefs.map(ref => ({
+      pubkey: ref.communityPubkey,
+      label: getCommunityOptionLabel(ref.communityPubkey),
+      relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+    })),
+  )
   const widgetCommunityOptions = $derived.by((): WidgetCommunityOption[] =>
     $activeUserCommunityRefs
       .filter(ref =>
@@ -135,8 +153,24 @@
       })),
   )
   const selectedCommunityOption = $derived(
-    widgetCommunityOptions.find(option => option.pubkey === selectedCommunityPubkey),
+    communityDiscoveryOptions.find(
+      option => normalizePubkey(option.pubkey) === normalizePubkey(selectedCommunityPubkey),
+    ),
   )
+  const trustedCuratedWidgets = $derived(
+    getTrustedCommunityWidgets(curatedWidgets, trustedWidgetAuthorPubkeys),
+  )
+  const otherCuratedWidgets = $derived(
+    getManualCommunityWidgets(curatedWidgets, trustedWidgetAuthorPubkeys),
+  )
+  const installedWidgetIds = $derived(new Set(installedWidgets.map(widget => widget.identifier)))
+  const trustedWidgetsToInstall = $derived(
+    trustedCuratedWidgets.filter(widget => !enabledIds.includes(widget.identifier)),
+  )
+  const requestedCommunityPubkey = $derived(
+    normalizePubkey($page.url.searchParams.get("community") || ""),
+  )
+  const focusTrustedExtensions = $derived($page.url.searchParams.get("focus") === "trusted")
 
   const getUserOutboxRelays = () => {
     try {
@@ -231,6 +265,7 @@
     communityDiscoveryState = "loading"
     communityDiscoveryMessage = "Looking for community-curated widgets..."
     curatedWidgets = []
+    trustedWidgetAuthorPubkeys = []
 
     const requestId = ++communityDiscoveryRequestId
     const communityInput =
@@ -257,6 +292,7 @@
 
       communityDiscoveryState = "community"
       curatedWidgets = result.widgets
+      trustedWidgetAuthorPubkeys = result.trustedWidgetAuthorPubkeys
       communityDiscoveryMessage = result.widgets.length
         ? `${result.widgets.length} curated widget${result.widgets.length === 1 ? "" : "s"} found.`
         : "No curated widgets found."
@@ -379,15 +415,27 @@
 
   $effect(() => {
     if (
+      requestedCommunityPubkey &&
+      communityDiscoveryOptions.some(
+        option => normalizePubkey(option.pubkey) === requestedCommunityPubkey,
+      )
+    ) {
+      selectedCommunityPubkey = requestedCommunityPubkey
+      return
+    }
+
+    if (
       selectedCommunityPubkey &&
-      widgetCommunityOptions.some(option => option.pubkey === selectedCommunityPubkey)
+      communityDiscoveryOptions.some(
+        option => normalizePubkey(option.pubkey) === normalizePubkey(selectedCommunityPubkey),
+      )
     ) {
       return
     }
 
     const activeCommunityPubkey = $activeCommunitySession?.communityPubkey || ""
-    selectedCommunityPubkey = widgetCommunityOptions.some(
-      option => option.pubkey === activeCommunityPubkey,
+    selectedCommunityPubkey = communityDiscoveryOptions.some(
+      option => normalizePubkey(option.pubkey) === normalizePubkey(activeCommunityPubkey),
     )
       ? activeCommunityPubkey
       : ""
@@ -402,10 +450,11 @@
     if (!key) {
       communityWidgetLoadKey = ""
       communityDiscoveryState = "idle"
-      communityDiscoveryMessage = widgetCommunityOptions.length
+      communityDiscoveryMessage = communityDiscoveryOptions.length
         ? "Select a community to see its curated widgets."
-        : "No widget-capable community grants are available for this account."
+        : "No member communities are available for this account."
       curatedWidgets = []
+      trustedWidgetAuthorPubkeys = []
       return
     }
 
@@ -413,6 +462,29 @@
     communityWidgetLoadKey = key
 
     void searchCommunityExtensions(option)
+  })
+
+  $effect(() => {
+    if (
+      !focusTrustedExtensions ||
+      !requestedCommunityPubkey ||
+      selectedCommunityPubkey !== requestedCommunityPubkey ||
+      communityDiscoveryState !== "community"
+    ) {
+      return
+    }
+
+    const key = `${requestedCommunityPubkey}:${trustedCuratedWidgets.map(widget => widget.identifier).join(",")}`
+    if (key === focusedTrustedSectionKey) return
+    focusedTrustedSectionKey = key
+
+    void tick().then(() => {
+      trustedSectionElement?.scrollIntoView({behavior: "smooth", block: "start"})
+      highlightTrustedSection = true
+      setTimeout(() => {
+        highlightTrustedSection = false
+      }, 2500)
+    })
   })
 
   $effect(() => {
@@ -472,16 +544,38 @@
     }
   }
 
-  const onInstallWidget = (widget: SmartWidgetEvent) => {
+  const onInstallWidget = async (widget: SmartWidgetEvent) => {
     try {
       installWidgetFromEvent(widget as any)
-      enableExtension(widget.identifier)
+      await enableExtension(widget.identifier)
       pushToast({
         theme: "success",
         message: `Installed and enabled widget ${widget.content || widget.identifier}`,
       })
     } catch (e: any) {
       pushToast({theme: "error", message: e?.message || "Install failed"})
+    }
+  }
+
+  const onInstallTrustedWidgets = async () => {
+    if (trustedInstallInProgress || trustedWidgetsToInstall.length === 0) return
+
+    const widgets = trustedWidgetsToInstall
+    trustedInstallInProgress = true
+    try {
+      for (const widget of widgets) {
+        installWidgetFromEvent(widget as any)
+        await enableExtension(widget.identifier)
+      }
+
+      pushToast({
+        theme: "success",
+        message: `Installed and enabled ${widgets.length} trusted widget${widgets.length === 1 ? "" : "s"}`,
+      })
+    } catch (e: any) {
+      pushToast({theme: "error", message: e?.message || "Failed to install trusted widgets."})
+    } finally {
+      trustedInstallInProgress = false
     }
   }
 
@@ -513,14 +607,84 @@
   }
 </script>
 
+{#snippet communityWidgetCard(widget: SmartWidgetEvent, trusted: boolean)}
+  {@const installedWidget = installedWidgetIds.has(widget.identifier)}
+  {@const isDefaultWidget = defaultIds.has(widget.identifier)}
+  <div class="card2 flex items-start justify-between gap-2 p-3">
+    <div class="flex min-w-0 flex-1 items-start gap-3">
+      {#if widget.iconUrl || widget.imageUrl}
+        <ExtensionIcon
+          icon={widget.iconUrl || widget.imageUrl}
+          size={40}
+          class="h-10 w-10 shrink-0 rounded object-cover" />
+      {:else}
+        <div
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-base-300 text-xs font-semibold uppercase">
+          Ext
+        </div>
+      {/if}
+      <div class="min-w-0 flex-1">
+        <div class="break-words font-medium">{widget.content || widget.identifier}</div>
+        {#if widget.pubkey}
+          <div class="flex items-center gap-1.5 text-xs opacity-70">
+            <span>by</span>
+            <ProfileCircle pubkey={widget.pubkey} size={4} class="h-4 w-4" />
+            <ProfileLink pubkey={widget.pubkey} class="hover:underline" />
+          </div>
+        {/if}
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="opacity-70">Type: {widget.widgetType}</span>
+          {#if trusted}
+            <span class="badge badge-primary badge-sm">Trusted</span>
+          {/if}
+          {#if widget.slot?.type === "repo-tab"}
+            <span class="badge badge-primary badge-sm">Repo Tab</span>
+          {:else if widget.slot?.type === "community-home-before-quicklinks"}
+            <span class="badge badge-secondary badge-sm">Home: above quicklinks</span>
+          {:else if widget.slot?.type === "community-home-after-quicklinks"}
+            <span class="badge badge-secondary badge-sm">Home: below quicklinks</span>
+          {:else if widget.slot?.type === "chat-message-actions"}
+            <span class="badge badge-secondary badge-sm">Chat message actions</span>
+          {:else if widget.slot?.type === "global-menu"}
+            <span class="badge badge-secondary badge-sm">Global menu</span>
+          {/if}
+          {#if isDefaultWidget}
+            <span class="badge badge-primary badge-sm">Community default</span>
+          {/if}
+        </div>
+        <div class="truncate text-xs opacity-50" title={widget.appUrl || widget.imageUrl}>
+          {widget.appUrl || widget.imageUrl}
+        </div>
+      </div>
+    </div>
+    <div class="flex shrink-0 items-center gap-3">
+      {#if installedWidget}
+        <label class="row-2 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="toggle toggle-primary toggle-sm"
+            checked={enabledIds.includes(widget.identifier)}
+            onchange={e =>
+              toggle(widget.identifier, (e.currentTarget as HTMLInputElement).checked)} />
+          <span class="opacity-70">Enabled</span>
+        </label>
+      {:else}
+        <Button class="btn btn-primary btn-sm" onclick={() => onInstallWidget(widget)}>
+          Install
+        </Button>
+      {/if}
+    </div>
+  </div>
+{/snippet}
+
 <div class="content column gap-4">
   <div class="card2 bg-alt col-8 shadow-xl">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <strong class="text-lg">Installed</strong>
         <p class="text-sm opacity-70">
-          Default community extensions are installed and enabled automatically. You can disable
-          them, but they cannot be uninstalled.
+          Installed extensions can be enabled, disabled, or uninstalled. Built-in defaults can be
+          disabled but not uninstalled.
         </p>
       </div>
       {#if defaultWidgets.length > 0}
@@ -558,11 +722,12 @@
     {/if}
   </div>
 
-  <div class="card2 bg-alt col-8 shadow-xl">
+  <div id="community-extensions" class="card2 bg-alt col-8 scroll-mt-20 shadow-xl">
     <div class="flex flex-col gap-1">
       <strong class="text-lg">Community widgets</strong>
       <p class="text-sm opacity-70">
-        Browse Smart Widgets curated into communities where you have widget publishing access.
+        Browse Smart Widgets curated into communities where you are a member. Installation is always
+        opt-in.
       </p>
     </div>
     <div class="flex flex-wrap items-end gap-3">
@@ -571,9 +736,9 @@
         <select
           class="select select-bordered w-full"
           bind:value={selectedCommunityPubkey}
-          disabled={widgetCommunityOptions.length === 0 || communityDiscoveryLoading}>
+          disabled={communityDiscoveryOptions.length === 0 || communityDiscoveryLoading}>
           <option value="">Select a community</option>
-          {#each widgetCommunityOptions as option (option.pubkey)}
+          {#each communityDiscoveryOptions as option (option.pubkey)}
             <option value={option.pubkey}>{option.label || option.pubkey}</option>
           {/each}
         </select>
@@ -595,69 +760,56 @@
       </p>
     </div>
 
-    {#if curatedWidgets.length > 0}
-      <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-        {#each curatedWidgets as widget (widget.identifier)}
-          {@const installedWidget = installedWidgets.some(
-            (item: SmartWidgetEvent) => item.identifier === widget.identifier,
-          )}
-          {@const isDefaultWidget = defaultIds.has(widget.identifier)}
-          <div class="card2 flex items-start justify-between gap-2 p-3">
-            <div class="flex min-w-0 flex-1 items-start gap-3">
-              {#if widget.iconUrl || widget.imageUrl}
-                <ExtensionIcon
-                  icon={widget.iconUrl || widget.imageUrl}
-                  size={40}
-                  class="h-10 w-10 shrink-0 rounded object-cover" />
-              {:else}
-                <div
-                  class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-base-300 text-xs font-semibold uppercase">
-                  Ext
-                </div>
-              {/if}
-              <div class="min-w-0 flex-1">
-                <div class="break-words font-medium">{widget.content || widget.identifier}</div>
-                {#if widget.pubkey}
-                  <div class="flex items-center gap-1.5 text-xs opacity-70">
-                    <span>by</span>
-                    <ProfileCircle pubkey={widget.pubkey} size={4} class="h-4 w-4" />
-                    <ProfileLink pubkey={widget.pubkey} class="hover:underline" />
-                  </div>
-                {/if}
-                <div class="flex flex-wrap gap-2 text-xs">
-                  <span class="opacity-70">Type: {widget.widgetType}</span>
-                  {#if widget.slot?.type === "repo-tab"}
-                    <span class="badge badge-primary badge-sm">Repo Tab</span>
-                  {/if}
-                  {#if isDefaultWidget}
-                    <span class="badge badge-primary badge-sm">Community default</span>
-                  {/if}
-                </div>
-                <div class="truncate text-xs opacity-50" title={widget.appUrl || widget.imageUrl}>
-                  {widget.appUrl || widget.imageUrl}
-                </div>
-              </div>
-            </div>
-            <div class="flex shrink-0 items-center gap-3">
-              {#if installedWidget}
-                <label class="row-2 items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    class="toggle toggle-primary toggle-sm"
-                    checked={enabledIds.includes(widget.identifier)}
-                    onchange={e =>
-                      toggle(widget.identifier, (e.currentTarget as HTMLInputElement).checked)} />
-                  <span class="opacity-70">Enabled</span>
-                </label>
-              {:else}
-                <Button class="btn btn-primary btn-sm" onclick={() => onInstallWidget(widget)}>
-                  Install
-                </Button>
-              {/if}
-            </div>
+    {#if trustedCuratedWidgets.length > 0}
+      <section
+        id="trusted-community-extensions"
+        bind:this={trustedSectionElement}
+        class="mt-3 scroll-mt-24 rounded-box border border-primary/40 bg-primary/5 p-3 transition-shadow"
+        class:ring-2={highlightTrustedSection}
+        class:ring-primary={highlightTrustedSection}>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <strong>Trusted extensions</strong>
+            <p class="text-sm opacity-70">
+              Published by this community's owner or widget-section moderators. Install only the
+              widgets you want to use.
+            </p>
           </div>
-        {/each}
-      </div>
+          <Button
+            class="btn btn-primary btn-sm"
+            disabled={trustedWidgetsToInstall.length === 0 || trustedInstallInProgress}
+            onclick={onInstallTrustedWidgets}>
+            {#if trustedInstallInProgress}
+              Installing...
+            {:else if trustedWidgetsToInstall.length === 0}
+              All trusted installed
+            {:else}
+              Install all trusted
+            {/if}
+          </Button>
+        </div>
+        <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+          {#each trustedCuratedWidgets as widget (widget.identifier)}
+            {@render communityWidgetCard(widget, true)}
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    {#if otherCuratedWidgets.length > 0}
+      <section class="mt-3">
+        <div class="mb-2">
+          <strong>Other curated widgets</strong>
+          <p class="text-sm opacity-70">
+            Curated by community widget writers. These are never installed automatically.
+          </p>
+        </div>
+        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+          {#each otherCuratedWidgets as widget (widget.identifier)}
+            {@render communityWidgetCard(widget, false)}
+          {/each}
+        </div>
+      </section>
     {/if}
   </div>
 

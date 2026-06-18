@@ -19,6 +19,8 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Content from "@app/components/Content.svelte"
+  import CommunityExtensionsPrompt from "@app/components/community/CommunityExtensionsPrompt.svelte"
+  import CommunityHomeWidgetSlot from "@app/components/community/CommunityHomeWidgetSlot.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
@@ -72,7 +74,9 @@
   const communityDescriptionEvent = $derived({content: communityDescription, tags: []})
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   let failedPicture = $state("")
-  const showCommunityPicture = $derived(Boolean(communityPicture && failedPicture !== communityPicture))
+  const showCommunityPicture = $derived(
+    Boolean(communityPicture && failedPicture !== communityPicture),
+  )
   const mainRelay = $derived(
     $activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "",
   )
@@ -83,6 +87,9 @@
   )
   const communityActionRelays = $derived(
     communityShareRelays.length > 0 ? communityShareRelays : $activeCommunityRelays,
+  )
+  const homeWidgetRelayHints = $derived(
+    $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityShareRelays,
   )
   const threadsPath = $derived(communityId ? makeCommunityThreadPath(communityId) : "")
   const calendarPath = $derived(communityId ? makeCommunityCalendarPath(communityId) : "")
@@ -410,6 +417,15 @@
     </section>
   {/if}
 
+  {#if communityId}
+    <CommunityExtensionsPrompt communityPubkey={communityId} relayHints={homeWidgetRelayHints} />
+
+    <CommunityHomeWidgetSlot
+      communityPubkey={communityId}
+      relayHints={homeWidgetRelayHints}
+      slotType="community-home-before-quicklinks" />
+  {/if}
+
   <div class="grid gap-2 max-sm:grid-cols-2 sm:grid-cols-3">
     <Link
       href={gitPath}
@@ -500,4 +516,11 @@
       </div>
     {/if}
   </div>
+
+  {#if communityId}
+    <CommunityHomeWidgetSlot
+      communityPubkey={communityId}
+      relayHints={homeWidgetRelayHints}
+      slotType="community-home-after-quicklinks" />
+  {/if}
 </PageContent>

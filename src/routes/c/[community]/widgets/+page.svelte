@@ -39,6 +39,7 @@
   import {SMART_WIDGET_RELAYS} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
+  import type {WidgetCommunitySlotType} from "@app/extensions/types"
   import {
     getWidgetTargetPublishRelays,
     publishWidgetEventToTargets,
@@ -186,6 +187,17 @@
     return deleted
   }
 
+  type WidgetSlotOption = "" | WidgetCommunitySlotType
+
+  const getWidgetSlotLabel = (slotType?: string) => {
+    if (slotType === "community-home-before-quicklinks") return "Home: above quicklinks"
+    if (slotType === "community-home-after-quicklinks") return "Home: below quicklinks"
+    if (slotType === "chat-message-actions") return "Chat message actions"
+    if (slotType === "global-menu") return "Global menu"
+
+    return ""
+  }
+
   const toggleTargetCommunity = (pubkey: string, checked: boolean) => {
     selectedTargetCommunityPubkeys = checked
       ? Array.from(new Set([...selectedTargetCommunityPubkeys, pubkey]))
@@ -218,13 +230,15 @@
 
     const widgetId = slug.trim() || randomId()
     const widgetEvent = makeEvent(SMART_WIDGET_KIND, {
-      content: description.trim(),
+      content: name.trim(),
       tags: [
         ["d", widgetId],
         ["title", name.trim()],
         ["l", "basic"],
+        ...(widgetSlot ? [["slot", widgetSlot, name.trim()]] : []),
         ["button", "Open", "app", appUrl.trim()],
         ...(iconUrl.trim() ? [["icon", iconUrl.trim()]] : []),
+        ...(description.trim() ? [["description", description.trim()]] : []),
       ],
     })
     publishWidgetEventToTargets({
@@ -246,6 +260,7 @@
     appUrl = ""
     iconUrl = ""
     description = ""
+    widgetSlot = ""
     pushToast({message: "Widget published."})
   }
 
@@ -254,6 +269,7 @@
   let appUrl = $state("")
   let iconUrl = $state("")
   let description = $state("")
+  let widgetSlot = $state<WidgetSlotOption>("")
   let selectedTargetCommunityPubkeys = $state<string[]>([])
   let targetSelectionKey = ""
   let loadingTargets = $state(false)
@@ -403,6 +419,18 @@
           class="textarea textarea-bordered"
           rows="3"></textarea
         >{/snippet}</Field>
+    <Field>
+      {#snippet label()}<p>Widget slot</p>{/snippet}
+      {#snippet input()}
+        <select bind:value={widgetSlot} class="select select-bordered w-full">
+          <option value="">No slot launcher</option>
+          <option value="community-home-before-quicklinks">Above home quicklinks</option>
+          <option value="community-home-after-quicklinks">Below home quicklinks</option>
+          <option value="chat-message-actions">Chat message actions</option>
+          <option value="global-menu">Global menu</option>
+        </select>
+      {/snippet}
+    </Field>
     <div class="flex flex-col gap-2 rounded-box border border-base-300 bg-base-100 p-3">
       <div>
         <strong class="text-sm">Target communities</strong>
@@ -442,9 +470,13 @@
 
   <div class="col-2">
     {#each $widgets as widget (widget.id)}
+      {@const slotLabel = getWidgetSlotLabel(widget.tags.find(tag => tag[0] === "slot")?.[1])}
       <div class="card2 bg-alt p-4 shadow-md" data-event={widget.id}>
         <strong
           >{getTagValue("title", widget.tags) || getTagValue("d", widget.tags) || "Widget"}</strong>
+        {#if slotLabel}
+          <div class="mt-1"><span class="badge badge-primary badge-sm">{slotLabel}</span></div>
+        {/if}
         <p class="break-all text-xs opacity-60">{getTagValue("button", widget.tags) || ""}</p>
         {#if widget.content}<p class="whitespace-pre-wrap">{widget.content}</p>{/if}
       </div>

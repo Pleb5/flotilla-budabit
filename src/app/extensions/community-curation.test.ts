@@ -62,10 +62,10 @@ const makeTargetingEvent = ({
     }).tags,
   })
 
-const makeWidgetEvent = (identifier: string) =>
+const makeWidgetEvent = (identifier: string, pubkey = widgetPubkey) =>
   makeEvent({
     id: `widget-${identifier}`,
-    pubkey: widgetPubkey,
+    pubkey,
     kind: SMART_WIDGET_KIND,
     content: identifier,
     tags: [
@@ -152,6 +152,7 @@ describe("community curated widgets", () => {
       status: "community",
       communityPubkey,
       relayHints: ["wss://community.example/"],
+      trustedWidgetAuthorPubkeys: [communityPubkey, managerPubkey],
     })
     expect(result.widgets.map(widget => widget.identifier)).toEqual(["valid-widget"])
     expect(mocks.loadCommunityEvents).toHaveBeenCalledTimes(5)

@@ -7,115 +7,93 @@
 
 ## Goal
 
-- Reintroduce spec-correct support for both NIP-52 community calendar event kinds: `31922` date-based all-day/multi-day events and `31923` time-based events.
-- Default new community Calendar sections to both kinds and wire creation, permissions, listing, detail, comments, notifications, and tests accordingly.
+- Keep only these Smart Widget slots for now: `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, and `global-menu`.
+- Convert Smart Widget slot naming to dashed IDs for chat/global slots and remove or ignore old unsupported colon-separated slot placeholders.
+- Make `chat-message-actions` and `global-menu` community-targetable and render them as semantic launchers, not blind inline iframes.
+- Treat `global-menu` as always accessible only within targeted community routes.
+- Update Budabit and the extension template with sufficient focused tests.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Community Slot Loading And Budabit Renderers
 
 ## Phase Exit Criteria
 
-- Searches show no remaining community calendar create/list/detail path hardcoded to only `EVENT_TIME` where both kinds are required.
-- Valid `EVENT_DATE` events are not parsed as Unix timestamps in calendar UI components touched by the community flow.
-- Default community creation/editing, permission grants, targeted publication routing, calendar feed loading, and comments are covered by focused tests or explicit verification notes.
-- Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
-- Checkpoint says `Current Phase: Complete` before final commit/push.
+- Old unsupported `SlotRenderer` mounts are removed from composer actions, room header actions, community sidebar widgets, settings panel, and room panel paths.
+- `chat-message-actions` renders compact action launchers in `ChannelMessage.svelte` and `RoomItem.svelte` and passes message/community context only when the user clicks.
+- `chat-message-actions` does not load curation data once per message row.
+- `global-menu` renders only on community routes and only for widgets targeted to that community, as an always-accessible community launcher.
+- Community home slots use the same supported slot typing and continue to render installed+enabled targeted widgets.
+- Widget launchers open widgets without inline iframes in compact slots.
+- Focused tests or `pnpm check` cover changed components/helpers.
 
 ## Completed With Evidence
 
-- Prior unrelated workflow in these session files was already complete and has been replaced for this calendar workflow.
-- Phase 1: Calendar Kinds In Community Model And Permissions.
-- Evidence: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts` passed with 44 tests.
+- Previous calendar workflow in these session files was already complete and has been replaced for this Smart Widget slot workflow.
+- Phase 1: Supported Slot Model And Community Management.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts` passed with 9 tests.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts` passed with 10 tests.
 - Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Implemented both calendar kinds in default Calendar section setup, community targetable publication kind lists, community write-target mapping, and CommunityCreate kind picker options.
-- Added distinct `calendarDate` target plus `COMMUNITY_CALENDAR_WRITE_TARGETS` while keeping existing time-based `calendar` target.
-- Added focused tests for defaults, target mapping, distinct date/time permission resolution, and targeted publication filters.
-- Phase 1 commit pushed: `2ad52148 feat: add date calendar community targets`.
-- Phase 2: Spec-Correct Calendar Event Utilities And Shared Form/Display.
-- Evidence: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts` passed with 7 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Added `src/app/core/calendar-events.ts` helpers for NIP-52 kind checks, strict date parsing, local date arithmetic, timestamp parsing, display/sort ranges, and spec-correct tag serialization.
-- Updated shared calendar form/edit/display components so date-based events use date-only inputs and ISO date tags, time-based events retain Unix timestamps and `D` tags, and valid date strings are not parsed as epoch seconds.
-- Phase 2 commit pushed: `9395e20b feat: support date calendar event forms`.
-- Phase 3: Community Calendar Create/List/Detail Integration.
-- Evidence: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts src/app/core/community-permissions.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts` passed with 36 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Updated community calendar create route with a type selector, date-only fields for `31922`, timestamp fields for `31923`, selected-kind permission validation, and targeted publication references that use the selected original kind.
-- Updated community calendar list and detail routes to request targeted publications and original events for both calendar kinds, with kind-specific writer author filters.
-- Updated calendar detail comments/replies to filter using the approved event's actual kind and section name.
-- Updated `PublishGate.svelte` with alternate write-target support so calendar create access can be granted by either calendar kind while final create validation remains exact-kind.
-- Updated `makeCalendarFeed` to load date-based calendar filters separately and retain `#D` windowing for time-based events.
-- Updated calendar notifications to request and resolve targeted publication roots for both calendar kinds with kind-specific original author filters.
-- Added focused tests for calendar feed filter splitting, multi-kind targeted publication notifications, and calendar write-target selection.
-- Phase 3 commit pushed: `bb8e8bc7 feat: support community date calendar events`.
-- Phase 4: Regression Sweep And Completion.
-- Evidence: searched community calendar routes for remaining `EVENT_TIME` references; remaining route references are intentional timed-event selection/validation only.
-- Evidence: searched calendar UI components for blind `start` parsing; community calendar display/edit components use `getCalendarEventRange`/`parseCalendarTimestamp`, and the only remaining blind component match is outside the community flow in `DemoDayPromo.svelte`.
-- Evidence: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts src/app/core/calendar-events.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts` passed with 64 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Implemented a strict supported Smart Widget slot union for `repo-tab`, both community home slots, `chat-message-actions`, and `global-menu`.
+- Updated `parseSmartWidget` to parse supported dashed community slots and ignore unsupported old colon slot names.
+- Updated community widget creation/list UI and settings cards to publish/display all supported non-repo slot labels.
+- Added focused parser tests for supported community slots, `repo-tab`, label fallback, and ignored legacy colon slot tags.
+- Removed unsupported old typed `SlotRenderer` mounts from composer, room header, and primary nav; message placeholder mounts now use `chat-message-actions` pending Phase 2 renderer replacement.
+- Incorporated current in-progress community widget curation/trust/home-slot/default-owner files that are required by the current community widget workflow.
 
 ## Decisions
 
 - Use `docs/session-plan.md` and `docs/session-checkpoint.md` because the repository already has durable session files there.
-- Keep existing `COMMUNITY_WRITE_TARGETS.calendar` as the time-based `EVENT_TIME` target for compatibility; add a distinct date-based calendar target.
-- Preserve the existing `Calendar Events` picker label for the current time-based kind and add `All-day Calendar Events` for `EVENT_DATE`.
-- Do not alias `31922` and `31923`; authorize and serialize each kind by exact kind semantics.
+- Use dashed slot IDs for Smart Widgets: `chat-message-actions` and `global-menu`.
+- Do not render full iframes inline in compact chat message action rows.
+- `global-menu` means always accessible while browsing a targeted community, not globally across all Budabit routes.
+- Existing dirty extension/widget files are in-progress work and must be preserved rather than reverted.
 
 ## Current State
 
-- Branch `dev` tracks `origin/dev`.
-- Worktree has pre-existing unrelated changes in extension/widget files; do not stage or modify those unless explicitly required.
-- Phase 1 is committed and pushed.
-- Phase 2 is committed and pushed.
-- Phase 3 is committed and pushed.
-- Phase 4 is verified and complete.
+- Branch `dev` tracks `origin/dev` and was already ahead by one commit before this workflow began.
+- Phase 1 is verified and ready to commit/push with only related slot/community-widget files staged.
+- Several unrelated pre-existing git UI route/component files remain dirty and must not be staged for this phase.
 
 ## Next Action
 
-- Final response summarizing completed work, verification, commits, and remaining unrelated dirty worktree files.
+- Commit and push Phase 1, then reread this checkpoint and start Phase 2 by adding cached community slot loading plus chat/global semantic launchers.
 
 ## Verification
 
-- Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts`.
+- Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts`.
+- Phase 1 expanded focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts`.
 - Phase 1 project check passed: `pnpm check`.
-- Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts`.
-- Phase 2 project check passed: `pnpm check`.
-- Phase 3 focused tests passed: `pnpm vitest run --project=main src/app/core/calendar-events.test.ts src/app/core/community-permissions.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts`.
-- Phase 3 project check passed: `pnpm check`.
-- Phase 4 final focused tests passed: `pnpm vitest run --project=main src/app/core/community.test.ts src/app/core/community-permissions.test.ts src/app/core/community-targeting.test.ts src/app/core/community-feeds.test.ts src/app/core/calendar-events.test.ts src/app/core/requests.test.ts src/app/util/notifications.test.ts`.
-- Phase 4 project check passed: `pnpm check`.
 
 ## Risks Or Blockers
 
-- Push target appears to exist as `origin/dev`, but each phase push must still be verified.
-- Pre-existing unrelated dirty files must remain unstaged.
-- No blockers remain for the calendar workflow.
+- Pre-existing dirty files overlap the extension/widget area, so every phase must inspect diffs carefully and stage only intended files.
+- Branch is already ahead of `origin/dev`; a phase push will also push any pre-existing unpushed local commit on this branch.
+- No blocker yet.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `src/app/core/community.ts`
-- `src/app/core/community-permissions.ts`
-- `src/app/core/community-feeds.ts`
-- `src/app/components/CommunityCreate.svelte`
-- `src/app/core/community.test.ts`
-- `src/app/core/community-permissions.test.ts`
-- `src/app/core/community-targeting.test.ts`
-- `src/app/core/community-feeds.test.ts`
-- `src/app/core/calendar-events.ts`
-- `src/app/core/calendar-events.test.ts`
-- `src/app/components/CalendarEventForm.svelte`
-- `src/app/components/CalendarEventEdit.svelte`
-- `src/app/components/CalendarEventDate.svelte`
-- `src/app/components/CalendarEventHeader.svelte`
-- `src/app/components/NoteContentMinimalEventTime.svelte`
-- `src/app/components/community/PublishGate.svelte`
-- `src/routes/c/[community]/calendar/create/+page.svelte`
-- `src/routes/c/[community]/calendar/+page.svelte`
-- `src/routes/c/[community]/calendar/[event]/+page.svelte`
-- `src/app/core/requests.ts`
-- `src/app/core/requests.test.ts`
-- `src/app/util/notifications.ts`
-- `src/app/util/notifications.test.ts`
+- `src/app/components/ChannelMessage.svelte`
+- `src/app/components/ChatCompose.svelte`
+- `src/app/components/ExtensionCard.svelte`
+- `src/app/components/PrimaryNav.svelte`
+- `src/app/components/RoomItem.svelte`
+- `src/app/components/community/CommunityExtensionsPrompt.svelte`
+- `src/app/components/community/CommunityHomeWidgetSlot.svelte`
+- `src/app/extensions/builtin-filter.ts`
+- `src/app/extensions/builtin.test.ts`
+- `src/app/extensions/builtin.ts`
+- `src/app/extensions/community-curation.test.ts`
+- `src/app/extensions/community-curation.ts`
+- `src/app/extensions/community-extension-prompt.ts`
+- `src/app/extensions/community-widget-trust.test.ts`
+- `src/app/extensions/community-widget-trust.ts`
+- `src/app/extensions/registry.test.ts`
+- `src/app/extensions/registry.ts`
+- `src/app/extensions/types.ts`
+- `src/routes/c/[community]/+page.svelte`
+- `src/routes/c/[community]/rooms/[room]/+page.svelte`
+- `src/routes/c/[community]/widgets/+page.svelte`
+- `src/routes/settings/extensions/+page.svelte`

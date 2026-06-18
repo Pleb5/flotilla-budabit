@@ -292,7 +292,7 @@
           {communitySectionName} />
       </div>
       {#if !readOnly}
-        <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
+        <SlotRenderer slotId="chat-message-actions" context={{url, event}} />
       {/if}
     </div>
   {/if}

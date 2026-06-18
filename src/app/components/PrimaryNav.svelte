@@ -17,7 +17,6 @@
   import {notifications} from "@app/util/notifications"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import Git from "@assets/icons/git.svg?dataurl"
-  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
 
   type Props = {
@@ -86,7 +85,6 @@
             class="rounded-full" />
         </PrimaryNavItem>
       {/each}
-      <SlotRenderer slotId="community:sidebar:widgets" context={{urls: []}} />
       <div class="hidden md:block lg:hidden">
         <PrimaryNavItem
           title="Settings"

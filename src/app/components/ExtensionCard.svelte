@@ -108,6 +108,16 @@
     : extension?.description
   const permissions = isWidget ? widget?.permissions : extension?.permissions
 
+  const slotLabel = $derived.by(() => {
+    if (!widget?.slot) return ""
+    if (widget.slot.type === "repo-tab") return "Repo Tab"
+    if (widget.slot.type === "community-home-before-quicklinks") return "Home: above quicklinks"
+    if (widget.slot.type === "community-home-after-quicklinks") return "Home: below quicklinks"
+    if (widget.slot.type === "chat-message-actions") return "Chat message actions"
+    if (widget.slot.type === "global-menu") return "Global menu"
+    return ""
+  })
+
   // Update checking state
   let checkingUpdate = $state(false)
   let updateAvailable = $state<ExtensionManifest | null>(null)
@@ -161,6 +171,9 @@
           >Update Available: v{updateAvailable.version}</span>
       {/if}
       <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
+      {#if slotLabel}
+        <span class="badge badge-secondary badge-sm">{slotLabel}</span>
+      {/if}
       {#if isWidget && targetedCommunityPubkeys.length > 0}
         <span class="badge badge-secondary badge-sm">
           {targetedCommunityPubkeys.length} communit{targetedCommunityPubkeys.length === 1

@@ -10,6 +10,19 @@ const manifest: ExtensionManifest = {
   entrypoint: "",
 }
 
+const makeWidgetEvent = (slotTag?: string[]) => ({
+  id: "test-widget",
+  kind: 30033,
+  content: "Test Widget",
+  pubkey: "pubkey",
+  created_at: 1,
+  tags: [
+    ["d", "test-widget"],
+    ["l", "basic"],
+    ...(slotTag ? [slotTag] : []),
+  ],
+})
+
 afterEach(() => {
   extensionRegistry.unregister(manifest.id)
   extensionRegistry.unregister("test-insecure-entrypoint")
@@ -62,5 +75,41 @@ describe("extension registry no-entrypoint runtime", () => {
         ],
       }),
     ).toThrow(/must use a secure URL/)
+  })
+
+  it("parses supported community smart widget slots", () => {
+    const cases = [
+      ["community-home-before-quicklinks", "Home: before"],
+      ["community-home-after-quicklinks", "Home: after"],
+      ["chat-message-actions", "Message action"],
+      ["global-menu", "Community launcher"],
+    ]
+
+    for (const [slotType, label] of cases) {
+      const widget = parseSmartWidget(makeWidgetEvent(["slot", slotType, label]))
+
+      expect(widget.slot).toEqual({type: slotType, label})
+    }
+  })
+
+  it("parses repo-tab smart widget slots", () => {
+    const widget = parseSmartWidget(makeWidgetEvent(["slot", "repo-tab", "Pipelines", "pipelines"]))
+
+    expect(widget.slot).toEqual({type: "repo-tab", label: "Pipelines", path: "pipelines"})
+  })
+
+  it("falls back to widget content for supported community slot labels", () => {
+    const widget = parseSmartWidget(makeWidgetEvent(["slot", "chat-message-actions"]))
+
+    expect(widget.slot).toEqual({
+      type: "chat-message-actions",
+      label: "Test Widget",
+    })
+  })
+
+  it("ignores unsupported legacy colon smart widget slots", () => {
+    expect(parseSmartWidget(makeWidgetEvent(["slot", "chat:message:actions"])).slot).toBeUndefined()
+    expect(parseSmartWidget(makeWidgetEvent(["slot", "global:menu"])).slot).toBeUndefined()
+    expect(parseSmartWidget(makeWidgetEvent(["slot", "room:panel"])).slot).toBeUndefined()
   })
 })

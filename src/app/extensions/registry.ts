@@ -7,12 +7,24 @@ import type {
   SmartWidgetEvent,
   WidgetButtonType,
   RepoContext,
+  WidgetSlotConfig,
+  WidgetCommunitySlotType,
 } from "./types"
 import {getRepoAddress} from "./types"
 import {assertSecureEmbeddableUrl} from "./url-policy"
 
 const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
 const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
+
+const COMMUNITY_SLOT_TYPES = new Set<WidgetCommunitySlotType>([
+  "community-home-before-quicklinks",
+  "community-home-after-quicklinks",
+  "chat-message-actions",
+  "global-menu",
+])
+
+const isCommunitySlotType = (value: string | undefined): value is WidgetCommunitySlotType =>
+  Boolean(value && COMMUNITY_SLOT_TYPES.has(value as WidgetCommunitySlotType))
 
 /**
  * Add cache-busting parameter to URL to force fresh content.
@@ -75,12 +87,15 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
 
   const originHint = getTag(tags, "client")?.[2]
 
-  // Parse slot configuration for repo-tab integration
+  // Parse only supported Smart Widget slots. Unsupported legacy colon IDs are ignored.
   const slotTag = getTag(tags, "slot")
-  const slot =
-    slotTag && slotTag[1] === "repo-tab" && slotTag[2] && slotTag[3]
-      ? {type: "repo-tab" as const, label: slotTag[2], path: slotTag[3]}
-      : undefined
+  let slot: WidgetSlotConfig | undefined
+
+  if (slotTag?.[1] === "repo-tab" && slotTag[2] && slotTag[3]) {
+    slot = {type: "repo-tab", label: slotTag[2], path: slotTag[3]}
+  } else if (isCommunitySlotType(slotTag?.[1])) {
+    slot = {type: slotTag[1], label: slotTag[2] || event.content || identifier}
+  }
 
   return {
     id: event.id,

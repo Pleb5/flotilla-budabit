@@ -73,7 +73,6 @@
     makeCommunityRoomPath,
     parseCommunityRouteParam,
   } from "@app/util/routes"
-  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   type RoomElement =
     | {type: "new-messages"; id: string}
@@ -563,9 +562,6 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      {#if !roomCensorReason}
-        <SlotRenderer slotId="room:header:actions" context={{url: communityPubkey, room}} />
-      {/if}
       <CommunityMenuButton community={communityPubkey} />
     </div>
   {/snippet}

@@ -2,24 +2,26 @@
 
 ## Objective
 
-- Reintroduce spec-correct support for both NIP-52 calendar event kinds in community calendar flows.
-- Support `31922` date-based all-day and multi-day calendar events alongside `31923` time-based calendar events.
-- Fix future community defaults and editing UI so Calendar sections include both compatible calendar kinds by default.
-- Preserve distinct kind semantics instead of aliasing `31922` and `31923`.
+- Reduce Smart Widget slot support to the currently intended, renderable set: `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, and `global-menu`.
+- Use dashed Smart Widget slot IDs, not colon-separated legacy extension registry IDs.
+- Keep `repo-tab` and community home slots working while adding semantic Smart Widget handling for chat message action launchers and community-scoped global menu launchers.
+- Make the supported slots community-targetable through existing targeted publication curation.
+- Update the BudaBit extension template and SDK documentation/generators so new widgets only target supported slots.
 
 ## Constraints
 
 - Current repository state is authoritative over this plan.
-- Keep changes minimal and localized; avoid large rewrites unless current code requires it for correctness.
-- Do not introduce any new Nostr event kind; only use existing NIP-52 `EVENT_DATE` / `31922` and `EVENT_TIME` / `31923`.
-- Preserve the existing `Calendar Events` option label for the current time-based option when practical, while adding a clear all-day/date-based option.
-- Default new community Calendar sections to both calendar event kinds.
-- Treat `31922` and `31923` as distinct specs with different `start`/`end` tag formats and event semantics.
+- Existing dirty extension/widget work is treated as in-progress repository state; preserve it and do not revert it unless evidence shows a direct conflict.
+- Do not stage unrelated user changes. If unrelated dirty files remain, leave them unstaged.
+- Keep changes minimal and localized; prefer semantic launchers over inline iframes in compact UI slots.
+- `global-menu` means “always accessible while in the targeted community”; only load/render global-menu widgets on community routes.
+- `chat-message-actions` must render as compact per-message launchers and must not create per-message network fetches or inline iframes.
+- `repo-tab` keeps its existing full-route iframe model.
+- Community home slots keep their existing card/launcher model.
 - Commit and push each verified phase before starting the next phase.
 - Use `docs/session-checkpoint.md` as the compact durable checkpoint and update it before every phase commit.
-- Never stage unrelated user changes already present in the worktree.
 
-## Phase 1: Calendar Kinds In Community Model And Permissions
+## Phase 1: Supported Slot Model And Community Management
 
 ### Phase Startup
 
@@ -30,28 +32,30 @@
 
 ### Goal
 
-- Make both NIP-52 calendar event kinds first-class community section/default/permission targets without changing event creation behavior yet.
+- Make the supported Smart Widget slot vocabulary explicit in Budabit and community widget management, without changing compact slot renderers yet.
 
 ### Exit Criteria
 
-- New default community setup Calendar sections include both `EVENT_DATE` / `31922` and `EVENT_TIME` / `31923`.
-- Community section kind picker exposes both calendar options, preserving the existing `Calendar Events` option label for the current time-based kind and adding a clear date-based all-day option.
-- Community write-target mapping recognizes both calendar event kinds and keeps them distinct.
-- Community targetable publication kind lists include both calendar kinds.
-- Focused core tests cover defaults, target mapping, section resolution, and targeted publication kind inclusion.
+- `WidgetSlotConfig` supports exactly `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, and `global-menu`.
+- `ExtensionSlotId` contains only the kept legacy registry placeholders that are still intentionally mounted, or is narrowed to the kept dashed IDs if used by current code.
+- `parseSmartWidget` parses dashed `chat-message-actions` and `global-menu`, plus existing repo/home slots, and ignores unsupported old colon slots.
+- Community widget creation/management UI can publish and display labels for all supported non-repo Smart Widget slots.
+- Settings/community widget cards show badges for all supported slots.
+- Focused tests cover parsing supported slots and rejecting/ignoring unsupported colon slot names.
 
 ### Steps
 
-- Update community constants/defaults to include `EVENT_DATE` in calendar defaults and targetable publication kind lists.
-- Add a date-based calendar write target while keeping the existing `calendar` target for the time-based flow.
-- Export a shared list of calendar write targets for UI/gate integration in later phases.
-- Update CommunityCreate known kind options to include both calendar options.
-- Update focused tests in community, permissions, targeting, and feed helpers.
+- Update `src/app/extensions/types.ts` with a strict supported slot union.
+- Update `src/app/extensions/registry.ts` slot parsing.
+- Update `src/routes/c/[community]/widgets/+page.svelte` slot picker, labels, and generated `slot` tags.
+- Update `src/routes/settings/extensions/+page.svelte` widget badge labels.
+- Add or update focused registry/community widget tests.
+- Keep old SlotRenderer mounts for Phase 2 cleanup unless they block type-checking in this phase.
 
 ### Verification
 
-- Run focused tests for community defaults, permissions, targeting, and feed helpers.
-- Run type/check if the focused test run exposes type uncertainty or if touched APIs are broadly consumed.
+- Run focused tests for registry parsing and community curation/slot behavior.
+- Run `pnpm check` if TypeScript/Svelte types are affected.
 
 ### Mandatory Closeout
 
@@ -77,7 +81,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Spec-Correct Calendar Event Utilities And Shared Form/Display
+## Phase 2: Community Slot Loading And Budabit Renderers
 
 ### Phase Startup
 
@@ -88,91 +92,93 @@
 
 ### Goal
 
-- Add reusable, tested NIP-52 date/time calendar helpers and update shared calendar form/display components to serialize, parse, and render both kinds correctly.
+- Render supported community-targeted Smart Widget slots in Budabit with semantic launchers and cached community curation data.
 
 ### Exit Criteria
 
-- Shared calendar helper code distinguishes `31922` date strings from `31923` Unix timestamps.
-- Date-based event creation/editing writes `YYYY-MM-DD` `start` and exclusive `end` dates per NIP-52.
-- Time-based event creation/editing keeps Unix timestamp `start`/`end` and `D` tags.
-- Shared calendar form can create all-day/date-based and timed events without corrupting existing edits.
-- Calendar display components render date-based events without bogus epoch times and render time-based events as before.
-- Focused tests cover helper parsing, date exclusive-end conversion, timestamp parsing, serialization, and display-ready values.
+- Old unsupported `SlotRenderer` mounts are removed from composer actions, room header actions, community sidebar widgets, settings panel, and room panel paths.
+- `chat-message-actions` renders compact action launchers in `ChannelMessage.svelte` and `RoomItem.svelte` and passes message/community context only when the user clicks.
+- `chat-message-actions` does not load curation data once per message row.
+- `global-menu` renders only on community routes and only for widgets targeted to that community, as an always-accessible community launcher.
+- Community home slots use the same supported slot typing and continue to render installed+enabled targeted widgets.
+- Widget launchers open widgets without inline iframes in compact slots.
+- Focused tests or `pnpm check` cover changed components/helpers.
 
 ### Steps
 
-- Add a small `calendar-events` core helper module for NIP-52 kind checks, local date parsing/formatting, start ordering, and tag construction.
-- Update `CalendarEventForm.svelte` and `CalendarEventEdit.svelte` to use date-only fields for date-based events and `DateTimeInput` for time-based events.
-- Update calendar display components to use helper-derived date/time values instead of blind `parseInt` on `start`.
-- Keep preserved unmanaged tags and editor tags behavior intact.
-- Add focused helper tests.
+- Add a small cached community widget slot helper or component that loads curated widgets once per community input and filters installed+enabled widgets by slot.
+- Reuse the helper from home slots, message actions, and community global-menu launchers.
+- Add a shared compact Smart Widget launcher/button component where useful.
+- Wire message action launchers into `ChannelMessage.svelte` and `RoomItem.svelte` with existing `url`, relay, scope, and event props.
+- Wire `global-menu` into `src/routes/c/[community]/+layout.svelte` or another community-only shell location.
+- Remove unsupported `SlotRenderer` imports/usages from current UI.
+- Run type/check and focused tests.
 
 ### Verification
 
-- Run focused calendar helper tests.
-- Run focused component-adjacent tests if available.
-- Run `pnpm check` if Svelte component typing is affected.
-
-### Mandatory Closeout
-
-- Verify every exit criterion for this phase.
-- Update the checkpoint before committing:
-  - Move this phase into `Completed With Evidence`.
-  - Record verification commands and results.
-  - Record changed files.
-  - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
-  - Copy the next phase's exit criteria into `Phase Exit Criteria`.
-  - Set `Next Action` to the first concrete step of the next phase.
-  - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
-- Read the session checkpoint again to verify status and next action.
-- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
-- Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
-- Do not consider the whole plan complete unless the session checkpoint says so.
-
-### Continue
-
-- If the checkpoint says `Current Phase: Complete`, perform the final response.
-- If the checkpoint does not say `Current Phase: Complete`, immediately begin the next phase startup.
-- Do not send a final response before starting the next phase.
-- Do not treat commit/push output as completion of the command.
-
-## Phase 3: Community Calendar Create/List/Detail Integration
-
-### Phase Startup
-
-- Read the session checkpoint.
-- Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
-- Inspect current repository state before trusting either file.
-- Restate this phase's goal and exit criteria briefly, then execute.
-
-### Goal
-
-- Wire both calendar event kinds through community-targeted create, list, detail, comments, notifications, and access gates.
-
-### Exit Criteria
-
-- Community calendar create page can publish either date-based `31922` all-day/multi-day events or time-based `31923` timed events.
-- Targeted publication events use the selected original kind and reference the selected event kind correctly.
-- Community calendar list and detail pages query and approve both calendar event kinds.
-- Calendar comments/replies use the approved event's actual kind in `K`/`k` tags and filters.
-- Calendar access gates allow users who can write either calendar kind to reach create flow, while final publish validation checks the selected kind.
-- Calendar notifications and live community hydration can discover targeted publications for both kinds.
-- Focused tests cover filters/helpers where practical, and `pnpm check` passes.
-
-### Steps
-
-- Update community calendar create route to expose a type selector, date-only fields for all-day events, and kind-specific permission checks.
-- Update community calendar list/detail route filters to use both calendar kinds and actual event kind comparisons.
-- Update calendar feed loading to preserve exact date-based filters while retaining `D`-windowed time-based loading.
-- Update PublishGate to support alternate write targets, or add a targeted calendar gate path, using the smallest safe change.
-- Update notifications or live filter code if Phase 1 targetable-kind changes are not enough.
-- Add focused tests for new helper/filter behavior and run project check.
-
-### Verification
-
-- Run focused core and route-adjacent tests touched by calendar filtering/permissions.
 - Run `pnpm check`.
+- Run focused extension/widget tests affected by slot loading and parsing.
+
+### Mandatory Closeout
+
+- Verify every exit criterion for this phase.
+- Update the checkpoint before committing:
+  - Move this phase into `Completed With Evidence`.
+  - Record verification commands and results.
+  - Record changed files.
+  - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
+  - Copy the next phase's exit criteria into `Phase Exit Criteria`.
+  - Set `Next Action` to the first concrete step of the next phase.
+  - Record any remaining risks or blockers.
+- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
+- Read the session checkpoint again to verify status and next action.
+- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
+- Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
+- Do not consider the whole plan complete unless the session checkpoint says so.
+
+### Continue
+
+- If the checkpoint says `Current Phase: Complete`, perform the final response.
+- If the checkpoint does not say `Current Phase: Complete`, immediately begin the next phase startup.
+- Do not send a final response before starting the next phase.
+- Do not treat commit/push output as completion of the command.
+
+## Phase 3: Extension Template And SDK Alignment
+
+### Phase Startup
+
+- Read the session checkpoint.
+- Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
+- Inspect current repository state before trusting either file.
+- Restate this phase's goal and exit criteria briefly, then execute.
+
+### Goal
+
+- Align the extension template SDK, manifest generators, examples, and docs with the supported Smart Widget slot set.
+
+### Exit Criteria
+
+- Template/SDK manifest generator types define the supported slot union.
+- Generator emits `repo-tab` tags with label/path and non-repo slot tags with label only.
+- CLI validates supported slots and no longer documents unsupported colon slot names.
+- Template package tests cover supported slot generation and invalid slot handling.
+- Template app/docs explain only the supported slots and include dashed `chat-message-actions` and `global-menu` examples.
+- No template docs under `packages/flotilla-extension-template` mention removed slots except in intentional migration notes, if any.
+
+### Steps
+
+- Update `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.ts` and matching `packages/manifest` generator.
+- Update CLI validation in both generator CLIs.
+- Update generator tests.
+- Rewrite slot docs in root template docs and scaffold template docs.
+- Update scaffold `package.json` manifest generation example if useful.
+- Run template package tests/typecheck where practical.
+
+### Verification
+
+- Run focused template SDK manifest tests.
+- Run template typecheck or package tests if practical.
+- Search template docs/code for removed colon slots.
 
 ### Mandatory Closeout
 
@@ -209,21 +215,21 @@
 
 ### Goal
 
-- Run a final regression sweep for both calendar kinds, update any missed tests/references, and close the durable plan.
+- Sweep Budabit and template code for removed slot names, verify the full slot workflow, and close the durable plan.
 
 ### Exit Criteria
 
-- Searches show no remaining community calendar create/list/detail path hardcoded to only `EVENT_TIME` where both kinds are required.
-- Valid `EVENT_DATE` events are not parsed as Unix timestamps in calendar UI components touched by the community flow.
-- Default community creation/editing, permission grants, targeted publication routing, calendar feed loading, and comments are covered by focused tests or explicit verification notes.
+- Searches show no remaining active Budabit UI mount for unsupported slots.
+- Searches show no remaining template docs/examples for removed colon slot names except explicit migration notes, if intentionally kept.
+- Supported slots parse, publish, display labels, and render as semantic launchers in their intended places.
 - Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
 - Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ### Steps
 
-- Search for remaining `EVENT_TIME`, `EVENT_DATE`, `31922`, and `31923` references in community calendar paths and core helpers.
-- Add small missing tests or documentation comments only where evidence shows a gap.
-- Run final focused test set and `pnpm check`.
+- Search for removed slot names across `src`, `docs/extensions`, and `packages/flotilla-extension-template`.
+- Add small missing tests or cleanup only where evidence shows a gap.
+- Run final focused tests and `pnpm check`.
 - Update checkpoint to `Current Phase: Complete` and commit/push final closeout.
 
 ### Verification

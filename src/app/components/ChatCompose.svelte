@@ -25,7 +25,6 @@
     type DraftAttachment,
     type PublishedAttachment,
   } from "@app/util/attachments"
-  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import type {Instance} from "tippy.js"
   import {onDestroy} from "svelte"
 
@@ -243,11 +242,6 @@
         onclick={submit}>
         <Icon icon={Plane} />
       </Button>
-      {#if true}
-        <div class="ml-2 flex items-center">
-          <SlotRenderer slotId="chat:composer:actions" context={{editor}} />
-        </div>
-      {/if}
     </div>
   </form>
 {/if}
