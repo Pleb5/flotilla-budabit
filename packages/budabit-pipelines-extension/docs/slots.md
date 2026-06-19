@@ -148,7 +148,7 @@ Panel within the application settings.
 }
 ```
 
-### `community:sidebar:widgets`
+### `space:sidebar:widgets`
 
 Widget area in the space/workspace sidebar.
 
@@ -166,7 +166,7 @@ Widget area in the space/workspace sidebar.
 
 ```json
 {
-  "slot": "community:sidebar:widgets"
+  "slot": "space:sidebar:widgets"
 }
 ```
 
@@ -225,7 +225,7 @@ Use `builtinRoute` to replace a standard repository route with your widget:
 - `pulls` - Pull requests
 - `wiki` - Repository wiki
 - `settings` - Repository settings
-- `actions` - CI/CD workflows
+- `actions` - workflows
 - `projects` - Project boards
 
 ### Complete Repo Tab Example
@@ -311,7 +311,7 @@ export type SimpleSlot =
   | 'room:panel'
   | 'global:menu'
   | 'settings:panel'
-  | 'community:sidebar:widgets';
+  | 'space:sidebar:widgets';
 
 /** Repo tab slot configuration */
 export interface RepoTabSlot {
@@ -352,7 +352,7 @@ Each slot provides different context to the widget via the `widget:init` event:
 | `room:panel` | Room, messages, user |
 | `global:menu` | User |
 | `settings:panel` | User, widget config |
-| `community:sidebar:widgets` | Community, user |
+| `space:sidebar:widgets` | Space, user |
 | `repo-tab` | Repository, user |
 
 ### Accessing Slot Context
@@ -408,7 +408,7 @@ bridge.onEvent('widget:mounted', (payload) => {
 | `*:actions` | 24-48px | 24-48px |
 | `room:panel` | 300-400px | Full viewport |
 | `settings:panel` | 600-800px | Variable |
-| `community:sidebar:widgets` | 250-300px | Variable |
+| `space:sidebar:widgets` | 250-300px | Variable |
 | `repo-tab` | Full viewport | Full viewport |
 
 ## Best Practices

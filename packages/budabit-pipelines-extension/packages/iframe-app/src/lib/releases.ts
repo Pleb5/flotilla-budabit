@@ -236,7 +236,7 @@ export function releaseData$(args: {
     });
   };
 
-  buildReleaseEvents({repoNaddr, trustedMaintainers: trustedNpubs, relays, filterKinds}).subscribe(event => {
+  buildReleaseEvents({repoNaddr, trustedMaintainers: trustedNpubs, relays, filterKinds, viewerPubkey: args.repo.userPubkey}).subscribe(event => {
     eventStore.add(event as Parameters<typeof eventStore.add>[0]);
 
     if (event.kind === 5401) {

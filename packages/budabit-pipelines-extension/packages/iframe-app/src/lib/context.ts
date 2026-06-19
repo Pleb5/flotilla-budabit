@@ -46,7 +46,7 @@ export function transformHostContext(hostCtx: any): RepoContext {
       : undefined,
   };
 
-  console.log('[pipelines] transformHostContext:', {
+  console.log('[workflows] transformHostContext:', {
     inputKeys: Object.keys(hostCtx || {}),
     repoPubkey: result.repo?.repoPubkey?.slice(0, 12),
     repoName: result.repo?.repoName,
@@ -98,11 +98,11 @@ export function friendlyErrorMessage(message: string): string {
   const lower = message.toLowerCase();
 
   if (lower.includes('timed out')) {
-    return 'Loading took too long. Try refreshing the Pipelines tab.';
+    return 'Loading took too long. Try refreshing the Workflows tab.';
   }
 
   if (lower.includes('network') || lower.includes('fetch')) {
-    return 'Network error while loading pipeline data.';
+    return 'Network error while loading workflow data.';
   }
 
   if (lower.includes('permission') || lower.includes('denied')) {

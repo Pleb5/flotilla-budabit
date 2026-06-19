@@ -41,6 +41,18 @@ export function eventTagValue(
   return event?.tags?.find((tag) => tag[0] === name)?.[1];
 }
 
+/**
+ * Acceptable `#a` coordinates for a repo. Workflow runs reference the repo by
+ * either its kind:30617 (announcement) or kind:30618 (repo-state) address —
+ * older Hive CI runs used 30618, newer ones use 30617 — so we match both for
+ * the same `pubkey:identifier`. Returns the input unchanged for any other kind.
+ */
+export function repoAddressVariants(repoAddress: string): string[] {
+  const rest = repoAddress.replace(/^(30617|30618):/, '');
+  if (rest === repoAddress) return [repoAddress]; // no recognized kind prefix
+  return [`30617:${rest}`, `30618:${rest}`];
+}
+
 export function eventTagValues(event: Pick<NostrEvent, 'tags'> | null | undefined, name: string): string[] {
   return (
     event?.tags
@@ -187,7 +199,7 @@ export async function queryEvents(
 ): Promise<NostrEvent[]> {
   const effectiveRelays = relays.length > 0 ? relays : FALLBACK_RELAYS;
 
-  console.log('[pipelines] queryEvents:', {
+  console.log('[workflows] queryEvents:', {
     filterCount: filters.length,
     relayCount: effectiveRelays.length,
     kinds: filters.map(f => f.kinds),
@@ -196,12 +208,12 @@ export async function queryEvents(
   // Run each filter as its own bridge request (host expects singular `filter`)
   const results = await Promise.all(
     filters.map(async (filter) => {
-      console.log('[pipelines] nostr:query request:', JSON.stringify(filter));
+      console.log('[workflows] nostr:query request:', JSON.stringify(filter));
       const response = await bridge.request('nostr:query', {
         filter,
         relays: effectiveRelays,
       });
-      console.log('[pipelines] nostr:query response:', typeof response, response && typeof response === 'object' ? Object.keys(response) : response);
+      console.log('[workflows] nostr:query response:', typeof response, response && typeof response === 'object' ? Object.keys(response) : response);
 
       if (response && typeof response === 'object' && 'error' in response) {
         throw new Error(
@@ -494,12 +506,15 @@ export function mergeEventIntoRuns(
   repoAddress?: string,
 ): WorkflowRun[] {
   const kind = event.kind;
+  const acceptedAddresses = repoAddress ? repoAddressVariants(repoAddress) : null;
+  const matchesRepo = (e: NostrEvent) =>
+    !acceptedAddresses || acceptedAddresses.includes(eventTagValue(e, 'a') ?? '');
 
   // ── New workflow run ──────────────────────────────────────────────
   if (kind === 5401) {
     if (runs.some(r => r.id === event.id)) return runs; // duplicate
-    // Only accept runs for this repo
-    if (repoAddress && eventTagValue(event, 'a') !== repoAddress) return runs;
+    // Only accept runs for this repo (30617 announcement or 30618 state coord)
+    if (!matchesRepo(event)) return runs;
     const newRun = parseWorkflowRunEvent(event);
     return [newRun, ...runs];
   }
@@ -517,7 +532,7 @@ export function mergeEventIntoRuns(
     }
     // Standalone legacy job — add if not duplicate
     if (runs.some(r => r.id === event.id)) return runs;
-    if (repoAddress && eventTagValue(event, 'a') !== repoAddress) return runs;
+    if (!matchesRepo(event)) return runs;
     return [parseLegacyJobEvent(event), ...runs];
   }
 
@@ -644,27 +659,38 @@ function updateRunByERefs(
 
 // ── Live streams ───────────────────────────────────────────────────
 
-// Module-scoped caches keyed on repoAddress. Survive component HMR so
-// remounted subscribers get the current state immediately.
+// Module-scoped caches. Survive component HMR so remounted subscribers get the
+// current state immediately. Keyed by repoAddress + the trusted-author set (+
+// viewer) — NOT repoAddress alone: a stream built before maintainers arrived in
+// context would otherwise be reused with an owner-only author filter, hiding
+// runs authored by maintainers. Relays are intentionally excluded from the key
+// because they expand dynamically inside buildRepoEvents.
 const repoEventsCache = new Map<string, Observable<NostrEvent>>();
 const repoRunsCache = new Map<string, BehaviorSubject<WorkflowRun[]>>();
+
+function repoStreamKey(repoAddress: string, trustedAuthors: string[], viewerPubkey?: string): string {
+  const authors = [...new Set(trustedAuthors)].sort().join(',');
+  return `${repoAddress}|${authors}|${viewerPubkey ?? ''}`;
+}
 
 /** Cached, shared event stream for a repo. Replays all past events to late subscribers. */
 export function repoEvents$(
   repoAddress: string,
   relays: string[],
   trustedAuthors: string[],
+  viewerPubkey?: string,
 ): Observable<NostrEvent> {
-  const existing = repoEventsCache.get(repoAddress);
+  const key = repoStreamKey(repoAddress, trustedAuthors, viewerPubkey);
+  const existing = repoEventsCache.get(key);
   if (existing) return existing;
 
-  const shared = buildRepoEvents(repoAddress, relays, trustedAuthors).pipe(
+  const shared = buildRepoEvents(repoAddress, relays, trustedAuthors, viewerPubkey).pipe(
     tap(event => eventStore.add(event as Parameters<typeof eventStore.add>[0])),
     shareReplay({bufferSize: Infinity, refCount: false}),
   );
   // Keep the upstream alive even without subscribers so events keep accruing.
   shared.subscribe();
-  repoEventsCache.set(repoAddress, shared);
+  repoEventsCache.set(key, shared);
   return shared;
 }
 
@@ -673,14 +699,16 @@ export function repoRuns$(
   repoAddress: string,
   relays: string[],
   trustedAuthors: string[],
+  viewerPubkey?: string,
 ): Observable<WorkflowRun[]> {
-  const existing = repoRunsCache.get(repoAddress);
+  const key = repoStreamKey(repoAddress, trustedAuthors, viewerPubkey);
+  const existing = repoRunsCache.get(key);
   if (existing) return existing;
 
   const subject = new BehaviorSubject<WorkflowRun[]>([]);
-  repoEvents$(repoAddress, relays, trustedAuthors).subscribe(event => {
+  repoEvents$(repoAddress, relays, trustedAuthors, viewerPubkey).subscribe(event => {
     subject.next(mergeEventIntoRuns(subject.value, event, repoAddress));
   });
-  repoRunsCache.set(repoAddress, subject);
+  repoRunsCache.set(key, subject);
   return subject;
 }

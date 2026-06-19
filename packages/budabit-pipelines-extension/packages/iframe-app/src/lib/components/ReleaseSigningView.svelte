@@ -220,7 +220,7 @@
       <h2 class="text-xl font-semibold">Release Signing</h2>
     </div>
     <p class="mt-1 text-sm text-muted-foreground">
-      Verify artifact consensus and co-sign releases from trusted CI workers.
+      Verify artifact consensus and co-sign releases from trusted workflow workers.
     </p>
   </div>
 

@@ -1,7 +1,7 @@
 {
   "id": "budabit-pipelines",
-  "name": "CI/CD Pipelines",
-  "description": "View and manage pipeline runs for your repository",
+  "name": "Workflows",
+  "description": "View and manage workflow runs for your repository",
   "author": "Budabit",
   "version": "1.0.0-dev",
   "permissions": [
@@ -15,7 +15,7 @@
   "entrypoint": "http://localhost:5173/",
   "slot": {
     "type": "repo-tab",
-    "label": "Pipelines",
+    "label": "Workflows",
     "path": "pipelines"
   }
 }

@@ -67,20 +67,36 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
     handleRepoContext(ctx, { resetRunState: true });
   });
 
-  // Actively fetch context after a short delay, in case the host's
-  // context:update event was sent before our listeners were registered.
-  const fallbackTimer = setTimeout(() => {
-    if (contextReceived) return;
+  // Actively fetch context, in case the host's context:update event was sent
+  // before our listeners were registered (e.g. after an HMR reload, where the
+  // host sees no fresh iframe `load` and never re-pushes). A single attempt can
+  // miss it — the host's repoContext may not be populated yet, or the reply can
+  // be dropped — so we poll until context arrives or we exhaust our attempts.
+  let cancelled = false;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  const POLL_INTERVAL_MS = 1000;
+  const MAX_ATTEMPTS = 10;
+  let attempts = 0;
+
+  const poll = () => {
+    if (cancelled || contextReceived) return;
+    if (attempts >= MAX_ATTEMPTS) return;
+    attempts += 1;
     void fetchRepoContext(bridge).then((ctx) => {
-      if (contextReceived) return; // event arrived while we were fetching
+      if (cancelled || contextReceived) return; // event arrived while fetching
       if (ctx) {
         handleRepoContext(ctx, { resetRunState: false });
+        return;
       }
+      // No context yet (host repo not ready, or reply dropped) — retry.
+      pollTimer = setTimeout(poll, POLL_INTERVAL_MS);
     });
-  }, 500);
+  };
+  pollTimer = setTimeout(poll, 500);
 
   return () => {
-    clearTimeout(fallbackTimer);
+    cancelled = true;
+    if (pollTimer) clearTimeout(pollTimer);
     offInit();
     offUnmounting();
     offContext();

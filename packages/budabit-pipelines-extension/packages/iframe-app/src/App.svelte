@@ -50,7 +50,7 @@
   import RunActionsMenu from './lib/components/RunActionsMenu.svelte'
   import SplitButton from './lib/components/SplitButton.svelte'
   import {getProfileContent} from 'applesauce-core/helpers/profile'
-  import {eventStore} from './lib/nostr'
+  import {eventStore, outboxRelays$, LOOM_WORKER_RELAYS} from './lib/nostr'
   import {loadRunDetailController} from './lib/controllers'
   import {
     createSubmissionResetState,
@@ -107,6 +107,8 @@
   let loading = $state(false)
   let error = $state<string | null>(null)
   let workflowRuns = $state<WorkflowRun[]>([])
+  // Relays actually queried for runs: base relays ∪ resolved NIP-65 outbox relays.
+  let queriedRelays = $state<string[]>([])
 
   let detailLoading = $state(false)
   let detailRefreshing = $state(false)
@@ -190,7 +192,7 @@
   // picks up the next candidate naturally.
   const reclaimInFlight = new Set<string>()
 
-  let currentView = $state<'pipelines' | 'releases'>('pipelines')
+  let currentView = $state<'workflows' | 'releases'>('workflows')
 
   let detailSeq = 0
 
@@ -452,7 +454,7 @@
         )
       } else {
         detailRefreshing = false
-        console.warn('[pipelines] background refreshSelectedRun failed', err)
+        console.warn('[workflows] background refreshSelectedRun failed', err)
       }
     } finally {
       if (seq === detailSeq && background) {
@@ -463,7 +465,7 @@
 
   async function refreshRepoMetadata() {
     if (!bridge || !repo) {
-      console.log('[pipelines] refreshRepoMetadata skipped: bridge=', !!bridge, 'repo=', !!repo)
+      console.log('[workflows] refreshRepoMetadata skipped: bridge=', !!bridge, 'repo=', !!repo)
       return
     }
 
@@ -471,14 +473,14 @@
     repoMetadataError = null
 
     try {
-      console.log('[pipelines] refreshRepoMetadata: calling repo:listWorkflows...')
+      console.log('[workflows] refreshRepoMetadata: calling repo:listWorkflows...')
       const metadata = await loadRepoMetadata(bridge)
-      console.log('[pipelines] refreshRepoMetadata: got', metadata.workflows.length, 'workflows,', metadata.branches.length, 'branches')
+      console.log('[workflows] refreshRepoMetadata: got', metadata.workflows.length, 'workflows,', metadata.branches.length, 'branches')
       repoWorkflows = metadata.workflows
       repoBranches = metadata.branches
       defaultBranch = metadata.selectedBranch || metadata.defaultBranch || 'main'
     } catch (err) {
-      console.error('[pipelines] refreshRepoMetadata error:', err)
+      console.error('[workflows] refreshRepoMetadata error:', err)
       repoMetadataError = friendlyErrorMessage(err instanceof Error ? err.message : String(err))
     } finally {
       repoMetadataLoading = false
@@ -1029,15 +1031,25 @@
     if (!repo?.repoAddress) return
 
     const repoAddress = repo.repoAddress
-    const relays = [...new Set([...repo.repoRelays, ...FALLBACK_RELAYS])]
+    const relays = [...new Set([...repo.repoRelays, ...FALLBACK_RELAYS, ...LOOM_WORKER_RELAYS])]
     const trustedAuthors = [...new Set([repo.repoPubkey, ...(repo.maintainers ?? [])])]
+    const viewerPubkey = repo.userPubkey
 
-    const runsSub = repoRuns$(repoAddress, relays, trustedAuthors).subscribe(runs => {
+    // Surface the relays actually queried — base relays plus the NIP-65 outbox
+    // relays resolved for the trusted authors + viewer — so the debug panel
+    // reflects the expanded set, not just the repo-declared relays.
+    queriedRelays = relays
+    const relayPubkeys = viewerPubkey ? [...trustedAuthors, viewerPubkey] : trustedAuthors
+    const relaysSub = outboxRelays$(relayPubkeys).subscribe(extra => {
+      queriedRelays = [...new Set([...relays, ...extra])]
+    })
+
+    const runsSub = repoRuns$(repoAddress, relays, trustedAuthors, viewerPubkey).subscribe(runs => {
       workflowRuns = runs
     })
 
     // Detail merging still needs the raw event stream.
-    const detailSub = repoEvents$(repoAddress, relays, trustedAuthors).subscribe(event => {
+    const detailSub = repoEvents$(repoAddress, relays, trustedAuthors, viewerPubkey).subscribe(event => {
       const detail = selectedRunDetail
       if (!detail) return
       const updated = mergeEventIntoDetail(detail, event)
@@ -1050,6 +1062,7 @@
     })
 
     return () => {
+      relaysSub.unsubscribe()
       runsSub.unsubscribe()
       detailSub.unsubscribe()
       workersSub.unsubscribe()
@@ -1309,10 +1322,10 @@
     <!-- Tab Switcher -->
     <div class="flex items-center gap-1 border-b border-border">
       <button
-        class={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${currentView === 'pipelines' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        onclick={() => (currentView = 'pipelines')}
+        class={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${currentView === 'workflows' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        onclick={() => (currentView = 'workflows')}
       >
-        Pipelines
+        Workflows
       </button>
       <button
         class={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${currentView === 'releases' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
@@ -1498,11 +1511,11 @@
           {:else if filteredRuns.length === 0}
             <div class="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <SearchX class="mb-3 h-8 w-8" />
-              <p class="text-sm">No pipeline runs found.</p>
+              <p class="text-sm">No workflow runs found.</p>
               {#if repo}
                 <p class="mt-2 max-w-md text-xs">
-                  Queried relays: {repo.repoRelays.join(', ') || 'none'}<br/>
-                  Repo naddr: {repo.repoNaddr ? repo.repoNaddr.slice(0, 40) + '…' : 'not set'}<br/>
+                  Queried relays: {(queriedRelays.length ? queriedRelays : repo.repoRelays).join(', ') || 'none'}<br/>
+                  Repo address: {repo.repoAddress ? repo.repoAddress.slice(0, 40) + '…' : 'not set'}<br/>
                   Workflows: {repoWorkflows.length} found
                 </p>
               {:else}
@@ -1914,7 +1927,7 @@
         {:else}
           <div class="flex min-h-[320px] flex-col items-center justify-center text-center text-muted-foreground">
             <Terminal class="mb-3 h-8 w-8" />
-            <p class="text-sm">Select a pipeline run to inspect the Hive CI event chain, parsed jobs, and loom outputs.</p>
+            <p class="text-sm">Select a workflow run to inspect the Hive CI event chain, parsed jobs, and loom outputs.</p>
           </div>
         {/if}
       </aside>

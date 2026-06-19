@@ -1,6 +1,6 @@
 // date-fns' formatDistanceToNow was dropped — it jumps straight from
 // "days" to "about N months" with no week bucket, which reads oddly for
-// CI runs in that 1-8 week range.
+// workflow runs in that 1-8 week range.
 import { TriangleAlert, Check, Circle, Clock, RotateCw, X } from '@lucide/svelte'
 import type { LoomWorker, RepoContextNormalized, WorkflowStatus, RerunDraft } from './types'
 

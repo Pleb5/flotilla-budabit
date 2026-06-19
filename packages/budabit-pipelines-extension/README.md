@@ -1,12 +1,12 @@
-# Budabit CI/CD Pipelines Extension
+# Budabit Workflows Extension
 
-A Flotilla Smart Widget extension that provides a full CI/CD pipeline management interface and release-signing workflow for Nostr-native Git repositories. Users can view workflow run history, inspect live job status, trigger new runs, and co-sign release artifacts — all powered by Nostr events and the Loom compute protocol.
+A Flotilla Smart Widget extension that provides a full workflow management interface and release-signing workflow for Nostr-native Git repositories. Users can view workflow run history, inspect live job status, trigger new runs, and co-sign release artifacts — all powered by Nostr events and the Loom compute protocol.
 
 ## How It Works
 
 ### Nostr Event Architecture
 
-The pipelines extension is built entirely on Nostr events. There is no central CI server — workflow runs are represented as a chain of signed Nostr events published to relays, and remote workers pick up jobs via those same relays.
+The workflows extension is built entirely on Nostr events. There is no central CI server — workflow runs are represented as a chain of signed Nostr events published to relays, and remote workers pick up jobs via those same relays.
 
 ```
 ┌─────────────────────┐       ┌─────────────────┐       ┌─────────────────┐
@@ -41,7 +41,7 @@ The pipelines extension is built entirely on Nostr events. There is no central C
 
 When a user triggers a run, the extension creates two events in sequence:
 
-1. **Kind 5401** (Workflow Run): Signed via the host's signer, published to the repo's relays. The signed event's `id` becomes the **run ID** — the primary identifier for the entire pipeline execution.
+1. **Kind 5401** (Workflow Run): Signed via the host's signer, published to the repo's relays. The signed event's `id` becomes the **run ID** — the primary identifier for the entire workflow execution.
 
 2. **Kind 5100** (Loom Job): Also signed via the host. References the run ID in an `['e', runId]` tag. Contains:
    - `['p', workerPubkey]` — which worker should execute this
@@ -165,8 +165,8 @@ Flotilla enforces these — bridge requests for undeclared actions are rejected.
 
 ## Features
 
-### Pipelines Tab
-- **View workflow runs** — Browse all pipeline executions with status indicators, duration, and branch info
+### Workflows Tab
+- **View workflow runs** — Browse all workflow executions with status indicators, duration, and branch info
 - **Real-time status** — Live updates via Nostr WebSocket subscriptions, no polling
 - **Inspect run details** — Full event chain (run → job → status → result), parsed act logs, stdout/stderr
 - **Trigger new runs** — Select workflow, branch, worker, and payment amount
@@ -221,10 +221,10 @@ budabit-pipelines-extension/
 │   ├── shared/          # Framework-agnostic bridge types + signaling helpers
 │   ├── iframe-app/      # Svelte 5 iframe app (the actual widget UI)
 │   │   └── src/
-│   │       ├── App.svelte           # Main component: tab switcher (Pipelines / Releases),
+│   │       ├── App.svelte           # Main component: tab switcher (Workflows / Releases),
 │   │       │                        #   run list, detail panel, submission forms
 │   │       └── lib/
-│   │           ├── pipelines.ts     # Nostr event querying, parsing, and real-time merge logic
+│   │           ├── workflows.ts     # Nostr event querying, parsing, and real-time merge logic
 │   │           ├── releases.ts      # Release artifact loading, grouping, consensus, signing
 │   │           ├── nip07.ts         # Event construction, bridge-delegated signing + encryption
 │   │           ├── subscriptions.ts # Persistent Nostr WebSocket subscriptions via bridge

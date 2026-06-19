@@ -42,7 +42,7 @@ export async function generatePaymentTokenController(
     bridge,
     amount,
     mintUrl,
-    submissionMode === 'new' ? 'CI/CD pipeline runner' : 'CI/CD pipeline rerun'
+    submissionMode === 'new' ? 'Workflow runner' : 'Workflow rerun'
   )
 }
 

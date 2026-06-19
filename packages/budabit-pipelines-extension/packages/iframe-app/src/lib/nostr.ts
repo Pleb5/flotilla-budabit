@@ -1,15 +1,19 @@
 import {EventStore} from 'applesauce-core';
+import {MailboxesModel} from 'applesauce-core/models';
 import {RelayPool, onlyEvents} from 'applesauce-relay';
 import {createEventLoaderForStore} from 'applesauce-loaders/loaders';
 import {
   EMPTY,
   combineLatest,
+  debounceTime,
   distinctUntilChanged,
   filter,
   map,
   merge,
+  of,
   scan,
   shareReplay,
+  startWith,
   switchMap,
   type Observable,
 } from 'rxjs';
@@ -22,6 +26,7 @@ import {
   KIND_WORKFLOW_RESULT,
   KIND_WORKFLOW_RUN,
   eventTagValue,
+  repoAddressVariants,
 } from './workflows';
 
 /**
@@ -36,6 +41,19 @@ export const pool = new RelayPool();
 
 /** Well-known relays that index profile/metadata events for everyone. */
 const PROFILE_LOOKUP_RELAYS = ['wss://purplepag.es', 'wss://index.hzrd149.com'];
+
+/**
+ * Default relays loom-workers publish to — loom jobs/results and kind:10100
+ * worker ads. Mirrors loom-worker's `config.example.yml` defaults
+ * (reference/nostr-workflow/loom-worker), so we still find worker activity when
+ * it isn't on the repo's declared relays.
+ */
+export const LOOM_WORKER_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.nostr.band',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+];
 
 /**
  * Populate `eventStore.eventLoader` so `eventStore.model(ProfileModel, pubkey)`
@@ -53,8 +71,47 @@ function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   return true;
 }
 
+function sameRelaySet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sb = new Set(b);
+  for (const v of a) if (!sb.has(v)) return false;
+  return true;
+}
+
 /**
- * Layered event stream for a repo's pipelines view.
+ * Resolve the NIP-65 outbox relays for a set of pubkeys, given only the
+ * pubkeys. Each kind:10002 relay list is lazily fetched via the eventStore
+ * loader (PROFILE_LOOKUP_RELAYS index 10002 for everyone), so the widget can
+ * discover where the repo's maintainers — and the current user — actually
+ * publish without the host passing relays explicitly.
+ *
+ * Outboxes (write relays) are the correct read target: a maintainer's workflow
+ * runs / results land on the relays they publish to. Emits the merged, deduped
+ * set and re-emits as more lists resolve.
+ */
+export function outboxRelays$(pubkeys: string[]): Observable<string[]> {
+  const unique = [...new Set(pubkeys.filter(Boolean))];
+  if (unique.length === 0) return of([]);
+  return combineLatest(
+    // startWith(undefined) so combineLatest emits immediately even before a
+    // given pubkey's 10002 has loaded (or if it never does).
+    unique.map(pk => eventStore.model(MailboxesModel, pk).pipe(startWith(undefined))),
+  ).pipe(
+    map(lists => {
+      const relays = new Set<string>();
+      for (const mb of lists) {
+        if (!mb) continue;
+        for (const r of mb.outboxes) relays.add(r);
+      }
+      return [...relays];
+    }),
+    debounceTime(250),
+    distinctUntilChanged(sameRelaySet),
+  );
+}
+
+/**
+ * Layered event stream for a repo's workflows view.
  *
  * Untrusted identities can't spam us with bogus status/result events — every
  * secondary subscription is keyed on pubkeys or ids that have already appeared
@@ -79,16 +136,50 @@ export function buildRepoEvents(
   repoAddress: string,
   relays: string[],
   trustedAuthors: string[],
+  viewerPubkey?: string,
 ): Observable<NostrEvent> {
   const authors = [...new Set(trustedAuthors)];
   if (authors.length === 0) return EMPTY;
 
+  // Query the provided relays AND the NIP-65 outbox relays of the trusted
+  // authors (repo owner + maintainers) plus the current viewer, resolved from
+  // their pubkeys via applesauce. Start on the base relays immediately and
+  // re-point the subscription graph as more outbox lists resolve; rxjs/the
+  // pool dedupe overlapping relays.
+  const relayPubkeys = viewerPubkey ? [...authors, viewerPubkey] : authors;
+  const baseRelays = [...new Set([...relays, ...LOOM_WORKER_RELAYS])];
+  const relays$ = outboxRelays$(relayPubkeys).pipe(
+    map(extra => [...new Set([...baseRelays, ...extra])]),
+    startWith(baseRelays),
+    distinctUntilChanged(sameRelaySet),
+  );
+
+  return relays$.pipe(
+    switchMap(activeRelays => buildRepoEventGraph(repoAddress, activeRelays, authors)),
+  );
+}
+
+function buildRepoEventGraph(
+  repoAddress: string,
+  relays: string[],
+  authors: string[],
+): Observable<NostrEvent> {
+  const workflowRunFilter = {
+    kinds: [KIND_WORKFLOW_RUN],
+    // Match both the 30617 (announcement) and 30618 (repo-state) coordinates —
+    // older runs reference the repo by its state address, newer by announcement.
+    '#a': repoAddressVariants(repoAddress),
+    authors,
+  };
+  console.log('[workflows] workflow-run subscription', {
+    relays,
+    relayCount: relays.length,
+    filter: workflowRunFilter,
+    authorCount: authors.length,
+  });
+
   const workflowRuns$ = pool
-    .subscription(relays, {
-      kinds: [KIND_WORKFLOW_RUN],
-      '#a': [repoAddress],
-      authors,
-    })
+    .subscription(relays, workflowRunFilter)
     .pipe(onlyEvents(), shareReplay({bufferSize: Infinity, refCount: true}));
 
   const accumulateToSet = <T>(values$: Observable<T>) =>
@@ -179,8 +270,9 @@ export const WORKER_ONLINE_WINDOW_MS = 5 * 60 * 1000;
 
 export function buildWorkerEvents(relays: string[]): Observable<NostrEvent> {
   const since = Math.floor((Date.now() - WORKER_ONLINE_WINDOW_MS) / 1000);
+  const allRelays = [...new Set([...relays, ...LOOM_WORKER_RELAYS])];
   return pool
-    .subscription(relays, {kinds: [KIND_LOOM_WORKER], since})
+    .subscription(allRelays, {kinds: [KIND_LOOM_WORKER], since})
     .pipe(onlyEvents());
 }
 
@@ -199,6 +291,34 @@ export function buildWorkerEvents(relays: string[]): Observable<NostrEvent> {
  *   worker names.
  */
 export function buildReleaseEvents(args: {
+  repoNaddr: string;
+  trustedMaintainers: string[];
+  relays: string[];
+  filterKinds: number[];
+  viewerPubkey?: string;
+}): Observable<NostrEvent> {
+  const {repoNaddr, trustedMaintainers, relays, filterKinds, viewerPubkey} = args;
+  const maintainers = [...new Set(trustedMaintainers)];
+  if (maintainers.length === 0) return EMPTY;
+
+  // Same NIP-65 outbox expansion as buildRepoEvents: query the provided relays
+  // plus the maintainers' and viewer's outbox relays, resolved from pubkeys.
+  const relayPubkeys = viewerPubkey ? [...maintainers, viewerPubkey] : maintainers;
+  const baseRelays = [...new Set([...relays, ...LOOM_WORKER_RELAYS])];
+  const relays$ = outboxRelays$(relayPubkeys).pipe(
+    map(extra => [...new Set([...baseRelays, ...extra])]),
+    startWith(baseRelays),
+    distinctUntilChanged(sameRelaySet),
+  );
+
+  return relays$.pipe(
+    switchMap(activeRelays =>
+      buildReleaseEventGraph({repoNaddr, trustedMaintainers: maintainers, relays: activeRelays, filterKinds}),
+    ),
+  );
+}
+
+function buildReleaseEventGraph(args: {
   repoNaddr: string;
   trustedMaintainers: string[];
   relays: string[];
