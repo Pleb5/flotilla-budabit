@@ -14,17 +14,15 @@
 
 ## Current Phase
 
-- Phase 2: Manual Widget Update UX
+- Phase 3: Publisher Release UX
 
 ## Phase Exit Criteria
 
-- Settings checks installed Smart Widgets for newer events without auto-applying them.
-- Installed section shows an update count/badge when widget updates are available.
-- Widget cards show per-widget update availability and a manual update button.
-- Update application replaces the stored widget metadata, preserves existing settings, and reloads enabled widgets through the command added in Phase 1.
-- Widget cards show a concise update summary without adding a complex marketplace/review flow.
-- Existing community-endorsed vs other widget discovery distinction remains intact.
-- Focused tests and/or `pnpm check` cover changed UI/types.
+- Template manifest generator supports optional `version` and `changelog` tags.
+- Generator/CLI docs strongly encourage explicit stable `--identifier` for release workflows.
+- Publish/generate output previews include identifier, version/changelog when present, app URL, and relay targets.
+- Template quickstart/docs describe the simple release workflow: build, upload to Blossom, publish same `d` with newer `created_at`, and users see update availability in BudaBit.
+- Focused template tests cover version/changelog tag generation.
 
 ## Completed With Evidence
 
@@ -37,6 +35,14 @@
 - Added `widget-updates.ts` helpers for same-line update matching, update filters, relay selection, and diff summaries.
 - Added `checkForWidgetUpdate` and `refreshWidget` commands.
 - Updated widget install-by-naddr to preserve source naddr and relays.
+- Phase 1 commit pushed: `ccf6a1dd feat: add widget update foundations`.
+- Phase 2: Manual Widget Update UX.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts` passed with 40 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Settings now checks manually installed Smart Widgets for newer same-line events without auto-applying them.
+- Installed section shows widget update checking and available-update badges.
+- Widget cards show widget update availability, a manual update button, release version metadata, and a concise diff/changelog summary.
+- Manual widget update application calls `refreshWidget`, preserving existing display/settings and reloading enabled widgets through the Phase 1 command.
 
 ## Decisions
 
@@ -51,17 +57,21 @@
 
 - Branch `dev` tracks `origin/dev`.
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
-- Phase 1 is verified and ready to commit/push with only root BudaBit foundation files and durable session files changed.
-- Existing NIP-89 update UX exists; Smart Widget installed update UI does not yet.
+- Phase 1 is committed and pushed.
+- Phase 2 is verified and included in this phase transition.
+- Existing NIP-89 update UX remains intact.
+- Smart Widget installed update UI exists for non-default, manually installed widgets; community defaults remain distinguished as defaults.
 
 ## Next Action
 
-- Commit and push Phase 1, reread this checkpoint, then start Phase 2 by wiring update badges/actions into Settings and `ExtensionCard.svelte`.
+- Start Phase 3 by inspecting the template generator copies under `packages/flotilla-extension-template/packages/sdk` and `packages/flotilla-extension-template/packages/manifest`.
 
 ## Verification
 
 - Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
 - Phase 1 project check passed: `pnpm check`.
+- Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
+- Phase 2 project check passed: `pnpm check`.
 
 ## Risks Or Blockers
 
@@ -82,3 +92,5 @@
 - `src/app/core/commands.test.ts`
 - `src/app/extensions/registry.test.ts`
 - `src/app/extensions/settings.test.ts`
+- `src/routes/settings/extensions/+page.svelte`
+- `src/app/components/ExtensionCard.svelte`

@@ -8,6 +8,7 @@
     SmartWidgetEvent,
     WidgetDisplayLocation,
   } from "@app/extensions/types"
+  import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {checkForExtensionUpdate, refreshExtension} from "@app/core/commands"
@@ -27,6 +28,10 @@
     communityOptions?: WidgetCommunityOption[]
     targetedCommunityPubkeys?: string[]
     onTargetedCommunitiesChange?: (pubkeys: string[]) => Promise<void> | void
+    widgetUpdate?: WidgetUpdate
+    widgetUpdateChecking?: boolean
+    widgetUpdateRefreshing?: boolean
+    onWidgetUpdate?: () => Promise<void> | void
   }
 
   const {
@@ -42,6 +47,10 @@
     communityOptions = [],
     targetedCommunityPubkeys = [],
     onTargetedCommunitiesChange,
+    widgetUpdate,
+    widgetUpdateChecking = false,
+    widgetUpdateRefreshing = false,
+    onWidgetUpdate,
   }: Props = $props()
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
@@ -99,7 +108,7 @@
   const displayName = isWidget
     ? widget?.content || widget?.identifier || "Smart Widget"
     : extension?.name
-  const version = isWidget ? undefined : extension?.version
+  const version = isWidget ? widget?.version : extension?.version
   const iconUrl = isWidget ? widget?.iconUrl || widget?.imageUrl : extension?.icon
   const description = isWidget
     ? widget?.widgetType
@@ -116,6 +125,27 @@
     if (widget.slot.type === "chat-message-actions") return "Chat message actions"
     if (widget.slot.type === "global-menu") return "Global menu"
     return ""
+  })
+
+  const widgetUpdateVersion = $derived(widgetUpdate?.diff.version?.to)
+  const widgetUpdateSummary = $derived.by(() => {
+    if (!widgetUpdate) return []
+
+    const diff = widgetUpdate.diff
+    const summary: string[] = []
+
+    if (diff.version?.from || diff.version?.to) {
+      summary.push(`Version ${diff.version.from || "current"} -> ${diff.version.to || "latest"}`)
+    }
+    if (diff.appUrlChanged) summary.push("App URL changed")
+    if (diff.widgetTypeChanged) summary.push("Widget type changed")
+    if (diff.slotChanged) summary.push("Slot changed")
+    if (diff.permissionsAdded.length) summary.push(`Adds ${diff.permissionsAdded.join(", ")}`)
+    if (diff.permissionsRemoved.length) {
+      summary.push(`Removes ${diff.permissionsRemoved.join(", ")}`)
+    }
+
+    return summary
   })
 
   // Update checking state
@@ -170,6 +200,11 @@
         <span class="badge badge-warning badge-sm"
           >Update Available: v{updateAvailable.version}</span>
       {/if}
+      {#if isWidget && widgetUpdate}
+        <span class="badge badge-warning badge-sm">
+          Widget update{#if widgetUpdateVersion} v{widgetUpdateVersion}{/if}
+        </span>
+      {/if}
       <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
       {#if slotLabel}
         <span class="badge badge-secondary badge-sm">{slotLabel}</span>
@@ -186,7 +221,18 @@
       {/if}
     </div>
     <div class="ml-auto flex items-center gap-3">
-      {#if !isWidget && manifestUrl}
+      {#if isWidget && widgetUpdate}
+        <button
+          class="btn btn-warning btn-xs"
+          onclick={() => onWidgetUpdate?.()}
+          disabled={widgetUpdateRefreshing || !onWidgetUpdate}>
+          {widgetUpdateRefreshing ? "Updating..." : "Update widget"}
+        </button>
+      {:else if isWidget && widgetUpdateChecking}
+        <button class="btn btn-ghost btn-xs" disabled title="Checking for widget updates">
+          <RefreshCw size={14} class="animate-spin" />
+        </button>
+      {:else if !isWidget && manifestUrl}
         {#if updateAvailable}
           <button class="btn btn-warning btn-xs" onclick={handleRefresh} disabled={refreshing}>
             {refreshing ? "Updating..." : "Update Now"}
@@ -265,6 +311,23 @@
             <option value="menu-route">Sidebar (own page)</option>
             <option value="top-menu">Top menu (button)</option>
           </select>
+        {/if}
+      </div>
+    {/if}
+    {#if widgetUpdate}
+      <div class="mt-2 rounded-box border border-warning/40 bg-warning/10 p-3 text-xs">
+        <div class="font-medium">Update available</div>
+        {#if widgetUpdateSummary.length > 0}
+          <div class="mt-1 flex flex-wrap gap-1.5">
+            {#each widgetUpdateSummary as item (item)}
+              <span class="badge badge-warning badge-sm">{item}</span>
+            {/each}
+          </div>
+        {:else}
+          <p class="mt-1 opacity-70">A newer event was published for this widget.</p>
+        {/if}
+        {#if widgetUpdate.diff.changelog}
+          <p class="mt-2 whitespace-pre-wrap opacity-80">{widgetUpdate.diff.changelog}</p>
         {/if}
       </div>
     {/if}

@@ -19,6 +19,8 @@
     uninstallExtension,
     installWidgetFromEvent,
     installWidgetByNaddr,
+    checkForWidgetUpdate,
+    refreshWidget,
     publishDelete,
   } from "@app/core/commands"
   import {activeCommunitySession, activeUserCommunityRefs} from "@app/core/community-state"
@@ -42,6 +44,7 @@
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {pushToast} from "@app/util/toast"
   import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
+  import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import {
     getWidgetAddress,
     getWidgetCommunityOptionRelayHints,
@@ -110,6 +113,11 @@
   let communityWidgetLoadKey = ""
   let widgetTargetLoadKey = ""
   let widgetTargetDeleteLoadKey = ""
+  let widgetUpdateLoadKey = ""
+  let widgetUpdateRequestId = 0
+  let widgetUpdates = $state<Record<string, WidgetUpdate>>({})
+  let checkingWidgetUpdates = $state<Record<string, boolean>>({})
+  let refreshingWidgetUpdates = $state<Record<string, boolean>>({})
   let trustedInstallInProgress = $state(false)
   let trustedSectionElement = $state<HTMLElement | null>(null)
   let highlightTrustedSection = $state(false)
@@ -164,6 +172,13 @@
     getManualCommunityWidgets(curatedWidgets, trustedWidgetAuthorPubkeys),
   )
   const installedWidgetIds = $derived(new Set(installedWidgets.map(widget => widget.identifier)))
+  const widgetUpdateCheckWidgets = $derived(
+    installedWidgets.filter(widget => !defaultIds.has(widget.identifier)),
+  )
+  const widgetUpdateCount = $derived(Object.keys(widgetUpdates).length)
+  const widgetUpdateCheckingCount = $derived(
+    Object.values(checkingWidgetUpdates).filter(Boolean).length,
+  )
   const trustedWidgetsToInstall = $derived(
     trustedCuratedWidgets.filter(widget => !enabledIds.includes(widget.identifier)),
   )
@@ -257,6 +272,67 @@
   const toggle = (id: string, value: boolean) => {
     if (value) enableExtension(id)
     else disableExtension(id)
+  }
+
+  const getWidgetUpdateCheckKey = (widgets: SmartWidgetEvent[]) =>
+    widgets
+      .map(widget =>
+        [widget.identifier, widget.pubkey || "", widget.created_at || 0].join(":"),
+      )
+      .sort()
+      .join("|")
+
+  const checkInstalledWidgetUpdates = async (widgets: SmartWidgetEvent[]) => {
+    const ids = widgets.map(widget => widget.identifier).filter(Boolean)
+    const requestId = ++widgetUpdateRequestId
+
+    if (ids.length === 0) {
+      widgetUpdates = {}
+      checkingWidgetUpdates = {}
+      return
+    }
+
+    checkingWidgetUpdates = Object.fromEntries(ids.map(id => [id, true]))
+    try {
+      const results = await Promise.all(
+        ids.map(async id => {
+          try {
+            return [id, await checkForWidgetUpdate(id)] as const
+          } catch (e) {
+            console.warn("Widget update check failed", id, e)
+            return [id, null] as const
+          }
+        }),
+      )
+
+      if (requestId !== widgetUpdateRequestId) return
+
+      widgetUpdates = Object.fromEntries(
+        results.filter((entry): entry is readonly [string, WidgetUpdate] => Boolean(entry[1])),
+      )
+    } finally {
+      if (requestId === widgetUpdateRequestId) checkingWidgetUpdates = {}
+    }
+  }
+
+  const onUpdateWidget = async (id: string) => {
+    const update = widgetUpdates[id]
+    if (!update) return
+
+    refreshingWidgetUpdates = {...refreshingWidgetUpdates, [id]: true}
+    try {
+      const widget = await refreshWidget(id, update.latest)
+      const version = update.diff.version?.to || widget.version
+      widgetUpdates = Object.fromEntries(Object.entries(widgetUpdates).filter(([key]) => key !== id))
+      pushToast({
+        theme: "success",
+        message: `Updated widget ${widget.content || widget.identifier}${version ? ` to v${version}` : ""}`,
+      })
+    } catch (e: any) {
+      pushToast({theme: "error", message: e?.message || "Failed to update widget."})
+    } finally {
+      refreshingWidgetUpdates = {...refreshingWidgetUpdates, [id]: false}
+    }
   }
 
   const searchCommunityExtensions = async (option = selectedCommunityOption) => {
@@ -529,6 +605,22 @@
     return () => controller.abort()
   })
 
+  $effect(() => {
+    const key = getWidgetUpdateCheckKey(widgetUpdateCheckWidgets)
+
+    if (!key) {
+      widgetUpdateLoadKey = ""
+      widgetUpdates = {}
+      checkingWidgetUpdates = {}
+      return
+    }
+
+    if (key === widgetUpdateLoadKey) return
+    widgetUpdateLoadKey = key
+
+    void checkInstalledWidgetUpdates(widgetUpdateCheckWidgets)
+  })
+
   const onInstallByUrl = async () => {
     if (!manifestUrl) return
     installing = true
@@ -687,9 +779,23 @@
           disabled but not uninstalled.
         </p>
       </div>
-      {#if defaultWidgets.length > 0}
-        <span class="badge badge-primary badge-sm">{defaultWidgets.length} community default</span>
-      {/if}
+      <div class="flex flex-wrap items-center gap-2">
+        {#if widgetUpdateCheckingCount > 0}
+          <span class="badge badge-ghost badge-sm">
+            Checking {widgetUpdateCheckingCount} widget update{widgetUpdateCheckingCount === 1
+              ? ""
+              : "s"}
+          </span>
+        {/if}
+        {#if widgetUpdateCount > 0}
+          <span class="badge badge-warning badge-sm">
+            {widgetUpdateCount} widget update{widgetUpdateCount === 1 ? "" : "s"} available
+          </span>
+        {/if}
+        {#if defaultWidgets.length > 0}
+          <span class="badge badge-primary badge-sm">{defaultWidgets.length} community default</span>
+        {/if}
+      </div>
     </div>
     {#if installed.length > 0}
       <div class="flex flex-col gap-3">
@@ -707,6 +813,14 @@
             {displayLocation}
             onDisplayLocationChange={loc => setWidgetDisplayConfig(item.id, {location: loc})}
             manifestUrl={installedManifestUrl}
+            widgetUpdate={item.type === "widget" ? widgetUpdates[item.id] : undefined}
+            widgetUpdateChecking={item.type === "widget"
+              ? Boolean(checkingWidgetUpdates[item.id])
+              : false}
+            widgetUpdateRefreshing={item.type === "widget"
+              ? Boolean(refreshingWidgetUpdates[item.id])
+              : false}
+            onWidgetUpdate={item.type === "widget" ? () => onUpdateWidget(item.id) : undefined}
             communityOptions={item.type === "widget" ? widgetCommunityOptions : []}
             targetedCommunityPubkeys={item.type === "widget"
               ? getWidgetTargetedCommunityPubkeys(item.manifest as SmartWidgetEvent)
