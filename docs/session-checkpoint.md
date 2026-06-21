@@ -14,15 +14,16 @@
 
 ## Current Phase
 
-- Phase 3: Publisher Release UX
+- Phase 4: Regression Sweep And Completion
 
 ## Phase Exit Criteria
 
-- Template manifest generator supports optional `version` and `changelog` tags.
-- Generator/CLI docs strongly encourage explicit stable `--identifier` for release workflows.
-- Publish/generate output previews include identifier, version/changelog when present, app URL, and relay targets.
-- Template quickstart/docs describe the simple release workflow: build, upload to Blossom, publish same `d` with newer `created_at`, and users see update availability in BudaBit.
-- Focused template tests cover version/changelog tag generation.
+- Installed widget update detection exists and is manually applied, not automatic.
+- Settings exposes update badges/actions for installed widgets.
+- Widget install source relay hints are preserved and normalized.
+- Template publisher flow supports stable identifier, version/changelog metadata, and Blossom-backed release explanation.
+- Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
+- Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
 
@@ -43,6 +44,17 @@
 - Installed section shows widget update checking and available-update badges.
 - Widget cards show widget update availability, a manual update button, release version metadata, and a concise diff/changelog summary.
 - Manual widget update application calls `refreshWidget`, preserving existing display/settings and reloading enabled widgets through the Phase 1 command.
+- Phase 2 root commit pushed: `b1a1c599 feat: surface widget updates in settings`.
+- Phase 3: Publisher Release UX.
+- Evidence: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts` passed with 23 tests.
+- Evidence: `pnpm --filter budabit-sdk typecheck` passed.
+- Evidence: `pnpm --filter @budabit/ext-manifest typecheck` passed.
+- Evidence: `pnpm --filter create-budabit-widget typecheck` passed.
+- Template manifest generator copies now support optional `version` and `changelog` tags.
+- Generator CLI accepts `--version` and `--changelog`, warns to use explicit stable `--identifier` for releases, and previews identifier, release metadata, app URL, and relay targets.
+- Publish dry-run and publish details preview identifier, release metadata, app URL, and relay targets.
+- Template README/quickstart/manifest docs and scaffold defaults describe the Blossom-backed same-`d` release workflow.
+- Phase 3 template commit pushed: `48c454d feat: add widget release metadata`.
 
 ## Decisions
 
@@ -58,13 +70,14 @@
 - Branch `dev` tracks `origin/dev`.
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
 - Phase 1 is committed and pushed.
-- Phase 2 is verified and included in this phase transition.
+- Phase 2 is committed and pushed.
+- Phase 3 nested template commit is pushed; root submodule pointer is updated in this phase transition.
 - Existing NIP-89 update UX remains intact.
 - Smart Widget installed update UI exists for non-default, manually installed widgets; community defaults remain distinguished as defaults.
 
 ## Next Action
 
-- Start Phase 3 by inspecting the template generator copies under `packages/flotilla-extension-template/packages/sdk` and `packages/flotilla-extension-template/packages/manifest`.
+- Start Phase 4 by searching update helper usage and stale TODO/doc contradictions, then run final focused root/template verification.
 
 ## Verification
 
@@ -72,11 +85,15 @@
 - Phase 1 project check passed: `pnpm check`.
 - Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
 - Phase 2 project check passed: `pnpm check`.
+- Phase 3 template generator test passed: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts`.
+- Phase 3 SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
+- Phase 3 manifest typecheck passed: `pnpm --filter @budabit/ext-manifest typecheck`.
+- Phase 3 scaffold typecheck passed: `pnpm --filter create-budabit-widget typecheck`.
 
 ## Risks Or Blockers
 
-- Template changes in later phases require committing/pushing the nested template repo before updating the root submodule pointer.
-- Widget update checks need useful relay hints; Phase 1 should preserve manual naddr relays and fall back to existing Smart Widget/indexer relays.
+- Template repo was committed and pushed before updating the root submodule pointer.
+- Widget update checks need useful relay hints; Phase 1 preserves manual naddr relays and falls back to existing Smart Widget/indexer relays.
 - No blocker yet.
 
 ## Files
@@ -94,3 +111,14 @@
 - `src/app/extensions/settings.test.ts`
 - `src/routes/settings/extensions/+page.svelte`
 - `src/app/components/ExtensionCard.svelte`
+- `packages/flotilla-extension-template`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/cli.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/publish.ts`
+- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.test.ts`
+- `packages/flotilla-extension-template/packages/manifest/src/generator.ts`
+- `packages/flotilla-extension-template/packages/manifest/src/cli.ts`
+- `packages/flotilla-extension-template/packages/manifest/src/publish.ts`
+- `packages/flotilla-extension-template/docs/quickstart.md`
+- `packages/flotilla-extension-template/docs/manifest.md`
+- `packages/flotilla-extension-template/README.md`
