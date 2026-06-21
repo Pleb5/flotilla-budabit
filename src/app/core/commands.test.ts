@@ -18,6 +18,35 @@ const utilMocks = vi.hoisted(() => ({
   uploadBlob: vi.fn(),
 }))
 
+const netMocks = vi.hoisted(() => ({
+  request: vi.fn(),
+}))
+
+const registryMocks = vi.hoisted(() => ({
+  load: vi.fn(),
+  unloadExtension: vi.fn(),
+  register: vi.fn(),
+  registerWidget: vi.fn(),
+  loadWidget: vi.fn(),
+  parseSmartWidget: vi.fn(),
+}))
+
+const settingsMocks = vi.hoisted(() => ({
+  value: {
+    enabled: [] as string[],
+    disabledDefaultIds: [] as string[],
+    installed: {nip89: {}, widget: {}} as any,
+    widgetDisplay: {} as Record<string, any>,
+    manifestUrls: {} as Record<string, string>,
+    widgetInstallSources: {} as Record<string, any>,
+  },
+  update: vi.fn(),
+  getInstalledExtensions: vi.fn(() => ({nip89: {}, widget: {}})),
+  getInstalledExtension: vi.fn(),
+  isDefaultExtension: vi.fn(() => false),
+  isExtensionEnabled: vi.fn(() => false),
+}))
+
 vi.mock("@nostr-git/ui", () => ({}))
 
 vi.mock("@welshman/util", async importOriginal => {
@@ -26,6 +55,15 @@ vi.mock("@welshman/util", async importOriginal => {
   return {
     ...actual,
     uploadBlob: utilMocks.uploadBlob,
+  }
+})
+
+vi.mock("@welshman/net", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/net")>()
+
+  return {
+    ...actual,
+    request: netMocks.request,
   }
 })
 
@@ -40,23 +78,30 @@ vi.mock("@lib/util", () => ({
 
 vi.mock("@app/extensions/registry", () => ({
   extensionRegistry: {
-    load: vi.fn(),
-    unloadExtension: vi.fn(),
-    register: vi.fn(),
+    load: registryMocks.load,
+    unloadExtension: registryMocks.unloadExtension,
+    register: registryMocks.register,
+    registerWidget: registryMocks.registerWidget,
+    loadWidget: registryMocks.loadWidget,
   },
-  parseSmartWidget: vi.fn(),
+  parseSmartWidget: registryMocks.parseSmartWidget,
 }))
 
 vi.mock("@app/extensions/settings", () => ({
   extensionSettings: {
-    update: vi.fn(),
+    update: settingsMocks.update,
+    subscribe: (run: (value: any) => void) => {
+      run(settingsMocks.value)
+      return () => {}
+    },
   },
   disableDefaultExtension: vi.fn(),
   enableDefaultExtension: vi.fn(),
-  getInstalledExtensions: vi.fn(() => ({nip89: {}, widget: {}})),
-  getInstalledExtension: vi.fn(),
-  isDefaultExtension: vi.fn(() => false),
-  isExtensionEnabled: vi.fn(() => false),
+  getInstalledExtensions: settingsMocks.getInstalledExtensions,
+  getInstalledExtension: settingsMocks.getInstalledExtension,
+  isDefaultExtension: settingsMocks.isDefaultExtension,
+  isExtensionEnabled: settingsMocks.isExtensionEnabled,
+  normalizeWidgetInstallSource: (source: any) => source,
 }))
 
 vi.mock("@app/core/git-state", () => ({
@@ -113,6 +158,46 @@ const makeCommunityDefinition = (id: string, blossomServers: string[] = []) =>
 describe("commands", () => {
   beforeEach(() => {
     utilMocks.uploadBlob.mockReset()
+    netMocks.request.mockReset()
+    netMocks.request.mockResolvedValue(undefined)
+    registryMocks.load.mockReset()
+    registryMocks.unloadExtension.mockReset()
+    registryMocks.register.mockReset()
+    registryMocks.registerWidget.mockReset()
+    registryMocks.loadWidget.mockReset()
+    registryMocks.parseSmartWidget.mockReset()
+    registryMocks.parseSmartWidget.mockImplementation((event: any) => ({
+      id: event.id,
+      kind: 30033,
+      content: event.content || "",
+      pubkey: event.pubkey,
+      created_at: event.created_at,
+      tags: event.tags || [],
+      identifier: event.tags?.find((tag: string[]) => tag[0] === "d")?.[1] || event.id,
+      widgetType: event.tags?.find((tag: string[]) => tag[0] === "l")?.[1] || "basic",
+      buttons: [],
+      appUrl: event.tags?.find((tag: string[]) => tag[0] === "button" && tag[2] === "app")?.[3],
+      permissions: event.tags
+        ?.filter((tag: string[]) => tag[0] === "permission")
+        .map((tag: string[]) => tag[1]),
+      version: event.tags?.find((tag: string[]) => tag[0] === "version")?.[1],
+    }))
+    settingsMocks.value = {
+      enabled: [],
+      disabledDefaultIds: [],
+      installed: {nip89: {}, widget: {}},
+      widgetDisplay: {},
+      manifestUrls: {},
+      widgetInstallSources: {},
+    }
+    settingsMocks.update.mockReset()
+    settingsMocks.getInstalledExtensions.mockReset()
+    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {}})
+    settingsMocks.getInstalledExtension.mockReset()
+    settingsMocks.isDefaultExtension.mockReset()
+    settingsMocks.isDefaultExtension.mockReturnValue(false)
+    settingsMocks.isExtensionEnabled.mockReset()
+    settingsMocks.isExtensionEnabled.mockReturnValue(false)
     localStorage.clear()
     blossomSettings.set(defaultBlossomSettings)
     blossomDashboardState.set(defaultBlossomDashboardState)
@@ -122,6 +207,7 @@ describe("commands", () => {
     clearActiveCommunity()
     repository.removeEvent("definition-with-blossom")
     repository.removeEvent("definition-without-blossom")
+    repository.removeEvent("30033:" + "a".repeat(64) + ":weather")
     vi.unstubAllGlobals()
   })
 
@@ -768,6 +854,73 @@ describe("commands", () => {
     const result = prependParent(undefined, {content, tags})
     expect(result.content).toBe("Hello")
     expect(result.tags).toEqual([["t", "topic"]])
+  })
+
+  it("checkForWidgetUpdate returns a newer installed widget event", async () => {
+    const {checkForWidgetUpdate} = await import("./commands")
+    const pubkey = "a".repeat(64)
+    const installed = {
+      id: "weather-1",
+      kind: 30033,
+      content: "Weather",
+      pubkey,
+      created_at: 1,
+      tags: [["d", "weather"]],
+      identifier: "weather",
+      widgetType: "tool",
+      buttons: [],
+      appUrl: "https://example.com/v1.html",
+      permissions: ["ui:toast"],
+    } as any
+    const latest = {
+      ...installed,
+      id: "weather-2",
+      created_at: 2,
+      tags: [
+        ["d", "weather"],
+        ["version", "1.0.1"],
+        ["button", "Open", "app", "https://example.com/v2.html"],
+      ],
+    }
+
+    settingsMocks.value.widgetInstallSources = {
+      weather: {relays: ["wss://widgets.example/"]},
+    }
+    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {weather: installed}})
+    repository.publish(latest as any)
+
+    const update = await checkForWidgetUpdate("weather")
+
+    expect(netMocks.request).toHaveBeenCalledWith({
+      relays: expect.arrayContaining(["wss://widgets.example/"]),
+      filters: [{kinds: [30033], authors: [pubkey], "#d": ["weather"], limit: 1}],
+      autoClose: true,
+    })
+    expect(update?.latest.id).toBe("weather-2")
+    expect(update?.diff.appUrlChanged).toBe(true)
+    expect(update?.diff.version?.to).toBe("1.0.1")
+  })
+
+  it("refreshWidget replaces stored widget metadata and reloads enabled widgets", async () => {
+    const {refreshWidget} = await import("./commands")
+    const oldWidget = {identifier: "weather", kind: 30033, tags: [], widgetType: "tool"} as any
+    const newWidget = {...oldWidget, id: "weather-2", created_at: 2}
+
+    settingsMocks.isExtensionEnabled.mockReturnValue(true)
+
+    await refreshWidget("weather", newWidget)
+
+    expect(registryMocks.unloadExtension).toHaveBeenCalledWith("weather")
+    expect(settingsMocks.update).toHaveBeenCalledOnce()
+    const next = settingsMocks.update.mock.calls[0][0]({
+      installed: {nip89: {}, widget: {weather: oldWidget}, legacy: undefined},
+      widgetInstallSources: {weather: {relays: ["wss://widgets.example/"]}},
+      widgetDisplay: {weather: {location: "modal"}},
+    })
+
+    expect(next.installed.widget.weather).toBe(newWidget)
+    expect(next.widgetInstallSources.weather).toEqual({relays: ["wss://widgets.example/"]})
+    expect(registryMocks.loadWidget).toHaveBeenCalledWith(newWidget)
   })
 
   it("prependParent uses explicit event relays for quoted git comments", async () => {

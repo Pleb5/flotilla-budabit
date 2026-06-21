@@ -106,8 +106,16 @@ import {
   getInstalledExtension,
   isExtensionEnabled,
   isDefaultExtension,
+  normalizeWidgetInstallSource,
+  type WidgetInstallSource,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
+import {
+  buildWidgetUpdate,
+  getWidgetUpdateFilter,
+  getWidgetUpdateRelays,
+  type WidgetUpdate,
+} from "@app/extensions/widget-updates"
 import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
@@ -213,9 +221,10 @@ export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
   return manifest
 }
 
-export const installWidgetFromEvent = (event: TrustedEvent) => {
+export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInstallSource) => {
   const widget = parseSmartWidget(event)
   extensionRegistry.registerWidget(widget)
+  const normalizedSource = normalizeWidgetInstallSource(source)
   extensionSettings.update(s => ({
     ...s,
     installed: {
@@ -223,6 +232,9 @@ export const installWidgetFromEvent = (event: TrustedEvent) => {
       widget: {...(s.installed?.widget || {}), [widget.identifier]: widget},
       legacy: s.installed?.legacy,
     },
+    widgetInstallSources: normalizedSource
+      ? {...(s.widgetInstallSources || {}), [widget.identifier]: normalizedSource}
+      : s.widgetInstallSources || {},
   }))
   return widget
 }
@@ -243,7 +255,67 @@ export const installWidgetByNaddr = async (naddr: string) => {
   if (!events.length) {
     throw new Error("Widget not found")
   }
-  return installWidgetFromEvent(events[0] as TrustedEvent)
+  return installWidgetFromEvent(events[0] as TrustedEvent, {naddr, relays})
+}
+
+export const checkForWidgetUpdate = async (id: string): Promise<WidgetUpdate | null> => {
+  const settings = get(extensionSettings)
+  const installed = getInstalledExtensions().widget[id]
+
+  if (!installed) return null
+
+  const filter = getWidgetUpdateFilter(installed)
+  if (!filter) return null
+
+  const relays = getWidgetUpdateRelays({
+    source: settings.widgetInstallSources?.[id],
+    fallbackRelays: uniq([...SMART_WIDGET_RELAYS, ...INDEXER_RELAYS]),
+  })
+  if (relays.length === 0) return null
+
+  try {
+    await request({relays, filters: [filter], autoClose: true})
+  } catch (e) {
+    console.warn("Widget update check errored", e)
+  }
+
+  const candidates: SmartWidgetEvent[] = []
+  for (const event of repository.query([filter])) {
+    try {
+      candidates.push(parseSmartWidget(event))
+    } catch {
+      // Ignore malformed update candidates.
+    }
+  }
+
+  return buildWidgetUpdate({installed, candidates, relays})
+}
+
+export const refreshWidget = async (id: string, newWidget: SmartWidgetEvent) => {
+  if (newWidget.identifier !== id) {
+    throw new Error("Widget update identifier mismatch")
+  }
+
+  const wasEnabled = isExtensionEnabled(id)
+
+  if (wasEnabled) {
+    await extensionRegistry.unloadExtension(id)
+  }
+
+  extensionSettings.update(s => ({
+    ...s,
+    installed: {
+      nip89: s.installed?.nip89 || {},
+      widget: {...(s.installed?.widget || {}), [id]: newWidget},
+      legacy: s.installed?.legacy,
+    },
+  }))
+
+  if (wasEnabled) {
+    await extensionRegistry.loadWidget(newWidget)
+  }
+
+  return newWidget
 }
 
 // NIP-89 discovery (kind 31990)

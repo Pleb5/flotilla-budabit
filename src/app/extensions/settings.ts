@@ -2,6 +2,7 @@ import {synced, localStorageProvider} from "@welshman/store"
 import {derived, get, writable} from "svelte/store"
 import {signer, pubkey} from "@welshman/app"
 import {APP_DATA, makeEvent} from "@welshman/util"
+import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {postExtensionSettings} from "@app/core/git-commands"
 import {EXTENSION_SETTINGS_DTAG} from "@app/core/git-requests"
 import type {ExtensionManifest, SmartWidgetEvent, WidgetDisplayLocation} from "./types"
@@ -22,6 +23,32 @@ export type InstalledExtensions = {
   nip89: Record<string, ExtensionManifest>
   widget: Record<string, SmartWidgetEvent>
   legacy?: Record<string, any>
+}
+
+export type WidgetInstallSource = {
+  naddr?: string
+  relays?: string[]
+}
+
+export const normalizeWidgetInstallSource = (
+  source: WidgetInstallSource | undefined,
+): WidgetInstallSource | undefined => {
+  const naddr = source?.naddr?.trim()
+  const relays = Array.from(
+    new Set(
+      (source?.relays || [])
+        .map(relay => relay.trim())
+        .filter(isRelayUrl)
+        .map(normalizeRelayUrl),
+    ),
+  )
+
+  if (!naddr && relays.length === 0) return undefined
+
+  return {
+    ...(naddr ? {naddr} : {}),
+    ...(relays.length ? {relays} : {}),
+  }
 }
 
 const normalizeInstalled = (installed: any): InstalledExtensions => {
@@ -55,6 +82,7 @@ export type ExtensionSettings = {
   installed: InstalledExtensions
   widgetDisplay: Record<string, WidgetDisplayConfig>
   manifestUrls: Record<string, string> // Track manifest URLs for update checking
+  widgetInstallSources: Record<string, WidgetInstallSource>
 }
 
 export const defaultExtensionSettings: ExtensionSettings = {
@@ -66,6 +94,7 @@ export const defaultExtensionSettings: ExtensionSettings = {
   },
   widgetDisplay: {},
   manifestUrls: {},
+  widgetInstallSources: {},
 }
 
 export const extensionSettings = synced({
@@ -216,8 +245,15 @@ const normalizeExtensionSettings = (settings: Partial<ExtensionSettings>): Exten
   const installed = normalizeInstalled(settings.installed)
   const installedIds = new Set([...Object.keys(installed.nip89), ...Object.keys(installed.widget)])
   const nip89Ids = new Set(Object.keys(installed.nip89))
+  const widgetIds = new Set(Object.keys(installed.widget))
   const manifestUrls = Object.fromEntries(
     Object.entries(settings.manifestUrls || {}).filter(([id]) => nip89Ids.has(id)),
+  )
+  const widgetInstallSources = Object.fromEntries(
+    Object.entries(settings.widgetInstallSources || {})
+      .filter(([id]) => widgetIds.has(id))
+      .map(([id, source]) => [id, normalizeWidgetInstallSource(source)])
+      .filter((entry): entry is [string, WidgetInstallSource] => Boolean(entry[1])),
   )
 
   return {
@@ -226,6 +262,7 @@ const normalizeExtensionSettings = (settings: Partial<ExtensionSettings>): Exten
     installed,
     widgetDisplay: settings.widgetDisplay || {},
     manifestUrls,
+    widgetInstallSources,
   }
 }
 

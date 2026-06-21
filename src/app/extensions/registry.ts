@@ -86,6 +86,8 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
   }
 
   const originHint = getTag(tags, "client")?.[2]
+  const version = getTag(tags, "version")?.[1]
+  const changelog = getTag(tags, "changelog")?.[1]
 
   // Parse only supported Smart Widget slots. Unsupported legacy colon IDs are ignored.
   const slotTag = getTag(tags, "slot")
@@ -113,6 +115,8 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
     appUrl,
     permissions,
     originHint,
+    version,
+    changelog,
     slot,
   }
 }

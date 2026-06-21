@@ -49,6 +49,7 @@ const makeSettings = (): ExtensionSettings => ({
   installed: {nip89: {}, widget: {}},
   widgetDisplay: {},
   manifestUrls: {},
+  widgetInstallSources: {},
 })
 
 describe("effective extension settings", () => {
@@ -140,6 +141,31 @@ describe("effective extension settings", () => {
 
     expect(settings.enabled).toEqual([manifest.id])
     expect(settings.manifestUrls).toEqual({[manifest.id]: manifestUrl})
+  })
+
+  it("filters and normalizes widget install sources to installed widgets", () => {
+    const widget = makeWidget("weather")
+
+    applyRemoteExtensionSettings({
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widget.identifier]: widget}},
+      widgetInstallSources: {
+        [widget.identifier]: {
+          naddr: " naddr1example ",
+          relays: ["wss://relay.example", "wss://relay.example/", "not-a-relay"],
+        },
+        missing: {relays: ["wss://missing.example"]},
+      },
+    })
+
+    const settings = get(extensionSettings)
+
+    expect(settings.widgetInstallSources).toEqual({
+      [widget.identifier]: {
+        naddr: "naddr1example",
+        relays: ["wss://relay.example/"],
+      },
+    })
   })
 
   it("keeps default extension disabled state separate from installed metadata", () => {

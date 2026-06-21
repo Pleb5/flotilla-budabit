@@ -7,158 +7,78 @@
 
 ## Goal
 
-- Keep only these Smart Widget slots for now: `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, and `global-menu`.
-- Convert Smart Widget slot naming to dashed IDs for chat/global slots and remove or ignore old unsupported colon-separated slot placeholders.
-- Make `chat-message-actions` and `global-menu` community-targetable and render them as semantic launchers, not blind inline iframes.
-- Treat `global-menu` as always accessible only within targeted community routes.
-- Update Budabit and the extension template with sufficient focused tests.
+- Bridge the Smart Widget update/publish UX gaps with a minimal user-controlled workflow.
+- Detect newer installed Smart Widget events and notify users with update badges, but do not auto-update.
+- Let users manually apply widget updates while preserving existing settings.
+- Improve publisher release UX for stable Blossom-backed widget versions without building a complex marketplace/review system.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Manual Widget Update UX
 
 ## Phase Exit Criteria
 
-- Searches show no remaining active Budabit UI mount for unsupported slots.
-- Searches show no remaining template docs/examples for removed colon slot names except explicit migration notes, if intentionally kept.
-- Supported slots parse, publish, display labels, and render as semantic launchers in their intended places.
-- Final focused tests and `pnpm check` pass.
-- Checkpoint says `Current Phase: Complete` before final commit/push.
+- Settings checks installed Smart Widgets for newer events without auto-applying them.
+- Installed section shows an update count/badge when widget updates are available.
+- Widget cards show per-widget update availability and a manual update button.
+- Update application replaces the stored widget metadata, preserves existing settings, and reloads enabled widgets through the command added in Phase 1.
+- Widget cards show a concise update summary without adding a complex marketplace/review flow.
+- Existing community-endorsed vs other widget discovery distinction remains intact.
+- Focused tests and/or `pnpm check` cover changed UI/types.
 
 ## Completed With Evidence
 
-- Previous calendar workflow in these session files was already complete and has been replaced for this Smart Widget slot workflow.
-- Phase 1: Supported Slot Model And Community Management.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts` passed with 9 tests.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts` passed with 10 tests.
+- Previous Smart Widget slot narrowing workflow is complete and pushed through root commit `236919b2 docs: finalize smart widget checkpoint` and template commit `481ac7c feat: align smart widget slots`.
+- Phase 1: Widget Update Foundations.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts` passed with 55 tests.
 - Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Implemented a strict supported Smart Widget slot union for `repo-tab`, both community home slots, `chat-message-actions`, and `global-menu`.
-- Updated `parseSmartWidget` to parse supported dashed community slots and ignore unsupported old colon slot names.
-- Updated community widget creation/list UI and settings cards to publish/display all supported non-repo slot labels.
-- Added focused parser tests for supported community slots, `repo-tab`, label fallback, and ignored legacy colon slot tags.
-- Removed unsupported old typed `SlotRenderer` mounts from composer, room header, and primary nav; message placeholder mounts now use `chat-message-actions` pending Phase 2 renderer replacement.
-- Incorporated current in-progress community widget curation/trust/home-slot/default-owner files that are required by the current community widget workflow.
-- Phase 1 commit pushed: `ca17e34e feat: narrow smart widget slots`.
-- Phase 2: Community Slot Loading And Budabit Renderers.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts` passed with 11 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Added cached community curation loading and slot filtering helper in `community-widget-slots.ts`.
-- Added shared `CommunityWidgetSlotLaunchers.svelte` for compact message actions and top-bar global menu launchers.
-- Rewired community home slots to use cached curation and shared installed/enabled filtering.
-- Replaced message placeholder `SlotRenderer` usage with compact `chat-message-actions` launchers that pass message/community context only on click.
-- Replaced old global top-menu widget display with community-route-only `global-menu` slot launchers in `TopMenuWidgets.svelte`.
-- Updated `WidgetModal.svelte` to pass slot/context/user data via bridge lifecycle events and legacy postMessage context, while keeping iframe rendering inside the modal only.
-- Phase 2 commit pushed: `e01003a6 feat: render community widget slots`.
-- Phase 3: Extension Template And SDK Alignment.
-- Evidence: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts` passed with 22 tests in `packages/flotilla-extension-template`.
-- Evidence: `pnpm --filter budabit-sdk typecheck` passed in `packages/flotilla-extension-template`.
-- Evidence: `pnpm --filter @budabit/ext-shared build && pnpm --filter @budabit/ext-manifest typecheck` passed in `packages/flotilla-extension-template`.
-- Evidence: `grep` search for removed colon slots under `packages/flotilla-extension-template` returned no files.
-- Added supported slot union types to the template SDK and manifest generators.
-- Updated generators to emit `repo-tab` slot tags with label/path and community slot tags with label only.
-- Added CLI slot validation for the five supported slots in both template generator CLIs.
-- Added focused generator/CLI validation tests for supported slot generation and invalid slot handling.
-- Rewrote template and scaffold slot docs to document only `repo-tab`, community home slots, `chat-message-actions`, and community-scoped `global-menu`.
-- Updated template quickstart and host bridge docs to use supported `repo-tab` examples.
-- Phase 3 template commit pushed: `481ac7c feat: align smart widget slots`.
-- Phase 3 root pointer/checkpoint commit pushed: `0f159489 feat: align smart widget template`.
-- Phase 4: Regression Sweep And Completion.
-- Evidence: removed colon slot scan across `docs/extensions` returned no files.
-- Evidence: removed colon slot scan across `packages/flotilla-extension-template` returned no files.
-- Evidence: removed colon slot scan across `src` returned only intentional negative parser assertions in `src/app/extensions/registry.test.ts`.
-- Evidence: `SlotRenderer`/slot handler scan showed no active UI mounts; remaining matches are unmounted helper definitions.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts` passed with 11 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Evidence: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts` passed with 22 tests in `packages/flotilla-extension-template`.
-- Updated `docs/extensions` developer docs and inventory to document the supported slot tag model and remove stale unsupported slot examples.
-- Phase 4 final closeout commit pushed: `7b09ba1b docs: complete smart widget slot sweep`.
+- Added optional Smart Widget `version` and `changelog` parsing.
+- Added normalized `widgetInstallSources` settings metadata for naddr/relay hints.
+- Added `widget-updates.ts` helpers for same-line update matching, update filters, relay selection, and diff summaries.
+- Added `checkForWidgetUpdate` and `refreshWidget` commands.
+- Updated widget install-by-naddr to preserve source naddr and relays.
 
 ## Decisions
 
-- Use `docs/session-plan.md` and `docs/session-checkpoint.md` because the repository already has durable session files there.
-- Use dashed slot IDs for Smart Widgets: `chat-message-actions` and `global-menu`.
-- Do not render full iframes inline in compact chat message action rows.
-- `global-menu` means always accessible while browsing a targeted community, not globally across all Budabit routes.
-- Existing dirty extension/widget files are in-progress work and must be preserved rather than reverted.
-- Top-bar global widget launchers now come from community-targeted `global-menu` slots, not old `top-menu` display settings.
+- Use `docs/session-plan.md` and `docs/session-checkpoint.md` for this durable workflow.
+- Keep update application manual for now; no auto-update.
+- Treat same publisher pubkey plus same kind `30033` plus same `d` identifier as the same widget line.
+- Use newer `created_at` as the update freshness signal; `version`/`changelog` are display metadata only for now.
+- Preserve existing community-endorsed vs other widget sections.
+- Use Welshman utilities where they fit; Welshman `Address`/`getAddress` and tag helpers are the preferred reference for addressable event identity.
 
 ## Current State
 
 - Branch `dev` tracks `origin/dev`.
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
-- Smart Widget slot workflow is complete and verified.
-- Several unrelated pre-existing git UI route/component files remain dirty and must not be staged for this phase.
+- Phase 1 is verified and ready to commit/push with only root BudaBit foundation files and durable session files changed.
+- Existing NIP-89 update UX exists; Smart Widget installed update UI does not yet.
 
 ## Next Action
 
-- Provide the final response.
+- Commit and push Phase 1, reread this checkpoint, then start Phase 2 by wiring update badges/actions into Settings and `ExtensionCard.svelte`.
 
 ## Verification
 
-- Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts`.
-- Phase 1 expanded focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts`.
+- Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
 - Phase 1 project check passed: `pnpm check`.
-- Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts`.
-- Phase 2 project check passed: `pnpm check`.
-- Phase 3 focused template tests passed: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
-- Phase 3 SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
-- Phase 3 manifest typecheck passed after shared build: `pnpm --filter @budabit/ext-shared build && pnpm --filter @budabit/ext-manifest typecheck`.
-- Phase 3 removed-slot scan passed: no matches for unsupported colon slot names under `packages/flotilla-extension-template`.
-- Phase 4 removed colon slot scan passed for `docs/extensions` and `packages/flotilla-extension-template`; `src` matches are intentional negative parser assertions only.
-- Phase 4 old mount scan passed: no active `SlotRenderer` UI mounts remain.
-- Phase 4 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/community-widget-trust.test.ts src/app/extensions/builtin.test.ts src/app/extensions/community-widget-slots.test.ts`.
-- Phase 4 project check passed: `pnpm check`.
-- Phase 4 template focused test passed: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
 
 ## Risks Or Blockers
 
-- Pre-existing unrelated dirty git UI files remain in the worktree; do not stage them unless a later phase explicitly requires them.
-- Template verification required installing template dependencies with `pnpm install --frozen-lockfile`; no lockfile changes were made.
-- Template manifest typecheck requires the shared package declarations to exist, so `pnpm --filter @budabit/ext-shared build` was run before typechecking `@budabit/ext-manifest`.
+- Template changes in later phases require committing/pushing the nested template repo before updating the root submodule pointer.
+- Widget update checks need useful relay hints; Phase 1 should preserve manual naddr relays and fall back to existing Smart Widget/indexer relays.
 - No blocker yet.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `src/app/components/ChannelMessage.svelte`
-- `src/app/components/ChatCompose.svelte`
-- `src/app/components/ExtensionCard.svelte`
-- `src/app/components/PrimaryNav.svelte`
-- `src/app/components/RoomItem.svelte`
-- `src/app/components/TopMenuWidgets.svelte`
-- `src/app/components/WidgetModal.svelte`
-- `src/app/components/community/CommunityExtensionsPrompt.svelte`
-- `src/app/components/community/CommunityHomeWidgetSlot.svelte`
-- `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
-- `src/app/extensions/builtin-filter.ts`
-- `src/app/extensions/builtin.test.ts`
-- `src/app/extensions/builtin.ts`
-- `src/app/extensions/community-curation.test.ts`
-- `src/app/extensions/community-curation.ts`
-- `src/app/extensions/community-extension-prompt.ts`
-- `src/app/extensions/community-widget-slots.test.ts`
-- `src/app/extensions/community-widget-slots.ts`
-- `src/app/extensions/community-widget-trust.test.ts`
-- `src/app/extensions/community-widget-trust.ts`
-- `src/app/extensions/registry.test.ts`
-- `src/app/extensions/registry.ts`
 - `src/app/extensions/types.ts`
-- `src/routes/c/[community]/+page.svelte`
-- `src/routes/c/[community]/rooms/[room]/+page.svelte`
-- `src/routes/c/[community]/widgets/+page.svelte`
-- `src/routes/settings/extensions/+page.svelte`
-- `packages/flotilla-extension-template/docs/host-bridge.md`
-- `packages/flotilla-extension-template/docs/quickstart.md`
-- `packages/flotilla-extension-template/docs/slots.md`
-- `packages/flotilla-extension-template/packages/create-budabit-widget/template/docs/host-bridge.md`
-- `packages/flotilla-extension-template/packages/create-budabit-widget/template/docs/quickstart.md`
-- `packages/flotilla-extension-template/packages/create-budabit-widget/template/docs/slots.md`
-- `packages/flotilla-extension-template/packages/manifest/src/cli.ts`
-- `packages/flotilla-extension-template/packages/manifest/src/generator.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/cli.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.test.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/index.ts`
-- `docs/extensions/README.md`
-- `docs/extensions/INVENTORY.md`
+- `src/app/extensions/registry.ts`
+- `src/app/extensions/settings.ts`
+- `src/app/extensions/widget-updates.ts`
+- `src/app/extensions/widget-updates.test.ts`
+- `src/app/core/commands.ts`
+- `src/app/core/commands.test.ts`
+- `src/app/extensions/registry.test.ts`
+- `src/app/extensions/settings.test.ts`

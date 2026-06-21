@@ -65,6 +65,8 @@ export type SmartWidgetEvent = {
   appUrl?: string
   permissions?: string[]
   originHint?: string
+  version?: string
+  changelog?: string
   slot?: WidgetSlotConfig
 }
 

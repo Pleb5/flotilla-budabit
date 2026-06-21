@@ -16,11 +16,7 @@ const makeWidgetEvent = (slotTag?: string[]) => ({
   content: "Test Widget",
   pubkey: "pubkey",
   created_at: 1,
-  tags: [
-    ["d", "test-widget"],
-    ["l", "basic"],
-    ...(slotTag ? [slotTag] : []),
-  ],
+  tags: [["d", "test-widget"], ["l", "basic"], ...(slotTag ? [slotTag] : [])],
 })
 
 afterEach(() => {
@@ -105,6 +101,16 @@ describe("extension registry no-entrypoint runtime", () => {
       type: "chat-message-actions",
       label: "Test Widget",
     })
+  })
+
+  it("parses optional smart widget release metadata", () => {
+    const widget = parseSmartWidget({
+      ...makeWidgetEvent(),
+      tags: [...makeWidgetEvent().tags, ["version", "1.2.3"], ["changelog", "Bug fixes"]],
+    })
+
+    expect(widget.version).toBe("1.2.3")
+    expect(widget.changelog).toBe("Bug fixes")
   })
 
   it("ignores unsupported legacy colon smart widget slots", () => {
