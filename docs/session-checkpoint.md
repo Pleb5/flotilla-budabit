@@ -14,7 +14,7 @@
 
 ## Current Phase
 
-- Phase 4: Regression Sweep And Completion
+- Complete
 
 ## Phase Exit Criteria
 
@@ -55,6 +55,16 @@
 - Publish dry-run and publish details preview identifier, release metadata, app URL, and relay targets.
 - Template README/quickstart/manifest docs and scaffold defaults describe the Blossom-backed same-`d` release workflow.
 - Phase 3 template commit pushed: `48c454d feat: add widget release metadata`.
+- Phase 3 root commit pushed: `d5715380 feat: update widget release template`.
+- Phase 4: Regression Sweep And Completion.
+- Evidence: searched root docs/src and template docs/src for stale auto-update, identifier, update, TODO, version, and changelog contradictions; no blockers found.
+- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts` passed with 55 tests.
+- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
+- Evidence: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts` passed with 23 tests.
+- Evidence: `pnpm --filter budabit-sdk typecheck` passed.
+- Evidence: `pnpm --filter @budabit/ext-manifest typecheck` passed.
+- Evidence: `pnpm --filter create-budabit-widget typecheck` passed.
+- Final workflow is verified end-to-end: installed widget updates are detected and manually applied; relay hints are preserved; template release flow supports stable identifiers, release metadata, and Blossom-backed update docs.
 
 ## Decisions
 
@@ -72,12 +82,14 @@
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
 - Phase 3 nested template commit is pushed; root submodule pointer is updated in this phase transition.
+- Phase 3 root commit is pushed.
+- Phase 4 final verification passed and this checkpoint is complete.
 - Existing NIP-89 update UX remains intact.
 - Smart Widget installed update UI exists for non-default, manually installed widgets; community defaults remain distinguished as defaults.
 
 ## Next Action
 
-- Start Phase 4 by searching update helper usage and stale TODO/doc contradictions, then run final focused root/template verification.
+- Final response.
 
 ## Verification
 
@@ -89,12 +101,18 @@
 - Phase 3 SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
 - Phase 3 manifest typecheck passed: `pnpm --filter @budabit/ext-manifest typecheck`.
 - Phase 3 scaffold typecheck passed: `pnpm --filter create-budabit-widget typecheck`.
+- Phase 4 final root focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
+- Phase 4 final root project check passed: `pnpm check`.
+- Phase 4 final template generator test passed: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts`.
+- Phase 4 final SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
+- Phase 4 final manifest typecheck passed: `pnpm --filter @budabit/ext-manifest typecheck`.
+- Phase 4 final scaffold typecheck passed: `pnpm --filter create-budabit-widget typecheck`.
 
 ## Risks Or Blockers
 
 - Template repo was committed and pushed before updating the root submodule pointer.
 - Widget update checks need useful relay hints; Phase 1 preserves manual naddr relays and falls back to existing Smart Widget/indexer relays.
-- No blocker yet.
+- No blocker.
 
 ## Files
 
