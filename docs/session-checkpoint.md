@@ -7,105 +7,83 @@
 
 ## Goal
 
-- Prevent Smart Widget identity collisions by replacing bare `d` identifier usage with canonical widget line IDs for runtime, settings, discovery, updates, and bridge storage.
-- Preserve legacy installed widgets and legacy bridge storage reads where practical.
-- Keep widget line semantics as publisher pubkey + kind `30033` + same `d` identifier.
+- Add true inline community home Smart Widget iframes in BudaBit.
+- Provide generic host-computed `communityContext` to widgets with section-aware write target capability data.
+- Add a dynamic community target query bridge action that maps logical targets to renamed per-community sections before constructing filters.
+- Update `flotilla-extension-template` SDK/docs for the context/query API.
+- Create a separate local featured calendar widget repo at `/home/johnd/Work/bubdabit-calendar-widget`; the user will push it later.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Flotilla Extension Template SDK And Docs
 
 ## Phase Exit Criteria
 
-- Tests cover duplicate publisher widgets with same `d` through install/discovery/update/storage-critical paths.
-- Developer-facing docs or comments explain widget line ID versus `d` identifier and storage namespace compatibility.
-- Final focused tests and `pnpm check` pass.
-- Checkpoint says `Current Phase: Complete` before final commit/push.
+- SDK types include `communityContext`, logical community write targets, and `community:queryTargetEvents` request/response types.
+- Template docs explain inline home slots, generic community context, dynamic section-aware target querying, and write-access-only configuration gating.
+- Template sample code demonstrates reading `communityContext` without relying on calendar-specific host fields.
+- Template tests/build pass.
+- The nested template repo is committed and pushed; the root repo records the updated submodule pointer if it changes.
 
 ## Completed With Evidence
 
-- Previous Smart Widget publish/discover/update workflow completed and pushed through root commit `686e6284 test: cover widget product workflow` and template commit `43243f9 feat: add widget fallback app URLs`.
-- Root branch `dev` tracks `origin/dev` and was clean at this workflow start.
-- Review found widget runtime/settings/storage currently conflate `widget.identifier` (`d` tag) with host identity, risking collisions for dash-based identifiers reused by different publishers.
-- Phase 1 added `getWidgetLineId` to compute `30033:<pubkey>:<identifier>` with a legacy bare identifier fallback.
-- Phase 1 registry now stores and loads widgets by canonical widget line ID, while retaining bare-identifier lookup/unregister fallback until settings migration lands.
-- Phase 1 discovery now dedupes widgets by canonical widget line ID instead of bare `d` identifier.
-- Phase 1 verification passed: `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
+- Existing stale widget identity/storage workflow in this file was superseded by the user request to create and execute the featured calendar widget workflow.
+- Root repo `/home/johnd/Work/budabit` started clean on branch `dev` tracking `origin/dev`.
+- Template submodule `/home/johnd/Work/budabit/packages/flotilla-extension-template` started clean on branch `main` tracking `origin/main`.
+- Phase 1 added `CommunityWidgetContext`, write-target context types, and community target query request/response types in `src/app/extensions/types.ts`.
+- Phase 1 added `src/app/extensions/community-context.ts` to build generic community context from active community definitions, renamed sections, profile lists, report state, relays, and current user.
+- Phase 1 added dynamic `makeCommunityTargetQueryPlan` logic that maps logical targets such as `calendar` to current community target sections/writers before producing targeting/original filters.
+- Phase 1 added `community:queryTargetEvents` bridge handling in `src/app/extensions/bridge.ts`, gated by widget permission but not by viewer write access.
+- Phase 1 moved iframe lifecycle and `widget:init` payload creation into shared `src/app/components/WidgetFrame.svelte`; init payload includes top-level `communityContext` when provided.
+- Phase 1 updated `CommunityHomeWidgetSlot.svelte` to render enabled home-slot widgets as inline `WidgetFrame` iframes.
+- Phase 1 preserved modal/action slot behavior and updated `CommunityWidgetSlotLaunchers.svelte` to pass standard `communityContext` into modal-launched widgets.
+- Phase 1 tests cover renamed section mapping, calendar target query filter construction, and bridge community target query behavior.
+- Phase 1 verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
 - Phase 1 verification passed: `pnpm check`.
-- Phase 2 settings normalization now migrates installed widget maps, enabled IDs, disabled default IDs, widget display config, and widget install sources from legacy bare identifiers to canonical widget line IDs when widget pubkey + identifier are available.
-- Phase 2 default widgets, settings UI installed lists, update-check maps, community curated widgets, community slot launchers, prompt checks, primary nav links, and `/widgets` route selection now use canonical widget line IDs for identity while preserving `SmartWidgetEvent.identifier` as raw `d` display data.
-- Phase 2 widget install, uninstall cleanup, refresh, and update-check command paths now store and address widgets by canonical widget line IDs.
-- Phase 2 tests cover settings migration, same-`d` widgets from different publishers, command install/update/refresh canonical keys, and community slot duplicate-identifier selection.
-- Phase 2 verification passed: `pnpm vitest run src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts`.
-- Phase 2 verification passed: `pnpm check`.
-- Phase 3 bridge storage writes now use encoded `budabit:ext:v2:` keys for extension IDs, widget line IDs, repo addresses, and caller storage keys.
-- Phase 3 bridge storage reads fall back to legacy `flotilla:ext:` keys, including legacy bare widget identifier prefixes for canonical widget bridge IDs.
-- Phase 3 `storage:keys` reports decoded v2 keys plus legacy fallback keys without duplicates, and storage removal removes v2 plus matching legacy fallback entries to avoid resurrecting deleted data.
-- Phase 3 modal-launched widgets now pass canonical widget line IDs as bridge `extensionId` and runtime/storage IDs.
-- Phase 3 tests cover v2 writes, decoded key listing, legacy global and repo-scoped fallback, encoded repo-scoped keys, bare widget legacy fallback, and same-`d` duplicate publisher widget storage isolation.
-- Phase 3 verification passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
-- Phase 3 verification passed: `pnpm check`.
-- Phase 4 added maintainer comments documenting widget line ID versus raw widget `d` identifiers and v2 bridge storage writes with legacy read compatibility.
-- Phase 4 final focused verification passed: `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/bridge.test.ts`.
-- Phase 4 final verification passed: `pnpm check`.
 
 ## Decisions
 
-- Keep `SmartWidgetEvent.identifier` as the raw Nostr `d` tag.
-- Use widget line identity for host/runtime/settings/storage identity: publisher pubkey + kind `30033` + `d` identifier.
-- If widget pubkey is missing, retain legacy bare identifier fallback rather than generating unstable identity.
-- New bridge storage writes should use a versioned BudaBit prefix; legacy `flotilla:ext:` storage should be read-compatible only.
-- Commit and push every verified phase before continuing.
+- Use generic community context rather than calendar-specific host fields such as `canCreateCalendarEvents`.
+- Widgets derive calendar configuration permission from logical write targets `calendar` and `calendarDate`.
+- Visibility is not gated by calendar grant. Only configuration controls are gated.
+- Community section names are dynamic per community; host query APIs must map logical targets to current community sections before querying.
+- `community:queryTargetEvents` is a privileged bridge action requiring an explicit widget `permission` tag.
+- The featured calendar widget belongs in `/home/johnd/Work/bubdabit-calendar-widget` as a separate local repo. Do not push it; the user will push later.
+- Commit and push every verified BudaBit/root phase before continuing.
 
 ## Current State
 
-- `src/app/extensions/registry.ts` registers widgets under canonical widget line IDs and supports bare identifier fallback lookup during migration.
-- `src/app/extensions/settings.ts` normalizes installed widget maps and widget-scoped settings to canonical widget line IDs, retaining bare identifier fallback for widgets missing pubkey metadata.
-- `src/app/core/commands.ts` installs/checks/refreshes widgets by canonical widget line ID.
-- Settings and route/community UI paths use canonical widget line IDs for installed/default/enabled/update maps and Svelte keys.
-- Smart widget discovery and community curation dedupe by canonical widget line ID.
-- `src/app/extensions/bridge.ts` writes encoded v2 storage keys and keeps legacy `flotilla:ext:` read fallback for transition.
-- `src/app/components/WidgetModal.svelte` now uses canonical widget line IDs for modal bridge runtime/storage identity.
+- Phase 1 implementation and verification are complete in the root repo, but the Phase 1 commit/push transition has not yet been performed.
+- The checkpoint has been advanced to Phase 2 in preparation for the Phase 1 commit.
+- `packages/flotilla-extension-template` is not modified yet for this workflow.
 
 ## Next Action
 
-- Final response.
+- Commit and push Phase 1 root changes, reread this checkpoint, then start Phase 2 by updating template SDK types/docs/sample code for `communityContext` and `community:queryTargetEvents`.
 
 ## Verification
 
-- `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`
-- `pnpm check`
-- `pnpm vitest run src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts`
-- `pnpm check`
-- `pnpm vitest run src/app/extensions/bridge.test.ts`
-- `pnpm check`
-- `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/bridge.test.ts`
+- `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
 - `pnpm check`
 
 ## Risks Or Blockers
 
-- None known.
+- Inline iframe height is currently host-controlled with a fixed minimum; richer widgets may later need a resize protocol.
+- Template SDK/docs must match the Phase 1 host payload and bridge request names exactly.
+- Widget repo push is intentionally skipped by user instruction; create a local commit for durability instead.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
 - `src/app/extensions/types.ts`
-- `src/app/extensions/registry.ts`
-- `src/app/extensions/settings.ts`
+- `src/app/extensions/community-context.ts`
+- `src/app/extensions/community-context.test.ts`
 - `src/app/extensions/bridge.ts`
-- `src/app/core/commands.ts`
-- `src/routes/settings/extensions/+page.svelte`
-- `src/app/extensions/settings.test.ts`
-- `src/app/core/commands.test.ts`
-- `src/app/extensions/community-widget-slots.ts`
-- `src/app/extensions/community-widget-slots.test.ts`
-- `src/app/extensions/community-curation.ts`
-- `src/app/components/PrimaryNav.svelte`
-- `src/app/components/community/CommunityExtensionsPrompt.svelte`
+- `src/app/extensions/bridge.test.ts`
+- `src/app/components/WidgetFrame.svelte`
+- `src/app/components/WidgetModal.svelte`
 - `src/app/components/community/CommunityHomeWidgetSlot.svelte`
 - `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
-- `src/routes/widgets/+page.svelte`
-- `src/app/extensions/bridge.test.ts`
-- `src/app/components/WidgetModal.svelte`
-- `src/app/extensions/widget-identity.ts`
+- `packages/flotilla-extension-template`
+- `/home/johnd/Work/bubdabit-calendar-widget`

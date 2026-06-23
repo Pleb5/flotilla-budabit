@@ -1,15 +1,33 @@
 // @vitest-environment jsdom
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
+import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  PROFILE_LIST_KIND,
+  TARGETED_PUBLICATION_KIND,
+  parseCommunityDefinition,
+} from "@app/core/community"
+import {
+  makeAddressablePublicationRef,
+  makeTargetedPublicationForCommunity,
+} from "@app/core/community-targeting"
 
 const mocks = vi.hoisted(() => {
-  const createStore = <T>(initial: T) => ({
-    get: vi.fn(() => initial),
-    subscribe: vi.fn((run: (value: T) => void) => {
-      run(initial)
-      return () => {}
-    }),
-  })
+  const createStore = <T>(initial: T) => {
+    let value = initial
+
+    return {
+      get: vi.fn(() => value),
+      set: vi.fn((next: T) => {
+        value = next
+      }),
+      subscribe: vi.fn((run: (value: T) => void) => {
+        run(value)
+        return () => {}
+      }),
+    }
+  }
 
   return {
     publishThunk: vi.fn(),
@@ -18,7 +36,75 @@ const mocks = vi.hoisted(() => {
     signer: createStore(null),
     pubkey: createStore(undefined as string | undefined),
     activeRepoClass: createStore(null),
+    activeCommunityDefinition: createStore(undefined as any),
+    activeCommunityProfileListEvents: createStore([] as any[]),
+    activeCommunityRelays: createStore([] as string[]),
+    activeCommunityReportState: createStore(undefined as any),
   }
+})
+
+const communityPubkey = "a".repeat(64)
+const calendarWriterPubkey = "b".repeat(64)
+
+const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
+  ({
+    id: "event-id",
+    pubkey: communityPubkey,
+    created_at: 1,
+    kind: 1,
+    tags: [],
+    content: "",
+    sig: "sig",
+    ...overrides,
+  }) as TrustedEvent
+
+const communityDefinition = parseCommunityDefinition(
+  makeEvent({
+    kind: COMMUNITY_DEFINITION_KIND,
+    pubkey: communityPubkey,
+    tags: [
+      ["content", "Events and meetups"],
+      ["k", String(EVENT_TIME)],
+      ["a", `${PROFILE_LIST_KIND}:${calendarWriterPubkey}:Events and meetups`],
+    ],
+  }),
+)!
+
+const calendarProfileList = makeEvent({
+  kind: PROFILE_LIST_KIND,
+  pubkey: calendarWriterPubkey,
+  tags: [
+    ["d", "Events and meetups"],
+    ["p", calendarWriterPubkey],
+  ],
+})
+
+const calendarTargetingEvent = makeEvent({
+  id: "target-1",
+  pubkey: calendarWriterPubkey,
+  kind: TARGETED_PUBLICATION_KIND,
+  tags: makeTargetedPublicationForCommunity({
+    targetingId: "target-1",
+    originalKind: EVENT_TIME,
+    originalRef: makeAddressablePublicationRef({
+      kind: EVENT_TIME,
+      pubkey: calendarWriterPubkey,
+      identifier: "event-1",
+      relay: "wss://relay.example.com/",
+    }),
+    communityPubkey,
+    communityRelay: "wss://relay.example.com/",
+  }).tags,
+})
+
+const calendarEvent = makeEvent({
+  id: "calendar-event-1",
+  pubkey: calendarWriterPubkey,
+  kind: EVENT_TIME,
+  tags: [
+    ["d", "event-1"],
+    ["title", "Community meetup"],
+  ],
 })
 
 vi.mock("@welshman/app", () => ({
@@ -29,6 +115,13 @@ vi.mock("@welshman/app", () => ({
 
 vi.mock("@app/core/git-state", () => ({
   activeRepoClass: mocks.activeRepoClass,
+}))
+
+vi.mock("@app/core/community-state", () => ({
+  activeCommunityDefinition: mocks.activeCommunityDefinition,
+  activeCommunityProfileListEvents: mocks.activeCommunityProfileListEvents,
+  activeCommunityRelays: mocks.activeCommunityRelays,
+  activeCommunityReportState: mocks.activeCommunityReportState,
 }))
 
 vi.mock("@welshman/net", () => ({
@@ -119,6 +212,12 @@ beforeEach(() => {
   localStorage.clear()
   mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
   mocks.load.mockResolvedValue(undefined)
+  mocks.pubkey.set(undefined)
+  mocks.activeRepoClass.set(null)
+  mocks.activeCommunityDefinition.set(undefined)
+  mocks.activeCommunityProfileListEvents.set([])
+  mocks.activeCommunityRelays.set([])
+  mocks.activeCommunityReportState.set(undefined)
 })
 
 afterEach(() => {
@@ -362,6 +461,67 @@ describe("ExtensionBridge", () => {
     } as any)
 
     await expect(requestPromise).resolves.toEqual({status: "ok"})
+  })
+
+  it("queries community target events through active section-aware target mappings", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+      const firstKind = filters?.[0]?.kinds?.[0]
+
+      if (firstKind === TARGETED_PUBLICATION_KIND) {
+        onEvent?.(calendarTargetingEvent)
+      } else if (firstKind === EVENT_TIME) {
+        onEvent?.(calendarEvent)
+      }
+    })
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:queryTargetEvents"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryTargetEvents", {
+        targetIds: ["calendar"],
+        limit: 5,
+      }),
+    ).resolves.toEqual({
+      status: "ok",
+      events: [calendarEvent],
+      relays: ["wss://relay.example.com/"],
+      targetIds: ["calendar"],
+    })
+    expect(mocks.load).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        filters: [
+          expect.objectContaining({
+            kinds: [TARGETED_PUBLICATION_KIND],
+            "#p": [communityPubkey],
+            "#k": [String(EVENT_TIME)],
+          }),
+        ],
+      }),
+    )
+    expect(mocks.load).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        filters: [
+          {
+            kinds: [EVENT_TIME],
+            authors: [calendarWriterPubkey],
+            "#d": ["event-1"],
+            limit: 5,
+          },
+        ],
+      }),
+    )
   })
 
   it("validates nostr query payloads and deduplicates returned events", async () => {

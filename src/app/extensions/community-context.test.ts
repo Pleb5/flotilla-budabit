@@ -1,0 +1,131 @@
+import {describe, expect, it} from "vitest"
+import {EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  PROFILE_LIST_KIND,
+  TARGETED_PUBLICATION_KIND,
+  parseCommunityDefinition,
+} from "@app/core/community"
+import {
+  makeAddressablePublicationRef,
+  makeTargetedPublicationForCommunity,
+} from "@app/core/community-targeting"
+import {makeCommunityTargetQueryPlan, makeCommunityWidgetContext} from "./community-context"
+
+const communityPubkey = "a".repeat(64)
+const calendarWriterPubkey = "b".repeat(64)
+const outsiderPubkey = "c".repeat(64)
+
+const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
+  ({
+    id: "event-id",
+    pubkey: communityPubkey,
+    created_at: 1,
+    kind: 1,
+    tags: [],
+    content: "",
+    sig: "sig",
+    ...overrides,
+  }) as TrustedEvent
+
+const definition = parseCommunityDefinition(
+  makeEvent({
+    kind: COMMUNITY_DEFINITION_KIND,
+    pubkey: communityPubkey,
+    tags: [
+      ["content", "Events and meetups"],
+      ["k", String(EVENT_TIME)],
+      ["k", String(EVENT_DATE)],
+      ["a", `${PROFILE_LIST_KIND}:${calendarWriterPubkey}:Events and meetups`],
+    ],
+  }),
+)!
+
+const calendarProfileList = makeEvent({
+  kind: PROFILE_LIST_KIND,
+  pubkey: calendarWriterPubkey,
+  tags: [
+    ["d", "Events and meetups"],
+    ["p", calendarWriterPubkey],
+  ],
+})
+
+const makeCalendarTargetingEvent = ({
+  id,
+  pubkey,
+  identifier,
+}: {
+  id: string
+  pubkey: string
+  identifier: string
+}) =>
+  makeEvent({
+    id,
+    pubkey,
+    kind: TARGETED_PUBLICATION_KIND,
+    tags: makeTargetedPublicationForCommunity({
+      targetingId: id,
+      originalKind: EVENT_TIME,
+      originalRef: makeAddressablePublicationRef({
+        kind: EVENT_TIME,
+        pubkey,
+        identifier,
+        relay: "wss://relay.example.com/",
+      }),
+      communityPubkey,
+      communityRelay: "wss://relay.example.com/",
+    }).tags,
+  })
+
+describe("community widget context", () => {
+  it("maps logical write targets to renamed community sections", () => {
+    const context = makeCommunityWidgetContext({
+      definition,
+      profileListEvents: [calendarProfileList],
+      userPubkey: calendarWriterPubkey,
+      relays: ["wss://relay.example.com/"],
+      relayHints: ["wss://relay.example.com/"],
+    })
+
+    expect(context.sections).toContainEqual({
+      name: "Events and meetups",
+      kinds: [{kind: EVENT_TIME}, {kind: EVENT_DATE}],
+    })
+    expect(context.writeTargets.calendar.sectionNames).toEqual(["Events and meetups"])
+    expect(context.writeTargets.calendar.writableSectionNames).toEqual(["Events and meetups"])
+    expect(context.writeTargets.calendar.canWrite).toBe(true)
+    expect(context.writeTargets.calendarDate.sectionNames).toEqual(["Events and meetups"])
+    expect(context.writeTargets.calendarDate.canWrite).toBe(true)
+  })
+
+  it("builds calendar queries from logical targets and authorized writers", () => {
+    const authorizedTargetingEvent = makeCalendarTargetingEvent({
+      id: "target-1",
+      pubkey: calendarWriterPubkey,
+      identifier: "event-1",
+    })
+    const unauthorizedTargetingEvent = makeCalendarTargetingEvent({
+      id: "target-2",
+      pubkey: outsiderPubkey,
+      identifier: "event-2",
+    })
+    const plan = makeCommunityTargetQueryPlan({
+      definition,
+      profileListEvents: [calendarProfileList],
+      targetIds: ["calendar"],
+      targetingEvents: [authorizedTargetingEvent, unauthorizedTargetingEvent],
+      limit: 5,
+    })
+
+    expect(plan.targetIds).toEqual(["calendar"])
+    expect(plan.targetKinds).toEqual([EVENT_TIME])
+    expect(plan.targetingFilter).toMatchObject({
+      kinds: [TARGETED_PUBLICATION_KIND],
+      "#p": [communityPubkey],
+      "#k": [String(EVENT_TIME)],
+    })
+    expect(plan.originalFilters).toEqual([
+      {kinds: [EVENT_TIME], authors: [calendarWriterPubkey], "#d": ["event-1"], limit: 5},
+    ])
+  })
+})

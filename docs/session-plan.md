@@ -2,25 +2,27 @@
 
 ## Objective
 
-- Prevent Smart Widget identity collisions caused by using only the widget `d` identifier as the installed/runtime/storage ID.
-- Use canonical widget line identity, publisher pubkey + kind `30033` + `d` identifier, for runtime, settings, discovery, updates, and bridge storage identity.
-- Preserve `SmartWidgetEvent.identifier` as the raw Nostr `d` tag and preserve legacy behavior where widgets lack pubkey metadata.
-- Migrate existing settings and bridge storage reads where practical so existing installs and widget data keep working.
-- Add regression coverage for duplicate dash identifiers from different publishers, settings migration, and storage fallback.
+- Add true inline community home Smart Widget iframes for BudaBit community home slots.
+- Provide a generic, host-computed `communityContext` to widgets so extensions can use community identity, relays, renamed content sections, and write capabilities without reimplementing BudaBit trust/grant logic.
+- Add a community-aware bridge query that maps logical write targets to the current community's actual sections before constructing event filters, so section renames and per-community definitions work correctly.
+- Update `flotilla-extension-template` SDK/docs/template so widget developers can consume the standard community context and query API end to end.
+- Create a separate local widget repository at `~/Work/bubdabit-calendar-widget` for a featured calendar event widget based on the template. The user will push that repository later.
 
 ## Constraints
 
 - Current repository state is authoritative over this plan.
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
-- Keep update application manual; do not auto-update installed widgets.
-- Treat the same publisher pubkey plus kind `30033` plus same `d` identifier as one widget line.
-- Do not use Nostr event `id` as installed widget identity because it changes every release.
-- If widget `pubkey` is missing, retain legacy bare identifier fallback rather than inventing an unstable identity.
-- New bridge storage writes should use a versioned BudaBit prefix; legacy `flotilla:ext:` storage should be read-compatible only.
-- Commit and push each verified phase before starting the next phase.
+- Do not restrict featured-event visibility by calendar write grant; restrict only configuration controls.
+- Community section names can be renamed per community. Host context and query actions must expose target-to-section mappings and construct filters from the active community definition.
+- Keep Budabit host APIs generic; avoid calendar-specific fields such as `canCreateCalendarEvents` in host payloads.
+- Calendar-specific behavior belongs in the calendar widget or SDK helpers by interpreting generic write targets such as `calendar` and `calendarDate`.
+- Keep changes minimal and compatible with existing modal/action widget behavior.
+- Commit and push each verified BudaBit/root phase before starting the next phase.
+- Commit and push the nested `packages/flotilla-extension-template` phase before updating the root submodule pointer.
+- For `~/Work/bubdabit-calendar-widget`, create a local git repo and local commit for durability, but do not push because the user explicitly said they will push it later.
 - Stage only files intentionally changed for the current phase.
 
-## Phase 1: Identity Foundation And Registry
+## Phase 1: Budabit Host Inline Community Widget API
 
 ### Phase Startup
 
@@ -31,27 +33,32 @@
 
 ### Goal
 
-- Add canonical widget line identity helpers and apply them to registry/discovery/update-adjacent runtime identity without persisted settings migration yet.
+- Add BudaBit host primitives for inline home widgets, generic community context, and dynamic community-target event queries.
 
 ### Exit Criteria
 
-- A single exported helper computes canonical widget line IDs as `30033:<pubkey>:<identifier>` when pubkey and identifier exist, with a legacy fallback for missing pubkey.
-- Registry stores and loads widgets by canonical widget line ID, allowing two publishers to register widgets with the same `d` identifier.
-- Discovery dedupes widgets by canonical widget line ID rather than bare `identifier`.
-- Update same-line logic and filters remain publisher + identifier based.
-- Focused tests cover canonical ID computation and duplicate `d` widgets from different publishers where practical.
+- Community home slots render enabled home-slot widgets as inline iframes instead of only launcher cards.
+- Existing action slots and modal widgets continue using modal launchers.
+- `widget:init` includes generic `communityContext` when a community context is available.
+- `communityContext.writeTargets` is computed from `COMMUNITY_WRITE_TARGETS`, active community definition sections, profile lists, report state, and current user, including renamed section names and writable section names.
+- A bridge request such as `community:queryTargetEvents` maps requested logical target IDs to the active community's actual sections/writers before constructing relay filters.
+- The community query does not require write access; write access only affects configuration UI through `communityContext.writeTargets`.
+- Focused tests cover context write-target mapping and bridge community query behavior.
 
 ### Steps
 
-- Inspect `src/app/extensions/types.ts`, `registry.ts`, `widget-updates.ts`, `settings.ts`, and command tests.
-- Add a small widget identity helper module or exported helper.
-- Update widget registry IDs and discovery dedupe to use canonical widget line IDs.
+- Inspect `src/app/components/community/CommunityHomeWidgetSlot.svelte`, `src/app/components/WidgetModal.svelte`, `src/app/extensions/bridge.ts`, `src/app/extensions/types.ts`, and community permission/feed helpers.
+- Add a generic community context builder module with exported types/helpers.
+- Add a reusable `WidgetFrame` component shared by inline home slots and modal widgets.
+- Update `CommunityHomeWidgetSlot.svelte` to render inline `WidgetFrame` instances.
+- Update modal/action slot paths to pass standard community context where available.
+- Add `community:queryTargetEvents` bridge handler with dynamic target-to-section/writer mapping.
 - Add focused tests.
 
 ### Verification
 
-- Run focused extension registry/update/command tests touched by the phase.
-- Run `pnpm check` if Svelte/types changed.
+- Run focused tests for community context and bridge behavior.
+- Run `pnpm check`.
 
 ### Mandatory Closeout
 
@@ -77,7 +84,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Settings And UI Key Migration
+## Phase 2: Flotilla Extension Template SDK And Docs
 
 ### Phase Startup
 
@@ -88,33 +95,34 @@
 
 ### Goal
 
-- Migrate installed widget settings, enabled IDs, display configs, install sources, default widgets, update maps, and UI keys from bare identifiers to canonical widget line IDs.
+- Update `packages/flotilla-extension-template` so generated widgets and SDK types understand community context, inline home slots, and community-target queries.
 
 ### Exit Criteria
 
-- New widget installs persist under canonical widget line IDs.
-- Existing settings keyed by bare identifiers migrate to canonical IDs when stored widgets include pubkey + identifier.
-- Enabled IDs, disabled default IDs, widget display config, widget install sources, and update state use canonical widget line IDs.
-- Settings UI can display and operate on two installed widgets with the same `d` identifier from different publishers.
-- Focused settings/UI helper tests cover migration and duplicate identifiers.
+- SDK types include `communityContext`, logical community write targets, and `community:queryTargetEvents` request/response types.
+- Template docs explain inline home slots, generic community context, dynamic section-aware target querying, and write-access-only configuration gating.
+- Template sample code demonstrates reading `communityContext` without relying on calendar-specific host fields.
+- Template tests/build pass.
+- The nested template repo is committed and pushed; the root repo records the updated submodule pointer if it changes.
 
 ### Steps
 
-- Inspect `src/app/extensions/settings.ts`, `src/app/core/commands.ts`, `src/routes/settings/extensions/+page.svelte`, and related tests.
-- Add migration helpers for widget-keyed records.
-- Update install/uninstall/enable/disable/update paths to use canonical widget line IDs.
-- Update UI `each` keys and local maps to use canonical IDs.
-- Add focused tests for migration and duplicate publisher IDs.
+- Inspect template SDK types, bridge action map, docs, and sample app.
+- Add community context and query action types to SDK/shared exports where appropriate.
+- Update template docs and sample app with generic community context usage.
+- Run template verification.
+- Commit and push inside `packages/flotilla-extension-template`.
+- Commit and push the root submodule pointer and checkpoint advancement.
 
 ### Verification
 
-- Run focused settings, command, widget update, and route-adjacent tests.
-- Run `pnpm check`.
+- Run relevant template package tests/typecheck/build.
+- Run root status checks for the submodule pointer.
 
 ### Mandatory Closeout
 
 - Verify every exit criterion for this phase.
-- Update the checkpoint before committing:
+- Update the checkpoint before committing root closeout:
   - Move this phase into `Completed With Evidence`.
   - Record verification commands and results.
   - Record changed files.
@@ -122,9 +130,10 @@
   - Copy the next phase's exit criteria into `Phase Exit Criteria`.
   - Set `Next Action` to the first concrete step of the next phase.
   - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
+- Commit and push nested template changes before root submodule pointer changes.
+- Commit and push root checkpoint/submodule pointer changes. This is a phase transition, not a stopping point.
 - Read the session checkpoint again to verify status and next action.
-- Do not consider the whole plan complete unless the session checkpoint says so.
+- Do not consider the phase complete until verification, template commit/push, root checkpoint update, root commit/push, and checkpoint reread succeeded.
 
 ### Continue
 
@@ -133,7 +142,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: Bridge Storage Namespace Migration
+## Phase 3: Featured Calendar Widget Repository
 
 ### Phase Startup
 
@@ -144,98 +153,49 @@
 
 ### Goal
 
-- Replace legacy bridge storage key construction with canonical, encoded, versioned BudaBit storage keys while preserving legacy read compatibility.
+- Create `~/Work/bubdabit-calendar-widget` as a separate local repository implementing the featured calendar event widget.
 
 ### Exit Criteria
 
-- New bridge storage writes use a versioned BudaBit prefix such as `budabit:ext:v2:` and encoded canonical extension/widget IDs.
-- Repo-scoped storage uses an encoded repo address component rather than raw `repo:{pubkey}:{name}` delimiters.
-- `storage:get` falls back to legacy `flotilla:ext:` keys when no v2 value exists.
-- `storage:keys` can report v2 keys and legacy keys during transition without duplicates.
-- `storage:set`/`storage:remove` write/remove v2 keys and do not create new legacy keys.
-- Focused bridge tests cover v2 keys, legacy fallback, repo-scoped keys, and duplicate widget identifiers from different publishers.
+- The widget repo exists at `/home/johnd/Work/bubdabit-calendar-widget` and is initialized as a git repository.
+- The widget is based on the template structure and builds independently.
+- The widget declares the home community slots, permissions needed for community target queries and publishing configuration, and default header `Featured event`.
+- The widget reads generic `communityContext`, derives calendar configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, and never relies on a host-provided calendar-specific boolean.
+- The widget shows the selected featured event to all viewers when configured.
+- The widget restricts only configuration controls. If no selected event exists and the viewer lacks calendar-event write capability, it displays `Request access to create calendar events in order to use this plugin`.
+- The widget queries already-published community calendar events through the dynamic community query action, mapping logical targets rather than hard-coded section names.
+- The widget has a local git commit for durability. No push is attempted because the user said they will push this repo later.
 
 ### Steps
 
-- Inspect `src/app/extensions/bridge.ts` storage handlers and bridge tests.
-- Add small key builder helpers with encoded components.
-- Update storage handlers.
-- Add regression tests.
+- Create the repo directory under `/home/johnd/Work`.
+- Add package, Vite/Svelte, docs, and source files based on the template.
+- Implement bridge initialization, context handling, community event query, local/community config, selector UI, and event card rendering.
+- Generate or document widget publishing outputs.
+- Run widget verification.
+- Commit locally in the widget repo.
+- Update the root checkpoint with widget repo evidence and final status.
 
 ### Verification
 
-- Run focused bridge tests.
-- Run `pnpm check`.
+- Run widget typecheck/build/tests where available.
+- Inspect widget repo git status and recent commit.
+- Run any final focused root smoke checks needed after template/host changes.
 
 ### Mandatory Closeout
 
 - Verify every exit criterion for this phase.
-- Update the checkpoint before committing:
+- Update the checkpoint before root final closeout:
   - Move this phase into `Completed With Evidence`.
   - Record verification commands and results.
-  - Record changed files.
-  - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
-  - Copy the next phase's exit criteria into `Phase Exit Criteria`.
-  - Set `Next Action` to the first concrete step of the next phase.
-  - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
-- Read the session checkpoint again to verify status and next action.
-- Do not consider the whole plan complete unless the session checkpoint says so.
-
-### Continue
-
-- If the checkpoint says `Current Phase: Complete`, perform the final response.
-- If the checkpoint does not say `Current Phase: Complete`, immediately begin the next phase startup.
-- Do not send a final response before starting the next phase.
-- Do not treat commit/push output as completion of the command.
-
-## Phase 4: Final Regression And Documentation
-
-### Phase Startup
-
-- Read the session checkpoint.
-- Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
-- Inspect current repository state before trusting either file.
-- Restate this phase's goal and exit criteria briefly, then execute.
-
-### Goal
-
-- Close the identity/storage migration with final regression coverage and concise documentation for widget line IDs versus widget `d` identifiers.
-
-### Exit Criteria
-
-- Tests cover duplicate publisher widgets with same `d` through install/discovery/update/storage-critical paths.
-- Developer-facing docs or comments explain widget line ID versus `d` identifier and storage namespace compatibility.
-- Final focused tests and `pnpm check` pass.
-- Checkpoint says `Current Phase: Complete` before final commit/push.
-
-### Steps
-
-- Inspect coverage gaps after Phases 1-3.
-- Add minimal docs/comments where maintainers will look first.
-- Run final focused tests and full check.
-- Update checkpoint to `Complete` and commit/push final closeout.
-
-### Verification
-
-- Run focused identity/settings/bridge/update tests.
-- Run `pnpm check`.
-- Inspect final diff and status before committing.
-
-### Mandatory Closeout
-
-- Verify every exit criterion for this phase.
-- Update the checkpoint before committing:
-  - Move this phase into `Completed With Evidence`.
-  - Record verification commands and results.
-  - Record changed files.
+  - Record changed files/repo path.
   - Set `Current Phase` to `Complete`.
-  - Set `Phase Exit Criteria` to the final completion criteria.
+  - Set `Phase Exit Criteria` to final completion criteria.
   - Set `Next Action` to final response.
   - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is the final transition.
+- Commit the widget repo locally. Do not push it because the user explicitly said they will push later.
+- Commit and push root checkpoint updates if root files changed in this phase.
 - Read the session checkpoint again to verify `Current Phase: Complete`.
-- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
 - Do not consider the whole plan complete unless the session checkpoint says so.
 
 ### Continue

@@ -2,8 +2,15 @@ import {publishThunk, signer} from "@welshman/app"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
+import {
+  activeCommunityDefinition,
+  activeCommunityProfileListEvents,
+  activeCommunityRelays,
+  activeCommunityReportState,
+} from "@app/core/community-state"
+import {makeCommunityTargetQueryPlan} from "@app/extensions/community-context"
 import {get} from "svelte/store"
-import type {LoadedExtension} from "./types"
+import type {CommunityQueryTargetEventsRequest, LoadedExtension} from "./types"
 import {getRepoAddress} from "./types"
 
 export type ExtensionMessage = {
@@ -315,7 +322,8 @@ export class ExtensionBridge {
   }
 
   private isPrivileged(action: string): boolean {
-    const privileged = action.startsWith("nostr:") || action.startsWith("storage:")
+    const privileged =
+      action.startsWith("nostr:") || action.startsWith("storage:") || action.startsWith("community:")
     return privileged
   }
 
@@ -560,6 +568,127 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
     return {status: "ok", events}
   } catch (err: any) {
     console.error("Error in nostr:query bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+const normalizeCommunityTargetQueryPayload = (
+  payload: unknown,
+): Required<Pick<CommunityQueryTargetEventsRequest, "targetIds">> &
+  Pick<CommunityQueryTargetEventsRequest, "limit" | "since" | "until"> => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid payload: expected { targetIds }")
+  }
+
+  const targetIds = (payload as any).targetIds
+  if (!Array.isArray(targetIds)) {
+    throw new Error("Invalid targetIds: expected string[]")
+  }
+
+  const normalizedTargetIds = targetIds.filter(
+    (targetId): targetId is string => typeof targetId === "string" && targetId.length > 0,
+  )
+  if (normalizedTargetIds.length === 0) {
+    throw new Error("Invalid targetIds: expected non-empty string[]")
+  }
+
+  const limitRaw = (payload as any).limit
+  const sinceRaw = (payload as any).since
+  const untilRaw = (payload as any).until
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.floor(limitRaw), MAX_NOSTR_QUERY_LIMIT)
+      : 100
+  const since =
+    typeof sinceRaw === "number" && Number.isFinite(sinceRaw) && sinceRaw > 0
+      ? Math.floor(sinceRaw)
+      : undefined
+  const until =
+    typeof untilRaw === "number" && Number.isFinite(untilRaw) && untilRaw > 0
+      ? Math.floor(untilRaw)
+      : undefined
+
+  return {targetIds: normalizedTargetIds, limit, since, until}
+}
+
+const loadBridgeEvents = async ({
+  relays,
+  filters,
+  timeoutMs = 5000,
+}: {
+  relays: string[]
+  filters: Record<string, unknown>[]
+  timeoutMs?: number
+}) => {
+  const events: any[] = []
+  const seenIds = new Set<string>()
+
+  if (relays.length === 0 || filters.length === 0) return events
+
+  await Promise.race([
+    load({
+      relays,
+      filters: filters as any,
+      onEvent: (event: any) => {
+        if (!event?.id || seenIds.has(event.id)) return
+        seenIds.add(event.id)
+        events.push(event)
+      },
+    }).catch((error: any) => {
+      console.warn("[bridge] community query load failed", error?.message || error)
+    }),
+    new Promise(resolve => setTimeout(resolve, timeoutMs)),
+  ])
+
+  return events
+}
+
+registerBridgeHandler("community:queryTargetEvents", async (payload, ext) => {
+  if (ext) console.log(`[bridge] community:queryTargetEvents from ${ext.id}`, payload)
+  try {
+    const request = normalizeCommunityTargetQueryPayload(payload)
+    const definition = get(activeCommunityDefinition)
+    const profileListEvents = get(activeCommunityProfileListEvents)
+    const reportState = get(activeCommunityReportState)
+    const relays = get(activeCommunityRelays)
+
+    if (!definition) throw new Error("Active community definition is not available")
+    if (relays.length === 0) throw new Error("Active community relays are not available")
+
+    const initialPlan = makeCommunityTargetQueryPlan({
+      definition,
+      profileListEvents,
+      reportState,
+      targetIds: request.targetIds,
+      limit: request.limit,
+      since: request.since,
+      until: request.until,
+    })
+    if (initialPlan.targetIds.length === 0) {
+      throw new Error("No supported community target ids provided")
+    }
+
+    const targetingEvents = initialPlan.targetingFilter
+      ? await loadBridgeEvents({
+          relays,
+          filters: [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}],
+        })
+      : []
+    const plan = makeCommunityTargetQueryPlan({
+      definition,
+      profileListEvents,
+      reportState,
+      targetIds: request.targetIds,
+      targetingEvents,
+      limit: request.limit,
+      since: request.since,
+      until: request.until,
+    })
+    const events = await loadBridgeEvents({relays, filters: plan.originalFilters})
+
+    return {status: "ok", events, relays, targetIds: plan.targetIds}
+  } catch (err: any) {
+    console.error("Error in community:queryTargetEvents bridge handler:", err)
     return {error: err.message}
   }
 })

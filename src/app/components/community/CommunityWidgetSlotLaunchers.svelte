@@ -1,6 +1,16 @@
 <script lang="ts">
   import WidgetIcon from "@assets/icons/widget.svg?dataurl"
+  import {pubkey} from "@welshman/app"
   import WidgetModal from "@app/components/WidgetModal.svelte"
+  import {normalizePubkey} from "@app/core/community"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfile,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+    activeCommunityReportState,
+  } from "@app/core/community-state"
+  import {makeCommunityWidgetContext} from "@app/extensions/community-context"
   import {
     getEnabledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
@@ -54,6 +64,25 @@
   const getWidgetTitle = (widget: SmartWidgetEvent) =>
     widget.slot?.label || widget.content || widget.identifier || "Widget"
 
+  const communityContext = $derived.by(() => {
+    if (
+      !$activeCommunityDefinition ||
+      normalizePubkey($activeCommunityDefinition.pubkey) !== normalizePubkey(communityPubkey)
+    ) {
+      return undefined
+    }
+
+    return makeCommunityWidgetContext({
+      definition: $activeCommunityDefinition,
+      profile: $activeCommunityProfile,
+      profileListEvents: $activeCommunityProfileListEvents,
+      reportState: $activeCommunityReportState,
+      userPubkey: $pubkey || "",
+      relays: $activeCommunityRelays.length ? $activeCommunityRelays : relayHints,
+      relayHints,
+    })
+  })
+
   const openWidget = (widget: SmartWidgetEvent) => {
     if (!widget.appUrl) return
 
@@ -63,6 +92,7 @@
         ...context,
         slot: {type: slotType, label: widget.slot?.label},
         community: {pubkey: communityPubkey, relays: relayHints},
+        ...(communityContext ? {communityContext} : {}),
       },
     })
   }

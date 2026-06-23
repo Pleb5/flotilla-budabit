@@ -1,9 +1,16 @@
 <script lang="ts">
   import {getTagValue} from "@welshman/util"
-  import WidgetIcon from "@assets/icons/widget.svg?dataurl"
-  import Icon from "@lib/components/Icon.svelte"
-  import Button from "@lib/components/Button.svelte"
-  import WidgetModal from "@app/components/WidgetModal.svelte"
+  import {pubkey} from "@welshman/app"
+  import WidgetFrame from "@app/components/WidgetFrame.svelte"
+  import {normalizePubkey} from "@app/core/community"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfile,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+    activeCommunityReportState,
+  } from "@app/core/community-state"
+  import {makeCommunityWidgetContext} from "@app/extensions/community-context"
   import {
     getEnabledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
@@ -11,7 +18,6 @@
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent, WidgetHomeSlotType} from "@app/extensions/types"
-  import {pushModal} from "@app/util/modal"
   import {makeCommunityInputValue} from "@app/util/community-stars"
 
   type Props = {
@@ -43,9 +49,30 @@
     getTagValue("description", widget.tags) ||
     (getTagValue("title", widget.tags) ? widget.content : "")
 
-  const openWidget = (widget: SmartWidgetEvent) => {
-    if (widget.appUrl) pushModal(WidgetModal, {widget})
-  }
+  const communityContext = $derived.by(() => {
+    if (
+      !$activeCommunityDefinition ||
+      normalizePubkey($activeCommunityDefinition.pubkey) !== normalizePubkey(communityPubkey)
+    ) {
+      return undefined
+    }
+
+    return makeCommunityWidgetContext({
+      definition: $activeCommunityDefinition,
+      profile: $activeCommunityProfile,
+      profileListEvents: $activeCommunityProfileListEvents,
+      reportState: $activeCommunityReportState,
+      userPubkey: $pubkey || "",
+      relays: $activeCommunityRelays.length ? $activeCommunityRelays : relayHints,
+      relayHints,
+    })
+  })
+
+  const makeWidgetContext = (widget: SmartWidgetEvent) => ({
+    slot: {type: slotType, label: widget.slot?.label},
+    community: {pubkey: communityPubkey, relays: relayHints},
+    ...(communityContext ? {communityContext} : {}),
+  })
 
   $effect(() => {
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
@@ -83,48 +110,15 @@
     {#each slotWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
       {@const description = getWidgetDescription(widget)}
-      <section class="card2 bg-alt flex flex-col gap-3 p-4 shadow-md">
-        <div class="flex min-w-0 items-start gap-3">
-          {#if widget.iconUrl || widget.imageUrl}
-            <img
-              src={widget.iconUrl || widget.imageUrl}
-              alt=""
-              class="h-10 w-10 shrink-0 rounded object-cover" />
-          {:else}
-            <div class="center h-10 w-10 shrink-0 rounded bg-base-300">
-              <Icon icon={WidgetIcon} size={5} />
-            </div>
-          {/if}
-          <div class="min-w-0 flex-1">
-            <h2 class="break-words text-lg font-semibold">{widget.slot?.label || title}</h2>
-            {#if widget.slot?.label && widget.slot.label !== title}
-              <p class="break-words text-sm font-medium opacity-80">{title}</p>
-            {/if}
-            {#if description}
-              <p class="mt-1 whitespace-pre-wrap text-sm opacity-70">{description}</p>
-            {/if}
-          </div>
-        </div>
-
-        {#if widget.buttons.length > 0}
-          <div class="flex flex-wrap gap-2">
-            {#each widget.buttons as button (`${getWidgetLineId(widget)}:${button.index}`)}
-              {#if button.type === "app"}
-                <Button class="btn btn-primary btn-sm" onclick={() => openWidget(widget)}>
-                  {button.label}
-                </Button>
-              {:else}
-                <a
-                  href={button.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="btn btn-outline btn-sm">
-                  {button.label}
-                </a>
-              {/if}
-            {/each}
-          </div>
-        {/if}
+      <section
+        class="card2 bg-alt overflow-hidden shadow-md"
+        aria-label={widget.slot?.label || title}
+        title={description || undefined}>
+        <WidgetFrame
+          {widget}
+          context={makeWidgetContext(widget)}
+          class="w-full bg-base-100/30"
+          minHeight={220} />
       </section>
     {/each}
   </div>

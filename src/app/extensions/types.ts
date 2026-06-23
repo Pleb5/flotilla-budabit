@@ -49,6 +49,58 @@ export type WidgetSlotConfig =
       label: string
     }
 
+export type CommunityWriteTargetContext = {
+  id: string
+  kind: number
+  subtype?: string
+  sectionNames: string[]
+  writableSectionNames: string[]
+  canWrite: boolean
+}
+
+export type CommunitySectionContext = {
+  name: string
+  kinds: Array<{kind: number; subtype?: string}>
+}
+
+export type CommunityWidgetContext = {
+  version: 1
+  pubkey: string
+  ncommunity: string
+  relays: string[]
+  relayHints: string[]
+  blossomServers: string[]
+  profile?: {
+    name?: string
+    displayName?: string
+    picture?: string
+    about?: string
+  }
+  sections: CommunitySectionContext[]
+  viewer: {
+    pubkey?: string
+    isOwner: boolean
+    isBanned: boolean
+  }
+  writeTargets: Record<string, CommunityWriteTargetContext>
+}
+
+export type CommunityQueryTargetEventsRequest = {
+  targetIds: string[]
+  limit?: number
+  since?: number
+  until?: number
+}
+
+export type CommunityQueryTargetEventsResponse =
+  | {
+      status: "ok"
+      events: unknown[]
+      relays: string[]
+      targetIds: string[]
+    }
+  | {error: string}
+
 export type SmartWidgetEvent = {
   id: string
   kind: 30033
