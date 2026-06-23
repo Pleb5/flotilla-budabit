@@ -15,15 +15,24 @@ const makeWidget = (identifier: string, pubkey: string): SmartWidgetEvent => ({
 
 describe("community widget trust", () => {
   it("splits trusted author widgets from manual curated widgets", () => {
-    const trustedPubkey = "a".repeat(64)
-    const curatorPubkey = "b".repeat(64)
-    const widgets = [makeWidget("trusted", trustedPubkey), makeWidget("manual", curatorPubkey)]
+    const ownerPubkey = "a".repeat(64)
+    const moderatorPubkey = "b".repeat(64)
+    const curatorPubkey = "c".repeat(64)
+    const widgets = [
+      makeWidget("owner", ownerPubkey),
+      makeWidget("moderator", moderatorPubkey),
+      makeWidget("manual", curatorPubkey),
+    ]
 
     expect(
-      getTrustedCommunityWidgets(widgets, [trustedPubkey]).map(widget => widget.identifier),
-    ).toEqual(["trusted"])
+      getTrustedCommunityWidgets(widgets, [ownerPubkey, moderatorPubkey]).map(
+        widget => widget.identifier,
+      ),
+    ).toEqual(["owner", "moderator"])
     expect(
-      getManualCommunityWidgets(widgets, [trustedPubkey]).map(widget => widget.identifier),
+      getManualCommunityWidgets(widgets, [ownerPubkey, moderatorPubkey]).map(
+        widget => widget.identifier,
+      ),
     ).toEqual(["manual"])
   })
 })

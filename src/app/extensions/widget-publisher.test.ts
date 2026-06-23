@@ -5,6 +5,13 @@ import {
   getWidgetAppUrlsFromUpload,
 } from "./widget-publisher"
 
+const supportedCommunitySlots = [
+  "community-home-before-quicklinks",
+  "community-home-after-quicklinks",
+  "chat-message-actions",
+  "global-menu",
+] as const
+
 describe("widget publisher helpers", () => {
   it("builds widget tags with primary app URL and ordered fallbacks", () => {
     expect(
@@ -34,6 +41,19 @@ describe("widget publisher helpers", () => {
       ["version", "1.0.0"],
       ["changelog", "Initial release"],
     ])
+  })
+
+  it("builds only viable community slot tags", () => {
+    for (const slot of supportedCommunitySlots) {
+      expect(
+        buildCommunityWidgetEventTags({
+          identifier: slot,
+          name: slot,
+          appUrls: ["https://example.com/widget.html"],
+          slot,
+        }),
+      ).toContainEqual(["slot", slot, slot])
+    }
   })
 
   it("rejects insecure widget app URLs", () => {

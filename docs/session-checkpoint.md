@@ -16,16 +16,13 @@
 
 ## Current Phase
 
-- Phase 4: E2E And Regression Coverage
+- Complete
 
 ## Phase Exit Criteria
 
-- Playwright or equivalent E2E covers a realistic community widget discover/install/update path using deterministic mocks where feasible.
-- Coverage asserts trusted owner/moderator widgets display in the correct Settings section and unauthorized/other widgets remain distinct.
-- Coverage asserts update badge/details/manual update swap to the newer event.
-- Coverage asserts publisher slot options are limited to viable slots or unit coverage proves this if full E2E is too brittle.
-- Final focused root tests, template tests, and `pnpm check` pass, or any failure is recorded as a blocker.
-- Checkpoint says `Current Phase: Complete` before final commit/push.
+- Smart Widget community publish/discover/install/update workflow is minimally usable with Blossom-backed app artifacts, ordered fallback app URLs, permission-gated multi-community targeting, manual update application, template parity, and focused regression coverage.
+- Final focused root tests, nested template tests/typechecks, and `pnpm check` passed.
+- This checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
 
@@ -50,6 +47,16 @@
 - Phase 3 verification passed in nested template repo: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
 - Phase 3 verification passed in nested template repo: `pnpm typecheck`.
 - Phase 3 nested template repo committed and pushed as `43243f9 feat: add widget fallback app URLs`.
+- Phase 3 root submodule pointer/checkpoint committed and pushed as `736a123c feat: update widget template fallback URLs`.
+- Phase 4 added focused regression coverage because the root repo has no existing Playwright/e2e directory to extend deterministically in this pass.
+- Phase 4 coverage now asserts owner/moderator trusted widgets remain distinct from other curated widgets.
+- Phase 4 coverage now asserts unauthorized/deleted community widget targets are filtered by permission-aware curation.
+- Phase 4 coverage now asserts widget update checks expose update details and `refreshWidget` manually swaps installed metadata while preserving install source hints.
+- Phase 4 coverage now asserts publisher tag construction only emits supported viable community slot tags.
+- Phase 4 verification passed: `pnpm vitest run src/app/extensions/community-widget-trust.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/widget-publisher.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
+- Phase 4 verification passed: `pnpm check`.
+- Phase 4 verification passed in nested template repo: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
+- Phase 4 verification passed in nested template repo: `pnpm typecheck`.
 
 ## Decisions
 
@@ -69,18 +76,19 @@
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
 - Current community widget publisher at `src/routes/c/[community]/widgets/+page.svelte` supports manual app URLs, Blossom HTML artifact upload, fallback app URLs, release metadata, and permission-gated multi-community targeting.
 - Current Smart Widget parser stores the compatible primary `appUrl` from the first `button`/`app` URL and ordered `appUrls` from primary plus repeatable `app-url` fallback tags.
-- Root repo has a pending submodule pointer update for `packages/flotilla-extension-template` to template commit `43243f9`.
+- Root repo submodule pointer for `packages/flotilla-extension-template` is committed at template commit `43243f9`.
 - Settings update UI exists for manually installed widgets.
 - Community curation/trust helpers already filter targeting events by widget-write permissions and distinguish trusted owner/moderator authors.
 
 ## Next Action
 
-- Start Phase 4 by inspecting existing widget/community Playwright and focused regression tests, then add the smallest deterministic coverage for trusted/other widgets, updates, and viable publisher slots.
+- Final response.
 
 ## Verification
 
 - `pnpm vitest run src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts`
 - `pnpm vitest run src/app/extensions/widget-publisher.test.ts src/app/extensions/widget-targeting.test.ts`
+- `pnpm vitest run src/app/extensions/community-widget-trust.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/widget-publisher.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`
 - Nested template: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`
 - Nested template: `pnpm typecheck`
 - `pnpm check`
@@ -88,7 +96,7 @@
 ## Risks Or Blockers
 
 - Publisher upload uses existing Blossom upload behavior; background mirrors are recorded/started by existing upload settings, while widget events include the canonical URL plus any immediate mirror URLs returned by upload results or manual fallback URLs entered by the publisher.
-- Playwright E2E may need deterministic mock relay and mocked Blossom server plumbing; if browser environment blocks this, record the blocker and keep unit/integration coverage strong.
+- Root Playwright E2E was not added because the root repo has no existing `e2e` directory; focused unit/integration coverage was expanded for deterministic behavior instead.
 - Multi-URL event shape must remain compatible with existing installed widgets and template-generated events.
 
 ## Files

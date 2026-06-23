@@ -923,6 +923,50 @@ describe("commands", () => {
     expect(registryMocks.loadWidget).toHaveBeenCalledWith(newWidget)
   })
 
+  it("refreshWidget swaps to the newer event without changing install source hints", async () => {
+    const {refreshWidget} = await import("./commands")
+    const oldWidget = {
+      id: "weather-1",
+      identifier: "weather",
+      kind: 30033,
+      tags: [["d", "weather"]],
+      widgetType: "tool",
+      version: "1.0.0",
+      appUrl: "https://example.com/v1.html",
+    } as any
+    const newWidget = {
+      ...oldWidget,
+      id: "weather-2",
+      created_at: 2,
+      version: "1.1.0",
+      changelog: "Use Blossom mirror fallback.",
+      appUrl: "https://example.com/v2.html",
+      appUrls: ["https://example.com/v2.html", "https://mirror.example.com/v2.html"],
+    }
+
+    settingsMocks.isExtensionEnabled.mockReturnValue(false)
+
+    await refreshWidget("weather", newWidget)
+
+    const next = settingsMocks.update.mock.calls[0][0]({
+      installed: {nip89: {}, widget: {weather: oldWidget}, legacy: undefined},
+      widgetInstallSources: {weather: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]}},
+      widgetDisplay: {weather: {location: "modal"}},
+    })
+
+    expect(next.installed.widget.weather).toMatchObject({
+      id: "weather-2",
+      version: "1.1.0",
+      changelog: "Use Blossom mirror fallback.",
+      appUrls: ["https://example.com/v2.html", "https://mirror.example.com/v2.html"],
+    })
+    expect(next.widgetInstallSources.weather).toEqual({
+      naddr: "naddr1weather",
+      relays: ["wss://widgets.example/"],
+    })
+    expect(registryMocks.loadWidget).not.toHaveBeenCalled()
+  })
+
   it("prependParent uses explicit event relays for quoted git comments", async () => {
     const {prependParent} = await import("./commands")
     const parent = {
