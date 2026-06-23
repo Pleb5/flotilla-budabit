@@ -52,6 +52,7 @@
 - Phase 2 verification passed in the template repo: `pnpm test`.
 - Phase 2 verification passed in the template repo: `pnpm build`.
 - Phase 2 template repo commit `4eb42f8 feat: document community widget context` was pushed to `origin/main`.
+- Phase 2 root submodule pointer/checkpoint closeout was committed and pushed to `origin/dev` as root commit `40ba5e11 chore: update widget template context`.
 
 ## Decisions
 
@@ -67,11 +68,12 @@
 
 - Phase 1 root host changes are committed and pushed.
 - Phase 2 template changes are committed and pushed in the nested template repo.
-- Root repo has the updated `packages/flotilla-extension-template` submodule pointer and this checkpoint ready to commit/push as the Phase 2 root closeout.
+- Phase 2 root submodule pointer/checkpoint closeout is committed and pushed.
+- Root repo and template repo are clean at the start of Phase 3.
 
 ## Next Action
 
-- Commit and push the root submodule pointer/checkpoint closeout, reread this checkpoint, then start Phase 3 by creating `/home/johnd/Work/bubdabit-calendar-widget` as a separate local widget repo.
+- Start Phase 3 by creating `/home/johnd/Work/bubdabit-calendar-widget` as a separate local widget repo.
 
 ## Verification
 
