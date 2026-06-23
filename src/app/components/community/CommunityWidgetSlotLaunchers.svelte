@@ -6,6 +6,7 @@
     loadCachedCommunityCuratedWidgets,
   } from "@app/extensions/community-widget-slots"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent, WidgetActionSlotType} from "@app/extensions/types"
   import {pushModal} from "@app/util/modal"
   import {makeCommunityInputValue} from "@app/util/community-stars"
@@ -99,7 +100,7 @@
 
 {#if slotWidgets.length > 0}
   <div class={containerClass} data-widget-slot={slotType}>
-    {#each slotWidgets as widget (widget.identifier)}
+    {#each slotWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
       <button class={buttonClass} title={title} aria-label={title} onclick={() => openWidget(widget)}>
         {#if widget.iconUrl || widget.imageUrl}

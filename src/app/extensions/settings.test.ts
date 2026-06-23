@@ -12,6 +12,7 @@ import {
   getEffectiveEnabledExtensionIds,
   setDefaultExtensionWidgets,
 } from "./settings"
+import {getWidgetLineId} from "./widget-identity"
 
 vi.mock("@app/core/git-commands", () => ({
   postExtensionSettings: vi.fn(),
@@ -21,11 +22,15 @@ vi.mock("@app/core/git-requests", () => ({
   EXTENSION_SETTINGS_DTAG: "extensions",
 }))
 
-const makeWidget = (identifier: string, created_at = 1): SmartWidgetEvent => ({
+const makeWidget = (
+  identifier: string,
+  created_at = 1,
+  widgetPubkey = "a".repeat(64),
+): SmartWidgetEvent => ({
   id: `${identifier}-event`,
   kind: 30033,
   content: identifier,
-  pubkey: "a".repeat(64),
+  pubkey: widgetPubkey,
   created_at,
   tags: [
     ["d", identifier],
@@ -61,33 +66,37 @@ describe("effective extension settings", () => {
 
   it("shows default widgets as installed and enabled without persisting them", () => {
     const widget = makeWidget("default-widget")
+    const widgetId = getWidgetLineId(widget)
     const settings = makeSettings()
     const effective = getEffectiveExtensionSettings(settings, [widget])
 
-    expect(settings.installed.widget[widget.identifier]).toBeUndefined()
-    expect(effective.installed.widget[widget.identifier]).toBe(widget)
-    expect(effective.enabled).toContain(widget.identifier)
+    expect(settings.installed.widget[widgetId]).toBeUndefined()
+    expect(effective.installed.widget[widgetId]).toBe(widget)
+    expect(effective.enabled).toContain(widgetId)
   })
 
   it("lets disabled defaults override explicit enabled ids", () => {
     const widget = makeWidget("default-widget")
+    const widgetId = getWidgetLineId(widget)
     const settings = {
       ...makeSettings(),
-      enabled: [widget.identifier],
+      enabled: [widgetId],
       disabledDefaultIds: [widget.identifier],
     }
 
-    expect(getEffectiveEnabledExtensionIds(settings, [widget])).not.toContain(widget.identifier)
+    expect(getEffectiveEnabledExtensionIds(settings, [widget])).not.toContain(widgetId)
   })
 
   it("applies remote settings as the replacement user-installed snapshot", () => {
     const localWidget = makeWidget("local-widget")
     const remoteWidget = makeWidget("remote-widget")
+    const localWidgetId = getWidgetLineId(localWidget)
+    const remoteWidgetId = getWidgetLineId(remoteWidget)
 
     extensionSettings.set({
       ...makeSettings(),
-      enabled: [localWidget.identifier],
-      installed: {nip89: {}, widget: {[localWidget.identifier]: localWidget}},
+      enabled: [localWidgetId],
+      installed: {nip89: {}, widget: {[localWidgetId]: localWidget}},
     })
 
     applyRemoteExtensionSettings({
@@ -98,9 +107,9 @@ describe("effective extension settings", () => {
 
     const settings = get(extensionSettings)
 
-    expect(settings.installed.widget[localWidget.identifier]).toBeUndefined()
-    expect(settings.installed.widget[remoteWidget.identifier]).toBe(remoteWidget)
-    expect(settings.enabled).toEqual([remoteWidget.identifier])
+    expect(settings.installed.widget[localWidgetId]).toBeUndefined()
+    expect(settings.installed.widget[remoteWidgetId]).toBe(remoteWidget)
+    expect(settings.enabled).toEqual([remoteWidgetId])
   })
 
   it("treats ids missing from the latest remote snapshot as removed", () => {
@@ -145,6 +154,7 @@ describe("effective extension settings", () => {
 
   it("filters and normalizes widget install sources to installed widgets", () => {
     const widget = makeWidget("weather")
+    const widgetId = getWidgetLineId(widget)
 
     applyRemoteExtensionSettings({
       ...makeSettings(),
@@ -161,15 +171,62 @@ describe("effective extension settings", () => {
     const settings = get(extensionSettings)
 
     expect(settings.widgetInstallSources).toEqual({
-      [widget.identifier]: {
+      [widgetId]: {
         naddr: "naddr1example",
         relays: ["wss://relay.example/"],
       },
     })
   })
 
+  it("migrates bare widget settings to canonical widget line ids", () => {
+    const widget = makeWidget("weather")
+    const widgetId = getWidgetLineId(widget)
+
+    applyRemoteExtensionSettings({
+      ...makeSettings(),
+      enabled: [widget.identifier],
+      installed: {nip89: {}, widget: {[widget.identifier]: widget}},
+      widgetDisplay: {[widget.identifier]: {location: "menu-route"}},
+      widgetInstallSources: {[widget.identifier]: {relays: ["wss://relay.example"]}},
+    })
+
+    const settings = get(extensionSettings)
+
+    expect(settings.installed.widget).toEqual({[widgetId]: widget})
+    expect(settings.enabled).toEqual([widgetId])
+    expect(settings.widgetDisplay).toEqual({[widgetId]: {location: "menu-route"}})
+    expect(settings.widgetInstallSources).toEqual({
+      [widgetId]: {relays: ["wss://relay.example/"]},
+    })
+  })
+
+  it("keeps same-d widgets from different publishers under separate ids", () => {
+    const first = makeWidget("weather", 1, "a".repeat(64))
+    const second = makeWidget("weather", 1, "b".repeat(64))
+    const firstId = getWidgetLineId(first)
+    const secondId = getWidgetLineId(second)
+
+    applyRemoteExtensionSettings({
+      ...makeSettings(),
+      enabled: [firstId, secondId],
+      installed: {nip89: {}, widget: {[firstId]: first, [secondId]: second}},
+      widgetDisplay: {
+        [firstId]: {location: "modal"},
+        [secondId]: {location: "menu-route"},
+      },
+    })
+
+    const settings = get(extensionSettings)
+
+    expect(settings.installed.widget[firstId]).toBe(first)
+    expect(settings.installed.widget[secondId]).toBe(second)
+    expect(settings.enabled.sort()).toEqual([firstId, secondId].sort())
+    expect(settings.widgetDisplay[secondId]).toEqual({location: "menu-route"})
+  })
+
   it("keeps default extension disabled state separate from installed metadata", () => {
     const widget = makeWidget("default-widget")
+    const widgetId = getWidgetLineId(widget)
     setDefaultExtensionWidgets([widget])
 
     applyRemoteExtensionSettings({
@@ -180,9 +237,9 @@ describe("effective extension settings", () => {
     const settings = get(extensionSettings)
     const effective = getEffectiveExtensionSettings(settings, [widget])
 
-    expect(settings.installed.widget[widget.identifier]).toBeUndefined()
-    expect(settings.disabledDefaultIds).toEqual([widget.identifier])
-    expect(effective.installed.widget[widget.identifier]).toBe(widget)
-    expect(effective.enabled).not.toContain(widget.identifier)
+    expect(settings.installed.widget[widgetId]).toBeUndefined()
+    expect(settings.disabledDefaultIds).toEqual([widgetId])
+    expect(effective.installed.widget[widgetId]).toBe(widget)
+    expect(effective.enabled).not.toContain(widgetId)
   })
 })

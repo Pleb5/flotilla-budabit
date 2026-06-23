@@ -18,6 +18,7 @@
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import Git from "@assets/icons/git.svg?dataurl"
   import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
 
   type Props = {
     children?: Snippet
@@ -72,10 +73,10 @@
       <PrimaryNavItem title="Search" href="/people" class="tooltip-right">
         <ImageIcon alt="Search" src={Magnifier} size={7} />
       </PrimaryNavItem>
-      {#each menuWidgets as widget (widget.identifier)}
+      {#each menuWidgets as widget (getWidgetLineId(widget))}
         <PrimaryNavItem
           title={widget.content || widget.identifier || "Widget"}
-          href="/widgets?id={widget.identifier}"
+          href="/widgets?id={getWidgetLineId(widget)}"
           prefix="/widgets"
           class="tooltip-right">
           <ImageIcon

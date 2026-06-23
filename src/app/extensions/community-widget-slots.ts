@@ -1,5 +1,6 @@
 import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "@app/extensions/types"
+import {getWidgetLineId} from "./widget-identity"
 
 const curatedWidgetLoads = new Map<
   string,
@@ -40,9 +41,10 @@ export const getEnabledCommunitySlotWidgets = ({
   const selected: SmartWidgetEvent[] = []
 
   for (const widget of curatedWidgets) {
-    if (widget.slot?.type !== slotType || !enabledIds.has(widget.identifier)) continue
+    const id = getWidgetLineId(widget)
+    if (widget.slot?.type !== slotType || !enabledIds.has(id)) continue
 
-    const installedWidget = installedWidgets[widget.identifier]
+    const installedWidget = installedWidgets[id]
     if (installedWidget) selected.push({...installedWidget, slot: widget.slot || installedWidget.slot})
   }
 

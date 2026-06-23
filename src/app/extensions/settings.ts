@@ -6,6 +6,7 @@ import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {postExtensionSettings} from "@app/core/git-commands"
 import {EXTENSION_SETTINGS_DTAG} from "@app/core/git-requests"
 import type {ExtensionManifest, SmartWidgetEvent, WidgetDisplayLocation} from "./types"
+import {getWidgetLineId} from "./widget-identity"
 
 export const EXTENSION_SETTINGS_KEY = "flotilla/extensions"
 
@@ -51,9 +52,42 @@ export const normalizeWidgetInstallSource = (
   }
 }
 
-const normalizeInstalled = (installed: any): InstalledExtensions => {
+type NormalizedInstalled = {
+  installed: InstalledExtensions
+  widgetKeyMap: Map<string, string>
+}
+
+const buildWidgetKeyMap = (entries: Array<[string, SmartWidgetEvent]>) => {
+  const keyMap = new Map<string, string>()
+  const identifierTargets = new Map<string, Set<string>>()
+
+  for (const [id, widget] of entries) {
+    const identifier = widget.identifier?.trim() || id
+    const widgetId = getWidgetLineId({...widget, identifier}) || id
+
+    keyMap.set(id, widgetId)
+
+    if (identifier) {
+      const targets = identifierTargets.get(identifier) || new Set<string>()
+      targets.add(widgetId)
+      identifierTargets.set(identifier, targets)
+    }
+  }
+
+  for (const [identifier, targets] of identifierTargets) {
+    if (targets.size === 1) keyMap.set(identifier, Array.from(targets)[0])
+  }
+
+  return keyMap
+}
+
+const normalizeInstalled = (installed: any): NormalizedInstalled => {
   const nip89: Record<string, ExtensionManifest> = installed?.nip89 || {}
-  const widget: Record<string, SmartWidgetEvent> = installed?.widget || {}
+  const widget: Record<string, SmartWidgetEvent> = {}
+  const widgetEntries = Object.entries(installed?.widget || {}).filter(
+    (entry): entry is [string, SmartWidgetEvent] => Boolean(entry[1]) && typeof entry[1] === "object",
+  )
+  const widgetKeyMap = buildWidgetKeyMap(widgetEntries)
   const legacyFlat =
     installed && typeof installed === "object" && !installed.nip89 && !installed.widget
       ? installed
@@ -69,10 +103,22 @@ const normalizeInstalled = (installed: any): InstalledExtensions => {
     }
   }
 
+  for (const [id, value] of widgetEntries) {
+    const widgetId = widgetKeyMap.get(id) || id
+    const current = widget[widgetId]
+
+    if (!current || (value.created_at || 0) >= (current.created_at || 0)) {
+      widget[widgetId] = value.identifier ? value : {...value, identifier: id}
+    }
+  }
+
   return {
-    nip89: mergedNip89,
-    widget,
-    legacy: Object.keys(remainingLegacy).length ? remainingLegacy : undefined,
+    installed: {
+      nip89: mergedNip89,
+      widget,
+      legacy: Object.keys(remainingLegacy).length ? remainingLegacy : undefined,
+    },
+    widgetKeyMap,
   }
 }
 
@@ -109,22 +155,25 @@ export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void =>
   const byId = new Map<string, SmartWidgetEvent>()
 
   for (const widget of widgets) {
-    const current = byId.get(widget.identifier)
+    const id = getWidgetLineId(widget)
+    const current = byId.get(id)
     if (!current || (widget.created_at || 0) > (current.created_at || 0)) {
-      byId.set(widget.identifier, widget)
+      byId.set(id, widget)
     }
   }
 
-  defaultExtensionWidgets.set(Array.from(byId.values()))
+  const defaultWidgets = Array.from(byId.values())
+  defaultExtensionWidgets.set(defaultWidgets)
+  extensionSettings.update(s => normalizeExtensionSettings(s, defaultWidgets))
 }
 
 export const getDefaultExtensionIds = (widgets = get(defaultExtensionWidgets)) =>
-  widgets.map(widget => widget.identifier).filter(Boolean)
+  widgets.map(getWidgetLineId).filter(Boolean)
 
 export const isDefaultExtension = (id: string): boolean => getDefaultExtensionIds().includes(id)
 
 const getDefaultWidgetMap = (widgets = get(defaultExtensionWidgets)) =>
-  Object.fromEntries(widgets.map(widget => [widget.identifier, widget])) as Record<
+  Object.fromEntries(widgets.map(widget => [getWidgetLineId(widget), widget])) as Record<
     string,
     SmartWidgetEvent
   >
@@ -147,7 +196,9 @@ export const getEffectiveEnabledExtensionIds = (
 ) => {
   const installed = getEffectiveInstalledExtensions(settings, widgets)
   const installedIds = new Set([...Object.keys(installed.nip89), ...Object.keys(installed.widget)])
-  const disabledDefaults = new Set(settings.disabledDefaultIds || [])
+  const disabledDefaults = new Set(
+    normalizeDisabledDefaultIds(settings.disabledDefaultIds, new Map(), widgets),
+  )
   const defaultIds = new Set(getDefaultExtensionIds(widgets))
   const enabled = new Set(settings.enabled || [])
 
@@ -167,7 +218,7 @@ export const getEffectiveExtensionSettings = (
   ...settings,
   enabled: getEffectiveEnabledExtensionIds(settings, widgets),
   installed: getEffectiveInstalledExtensions(settings, widgets),
-  disabledDefaultIds: settings.disabledDefaultIds || [],
+  disabledDefaultIds: normalizeDisabledDefaultIds(settings.disabledDefaultIds, new Map(), widgets),
 })
 
 export const effectiveExtensionSettings = derived(
@@ -241,26 +292,88 @@ export const getManifestUrl = (id: string): string | undefined => {
   return settings.manifestUrls?.[id]
 }
 
-const normalizeExtensionSettings = (settings: Partial<ExtensionSettings>): ExtensionSettings => {
-  const installed = normalizeInstalled(settings.installed)
+const mapWidgetScopedRecord = <T>(
+  record: Record<string, T> | undefined,
+  widgetIds: Set<string>,
+  widgetKeyMap: Map<string, string>,
+): Record<string, T> => {
+  const mapped: Record<string, T> = {}
+
+  for (const [id, value] of Object.entries(record || {})) {
+    const widgetId = widgetIds.has(id) ? id : widgetKeyMap.get(id)
+    if (widgetId && widgetIds.has(widgetId)) mapped[widgetId] = value
+  }
+
+  return mapped
+}
+
+const normalizeExtensionIds = (
+  ids: string[] | undefined,
+  installedIds: Set<string>,
+  nip89Ids: Set<string>,
+  widgetIds: Set<string>,
+  widgetKeyMap: Map<string, string>,
+) =>
+  Array.from(
+    new Set(
+      (ids || [])
+        .map(id => {
+          if (nip89Ids.has(id) || widgetIds.has(id)) return id
+          return widgetKeyMap.get(id) || id
+        })
+        .filter(id => installedIds.has(id)),
+    ),
+  )
+
+function normalizeDisabledDefaultIds(
+  ids: string[] | undefined,
+  widgetKeyMap: Map<string, string>,
+  widgets = get(defaultExtensionWidgets),
+) {
+  const defaultWidgetKeyMap = buildWidgetKeyMap(
+    widgets.map(widget => [getWidgetLineId(widget), widget] as [string, SmartWidgetEvent]),
+  )
+
+  return Array.from(
+    new Set((ids || []).map(id => defaultWidgetKeyMap.get(id) || widgetKeyMap.get(id) || id)),
+  )
+}
+
+const normalizeExtensionSettings = (
+  settings: Partial<ExtensionSettings>,
+  widgets = get(defaultExtensionWidgets),
+): ExtensionSettings => {
+  const {installed, widgetKeyMap} = normalizeInstalled(settings.installed)
   const installedIds = new Set([...Object.keys(installed.nip89), ...Object.keys(installed.widget)])
   const nip89Ids = new Set(Object.keys(installed.nip89))
   const widgetIds = new Set(Object.keys(installed.widget))
+  const defaultWidgetEntries = widgets.map(
+    widget => [getWidgetLineId(widget), widget] as [string, SmartWidgetEvent],
+  )
+  const widgetDisplayIds = new Set([...widgetIds, ...defaultWidgetEntries.map(([id]) => id)])
+  const widgetDisplayKeyMap = buildWidgetKeyMap([
+    ...Object.entries(installed.widget),
+    ...defaultWidgetEntries,
+  ])
+  const widgetDisplay = mapWidgetScopedRecord(
+    settings.widgetDisplay,
+    widgetDisplayIds,
+    widgetDisplayKeyMap,
+  )
   const manifestUrls = Object.fromEntries(
     Object.entries(settings.manifestUrls || {}).filter(([id]) => nip89Ids.has(id)),
   )
   const widgetInstallSources = Object.fromEntries(
-    Object.entries(settings.widgetInstallSources || {})
-      .filter(([id]) => widgetIds.has(id))
-      .map(([id, source]) => [id, normalizeWidgetInstallSource(source)])
+    Object.entries(mapWidgetScopedRecord(settings.widgetInstallSources, widgetIds, widgetKeyMap))
+      .map(([id, source]) => [id, normalizeWidgetInstallSource(source as WidgetInstallSource)])
       .filter((entry): entry is [string, WidgetInstallSource] => Boolean(entry[1])),
   )
 
   return {
-    enabled: (settings.enabled || []).filter(id => installedIds.has(id)),
-    disabledDefaultIds: settings.disabledDefaultIds || [],
+    enabled: normalizeExtensionIds(settings.enabled, installedIds, nip89Ids, widgetIds, widgetKeyMap),
+    disabledDefaultIds: normalizeDisabledDefaultIds(settings.disabledDefaultIds, widgetKeyMap, widgets),
     installed,
-    widgetDisplay: settings.widgetDisplay || {},
+    widgetDisplay,
     manifestUrls,
     widgetInstallSources,
   }

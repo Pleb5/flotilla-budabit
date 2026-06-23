@@ -35,6 +35,7 @@
     communityWritableSectionsSupportTarget,
   } from "@app/core/community-permissions"
   import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
   import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
   import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
   import {
@@ -67,17 +68,21 @@
   type InstalledItem =
     | {type: "nip89"; id: string; manifest: ExtensionManifest; isDefault: boolean}
     | {type: "widget"; id: string; manifest: SmartWidgetEvent; isDefault: boolean}
+  type InstalledWidgetItem = {id: string; widget: SmartWidgetEvent}
 
   type CommunityDiscoveryState = "idle" | "loading" | "invalid" | "not-community" | "community"
 
   const settings = $derived($effectiveExtensionSettings)
   const defaultWidgets = $derived($defaultExtensionWidgets)
-  const defaultIds = $derived(new Set(defaultWidgets.map(widget => widget.identifier)))
+  const defaultIds = $derived(new Set(defaultWidgets.map(getWidgetLineId)))
   const installedNip89 = $derived<ExtensionManifest[]>(
     Object.values(settings.installed?.nip89 || {}),
   )
+  const installedWidgetItems = $derived.by<InstalledWidgetItem[]>(() =>
+    Object.entries(settings.installed?.widget || {}).map(([id, widget]) => ({id, widget})),
+  )
   const installedWidgets = $derived<SmartWidgetEvent[]>(
-    Object.values(settings.installed?.widget || {}),
+    installedWidgetItems.map(item => item.widget),
   )
   const installed = $derived.by<InstalledItem[]>(() => {
     const byId = new Map<string, InstalledItem>()
@@ -91,12 +96,12 @@
       })
     }
 
-    for (const widget of installedWidgets) {
-      byId.set(widget.identifier, {
+    for (const {id, widget} of installedWidgetItems) {
+      byId.set(id, {
         type: "widget",
-        id: widget.identifier,
+        id,
         manifest: widget,
-        isDefault: defaultIds.has(widget.identifier),
+        isDefault: defaultIds.has(id),
       })
     }
 
@@ -171,16 +176,16 @@
   const otherCuratedWidgets = $derived(
     getManualCommunityWidgets(curatedWidgets, trustedWidgetAuthorPubkeys),
   )
-  const installedWidgetIds = $derived(new Set(installedWidgets.map(widget => widget.identifier)))
+  const installedWidgetIds = $derived(new Set(installedWidgetItems.map(item => item.id)))
   const widgetUpdateCheckWidgets = $derived(
-    installedWidgets.filter(widget => !defaultIds.has(widget.identifier)),
+    installedWidgetItems.filter(item => !defaultIds.has(item.id)),
   )
   const widgetUpdateCount = $derived(Object.keys(widgetUpdates).length)
   const widgetUpdateCheckingCount = $derived(
     Object.values(checkingWidgetUpdates).filter(Boolean).length,
   )
   const trustedWidgetsToInstall = $derived(
-    trustedCuratedWidgets.filter(widget => !enabledIds.includes(widget.identifier)),
+    trustedCuratedWidgets.filter(widget => !enabledIds.includes(getWidgetLineId(widget))),
   )
   const requestedCommunityPubkey = $derived(
     normalizePubkey($page.url.searchParams.get("community") || ""),
@@ -274,16 +279,16 @@
     else disableExtension(id)
   }
 
-  const getWidgetUpdateCheckKey = (widgets: SmartWidgetEvent[]) =>
+  const getWidgetUpdateCheckKey = (widgets: InstalledWidgetItem[]) =>
     widgets
-      .map(widget =>
-        [widget.identifier, widget.pubkey || "", widget.created_at || 0].join(":"),
+      .map(({id, widget}) =>
+        [id, widget.pubkey || "", widget.created_at || 0].join(":"),
       )
       .sort()
       .join("|")
 
-  const checkInstalledWidgetUpdates = async (widgets: SmartWidgetEvent[]) => {
-    const ids = widgets.map(widget => widget.identifier).filter(Boolean)
+  const checkInstalledWidgetUpdates = async (widgets: InstalledWidgetItem[]) => {
+    const ids = widgets.map(widget => widget.id).filter(Boolean)
     const requestId = ++widgetUpdateRequestId
 
     if (ids.length === 0) {
@@ -550,7 +555,7 @@
       return
     }
 
-    const key = `${requestedCommunityPubkey}:${trustedCuratedWidgets.map(widget => widget.identifier).join(",")}`
+    const key = `${requestedCommunityPubkey}:${trustedCuratedWidgets.map(getWidgetLineId).join(",")}`
     if (key === focusedTrustedSectionKey) return
     focusedTrustedSectionKey = key
 
@@ -638,8 +643,8 @@
 
   const onInstallWidget = async (widget: SmartWidgetEvent) => {
     try {
-      installWidgetFromEvent(widget as any)
-      await enableExtension(widget.identifier)
+      const installedWidget = installWidgetFromEvent(widget as any)
+      await enableExtension(getWidgetLineId(installedWidget))
       pushToast({
         theme: "success",
         message: `Installed and enabled widget ${widget.content || widget.identifier}`,
@@ -656,8 +661,8 @@
     trustedInstallInProgress = true
     try {
       for (const widget of widgets) {
-        installWidgetFromEvent(widget as any)
-        await enableExtension(widget.identifier)
+        const installedWidget = installWidgetFromEvent(widget as any)
+        await enableExtension(getWidgetLineId(installedWidget))
       }
 
       pushToast({
@@ -676,7 +681,7 @@
     installingWidget = true
     try {
       const widget = await installWidgetByNaddr(widgetNaddr)
-      enableExtension(widget.identifier)
+      enableExtension(getWidgetLineId(widget))
       pushToast({
         theme: "success",
         message: `Installed and enabled widget ${widget.content || widget.identifier}`,
@@ -700,8 +705,9 @@
 </script>
 
 {#snippet communityWidgetCard(widget: SmartWidgetEvent, trusted: boolean)}
-  {@const installedWidget = installedWidgetIds.has(widget.identifier)}
-  {@const isDefaultWidget = defaultIds.has(widget.identifier)}
+  {@const widgetId = getWidgetLineId(widget)}
+  {@const installedWidget = installedWidgetIds.has(widgetId)}
+  {@const isDefaultWidget = defaultIds.has(widgetId)}
   <div class="card2 flex items-start justify-between gap-2 p-3">
     <div class="flex min-w-0 flex-1 items-start gap-3">
       {#if widget.iconUrl || widget.imageUrl}
@@ -755,9 +761,8 @@
           <input
             type="checkbox"
             class="toggle toggle-primary toggle-sm"
-            checked={enabledIds.includes(widget.identifier)}
-            onchange={e =>
-              toggle(widget.identifier, (e.currentTarget as HTMLInputElement).checked)} />
+            checked={enabledIds.includes(widgetId)}
+            onchange={e => toggle(widgetId, (e.currentTarget as HTMLInputElement).checked)} />
           <span class="opacity-70">Enabled</span>
         </label>
       {:else}
@@ -903,7 +908,7 @@
           </Button>
         </div>
         <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-          {#each trustedCuratedWidgets as widget (widget.identifier)}
+          {#each trustedCuratedWidgets as widget (getWidgetLineId(widget))}
             {@render communityWidgetCard(widget, true)}
           {/each}
         </div>
@@ -919,7 +924,7 @@
           </p>
         </div>
         <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {#each otherCuratedWidgets as widget (widget.identifier)}
+          {#each otherCuratedWidgets as widget (getWidgetLineId(widget))}
             {@render communityWidgetCard(widget, false)}
           {/each}
         </div>

@@ -4,6 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
 import {repository} from "@welshman/app"
+import {getWidgetLineId} from "@app/extensions/widget-identity"
 import {
   blossomDashboardState,
   blossomSettings,
@@ -874,6 +875,7 @@ describe("commands", () => {
       appUrl: "https://example.com/v1.html",
       permissions: ["ui:toast"],
     } as any
+    const widgetId = getWidgetLineId(installed)
     const latest = {
       ...installed,
       id: "weather-2",
@@ -886,12 +888,12 @@ describe("commands", () => {
     }
 
     settingsMocks.value.widgetInstallSources = {
-      weather: {relays: ["wss://widgets.example/"]},
+      [widgetId]: {relays: ["wss://widgets.example/"]},
     }
-    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {weather: installed}})
+    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {[widgetId]: installed}})
     repository.publish(latest as any)
 
-    const update = await checkForWidgetUpdate("weather")
+    const update = await checkForWidgetUpdate(widgetId)
 
     expect(netMocks.request).toHaveBeenCalledWith({
       relays: expect.arrayContaining(["wss://widgets.example/"]),
@@ -901,6 +903,28 @@ describe("commands", () => {
     expect(update?.latest.id).toBe("weather-2")
     expect(update?.diff.appUrlChanged).toBe(true)
     expect(update?.diff.version?.to).toBe("1.0.1")
+  })
+
+  it("installWidgetFromEvent stores widgets and install sources by widget line id", async () => {
+    const {installWidgetFromEvent} = await import("./commands")
+    const pubkey = "a".repeat(64)
+    const event = {
+      id: "weather-1",
+      kind: 30033,
+      content: "Weather",
+      pubkey,
+      created_at: 1,
+      tags: [["d", "weather"], ["l", "tool"]],
+    } as any
+    const widgetId = `30033:${pubkey}:weather`
+
+    const widget = installWidgetFromEvent(event, {relays: ["wss://widgets.example/"]})
+    const next = settingsMocks.update.mock.calls[0][0](settingsMocks.value)
+
+    expect(getWidgetLineId(widget)).toBe(widgetId)
+    expect(next.installed.widget[widgetId]).toMatchObject({identifier: "weather", pubkey})
+    expect(next.installed.widget.weather).toBeUndefined()
+    expect(next.widgetInstallSources[widgetId]).toEqual({relays: ["wss://widgets.example/"]})
   })
 
   it("discoverSmartWidgets keeps same-d widgets from different publishers", async () => {
@@ -936,23 +960,25 @@ describe("commands", () => {
 
   it("refreshWidget replaces stored widget metadata and reloads enabled widgets", async () => {
     const {refreshWidget} = await import("./commands")
-    const oldWidget = {identifier: "weather", kind: 30033, tags: [], widgetType: "tool"} as any
+    const pubkey = "a".repeat(64)
+    const oldWidget = {identifier: "weather", pubkey, kind: 30033, tags: [], widgetType: "tool"} as any
     const newWidget = {...oldWidget, id: "weather-2", created_at: 2}
+    const widgetId = getWidgetLineId(oldWidget)
 
     settingsMocks.isExtensionEnabled.mockReturnValue(true)
 
-    await refreshWidget("weather", newWidget)
+    await refreshWidget(widgetId, newWidget)
 
-    expect(registryMocks.unloadExtension).toHaveBeenCalledWith("weather")
+    expect(registryMocks.unloadExtension).toHaveBeenCalledWith(widgetId)
     expect(settingsMocks.update).toHaveBeenCalledOnce()
     const next = settingsMocks.update.mock.calls[0][0]({
-      installed: {nip89: {}, widget: {weather: oldWidget}, legacy: undefined},
-      widgetInstallSources: {weather: {relays: ["wss://widgets.example/"]}},
-      widgetDisplay: {weather: {location: "modal"}},
+      installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
+      widgetInstallSources: {[widgetId]: {relays: ["wss://widgets.example/"]}},
+      widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 
-    expect(next.installed.widget.weather).toBe(newWidget)
-    expect(next.widgetInstallSources.weather).toEqual({relays: ["wss://widgets.example/"]})
+    expect(next.installed.widget[widgetId]).toBe(newWidget)
+    expect(next.widgetInstallSources[widgetId]).toEqual({relays: ["wss://widgets.example/"]})
     expect(registryMocks.loadWidget).toHaveBeenCalledWith(newWidget)
   })
 
@@ -961,6 +987,7 @@ describe("commands", () => {
     const oldWidget = {
       id: "weather-1",
       identifier: "weather",
+      pubkey: "a".repeat(64),
       kind: 30033,
       tags: [["d", "weather"]],
       widgetType: "tool",
@@ -976,24 +1003,25 @@ describe("commands", () => {
       appUrl: "https://example.com/v2.html",
       appUrls: ["https://example.com/v2.html", "https://mirror.example.com/v2.html"],
     }
+    const widgetId = getWidgetLineId(oldWidget)
 
     settingsMocks.isExtensionEnabled.mockReturnValue(false)
 
-    await refreshWidget("weather", newWidget)
+    await refreshWidget(widgetId, newWidget)
 
     const next = settingsMocks.update.mock.calls[0][0]({
-      installed: {nip89: {}, widget: {weather: oldWidget}, legacy: undefined},
-      widgetInstallSources: {weather: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]}},
-      widgetDisplay: {weather: {location: "modal"}},
+      installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
+      widgetInstallSources: {[widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]}},
+      widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 
-    expect(next.installed.widget.weather).toMatchObject({
+    expect(next.installed.widget[widgetId]).toMatchObject({
       id: "weather-2",
       version: "1.1.0",
       changelog: "Use Blossom mirror fallback.",
       appUrls: ["https://example.com/v2.html", "https://mirror.example.com/v2.html"],
     })
-    expect(next.widgetInstallSources.weather).toEqual({
+    expect(next.widgetInstallSources[widgetId]).toEqual({
       naddr: "naddr1weather",
       relays: ["wss://widgets.example/"],
     })

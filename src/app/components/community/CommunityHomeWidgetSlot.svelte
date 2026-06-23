@@ -9,6 +9,7 @@
     loadCachedCommunityCuratedWidgets,
   } from "@app/extensions/community-widget-slots"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent, WidgetHomeSlotType} from "@app/extensions/types"
   import {pushModal} from "@app/util/modal"
   import {makeCommunityInputValue} from "@app/util/community-stars"
@@ -79,7 +80,7 @@
 
 {#if slotWidgets.length > 0}
   <div class="flex flex-col gap-2">
-    {#each slotWidgets as widget (widget.identifier)}
+    {#each slotWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
       {@const description = getWidgetDescription(widget)}
       <section class="card2 bg-alt flex flex-col gap-3 p-4 shadow-md">
@@ -107,7 +108,7 @@
 
         {#if widget.buttons.length > 0}
           <div class="flex flex-wrap gap-2">
-            {#each widget.buttons as button (`${widget.identifier}:${button.index}`)}
+            {#each widget.buttons as button (`${getWidgetLineId(widget)}:${button.index}`)}
               {#if button.type === "app"}
                 <Button class="btn btn-primary btn-sm" onclick={() => openWidget(widget)}>
                   {button.label}

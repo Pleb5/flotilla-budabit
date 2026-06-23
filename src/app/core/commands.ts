@@ -191,10 +191,12 @@ export const uninstallExtension = async (id: string) => {
     const widget = {...(s.installed?.widget || {})}
     const manifestUrls = {...(s.manifestUrls || {})}
     const widgetDisplay = {...(s.widgetDisplay || {})}
+    const widgetInstallSources = {...(s.widgetInstallSources || {})}
     delete nip89[id]
     delete widget[id]
     delete manifestUrls[id]
     delete widgetDisplay[id]
+    delete widgetInstallSources[id]
     return {
       ...s,
       installed: {
@@ -205,6 +207,7 @@ export const uninstallExtension = async (id: string) => {
       enabled: s.enabled.filter(e => e !== id),
       manifestUrls,
       widgetDisplay,
+      widgetInstallSources,
     }
   })
 }
@@ -224,17 +227,18 @@ export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
 
 export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInstallSource) => {
   const widget = parseSmartWidget(event)
+  const id = getWidgetLineId(widget)
   extensionRegistry.registerWidget(widget)
   const normalizedSource = normalizeWidgetInstallSource(source)
   extensionSettings.update(s => ({
     ...s,
     installed: {
       nip89: s.installed?.nip89 || {},
-      widget: {...(s.installed?.widget || {}), [widget.identifier]: widget},
+      widget: {...(s.installed?.widget || {}), [id]: widget},
       legacy: s.installed?.legacy,
     },
     widgetInstallSources: normalizedSource
-      ? {...(s.widgetInstallSources || {}), [widget.identifier]: normalizedSource}
+      ? {...(s.widgetInstallSources || {}), [id]: normalizedSource}
       : s.widgetInstallSources || {},
   }))
   return widget
@@ -293,7 +297,7 @@ export const checkForWidgetUpdate = async (id: string): Promise<WidgetUpdate | n
 }
 
 export const refreshWidget = async (id: string, newWidget: SmartWidgetEvent) => {
-  if (newWidget.identifier !== id) {
+  if (getWidgetLineId(newWidget) !== id) {
     throw new Error("Widget update identifier mismatch")
   }
 

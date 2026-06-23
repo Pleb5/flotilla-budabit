@@ -24,6 +24,7 @@ import {
 } from "@app/core/community-permissions"
 import {parseSmartWidget} from "@app/extensions/registry"
 import type {SmartWidgetEvent} from "@app/extensions/types"
+import {getWidgetLineId} from "./widget-identity"
 
 export type CommunityCuratedExtensionsStatus = "invalid-input" | "not-community" | "community"
 
@@ -46,9 +47,10 @@ const dedupeWidgets = (widgets: SmartWidgetEvent[]) => {
   const byId = new Map<string, SmartWidgetEvent>()
 
   for (const widget of widgets) {
-    const current = byId.get(widget.identifier)
+    const id = getWidgetLineId(widget)
+    const current = byId.get(id)
     if (!current || (widget.created_at || 0) > (current.created_at || 0)) {
-      byId.set(widget.identifier, widget)
+      byId.set(id, widget)
     }
   }
 

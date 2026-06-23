@@ -13,6 +13,7 @@
   import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
   import {getTrustedCommunityWidgets} from "@app/extensions/community-widget-trust"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent} from "@app/extensions/types"
   import {makeCommunityInputValue} from "@app/util/community-stars"
 
@@ -39,7 +40,7 @@
     new Set(Object.keys($effectiveExtensionSettings.installed?.widget || {})),
   )
   const hasInstalledTrustedWidget = $derived(
-    trustedWidgets.some(widget => installedWidgetIds.has(widget.identifier)),
+    trustedWidgets.some(widget => installedWidgetIds.has(getWidgetLineId(widget))),
   )
   const dismissed = $derived(
     isCommunityExtensionPromptDismissed($pubkey || "", communityPubkey, $communityExtensionPrompt),

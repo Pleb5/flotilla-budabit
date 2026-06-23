@@ -13,15 +13,16 @@
 
 ## Current Phase
 
-- Phase 2: Settings And UI Key Migration
+- Phase 3: Bridge Storage Namespace Migration
 
 ## Phase Exit Criteria
 
-- New widget installs persist under canonical widget line IDs.
-- Existing settings keyed by bare identifiers migrate to canonical IDs when stored widgets include pubkey + identifier.
-- Enabled IDs, disabled default IDs, widget display config, widget install sources, and update state use canonical widget line IDs.
-- Settings UI can display and operate on two installed widgets with the same `d` identifier from different publishers.
-- Focused settings/UI helper tests cover migration and duplicate identifiers.
+- New bridge storage writes use a versioned BudaBit prefix such as `budabit:ext:v2:` and encoded canonical extension/widget IDs.
+- Repo-scoped storage uses an encoded repo address component rather than raw `repo:{pubkey}:{name}` delimiters.
+- `storage:get` falls back to legacy `flotilla:ext:` keys when no v2 value exists.
+- `storage:keys` can report v2 keys and legacy keys during transition without duplicates.
+- `storage:set`/`storage:remove` write/remove v2 keys and do not create new legacy keys.
+- Focused bridge tests cover v2 keys, legacy fallback, repo-scoped keys, and duplicate widget identifiers from different publishers.
 
 ## Completed With Evidence
 
@@ -33,6 +34,12 @@
 - Phase 1 discovery now dedupes widgets by canonical widget line ID instead of bare `d` identifier.
 - Phase 1 verification passed: `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
 - Phase 1 verification passed: `pnpm check`.
+- Phase 2 settings normalization now migrates installed widget maps, enabled IDs, disabled default IDs, widget display config, and widget install sources from legacy bare identifiers to canonical widget line IDs when widget pubkey + identifier are available.
+- Phase 2 default widgets, settings UI installed lists, update-check maps, community curated widgets, community slot launchers, prompt checks, primary nav links, and `/widgets` route selection now use canonical widget line IDs for identity while preserving `SmartWidgetEvent.identifier` as raw `d` display data.
+- Phase 2 widget install, uninstall cleanup, refresh, and update-check command paths now store and address widgets by canonical widget line IDs.
+- Phase 2 tests cover settings migration, same-`d` widgets from different publishers, command install/update/refresh canonical keys, and community slot duplicate-identifier selection.
+- Phase 2 verification passed: `pnpm vitest run src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts`.
+- Phase 2 verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -45,25 +52,27 @@
 ## Current State
 
 - `src/app/extensions/registry.ts` registers widgets under canonical widget line IDs and supports bare identifier fallback lookup during migration.
-- `src/app/extensions/settings.ts` stores installed widgets, enabled IDs, display configs, and install sources keyed by bare widget identifier.
-- `src/app/core/commands.ts` installs/checks/refreshes widgets by bare identifier.
-- `src/app/extensions/bridge.ts` uses `flotilla:ext:{ext.id}:...` storage keys, and widget `ext.id` is currently the bare identifier.
-- `discoverSmartWidgets` dedupes by canonical widget line ID.
+- `src/app/extensions/settings.ts` normalizes installed widget maps and widget-scoped settings to canonical widget line IDs, retaining bare identifier fallback for widgets missing pubkey metadata.
+- `src/app/core/commands.ts` installs/checks/refreshes widgets by canonical widget line ID.
+- Settings and route/community UI paths use canonical widget line IDs for installed/default/enabled/update maps and Svelte keys.
+- Smart widget discovery and community curation dedupe by canonical widget line ID.
+- `src/app/extensions/bridge.ts` still uses `flotilla:ext:{ext.id}:...` storage keys; bridge storage namespace migration is the next phase.
 
 ## Next Action
 
-- Start Phase 2 by migrating settings and UI widget-keyed records from bare identifiers to canonical widget line IDs.
+- Start Phase 3 by inspecting `src/app/extensions/bridge.ts` and `src/app/extensions/bridge.test.ts`, then add encoded v2 storage key helpers with legacy read fallback.
 
 ## Verification
 
 - `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`
 - `pnpm check`
+- `pnpm vitest run src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts`
+- `pnpm check`
 
 ## Risks Or Blockers
 
-- Settings migration must avoid losing user-installed widgets, enabled state, display config, and install source hints.
-- Some legacy/default widgets may lack pubkey; they must keep working with fallback identity.
 - Bridge storage migration must avoid silently hiding existing widget data.
+- Widget modal bridge setup still passes bare widget identifiers as bridge IDs until Phase 3 changes canonicalize bridge runtime/storage identity.
 
 ## Files
 
@@ -75,3 +84,13 @@
 - `src/app/extensions/bridge.ts`
 - `src/app/core/commands.ts`
 - `src/routes/settings/extensions/+page.svelte`
+- `src/app/extensions/settings.test.ts`
+- `src/app/core/commands.test.ts`
+- `src/app/extensions/community-widget-slots.ts`
+- `src/app/extensions/community-widget-slots.test.ts`
+- `src/app/extensions/community-curation.ts`
+- `src/app/components/PrimaryNav.svelte`
+- `src/app/components/community/CommunityExtensionsPrompt.svelte`
+- `src/app/components/community/CommunityHomeWidgetSlot.svelte`
+- `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
+- `src/routes/widgets/+page.svelte`

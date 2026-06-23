@@ -5,6 +5,7 @@
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import {get} from "svelte/store"
   import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent} from "@app/extensions/types"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import Page from "@lib/components/Page.svelte"
@@ -24,7 +25,7 @@
   // Derive selected widget from widgets and URL param
   const selectedWidget = $derived.by(() => {
     if (widgetId) {
-      return widgets.find(w => w.identifier === widgetId) || widgets[0] || null
+      return widgets.find(w => getWidgetLineId(w) === widgetId) || widgets[0] || null
     }
     return widgets[0] || null
   })
@@ -85,7 +86,7 @@
   }
 
   const selectWidget = (widget: SmartWidgetEvent) => {
-    goto(`/widgets?id=${widget.identifier}`, {replaceState: true})
+    goto(`/widgets?id=${encodeURIComponent(getWidgetLineId(widget))}`, {replaceState: true})
   }
 </script>
 
@@ -119,12 +120,12 @@
   {:else}
     <!-- Multiple widgets - tabs -->
     <div class="flex border-b border-base-300">
-      {#each widgets as widget (widget.identifier)}
+      {#each widgets as widget (getWidgetLineId(widget))}
         <button
           class="flex items-center gap-2 px-4 py-3 text-sm transition-colors"
-          class:bg-base-200={selectedWidget?.identifier === widget.identifier}
-          class:border-b-2={selectedWidget?.identifier === widget.identifier}
-          class:border-primary={selectedWidget?.identifier === widget.identifier}
+          class:bg-base-200={selectedWidget && getWidgetLineId(selectedWidget) === getWidgetLineId(widget)}
+          class:border-b-2={selectedWidget && getWidgetLineId(selectedWidget) === getWidgetLineId(widget)}
+          class:border-primary={selectedWidget && getWidgetLineId(selectedWidget) === getWidgetLineId(widget)}
           onclick={() => selectWidget(widget)}>
           {#if widget.iconUrl || widget.imageUrl}
             <img
