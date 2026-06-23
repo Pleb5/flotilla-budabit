@@ -40,6 +40,7 @@
 - Phase 1 tests cover renamed section mapping, calendar target query filter construction, and bridge community target query behavior.
 - Phase 1 verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
 - Phase 1 verification passed: `pnpm check`.
+- Phase 1 was committed and pushed to `origin/dev` as root commit `1690a4de feat: add inline community widget context`.
 
 ## Decisions
 
@@ -53,13 +54,13 @@
 
 ## Current State
 
-- Phase 1 implementation and verification are complete in the root repo, but the Phase 1 commit/push transition has not yet been performed.
-- The checkpoint has been advanced to Phase 2 in preparation for the Phase 1 commit.
+- Phase 1 implementation, verification, commit, push, and checkpoint reread are complete.
+- Root repo is clean at the start of Phase 2.
 - `packages/flotilla-extension-template` is not modified yet for this workflow.
 
 ## Next Action
 
-- Commit and push Phase 1 root changes, reread this checkpoint, then start Phase 2 by updating template SDK types/docs/sample code for `communityContext` and `community:queryTargetEvents`.
+- Start Phase 2 by updating template SDK types/docs/sample code for `communityContext` and `community:queryTargetEvents`.
 
 ## Verification
 
