@@ -16,15 +16,16 @@
 
 ## Current Phase
 
-- Phase 3: Template Parity For Multi-URL Blossom Releases
+- Phase 4: E2E And Regression Coverage
 
 ## Phase Exit Criteria
 
-- Template generator copies can emit the same primary/fallback app URL tags BudaBit parses.
-- Template publish flow preserves Blossom canonical and mirror URLs in the event before signing.
-- Template CLI/docs explain stable identifiers, version/changelog, viable slots, multi-community targeting expectations, and fallback app URLs.
-- Template tests cover primary plus fallback URL tag generation and supported slot validation.
-- Nested template repo is committed and pushed before root submodule pointer update.
+- Playwright or equivalent E2E covers a realistic community widget discover/install/update path using deterministic mocks where feasible.
+- Coverage asserts trusted owner/moderator widgets display in the correct Settings section and unauthorized/other widgets remain distinct.
+- Coverage asserts update badge/details/manual update swap to the newer event.
+- Coverage asserts publisher slot options are limited to viable slots or unit coverage proves this if full E2E is too brittle.
+- Final focused root tests, template tests, and `pnpm check` pass, or any failure is recorded as a blocker.
+- Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
 
@@ -42,6 +43,13 @@
 - Phase 2 widget event construction emits the compatible primary `button`/`app` URL and repeatable `app-url` fallback tags.
 - Phase 2 verification passed: `pnpm vitest run src/app/extensions/widget-publisher.test.ts src/app/extensions/widget-targeting.test.ts`.
 - Phase 2 verification passed: `pnpm check`.
+- Phase 2 committed and pushed as `5dcaa8e4 feat: add blossom widget publisher`.
+- Phase 3 template generator and CLI now support `--fallback-app-urls` and emit repeatable `app-url` tags.
+- Phase 3 template publish flow now preserves all successful Blossom upload URLs before signing by writing the first URL to `button`/`app` and the remaining URLs to `app-url` fallbacks.
+- Phase 3 template docs/scripts explain fallback app URLs, stable identifiers, version/changelog, viable slots, and multi-community targeting expectations.
+- Phase 3 verification passed in nested template repo: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`.
+- Phase 3 verification passed in nested template repo: `pnpm typecheck`.
+- Phase 3 nested template repo committed and pushed as `43243f9 feat: add widget fallback app URLs`.
 
 ## Decisions
 
@@ -61,17 +69,20 @@
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
 - Current community widget publisher at `src/routes/c/[community]/widgets/+page.svelte` supports manual app URLs, Blossom HTML artifact upload, fallback app URLs, release metadata, and permission-gated multi-community targeting.
 - Current Smart Widget parser stores the compatible primary `appUrl` from the first `button`/`app` URL and ordered `appUrls` from primary plus repeatable `app-url` fallback tags.
+- Root repo has a pending submodule pointer update for `packages/flotilla-extension-template` to template commit `43243f9`.
 - Settings update UI exists for manually installed widgets.
 - Community curation/trust helpers already filter targeting events by widget-write permissions and distinguish trusted owner/moderator authors.
 
 ## Next Action
 
-- Start Phase 3 by inspecting the nested template generator/publish flow/tests/docs and aligning them with BudaBit's primary plus fallback app URL event shape.
+- Start Phase 4 by inspecting existing widget/community Playwright and focused regression tests, then add the smallest deterministic coverage for trusted/other widgets, updates, and viable publisher slots.
 
 ## Verification
 
 - `pnpm vitest run src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts`
 - `pnpm vitest run src/app/extensions/widget-publisher.test.ts src/app/extensions/widget-targeting.test.ts`
+- Nested template: `pnpm vitest run packages/sdk/src/manifest/generator.test.ts`
+- Nested template: `pnpm typecheck`
 - `pnpm check`
 
 ## Risks Or Blockers
