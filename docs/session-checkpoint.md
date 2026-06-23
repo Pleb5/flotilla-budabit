@@ -7,112 +7,63 @@
 
 ## Goal
 
-- Bridge the Smart Widget update/publish UX gaps with a minimal user-controlled workflow.
-- Detect newer installed Smart Widget events and notify users with update badges, but do not auto-update.
-- Let users manually apply widget updates while preserving existing settings.
-- Improve publisher release UX for stable Blossom-backed widget versions without building a complex marketplace/review system.
+- Make Smart Widget community publishing/discovery/install/update minimally usable at product quality.
+- Let publishers target widgets to one or more communities where they have widget-write permission.
+- Support Blossom-backed widget app artifacts with mirrored/fallback app URLs in the widget event.
+- Let members discover trusted/community-curated widgets, install them, see manual update badges/details, and swap to newer widget events.
+- Keep owner/widget-moderator trusted display behavior and viable slot constraints intact.
+- Align the nested template generator/CLI/docs with BudaBit's supported event shape and workflow.
 
 ## Current Phase
 
-- Complete
+- Phase 1: Multi-URL Widget Event Foundation
 
 ## Phase Exit Criteria
 
-- Installed widget update detection exists and is manually applied, not automatic.
-- Settings exposes update badges/actions for installed widgets.
-- Widget install source relay hints are preserved and normalized.
-- Template publisher flow supports stable identifier, version/changelog metadata, and Blossom-backed release explanation.
-- Final focused tests and `pnpm check` pass, or any failure is recorded as a real blocker.
-- Checkpoint says `Current Phase: Complete` before final commit/push.
+- `SmartWidgetEvent` can represent ordered app URLs with a primary `appUrl` and fallback URLs.
+- `parseSmartWidget` reads all secure app URLs from supported tags while preserving compatibility with the existing first `button`/`app` URL.
+- Widget update diffs include app URL/fallback changes.
+- Runtime/widget card open behavior can use the ordered app URL list and attempt fallback on iframe load failure.
+- Focused tests cover parsing multi-URL events and diffing fallback URL changes.
 
 ## Completed With Evidence
 
-- Previous Smart Widget slot narrowing workflow is complete and pushed through root commit `236919b2 docs: finalize smart widget checkpoint` and template commit `481ac7c feat: align smart widget slots`.
-- Phase 1: Widget Update Foundations.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts` passed with 55 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Added optional Smart Widget `version` and `changelog` parsing.
-- Added normalized `widgetInstallSources` settings metadata for naddr/relay hints.
-- Added `widget-updates.ts` helpers for same-line update matching, update filters, relay selection, and diff summaries.
-- Added `checkForWidgetUpdate` and `refreshWidget` commands.
-- Updated widget install-by-naddr to preserve source naddr and relays.
-- Phase 1 commit pushed: `ccf6a1dd feat: add widget update foundations`.
-- Phase 2: Manual Widget Update UX.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts` passed with 40 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Settings now checks manually installed Smart Widgets for newer same-line events without auto-applying them.
-- Installed section shows widget update checking and available-update badges.
-- Widget cards show widget update availability, a manual update button, release version metadata, and a concise diff/changelog summary.
-- Manual widget update application calls `refreshWidget`, preserving existing display/settings and reloading enabled widgets through the Phase 1 command.
-- Phase 2 root commit pushed: `b1a1c599 feat: surface widget updates in settings`.
-- Phase 3: Publisher Release UX.
-- Evidence: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts` passed with 23 tests.
-- Evidence: `pnpm --filter budabit-sdk typecheck` passed.
-- Evidence: `pnpm --filter @budabit/ext-manifest typecheck` passed.
-- Evidence: `pnpm --filter create-budabit-widget typecheck` passed.
-- Template manifest generator copies now support optional `version` and `changelog` tags.
-- Generator CLI accepts `--version` and `--changelog`, warns to use explicit stable `--identifier` for releases, and previews identifier, release metadata, app URL, and relay targets.
-- Publish dry-run and publish details preview identifier, release metadata, app URL, and relay targets.
-- Template README/quickstart/manifest docs and scaffold defaults describe the Blossom-backed same-`d` release workflow.
-- Phase 3 template commit pushed: `48c454d feat: add widget release metadata`.
-- Phase 3 root commit pushed: `d5715380 feat: update widget release template`.
-- Phase 4: Regression Sweep And Completion.
-- Evidence: searched root docs/src and template docs/src for stale auto-update, identifier, update, TODO, version, and changelog contradictions; no blockers found.
-- Evidence: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts` passed with 55 tests.
-- Evidence: `pnpm check` passed with 0 errors and 0 warnings.
-- Evidence: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts` passed with 23 tests.
-- Evidence: `pnpm --filter budabit-sdk typecheck` passed.
-- Evidence: `pnpm --filter @budabit/ext-manifest typecheck` passed.
-- Evidence: `pnpm --filter create-budabit-widget typecheck` passed.
-- Final workflow is verified end-to-end: installed widget updates are detected and manually applied; relay hints are preserved; template release flow supports stable identifiers, release metadata, and Blossom-backed update docs.
+- Previous Smart Widget update/publish workflow is complete through root commit `6ada5638 docs: complete widget update workflow` and template commit `48c454d feat: add widget release metadata`.
+- Root branch `dev` and nested template branch `main` were clean at new workflow start.
 
 ## Decisions
 
 - Use `docs/session-plan.md` and `docs/session-checkpoint.md` for this durable workflow.
-- Keep update application manual for now; no auto-update.
-- Treat same publisher pubkey plus same kind `30033` plus same `d` identifier as the same widget line.
-- Use newer `created_at` as the update freshness signal; `version`/`changelog` are display metadata only for now.
-- Preserve existing community-endorsed vs other widget sections.
-- Use Welshman utilities where they fit; Welshman `Address`/`getAddress` and tag helpers are the preferred reference for addressable event identity.
+- Keep installed widget updates manual; no auto-update.
+- Same widget line remains publisher pubkey + kind `30033` + same `d` identifier.
+- Use newer `created_at` for update freshness; `version`/`changelog` are display metadata.
+- Preserve community trusted/endorsed vs other curated widget distinction.
+- Use only viable slots: `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, `global-menu`.
+- Reuse existing Blossom upload primitives where practical.
+- Template changes require separate nested repo commit/push before root submodule pointer update.
 
 ## Current State
 
 - Branch `dev` tracks `origin/dev`.
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
-- Phase 1 is committed and pushed.
-- Phase 2 is committed and pushed.
-- Phase 3 nested template commit is pushed; root submodule pointer is updated in this phase transition.
-- Phase 3 root commit is pushed.
-- Phase 4 final verification passed and this checkpoint is complete.
-- Existing NIP-89 update UX remains intact.
-- Smart Widget installed update UI exists for non-default, manually installed widgets; community defaults remain distinguished as defaults.
+- Current community widget publisher exists at `src/routes/c/[community]/widgets/+page.svelte`, but is manual URL-based and does not upload artifacts to Blossom.
+- Current Smart Widget parser stores a single `appUrl` from the first `button`/`app` URL.
+- Settings update UI exists for manually installed widgets.
+- Community curation/trust helpers already filter targeting events by widget-write permissions and distinguish trusted owner/moderator authors.
 
 ## Next Action
 
-- Final response.
+- Start Phase 1 by inspecting Smart Widget types/parser/card/update diff tests and implementing multi-URL app fallback support.
 
 ## Verification
 
-- Phase 1 focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
-- Phase 1 project check passed: `pnpm check`.
-- Phase 2 focused tests passed: `pnpm vitest run --project=main src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
-- Phase 2 project check passed: `pnpm check`.
-- Phase 3 template generator test passed: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts`.
-- Phase 3 SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
-- Phase 3 manifest typecheck passed: `pnpm --filter @budabit/ext-manifest typecheck`.
-- Phase 3 scaffold typecheck passed: `pnpm --filter create-budabit-widget typecheck`.
-- Phase 4 final root focused tests passed: `pnpm vitest run --project=main src/app/extensions/registry.test.ts src/app/extensions/settings.test.ts src/app/extensions/widget-updates.test.ts src/app/core/commands.test.ts`.
-- Phase 4 final root project check passed: `pnpm check`.
-- Phase 4 final template generator test passed: `pnpm --filter budabit-sdk test -- src/manifest/generator.test.ts`.
-- Phase 4 final SDK typecheck passed: `pnpm --filter budabit-sdk typecheck`.
-- Phase 4 final manifest typecheck passed: `pnpm --filter @budabit/ext-manifest typecheck`.
-- Phase 4 final scaffold typecheck passed: `pnpm --filter create-budabit-widget typecheck`.
+- Not run yet for this workflow.
 
 ## Risks Or Blockers
 
-- Template repo was committed and pushed before updating the root submodule pointer.
-- Widget update checks need useful relay hints; Phase 1 preserves manual naddr relays and falls back to existing Smart Widget/indexer relays.
-- No blocker.
+- Full Blossom upload UI may need a minimal server/mirror input first rather than a complete target picker.
+- Playwright E2E may need deterministic mock relay and mocked Blossom server plumbing; if browser environment blocks this, record the blocker and keep unit/integration coverage strong.
+- Multi-URL event shape must remain compatible with existing installed widgets and template-generated events.
 
 ## Files
 
@@ -120,23 +71,8 @@
 - `docs/session-checkpoint.md`
 - `src/app/extensions/types.ts`
 - `src/app/extensions/registry.ts`
-- `src/app/extensions/settings.ts`
 - `src/app/extensions/widget-updates.ts`
-- `src/app/extensions/widget-updates.test.ts`
-- `src/app/core/commands.ts`
-- `src/app/core/commands.test.ts`
-- `src/app/extensions/registry.test.ts`
-- `src/app/extensions/settings.test.ts`
-- `src/routes/settings/extensions/+page.svelte`
 - `src/app/components/ExtensionCard.svelte`
+- `src/routes/c/[community]/widgets/+page.svelte`
+- `src/app/extensions/widget-targeting.ts`
 - `packages/flotilla-extension-template`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/cli.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/publish.ts`
-- `packages/flotilla-extension-template/packages/sdk/src/manifest/generator.test.ts`
-- `packages/flotilla-extension-template/packages/manifest/src/generator.ts`
-- `packages/flotilla-extension-template/packages/manifest/src/cli.ts`
-- `packages/flotilla-extension-template/packages/manifest/src/publish.ts`
-- `packages/flotilla-extension-template/docs/quickstart.md`
-- `packages/flotilla-extension-template/docs/manifest.md`
-- `packages/flotilla-extension-template/README.md`
