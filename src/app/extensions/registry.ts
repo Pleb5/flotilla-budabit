@@ -12,6 +12,7 @@ import type {
 } from "./types"
 import {getRepoAddress} from "./types"
 import {assertSecureEmbeddableUrl} from "./url-policy"
+import {getWidgetLineId} from "./widget-identity"
 
 const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
 const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
@@ -188,9 +189,10 @@ class ExtensionRegistry {
 
   registerWidget(event: SmartWidgetEvent): LoadedWidgetExtension {
     const extensions = new Map(get(this.store))
+    const id = getWidgetLineId(event)
     const ext: LoadedWidgetExtension = {
       type: "widget",
-      id: event.identifier,
+      id,
       widget: event,
       origin: deriveWidgetOrigin(event),
     }
@@ -208,12 +210,25 @@ class ExtensionRegistry {
 
   unregister(id: string): void {
     const extensions = new Map(get(this.store))
-    extensions.delete(id)
+    if (!extensions.delete(id)) {
+      for (const [key, ext] of extensions) {
+        if (ext.type === "widget" && ext.widget.identifier === id) {
+          extensions.delete(key)
+          break
+        }
+      }
+    }
     this.store.set(extensions)
   }
 
   get(id: string): LoadedExtension | undefined {
-    return get(this.store).get(id)
+    const extensions = get(this.store)
+    const ext = extensions.get(id)
+    if (ext) return ext
+
+    return Array.from(extensions.values()).find(
+      candidate => candidate.type === "widget" && candidate.widget.identifier === id,
+    )
   }
 
   list(): LoadedExtension[] {
@@ -464,7 +479,7 @@ class ExtensionRegistry {
   }
 
   async loadWidget(event: SmartWidgetEvent): Promise<LoadedWidgetExtension> {
-    const existing = this.get(event.identifier)
+    const existing = this.get(getWidgetLineId(event))
     if (existing && existing.type === "widget") {
       return existing as LoadedWidgetExtension
     }

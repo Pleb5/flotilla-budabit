@@ -110,6 +110,7 @@ import {
   type WidgetInstallSource,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
+import {getWidgetLineId} from "@app/extensions/widget-identity"
 import {
   buildWidgetUpdate,
   getWidgetUpdateFilter,
@@ -379,15 +380,16 @@ export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
     }
   }
 
-  // Deduplicate by identifier, keeping the newest version
+  // Deduplicate by widget line, keeping the newest version
   const byId = new Map<string, SmartWidgetEvent>()
   for (const widget of widgets) {
-    const existing = byId.get(widget.identifier)
+    const id = getWidgetLineId(widget)
+    const existing = byId.get(id)
     if (
       !existing ||
       (widget.created_at && existing.created_at && widget.created_at > existing.created_at)
     ) {
-      byId.set(widget.identifier, widget)
+      byId.set(id, widget)
     }
   }
 

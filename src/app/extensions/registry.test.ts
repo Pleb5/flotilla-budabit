@@ -2,6 +2,7 @@
 
 import {afterEach, describe, expect, it} from "vitest"
 import {extensionRegistry, parseSmartWidget} from "./registry"
+import {getWidgetLineId} from "./widget-identity"
 import type {ExtensionManifest} from "./types"
 
 const manifest: ExtensionManifest = {
@@ -22,6 +23,8 @@ const makeWidgetEvent = (slotTag?: string[]) => ({
 afterEach(() => {
   extensionRegistry.unregister(manifest.id)
   extensionRegistry.unregister("test-insecure-entrypoint")
+  extensionRegistry.unregister(`30033:${"a".repeat(64)}:shared-widget`)
+  extensionRegistry.unregister(`30033:${"b".repeat(64)}:shared-widget`)
 })
 
 describe("extension registry no-entrypoint runtime", () => {
@@ -154,5 +157,29 @@ describe("extension registry no-entrypoint runtime", () => {
     expect(parseSmartWidget(makeWidgetEvent(["slot", "chat:message:actions"])).slot).toBeUndefined()
     expect(parseSmartWidget(makeWidgetEvent(["slot", "global:menu"])).slot).toBeUndefined()
     expect(parseSmartWidget(makeWidgetEvent(["slot", "room:panel"])).slot).toBeUndefined()
+  })
+
+  it("registers same-d widgets from different publishers as separate widget lines", () => {
+    const first = parseSmartWidget({
+      ...makeWidgetEvent(),
+      id: "first-shared-widget",
+      pubkey: "a".repeat(64),
+      tags: [["d", "shared-widget"], ["l", "basic"]],
+    })
+    const second = parseSmartWidget({
+      ...makeWidgetEvent(),
+      id: "second-shared-widget",
+      pubkey: "b".repeat(64),
+      tags: [["d", "shared-widget"], ["l", "basic"]],
+    })
+
+    const firstExt = extensionRegistry.registerWidget(first)
+    const secondExt = extensionRegistry.registerWidget(second)
+
+    expect(firstExt.id).toBe(getWidgetLineId(first))
+    expect(secondExt.id).toBe(getWidgetLineId(second))
+    expect(extensionRegistry.get(firstExt.id)).toBe(firstExt)
+    expect(extensionRegistry.get(secondExt.id)).toBe(secondExt)
+    expect(firstExt.id).not.toBe(secondExt.id)
   })
 })

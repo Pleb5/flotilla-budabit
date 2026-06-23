@@ -208,6 +208,8 @@ describe("commands", () => {
     repository.removeEvent("definition-with-blossom")
     repository.removeEvent("definition-without-blossom")
     repository.removeEvent("30033:" + "a".repeat(64) + ":weather")
+    repository.removeEvent("publisher-a-weather")
+    repository.removeEvent("publisher-b-weather")
     vi.unstubAllGlobals()
   })
 
@@ -899,6 +901,37 @@ describe("commands", () => {
     expect(update?.latest.id).toBe("weather-2")
     expect(update?.diff.appUrlChanged).toBe(true)
     expect(update?.diff.version?.to).toBe("1.0.1")
+  })
+
+  it("discoverSmartWidgets keeps same-d widgets from different publishers", async () => {
+    const {discoverSmartWidgets} = await import("./commands")
+    const first = {
+      id: "publisher-a-weather",
+      kind: 30033,
+      content: "Weather A",
+      pubkey: "a".repeat(64),
+      created_at: 1,
+      tags: [["d", "weather"], ["l", "basic"]],
+    } as any
+    const second = {
+      ...first,
+      id: "publisher-b-weather",
+      content: "Weather B",
+      pubkey: "b".repeat(64),
+      created_at: 2,
+    }
+
+    repository.publish(first)
+    repository.publish(second)
+
+    const widgets = await discoverSmartWidgets()
+
+    expect(
+      widgets
+        .filter(widget => widget.identifier === "weather")
+        .map(widget => widget.pubkey)
+        .sort(),
+    ).toEqual(["a".repeat(64), "b".repeat(64)])
   })
 
   it("refreshWidget replaces stored widget metadata and reloads enabled widgets", async () => {
