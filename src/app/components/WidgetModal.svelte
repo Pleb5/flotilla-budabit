@@ -19,9 +19,13 @@
   let iframeRef: HTMLIFrameElement | undefined = $state()
   let bridge: ExtensionBridge | undefined = $state()
   let loaded = $state(false)
-  const appUrl = $derived(
-    widget.appUrl && isSecureEmbeddableUrl(widget.appUrl) ? widget.appUrl : undefined,
+  let appUrlIndex = $state(0)
+  const appUrls = $derived(
+    (widget.appUrls?.length ? widget.appUrls : widget.appUrl ? [widget.appUrl] : []).filter(url =>
+      isSecureEmbeddableUrl(url),
+    ),
   )
+  const appUrl = $derived(appUrls[appUrlIndex])
 
   const getUserContext = () => {
     const userPubkey = get(pubkey)
@@ -110,6 +114,13 @@
     setTimeout(sendContext, 100)
   }
 
+  const onIframeError = () => {
+    if (appUrlIndex < appUrls.length - 1) {
+      loaded = false
+      appUrlIndex += 1
+    }
+  }
+
   // Listen for messages from the widget
   const handleMessage = (event: MessageEvent) => {
     if (!appUrl) return
@@ -178,7 +189,8 @@
         title={widget.content || widget.identifier}
         class="absolute inset-0 h-full w-full border-0"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        onload={onIframeLoad}></iframe>
+        onload={onIframeLoad}
+        onerror={onIframeError}></iframe>
     {:else if widget.appUrl}
       <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
         This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}

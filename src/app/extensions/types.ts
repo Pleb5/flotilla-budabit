@@ -63,6 +63,7 @@ export type SmartWidgetEvent = {
   inputLabel?: string
   buttons: WidgetButton[]
   appUrl?: string
+  appUrls?: string[]
   permissions?: string[]
   originHint?: string
   version?: string

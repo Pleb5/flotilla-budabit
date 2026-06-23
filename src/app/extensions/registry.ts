@@ -42,6 +42,20 @@ const addCacheBuster = (url: string): string => {
   }
 }
 
+const uniqueSecureAppUrls = (urls: Array<string | undefined>) => {
+  const seen = new Set<string>()
+  const secureUrls: string[] = []
+
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue
+    assertSecureEmbeddableUrl(url, "Smart widget app URL")
+    seen.add(url)
+    secureUrls.push(url)
+  }
+
+  return secureUrls
+}
+
 export const parseSmartWidget = (event: any): SmartWidgetEvent => {
   if (!event || event.kind !== 30033 || !Array.isArray(event.tags)) {
     throw new Error("Invalid smart widget event: wrong kind or missing tags")
@@ -78,11 +92,14 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
   }, [])
 
   const appUrl = buttons.find(b => b.type === "app")?.url
+  const appUrls = uniqueSecureAppUrls([
+    appUrl,
+    ...getTags(tags, "app-url")
+      .map(t => t[1])
+      .filter(Boolean),
+  ])
   if (widgetType !== "basic" && !appUrl) {
     throw new Error("Action/Tool widget missing app URL")
-  }
-  if (appUrl) {
-    assertSecureEmbeddableUrl(appUrl, "Smart widget app URL")
   }
 
   const originHint = getTag(tags, "client")?.[2]
@@ -113,6 +130,7 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
     inputLabel,
     buttons,
     appUrl,
+    appUrls,
     permissions,
     originHint,
     version,
@@ -122,9 +140,12 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
 }
 
 const deriveWidgetOrigin = (widget: SmartWidgetEvent): string => {
-  const candidates = [widget.appUrl, widget.originHint, widget.iconUrl, widget.imageUrl].filter(
-    Boolean,
-  ) as string[]
+  const candidates = [
+    ...(widget.appUrls?.length ? widget.appUrls : [widget.appUrl]),
+    widget.originHint,
+    widget.iconUrl,
+    widget.imageUrl,
+  ].filter(Boolean) as string[]
   for (const url of candidates) {
     try {
       return new URL(url).origin
@@ -387,17 +408,21 @@ class ExtensionRegistry {
       return ext
     }
 
+    const appUrls = ext.widget.appUrls?.length
+      ? ext.widget.appUrls
+      : ext.widget.appUrl
+        ? [ext.widget.appUrl]
+        : []
+
     // action/tool widgets require an appUrl
-    if (!ext.widget.appUrl) {
+    if (!appUrls.length) {
       throw new Error("Action/Tool widget missing app URL")
     }
-    assertSecureEmbeddableUrl(ext.widget.appUrl, "Smart widget app URL")
+    appUrls.forEach(url => assertSecureEmbeddableUrl(url, "Smart widget app URL"))
     const existing = this.get(ext.id) as LoadedWidgetExtension | undefined
     if (existing?.iframe) return existing
 
     const iframe = document.createElement("iframe")
-    // Add cache-busting parameter to ensure fresh widget content
-    iframe.src = addCacheBuster(ext.widget.appUrl)
     iframe.sandbox.add("allow-scripts", "allow-same-origin")
     iframe.classList.add("extension-frame")
 
@@ -406,7 +431,16 @@ class ExtensionRegistry {
 
     // Wait for iframe to load before attaching bridge
     try {
-      await this.waitForIframeLoad(iframe)
+      for (const [index, appUrl] of appUrls.entries()) {
+        iframe.src = addCacheBuster(appUrl)
+        try {
+          await this.waitForIframeLoad(iframe)
+          break
+        } catch (err) {
+          if (index === appUrls.length - 1) throw err
+          console.warn(`[registry] Widget ${ext.id} app URL failed, trying fallback:`, err)
+        }
+      }
     } catch (err) {
       // Clean up on failure
       if (iframe.parentNode) {

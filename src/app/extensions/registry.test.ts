@@ -113,6 +113,43 @@ describe("extension registry no-entrypoint runtime", () => {
     expect(widget.changelog).toBe("Bug fixes")
   })
 
+  it("parses ordered secure smart widget app URL fallbacks", () => {
+    const widget = parseSmartWidget({
+      ...makeWidgetEvent(),
+      tags: [
+        ["d", "test-widget"],
+        ["l", "tool"],
+        ["image", "https://example.com/icon.png"],
+        ["button", "Open", "app", "https://example.com/widget.html"],
+        ["app-url", "https://cdn.example.com/widget.html"],
+        ["app-url", "https://cdn.example.com/widget.html"],
+        ["app-url", "https://mirror.example.com/widget.html"],
+      ],
+    })
+
+    expect(widget.appUrl).toBe("https://example.com/widget.html")
+    expect(widget.appUrls).toEqual([
+      "https://example.com/widget.html",
+      "https://cdn.example.com/widget.html",
+      "https://mirror.example.com/widget.html",
+    ])
+  })
+
+  it("rejects insecure smart widget app URL fallbacks", () => {
+    expect(() =>
+      parseSmartWidget({
+        ...makeWidgetEvent(),
+        tags: [
+          ["d", "test-widget"],
+          ["l", "tool"],
+          ["image", "https://example.com/icon.png"],
+          ["button", "Open", "app", "https://example.com/widget.html"],
+          ["app-url", "http://example.com/widget.html"],
+        ],
+      }),
+    ).toThrow(/must use a secure URL/)
+  })
+
   it("ignores unsupported legacy colon smart widget slots", () => {
     expect(parseSmartWidget(makeWidgetEvent(["slot", "chat:message:actions"])).slot).toBeUndefined()
     expect(parseSmartWidget(makeWidgetEvent(["slot", "global:menu"])).slot).toBeUndefined()

@@ -78,6 +78,19 @@ describe("widget update helpers", () => {
     })
   })
 
+  it("detects ordered app URL fallback changes", () => {
+    const installed = makeWidget({
+      appUrls: ["https://example.com/v1.html", "https://cdn.example.com/v1.html"],
+    })
+    const latest = makeWidget({
+      id: "weather-20",
+      created_at: 20,
+      appUrls: ["https://example.com/v1.html", "https://mirror.example.com/v1.html"],
+    })
+
+    expect(getWidgetUpdateDiff(installed, latest).appUrlChanged).toBe(true)
+  })
+
   it("reads version and changelog tags when parsed fields are missing", () => {
     const widget = makeWidget({
       tags: [

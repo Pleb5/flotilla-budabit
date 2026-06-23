@@ -32,6 +32,9 @@ const normalizeList = (values: string[] = []) => Array.from(new Set(values.filte
 
 const serializeSlot = (slot?: WidgetSlotConfig) => JSON.stringify(slot || null)
 
+const getWidgetAppUrls = (widget: SmartWidgetEvent) =>
+  widget.appUrls?.length ? widget.appUrls : widget.appUrl ? [widget.appUrl] : []
+
 export const getWidgetVersion = (widget: SmartWidgetEvent) =>
   widget.version || getTagValue("version", widget.tags || [])
 
@@ -69,7 +72,8 @@ export const getWidgetUpdateDiff = (
   return {
     ...(fromVersion || toVersion ? {version: {from: fromVersion, to: toVersion}} : {}),
     changelog: getWidgetChangelog(latest),
-    appUrlChanged: (installed.appUrl || "") !== (latest.appUrl || ""),
+    appUrlChanged:
+      JSON.stringify(getWidgetAppUrls(installed)) !== JSON.stringify(getWidgetAppUrls(latest)),
     permissionsAdded: latestPermissions.filter(
       permission => !installedPermissionSet.has(permission),
     ),

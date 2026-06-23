@@ -58,9 +58,13 @@
   const isWidget = type === "widget"
   const widget = isWidget ? (manifest as SmartWidgetEvent) : null
   const extension = !isWidget ? (manifest as ExtensionManifest) : null
-  const widgetAppUrl = $derived(
-    widget?.appUrl && isSecureEmbeddableUrl(widget.appUrl) ? widget.appUrl : undefined,
+  const widgetAppUrls = $derived(
+    (widget?.appUrls?.length ? widget.appUrls : widget?.appUrl ? [widget.appUrl] : []).filter(url =>
+      isSecureEmbeddableUrl(url),
+    ),
   )
+  let widgetAppUrlIndex = $state(0)
+  const widgetAppUrl = $derived(widgetAppUrls[widgetAppUrlIndex])
 
   let showWidgetModal = $state(false)
   let showCommunityTargets = $state(false)
@@ -68,11 +72,20 @@
   let savingCommunityTargets = $state(false)
 
   const openWidget = () => {
+    widgetAppUrlIndex = 0
     showWidgetModal = true
   }
 
   const closeWidget = () => {
     showWidgetModal = false
+  }
+
+  const tryNextWidgetAppUrl = () => {
+    if (widgetAppUrlIndex < widgetAppUrls.length - 1) {
+      widgetAppUrlIndex += 1
+      return
+    }
+    pushToast({theme: "error", message: "Failed to load widget app URL"})
   }
 
   const getCommunityLabel = (pubkey: string) =>
@@ -279,6 +292,9 @@
       {#if widget.appUrl}
         <div class="truncate" title={widget.appUrl}>App: {widget.appUrl}</div>
       {/if}
+      {#if widget.appUrls && widget.appUrls.length > 1}
+        <div>{widget.appUrls.length - 1} fallback app URL{widget.appUrls.length === 2 ? "" : "s"}</div>
+      {/if}
     </div>
     {#if widget.appUrl || widget.buttons?.length || onDisplayLocationChange}
       <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -428,7 +444,8 @@
             src={widgetAppUrl}
             title={widget.content || widget.identifier}
             class="absolute inset-0 h-full w-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            onerror={tryNextWidgetAppUrl}></iframe>
         {:else}
           <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
             This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}

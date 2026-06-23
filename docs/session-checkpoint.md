@@ -16,20 +16,26 @@
 
 ## Current Phase
 
-- Phase 1: Multi-URL Widget Event Foundation
+- Phase 2: Blossom-Backed Community Widget Publisher
 
 ## Phase Exit Criteria
 
-- `SmartWidgetEvent` can represent ordered app URLs with a primary `appUrl` and fallback URLs.
-- `parseSmartWidget` reads all secure app URLs from supported tags while preserving compatibility with the existing first `button`/`app` URL.
-- Widget update diffs include app URL/fallback changes.
-- Runtime/widget card open behavior can use the ordered app URL list and attempt fallback on iframe load failure.
-- Focused tests cover parsing multi-URL events and diffing fallback URL changes.
+- Community widget publisher can upload/select a built widget app artifact through existing Blossom primitives/settings where practical.
+- Publisher emits widget events with primary `button`/`app` URL plus ordered fallback `app-url` tags.
+- Targeting UI only exposes communities where the current user can write widget targets.
+- Publisher can target one or more eligible communities in one flow without exposing ineligible communities.
+- Focused tests cover event tag construction and permission-gated target option behavior where helper boundaries allow.
 
 ## Completed With Evidence
 
 - Previous Smart Widget update/publish workflow is complete through root commit `6ada5638 docs: complete widget update workflow` and template commit `48c454d feat: add widget release metadata`.
 - Root branch `dev` and nested template branch `main` were clean at new workflow start.
+- Phase 1 implemented ordered Smart Widget app URL support with primary `appUrl` compatibility and `appUrls` fallbacks.
+- Phase 1 parser now reads secure fallback URLs from repeatable `app-url` tags and rejects insecure fallback URLs.
+- Phase 1 update diff now compares the ordered app URL list, including fallback changes.
+- Phase 1 runtime/card/modal paths use the ordered app URL list and attempt fallback on iframe load failure.
+- Phase 1 verification passed: `pnpm vitest run src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts`.
+- Phase 1 verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -41,23 +47,25 @@
 - Use only viable slots: `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, `global-menu`.
 - Reuse existing Blossom upload primitives where practical.
 - Template changes require separate nested repo commit/push before root submodule pointer update.
+- Preserve existing `button`/`app` as the compatible primary app URL and use repeatable `app-url` tags for ordered fallback app URLs.
 
 ## Current State
 
 - Branch `dev` tracks `origin/dev`.
 - Nested template repo `packages/flotilla-extension-template` is on branch `main` tracking `origin/main`.
 - Current community widget publisher exists at `src/routes/c/[community]/widgets/+page.svelte`, but is manual URL-based and does not upload artifacts to Blossom.
-- Current Smart Widget parser stores a single `appUrl` from the first `button`/`app` URL.
+- Current Smart Widget parser stores the compatible primary `appUrl` from the first `button`/`app` URL and ordered `appUrls` from primary plus repeatable `app-url` fallback tags.
 - Settings update UI exists for manually installed widgets.
 - Community curation/trust helpers already filter targeting events by widget-write permissions and distinguish trusted owner/moderator authors.
 
 ## Next Action
 
-- Start Phase 1 by inspecting Smart Widget types/parser/card/update diff tests and implementing multi-URL app fallback support.
+- Start Phase 2 by inspecting the community widget publisher, existing Blossom upload helpers/settings, and widget targeting permission helpers.
 
 ## Verification
 
-- Not run yet for this workflow.
+- `pnpm vitest run src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts`
+- `pnpm check`
 
 ## Risks Or Blockers
 
