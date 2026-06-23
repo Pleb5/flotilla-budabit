@@ -16,6 +16,8 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
+  import {uploadFile, type BlossomMirrorUploadResult} from "@app/core/commands"
+  import type {BlossomUploadStage} from "@app/core/blossom"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
@@ -40,6 +42,11 @@
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import type {WidgetCommunitySlotType} from "@app/extensions/types"
+  import {
+    buildCommunityWidgetEventTags,
+    filterSelectedWidgetCommunityOptions,
+    getWidgetAppUrlsFromUpload,
+  } from "@app/extensions/widget-publisher"
   import {
     getWidgetTargetPublishRelays,
     publishWidgetEventToTargets,
@@ -204,24 +211,80 @@
       : selectedTargetCommunityPubkeys.filter(value => value !== pubkey)
   }
 
+  const getWidgetAppUrls = () =>
+    Array.from(
+      new Set([
+        appUrl.trim(),
+        ...fallbackAppUrls
+          .split(/\n|,/)
+          .map(url => url.trim())
+          .filter(Boolean),
+      ].filter(Boolean)),
+    )
+
+  const uploadWidgetArtifact = async (input: HTMLInputElement) => {
+    const file = input.files?.[0]
+    if (!file) return
+
+    widgetUploadStage = "preparing"
+    widgetUploadError = ""
+    widgetUploadMirrors = []
+
+    try {
+      const {error, result, mirrors} = await uploadFile(file, {
+        blossomContext: {
+          type: "generic",
+          label: `Widget: ${name.trim() || file.name}`,
+        },
+        onStage: stage => (widgetUploadStage = stage),
+      })
+
+      if (error || !result?.url) throw new Error(error || "Widget artifact upload failed.")
+
+      const urls = getWidgetAppUrlsFromUpload({result, mirrors})
+      if (urls.length === 0) throw new Error("Upload did not return a secure widget app URL.")
+
+      appUrl = urls[0]
+      fallbackAppUrls = urls.slice(1).join("\n")
+      widgetUploadMirrors = mirrors || []
+      pushToast({theme: "success", message: "Widget artifact uploaded."})
+    } catch (error) {
+      widgetUploadStage = "failed"
+      widgetUploadError = error instanceof Error ? error.message : String(error)
+      pushToast({theme: "error", message: widgetUploadError})
+    } finally {
+      input.value = ""
+    }
+  }
+
   const createWidget = () => {
-    if (!$pubkey || !name.trim() || !appUrl.trim()) return
-    if (selectedTargetCommunityPubkeys.length === 0) {
+    if (!$pubkey || !name.trim()) return
+    const selectedOptions = filterSelectedWidgetCommunityOptions(
+      widgetCommunityOptions,
+      selectedTargetCommunityPubkeys,
+    )
+
+    if (!canCreateWidget) {
+      pushToast({theme: "error", message: "You do not have permission to publish widgets here."})
+      return
+    }
+    if (selectedOptions.length === 0) {
       pushToast({theme: "error", message: "Select at least one community target."})
       return
     }
-    if (!isSecureEmbeddableUrl(appUrl.trim())) {
+    const appUrls = getWidgetAppUrls()
+    if (appUrls.length === 0 || !appUrls.every(isSecureEmbeddableUrl)) {
       pushToast({
         theme: "error",
-        message: `Widget app URL is insecure. ${SECURE_EMBED_URL_REQUIREMENT}`,
+        message: `Widget app URLs must be secure. ${SECURE_EMBED_URL_REQUIREMENT}`,
       })
       return
     }
     const baseRelays = normalizeRelays([...SMART_WIDGET_RELAYS, ...getUserOutboxRelays()])
     const relays = getWidgetTargetPublishRelays({
       baseRelays,
-      communityOptions: widgetCommunityOptions,
-      communityPubkeys: selectedTargetCommunityPubkeys,
+      communityOptions: selectedOptions,
+      communityPubkeys: selectedOptions.map(option => option.pubkey),
     })
     if (relays.length === 0) {
       pushToast({theme: "error", message: "No publish relays are available for selected targets."})
@@ -231,45 +294,56 @@
     const widgetId = slug.trim() || randomId()
     const widgetEvent = makeEvent(SMART_WIDGET_KIND, {
       content: name.trim(),
-      tags: [
-        ["d", widgetId],
-        ["title", name.trim()],
-        ["l", "basic"],
-        ...(widgetSlot ? [["slot", widgetSlot, name.trim()]] : []),
-        ["button", "Open", "app", appUrl.trim()],
-        ...(iconUrl.trim() ? [["icon", iconUrl.trim()]] : []),
-        ...(description.trim() ? [["description", description.trim()]] : []),
-      ],
+      tags: buildCommunityWidgetEventTags({
+        identifier: widgetId,
+        name,
+        appUrls,
+        iconUrl,
+        description,
+        slot: widgetSlot,
+        version,
+        changelog,
+      }),
     })
     publishWidgetEventToTargets({
       event: widgetEvent,
       baseRelays,
-      communityOptions: widgetCommunityOptions,
-      communityPubkeys: selectedTargetCommunityPubkeys,
+      communityOptions: selectedOptions,
+      communityPubkeys: selectedOptions.map(option => option.pubkey),
     })
     publishWidgetTargetingEvent({
       widget: {pubkey: $pubkey, identifier: widgetId},
       baseRelays,
-      communityOptions: widgetCommunityOptions,
-      communityPubkeys: selectedTargetCommunityPubkeys,
+      communityOptions: selectedOptions,
+      communityPubkeys: selectedOptions.map(option => option.pubkey),
       originalRelay: relays[0],
     })
 
     name = ""
     slug = ""
     appUrl = ""
+    fallbackAppUrls = ""
     iconUrl = ""
     description = ""
+    version = ""
+    changelog = ""
     widgetSlot = ""
+    widgetUploadMirrors = []
     pushToast({message: "Widget published."})
   }
 
   let name = $state("")
   let slug = $state("")
   let appUrl = $state("")
+  let fallbackAppUrls = $state("")
   let iconUrl = $state("")
   let description = $state("")
+  let version = $state("")
+  let changelog = $state("")
   let widgetSlot = $state<WidgetSlotOption>("")
+  let widgetUploadStage = $state<BlossomUploadStage>("idle")
+  let widgetUploadError = $state("")
+  let widgetUploadMirrors = $state<BlossomMirrorUploadResult[]>([])
   let selectedTargetCommunityPubkeys = $state<string[]>([])
   let targetSelectionKey = ""
   let loadingTargets = $state(false)
@@ -282,6 +356,14 @@
       loadingWidgets ||
       !targetRequestDone ||
       (widgetFilters.length > 0 && !widgetRequestDone && $widgets.length === 0),
+  )
+  const widgetUploading = $derived(!["idle", "ready", "failed"].includes(widgetUploadStage))
+  const canSubmitWidget = $derived(
+    canCreateWidget &&
+      !widgetUploading &&
+      Boolean(name.trim()) &&
+      getWidgetAppUrls().length > 0 &&
+      filterSelectedWidgetCommunityOptions(widgetCommunityOptions, selectedTargetCommunityPubkeys).length > 0,
   )
 
   $effect(() => {
@@ -397,6 +479,11 @@
 <PageContent class="content col-4 p-4">
   <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createWidget)}>
     <strong>Create targeted widget</strong>
+    {#if !canCreateWidget}
+      <div class="alert alert-warning text-sm">
+        You need widget-write permission in this community to publish or target widgets.
+      </div>
+    {/if}
     <Field
       >{#snippet label()}<p>Name</p>{/snippet}{#snippet input()}<input
           bind:value={name}
@@ -409,10 +496,52 @@
       >{#snippet label()}<p>App URL</p>{/snippet}{#snippet input()}<input
           bind:value={appUrl}
           class="input input-bordered w-full" />{/snippet}</Field>
+    <Field>
+      {#snippet label()}<p>Upload widget HTML</p>{/snippet}
+      {#snippet input()}
+        <input
+          type="file"
+          accept=".html,text/html"
+          class="file-input file-input-bordered w-full"
+          disabled={!canCreateWidget || widgetUploading}
+          onchange={event => uploadWidgetArtifact(event.currentTarget)} />
+        <p class="mt-1 text-xs opacity-70">
+          Upload a built widget artifact to Blossom, or paste a manual app URL above.
+        </p>
+        {#if widgetUploading}
+          <p class="mt-1 text-xs opacity-70">Uploading: {widgetUploadStage}</p>
+        {:else if widgetUploadError}
+          <p class="mt-1 text-xs text-error">{widgetUploadError}</p>
+        {/if}
+        {#if widgetUploadMirrors.length > 0}
+          <p class="mt-1 text-xs opacity-70">
+            Immediate mirrors: {widgetUploadMirrors.filter(mirror => mirror.ok && mirror.url).length}
+          </p>
+        {/if}
+      {/snippet}
+    </Field>
+    <Field
+      >{#snippet label()}<p>Fallback app URLs</p>{/snippet}{#snippet input()}<textarea
+          bind:value={fallbackAppUrls}
+          class="textarea textarea-bordered"
+          rows="3"
+          placeholder="One URL per line"></textarea>
+        >{/snippet}</Field>
     <Field
       >{#snippet label()}<p>Icon URL</p>{/snippet}{#snippet input()}<input
           bind:value={iconUrl}
           class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Version</p>{/snippet}{#snippet input()}<input
+          bind:value={version}
+          class="input input-bordered w-full"
+          placeholder="1.0.0" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Changelog</p>{/snippet}{#snippet input()}<textarea
+          bind:value={changelog}
+          class="textarea textarea-bordered"
+          rows="3"></textarea
+        >{/snippet}</Field>
     <Field
       >{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea
           bind:value={description}
@@ -462,8 +591,8 @@
       <Button
         type="submit"
         class="btn btn-primary"
-        disabled={!name.trim() || !appUrl.trim() || selectedTargetCommunityPubkeys.length === 0}>
-        Publish widget
+        disabled={!canSubmitWidget}>
+        {widgetUploading ? "Uploading..." : "Publish widget"}
       </Button>
     </div>
   </form>
