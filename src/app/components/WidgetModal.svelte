@@ -4,6 +4,7 @@
   import {get} from "svelte/store"
   import type {SmartWidgetEvent} from "@app/extensions/types"
   import {ExtensionBridge} from "@app/extensions/bridge"
+  import {getWidgetLineId} from "@app/extensions/widget-identity"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {clearModals} from "@app/util/modal"
   import Icon from "@lib/components/Icon.svelte"
@@ -26,6 +27,7 @@
     ),
   )
   const appUrl = $derived(appUrls[appUrlIndex])
+  const widgetId = $derived(getWidgetLineId(widget))
 
   const getUserContext = () => {
     const userPubkey = get(pubkey)
@@ -48,7 +50,7 @@
     const user = getUserContext()
 
     return {
-      extensionId: widget.identifier,
+      extensionId: widgetId,
       type: "widget",
       origin: appUrl ? new URL(appUrl).origin : "",
       hostVersion: "1.0.0",
@@ -102,7 +104,7 @@
       const origin = new URL(appUrl).origin
       const ext = {
         type: "widget" as const,
-        id: widget.identifier,
+        id: widgetId,
         widget,
         origin,
         iframe: iframeRef,

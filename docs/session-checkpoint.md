@@ -13,16 +13,14 @@
 
 ## Current Phase
 
-- Phase 3: Bridge Storage Namespace Migration
+- Phase 4: Final Regression And Documentation
 
 ## Phase Exit Criteria
 
-- New bridge storage writes use a versioned BudaBit prefix such as `budabit:ext:v2:` and encoded canonical extension/widget IDs.
-- Repo-scoped storage uses an encoded repo address component rather than raw `repo:{pubkey}:{name}` delimiters.
-- `storage:get` falls back to legacy `flotilla:ext:` keys when no v2 value exists.
-- `storage:keys` can report v2 keys and legacy keys during transition without duplicates.
-- `storage:set`/`storage:remove` write/remove v2 keys and do not create new legacy keys.
-- Focused bridge tests cover v2 keys, legacy fallback, repo-scoped keys, and duplicate widget identifiers from different publishers.
+- Tests cover duplicate publisher widgets with same `d` through install/discovery/update/storage-critical paths.
+- Developer-facing docs or comments explain widget line ID versus `d` identifier and storage namespace compatibility.
+- Final focused tests and `pnpm check` pass.
+- Checkpoint says `Current Phase: Complete` before final commit/push.
 
 ## Completed With Evidence
 
@@ -40,6 +38,13 @@
 - Phase 2 tests cover settings migration, same-`d` widgets from different publishers, command install/update/refresh canonical keys, and community slot duplicate-identifier selection.
 - Phase 2 verification passed: `pnpm vitest run src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts`.
 - Phase 2 verification passed: `pnpm check`.
+- Phase 3 bridge storage writes now use encoded `budabit:ext:v2:` keys for extension IDs, widget line IDs, repo addresses, and caller storage keys.
+- Phase 3 bridge storage reads fall back to legacy `flotilla:ext:` keys, including legacy bare widget identifier prefixes for canonical widget bridge IDs.
+- Phase 3 `storage:keys` reports decoded v2 keys plus legacy fallback keys without duplicates, and storage removal removes v2 plus matching legacy fallback entries to avoid resurrecting deleted data.
+- Phase 3 modal-launched widgets now pass canonical widget line IDs as bridge `extensionId` and runtime/storage IDs.
+- Phase 3 tests cover v2 writes, decoded key listing, legacy global and repo-scoped fallback, encoded repo-scoped keys, bare widget legacy fallback, and same-`d` duplicate publisher widget storage isolation.
+- Phase 3 verification passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
+- Phase 3 verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -56,11 +61,12 @@
 - `src/app/core/commands.ts` installs/checks/refreshes widgets by canonical widget line ID.
 - Settings and route/community UI paths use canonical widget line IDs for installed/default/enabled/update maps and Svelte keys.
 - Smart widget discovery and community curation dedupe by canonical widget line ID.
-- `src/app/extensions/bridge.ts` still uses `flotilla:ext:{ext.id}:...` storage keys; bridge storage namespace migration is the next phase.
+- `src/app/extensions/bridge.ts` writes encoded v2 storage keys and keeps legacy `flotilla:ext:` read fallback for transition.
+- `src/app/components/WidgetModal.svelte` now uses canonical widget line IDs for modal bridge runtime/storage identity.
 
 ## Next Action
 
-- Start Phase 3 by inspecting `src/app/extensions/bridge.ts` and `src/app/extensions/bridge.test.ts`, then add encoded v2 storage key helpers with legacy read fallback.
+- Start Phase 4 by reviewing coverage gaps, adding concise developer-facing documentation/comments for widget line IDs versus `d` identifiers and storage namespace compatibility, then run final focused tests plus `pnpm check`.
 
 ## Verification
 
@@ -68,11 +74,12 @@
 - `pnpm check`
 - `pnpm vitest run src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts`
 - `pnpm check`
+- `pnpm vitest run src/app/extensions/bridge.test.ts`
+- `pnpm check`
 
 ## Risks Or Blockers
 
-- Bridge storage migration must avoid silently hiding existing widget data.
-- Widget modal bridge setup still passes bare widget identifiers as bridge IDs until Phase 3 changes canonicalize bridge runtime/storage identity.
+- Final phase should verify coverage across identity, settings, update, and bridge storage paths before marking the workflow complete.
 
 ## Files
 
@@ -94,3 +101,5 @@
 - `src/app/components/community/CommunityHomeWidgetSlot.svelte`
 - `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
 - `src/routes/widgets/+page.svelte`
+- `src/app/extensions/bridge.test.ts`
+- `src/app/components/WidgetModal.svelte`

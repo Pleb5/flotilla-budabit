@@ -577,21 +577,68 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
 })
 
 // Storage handlers - scoped by extension ID and optionally by repository
-const STORAGE_PREFIX = "flotilla:ext:"
+const STORAGE_PREFIX = "budabit:ext:v2:"
+const LEGACY_STORAGE_PREFIX = "flotilla:ext:"
 const MAX_STORAGE_KEY_LENGTH = 256
 const MAX_STORAGE_VALUE_SIZE = 1024 * 1024 // 1MB per value
 
-/**
- * Compute the storage key prefix for an extension.
- * If repoContext is present, keys are scoped to that repository.
- * Format: "flotilla:ext:{extId}:{key}" or "flotilla:ext:{extId}:repo:{pubkey}:{name}:{key}"
- */
-const getStorageKeyPrefix = (ext: LoadedExtension, repoScoped: boolean): string => {
-  const base = `${STORAGE_PREFIX}${ext.id}:`
-  if (repoScoped && ext.repoContext) {
-    return `${base}repo:${ext.repoContext.pubkey}:${ext.repoContext.name}:`
+const encodeStorageComponent = (value: string): string => encodeURIComponent(value)
+
+const decodeStorageComponent = (value: string): string => {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
   }
+}
+
+const getV2StorageKeyPrefix = (ext: LoadedExtension, repoScoped: boolean): string => {
+  const base = `${STORAGE_PREFIX}${encodeStorageComponent(ext.id)}:`
+
+  if (repoScoped && ext.repoContext) {
+    return `${base}repo:${encodeStorageComponent(getRepoAddress(ext.repoContext))}:`
+  }
+
+  return `${base}global:`
+}
+
+const getLegacyStorageKeyPrefix = (
+  extId: string,
+  repoContext: LoadedExtension["repoContext"],
+  repoScoped: boolean,
+): string => {
+  const base = `${LEGACY_STORAGE_PREFIX}${extId}:`
+
+  if (repoScoped && repoContext) {
+    return `${base}repo:${repoContext.pubkey}:${repoContext.name}:`
+  }
+
   return base
+}
+
+const getLegacyStorageKeyPrefixes = (ext: LoadedExtension, repoScoped: boolean): string[] => {
+  const ids = [ext.id]
+
+  if (ext.type === "widget" && ext.widget.identifier && ext.widget.identifier !== ext.id) {
+    ids.push(ext.widget.identifier)
+  }
+
+  return Array.from(
+    new Set(ids.map(id => getLegacyStorageKeyPrefix(id, ext.repoContext, repoScoped))),
+  )
+}
+
+const getV2StorageKey = (ext: LoadedExtension, repoScoped: boolean, key: string): string =>
+  `${getV2StorageKeyPrefix(ext, repoScoped)}${encodeStorageComponent(key)}`
+
+const getLegacyStorageKeys = (ext: LoadedExtension, repoScoped: boolean, key: string): string[] =>
+  getLegacyStorageKeyPrefixes(ext, repoScoped).map(prefix => `${prefix}${key}`)
+
+const removeStorageKey = (ext: LoadedExtension, repoScoped: boolean, key: string): void => {
+  localStorage.removeItem(getV2StorageKey(ext, repoScoped, key))
+  for (const legacyKey of getLegacyStorageKeys(ext, repoScoped, key)) {
+    localStorage.removeItem(legacyKey)
+  }
 }
 
 registerBridgeHandler("storage:get", (payload, ext) => {
@@ -607,9 +654,12 @@ registerBridgeHandler("storage:get", (payload, ext) => {
     if (repoScoped && !ext.repoContext) {
       throw new Error("repoScoped requested but no repository context available")
     }
-    const scopedKey = `${getStorageKeyPrefix(ext, repoScoped)}${key}`
-    const raw = localStorage.getItem(scopedKey)
-    const data = raw ? JSON.parse(raw) : null
+    const raw =
+      localStorage.getItem(getV2StorageKey(ext, repoScoped, key)) ??
+      getLegacyStorageKeys(ext, repoScoped, key)
+        .map(legacyKey => localStorage.getItem(legacyKey))
+        .find(value => value !== null)
+    const data = raw !== null && raw !== undefined ? JSON.parse(raw) : null
     return {status: "ok", data}
   } catch (err: any) {
     console.error("Error in storage:get bridge handler:", err)
@@ -630,16 +680,15 @@ registerBridgeHandler("storage:set", (payload, ext) => {
     if (repoScoped && !ext.repoContext) {
       throw new Error("repoScoped requested but no repository context available")
     }
-    const scopedKey = `${getStorageKeyPrefix(ext, repoScoped)}${key}`
     if (data === null || data === undefined) {
-      localStorage.removeItem(scopedKey)
+      removeStorageKey(ext, repoScoped, key)
       return {status: "ok"}
     }
     const serialized = JSON.stringify(data)
     if (serialized.length > MAX_STORAGE_VALUE_SIZE) {
       throw new Error(`Value exceeds maximum size of ${MAX_STORAGE_VALUE_SIZE} bytes`)
     }
-    localStorage.setItem(scopedKey, serialized)
+    localStorage.setItem(getV2StorageKey(ext, repoScoped, key), serialized)
     return {status: "ok"}
   } catch (err: any) {
     console.error("Error in storage:set bridge handler:", err)
@@ -657,8 +706,7 @@ registerBridgeHandler("storage:remove", (payload, ext) => {
     if (repoScoped && !ext.repoContext) {
       throw new Error("repoScoped requested but no repository context available")
     }
-    const scopedKey = `${getStorageKeyPrefix(ext, repoScoped)}${key}`
-    localStorage.removeItem(scopedKey)
+    removeStorageKey(ext, repoScoped, key)
     return {status: "ok"}
   } catch (err: any) {
     console.error("Error in storage:remove bridge handler:", err)
@@ -673,15 +721,28 @@ registerBridgeHandler("storage:keys", (payload, ext) => {
     if (repoScoped && !ext.repoContext) {
       throw new Error("repoScoped requested but no repository context available")
     }
-    const prefix = getStorageKeyPrefix(ext, repoScoped)
-    const keys: string[] = []
+    const v2Prefix = getV2StorageKeyPrefix(ext, repoScoped)
+    const legacyPrefixes = getLegacyStorageKeyPrefixes(ext, repoScoped)
+    const keys = new Set<string>()
+
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key?.startsWith(prefix)) {
-        keys.push(key.slice(prefix.length))
+      if (!key) continue
+
+      if (key.startsWith(v2Prefix)) {
+        keys.add(decodeStorageComponent(key.slice(v2Prefix.length)))
+        continue
+      }
+
+      for (const legacyPrefix of legacyPrefixes) {
+        if (key.startsWith(legacyPrefix)) {
+          keys.add(key.slice(legacyPrefix.length))
+          break
+        }
       }
     }
-    return {status: "ok", keys}
+
+    return {status: "ok", keys: Array.from(keys)}
   } catch (err: any) {
     console.error("Error in storage:keys bridge handler:", err)
     return {error: err.message}

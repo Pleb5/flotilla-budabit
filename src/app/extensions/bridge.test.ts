@@ -64,6 +64,55 @@ const makeExtension = (overrides: Record<string, any> = {}) => {
   }
 }
 
+const storagePermissions = ["storage:get", "storage:set", "storage:keys", "storage:remove"]
+
+const makeStorageExtension = (overrides: Record<string, any> = {}) =>
+  makeExtension({
+    manifest: {
+      permissions: storagePermissions,
+      name: "Storage Test",
+      entrypoint: "https://widget.example.com/app.js",
+    },
+    ...overrides,
+  })
+
+const makeWidgetStorageExtension = (overrides: Record<string, any> = {}) =>
+  makeExtension({
+    type: "widget",
+    manifest: {permissions: []},
+    widget: {
+      id: "weather-event",
+      kind: 30033,
+      content: "Weather",
+      pubkey: "a".repeat(64),
+      tags: [["d", "weather"]],
+      identifier: "weather",
+      widgetType: "tool",
+      buttons: [],
+      permissions: storagePermissions,
+    },
+    ...overrides,
+  })
+
+const sendBridgeRequest = async (
+  bridge: any,
+  extension: any,
+  action: string,
+  payload: Record<string, any>,
+) => {
+  const source = makeSourceWindow()
+  await bridge.handleMessage({
+    data: {id: `${action}-request`, type: "request", action, payload},
+    source,
+    origin: extension.origin,
+  } as any)
+
+  return source.postMessage.mock.calls.at(-1)?.[0].payload
+}
+
+const getLocalStorageKeys = () =>
+  Array.from({length: localStorage.length}, (_, index) => localStorage.key(index)).filter(Boolean)
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.resetModules()
@@ -121,6 +170,146 @@ describe("ExtensionBridge", () => {
       },
       extension.origin,
     )
+  })
+
+  it("writes storage values to encoded v2 keys and reports decoded keys", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeStorageExtension({id: "ext:with/slash"})
+    const bridge = new ExtensionBridge(extension as any)
+    const storageKey = "theme:color"
+    const expectedKey = "budabit:ext:v2:ext%3Awith%2Fslash:global:theme%3Acolor"
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:set", {
+        key: storageKey,
+        data: {mode: "dark"},
+      }),
+    ).resolves.toEqual({status: "ok"})
+
+    expect(localStorage.getItem(expectedKey)).toBe(JSON.stringify({mode: "dark"}))
+    expect(localStorage.getItem("flotilla:ext:ext:with/slash:theme:color")).toBeNull()
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:get", {key: storageKey}),
+    ).resolves.toEqual({status: "ok", data: {mode: "dark"}})
+    await expect(sendBridgeRequest(bridge, extension, "storage:keys", {})).resolves.toEqual({
+      status: "ok",
+      keys: [storageKey],
+    })
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:remove", {key: storageKey}),
+    ).resolves.toEqual({status: "ok"})
+    expect(localStorage.getItem(expectedKey)).toBeNull()
+  })
+
+  it("falls back to legacy storage keys without duplicating storage:keys results", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeStorageExtension({id: "legacy-ext"})
+    const bridge = new ExtensionBridge(extension as any)
+
+    localStorage.setItem("flotilla:ext:legacy-ext:settings", JSON.stringify({legacy: true}))
+    localStorage.setItem("flotilla:ext:legacy-ext:other", JSON.stringify({old: true}))
+    localStorage.setItem("budabit:ext:v2:legacy-ext:global:settings", JSON.stringify({v2: true}))
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:get", {key: "settings"}),
+    ).resolves.toEqual({status: "ok", data: {v2: true}})
+    await expect(sendBridgeRequest(bridge, extension, "storage:keys", {})).resolves.toEqual({
+      status: "ok",
+      keys: ["settings", "other"],
+    })
+  })
+
+  it("encodes repo-scoped storage with the repo address component", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const repoContext = {pubkey: "a".repeat(64), name: "repo:name"}
+    const extension = makeStorageExtension({id: "repo-ext", repoContext})
+    const bridge = new ExtensionBridge(extension as any)
+    const expectedRepoAddress = `30617:${repoContext.pubkey}:${repoContext.name}`
+    const expectedKey = `budabit:ext:v2:repo-ext:repo:${encodeURIComponent(expectedRepoAddress)}:build%3Astate`
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:set", {
+        key: "build:state",
+        repoScoped: true,
+        data: {status: "green"},
+      }),
+    ).resolves.toEqual({status: "ok"})
+
+    expect(localStorage.getItem(expectedKey)).toBe(JSON.stringify({status: "green"}))
+    expect(getLocalStorageKeys().some(key => key?.includes(`repo:${repoContext.pubkey}:`))).toBe(
+      false,
+    )
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:get", {
+        key: "build:state",
+        repoScoped: true,
+      }),
+    ).resolves.toEqual({status: "ok", data: {status: "green"}})
+  })
+
+  it("reads legacy repo-scoped storage when no v2 value exists", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const repoContext = {pubkey: "b".repeat(64), name: "repo"}
+    const extension = makeStorageExtension({id: "repo-ext", repoContext})
+    const bridge = new ExtensionBridge(extension as any)
+
+    localStorage.setItem(
+      `flotilla:ext:repo-ext:repo:${repoContext.pubkey}:${repoContext.name}:settings`,
+      JSON.stringify({legacyRepo: true}),
+    )
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:get", {key: "settings", repoScoped: true}),
+    ).resolves.toEqual({status: "ok", data: {legacyRepo: true}})
+  })
+
+  it("falls back to bare widget identifier legacy storage for canonical widget ids", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeWidgetStorageExtension({id: `30033:${"a".repeat(64)}:weather`})
+    const bridge = new ExtensionBridge(extension as any)
+
+    localStorage.setItem("flotilla:ext:weather:prefs", JSON.stringify({legacyWidget: true}))
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "storage:get", {key: "prefs"}),
+    ).resolves.toEqual({status: "ok", data: {legacyWidget: true}})
+    await expect(sendBridgeRequest(bridge, extension, "storage:keys", {})).resolves.toEqual({
+      status: "ok",
+      keys: ["prefs"],
+    })
+  })
+
+  it("stores same-d widgets from different publishers under separate v2 keys", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const first = makeWidgetStorageExtension({id: `30033:${"a".repeat(64)}:weather`})
+    const second = makeWidgetStorageExtension({
+      id: `30033:${"b".repeat(64)}:weather`,
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        pubkey: "b".repeat(64),
+        permissions: storagePermissions,
+      },
+    })
+    const firstBridge = new ExtensionBridge(first as any)
+    const secondBridge = new ExtensionBridge(second as any)
+
+    await sendBridgeRequest(firstBridge, first, "storage:set", {key: "prefs", data: {unit: "c"}})
+    await sendBridgeRequest(secondBridge, second, "storage:set", {key: "prefs", data: {unit: "f"}})
+
+    await expect(
+      sendBridgeRequest(firstBridge, first, "storage:get", {key: "prefs"}),
+    ).resolves.toEqual({status: "ok", data: {unit: "c"}})
+    await expect(
+      sendBridgeRequest(secondBridge, second, "storage:get", {key: "prefs"}),
+    ).resolves.toEqual({status: "ok", data: {unit: "f"}})
+
+    expect(getLocalStorageKeys().sort()).toEqual([
+      `budabit:ext:v2:30033%3A${"a".repeat(64)}%3Aweather:global:prefs`,
+      `budabit:ext:v2:30033%3A${"b".repeat(64)}%3Aweather:global:prefs`,
+    ])
   })
 
   it("ignores messages from the wrong origin or source window", async () => {
