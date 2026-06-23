@@ -576,7 +576,8 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
   }
 })
 
-// Storage handlers - scoped by extension ID and optionally by repository
+// Storage handlers are scoped by encoded extension/widget line ID and optional repo address.
+// v2 keys receive all new writes; legacy flotilla keys remain readable during migration.
 const STORAGE_PREFIX = "budabit:ext:v2:"
 const LEGACY_STORAGE_PREFIX = "flotilla:ext:"
 const MAX_STORAGE_KEY_LENGTH = 256

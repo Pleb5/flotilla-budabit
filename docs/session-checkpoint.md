@@ -13,7 +13,7 @@
 
 ## Current Phase
 
-- Phase 4: Final Regression And Documentation
+- Complete
 
 ## Phase Exit Criteria
 
@@ -45,6 +45,9 @@
 - Phase 3 tests cover v2 writes, decoded key listing, legacy global and repo-scoped fallback, encoded repo-scoped keys, bare widget legacy fallback, and same-`d` duplicate publisher widget storage isolation.
 - Phase 3 verification passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
 - Phase 3 verification passed: `pnpm check`.
+- Phase 4 added maintainer comments documenting widget line ID versus raw widget `d` identifiers and v2 bridge storage writes with legacy read compatibility.
+- Phase 4 final focused verification passed: `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/bridge.test.ts`.
+- Phase 4 final verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -66,7 +69,7 @@
 
 ## Next Action
 
-- Start Phase 4 by reviewing coverage gaps, adding concise developer-facing documentation/comments for widget line IDs versus `d` identifiers and storage namespace compatibility, then run final focused tests plus `pnpm check`.
+- Final response.
 
 ## Verification
 
@@ -76,10 +79,12 @@
 - `pnpm check`
 - `pnpm vitest run src/app/extensions/bridge.test.ts`
 - `pnpm check`
+- `pnpm vitest run src/app/extensions/widget-identity.test.ts src/app/extensions/registry.test.ts src/app/extensions/widget-updates.test.ts src/app/extensions/settings.test.ts src/app/core/commands.test.ts src/app/extensions/community-widget-slots.test.ts src/app/extensions/community-curation.test.ts src/app/extensions/bridge.test.ts`
+- `pnpm check`
 
 ## Risks Or Blockers
 
-- Final phase should verify coverage across identity, settings, update, and bridge storage paths before marking the workflow complete.
+- None known.
 
 ## Files
 
@@ -103,3 +108,4 @@
 - `src/routes/widgets/+page.svelte`
 - `src/app/extensions/bridge.test.ts`
 - `src/app/components/WidgetModal.svelte`
+- `src/app/extensions/widget-identity.ts`
