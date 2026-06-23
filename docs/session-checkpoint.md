@@ -15,15 +15,18 @@
 
 ## Current Phase
 
-- Phase 2: Flotilla Extension Template SDK And Docs
+- Phase 3: Featured Calendar Widget Repository
 
 ## Phase Exit Criteria
 
-- SDK types include `communityContext`, logical community write targets, and `community:queryTargetEvents` request/response types.
-- Template docs explain inline home slots, generic community context, dynamic section-aware target querying, and write-access-only configuration gating.
-- Template sample code demonstrates reading `communityContext` without relying on calendar-specific host fields.
-- Template tests/build pass.
-- The nested template repo is committed and pushed; the root repo records the updated submodule pointer if it changes.
+- The widget repo exists at `/home/johnd/Work/bubdabit-calendar-widget` and is initialized as a git repository.
+- The widget is based on the template structure and builds independently.
+- The widget declares the home community slots, permissions needed for community target queries and publishing configuration, and default header `Featured event`.
+- The widget reads generic `communityContext`, derives calendar configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, and never relies on a host-provided calendar-specific boolean.
+- The widget shows the selected featured event to all viewers when configured.
+- The widget restricts only configuration controls. If no selected event exists and the viewer lacks calendar-event write capability, it displays `Request access to create calendar events in order to use this plugin`.
+- The widget queries already-published community calendar events through the dynamic community query action, mapping logical targets rather than hard-coded section names.
+- The widget has a local git commit for durability. No push is attempted because the user said they will push this repo later.
 
 ## Completed With Evidence
 
@@ -41,6 +44,14 @@
 - Phase 1 verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
 - Phase 1 verification passed: `pnpm check`.
 - Phase 1 was committed and pushed to `origin/dev` as root commit `1690a4de feat: add inline community widget context`.
+- Phase 2 updated `packages/flotilla-extension-template` SDK/shared source types with `CommunityWidgetContext`, logical community write target IDs, and `community:queryTargetEvents` request/response/action-map types.
+- Phase 2 updated the generated sample app to read `communityContext`, derive calendar configuration access from `writeTargets.calendar`/`calendarDate`, and demonstrate `community:queryTargetEvents`.
+- Phase 2 updated template docs/README examples for inline home slots, generic community context, dynamic section-aware querying, and write-access-only configuration gates.
+- Phase 2 updated template manifest generation examples to include `community:queryTargetEvents` permission.
+- Phase 2 verification passed in the template repo: `pnpm typecheck`.
+- Phase 2 verification passed in the template repo: `pnpm test`.
+- Phase 2 verification passed in the template repo: `pnpm build`.
+- Phase 2 template repo commit `4eb42f8 feat: document community widget context` was pushed to `origin/main`.
 
 ## Decisions
 
@@ -54,24 +65,27 @@
 
 ## Current State
 
-- Phase 1 implementation, verification, commit, push, and checkpoint reread are complete.
-- Root repo is clean at the start of Phase 2.
-- `packages/flotilla-extension-template` is not modified yet for this workflow.
+- Phase 1 root host changes are committed and pushed.
+- Phase 2 template changes are committed and pushed in the nested template repo.
+- Root repo has the updated `packages/flotilla-extension-template` submodule pointer and this checkpoint ready to commit/push as the Phase 2 root closeout.
 
 ## Next Action
 
-- Start Phase 2 by updating template SDK types/docs/sample code for `communityContext` and `community:queryTargetEvents`.
+- Commit and push the root submodule pointer/checkpoint closeout, reread this checkpoint, then start Phase 3 by creating `/home/johnd/Work/bubdabit-calendar-widget` as a separate local widget repo.
 
 ## Verification
 
-- `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
-- `pnpm check`
+- Root Phase 1: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
+- Root Phase 1: `pnpm check`
+- Template Phase 2: `pnpm typecheck`
+- Template Phase 2: `pnpm test`
+- Template Phase 2: `pnpm build`
 
 ## Risks Or Blockers
 
 - Inline iframe height is currently host-controlled with a fixed minimum; richer widgets may later need a resize protocol.
-- Template SDK/docs must match the Phase 1 host payload and bridge request names exactly.
 - Widget repo push is intentionally skipped by user instruction; create a local commit for durability instead.
+- The widget repo should depend on the local template SDK during development, but publish-time package metadata may need adjustment before the user pushes publicly.
 
 ## Files
 
