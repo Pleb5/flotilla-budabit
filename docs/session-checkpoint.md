@@ -15,18 +15,13 @@
 
 ## Current Phase
 
-- Phase 3: Featured Calendar Widget Repository
+- Complete
 
 ## Phase Exit Criteria
 
-- The widget repo exists at `/home/johnd/Work/bubdabit-calendar-widget` and is initialized as a git repository.
-- The widget is based on the template structure and builds independently.
-- The widget declares the home community slots, permissions needed for community target queries and publishing configuration, and default header `Featured event`.
-- The widget reads generic `communityContext`, derives calendar configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, and never relies on a host-provided calendar-specific boolean.
-- The widget shows the selected featured event to all viewers when configured.
-- The widget restricts only configuration controls. If no selected event exists and the viewer lacks calendar-event write capability, it displays `Request access to create calendar events in order to use this plugin`.
-- The widget queries already-published community calendar events through the dynamic community query action, mapping logical targets rather than hard-coded section names.
-- The widget has a local git commit for durability. No push is attempted because the user said they will push this repo later.
+- BudaBit root host changes are committed and pushed.
+- `flotilla-extension-template` changes are committed and pushed, and root records the updated submodule pointer.
+- The widget repo exists at `/home/johnd/Work/bubdabit-calendar-widget`, builds independently, is committed locally, and was not pushed.
 
 ## Completed With Evidence
 
@@ -53,6 +48,15 @@
 - Phase 2 verification passed in the template repo: `pnpm build`.
 - Phase 2 template repo commit `4eb42f8 feat: document community widget context` was pushed to `origin/main`.
 - Phase 2 root submodule pointer/checkpoint closeout was committed and pushed to `origin/dev` as root commit `40ba5e11 chore: update widget template context`.
+- Phase 3 created `/home/johnd/Work/bubdabit-calendar-widget` as a separate local git repository.
+- Phase 3 widget is template-derived Svelte/Vite and reads generic `communityContext` from `widget:init`.
+- Phase 3 widget derives configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, never from a calendar-specific host boolean.
+- Phase 3 widget queries calendar events with `community:queryTargetEvents` using logical targets `calendar` and `calendarDate`.
+- Phase 3 widget renders the selected event to all viewers when configured, and gates only configuration controls.
+- Phase 3 widget displays `Request access to create calendar events in order to use this plugin` when there is no configured event and the viewer lacks calendar-event write capability.
+- Phase 3 widget includes `manifest:before` and `manifest:after` scripts for the two community home quicklink slots and uses default header `Featured event`.
+- Phase 3 verification passed in the widget repo: `pnpm check`.
+- Phase 3 widget repo local commit `27db937 feat: add featured calendar widget` was created on branch `master` and intentionally not pushed.
 
 ## Decisions
 
@@ -66,14 +70,13 @@
 
 ## Current State
 
-- Phase 1 root host changes are committed and pushed.
-- Phase 2 template changes are committed and pushed in the nested template repo.
-- Phase 2 root submodule pointer/checkpoint closeout is committed and pushed.
-- Root repo and template repo are clean at the start of Phase 3.
+- BudaBit root host/API/template pointer work is complete and pushed.
+- The template repo is complete and pushed.
+- The calendar widget repo is complete, verified, and locally committed but not pushed by user instruction.
 
 ## Next Action
 
-- Start Phase 3 by creating `/home/johnd/Work/bubdabit-calendar-widget` as a separate local widget repo.
+- Final response.
 
 ## Verification
 
@@ -82,12 +85,15 @@
 - Template Phase 2: `pnpm typecheck`
 - Template Phase 2: `pnpm test`
 - Template Phase 2: `pnpm build`
+- Widget Phase 3: `pnpm check`
+- Widget Phase 3: `git status --short --branch`
+- Widget Phase 3: `git log --oneline -5`
 
 ## Risks Or Blockers
 
 - Inline iframe height is currently host-controlled with a fixed minimum; richer widgets may later need a resize protocol.
-- Widget repo push is intentionally skipped by user instruction; create a local commit for durability instead.
-- The widget repo should depend on the local template SDK during development, but publish-time package metadata may need adjustment before the user pushes publicly.
+- The widget repo currently uses `budabit-sdk` through a local `file:` dependency for development; update package metadata before publishing publicly if needed.
+- The widget repo branch is Git's default `master`; rename to `main` before pushing if that is the desired convention.
 
 ## Files
 
