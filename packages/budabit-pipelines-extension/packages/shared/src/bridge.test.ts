@@ -135,10 +135,15 @@ describe('WidgetBridge', () => {
   describe('onRequest()', () => {
     it('should respond to host request with handler result', async () => {
       const handler = vi.fn().mockResolvedValue({ data: 'result' });
-      bridge.onRequest('custom:action', handler);
 
       // Mock source window for response
       const mockSource = { postMessage: vi.fn() };
+      const reqBridge = new WidgetBridge({
+        targetWindow: mockSource as unknown as Window,
+        targetOrigin: '*',
+        timeoutMs: 1000,
+      });
+      reqBridge.onRequest('custom:action', handler);
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -165,6 +170,8 @@ describe('WidgetBridge', () => {
         },
         window.location.origin
       );
+
+      reqBridge.destroy();
     });
   });
 
