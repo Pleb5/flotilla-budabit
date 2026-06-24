@@ -11,7 +11,7 @@
 - Provide generic host-computed `communityContext` to widgets with section-aware write target capability data.
 - Add a dynamic community target query bridge action that maps logical targets to renamed per-community sections before constructing filters.
 - Update `flotilla-extension-template` SDK/docs for the context/query API.
-- Create a separate local featured calendar widget repo at `/home/johnd/Work/bubdabit-calendar-widget`; the user will push it later.
+- Create a separate local featured calendar widget repo at `/home/johnd/Work/budabit-calendar-widget`; the user will push it later.
 
 ## Current Phase
 
@@ -21,7 +21,7 @@
 
 - BudaBit root host changes are committed and pushed.
 - `flotilla-extension-template` changes are committed and pushed, and root records the updated submodule pointer.
-- The widget repo exists at `/home/johnd/Work/bubdabit-calendar-widget`, builds independently, is committed locally, and was not pushed.
+- The widget repo exists at `/home/johnd/Work/budabit-calendar-widget`, builds independently, is committed locally, and was not pushed.
 
 ## Completed With Evidence
 
@@ -48,7 +48,7 @@
 - Phase 2 verification passed in the template repo: `pnpm build`.
 - Phase 2 template repo commit `4eb42f8 feat: document community widget context` was pushed to `origin/main`.
 - Phase 2 root submodule pointer/checkpoint closeout was committed and pushed to `origin/dev` as root commit `40ba5e11 chore: update widget template context`.
-- Phase 3 created `/home/johnd/Work/bubdabit-calendar-widget` as a separate local git repository.
+- Phase 3 created `/home/johnd/Work/budabit-calendar-widget` as a separate local git repository.
 - Phase 3 widget is template-derived Svelte/Vite and reads generic `communityContext` from `widget:init`.
 - Phase 3 widget derives configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, never from a calendar-specific host boolean.
 - Phase 3 widget queries calendar events with `community:queryTargetEvents` using logical targets `calendar` and `calendarDate`.
@@ -65,7 +65,7 @@
 - Visibility is not gated by calendar grant. Only configuration controls are gated.
 - Community section names are dynamic per community; host query APIs must map logical targets to current community sections before querying.
 - `community:queryTargetEvents` is a privileged bridge action requiring an explicit widget `permission` tag.
-- The featured calendar widget belongs in `/home/johnd/Work/bubdabit-calendar-widget` as a separate local repo. Do not push it; the user will push later.
+- The featured calendar widget belongs in `/home/johnd/Work/budabit-calendar-widget` as a separate local repo. Do not push it; the user will push later.
 - Commit and push every verified BudaBit/root phase before continuing.
 
 ## Current State
@@ -109,4 +109,4 @@
 - `src/app/components/community/CommunityHomeWidgetSlot.svelte`
 - `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
 - `packages/flotilla-extension-template`
-- `/home/johnd/Work/bubdabit-calendar-widget`
+- `/home/johnd/Work/budabit-calendar-widget`

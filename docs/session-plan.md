@@ -6,7 +6,7 @@
 - Provide a generic, host-computed `communityContext` to widgets so extensions can use community identity, relays, renamed content sections, and write capabilities without reimplementing BudaBit trust/grant logic.
 - Add a community-aware bridge query that maps logical write targets to the current community's actual sections before constructing event filters, so section renames and per-community definitions work correctly.
 - Update `flotilla-extension-template` SDK/docs/template so widget developers can consume the standard community context and query API end to end.
-- Create a separate local widget repository at `~/Work/bubdabit-calendar-widget` for a featured calendar event widget based on the template. The user will push that repository later.
+- Create a separate local widget repository at `~/Work/budabit-calendar-widget` for a featured calendar event widget based on the template. The user will push that repository later.
 
 ## Constraints
 
@@ -19,7 +19,7 @@
 - Keep changes minimal and compatible with existing modal/action widget behavior.
 - Commit and push each verified BudaBit/root phase before starting the next phase.
 - Commit and push the nested `packages/flotilla-extension-template` phase before updating the root submodule pointer.
-- For `~/Work/bubdabit-calendar-widget`, create a local git repo and local commit for durability, but do not push because the user explicitly said they will push it later.
+- For `~/Work/budabit-calendar-widget`, create a local git repo and local commit for durability, but do not push because the user explicitly said they will push it later.
 - Stage only files intentionally changed for the current phase.
 
 ## Phase 1: Budabit Host Inline Community Widget API
@@ -153,11 +153,11 @@
 
 ### Goal
 
-- Create `~/Work/bubdabit-calendar-widget` as a separate local repository implementing the featured calendar event widget.
+- Create `~/Work/budabit-calendar-widget` as a separate local repository implementing the featured calendar event widget.
 
 ### Exit Criteria
 
-- The widget repo exists at `/home/johnd/Work/bubdabit-calendar-widget` and is initialized as a git repository.
+- The widget repo exists at `/home/johnd/Work/budabit-calendar-widget` and is initialized as a git repository.
 - The widget is based on the template structure and builds independently.
 - The widget declares the home community slots, permissions needed for community target queries and publishing configuration, and default header `Featured event`.
 - The widget reads generic `communityContext`, derives calendar configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, and never relies on a host-provided calendar-specific boolean.
