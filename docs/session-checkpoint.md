@@ -15,16 +15,18 @@
 
 ## Current Phase
 
-- Phase 2: Flotilla Extension Template Descriptor SDK And Docs
+- Phase 3: Featured Calendar Widget Descriptor Migration
 
 ## Phase Exit Criteria
 
-- SDK/shared types expose descriptor community context, capability, query, and action-map types matching the root bridge.
-- Generated sample widget uses `{kind, subtype?}` descriptors, `community:checkWriteCapabilities`, and `community:queryEvents`.
-- Template docs explain descriptor APIs, missing-section errors, context runtime versioning, and `community:contextChanged`.
-- Manifest examples request `community:checkWriteCapabilities` and `community:queryEvents` where needed.
-- Template verification passes: `pnpm typecheck`, `pnpm test`, and `pnpm build`.
-- Nested template repo is committed and pushed; root records the updated submodule pointer and checkpoint advancement.
+- Calendar widget no longer references `writeTargets`, `calendar`, `calendarDate`, or `community:queryTargetEvents` as extension API concepts.
+- Calendar widget declares descriptor constants for event kinds `31923` and `31922` and uses `community:checkWriteCapabilities` for configuration gating.
+- Calendar widget uses `community:queryEvents` with descriptors to load community events.
+- Calendar widget reacts to `community:contextChanged`, refetches capabilities/events, and ignores stale responses using `contextSessionId` / `contextVersion`.
+- Widget docs and manifest helper scripts request the descriptor bridge permissions.
+- Widget verification passes: `pnpm check`.
+- Widget changes are committed locally and not pushed.
+- Root checkpoint is updated to `Current Phase: Complete`, committed, and pushed.
 
 ## Completed With Evidence
 
@@ -37,6 +39,13 @@
 - Phase 1 updated `WidgetFrame.svelte` to emit `community:contextChanged` when `contextSessionId` / `contextVersion` changes after init.
 - Phase 1 focused verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
 - Phase 1 root verification passed: `pnpm check`.
+- Phase 2 updated `packages/flotilla-extension-template` SDK/shared types to expose `CommunityEventDescriptor`, descriptor write capabilities, `community:checkWriteCapabilities`, `community:queryEvents`, `contextSessionId`, `contextVersion`, and `community:contextChanged`.
+- Phase 2 updated the generated sample app to use descriptor constants, descriptor capability checks, descriptor event queries, and stale-response/context-change handling.
+- Phase 2 updated template docs, READMEs, manifest examples, and package scripts to use `community:checkWriteCapabilities` and `community:queryEvents` permissions.
+- Phase 2 verification passed in the template repo: `pnpm typecheck`.
+- Phase 2 verification passed in the template repo: `pnpm test`.
+- Phase 2 verification passed in the template repo: `pnpm build`.
+- Phase 2 template repo commit `564ec8f feat: document descriptor community APIs` was pushed to `origin/main`.
 
 ## Decisions
 
@@ -52,19 +61,22 @@
 ## Current State
 
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
-- Root host descriptor API work is verified and ready to be committed/pushed as the Phase 1 transition.
-- Template submodule still uses the old logical-target API and is the next phase.
+- Root host descriptor API work is committed and pushed as `2fd96217 feat: add descriptor community APIs`.
+- Template descriptor SDK/docs/sample work is committed and pushed in the nested repo as `564ec8f feat: document descriptor community APIs`.
+- Root has the updated `packages/flotilla-extension-template` submodule pointer ready to commit/push as Phase 2 closeout.
 - Local widget still uses the old logical-target API and remains local-only for Phase 3.
 
 ## Next Action
 
-- Commit and push Phase 1 root changes, reread this checkpoint, then start Phase 2 by inspecting the template SDK/docs/sample.
+- Commit and push the root submodule pointer/checkpoint update, reread this checkpoint, then start Phase 3 by inspecting `/home/johnd/Work/budabit-calendar-widget`.
 
 ## Verification
 
 - Phase 1 focused tests passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
 - Phase 1 root check passed: `pnpm check`
-- Pending Phase 2 template checks: `pnpm typecheck`, `pnpm test`, `pnpm build`
+- Phase 2 template typecheck passed: `pnpm typecheck`
+- Phase 2 template tests passed: `pnpm test`
+- Phase 2 template build passed: `pnpm build`
 - Pending Phase 3 widget check: `pnpm check`
 
 ## Risks Or Blockers
