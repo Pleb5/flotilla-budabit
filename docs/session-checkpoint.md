@@ -15,18 +15,14 @@
 
 ## Current Phase
 
-- Phase 3: Featured Calendar Widget Descriptor Migration
+- Complete
 
 ## Phase Exit Criteria
 
-- Calendar widget no longer references `writeTargets`, `calendar`, `calendarDate`, or `community:queryTargetEvents` as extension API concepts.
-- Calendar widget declares descriptor constants for event kinds `31923` and `31922` and uses `community:checkWriteCapabilities` for configuration gating.
-- Calendar widget uses `community:queryEvents` with descriptors to load community events.
-- Calendar widget reacts to `community:contextChanged`, refetches capabilities/events, and ignores stale responses using `contextSessionId` / `contextVersion`.
-- Widget docs and manifest helper scripts request the descriptor bridge permissions.
-- Widget verification passes: `pnpm check`.
-- Widget changes are committed locally and not pushed.
-- Root checkpoint is updated to `Current Phase: Complete`, committed, and pushed.
+- Root host descriptor API changes are committed and pushed.
+- Template SDK/docs/sample descriptor API changes are committed and pushed, and root records the updated submodule pointer.
+- Local calendar widget descriptor API changes are committed locally and intentionally not pushed.
+- Root checkpoint records `Current Phase: Complete` and is committed/pushed.
 
 ## Completed With Evidence
 
@@ -46,6 +42,13 @@
 - Phase 2 verification passed in the template repo: `pnpm test`.
 - Phase 2 verification passed in the template repo: `pnpm build`.
 - Phase 2 template repo commit `564ec8f feat: document descriptor community APIs` was pushed to `origin/main`.
+- Phase 2 root submodule pointer/checkpoint closeout was committed and pushed to `origin/dev` as root commit `a0335f5b chore: update descriptor widget template`.
+- Phase 3 updated `/home/johnd/Work/budabit-calendar-widget` to remove extension-facing `writeTargets`, `calendar`/`calendarDate` target IDs, and `community:queryTargetEvents` usage.
+- Phase 3 widget now declares descriptors `{kind: 31923}` and `{kind: 31922}`, checks configuration access through `community:checkWriteCapabilities`, and loads events through `community:queryEvents`.
+- Phase 3 widget listens for `community:contextChanged`, refetches capabilities/events, and ignores stale responses whose `contextSessionId` / `contextVersion` do not match the current context.
+- Phase 3 widget manifest helper scripts and docs now request `community:checkWriteCapabilities` and `community:queryEvents` permissions.
+- Phase 3 widget verification passed: `pnpm check`.
+- Phase 3 widget repo local commit `0d79708 feat: use descriptor community APIs` was created on branch `master` and intentionally not pushed.
 
 ## Decisions
 
@@ -63,12 +66,12 @@
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
 - Root host descriptor API work is committed and pushed as `2fd96217 feat: add descriptor community APIs`.
 - Template descriptor SDK/docs/sample work is committed and pushed in the nested repo as `564ec8f feat: document descriptor community APIs`.
-- Root has the updated `packages/flotilla-extension-template` submodule pointer ready to commit/push as Phase 2 closeout.
-- Local widget still uses the old logical-target API and remains local-only for Phase 3.
+- Root records the template submodule pointer via `a0335f5b chore: update descriptor widget template`.
+- Local widget descriptor migration is verified and locally committed as `0d79708 feat: use descriptor community APIs`; it remains local-only.
 
 ## Next Action
 
-- Commit and push the root submodule pointer/checkpoint update, reread this checkpoint, then start Phase 3 by inspecting `/home/johnd/Work/budabit-calendar-widget`.
+- Final response.
 
 ## Verification
 
@@ -77,13 +80,14 @@
 - Phase 2 template typecheck passed: `pnpm typecheck`
 - Phase 2 template tests passed: `pnpm test`
 - Phase 2 template build passed: `pnpm build`
-- Pending Phase 3 widget check: `pnpm check`
+- Phase 3 widget check passed: `pnpm check`
+- Phase 3 widget status checked clean after local commit: `git status --short --branch`
 
 ## Risks Or Blockers
 
-- Root may contain unrelated user changes; stage only phase files.
 - Descriptor APIs must avoid false negative write capabilities when community data is not ready; root bridge now returns `COMMUNITY_CONTEXT_NOT_READY` for missing definition or relays.
 - Host events should not require widgets to request permission; permissions gate widget requests, not host lifecycle/update events.
+- The local widget repo remains unpushed by instruction; the user will push it later if desired.
 
 ## Files
 
