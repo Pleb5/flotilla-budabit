@@ -7,93 +7,71 @@
 
 ## Goal
 
-- Add true inline community home Smart Widget iframes in BudaBit.
-- Provide generic host-computed `communityContext` to widgets with section-aware write target capability data.
-- Add a dynamic community target query bridge action that maps logical targets to renamed per-community sections before constructing filters.
-- Update `flotilla-extension-template` SDK/docs for the context/query API.
-- Create a separate local featured calendar widget repo at `/home/johnd/Work/budabit-calendar-widget`; the user will push it later.
+- Replace extension-facing community write target taxonomy with generic event-descriptor APIs.
+- Use `{kind, subtype?}` descriptors for write capability checks and community event queries.
+- Remove section-name fallbacks from eligibility decisions; missing descriptor mappings must error.
+- Add runtime community context versioning and `community:contextChanged` to mitigate stale iframe state.
+- Update the SDK/template/docs and local featured calendar widget to use descriptor APIs.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Flotilla Extension Template Descriptor SDK And Docs
 
 ## Phase Exit Criteria
 
-- BudaBit root host changes are committed and pushed.
-- `flotilla-extension-template` changes are committed and pushed, and root records the updated submodule pointer.
-- The widget repo exists at `/home/johnd/Work/budabit-calendar-widget`, builds independently, is committed locally, and was not pushed.
+- SDK/shared types expose descriptor community context, capability, query, and action-map types matching the root bridge.
+- Generated sample widget uses `{kind, subtype?}` descriptors, `community:checkWriteCapabilities`, and `community:queryEvents`.
+- Template docs explain descriptor APIs, missing-section errors, context runtime versioning, and `community:contextChanged`.
+- Manifest examples request `community:checkWriteCapabilities` and `community:queryEvents` where needed.
+- Template verification passes: `pnpm typecheck`, `pnpm test`, and `pnpm build`.
+- Nested template repo is committed and pushed; root records the updated submodule pointer and checkpoint advancement.
 
 ## Completed With Evidence
 
-- Existing stale widget identity/storage workflow in this file was superseded by the user request to create and execute the featured calendar widget workflow.
-- Root repo `/home/johnd/Work/budabit` started clean on branch `dev` tracking `origin/dev`.
-- Template submodule `/home/johnd/Work/budabit/packages/flotilla-extension-template` started clean on branch `main` tracking `origin/main`.
-- Phase 1 added `CommunityWidgetContext`, write-target context types, and community target query request/response types in `src/app/extensions/types.ts`.
-- Phase 1 added `src/app/extensions/community-context.ts` to build generic community context from active community definitions, renamed sections, profile lists, report state, relays, and current user.
-- Phase 1 added dynamic `makeCommunityTargetQueryPlan` logic that maps logical targets such as `calendar` to current community target sections/writers before producing targeting/original filters.
-- Phase 1 added `community:queryTargetEvents` bridge handling in `src/app/extensions/bridge.ts`, gated by widget permission but not by viewer write access.
-- Phase 1 moved iframe lifecycle and `widget:init` payload creation into shared `src/app/components/WidgetFrame.svelte`; init payload includes top-level `communityContext` when provided.
-- Phase 1 updated `CommunityHomeWidgetSlot.svelte` to render enabled home-slot widgets as inline `WidgetFrame` iframes.
-- Phase 1 preserved modal/action slot behavior and updated `CommunityWidgetSlotLaunchers.svelte` to pass standard `communityContext` into modal-launched widgets.
-- Phase 1 tests cover renamed section mapping, calendar target query filter construction, and bridge community target query behavior.
-- Phase 1 verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
-- Phase 1 verification passed: `pnpm check`.
-- Phase 1 was committed and pushed to `origin/dev` as root commit `1690a4de feat: add inline community widget context`.
-- Phase 2 updated `packages/flotilla-extension-template` SDK/shared source types with `CommunityWidgetContext`, logical community write target IDs, and `community:queryTargetEvents` request/response/action-map types.
-- Phase 2 updated the generated sample app to read `communityContext`, derive calendar configuration access from `writeTargets.calendar`/`calendarDate`, and demonstrate `community:queryTargetEvents`.
-- Phase 2 updated template docs/README examples for inline home slots, generic community context, dynamic section-aware querying, and write-access-only configuration gates.
-- Phase 2 updated template manifest generation examples to include `community:queryTargetEvents` permission.
-- Phase 2 verification passed in the template repo: `pnpm typecheck`.
-- Phase 2 verification passed in the template repo: `pnpm test`.
-- Phase 2 verification passed in the template repo: `pnpm build`.
-- Phase 2 template repo commit `4eb42f8 feat: document community widget context` was pushed to `origin/main`.
-- Phase 2 root submodule pointer/checkpoint closeout was committed and pushed to `origin/dev` as root commit `40ba5e11 chore: update widget template context`.
-- Phase 3 created `/home/johnd/Work/budabit-calendar-widget` as a separate local git repository.
-- Phase 3 widget is template-derived Svelte/Vite and reads generic `communityContext` from `widget:init`.
-- Phase 3 widget derives configuration permission from `writeTargets.calendar` or `writeTargets.calendarDate`, never from a calendar-specific host boolean.
-- Phase 3 widget queries calendar events with `community:queryTargetEvents` using logical targets `calendar` and `calendarDate`.
-- Phase 3 widget renders the selected event to all viewers when configured, and gates only configuration controls.
-- Phase 3 widget displays `Request access to create calendar events in order to use this plugin` when there is no configured event and the viewer lacks calendar-event write capability.
-- Phase 3 widget includes `manifest:before` and `manifest:after` scripts for the two community home quicklink slots and uses default header `Featured event`.
-- Phase 3 verification passed in the widget repo: `pnpm check`.
-- Phase 3 widget repo local commit `27db937 feat: add featured calendar widget` was created on branch `master` and intentionally not pushed.
+- Previous inline-widget/logical-target workflow was completed and superseded by the descriptor API redesign.
+- Phase 1 replaced root extension-facing logical target APIs with descriptor APIs in `src/app/extensions/types.ts`, `src/app/extensions/community-context.ts`, and `src/app/extensions/bridge.ts`.
+- Phase 1 removed `CommunityWidgetContext.writeTargets` from root public context and added runtime `contextSessionId` / `contextVersion`.
+- Phase 1 added descriptor resolution by active community sections only, with missing descriptor mappings throwing errors instead of falling back to default section names.
+- Phase 1 added `community:checkWriteCapabilities` and `community:queryEvents` bridge actions with descriptor request/response metadata.
+- Phase 1 preserved authorized two-hop targeted-publication event loading for targetable community event kinds.
+- Phase 1 updated `WidgetFrame.svelte` to emit `community:contextChanged` when `contextSessionId` / `contextVersion` changes after init.
+- Phase 1 focused verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
+- Phase 1 root verification passed: `pnpm check`.
 
 ## Decisions
 
-- Use generic community context rather than calendar-specific host fields such as `canCreateCalendarEvents`.
-- Widgets derive calendar configuration permission from logical write targets `calendar` and `calendarDate`.
-- Visibility is not gated by calendar grant. Only configuration controls are gated.
-- Community section names are dynamic per community; host query APIs must map logical targets to current community sections before querying.
-- `community:queryTargetEvents` is a privileged bridge action requiring an explicit widget `permission` tag.
-- The featured calendar widget belongs in `/home/johnd/Work/budabit-calendar-widget` as a separate local repo. Do not push it; the user will push later.
-- Commit and push every verified BudaBit/root phase before continuing.
+- Extension APIs should speak in event descriptors `{kind, subtype?}`, not BudaBit target names such as `calendar` or `calendarDate`.
+- `COMMUNITY_WRITE_TARGETS` can remain an internal UI/default taxonomy, but must not be required by extension APIs.
+- No section-name fallback is allowed for eligibility. If a descriptor maps to no active community section, the host cannot answer and must error.
+- If multiple sections match a descriptor in imported/malformed data, union them; any matching writable section means `canWrite`. The BudaBit interface should prevent duplicate kind/subtype sections.
+- `community:contextChanged` is the host-to-widget update event name.
+- `contextVersion` is runtime-only and resets on BudaBit/widget remount; use `contextSessionId` plus `contextVersion` for stale-response detection.
+- No backward compatibility is needed for the existing `community:queryTargetEvents` / `writeTargets` feature because it has not shipped.
+- The local calendar widget repo at `/home/johnd/Work/budabit-calendar-widget` remains local-only and should not be pushed.
 
 ## Current State
 
-- BudaBit root host/API/template pointer work is complete and pushed.
-- The template repo is complete and pushed.
-- The calendar widget repo is complete, verified, and locally committed but not pushed by user instruction.
+- Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
+- Root host descriptor API work is verified and ready to be committed/pushed as the Phase 1 transition.
+- Template submodule still uses the old logical-target API and is the next phase.
+- Local widget still uses the old logical-target API and remains local-only for Phase 3.
 
 ## Next Action
 
-- Final response.
+- Commit and push Phase 1 root changes, reread this checkpoint, then start Phase 2 by inspecting the template SDK/docs/sample.
 
 ## Verification
 
-- Root Phase 1: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
-- Root Phase 1: `pnpm check`
-- Template Phase 2: `pnpm typecheck`
-- Template Phase 2: `pnpm test`
-- Template Phase 2: `pnpm build`
-- Widget Phase 3: `pnpm check`
-- Widget Phase 3: `git status --short --branch`
-- Widget Phase 3: `git log --oneline -5`
+- Phase 1 focused tests passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
+- Phase 1 root check passed: `pnpm check`
+- Pending Phase 2 template checks: `pnpm typecheck`, `pnpm test`, `pnpm build`
+- Pending Phase 3 widget check: `pnpm check`
 
 ## Risks Or Blockers
 
-- Inline iframe height is currently host-controlled with a fixed minimum; richer widgets may later need a resize protocol.
-- The widget repo currently uses `budabit-sdk` through a local `file:` dependency for development; update package metadata before publishing publicly if needed.
-- The widget repo branch is Git's default `master`; rename to `main` before pushing if that is the desired convention.
+- Root may contain unrelated user changes; stage only phase files.
+- Descriptor APIs must avoid false negative write capabilities when community data is not ready; root bridge now returns `COMMUNITY_CONTEXT_NOT_READY` for missing definition or relays.
+- Host events should not require widgets to request permission; permissions gate widget requests, not host lifecycle/update events.
 
 ## Files
 
@@ -105,7 +83,6 @@
 - `src/app/extensions/bridge.ts`
 - `src/app/extensions/bridge.test.ts`
 - `src/app/components/WidgetFrame.svelte`
-- `src/app/components/WidgetModal.svelte`
 - `src/app/components/community/CommunityHomeWidgetSlot.svelte`
 - `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
 - `packages/flotilla-extension-template`

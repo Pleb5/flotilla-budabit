@@ -463,7 +463,62 @@ describe("ExtensionBridge", () => {
     await expect(requestPromise).resolves.toEqual({status: "ok"})
   })
 
-  it("queries community target events through active section-aware target mappings", async () => {
+  it("checks descriptor write capabilities through active section mappings", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.pubkey.set(calendarWriterPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:checkWriteCapabilities"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:checkWriteCapabilities", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      contextSessionId: expect.any(String),
+      contextVersion: 0,
+      capabilities: [
+        {
+          descriptor: {kind: EVENT_TIME},
+          sectionNames: ["Events and meetups"],
+          writableSectionNames: ["Events and meetups"],
+          canWrite: true,
+        },
+      ],
+    })
+  })
+
+  it("returns descriptor errors instead of falling back to default sections", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:checkWriteCapabilities"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:checkWriteCapabilities", {
+        descriptors: [{kind: 1}],
+      }),
+    ).resolves.toEqual({error: "No active community section supports event descriptor 1"})
+  })
+
+  it("queries community events through descriptor section mappings", async () => {
     const {ExtensionBridge} = await import("./bridge")
     mocks.activeCommunityDefinition.set(communityDefinition)
     mocks.activeCommunityProfileListEvents.set([calendarProfileList])
@@ -481,21 +536,23 @@ describe("ExtensionBridge", () => {
     const extension = makeWidgetStorageExtension({
       widget: {
         ...makeWidgetStorageExtension().widget,
-        permissions: ["community:queryTargetEvents"],
+        permissions: ["community:queryEvents"],
       },
     })
     const bridge = new ExtensionBridge(extension as any)
 
     await expect(
-      sendBridgeRequest(bridge, extension, "community:queryTargetEvents", {
-        targetIds: ["calendar"],
+      sendBridgeRequest(bridge, extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
         limit: 5,
       }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       status: "ok",
       events: [calendarEvent],
       relays: ["wss://relay.example.com/"],
-      targetIds: ["calendar"],
+      descriptors: [{kind: EVENT_TIME}],
+      contextSessionId: expect.any(String),
+      contextVersion: 0,
     })
     expect(mocks.load).toHaveBeenNthCalledWith(
       1,

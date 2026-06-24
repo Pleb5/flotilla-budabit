@@ -2,7 +2,7 @@
   import {onDestroy, onMount} from "svelte"
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import {get} from "svelte/store"
-  import type {SmartWidgetEvent} from "@app/extensions/types"
+  import type {CommunityWidgetContext, SmartWidgetEvent} from "@app/extensions/types"
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
@@ -27,6 +27,7 @@
   let bridge: ExtensionBridge | undefined = $state()
   let loaded = $state(false)
   let appUrlIndex = $state(0)
+  let lastCommunityContextKey = ""
   const widgetLineId = $derived(getWidgetLineId(widget))
   const appUrls = $derived(
     (widget.appUrls?.length ? widget.appUrls : widget.appUrl ? [widget.appUrl] : []).filter(url =>
@@ -52,9 +53,28 @@
     }
   }
 
+  const getCommunityContext = () =>
+    context.communityContext && typeof context.communityContext === "object"
+      ? (context.communityContext as CommunityWidgetContext)
+      : undefined
+
+  const getCommunityContextKey = () => {
+    const communityContext = getCommunityContext()
+
+    return communityContext
+      ? `${communityContext.contextSessionId}:${communityContext.contextVersion}`
+      : ""
+  }
+
+  const makeCommunityContextChangedPayload = (communityContext: CommunityWidgetContext) => ({
+    contextSessionId: communityContext.contextSessionId,
+    contextVersion: communityContext.contextVersion,
+    communityContext,
+  })
+
   const makeInitPayload = () => {
     const user = getUserContext()
-    const communityContext = context.communityContext
+    const communityContext = getCommunityContext()
     const relays =
       communityContext &&
       typeof communityContext === "object" &&
@@ -108,6 +128,7 @@
   const sendContext = () => {
     bridge?.post("widget:init", makeInitPayload())
     bridge?.post("widget:mounted", {timestamp: Date.now()})
+    lastCommunityContextKey = getCommunityContextKey()
     postLegacyContext()
   }
 
@@ -155,6 +176,20 @@
 
   onMount(() => {
     window.addEventListener("message", handleMessage)
+  })
+
+  $effect(() => {
+    const key = getCommunityContextKey()
+    const communityContext = getCommunityContext()
+    if (!loaded || !bridge || !key || !communityContext) return
+    if (!lastCommunityContextKey) {
+      lastCommunityContextKey = key
+      return
+    }
+    if (key === lastCommunityContextKey) return
+
+    lastCommunityContextKey = key
+    bridge.post("community:contextChanged", makeCommunityContextChangedPayload(communityContext))
   })
 
   onDestroy(() => {

@@ -1,4 +1,4 @@
-import {publishThunk, signer} from "@welshman/app"
+import {pubkey as activeUserPubkey, publishThunk, signer} from "@welshman/app"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
@@ -8,9 +8,18 @@ import {
   activeCommunityRelays,
   activeCommunityReportState,
 } from "@app/core/community-state"
-import {makeCommunityTargetQueryPlan} from "@app/extensions/community-context"
+import {
+  getCommunityContextRuntimeSnapshot,
+  makeCommunityDescriptorQueryPlan,
+  normalizeCommunityEventDescriptors,
+  resolveCommunityEventDescriptors,
+} from "@app/extensions/community-context"
 import {get} from "svelte/store"
-import type {CommunityQueryTargetEventsRequest, LoadedExtension} from "./types"
+import type {
+  CommunityEventDescriptor,
+  CommunityQueryEventsRequest,
+  LoadedExtension,
+} from "./types"
 import {getRepoAddress} from "./types"
 
 export type ExtensionMessage = {
@@ -384,7 +393,6 @@ export class ExtensionBridge {
   }
 
   post(action: string, payload: any): void {
-    this.enforcePolicy(action)
     // Use targetWindow if available (for sandboxed iframes), otherwise fall back to iframe.contentWindow
     const targetWindow = this.targetWindow ?? this.extension.iframe?.contentWindow
     // Use the extension's known origin to prevent message leaks if the iframe navigates.
@@ -572,25 +580,31 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
   }
 })
 
-const normalizeCommunityTargetQueryPayload = (
+const normalizeCommunityDescriptorsPayload = (
   payload: unknown,
-): Required<Pick<CommunityQueryTargetEventsRequest, "targetIds">> &
-  Pick<CommunityQueryTargetEventsRequest, "limit" | "since" | "until"> => {
+): {descriptors: CommunityEventDescriptor[]} => {
   if (!payload || typeof payload !== "object") {
-    throw new Error("Invalid payload: expected { targetIds }")
+    throw new Error("Invalid payload: expected { descriptors }")
   }
 
-  const targetIds = (payload as any).targetIds
-  if (!Array.isArray(targetIds)) {
-    throw new Error("Invalid targetIds: expected string[]")
+  const descriptors = (payload as any).descriptors
+  if (!Array.isArray(descriptors)) {
+    throw new Error("Invalid descriptors: expected CommunityEventDescriptor[]")
   }
 
-  const normalizedTargetIds = targetIds.filter(
-    (targetId): targetId is string => typeof targetId === "string" && targetId.length > 0,
-  )
-  if (normalizedTargetIds.length === 0) {
-    throw new Error("Invalid targetIds: expected non-empty string[]")
+  const normalizedDescriptors = normalizeCommunityEventDescriptors(descriptors)
+  if (normalizedDescriptors.length === 0) {
+    throw new Error("Invalid descriptors: expected non-empty CommunityEventDescriptor[]")
   }
+
+  return {descriptors: normalizedDescriptors}
+}
+
+const normalizeCommunityQueryEventsPayload = (
+  payload: unknown,
+): Required<Pick<CommunityQueryEventsRequest, "descriptors">> &
+  Pick<CommunityQueryEventsRequest, "limit" | "since" | "until"> => {
+  const {descriptors} = normalizeCommunityDescriptorsPayload(payload)
 
   const limitRaw = (payload as any).limit
   const sinceRaw = (payload as any).since
@@ -608,7 +622,36 @@ const normalizeCommunityTargetQueryPayload = (
       ? Math.floor(untilRaw)
       : undefined
 
-  return {targetIds: normalizedTargetIds, limit, since, until}
+  return {descriptors, limit, since, until}
+}
+
+const getCommunityRequestSnapshot = () => {
+  const definition = get(activeCommunityDefinition)
+  const profileListEvents = get(activeCommunityProfileListEvents)
+  const reportState = get(activeCommunityReportState)
+  const relays = get(activeCommunityRelays)
+  const userPubkey = get(activeUserPubkey) || ""
+
+  if (!definition) {
+    throw Object.assign(new Error("Active community definition is not available"), {
+      code: "COMMUNITY_CONTEXT_NOT_READY",
+    })
+  }
+  if (relays.length === 0) {
+    throw Object.assign(new Error("Active community relays are not available"), {
+      code: "COMMUNITY_CONTEXT_NOT_READY",
+    })
+  }
+
+  const runtime = getCommunityContextRuntimeSnapshot({
+    definition,
+    profileListEvents,
+    reportState,
+    userPubkey,
+    relays,
+  })
+
+  return {definition, profileListEvents, reportState, relays, userPubkey, ...runtime}
 }
 
 const loadBridgeEvents = async ({
@@ -643,53 +686,76 @@ const loadBridgeEvents = async ({
   return events
 }
 
-registerBridgeHandler("community:queryTargetEvents", async (payload, ext) => {
-  if (ext) console.log(`[bridge] community:queryTargetEvents from ${ext.id}`, payload)
+registerBridgeHandler("community:checkWriteCapabilities", async (payload, ext) => {
+  if (ext) console.log(`[bridge] community:checkWriteCapabilities from ${ext.id}`, payload)
   try {
-    const request = normalizeCommunityTargetQueryPayload(payload)
-    const definition = get(activeCommunityDefinition)
-    const profileListEvents = get(activeCommunityProfileListEvents)
-    const reportState = get(activeCommunityReportState)
-    const relays = get(activeCommunityRelays)
+    const request = normalizeCommunityDescriptorsPayload(payload)
+    const snapshot = getCommunityRequestSnapshot()
+    const capabilities = resolveCommunityEventDescriptors({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      userPubkey: snapshot.userPubkey,
+      descriptors: request.descriptors,
+    }).map(info => info.capability)
 
-    if (!definition) throw new Error("Active community definition is not available")
-    if (relays.length === 0) throw new Error("Active community relays are not available")
+    return {
+      status: "ok",
+      capabilities,
+      contextSessionId: snapshot.contextSessionId,
+      contextVersion: snapshot.contextVersion,
+    }
+  } catch (err: any) {
+    console.error("Error in community:checkWriteCapabilities bridge handler:", err)
+    return {error: err.message, ...(err.code ? {code: err.code} : {})}
+  }
+})
 
-    const initialPlan = makeCommunityTargetQueryPlan({
-      definition,
-      profileListEvents,
-      reportState,
-      targetIds: request.targetIds,
+registerBridgeHandler("community:queryEvents", async (payload, ext) => {
+  if (ext) console.log(`[bridge] community:queryEvents from ${ext.id}`, payload)
+  try {
+    const request = normalizeCommunityQueryEventsPayload(payload)
+    const snapshot = getCommunityRequestSnapshot()
+
+    const initialPlan = makeCommunityDescriptorQueryPlan({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      descriptors: request.descriptors,
       limit: request.limit,
       since: request.since,
       until: request.until,
     })
-    if (initialPlan.targetIds.length === 0) {
-      throw new Error("No supported community target ids provided")
-    }
 
     const targetingEvents = initialPlan.targetingFilter
       ? await loadBridgeEvents({
-          relays,
+          relays: snapshot.relays,
           filters: [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}],
         })
       : []
-    const plan = makeCommunityTargetQueryPlan({
-      definition,
-      profileListEvents,
-      reportState,
-      targetIds: request.targetIds,
+    const plan = makeCommunityDescriptorQueryPlan({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      descriptors: request.descriptors,
       targetingEvents,
       limit: request.limit,
       since: request.since,
       until: request.until,
     })
-    const events = await loadBridgeEvents({relays, filters: plan.originalFilters})
+    const events = await loadBridgeEvents({relays: snapshot.relays, filters: plan.originalFilters})
 
-    return {status: "ok", events, relays, targetIds: plan.targetIds}
+    return {
+      status: "ok",
+      events,
+      relays: snapshot.relays,
+      descriptors: plan.descriptors,
+      contextSessionId: snapshot.contextSessionId,
+      contextVersion: snapshot.contextVersion,
+    }
   } catch (err: any) {
-    console.error("Error in community:queryTargetEvents bridge handler:", err)
-    return {error: err.message}
+    console.error("Error in community:queryEvents bridge handler:", err)
+    return {error: err.message, ...(err.code ? {code: err.code} : {})}
   }
 })
 

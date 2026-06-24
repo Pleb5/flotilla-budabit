@@ -10,7 +10,11 @@ import {
   makeAddressablePublicationRef,
   makeTargetedPublicationForCommunity,
 } from "@app/core/community-targeting"
-import {makeCommunityTargetQueryPlan, makeCommunityWidgetContext} from "./community-context"
+import {
+  makeCommunityDescriptorQueryPlan,
+  makeCommunityWidgetContext,
+  resolveCommunityEventDescriptors,
+} from "./community-context"
 
 const communityPubkey = "a".repeat(64)
 const calendarWriterPubkey = "b".repeat(64)
@@ -78,7 +82,7 @@ const makeCalendarTargetingEvent = ({
   })
 
 describe("community widget context", () => {
-  it("maps logical write targets to renamed community sections", () => {
+  it("exposes community context without extension-facing write target taxonomy", () => {
     const context = makeCommunityWidgetContext({
       definition,
       profileListEvents: [calendarProfileList],
@@ -91,14 +95,47 @@ describe("community widget context", () => {
       name: "Events and meetups",
       kinds: [{kind: EVENT_TIME}, {kind: EVENT_DATE}],
     })
-    expect(context.writeTargets.calendar.sectionNames).toEqual(["Events and meetups"])
-    expect(context.writeTargets.calendar.writableSectionNames).toEqual(["Events and meetups"])
-    expect(context.writeTargets.calendar.canWrite).toBe(true)
-    expect(context.writeTargets.calendarDate.sectionNames).toEqual(["Events and meetups"])
-    expect(context.writeTargets.calendarDate.canWrite).toBe(true)
+    expect(context.contextSessionId).toMatch(/^community-context-/)
+    expect(context.contextVersion).toBe(0)
+    expect(context).not.toHaveProperty("writeTargets")
   })
 
-  it("builds calendar queries from logical targets and authorized writers", () => {
+  it("resolves descriptor write capabilities from active sections without defaults", () => {
+    const resolved = resolveCommunityEventDescriptors({
+      definition,
+      profileListEvents: [calendarProfileList],
+      userPubkey: calendarWriterPubkey,
+      descriptors: [{kind: EVENT_TIME}, {kind: EVENT_DATE}],
+    })
+
+    expect(resolved.map(info => info.capability)).toEqual([
+      {
+        descriptor: {kind: EVENT_TIME},
+        sectionNames: ["Events and meetups"],
+        writableSectionNames: ["Events and meetups"],
+        canWrite: true,
+      },
+      {
+        descriptor: {kind: EVENT_DATE},
+        sectionNames: ["Events and meetups"],
+        writableSectionNames: ["Events and meetups"],
+        canWrite: true,
+      },
+    ])
+  })
+
+  it("errors when no active section supports a descriptor", () => {
+    expect(() =>
+      resolveCommunityEventDescriptors({
+        definition,
+        profileListEvents: [calendarProfileList],
+        userPubkey: calendarWriterPubkey,
+        descriptors: [{kind: 1}],
+      }),
+    ).toThrow("No active community section supports event descriptor 1")
+  })
+
+  it("builds calendar queries from descriptors and authorized writers", () => {
     const authorizedTargetingEvent = makeCalendarTargetingEvent({
       id: "target-1",
       pubkey: calendarWriterPubkey,
@@ -109,15 +146,15 @@ describe("community widget context", () => {
       pubkey: outsiderPubkey,
       identifier: "event-2",
     })
-    const plan = makeCommunityTargetQueryPlan({
+    const plan = makeCommunityDescriptorQueryPlan({
       definition,
       profileListEvents: [calendarProfileList],
-      targetIds: ["calendar"],
+      descriptors: [{kind: EVENT_TIME}],
       targetingEvents: [authorizedTargetingEvent, unauthorizedTargetingEvent],
       limit: 5,
     })
 
-    expect(plan.targetIds).toEqual(["calendar"])
+    expect(plan.descriptors).toEqual([{kind: EVENT_TIME}])
     expect(plan.targetKinds).toEqual([EVENT_TIME])
     expect(plan.targetingFilter).toMatchObject({
       kinds: [TARGETED_PUBLICATION_KIND],

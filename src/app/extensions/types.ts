@@ -49,10 +49,13 @@ export type WidgetSlotConfig =
       label: string
     }
 
-export type CommunityWriteTargetContext = {
-  id: string
+export type CommunityEventDescriptor = {
   kind: number
   subtype?: string
+}
+
+export type CommunityWriteCapability = {
+  descriptor: CommunityEventDescriptor
   sectionNames: string[]
   writableSectionNames: string[]
   canWrite: boolean
@@ -65,6 +68,8 @@ export type CommunitySectionContext = {
 
 export type CommunityWidgetContext = {
   version: 1
+  contextSessionId: string
+  contextVersion: number
   pubkey: string
   ncommunity: string
   relays: string[]
@@ -82,24 +87,38 @@ export type CommunityWidgetContext = {
     isOwner: boolean
     isBanned: boolean
   }
-  writeTargets: Record<string, CommunityWriteTargetContext>
 }
 
-export type CommunityQueryTargetEventsRequest = {
-  targetIds: string[]
+export type CommunityCheckWriteCapabilitiesRequest = {
+  descriptors: CommunityEventDescriptor[]
+}
+
+export type CommunityCheckWriteCapabilitiesResponse =
+  | {
+      status: "ok"
+      capabilities: CommunityWriteCapability[]
+      contextSessionId: string
+      contextVersion: number
+    }
+  | {error: string; code?: string}
+
+export type CommunityQueryEventsRequest = {
+  descriptors: CommunityEventDescriptor[]
   limit?: number
   since?: number
   until?: number
 }
 
-export type CommunityQueryTargetEventsResponse =
+export type CommunityQueryEventsResponse =
   | {
       status: "ok"
       events: unknown[]
       relays: string[]
-      targetIds: string[]
+      descriptors: CommunityEventDescriptor[]
+      contextSessionId: string
+      contextVersion: number
     }
-  | {error: string}
+  | {error: string; code?: string}
 
 export type SmartWidgetEvent = {
   id: string
