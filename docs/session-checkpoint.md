@@ -46,6 +46,7 @@
 - Phase 2 starts GRASP recommendation sync from `src/app/core/sync.ts` alongside user git data sync.
 - Phase 2 focused verification passed: `pnpm vitest run src/app/core/grasp.test.ts src/app/core/grasp-server-events.test.ts src/app/core/git-requests.test.ts src/app/core/git-state.test.ts`.
 - Phase 2 project verification passed: `pnpm check`.
+- Phase 2 was committed and pushed as `8feb09d2 feat: add grasp relay recommendations`.
 
 ## Decisions
 
@@ -62,11 +63,11 @@
 - Worktree contains many unrelated extension/widget changes; do not stage them.
 - `src/routes/git/[id=naddr]/+layout.svelte` still has an unrelated pre-existing hunk at the community option relays mapping.
 - App shell no longer has non-test direct legacy GRASP usage outside `src/app/core/grasp-server-events.ts` migration fallback.
-- Phase 2 has been verified and checkpoint advanced; commit/push still needs to happen for Phase 2 transition.
+- Phase 3 has not started implementation yet.
 
 ## Next Action
 
-- Commit and push Phase 2 changes, then reread this checkpoint and start Phase 3.
+- Start Phase 3 by removing hardcoded GRASP recommendation constants and wiring UI surfaces to app-provided recommendations.
 
 ## Verification
 
