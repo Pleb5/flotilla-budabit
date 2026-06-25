@@ -54,6 +54,8 @@
     evidence: DmRelayRecommendationEvidence[]
   }
 
+  const RECOMMENDATION_PAGE_SIZE = 10
+
   const readRelayUrls = derivePubkeyRelays($pubkey!, RelayMode.Read)
   const writeRelayUrls = derivePubkeyRelays($pubkey!, RelayMode.Write)
   const messagingRelayUrls = derivePubkeyRelays($pubkey!, RelayMode.Messaging)
@@ -84,6 +86,13 @@
 
   const addRecommendedMessagingRelay = (url: string) => setMessagingRelayPolicy(url, true)
 
+  const loadMoreRecommendations = () => {
+    visibleRecommendationCount = Math.min(
+      visibleRecommendationCount + RECOMMENDATION_PAGE_SIZE,
+      recommendedMessagingRelays.length,
+    )
+  }
+
   const openProfile = (pubkey: string) => {
     if (!pubkey) return
 
@@ -95,10 +104,18 @@
   let recommendedDefinitionLoadKeys = $state<Record<string, string>>({})
   let recommendedDefinitionLoads = $state<Record<string, boolean>>({})
   let recommendationLoadKey = $state("")
+  let recommendationPageKey = $state("")
+  let visibleRecommendationCount = $state(RECOMMENDATION_PAGE_SIZE)
   let openRecommendationEvidenceKey = $state("")
 
   const recommendationState = $derived($dmRelayRecommendationState)
   const recommendedMessagingRelays = $derived($dmRelayRecommendations)
+  const visibleRecommendedMessagingRelays = $derived(
+    recommendedMessagingRelays.slice(0, visibleRecommendationCount),
+  )
+  const hasMoreRecommendedMessagingRelays = $derived(
+    visibleRecommendedMessagingRelays.length < recommendedMessagingRelays.length,
+  )
   const profileListEvents = $derived([
     ...$communityMemberProfileListEvents,
     ...$communityModeratorProfileListEvents,
@@ -368,6 +385,16 @@
     }).catch(() => undefined)
   })
 
+  $effect(() => {
+    const key = recommendedMessagingRelays.map(recommendation => recommendation.url).join("\n")
+
+    if (key === recommendationPageKey) return
+
+    recommendationPageKey = key
+    visibleRecommendationCount = RECOMMENDATION_PAGE_SIZE
+    openRecommendationEvidenceKey = ""
+  })
+
   onMount(() => {
     discoverRelays([])
   })
@@ -484,7 +511,7 @@
 
           {#if recommendedMessagingRelays.length > 0}
             <div class="column mt-3 gap-2">
-              {#each recommendedMessagingRelays as recommendation (recommendation.url)}
+              {#each visibleRecommendedMessagingRelays as recommendation (recommendation.url)}
                 {@const evidenceGroups = getRecommendationEvidenceGroups(recommendation)}
                 <div class="rounded-box border border-base-300 bg-base-200/50 p-3">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -589,6 +616,16 @@
                   </div>
                 </div>
               {/each}
+              {#if hasMoreRecommendedMessagingRelays}
+                <div class="mt-2 flex flex-col items-center gap-2 pb-1">
+                  <Button class="btn btn-outline btn-sm" onclick={loadMoreRecommendations}>
+                    Load more
+                  </Button>
+                  <p class="text-xs opacity-60">
+                    Showing {visibleRecommendedMessagingRelays.length} of {recommendedMessagingRelays.length}
+                  </p>
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
