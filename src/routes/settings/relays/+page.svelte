@@ -5,6 +5,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Collapse from "@lib/components/Collapse.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
   import RelayItem from "@app/components/RelayItem.svelte"
   import RelayAdd from "@app/components/RelayAdd.svelte"
   import {pushModal} from "@app/util/modal"
@@ -29,6 +30,7 @@
     dmRelayRecommendations,
     getDmRelayRecommendationSourceLabel,
     loadDmRelayRecommendations,
+    type DmRelayRecommendation,
     type DmRelayRecommendationEvidence,
     type DmRelayRecommendationSource,
     type DmRelayRecommendationSourceKind,
@@ -36,6 +38,7 @@
   import {getGrantCapability} from "@app/core/community-permissions"
   import type {CommunityStarRef} from "@app/util/community-stars"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import Globus from "@assets/icons/globus.svg?dataurl"
   import Inbox from "@assets/icons/inbox.svg?dataurl"
@@ -43,7 +46,13 @@
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
 
-  const MAX_RECOMMENDATION_SOURCES = 3
+  type RecommendationEvidenceGroupKind = "own" | "community" | "moderator" | "member" | "follow"
+
+  type RecommendationEvidenceGroup = {
+    kind: RecommendationEvidenceGroupKind
+    label: string
+    evidence: DmRelayRecommendationEvidence[]
+  }
 
   const readRelayUrls = derivePubkeyRelays($pubkey!, RelayMode.Read)
   const writeRelayUrls = derivePubkeyRelays($pubkey!, RelayMode.Write)
@@ -75,10 +84,18 @@
 
   const addRecommendedMessagingRelay = (url: string) => setMessagingRelayPolicy(url, true)
 
+  const openProfile = (pubkey: string) => {
+    if (!pubkey) return
+
+    openRecommendationEvidenceKey = ""
+    pushModal(ProfileDetail, {pubkey})
+  }
+
   let recommendedCommunityDefinitions = $state<Record<string, CommunityDefinition>>({})
   let recommendedDefinitionLoadKeys = $state<Record<string, string>>({})
   let recommendedDefinitionLoads = $state<Record<string, boolean>>({})
   let recommendationLoadKey = $state("")
+  let openRecommendationEvidenceKey = $state("")
 
   const recommendationState = $derived($dmRelayRecommendationState)
   const recommendedMessagingRelays = $derived($dmRelayRecommendations)
@@ -173,21 +190,114 @@
       return "All recommended relays are already configured. They remain listed so you can see why they scored."
     }
 
-    return "Recommendations are ranked by active community trust, explicit messaging relay lists, starred communities, then social follows. DMs still require both people to configure a DM relay."
+    return ""
   })
-
-  const getRecommendationEvidencePubkey = (evidence: DmRelayRecommendationEvidence) =>
-    evidence.communityPubkey || evidence.pubkey || ""
 
   const getRecommendationEvidenceKey = (evidence: DmRelayRecommendationEvidence) =>
     `${evidence.source}:${evidence.pubkey || ""}:${evidence.communityPubkey || ""}`
 
-  const getRecommendationEvidenceBadgeClass = (source: DmRelayRecommendationSourceKind) => {
-    if (source === "starred_community_relay") return "badge badge-accent"
-    if (source === "follow_messaging") return "badge badge-ghost"
+  const countLabel = (count: number, singular: string, plural = `${singular}s`) =>
+    `${count} ${count === 1 ? singular : plural}`
 
-    return "badge badge-secondary"
+  const uniqueBy = <T,>(items: T[], getKey: (item: T) => string) => {
+    const byKey = new Map<string, T>()
+
+    for (const item of items) {
+      const key = getKey(item)
+      if (key && !byKey.has(key)) byKey.set(key, item)
+    }
+
+    return Array.from(byKey.values())
   }
+
+  const communityEvidenceSources = new Set<DmRelayRecommendationSourceKind>([
+    "active_community_relay",
+    "starred_community_relay",
+    "community_messaging",
+    "admin_messaging",
+  ])
+
+  const getRecommendationEvidenceGroups = (
+    recommendation: DmRelayRecommendation,
+  ): RecommendationEvidenceGroup[] => {
+    const groups: RecommendationEvidenceGroup[] = []
+    const ownEvidence = recommendation.evidence.filter(item => item.source === "own_messaging")
+    const communityEvidence = uniqueBy(
+      recommendation.evidence.filter(item => communityEvidenceSources.has(item.source)),
+      item => item.communityPubkey || item.pubkey || item.source,
+    )
+    const moderatorEvidence = uniqueBy(
+      recommendation.evidence.filter(item => item.source === "moderator_messaging"),
+      item => `${item.pubkey || ""}:${item.communityPubkey || ""}`,
+    )
+    const memberEvidence = uniqueBy(
+      recommendation.evidence.filter(item => item.source === "member_messaging"),
+      item => `${item.pubkey || ""}:${item.communityPubkey || ""}`,
+    )
+    const followEvidence = uniqueBy(
+      recommendation.evidence.filter(item => item.source === "follow_messaging"),
+      item => item.pubkey || "",
+    )
+
+    if (ownEvidence.length > 0) {
+      groups.push({kind: "own", label: "Your DM list", evidence: ownEvidence})
+    }
+    if (communityEvidence.length > 0) {
+      groups.push({
+        kind: "community",
+        label: countLabel(communityEvidence.length, "Community", "Communities"),
+        evidence: communityEvidence,
+      })
+    }
+    if (moderatorEvidence.length > 0) {
+      groups.push({
+        kind: "moderator",
+        label: countLabel(moderatorEvidence.length, "Moderator"),
+        evidence: moderatorEvidence,
+      })
+    }
+    if (memberEvidence.length > 0) {
+      groups.push({
+        kind: "member",
+        label: countLabel(memberEvidence.length, "Member"),
+        evidence: memberEvidence,
+      })
+    }
+    if (followEvidence.length > 0) {
+      groups.push({
+        kind: "follow",
+        label: countLabel(followEvidence.length, "Follow"),
+        evidence: followEvidence,
+      })
+    }
+
+    return groups
+  }
+
+  const getRecommendationEvidenceProfilePubkey = (evidence: DmRelayRecommendationEvidence) =>
+    communityEvidenceSources.has(evidence.source)
+      ? evidence.communityPubkey || evidence.pubkey || ""
+      : evidence.pubkey || evidence.communityPubkey || ""
+
+  const getRecommendationEvidenceCommunityPubkey = (evidence: DmRelayRecommendationEvidence) => {
+    const profilePubkey = getRecommendationEvidenceProfilePubkey(evidence)
+
+    return evidence.communityPubkey && evidence.communityPubkey !== profilePubkey
+      ? evidence.communityPubkey
+      : ""
+  }
+
+  const getRecommendationEvidenceRoleLabel = (evidence: DmRelayRecommendationEvidence) => {
+    if (evidence.source === "own_messaging") return "From your messaging relay list"
+    if (evidence.source === "follow_messaging") return "You follow this person"
+
+    return getDmRelayRecommendationSourceLabel(evidence.source)
+  }
+
+  const getRecommendationGroupPopoverKey = (
+    recommendation: DmRelayRecommendation,
+    group: RecommendationEvidenceGroup,
+  ) => `${recommendation.url}:${group.kind}`
 
   $effect(() => {
     if (!$pubkey) return
@@ -363,7 +473,9 @@
               <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
                 Recommended messaging relays
               </p>
-              <p class="mt-1 text-sm opacity-70">{recommendationStatus}</p>
+              {#if recommendationStatus}
+                <p class="mt-1 text-sm opacity-70">{recommendationStatus}</p>
+              {/if}
             </div>
             {#if recommendationLoading}
               <span class="loading loading-spinner loading-xs shrink-0 opacity-60"></span>
@@ -373,6 +485,7 @@
           {#if recommendedMessagingRelays.length > 0}
             <div class="column mt-3 gap-2">
               {#each recommendedMessagingRelays as recommendation (recommendation.url)}
+                {@const evidenceGroups = getRecommendationEvidenceGroups(recommendation)}
                 <div class="rounded-box border border-base-300 bg-base-200/50 p-3">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div class="min-w-0">
@@ -382,10 +495,7 @@
                           <span class="badge badge-success badge-sm">Configured</span>
                         {/if}
                       </div>
-                      <p class="mt-1 text-xs opacity-70">
-                        Recommended by {recommendation.count} trusted
-                        {recommendation.count === 1 ? "source" : "sources"}
-                      </p>
+                      <p class="mt-1 text-xs opacity-70">Community and messaging-list signals</p>
                     </div>
                     {#if recommendation.isConfigured}
                       <span class="badge badge-success shrink-0 self-start">Already added</span>
@@ -399,27 +509,83 @@
                     {/if}
                   </div>
 
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    {#each recommendation.evidence.slice(0, MAX_RECOMMENDATION_SOURCES) as source (getRecommendationEvidenceKey(source))}
-                      {@const sourcePubkey = getRecommendationEvidencePubkey(source)}
-                      {@const sourceLabel = getDmRelayRecommendationSourceLabel(source.source)}
-                      <span
-                        class="badge badge-ghost flex max-w-full gap-1"
-                        title={sourceLabel}>
-                        {#if sourcePubkey}
-                          <ProfileCircle pubkey={sourcePubkey} size={4} />
-                          <span class="ellipsize max-w-32"><ProfileName pubkey={sourcePubkey} /></span>
-                        {:else}
-                          <span>{sourceLabel}</span>
+                  <div class="mt-3 flex flex-wrap gap-1.5">
+                    {#each evidenceGroups as group (group.kind)}
+                      {@const popoverKey = getRecommendationGroupPopoverKey(recommendation, group)}
+                      <div class="relative">
+                        <button
+                          type="button"
+                          class="badge cursor-pointer border border-base-content/15 bg-base-200 font-medium text-base-content/80 hover:bg-base-300"
+                          class:bg-base-300={openRecommendationEvidenceKey === popoverKey}
+                          aria-expanded={openRecommendationEvidenceKey === popoverKey}
+                          onclick={() =>
+                            (openRecommendationEvidenceKey =
+                              openRecommendationEvidenceKey === popoverKey ? "" : popoverKey)}>
+                          {group.label}
+                        </button>
+
+                        {#if openRecommendationEvidenceKey === popoverKey}
+                          <InlinePopover
+                            align="left"
+                            widthClass="w-80 sm:w-96"
+                            onClose={() => (openRecommendationEvidenceKey = "")}>
+                            <div class="flex min-w-0 flex-col gap-3 text-sm">
+                              <div>
+                                <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                                  {group.label}
+                                </p>
+                                <p class="mt-1 break-all font-mono text-[11px] opacity-60">
+                                  {displayRelayUrl(recommendation.url)}
+                                </p>
+                              </div>
+
+                              <div class="flex flex-col gap-2">
+                                {#each group.evidence as source (getRecommendationEvidenceKey(source))}
+                                  {@const profilePubkey = getRecommendationEvidenceProfilePubkey(source)}
+                                  {@const communityPubkey = getRecommendationEvidenceCommunityPubkey(source)}
+                                  {@const roleLabel = getRecommendationEvidenceRoleLabel(source)}
+                                  {@const sourceLabel = getDmRelayRecommendationSourceLabel(source.source)}
+                                  <div class="rounded-box bg-base-200/60 p-3">
+                                    <div class="flex min-w-0 items-center gap-2">
+                                      {#if profilePubkey}
+                                        <button
+                                          type="button"
+                                          class="shrink-0"
+                                          aria-label="Open profile"
+                                          onclick={() => openProfile(profilePubkey)}>
+                                          <ProfileCircle pubkey={profilePubkey} size={7} />
+                                        </button>
+                                      {/if}
+                                      <div class="min-w-0 flex-1">
+                                        {#if profilePubkey}
+                                          <button
+                                            type="button"
+                                            class="max-w-full truncate text-sm font-medium hover:underline"
+                                            onclick={() => openProfile(profilePubkey)}>
+                                            <ProfileName pubkey={profilePubkey} />
+                                          </button>
+                                        {:else}
+                                          <p class="truncate text-sm font-medium">{sourceLabel}</p>
+                                        {/if}
+                                        <div class="text-xs opacity-70">{roleLabel}</div>
+                                        {#if communityPubkey}
+                                          <button
+                                            type="button"
+                                            class="max-w-full truncate text-left text-[11px] opacity-60 hover:underline"
+                                            onclick={() => openProfile(communityPubkey)}>
+                                            in <ProfileName pubkey={communityPubkey} />
+                                          </button>
+                                        {/if}
+                                      </div>
+                                    </div>
+                                  </div>
+                                {/each}
+                              </div>
+                            </div>
+                          </InlinePopover>
                         {/if}
-                      </span>
-                      <span class={getRecommendationEvidenceBadgeClass(source.source)}>{sourceLabel}</span>
+                      </div>
                     {/each}
-                    {#if recommendation.evidence.length > MAX_RECOMMENDATION_SOURCES}
-                      <span class="badge badge-ghost">
-                        +{recommendation.evidence.length - MAX_RECOMMENDATION_SOURCES} more
-                      </span>
-                    {/if}
                   </div>
                 </div>
               {/each}

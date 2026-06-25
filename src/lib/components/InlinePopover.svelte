@@ -26,6 +26,27 @@
   let ready = $state(false)
   let rafId = 0
 
+  const getBottomReservedSpace = () => {
+    if (!window.matchMedia("(max-width: 767px)").matches) return viewportMargin
+
+    const bottomNavHeight = Array.from(document.querySelectorAll<HTMLElement>(".bottom-nav")).reduce(
+      (height, node) => {
+        const style = getComputedStyle(node)
+
+        if (style.display === "none" || style.visibility === "hidden") return height
+
+        const rect = node.getBoundingClientRect()
+
+        if (rect.width === 0 || rect.height === 0) return height
+
+        return Math.max(height, window.innerHeight - rect.top)
+      },
+      0,
+    )
+
+    return viewportMargin + bottomNavHeight
+  }
+
   const reposition = () => {
     if (!element) return
 
@@ -38,24 +59,26 @@
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
     const gap = 8
+    const bottomReservedSpace = getBottomReservedSpace()
+    const availableHeight = Math.max(0, viewportHeight - viewportMargin - bottomReservedSpace)
     const preferredLeft = align === "right" ? anchorRect.right - rect.width : anchorRect.left
     const clampedLeft = Math.max(
       viewportMargin,
       Math.min(viewportWidth - viewportMargin - rect.width, preferredLeft),
     )
-    const spaceBelow = viewportHeight - anchorRect.bottom - gap - viewportMargin
+    const spaceBelow = viewportHeight - anchorRect.bottom - gap - bottomReservedSpace
     const spaceAbove = anchorRect.top - gap - viewportMargin
     const placeAbove = rect.height > spaceBelow && spaceAbove > spaceBelow
+    const minHeight = Math.min(160, availableHeight)
     const nextMaxHeight = Math.max(
-      160,
-      Math.min(viewportHeight - viewportMargin * 2, placeAbove ? spaceAbove : spaceBelow),
+      minHeight,
+      Math.min(availableHeight, placeAbove ? spaceAbove : spaceBelow),
     )
+    const popupHeight = Math.min(rect.height, nextMaxHeight)
+    const maxTop = Math.max(viewportMargin, viewportHeight - bottomReservedSpace - popupHeight)
     const nextTop = placeAbove
-      ? Math.max(viewportMargin, anchorRect.top - gap - Math.min(rect.height, nextMaxHeight))
-      : Math.min(
-          Math.max(viewportMargin, anchorRect.bottom + gap),
-          viewportHeight - viewportMargin - Math.min(rect.height, nextMaxHeight),
-        )
+      ? Math.max(viewportMargin, anchorRect.top - gap - popupHeight)
+      : Math.max(viewportMargin, Math.min(Math.max(viewportMargin, anchorRect.bottom + gap), maxTop))
 
     left = clampedLeft
     top = nextTop
