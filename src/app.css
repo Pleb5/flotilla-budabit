@@ -224,6 +224,12 @@
   @apply justify-start overflow-hidden text-ellipsis whitespace-nowrap;
 }
 
+.badge-update {
+  border-color: color-mix(in oklch, #8b5cf6 55%, transparent);
+  background-color: color-mix(in oklch, #8b5cf6 18%, transparent);
+  color: color-mix(in oklch, #8b5cf6 70%, var(--base-content));
+}
+
 .ellipsize {
   @apply overflow-hidden text-ellipsis;
 }

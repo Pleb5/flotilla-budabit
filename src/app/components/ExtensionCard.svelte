@@ -199,60 +199,75 @@
   }
 </script>
 
-<div class="flex w-full flex-col gap-2 rounded border border-base-300 bg-base-100 p-4 shadow-sm">
-  <div class="flex w-full items-center justify-between">
-    <div class="flex min-w-0 items-center gap-2">
+<div
+  class="flex w-full min-w-0 flex-col gap-2 overflow-hidden rounded border border-base-300 bg-base-100 p-4 shadow-sm">
+  <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div class="flex min-w-0 flex-1 items-start gap-3">
       {#if iconUrl}
-        <ExtensionIcon icon={iconUrl} size={24} class="h-6 w-6 rounded" />
+        <ExtensionIcon icon={iconUrl} size={24} class="h-6 w-6 shrink-0 rounded" />
       {/if}
-      <h3 class="font-semibold">{displayName}</h3>
-      {#if version}
-        <span class="text-xs opacity-70">v{version}</span>
-      {/if}
-      {#if updateAvailable}
-        <span class="badge badge-warning badge-sm"
-          >Update Available: v{updateAvailable.version}</span>
-      {/if}
-      {#if isWidget && widgetUpdate}
-        <span class="badge badge-warning badge-sm">
-          Widget update{#if widgetUpdateVersion} v{widgetUpdateVersion}{/if}
-        </span>
-      {/if}
-      <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
-      {#if slotLabel}
-        <span class="badge badge-secondary badge-sm">{slotLabel}</span>
-      {/if}
-      {#if isWidget && targetedCommunityPubkeys.length > 0}
-        <span class="badge badge-secondary badge-sm">
-          {targetedCommunityPubkeys.length} communit{targetedCommunityPubkeys.length === 1
-            ? "y"
-            : "ies"}
-        </span>
-      {/if}
-      {#if isDefault}
-        <span class="badge badge-primary badge-sm">Community default</span>
-      {/if}
+      <div class="min-w-0 flex-1">
+        <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h3 class="min-w-0 break-words font-semibold leading-tight">{displayName}</h3>
+          {#if version}
+            <span class="shrink-0 text-xs opacity-70">v{version}</span>
+          {/if}
+        </div>
+        <div class="mt-1 flex min-w-0 flex-wrap gap-1.5">
+          {#if updateAvailable}
+            <span class="badge-update badge badge-sm min-w-0 max-w-full">
+              Update Available: v{updateAvailable.version}
+            </span>
+          {/if}
+          {#if isWidget && widgetUpdate}
+            <span class="badge-update badge badge-sm min-w-0 max-w-full">
+              Widget update{#if widgetUpdateVersion}
+                v{widgetUpdateVersion}{/if}
+            </span>
+          {/if}
+          <span class="badge badge-sm min-w-0 max-w-full">
+            {isWidget ? "Smart Widget" : "Extension"}
+          </span>
+          {#if slotLabel}
+            <span class="badge badge-secondary badge-sm min-w-0 max-w-full">{slotLabel}</span>
+          {/if}
+          {#if isWidget && targetedCommunityPubkeys.length > 0}
+            <span class="badge badge-secondary badge-sm min-w-0 max-w-full">
+              {targetedCommunityPubkeys.length} communit{targetedCommunityPubkeys.length === 1
+                ? "y"
+                : "ies"}
+            </span>
+          {/if}
+          {#if isDefault}
+            <span class="badge badge-primary badge-sm min-w-0 max-w-full">Community default</span>
+          {/if}
+        </div>
+      </div>
     </div>
-    <div class="ml-auto flex items-center gap-3">
+    <div
+      class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-[45%] sm:shrink-0 sm:justify-end lg:max-w-none">
       {#if isWidget && widgetUpdate}
         <button
-          class="btn btn-warning btn-xs"
+          class="btn btn-warning btn-xs shrink-0"
           onclick={() => onWidgetUpdate?.()}
           disabled={widgetUpdateRefreshing || !onWidgetUpdate}>
           {widgetUpdateRefreshing ? "Updating..." : "Update widget"}
         </button>
       {:else if isWidget && widgetUpdateChecking}
-        <button class="btn btn-ghost btn-xs" disabled title="Checking for widget updates">
+        <button class="btn btn-ghost btn-xs shrink-0" disabled title="Checking for widget updates">
           <RefreshCw size={14} class="animate-spin" />
         </button>
       {:else if !isWidget && manifestUrl}
         {#if updateAvailable}
-          <button class="btn btn-warning btn-xs" onclick={handleRefresh} disabled={refreshing}>
+          <button
+            class="btn btn-warning btn-xs shrink-0"
+            onclick={handleRefresh}
+            disabled={refreshing}>
             {refreshing ? "Updating..." : "Update Now"}
           </button>
         {:else}
           <button
-            class="btn btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs shrink-0"
             onclick={checkUpdate}
             disabled={checkingUpdate}
             title="Check for updates">
@@ -260,7 +275,7 @@
           </button>
         {/if}
       {/if}
-      <label class="flex items-center gap-2 text-sm">
+      <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm">
         <input
           type="checkbox"
           class="toggle toggle-primary toggle-sm"
@@ -269,7 +284,9 @@
         <span class="opacity-70">Enabled</span>
       </label>
       {#if onuninstall}
-        <button class="btn btn-outline btn-error btn-xs" onclick={onuninstall}> Uninstall </button>
+        <button class="btn btn-outline btn-error btn-xs shrink-0" onclick={onuninstall}>
+          Uninstall
+        </button>
       {/if}
     </div>
   </div>
@@ -293,13 +310,15 @@
         <div class="truncate" title={widget.appUrl}>App: {widget.appUrl}</div>
       {/if}
       {#if widget.appUrls && widget.appUrls.length > 1}
-        <div>{widget.appUrls.length - 1} fallback app URL{widget.appUrls.length === 2 ? "" : "s"}</div>
+        <div>
+          {widget.appUrls.length - 1} fallback app URL{widget.appUrls.length === 2 ? "" : "s"}
+        </div>
       {/if}
     </div>
     {#if widget.appUrl || widget.buttons?.length || onDisplayLocationChange}
-      <div class="mt-2 flex flex-wrap items-center gap-2">
+      <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {#if widgetAppUrl}
-          <button class="btn btn-primary btn-sm" onclick={openWidget}> Open App </button>
+          <button class="btn btn-primary btn-sm sm:w-auto" onclick={openWidget}> Open App </button>
         {:else if widget.appUrl}
           <span class="text-xs opacity-70">Insecure app URL blocked</span>
         {/if}
@@ -316,7 +335,7 @@
         {/each}
         {#if onDisplayLocationChange}
           <select
-            class="select select-bordered select-sm"
+            class="select select-bordered select-sm w-full sm:w-auto"
             value={displayLocation}
             onchange={e =>
               onDisplayLocationChange?.(
@@ -334,9 +353,9 @@
       <div class="mt-2 rounded-box border border-warning/40 bg-warning/10 p-3 text-xs">
         <div class="font-medium">Update available</div>
         {#if widgetUpdateSummary.length > 0}
-          <div class="mt-1 flex flex-wrap gap-1.5">
+          <div class="mt-1 flex min-w-0 flex-wrap gap-1.5">
             {#each widgetUpdateSummary as item (item)}
-              <span class="badge badge-warning badge-sm">{item}</span>
+              <span class="badge badge-warning badge-sm min-w-0 max-w-full">{item}</span>
             {/each}
           </div>
         {:else}
@@ -347,65 +366,73 @@
         {/if}
       </div>
     {/if}
-    {#if communityOptions.length > 0 && onTargetedCommunitiesChange}
-      <div class="mt-2 rounded-box border border-base-300 bg-base-200/30 p-3 text-sm">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <strong>Community targets</strong>
-            <p class="text-xs opacity-70">Curate this widget into eligible communities.</p>
-          </div>
-          <button
-            type="button"
-            class="btn btn-outline btn-xs"
-            onclick={() => (showCommunityTargets = !showCommunityTargets)}>
-            {showCommunityTargets ? "Close" : "Edit targets"}
-          </button>
-        </div>
-        {#if targetedCommunityPubkeys.length > 0}
-          <div class="mt-2 flex flex-wrap gap-1">
-            {#each targetedCommunityPubkeys as communityPubkey (communityPubkey)}
-              <span class="badge badge-sm">{getCommunityLabel(communityPubkey)}</span>
-            {/each}
-          </div>
-        {:else}
-          <p class="mt-2 text-xs opacity-70">No community targets selected.</p>
-        {/if}
-        {#if showCommunityTargets}
-          <div class="mt-3 flex flex-col gap-2">
-            {#each communityOptions as option (option.pubkey)}
-              <label class="flex items-center gap-3 rounded-md border border-base-300 p-2">
-                <input
-                  type="checkbox"
-                  checked={selectedCommunityPubkeys.includes(option.pubkey)}
-                  onchange={event =>
-                    toggleCommunityTarget(option.pubkey, event.currentTarget.checked)} />
-                <span class="min-w-0 flex-1 truncate">{option.label || option.pubkey}</span>
-              </label>
-            {/each}
-            <div class="flex justify-end gap-2">
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs"
-                onclick={cancelCommunityTargetEdit}
-                disabled={savingCommunityTargets}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                class="btn btn-primary btn-xs"
-                onclick={saveCommunityTargets}
-                disabled={savingCommunityTargets}>
-                {savingCommunityTargets ? "Saving..." : "Save targets"}
-              </button>
-            </div>
-          </div>
-        {/if}
-      </div>
-    {/if}
   {/if}
 
-  {#if permissions && permissions.length > 0}
-    <ExtensionPermissions {permissions} />
+  {#if (isWidget && widget && communityOptions.length > 0 && onTargetedCommunitiesChange) || (permissions && permissions.length > 0)}
+    <details class="mt-2 rounded-box border border-base-300 bg-base-200/20 p-3 text-sm">
+      <summary class="cursor-pointer select-none font-medium">Details</summary>
+      <div class="mt-3 flex flex-col gap-3">
+        {#if isWidget && widget && communityOptions.length > 0 && onTargetedCommunitiesChange}
+          <div class="rounded-box border border-base-300 bg-base-200/30 p-3 text-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <strong>Community targets</strong>
+                <p class="text-xs opacity-70">Curate this widget into eligible communities.</p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline btn-xs"
+                onclick={() => (showCommunityTargets = !showCommunityTargets)}>
+                {showCommunityTargets ? "Close" : "Edit targets"}
+              </button>
+            </div>
+            {#if targetedCommunityPubkeys.length > 0}
+              <div class="mt-2 flex flex-wrap gap-1">
+                {#each targetedCommunityPubkeys as communityPubkey (communityPubkey)}
+                  <span class="badge badge-sm">{getCommunityLabel(communityPubkey)}</span>
+                {/each}
+              </div>
+            {:else}
+              <p class="mt-2 text-xs opacity-70">No community targets selected.</p>
+            {/if}
+            {#if showCommunityTargets}
+              <div class="mt-3 flex flex-col gap-2">
+                {#each communityOptions as option (option.pubkey)}
+                  <label class="flex items-center gap-3 rounded-md border border-base-300 p-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedCommunityPubkeys.includes(option.pubkey)}
+                      onchange={event =>
+                        toggleCommunityTarget(option.pubkey, event.currentTarget.checked)} />
+                    <span class="min-w-0 flex-1 truncate">{option.label || option.pubkey}</span>
+                  </label>
+                {/each}
+                <div class="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    onclick={cancelCommunityTargetEdit}
+                    disabled={savingCommunityTargets}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-xs"
+                    onclick={saveCommunityTargets}
+                    disabled={savingCommunityTargets}>
+                    {savingCommunityTargets ? "Saving..." : "Save targets"}
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if permissions && permissions.length > 0}
+          <ExtensionPermissions {permissions} />
+        {/if}
+      </div>
+    </details>
   {/if}
 </div>
 

@@ -708,7 +708,7 @@
   {@const widgetId = getWidgetLineId(widget)}
   {@const installedWidget = installedWidgetIds.has(widgetId)}
   {@const isDefaultWidget = defaultIds.has(widgetId)}
-  <div class="card2 flex items-start justify-between gap-2 p-3">
+  <div class="card2 flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:justify-between">
     <div class="flex min-w-0 flex-1 items-start gap-3">
       {#if widget.iconUrl || widget.imageUrl}
         <ExtensionIcon
@@ -755,9 +755,9 @@
         </div>
       </div>
     </div>
-    <div class="flex shrink-0 items-center gap-3">
+    <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
       {#if installedWidget}
-        <label class="row-2 items-center gap-2 text-sm">
+        <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm">
           <input
             type="checkbox"
             class="toggle toggle-primary toggle-sm"
@@ -774,7 +774,7 @@
   </div>
 {/snippet}
 
-<div class="content column gap-4">
+<div class="content column !max-w-5xl gap-4">
   <div class="card2 bg-alt col-8 shadow-xl">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
@@ -793,7 +793,7 @@
           </span>
         {/if}
         {#if widgetUpdateCount > 0}
-          <span class="badge badge-warning badge-sm">
+          <span class="badge-update badge badge-sm">
             {widgetUpdateCount} widget update{widgetUpdateCount === 1 ? "" : "s"} available
           </span>
         {/if}
@@ -850,7 +850,7 @@
       </p>
     </div>
     <div class="flex flex-wrap items-end gap-3">
-      <label class="form-control min-w-64 flex-1">
+      <label class="form-control min-w-0 flex-1 sm:min-w-64">
         <span class="label-text">Community</span>
         <select
           class="select select-bordered w-full"
