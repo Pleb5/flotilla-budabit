@@ -18,6 +18,7 @@
   import CommunityContentReportCard from "@app/components/community/CommunityContentReportCard.svelte"
   import ModerationReportList from "@app/components/community/ModerationReportList.svelte"
   import {preventDefault} from "@lib/html"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -109,6 +110,7 @@
   )
   let pageMode = $state<PageMode>("queue")
   let selectedSectionName = $state("")
+  let applicationGroupOpen = $state<Record<string, boolean>>({New: true})
   let drafts = $state<Record<string, CommunityAdmissionFormDraft>>({})
   let formBuilderElement = $state<HTMLFormElement | undefined>()
   const communityPublishRelays = $derived(
@@ -309,9 +311,9 @@
     {
       mode: "queue" as const,
       label: "Review queue",
-      count: newApplications.length + pendingContentReportGroups.length,
-      disabled: grantableSections.length === 0 && contentReportGroups.length === 0,
-      warning: newApplications.length > 0 || pendingContentReportGroups.length > 0,
+      count: newApplications.length,
+      disabled: grantableSections.length === 0,
+      warning: newApplications.length > 0,
     },
     {
       mode: "forms" as const,
@@ -323,9 +325,9 @@
     {
       mode: "moderation" as const,
       label: "Moderation",
-      count: currentModerationActions.length,
+      count: currentModerationActions.length + pendingContentReportGroups.length,
       disabled: false,
-      warning: false,
+      warning: pendingContentReportGroups.length > 0,
     },
   ])
 
@@ -536,6 +538,50 @@
       response.value,
       response.metadata,
     )
+  const applicationStatusLabel = (status: ReviewApplication["state"]["status"]) =>
+    status === "pending" ? "new" : status
+  const applicationStatusBadgeClass = (status: ReviewApplication["state"]["status"]) =>
+    status === "pending"
+      ? "badge-warning"
+      : status === "granted"
+        ? "badge-success"
+        : status === "rejected"
+          ? "badge-error"
+          : "badge-neutral"
+  const getReviewActionLabel = (application: ReviewApplication, status: "granted" | "rejected") => {
+    if (status === "granted") return "Grant"
+
+    return application.state.status === "granted" ? "Revoke" : "Reject"
+  }
+  const getReviewActionConfirmLabel = (
+    application: ReviewApplication,
+    status: "granted" | "rejected",
+  ) => {
+    const label = getReviewActionLabel(application, status)
+
+    return label === "Revoke" ? "Revoke access" : label
+  }
+  const getReviewActionMessage = (
+    application: ReviewApplication,
+    status: "granted" | "rejected",
+  ) => {
+    if (status === "granted") {
+      return `Grant this applicant access to ${application.sectionDisplayName}?`
+    }
+
+    if (application.state.status === "granted") {
+      return `Revoke this applicant's access to ${application.sectionDisplayName}?`
+    }
+
+    return `Reject this application for ${application.sectionDisplayName}?`
+  }
+  const isApplicationGroupOpen = (label: string) => applicationGroupOpen[label] ?? label === "New"
+  const updateApplicationGroupOpen = (label: string, event: Event) => {
+    applicationGroupOpen = {
+      ...applicationGroupOpen,
+      [label]: (event.currentTarget as HTMLDetailsElement).open,
+    }
+  }
   const reviewHistoryToneClass = (status: string) =>
     status === "granted" ? "bg-success/10 text-success" : "bg-error/10 text-error"
   const reviewHistoryLabel = (status: string) =>
@@ -677,7 +723,7 @@
   }
 
   const reviewApplication = (application: ReviewApplication, status: "granted" | "rejected") => {
-    if (!communityBootstrapReady || !$activeCommunityDefinition) return
+    if (!communityBootstrapReady || !$activeCommunityDefinition) return false
 
     const capability = getGrantCapability({
       definition: $activeCommunityDefinition,
@@ -692,16 +738,16 @@
         theme: "error",
         message: "You need moderator authority for this section.",
       })
-      return
+      return false
     }
 
     if (communityPublishRelays.length === 0) {
       pushToast({theme: "error", message: "Community definition must declare at least one relay."})
-      return
+      return false
     }
 
     const applicant = normalizePubkey(application.response.event.pubkey)
-    if (!applicant) return
+    if (!applicant) return false
 
     let profileList = capability.profileList
     let definitionUpdate: ReturnType<typeof getOwnerMembershipGrantProfileList>["definitionUpdate"]
@@ -724,7 +770,7 @@
     if (status === "granted") {
       if (!profileList) {
         pushToast({theme: "error", message: "No membership list is available for this section."})
-        return
+        return false
       }
 
       if (definitionUpdate) {
@@ -779,6 +825,24 @@
             ? "Access revoked."
             : "Application rejected.",
     })
+    return true
+  }
+
+  const confirmReviewApplication = (
+    application: ReviewApplication,
+    status: "granted" | "rejected",
+  ) => {
+    const label = getReviewActionLabel(application, status)
+    const confirmLabel = getReviewActionConfirmLabel(application, status)
+
+    pushModal(Confirm, {
+      title: label === "Revoke" ? "Revoke access" : `${label} application`,
+      message: getReviewActionMessage(application, status),
+      confirmLabel,
+      confirm: async () => {
+        if (reviewApplication(application, status)) history.back()
+      },
+    })
   }
 
   $effect(() => {
@@ -788,11 +852,7 @@
 
   $effect(() => {
     if (!canAccessModerationPage) return
-    if (
-      grantableSections.length === 0 &&
-      contentReportGroups.length === 0 &&
-      pageMode !== "moderation"
-    ) {
+    if (grantableSections.length === 0 && pageMode !== "moderation") {
       pageMode = "moderation"
     }
   })
@@ -1187,30 +1247,87 @@
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 class="text-xl font-semibold">Moderation</h2>
-            <p class="text-sm opacity-70">Review active event censors and person bans.</p>
+            <p class="text-sm opacity-70">
+              Review content reports, active event censors, and person bans.
+            </p>
           </div>
           <span class="badge badge-neutral">
-            {currentModerationActions.length}
-            {currentModerationActions.length === 1 ? "action" : "actions"}
+            {currentModerationActions.length + pendingContentReportGroups.length}
+            {currentModerationActions.length + pendingContentReportGroups.length === 1
+              ? "item"
+              : "items"}
           </span>
         </div>
       </section>
 
       <div class="col-4 grid gap-4 lg:grid-cols-2">
-        <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 class="text-lg font-semibold">Event moderation</h3>
-            </div>
-            <span class="badge badge-warning">{currentEventModerationActions.length}</span>
-          </div>
-          <ModerationReportList
-            reports={currentEventModerationActions}
-            relays={communityProfileRelays}
-            emptyMessage="No active event moderations from this key." />
-        </section>
+        <div class="flex min-w-0 flex-col gap-4">
+          <details class="card2 bg-alt p-4 shadow-md" open={pendingContentReportGroups.length > 0}>
+            <summary class="cursor-pointer list-none">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-lg font-semibold">Content Reports</h3>
+                    {#if pendingContentReportGroups.length > 0}
+                      <span class="badge badge-warning"
+                        >{pendingContentReportGroups.length} pending</span>
+                    {/if}
+                    <span class="badge badge-neutral">{contentReportGroups.length} total</span>
+                  </div>
+                  <p class="text-sm opacity-70">
+                    Reports for sections you moderate. Expand to inspect context and mark reviewed.
+                  </p>
+                </div>
+                <span class="badge badge-ghost">Expand</span>
+              </div>
+            </summary>
 
-        <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+            <div class="mt-4 flex flex-col gap-4">
+              <div class="flex flex-col gap-2">
+                <h4 class="font-semibold">Pending</h4>
+                {#each pendingContentReportGroups as group (group.key)}
+                  <CommunityContentReportCard {group} relays={communityProfileRelays} />
+                {:else}
+                  <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
+                    No pending content reports.
+                  </p>
+                {/each}
+              </div>
+
+              <details
+                class="rounded-box bg-base-200 p-3"
+                open={pendingContentReportGroups.length === 0}>
+                <summary class="cursor-pointer font-semibold">
+                  Reviewed ({reviewedContentReportGroups.length})
+                </summary>
+                <div class="mt-3 flex flex-col gap-2">
+                  {#each reviewedContentReportGroups as group (group.key)}
+                    <CommunityContentReportCard {group} relays={communityProfileRelays} />
+                  {:else}
+                    <p class="rounded-box bg-base-100 p-3 text-sm opacity-70">
+                      No reviewed content reports.
+                    </p>
+                  {/each}
+                </div>
+              </details>
+            </div>
+          </details>
+
+          <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 class="text-lg font-semibold">Event moderation</h3>
+              </div>
+              <span class="badge badge-warning">{currentEventModerationActions.length}</span>
+            </div>
+            <ModerationReportList
+              reports={currentEventModerationActions}
+              relays={communityProfileRelays}
+              emptyMessage="No active event moderations from this key." />
+          </section>
+        </div>
+
+        <section class="card2 bg-alt flex min-w-0 flex-col gap-4 p-4 shadow-md">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-lg font-semibold">Person bans</h3>
@@ -1224,131 +1341,175 @@
             emptyMessage="No active person bans from this key." />
         </section>
       </div>
-    {:else}
-      {#if manageableFormSections.length > 0}
-        <section
-          class={`card2 bg-alt col-4 flex flex-col gap-3 p-4 shadow-md ${setupComplete ? "" : "border-warning bg-warning/10"}`}>
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 class="text-xl font-semibold">Application setup</h2>
-              {#if setupComplete}
-                <p class="text-sm opacity-70">
-                  All manageable sections are accepting applications.
-                </p>
-              {:else}
-                {#if missingFormSections.length > 0}
-                  <p class="text-sm text-warning">
-                    Users cannot apply to: {missingFormSections
-                      .map(item => item.displayName)
-                      .join(", ")}.
-                  </p>
-                {/if}
-                <p class="text-sm opacity-70">
-                  Create one application form for each section you manage.
+    {:else if manageableFormSections.length > 0}
+      <section
+        class={`card2 bg-alt col-4 flex flex-col gap-3 p-4 shadow-md ${setupComplete ? "" : "border-warning bg-warning/10"}`}>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-xl font-semibold">Application setup</h2>
+            {#if setupComplete}
+              <p class="text-sm opacity-70">All manageable sections are accepting applications.</p>
+            {:else}
+              {#if missingFormSections.length > 0}
+                <p class="text-sm text-warning">
+                  Users cannot apply to: {missingFormSections
+                    .map(item => item.displayName)
+                    .join(", ")}.
                 </p>
               {/if}
-            </div>
-            <Button
-              class={`btn ${setupComplete ? "btn-primary" : "btn-warning"}`}
-              onclick={() => (pageMode = "forms")}>Edit forms</Button>
+              <p class="text-sm opacity-70">
+                Create one application form for each section you manage.
+              </p>
+            {/if}
           </div>
-        </section>
+          <Button
+            class={`btn ${setupComplete ? "btn-primary" : "btn-warning"}`}
+            onclick={() => (pageMode = "forms")}>Edit forms</Button>
+        </div>
+      </section>
 
-        <details class="card2 bg-alt col-4 p-4 shadow-md">
-          <summary class="cursor-pointer list-none">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <h2 class="text-xl font-semibold">Application reviews</h2>
-                  {#if newApplications.length > 0}
-                    <span class="badge badge-warning">{newApplications.length} new</span>
-                  {/if}
-                  <span class="badge badge-neutral">{applications.length} total</span>
-                </div>
-                <p class="text-sm opacity-70">
-                  Applications for sections you can grant. Expand to review full details.
-                </p>
-              </div>
-              <span class="badge badge-ghost">Expand</span>
+      <section class="card2 bg-alt col-4 flex flex-col gap-4 p-4 shadow-md">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="text-xl font-semibold">Application reviews</h2>
+              {#if newApplications.length > 0}
+                <span class="badge badge-warning">{newApplications.length} new</span>
+              {/if}
+              <span class="badge badge-neutral">{applications.length} total</span>
             </div>
-          </summary>
+            <p class="text-sm opacity-70">
+              Applications for sections you can grant. New reviews are expanded by default.
+            </p>
+          </div>
+        </div>
 
-          <div class="mt-4 flex flex-col gap-4">
-            {#each applicationGroups as group}
-              <div class="flex flex-col gap-2">
-                <h3 class="font-semibold">{group.label}</h3>
+        <div class="flex flex-col gap-3">
+          {#each applicationGroups as group (group.label)}
+            <details
+              class="rounded-box border border-base-300 bg-base-100 shadow-sm"
+              open={isApplicationGroupOpen(group.label)}
+              ontoggle={event => updateApplicationGroupOpen(group.label, event)}>
+              <summary class="cursor-pointer list-none rounded-box bg-base-200/80 px-4 py-3">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-semibold">{group.label}</h3>
+                    <span
+                      class={`badge ${group.label === "New" ? "badge-warning" : "badge-neutral"}`}>
+                      {group.items.length}
+                    </span>
+                  </div>
+                  <span class="badge badge-ghost">Expand</span>
+                </div>
+              </summary>
+
+              <div class="flex flex-col gap-3 p-3">
                 {#each group.items as application (application.response.event.id)}
                   <article
-                    class={`rounded-box border border-base-300 bg-base-100 p-3 ${
-                      application.state.status === "pending" ? "border-warning bg-warning/10" : ""
+                    class={`rounded-box border border-base-300 bg-base-100 p-4 shadow-sm ${
+                      application.state.status === "pending" ? "border-warning/60 bg-warning/5" : ""
                     }`}>
-                    <div class="flex flex-wrap items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <strong>{application.sectionDisplayName}</strong>
-                        <p class="truncate text-xs opacity-70">
-                          Applicant:
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="flex min-w-0 flex-col gap-3">
+                        <span
+                          class="w-fit rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                          {application.sectionDisplayName}
+                        </span>
+                        <div class="flex min-w-0 items-center gap-3">
+                          <ProfileCircle
+                            pubkey={application.response.event.pubkey}
+                            relays={communityProfileRelays}
+                            size={9} />
                           <ProfileLink
+                            class="min-w-0 font-semibold"
                             pubkey={application.response.event.pubkey}
                             relays={communityProfileRelays} />
-                        </p>
-                        <p class="text-xs opacity-70">
-                          Submitted {new Date(
-                            application.response.event.created_at * 1000,
-                          ).toLocaleString()}
-                        </p>
+                        </div>
                       </div>
-                      <span class="badge">{application.state.status}</span>
+                      <span
+                        class={`badge shrink-0 px-3 ${applicationStatusBadgeClass(application.state.status)}`}>
+                        {applicationStatusLabel(application.state.status)}
+                      </span>
                     </div>
 
-                    {#if application.history.latestPriorReview}
-                      {@const priorReview = application.history.latestPriorReview}
-                      <p
-                        class={`mt-3 rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
-                        {reviewHistoryLabel(priorReview.status)} by
-                        <ProfileLink
-                          pubkey={priorReview.event.pubkey}
-                          relays={communityProfileRelays} /> on {new Date(
-                          priorReview.event.created_at * 1000,
-                        ).toLocaleString()}.
-                      </p>
-                    {/if}
+                    <details class="mt-4 rounded-box border border-base-300 bg-base-200/40">
+                      <summary class="cursor-pointer px-3 py-2 text-sm font-semibold">
+                        Details
+                      </summary>
+                      <div class="flex flex-col gap-3 border-t border-base-300 p-3">
+                        <div class="grid gap-2 text-sm sm:grid-cols-2">
+                          <div class="rounded-box bg-base-100 p-3">
+                            <span class="block text-xs font-medium uppercase opacity-60"
+                              >Section</span>
+                            <strong>{application.sectionDisplayName}</strong>
+                          </div>
+                          <div class="rounded-box bg-base-100 p-3">
+                            <span class="block text-xs font-medium uppercase opacity-60"
+                              >Submitted</span>
+                            <span>
+                              {new Date(
+                                application.response.event.created_at * 1000,
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
 
-                    {#if application.response.responses[0]}
-                      {@const firstResponse = application.response.responses[0]}
-                      <div class="mt-3 rounded-box bg-base-200 p-2 text-sm">
-                        <strong>{getResponseLabel(application, firstResponse.fieldId)}</strong>
-                        <p class="line-clamp-3 whitespace-pre-wrap opacity-80">
-                          {getResponseDisplayValue(application, firstResponse)}
-                        </p>
-                      </div>
-                    {/if}
+                        {#if application.history.latestPriorReview}
+                          {@const priorReview = application.history.latestPriorReview}
+                          <p
+                            class={`rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
+                            {reviewHistoryLabel(priorReview.status)} by
+                            <ProfileLink
+                              pubkey={priorReview.event.pubkey}
+                              relays={communityProfileRelays} /> on {new Date(
+                              priorReview.event.created_at * 1000,
+                            ).toLocaleString()}.
+                          </p>
+                        {/if}
 
-                    <details class="mt-3">
-                      <summary class="cursor-pointer text-sm font-medium"
-                        >Review full response</summary>
-                      <div class="mt-2 grid gap-2">
-                        {#each application.response.responses as response}
-                          <div class="rounded-box bg-base-200 p-2 text-sm">
-                            <strong>{getResponseLabel(application, response.fieldId)}</strong>
-                            <p class="whitespace-pre-wrap opacity-80">
-                              {getResponseDisplayValue(application, response)}
+                        {#if application.response.responses[0]}
+                          {@const firstResponse = application.response.responses[0]}
+                          <div class="rounded-box bg-base-100 p-3 text-sm">
+                            <span class="block text-xs font-medium uppercase opacity-60">
+                              Form response
+                            </span>
+                            <strong>{getResponseLabel(application, firstResponse.fieldId)}</strong>
+                            <p class="line-clamp-3 whitespace-pre-wrap opacity-80">
+                              {getResponseDisplayValue(application, firstResponse)}
                             </p>
                           </div>
-                        {/each}
+                        {/if}
+
+                        <details class="rounded-box bg-base-100 p-3">
+                          <summary class="cursor-pointer text-sm font-medium">
+                            Review full response
+                          </summary>
+                          <div class="mt-2 grid gap-2">
+                            {#each application.response.responses as response}
+                              <div class="rounded-box bg-base-200 p-2 text-sm">
+                                <strong>{getResponseLabel(application, response.fieldId)}</strong>
+                                <p class="whitespace-pre-wrap opacity-80">
+                                  {getResponseDisplayValue(application, response)}
+                                </p>
+                              </div>
+                            {/each}
+                          </div>
+                        </details>
                       </div>
                     </details>
 
-                    <div class="mt-3 flex justify-end gap-2">
+                    <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                       <Button
                         class="btn btn-error btn-sm"
                         disabled={application.state.status === "rejected"}
-                        onclick={() => reviewApplication(application, "rejected")}>
+                        onclick={() => confirmReviewApplication(application, "rejected")}>
                         {application.state.status === "granted" ? "Revoke" : "Reject"}
                       </Button>
                       <Button
                         class="btn btn-success btn-sm"
                         disabled={application.state.status === "granted"}
-                        onclick={() => reviewApplication(application, "granted")}>Grant</Button>
+                        onclick={() => confirmReviewApplication(application, "granted")}
+                        >Grant</Button>
                     </div>
                   </article>
                 {:else}
@@ -1361,61 +1522,10 @@
                   </p>
                 {/each}
               </div>
-            {/each}
-          </div>
-        </details>
-      {/if}
-
-      <details class="card2 bg-alt col-4 p-4 shadow-md">
-        <summary class="cursor-pointer list-none">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <h2 class="text-xl font-semibold">Content reports</h2>
-                {#if pendingContentReportGroups.length > 0}
-                  <span class="badge badge-warning"
-                    >{pendingContentReportGroups.length} pending</span>
-                {/if}
-                <span class="badge badge-neutral">{contentReportGroups.length} total</span>
-              </div>
-              <p class="text-sm opacity-70">
-                Reports for sections you moderate. Expand to inspect context and mark reviewed.
-              </p>
-            </div>
-            <span class="badge badge-ghost">Expand</span>
-          </div>
-        </summary>
-
-        <div class="mt-4 flex flex-col gap-4">
-          <div class="flex flex-col gap-2">
-            <h3 class="font-semibold">Pending</h3>
-            {#each pendingContentReportGroups as group (group.key)}
-              <CommunityContentReportCard {group} relays={communityProfileRelays} />
-            {:else}
-              <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
-                No pending content reports.
-              </p>
-            {/each}
-          </div>
-
-          <details
-            class="rounded-box bg-base-200 p-3"
-            open={pendingContentReportGroups.length === 0}>
-            <summary class="cursor-pointer font-semibold">
-              Reviewed ({reviewedContentReportGroups.length})
-            </summary>
-            <div class="mt-3 flex flex-col gap-2">
-              {#each reviewedContentReportGroups as group (group.key)}
-                <CommunityContentReportCard {group} relays={communityProfileRelays} />
-              {:else}
-                <p class="rounded-box bg-base-100 p-3 text-sm opacity-70">
-                  No reviewed content reports.
-                </p>
-              {/each}
-            </div>
-          </details>
+            </details>
+          {/each}
         </div>
-      </details>
+      </section>
     {/if}
   {/if}
 </PageContent>

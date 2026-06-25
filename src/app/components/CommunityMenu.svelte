@@ -4,6 +4,7 @@
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {DELETE} from "@welshman/util"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -25,11 +26,17 @@
   import {pushModal} from "@app/util/modal"
   import {
     activeCommunityDefinition,
+    activeCommunityAdmissionForms,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
+  import {
+    COMMUNITY_FORM_REVIEW_KIND,
+    getAdmissionSubmissionState,
+    parseAdmissionResponse,
+  } from "@app/core/community-forms"
   import {
     getPendingCommunityBadgeAwards,
     makeCommunityBadgeAwardDeleteFilters,
@@ -40,11 +47,12 @@
   } from "@app/core/community-badges"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
-  import {normalizePubkey} from "@app/core/community"
+  import {FORM_RESPONSE_KIND, normalizePubkey} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
     getGrantCapability,
+    getGrantCapableSectionModeratorPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {ENABLE_ZAPS} from "@app/core/state"
@@ -71,7 +79,9 @@
   )
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   let failedPicture = $state("")
-  const showCommunityPicture = $derived(Boolean(communityPicture && failedPicture !== communityPicture))
+  const showCommunityPicture = $derived(
+    Boolean(communityPicture && failedPicture !== communityPicture),
+  )
   const mainRelay = $derived($activeCommunityDefinition?.relays[0] || "")
   const homePath = $derived(makeCommunityPath(community))
   const threadsPath = $derived(makeCommunityThreadPath(community))
@@ -161,6 +171,82 @@
         }).canGrant,
     )
   })
+  const grantableAdmissionForms = $derived.by(() => {
+    const definition = $activeCommunityDefinition
+    const userPubkey = $pubkey
+
+    if (!definition || !userPubkey) return []
+
+    return definition.sections.flatMap(section => {
+      const capability = getGrantCapability({
+        definition,
+        userPubkey,
+        sectionName: section.name,
+        profileListEvents: $activeCommunityProfileListEvents,
+        reportState: $activeCommunityReportState,
+      })
+      const form = $activeCommunityAdmissionForms[section.name]
+
+      return capability.canGrant && form ? [{sectionName: section.name, form}] : []
+    })
+  })
+  const admissionFormAddresses = $derived(grantableAdmissionForms.map(item => item.form.address))
+  const admissionResponseFilters = $derived(
+    admissionFormAddresses.length
+      ? [{kinds: [FORM_RESPONSE_KIND], "#a": admissionFormAddresses}]
+      : [],
+  )
+  const admissionResponseEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: admissionResponseFilters})),
+  )
+  const admissionResponseIds = $derived($admissionResponseEvents.map(event => event.id))
+  const admissionDeleteFilters = $derived(
+    admissionResponseIds.length ? [{kinds: [DELETE], "#e": admissionResponseIds}] : [],
+  )
+  const admissionReviewFilters = $derived(
+    admissionResponseIds.length
+      ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": admissionResponseIds}]
+      : [],
+  )
+  const admissionDeleteEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: admissionDeleteFilters})),
+  )
+  const admissionReviewEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: admissionReviewFilters})),
+  )
+  const pendingModerationApplicationCount = $derived.by(() => {
+    const definition = $activeCommunityDefinition
+    if (!definition) return 0
+
+    const sectionByForm = new Map(grantableAdmissionForms.map(item => [item.form.address, item]))
+    let count = 0
+
+    for (const event of $admissionResponseEvents) {
+      const response = parseAdmissionResponse(event)
+      if (!response) continue
+
+      const matched = sectionByForm.get(response.formAddress)
+      if (!matched) continue
+
+      const state = getAdmissionSubmissionState({
+        responseEvents: $admissionResponseEvents,
+        deleteEvents: $admissionDeleteEvents,
+        reviewEvents: $admissionReviewEvents,
+        formAddress: response.formAddress,
+        applicantPubkey: response.event.pubkey,
+        moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
+          definition,
+          sectionName: matched.sectionName,
+          profileListEvents: $activeCommunityProfileListEvents,
+          reportState: $activeCommunityReportState,
+        }),
+      })
+
+      if (state.response?.event.id === response.event.id && state.status === "pending") count += 1
+    }
+
+    return count
+  })
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
@@ -207,6 +293,9 @@
       ...badgeAwardFilters,
       ...badgeAwardDeleteFilters,
       ...profileBadgeFilters,
+      ...admissionResponseFilters,
+      ...admissionDeleteFilters,
+      ...admissionReviewFilters,
     ]
     if (filters.length === 0) return
 
@@ -320,8 +409,19 @@
       </SecondaryNavItem>
 
       {#if canModerate}
-        <SecondaryNavItem {replaceState} href={moderationPath}>
-          <Icon icon={ShieldUser} /> Moderation
+        <SecondaryNavItem
+          {replaceState}
+          href={moderationPath}
+          notification={pendingModerationApplicationCount > 0}>
+          <Icon icon={ShieldUser} />
+          <span class="flex min-w-0 items-center gap-2">
+            <span>Moderation</span>
+            {#if pendingModerationApplicationCount > 0}
+              <span class="badge badge-info badge-sm shrink-0">
+                {pendingModerationApplicationCount} new
+              </span>
+            {/if}
+          </span>
         </SecondaryNavItem>
       {/if}
 
