@@ -78,15 +78,15 @@ describe("dm", () => {
   })
 
   describe("getDmRelayRecommendations", () => {
-    it("scores starred, moderator, and admin relay recommendations additively", () => {
-      expect(getDmRelayRecommendationSourceScore({communityPubkey: "a", relays: []})).toBe(1)
+    it("scores community evidence higher than social follow evidence", () => {
+      expect(getDmRelayRecommendationSourceScore({communityPubkey: "a", relays: []})).toBe(40)
       expect(
         getDmRelayRecommendationSourceScore({
           communityPubkey: "a",
           relays: [],
           isModerator: true,
         }),
-      ).toBe(3)
+      ).toBe(48)
       expect(
         getDmRelayRecommendationSourceScore({
           communityPubkey: "a",
@@ -94,55 +94,116 @@ describe("dm", () => {
           isModerator: true,
           isAdmin: true,
         }),
-      ).toBe(7)
+      ).toBe(64)
+      expect(
+        getDmRelayRecommendationSourceScore({
+          source: "active_community_relay",
+          communityPubkey: "a",
+          relays: [],
+          isStarred: false,
+        }),
+      ).toBe(55)
+      expect(
+        getDmRelayRecommendationSourceScore({
+          source: "follow_messaging",
+          pubkey: "b",
+          relays: [],
+        }),
+      ).toBe(8)
     })
 
-    it("ranks relays by summed star, moderator, and admin score", () => {
+    it("ranks active community relays without requiring stars", () => {
       const result = getDmRelayRecommendations([
         {
+          source: "follow_messaging",
+          pubkey: "f".repeat(64),
+          relays: ["wss://follow.relay.example.com"],
+        },
+        {
+          source: "active_community_relay",
           communityPubkey: "a".repeat(64),
-          relays: ["wss://shared.relay.example.com", "wss://star.relay.example.com"],
-          starredAt: 10,
-        },
-        {
-          communityPubkey: "b".repeat(64),
-          relays: ["wss://shared.relay.example.com", "wss://mod.relay.example.com"],
-          starredAt: 20,
-          isModerator: true,
-        },
-        {
-          communityPubkey: "c".repeat(64),
-          relays: ["wss://admin.relay.example.com"],
-          starredAt: 5,
-          isModerator: true,
-          isAdmin: true,
+          relays: ["wss://active.relay.example.com"],
+          isStarred: false,
         },
       ])
 
       expect(result.map(recommendation => recommendation.url)).toEqual([
-        "wss://admin.relay.example.com/",
-        "wss://shared.relay.example.com/",
-        "wss://mod.relay.example.com/",
-        "wss://star.relay.example.com/",
+        "wss://active.relay.example.com/",
+        "wss://follow.relay.example.com/",
       ])
       expect(result[0]).toMatchObject({
-        score: 7,
-        count: 1,
-        communityPubkeys: ["c".repeat(64)],
+        score: 55,
+        counts: expect.objectContaining({activeCommunities: 1, follows: 0}),
         communities: [
           expect.objectContaining({
-            communityPubkey: "c".repeat(64),
-            score: 7,
-            isStarred: true,
-            isModerator: true,
-            isAdmin: true,
+            communityPubkey: "a".repeat(64),
+            sources: ["active_community_relay"],
+            isStarred: false,
           }),
         ],
       })
+    })
+
+    it("ranks starred community relays above social follows", () => {
+      const followSources = Array.from({length: 6}, (_, index) => ({
+        source: "follow_messaging" as const,
+        pubkey: `${index}`.repeat(64),
+        relays: ["wss://follow.relay.example.com"],
+      }))
+      const result = getDmRelayRecommendations([
+        ...followSources,
+        {
+          source: "starred_community_relay",
+          communityPubkey: "a".repeat(64),
+          relays: ["wss://star.relay.example.com"],
+          starredAt: 10,
+        },
+      ])
+
+      expect(result.map(recommendation => recommendation.url)).toEqual([
+        "wss://star.relay.example.com/",
+        "wss://follow.relay.example.com/",
+      ])
+      expect(result[0]).toMatchObject({
+        score: 40,
+        counts: expect.objectContaining({starredCommunities: 1, follows: 0}),
+      })
       expect(result[1]).toMatchObject({
-        score: 4,
-        count: 2,
-        communityPubkeys: ["a".repeat(64), "b".repeat(64)],
+        score: 48,
+        counts: expect.objectContaining({starredCommunities: 0, follows: 6}),
+      })
+    })
+
+    it("ranks moderator messaging lists above member messaging lists", () => {
+      const result = getDmRelayRecommendations([
+        {
+          source: "member_messaging",
+          pubkey: "m".repeat(64),
+          communityPubkey: "c".repeat(64),
+          relays: ["wss://member.relay.example.com"],
+        },
+        {
+          source: "moderator_messaging",
+          pubkey: "d".repeat(64),
+          communityPubkey: "c".repeat(64),
+          relays: ["wss://moderator.relay.example.com"],
+        },
+      ])
+
+      expect(result.map(recommendation => recommendation.url)).toEqual([
+        "wss://moderator.relay.example.com/",
+        "wss://member.relay.example.com/",
+      ])
+      expect(result[0]).toMatchObject({
+        score: 32,
+        pubkeys: ["d".repeat(64)],
+        counts: expect.objectContaining({messagingLists: 1}),
+        evidence: [
+          expect.objectContaining({
+            source: "moderator_messaging",
+            isModerator: true,
+          }),
+        ],
       })
     })
 
@@ -165,33 +226,41 @@ describe("dm", () => {
       expect(result[1]).toMatchObject({isConfigured: false})
     })
 
-    it("deduplicates repeated relays within a single community source", () => {
+    it("deduplicates repeated relay evidence from the same source", () => {
       const result = getDmRelayRecommendations([
         {
+          source: "starred_community_relay",
           communityPubkey: "a".repeat(64),
           relays: ["wss://relay.example.com", "wss://relay.example.com/"],
         },
-      ])
-
-      expect(result).toEqual([
         {
-          url: "wss://relay.example.com/",
-          communityPubkeys: ["a".repeat(64)],
-          communities: [
-            {
-              communityPubkey: "a".repeat(64),
-              score: 1,
-              isStarred: true,
-              isModerator: false,
-              isAdmin: false,
-            },
-          ],
-          count: 1,
-          score: 1,
-          latestStarredAt: 0,
-          isConfigured: false,
+          source: "starred_community_relay",
+          communityPubkey: "a".repeat(64),
+          relays: ["wss://relay.example.com/"],
         },
       ])
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({
+        url: "wss://relay.example.com/",
+        communityPubkeys: ["a".repeat(64)],
+        count: 1,
+        score: 40,
+        latestStarredAt: 0,
+        isConfigured: false,
+        counts: expect.objectContaining({sources: 1, starredCommunities: 1}),
+        communities: [
+          expect.objectContaining({
+            communityPubkey: "a".repeat(64),
+            score: 40,
+            sources: ["starred_community_relay"],
+            isStarred: true,
+            isModerator: false,
+            isAdmin: false,
+          }),
+        ],
+        evidence: [expect.objectContaining({source: "starred_community_relay", score: 40})],
+      })
     })
   })
 

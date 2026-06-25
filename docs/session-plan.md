@@ -2,29 +2,23 @@
 
 ## Objective
 
-- Replace the extension-facing logical community write-target taxonomy with descriptor-based APIs.
-- Expose community write checks and event queries in terms of `CommunityEventDescriptor` values: `{kind, subtype?}`.
-- Keep BudaBit's community section, grant, moderation, and targeted-publication logic host-side.
-- Remove `writeTargets` and `community:queryTargetEvents` from the public SDK/template/widget surface.
-- Add runtime context versioning and `community:contextChanged` so widgets can refetch when host community context changes.
+- Improve direct-message relay recommendations so they are community-first rather than starred-community-only.
+- Use explicit `kind:10050` messaging relay lists from trusted community actors when available.
+- Keep community relay definitions from active/starred communities as recommendation evidence, with starred communities ranked higher than social follows.
+- Preserve current one-click settings UI behavior while showing richer recommendation evidence.
 
 ## Constraints
 
 - Current repository state is authoritative over this plan.
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
-- Do not stage unrelated user changes.
-- Keep descriptor resolution generic; do not expose BudaBit target IDs such as `calendar`, `repository`, or `widget` to extensions.
-- No section-name fallback may determine eligibility. If no active community section supports a descriptor, the bridge must error.
-- If multiple sections match a descriptor, union matches; any matching writable section means `canWrite`. Prevent duplicates in BudaBit UI separately.
-- Preserve the existing authorized targeted-publication query semantics for targetable events.
-- `contextVersion` is runtime-only and resets on host/widget remount. Pair it with `contextSessionId` for stale-response detection.
-- Use `community:contextChanged` for host-to-widget updates after init.
-- No backward compatibility is required for the current logical-target API because it has not shipped.
-- Commit and push each verified BudaBit/root phase before starting the next phase.
-- Commit and push the nested `packages/flotilla-extension-template` phase before updating the root submodule pointer.
-- Commit the local `/home/johnd/Work/budabit-calendar-widget` phase locally, but do not push it.
+- Do not stage unrelated user changes; the current worktree contains unrelated extension/widget edits.
+- Prefer minimal changes that fit existing patterns in `src/app/core/cashu-mint-recommendations.ts` and `src/routes/settings/relays/+page.svelte`.
+- Keep recommendation scoring deterministic and unit-tested.
+- Starred community evidence must rank higher than social follow evidence.
+- Direct follows are fallback evidence only and must not outrank starred or active community evidence.
+- Commit and push each verified phase before starting the next phase.
 
-## Phase 1: Budabit Host Descriptor Community API
+## Phase 1: DM Relay Recommendation Scorer
 
 ### Phase Startup
 
@@ -35,33 +29,27 @@
 
 ### Goal
 
-- Replace root host logical-target community APIs with descriptor-based capability and query APIs plus runtime community context updates.
+- Replace the existing star-only pure scorer with an evidence-based scorer that can rank active communities, starred communities, community roles, explicit `kind:10050` lists, and social follows.
 
 ### Exit Criteria
 
-- Root `CommunityWidgetContext` no longer exposes `writeTargets` keyed by BudaBit taxonomy names.
-- Root types expose `CommunityEventDescriptor`, descriptor write capability responses, and `community:checkWriteCapabilities` / `community:queryEvents` bridge actions.
-- Host descriptor resolution maps `{kind, subtype?}` to active community sections by current definition only, with no default section fallback; missing mappings return errors.
-- Write capability checks report actual matching and writable section names, with any matching writable section meaning `canWrite`.
-- Community event queries accept descriptors, preserve the two-hop authorized targeted-publication lookup for targetable events, and return descriptor/context version metadata.
-- `WidgetFrame` sends runtime `contextSessionId` / `contextVersion` in `communityContext` and emits `community:contextChanged` when community context changes while the iframe is alive.
-- Focused root tests cover descriptor mapping, missing mappings, capability checks, descriptor queries, and bridge behavior.
-- Root verification passes for focused tests and `pnpm check`.
-- Root changes are committed and pushed without staging unrelated files.
+- `src/app/core/dm.ts` exposes evidence/source types that distinguish active community relay, starred community relay, community/admin/moderator/member messaging list, own messaging list, and follow messaging list evidence.
+- `getDmRelayRecommendations` remains a pure function and keeps already-configured relays visible.
+- Scoring is deterministic, deduplicates repeated relay/source evidence, and ranks starred community evidence above social follow evidence.
+- Tests cover active community recommendations without stars, starred communities above follows, moderator/member messaging-list evidence, configured relays, and duplicate evidence dedupe.
+- Focused verification passes: `pnpm vitest run src/app/core/dm.test.ts`.
+- Phase 1 changes are committed and pushed without staging unrelated files.
 
 ### Steps
 
-- Inspect root extension types, bridge handlers, community context helpers, widget frame lifecycle, and existing tests.
-- Update `src/app/extensions/types.ts` with descriptor request/response/action-map types and slimmed `CommunityWidgetContext`.
-- Refactor `src/app/extensions/community-context.ts` to build context without `writeTargets` and add descriptor resolution/query planning helpers.
-- Replace `community:queryTargetEvents` bridge handling with `community:checkWriteCapabilities` and `community:queryEvents`.
-- Add runtime `contextSessionId` / `contextVersion` handling in inline/modal community widget contexts and `WidgetFrame` context-change posting.
-- Update focused root tests.
+- Inspect current `dm.ts` scorer and tests.
+- Extend recommendation source/evidence types with source kind, recommender pubkey, community pubkey, role, and timestamps as needed.
+- Implement deterministic score weights and sorting, preserving the existing exported scorer name where practical.
+- Update `dm.test.ts` for the new evidence shape and ranking rules.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
-- Run `pnpm check`.
+- Run `pnpm vitest run src/app/core/dm.test.ts`.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
@@ -88,7 +76,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Flotilla Extension Template Descriptor SDK And Docs
+## Phase 2: Loader And Settings UI Wiring
 
 ### Phase Startup
 
@@ -99,37 +87,36 @@
 
 ### Goal
 
-- Update `packages/flotilla-extension-template` SDK, generated template, and docs to use descriptor community APIs.
+- Load community-first `kind:10050` recommendation events and wire the messaging relay settings UI to the new recommendation model.
 
 ### Exit Criteria
 
-- SDK/shared types expose descriptor community context, capability, query, and action-map types matching the root bridge.
-- Generated sample widget uses `{kind, subtype?}` descriptors, `community:checkWriteCapabilities`, and `community:queryEvents`.
-- Template docs explain descriptor APIs, missing-section errors, context runtime versioning, and `community:contextChanged`.
-- Manifest examples request `community:checkWriteCapabilities` and `community:queryEvents` where needed.
-- Template verification passes: `pnpm typecheck`, `pnpm test`, and `pnpm build`.
-- Nested template repo is committed and pushed; root records the updated submodule pointer and checkpoint advancement.
+- A loader/store path fetches trusted authors' `kind:10050` messaging relay lists using active community refs, profile-list events, report state, follows, mutes, community relay hints, user relays, author relays, and index relays.
+- Recommendation authors are community-first: viewer, active community pubkeys, moderators, starred community pubkeys, follows, then members, with sensible limits.
+- Starred community `kind:10222` relay evidence remains included and ranks above social follows.
+- Muted social follows do not contribute follow evidence.
+- `src/routes/settings/relays/+page.svelte` uses the loader/store and shows evidence labels that are not limited to starred communities.
+- Focused verification passes for DM tests and a Svelte/type check command if practical.
+- Phase 2 changes are committed and pushed without staging unrelated files.
 
 ### Steps
 
-- Inspect template SDK/shared types, docs, manifest examples, tests, and generated app.
-- Replace logical-target types/docs/examples with descriptor APIs.
-- Update sample app capability/query logic and stale context response handling.
-- Run template verification.
-- Commit and push inside `packages/flotilla-extension-template`.
-- Commit and push root submodule pointer plus checkpoint update.
+- Add loader/state helpers either in `src/app/core/dm.ts` or a small dedicated core module if that keeps responsibilities clearer.
+- Reuse patterns from `cashu-mint-recommendations.ts` for author selection, relay selection, event loading, state, and report/mute handling.
+- Wire settings relay page to active community refs, profile-list events, report state, community stars, current messaging relays, and recommendation state.
+- Update UI copy and badges from “starred communities” to community-first messaging relay evidence.
+- Add focused tests for author selection/build behavior where practical.
 
 ### Verification
 
-- In `packages/flotilla-extension-template`, run `pnpm typecheck`.
-- In `packages/flotilla-extension-template`, run `pnpm test`.
-- In `packages/flotilla-extension-template`, run `pnpm build`.
-- Inspect nested and root git status before commits.
+- Run `pnpm vitest run src/app/core/dm.test.ts`.
+- Run a relevant Svelte/type check command, preferring `pnpm check` if feasible.
+- Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
 
 - Verify every exit criterion for this phase.
-- Update the checkpoint before committing root closeout:
+- Update the checkpoint before committing:
   - Move this phase into `Completed With Evidence`.
   - Record verification commands and results.
   - Record changed files.
@@ -137,10 +124,10 @@
   - Copy the next phase's exit criteria into `Phase Exit Criteria`.
   - Set `Next Action` to the first concrete step of the next phase.
   - Record any remaining risks or blockers.
-- Commit and push nested template changes before root submodule pointer changes.
-- Commit and push root checkpoint/submodule pointer changes. This is a phase transition, not a stopping point.
+- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
 - Read the session checkpoint again to verify status and next action.
-- Do not consider the phase complete until verification, template commit/push, root checkpoint update, root commit/push, and checkpoint reread succeeded.
+- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
+- Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
 - Do not consider the whole plan complete unless the session checkpoint says so.
 
 ### Continue
@@ -150,7 +137,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: Featured Calendar Widget Descriptor Migration
+## Phase 3: Final Verification And Closeout
 
 ### Phase Startup
 
@@ -161,46 +148,40 @@
 
 ### Goal
 
-- Update `/home/johnd/Work/budabit-calendar-widget` to use descriptor community APIs and local runtime context version handling.
+- Verify the full DM relay recommendation workflow and mark the durable session complete.
 
 ### Exit Criteria
 
-- Calendar widget no longer references `writeTargets`, `calendar`, `calendarDate`, or `community:queryTargetEvents` as extension API concepts.
-- Calendar widget declares descriptor constants for event kinds `31923` and `31922` and uses `community:checkWriteCapabilities` for configuration gating.
-- Calendar widget uses `community:queryEvents` with descriptors to load community events.
-- Calendar widget reacts to `community:contextChanged`, refetches capabilities/events, and ignores stale responses using `contextSessionId` / `contextVersion`.
-- Widget docs and manifest helper scripts request the descriptor bridge permissions.
-- Widget verification passes: `pnpm check`.
-- Widget changes are committed locally and not pushed.
-- Root checkpoint is updated to `Current Phase: Complete`, committed, and pushed.
+- Focused DM tests pass after all changes.
+- Project-level verification is run or a concrete blocker is recorded.
+- Checkpoint records `Current Phase: Complete` with final evidence and changed files.
+- Final checkpoint closeout is committed and pushed without staging unrelated files.
 
 ### Steps
 
-- Inspect widget source/docs/package metadata.
-- Update widget bridge request permissions, capability checks, query calls, context update handling, and docs.
-- Run widget verification.
-- Commit widget repo locally.
-- Update root checkpoint final status and commit/push root closeout.
+- Reread touched code and tests for consistency.
+- Run focused tests and project-level verification if not already sufficient from Phase 2.
+- Update checkpoint to complete with final evidence.
+- Commit and push final checkpoint changes if any.
 
 ### Verification
 
-- In `/home/johnd/Work/budabit-calendar-widget`, run `pnpm check`.
-- Inspect widget git status and recent commits.
-- Inspect root git status and latest checkpoint before final commit.
+- Run `pnpm vitest run src/app/core/dm.test.ts`.
+- Run `pnpm check` if feasible or record the exact blocker/failure.
+- Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
 
 - Verify every exit criterion for this phase.
-- Update the checkpoint before root final closeout:
+- Update the checkpoint before committing:
   - Move this phase into `Completed With Evidence`.
   - Record verification commands and results.
-  - Record changed files/repo path.
+  - Record changed files.
   - Set `Current Phase` to `Complete`.
   - Set `Phase Exit Criteria` to final completion criteria.
   - Set `Next Action` to final response.
   - Record any remaining risks or blockers.
-- Commit the widget repo locally. Do not push it because the user explicitly said they will push later.
-- Commit and push root checkpoint updates if root files changed in this phase.
+- Commit and push checkpoint updates if files changed in this phase.
 - Read the session checkpoint again to verify `Current Phase: Complete`.
 - Do not consider the whole plan complete unless the session checkpoint says so.
 

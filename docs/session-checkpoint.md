@@ -7,99 +7,64 @@
 
 ## Goal
 
-- Replace extension-facing community write target taxonomy with generic event-descriptor APIs.
-- Use `{kind, subtype?}` descriptors for write capability checks and community event queries.
-- Remove section-name fallbacks from eligibility decisions; missing descriptor mappings must error.
-- Add runtime community context versioning and `community:contextChanged` to mitigate stale iframe state.
-- Update the SDK/template/docs and local featured calendar widget to use descriptor APIs.
+- Improve direct-message relay recommendations so they are community-first rather than starred-community-only.
+- Use explicit `kind:10050` messaging relay lists from trusted community actors when available.
+- Keep active/starred community relay definitions as evidence, with starred communities ranked higher than social follows.
+- Preserve the settings page one-click add flow while showing richer recommendation evidence.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Loader And Settings UI Wiring
 
 ## Phase Exit Criteria
 
-- Root host descriptor API changes are committed and pushed.
-- Template SDK/docs/sample descriptor API changes are committed and pushed, and root records the updated submodule pointer.
-- Local calendar widget descriptor API changes are committed locally and intentionally not pushed.
-- Root checkpoint records `Current Phase: Complete` and is committed/pushed.
+- A loader/store path fetches trusted authors' `kind:10050` messaging relay lists using active community refs, profile-list events, report state, follows, mutes, community relay hints, user relays, author relays, and index relays.
+- Recommendation authors are community-first: viewer, active community pubkeys, moderators, starred community pubkeys, follows, then members, with sensible limits.
+- Starred community `kind:10222` relay evidence remains included and ranks above social follows.
+- Muted social follows do not contribute follow evidence.
+- `src/routes/settings/relays/+page.svelte` uses the loader/store and shows evidence labels that are not limited to starred communities.
+- Focused verification passes for DM tests and a Svelte/type check command if practical.
+- Phase 2 changes are committed and pushed without staging unrelated files.
 
 ## Completed With Evidence
 
-- Previous inline-widget/logical-target workflow was completed and superseded by the descriptor API redesign.
-- Phase 1 replaced root extension-facing logical target APIs with descriptor APIs in `src/app/extensions/types.ts`, `src/app/extensions/community-context.ts`, and `src/app/extensions/bridge.ts`.
-- Phase 1 removed `CommunityWidgetContext.writeTargets` from root public context and added runtime `contextSessionId` / `contextVersion`.
-- Phase 1 added descriptor resolution by active community sections only, with missing descriptor mappings throwing errors instead of falling back to default section names.
-- Phase 1 added `community:checkWriteCapabilities` and `community:queryEvents` bridge actions with descriptor request/response metadata.
-- Phase 1 preserved authorized two-hop targeted-publication event loading for targetable community event kinds.
-- Phase 1 updated `WidgetFrame.svelte` to emit `community:contextChanged` when `contextSessionId` / `contextVersion` changes after init.
-- Phase 1 focused verification passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`.
-- Phase 1 root verification passed: `pnpm check`.
-- Phase 2 updated `packages/flotilla-extension-template` SDK/shared types to expose `CommunityEventDescriptor`, descriptor write capabilities, `community:checkWriteCapabilities`, `community:queryEvents`, `contextSessionId`, `contextVersion`, and `community:contextChanged`.
-- Phase 2 updated the generated sample app to use descriptor constants, descriptor capability checks, descriptor event queries, and stale-response/context-change handling.
-- Phase 2 updated template docs, READMEs, manifest examples, and package scripts to use `community:checkWriteCapabilities` and `community:queryEvents` permissions.
-- Phase 2 verification passed in the template repo: `pnpm typecheck`.
-- Phase 2 verification passed in the template repo: `pnpm test`.
-- Phase 2 verification passed in the template repo: `pnpm build`.
-- Phase 2 template repo commit `564ec8f feat: document descriptor community APIs` was pushed to `origin/main`.
-- Phase 2 root submodule pointer/checkpoint closeout was committed and pushed to `origin/dev` as root commit `a0335f5b chore: update descriptor widget template`.
-- Phase 3 updated `/home/johnd/Work/budabit-calendar-widget` to remove extension-facing `writeTargets`, `calendar`/`calendarDate` target IDs, and `community:queryTargetEvents` usage.
-- Phase 3 widget now declares descriptors `{kind: 31923}` and `{kind: 31922}`, checks configuration access through `community:checkWriteCapabilities`, and loads events through `community:queryEvents`.
-- Phase 3 widget listens for `community:contextChanged`, refetches capabilities/events, and ignores stale responses whose `contextSessionId` / `contextVersion` do not match the current context.
-- Phase 3 widget manifest helper scripts and docs now request `community:checkWriteCapabilities` and `community:queryEvents` permissions.
-- Phase 3 widget verification passed: `pnpm check`.
-- Phase 3 widget repo local commit `0d79708 feat: use descriptor community APIs` was created on branch `master` and intentionally not pushed.
+- New durable workflow created after the previous descriptor API workflow was already complete.
+- Phase 1 added evidence/source recommendation types in `src/app/core/dm.ts` for active community relays, starred community relays, community/admin/moderator/member messaging lists, own messaging lists, and follow messaging lists.
+- Phase 1 kept `getDmRelayRecommendations` pure, preserved configured relay visibility, and added deterministic evidence aggregation/dedupe with source priority so starred community evidence ranks above social follows.
+- Phase 1 updated `src/app/core/dm.test.ts` to cover active community relays without stars, starred communities above multiple social follows, moderator/member messaging-list ranking, configured relays, and duplicate source evidence dedupe.
+- Phase 1 focused verification passed: `pnpm vitest run src/app/core/dm.test.ts`.
 
 ## Decisions
 
-- Extension APIs should speak in event descriptors `{kind, subtype?}`, not BudaBit target names such as `calendar` or `calendarDate`.
-- `COMMUNITY_WRITE_TARGETS` can remain an internal UI/default taxonomy, but must not be required by extension APIs.
-- No section-name fallback is allowed for eligibility. If a descriptor maps to no active community section, the host cannot answer and must error.
-- If multiple sections match a descriptor in imported/malformed data, union them; any matching writable section means `canWrite`. The BudaBit interface should prevent duplicate kind/subtype sections.
-- `community:contextChanged` is the host-to-widget update event name.
-- `contextVersion` is runtime-only and resets on BudaBit/widget remount; use `contextSessionId` plus `contextVersion` for stale-response detection.
-- No backward compatibility is needed for the existing `community:queryTargetEvents` / `writeTargets` feature because it has not shipped.
-- The local calendar widget repo at `/home/johnd/Work/budabit-calendar-widget` remains local-only and should not be pushed.
+- Recommendation scoring will be community-first and evidence-based.
+- Starred community relay evidence must outrank social follow messaging-list evidence.
+- Direct follows are fallback evidence and muted follows should not contribute follow evidence.
+- Keep the existing `getDmRelayRecommendations` export where practical to minimize call-site churn.
 
 ## Current State
 
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
-- Root host descriptor API work is committed and pushed as `2fd96217 feat: add descriptor community APIs`.
-- Template descriptor SDK/docs/sample work is committed and pushed in the nested repo as `564ec8f feat: document descriptor community APIs`.
-- Root records the template submodule pointer via `a0335f5b chore: update descriptor widget template`.
-- Local widget descriptor migration is verified and locally committed as `0d79708 feat: use descriptor community APIs`; it remains local-only.
+- Worktree already contains unrelated extension/widget changes; do not stage them.
+- `dm.ts` now has the pure evidence-based scorer, but settings still recommends only starred communities from `kind:10222` definitions.
+- No loader/store exists yet for trusted authors' `kind:10050` recommendation events.
 
 ## Next Action
 
-- Final response.
+- Start Phase 2: add the loader/store path and wire `src/routes/settings/relays/+page.svelte` to community-first evidence.
 
 ## Verification
 
-- Phase 1 focused tests passed: `pnpm vitest run src/app/extensions/community-context.test.ts src/app/extensions/bridge.test.ts`
-- Phase 1 root check passed: `pnpm check`
-- Phase 2 template typecheck passed: `pnpm typecheck`
-- Phase 2 template tests passed: `pnpm test`
-- Phase 2 template build passed: `pnpm build`
-- Phase 3 widget check passed: `pnpm check`
-- Phase 3 widget status checked clean after local commit: `git status --short --branch`
+- Phase 1 focused tests passed: `pnpm vitest run src/app/core/dm.test.ts`
 
 ## Risks Or Blockers
 
-- Descriptor APIs must avoid false negative write capabilities when community data is not ready; root bridge now returns `COMMUNITY_CONTEXT_NOT_READY` for missing definition or relays.
-- Host events should not require widgets to request permission; permissions gate widget requests, not host lifecycle/update events.
-- The local widget repo remains unpushed by instruction; the user will push it later if desired.
+- Worktree has many unrelated modified files; stage only intended DM relay recommendation files and durable session docs.
+- Later UI wiring may need careful Svelte syntax validation.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `src/app/extensions/types.ts`
-- `src/app/extensions/community-context.ts`
-- `src/app/extensions/community-context.test.ts`
-- `src/app/extensions/bridge.ts`
-- `src/app/extensions/bridge.test.ts`
-- `src/app/components/WidgetFrame.svelte`
-- `src/app/components/community/CommunityHomeWidgetSlot.svelte`
-- `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
-- `packages/flotilla-extension-template`
-- `/home/johnd/Work/budabit-calendar-widget`
+- `src/app/core/dm.ts`
+- `src/app/core/dm.test.ts`
+- `src/routes/settings/relays/+page.svelte`
