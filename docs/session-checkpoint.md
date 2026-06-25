@@ -38,6 +38,7 @@
 - Phase 1 verified explicit empty `kind:10317` lists suppress legacy fallback.
 - Phase 1 focused verification passed: `pnpm vitest run src/app/core/grasp-server-events.test.ts src/app/core/git-requests.test.ts src/app/core/git-state.test.ts packages/nostr-git-core/test/events/nip34-builders.spec.ts`.
 - Phase 1 project verification passed: `pnpm check`.
+- Phase 1 was committed and pushed as `1eda2bd9 feat: migrate grasp server list kind`.
 
 ## Decisions
 
@@ -49,15 +50,15 @@
 
 ## Current State
 
-- Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev` and currently ahead of upstream.
+- Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
 - Worktree contains many unrelated extension/widget changes; do not stage them.
 - `src/routes/git/[id=naddr]/+layout.svelte` had a pre-existing unrelated hunk at the community option relays mapping; do not stage that hunk with Phase 1.
 - App shell no longer has non-test direct legacy GRASP usage outside `src/app/core/grasp-server-events.ts` migration fallback.
-- Phase 1 has been verified and checkpoint advanced; commit/push still needs to happen for Phase 1 transition.
+- Phase 2 has not started implementation yet.
 
 ## Next Action
 
-- Commit and push Phase 1 changes, then reread this checkpoint and start Phase 2.
+- Start Phase 2 by implementing the GRASP recommendation module/store and default-community fallback resolver.
 
 ## Verification
 
@@ -66,9 +67,8 @@
 
 ## Risks Or Blockers
 
-- Branch is already ahead of `origin/dev`; a phase push will push existing unpushed commits too.
 - Dirty unrelated files remain present and must not be staged.
-- `src/routes/git/[id=naddr]/+layout.svelte` requires partial staging because it contains both unrelated pre-existing work and Phase 1 GRASP changes.
+- `src/routes/git/[id=naddr]/+layout.svelte` still has an unrelated pre-existing hunk at the community option relays mapping.
 
 ## Files
 
