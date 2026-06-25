@@ -91,12 +91,20 @@ export const parseLegacyGraspServerUrls = (event: TrustedEvent): string[] => {
   }
 }
 
-export const getPreferredGraspServerUrls = (events: TrustedEvent[]): string[] => {
+export type GraspServerListResolution = {
+  source: "user" | "legacy" | "none"
+  urls: string[]
+}
+
+export const resolvePreferredGraspServerList = (events: TrustedEvent[]): GraspServerListResolution => {
   const latestUserList = selectLatest(events.filter(isUserGraspListEvent))
-  if (latestUserList) return parseUserGraspServerUrls(latestUserList)
+  if (latestUserList) return {source: "user", urls: parseUserGraspServerUrls(latestUserList)}
 
   const latestLegacyList = selectLatest(events.filter(isLegacyGraspServersEvent))
-  if (latestLegacyList) return parseLegacyGraspServerUrls(latestLegacyList)
+  if (latestLegacyList) return {source: "legacy", urls: parseLegacyGraspServerUrls(latestLegacyList)}
 
-  return []
+  return {source: "none", urls: []}
 }
+
+export const getPreferredGraspServerUrls = (events: TrustedEvent[]): string[] =>
+  resolvePreferredGraspServerList(events).urls

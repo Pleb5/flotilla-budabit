@@ -31,6 +31,7 @@ import {
 import {INDEXER_RELAYS, loadSettings, bootstrapPubkeys} from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
+import {startGraspServerRecommendationsSync} from "@app/core/grasp"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 import {
   loadGraspServers,
@@ -382,6 +383,11 @@ const syncUserGitData = () => {
     if (!unsubscribersByKey.has("grasp")) {
       const unsub = setupGraspServersSync(pk, mergedRelays)
       if (unsub) unsubscribersByKey.set("grasp", unsub)
+    }
+
+    if (!unsubscribersByKey.has("grasp-recommendations")) {
+      const unsub = startGraspServerRecommendationsSync()
+      if (unsub) unsubscribersByKey.set("grasp-recommendations", unsub)
     }
 
     if (!unsubscribersByKey.has("tokens")) {

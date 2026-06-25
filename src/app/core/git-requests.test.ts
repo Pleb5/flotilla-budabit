@@ -49,6 +49,26 @@ const storeMocks = vi.hoisted(() => {
   }
 })
 
+const graspMocks = vi.hoisted(() => {
+  const subscribers = new Set<(urls: string[]) => void>()
+
+  return {
+    reset() {
+      subscribers.clear()
+    },
+    emitFallbackUrls(urls: string[]) {
+      for (const fn of subscribers) fn(urls)
+    },
+    graspServerFallbackUrls: {
+      subscribe(fn: (urls: string[]) => void) {
+        subscribers.add(fn)
+        fn([])
+        return () => subscribers.delete(fn)
+      },
+    },
+  }
+})
+
 vi.mock("@welshman/net", () => ({
   load: vi.fn(),
   PublishStatus: {
@@ -70,6 +90,10 @@ vi.mock("@welshman/store", () => ({
 
 vi.mock("@app/core/community-relays", () => ({
   getUserDataPublishRelays: (relays: string[]) => [...relays, "wss://community.example.com/"],
+}))
+
+vi.mock("@app/core/grasp", () => ({
+  graspServerFallbackUrls: graspMocks.graspServerFallbackUrls,
 }))
 
 vi.mock("@nostr-git/ui", () => ({
@@ -107,6 +131,7 @@ describe("requests", () => {
       },
     })
     storeMocks.reset()
+    graspMocks.reset()
   })
 
   describe("loadRepositories", () => {
@@ -201,6 +226,27 @@ describe("requests", () => {
           content: "",
         },
       ])
+
+      expect(graspServersStore.set).toHaveBeenLastCalledWith([])
+    })
+
+    it("uses recommendation fallback URLs only when no user or legacy list exists", async () => {
+      setupGraspServersSync("pk789", ["wss://relay.com"])
+
+      graspMocks.emitFallbackUrls(["wss://fallback.example"])
+      expect(graspServersStore.set).toHaveBeenLastCalledWith(["wss://fallback.example"])
+
+      await storeMocks.emitTokenEvents([
+        {
+          id: "2".repeat(64),
+          kind: GIT_USER_GRASP_LIST,
+          pubkey: "pk789",
+          created_at: 11,
+          tags: [],
+          content: "",
+        },
+      ])
+      graspMocks.emitFallbackUrls(["wss://ignored.example"])
 
       expect(graspServersStore.set).toHaveBeenLastCalledWith([])
     })

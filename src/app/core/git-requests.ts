@@ -7,7 +7,12 @@ import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {get} from "svelte/store"
 import {APP_DATA, makeEvent, normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
-import {getPreferredGraspServerUrls, makeGraspServerListFilters} from "@app/core/grasp-server-events"
+import {graspServerFallbackUrls} from "@app/core/grasp"
+import {
+  makeGraspServerListFilters,
+  resolvePreferredGraspServerList,
+  type GraspServerListResolution,
+} from "@app/core/grasp-server-events"
 
 const safeNormalizeRelayUrl = (u: string): string => {
   try {
@@ -184,10 +189,25 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
 
   const filters = makeGraspServerListFilters(pubkey)
   const store = deriveEventsAsc(deriveEventsById({repository, filters}))
+  let listResolution: GraspServerListResolution = {source: "none", urls: []}
+  let fallbackUrls: string[] = []
 
-  graspUnsub = store.subscribe((events: any[]) => {
-    graspServersStore.set(getPreferredGraspServerUrls((events || []) as TrustedEvent[]))
+  const applyGraspServers = () => {
+    graspServersStore.set(listResolution.source === "none" ? fallbackUrls : listResolution.urls)
+  }
+
+  const eventUnsub = store.subscribe((events: any[]) => {
+    listResolution = resolvePreferredGraspServerList((events || []) as TrustedEvent[])
+    applyGraspServers()
   })
+  const fallbackUnsub = graspServerFallbackUrls.subscribe((urls) => {
+    fallbackUrls = urls || []
+    applyGraspServers()
+  })
+  graspUnsub = () => {
+    eventUnsub()
+    fallbackUnsub()
+  }
 
   load({relays, filters})
 

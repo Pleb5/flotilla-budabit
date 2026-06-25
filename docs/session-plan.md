@@ -96,7 +96,7 @@
 ### Exit Criteria
 
 - A GRASP recommendation module/store exists and mirrors the DM relay ranking model for community and individual signals.
-- Recommendation sources include active community relay evidence, starred/default community evidence, community/admin/moderator/member `kind:10317` lists, own list, and unmuted follow `kind:10317` lists.
+- Recommendation sources include active community-authored `kind:10317` evidence, starred/default community `kind:10317` evidence, moderator/member `kind:10317` lists, own list, and unmuted follow `kind:10317` lists.
 - Recommendation authors are community-first: viewer, active community pubkeys, default community pubkey, moderators, starred community pubkeys, follows, then members, with sensible limits.
 - Default community fallback loads `VITE_DEFAULT_COMMUNITY`, resolves its definition with existing community lookup helpers, then loads that community author's `kind:10317` list from default/indexer/community relays.
 - The last-resort fallback is used only when the user has no authoritative saved list and no community/social recommendation items.
