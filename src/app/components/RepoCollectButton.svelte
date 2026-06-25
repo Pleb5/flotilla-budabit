@@ -173,7 +173,7 @@
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
-        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+        relays: ref.definition.relays,
       })),
   )
   const repoStarCommunityRelays = $derived(
@@ -358,6 +358,21 @@
   const getRepoCollectionCommunityLabel = (community: RepoCommunityOption) =>
     community.label || getCommunityOptionLabel(community.pubkey)
 
+  const getDeclaredCommunityRelays = (community: RepoCommunityOption | undefined) =>
+    normalizeRelays([community?.relay || "", ...(community?.relays || [])])
+
+  const requireDeclaredCommunityRelays = (community: RepoCommunityOption) => {
+    const relays = getDeclaredCommunityRelays(community)
+
+    if (relays.length === 0) {
+      throw new Error(
+        `${getRepoCollectionCommunityLabel(community)} must declare relays before publishing.`,
+      )
+    }
+
+    return relays
+  }
+
   const publishPersonalRepoStar = ({createdAt}: {createdAt: number}) => {
     const relays = getRepoStarRelays([eventRelayHint, ...collectionRelays])
     const starEvent = {
@@ -383,10 +398,10 @@
     createdAt: number
   }) => {
     const targetingId = randomId()
+    const communityRelays = requireDeclaredCommunityRelays(community)
     const relays = getRepoStarRelays([
       eventRelayHint,
-      community.relay || "",
-      ...(community.relays || []),
+      ...communityRelays,
       ...collectionRelays,
     ])
     const starEvent = withPublicationTargetingId(
@@ -408,7 +423,7 @@
         targetingId,
         originalKind: REACTION,
         communityPubkey: community.pubkey,
-        communityRelay: community.relay || community.relays?.[0],
+        communityRelay: communityRelays[0],
       }),
       created_at: createdAt + 1,
     })
@@ -425,12 +440,12 @@
     collection: RepoCollectionCommunityStar
     community?: RepoCommunityOption
   }) => {
+    const communityRelays = requireDeclaredCommunityRelays(community || collection.community)
     const relays = getRepoStarRelays([
       eventRelayHint,
       collection.star.relayHint,
       ...(collection.star.relayHints || []),
-      community?.relay || "",
-      ...(community?.relays || []),
+      ...communityRelays,
       ...collectionRelays,
     ])
     const targetDelete = publishDelete({event: collection.targetEvent, relays})
@@ -569,7 +584,10 @@
           }
         } catch (error) {
           console.error("[repo-collect] Failed to edit repository collections", error)
-          pushToast({message: "Failed to edit repository collections", theme: "error"})
+          pushToast({
+            message: error instanceof Error ? error.message : "Failed to edit repository collections",
+            theme: "error",
+          })
         } finally {
           pending = false
         }

@@ -238,7 +238,7 @@
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
-        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+        relays: ref.definition.relays,
       })),
   )
 

@@ -40,8 +40,20 @@ const clonePermalink = (permalink: PermalinkEvent, createdAt: number): Permalink
   tags: withoutTargetingTags(permalink.tags || []),
 })
 
-const getCommunityRelays = (community: RepoCommunityOption, baseRelays: string[]) =>
-  normalizeRelays([community.relay || "", ...(community.relays || []), ...baseRelays])
+const getCommunityLabel = (community: RepoCommunityOption) => community.label || community.pubkey
+
+const getDeclaredCommunityRelays = (community: RepoCommunityOption) =>
+  normalizeRelays([community.relay || "", ...(community.relays || [])])
+
+const getCommunityRelays = (community: RepoCommunityOption, baseRelays: string[]) => {
+  const communityRelays = getDeclaredCommunityRelays(community)
+
+  if (communityRelays.length === 0) {
+    throw new Error(`${getCommunityLabel(community)} must declare relays before publishing.`)
+  }
+
+  return normalizeRelays([...communityRelays, ...baseRelays])
+}
 
 export const publishPermalinkToDestinations = ({
   permalink,
@@ -77,6 +89,7 @@ export const publishPermalinkToDestinations = ({
 
     const targetingId = randomId()
     const communityRelays = getCommunityRelays(community, baseRelays)
+    const declaredCommunityRelays = getDeclaredCommunityRelays(community)
     const permalinkEvent = withPublicationTargetingId(
       clonePermalink(permalink, createdAt + 1 + index * 2),
       targetingId,
@@ -100,7 +113,7 @@ export const publishPermalinkToDestinations = ({
             })
           : undefined,
         communityPubkey: community.pubkey,
-        communityRelay: community.relay || community.relays?.[0],
+        communityRelay: declaredCommunityRelays[0],
       }),
       created_at: createdAt + 2 + index * 2,
     })
