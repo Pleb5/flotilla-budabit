@@ -38,6 +38,7 @@
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
   import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+  import {clearCommunityWidgetSlotCache} from "@app/extensions/community-widget-slots"
   import {
     getManualCommunityWidgets,
     getTrustedCommunityWidgets,
@@ -147,7 +148,8 @@
     $activeUserCommunityRefs.map(ref => ({
       pubkey: ref.communityPubkey,
       label: getCommunityOptionLabel(ref.communityPubkey),
-      relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+      relays: ref.definition.relays,
+      relayHints: ref.relayHints,
     })),
   )
   const widgetCommunityOptions = $derived.by((): WidgetCommunityOption[] =>
@@ -162,7 +164,8 @@
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
-        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+        relays: ref.definition.relays,
+        relayHints: ref.relayHints,
       })),
   )
   const selectedCommunityOption = $derived(
@@ -281,9 +284,7 @@
 
   const getWidgetUpdateCheckKey = (widgets: InstalledWidgetItem[]) =>
     widgets
-      .map(({id, widget}) =>
-        [id, widget.pubkey || "", widget.created_at || 0].join(":"),
-      )
+      .map(({id, widget}) => [id, widget.pubkey || "", widget.created_at || 0].join(":"))
       .sort()
       .join("|")
 
@@ -326,9 +327,12 @@
 
     refreshingWidgetUpdates = {...refreshingWidgetUpdates, [id]: true}
     try {
-      const widget = await refreshWidget(id, update.latest)
-      const version = update.diff.version?.to || widget.version
-      widgetUpdates = Object.fromEntries(Object.entries(widgetUpdates).filter(([key]) => key !== id))
+      const widget = await refreshWidget(id, update.latest, {relays: update.relays})
+      const version = update.diff.version?.to
+      widgetUpdates = Object.fromEntries(
+        Object.entries(widgetUpdates).filter(([key]) => key !== id),
+      )
+      clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
         message: `Updated widget ${widget.content || widget.identifier}${version ? ` to v${version}` : ""}`,
@@ -419,6 +423,12 @@
       ...INDEXER_RELAYS,
     ])
 
+  const getWidgetInstallSourceRelays = (widget: SmartWidgetEvent) =>
+    normalizeRelays([
+      ...getWidgetOriginalRelayHints(widget),
+      ...getWidgetCommunityOptionRelayHints(selectedCommunityOption),
+    ])
+
   const waitForPublishThunks = async (thunks: Array<{complete?: Promise<unknown>} | undefined>) => {
     await Promise.allSettled(thunks.map(thunk => thunk?.complete || Promise.resolve()))
   }
@@ -448,16 +458,16 @@
       ...getWidgetOriginalRelayHints(widget),
       ...getUserOutboxRelays(),
     ])
-    const publishRelays = normalizeRelays([
-      ...baseRelays,
-      ...targetEvents.flatMap(getWidgetTargetEventRelayHints),
-      ...getWidgetTargetPublishRelays({
-        communityOptions: widgetCommunityOptions,
-        communityPubkeys: [...previousCommunityPubkeys, ...communityPubkeys],
-      }),
-    ])
 
     try {
+      const publishRelays = normalizeRelays([
+        ...baseRelays,
+        ...targetEvents.flatMap(getWidgetTargetEventRelayHints),
+        ...getWidgetTargetPublishRelays({
+          communityOptions: widgetCommunityOptions,
+          communityPubkeys: [...previousCommunityPubkeys, ...communityPubkeys],
+        }),
+      ])
       const deleteThunks = targetEvents.map(event => {
         const thunk = publishDelete({event, relays: publishRelays})
         if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
@@ -488,6 +498,7 @@
         : undefined
 
       await waitForPublishThunks([...deleteThunks, ownWidgetRepublish, targetingThunk])
+      clearCommunityWidgetSlotCache()
       pushToast({theme: "success", message: "Widget community targets updated."})
     } catch (e: any) {
       pushToast({theme: "error", message: e?.message || "Failed to update widget targets."})
@@ -643,8 +654,11 @@
 
   const onInstallWidget = async (widget: SmartWidgetEvent) => {
     try {
-      const installedWidget = installWidgetFromEvent(widget as any)
+      const installedWidget = installWidgetFromEvent(widget as any, {
+        relays: getWidgetInstallSourceRelays(widget),
+      })
       await enableExtension(getWidgetLineId(installedWidget))
+      clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
         message: `Installed and enabled widget ${widget.content || widget.identifier}`,
@@ -661,9 +675,13 @@
     trustedInstallInProgress = true
     try {
       for (const widget of widgets) {
-        const installedWidget = installWidgetFromEvent(widget as any)
+        const installedWidget = installWidgetFromEvent(widget as any, {
+          relays: getWidgetInstallSourceRelays(widget),
+        })
         await enableExtension(getWidgetLineId(installedWidget))
       }
+
+      clearCommunityWidgetSlotCache()
 
       pushToast({
         theme: "success",
@@ -682,6 +700,7 @@
     try {
       const widget = await installWidgetByNaddr(widgetNaddr)
       enableExtension(getWidgetLineId(widget))
+      clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
         message: `Installed and enabled widget ${widget.content || widget.identifier}`,
@@ -798,7 +817,8 @@
           </span>
         {/if}
         {#if defaultWidgets.length > 0}
-          <span class="badge badge-primary badge-sm">{defaultWidgets.length} community default</span>
+          <span class="badge badge-primary badge-sm"
+            >{defaultWidgets.length} community default</span>
         {/if}
       </div>
     </div>

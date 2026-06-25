@@ -117,6 +117,7 @@ import {
   getWidgetUpdateRelays,
   type WidgetUpdate,
 } from "@app/extensions/widget-updates"
+import {shouldPreloadWidgetRuntime} from "@app/extensions/widget-runtime"
 import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
@@ -159,6 +160,7 @@ import {
 // Utils
 
 const SMART_WIDGET_KIND = 30033
+const WIDGET_UPDATE_CHECK_TIMEOUT_MS = 8_000
 
 export const installExtension = async (manifestUrl: string) => {
   // Fetch + validate + register the manifest in the registry
@@ -263,6 +265,20 @@ export const installWidgetByNaddr = async (naddr: string) => {
   return installWidgetFromEvent(events[0] as TrustedEvent, {naddr, relays})
 }
 
+const mergeWidgetInstallSource = (
+  current: WidgetInstallSource | undefined,
+  source: WidgetInstallSource | undefined,
+) => {
+  const normalizedSource = normalizeWidgetInstallSource(source)
+
+  if (!normalizedSource) return current
+
+  return normalizeWidgetInstallSource({
+    naddr: normalizedSource.naddr || current?.naddr,
+    relays: [...(current?.relays || []), ...(normalizedSource.relays || [])],
+  })
+}
+
 export const checkForWidgetUpdate = async (id: string): Promise<WidgetUpdate | null> => {
   const settings = get(extensionSettings)
   const installed = getInstalledExtensions().widget[id]
@@ -278,14 +294,31 @@ export const checkForWidgetUpdate = async (id: string): Promise<WidgetUpdate | n
   })
   if (relays.length === 0) return null
 
+  const controller = new AbortController()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let fetchedEvents: TrustedEvent[] = []
+
   try {
-    await request({relays, filters: [filter], autoClose: true})
+    const events = await Promise.race([
+      request({relays, filters: [filter], autoClose: true, signal: controller.signal}),
+      new Promise<TrustedEvent[]>(resolve => {
+        timeout = setTimeout(() => {
+          controller.abort()
+          resolve([])
+        }, WIDGET_UPDATE_CHECK_TIMEOUT_MS)
+      }),
+    ])
+    fetchedEvents = Array.isArray(events) ? events : []
   } catch (e) {
     console.warn("Widget update check errored", e)
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 
   const candidates: SmartWidgetEvent[] = []
-  for (const event of repository.query([filter])) {
+  const cacheFilter = {...filter, limit: undefined}
+
+  for (const event of [...fetchedEvents, ...repository.query([cacheFilter])]) {
     try {
       candidates.push(parseSmartWidget(event))
     } catch {
@@ -296,7 +329,11 @@ export const checkForWidgetUpdate = async (id: string): Promise<WidgetUpdate | n
   return buildWidgetUpdate({installed, candidates, relays})
 }
 
-export const refreshWidget = async (id: string, newWidget: SmartWidgetEvent) => {
+export const refreshWidget = async (
+  id: string,
+  newWidget: SmartWidgetEvent,
+  source?: WidgetInstallSource,
+) => {
   if (getWidgetLineId(newWidget) !== id) {
     throw new Error("Widget update identifier mismatch")
   }
@@ -307,16 +344,24 @@ export const refreshWidget = async (id: string, newWidget: SmartWidgetEvent) => 
     await extensionRegistry.unloadExtension(id)
   }
 
-  extensionSettings.update(s => ({
-    ...s,
-    installed: {
-      nip89: s.installed?.nip89 || {},
-      widget: {...(s.installed?.widget || {}), [id]: newWidget},
-      legacy: s.installed?.legacy,
-    },
-  }))
+  extensionSettings.update(s => {
+    const widgetInstallSources = s.widgetInstallSources || {}
+    const mergedSource = mergeWidgetInstallSource(widgetInstallSources[id], source)
 
-  if (wasEnabled) {
+    return {
+      ...s,
+      installed: {
+        nip89: s.installed?.nip89 || {},
+        widget: {...(s.installed?.widget || {}), [id]: newWidget},
+        legacy: s.installed?.legacy,
+      },
+      widgetInstallSources: mergedSource
+        ? {...widgetInstallSources, [id]: mergedSource}
+        : widgetInstallSources,
+    }
+  })
+
+  if (wasEnabled && shouldPreloadWidgetRuntime(newWidget)) {
     await extensionRegistry.loadWidget(newWidget)
   }
 
@@ -422,7 +467,7 @@ export const enableExtension = async (id: string) => {
     } catch (e) {
       console.warn("Failed to load extension", id, e)
     }
-  } else if (widget) {
+  } else if (widget && shouldPreloadWidgetRuntime(widget)) {
     try {
       await extensionRegistry.loadWidget(widget)
     } catch (e) {

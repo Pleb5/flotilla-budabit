@@ -142,7 +142,8 @@
       .map(ref => ({
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
-        relays: ref.relayHints.length ? ref.relayHints : ref.definition.relays,
+        relays: ref.definition.relays,
+        relayHints: ref.relayHints,
       }))
 
     if (
@@ -155,6 +156,7 @@
         pubkey: communityPubkey,
         label: getCommunityOptionLabel(communityPubkey),
         relays: $activeCommunityDefinition.relays,
+        relayHints: [],
       })
     }
 
@@ -281,11 +283,19 @@
       return
     }
     const baseRelays = normalizeRelays([...SMART_WIDGET_RELAYS, ...getUserOutboxRelays()])
-    const relays = getWidgetTargetPublishRelays({
-      baseRelays,
-      communityOptions: selectedOptions,
-      communityPubkeys: selectedOptions.map(option => option.pubkey),
-    })
+    let relays: string[]
+
+    try {
+      relays = getWidgetTargetPublishRelays({
+        baseRelays,
+        communityOptions: selectedOptions,
+        communityPubkeys: selectedOptions.map(option => option.pubkey),
+      })
+    } catch (error) {
+      pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
+      return
+    }
+
     if (relays.length === 0) {
       pushToast({theme: "error", message: "No publish relays are available for selected targets."})
       return

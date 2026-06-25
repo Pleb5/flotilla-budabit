@@ -8,6 +8,7 @@
   import {onDestroy, untrack} from "svelte"
   import {extensionRegistry} from "./registry"
   import {effectiveExtensionSettings} from "./settings"
+  import {shouldPreloadWidgetRuntime} from "./widget-runtime"
 
   // Track enabled IDs from settings store
   const settings = $derived($effectiveExtensionSettings)
@@ -45,7 +46,7 @@
         try {
           if (manifest) {
             await extensionRegistry.loadIframeExtension(manifest)
-          } else if (widget) {
+          } else if (widget && shouldPreloadWidgetRuntime(widget)) {
             await extensionRegistry.loadWidget(widget)
           }
           // Update loadedIds after successful load

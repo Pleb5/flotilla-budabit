@@ -4,6 +4,7 @@ import {
   normalizePubkey,
   parseCommunityInput,
   parseTargetedPublication,
+  type CommunityDefinition,
 } from "@app/core/community"
 import {
   getCommunityBootstrapRelays,
@@ -21,9 +22,11 @@ import {
   COMMUNITY_WRITE_TARGETS,
   getCommunityTargetAuthorityPubkeys,
   getCommunityTargetWriterPubkeys,
+  getCommunityWriteTargetSections,
 } from "@app/core/community-permissions"
 import {parseSmartWidget} from "@app/extensions/registry"
 import type {SmartWidgetEvent} from "@app/extensions/types"
+import {logCommunityWidgetDebug} from "./community-widget-debug"
 import {getWidgetLineId} from "./widget-identity"
 
 export type CommunityCuratedExtensionsStatus = "invalid-input" | "not-community" | "community"
@@ -84,13 +87,30 @@ const getDeletedTargetEventIds = (targetEvents: TrustedEvent[], deleteEvents: Tr
   return deleted
 }
 
+const makeWidgetProfileListFilters = (definition: CommunityDefinition) => {
+  const sections = getCommunityWriteTargetSections(definition, COMMUNITY_WRITE_TARGETS.widget)
+
+  return makeCommunityProfileListFilters({...definition, sections})
+}
+
+const getWidgetProfileListOwnerPubkeys = (definition: CommunityDefinition) =>
+  Array.from(
+    new Set(
+      getCommunityWriteTargetSections(definition, COMMUNITY_WRITE_TARGETS.widget)
+        .flatMap(section => section.profileLists.map(ref => normalizePubkey(ref.pubkey)))
+        .filter(Boolean),
+    ),
+  )
+
 export const loadCommunityCuratedWidgets = async (
   input: string,
 ): Promise<CommunityCuratedExtensionsResult> => {
   const parsed = parseCommunityInput(input)
 
-  if (!parsed)
+  if (!parsed) {
+    logCommunityWidgetDebug("invalid community input", {input})
     return {status: "invalid-input", relayHints: [], trustedWidgetAuthorPubkeys: [], widgets: []}
+  }
 
   const definitionEvents = await loadCommunityEvents(
     getCommunityBootstrapRelays(parsed.relays),
@@ -100,6 +120,12 @@ export const loadCommunityCuratedWidgets = async (
   const definition = selectLatestCommunityDefinition(definitionEvents, parsed.pubkey)
 
   if (!definition) {
+    logCommunityWidgetDebug("community definition not found", {
+      communityPubkey: parsed.pubkey,
+      relayHints: parsed.relays,
+      definitionEvents: definitionEvents.length,
+    })
+
     return {
       status: "not-community",
       communityPubkey: parsed.pubkey,
@@ -113,6 +139,11 @@ export const loadCommunityCuratedWidgets = async (
     definition.relays.length ? definition.relays : parsed.relays,
   )
   if (communityRelays.length === 0) {
+    logCommunityWidgetDebug("community has no relays for widget curation", {
+      communityPubkey: definition.pubkey,
+      parsedRelays: parsed.relays,
+    })
+
     return {
       status: "community",
       communityPubkey: definition.pubkey,
@@ -123,7 +154,7 @@ export const loadCommunityCuratedWidgets = async (
   }
 
   const [profileListEvents, targetingEvents] = await Promise.all([
-    loadCommunityEvents(communityRelays, makeCommunityProfileListFilters(definition), {
+    loadCommunityEvents(communityRelays, makeWidgetProfileListFilters(definition), {
       authenticate: true,
     }),
     loadCommunityEvents(
@@ -132,29 +163,68 @@ export const loadCommunityCuratedWidgets = async (
       {authenticate: true},
     ),
   ])
+  logCommunityWidgetDebug("loaded curation sources", {
+    communityPubkey: definition.pubkey,
+    communityRelays,
+    profileListEvents: profileListEvents.map(event => ({id: event.id, pubkey: event.pubkey})),
+    targetingEvents: targetingEvents.map(event => ({id: event.id, pubkey: event.pubkey})),
+  })
+
   const deleteFilters = makeTargetDeleteFilters(targetingEvents)
   const targetDeleteEvents = deleteFilters.length
     ? await loadCommunityEvents(communityRelays, deleteFilters, {authenticate: true})
     : []
   const deletedTargetIds = getDeletedTargetEventIds(targetingEvents, targetDeleteEvents)
-  const widgetTargetAuthorPubkeys = getCommunityTargetWriterPubkeys({
-    definition,
-    profileListEvents,
-    target: COMMUNITY_WRITE_TARGETS.widget,
-  })
-  const trustedWidgetAuthorPubkeys = getCommunityTargetAuthorityPubkeys({
-    definition,
-    profileListEvents,
-    target: COMMUNITY_WRITE_TARGETS.widget,
-  })
+  const fallbackAuthorityPubkeys = profileListEvents.length
+    ? []
+    : getWidgetProfileListOwnerPubkeys(definition)
+  const widgetTargetAuthorPubkeys = Array.from(
+    new Set([
+      ...getCommunityTargetWriterPubkeys({
+        definition,
+        profileListEvents,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
+      ...fallbackAuthorityPubkeys,
+    ]),
+  )
+  const trustedWidgetAuthorPubkeys = Array.from(
+    new Set([
+      ...getCommunityTargetAuthorityPubkeys({
+        definition,
+        profileListEvents,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
+      ...fallbackAuthorityPubkeys,
+    ]),
+  )
   const widgetTargetAuthorSet = new Set(widgetTargetAuthorPubkeys.map(normalizePubkey))
   const eligibleTargetingEvents = targetingEvents.filter(
     event =>
       widgetTargetAuthorSet.has(normalizePubkey(event.pubkey)) && !deletedTargetIds.has(event.id),
   )
+  logCommunityWidgetDebug("filtered targeting events", {
+    communityPubkey: definition.pubkey,
+    fallbackAuthorityPubkeys,
+    widgetTargetAuthorPubkeys,
+    trustedWidgetAuthorPubkeys,
+    deletedTargetIds: Array.from(deletedTargetIds),
+    eligibleTargetingEvents: eligibleTargetingEvents.map(event => ({
+      id: event.id,
+      pubkey: event.pubkey,
+      ref: parseTargetedPublication(event)?.ref,
+    })),
+  })
+
   const widgetFilters = makeTargetedPublicationOriginalFilters(eligibleTargetingEvents)
 
   if (widgetFilters.length === 0) {
+    logCommunityWidgetDebug("no widget filters after curation filtering", {
+      communityPubkey: definition.pubkey,
+      targetingEvents: targetingEvents.length,
+      eligibleTargetingEvents: eligibleTargetingEvents.length,
+    })
+
     return {
       status: "community",
       communityPubkey: definition.pubkey,
@@ -178,6 +248,19 @@ export const loadCommunityCuratedWidgets = async (
       // Ignore malformed or unsupported widget events.
     }
   }
+
+  logCommunityWidgetDebug("loaded curated widget events", {
+    communityPubkey: definition.pubkey,
+    widgetFilters,
+    widgetEvents: widgetEvents.map(event => ({id: event.id, pubkey: event.pubkey})),
+    widgets: widgets.map(widget => ({
+      id: getWidgetLineId(widget),
+      identifier: widget.identifier,
+      pubkey: widget.pubkey,
+      slot: widget.slot,
+      appUrl: widget.appUrl,
+    })),
+  })
 
   return {
     status: "community",

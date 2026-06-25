@@ -58,8 +58,45 @@ export type CommunityWriteCapability = {
   descriptor: CommunityEventDescriptor
   sectionNames: string[]
   writableSectionNames: string[]
+  moderatorSectionNames: string[]
   canWrite: boolean
+  canModerate: boolean
 }
+
+export type CommunitySharedConfigScope = {
+  namespace: string
+  key: string
+  descriptors: CommunityEventDescriptor[]
+}
+
+export type CommunityQuerySharedConfigRequest = CommunitySharedConfigScope & {
+  limit?: number
+}
+
+export type CommunityQuerySharedConfigResponse =
+  | {
+      status: "ok"
+      event?: unknown
+      config?: unknown
+      relays: string[]
+      contextSessionId: string
+      contextVersion: number
+    }
+  | {error: string; code?: string}
+
+export type CommunityPublishSharedConfigRequest = CommunitySharedConfigScope & {
+  config: unknown
+}
+
+export type CommunityPublishSharedConfigResponse =
+  | {
+      status: "ok"
+      eventId?: string
+      relays: string[]
+      contextSessionId: string
+      contextVersion: number
+    }
+  | {error: string; code?: string}
 
 export type CommunitySectionContext = {
   name: string
@@ -188,6 +225,7 @@ export type LoadedWidgetExtension = {
   origin: string
   iframe?: HTMLIFrameElement
   bridge?: import("./bridge").ExtensionBridge
+  communityContext?: CommunityWidgetContext
   /** Repository context when loaded for a specific repository */
   repoContext?: RepoContext
 }

@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest"
-import {EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {EVENT_DATE, EVENT_TIME, THREAD, type TrustedEvent} from "@welshman/util"
 import {
+  COMMUNITY_SUBTYPE_ROOM,
+  COMMUNITY_SUBTYPE_THREADS,
   COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
   TARGETED_PUBLICATION_KIND,
@@ -11,6 +13,7 @@ import {
   makeTargetedPublicationForCommunity,
 } from "@app/core/community-targeting"
 import {
+  filterCommunityDescriptorEvents,
   makeCommunityDescriptorQueryPlan,
   makeCommunityWidgetContext,
   resolveCommunityEventDescriptors,
@@ -19,6 +22,7 @@ import {
 const communityPubkey = "a".repeat(64)
 const calendarWriterPubkey = "b".repeat(64)
 const outsiderPubkey = "c".repeat(64)
+const calendarMemberPubkey = "d".repeat(64)
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -45,12 +49,35 @@ const definition = parseCommunityDefinition(
   }),
 )!
 
+const dateOnlyCalendarDefinition = parseCommunityDefinition(
+  makeEvent({
+    kind: COMMUNITY_DEFINITION_KIND,
+    pubkey: communityPubkey,
+    tags: [
+      ["content", "Calendar"],
+      ["k", String(EVENT_DATE)],
+      ["a", `${PROFILE_LIST_KIND}:${calendarWriterPubkey}:Calendar`],
+    ],
+  }),
+)!
+
 const calendarProfileList = makeEvent({
   kind: PROFILE_LIST_KIND,
   pubkey: calendarWriterPubkey,
   tags: [
     ["d", "Events and meetups"],
     ["p", calendarWriterPubkey],
+    ["p", calendarMemberPubkey],
+  ],
+})
+
+const dateOnlyCalendarProfileList = makeEvent({
+  kind: PROFILE_LIST_KIND,
+  pubkey: calendarWriterPubkey,
+  tags: [
+    ["d", "Calendar"],
+    ["p", calendarWriterPubkey],
+    ["p", calendarMemberPubkey],
   ],
 })
 
@@ -113,13 +140,63 @@ describe("community widget context", () => {
         descriptor: {kind: EVENT_TIME},
         sectionNames: ["Events and meetups"],
         writableSectionNames: ["Events and meetups"],
+        moderatorSectionNames: ["Events and meetups"],
         canWrite: true,
+        canModerate: true,
       },
       {
         descriptor: {kind: EVENT_DATE},
         sectionNames: ["Events and meetups"],
         writableSectionNames: ["Events and meetups"],
+        moderatorSectionNames: ["Events and meetups"],
         canWrite: true,
+        canModerate: true,
+      },
+    ])
+  })
+
+  it("recognizes profile-list members as writers without section moderation authority", () => {
+    const resolved = resolveCommunityEventDescriptors({
+      definition,
+      profileListEvents: [calendarProfileList],
+      userPubkey: calendarMemberPubkey,
+      descriptors: [{kind: EVENT_TIME}],
+    })
+
+    expect(resolved[0]?.capability).toEqual({
+      descriptor: {kind: EVENT_TIME},
+      sectionNames: ["Events and meetups"],
+      writableSectionNames: ["Events and meetups"],
+      moderatorSectionNames: [],
+      canWrite: true,
+      canModerate: false,
+    })
+  })
+
+  it("treats time and date calendar descriptors as one section capability family", () => {
+    const resolved = resolveCommunityEventDescriptors({
+      definition: dateOnlyCalendarDefinition,
+      profileListEvents: [dateOnlyCalendarProfileList],
+      userPubkey: calendarWriterPubkey,
+      descriptors: [{kind: EVENT_TIME}, {kind: EVENT_DATE}],
+    })
+
+    expect(resolved.map(info => info.capability)).toEqual([
+      {
+        descriptor: {kind: EVENT_TIME},
+        sectionNames: ["Calendar"],
+        writableSectionNames: ["Calendar"],
+        moderatorSectionNames: ["Calendar"],
+        canWrite: true,
+        canModerate: true,
+      },
+      {
+        descriptor: {kind: EVENT_DATE},
+        sectionNames: ["Calendar"],
+        writableSectionNames: ["Calendar"],
+        moderatorSectionNames: ["Calendar"],
+        canWrite: true,
+        canModerate: true,
       },
     ])
   })
@@ -164,5 +241,58 @@ describe("community widget context", () => {
     expect(plan.originalFilters).toEqual([
       {kinds: [EVENT_TIME], authors: [calendarWriterPubkey], "#d": ["event-1"], limit: 5},
     ])
+  })
+
+  it("builds timed calendar queries when only date-based calendar sections are declared", () => {
+    const authorizedTargetingEvent = makeCalendarTargetingEvent({
+      id: "target-1",
+      pubkey: calendarWriterPubkey,
+      identifier: "timed-event-1",
+    })
+    const plan = makeCommunityDescriptorQueryPlan({
+      definition: dateOnlyCalendarDefinition,
+      profileListEvents: [dateOnlyCalendarProfileList],
+      descriptors: [{kind: EVENT_TIME}, {kind: EVENT_DATE}],
+      targetingEvents: [authorizedTargetingEvent],
+      limit: 5,
+    })
+
+    expect(plan.descriptors).toEqual([{kind: EVENT_TIME}, {kind: EVENT_DATE}])
+    expect(plan.targetKinds).toEqual([EVENT_TIME, EVENT_DATE])
+    expect(plan.targetingFilter).toMatchObject({
+      kinds: [TARGETED_PUBLICATION_KIND],
+      "#p": [communityPubkey],
+      "#k": [String(EVENT_TIME), String(EVENT_DATE)],
+    })
+    expect(plan.originalFilters).toEqual([
+      {kinds: [EVENT_TIME], authors: [calendarWriterPubkey], "#d": ["timed-event-1"], limit: 5},
+    ])
+  })
+
+  it("post-filters direct descriptor events by known subtypes", () => {
+    const roomRoot = makeEvent({
+      id: "room-root",
+      kind: THREAD,
+      tags: [
+        ["h", communityPubkey],
+        ["room"],
+      ],
+    })
+    const threadRoot = makeEvent({
+      id: "thread-root",
+      kind: THREAD,
+      tags: [["h", communityPubkey]],
+    })
+
+    expect(
+      filterCommunityDescriptorEvents([roomRoot, threadRoot], communityPubkey, [
+        {kind: THREAD, subtype: COMMUNITY_SUBTYPE_ROOM},
+      ]).map(event => event.id),
+    ).toEqual(["room-root"])
+    expect(
+      filterCommunityDescriptorEvents([roomRoot, threadRoot], communityPubkey, [
+        {kind: THREAD, subtype: COMMUNITY_SUBTYPE_THREADS},
+      ]).map(event => event.id),
+    ).toEqual(["thread-root"])
   })
 })

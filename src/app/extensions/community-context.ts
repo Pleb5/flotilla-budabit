@@ -1,5 +1,8 @@
-import type {Filter, TrustedEvent} from "@welshman/util"
+import {EVENT_DATE, EVENT_TIME, type Filter, type TrustedEvent} from "@welshman/util"
 import {
+  COMMUNITY_SUBTYPE_ROOM,
+  COMMUNITY_SUBTYPE_ROOM_MESSAGE,
+  COMMUNITY_SUBTYPE_THREADS,
   makeCommunityNcommunity,
   normalizePubkey,
   parseTargetedPublication,
@@ -9,12 +12,16 @@ import {
 } from "@app/core/community"
 import {
   COMMUNITY_TARGETABLE_KINDS,
+  isRoomMessage,
+  isRoomRoot,
+  isThreadRoot,
   makeCommunityExclusiveFilter,
   makeCommunityTargetingFilter,
   makeTargetedPublicationOriginalFilters,
 } from "@app/core/community-feeds"
 import {
   canWriteCommunitySection,
+  getCommunitySectionAuthorityPubkeys,
   getCommunitySectionWriterPubkeys,
 } from "@app/core/community-permissions"
 import {isCommunityPersonBanned, type EffectiveCommunityReportState} from "@app/core/community-reports"
@@ -34,6 +41,7 @@ export type ResolvedCommunityEventDescriptor = {
   descriptor: CommunityEventDescriptor
   sections: CommunitySection[]
   writerPubkeys: string[]
+  moderatorPubkeys: string[]
   writableSections: CommunitySection[]
   capability: CommunityWriteCapability
 }
@@ -46,6 +54,7 @@ export type CommunityDescriptorQueryPlan = {
 }
 
 const COMMUNITY_TARGETABLE_KIND_SET = new Set<number>(COMMUNITY_TARGETABLE_KINDS as readonly number[])
+const COMMUNITY_CALENDAR_KIND_SET = new Set<number>([EVENT_DATE, EVENT_TIME])
 
 let runtimeCommunityPubkey = ""
 let runtimeFingerprint = ""
@@ -140,10 +149,70 @@ const withLimit = (filters: Filter[], limit?: number, since?: number, until?: nu
 const findDescriptorSections = (
   definition: CommunityDefinition,
   descriptor: CommunityEventDescriptor,
-) => definition.sections.filter(section => sectionSupportsKind(section, descriptor.kind, descriptor.subtype))
+) => {
+  const sections = definition.sections.filter(section =>
+    sectionSupportsKind(section, descriptor.kind, descriptor.subtype),
+  )
+
+  if (sections.length > 0 || descriptor.subtype || !COMMUNITY_CALENDAR_KIND_SET.has(descriptor.kind)) {
+    return sections
+  }
+
+  return definition.sections.filter(section =>
+    section.kinds.some(kind => !kind.subtype && COMMUNITY_CALENDAR_KIND_SET.has(kind.kind)),
+  )
+}
+
+const getSectionPermissionDescriptor = (
+  section: CommunitySection,
+  descriptor: CommunityEventDescriptor,
+): CommunityEventDescriptor => {
+  if (sectionSupportsKind(section, descriptor.kind, descriptor.subtype)) return descriptor
+  if (descriptor.subtype || !COMMUNITY_CALENDAR_KIND_SET.has(descriptor.kind)) return descriptor
+
+  const calendarKind = section.kinds.find(kind =>
+    !kind.subtype && COMMUNITY_CALENDAR_KIND_SET.has(kind.kind),
+  )
+
+  return calendarKind ? {kind: calendarKind.kind} : descriptor
+}
 
 const getDescriptorLabel = (descriptor: CommunityEventDescriptor) =>
   descriptor.subtype ? `${descriptor.kind}/${descriptor.subtype}` : String(descriptor.kind)
+
+export const eventMatchesCommunityEventDescriptor = (
+  event: TrustedEvent,
+  communityPubkey: string,
+  descriptor: CommunityEventDescriptor,
+) => {
+  if (event.kind !== descriptor.kind) return false
+  if (!descriptor.subtype) return true
+
+  switch (descriptor.subtype) {
+    case COMMUNITY_SUBTYPE_ROOM:
+      return isRoomRoot(event, communityPubkey)
+    case COMMUNITY_SUBTYPE_THREADS:
+      return isThreadRoot(event, communityPubkey)
+    case COMMUNITY_SUBTYPE_ROOM_MESSAGE:
+      return isRoomMessage(event, communityPubkey)
+    default:
+      return true
+  }
+}
+
+export const filterCommunityDescriptorEvents = (
+  events: TrustedEvent[],
+  communityPubkey: string,
+  descriptors: CommunityEventDescriptor[],
+) => {
+  const normalizedDescriptors = normalizeCommunityEventDescriptors(descriptors)
+
+  return events.filter(event =>
+    normalizedDescriptors.some(descriptor =>
+      eventMatchesCommunityEventDescriptor(event, communityPubkey, descriptor),
+    ),
+  )
+}
 
 export const resolveCommunityEventDescriptors = ({
   definition,
@@ -178,17 +247,41 @@ export const resolveCommunityEventDescriptors = ({
         ),
       ),
     ).filter(Boolean)
+    const moderatorPubkeys = Array.from(
+      new Set(
+        sections.flatMap(section =>
+          getCommunitySectionAuthorityPubkeys({
+            definition,
+            profileListEvents,
+            sectionName: section.name,
+            reportState,
+          }).map(normalizePubkey),
+        ),
+      ),
+    ).filter(Boolean)
     const writableSections = normalizedUser
-      ? sections.filter(section =>
-          canWriteCommunitySection({
+      ? sections.filter(section => {
+          const permissionDescriptor = getSectionPermissionDescriptor(section, descriptor)
+
+          return canWriteCommunitySection({
             definition,
             profileListEvents,
             userPubkey: normalizedUser,
             sectionName: section.name,
-            kind: descriptor.kind,
-            subtype: descriptor.subtype,
+            kind: permissionDescriptor.kind,
+            subtype: permissionDescriptor.subtype,
             reportState,
-          }),
+          })
+        })
+      : []
+    const moderatorSections = normalizedUser
+      ? sections.filter(section =>
+          getCommunitySectionAuthorityPubkeys({
+            definition,
+            profileListEvents,
+            sectionName: section.name,
+            reportState,
+          }).includes(normalizedUser),
         )
       : []
 
@@ -196,12 +289,15 @@ export const resolveCommunityEventDescriptors = ({
       descriptor,
       sections,
       writerPubkeys,
+      moderatorPubkeys,
       writableSections,
       capability: {
         descriptor,
         sectionNames: sections.map(section => section.name),
         writableSectionNames: writableSections.map(section => section.name),
+        moderatorSectionNames: moderatorSections.map(section => section.name),
         canWrite: writableSections.length > 0,
+        canModerate: moderatorSections.length > 0,
       },
     }
   })

@@ -17,6 +17,7 @@ export type WidgetCommunityOption = {
   label?: string
   relay?: string
   relays?: string[]
+  relayHints?: string[]
 }
 
 export const getWidgetAddress = (widget: Pick<SmartWidgetEvent, "pubkey" | "identifier">) => {
@@ -26,8 +27,11 @@ export const getWidgetAddress = (widget: Pick<SmartWidgetEvent, "pubkey" | "iden
   return pubkey && identifier ? `${SMART_WIDGET_KIND}:${pubkey}:${identifier}` : ""
 }
 
-export const getWidgetCommunityOptionRelayHints = (option?: WidgetCommunityOption) =>
+export const getWidgetCommunityOptionRelays = (option?: WidgetCommunityOption) =>
   normalizeRelays([option?.relay || "", ...(option?.relays || [])])
+
+export const getWidgetCommunityOptionRelayHints = (option?: WidgetCommunityOption) =>
+  normalizeRelays([...(option?.relayHints || []), ...getWidgetCommunityOptionRelays(option)])
 
 export const getWidgetCommunityTargets = (
   communityOptions: WidgetCommunityOption[],
@@ -40,6 +44,39 @@ export const getWidgetCommunityTargets = (
     .filter((option): option is WidgetCommunityOption => Boolean(option))
 }
 
+const getNormalizedTargetPubkeys = (communityPubkeys: string[]) =>
+  Array.from(new Set(communityPubkeys.map(normalizePubkey).filter(Boolean)))
+
+export const getWidgetTargetsMissingCommunityRelays = (
+  communityOptions: WidgetCommunityOption[],
+  communityPubkeys: string[],
+) =>
+  getWidgetCommunityTargets(communityOptions, communityPubkeys).filter(
+    option => getWidgetCommunityOptionRelays(option).length === 0,
+  )
+
+const assertWidgetTargetCommunityRelays = (
+  communityOptions: WidgetCommunityOption[],
+  communityPubkeys: string[],
+) => {
+  const byPubkey = new Map(communityOptions.map(option => [normalizePubkey(option.pubkey), option]))
+  const missingTargets = getNormalizedTargetPubkeys(communityPubkeys).filter(
+    pubkey => !byPubkey.has(pubkey),
+  )
+  const missing = getWidgetTargetsMissingCommunityRelays(communityOptions, communityPubkeys)
+
+  if (missingTargets.length > 0) {
+    throw new Error(
+      `Target communities are not available for widget publishing: ${missingTargets.join(", ")}`,
+    )
+  }
+
+  if (missing.length > 0) {
+    const labels = missing.map(option => option.label || option.pubkey).join(", ")
+    throw new Error(`Target communities must declare relays before publishing widgets: ${labels}`)
+  }
+}
+
 export const getWidgetTargetPublishRelays = ({
   baseRelays = [],
   communityOptions,
@@ -48,13 +85,16 @@ export const getWidgetTargetPublishRelays = ({
   baseRelays?: string[]
   communityOptions: WidgetCommunityOption[]
   communityPubkeys: string[]
-}) =>
-  normalizeRelays([
+}) => {
+  assertWidgetTargetCommunityRelays(communityOptions, communityPubkeys)
+
+  return normalizeRelays([
     ...baseRelays,
     ...getWidgetCommunityTargets(communityOptions, communityPubkeys).flatMap(option =>
-      getWidgetCommunityOptionRelayHints(option),
+      getWidgetCommunityOptionRelays(option),
     ),
   ])
+}
 
 export const getWidgetTargetEventRelayHints = (event: TrustedEvent) => {
   const targeting = parseTargetedPublication(event)
@@ -124,7 +164,7 @@ export const publishWidgetTargetingEvent = ({
       }),
       communities: communities.map(option => ({
         pubkey: option.pubkey,
-        relay: getWidgetCommunityOptionRelayHints(option)[0],
+        relay: getWidgetCommunityOptionRelays(option)[0],
       })),
     }),
     created_at: createdAt,

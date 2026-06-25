@@ -1,6 +1,7 @@
 <script lang="ts">
   import WidgetIcon from "@assets/icons/widget.svg?dataurl"
   import {pubkey} from "@welshman/app"
+  import {onDestroy} from "svelte"
   import WidgetModal from "@app/components/WidgetModal.svelte"
   import {normalizePubkey} from "@app/core/community"
   import {
@@ -15,6 +16,7 @@
     getEnabledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
   } from "@app/extensions/community-widget-slots"
+  import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent, WidgetActionSlotType} from "@app/extensions/types"
@@ -41,6 +43,7 @@
 
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
   let loadKey = ""
+  let loadRequestId = 0
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
@@ -104,27 +107,43 @@
     if (!key || !input) {
       curatedWidgets = []
       loadKey = ""
+      loadRequestId += 1
       return
     }
 
     if (key === loadKey) return
     loadKey = key
-
-    let disposed = false
+    const requestId = ++loadRequestId
 
     loadCachedCommunityCuratedWidgets(input)
       .then(result => {
-        if (disposed || key !== loadKey) return
+        if (requestId !== loadRequestId || key !== loadKey) {
+          logCommunityWidgetDebug("launcher slot discarded stale curated widgets result", {
+            slotType,
+            communityPubkey,
+            key,
+            currentKey: loadKey,
+            requestId,
+            currentRequestId: loadRequestId,
+            status: result?.status,
+            widgetCount: result?.status === "community" ? result.widgets.length : 0,
+          })
+          return
+        }
+
         curatedWidgets = result?.status === "community" ? result.widgets : []
       })
       .catch(error => {
-        if (!disposed) console.warn("[community-widget-slots] Failed to load widgets", error)
-        if (!disposed && key === loadKey) curatedWidgets = []
-      })
+        if (requestId !== loadRequestId || key !== loadKey) return
 
-    return () => {
-      disposed = true
-    }
+        console.warn("[community-widget-slots] Failed to load widgets", error)
+        curatedWidgets = []
+        loadKey = ""
+      })
+  })
+
+  onDestroy(() => {
+    loadRequestId += 1
   })
 </script>
 

@@ -75,6 +75,20 @@ describe("effective extension settings", () => {
     expect(effective.enabled).toContain(widgetId)
   })
 
+  it("renders a newer installed widget over a stale default widget immediately", () => {
+    const staleDefault = {...makeWidget("default-widget", 10), version: "0.1.4"}
+    const updatedInstalled = {...makeWidget("default-widget", 20), version: "0.1.5"}
+    const widgetId = getWidgetLineId(updatedInstalled)
+    const settings = {
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widgetId]: updatedInstalled}},
+    }
+    const effective = getEffectiveExtensionSettings(settings, [staleDefault])
+
+    expect(effective.installed.widget[widgetId]).toBe(updatedInstalled)
+    expect(effective.installed.widget[widgetId].version).toBe("0.1.5")
+  })
+
   it("lets disabled defaults override explicit enabled ids", () => {
     const widget = makeWidget("default-widget")
     const widgetId = getWidgetLineId(widget)

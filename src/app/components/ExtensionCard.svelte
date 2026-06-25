@@ -55,9 +55,9 @@
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
 
-  const isWidget = type === "widget"
-  const widget = isWidget ? (manifest as SmartWidgetEvent) : null
-  const extension = !isWidget ? (manifest as ExtensionManifest) : null
+  const isWidget = $derived(type === "widget")
+  const widget = $derived(isWidget ? (manifest as SmartWidgetEvent) : null)
+  const extension = $derived(!isWidget ? (manifest as ExtensionManifest) : null)
   const widgetAppUrls = $derived(
     (widget?.appUrls?.length ? widget.appUrls : widget?.appUrl ? [widget.appUrl] : []).filter(url =>
       isSecureEmbeddableUrl(url),
@@ -118,17 +118,17 @@
     if (!showCommunityTargets) selectedCommunityPubkeys = [...targetedCommunityPubkeys]
   })
 
-  const displayName = isWidget
+  const displayName = $derived(isWidget
     ? widget?.content || widget?.identifier || "Smart Widget"
-    : extension?.name
-  const version = isWidget ? widget?.version : extension?.version
-  const iconUrl = isWidget ? widget?.iconUrl || widget?.imageUrl : extension?.icon
-  const description = isWidget
+    : extension?.name)
+  const version = $derived(isWidget ? widget?.version : extension?.version)
+  const iconUrl = $derived(isWidget ? widget?.iconUrl || widget?.imageUrl : extension?.icon)
+  const description = $derived(isWidget
     ? widget?.widgetType
       ? `Smart Widget • ${widget.widgetType}`
       : undefined
-    : extension?.description
-  const permissions = isWidget ? widget?.permissions : extension?.permissions
+    : extension?.description)
+  const permissions = $derived(isWidget ? widget?.permissions : extension?.permissions)
 
   const slotLabel = $derived.by(() => {
     if (!widget?.slot) return ""
@@ -157,6 +157,7 @@
     if (diff.permissionsRemoved.length) {
       summary.push(`Removes ${diff.permissionsRemoved.join(", ")}`)
     }
+    if (summary.length === 0) summary.push("New widget publication")
 
     return summary
   })

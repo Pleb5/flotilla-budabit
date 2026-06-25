@@ -1,14 +1,19 @@
 import {pubkey as activeUserPubkey, publishThunk, signer} from "@welshman/app"
+import {goto} from "$app/navigation"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
 import {
   activeCommunityDefinition,
   activeCommunityProfileListEvents,
+  activeCommunityRelayHints,
   activeCommunityRelays,
   activeCommunityReportState,
+  loadCommunityEvents,
 } from "@app/core/community-state"
+import {PROFILE_LIST_KIND, normalizePubkey, type CommunityDefinition} from "@app/core/community"
 import {
+  filterCommunityDescriptorEvents,
   getCommunityContextRuntimeSnapshot,
   makeCommunityDescriptorQueryPlan,
   normalizeCommunityEventDescriptors,
@@ -17,7 +22,10 @@ import {
 import {get} from "svelte/store"
 import type {
   CommunityEventDescriptor,
+  CommunityPublishSharedConfigRequest,
+  CommunityQuerySharedConfigRequest,
   CommunityQueryEventsRequest,
+  CommunityWidgetContext,
   LoadedExtension,
 } from "./types"
 import {getRepoAddress} from "./types"
@@ -120,6 +128,9 @@ const NIP100_ALLOWED_KINDS = new Set<number>([
   10100, // Loom worker advertisement
 ])
 const MAX_NOSTR_QUERY_LIMIT = 500
+const COMMUNITY_SHARED_CONFIG_KIND = 30078
+const COMMUNITY_SHARED_CONFIG_PREFIX = "budabit-community-config"
+const COMMUNITY_BRIDGE_LOAD_TIMEOUT = 5000
 
 const normalizeRelayUrls = (relays: unknown): string[] => {
   if (!Array.isArray(relays)) {
@@ -322,6 +333,12 @@ export class ExtensionBridge {
     this.targetWindow = target
     this.listener = (e: MessageEvent) => this.handleMessage(e)
     window.addEventListener("message", this.listener)
+  }
+
+  updateCommunityContext(communityContext?: CommunityWidgetContext | null): void {
+    if (this.extension.type === "widget") {
+      this.extension.communityContext = communityContext || undefined
+    }
   }
 
   detach(): void {
@@ -625,11 +642,104 @@ const normalizeCommunityQueryEventsPayload = (
   return {descriptors, limit, since, until}
 }
 
-const getCommunityRequestSnapshot = () => {
+const normalizeSharedConfigPart = (value: unknown, name: string) => {
+  if (typeof value !== "string") {
+    throw new Error(`Invalid ${name}: expected non-empty string`)
+  }
+
+  const normalized = value.trim()
+  if (!normalized || normalized.length > 120 || !/^[a-z0-9][a-z0-9:._-]*$/i.test(normalized)) {
+    throw new Error(`Invalid ${name}: expected namespaced identifier`)
+  }
+
+  return normalized
+}
+
+const normalizeCommunitySharedConfigScope = (
+  payload: unknown,
+): Pick<CommunityQuerySharedConfigRequest, "namespace" | "key" | "descriptors" | "limit"> => {
+  const {descriptors} = normalizeCommunityDescriptorsPayload(payload)
+
+  const limitRaw = (payload as any).limit
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.floor(limitRaw), MAX_NOSTR_QUERY_LIMIT)
+      : 50
+
+  return {
+    namespace: normalizeSharedConfigPart((payload as any).namespace, "namespace"),
+    key: normalizeSharedConfigPart((payload as any).key, "key"),
+    descriptors,
+    limit,
+  }
+}
+
+const normalizeCommunityPublishSharedConfigPayload = (
+  payload: unknown,
+): CommunityPublishSharedConfigRequest => {
+  const scope = normalizeCommunitySharedConfigScope(payload)
+
+  if (!payload || typeof payload !== "object" || !("config" in payload)) {
+    throw new Error("Invalid config: expected shared config payload")
+  }
+
+  return {...scope, config: (payload as any).config}
+}
+
+const makeCommunitySharedConfigIdentifier = ({
+  definition,
+  namespace,
+  key,
+}: {
+  definition: CommunityDefinition
+  namespace: string
+  key: string
+}) => `${COMMUNITY_SHARED_CONFIG_PREFIX}:${normalizePubkey(definition.pubkey)}:${namespace}:${key}`
+
+const makeCommunityProfileListFilters = (definition: CommunityDefinition) =>
+  definition.sections
+    .flatMap(section => section.profileLists)
+    .map(ref => ({
+      kinds: [PROFILE_LIST_KIND],
+      authors: [ref.pubkey],
+      "#d": [ref.identifier],
+      limit: 1,
+    }))
+
+const dedupeEvents = <T extends {id?: string}>(events: T[]) =>
+  Array.from(new Map(events.filter(event => event.id).map(event => [event.id, event])).values())
+
+const parseSharedConfigContent = (event: any) => {
+  if (!event || typeof event.content !== "string") return undefined
+
+  try {
+    return JSON.parse(event.content)
+  } catch {
+    return event.content
+  }
+}
+
+const isPreferredEvent = (candidate: any, current: any | undefined) => {
+  if (!current) return true
+  if ((candidate.created_at || 0) !== (current.created_at || 0)) {
+    return (candidate.created_at || 0) > (current.created_at || 0)
+  }
+
+  return String(candidate.id || "") < String(current.id || "")
+}
+
+const getExtensionCommunityContext = (ext: LoadedExtension) => {
+  if (ext.type !== "widget") return undefined
+
+  return ext.communityContext
+}
+
+const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
   const definition = get(activeCommunityDefinition)
   const profileListEvents = get(activeCommunityProfileListEvents)
   const reportState = get(activeCommunityReportState)
-  const relays = get(activeCommunityRelays)
+  const activeRelays = get(activeCommunityRelays)
+  const activeRelayHints = get(activeCommunityRelayHints)
   const userPubkey = get(activeUserPubkey) || ""
 
   if (!definition) {
@@ -637,6 +747,22 @@ const getCommunityRequestSnapshot = () => {
       code: "COMMUNITY_CONTEXT_NOT_READY",
     })
   }
+
+  const extensionCommunityContext = getExtensionCommunityContext(ext)
+  const matchingExtensionCommunityContext =
+    extensionCommunityContext &&
+    normalizePubkey(extensionCommunityContext.pubkey) === normalizePubkey(definition.pubkey)
+      ? extensionCommunityContext
+      : undefined
+  const relayHints = matchingExtensionCommunityContext?.relayHints?.length
+    ? matchingExtensionCommunityContext.relayHints
+    : activeRelayHints
+  const relays = activeRelays.length
+    ? activeRelays
+    : matchingExtensionCommunityContext?.relays?.length
+      ? matchingExtensionCommunityContext.relays
+      : relayHints
+
   if (relays.length === 0) {
     throw Object.assign(new Error("Active community relays are not available"), {
       code: "COMMUNITY_CONTEXT_NOT_READY",
@@ -649,48 +775,64 @@ const getCommunityRequestSnapshot = () => {
     reportState,
     userPubkey,
     relays,
+    relayHints,
   })
 
-  return {definition, profileListEvents, reportState, relays, userPubkey, ...runtime}
+  return {definition, profileListEvents, reportState, relays, relayHints, userPubkey, ...runtime}
 }
 
 const loadBridgeEvents = async ({
   relays,
   filters,
-  timeoutMs = 5000,
+  timeoutMs = COMMUNITY_BRIDGE_LOAD_TIMEOUT,
+  authenticate = false,
 }: {
   relays: string[]
   filters: Record<string, unknown>[]
   timeoutMs?: number
+  authenticate?: boolean
 }) => {
-  const events: any[] = []
-  const seenIds = new Set<string>()
+  if (relays.length === 0 || filters.length === 0) return []
 
-  if (relays.length === 0 || filters.length === 0) return events
-
-  await Promise.race([
-    load({
-      relays,
-      filters: filters as any,
-      onEvent: (event: any) => {
-        if (!event?.id || seenIds.has(event.id)) return
-        seenIds.add(event.id)
-        events.push(event)
-      },
-    }).catch((error: any) => {
-      console.warn("[bridge] community query load failed", error?.message || error)
-    }),
-    new Promise(resolve => setTimeout(resolve, timeoutMs)),
-  ])
-
-  return events
+  try {
+    return await loadCommunityEvents(relays, filters as any, {
+      timeout: timeoutMs,
+      authenticate,
+    })
+  } catch (error: any) {
+    console.warn("[bridge] community query load failed", error?.message || error)
+    return []
+  }
 }
+
+const hydrateCommunityRequestSnapshot = async (snapshot: ReturnType<typeof getCommunityRequestSnapshot>) => {
+  const profileListFilters = makeCommunityProfileListFilters(snapshot.definition)
+  if (profileListFilters.length === 0) return snapshot
+
+  const loadedProfileListEvents = await loadBridgeEvents({
+    relays: snapshot.relays,
+    filters: profileListFilters,
+    timeoutMs: 3500,
+    authenticate: true,
+  })
+
+  return {
+    ...snapshot,
+    profileListEvents: dedupeEvents([
+      ...snapshot.profileListEvents,
+      ...loadedProfileListEvents.filter(event => event.kind === PROFILE_LIST_KIND),
+    ]),
+  }
+}
+
+const getHydratedCommunityRequestSnapshot = async (ext: LoadedExtension) =>
+  hydrateCommunityRequestSnapshot(getCommunityRequestSnapshot(ext))
 
 registerBridgeHandler("community:checkWriteCapabilities", async (payload, ext) => {
   if (ext) console.log(`[bridge] community:checkWriteCapabilities from ${ext.id}`, payload)
   try {
     const request = normalizeCommunityDescriptorsPayload(payload)
-    const snapshot = getCommunityRequestSnapshot()
+    const snapshot = await getHydratedCommunityRequestSnapshot(ext)
     const capabilities = resolveCommunityEventDescriptors({
       definition: snapshot.definition,
       profileListEvents: snapshot.profileListEvents,
@@ -715,7 +857,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
   if (ext) console.log(`[bridge] community:queryEvents from ${ext.id}`, payload)
   try {
     const request = normalizeCommunityQueryEventsPayload(payload)
-    const snapshot = getCommunityRequestSnapshot()
+    const snapshot = await getHydratedCommunityRequestSnapshot(ext)
 
     const initialPlan = makeCommunityDescriptorQueryPlan({
       definition: snapshot.definition,
@@ -731,6 +873,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       ? await loadBridgeEvents({
           relays: snapshot.relays,
           filters: [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}],
+          authenticate: true,
         })
       : []
     const plan = makeCommunityDescriptorQueryPlan({
@@ -743,11 +886,21 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       since: request.since,
       until: request.until,
     })
-    const events = await loadBridgeEvents({relays: snapshot.relays, filters: plan.originalFilters})
+    const loadedEvents = await loadBridgeEvents({
+      relays: snapshot.relays,
+      filters: plan.originalFilters,
+      authenticate: true,
+    })
+    const events = filterCommunityDescriptorEvents(
+      loadedEvents as any,
+      snapshot.definition.pubkey,
+      plan.descriptors,
+    ).sort((a: any, b: any) => (b.created_at || 0) - (a.created_at || 0))
+    const limitedEvents = events.slice(0, request.limit)
 
     return {
       status: "ok",
-      events,
+      events: limitedEvents,
       relays: snapshot.relays,
       descriptors: plan.descriptors,
       contextSessionId: snapshot.contextSessionId,
@@ -755,6 +908,118 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
     }
   } catch (err: any) {
     console.error("Error in community:queryEvents bridge handler:", err)
+    return {error: err.message, ...(err.code ? {code: err.code} : {})}
+  }
+})
+
+registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
+  if (ext) console.log(`[bridge] community:querySharedConfig from ${ext.id}`, payload)
+  try {
+    const request = normalizeCommunitySharedConfigScope(payload)
+    const snapshot = await getHydratedCommunityRequestSnapshot(ext)
+    const resolved = resolveCommunityEventDescriptors({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      userPubkey: snapshot.userPubkey,
+      descriptors: request.descriptors,
+    })
+    const moderatorPubkeys = new Set(resolved.flatMap(info => info.moderatorPubkeys))
+    const identifier = makeCommunitySharedConfigIdentifier({
+      definition: snapshot.definition,
+      namespace: request.namespace,
+      key: request.key,
+    })
+    const events = await loadBridgeEvents({
+      relays: snapshot.relays,
+      filters: [
+        {
+          kinds: [COMMUNITY_SHARED_CONFIG_KIND],
+          "#d": [identifier],
+          limit: request.limit,
+        },
+      ],
+      authenticate: true,
+    })
+    const selected = events
+      .filter(event => moderatorPubkeys.has(normalizePubkey(event.pubkey || "")))
+      .reduce((current, event) => (isPreferredEvent(event, current) ? event : current), undefined as any)
+
+    return {
+      status: "ok",
+      ...(selected ? {event: selected, config: parseSharedConfigContent(selected)} : {}),
+      relays: snapshot.relays,
+      contextSessionId: snapshot.contextSessionId,
+      contextVersion: snapshot.contextVersion,
+    }
+  } catch (err: any) {
+    console.error("Error in community:querySharedConfig bridge handler:", err)
+    return {error: err.message, ...(err.code ? {code: err.code} : {})}
+  }
+})
+
+registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
+  if (ext) console.log(`[bridge] community:publishSharedConfig from ${ext.id}`, payload)
+  try {
+    const request = normalizeCommunityPublishSharedConfigPayload(payload)
+    const snapshot = await getHydratedCommunityRequestSnapshot(ext)
+    const normalizedUser = normalizePubkey(snapshot.userPubkey)
+
+    if (!normalizedUser) {
+      throw Object.assign(new Error("Login required to publish shared community config"), {
+        code: "LOGIN_REQUIRED",
+      })
+    }
+
+    const resolved = resolveCommunityEventDescriptors({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      userPubkey: normalizedUser,
+      descriptors: request.descriptors,
+    })
+    const canModerate = resolved.some(info => info.capability.canModerate)
+
+    if (!canModerate) {
+      throw Object.assign(
+        new Error("Current user is not a moderator for the requested community descriptors"),
+        {code: "FORBIDDEN"},
+      )
+    }
+
+    const identifier = makeCommunitySharedConfigIdentifier({
+      definition: snapshot.definition,
+      namespace: request.namespace,
+      key: request.key,
+    })
+    const event = {
+      kind: COMMUNITY_SHARED_CONFIG_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      content: JSON.stringify(request.config),
+      tags: [
+        ["d", identifier],
+        ["p", normalizePubkey(snapshot.definition.pubkey)],
+        ["namespace", request.namespace],
+        ["key", request.key],
+        ...request.descriptors.map(descriptor =>
+          descriptor.subtype
+            ? ["descriptor", String(descriptor.kind), descriptor.subtype]
+            : ["descriptor", String(descriptor.kind)],
+        ),
+      ],
+    }
+    const thunk = (publishThunk as any)({event, relays: snapshot.relays})
+    await thunk.complete
+
+    return {
+      status: "ok",
+      eventId: thunk.event?.id,
+      relays: snapshot.relays,
+      contextSessionId: snapshot.contextSessionId,
+      contextVersion: snapshot.contextVersion,
+    }
+  } catch (err: any) {
+    console.error("Error in community:publishSharedConfig bridge handler:", err)
     return {error: err.message, ...(err.code ? {code: err.code} : {})}
   }
 })
@@ -768,6 +1033,22 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
   } catch (err: any) {
     console.error("Error in ui:toast bridge handler:", err)
     return {error: err.message}
+  }
+})
+
+registerBridgeHandler("ui:navigate", async (payload, ext) => {
+  if (ext) console.log(`[bridge] ui:navigate from ${ext.id}`, payload)
+  try {
+    const path = typeof payload?.path === "string" ? payload.path.trim() : ""
+    if (!path || !path.startsWith("/") || path.startsWith("//")) {
+      throw new Error("Invalid navigation path")
+    }
+
+    await goto(path)
+    return {status: "ok"}
+  } catch (err: any) {
+    console.error("Error in ui:navigate bridge handler:", err)
+    return {error: err.message || "Navigation failed"}
   }
 })
 

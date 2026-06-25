@@ -8,11 +8,13 @@ const makeWidget = (
   slotType?: WidgetCommunitySlotType,
   label = identifier,
   pubkey = "a".repeat(64),
+  created_at = 1,
 ): SmartWidgetEvent => ({
   id: identifier,
   kind: 30033,
   content: identifier,
   pubkey,
+  created_at,
   tags: [["d", identifier]],
   identifier,
   widgetType: "basic",
@@ -67,5 +69,67 @@ describe("community widget slots", () => {
 
     expect(selected.map(widget => widget.content)).toEqual(["Installed B"])
     expect(selected[0].slot).toEqual({type: "global-menu", label: "Weather B"})
+  })
+
+  it("matches legacy installed and enabled widget identifiers to curated line ids", () => {
+    const curated = makeWidget("featured-calendar-event", "community-home-after-quicklinks")
+    const installed = {...curated, content: "Installed calendar widget"}
+
+    const selected = getEnabledCommunitySlotWidgets({
+      curatedWidgets: [curated],
+      installedWidgets: {
+        [curated.identifier]: installed,
+      },
+      enabledIds: new Set([curated.identifier]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(selected.map(widget => widget.content)).toEqual(["Installed calendar widget"])
+    expect(selected[0].slot).toEqual({
+      type: "community-home-after-quicklinks",
+      label: "featured-calendar-event",
+    })
+  })
+
+  it("uses newer installed metadata over stale curated metadata", () => {
+    const curated = {
+      ...makeWidget("featured-calendar-event", "community-home-after-quicklinks", "Featured event", "a".repeat(64), 10),
+      version: "0.1.4",
+    }
+    const installed = {
+      ...makeWidget("featured-calendar-event", undefined, "Featured event", "a".repeat(64), 20),
+      version: "0.1.5",
+    }
+    const widgetId = getWidgetLineId(curated)
+
+    const selected = getEnabledCommunitySlotWidgets({
+      curatedWidgets: [curated],
+      installedWidgets: {[widgetId]: installed},
+      enabledIds: new Set([widgetId]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(selected[0].version).toBe("0.1.5")
+    expect(selected[0].slot).toEqual({
+      type: "community-home-after-quicklinks",
+      label: "Featured event",
+    })
+  })
+
+  it("does not use ambiguous legacy identifiers for different publishers", () => {
+    const first = makeWidget("weather", "community-home-after-quicklinks", "Weather A", "a".repeat(64))
+    const second = makeWidget("weather", "community-home-after-quicklinks", "Weather B", "b".repeat(64))
+
+    const selected = getEnabledCommunitySlotWidgets({
+      curatedWidgets: [first, second],
+      installedWidgets: {
+        "weather-a": first,
+        "weather-b": second,
+      },
+      enabledIds: new Set(["weather"]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(selected).toEqual([])
   })
 })

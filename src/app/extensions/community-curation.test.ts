@@ -161,4 +161,45 @@ describe("community curated widgets", () => {
       "wss://widgets.example/",
     ])
   })
+
+  it("falls back to widget profile-list owners when profile-list events are unavailable", async () => {
+    const definition = makeEvent({
+      id: "community-definition",
+      pubkey: communityPubkey,
+      kind: COMMUNITY_DEFINITION_KIND,
+      tags: [
+        ["r", "wss://community.example"],
+        ["content", "Apps"],
+        ["k", String(SMART_WIDGET_KIND)],
+        ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:Apps`],
+      ],
+    })
+    const validTarget = makeTargetingEvent({
+      id: "target-valid",
+      pubkey: managerPubkey,
+      identifier: "valid-widget",
+    })
+    const widget = makeWidgetEvent("valid-widget")
+    let calls = 0
+
+    mocks.loadCommunityEvents.mockImplementation(async (_relays: string[], filters: Filter[]) => {
+      calls += 1
+
+      if (calls === 1) return [definition]
+      if (calls === 2) return []
+      if (calls === 3) return [validTarget]
+      if (calls === 4) return []
+
+      const identifiers = new Set(
+        filters.flatMap(filter => (filter["#d"] as string[] | undefined) || []),
+      )
+
+      return identifiers.has("valid-widget") ? [widget] : []
+    })
+
+    const result = await loadCommunityCuratedWidgets(communityPubkey)
+
+    expect(result.widgets.map(item => item.identifier)).toEqual(["valid-widget"])
+    expect(result.trustedWidgetAuthorPubkeys).toContain(managerPubkey)
+  })
 })

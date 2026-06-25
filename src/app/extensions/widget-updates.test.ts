@@ -91,6 +91,21 @@ describe("widget update helpers", () => {
     expect(getWidgetUpdateDiff(installed, latest).appUrlChanged).toBe(true)
   })
 
+  it("does not report a version change when a newer event keeps the same version", () => {
+    const installed = makeWidget({version: "0.1.0", appUrl: "https://example.com/local.html"})
+    const latest = makeWidget({
+      id: "weather-20",
+      created_at: 20,
+      version: "0.1.0",
+      appUrl: "https://example.com/blossom.html",
+    })
+
+    const diff = getWidgetUpdateDiff(installed, latest)
+
+    expect(diff.version).toBeUndefined()
+    expect(diff.appUrlChanged).toBe(true)
+  })
+
   it("reads version and changelog tags when parsed fields are missing", () => {
     const widget = makeWidget({
       tags: [

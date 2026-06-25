@@ -29,15 +29,31 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  const load = vi.fn()
+  const loadCommunityEvents = vi.fn(async (relays: string[], filters: any[], options?: any) => {
+    const events: any[] = []
+    await load({
+      relays,
+      filters,
+      options,
+      onEvent: (event: any) => events.push(event),
+    })
+
+    return events
+  })
+
   return {
     publishThunk: vi.fn(),
-    load: vi.fn(),
+    load,
+    loadCommunityEvents,
     pushToast: vi.fn(),
-    signer: createStore(null),
-    pubkey: createStore(undefined as string | undefined),
-    activeRepoClass: createStore(null),
+      signer: createStore(null),
+      pubkey: createStore(undefined as string | undefined),
+      goto: vi.fn(),
+      activeRepoClass: createStore(null),
     activeCommunityDefinition: createStore(undefined as any),
     activeCommunityProfileListEvents: createStore([] as any[]),
+    activeCommunityRelayHints: createStore([] as string[]),
     activeCommunityRelays: createStore([] as string[]),
     activeCommunityReportState: createStore(undefined as any),
   }
@@ -45,6 +61,7 @@ const mocks = vi.hoisted(() => {
 
 const communityPubkey = "a".repeat(64)
 const calendarWriterPubkey = "b".repeat(64)
+const calendarMemberPubkey = "c".repeat(64)
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -76,6 +93,7 @@ const calendarProfileList = makeEvent({
   tags: [
     ["d", "Events and meetups"],
     ["p", calendarWriterPubkey],
+    ["p", calendarMemberPubkey],
   ],
 })
 
@@ -113,6 +131,10 @@ vi.mock("@welshman/app", () => ({
   pubkey: mocks.pubkey,
 }))
 
+vi.mock("$app/navigation", () => ({
+  goto: mocks.goto,
+}))
+
 vi.mock("@app/core/git-state", () => ({
   activeRepoClass: mocks.activeRepoClass,
 }))
@@ -120,8 +142,10 @@ vi.mock("@app/core/git-state", () => ({
 vi.mock("@app/core/community-state", () => ({
   activeCommunityDefinition: mocks.activeCommunityDefinition,
   activeCommunityProfileListEvents: mocks.activeCommunityProfileListEvents,
+  activeCommunityRelayHints: mocks.activeCommunityRelayHints,
   activeCommunityRelays: mocks.activeCommunityRelays,
   activeCommunityReportState: mocks.activeCommunityReportState,
+  loadCommunityEvents: mocks.loadCommunityEvents,
 }))
 
 vi.mock("@welshman/net", () => ({
@@ -212,10 +236,12 @@ beforeEach(() => {
   localStorage.clear()
   mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
   mocks.load.mockResolvedValue(undefined)
+  mocks.goto.mockResolvedValue(undefined)
   mocks.pubkey.set(undefined)
   mocks.activeRepoClass.set(null)
   mocks.activeCommunityDefinition.set(undefined)
   mocks.activeCommunityProfileListEvents.set([])
+  mocks.activeCommunityRelayHints.set([])
   mocks.activeCommunityRelays.set([])
   mocks.activeCommunityReportState.set(undefined)
 })
@@ -269,6 +295,23 @@ describe("ExtensionBridge", () => {
       },
       extension.origin,
     )
+  })
+
+  it("navigates the host app through ui:navigate", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension()
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "ui:navigate", {
+        path: "/c/npub1example/calendar/event-1",
+      }),
+    ).resolves.toEqual({status: "ok"})
+    expect(mocks.goto).toHaveBeenCalledWith("/c/npub1example/calendar/event-1")
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "ui:navigate", {path: "https://example.com/"}),
+    ).resolves.toEqual({error: "Invalid navigation path"})
   })
 
   it("writes storage values to encoded v2 keys and reports decoded keys", async () => {
@@ -491,6 +534,229 @@ describe("ExtensionBridge", () => {
           descriptor: {kind: EVENT_TIME},
           sectionNames: ["Events and meetups"],
           writableSectionNames: ["Events and meetups"],
+          moderatorSectionNames: ["Events and meetups"],
+          canWrite: true,
+          canModerate: true,
+        },
+      ],
+    })
+  })
+
+  it("recognizes descriptor writers without treating them as section moderators", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.pubkey.set(calendarMemberPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:checkWriteCapabilities"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:checkWriteCapabilities", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      capabilities: [
+        {
+          descriptor: {kind: EVENT_TIME},
+          writableSectionNames: ["Events and meetups"],
+          moderatorSectionNames: [],
+          canWrite: true,
+          canModerate: false,
+        },
+      ],
+    })
+  })
+
+  it("hydrates profile-list events before resolving descriptor capabilities", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.pubkey.set(calendarMemberPubkey)
+    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+      if (filters?.[0]?.kinds?.[0] === PROFILE_LIST_KIND) onEvent?.(calendarProfileList)
+    })
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:checkWriteCapabilities"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:checkWriteCapabilities", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      capabilities: [
+        {
+          writableSectionNames: ["Events and meetups"],
+          moderatorSectionNames: [],
+          canWrite: true,
+          canModerate: false,
+        },
+      ],
+    })
+    expect(mocks.loadCommunityEvents).toHaveBeenCalledWith(
+      ["wss://relay.example.com/"],
+      expect.arrayContaining([
+        expect.objectContaining({
+          kinds: [PROFILE_LIST_KIND],
+          authors: [calendarWriterPubkey],
+          "#d": ["Events and meetups"],
+        }),
+      ]),
+      expect.objectContaining({authenticate: true}),
+    )
+  })
+
+  it("returns the latest moderator-authored shared config", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.pubkey.set(calendarMemberPubkey)
+    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+      if (filters?.[0]?.kinds?.[0] !== 30078) return
+      onEvent?.(
+        makeEvent({
+          id: "invalid-config",
+          kind: 30078,
+          pubkey: "d".repeat(64),
+          created_at: 100,
+          content: JSON.stringify({header: "Invalid", eventRef: "invalid"}),
+          tags: [["d", filters[0]["#d"][0]]],
+        }),
+      )
+      onEvent?.(
+        makeEvent({
+          id: "valid-config",
+          kind: 30078,
+          pubkey: calendarWriterPubkey,
+          created_at: 90,
+          content: JSON.stringify({header: "Featured", eventRef: "31923:event"}),
+          tags: [["d", filters[0]["#d"][0]]],
+        }),
+      )
+    })
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:querySharedConfig"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:querySharedConfig", {
+        namespace: "budabit-calendar-widget",
+        key: "featured-calendar-event",
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      event: {id: "valid-config"},
+      config: {header: "Featured", eventRef: "31923:event"},
+    })
+  })
+
+  it("only lets descriptor moderators publish shared config", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.pubkey.set(calendarMemberPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:publishSharedConfig"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:publishSharedConfig", {
+        namespace: "budabit-calendar-widget",
+        key: "featured-calendar-event",
+        descriptors: [{kind: EVENT_TIME}],
+        config: {header: "Featured", eventRef: "31923:event"},
+      }),
+    ).resolves.toMatchObject({error: "Current user is not a moderator for the requested community descriptors"})
+
+    mocks.pubkey.set(calendarWriterPubkey)
+    mocks.publishThunk.mockReturnValue({
+      complete: Promise.resolve(),
+      results: {},
+      event: {id: "published-config"},
+    })
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:publishSharedConfig", {
+        namespace: "budabit-calendar-widget",
+        key: "featured-calendar-event",
+        descriptors: [{kind: EVENT_TIME}],
+        config: {header: "Featured", eventRef: "31923:event"},
+      }),
+    ).resolves.toMatchObject({status: "ok", eventId: "published-config"})
+    expect(mocks.publishThunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relays: ["wss://relay.example.com/"],
+        event: expect.objectContaining({kind: 30078}),
+      }),
+    )
+  })
+
+  it("uses widget relay hints when community definition relays are empty", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelayHints.set(["wss://hint.example.com/"])
+    mocks.activeCommunityRelays.set([])
+    mocks.pubkey.set(calendarWriterPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:checkWriteCapabilities"],
+      },
+      communityContext: {
+        version: 1,
+        contextSessionId: "community-context-test",
+        contextVersion: 0,
+        pubkey: communityPubkey,
+        ncommunity: "",
+        relays: ["wss://hint.example.com/"],
+        relayHints: ["wss://hint.example.com/"],
+        blossomServers: [],
+        sections: [],
+        viewer: {pubkey: calendarWriterPubkey, isOwner: false, isBanned: false},
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:checkWriteCapabilities", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      contextVersion: 0,
+      capabilities: [
+        {
+          descriptor: {kind: EVENT_TIME},
           canWrite: true,
         },
       ],
@@ -554,8 +820,8 @@ describe("ExtensionBridge", () => {
       contextSessionId: expect.any(String),
       contextVersion: 0,
     })
-    expect(mocks.load).toHaveBeenNthCalledWith(
-      1,
+    const loadCalls = mocks.load.mock.calls.map(([args]) => args)
+    expect(loadCalls).toContainEqual(
       expect.objectContaining({
         filters: [
           expect.objectContaining({
@@ -566,8 +832,7 @@ describe("ExtensionBridge", () => {
         ],
       }),
     )
-    expect(mocks.load).toHaveBeenNthCalledWith(
-      2,
+    expect(loadCalls).toContainEqual(
       expect.objectContaining({
         filters: [
           {

@@ -68,9 +68,12 @@ export const getWidgetUpdateDiff = (
   const latestPermissionSet = new Set(latestPermissions)
   const fromVersion = getWidgetVersion(installed)
   const toVersion = getWidgetVersion(latest)
+  const versionChanged = fromVersion !== toVersion
 
   return {
-    ...(fromVersion || toVersion ? {version: {from: fromVersion, to: toVersion}} : {}),
+    ...(versionChanged && (fromVersion || toVersion)
+      ? {version: {from: fromVersion, to: toVersion}}
+      : {}),
     changelog: getWidgetChangelog(latest),
     appUrlChanged:
       JSON.stringify(getWidgetAppUrls(installed)) !== JSON.stringify(getWidgetAppUrls(latest)),

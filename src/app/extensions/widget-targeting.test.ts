@@ -15,6 +15,7 @@ vi.mock("@welshman/app", () => ({
 
 import {
   getWidgetAddress,
+  getWidgetCommunityOptionRelayHints,
   getWidgetTargetEventRelayHints,
   getWidgetTargetPublishRelays,
   publishWidgetTargetingEvent,
@@ -48,17 +49,66 @@ describe("widget targeting", () => {
     expect(getWidgetAddress({pubkey: "", identifier: "weather"})).toBe("")
   })
 
-  it("publishes to base relays plus selected community relay hints", () => {
+  it("publishes to base relays plus selected declared community relays", () => {
     expect(
       getWidgetTargetPublishRelays({
         baseRelays: ["wss://base.example"],
         communityOptions: [
-          {pubkey: communityPubkey, relay: "wss://community.example"},
+          {
+            pubkey: communityPubkey,
+            relays: ["wss://community.example"],
+            relayHints: ["wss://hint.example"],
+          },
           {pubkey: secondCommunityPubkey, relays: ["wss://second.example"]},
         ],
         communityPubkeys: [secondCommunityPubkey, communityPubkey],
       }),
     ).toEqual(["wss://base.example/", "wss://second.example/", "wss://community.example/"])
+  })
+
+  it("keeps relay hints available for reads without using them for publishing", () => {
+    const option = {
+      pubkey: communityPubkey,
+      relays: ["wss://community.example"],
+      relayHints: ["wss://hint.example"],
+    }
+
+    expect(getWidgetCommunityOptionRelayHints(option)).toEqual([
+      "wss://hint.example/",
+      "wss://community.example/",
+    ])
+    expect(
+      getWidgetTargetPublishRelays({
+        communityOptions: [option],
+        communityPubkeys: [communityPubkey],
+      }),
+    ).toEqual(["wss://community.example/"])
+  })
+
+  it("rejects target communities without declared relays even when base relays exist", () => {
+    expect(() =>
+      getWidgetTargetPublishRelays({
+        baseRelays: ["wss://base.example"],
+        communityOptions: [
+          {
+            pubkey: communityPubkey,
+            label: "No Relay Community",
+            relayHints: ["wss://hint.example"],
+          },
+        ],
+        communityPubkeys: [communityPubkey],
+      }),
+    ).toThrow("Target communities must declare relays before publishing widgets: No Relay Community")
+  })
+
+  it("rejects unavailable target communities instead of publishing only to base relays", () => {
+    expect(() =>
+      getWidgetTargetPublishRelays({
+        baseRelays: ["wss://base.example"],
+        communityOptions: [],
+        communityPubkeys: [communityPubkey],
+      }),
+    ).toThrow("Target communities are not available for widget publishing")
   })
 
   it("extracts original and community relay hints from targeting events", () => {
@@ -87,8 +137,8 @@ describe("widget targeting", () => {
       widget: {pubkey: widgetPubkey, identifier: "weather"},
       baseRelays: ["wss://base.example"],
       communityOptions: [
-        {pubkey: communityPubkey, relay: "wss://community.example"},
-        {pubkey: secondCommunityPubkey, relay: "wss://second.example"},
+        {pubkey: communityPubkey, relays: ["wss://community.example"]},
+        {pubkey: secondCommunityPubkey, relays: ["wss://second.example"]},
       ],
       communityPubkeys: [communityPubkey, secondCommunityPubkey],
       originalRelay: "wss://widgets.example",

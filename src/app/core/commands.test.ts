@@ -212,6 +212,7 @@ describe("commands", () => {
     repository.removeEvent("publisher-a-weather")
     repository.removeEvent("publisher-b-weather")
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   it("logout clears local Git token caches", async () => {
@@ -899,10 +900,82 @@ describe("commands", () => {
       relays: expect.arrayContaining(["wss://widgets.example/"]),
       filters: [{kinds: [30033], authors: [pubkey], "#d": ["weather"], limit: 1}],
       autoClose: true,
+      signal: expect.any(AbortSignal),
     })
     expect(update?.latest.id).toBe("weather-2")
     expect(update?.diff.appUrlChanged).toBe(true)
     expect(update?.diff.version?.to).toBe("1.0.1")
+  })
+
+  it("checkForWidgetUpdate uses events returned by the relay request", async () => {
+    const {checkForWidgetUpdate} = await import("./commands")
+    const pubkey = "a".repeat(64)
+    const installed = {
+      id: "request-only-1",
+      kind: 30033,
+      content: "Request Only",
+      pubkey,
+      created_at: 1,
+      tags: [["d", "request-only"]],
+      identifier: "request-only",
+      widgetType: "tool",
+      buttons: [],
+      appUrl: "https://example.com/v1.html",
+    } as any
+    const widgetId = getWidgetLineId(installed)
+    const latest = {
+      ...installed,
+      id: "request-only-3",
+      created_at: 3,
+      tags: [
+        ["d", "request-only"],
+        ["version", "1.0.3"],
+        ["button", "Open", "app", "https://example.com/v3.html"],
+      ],
+    }
+
+    settingsMocks.value.widgetInstallSources = {
+      [widgetId]: {relays: ["wss://widgets.example/"]},
+    }
+    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {[widgetId]: installed}})
+    netMocks.request.mockResolvedValueOnce([latest])
+
+    const update = await checkForWidgetUpdate(widgetId)
+
+    expect(update?.latest.id).toBe("request-only-3")
+    expect(update?.diff.version?.to).toBe("1.0.3")
+    expect(update?.diff.appUrlChanged).toBe(true)
+  })
+
+  it("checkForWidgetUpdate times out hanging relay requests", async () => {
+    vi.useFakeTimers()
+    const {checkForWidgetUpdate} = await import("./commands")
+    const pubkey = "a".repeat(64)
+    const installed = {
+      id: "calendar-timeout-1",
+      kind: 30033,
+      content: "Calendar",
+      pubkey,
+      created_at: 1,
+      tags: [["d", "calendar-timeout"]],
+      identifier: "calendar-timeout",
+      widgetType: "tool",
+      buttons: [],
+      appUrl: "https://example.com/v1.html",
+    } as any
+    const widgetId = getWidgetLineId(installed)
+
+    settingsMocks.value.widgetInstallSources = {
+      [widgetId]: {relays: ["wss://widgets.example/"]},
+    }
+    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {[widgetId]: installed}})
+    netMocks.request.mockImplementationOnce(() => new Promise(() => {}))
+
+    const updatePromise = checkForWidgetUpdate(widgetId)
+    await vi.advanceTimersByTimeAsync(8_000)
+
+    await expect(updatePromise).resolves.toBeNull()
+    expect(netMocks.request.mock.calls[0][0].signal.aborted).toBe(true)
   })
 
   it("installWidgetFromEvent stores widgets and install sources by widget line id", async () => {
@@ -1025,6 +1098,64 @@ describe("commands", () => {
       naddr: "naddr1weather",
       relays: ["wss://widgets.example/"],
     })
+    expect(registryMocks.loadWidget).not.toHaveBeenCalled()
+  })
+
+  it("refreshWidget merges update relay hints into install source hints", async () => {
+    const {refreshWidget} = await import("./commands")
+    const oldWidget = {
+      id: "weather-1",
+      identifier: "weather",
+      pubkey: "a".repeat(64),
+      kind: 30033,
+      tags: [["d", "weather"]],
+      widgetType: "tool",
+      version: "1.0.0",
+      appUrl: "https://example.com/v1.html",
+    } as any
+    const newWidget = {
+      ...oldWidget,
+      id: "weather-3",
+      created_at: 3,
+      version: "1.0.3",
+      appUrl: "https://example.com/v3.html",
+    }
+    const widgetId = getWidgetLineId(oldWidget)
+
+    await refreshWidget(widgetId, newWidget, {relays: ["wss://relay.damus.io/"]})
+
+    const next = settingsMocks.update.mock.calls[0][0]({
+      installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
+      widgetInstallSources: {[widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]}},
+      widgetDisplay: {[widgetId]: {location: "modal"}},
+    })
+
+    expect(next.installed.widget[widgetId]).toBe(newWidget)
+    expect(next.widgetInstallSources[widgetId]).toEqual({
+      naddr: "naddr1weather",
+      relays: ["wss://widgets.example/", "wss://relay.damus.io/"],
+    })
+  })
+
+  it("refreshWidget does not preload community-home widgets into the hidden runtime", async () => {
+    const {refreshWidget} = await import("./commands")
+    const oldWidget = {
+      id: "calendar-1",
+      identifier: "calendar",
+      pubkey: "a".repeat(64),
+      kind: 30033,
+      tags: [["d", "calendar"]],
+      widgetType: "tool",
+      slot: {type: "community-home-after-quicklinks", label: "Featured event"},
+    } as any
+    const newWidget = {...oldWidget, id: "calendar-2", created_at: 2}
+    const widgetId = getWidgetLineId(oldWidget)
+
+    settingsMocks.isExtensionEnabled.mockReturnValue(true)
+
+    await refreshWidget(widgetId, newWidget)
+
+    expect(registryMocks.unloadExtension).toHaveBeenCalledWith(widgetId)
     expect(registryMocks.loadWidget).not.toHaveBeenCalled()
   })
 

@@ -178,15 +178,28 @@ const getDefaultWidgetMap = (widgets = get(defaultExtensionWidgets)) =>
     SmartWidgetEvent
   >
 
+const getEffectiveWidgetMap = (
+  installedWidgets: Record<string, SmartWidgetEvent> = {},
+  widgets = get(defaultExtensionWidgets),
+) => {
+  const effective = getDefaultWidgetMap(widgets)
+
+  for (const [id, widget] of Object.entries(installedWidgets)) {
+    const current = effective[id]
+    if (!current || (widget.created_at || 0) >= (current.created_at || 0)) {
+      effective[id] = widget
+    }
+  }
+
+  return effective
+}
+
 export const getEffectiveInstalledExtensions = (
   settings = get(extensionSettings),
   widgets = get(defaultExtensionWidgets),
 ): InstalledExtensions => ({
   nip89: settings.installed?.nip89 || {},
-  widget: {
-    ...(settings.installed?.widget || {}),
-    ...getDefaultWidgetMap(widgets),
-  },
+  widget: getEffectiveWidgetMap(settings.installed?.widget, widgets),
   legacy: settings.installed?.legacy,
 })
 

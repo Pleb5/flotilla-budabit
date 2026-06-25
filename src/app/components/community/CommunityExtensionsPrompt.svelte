@@ -1,5 +1,6 @@
 <script lang="ts">
   import {pubkey} from "@welshman/app"
+  import {onDestroy} from "svelte"
   import Link from "@lib/components/Link.svelte"
   import {normalizePubkey} from "@app/core/community"
   import {activeUserCommunityRefs} from "@app/core/community-state"
@@ -13,6 +14,7 @@
   import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
   import {getTrustedCommunityWidgets} from "@app/extensions/community-widget-trust"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
+  import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent} from "@app/extensions/types"
   import {makeCommunityInputValue} from "@app/util/community-stars"
@@ -27,6 +29,7 @@
   let widgets = $state<SmartWidgetEvent[]>([])
   let trustedAuthorPubkeys = $state<string[]>([])
   let loadKey = ""
+  let loadRequestId = 0
   let sawLoggedInUser = false
 
   const normalizedCommunityPubkey = $derived(normalizePubkey(communityPubkey))
@@ -80,32 +83,45 @@
       widgets = []
       trustedAuthorPubkeys = []
       loadKey = ""
+      loadRequestId += 1
       return
     }
 
     if (key === loadKey) return
     loadKey = key
-
-    let disposed = false
+    const requestId = ++loadRequestId
 
     loadCommunityCuratedWidgets(input)
       .then(result => {
-        if (disposed || key !== loadKey) return
+        if (requestId !== loadRequestId || key !== loadKey) {
+          logCommunityWidgetDebug("extensions prompt discarded stale curated widgets result", {
+            communityPubkey,
+            key,
+            currentKey: loadKey,
+            requestId,
+            currentRequestId: loadRequestId,
+            status: result.status,
+            widgetCount: result.status === "community" ? result.widgets.length : 0,
+          })
+          return
+        }
+
         widgets = result.status === "community" ? result.widgets : []
         trustedAuthorPubkeys =
           result.status === "community" ? result.trustedWidgetAuthorPubkeys : []
       })
       .catch(error => {
-        if (!disposed) console.warn("[community-extensions-prompt] Failed to load widgets", error)
-        if (!disposed && key === loadKey) {
-          widgets = []
-          trustedAuthorPubkeys = []
-        }
-      })
+        if (requestId !== loadRequestId || key !== loadKey) return
 
-    return () => {
-      disposed = true
-    }
+        console.warn("[community-extensions-prompt] Failed to load widgets", error)
+        widgets = []
+        trustedAuthorPubkeys = []
+        loadKey = ""
+      })
+  })
+
+  onDestroy(() => {
+    loadRequestId += 1
   })
 </script>
 

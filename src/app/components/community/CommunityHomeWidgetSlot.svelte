@@ -1,6 +1,7 @@
 <script lang="ts">
   import {getTagValue} from "@welshman/util"
   import {pubkey} from "@welshman/app"
+  import {onDestroy} from "svelte"
   import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import {normalizePubkey} from "@app/core/community"
   import {
@@ -15,6 +16,7 @@
     getEnabledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
   } from "@app/extensions/community-widget-slots"
+  import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {SmartWidgetEvent, WidgetHomeSlotType} from "@app/extensions/types"
@@ -30,6 +32,7 @@
 
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
   let loadKey = ""
+  let loadRequestId = 0
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
@@ -81,27 +84,70 @@
     if (!key || !input) {
       curatedWidgets = []
       loadKey = ""
+      loadRequestId += 1
       return
     }
 
     if (key === loadKey) return
     loadKey = key
+    const requestId = ++loadRequestId
 
-    let disposed = false
+    logCommunityWidgetDebug("home slot loading curated widgets", {
+      slotType,
+      communityPubkey,
+      relayHints,
+      input,
+      key,
+    })
 
     loadCachedCommunityCuratedWidgets(input)
       .then(result => {
-        if (disposed || key !== loadKey) return
+        if (requestId !== loadRequestId || key !== loadKey) {
+          logCommunityWidgetDebug("home slot discarded stale curated widgets result", {
+            slotType,
+            communityPubkey,
+            key,
+            currentKey: loadKey,
+            requestId,
+            currentRequestId: loadRequestId,
+            status: result?.status,
+            widgetCount: result?.status === "community" ? result.widgets.length : 0,
+          })
+          return
+        }
+
         curatedWidgets = result?.status === "community" ? result.widgets : []
+        logCommunityWidgetDebug("home slot loaded curated widgets", {
+          slotType,
+          communityPubkey,
+          key,
+          status: result?.status,
+          widgets: curatedWidgets.map(widget => ({
+            id: getWidgetLineId(widget),
+            identifier: widget.identifier,
+            pubkey: widget.pubkey,
+            slot: widget.slot,
+            appUrl: widget.appUrl,
+          })),
+        })
       })
       .catch(error => {
-        if (!disposed) console.warn("[community-home-widgets] Failed to load widgets", error)
-        if (!disposed && key === loadKey) curatedWidgets = []
-      })
+        if (requestId !== loadRequestId || key !== loadKey) return
 
-    return () => {
-      disposed = true
-    }
+        console.warn("[community-home-widgets] Failed to load widgets", error)
+        logCommunityWidgetDebug("home slot failed to load curated widgets", {
+          slotType,
+          communityPubkey,
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        curatedWidgets = []
+        loadKey = ""
+      })
+  })
+
+  onDestroy(() => {
+    loadRequestId += 1
   })
 </script>
 
@@ -111,13 +157,13 @@
       {@const title = getWidgetTitle(widget)}
       {@const description = getWidgetDescription(widget)}
       <section
-        class="card2 bg-alt overflow-hidden shadow-md"
+        class="overflow-visible"
         aria-label={widget.slot?.label || title}
         title={description || undefined}>
         <WidgetFrame
           {widget}
           context={makeWidgetContext(widget)}
-          class="w-full bg-base-100/30"
+          class="w-full"
           minHeight={220} />
       </section>
     {/each}
