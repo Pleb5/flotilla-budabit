@@ -1,4 +1,15 @@
-import {getPlaintext, setPlaintext, signer} from "@welshman/app"
+import {get, writable} from "svelte/store"
+import {chunk} from "@welshman/lib"
+import {makeLoader} from "@welshman/net"
+import {
+  getFollows,
+  getMutes,
+  getPlaintext,
+  pubkey,
+  repository,
+  setPlaintext,
+  signer,
+} from "@welshman/app"
 import {Router} from "@welshman/router"
 import {decrypt} from "@welshman/signer"
 import {
@@ -6,10 +17,17 @@ import {
   getRelayTagValues,
   getTagValue,
   isRelayUrl,
+  MESSAGING_RELAYS,
   normalizeRelayUrl,
 } from "@welshman/util"
 import type {List, TrustedEvent} from "@welshman/util"
 import {DM_KIND, INDEXER_RELAYS} from "@app/core/state"
+import {getProfileListPubkeys, normalizePubkey, PROFILE_LIST_KIND} from "@app/core/community"
+import type {
+  ActiveUserCommunityRef,
+  UserCommunityReportStates,
+} from "@app/core/community-membership"
+import {isCommunityPersonBanned} from "@app/core/community-reports"
 export {DM_KIND}
 
 export type DmRelayRecommendationSourceKind =
@@ -78,6 +96,33 @@ export type DmRelayRecommendation = {
   isConfigured: boolean
 }
 
+export type DmRelayRecommendationState = {
+  status: "idle" | "loading" | "ready" | "error"
+  authorCount: number
+  eventCount: number
+  recommendationCount: number
+  error?: string
+}
+
+export type BuildDmRelayRecommendationsInput = {
+  viewerPubkey?: string
+  currentRelays?: string[]
+  communityRefs?: ActiveUserCommunityRef[]
+  profileListEvents?: TrustedEvent[]
+  reportStates?: UserCommunityReportStates
+  follows?: string[]
+  mutes?: string[]
+  messagingRelayListEvents?: TrustedEvent[]
+  extraSources?: DmRelayRecommendationSource[]
+}
+
+export type LoadDmRelayRecommendationsInput = Omit<
+  BuildDmRelayRecommendationsInput,
+  "viewerPubkey" | "follows" | "mutes" | "messagingRelayListEvents"
+> & {
+  starredCommunityPubkeys?: string[]
+}
+
 const DM_RELAY_SOURCE_SCORES: Record<DmRelayRecommendationSourceKind, number> = {
   own_messaging: 90,
   community_messaging: 80,
@@ -91,6 +136,23 @@ const DM_RELAY_SOURCE_SCORES: Record<DmRelayRecommendationSourceKind, number> = 
 
 const DM_RELAY_ADMIN_BONUS = 16
 const DM_RELAY_MODERATOR_BONUS = 8
+const DM_RELAY_AUTHOR_LIMIT = 500
+const DM_RELAY_DIRECT_FOLLOW_AUTHOR_LIMIT = 250
+const DM_RELAY_AUTHOR_BATCH_SIZE = 80
+
+const dmRelayRecommendationLoad = makeLoader({delay: 200, timeout: 6000, threshold: 0.5})
+
+const defaultDmRelayRecommendationState: DmRelayRecommendationState = {
+  status: "idle",
+  authorCount: 0,
+  eventCount: 0,
+  recommendationCount: 0,
+}
+
+export const dmRelayRecommendations = writable<DmRelayRecommendation[]>([])
+export const dmRelayRecommendationState = writable<DmRelayRecommendationState>(
+  defaultDmRelayRecommendationState,
+)
 
 const DM_RELAY_MESSAGING_SOURCES = new Set<DmRelayRecommendationSourceKind>([
   "own_messaging",
@@ -119,6 +181,71 @@ const makeEmptyDmRelayRecommendationCounts = (): DmRelayRecommendationCounts => 
   follows: 0,
   messagingLists: 0,
 })
+
+const unique = <T>(values: T[]) => Array.from(new Set(values))
+
+const getDTag = (event: TrustedEvent) => event.tags.find(tag => tag[0] === "d")?.[1] || ""
+
+const getReplaceableAddress = (event: TrustedEvent) => {
+  const d = getDTag(event)
+
+  return d ? `${event.kind}:${event.pubkey}:${d}` : ""
+}
+
+const isPreferredEvent = (candidate: TrustedEvent, current: TrustedEvent | undefined) => {
+  if (!current) return true
+  if (candidate.created_at !== current.created_at) return candidate.created_at > current.created_at
+
+  return candidate.id < current.id
+}
+
+const getLatestProfileListEventsByAddress = (events: TrustedEvent[] = []) => {
+  const latest = new Map<string, TrustedEvent>()
+
+  for (const event of events) {
+    if (event.kind !== PROFILE_LIST_KIND) continue
+
+    const address = getReplaceableAddress(event)
+    if (!address) continue
+
+    const current = latest.get(address)
+    if (isPreferredEvent(event, current)) latest.set(address, event)
+  }
+
+  return latest
+}
+
+const getLatestMessagingRelayListEventsByPubkey = (events: TrustedEvent[] = []) => {
+  const latest = new Map<string, TrustedEvent>()
+
+  for (const event of events) {
+    if (event.kind !== MESSAGING_RELAYS) continue
+
+    const author = normalizePubkey(event.pubkey || "")
+    if (!author) continue
+
+    const current = latest.get(author)
+    if (isPreferredEvent(event, current)) latest.set(author, event)
+  }
+
+  return Array.from(latest.values())
+}
+
+const getReportState = (states: UserCommunityReportStates | undefined, communityPubkey: string) =>
+  states instanceof Map ? states.get(communityPubkey) : states?.[communityPubkey]
+
+const getDefinitionsFromRefs = (refs: ActiveUserCommunityRef[] = []) => {
+  const byPubkey = new Map<string, ActiveUserCommunityRef["definition"]>()
+
+  for (const ref of refs) {
+    const current = byPubkey.get(ref.communityPubkey)
+    if (!current || ref.definition.event.created_at > current.event.created_at) {
+      byPubkey.set(ref.communityPubkey, ref.definition)
+    }
+  }
+
+  return Array.from(byPubkey.values())
+}
 
 export const normalizeRelayUrls = (relays: string[]) => {
   const result: string[] = []
@@ -354,6 +481,355 @@ export const getDmRelayRecommendations = (
       a.url.localeCompare(b.url),
   )
 }
+
+export const getDmRelayRecommendationSourceLabel = (
+  source: DmRelayRecommendationSourceKind,
+) => {
+  switch (source) {
+    case "active_community_relay":
+      return "active community relay"
+    case "starred_community_relay":
+      return "starred community relay"
+    case "community_messaging":
+      return "community messaging list"
+    case "admin_messaging":
+      return "admin messaging list"
+    case "moderator_messaging":
+      return "moderator messaging list"
+    case "member_messaging":
+      return "member messaging list"
+    case "own_messaging":
+      return "your messaging list"
+    case "follow_messaging":
+      return "follow messaging list"
+  }
+}
+
+const getDmRelayUrlsFromEvent = (event: TrustedEvent) =>
+  normalizeRelayUrls(getRelayTagValues(event.tags || []))
+
+const getCommunityMessagingSourceKind = ({
+  definition,
+  profileListsByAddress,
+  reportStates,
+  pubkey,
+}: {
+  definition: ActiveUserCommunityRef["definition"]
+  profileListsByAddress: Map<string, TrustedEvent>
+  reportStates?: UserCommunityReportStates
+  pubkey: string
+}): DmRelayRecommendationSourceKind | undefined => {
+  const normalizedPubkey = normalizePubkey(pubkey || "")
+  if (!normalizedPubkey) return
+
+  if (definition.pubkey === normalizedPubkey) {
+    return "community_messaging"
+  }
+
+  if (isCommunityPersonBanned(getReportState(reportStates, definition.pubkey), normalizedPubkey)) {
+    return
+  }
+
+  let isModerator = false
+  let isMember = false
+
+  for (const section of definition.sections) {
+    for (const ref of section.profileLists) {
+      const event = profileListsByAddress.get(ref.address)
+      const moderatorPubkey = normalizePubkey(ref.pubkey || "")
+
+      if (moderatorPubkey === normalizedPubkey && event?.pubkey === normalizedPubkey) {
+        isModerator = true
+      }
+
+      if (getProfileListPubkeys(event).includes(normalizedPubkey)) {
+        isMember = true
+      }
+    }
+  }
+
+  if (isModerator) return "moderator_messaging"
+  if (isMember) return "member_messaging"
+}
+
+const getActiveCommunityRelaySources = (communityRefs: ActiveUserCommunityRef[] = []) =>
+  communityRefs.flatMap(ref => {
+    if (ref.definition.relays.length === 0) return []
+
+    return [
+      {
+        source: "active_community_relay" as const,
+        communityPubkey: ref.communityPubkey,
+        relays: ref.definition.relays,
+        isStarred: false,
+        isModerator: ref.roles.includes("moderator"),
+        isAdmin: ref.roles.includes("admin"),
+      },
+    ]
+  })
+
+export const buildDmRelayRecommendations = ({
+  viewerPubkey = "",
+  currentRelays = [],
+  communityRefs = [],
+  profileListEvents = [],
+  reportStates,
+  follows = [],
+  mutes = [],
+  messagingRelayListEvents = [],
+  extraSources = [],
+}: BuildDmRelayRecommendationsInput) => {
+  const viewer = normalizePubkey(viewerPubkey || "")
+  const followed = new Set(follows.map(normalizePubkey).filter(Boolean))
+  const muted = new Set(mutes.map(normalizePubkey).filter(Boolean))
+  const profileListsByAddress = getLatestProfileListEventsByAddress(profileListEvents)
+  const definitions = getDefinitionsFromRefs(communityRefs)
+  const sources: DmRelayRecommendationSource[] = [
+    ...getActiveCommunityRelaySources(communityRefs),
+    ...extraSources,
+  ]
+
+  for (const event of getLatestMessagingRelayListEventsByPubkey(messagingRelayListEvents)) {
+    const recommender = normalizePubkey(event.pubkey || "")
+    if (!recommender) continue
+
+    const relays = getDmRelayUrlsFromEvent(event)
+    if (relays.length === 0) continue
+
+    if (viewer && recommender === viewer) {
+      sources.push({
+        source: "own_messaging",
+        pubkey: recommender,
+        relays,
+        createdAt: event.created_at,
+      })
+      continue
+    }
+
+    const communitySources: DmRelayRecommendationSource[] = []
+
+    for (const definition of definitions) {
+      const sourceKind = getCommunityMessagingSourceKind({
+        definition,
+        profileListsByAddress,
+        reportStates,
+        pubkey: recommender,
+      })
+
+      if (!sourceKind) continue
+
+      communitySources.push({
+        source: sourceKind,
+        pubkey: recommender,
+        communityPubkey: definition.pubkey,
+        relays,
+        createdAt: event.created_at,
+        isModerator: sourceKind === "moderator_messaging",
+        isAdmin: sourceKind === "community_messaging" || sourceKind === "admin_messaging",
+      })
+    }
+
+    if (communitySources.length > 0) {
+      sources.push(...communitySources)
+      continue
+    }
+
+    if (followed.has(recommender) && !muted.has(recommender)) {
+      sources.push({
+        source: "follow_messaging",
+        pubkey: recommender,
+        relays,
+        createdAt: event.created_at,
+      })
+    }
+  }
+
+  return getDmRelayRecommendations(sources, currentRelays)
+}
+
+const getCommunityProfileListAuthors = (
+  communityRefs: ActiveUserCommunityRef[],
+  profileListEvents: TrustedEvent[],
+) => {
+  const profileListsByAddress = getLatestProfileListEventsByAddress(profileListEvents)
+  const communityAuthors: string[] = []
+  const moderatorAuthors: string[] = []
+  const memberAuthors: string[] = []
+
+  for (const definition of getDefinitionsFromRefs(communityRefs)) {
+    communityAuthors.push(definition.pubkey)
+
+    for (const section of definition.sections) {
+      for (const ref of section.profileLists) {
+        moderatorAuthors.push(ref.pubkey)
+
+        const event = profileListsByAddress.get(ref.address)
+        memberAuthors.push(...getProfileListPubkeys(event))
+      }
+    }
+  }
+
+  return {communityAuthors, moderatorAuthors, memberAuthors}
+}
+
+export const getDmRelayRecommendationAuthors = ({
+  viewerPubkey,
+  follows = [],
+  communityRefs = [],
+  profileListEvents = [],
+  starredCommunityPubkeys = [],
+}: {
+  viewerPubkey?: string
+  follows?: string[]
+  communityRefs?: ActiveUserCommunityRef[]
+  profileListEvents?: TrustedEvent[]
+  starredCommunityPubkeys?: string[]
+}) => {
+  const viewer = normalizePubkey(viewerPubkey || "")
+  const {communityAuthors, moderatorAuthors, memberAuthors} = getCommunityProfileListAuthors(
+    communityRefs,
+    profileListEvents,
+  )
+  const directFollows = follows
+    .map(normalizePubkey)
+    .filter(author => author && author !== viewer)
+    .slice(0, DM_RELAY_DIRECT_FOLLOW_AUTHOR_LIMIT)
+
+  return unique(
+    [
+      viewer,
+      ...communityAuthors,
+      ...moderatorAuthors,
+      ...starredCommunityPubkeys,
+      ...directFollows,
+      ...memberAuthors,
+    ]
+      .map(normalizePubkey)
+      .filter(Boolean),
+  ).slice(0, DM_RELAY_AUTHOR_LIMIT)
+}
+
+const getDmRelayRecommendationRelays = (
+  authors: string[],
+  communityRefs: ActiveUserCommunityRef[],
+) => {
+  let authorRelays: string[] = []
+  let userRelays: string[] = []
+  let indexRelays: string[] = []
+
+  try {
+    authorRelays = Router.get().FromPubkeys(authors).getUrls() || []
+  } catch {
+    // pass
+  }
+
+  try {
+    userRelays = Router.get().FromUser().getUrls() || []
+  } catch {
+    // pass
+  }
+
+  try {
+    indexRelays = Router.get().Index().getUrls() || []
+  } catch {
+    // pass
+  }
+
+  return normalizeRelayUrls([
+    ...communityRefs.flatMap(ref => ref.relayHints),
+    ...authorRelays,
+    ...userRelays,
+    ...indexRelays,
+    ...INDEXER_RELAYS,
+  ])
+}
+
+const loadMessagingRelayListEvents = async (authors: string[], relays: string[]) => {
+  const loaded: TrustedEvent[] = []
+
+  for (const batch of chunk(DM_RELAY_AUTHOR_BATCH_SIZE, authors)) {
+    const events = await dmRelayRecommendationLoad({
+      filters: [{kinds: [MESSAGING_RELAYS], authors: batch}],
+      relays,
+    })
+
+    loaded.push(...(events as TrustedEvent[]))
+  }
+
+  return loaded
+}
+
+export const loadDmRelayRecommendations = async ({
+  currentRelays = [],
+  communityRefs = [],
+  profileListEvents = [],
+  reportStates,
+  extraSources = [],
+  starredCommunityPubkeys = [],
+}: LoadDmRelayRecommendationsInput = {}) => {
+  const viewer = pubkey.get() || ""
+  const follows = viewer ? getFollows(viewer) : []
+  const mutes = viewer ? getMutes(viewer) : []
+  const authors = getDmRelayRecommendationAuthors({
+    viewerPubkey: viewer,
+    follows,
+    communityRefs,
+    profileListEvents,
+    starredCommunityPubkeys,
+  })
+  const relays = getDmRelayRecommendationRelays(authors, communityRefs)
+
+  dmRelayRecommendationState.set({
+    ...defaultDmRelayRecommendationState,
+    status: "loading",
+    authorCount: authors.length,
+  })
+
+  try {
+    if (authors.length > 0 && relays.length > 0) {
+      await loadMessagingRelayListEvents(authors, relays)
+    }
+
+    const messagingRelayListEvents =
+      authors.length > 0
+        ? (repository.query([{kinds: [MESSAGING_RELAYS], authors}]) as TrustedEvent[])
+        : []
+    const recommendations = buildDmRelayRecommendations({
+      viewerPubkey: viewer,
+      currentRelays,
+      communityRefs,
+      profileListEvents,
+      reportStates,
+      follows,
+      mutes,
+      messagingRelayListEvents,
+      extraSources,
+    })
+
+    dmRelayRecommendations.set(recommendations)
+    dmRelayRecommendationState.set({
+      status: "ready",
+      authorCount: authors.length,
+      eventCount: messagingRelayListEvents.length,
+      recommendationCount: recommendations.length,
+    })
+
+    return recommendations
+  } catch (error) {
+    dmRelayRecommendations.set([])
+    dmRelayRecommendationState.set({
+      status: "error",
+      authorCount: authors.length,
+      eventCount: 0,
+      recommendationCount: 0,
+      error: error instanceof Error ? error.message : "Failed to load DM relay recommendations.",
+    })
+
+    return []
+  }
+}
+
+export const getDmRelayRecommendationsSnapshot = () => get(dmRelayRecommendations)
 
 export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
 

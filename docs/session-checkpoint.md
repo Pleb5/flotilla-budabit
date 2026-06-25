@@ -14,17 +14,14 @@
 
 ## Current Phase
 
-- Phase 2: Loader And Settings UI Wiring
+- Phase 3: Final Verification And Closeout
 
 ## Phase Exit Criteria
 
-- A loader/store path fetches trusted authors' `kind:10050` messaging relay lists using active community refs, profile-list events, report state, follows, mutes, community relay hints, user relays, author relays, and index relays.
-- Recommendation authors are community-first: viewer, active community pubkeys, moderators, starred community pubkeys, follows, then members, with sensible limits.
-- Starred community `kind:10222` relay evidence remains included and ranks above social follows.
-- Muted social follows do not contribute follow evidence.
-- `src/routes/settings/relays/+page.svelte` uses the loader/store and shows evidence labels that are not limited to starred communities.
-- Focused verification passes for DM tests and a Svelte/type check command if practical.
-- Phase 2 changes are committed and pushed without staging unrelated files.
+- Focused DM tests pass after all changes.
+- Project-level verification is run or a concrete blocker is recorded.
+- Checkpoint records `Current Phase: Complete` with final evidence and changed files.
+- Final checkpoint closeout is committed and pushed without staging unrelated files.
 
 ## Completed With Evidence
 
@@ -33,6 +30,14 @@
 - Phase 1 kept `getDmRelayRecommendations` pure, preserved configured relay visibility, and added deterministic evidence aggregation/dedupe with source priority so starred community evidence ranks above social follows.
 - Phase 1 updated `src/app/core/dm.test.ts` to cover active community relays without stars, starred communities above multiple social follows, moderator/member messaging-list ranking, configured relays, and duplicate source evidence dedupe.
 - Phase 1 focused verification passed: `pnpm vitest run src/app/core/dm.test.ts`.
+- Phase 2 added `dmRelayRecommendations`, `dmRelayRecommendationState`, `buildDmRelayRecommendations`, `getDmRelayRecommendationAuthors`, and `loadDmRelayRecommendations` in `src/app/core/dm.ts`.
+- Phase 2 loader fetches trusted authors' `kind:10050` messaging relay lists using community refs, profile-list events, follows/mutes, community/user/author/index relay hints, and repository query results.
+- Phase 2 author selection is community-first: viewer, active community pubkeys, moderators, starred community pubkeys, follows, then members, with author limits.
+- Phase 2 build path includes active community relays, starred community relays, community/moderator/member messaging lists, own messaging lists, and unmuted social follow messaging lists.
+- Phase 2 updated `src/routes/settings/relays/+page.svelte` to load the store, include active community/profile/report/star state, and show evidence labels beyond starred communities.
+- Phase 2 tests cover author ordering, muted follow exclusion, messaging-list evidence, active community relay evidence, and starred community evidence ranking above social follows.
+- Phase 2 focused verification passed: `pnpm vitest run src/app/core/dm.test.ts`.
+- Phase 2 project verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -45,21 +50,23 @@
 
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
 - Worktree already contains unrelated extension/widget changes; do not stage them.
-- `dm.ts` now has the pure evidence-based scorer, but settings still recommends only starred communities from `kind:10222` definitions.
-- No loader/store exists yet for trusted authors' `kind:10050` recommendation events.
+- `dm.ts` now has the pure scorer, recommendation builder, author selection, loader/store, and source labels.
+- Settings messaging relays now use the community-first recommendation store and evidence badges.
 
 ## Next Action
 
-- Start Phase 2: add the loader/store path and wire `src/routes/settings/relays/+page.svelte` to community-first evidence.
+- Start Phase 3: run final focused/project verification, update checkpoint to `Complete`, then commit/push final closeout.
 
 ## Verification
 
 - Phase 1 focused tests passed: `pnpm vitest run src/app/core/dm.test.ts`
+- Phase 2 focused tests passed: `pnpm vitest run src/app/core/dm.test.ts`
+- Phase 2 project check passed: `pnpm check`
 
 ## Risks Or Blockers
 
 - Worktree has many unrelated modified files; stage only intended DM relay recommendation files and durable session docs.
-- Later UI wiring may need careful Svelte syntax validation.
+- `pnpm check` has validated the Svelte wiring, but unrelated worktree changes remain present and must not be staged.
 
 ## Files
 

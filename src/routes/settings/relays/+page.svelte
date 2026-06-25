@@ -12,6 +12,10 @@
   import {normalizePubkey, type CommunityDefinition} from "@app/core/community"
   import {
     activeCommunityStars,
+    activeUserCommunityRefs,
+    communityMemberProfileListEvents,
+    communityMemberReportStates,
+    communityModeratorProfileListEvents,
     communityStarsLoading,
     getCommunityBootstrapRelays,
     hydrateCommunityStars,
@@ -20,7 +24,15 @@
     selectLatestCommunityDefinition,
   } from "@app/core/community-state"
   import {setRelayPolicy, setMessagingRelayPolicy} from "@app/core/commands"
-  import {getDmRelayRecommendations} from "@app/core/dm"
+  import {
+    dmRelayRecommendationState,
+    dmRelayRecommendations,
+    getDmRelayRecommendationSourceLabel,
+    loadDmRelayRecommendations,
+    type DmRelayRecommendationEvidence,
+    type DmRelayRecommendationSource,
+    type DmRelayRecommendationSourceKind,
+  } from "@app/core/dm"
   import {getGrantCapability} from "@app/core/community-permissions"
   import type {CommunityStarRef} from "@app/util/community-stars"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
@@ -66,6 +78,14 @@
   let recommendedCommunityDefinitions = $state<Record<string, CommunityDefinition>>({})
   let recommendedDefinitionLoadKeys = $state<Record<string, string>>({})
   let recommendedDefinitionLoads = $state<Record<string, boolean>>({})
+  let recommendationLoadKey = $state("")
+
+  const recommendationState = $derived($dmRelayRecommendationState)
+  const recommendedMessagingRelays = $derived($dmRelayRecommendations)
+  const profileListEvents = $derived([
+    ...$communityMemberProfileListEvents,
+    ...$communityModeratorProfileListEvents,
+  ])
 
   const setRecommendedCommunityDefinition = (definition: CommunityDefinition | undefined) => {
     if (!definition) return
@@ -98,7 +118,7 @@
   const recommendationDefinitionLoading = $derived(
     Object.values(recommendedDefinitionLoads).some(Boolean),
   )
-  const recommendationSources = $derived.by(() =>
+  const recommendationSources = $derived.by<DmRelayRecommendationSource[]>(() =>
     $activeCommunityStars.flatMap(star => {
       const definition = recommendedCommunityDefinitions[star.communityPubkey]
       if (!definition) return []
@@ -115,6 +135,7 @@
 
       return [
         {
+          source: "starred_community_relay",
           communityPubkey: star.communityPubkey,
           relays: definition.relays,
           starredAt: star.reaction.created_at,
@@ -125,35 +146,48 @@
       ]
     }),
   )
-  const recommendedMessagingRelays = $derived.by(() =>
-    getDmRelayRecommendations(recommendationSources, $messagingRelayUrls),
-  )
   const configuredRecommendationCount = $derived(
     recommendedMessagingRelays.filter(recommendation => recommendation.isConfigured).length,
   )
+  const recommendationLoading = $derived(
+    $communityStarsLoading || recommendationDefinitionLoading || recommendationState.status === "loading",
+  )
   const recommendationStatus = $derived.by(() => {
-    if ($communityStarsLoading || recommendationDefinitionLoading) {
-      return "Loading relay recommendations from your starred communities..."
+    if (recommendationLoading) {
+      return "Checking active communities, starred communities, and messaging relay lists..."
     }
 
-    if ($activeCommunityStars.length === 0) {
-      return "Star communities to get DM relay recommendations from their kind:10222 relay lists."
+    if (recommendationState.status === "error") {
+      return recommendationState.error || "Could not load messaging relay recommendations."
     }
 
-    if (recommendationSources.length === 0) {
-      return "No kind:10222 relay lists were found for your starred communities yet."
+    if ($activeUserCommunityRefs.length === 0 && $activeCommunityStars.length === 0) {
+      return "Join, moderate, root-admin, or star communities to get community-first DM relay recommendations."
     }
 
     if (recommendedMessagingRelays.length === 0) {
-      return "The starred communities we found do not publish usable relay URLs."
+      return "No usable messaging relay recommendations were found from your trusted community graph yet."
     }
 
     if (configuredRecommendationCount === recommendedMessagingRelays.length) {
       return "All recommended relays are already configured. They remain listed so you can see why they scored."
     }
 
-    return "Recommendations are ranked by starred community relays, with stronger ranking when you moderate or root-admin that community. DMs still require both people to configure a DM relay."
+    return "Recommendations are ranked by active community trust, explicit messaging relay lists, starred communities, then social follows. DMs still require both people to configure a DM relay."
   })
+
+  const getRecommendationEvidencePubkey = (evidence: DmRelayRecommendationEvidence) =>
+    evidence.communityPubkey || evidence.pubkey || ""
+
+  const getRecommendationEvidenceKey = (evidence: DmRelayRecommendationEvidence) =>
+    `${evidence.source}:${evidence.pubkey || ""}:${evidence.communityPubkey || ""}`
+
+  const getRecommendationEvidenceBadgeClass = (source: DmRelayRecommendationSourceKind) => {
+    if (source === "starred_community_relay") return "badge badge-accent"
+    if (source === "follow_messaging") return "badge badge-ghost"
+
+    return "badge badge-secondary"
+  }
 
   $effect(() => {
     if (!$pubkey) return
@@ -186,6 +220,42 @@
         }
       })
     }
+  })
+
+  $effect(() => {
+    if (!$pubkey) return
+
+    const key = JSON.stringify({
+      pubkey: $pubkey,
+      currentRelays: $messagingRelayUrls,
+      communities: $activeUserCommunityRefs.map(
+        ref => `${ref.communityPubkey}:${ref.definition.event.id}`,
+      ),
+      profileLists: profileListEvents.map(event => `${event.id}:${event.created_at}`),
+      reports: Array.from($communityMemberReportStates.entries()).map(([community, state]) => [
+        community,
+        state.personReports.length,
+        state.eventReports.length,
+      ]),
+      starredCommunities: $activeCommunityStars.map(
+        star => `${star.communityPubkey}:${star.reaction.created_at}`,
+      ),
+      starSources: recommendationSources.map(
+        source => `${source.communityPubkey}:${source.starredAt || 0}:${source.relays.join(",")}`,
+      ),
+    })
+
+    if (key === recommendationLoadKey) return
+
+    recommendationLoadKey = key
+    loadDmRelayRecommendations({
+      currentRelays: $messagingRelayUrls,
+      communityRefs: $activeUserCommunityRefs,
+      profileListEvents,
+      reportStates: $communityMemberReportStates,
+      extraSources: recommendationSources,
+      starredCommunityPubkeys: $activeCommunityStars.map(star => star.communityPubkey),
+    }).catch(() => undefined)
   })
 
   onMount(() => {
@@ -291,11 +361,11 @@
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
-                Recommended from starred communities
+                Recommended messaging relays
               </p>
               <p class="mt-1 text-sm opacity-70">{recommendationStatus}</p>
             </div>
-            {#if $communityStarsLoading || recommendationDefinitionLoading}
+            {#if recommendationLoading}
               <span class="loading loading-spinner loading-xs shrink-0 opacity-60"></span>
             {/if}
           </div>
@@ -313,8 +383,8 @@
                         {/if}
                       </div>
                       <p class="mt-1 text-xs opacity-70">
-                        Recommended by {recommendation.count} starred
-                        {recommendation.count === 1 ? "community" : "communities"}
+                        Recommended by {recommendation.count} trusted
+                        {recommendation.count === 1 ? "source" : "sources"}
                       </p>
                     </div>
                     {#if recommendation.isConfigured}
@@ -330,32 +400,24 @@
                   </div>
 
                   <div class="mt-3 flex flex-wrap gap-2">
-                    {#each recommendation.communities.slice(0, MAX_RECOMMENDATION_SOURCES) as source (source.communityPubkey)}
-                      {@const sourceProofs = [
-                        source.isAdmin ? "admin" : "",
-                        source.isModerator ? "moderator" : "",
-                        source.isStarred ? "starred community relay" : "",
-                      ].filter(Boolean)}
+                    {#each recommendation.evidence.slice(0, MAX_RECOMMENDATION_SOURCES) as source (getRecommendationEvidenceKey(source))}
+                      {@const sourcePubkey = getRecommendationEvidencePubkey(source)}
+                      {@const sourceLabel = getDmRelayRecommendationSourceLabel(source.source)}
                       <span
                         class="badge badge-ghost flex max-w-full gap-1"
-                        title={sourceProofs.join(", ")}>
-                        <ProfileCircle pubkey={source.communityPubkey} size={4} />
-                        <span class="ellipsize max-w-32"
-                          ><ProfileName pubkey={source.communityPubkey} /></span>
+                        title={sourceLabel}>
+                        {#if sourcePubkey}
+                          <ProfileCircle pubkey={sourcePubkey} size={4} />
+                          <span class="ellipsize max-w-32"><ProfileName pubkey={sourcePubkey} /></span>
+                        {:else}
+                          <span>{sourceLabel}</span>
+                        {/if}
                       </span>
-                      {#if source.isAdmin}
-                        <span class="badge badge-primary">admin</span>
-                      {/if}
-                      {#if source.isModerator}
-                        <span class="badge badge-secondary">moderator</span>
-                      {/if}
-                      {#if source.isStarred}
-                        <span class="badge badge-accent">starred community relay</span>
-                      {/if}
+                      <span class={getRecommendationEvidenceBadgeClass(source.source)}>{sourceLabel}</span>
                     {/each}
-                    {#if recommendation.communityPubkeys.length > MAX_RECOMMENDATION_SOURCES}
+                    {#if recommendation.evidence.length > MAX_RECOMMENDATION_SOURCES}
                       <span class="badge badge-ghost">
-                        +{recommendation.communityPubkeys.length - MAX_RECOMMENDATION_SOURCES} more
+                        +{recommendation.evidence.length - MAX_RECOMMENDATION_SOURCES} more
                       </span>
                     {/if}
                   </div>

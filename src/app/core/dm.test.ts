@@ -1,14 +1,91 @@
 import {describe, expect, it} from "vitest"
+import {MESSAGING_RELAYS, type TrustedEvent} from "@welshman/util"
+import {PROFILE_LIST_KIND} from "./community"
+import type {ActiveUserCommunityRef} from "./community-membership"
 import {
+  buildDmRelayRecommendations,
   normalizeRelayUrls,
   getDmRelayUrls,
   getDmRelayRecommendations,
+  getDmRelayRecommendationAuthors,
   getDmRelayRecommendationSourceScore,
   getDmPublishRelays,
   hasDmInbox,
   getDmCounterparty,
   getMessagingRelayHints,
 } from "./dm"
+
+const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
+  ({
+    id: overrides.id || "e".repeat(64),
+    pubkey: overrides.pubkey || "a".repeat(64),
+    created_at: overrides.created_at || 1,
+    kind: overrides.kind || 1,
+    tags: overrides.tags || [],
+    content: overrides.content || "",
+    sig: overrides.sig || "sig",
+  }) as TrustedEvent
+
+const makeCommunityRef = ({
+  communityPubkey,
+  moderatorPubkey,
+  relay = "wss://active.relay.example.com",
+}: {
+  communityPubkey: string
+  moderatorPubkey: string
+  relay?: string
+}): ActiveUserCommunityRef => {
+  const listAddress = `${PROFILE_LIST_KIND}:${moderatorPubkey}:Repositories`
+
+  return {
+    communityPubkey,
+    relayHints: [relay],
+    roles: ["member"],
+    writableSections: ["Repositories"],
+    definition: {
+      pubkey: communityPubkey,
+      relays: [relay],
+      sections: [
+        {
+          name: "Repositories",
+          profileLists: [{address: listAddress, pubkey: moderatorPubkey, relay}],
+        },
+      ],
+      event: makeEvent({pubkey: communityPubkey, created_at: 1}),
+    },
+  } as ActiveUserCommunityRef
+}
+
+const makeProfileList = ({
+  pubkey,
+  members = [],
+}: {
+  pubkey: string
+  members?: string[]
+}) =>
+  makeEvent({
+    id: `${pubkey.slice(0, 8)}-profile-list`,
+    pubkey,
+    kind: PROFILE_LIST_KIND,
+    tags: [["d", "Repositories"], ...members.map(member => ["p", member])],
+  })
+
+const makeMessagingRelayList = ({
+  pubkey,
+  relays,
+  created_at = 1,
+}: {
+  pubkey: string
+  relays: string[]
+  created_at?: number
+}) =>
+  makeEvent({
+    id: `${pubkey.slice(0, 8)}-${created_at}`,
+    pubkey,
+    kind: MESSAGING_RELAYS,
+    created_at,
+    tags: relays.map(relay => ["relay", relay]),
+  })
 
 describe("dm", () => {
   describe("normalizeRelayUrls", () => {
@@ -261,6 +338,95 @@ describe("dm", () => {
         ],
         evidence: [expect.objectContaining({source: "starred_community_relay", score: 40})],
       })
+    })
+  })
+
+  describe("getDmRelayRecommendationAuthors", () => {
+    it("prioritizes community authors before follows and members", () => {
+      const viewer = "1".repeat(64)
+      const community = "2".repeat(64)
+      const moderator = "3".repeat(64)
+      const member = "4".repeat(64)
+      const follow = "5".repeat(64)
+      const starred = "6".repeat(64)
+      const communityRef = makeCommunityRef({communityPubkey: community, moderatorPubkey: moderator})
+      const profileList = makeProfileList({pubkey: moderator, members: [viewer, member]})
+
+      const authors = getDmRelayRecommendationAuthors({
+        viewerPubkey: viewer,
+        follows: [follow],
+        communityRefs: [communityRef],
+        profileListEvents: [profileList],
+        starredCommunityPubkeys: [starred],
+      })
+
+      expect(authors.slice(0, 6)).toEqual([viewer, community, moderator, starred, follow, member])
+    })
+  })
+
+  describe("buildDmRelayRecommendations", () => {
+    it("builds community-first recommendations from messaging lists and relay sources", () => {
+      const viewer = "1".repeat(64)
+      const community = "2".repeat(64)
+      const moderator = "3".repeat(64)
+      const member = "4".repeat(64)
+      const follow = "5".repeat(64)
+      const mutedFollow = "6".repeat(64)
+      const communityRef = makeCommunityRef({communityPubkey: community, moderatorPubkey: moderator})
+      const profileList = makeProfileList({pubkey: moderator, members: [viewer, member]})
+      const recommendations = buildDmRelayRecommendations({
+        viewerPubkey: viewer,
+        communityRefs: [communityRef],
+        profileListEvents: [profileList],
+        follows: [follow, mutedFollow],
+        mutes: [mutedFollow],
+        extraSources: [
+          {
+            source: "starred_community_relay",
+            communityPubkey: community,
+            relays: ["wss://star.relay.example.com"],
+            starredAt: 10,
+          },
+        ],
+        messagingRelayListEvents: [
+          makeMessagingRelayList({
+            pubkey: community,
+            relays: ["wss://community-list.relay.example.com"],
+          }),
+          makeMessagingRelayList({
+            pubkey: moderator,
+            relays: ["wss://moderator-list.relay.example.com"],
+          }),
+          makeMessagingRelayList({
+            pubkey: member,
+            relays: ["wss://member-list.relay.example.com"],
+          }),
+          makeMessagingRelayList({
+            pubkey: follow,
+            relays: ["wss://follow-list.relay.example.com"],
+          }),
+          makeMessagingRelayList({
+            pubkey: mutedFollow,
+            relays: ["wss://muted-list.relay.example.com"],
+          }),
+        ],
+      })
+      const urls = recommendations.map(recommendation => recommendation.url)
+
+      expect(urls).toEqual([
+        "wss://community-list.relay.example.com/",
+        "wss://active.relay.example.com/",
+        "wss://moderator-list.relay.example.com/",
+        "wss://member-list.relay.example.com/",
+        "wss://star.relay.example.com/",
+        "wss://follow-list.relay.example.com/",
+      ])
+      expect(urls).not.toContain("wss://muted-list.relay.example.com/")
+      expect(recommendations[0].evidence[0]).toMatchObject({source: "community_messaging"})
+      expect(recommendations[2].evidence[0]).toMatchObject({source: "moderator_messaging"})
+      expect(recommendations[3].evidence[0]).toMatchObject({source: "member_messaging"})
+      expect(recommendations[4].evidence[0]).toMatchObject({source: "starred_community_relay"})
+      expect(recommendations[5].evidence[0]).toMatchObject({source: "follow_messaging"})
     })
   })
 
