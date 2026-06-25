@@ -11,6 +11,7 @@
     Repo,
     WorkerManager,
     ForkRepoDialog,
+    graspServersStore,
     type RepoCommunityOption,
   } from "@nostr-git/ui"
   import ProfileName from "@app/components/ProfileName.svelte"
@@ -3441,7 +3442,7 @@
         },
         onFetchRelayEvents: fetchRepoRelayEvents,
         onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
-        graspServerUrls: graspServerUrls,
+        graspServerUrls: $graspServersStore.length > 0 ? $graspServersStore : graspServerUrls,
         navigateToForkedRepo: navigateToForkedRepo,
         defaultRelays,
         sourceCloneUrls,

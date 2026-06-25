@@ -1,12 +1,5 @@
 import { writable } from "svelte/store";
 
-export const DEFAULT_GRASP_SERVER_URL = "wss://grasp.budabit.club";
-export const DEFAULT_RECOMMENDED_GRASP_SERVER_URLS = [
-  DEFAULT_GRASP_SERVER_URL,
-  "wss://relay.ngit.dev",
-  "wss://gitnostr.com",
-];
-
 export function normalizeGraspServerUrl(url: string): string {
   return (url || "").trim().replace(/\/+$/, "");
 }
@@ -39,10 +32,6 @@ export function normalizeGraspServerUrls(urls: string[] = []): string[] {
   }
 
   return result;
-}
-
-export function getRecommendedGraspServerUrls(urls: string[] = []): string[] {
-  return normalizeGraspServerUrls([...DEFAULT_RECOMMENDED_GRASP_SERVER_URLS, ...urls]);
 }
 
 // Singleton store for GRASP servers (urls only), mirroring bookmarksStore simplicity

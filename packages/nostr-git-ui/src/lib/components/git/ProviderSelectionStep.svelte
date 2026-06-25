@@ -1,6 +1,6 @@
 <script lang="ts">
   import { useRegistry } from "../../useRegistry";
-  import { getRecommendedGraspServerUrls } from "../../stores/graspServers.js";
+  import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement";
   import { onMount } from "svelte";
@@ -62,7 +62,7 @@
   });
 
   const recommendedGraspServerOptions = $derived.by(() =>
-    getRecommendedGraspServerUrls(graspServerOptions)
+    normalizeGraspServerUrls(graspServerOptions)
   );
 
   function updateAvailableProviders() {

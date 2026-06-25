@@ -25,7 +25,7 @@
     type ImportPhase,
   } from "../../hooks/useImportRepo.svelte";
   import { tokens } from "../../stores/tokens.js";
-  import { getRecommendedGraspServerUrls, graspServersStore } from "../../stores/graspServers.js";
+  import { graspServersStore, normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import {
     parseRepoUrl,
     DEFAULT_RELAYS,
@@ -233,7 +233,7 @@
 
   let relaySearchTimeout: ReturnType<typeof setTimeout> | null = null;
   const recommendedGraspServerOptions = $derived.by(() =>
-    getRecommendedGraspServerUrls(graspServerOptions)
+    normalizeGraspServerUrls(graspServerOptions)
   );
 
   $effect(() => {

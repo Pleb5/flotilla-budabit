@@ -14,17 +14,15 @@
 
 ## Current Phase
 
-- Phase 3: UI Wiring, Cleanup, And Final Verification
+- Complete
 
 ## Phase Exit Criteria
 
-- `packages/nostr-git-ui/src/lib/stores/graspServers.ts` no longer exports hardcoded recommended GRASP server URLs.
-- New repo, import, fork, and GRASP settings surfaces use app-provided recommendations or saved/fallback state instead of hardcoded defaults.
-- GRASP settings shows recommended relays from communities/individuals with evidence, and keeps one-click add behavior.
-- All app-level legacy `kind:30002` usage is either removed or explicitly marked as migration fallback only.
-- Docs/comments/tests reflect `kind:10317` as the current protocol list kind.
-- Focused tests and project-level verification pass or a concrete blocker is recorded.
-- Checkpoint records `Current Phase: Complete` and final closeout is committed and pushed without staging unrelated files.
+- GRASP preferences use `kind:10317` User Grasp Lists with ordered `g` tags.
+- Legacy `kind:30002` / `d=grasp-servers` remains read-only migration fallback only.
+- App GRASP recommendations and fallback are sourced from `kind:10317` community/social evidence, with default-community fallback only when no normal recommendation exists.
+- UI surfaces use app-provided saved/fallback/recommended GRASP relays and no package hardcoded recommendations remain.
+- Final focused tests and `pnpm check` pass.
 
 ## Completed With Evidence
 
@@ -47,6 +45,13 @@
 - Phase 2 focused verification passed: `pnpm vitest run src/app/core/grasp.test.ts src/app/core/grasp-server-events.test.ts src/app/core/git-requests.test.ts src/app/core/git-state.test.ts`.
 - Phase 2 project verification passed: `pnpm check`.
 - Phase 2 was committed and pushed as `8feb09d2 feat: add grasp relay recommendations`.
+- Phase 3 removed package hardcoded GRASP recommendation constants and the `getRecommendedGraspServerUrls` helper from `packages/nostr-git-ui/src/lib/stores/graspServers.ts`.
+- Phase 3 updated new repo, import, and fork GRASP option surfaces to normalize app-provided GRASP options instead of prepending package defaults.
+- Phase 3 wired `src/app/components/GraspServersPanel.svelte` to `graspServerRecommendations` and `graspServerRecommendationState`, showing source labels/count evidence while preserving one-click add.
+- Phase 3 passes synced app `graspServersStore` URLs into the fork dialog so the default-community fallback reaches fork creation when no user list exists.
+- Phase 3 legacy grep found only migration-fallback tests referencing `kind:30002` under `src`.
+- Phase 3 focused verification passed: `pnpm vitest run packages/nostr-git-ui/src/lib/stores/graspServers.test.ts src/app/core/grasp.test.ts src/app/core/grasp-server-events.test.ts src/app/core/git-requests.test.ts`.
+- Phase 3 project verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -63,11 +68,11 @@
 - Worktree contains many unrelated extension/widget changes; do not stage them.
 - `src/routes/git/[id=naddr]/+layout.svelte` still has an unrelated pre-existing hunk at the community option relays mapping.
 - App shell no longer has non-test direct legacy GRASP usage outside `src/app/core/grasp-server-events.ts` migration fallback.
-- Phase 3 has not started implementation yet.
+- GRASP migration/recommendation workflow implementation and verification are complete.
 
 ## Next Action
 
-- Start Phase 3 by removing hardcoded GRASP recommendation constants and wiring UI surfaces to app-provided recommendations.
+- Final response after committing and pushing the Phase 3 closeout.
 
 ## Verification
 
@@ -75,6 +80,8 @@
 - Phase 1 project check passed: `pnpm check`
 - Phase 2 focused tests passed: `pnpm vitest run src/app/core/grasp.test.ts src/app/core/grasp-server-events.test.ts src/app/core/git-requests.test.ts src/app/core/git-state.test.ts`
 - Phase 2 project check passed: `pnpm check`
+- Phase 3 focused tests passed: `pnpm vitest run packages/nostr-git-ui/src/lib/stores/graspServers.test.ts src/app/core/grasp.test.ts src/app/core/grasp-server-events.test.ts src/app/core/git-requests.test.ts`
+- Phase 3 project check passed: `pnpm check`
 
 ## Risks Or Blockers
 
@@ -91,3 +98,10 @@
 - `src/app/core/git-requests.ts`
 - `src/app/core/git-requests.test.ts`
 - `src/app/core/sync.ts`
+- `packages/nostr-git-ui/src/lib/stores/graspServers.ts`
+- `packages/nostr-git-ui/src/lib/stores/graspServers.test.ts`
+- `packages/nostr-git-ui/src/lib/components/git/ProviderSelectionStep.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/ImportRepoDialog.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/ForkRepoDialog.svelte`
+- `src/app/components/GraspServersPanel.svelte`
+- `src/routes/git/[id=naddr]/+layout.svelte`

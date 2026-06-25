@@ -24,7 +24,7 @@
   import { tokens } from "$lib/stores/tokens";
   import { PeoplePicker } from "@nostr-git/ui";
   import { commonHashtags } from "../../stores/hashtags";
-  import { getRecommendedGraspServerUrls } from "../../stores/graspServers.js";
+  import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import type { NostrEvent } from "@nostr-git/core";
   import type { RepoAnnouncementEvent, RepoStateEvent } from "@nostr-git/core/events";
   import type { Token } from "$lib/stores/tokens";
@@ -356,7 +356,7 @@
   const knownGraspServers = $derived.by(() => {
     const selectedRelayUrls = new Set(graspTargetRelayUrls.map(normalizeRelayUrl).filter(Boolean));
 
-    return getRecommendedGraspServerUrls(graspServerUrlsLocal)
+    return normalizeGraspServerUrls(graspServerUrlsLocal)
       .map(normalizeRelayUrl)
       .filter((url) => Boolean(url) && !selectedRelayUrls.has(url));
   });

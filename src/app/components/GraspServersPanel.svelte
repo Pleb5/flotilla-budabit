@@ -1,15 +1,17 @@
 <script lang="ts">
   import Button from "@lib/components/Button.svelte"
-  import {
-    getRecommendedGraspServerUrls,
-    graspServersStore,
-    normalizeGraspServerUrl,
-  } from "@nostr-git/ui"
+  import {graspServersStore, normalizeGraspServerUrl} from "@nostr-git/ui"
   import {CirclePlus, Trash} from "@lucide/svelte"
   import {pubkey, relaySearch} from "@welshman/app"
   import {isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
   import {createUserGraspListEvent, normalizeUserGraspServerUrls} from "@nostr-git/core/events"
   import {postGraspServersList} from "@app/core/git-commands"
+  import {
+    getGraspServerRecommendationSourceLabel,
+    graspServerRecommendationState,
+    graspServerRecommendations,
+    type GraspServerRecommendation,
+  } from "@app/core/grasp"
 
   let newUrl = $state("")
   let isSaving = $state(false)
@@ -19,10 +21,14 @@
     ($graspServersStore || []).map(normalizeGraspServerUrl).filter(Boolean),
   )
 
-  const recommendedRelayUrls = $derived.by(() => {
+  const recommendedRelays = $derived.by(() => {
     const selected = new Set(activeRelayUrls)
 
-    return getRecommendedGraspServerUrls(activeRelayUrls).filter(url => !selected.has(url))
+    return ($graspServerRecommendations || []).filter(recommendation => {
+      const normalized = normalizeGraspServerUrl(recommendation.url)
+
+      return normalized && !selected.has(normalized)
+    })
   })
 
   const normalizedNewRelayUrl = $derived.by(() => {
@@ -98,6 +104,39 @@
     graspServersStore.remove(url)
     await publishGraspServersList()
   }
+
+  function formatCount(count: number, singular: string, plural = `${singular}s`) {
+    return `${count} ${count === 1 ? singular : plural}`
+  }
+
+  function getRecommendationSourceSummary(recommendation: GraspServerRecommendation) {
+    const labels = Array.from(
+      new Set(recommendation.evidence.map(evidence => getGraspServerRecommendationSourceLabel(evidence.source))),
+    )
+
+    if (labels.length === 0) return "No evidence details"
+    if (labels.length <= 2) return labels.join(", ")
+
+    return `${labels.slice(0, 2).join(", ")} + ${labels.length - 2} more`
+  }
+
+  function getRecommendationEvidenceSummary(recommendation: GraspServerRecommendation) {
+    const parts = [formatCount(recommendation.counts.sources, "source")]
+
+    if (recommendation.counts.communities > 0) {
+      parts.push(formatCount(recommendation.counts.communities, "community", "communities"))
+    }
+
+    if (recommendation.counts.pubkeys > 0) {
+      parts.push(formatCount(recommendation.counts.pubkeys, "pubkey"))
+    }
+
+    if (recommendation.counts.fallbackSources > 0) {
+      parts.push("default community fallback")
+    }
+
+    return parts.join(" | ")
+  }
 </script>
 
 <div class="w-full max-w-2xl p-0 sm:p-4">
@@ -145,21 +184,50 @@
     </div>
 
     <div class="rounded-box bg-base-200/40 p-4">
-      <p class="mb-2 text-sm font-medium">Recommended relays</p>
-      <p class="mb-3 text-xs opacity-70">Click once to add any recommended relay.</p>
+      <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div>
+          <p class="text-sm font-medium">Recommended relays</p>
+          <p class="text-xs opacity-70">Click once to add any recommended relay.</p>
+        </div>
+        {#if $graspServerRecommendationState.status === "loading"}
+          <span class="text-xs opacity-60">Loading community evidence...</span>
+        {:else if $graspServerRecommendationState.status === "error"}
+          <span class="text-xs text-warning">Recommendation sync failed</span>
+        {/if}
+      </div>
 
-      <div class="flex flex-wrap gap-2">
-        {#if recommendedRelayUrls.length === 0}
-          <p class="text-sm opacity-70">All recommended relays are already added.</p>
+      <div class="space-y-2">
+        {#if recommendedRelays.length === 0}
+          <p class="text-sm opacity-70">
+            {#if $graspServerRecommendations.length > 0}
+              All recommended relays are already active.
+            {:else if $graspServerRecommendationState.status === "loading"}
+              Looking for recommendations from your communities and follows.
+            {:else}
+              No GRASP recommendations found yet.
+            {/if}
+          </p>
         {:else}
-          {#each recommendedRelayUrls as url (url)}
-            <button
-              type="button"
-              class="rounded-full border border-dashed border-base-content/30 px-3 py-1 text-sm transition hover:border-info hover:text-info"
-              onclick={() => void addRecommendedUrl(url)}
-              disabled={isSaving}>
-              + {url.replace(/^wss?:\/\//, "")}
-            </button>
+          {#each recommendedRelays as recommendation (recommendation.url)}
+            <div
+              class="flex flex-col gap-2 rounded-box border border-dashed border-base-content/25 bg-base-100/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0 space-y-1">
+                <p class="truncate text-sm font-medium" title={recommendation.url}>
+                  {recommendation.url.replace(/^wss?:\/\//, "")}
+                </p>
+                <p class="text-xs opacity-70">
+                  Evidence: {getRecommendationSourceSummary(recommendation)}
+                </p>
+                <p class="text-xs opacity-60">{getRecommendationEvidenceSummary(recommendation)}</p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline btn-info btn-xs w-full justify-center sm:w-auto"
+                onclick={() => void addRecommendedUrl(recommendation.url)}
+                disabled={isSaving}>
+                Add relay
+              </button>
+            </div>
           {/each}
         {/if}
       </div>
