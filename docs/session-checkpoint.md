@@ -14,14 +14,13 @@
 
 ## Current Phase
 
-- Phase 3: Final Verification And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Focused DM tests pass after all changes.
-- Project-level verification is run or a concrete blocker is recorded.
-- Checkpoint records `Current Phase: Complete` with final evidence and changed files.
-- Final checkpoint closeout is committed and pushed without staging unrelated files.
+- DM relay recommendation scorer, loader/store, settings UI wiring, tests, durable plan, and checkpoint are committed and pushed.
+- Final focused and project-level verification passed.
+- Checkpoint records `Current Phase: Complete`.
 
 ## Completed With Evidence
 
@@ -38,6 +37,10 @@
 - Phase 2 tests cover author ordering, muted follow exclusion, messaging-list evidence, active community relay evidence, and starred community evidence ranking above social follows.
 - Phase 2 focused verification passed: `pnpm vitest run src/app/core/dm.test.ts`.
 - Phase 2 project verification passed: `pnpm check`.
+- Phase 3 final focused verification passed: `pnpm vitest run src/app/core/dm.test.ts`.
+- Phase 3 final project verification passed: `pnpm check`.
+- Phase 1 was committed and pushed as `55b60f8f feat: add dm relay recommendation scoring`.
+- Phase 2 was committed and pushed as `f05ca871 feat: load dm relay recommendations`.
 
 ## Decisions
 
@@ -55,13 +58,15 @@
 
 ## Next Action
 
-- Start Phase 3: run final focused/project verification, update checkpoint to `Complete`, then commit/push final closeout.
+- Final response.
 
 ## Verification
 
 - Phase 1 focused tests passed: `pnpm vitest run src/app/core/dm.test.ts`
 - Phase 2 focused tests passed: `pnpm vitest run src/app/core/dm.test.ts`
 - Phase 2 project check passed: `pnpm check`
+- Phase 3 final focused tests passed: `pnpm vitest run src/app/core/dm.test.ts`
+- Phase 3 final project check passed: `pnpm check`
 
 ## Risks Or Blockers
 
