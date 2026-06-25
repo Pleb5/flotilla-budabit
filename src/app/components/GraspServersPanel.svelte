@@ -1,9 +1,10 @@
 <script lang="ts">
   import Button from "@lib/components/Button.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
   import {graspServersStore, normalizeGraspServerUrl} from "@nostr-git/ui"
   import {CirclePlus, Trash} from "@lucide/svelte"
   import {pubkey, relaySearch} from "@welshman/app"
-  import {isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
+  import {displayRelayUrl, isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
   import {createUserGraspListEvent, normalizeUserGraspServerUrls} from "@nostr-git/core/events"
   import {postGraspServersList} from "@app/core/git-commands"
   import {
@@ -11,25 +12,38 @@
     graspServerRecommendationState,
     graspServerRecommendations,
     type GraspServerRecommendation,
+    type GraspServerRecommendationEvidence,
+    type GraspServerRecommendationSourceKind,
   } from "@app/core/grasp"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import ProfileName from "@app/components/ProfileName.svelte"
+  import {pushModal} from "@app/util/modal"
+
+  type RecommendationEvidenceGroupKind = "own" | "community" | "moderator" | "member" | "follow"
+
+  type RecommendationEvidenceGroup = {
+    kind: RecommendationEvidenceGroupKind
+    label: string
+    evidence: GraspServerRecommendationEvidence[]
+  }
 
   let newUrl = $state("")
   let isSaving = $state(false)
   let showRelayAutocomplete = $state(false)
+  let openRecommendationEvidenceKey = $state("")
+
+  const communityEvidenceSources = new Set<GraspServerRecommendationSourceKind>([
+    "community_grasp",
+    "starred_community_grasp",
+    "default_community_fallback",
+  ])
 
   const activeRelayUrls = $derived.by(() =>
     ($graspServersStore || []).map(normalizeGraspServerUrl).filter(Boolean),
   )
 
-  const recommendedRelays = $derived.by(() => {
-    const selected = new Set(activeRelayUrls)
-
-    return ($graspServerRecommendations || []).filter(recommendation => {
-      const normalized = normalizeGraspServerUrl(recommendation.url)
-
-      return normalized && !selected.has(normalized)
-    })
-  })
+  const recommendedRelays = $derived(($graspServerRecommendations || []).filter(item => item.url))
 
   const normalizedNewRelayUrl = $derived.by(() => {
     try {
@@ -105,38 +119,118 @@
     await publishGraspServersList()
   }
 
-  function formatCount(count: number, singular: string, plural = `${singular}s`) {
+  const openProfile = (profilePubkey: string) => {
+    if (!profilePubkey) return
+
+    openRecommendationEvidenceKey = ""
+    pushModal(ProfileDetail, {pubkey: profilePubkey})
+  }
+
+  function countLabel(count: number, singular: string, plural = `${singular}s`) {
     return `${count} ${count === 1 ? singular : plural}`
   }
 
-  function getRecommendationSourceSummary(recommendation: GraspServerRecommendation) {
-    const labels = Array.from(
-      new Set(recommendation.evidence.map(evidence => getGraspServerRecommendationSourceLabel(evidence.source))),
+  const uniqueBy = <T,>(items: T[], getKey: (item: T) => string) => {
+    const byKey = new Map<string, T>()
+
+    for (const item of items) {
+      const key = getKey(item)
+      if (key && !byKey.has(key)) byKey.set(key, item)
+    }
+
+    return Array.from(byKey.values())
+  }
+
+  const getRecommendationEvidenceKey = (evidence: GraspServerRecommendationEvidence) =>
+    `${evidence.source}:${evidence.pubkey || ""}:${evidence.communityPubkey || ""}`
+
+  function getRecommendationEvidenceGroups(
+    recommendation: GraspServerRecommendation,
+  ): RecommendationEvidenceGroup[] {
+    const groups: RecommendationEvidenceGroup[] = []
+    const ownEvidence = recommendation.evidence.filter(item => item.source === "own_grasp")
+    const communityEvidence = uniqueBy(
+      recommendation.evidence.filter(item => communityEvidenceSources.has(item.source)),
+      item => item.communityPubkey || item.pubkey || item.source,
+    )
+    const moderatorEvidence = uniqueBy(
+      recommendation.evidence.filter(item => item.source === "moderator_grasp"),
+      item => `${item.pubkey || ""}:${item.communityPubkey || ""}`,
+    )
+    const memberEvidence = uniqueBy(
+      recommendation.evidence.filter(item => item.source === "member_grasp"),
+      item => `${item.pubkey || ""}:${item.communityPubkey || ""}`,
+    )
+    const followEvidence = uniqueBy(
+      recommendation.evidence.filter(item => item.source === "follow_grasp"),
+      item => item.pubkey || "",
     )
 
-    if (labels.length === 0) return "No evidence details"
-    if (labels.length <= 2) return labels.join(", ")
+    if (ownEvidence.length > 0) {
+      groups.push({kind: "own", label: "Your GRASP list", evidence: ownEvidence})
+    }
+    if (communityEvidence.length > 0) {
+      groups.push({
+        kind: "community",
+        label: countLabel(communityEvidence.length, "Community", "Communities"),
+        evidence: communityEvidence,
+      })
+    }
+    if (moderatorEvidence.length > 0) {
+      groups.push({
+        kind: "moderator",
+        label: countLabel(moderatorEvidence.length, "Moderator"),
+        evidence: moderatorEvidence,
+      })
+    }
+    if (memberEvidence.length > 0) {
+      groups.push({
+        kind: "member",
+        label: countLabel(memberEvidence.length, "Member"),
+        evidence: memberEvidence,
+      })
+    }
+    if (followEvidence.length > 0) {
+      groups.push({
+        kind: "follow",
+        label: countLabel(followEvidence.length, "Follow"),
+        evidence: followEvidence,
+      })
+    }
 
-    return `${labels.slice(0, 2).join(", ")} + ${labels.length - 2} more`
+    return groups
   }
 
-  function getRecommendationEvidenceSummary(recommendation: GraspServerRecommendation) {
-    const parts = [formatCount(recommendation.counts.sources, "source")]
+  const getRecommendationEvidenceProfilePubkey = (evidence: GraspServerRecommendationEvidence) =>
+    communityEvidenceSources.has(evidence.source)
+      ? evidence.communityPubkey || evidence.pubkey || ""
+      : evidence.pubkey || evidence.communityPubkey || ""
 
-    if (recommendation.counts.communities > 0) {
-      parts.push(formatCount(recommendation.counts.communities, "community", "communities"))
-    }
+  const getRecommendationEvidenceCommunityPubkey = (evidence: GraspServerRecommendationEvidence) => {
+    const profilePubkey = getRecommendationEvidenceProfilePubkey(evidence)
 
-    if (recommendation.counts.pubkeys > 0) {
-      parts.push(formatCount(recommendation.counts.pubkeys, "pubkey"))
-    }
-
-    if (recommendation.counts.fallbackSources > 0) {
-      parts.push("default community fallback")
-    }
-
-    return parts.join(" | ")
+    return evidence.communityPubkey && evidence.communityPubkey !== profilePubkey
+      ? evidence.communityPubkey
+      : ""
   }
+
+  function getRecommendationEvidenceRoleLabel(evidence: GraspServerRecommendationEvidence) {
+    if (evidence.source === "own_grasp") return "From your GRASP server list"
+    if (evidence.source === "follow_grasp") return "You follow this person"
+    if (evidence.source === "default_community_fallback") return "Default community fallback"
+
+    return getGraspServerRecommendationSourceLabel(evidence.source)
+  }
+
+  const getRecommendationGroupPopoverKey = (
+    recommendation: GraspServerRecommendation,
+    group: RecommendationEvidenceGroup,
+  ) => `${recommendation.url}:${group.kind}`
+
+  const isRecommendationConfigured = (recommendation: GraspServerRecommendation) =>
+    activeRelayUrls.includes(normalizeGraspServerUrl(recommendation.url))
+
+  const displayGraspRelayUrl = (url: string) => displayRelayUrl(normalizeGraspServerUrl(url) || url)
 </script>
 
 <div class="w-full max-w-2xl p-0 sm:p-4">
@@ -184,13 +278,12 @@
     </div>
 
     <div class="rounded-box bg-base-200/40 p-4">
-      <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-        <div>
-          <p class="text-sm font-medium">Recommended relays</p>
-          <p class="text-xs opacity-70">Click once to add any recommended relay.</p>
+      <div class="mb-3 flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold uppercase tracking-wide opacity-60">Recommended GRASP relays</p>
         </div>
         {#if $graspServerRecommendationState.status === "loading"}
-          <span class="text-xs opacity-60">Loading community evidence...</span>
+          <span class="loading loading-spinner loading-xs shrink-0 opacity-60"></span>
         {:else if $graspServerRecommendationState.status === "error"}
           <span class="text-xs text-warning">Recommendation sync failed</span>
         {/if}
@@ -209,24 +302,113 @@
           </p>
         {:else}
           {#each recommendedRelays as recommendation (recommendation.url)}
-            <div
-              class="flex flex-col gap-2 rounded-box border border-dashed border-base-content/25 bg-base-100/40 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0 space-y-1">
-                <p class="truncate text-sm font-medium" title={recommendation.url}>
-                  {recommendation.url.replace(/^wss?:\/\//, "")}
-                </p>
-                <p class="text-xs opacity-70">
-                  Evidence: {getRecommendationSourceSummary(recommendation)}
-                </p>
-                <p class="text-xs opacity-60">{getRecommendationEvidenceSummary(recommendation)}</p>
+            {@const evidenceGroups = getRecommendationEvidenceGroups(recommendation)}
+            {@const configured = isRecommendationConfigured(recommendation)}
+            <div class="rounded-box border border-base-300 bg-base-100/60 p-3">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div class="min-w-0">
+                  <div class="flex min-w-0 flex-wrap items-center gap-2">
+                    <p class="ellipsize font-medium" title={recommendation.url}>
+                      {displayGraspRelayUrl(recommendation.url)}
+                    </p>
+                    {#if configured}
+                      <span class="badge badge-success badge-sm">Configured</span>
+                    {/if}
+                  </div>
+                  <p class="mt-1 text-xs opacity-70">Community and GRASP-list signals</p>
+                </div>
+
+                {#if configured}
+                  <span class="badge badge-success shrink-0 self-start">Already added</span>
+                {:else}
+                  <Button
+                    class="btn btn-outline btn-sm shrink-0"
+                    onclick={() => void addRecommendedUrl(recommendation.url)}
+                    disabled={isSaving}>
+                    <CirclePlus class="h-4 w-4" />
+                    Add
+                  </Button>
+                {/if}
               </div>
-              <button
-                type="button"
-                class="btn btn-outline btn-info btn-xs w-full justify-center sm:w-auto"
-                onclick={() => void addRecommendedUrl(recommendation.url)}
-                disabled={isSaving}>
-                Add relay
-              </button>
+
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                {#each evidenceGroups as group (group.kind)}
+                  {@const popoverKey = getRecommendationGroupPopoverKey(recommendation, group)}
+                  <div class="relative">
+                    <button
+                      type="button"
+                      class="badge cursor-pointer border border-base-content/15 bg-base-200 font-medium text-base-content/80 hover:bg-base-300"
+                      class:bg-base-300={openRecommendationEvidenceKey === popoverKey}
+                      aria-expanded={openRecommendationEvidenceKey === popoverKey}
+                      onclick={() =>
+                        (openRecommendationEvidenceKey =
+                          openRecommendationEvidenceKey === popoverKey ? "" : popoverKey)}>
+                      {group.label}
+                    </button>
+
+                    {#if openRecommendationEvidenceKey === popoverKey}
+                      <InlinePopover
+                        align="left"
+                        widthClass="w-80 sm:w-96"
+                        onClose={() => (openRecommendationEvidenceKey = "")}>
+                        <div class="flex min-w-0 flex-col gap-3 text-sm">
+                          <div>
+                            <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                              {group.label}
+                            </p>
+                            <p class="mt-1 break-all font-mono text-[11px] opacity-60">
+                              {displayGraspRelayUrl(recommendation.url)}
+                            </p>
+                          </div>
+
+                          <div class="flex flex-col gap-2">
+                            {#each group.evidence as source (getRecommendationEvidenceKey(source))}
+                              {@const profilePubkey = getRecommendationEvidenceProfilePubkey(source)}
+                              {@const communityPubkey = getRecommendationEvidenceCommunityPubkey(source)}
+                              {@const roleLabel = getRecommendationEvidenceRoleLabel(source)}
+                              {@const sourceLabel = getGraspServerRecommendationSourceLabel(source.source)}
+                              <div class="rounded-box bg-base-200/60 p-3">
+                                <div class="flex min-w-0 items-center gap-2">
+                                  {#if profilePubkey}
+                                    <button
+                                      type="button"
+                                      class="shrink-0"
+                                      aria-label="Open profile"
+                                      onclick={() => openProfile(profilePubkey)}>
+                                      <ProfileCircle pubkey={profilePubkey} size={7} />
+                                    </button>
+                                  {/if}
+                                  <div class="min-w-0 flex-1">
+                                    {#if profilePubkey}
+                                      <button
+                                        type="button"
+                                        class="max-w-full truncate text-sm font-medium hover:underline"
+                                        onclick={() => openProfile(profilePubkey)}>
+                                        <ProfileName pubkey={profilePubkey} />
+                                      </button>
+                                    {:else}
+                                      <p class="truncate text-sm font-medium">{sourceLabel}</p>
+                                    {/if}
+                                    <div class="text-xs opacity-70">{roleLabel}</div>
+                                    {#if communityPubkey}
+                                      <button
+                                        type="button"
+                                        class="max-w-full truncate text-left text-[11px] opacity-60 hover:underline"
+                                        onclick={() => openProfile(communityPubkey)}>
+                                        in <ProfileName pubkey={communityPubkey} />
+                                      </button>
+                                    {/if}
+                                  </div>
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      </InlinePopover>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
             </div>
           {/each}
         {/if}
