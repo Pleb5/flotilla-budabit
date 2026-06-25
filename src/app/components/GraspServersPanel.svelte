@@ -1,7 +1,6 @@
 <script lang="ts">
   import Button from "@lib/components/Button.svelte"
   import {
-    DEFAULT_GRASP_SERVER_URL,
     getRecommendedGraspServerUrls,
     graspServersStore,
     normalizeGraspServerUrl,
@@ -9,7 +8,7 @@
   import {CirclePlus, Trash} from "@lucide/svelte"
   import {pubkey, relaySearch} from "@welshman/app"
   import {isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
-  import {createGraspServersEvent} from "@nostr-git/core/events"
+  import {createUserGraspListEvent, normalizeUserGraspServerUrls} from "@nostr-git/core/events"
   import {postGraspServersList} from "@app/core/git-commands"
 
   let newUrl = $state("")
@@ -60,10 +59,10 @@
     isSaving = true
 
     try {
-      const graspServersList = createGraspServersEvent({
+      const graspServersList = {
+        ...createUserGraspListEvent({services: normalizeUserGraspServerUrls(activeRelayUrls)}),
         pubkey: $pubkey!,
-        urls: activeRelayUrls,
-      })
+      }
 
       await postGraspServersList(graspServersList)
     } catch (error) {
@@ -106,8 +105,8 @@
     <div class="min-w-0 space-y-1">
       <h3 class="text-lg font-semibold">GRASP Servers</h3>
       <p class="text-sm opacity-75">
-        New profiles start with {DEFAULT_GRASP_SERVER_URL}, but you can remove every relay and leave
-        this empty if you want.
+        Choose the GRASP relays you want to use for NIP-34 Git activity. You can remove every
+        relay and leave this empty if you want.
       </p>
     </div>
     {#if isSaving}

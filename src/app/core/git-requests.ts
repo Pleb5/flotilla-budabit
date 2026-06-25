@@ -1,17 +1,13 @@
-import {
-  GRASP_SET_KIND,
-  GIT_REPO_ANNOUNCEMENT,
-  DEFAULT_GRASP_SET_ID,
-  validateGraspServerUrl,
-} from "@nostr-git/core/events"
+import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
 import {tokens, type Token} from "@nostr-git/ui"
-import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
+import {graspServersStore} from "@nostr-git/ui"
 import {repository, ensurePlaintext, signer, pubkey, publishThunk} from "@welshman/app"
 import {load, PublishStatus} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {get} from "svelte/store"
 import {APP_DATA, makeEvent, normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
+import {getPreferredGraspServerUrls, makeGraspServerListFilters} from "@app/core/grasp-server-events"
 
 const safeNormalizeRelayUrl = (u: string): string => {
   try {
@@ -156,7 +152,7 @@ export const loadRepositories = async (pubkey: string, relays: string[] = []) =>
 export const loadGraspServers = async (pubkey: string, relays: string[] = []) => {
   load({
     relays,
-    filters: [{kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID]}],
+    filters: makeGraspServerListFilters(pubkey),
   })
 }
 
@@ -186,43 +182,14 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
     // Existing subscriptions are best-effort cleanup before replacing them.
   }
 
-  const filter = {kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID]}
-  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
+  const filters = makeGraspServerListFilters(pubkey)
+  const store = deriveEventsAsc(deriveEventsById({repository, filters}))
 
   graspUnsub = store.subscribe((events: any[]) => {
-    if (!events || events.length === 0) {
-      graspServersStore.set([DEFAULT_GRASP_SERVER_URL])
-      return
-    }
-
-    const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
-    const urls = new Set<string>()
-
-    // Parse URLs from content JSON (format: { urls: [...] })
-    try {
-      if (latest.content) {
-        const parsed = JSON.parse(latest.content)
-        const contentUrls = Array.isArray(parsed?.urls) ? parsed.urls : []
-        for (const url of contentUrls) {
-          const normalized = safeNormalizeRelayUrl(url)
-          if (normalized && validateGraspServerUrl(normalized)) urls.add(normalized)
-        }
-      }
-    } catch {
-      // Fallback: try parsing from tags for backwards compatibility
-      const tags = latest.tags || []
-      for (const t of tags) {
-        if ((t[0] === "relay" || t[0] === "r") && t[1]) {
-          const normalized = safeNormalizeRelayUrl(t[1])
-          if (validateGraspServerUrl(normalized)) urls.add(normalized)
-        }
-      }
-    }
-
-    graspServersStore.set(Array.from(urls))
+    graspServersStore.set(getPreferredGraspServerUrls((events || []) as TrustedEvent[]))
   })
 
-  load({relays, filters: [filter]})
+  load({relays, filters})
 
   return graspUnsub
 }

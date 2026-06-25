@@ -4,7 +4,7 @@ import type {
   RepoAnnouncementEvent,
   StatusEvent,
   RepoStateEvent,
-  GraspSetEvent,
+  UserGraspListEvent,
 } from "@nostr-git/core/events"
 import {buildRoleLabelEvent} from "@app/util/labels"
 import {abortThunk, publishThunk, repository} from "@welshman/app"
@@ -127,7 +127,7 @@ export const postPermalink = (permalink: NostrEvent, relays: string[]) => {
   })
 }
 
-export const postGraspServersList = (graspServersList: GraspSetEvent) => {
+export const postGraspServersList = (graspServersList: UserGraspListEvent) => {
   const merged = getUserDataPublishRelays([...getUserRelayUrls(), ...GIT_RELAYS])
   return publishThunk({
     event: graspServersList,

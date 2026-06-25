@@ -5,12 +5,9 @@ import {
   extractSelfLabels,
   extractLabelEvents,
   mergeEffectiveLabels,
-  DEFAULT_GRASP_SET_ID,
   GIT_STATUS_APPLIED,
   GIT_REPO_ANNOUNCEMENT,
   GIT_ISSUE,
-  GRASP_SET_KIND,
-  parseGraspServersEvent,
   parseRepoAnnouncementEvent,
   type RepoAnnouncementEvent,
   type IssueEvent,
@@ -32,12 +29,15 @@ import {
   getAddress,
 } from "@welshman/util"
 import {nip19, type NostrEvent} from "nostr-tools"
-import {sortBy} from "@welshman/lib"
 import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "@app/util/issue-edits"
 import {graspServersStore, type Repo} from "@nostr-git/ui"
 import {getScopedCommunityPublishRelays, type CommunityRelayRef} from "@app/core/community-relays"
 import {logPublishRelaySummary} from "@app/core/diagnostics"
+import {
+  getPreferredGraspServerUrls,
+  makeGraspServerListFilters,
+} from "@app/core/grasp-server-events"
 
 export const shouldReloadRepos = writable(false)
 
@@ -243,19 +243,9 @@ const getExplicitGraspServerRelays = (viewerPubkey = get(pubkey)) => {
   const author = normalizePubkey(String(viewerPubkey || ""))
   if (!author) return [] as string[]
 
-  const filters = [{kinds: [GRASP_SET_KIND], authors: [author], "#d": [DEFAULT_GRASP_SET_ID]}]
+  const filters = makeGraspServerListFilters(author)
   const events = repository.query(filters, {shouldSort: false}) as TrustedEvent[]
-  const latest = sortBy(event => -event.created_at, events)[0]
-
-  if (!latest) return [] as string[]
-
-  try {
-    return parseGraspServersEvent(latest as any)
-      .map(safeNormalizeRelayUrl)
-      .filter(isRelayUrl) as string[]
-  } catch {
-    return [] as string[]
-  }
+  return getPreferredGraspServerUrls(events).map(safeNormalizeRelayUrl).filter(isRelayUrl) as string[]
 }
 
 export type RepoAnnouncementPublishRelaysParams = {

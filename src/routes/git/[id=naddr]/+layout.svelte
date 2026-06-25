@@ -66,9 +66,6 @@
     LabelEvent,
   } from "@nostr-git/core/events"
   import {
-    GRASP_SET_KIND,
-    DEFAULT_GRASP_SET_ID,
-    parseGraspServersEvent,
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
     GIT_PULL_REQUEST,
@@ -81,6 +78,10 @@
     isImportedEvent,
     resolveStatusState,
   } from "@nostr-git/core/events"
+  import {
+    getPreferredGraspServerUrls,
+    makeGraspServerListFilters,
+  } from "@app/core/grasp-server-events"
   import {
     parseRepoId,
     filterValidCloneUrls,
@@ -2943,13 +2944,7 @@
   // --- GRASP servers (user profile) ---
   // Only query GRASP servers when a user is logged in to avoid relay auth errors
   const currentPubkey = pubkey.get()
-  const graspServersFilter = currentPubkey
-    ? {
-        kinds: [GRASP_SET_KIND],
-        authors: [currentPubkey],
-        "#d": [DEFAULT_GRASP_SET_ID],
-      }
-    : null
+  const graspServersFilters = currentPubkey ? makeGraspServerListFilters(currentPubkey) : []
 
   // Helper to compute base path for this repo scope
   function repoBasePath() {
@@ -2970,9 +2965,9 @@
 
   // GRASP servers subscription - create derived store once, subscribe in effect
   // Skip entirely for guests (no pubkey) to avoid relay auth errors
-  const graspServersEventStore = graspServersFilter
+  const graspServersEventStore = currentPubkey
     ? derived(
-        deriveEventsAsc(deriveEventsById({repository, filters: [graspServersFilter]})),
+        deriveEventsAsc(deriveEventsById({repository, filters: graspServersFilters})),
         (events: TrustedEvent[]) => {
           if (events.length === 0) {
             const relays = Router.get()
@@ -2980,9 +2975,9 @@
               .getUrls()
               .map(safeNormalizeRelayUrl)
               .filter(Boolean)
-            load({relays: relays as string[], filters: [graspServersFilter]})
+            load({relays: relays as string[], filters: graspServersFilters})
           }
-          return events[0]
+          return events
         },
       )
     : null
@@ -2992,9 +2987,9 @@
     if (!graspServersEventStore) return
 
     const graspServersUnsubscribe = graspServersEventStore.subscribe(
-      (ev: TrustedEvent | undefined) => {
+      (events: TrustedEvent[]) => {
         try {
-          graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
+          graspServerUrls = getPreferredGraspServerUrls(events || [])
         } catch {
           graspServerUrls = []
         }

@@ -615,6 +615,36 @@ export function createUserGraspListEvent(opts: {
   } as UserGraspListEvent
 }
 
+export function normalizeUserGraspServerUrl(url: string): string {
+  return String(url || "")
+    .trim()
+    .replace(/\/+$/, "")
+}
+
+export function isValidUserGraspServerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "ws:" || parsed.protocol === "wss:"
+  } catch {
+    return false
+  }
+}
+
+export function normalizeUserGraspServerUrls(urls: string[] = []): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+
+  for (const url of urls) {
+    const normalized = normalizeUserGraspServerUrl(url)
+    if (!normalized || !isValidUserGraspServerUrl(normalized) || seen.has(normalized)) continue
+
+    seen.add(normalized)
+    result.push(normalized)
+  }
+
+  return result
+}
+
 /**
  * Create a status event (kinds 1630-1633)
  */
@@ -847,6 +877,10 @@ export function parseUserGraspListEvent(event: UserGraspListEvent): UserGraspLis
     createdAt: new Date(event.created_at * 1000).toISOString(),
     raw: event,
   }
+}
+
+export function parseUserGraspListServerUrls(event: UserGraspListEvent): string[] {
+  return normalizeUserGraspServerUrls(event.tags.filter(t => t[0] === "g").map(t => t[1]))
 }
 
 export interface RepoAnnouncement {

@@ -74,19 +74,20 @@ vi.mock("@app/core/community-relays", () => ({
 
 vi.mock("@nostr-git/ui", () => ({
   tokens: {clear: vi.fn(), push: vi.fn()},
-  DEFAULT_GRASP_SERVER_URL: "wss://grasp.budabit.club",
   graspServersStore: {set: vi.fn()},
 }))
 
 const {load} = await import("@welshman/net")
-const {tokens} = await import("@nostr-git/ui")
+const {tokens, graspServersStore} = await import("@nostr-git/ui")
 const {APP_DATA} = await import("@welshman/util")
-const {GIT_REPO_ANNOUNCEMENT} = await import("@nostr-git/core/events")
+const {DEFAULT_GRASP_SET_ID, GIT_REPO_ANNOUNCEMENT, GIT_USER_GRASP_LIST, GRASP_SET_KIND} =
+  await import("@nostr-git/core/events")
 const {
   loadRepositories,
   loadGraspServers,
   loadTokens,
   persistGitAuthTokens,
+  setupGraspServersSync,
   setupTokensSync,
   GIT_AUTH_DTAG,
 } = await import("./git-requests")
@@ -96,6 +97,7 @@ describe("requests", () => {
     vi.mocked(load).mockClear()
     vi.mocked(tokens.clear).mockClear()
     vi.mocked(tokens.push).mockClear()
+    vi.mocked(graspServersStore.set).mockClear()
     appMocks.publishThunk.mockReset()
     appMocks.ensurePlaintext.mockReset()
     appMocks.pubkey.set("pk999")
@@ -132,11 +134,75 @@ describe("requests", () => {
     it("calls load with GRASP filter", async () => {
       await loadGraspServers("pk789", ["wss://relay.com"])
       expect(load).toHaveBeenCalledWith(
-        expect.objectContaining({
+        {
           relays: ["wss://relay.com"],
-          filters: expect.any(Array),
-        }),
+          filters: [
+            {kinds: [GIT_USER_GRASP_LIST], authors: ["pk789"]},
+            {kinds: [GRASP_SET_KIND], authors: ["pk789"], "#d": [DEFAULT_GRASP_SET_ID]},
+          ],
+        },
       )
+    })
+  })
+
+  describe("setupGraspServersSync", () => {
+    it("syncs kind 10317 GRASP server URLs", async () => {
+      setupGraspServersSync("pk789", ["wss://relay.com"])
+
+      await storeMocks.emitTokenEvents([
+        {
+          id: "1".repeat(64),
+          kind: GIT_USER_GRASP_LIST,
+          pubkey: "pk789",
+          created_at: 10,
+          tags: [["g", "wss://current.example/"]],
+          content: "",
+        },
+      ])
+
+      expect(graspServersStore.set).toHaveBeenLastCalledWith(["wss://current.example"])
+    })
+
+    it("falls back to legacy GRASP server URLs when kind 10317 is absent", async () => {
+      setupGraspServersSync("pk789", ["wss://relay.com"])
+
+      await storeMocks.emitTokenEvents([
+        {
+          id: "1".repeat(64),
+          kind: GRASP_SET_KIND,
+          pubkey: "pk789",
+          created_at: 10,
+          tags: [["d", DEFAULT_GRASP_SET_ID]],
+          content: JSON.stringify({urls: ["wss://legacy.example/"]}),
+        },
+      ])
+
+      expect(graspServersStore.set).toHaveBeenLastCalledWith(["wss://legacy.example"])
+    })
+
+    it("keeps an empty kind 10317 list authoritative", async () => {
+      setupGraspServersSync("pk789", ["wss://relay.com"])
+
+      await storeMocks.emitTokenEvents([
+        {
+          id: "1".repeat(64),
+          kind: GRASP_SET_KIND,
+          pubkey: "pk789",
+          created_at: 10,
+          tags: [["d", DEFAULT_GRASP_SET_ID]],
+          content: JSON.stringify({urls: ["wss://legacy.example/"]}),
+        },
+        {
+          id: "2".repeat(64),
+          kind: GIT_USER_GRASP_LIST,
+          pubkey: "pk789",
+          created_at: 11,
+          tags: [],
+          content: "",
+        },
+      ])
+
+      expect(graspServersStore.set).toHaveBeenLastCalledWith([])
     })
   })
 

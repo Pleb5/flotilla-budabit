@@ -158,10 +158,10 @@ describe("budabit commands", () => {
       const {postGraspServersList} = await import("./git-commands")
       const graspEvent = {
         id: "g1",
-        kind: 0,
+        kind: 10317,
         content: "",
         created_at: 0,
-        tags: [],
+        tags: [["g", "wss://grasp.example"]],
         pubkey: "a".repeat(64),
         sig: "sig",
       } as any

@@ -14,6 +14,7 @@ import {
   getTag,
   getTags,
   getTagValue,
+  parseUserGraspListServerUrls,
 } from "../../src/events/nip34/nip34-utils.js"
 import type {CoverLetterTag, IssueTag, PullRequestTag} from "../../src/events/nip34/nip34.js"
 
@@ -353,6 +354,14 @@ describe("NIP-34 builders", () => {
       ["g", "github"],
       ["g", "gitlab"],
     ])
+  })
+
+  it("parseUserGraspListServerUrls normalizes websocket service URLs", () => {
+    const evt = createUserGraspListEvent({
+      services: ["wss://one.example/", "https://not-websocket.example", "wss://one.example"],
+    })
+
+    expect(parseUserGraspListServerUrls(evt)).toEqual(["wss://one.example"])
   })
 
   it("createStackEvent encodes stack membership and order", () => {

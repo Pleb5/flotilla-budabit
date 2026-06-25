@@ -2,23 +2,25 @@
 
 ## Objective
 
-- Improve direct-message relay recommendations so they are community-first rather than starred-community-only.
-- Use explicit `kind:10050` messaging relay lists from trusted community actors when available.
-- Keep community relay definitions from active/starred communities as recommendation evidence, with starred communities ranked higher than social follows.
-- Preserve current one-click settings UI behavior while showing richer recommendation evidence.
+- Migrate Budabit app-level GRASP server preferences from the legacy `kind:30002` / `d=grasp-servers` event to the protocol `kind:10317` User Grasp List using ordered `g` tags.
+- Keep legacy reads only as a migration fallback until the user explicitly saves the new list.
+- Source the last-resort app fallback GRASP server list from the `.env` default community's published `kind:10317` list rather than hardcoded relays.
+- Replace hardcoded recommended GRASP relays with community-first web-of-trust recommendations from communities and trusted individuals, mirroring the DM relay recommendation model.
+- Preserve explicit user configuration as authoritative, including the ability to leave the saved GRASP list empty.
 
 ## Constraints
 
 - Current repository state is authoritative over this plan.
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
-- Do not stage unrelated user changes; the current worktree contains unrelated extension/widget edits.
-- Prefer minimal changes that fit existing patterns in `src/app/core/cashu-mint-recommendations.ts` and `src/routes/settings/relays/+page.svelte`.
-- Keep recommendation scoring deterministic and unit-tested.
-- Starred community evidence must rank higher than social follow evidence.
-- Direct follows are fallback evidence only and must not outrank starred or active community evidence.
+- The current worktree has many unrelated extension/widget changes; never stage unrelated files or unrelated hunks.
+- The branch `dev` tracks `origin/dev` but is already ahead of upstream; inspect push state before each phase push.
+- Prefer minimal changes that fit existing Svelte stores and `src/app/core/dm.ts` recommendation patterns.
+- Reuse existing NIP-34 core constants/helpers for `kind:10317` where possible.
+- Stop writing legacy `kind:30002` GRASP server events.
+- Keep legacy `kind:30002` reads as migration fallback only while new `kind:10317` is absent.
 - Commit and push each verified phase before starting the next phase.
 
-## Phase 1: DM Relay Recommendation Scorer
+## Phase 1: Protocol Pivot And Migration Fallback
 
 ### Phase Startup
 
@@ -29,27 +31,29 @@
 
 ### Goal
 
-- Replace the existing star-only pure scorer with an evidence-based scorer that can rank active communities, starred communities, community roles, explicit `kind:10050` lists, and social follows.
+- Switch app-owned GRASP server loading, syncing, publishing, and repo-announcement relay resolution to protocol `kind:10317`, while preserving legacy `kind:30002` as read-only migration fallback.
 
 ### Exit Criteria
 
-- `src/app/core/dm.ts` exposes evidence/source types that distinguish active community relay, starred community relay, community/admin/moderator/member messaging list, own messaging list, and follow messaging list evidence.
-- `getDmRelayRecommendations` remains a pure function and keeps already-configured relays visible.
-- Scoring is deterministic, deduplicates repeated relay/source evidence, and ranks starred community evidence above social follow evidence.
-- Tests cover active community recommendations without stars, starred communities above follows, moderator/member messaging-list evidence, configured relays, and duplicate evidence dedupe.
-- Focused verification passes: `pnpm vitest run src/app/core/dm.test.ts`.
+- App GRASP server filters prefer `GIT_USER_GRASP_LIST` (`10317`) without a `d` tag.
+- User saves publish `kind:10317` events with ordered `g` tags and empty content.
+- Legacy `kind:30002` / `d=grasp-servers` events are read only when no `kind:10317` event exists.
+- Explicit empty `kind:10317` lists remain authoritative and do not rehydrate from legacy or fallback lists.
+- Repo announcement relay selection uses the new list first and legacy only as fallback.
+- Focused tests cover new-list parsing/publishing behavior and legacy fallback.
 - Phase 1 changes are committed and pushed without staging unrelated files.
 
 ### Steps
 
-- Inspect current `dm.ts` scorer and tests.
-- Extend recommendation source/evidence types with source kind, recommender pubkey, community pubkey, role, and timestamps as needed.
-- Implement deterministic score weights and sorting, preserving the existing exported scorer name where practical.
-- Update `dm.test.ts` for the new evidence shape and ranking rules.
+- Inspect current legacy usage in `git-requests.ts`, `git-state.ts`, `GraspServersPanel.svelte`, and package NIP-34 helpers.
+- Add or reuse normalized `kind:10317` parsing/building helpers in `@nostr-git/core/events`.
+- Update app sync/loading/publish paths to new kind plus legacy fallback.
+- Update focused tests for protocol migration behavior.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/core/dm.test.ts`.
+- Run focused tests for GRASP server helpers and app git requests/state.
+- Run `pnpm check` if feasible after focused tests pass.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
@@ -76,7 +80,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Loader And Settings UI Wiring
+## Phase 2: Default Community Fallback And Recommendation Engine
 
 ### Phase Startup
 
@@ -87,30 +91,31 @@
 
 ### Goal
 
-- Load community-first `kind:10050` recommendation events and wire the messaging relay settings UI to the new recommendation model.
+- Add app-level GRASP recommendations from the community-first web of trust and derive the last-resort fallback from the `.env` default community's `kind:10317` list.
 
 ### Exit Criteria
 
-- A loader/store path fetches trusted authors' `kind:10050` messaging relay lists using active community refs, profile-list events, report state, follows, mutes, community relay hints, user relays, author relays, and index relays.
-- Recommendation authors are community-first: viewer, active community pubkeys, moderators, starred community pubkeys, follows, then members, with sensible limits.
-- Starred community `kind:10222` relay evidence remains included and ranks above social follows.
-- Muted social follows do not contribute follow evidence.
-- `src/routes/settings/relays/+page.svelte` uses the loader/store and shows evidence labels that are not limited to starred communities.
-- Focused verification passes for DM tests and a Svelte/type check command if practical.
+- A GRASP recommendation module/store exists and mirrors the DM relay ranking model for community and individual signals.
+- Recommendation sources include active community relay evidence, starred/default community evidence, community/admin/moderator/member `kind:10317` lists, own list, and unmuted follow `kind:10317` lists.
+- Recommendation authors are community-first: viewer, active community pubkeys, default community pubkey, moderators, starred community pubkeys, follows, then members, with sensible limits.
+- Default community fallback loads `VITE_DEFAULT_COMMUNITY`, resolves its definition with existing community lookup helpers, then loads that community author's `kind:10317` list from default/indexer/community relays.
+- The last-resort fallback is used only when the user has no authoritative saved list and no community/social recommendation items.
+- No hardcoded GRASP recommendation URLs remain in app recommendation logic.
+- Focused tests cover ranking, default-community fallback, empty-list authority, and muted follow exclusion.
 - Phase 2 changes are committed and pushed without staging unrelated files.
 
 ### Steps
 
-- Add loader/state helpers either in `src/app/core/dm.ts` or a small dedicated core module if that keeps responsibilities clearer.
-- Reuse patterns from `cashu-mint-recommendations.ts` for author selection, relay selection, event loading, state, and report/mute handling.
-- Wire settings relay page to active community refs, profile-list events, report state, community stars, current messaging relays, and recommendation state.
-- Update UI copy and badges from “starred communities” to community-first messaging relay evidence.
-- Add focused tests for author selection/build behavior where practical.
+- Extract or reuse generic recommendation helpers from `dm.ts` only where it reduces duplication without broad churn.
+- Implement `src/app/core/grasp.ts` or equivalent with pure scorer, loader/state, source labels, and fallback resolver.
+- Wire app sync so `graspServersStore` receives the authoritative user list, migrated legacy list, recommendation fallback, or empty explicit list according to state.
+- Add focused tests for the pure recommendation and fallback behavior.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/core/dm.test.ts`.
-- Run a relevant Svelte/type check command, preferring `pnpm check` if feasible.
+- Run focused GRASP recommendation tests.
+- Run affected app/core tests.
+- Run `pnpm check` if feasible after focused tests pass.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
@@ -137,7 +142,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: Final Verification And Closeout
+## Phase 3: UI Wiring, Cleanup, And Final Verification
 
 ### Phase Startup
 
@@ -148,25 +153,29 @@
 
 ### Goal
 
-- Verify the full DM relay recommendation workflow and mark the durable session complete.
+- Replace hardcoded GRASP recommendation surfaces with the recommendation store, expose evidence in settings, remove obsolete legacy defaults, and complete verification.
 
 ### Exit Criteria
 
-- Focused DM tests pass after all changes.
-- Project-level verification is run or a concrete blocker is recorded.
-- Checkpoint records `Current Phase: Complete` with final evidence and changed files.
-- Final checkpoint closeout is committed and pushed without staging unrelated files.
+- `packages/nostr-git-ui/src/lib/stores/graspServers.ts` no longer exports hardcoded recommended GRASP server URLs.
+- New repo, import, fork, and GRASP settings surfaces use app-provided recommendations or saved/fallback state instead of hardcoded defaults.
+- GRASP settings shows recommended relays from communities/individuals with evidence, and keeps one-click add behavior.
+- All app-level legacy `kind:30002` usage is either removed or explicitly marked as migration fallback only.
+- Docs/comments/tests reflect `kind:10317` as the current protocol list kind.
+- Focused tests and project-level verification pass or a concrete blocker is recorded.
+- Checkpoint records `Current Phase: Complete` and final closeout is committed and pushed without staging unrelated files.
 
 ### Steps
 
-- Reread touched code and tests for consistency.
-- Run focused tests and project-level verification if not already sufficient from Phase 2.
-- Update checkpoint to complete with final evidence.
-- Commit and push final checkpoint changes if any.
+- Wire recommendation store into `GraspServersPanel.svelte` and GRASP selection components.
+- Remove package hardcoded recommendation constants and update tests.
+- Update docs that reference GRASP server settings semantics.
+- Run final focused and project-level verification.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/core/dm.test.ts`.
+- Run focused GRASP/store tests.
+- Run affected app/core tests.
 - Run `pnpm check` if feasible or record the exact blocker/failure.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 

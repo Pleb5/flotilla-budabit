@@ -4,6 +4,7 @@ import {
   createRepoAnnouncementEvent,
   createStatusEvent,
   DEFAULT_GRASP_SET_ID,
+  GIT_USER_GRASP_LIST,
   GIT_STATUS_APPLIED,
   GIT_STATUS_CLOSED,
   GRASP_SET_KIND,
@@ -143,7 +144,26 @@ describe("budabit state", () => {
       expect(relays.some(url => url.includes("extra.relay.example.com"))).toBe(true)
     })
 
-    it("includes explicit GRASP relays saved by the current user", () => {
+    it("includes kind 10317 GRASP relays saved by the current user", () => {
+      const currentPubkey = "a".repeat(64)
+      pubkey.set(currentPubkey)
+
+      repository.publish({
+        id: "1".repeat(64),
+        sig: "2".repeat(128),
+        kind: GIT_USER_GRASP_LIST,
+        pubkey: currentPubkey,
+        created_at: 10,
+        tags: [["g", "wss://custom.grasp.example"]],
+        content: "",
+      } as any)
+
+      const relays = getRepoAnnouncementRelays()
+
+      expect(relays).toContain("wss://custom.grasp.example/")
+    })
+
+    it("falls back to legacy kind 30002 GRASP relays when kind 10317 is absent", () => {
       const currentPubkey = "a".repeat(64)
       pubkey.set(currentPubkey)
 
@@ -154,12 +174,36 @@ describe("budabit state", () => {
         pubkey: currentPubkey,
         created_at: 10,
         tags: [["d", DEFAULT_GRASP_SET_ID]],
-        content: JSON.stringify({urls: ["wss://custom.grasp.example"]}),
+        content: JSON.stringify({urls: ["wss://legacy.grasp.example"]}),
       } as any)
 
-      const relays = getRepoAnnouncementRelays()
+      expect(getRepoAnnouncementRelays()).toContain("wss://legacy.grasp.example/")
+    })
 
-      expect(relays).toContain("wss://custom.grasp.example/")
+    it("does not fall back to legacy GRASP relays when kind 10317 is empty", () => {
+      const currentPubkey = "a".repeat(64)
+      pubkey.set(currentPubkey)
+
+      repository.publish({
+        id: "1".repeat(64),
+        sig: "2".repeat(128),
+        kind: GRASP_SET_KIND,
+        pubkey: currentPubkey,
+        created_at: 10,
+        tags: [["d", DEFAULT_GRASP_SET_ID]],
+        content: JSON.stringify({urls: ["wss://legacy.grasp.example"]}),
+      } as any)
+      repository.publish({
+        id: "3".repeat(64),
+        sig: "4".repeat(128),
+        kind: GIT_USER_GRASP_LIST,
+        pubkey: currentPubkey,
+        created_at: 11,
+        tags: [],
+        content: "",
+      } as any)
+
+      expect(getRepoAnnouncementRelays()).not.toContain("wss://legacy.grasp.example/")
     })
 
     it("merges user outbox, git indexer, explicit GRASP, and repo relays for announcements", () => {
@@ -169,11 +213,11 @@ describe("budabit state", () => {
       repository.publish({
         id: "1".repeat(64),
         sig: "2".repeat(128),
-        kind: GRASP_SET_KIND,
+        kind: GIT_USER_GRASP_LIST,
         pubkey: currentPubkey,
         created_at: 10,
-        tags: [["d", DEFAULT_GRASP_SET_ID]],
-        content: JSON.stringify({urls: ["wss://custom.grasp.example"]}),
+        tags: [["g", "wss://custom.grasp.example"]],
+        content: "",
       } as any)
 
       expect(
