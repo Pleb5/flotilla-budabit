@@ -891,7 +891,10 @@ describe("commands", () => {
     settingsMocks.value.widgetInstallSources = {
       [widgetId]: {relays: ["wss://widgets.example/"]},
     }
-    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {[widgetId]: installed}})
+    settingsMocks.getInstalledExtensions.mockReturnValue({
+      nip89: {},
+      widget: {[widgetId]: installed},
+    })
     repository.publish(latest as any)
 
     const update = await checkForWidgetUpdate(widgetId)
@@ -937,7 +940,10 @@ describe("commands", () => {
     settingsMocks.value.widgetInstallSources = {
       [widgetId]: {relays: ["wss://widgets.example/"]},
     }
-    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {[widgetId]: installed}})
+    settingsMocks.getInstalledExtensions.mockReturnValue({
+      nip89: {},
+      widget: {[widgetId]: installed},
+    })
     netMocks.request.mockResolvedValueOnce([latest])
 
     const update = await checkForWidgetUpdate(widgetId)
@@ -968,7 +974,10 @@ describe("commands", () => {
     settingsMocks.value.widgetInstallSources = {
       [widgetId]: {relays: ["wss://widgets.example/"]},
     }
-    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {[widgetId]: installed}})
+    settingsMocks.getInstalledExtensions.mockReturnValue({
+      nip89: {},
+      widget: {[widgetId]: installed},
+    })
     netMocks.request.mockImplementationOnce(() => new Promise(() => {}))
 
     const updatePromise = checkForWidgetUpdate(widgetId)
@@ -987,7 +996,13 @@ describe("commands", () => {
       content: "Weather",
       pubkey,
       created_at: 1,
-      tags: [["d", "weather"], ["l", "tool"]],
+      tags: [
+        ["d", "weather"],
+        ["l", "tool"],
+        ["version", "1.0.5"],
+        ["button", "Open", "app", "https://example.com/weather-1.0.5.html"],
+        ["permission", "ui:toast"],
+      ],
     } as any
     const widgetId = `30033:${pubkey}:weather`
 
@@ -995,7 +1010,13 @@ describe("commands", () => {
     const next = settingsMocks.update.mock.calls[0][0](settingsMocks.value)
 
     expect(getWidgetLineId(widget)).toBe(widgetId)
-    expect(next.installed.widget[widgetId]).toMatchObject({identifier: "weather", pubkey})
+    expect(next.installed.widget[widgetId]).toMatchObject({
+      identifier: "weather",
+      pubkey,
+      version: "1.0.5",
+      appUrl: "https://example.com/weather-1.0.5.html",
+      permissions: ["ui:toast"],
+    })
     expect(next.installed.widget.weather).toBeUndefined()
     expect(next.widgetInstallSources[widgetId]).toEqual({relays: ["wss://widgets.example/"]})
   })
@@ -1008,7 +1029,10 @@ describe("commands", () => {
       content: "Weather A",
       pubkey: "a".repeat(64),
       created_at: 1,
-      tags: [["d", "weather"], ["l", "basic"]],
+      tags: [
+        ["d", "weather"],
+        ["l", "basic"],
+      ],
     } as any
     const second = {
       ...first,
@@ -1034,7 +1058,13 @@ describe("commands", () => {
   it("refreshWidget replaces stored widget metadata and reloads enabled widgets", async () => {
     const {refreshWidget} = await import("./commands")
     const pubkey = "a".repeat(64)
-    const oldWidget = {identifier: "weather", pubkey, kind: 30033, tags: [], widgetType: "tool"} as any
+    const oldWidget = {
+      identifier: "weather",
+      pubkey,
+      kind: 30033,
+      tags: [],
+      widgetType: "tool",
+    } as any
     const newWidget = {...oldWidget, id: "weather-2", created_at: 2}
     const widgetId = getWidgetLineId(oldWidget)
 
@@ -1084,7 +1114,9 @@ describe("commands", () => {
 
     const next = settingsMocks.update.mock.calls[0][0]({
       installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
-      widgetInstallSources: {[widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]}},
+      widgetInstallSources: {
+        [widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]},
+      },
       widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 
@@ -1126,7 +1158,9 @@ describe("commands", () => {
 
     const next = settingsMocks.update.mock.calls[0][0]({
       installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
-      widgetInstallSources: {[widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]}},
+      widgetInstallSources: {
+        [widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]},
+      },
       widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 

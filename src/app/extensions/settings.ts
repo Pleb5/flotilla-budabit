@@ -85,7 +85,8 @@ const normalizeInstalled = (installed: any): NormalizedInstalled => {
   const nip89: Record<string, ExtensionManifest> = installed?.nip89 || {}
   const widget: Record<string, SmartWidgetEvent> = {}
   const widgetEntries = Object.entries(installed?.widget || {}).filter(
-    (entry): entry is [string, SmartWidgetEvent] => Boolean(entry[1]) && typeof entry[1] === "object",
+    (entry): entry is [string, SmartWidgetEvent] =>
+      Boolean(entry[1]) && typeof entry[1] === "object",
   )
   const widgetKeyMap = buildWidgetKeyMap(widgetEntries)
   const legacyFlat =
@@ -185,10 +186,7 @@ const getEffectiveWidgetMap = (
   const effective = getDefaultWidgetMap(widgets)
 
   for (const [id, widget] of Object.entries(installedWidgets)) {
-    const current = effective[id]
-    if (!current || (widget.created_at || 0) >= (current.created_at || 0)) {
-      effective[id] = widget
-    }
+    effective[id] = widget
   }
 
   return effective
@@ -257,15 +255,39 @@ export const isExtensionInstalled = (id: string): boolean => {
 }
 
 export const enableDefaultExtension = (id: string): void => {
+  const defaultWidget = getDefaultWidgetMap()[id]
+
   extensionSettings.update(s => ({
     ...s,
+    installed: defaultWidget
+      ? {
+          nip89: s.installed?.nip89 || {},
+          widget: {
+            ...(s.installed?.widget || {}),
+            [id]: s.installed?.widget?.[id] || defaultWidget,
+          },
+          legacy: s.installed?.legacy,
+        }
+      : s.installed,
     disabledDefaultIds: (s.disabledDefaultIds || []).filter(disabledId => disabledId !== id),
   }))
 }
 
 export const disableDefaultExtension = (id: string): void => {
+  const defaultWidget = getDefaultWidgetMap()[id]
+
   extensionSettings.update(s => ({
     ...s,
+    installed: defaultWidget
+      ? {
+          nip89: s.installed?.nip89 || {},
+          widget: {
+            ...(s.installed?.widget || {}),
+            [id]: s.installed?.widget?.[id] || defaultWidget,
+          },
+          legacy: s.installed?.legacy,
+        }
+      : s.installed,
     disabledDefaultIds: Array.from(new Set([...(s.disabledDefaultIds || []), id])),
   }))
 }
@@ -383,8 +405,18 @@ const normalizeExtensionSettings = (
   )
 
   return {
-    enabled: normalizeExtensionIds(settings.enabled, installedIds, nip89Ids, widgetIds, widgetKeyMap),
-    disabledDefaultIds: normalizeDisabledDefaultIds(settings.disabledDefaultIds, widgetKeyMap, widgets),
+    enabled: normalizeExtensionIds(
+      settings.enabled,
+      installedIds,
+      nip89Ids,
+      widgetIds,
+      widgetKeyMap,
+    ),
+    disabledDefaultIds: normalizeDisabledDefaultIds(
+      settings.disabledDefaultIds,
+      widgetKeyMap,
+      widgets,
+    ),
     installed,
     widgetDisplay,
     manifestUrls,
@@ -431,7 +463,15 @@ export const publishExtensionSettings = async (): Promise<boolean> => {
       tags: [["d", EXTENSION_SETTINGS_DTAG]],
     })
 
-    await postExtensionSettings(event)
+    const thunk = postExtensionSettings(event) as any
+    const complete = thunk?.complete
+
+    if (complete && typeof complete.then === "function") {
+      await complete
+    } else if (thunk && typeof thunk.then === "function") {
+      await thunk
+    }
+
     lastPublishedAt = Date.now()
     console.log("[publishExtensionSettings] Published extension settings to relay")
     return true

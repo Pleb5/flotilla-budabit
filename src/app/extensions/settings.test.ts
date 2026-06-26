@@ -6,6 +6,7 @@ import type {ExtensionManifest, SmartWidgetEvent} from "./types"
 import {
   applyRemoteExtensionSettings,
   defaultExtensionSettings,
+  enableDefaultExtension,
   extensionSettings,
   type ExtensionSettings,
   getEffectiveExtensionSettings,
@@ -76,8 +77,16 @@ describe("effective extension settings", () => {
   })
 
   it("renders a newer installed widget over a stale default widget immediately", () => {
-    const staleDefault = {...makeWidget("default-widget", 10), version: "0.1.4"}
-    const updatedInstalled = {...makeWidget("default-widget", 20), version: "0.1.5"}
+    const staleDefault = {
+      ...makeWidget("default-widget", 10),
+      version: "0.1.4",
+      appUrl: "https://example.com/default-0.1.4.html",
+    }
+    const updatedInstalled = {
+      ...makeWidget("default-widget", 20),
+      version: "0.1.5",
+      appUrl: "https://example.com/installed-0.1.5.html",
+    }
     const widgetId = getWidgetLineId(updatedInstalled)
     const settings = {
       ...makeSettings(),
@@ -87,6 +96,34 @@ describe("effective extension settings", () => {
 
     expect(effective.installed.widget[widgetId]).toBe(updatedInstalled)
     expect(effective.installed.widget[widgetId].version).toBe("0.1.5")
+    expect(effective.installed.widget[widgetId].appUrl).toBe(
+      "https://example.com/installed-0.1.5.html",
+    )
+  })
+
+  it("keeps the synced installed widget snapshot over newer default discovery", () => {
+    const discoveredDefault = {
+      ...makeWidget("default-widget", 30),
+      version: "0.2.0",
+      appUrl: "https://example.com/default-0.2.0.html",
+    }
+    const syncedInstalled = {
+      ...makeWidget("default-widget", 20),
+      version: "0.1.5",
+      appUrl: "https://example.com/installed-0.1.5.html",
+    }
+    const widgetId = getWidgetLineId(syncedInstalled)
+    const settings = {
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widgetId]: syncedInstalled}},
+    }
+    const effective = getEffectiveExtensionSettings(settings, [discoveredDefault])
+
+    expect(effective.installed.widget[widgetId]).toBe(syncedInstalled)
+    expect(effective.installed.widget[widgetId].version).toBe("0.1.5")
+    expect(effective.installed.widget[widgetId].appUrl).toBe(
+      "https://example.com/installed-0.1.5.html",
+    )
   })
 
   it("lets disabled defaults override explicit enabled ids", () => {
@@ -255,5 +292,35 @@ describe("effective extension settings", () => {
     expect(settings.disabledDefaultIds).toEqual([widgetId])
     expect(effective.installed.widget[widgetId]).toBe(widget)
     expect(effective.enabled).not.toContain(widgetId)
+  })
+
+  it("persists the default widget snapshot when enabling a default extension", () => {
+    const widget = {
+      ...makeWidget("default-widget", 20),
+      version: "0.1.5",
+      appUrl: "https://example.com/default-0.1.5.html",
+      appUrls: ["https://example.com/default-0.1.5.html", "https://cdn.example.com/default.html"],
+      permissions: ["ui:toast"],
+    }
+    const widgetId = getWidgetLineId(widget)
+
+    setDefaultExtensionWidgets([widget])
+    extensionSettings.set({
+      ...makeSettings(),
+      disabledDefaultIds: [widgetId],
+    })
+
+    enableDefaultExtension(widgetId)
+
+    const settings = get(extensionSettings)
+
+    expect(settings.disabledDefaultIds).toEqual([])
+    expect(settings.installed.widget[widgetId]).toMatchObject({
+      id: widget.id,
+      version: "0.1.5",
+      appUrl: "https://example.com/default-0.1.5.html",
+      appUrls: ["https://example.com/default-0.1.5.html", "https://cdn.example.com/default.html"],
+      permissions: ["ui:toast"],
+    })
   })
 })
