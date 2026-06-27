@@ -3,21 +3,18 @@
   import ExtensionIcon from "./ExtensionIcon.svelte"
   import ProfileCircle from "./ProfileCircle.svelte"
   import ProfileLink from "./ProfileLink.svelte"
-  import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
+  import type {SmartWidgetEvent} from "@app/extensions/types"
   import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
-  import {checkForExtensionUpdate, refreshExtension} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
   import {RefreshCw} from "@lucide/svelte"
 
   type Props = {
-    manifest: ExtensionManifest | SmartWidgetEvent
+    widget: SmartWidgetEvent
     enabled?: boolean
-    type?: "nip89" | "widget"
     ontoggle?: (detail: {enabled: boolean}) => void
     onuninstall?: () => void
-    manifestUrl?: string // URL to check for updates (NIP-89 extensions only)
     isDefault?: boolean
     communityOptions?: WidgetCommunityOption[]
     targetedCommunityPubkeys?: string[]
@@ -29,12 +26,10 @@
   }
 
   const {
-    manifest,
+    widget,
     enabled = false,
-    type = "nip89",
     ontoggle,
     onuninstall,
-    manifestUrl,
     isDefault = false,
     communityOptions = [],
     targetedCommunityPubkeys = [],
@@ -47,9 +42,6 @@
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
 
-  const isWidget = $derived(type === "widget")
-  const widget = $derived(isWidget ? (manifest as SmartWidgetEvent) : null)
-  const extension = $derived(!isWidget ? (manifest as ExtensionManifest) : null)
   const widgetAppUrls = $derived(
     (widget?.appUrls?.length ? widget.appUrls : widget?.appUrl ? [widget.appUrl] : []).filter(url =>
       isSecureEmbeddableUrl(url),
@@ -110,17 +102,11 @@
     if (!showCommunityTargets) selectedCommunityPubkeys = [...targetedCommunityPubkeys]
   })
 
-  const displayName = $derived(isWidget
-    ? widget?.content || widget?.identifier || "Smart Widget"
-    : extension?.name)
-  const version = $derived(isWidget ? widget?.version : extension?.version)
-  const iconUrl = $derived(isWidget ? widget?.iconUrl || widget?.imageUrl : extension?.icon)
-  const description = $derived(isWidget
-    ? widget?.widgetType
-      ? `Smart Widget • ${widget.widgetType}`
-      : undefined
-    : extension?.description)
-  const permissions = $derived(isWidget ? widget?.permissions : extension?.permissions)
+  const displayName = $derived(widget?.content || widget?.identifier || "Smart Widget")
+  const version = $derived(widget?.version)
+  const iconUrl = $derived(widget?.iconUrl || widget?.imageUrl)
+  const description = $derived(widget?.widgetType ? `Smart Widget • ${widget.widgetType}` : undefined)
+  const permissions = $derived(widget?.permissions)
 
   const slotLabel = $derived.by(() => {
     if (!widget?.slot) return ""
@@ -154,42 +140,6 @@
     return summary
   })
 
-  // Update checking state
-  let checkingUpdate = $state(false)
-  let updateAvailable = $state<ExtensionManifest | null>(null)
-  let refreshing = $state(false)
-
-  async function checkUpdate() {
-    if (!manifestUrl || !extension?.id || isWidget) return
-
-    checkingUpdate = true
-    try {
-      const newManifest = await checkForExtensionUpdate(extension.id, manifestUrl)
-      updateAvailable = newManifest
-    } catch (e) {
-      console.error("Failed to check for update:", e)
-    } finally {
-      checkingUpdate = false
-    }
-  }
-
-  async function handleRefresh() {
-    if (!updateAvailable || !extension?.id) return
-
-    refreshing = true
-    try {
-      await refreshExtension(extension.id, updateAvailable)
-      pushToast({
-        theme: "success",
-        message: `Updated ${extension.name} to v${updateAvailable.version}`,
-      })
-      updateAvailable = null
-    } catch (e: any) {
-      pushToast({theme: "error", message: e?.message || "Failed to refresh extension"})
-    } finally {
-      refreshing = false
-    }
-  }
 </script>
 
 <div
@@ -207,24 +157,19 @@
           {/if}
         </div>
         <div class="mt-1 flex min-w-0 flex-wrap gap-1.5">
-          {#if updateAvailable}
-            <span class="badge-update badge badge-sm min-w-0 max-w-full">
-              Update Available: v{updateAvailable.version}
-            </span>
-          {/if}
-          {#if isWidget && widgetUpdate}
+          {#if widgetUpdate}
             <span class="badge-update badge badge-sm min-w-0 max-w-full">
               Widget update{#if widgetUpdateVersion}
                 v{widgetUpdateVersion}{/if}
             </span>
           {/if}
           <span class="badge badge-sm min-w-0 max-w-full">
-            {isWidget ? "Smart Widget" : "Extension"}
+            Smart Widget
           </span>
           {#if slotLabel}
             <span class="badge badge-secondary badge-sm min-w-0 max-w-full">{slotLabel}</span>
           {/if}
-          {#if isWidget && targetedCommunityPubkeys.length > 0}
+          {#if targetedCommunityPubkeys.length > 0}
             <span class="badge badge-secondary badge-sm min-w-0 max-w-full">
               {targetedCommunityPubkeys.length} communit{targetedCommunityPubkeys.length === 1
                 ? "y"
@@ -239,34 +184,17 @@
     </div>
     <div
       class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-[45%] sm:shrink-0 sm:justify-end lg:max-w-none">
-      {#if isWidget && widgetUpdate}
+      {#if widgetUpdate}
         <button
           class="btn btn-warning btn-xs shrink-0"
           onclick={() => onWidgetUpdate?.()}
           disabled={widgetUpdateRefreshing || !onWidgetUpdate}>
           {widgetUpdateRefreshing ? "Updating..." : "Update widget"}
         </button>
-      {:else if isWidget && widgetUpdateChecking}
+      {:else if widgetUpdateChecking}
         <button class="btn btn-ghost btn-xs shrink-0" disabled title="Checking for widget updates">
           <RefreshCw size={14} class="animate-spin" />
         </button>
-      {:else if !isWidget && manifestUrl}
-        {#if updateAvailable}
-          <button
-            class="btn btn-warning btn-xs shrink-0"
-            onclick={handleRefresh}
-            disabled={refreshing}>
-            {refreshing ? "Updating..." : "Update Now"}
-          </button>
-        {:else}
-          <button
-            class="btn btn-ghost btn-xs shrink-0"
-            onclick={checkUpdate}
-            disabled={checkingUpdate}
-            title="Check for updates">
-            <RefreshCw size={14} class={checkingUpdate ? "animate-spin" : ""} />
-          </button>
-        {/if}
       {/if}
       <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm">
         <input
@@ -284,20 +212,18 @@
     </div>
   </div>
 
-  {#if isWidget && widget?.pubkey}
+  {#if widget?.pubkey}
     <div class="flex items-center gap-2 text-xs opacity-70">
       <span>by</span>
       <ProfileCircle pubkey={widget.pubkey} size={5} class="h-5 w-5" />
       <ProfileLink pubkey={widget.pubkey} class="hover:underline" />
     </div>
-  {:else if !isWidget && extension?.author}
-    <p class="text-xs opacity-70">by {extension.author}</p>
   {/if}
   {#if description}
     <p class="mt-1 text-sm">{description}</p>
   {/if}
 
-  {#if isWidget && widget}
+  {#if widget}
     <div class="text-xs opacity-70">
       {#if widget.appUrl}
         <div class="truncate" title={widget.appUrl}>App: {widget.appUrl}</div>
@@ -347,11 +273,11 @@
     {/if}
   {/if}
 
-  {#if (isWidget && widget && communityOptions.length > 0 && onTargetedCommunitiesChange) || (permissions && permissions.length > 0)}
+  {#if (widget && communityOptions.length > 0 && onTargetedCommunitiesChange) || (permissions && permissions.length > 0)}
     <details class="mt-2 rounded-box border border-base-300 bg-base-200/20 p-3 text-sm">
       <summary class="cursor-pointer select-none font-medium">Details</summary>
       <div class="mt-3 flex flex-col gap-3">
-        {#if isWidget && widget && communityOptions.length > 0 && onTargetedCommunitiesChange}
+        {#if widget && communityOptions.length > 0 && onTargetedCommunitiesChange}
           <div class="rounded-box border border-base-300 bg-base-200/30 p-3 text-sm">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>

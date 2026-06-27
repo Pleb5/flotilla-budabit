@@ -2,7 +2,7 @@
 
 import {afterEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
-import type {ExtensionManifest, SmartWidgetEvent} from "./types"
+import type {SmartWidgetEvent} from "./types"
 import {
   applyRemoteExtensionSettings,
   defaultExtensionSettings,
@@ -42,18 +42,11 @@ const makeWidget = (
   buttons: [],
 })
 
-const makeManifest = (id: string): ExtensionManifest => ({
-  id,
-  name: id,
-  entrypoint: `https://example.com/${id}/`,
-})
-
 const makeSettings = (): ExtensionSettings => ({
   ...defaultExtensionSettings,
   enabled: [],
   disabledDefaultIds: [],
-  installed: {nip89: {}, widget: {}},
-  manifestUrls: {},
+  installed: {widget: {}},
   widgetInstallSources: {},
 })
 
@@ -89,7 +82,7 @@ describe("effective extension settings", () => {
     const widgetId = getWidgetLineId(updatedInstalled)
     const settings = {
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widgetId]: updatedInstalled}},
+      installed: {widget: {[widgetId]: updatedInstalled}},
     }
     const effective = getEffectiveExtensionSettings(settings, [staleDefault])
 
@@ -114,7 +107,7 @@ describe("effective extension settings", () => {
     const widgetId = getWidgetLineId(syncedInstalled)
     const settings = {
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widgetId]: syncedInstalled}},
+      installed: {widget: {[widgetId]: syncedInstalled}},
     }
     const effective = getEffectiveExtensionSettings(settings, [discoveredDefault])
 
@@ -140,7 +133,7 @@ describe("effective extension settings", () => {
 
     extensionSettings.set({
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widgetId]: installed}},
+      installed: {widget: {[widgetId]: installed}},
     })
 
     setDefaultExtensionWidgets([discovered])
@@ -170,7 +163,7 @@ describe("effective extension settings", () => {
     setDefaultExtensionWidgets([discovered])
     applyRemoteExtensionSettings({
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widgetId]: remoteInstalled}},
+      installed: {widget: {[widgetId]: remoteInstalled}},
     })
 
     const settings = get(extensionSettings)
@@ -197,11 +190,11 @@ describe("effective extension settings", () => {
 
     extensionSettings.set({
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widgetId]: local}},
+      installed: {widget: {[widgetId]: local}},
     })
     applyRemoteExtensionSettings({
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widgetId]: staleRemote}},
+      installed: {widget: {[widgetId]: staleRemote}},
     })
 
     const settings = get(extensionSettings)
@@ -234,13 +227,13 @@ describe("effective extension settings", () => {
     extensionSettings.set({
       ...makeSettings(),
       enabled: [localWidgetId],
-      installed: {nip89: {}, widget: {[localWidgetId]: localWidget}},
+      installed: {widget: {[localWidgetId]: localWidget}},
     })
 
     applyRemoteExtensionSettings({
       ...makeSettings(),
       enabled: [remoteWidget.identifier],
-      installed: {nip89: {}, widget: {[remoteWidget.identifier]: remoteWidget}},
+      installed: {widget: {[remoteWidget.identifier]: remoteWidget}},
     })
 
     const settings = get(extensionSettings)
@@ -250,52 +243,13 @@ describe("effective extension settings", () => {
     expect(settings.enabled).toEqual([remoteWidgetId])
   })
 
-  it("treats ids missing from the latest remote snapshot as removed", () => {
-    const manifest = makeManifest("old-extension")
-
-    extensionSettings.set({
-      ...makeSettings(),
-      enabled: [manifest.id],
-      installed: {nip89: {[manifest.id]: manifest}, widget: {}},
-      manifestUrls: {[manifest.id]: "https://example.com/old-extension/manifest.json"},
-    })
-
-    applyRemoteExtensionSettings(makeSettings())
-
-    const settings = get(extensionSettings)
-
-    expect(settings.installed.nip89[manifest.id]).toBeUndefined()
-    expect(settings.enabled).toEqual([])
-    expect(settings.manifestUrls).toEqual({})
-  })
-
-  it("filters remote enabled ids and manifest URLs to installed user extensions", () => {
-    const manifest = makeManifest("remote-extension")
-    const manifestUrl = "https://example.com/remote-extension/manifest.json"
-
-    applyRemoteExtensionSettings({
-      ...makeSettings(),
-      enabled: [manifest.id, "missing-extension"],
-      installed: {nip89: {[manifest.id]: manifest}, widget: {}},
-      manifestUrls: {
-        [manifest.id]: manifestUrl,
-        "missing-extension": "https://example.com/missing/manifest.json",
-      },
-    })
-
-    const settings = get(extensionSettings)
-
-    expect(settings.enabled).toEqual([manifest.id])
-    expect(settings.manifestUrls).toEqual({[manifest.id]: manifestUrl})
-  })
-
   it("filters and normalizes widget install sources to installed widgets", () => {
     const widget = makeWidget("weather")
     const widgetId = getWidgetLineId(widget)
 
     applyRemoteExtensionSettings({
       ...makeSettings(),
-      installed: {nip89: {}, widget: {[widget.identifier]: widget}},
+      installed: {widget: {[widget.identifier]: widget}},
       widgetInstallSources: {
         [widget.identifier]: {
           naddr: " naddr1example ",
@@ -322,7 +276,7 @@ describe("effective extension settings", () => {
     applyRemoteExtensionSettings({
       ...makeSettings(),
       enabled: [widget.identifier],
-      installed: {nip89: {}, widget: {[widget.identifier]: widget}},
+      installed: {widget: {[widget.identifier]: widget}},
       widgetInstallSources: {[widget.identifier]: {relays: ["wss://relay.example"]}},
     })
 
@@ -344,7 +298,7 @@ describe("effective extension settings", () => {
     applyRemoteExtensionSettings({
       ...makeSettings(),
       enabled: [firstId, secondId],
-      installed: {nip89: {}, widget: {[firstId]: first, [secondId]: second}},
+      installed: {widget: {[firstId]: first, [secondId]: second}},
     })
 
     const settings = get(extensionSettings)

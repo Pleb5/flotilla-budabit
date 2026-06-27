@@ -1,5 +1,4 @@
 export * from "./types"
-export * from "./policySigner"
 export * from "./registry"
 export * from "./settings"
 export * from "./slots"

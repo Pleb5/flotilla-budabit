@@ -14,7 +14,6 @@
   import {
     enableExtension,
     disableExtension,
-    installExtension,
     uninstallExtension,
     installWidgetFromEvent,
     installWidgetByNaddr,
@@ -44,7 +43,7 @@
   } from "@app/extensions/community-widget-trust"
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {pushToast} from "@app/util/toast"
-  import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
+  import type {SmartWidgetEvent} from "@app/extensions/types"
   import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import {
     getWidgetAddress,
@@ -62,12 +61,9 @@
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import BoxMinimalistic from "@assets/icons/box-minimalistic.svg?dataurl"
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
 
-  type InstalledItem =
-    | {type: "nip89"; id: string; manifest: ExtensionManifest; isDefault: boolean}
-    | {type: "widget"; id: string; manifest: SmartWidgetEvent; isDefault: boolean}
+  type InstalledItem = {id: string; widget: SmartWidgetEvent; isDefault: boolean}
   type InstalledWidgetItem = {id: string; widget: SmartWidgetEvent}
 
   type CommunityDiscoveryState = "idle" | "loading" | "invalid" | "not-community" | "community"
@@ -75,9 +71,6 @@
   const settings = $derived($effectiveExtensionSettings)
   const defaultWidgets = $derived($defaultExtensionWidgets)
   const defaultIds = $derived(new Set(defaultWidgets.map(getWidgetLineId)))
-  const installedNip89 = $derived<ExtensionManifest[]>(
-    Object.values(settings.installed?.nip89 || {}),
-  )
   const installedWidgetItems = $derived.by<InstalledWidgetItem[]>(() =>
     Object.entries(settings.installed?.widget || {}).map(([id, widget]) => ({id, widget})),
   )
@@ -87,20 +80,10 @@
   const installed = $derived.by<InstalledItem[]>(() => {
     const byId = new Map<string, InstalledItem>()
 
-    for (const manifest of installedNip89) {
-      byId.set(manifest.id, {
-        type: "nip89",
-        id: manifest.id,
-        manifest,
-        isDefault: defaultIds.has(manifest.id),
-      })
-    }
-
     for (const {id, widget} of installedWidgetItems) {
       byId.set(id, {
-        type: "widget",
         id,
-        manifest: widget,
+        widget,
         isDefault: defaultIds.has(id),
       })
     }
@@ -128,8 +111,6 @@
   let highlightTrustedSection = $state(false)
   let focusedTrustedSectionKey = ""
 
-  let manifestUrl = $state("")
-  let installing = $state(false)
   let widgetNaddr = $state("")
   let installingWidget = $state(false)
 
@@ -636,21 +617,6 @@
     void checkInstalledWidgetUpdates(widgetUpdateCheckWidgets)
   })
 
-  const onInstallByUrl = async () => {
-    if (!manifestUrl) return
-    installing = true
-    try {
-      const manifest = await installExtension(manifestUrl)
-      await enableExtension(manifest.id)
-      pushToast({theme: "success", message: `Installed and enabled ${manifest.name}`})
-      manifestUrl = ""
-    } catch (e: any) {
-      pushToast({theme: "error", message: e?.message || "Install failed"})
-    } finally {
-      installing = false
-    }
-  }
-
   const onInstallWidget = async (widget: SmartWidgetEvent) => {
     try {
       const installedWidget = installWidgetFromEvent(widget as any, {
@@ -824,31 +790,20 @@
     {#if installed.length > 0}
       <div class="flex flex-col gap-3">
         {#each installed as item (item.id)}
-          {@const installedManifestUrl = settings.manifestUrls?.[item.id]}
           <ExtensionCard
-            manifest={item.manifest}
-            type={item.type}
+            widget={item.widget}
             enabled={enabledIds.includes(item.id)}
             isDefault={item.isDefault}
             ontoggle={({enabled}) => toggle(item.id, enabled)}
             onuninstall={item.isDefault ? undefined : () => onUninstall(item.id)}
-            manifestUrl={installedManifestUrl}
-            widgetUpdate={item.type === "widget" ? widgetUpdates[item.id] : undefined}
-            widgetUpdateChecking={item.type === "widget"
-              ? Boolean(checkingWidgetUpdates[item.id])
-              : false}
-            widgetUpdateRefreshing={item.type === "widget"
-              ? Boolean(refreshingWidgetUpdates[item.id])
-              : false}
-            onWidgetUpdate={item.type === "widget" ? () => onUpdateWidget(item.id) : undefined}
-            communityOptions={item.type === "widget" ? widgetCommunityOptions : []}
-            targetedCommunityPubkeys={item.type === "widget"
-              ? getWidgetTargetedCommunityPubkeys(item.manifest as SmartWidgetEvent)
-              : []}
-            onTargetedCommunitiesChange={item.type === "widget"
-              ? pubkeys =>
-                  onWidgetTargetedCommunitiesChange(item.manifest as SmartWidgetEvent, pubkeys)
-              : undefined} />
+            widgetUpdate={widgetUpdates[item.id]}
+            widgetUpdateChecking={Boolean(checkingWidgetUpdates[item.id])}
+            widgetUpdateRefreshing={Boolean(refreshingWidgetUpdates[item.id])}
+            onWidgetUpdate={() => onUpdateWidget(item.id)}
+            communityOptions={widgetCommunityOptions}
+            targetedCommunityPubkeys={getWidgetTargetedCommunityPubkeys(item.widget)}
+            onTargetedCommunitiesChange={pubkeys =>
+              onWidgetTargetedCommunitiesChange(item.widget, pubkeys)} />
         {/each}
       </div>
     {:else}
@@ -953,43 +908,11 @@
     {/snippet}
     {#snippet description()}
       <p class="text-sm opacity-70">
-        Manual install options for direct manifests and Smart Widget naddr values.
+        Manual install options for Smart Widget naddr values.
       </p>
     {/snippet}
 
     <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <div class="card2 bg-base-100 shadow-sm">
-        <strong class="text-lg">Install by URL</strong>
-        <FieldInline>
-          {#snippet label()}
-            <p class="flex items-center gap-3">
-              <Icon icon={BoxMinimalistic} />
-              Manifest URL
-            </p>
-          {/snippet}
-          {#snippet input()}
-            <label class="input input-bordered flex w-full items-center gap-2">
-              <Icon icon={LinkRound} />
-              <input
-                class="grow"
-                placeholder="https://.../manifest.json"
-                bind:value={manifestUrl} />
-            </label>
-          {/snippet}
-          {#snippet info()}
-            <p>Paste a NIP-89 manifest URL to install an extension.</p>
-          {/snippet}
-        </FieldInline>
-        <div class="mt-3 flex justify-end">
-          <Button
-            class="btn btn-primary btn-sm"
-            disabled={!manifestUrl || installing}
-            onclick={onInstallByUrl}>
-            {installing ? "Installing..." : "Install"}
-          </Button>
-        </div>
-      </div>
-
       <div class="card2 bg-base-100 shadow-sm">
         <strong class="text-lg">Install Smart Widget (naddr)</strong>
         <FieldInline>

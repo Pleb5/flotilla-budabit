@@ -1,8 +1,6 @@
 import {writable, get, derived} from "svelte/store"
 import type {
-  ExtensionManifest,
   LoadedExtension,
-  LoadedNip89Extension,
   LoadedWidgetExtension,
   SmartWidgetEvent,
   WidgetButtonType,
@@ -169,24 +167,6 @@ class ExtensionRegistry {
     return ExtensionRegistry.instance
   }
 
-  register(manifest: ExtensionManifest): LoadedNip89Extension {
-    const extensions = new Map(get(this.store))
-    // Handle empty entrypoint
-    let origin = window.location.origin
-    if (manifest.entrypoint) {
-      assertSecureEmbeddableUrl(manifest.entrypoint, "Extension entrypoint")
-      try {
-        origin = new URL(manifest.entrypoint).origin
-      } catch {
-        // Keep default origin for invalid URLs
-      }
-    }
-    const ext: LoadedNip89Extension = {type: "nip89", id: manifest.id, manifest, origin}
-    extensions.set(manifest.id, ext)
-    this.store.set(extensions)
-    return ext
-  }
-
   registerWidget(event: SmartWidgetEvent): LoadedWidgetExtension {
     const extensions = new Map(get(this.store))
     const id = getWidgetLineId(event)
@@ -265,35 +245,6 @@ class ExtensionRegistry {
   }
 
   /**
-   * Fetch and validate an extension manifest before registering.
-   */
-  async load(manifestUrl: string): Promise<ExtensionManifest> {
-    assertSecureEmbeddableUrl(manifestUrl, "Extension manifest URL")
-
-    // Add cache-busting parameter and set no-cache headers to ensure fresh manifest
-    const cacheBustedUrl = addCacheBuster(manifestUrl)
-    const res = await fetch(cacheBustedUrl, {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-      },
-    })
-    if (!res.ok) {
-      throw new Error(`Failed to fetch manifest: ${res.status}`)
-    }
-    const manifest: ExtensionManifest = await res.json()
-
-    // Note: manifest.sha256 is not verified here because hashing JSON.stringify(manifest)
-    // after parsing (which includes the sha256 field itself) is not a meaningful integrity
-    // check. True manifest authenticity should be verified via Nostr event signatures or
-    // a detached signature from a trusted key.
-
-    this.register(manifest)
-    return manifest
-  }
-
-  /**
    * Wait for an iframe to load with timeout.
    */
   private waitForIframeLoad(iframe: HTMLIFrameElement, timeoutMs = 10000): Promise<void> {
@@ -335,24 +286,15 @@ class ExtensionRegistry {
       hostVersion: "1.0.0", // Could be pulled from package.json
     }
 
-    if (ext.type === "widget") {
-      initPayload.widget = {
-        identifier: ext.widget.identifier,
-        widgetType: ext.widget.widgetType,
-        content: ext.widget.content,
-        imageUrl: ext.widget.imageUrl,
-        iconUrl: ext.widget.iconUrl,
-        inputLabel: ext.widget.inputLabel,
-        buttons: ext.widget.buttons,
-        permissions: ext.widget.permissions,
-      }
-    } else {
-      initPayload.manifest = {
-        id: ext.manifest.id,
-        name: ext.manifest.name,
-        version: ext.manifest.version,
-        permissions: ext.manifest.permissions,
-      }
+    initPayload.widget = {
+      identifier: ext.widget.identifier,
+      widgetType: ext.widget.widgetType,
+      content: ext.widget.content,
+      imageUrl: ext.widget.imageUrl,
+      iconUrl: ext.widget.iconUrl,
+      inputLabel: ext.widget.inputLabel,
+      buttons: ext.widget.buttons,
+      permissions: ext.widget.permissions,
     }
 
     // Include repo context if available (for repo-scoped extensions)
@@ -371,52 +313,7 @@ class ExtensionRegistry {
     ext.bridge.post("widget:mounted", {timestamp: Date.now()})
   }
 
-  private async loadRuntime(ext: LoadedExtension): Promise<LoadedExtension> {
-    if (ext.type === "nip89") {
-      const existing = this.get(ext.id) as LoadedNip89Extension | undefined
-      if (existing?.iframe) return existing
-
-      // Skip iframe loading for built-in extensions without entrypoint
-      if (!ext.manifest.entrypoint) {
-        return ext
-      }
-      assertSecureEmbeddableUrl(ext.manifest.entrypoint, "Extension entrypoint")
-
-      const iframe = document.createElement("iframe")
-      // Add cache-busting parameter to ensure fresh extension content
-      iframe.src = addCacheBuster(ext.manifest.entrypoint)
-      iframe.sandbox.add("allow-scripts", "allow-same-origin")
-      iframe.classList.add("extension-frame")
-
-      const container = document.getElementById("flotilla-extension-container") ?? document.body
-      container.appendChild(iframe)
-
-      // Wait for iframe to load before attaching bridge
-      try {
-        await this.waitForIframeLoad(iframe)
-      } catch (err) {
-        // Clean up on failure
-        if (iframe.parentNode) {
-          iframe.parentNode.removeChild(iframe)
-        }
-        console.error(`[registry] Failed to load extension ${ext.id}:`, err)
-        throw err
-      }
-
-      const {ExtensionBridge} = await import("./bridge")
-      const bridge = new ExtensionBridge(ext)
-      bridge.attachHandlers(iframe.contentWindow)
-
-      const updated: LoadedNip89Extension = {...ext, iframe, bridge}
-      this.setExtension(updated)
-
-      // Send lifecycle events after bridge is ready
-      this.sendLifecycleInit(updated)
-
-      return updated
-    }
-
-    // Smart Widget path
+  private async loadRuntime(ext: LoadedWidgetExtension): Promise<LoadedWidgetExtension> {
     if (ext.widget.widgetType === "basic") {
       // No iframe needed; just ensure registration is present
       this.setExtension(ext)
@@ -486,15 +383,6 @@ class ExtensionRegistry {
     const ext = this.registerWidget(event)
     const loaded = await this.loadRuntime(ext)
     return loaded as LoadedWidgetExtension
-  }
-
-  async loadIframeExtension(manifest: ExtensionManifest): Promise<LoadedExtension> {
-    const existing = this.get(manifest.id)
-    const base =
-      existing && existing.type === "nip89"
-        ? (existing as LoadedNip89Extension)
-        : this.register(manifest)
-    return this.loadRuntime(base)
   }
 
   async unloadExtension(id: string): Promise<void> {

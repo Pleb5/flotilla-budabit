@@ -63,7 +63,6 @@
   import type {Repo} from "@nostr-git/ui"
   import type {
     LoadedWidgetExtension,
-    ExtensionManifest,
     SmartWidgetEvent,
     RepoContext,
   } from "@app/extensions/types"
@@ -81,16 +80,11 @@
   const naddr = $page.params.id ?? ""
   const normalizeRepoTabRouteSegment = (value: string) => value.trim().replace(/^\/+|\/+$/g, "")
 
-  // Get extension manifest or widget from settings
+  // Get repo-tab widget from settings
   const resolvedExtension = $derived.by(() => {
     const settings = $effectiveExtensionSettings
     if (!extRouteSegment) return undefined
 
-    // Check NIP-89 extensions first
-    const manifest = settings.installed.nip89[extRouteSegment] as ExtensionManifest | undefined
-    if (manifest) return {id: extRouteSegment, extension: manifest}
-
-    // Check Smart Widget extensions
     const widget = settings.installed.widget?.[extRouteSegment] as SmartWidgetEvent | undefined
     if (widget) return {id: extRouteSegment, extension: widget}
 
@@ -103,51 +97,24 @@
       }
     }
 
-    for (const [manifestId, installedManifest] of Object.entries(settings.installed.nip89)) {
-      if (installedManifest.slot?.type !== "repo-tab") continue
-      if (normalizeRepoTabRouteSegment(installedManifest.slot.path) === routeSegment) {
-        return {id: manifestId, extension: installedManifest as ExtensionManifest}
-      }
-    }
-
     return undefined
   })
   const resolvedExtId = $derived(resolvedExtension?.id || extRouteSegment)
   const extension = $derived(resolvedExtension?.extension)
 
-  // Helper to determine if extension is a widget
-  const isWidget = $derived(extension && "widgetType" in extension)
-
-  // Normalize properties between NIP-89 manifests and Smart Widgets
-  const extEntrypoint = $derived.by(() => {
-    if (!extension) return undefined
-    if ("entrypoint" in extension) return extension.entrypoint
-    if ("appUrl" in extension) return extension.appUrl
-    return undefined
-  })
+  const extEntrypoint = $derived(extension?.appUrl)
   const secureExtEntrypoint = $derived(
     extEntrypoint && isSecureEmbeddableUrl(extEntrypoint) ? extEntrypoint : undefined,
   )
 
   const extName = $derived.by(() => {
     if (!extension) return extRouteSegment
-    if ("name" in extension) return extension.name
-    if ("content" in extension && extension.content) return extension.content
-    if ("identifier" in extension) return extension.identifier
-    return extRouteSegment
+    return extension.content || extension.identifier || extRouteSegment
   })
 
-  const extIcon = $derived.by(() => {
-    if (!extension) return undefined
-    if ("icon" in extension) return extension.icon
-    if ("iconUrl" in extension) return extension.iconUrl
-    return undefined
-  })
+  const extIcon = $derived(extension?.iconUrl)
 
-  const extPermissions = $derived.by(() => {
-    if (!extension) return []
-    return extension.permissions || []
-  })
+  const extPermissions = $derived(extension?.permissions || [])
 
   const isEnabled = $derived.by(() => {
     const settings = $effectiveExtensionSettings
@@ -180,7 +147,7 @@
   let retryCount = $state(0)
   let iframeSrc = $state<string | undefined>(undefined)
 
-  // Initialize iframe src when entrypoint is available
+  // Initialize iframe src when the widget app URL is available.
   $effect(() => {
     if (secureExtEntrypoint && !iframeSrc) {
       iframeSrc = secureExtEntrypoint
@@ -259,7 +226,7 @@
     try {
       const ext = createExtensionInstance()
       if (!ext) {
-        error = "Extension has no entrypoint configured."
+        error = "Extension has no app URL configured."
         return
       }
       // Add iframe reference so bridge.post() can send messages
@@ -355,7 +322,7 @@
       <div>
         <h2 class="text-lg font-semibold">{extName}</h2>
         <p class="text-sm text-muted-foreground">
-          This extension does not have an external entrypoint configured.
+          This extension does not have an external app URL configured.
         </p>
       </div>
     </div>

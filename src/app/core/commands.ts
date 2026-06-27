@@ -103,7 +103,6 @@ import {
   disableDefaultExtension,
   enableDefaultExtension,
   getInstalledExtensions,
-  getInstalledExtension,
   isExtensionEnabled,
   isDefaultExtension,
   normalizeWidgetInstallSource,
@@ -119,9 +118,8 @@ import {
   type WidgetUpdate,
 } from "@app/extensions/widget-updates"
 import {shouldPreloadWidgetRuntime} from "@app/extensions/widget-runtime"
-import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
 import {request} from "@welshman/net"
-import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
+import type {SmartWidgetEvent} from "@app/extensions/types"
 import {activeRepoClass} from "@app/core/git-state"
 import {clearUnlockedLocalKeySecrets} from "@app/core/session-storage"
 import {deleteIndexedDB} from "@lib/util"
@@ -163,25 +161,6 @@ import {
 const SMART_WIDGET_KIND = 30033
 const WIDGET_UPDATE_CHECK_TIMEOUT_MS = 8_000
 
-export const installExtension = async (manifestUrl: string) => {
-  // Fetch + validate + register the manifest in the registry
-  const manifest = await extensionRegistry.load(manifestUrl)
-
-  // Persist into settings.installed and store manifest URL for update checking
-  extensionSettings.update(s => ({
-    ...s,
-    installed: {
-      nip89: {...(s.installed?.nip89 || {}), [manifest.id]: manifest},
-      widget: s.installed?.widget || {},
-      legacy: s.installed?.legacy,
-    },
-    manifestUrls: {...(s.manifestUrls || {}), [manifest.id]: manifestUrl},
-  }))
-  await syncExtensionSettingsNow()
-
-  return manifest
-}
-
 export const uninstallExtension = async (id: string) => {
   if (isDefaultExtension(id)) {
     throw new Error("Default community extensions can be disabled, but not uninstalled")
@@ -191,41 +170,21 @@ export const uninstallExtension = async (id: string) => {
   await extensionRegistry.unloadExtension(id)
 
   extensionSettings.update(s => {
-    const nip89 = {...(s.installed?.nip89 || {})}
     const widget = {...(s.installed?.widget || {})}
-    const manifestUrls = {...(s.manifestUrls || {})}
     const widgetInstallSources = {...(s.widgetInstallSources || {})}
-    delete nip89[id]
     delete widget[id]
-    delete manifestUrls[id]
     delete widgetInstallSources[id]
     return {
       ...s,
       installed: {
-        nip89,
         widget,
         legacy: s.installed?.legacy,
       },
       enabled: s.enabled.filter(e => e !== id),
-      manifestUrls,
       widgetInstallSources,
     }
   })
   await syncExtensionSettingsNow()
-}
-
-export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
-  extensionRegistry.register(manifest)
-  extensionSettings.update(s => ({
-    ...s,
-    installed: {
-      nip89: {...(s.installed?.nip89 || {}), [manifest.id]: manifest},
-      widget: s.installed?.widget || {},
-      legacy: s.installed?.legacy,
-    },
-  }))
-  void syncExtensionSettingsNow()
-  return manifest
 }
 
 export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInstallSource) => {
@@ -236,7 +195,6 @@ export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInsta
   extensionSettings.update(s => ({
     ...s,
     installed: {
-      nip89: s.installed?.nip89 || {},
       widget: {...(s.installed?.widget || {}), [id]: widget},
       legacy: s.installed?.legacy,
     },
@@ -353,7 +311,6 @@ export const refreshWidget = async (
     return {
       ...s,
       installed: {
-        nip89: s.installed?.nip89 || {},
         widget: {...(s.installed?.widget || {}), [id]: newWidget},
         legacy: s.installed?.legacy,
       },
@@ -369,46 +326,6 @@ export const refreshWidget = async (
   }
 
   return newWidget
-}
-
-// NIP-89 discovery (kind 31990)
-export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
-  const KIND = 31990
-  // Ask indexers for manifests, then read from local repository cache
-  try {
-    await request({
-      relays: INDEXER_RELAYS,
-      filters: [{kinds: [KIND], limit: 100}],
-      autoClose: true,
-    })
-  } catch (e) {
-    console.warn("Discovery request errored:", e)
-  }
-
-  const events = repository.query([{kinds: [KIND]}])
-  const manifests: ExtensionManifest[] = []
-
-  for (const ev of events) {
-    try {
-      const m = JSON.parse(ev.content)
-      if (m && m.id && m.name && m.entrypoint && isSecureEmbeddableUrl(m.entrypoint)) {
-        manifests.push(m as ExtensionManifest)
-      }
-    } catch (_e) {
-      // ignore malformed manifest content
-    }
-  }
-
-  // De-duplicate by id, prefer latest by created_at
-  const byId = new Map<string, ExtensionManifest>()
-  for (const m of manifests) {
-    const existing = byId.get(m.id)
-    if (!existing || ((m as any).created_at ?? 0) > ((existing as any).created_at ?? 0)) {
-      byId.set(m.id, m)
-    }
-  }
-
-  return Array.from(byId.values())
 }
 
 export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
@@ -462,16 +379,9 @@ export const enableExtension = async (id: string) => {
 
   // Load the extension iframe/runtime
   const installed = getInstalledExtensions()
-  const manifest = installed.nip89[id]
   const widget = installed.widget[id]
 
-  if (manifest) {
-    try {
-      await extensionRegistry.loadIframeExtension(manifest)
-    } catch (e) {
-      console.warn("Failed to load extension", id, e)
-    }
-  } else if (widget && shouldPreloadWidgetRuntime(widget)) {
+  if (widget && shouldPreloadWidgetRuntime(widget)) {
     try {
       await extensionRegistry.loadWidget(widget)
     } catch (e) {
@@ -493,73 +403,6 @@ export const disableExtension = async (id: string) => {
     }))
   }
   await syncExtensionSettingsNow()
-}
-
-/**
- * Check if an extension has an update available by fetching the latest manifest.
- * Returns the new manifest if an update is available, null otherwise.
- */
-export const checkForExtensionUpdate = async (
-  id: string,
-  manifestUrl: string,
-): Promise<ExtensionManifest | null> => {
-  try {
-    const latestManifest = await extensionRegistry.load(manifestUrl)
-    const installed = getInstalledExtension(id)
-
-    if (!installed || !("version" in installed)) return null
-
-    const installedVersion = (installed as ExtensionManifest).version
-    const latestVersion = latestManifest.version
-
-    // Compare versions
-    if (latestVersion && installedVersion) {
-      const installedParts = installedVersion.replace(/^v/, "").split(".").map(Number)
-      const latestParts = latestVersion.replace(/^v/, "").split(".").map(Number)
-
-      for (let i = 0; i < Math.max(installedParts.length, latestParts.length); i++) {
-        const installed = installedParts[i] || 0
-        const latest = latestParts[i] || 0
-        if (latest > installed) return latestManifest
-        if (latest < installed) return null
-      }
-    }
-
-    return null
-  } catch (e) {
-    console.error("Failed to check for extension update:", e)
-    return null
-  }
-}
-
-/**
- * Refresh an extension by unloading it, updating the manifest, and reloading if enabled.
- */
-export const refreshExtension = async (id: string, newManifest: ExtensionManifest) => {
-  const wasEnabled = isExtensionEnabled(id)
-
-  // Unload if currently loaded
-  if (wasEnabled) {
-    await extensionRegistry.unloadExtension(id)
-  }
-
-  // Update the installed manifest
-  extensionSettings.update(s => ({
-    ...s,
-    installed: {
-      nip89: {...(s.installed?.nip89 || {}), [id]: newManifest},
-      widget: s.installed?.widget || {},
-      legacy: s.installed?.legacy,
-    },
-  }))
-  await syncExtensionSettingsNow()
-
-  // Reload if it was enabled
-  if (wasEnabled) {
-    await extensionRegistry.loadIframeExtension(newManifest)
-  }
-
-  return newManifest
 }
 
 export const getPubkeyHints = (pubkey: string) => {

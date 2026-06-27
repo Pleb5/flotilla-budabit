@@ -3,13 +3,6 @@
 import {afterEach, describe, expect, it} from "vitest"
 import {extensionRegistry, parseSmartWidget} from "./registry"
 import {getWidgetLineId} from "./widget-identity"
-import type {ExtensionManifest} from "./types"
-
-const manifest: ExtensionManifest = {
-  id: "test-no-entrypoint",
-  name: "No Entrypoint Test",
-  entrypoint: "",
-}
 
 const makeWidgetEvent = (slotTag?: string[]) => ({
   id: "test-widget",
@@ -21,43 +14,11 @@ const makeWidgetEvent = (slotTag?: string[]) => ({
 })
 
 afterEach(() => {
-  extensionRegistry.unregister(manifest.id)
-  extensionRegistry.unregister("test-insecure-entrypoint")
   extensionRegistry.unregister(`30033:${"a".repeat(64)}:shared-widget`)
   extensionRegistry.unregister(`30033:${"b".repeat(64)}:shared-widget`)
 })
 
-describe("extension registry no-entrypoint runtime", () => {
-  it("does not emit a redundant store update when loading an already-registered extension", async () => {
-    extensionRegistry.register(manifest)
-
-    const before = extensionRegistry.get(manifest.id)
-    let emissions = 0
-    const unsubscribe = extensionRegistry.asStore().subscribe(() => {
-      emissions += 1
-    })
-
-    // Ignore initial synchronous subscription emission.
-    emissions = 0
-
-    const loaded = await extensionRegistry.loadIframeExtension(manifest)
-
-    unsubscribe()
-
-    expect(loaded).toBe(before)
-    expect(emissions).toBe(0)
-  })
-
-  it("rejects insecure remote extension entrypoints", () => {
-    const insecureManifest: ExtensionManifest = {
-      id: "test-insecure-entrypoint",
-      name: "Insecure Entrypoint Test",
-      entrypoint: "http://example.com/widget.html",
-    }
-
-    expect(() => extensionRegistry.register(insecureManifest)).toThrow(/must use a secure URL/)
-  })
-
+describe("extension registry", () => {
   it("rejects insecure remote smart widget app URLs", () => {
     expect(() =>
       parseSmartWidget({

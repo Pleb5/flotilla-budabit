@@ -1,24 +1,3 @@
-export type ExtensionSlotConfig = {
-  type: "repo-tab"
-  label: string
-  path: string // URL path segment (e.g., "kanban", "pipelines")
-}
-
-export type ExtensionManifest = {
-  id: string
-  name: string
-  description?: string
-  author?: string
-  homepage?: string
-  version?: string
-  permissions?: string[]
-  entrypoint: string
-  icon?: string
-  sha256?: string
-  kind?: number
-  slot?: ExtensionSlotConfig
-}
-
 export type WidgetButtonType = "redirect" | "nostr" | "zap" | "post" | "app"
 
 export type WidgetButton = {
@@ -177,13 +156,6 @@ export type SmartWidgetEvent = {
   slot?: WidgetSlotConfig
 }
 
-export type ExtensionPolicy = {
-  pubkey: string
-  signature: string
-  manifestId: string
-  granted: boolean
-}
-
 /**
  * Repository context for repo-scoped extensions/widgets.
  * Used to scope storage and Nostr queries to a specific repository.
@@ -205,17 +177,6 @@ export type RepoContext = {
  */
 export const getRepoAddress = (ctx: RepoContext): string => `30617:${ctx.pubkey}:${ctx.name}`
 
-export type LoadedNip89Extension = {
-  type: "nip89"
-  id: string
-  manifest: ExtensionManifest
-  origin: string
-  iframe?: HTMLIFrameElement
-  bridge?: import("./bridge").ExtensionBridge
-  /** Repository context when loaded as a repo-tab extension */
-  repoContext?: RepoContext
-}
-
 export type LoadedWidgetExtension = {
   type: "widget"
   id: string
@@ -228,7 +189,7 @@ export type LoadedWidgetExtension = {
   repoContext?: RepoContext
 }
 
-export type LoadedExtension = LoadedNip89Extension | LoadedWidgetExtension
+export type LoadedExtension = LoadedWidgetExtension
 
 export type ExtensionSlotId = WidgetActionSlotType
 

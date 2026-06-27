@@ -356,21 +356,6 @@
       {id: string; label: string; path: string; routeSegment: string; icon?: string}
     >()
 
-    // Check NIP-89 extensions first
-    for (const [extId, manifest] of Object.entries(settings.installed.nip89)) {
-      if (enabledIds.includes(extId) && manifest.slot?.type === "repo-tab") {
-        const routeSegment = normalizeRepoTabExtensionPath(manifest.slot.path) || extId
-        extensionsMap.set(routeSegment, {
-          id: extId,
-          label: manifest.slot.label,
-          path: manifest.slot.path,
-          routeSegment,
-          icon: manifest.icon,
-        })
-      }
-    }
-
-    // Check Smart Widget extensions - these override NIP-89 if they use the same tab path
     for (const [widgetId, widget] of Object.entries(settings.installed.widget || {})) {
       if (enabledIds.includes(widgetId) && widget.slot?.type === "repo-tab") {
         const routeSegment = normalizeRepoTabExtensionPath(widget.slot.path) || widgetId

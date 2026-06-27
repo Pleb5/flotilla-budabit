@@ -129,8 +129,6 @@ export const DEFAULT_PUBKEYS = import.meta.env.VITE_DEFAULT_PUBKEYS
 
 export const DUFFLEPUD_URL = "https://dufflepud.onrender.com"
 
-export const EXTENSIONS_KIND = 31990
-
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
   [CLIENT_AUTH, MESSAGE, THREAD, COMMENT, DM_KIND, REACTION, ZAP_REQUEST]

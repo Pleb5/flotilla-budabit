@@ -24,9 +24,7 @@ const netMocks = vi.hoisted(() => ({
 }))
 
 const registryMocks = vi.hoisted(() => ({
-  load: vi.fn(),
   unloadExtension: vi.fn(),
-  register: vi.fn(),
   registerWidget: vi.fn(),
   loadWidget: vi.fn(),
   parseSmartWidget: vi.fn(),
@@ -36,13 +34,11 @@ const settingsMocks = vi.hoisted(() => ({
   value: {
     enabled: [] as string[],
     disabledDefaultIds: [] as string[],
-    installed: {nip89: {}, widget: {}} as any,
-    manifestUrls: {} as Record<string, string>,
+    installed: {widget: {}} as any,
     widgetInstallSources: {} as Record<string, any>,
   },
   update: vi.fn(),
-  getInstalledExtensions: vi.fn(() => ({nip89: {}, widget: {}})),
-  getInstalledExtension: vi.fn(),
+  getInstalledExtensions: vi.fn(() => ({widget: {}})),
   isDefaultExtension: vi.fn(() => false),
   isExtensionEnabled: vi.fn(() => false),
   syncExtensionSettingsNow: vi.fn().mockResolvedValue(true),
@@ -79,9 +75,7 @@ vi.mock("@lib/util", () => ({
 
 vi.mock("@app/extensions/registry", () => ({
   extensionRegistry: {
-    load: registryMocks.load,
     unloadExtension: registryMocks.unloadExtension,
-    register: registryMocks.register,
     registerWidget: registryMocks.registerWidget,
     loadWidget: registryMocks.loadWidget,
   },
@@ -99,7 +93,6 @@ vi.mock("@app/extensions/settings", () => ({
   disableDefaultExtension: vi.fn(),
   enableDefaultExtension: vi.fn(),
   getInstalledExtensions: settingsMocks.getInstalledExtensions,
-  getInstalledExtension: settingsMocks.getInstalledExtension,
   isDefaultExtension: settingsMocks.isDefaultExtension,
   isExtensionEnabled: settingsMocks.isExtensionEnabled,
   normalizeWidgetInstallSource: (source: any) => source,
@@ -162,9 +155,7 @@ describe("commands", () => {
     utilMocks.uploadBlob.mockReset()
     netMocks.request.mockReset()
     netMocks.request.mockResolvedValue(undefined)
-    registryMocks.load.mockReset()
     registryMocks.unloadExtension.mockReset()
-    registryMocks.register.mockReset()
     registryMocks.registerWidget.mockReset()
     registryMocks.loadWidget.mockReset()
     registryMocks.parseSmartWidget.mockReset()
@@ -187,14 +178,12 @@ describe("commands", () => {
     settingsMocks.value = {
       enabled: [],
       disabledDefaultIds: [],
-      installed: {nip89: {}, widget: {}},
-      manifestUrls: {},
+      installed: {widget: {}},
       widgetInstallSources: {},
     }
     settingsMocks.update.mockReset()
     settingsMocks.getInstalledExtensions.mockReset()
-    settingsMocks.getInstalledExtensions.mockReturnValue({nip89: {}, widget: {}})
-    settingsMocks.getInstalledExtension.mockReset()
+    settingsMocks.getInstalledExtensions.mockReturnValue({widget: {}})
     settingsMocks.isDefaultExtension.mockReset()
     settingsMocks.isDefaultExtension.mockReturnValue(false)
     settingsMocks.isExtensionEnabled.mockReset()
@@ -894,7 +883,6 @@ describe("commands", () => {
       [widgetId]: {relays: ["wss://widgets.example/"]},
     }
     settingsMocks.getInstalledExtensions.mockReturnValue({
-      nip89: {},
       widget: {[widgetId]: installed},
     })
     repository.publish(latest as any)
@@ -943,7 +931,6 @@ describe("commands", () => {
       [widgetId]: {relays: ["wss://widgets.example/"]},
     }
     settingsMocks.getInstalledExtensions.mockReturnValue({
-      nip89: {},
       widget: {[widgetId]: installed},
     })
     netMocks.request.mockResolvedValueOnce([latest])
@@ -977,7 +964,6 @@ describe("commands", () => {
       [widgetId]: {relays: ["wss://widgets.example/"]},
     }
     settingsMocks.getInstalledExtensions.mockReturnValue({
-      nip89: {},
       widget: {[widgetId]: installed},
     })
     netMocks.request.mockImplementationOnce(() => new Promise(() => {}))
@@ -1078,7 +1064,7 @@ describe("commands", () => {
     expect(registryMocks.unloadExtension).toHaveBeenCalledWith(widgetId)
     expect(settingsMocks.update).toHaveBeenCalledOnce()
     const next = settingsMocks.update.mock.calls[0][0]({
-      installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
+      installed: {widget: {[widgetId]: oldWidget}, legacy: undefined},
       widgetInstallSources: {[widgetId]: {relays: ["wss://widgets.example/"]}},
     })
 
@@ -1116,7 +1102,7 @@ describe("commands", () => {
     await refreshWidget(widgetId, newWidget)
 
     const next = settingsMocks.update.mock.calls[0][0]({
-      installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
+      installed: {widget: {[widgetId]: oldWidget}, legacy: undefined},
       widgetInstallSources: {
         [widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]},
       },
@@ -1160,7 +1146,7 @@ describe("commands", () => {
     await refreshWidget(widgetId, newWidget, {relays: ["wss://relay.damus.io/"]})
 
     const next = settingsMocks.update.mock.calls[0][0]({
-      installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
+      installed: {widget: {[widgetId]: oldWidget}, legacy: undefined},
       widgetInstallSources: {
         [widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]},
       },

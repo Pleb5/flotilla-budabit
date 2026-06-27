@@ -167,16 +167,27 @@ const makeSourceWindow = (): FakeWindow => ({
 
 const makeExtension = (overrides: Record<string, any> = {}) => {
   const iframeWindow = makeSourceWindow()
+  const widget = {
+    id: "test-widget-event",
+    kind: 30033,
+    content: "Test",
+    pubkey: "a".repeat(64),
+    tags: [["d", "test-widget"]],
+    identifier: "test-widget",
+    widgetType: "tool",
+    buttons: [],
+    permissions: [],
+    ...(overrides.widget || {}),
+  }
 
   return {
     id: "test-extension",
     origin: "https://widget.example.com",
-    type: "nip89",
+    type: "widget",
     iframe: {contentWindow: iframeWindow},
-    manifest: {permissions: [], name: "Test", entrypoint: "https://widget.example.com/app.js"},
-    widget: {permissions: []},
     repoContext: null,
     ...overrides,
+    widget,
     iframeWindow,
   }
 }
@@ -185,18 +196,13 @@ const storagePermissions = ["storage:get", "storage:set", "storage:keys", "stora
 
 const makeStorageExtension = (overrides: Record<string, any> = {}) =>
   makeExtension({
-    manifest: {
-      permissions: storagePermissions,
-      name: "Storage Test",
-      entrypoint: "https://widget.example.com/app.js",
-    },
+    widget: {permissions: storagePermissions},
     ...overrides,
   })
 
 const makeWidgetStorageExtension = (overrides: Record<string, any> = {}) =>
   makeExtension({
     type: "widget",
-    manifest: {permissions: []},
     widget: {
       id: "weather-event",
       kind: 30033,
@@ -856,11 +862,7 @@ describe("ExtensionBridge", () => {
     })
 
     const extension = makeExtension({
-      manifest: {
-        permissions: ["nostr:query"],
-        name: "Query Test",
-        entrypoint: "https://widget.example.com/app.js",
-      },
+      widget: {permissions: ["nostr:query"]},
     })
     const bridge = new ExtensionBridge(extension as any)
     const source = makeSourceWindow()

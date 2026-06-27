@@ -19,10 +19,7 @@
   let loadingIds = $state<Set<string>>(new Set())
 
   $effect(() => {
-    const installedIds = new Set([
-      ...Object.keys(settings.installed?.nip89 || {}),
-      ...Object.keys(settings.installed?.widget || {}),
-    ])
+    const installedIds = new Set(Object.keys(settings.installed?.widget || {}))
 
     // Use untrack to read loadedIds without creating a dependency loop
     // This effect should only re-run when settings or enabledIds change,
@@ -36,7 +33,6 @@
       if (currentLoadedIds.has(id)) continue
       if (currentLoadingIds.has(id)) continue
 
-      const manifest = settings.installed?.nip89?.[id]
       const widget = settings.installed?.widget?.[id]
 
       // Use async IIFE to handle loading
@@ -44,9 +40,7 @@
         loadingIds = new Set([...untrack(() => loadingIds), id])
 
         try {
-          if (manifest) {
-            await extensionRegistry.loadIframeExtension(manifest)
-          } else if (widget && shouldPreloadWidgetRuntime(widget)) {
+          if (widget && shouldPreloadWidgetRuntime(widget)) {
             await extensionRegistry.loadWidget(widget)
           }
           // Update loadedIds after successful load

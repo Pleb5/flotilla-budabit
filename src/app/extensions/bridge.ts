@@ -320,9 +320,8 @@ export class ExtensionBridge {
   private targetWindow: Window | null = null
 
   constructor(private extension: LoadedExtension) {
-    // Precompute allowed permissions from manifest or widget; widgets default to empty (deny privileged)
-    const permissions =
-      extension.type === "nip89" ? extension.manifest.permissions : extension.widget.permissions
+    // Widgets default to empty permissions, denying privileged bridge actions.
+    const permissions = extension.widget.permissions
     if (permissions) {
       permissions.forEach(p => this.allowedActions.add(p))
     }
