@@ -79,6 +79,13 @@
       ? (context.communityRuntimeContext as CommunityWidgetRuntimeContext)
       : undefined
 
+  const getPublicContext = () => {
+    const publicContext = {...context}
+    delete publicContext.communityRuntimeContext
+
+    return publicContext
+  }
+
   const getCommunityContextKey = () => {
     const communityContext = getCommunityContext()
 
@@ -225,6 +232,7 @@
   const makeInitPayload = () => {
     const user = getUserContext()
     const communityContext = getCommunityContext()
+    const publicContext = getPublicContext()
     const relays =
       communityContext &&
       typeof communityContext === "object" &&
@@ -243,9 +251,9 @@
       pubkey: user.pubkey,
       relays,
       user,
-      context,
+      context: publicContext,
       communityContext,
-      slot: context.slot || widget.slot,
+      slot: publicContext.slot || widget.slot,
       widget: {
         identifier: widget.identifier,
         widgetType: widget.widgetType,

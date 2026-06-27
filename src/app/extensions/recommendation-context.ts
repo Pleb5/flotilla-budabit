@@ -18,6 +18,13 @@ export type CommunityWidgetRecommendationContext = {
   targetingRelayHints: string[]
 }
 
+export type CommunityWidgetPreviewContextOption = {
+  id: string
+  communityPubkey: string
+  label: string
+  runtimeContext: CommunityWidgetRuntimeContext
+}
+
 const recommendationContextsByWidgetLineId = new Map<
   string,
   CommunityWidgetRecommendationContext[]
@@ -98,3 +105,26 @@ export const makeCommunityWidgetRuntimeContext = (
     relayHints: context.relayHints,
   }),
 })
+
+export const makeCommunityWidgetPreviewContextOptions = ({
+  widgetLineId,
+  userPubkey = "",
+  profile,
+  getProfile,
+  getLabel,
+}: {
+  widgetLineId: string
+  userPubkey?: string
+  profile?: CommunityProfile
+  getProfile?: (context: CommunityWidgetRecommendationContext) => CommunityProfile | undefined
+  getLabel?: (context: CommunityWidgetRecommendationContext) => string
+}): CommunityWidgetPreviewContextOption[] =>
+  getCommunityWidgetRecommendationContexts(widgetLineId).map(context => ({
+    id: context.communityPubkey,
+    communityPubkey: context.communityPubkey,
+    label: getLabel?.(context) || context.communityPubkey,
+    runtimeContext: makeCommunityWidgetRuntimeContext(context, {
+      userPubkey,
+      profile: getProfile?.(context) || profile,
+    }),
+  }))

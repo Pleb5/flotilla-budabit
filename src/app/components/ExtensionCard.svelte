@@ -3,11 +3,12 @@
   import ExtensionIcon from "./ExtensionIcon.svelte"
   import ProfileCircle from "./ProfileCircle.svelte"
   import ProfileLink from "./ProfileLink.svelte"
+  import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import type {SmartWidgetEvent} from "@app/extensions/types"
+  import type {CommunityWidgetPreviewContextOption} from "@app/extensions/recommendation-context"
   import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
-  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
-  import {pushToast} from "@app/util/toast"
+  import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
   import {RefreshCw} from "@lucide/svelte"
 
   type Props = {
@@ -18,6 +19,7 @@
     isDefault?: boolean
     communityOptions?: WidgetCommunityOption[]
     targetedCommunityPubkeys?: string[]
+    previewCommunityOptions?: CommunityWidgetPreviewContextOption[]
     onTargetedCommunitiesChange?: (pubkeys: string[]) => Promise<void> | void
     widgetUpdate?: WidgetUpdate
     widgetUpdateChecking?: boolean
@@ -33,6 +35,7 @@
     isDefault = false,
     communityOptions = [],
     targetedCommunityPubkeys = [],
+    previewCommunityOptions = [],
     onTargetedCommunitiesChange,
     widgetUpdate,
     widgetUpdateChecking = false,
@@ -47,16 +50,14 @@
       isSecureEmbeddableUrl(url),
     ),
   )
-  let widgetAppUrlIndex = $state(0)
-  const widgetAppUrl = $derived(widgetAppUrls[widgetAppUrlIndex])
 
   let showWidgetModal = $state(false)
   let showCommunityTargets = $state(false)
   let selectedCommunityPubkeys = $state<string[]>([])
+  let selectedPreviewCommunityId = $state("")
   let savingCommunityTargets = $state(false)
 
   const openWidget = () => {
-    widgetAppUrlIndex = 0
     showWidgetModal = true
   }
 
@@ -64,16 +65,23 @@
     showWidgetModal = false
   }
 
-  const tryNextWidgetAppUrl = () => {
-    if (widgetAppUrlIndex < widgetAppUrls.length - 1) {
-      widgetAppUrlIndex += 1
-      return
-    }
-    pushToast({theme: "error", message: "Failed to load widget app URL"})
-  }
-
   const getCommunityLabel = (pubkey: string) =>
     communityOptions.find(option => option.pubkey === pubkey)?.label || pubkey
+
+  const selectedPreviewCommunityOption = $derived.by(() =>
+    previewCommunityOptions.find(option => option.id === selectedPreviewCommunityId) ||
+    previewCommunityOptions[0]
+  )
+
+  const previewWidgetContext = $derived.by<Record<string, unknown>>(() => {
+    const option = selectedPreviewCommunityOption
+    if (!option?.runtimeContext.communityContext) return {}
+
+    return {
+      communityContext: option.runtimeContext.communityContext,
+      communityRuntimeContext: option.runtimeContext,
+    }
+  })
 
   const toggleCommunityTarget = (pubkey: string, checked: boolean) => {
     selectedCommunityPubkeys = checked
@@ -100,6 +108,17 @@
 
   $effect(() => {
     if (!showCommunityTargets) selectedCommunityPubkeys = [...targetedCommunityPubkeys]
+  })
+
+  $effect(() => {
+    const ids = previewCommunityOptions.map(option => option.id)
+
+    if (ids.length === 0) {
+      selectedPreviewCommunityId = ""
+      return
+    }
+
+    if (!ids.includes(selectedPreviewCommunityId)) selectedPreviewCommunityId = ids[0]
   })
 
   const displayName = $derived(widget?.content || widget?.identifier || "Smart Widget")
@@ -234,9 +253,19 @@
         </div>
       {/if}
     </div>
-    {#if widget.appUrl || widget.buttons?.length}
+    {#if widget.appUrl || widget.appUrls?.length || widget.buttons?.length}
       <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        {#if widgetAppUrl}
+        {#if widgetAppUrls.length > 0 && previewCommunityOptions.length > 1}
+          <label class="form-control min-w-0 flex-1 sm:max-w-72">
+            <span class="label-text text-xs">Preview community</span>
+            <select class="select select-bordered select-sm" bind:value={selectedPreviewCommunityId}>
+              {#each previewCommunityOptions as option (option.id)}
+                <option value={option.id}>{option.label || option.communityPubkey}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+        {#if widgetAppUrls.length > 0}
           <button class="btn btn-primary btn-sm sm:w-auto" onclick={openWidget}>Preview app</button>
         {:else if widget.appUrl}
           <span class="text-xs opacity-70">Insecure app URL blocked</span>
@@ -341,7 +370,7 @@
   {/if}
 </div>
 
-{#if showWidgetModal && widget?.appUrl}
+{#if showWidgetModal && (widget?.appUrl || widget?.appUrls?.length)}
   <div
     class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
     role="dialog"
@@ -366,23 +395,17 @@
           <div>
             <h2 class="font-semibold">{widget.content || widget.identifier}</h2>
             <p class="text-xs opacity-70">Smart Widget • {widget.widgetType}</p>
+            {#if selectedPreviewCommunityOption}
+              <p class="text-xs opacity-70">
+                Previewing in {selectedPreviewCommunityOption.label || selectedPreviewCommunityOption.communityPubkey}
+              </p>
+            {/if}
           </div>
         </div>
         <button class="btn btn-ghost btn-sm" onclick={closeWidget}>✕</button>
       </div>
-      <div class="relative flex-1">
-        {#if widgetAppUrl}
-          <iframe
-            src={widgetAppUrl}
-            title={widget.content || widget.identifier}
-            class="absolute inset-0 h-full w-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            onerror={tryNextWidgetAppUrl}></iframe>
-        {:else}
-          <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
-            This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
-          </div>
-        {/if}
+      <div class="relative flex-1 overflow-hidden">
+        <WidgetFrame widget={widget} context={previewWidgetContext} class="h-full" minHeight={500} />
       </div>
     </div>
   </div>

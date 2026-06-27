@@ -22,6 +22,7 @@ import {loadCommunityCuratedWidgets} from "./community-curation"
 import {
   clearCommunityWidgetRecommendationContexts,
   getCommunityWidgetRecommendationContexts,
+  makeCommunityWidgetPreviewContextOptions,
   makeCommunityWidgetRuntimeContext,
 } from "./recommendation-context"
 
@@ -184,6 +185,23 @@ describe("community curated widgets", () => {
         viewer: {pubkey: memberPubkey},
       },
     })
+    expect(
+      makeCommunityWidgetPreviewContextOptions({
+        widgetLineId: `${SMART_WIDGET_KIND}:${widgetPubkey}:valid-widget`,
+        userPubkey: memberPubkey,
+        getLabel: context => `Community ${context.communityPubkey.slice(0, 4)}`,
+      }),
+    ).toMatchObject([
+      {
+        id: communityPubkey,
+        communityPubkey,
+        label: "Community aaaa",
+        runtimeContext: {
+          relays: ["wss://community.example/"],
+          communityContext: {pubkey: communityPubkey, viewer: {pubkey: memberPubkey}},
+        },
+      },
+    ])
     expect(mocks.loadCommunityEvents).toHaveBeenCalledTimes(5)
     expect(mocks.loadCommunityEvents.mock.calls[4][0]).toEqual([
       "wss://community.example/",

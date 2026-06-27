@@ -36,6 +36,7 @@
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
   import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+  import {makeCommunityWidgetPreviewContextOptions} from "@app/extensions/recommendation-context"
   import {clearCommunityWidgetSlotCache} from "@app/extensions/community-widget-slots"
   import {
     getManualCommunityWidgets,
@@ -99,6 +100,7 @@
   let communityDiscoveryRequestId = 0
   let selectedCommunityPubkey = $state("")
   let communityWidgetLoadKey = ""
+  let recommendationContextVersion = $state(0)
   let widgetTargetLoadKey = ""
   let widgetTargetDeleteLoadKey = ""
   let widgetUpdateLoadKey = ""
@@ -358,6 +360,7 @@
       communityDiscoveryState = "community"
       curatedWidgets = result.widgets
       trustedWidgetAuthorPubkeys = result.trustedWidgetAuthorPubkeys
+      recommendationContextVersion += 1
       communityDiscoveryMessage = result.widgets.length
         ? `${result.widgets.length} curated widget${result.widgets.length === 1 ? "" : "s"} found.`
         : "No curated widgets found."
@@ -394,6 +397,17 @@
           .filter(pubkey => pubkey && eligiblePubkeys.has(pubkey)),
       ),
     )
+  }
+
+  const getWidgetPreviewCommunityOptions = (widget: SmartWidgetEvent) => {
+    recommendationContextVersion
+
+    return makeCommunityWidgetPreviewContextOptions({
+      widgetLineId: getWidgetLineId(widget),
+      userPubkey: $pubkey || "",
+      getProfile: context => $profilesByPubkey.get(context.communityPubkey),
+      getLabel: context => getCommunityOptionLabel(context.communityPubkey),
+    })
   }
 
   const getWidgetOriginalRelayHints = (widget: SmartWidgetEvent) =>
@@ -802,6 +816,7 @@
             onWidgetUpdate={() => onUpdateWidget(item.id)}
             communityOptions={widgetCommunityOptions}
             targetedCommunityPubkeys={getWidgetTargetedCommunityPubkeys(item.widget)}
+            previewCommunityOptions={getWidgetPreviewCommunityOptions(item.widget)}
             onTargetedCommunitiesChange={pubkeys =>
               onWidgetTargetedCommunitiesChange(item.widget, pubkeys)} />
         {/each}
