@@ -2,7 +2,7 @@ import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
 import {tokens, type Token} from "@nostr-git/ui"
 import {graspServersStore} from "@nostr-git/ui"
 import {repository, ensurePlaintext, signer, pubkey, publishThunk} from "@welshman/app"
-import {load, PublishStatus} from "@welshman/net"
+import {load, request, PublishStatus} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {get} from "svelte/store"
 import {APP_DATA, makeEvent, normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
@@ -200,7 +200,7 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
     listResolution = resolvePreferredGraspServerList((events || []) as TrustedEvent[])
     applyGraspServers()
   })
-  const fallbackUnsub = graspServerFallbackUrls.subscribe((urls) => {
+  const fallbackUnsub = graspServerFallbackUrls.subscribe(urls => {
     fallbackUrls = urls || []
     applyGraspServers()
   })
@@ -286,8 +286,9 @@ export function setupExtensionSettingsSync(
 
   const filter = {kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG]}
   const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
+  const liveController = new AbortController()
 
-  extensionSettingsUnsub = store.subscribe(async (events: TrustedEvent[]) => {
+  const eventUnsub = store.subscribe(async (events: TrustedEvent[]) => {
     if (!events || events.length === 0) {
       console.log("[setupExtensionSettingsSync] No extension settings events found")
       return
@@ -312,7 +313,13 @@ export function setupExtensionSettingsSync(
     }
   })
 
+  extensionSettingsUnsub = () => {
+    eventUnsub()
+    liveController.abort()
+  }
+
   load({relays, filters: [filter]})
+  request({relays, filters: [{...filter, limit: 0}], signal: liveController.signal})
 
   return extensionSettingsUnsub
 }

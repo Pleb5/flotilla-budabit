@@ -183,6 +183,37 @@ describe("effective extension settings", () => {
     })
   })
 
+  it("keeps a newer local widget snapshot over a stale remote snapshot", () => {
+    const local = {
+      ...makeWidget("calendar", 20),
+      version: "0.2.0",
+      appUrl: "https://example.com/calendar-0.2.0.html",
+    }
+    const staleRemote = {
+      ...makeWidget("calendar", 30),
+      version: "0.1.7",
+      appUrl: "https://example.com/calendar-0.1.7.html",
+    }
+    const widgetId = getWidgetLineId(local)
+
+    extensionSettings.set({
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widgetId]: local}},
+    })
+    applyRemoteExtensionSettings({
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widgetId]: staleRemote}},
+    })
+
+    const settings = get(extensionSettings)
+
+    expect(settings.installed.widget[widgetId]).toMatchObject({
+      id: local.id,
+      version: "0.2.0",
+      appUrl: "https://example.com/calendar-0.2.0.html",
+    })
+  })
+
   it("lets disabled defaults override explicit enabled ids", () => {
     const widget = makeWidget("default-widget")
     const widgetId = getWidgetLineId(widget)

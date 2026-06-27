@@ -12,6 +12,7 @@ export const EXTENSION_SETTINGS_KEY = "flotilla/extensions"
 
 // Track if we're currently applying remote settings to avoid publish loops
 let isApplyingRemoteSettings = false
+let hasAppliedRemoteExtensionSettings = false
 // Track the last published timestamp to avoid re-publishing the same data
 let lastPublishedAt = 0
 
@@ -81,6 +82,66 @@ const buildWidgetKeyMap = (entries: Array<[string, SmartWidgetEvent]>) => {
   return keyMap
 }
 
+const getWidgetVersion = (widget: SmartWidgetEvent | undefined) =>
+  widget?.version || widget?.tags?.find(tag => tag[0] === "version")?.[1] || ""
+
+const parseVersionParts = (version: string) => {
+  const normalized = version.trim().replace(/^v/i, "")
+  if (!/^\d+(?:\.\d+)*(?:[-+].*)?$/.test(normalized)) return undefined
+
+  return normalized
+    .split(/[+-]/)[0]
+    .split(".")
+    .map(part => Number.parseInt(part, 10))
+}
+
+const compareVersionStrings = (left: string, right: string) => {
+  const leftParts = parseVersionParts(left)
+  const rightParts = parseVersionParts(right)
+
+  if (leftParts && !rightParts) return 1
+  if (!leftParts && rightParts) return -1
+  if (!leftParts || !rightParts) return 0
+
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const leftPart = leftParts[index] || 0
+    const rightPart = rightParts[index] || 0
+    if (leftPart !== rightPart) return leftPart > rightPart ? 1 : -1
+  }
+
+  return 0
+}
+
+const compareWidgetSnapshots = (
+  left: SmartWidgetEvent | undefined,
+  right: SmartWidgetEvent | undefined,
+) => {
+  if (left && !right) return 1
+  if (!left && right) return -1
+  if (!left || !right) return 0
+
+  const versionCompare = compareVersionStrings(getWidgetVersion(left), getWidgetVersion(right))
+  if (versionCompare !== 0) return versionCompare
+
+  const leftCreated = left.created_at || 0
+  const rightCreated = right.created_at || 0
+  if (leftCreated !== rightCreated) return leftCreated > rightCreated ? 1 : -1
+
+  if (left.id && right.id && left.id !== right.id) return left.id > right.id ? 1 : -1
+
+  return 0
+}
+
+const isWidgetSnapshotNewer = (
+  candidate: SmartWidgetEvent | undefined,
+  current: SmartWidgetEvent | undefined,
+) => compareWidgetSnapshots(candidate, current) > 0
+
+const chooseFresherWidgetSnapshot = (
+  current: SmartWidgetEvent | undefined,
+  candidate: SmartWidgetEvent | undefined,
+) => (isWidgetSnapshotNewer(candidate, current) ? candidate : current)
+
 const normalizeInstalled = (installed: any): NormalizedInstalled => {
   const nip89: Record<string, ExtensionManifest> = installed?.nip89 || {}
   const widget: Record<string, SmartWidgetEvent> = {}
@@ -108,7 +169,7 @@ const normalizeInstalled = (installed: any): NormalizedInstalled => {
     const widgetId = widgetKeyMap.get(id) || id
     const current = widget[widgetId]
 
-    if (!current || (value.created_at || 0) >= (current.created_at || 0)) {
+    if (!current || compareWidgetSnapshots(value, current) >= 0) {
       widget[widgetId] = value.identifier ? value : {...value, identifier: id}
     }
   }
@@ -172,7 +233,7 @@ export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void =>
 
     return result.settings
   })
-  if (shouldSync) void syncExtensionSettingsNow()
+  if (shouldSync && hasAppliedRemoteExtensionSettings) void syncExtensionSettingsNow()
 }
 
 export const getDefaultExtensionIds = (widgets = get(defaultExtensionWidgets)) =>
@@ -310,6 +371,7 @@ export const setWidgetDisplayConfig = (id: string, config: WidgetDisplayConfig):
     ...s,
     widgetDisplay: {...(s.widgetDisplay || {}), [id]: config},
   }))
+  void syncExtensionSettingsNow()
 }
 
 export const getWidgetsForLocation = (location: WidgetDisplayLocation): SmartWidgetEvent[] => {
@@ -431,22 +493,6 @@ const normalizeExtensionSettings = (
   }
 }
 
-const shouldMaterializeDefaultWidgetSnapshot = (
-  current: SmartWidgetEvent | undefined,
-  next: SmartWidgetEvent,
-) => {
-  if (!current) return true
-
-  const currentCreated = current.created_at || 0
-  const nextCreated = next.created_at || 0
-
-  if (nextCreated && currentCreated) return nextCreated > currentCreated
-  if (current.id && next.id && current.id === next.id) return false
-  if (nextCreated && !currentCreated) return true
-
-  return false
-}
-
 const normalizeExtensionSettingsWithDefaultSnapshots = (
   settings: Partial<ExtensionSettings>,
   widgets = get(defaultExtensionWidgets),
@@ -460,7 +506,7 @@ const normalizeExtensionSettingsWithDefaultSnapshots = (
     const id = getWidgetLineId(widget)
     if (!id || disabledDefaults.has(id)) continue
 
-    if (shouldMaterializeDefaultWidgetSnapshot(widgetSnapshots[id], widget)) {
+    if (isWidgetSnapshotNewer(widget, widgetSnapshots[id])) {
       widgetSnapshots[id] = widget
       materialized = true
     }
@@ -480,6 +526,39 @@ const normalizeExtensionSettingsWithDefaultSnapshots = (
   }
 }
 
+const mergeRemoteExtensionSettings = (
+  remoteSettings: Partial<ExtensionSettings>,
+  currentSettings = get(extensionSettings),
+) => {
+  const remote = normalizeExtensionSettingsWithDefaultSnapshots(remoteSettings)
+  const current = normalizeExtensionSettings(currentSettings)
+  const widgets = {...remote.settings.installed.widget}
+  let changed = remote.materialized
+
+  for (const [id, currentWidget] of Object.entries(current.installed.widget || {})) {
+    if (!widgets[id]) continue
+
+    const selected = chooseFresherWidgetSnapshot(widgets[id], currentWidget)
+    if (selected && selected !== widgets[id]) {
+      widgets[id] = selected
+      changed = true
+    }
+  }
+
+  if (!changed) return remote
+
+  return {
+    settings: {
+      ...remote.settings,
+      installed: {
+        ...remote.settings.installed,
+        widget: widgets,
+      },
+    },
+    materialized: true,
+  }
+}
+
 extensionSettings.update(s => normalizeExtensionSettings(s))
 
 // Apply settings loaded from relay
@@ -487,9 +566,10 @@ export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSe
   isApplyingRemoteSettings = true
   let shouldSync = false
   try {
-    const result = normalizeExtensionSettingsWithDefaultSnapshots(remoteSettings)
+    const result = mergeRemoteExtensionSettings(remoteSettings)
     shouldSync = result.materialized
     extensionSettings.set(result.settings)
+    hasAppliedRemoteExtensionSettings = true
     console.log("[applyRemoteExtensionSettings] Applied remote settings")
   } finally {
     isApplyingRemoteSettings = false
@@ -579,12 +659,23 @@ export const syncExtensionSettingsNow = (): Promise<boolean> => {
 }
 
 export const startExtensionSettingsAutoSync = () => {
-  return extensionSettings.subscribe(() => {
+  let initialized = false
+  hasAppliedRemoteExtensionSettings = false
+
+  const unsubscribe = extensionSettings.subscribe(() => {
+    if (!initialized) {
+      initialized = true
+      return
+    }
+
     // Don't publish if we're applying remote settings (would cause loop)
     if (isApplyingRemoteSettings) return
 
     // Don't publish if no user is logged in
     if (!get(pubkey) || !get(signer)) return
+
+    // Avoid republishing stale localStorage snapshots before relay app-data has hydrated.
+    if (!hasAppliedRemoteExtensionSettings) return
 
     // Debounce publishes
     if (publishDebounceTimer) {
@@ -594,4 +685,12 @@ export const startExtensionSettingsAutoSync = () => {
       publishExtensionSettings()
     }, 2000) // 2 second debounce
   })
+
+  return () => {
+    unsubscribe()
+    if (publishDebounceTimer) {
+      clearTimeout(publishDebounceTimer)
+      publishDebounceTimer = null
+    }
+  }
 }

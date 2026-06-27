@@ -71,6 +71,7 @@ const graspMocks = vi.hoisted(() => {
 
 vi.mock("@welshman/net", () => ({
   load: vi.fn(),
+  request: vi.fn(),
   PublishStatus: {
     Sending: "sending",
     Pending: "pending",
@@ -101,7 +102,7 @@ vi.mock("@nostr-git/ui", () => ({
   graspServersStore: {set: vi.fn()},
 }))
 
-const {load} = await import("@welshman/net")
+const {load, request} = await import("@welshman/net")
 const {tokens, graspServersStore} = await import("@nostr-git/ui")
 const {APP_DATA} = await import("@welshman/util")
 const {DEFAULT_GRASP_SET_ID, GIT_REPO_ANNOUNCEMENT, GIT_USER_GRASP_LIST, GRASP_SET_KIND} =
@@ -113,12 +114,15 @@ const {
   persistGitAuthTokens,
   setupGraspServersSync,
   setupTokensSync,
+  setupExtensionSettingsSync,
   GIT_AUTH_DTAG,
+  EXTENSION_SETTINGS_DTAG,
 } = await import("./git-requests")
 
 describe("requests", () => {
   beforeEach(() => {
     vi.mocked(load).mockClear()
+    vi.mocked(request).mockClear()
     vi.mocked(tokens.clear).mockClear()
     vi.mocked(tokens.push).mockClear()
     vi.mocked(graspServersStore.set).mockClear()
@@ -158,15 +162,13 @@ describe("requests", () => {
   describe("loadGraspServers", () => {
     it("calls load with GRASP filter", async () => {
       await loadGraspServers("pk789", ["wss://relay.com"])
-      expect(load).toHaveBeenCalledWith(
-        {
-          relays: ["wss://relay.com"],
-          filters: [
-            {kinds: [GIT_USER_GRASP_LIST], authors: ["pk789"]},
-            {kinds: [GRASP_SET_KIND], authors: ["pk789"], "#d": [DEFAULT_GRASP_SET_ID]},
-          ],
-        },
-      )
+      expect(load).toHaveBeenCalledWith({
+        relays: ["wss://relay.com"],
+        filters: [
+          {kinds: [GIT_USER_GRASP_LIST], authors: ["pk789"]},
+          {kinds: [GRASP_SET_KIND], authors: ["pk789"], "#d": [DEFAULT_GRASP_SET_ID]},
+        ],
+      })
     })
   })
 
@@ -343,6 +345,33 @@ describe("requests", () => {
         host: "github.com",
         token: "ghp_loaded_token_value",
       })
+    })
+  })
+
+  describe("setupExtensionSettingsSync", () => {
+    it("opens a live subscription for encrypted extension settings", () => {
+      const onSettingsLoaded = vi.fn()
+
+      const unsubscribe = setupExtensionSettingsSync("pk999", ["wss://relay.com"], onSettingsLoaded)
+      const liveCall = vi.mocked(request).mock.calls.at(-1)?.[0]
+
+      expect(load).toHaveBeenCalledWith({
+        relays: ["wss://relay.com"],
+        filters: [{kinds: [APP_DATA], authors: ["pk999"], "#d": [EXTENSION_SETTINGS_DTAG]}],
+      })
+      expect(liveCall).toEqual({
+        relays: ["wss://relay.com"],
+        filters: [
+          {kinds: [APP_DATA], authors: ["pk999"], "#d": [EXTENSION_SETTINGS_DTAG], limit: 0},
+        ],
+        signal: expect.any(AbortSignal),
+      })
+      const signal = liveCall?.signal as AbortSignal
+      expect(signal.aborted).toBe(false)
+
+      unsubscribe?.()
+
+      expect(signal.aborted).toBe(true)
     })
   })
 })
