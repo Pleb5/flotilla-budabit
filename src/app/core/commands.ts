@@ -107,6 +107,7 @@ import {
   isExtensionEnabled,
   isDefaultExtension,
   normalizeWidgetInstallSource,
+  syncExtensionSettingsNow,
   type WidgetInstallSource,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
@@ -176,6 +177,7 @@ export const installExtension = async (manifestUrl: string) => {
     },
     manifestUrls: {...(s.manifestUrls || {}), [manifest.id]: manifestUrl},
   }))
+  await syncExtensionSettingsNow()
 
   return manifest
 }
@@ -212,6 +214,7 @@ export const uninstallExtension = async (id: string) => {
       widgetInstallSources,
     }
   })
+  await syncExtensionSettingsNow()
 }
 
 export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
@@ -224,6 +227,7 @@ export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
       legacy: s.installed?.legacy,
     },
   }))
+  void syncExtensionSettingsNow()
   return manifest
 }
 
@@ -243,6 +247,7 @@ export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInsta
       ? {...(s.widgetInstallSources || {}), [id]: normalizedSource}
       : s.widgetInstallSources || {},
   }))
+  void syncExtensionSettingsNow()
   return widget
 }
 
@@ -360,6 +365,7 @@ export const refreshWidget = async (
         : widgetInstallSources,
     }
   })
+  await syncExtensionSettingsNow()
 
   if (wasEnabled && shouldPreloadWidgetRuntime(newWidget)) {
     await extensionRegistry.loadWidget(newWidget)
@@ -455,6 +461,7 @@ export const enableExtension = async (id: string) => {
       enabled: s.enabled.includes(id) ? s.enabled : [...s.enabled, id],
     }))
   }
+  await syncExtensionSettingsNow()
 
   // Load the extension iframe/runtime
   const installed = getInstalledExtensions()
@@ -488,6 +495,7 @@ export const disableExtension = async (id: string) => {
       enabled: s.enabled.filter(e => e !== id),
     }))
   }
+  await syncExtensionSettingsNow()
 }
 
 /**
@@ -547,6 +555,7 @@ export const refreshExtension = async (id: string, newManifest: ExtensionManifes
       legacy: s.installed?.legacy,
     },
   }))
+  await syncExtensionSettingsNow()
 
   // Reload if it was enabled
   if (wasEnabled) {

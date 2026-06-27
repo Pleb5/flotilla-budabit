@@ -165,7 +165,14 @@ export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void =>
 
   const defaultWidgets = Array.from(byId.values())
   defaultExtensionWidgets.set(defaultWidgets)
-  extensionSettings.update(s => normalizeExtensionSettings(s, defaultWidgets))
+  let shouldSync = false
+  extensionSettings.update(s => {
+    const result = normalizeExtensionSettingsWithDefaultSnapshots(s, defaultWidgets)
+    shouldSync = result.materialized
+
+    return result.settings
+  })
+  if (shouldSync) void syncExtensionSettingsNow()
 }
 
 export const getDefaultExtensionIds = (widgets = get(defaultExtensionWidgets)) =>
@@ -424,21 +431,76 @@ const normalizeExtensionSettings = (
   }
 }
 
+const shouldMaterializeDefaultWidgetSnapshot = (
+  current: SmartWidgetEvent | undefined,
+  next: SmartWidgetEvent,
+) => {
+  if (!current) return true
+
+  const currentCreated = current.created_at || 0
+  const nextCreated = next.created_at || 0
+
+  if (nextCreated && currentCreated) return nextCreated > currentCreated
+  if (current.id && next.id && current.id === next.id) return false
+  if (nextCreated && !currentCreated) return true
+
+  return false
+}
+
+const normalizeExtensionSettingsWithDefaultSnapshots = (
+  settings: Partial<ExtensionSettings>,
+  widgets = get(defaultExtensionWidgets),
+): {settings: ExtensionSettings; materialized: boolean} => {
+  const normalized = normalizeExtensionSettings(settings, widgets)
+  const disabledDefaults = new Set(normalized.disabledDefaultIds || [])
+  const widgetSnapshots = {...(normalized.installed?.widget || {})}
+  let materialized = false
+
+  for (const widget of widgets) {
+    const id = getWidgetLineId(widget)
+    if (!id || disabledDefaults.has(id)) continue
+
+    if (shouldMaterializeDefaultWidgetSnapshot(widgetSnapshots[id], widget)) {
+      widgetSnapshots[id] = widget
+      materialized = true
+    }
+  }
+
+  if (!materialized) return {settings: normalized, materialized}
+
+  return {
+    settings: {
+      ...normalized,
+      installed: {
+        ...normalized.installed,
+        widget: widgetSnapshots,
+      },
+    },
+    materialized,
+  }
+}
+
 extensionSettings.update(s => normalizeExtensionSettings(s))
 
 // Apply settings loaded from relay
 export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSettings>) => {
   isApplyingRemoteSettings = true
+  let shouldSync = false
   try {
-    extensionSettings.set(normalizeExtensionSettings(remoteSettings))
+    const result = normalizeExtensionSettingsWithDefaultSnapshots(remoteSettings)
+    shouldSync = result.materialized
+    extensionSettings.set(result.settings)
     console.log("[applyRemoteExtensionSettings] Applied remote settings")
   } finally {
     isApplyingRemoteSettings = false
   }
+  if (shouldSync) void syncExtensionSettingsNow()
 }
 
 // Publish current settings to relay
-export const publishExtensionSettings = async (): Promise<boolean> => {
+export const publishExtensionSettings = async ({
+  force = false,
+}: {force?: boolean} = {}): Promise<boolean> => {
   const currentPubkey = get(pubkey)
   const currentSigner = get(signer)
 
@@ -449,7 +511,7 @@ export const publishExtensionSettings = async (): Promise<boolean> => {
 
   // Debounce: don't publish more than once per second
   const now = Date.now()
-  if (now - lastPublishedAt < 1000) {
+  if (!force && now - lastPublishedAt < 1000) {
     return false
   }
 
@@ -483,6 +545,38 @@ export const publishExtensionSettings = async (): Promise<boolean> => {
 
 // Subscribe to local changes and publish to relay (with debounce)
 let publishDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let syncNowPromise: Promise<boolean> | undefined
+let syncNowRequested = false
+
+export const syncExtensionSettingsNow = (): Promise<boolean> => {
+  syncNowRequested = true
+
+  if (publishDebounceTimer) {
+    clearTimeout(publishDebounceTimer)
+    publishDebounceTimer = null
+  }
+
+  syncNowPromise ||= (async () => {
+    let published = false
+
+    try {
+      while (syncNowRequested) {
+        syncNowRequested = false
+
+        if (isApplyingRemoteSettings || !get(pubkey) || !get(signer)) continue
+
+        published = (await publishExtensionSettings({force: true})) || published
+      }
+
+      return published
+    } finally {
+      syncNowPromise = undefined
+      if (syncNowRequested) void syncExtensionSettingsNow()
+    }
+  })()
+
+  return syncNowPromise
+}
 
 export const startExtensionSettingsAutoSync = () => {
   return extensionSettings.subscribe(() => {

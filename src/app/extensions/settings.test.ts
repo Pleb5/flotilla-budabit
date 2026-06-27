@@ -126,6 +126,63 @@ describe("effective extension settings", () => {
     )
   })
 
+  it("persists a newer enabled default widget snapshot when discovery updates", () => {
+    const installed = {
+      ...makeWidget("default-widget", 10),
+      version: "0.1.7",
+      appUrl: "https://example.com/default-0.1.7.html",
+    }
+    const discovered = {
+      ...makeWidget("default-widget", 20),
+      version: "0.2.0",
+      appUrl: "https://example.com/default-0.2.0.html",
+    }
+    const widgetId = getWidgetLineId(installed)
+
+    extensionSettings.set({
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widgetId]: installed}},
+    })
+
+    setDefaultExtensionWidgets([discovered])
+
+    const settings = get(extensionSettings)
+
+    expect(settings.installed.widget[widgetId]).toMatchObject({
+      id: discovered.id,
+      version: "0.2.0",
+      appUrl: "https://example.com/default-0.2.0.html",
+    })
+  })
+
+  it("keeps newer default snapshots when applying stale remote settings", () => {
+    const remoteInstalled = {
+      ...makeWidget("default-widget", 10),
+      version: "0.1.7",
+      appUrl: "https://example.com/default-0.1.7.html",
+    }
+    const discovered = {
+      ...makeWidget("default-widget", 20),
+      version: "0.2.0",
+      appUrl: "https://example.com/default-0.2.0.html",
+    }
+    const widgetId = getWidgetLineId(discovered)
+
+    setDefaultExtensionWidgets([discovered])
+    applyRemoteExtensionSettings({
+      ...makeSettings(),
+      installed: {nip89: {}, widget: {[widgetId]: remoteInstalled}},
+    })
+
+    const settings = get(extensionSettings)
+
+    expect(settings.installed.widget[widgetId]).toMatchObject({
+      id: discovered.id,
+      version: "0.2.0",
+      appUrl: "https://example.com/default-0.2.0.html",
+    })
+  })
+
   it("lets disabled defaults override explicit enabled ids", () => {
     const widget = makeWidget("default-widget")
     const widgetId = getWidgetLineId(widget)

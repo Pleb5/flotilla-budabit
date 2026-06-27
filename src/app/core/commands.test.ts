@@ -46,6 +46,7 @@ const settingsMocks = vi.hoisted(() => ({
   getInstalledExtension: vi.fn(),
   isDefaultExtension: vi.fn(() => false),
   isExtensionEnabled: vi.fn(() => false),
+  syncExtensionSettingsNow: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock("@nostr-git/ui", () => ({}))
@@ -103,6 +104,7 @@ vi.mock("@app/extensions/settings", () => ({
   isDefaultExtension: settingsMocks.isDefaultExtension,
   isExtensionEnabled: settingsMocks.isExtensionEnabled,
   normalizeWidgetInstallSource: (source: any) => source,
+  syncExtensionSettingsNow: settingsMocks.syncExtensionSettingsNow,
 }))
 
 vi.mock("@app/core/git-state", () => ({
@@ -199,6 +201,8 @@ describe("commands", () => {
     settingsMocks.isDefaultExtension.mockReturnValue(false)
     settingsMocks.isExtensionEnabled.mockReset()
     settingsMocks.isExtensionEnabled.mockReturnValue(false)
+    settingsMocks.syncExtensionSettingsNow.mockReset()
+    settingsMocks.syncExtensionSettingsNow.mockResolvedValue(true)
     localStorage.clear()
     blossomSettings.set(defaultBlossomSettings)
     blossomDashboardState.set(defaultBlossomDashboardState)
@@ -1019,6 +1023,7 @@ describe("commands", () => {
     })
     expect(next.installed.widget.weather).toBeUndefined()
     expect(next.widgetInstallSources[widgetId]).toEqual({relays: ["wss://widgets.example/"]})
+    expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
   })
 
   it("discoverSmartWidgets keeps same-d widgets from different publishers", async () => {
@@ -1082,6 +1087,7 @@ describe("commands", () => {
 
     expect(next.installed.widget[widgetId]).toBe(newWidget)
     expect(next.widgetInstallSources[widgetId]).toEqual({relays: ["wss://widgets.example/"]})
+    expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
     expect(registryMocks.loadWidget).toHaveBeenCalledWith(newWidget)
   })
 
@@ -1130,6 +1136,7 @@ describe("commands", () => {
       naddr: "naddr1weather",
       relays: ["wss://widgets.example/"],
     })
+    expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
     expect(registryMocks.loadWidget).not.toHaveBeenCalled()
   })
 

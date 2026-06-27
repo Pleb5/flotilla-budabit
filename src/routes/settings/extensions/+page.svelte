@@ -642,7 +642,7 @@
     installing = true
     try {
       const manifest = await installExtension(manifestUrl)
-      enableExtension(manifest.id)
+      await enableExtension(manifest.id)
       pushToast({theme: "success", message: `Installed and enabled ${manifest.name}`})
       manifestUrl = ""
     } catch (e: any) {
@@ -699,7 +699,7 @@
     installingWidget = true
     try {
       const widget = await installWidgetByNaddr(widgetNaddr)
-      enableExtension(getWidgetLineId(widget))
+      await enableExtension(getWidgetLineId(widget))
       clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
