@@ -548,6 +548,61 @@ describe("ExtensionBridge", () => {
     })
   })
 
+  it("checks descriptor write capabilities through extension runtime context", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.pubkey.set(calendarMemberPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:checkWriteCapabilities"],
+      },
+      communityRuntimeContext: {
+        definition: communityDefinition,
+        profileListEvents: [calendarProfileList],
+        relays: ["wss://preview.example.com/"],
+        relayHints: ["wss://preview.example.com/"],
+        communityContext: {
+          version: 1,
+          contextSessionId: "preview-community-context",
+          contextVersion: 3,
+          pubkey: communityPubkey,
+          ncommunity: "",
+          relays: ["wss://preview.example.com/"],
+          relayHints: ["wss://preview.example.com/"],
+          blossomServers: [],
+          sections: [],
+          viewer: {pubkey: calendarMemberPubkey, isOwner: false, isBanned: false},
+        },
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:checkWriteCapabilities", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      contextSessionId: "preview-community-context",
+      contextVersion: 3,
+      capabilities: [
+        {
+          descriptor: {kind: EVENT_TIME},
+          writableSectionNames: ["Events and meetups"],
+          moderatorSectionNames: [],
+          canWrite: true,
+          canModerate: false,
+        },
+      ],
+    })
+    expect(mocks.loadCommunityEvents).toHaveBeenCalledWith(
+      ["wss://preview.example.com/"],
+      expect.any(Array),
+      expect.objectContaining({authenticate: true}),
+    )
+  })
+
   it("recognizes descriptor writers without treating them as section moderators", async () => {
     const {ExtensionBridge} = await import("./bridge")
     mocks.activeCommunityDefinition.set(communityDefinition)

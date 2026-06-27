@@ -1,3 +1,7 @@
+import type {TrustedEvent} from "@welshman/util"
+import type {CommunityDefinition} from "@app/core/community"
+import type {EffectiveCommunityReportState} from "@app/core/community-reports"
+
 export type WidgetButtonType = "redirect" | "nostr" | "zap" | "post" | "app"
 
 export type WidgetButton = {
@@ -103,6 +107,15 @@ export type CommunityWidgetContext = {
   }
 }
 
+export type CommunityWidgetRuntimeContext = {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
+  relays: string[]
+  relayHints: string[]
+  communityContext?: CommunityWidgetContext
+}
+
 export type CommunityCheckWriteCapabilitiesRequest = {
   descriptors: CommunityEventDescriptor[]
 }
@@ -185,6 +198,7 @@ export type LoadedWidgetExtension = {
   iframe?: HTMLIFrameElement
   bridge?: import("./bridge").ExtensionBridge
   communityContext?: CommunityWidgetContext
+  communityRuntimeContext?: CommunityWidgetRuntimeContext
   /** Repository context when loaded for a specific repository */
   repoContext?: RepoContext
 }

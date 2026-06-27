@@ -2,7 +2,12 @@
   import {onDestroy, onMount} from "svelte"
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import {get} from "svelte/store"
-  import type {CommunityWidgetContext, LoadedWidgetExtension, SmartWidgetEvent} from "@app/extensions/types"
+  import type {
+    CommunityWidgetContext,
+    CommunityWidgetRuntimeContext,
+    LoadedWidgetExtension,
+    SmartWidgetEvent,
+  } from "@app/extensions/types"
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
@@ -67,6 +72,11 @@
   const getCommunityContext = () =>
     context.communityContext && typeof context.communityContext === "object"
       ? (context.communityContext as CommunityWidgetContext)
+      : undefined
+
+  const getCommunityRuntimeContext = () =>
+    context.communityRuntimeContext && typeof context.communityRuntimeContext === "object"
+      ? (context.communityRuntimeContext as CommunityWidgetRuntimeContext)
       : undefined
 
   const getCommunityContextKey = () => {
@@ -282,7 +292,7 @@
     }
 
     const payload = makeInitPayload()
-    bridge?.updateCommunityContext(payload.communityContext)
+    bridge?.updateCommunityContext(payload.communityContext, getCommunityRuntimeContext())
     const initPosted = postBridgeEvent("widget:init", payload)
     postBridgeEvent("widget:mounted", {timestamp: Date.now()})
     lastCommunityContextKey = getCommunityContextKey()
@@ -316,6 +326,7 @@
         origin,
         iframe: iframeRef,
         communityContext: getCommunityContext(),
+        communityRuntimeContext: getCommunityRuntimeContext(),
       }
       bridgeExtension = ext
       bridge = new ExtensionBridge(ext)
@@ -379,14 +390,14 @@
     if (!loaded || !bridge || !initSent || !key || !communityContext) return
     if (!lastCommunityContextKey) {
       lastCommunityContextKey = key
-      bridge.updateCommunityContext(communityContext)
+      bridge.updateCommunityContext(communityContext, getCommunityRuntimeContext())
       bridge.post("community:contextChanged", makeCommunityContextChangedPayload(communityContext))
       return
     }
     if (key === lastCommunityContextKey) return
 
     lastCommunityContextKey = key
-    bridge.updateCommunityContext(communityContext)
+    bridge.updateCommunityContext(communityContext, getCommunityRuntimeContext())
     bridge.post("community:contextChanged", makeCommunityContextChangedPayload(communityContext))
   })
 

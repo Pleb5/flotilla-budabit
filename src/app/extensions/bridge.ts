@@ -26,6 +26,7 @@ import type {
   CommunityQuerySharedConfigRequest,
   CommunityQueryEventsRequest,
   CommunityWidgetContext,
+  CommunityWidgetRuntimeContext,
   LoadedExtension,
 } from "./types"
 import {getRepoAddress} from "./types"
@@ -334,9 +335,13 @@ export class ExtensionBridge {
     window.addEventListener("message", this.listener)
   }
 
-  updateCommunityContext(communityContext?: CommunityWidgetContext | null): void {
+  updateCommunityContext(
+    communityContext?: CommunityWidgetContext | null,
+    communityRuntimeContext?: CommunityWidgetRuntimeContext | null,
+  ): void {
     if (this.extension.type === "widget") {
       this.extension.communityContext = communityContext || undefined
+      this.extension.communityRuntimeContext = communityRuntimeContext || undefined
     }
   }
 
@@ -733,7 +738,50 @@ const getExtensionCommunityContext = (ext: LoadedExtension) => {
   return ext.communityContext
 }
 
+const getExtensionCommunityRuntimeContext = (ext: LoadedExtension) => {
+  if (ext.type !== "widget") return undefined
+
+  return ext.communityRuntimeContext
+}
+
 const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
+  const extensionRuntimeContext = getExtensionCommunityRuntimeContext(ext)
+  if (extensionRuntimeContext?.definition) {
+    const definition = extensionRuntimeContext.definition
+    const profileListEvents = extensionRuntimeContext.profileListEvents || []
+    const reportState = extensionRuntimeContext.reportState
+    const relayHints = extensionRuntimeContext.relayHints?.length
+      ? extensionRuntimeContext.relayHints
+      : extensionRuntimeContext.relays || []
+    const relays = extensionRuntimeContext.relays?.length
+      ? extensionRuntimeContext.relays
+      : relayHints
+    const userPubkey =
+      extensionRuntimeContext.communityContext?.viewer.pubkey || get(activeUserPubkey) || ""
+
+    if (relays.length === 0) {
+      throw Object.assign(new Error("Community relays are not available"), {
+        code: "COMMUNITY_CONTEXT_NOT_READY",
+      })
+    }
+
+    const runtime = extensionRuntimeContext.communityContext
+      ? {
+          contextSessionId: extensionRuntimeContext.communityContext.contextSessionId,
+          contextVersion: extensionRuntimeContext.communityContext.contextVersion,
+        }
+      : getCommunityContextRuntimeSnapshot({
+          definition,
+          profileListEvents,
+          reportState,
+          userPubkey,
+          relays,
+          relayHints,
+        })
+
+    return {definition, profileListEvents, reportState, relays, relayHints, userPubkey, ...runtime}
+  }
+
   const definition = get(activeCommunityDefinition)
   const profileListEvents = get(activeCommunityProfileListEvents)
   const reportState = get(activeCommunityReportState)

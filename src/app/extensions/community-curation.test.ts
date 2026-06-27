@@ -19,6 +19,11 @@ vi.mock("@app/core/community-state", async importOriginal => {
 })
 
 import {loadCommunityCuratedWidgets} from "./community-curation"
+import {
+  clearCommunityWidgetRecommendationContexts,
+  getCommunityWidgetRecommendationContexts,
+  makeCommunityWidgetRuntimeContext,
+} from "./recommendation-context"
 
 const communityPubkey = "a".repeat(64)
 const managerPubkey = "b".repeat(64)
@@ -78,6 +83,7 @@ const makeWidgetEvent = (identifier: string, pubkey = widgetPubkey) =>
 describe("community curated widgets", () => {
   beforeEach(() => {
     mocks.loadCommunityEvents.mockReset()
+    clearCommunityWidgetRecommendationContexts()
   })
 
   it("loads only widgets targeted by valid, undeleted community writers", async () => {
@@ -155,6 +161,29 @@ describe("community curated widgets", () => {
       trustedWidgetAuthorPubkeys: [communityPubkey, managerPubkey],
     })
     expect(result.widgets.map(widget => widget.identifier)).toEqual(["valid-widget"])
+    const contexts = getCommunityWidgetRecommendationContexts(
+      `${SMART_WIDGET_KIND}:${widgetPubkey}:valid-widget`,
+    )
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]).toMatchObject({
+      communityPubkey,
+      relays: ["wss://community.example/"],
+      relayHints: ["wss://community.example/", "wss://widgets.example/"],
+      trustedWidgetAuthorPubkeys: [communityPubkey, managerPubkey],
+      targetingEventIds: ["target-valid"],
+      targetingRelayHints: ["wss://widgets.example/"],
+    })
+    expect(contexts[0].definition.pubkey).toBe(communityPubkey)
+    expect(contexts[0].profileListEvents).toEqual([profileList])
+    expect(contexts[0].widgetTargetAuthorPubkeys).toContain(memberPubkey)
+    expect(makeCommunityWidgetRuntimeContext(contexts[0], {userPubkey: memberPubkey})).toMatchObject({
+      relays: ["wss://community.example/"],
+      communityContext: {
+        pubkey: communityPubkey,
+        relayHints: ["wss://community.example/", "wss://widgets.example/"],
+        viewer: {pubkey: memberPubkey},
+      },
+    })
     expect(mocks.loadCommunityEvents).toHaveBeenCalledTimes(5)
     expect(mocks.loadCommunityEvents.mock.calls[4][0]).toEqual([
       "wss://community.example/",

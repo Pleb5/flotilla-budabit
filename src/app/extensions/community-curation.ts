@@ -26,6 +26,7 @@ import {
 } from "@app/core/community-permissions"
 import {parseSmartWidget} from "@app/extensions/registry"
 import type {SmartWidgetEvent} from "@app/extensions/types"
+import {recordCommunityWidgetRecommendationContext} from "./recommendation-context"
 import {logCommunityWidgetDebug} from "./community-widget-debug"
 import {getWidgetLineId} from "./widget-identity"
 
@@ -45,6 +46,35 @@ const getTargetingRelayHints = (events: TrustedEvent[]) =>
 
     return ref?.relay ? [ref.relay] : []
   })
+
+const getWidgetTargetingEvents = (widget: SmartWidgetEvent, targetingEvents: TrustedEvent[]) => {
+  const widgetPubkey = normalizePubkey(widget.pubkey || "")
+  const widgetAddress = widgetPubkey ? `${SMART_WIDGET_KIND}:${widgetPubkey}:${widget.identifier}` : ""
+
+  return targetingEvents.filter(event => {
+    const target = parseTargetedPublication(event)
+    if (!target || target.kind !== SMART_WIDGET_KIND || !target.ref) return false
+
+    if (target.ref.type === "e") {
+      const refPubkey = normalizePubkey(target.ref.pubkey || "")
+
+      return target.ref.value === widget.id && (!refPubkey || refPubkey === widgetPubkey)
+    }
+
+    if (target.ref.type === "a") {
+      const [kind, pubkey, identifier] = target.ref.value.split(":")
+
+      return (
+        Number(kind) === SMART_WIDGET_KIND &&
+        normalizePubkey(pubkey || "") === widgetPubkey &&
+        identifier === widget.identifier &&
+        target.ref.value.toLowerCase() === widgetAddress.toLowerCase()
+      )
+    }
+
+    return false
+  })
+}
 
 const dedupeWidgets = (widgets: SmartWidgetEvent[]) => {
   const byId = new Map<string, SmartWidgetEvent>()
@@ -262,11 +292,35 @@ export const loadCommunityCuratedWidgets = async (
     })),
   })
 
+  const dedupedWidgets = dedupeWidgets(widgets)
+  const relayHints = normalizeRelays([
+    ...parsed.relays,
+    ...communityRelays,
+    ...getTargetingRelayHints(eligibleTargetingEvents),
+  ])
+
+  for (const widget of dedupedWidgets) {
+    const targetingSources = getWidgetTargetingEvents(widget, eligibleTargetingEvents)
+
+    recordCommunityWidgetRecommendationContext(getWidgetLineId(widget), {
+      communityPubkey: definition.pubkey,
+      relays: communityRelays,
+      relayHints,
+      definition,
+      profileListEvents,
+      trustedWidgetAuthorPubkeys,
+      widgetTargetAuthorPubkeys,
+      fallbackAuthorityPubkeys,
+      targetingEventIds: targetingSources.map(event => event.id).filter(Boolean),
+      targetingRelayHints: getTargetingRelayHints(targetingSources),
+    })
+  }
+
   return {
     status: "community",
     communityPubkey: definition.pubkey,
     relayHints: communityRelays,
     trustedWidgetAuthorPubkeys,
-    widgets: dedupeWidgets(widgets),
+    widgets: dedupedWidgets,
   }
 }
