@@ -37,7 +37,6 @@ const settingsMocks = vi.hoisted(() => ({
     enabled: [] as string[],
     disabledDefaultIds: [] as string[],
     installed: {nip89: {}, widget: {}} as any,
-    widgetDisplay: {} as Record<string, any>,
     manifestUrls: {} as Record<string, string>,
     widgetInstallSources: {} as Record<string, any>,
   },
@@ -189,7 +188,6 @@ describe("commands", () => {
       enabled: [],
       disabledDefaultIds: [],
       installed: {nip89: {}, widget: {}},
-      widgetDisplay: {},
       manifestUrls: {},
       widgetInstallSources: {},
     }
@@ -1082,7 +1080,6 @@ describe("commands", () => {
     const next = settingsMocks.update.mock.calls[0][0]({
       installed: {nip89: {}, widget: {[widgetId]: oldWidget}, legacy: undefined},
       widgetInstallSources: {[widgetId]: {relays: ["wss://widgets.example/"]}},
-      widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 
     expect(next.installed.widget[widgetId]).toBe(newWidget)
@@ -1123,7 +1120,6 @@ describe("commands", () => {
       widgetInstallSources: {
         [widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]},
       },
-      widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 
     expect(next.installed.widget[widgetId]).toMatchObject({
@@ -1168,7 +1164,6 @@ describe("commands", () => {
       widgetInstallSources: {
         [widgetId]: {naddr: "naddr1weather", relays: ["wss://widgets.example/"]},
       },
-      widgetDisplay: {[widgetId]: {location: "modal"}},
     })
 
     expect(next.installed.widget[widgetId]).toBe(newWidget)

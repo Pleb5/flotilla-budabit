@@ -2,25 +2,23 @@
 
 ## Objective
 
-- Migrate Budabit app-level GRASP server preferences from the legacy `kind:30002` / `d=grasp-servers` event to the protocol `kind:10317` User Grasp List using ordered `g` tags.
-- Keep legacy reads only as a migration fallback until the user explicitly saves the new list.
-- Source the last-resort app fallback GRASP server list from the `.env` default community's published `kind:10317` list rather than hardcoded relays.
-- Replace hardcoded recommended GRASP relays with community-first web-of-trust recommendations from communities and trusted individuals, mirroring the DM relay recommendation model.
-- Preserve explicit user configuration as authoritative, including the ability to leave the saved GRASP list empty.
+- Harmonize Budabit extensions around Smart Widgets only.
+- Remove the confusing widget display selector so widgets are reachable through their declared slot plus the settings-page preview action only.
+- Drop NIP-89 manifest extensions from the app because Smart Widgets are the only fully supported extension model and breaking changes are acceptable.
+- Keep changes minimal and aligned with the currently supported slots: `repo-tab`, `community-home-before-quicklinks`, `community-home-after-quicklinks`, `chat-message-actions`, and `global-menu`.
 
 ## Constraints
 
 - Current repository state is authoritative over this plan.
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
-- The current worktree has many unrelated extension/widget changes; never stage unrelated files or unrelated hunks.
-- The branch `dev` tracks `origin/dev` but is already ahead of upstream; inspect push state before each phase push.
-- Prefer minimal changes that fit existing Svelte stores and `src/app/core/dm.ts` recommendation patterns.
-- Reuse existing NIP-34 core constants/helpers for `kind:10317` where possible.
-- Stop writing legacy `kind:30002` GRASP server events.
-- Keep legacy `kind:30002` reads as migration fallback only while new `kind:10317` is absent.
 - Commit and push each verified phase before starting the next phase.
+- The branch `dev` tracks `origin/dev` and was already ahead of upstream by one commit when this workflow started; inspect push state before each phase push.
+- Do not stage unrelated changes if new user edits appear while working.
+- Prefer the smallest correct changes; remove obsolete compatibility code rather than preserving it unless current code requires a migration guard.
+- Settings preview remains available for widgets with secure app URLs.
+- Widget runtime surfaces should be driven by declared widget slots, not user-selected display locations.
 
-## Phase 1: Protocol Pivot And Migration Fallback
+## Phase 1: Remove Display Selector And Generic Launcher
 
 ### Phase Startup
 
@@ -31,29 +29,30 @@
 
 ### Goal
 
-- Switch app-owned GRASP server loading, syncing, publishing, and repo-announcement relay resolution to protocol `kind:10317`, while preserving legacy `kind:30002` as read-only migration fallback.
+- Remove the widget display-location selector and the generic `/widgets`/sidebar launcher path while preserving the settings-page widget preview action.
 
 ### Exit Criteria
 
-- App GRASP server filters prefer `GIT_USER_GRASP_LIST` (`10317`) without a `d` tag.
-- User saves publish `kind:10317` events with ordered `g` tags and empty content.
-- Legacy `kind:30002` / `d=grasp-servers` events are read only when no `kind:10317` event exists.
-- Explicit empty `kind:10317` lists remain authoritative and do not rehydrate from legacy or fallback lists.
-- Repo announcement relay selection uses the new list first and legacy only as fallback.
-- Focused tests cover new-list parsing/publishing behavior and legacy fallback.
-- Phase 1 changes are committed and pushed without staging unrelated files.
+- `WidgetDisplayLocation`, `widgetDisplay`, `getWidgetsForLocation`, and display-location setters/getters are removed from app settings code.
+- Settings extension cards no longer render a display-location dropdown.
+- The widget settings action is clearly a preview action, not a placement selector.
+- Primary navigation no longer adds widget launcher entries from display settings.
+- The generic `/widgets` route is removed or otherwise no longer reachable from app navigation.
+- Focused settings/component tests are updated for the removed display selector.
+- Phase 1 changes are verified, committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Inspect current legacy usage in `git-requests.ts`, `git-state.ts`, `GraspServersPanel.svelte`, and package NIP-34 helpers.
-- Add or reuse normalized `kind:10317` parsing/building helpers in `@nostr-git/core/events`.
-- Update app sync/loading/publish paths to new kind plus legacy fallback.
-- Update focused tests for protocol migration behavior.
+- Update `src/app/extensions/types.ts` and `src/app/extensions/settings.ts` to remove display-location types and persisted display settings.
+- Update `src/app/components/ExtensionCard.svelte` to remove selector props and rename `Open App` to a settings preview action.
+- Update `src/routes/settings/extensions/+page.svelte` to stop passing display-location props.
+- Update `src/app/components/PrimaryNav.svelte` and remove the generic `/widgets` route.
+- Update focused tests that asserted display setting normalization.
 
 ### Verification
 
-- Run focused tests for GRASP server helpers and app git requests/state.
-- Run `pnpm check` if feasible after focused tests pass.
+- Run focused extension settings tests.
+- Run type/project verification if feasible after focused tests pass.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
@@ -80,7 +79,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Default Community Fallback And Recommendation Engine
+## Phase 2: Drop NIP-89 Runtime And Settings Support
 
 ### Phase Startup
 
@@ -91,31 +90,29 @@
 
 ### Goal
 
-- Add app-level GRASP recommendations from the community-first web of trust and derive the last-resort fallback from the `.env` default community's `kind:10317` list.
+- Remove NIP-89 manifest extension support from app runtime, settings, commands, and repo-tab resolution so Smart Widgets are the only extension model.
 
 ### Exit Criteria
 
-- A GRASP recommendation module/store exists and mirrors the DM relay ranking model for community and individual signals.
-- Recommendation sources include active community-authored `kind:10317` evidence, starred/default community `kind:10317` evidence, moderator/member `kind:10317` lists, own list, and unmuted follow `kind:10317` lists.
-- Recommendation authors are community-first: viewer, active community pubkeys, default community pubkey, moderators, starred community pubkeys, follows, then members, with sensible limits.
-- Default community fallback loads `VITE_DEFAULT_COMMUNITY`, resolves its definition with existing community lookup helpers, then loads that community author's `kind:10317` list from default/indexer/community relays.
-- The last-resort fallback is used only when the user has no authoritative saved list and no community/social recommendation items.
-- No hardcoded GRASP recommendation URLs remain in app recommendation logic.
-- Focused tests cover ranking, default-community fallback, empty-list authority, and muted follow exclusion.
-- Phase 2 changes are committed and pushed without staging unrelated files.
+- `ExtensionManifest`, `LoadedNip89Extension`, and `installed.nip89` app code paths are removed.
+- NIP-89 install-by-URL, manifest URL tracking, manifest update checks, discovery, and registry iframe loading are removed.
+- Extension provider, bridge permissions, enable/disable/uninstall commands, and repo-tab rendering operate on widgets only.
+- Settings Extensions UI lists and manages widgets only.
+- Repo extension routes resolve repo-tab Smart Widgets only.
+- Focused unit tests are updated and pass for widget-only settings/commands/registry behavior.
+- Phase 2 changes are verified, committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Extract or reuse generic recommendation helpers from `dm.ts` only where it reduces duplication without broad churn.
-- Implement `src/app/core/grasp.ts` or equivalent with pure scorer, loader/state, source labels, and fallback resolver.
-- Wire app sync so `graspServersStore` receives the authoritative user list, migrated legacy list, recommendation fallback, or empty explicit list according to state.
-- Add focused tests for the pure recommendation and fallback behavior.
+- Simplify extension types to widget-only loaded extensions.
+- Simplify settings normalization, effective installs, enabled IDs, default widgets, and install source handling around `installed.widget` only.
+- Remove NIP-89 command exports and references from commands, provider, registry, bridge, settings UI, and repo routes.
+- Update unit tests that previously constructed or asserted `nip89` buckets.
 
 ### Verification
 
-- Run focused GRASP recommendation tests.
-- Run affected app/core tests.
-- Run `pnpm check` if feasible after focused tests pass.
+- Run focused extension settings, commands, registry, and bridge tests.
+- Run type/project verification if feasible after focused tests pass.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
 ### Mandatory Closeout
@@ -142,7 +139,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: UI Wiring, Cleanup, And Final Verification
+## Phase 3: Documentation Cleanup And Final Verification
 
 ### Phase Startup
 
@@ -153,29 +150,26 @@
 
 ### Goal
 
-- Replace hardcoded GRASP recommendation surfaces with the recommendation store, expose evidence in settings, remove obsolete legacy defaults, and complete verification.
+- Update documentation/templates to describe Smart Widgets as the only supported extension model and complete final verification.
 
 ### Exit Criteria
 
-- `packages/nostr-git-ui/src/lib/stores/graspServers.ts` no longer exports hardcoded recommended GRASP server URLs.
-- New repo, import, fork, and GRASP settings surfaces use app-provided recommendations or saved/fallback state instead of hardcoded defaults.
-- GRASP settings shows recommended relays from communities/individuals with evidence, and keeps one-click add behavior.
-- All app-level legacy `kind:30002` usage is either removed or explicitly marked as migration fallback only.
-- Docs/comments/tests reflect `kind:10317` as the current protocol list kind.
-- Focused tests and project-level verification pass or a concrete blocker is recorded.
-- Checkpoint records `Current Phase: Complete` and final closeout is committed and pushed without staging unrelated files.
+- User-facing extension docs no longer say Budabit supports NIP-89 manifest extensions.
+- Smart Widget template docs no longer direct developers to NIP-89 as a supported alternative.
+- Remaining `NIP-89`/`31990` references are either outside the app extension feature or explicitly unrelated to extension support.
+- End-to-end comments or docs that mention `installed.nip89` are updated.
+- Final focused tests and project-level verification pass, or a concrete blocker is recorded.
+- Checkpoint records `Current Phase: Complete` and final closeout is committed and pushed.
 
 ### Steps
 
-- Wire recommendation store into `GraspServersPanel.svelte` and GRASP selection components.
-- Remove package hardcoded recommendation constants and update tests.
-- Update docs that reference GRASP server settings semantics.
+- Update `docs/extensions/*`, `docs/Overview.md`, package template docs, and related extension docs.
+- Search for stale NIP-89/display-location extension references and remove or narrow them.
 - Run final focused and project-level verification.
 
 ### Verification
 
-- Run focused GRASP/store tests.
-- Run affected app/core tests.
+- Run focused extension tests.
 - Run `pnpm check` if feasible or record the exact blocker/failure.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 

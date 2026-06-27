@@ -3,11 +3,7 @@
   import ExtensionIcon from "./ExtensionIcon.svelte"
   import ProfileCircle from "./ProfileCircle.svelte"
   import ProfileLink from "./ProfileLink.svelte"
-  import type {
-    ExtensionManifest,
-    SmartWidgetEvent,
-    WidgetDisplayLocation,
-  } from "@app/extensions/types"
+  import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
   import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
@@ -21,8 +17,6 @@
     type?: "nip89" | "widget"
     ontoggle?: (detail: {enabled: boolean}) => void
     onuninstall?: () => void
-    displayLocation?: WidgetDisplayLocation
-    onDisplayLocationChange?: (location: WidgetDisplayLocation) => void
     manifestUrl?: string // URL to check for updates (NIP-89 extensions only)
     isDefault?: boolean
     communityOptions?: WidgetCommunityOption[]
@@ -40,8 +34,6 @@
     type = "nip89",
     ontoggle,
     onuninstall,
-    displayLocation = "modal",
-    onDisplayLocationChange,
     manifestUrl,
     isDefault = false,
     communityOptions = [],
@@ -316,10 +308,10 @@
         </div>
       {/if}
     </div>
-    {#if widget.appUrl || widget.buttons?.length || onDisplayLocationChange}
+    {#if widget.appUrl || widget.buttons?.length}
       <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {#if widgetAppUrl}
-          <button class="btn btn-primary btn-sm sm:w-auto" onclick={openWidget}> Open App </button>
+          <button class="btn btn-primary btn-sm sm:w-auto" onclick={openWidget}>Preview app</button>
         {:else if widget.appUrl}
           <span class="text-xs opacity-70">Insecure app URL blocked</span>
         {/if}
@@ -334,20 +326,6 @@
             </a>
           {/if}
         {/each}
-        {#if onDisplayLocationChange}
-          <select
-            class="select select-bordered select-sm w-full sm:w-auto"
-            value={displayLocation}
-            onchange={e =>
-              onDisplayLocationChange?.(
-                (e.currentTarget as HTMLSelectElement).value as WidgetDisplayLocation,
-              )}>
-            <option value="" disabled>Display location...</option>
-            <option value="modal">Modal (popup)</option>
-            <option value="menu-route">Sidebar (own page)</option>
-            <option value="top-menu">Top menu (button)</option>
-          </select>
-        {/if}
       </div>
     {/if}
     {#if widgetUpdate}

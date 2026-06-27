@@ -53,7 +53,6 @@ const makeSettings = (): ExtensionSettings => ({
   enabled: [],
   disabledDefaultIds: [],
   installed: {nip89: {}, widget: {}},
-  widgetDisplay: {},
   manifestUrls: {},
   widgetInstallSources: {},
 })
@@ -259,7 +258,6 @@ describe("effective extension settings", () => {
       enabled: [manifest.id],
       installed: {nip89: {[manifest.id]: manifest}, widget: {}},
       manifestUrls: {[manifest.id]: "https://example.com/old-extension/manifest.json"},
-      widgetDisplay: {[manifest.id]: {location: "menu-route"}},
     })
 
     applyRemoteExtensionSettings(makeSettings())
@@ -325,7 +323,6 @@ describe("effective extension settings", () => {
       ...makeSettings(),
       enabled: [widget.identifier],
       installed: {nip89: {}, widget: {[widget.identifier]: widget}},
-      widgetDisplay: {[widget.identifier]: {location: "menu-route"}},
       widgetInstallSources: {[widget.identifier]: {relays: ["wss://relay.example"]}},
     })
 
@@ -333,7 +330,6 @@ describe("effective extension settings", () => {
 
     expect(settings.installed.widget).toEqual({[widgetId]: widget})
     expect(settings.enabled).toEqual([widgetId])
-    expect(settings.widgetDisplay).toEqual({[widgetId]: {location: "menu-route"}})
     expect(settings.widgetInstallSources).toEqual({
       [widgetId]: {relays: ["wss://relay.example/"]},
     })
@@ -349,10 +345,6 @@ describe("effective extension settings", () => {
       ...makeSettings(),
       enabled: [firstId, secondId],
       installed: {nip89: {}, widget: {[firstId]: first, [secondId]: second}},
-      widgetDisplay: {
-        [firstId]: {location: "modal"},
-        [secondId]: {location: "menu-route"},
-      },
     })
 
     const settings = get(extensionSettings)
@@ -360,7 +352,6 @@ describe("effective extension settings", () => {
     expect(settings.installed.widget[firstId]).toBe(first)
     expect(settings.installed.widget[secondId]).toBe(second)
     expect(settings.enabled.sort()).toEqual([firstId, secondId].sort())
-    expect(settings.widgetDisplay[secondId]).toEqual({location: "menu-route"})
   })
 
   it("keeps default extension disabled state separate from installed metadata", () => {

@@ -28,8 +28,6 @@ export type WidgetButton = {
   url: string
 }
 
-export type WidgetDisplayLocation = "modal" | "menu-route" | "top-menu"
-
 export type WidgetHomeSlotType =
   | "community-home-before-quicklinks"
   | "community-home-after-quicklinks"

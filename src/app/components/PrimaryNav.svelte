@@ -4,7 +4,6 @@
   import {pubkey} from "@welshman/app"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import LogIn from "@app/components/LogIn.svelte"
-  import Widget from "@assets/icons/widget.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
@@ -17,8 +16,6 @@
   import {notifications} from "@app/util/notifications"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import Git from "@assets/icons/git.svg?dataurl"
-  import {effectiveExtensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
-  import {getWidgetLineId} from "@app/extensions/widget-identity"
 
   type Props = {
     children?: Snippet
@@ -34,13 +31,6 @@
   }
 
   const gitNotification = $derived(hasGitNotification($notifications))
-
-  // Get widgets configured for menu display
-  const menuWidgets = $derived.by(() => {
-    // Re-run when effective extension settings change
-    const _ = $effectiveExtensionSettings
-    return getWidgetsForLocation("menu-route")
-  })
 </script>
 
 <div
@@ -73,19 +63,6 @@
       <PrimaryNavItem title="Search" href="/people" class="tooltip-right">
         <ImageIcon alt="Search" src={Magnifier} size={7} />
       </PrimaryNavItem>
-      {#each menuWidgets as widget (getWidgetLineId(widget))}
-        <PrimaryNavItem
-          title={widget.content || widget.identifier || "Widget"}
-          href="/widgets?id={getWidgetLineId(widget)}"
-          prefix="/widgets"
-          class="tooltip-right">
-          <ImageIcon
-            alt={widget.content || "Widget"}
-            src={widget.iconUrl || widget.imageUrl || Widget}
-            size={7}
-            class="rounded-full" />
-        </PrimaryNavItem>
-      {/each}
       <div class="hidden md:block lg:hidden">
         <PrimaryNavItem
           title="Settings"

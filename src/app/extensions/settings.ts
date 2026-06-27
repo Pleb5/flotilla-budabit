@@ -5,7 +5,7 @@ import {APP_DATA, makeEvent} from "@welshman/util"
 import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {postExtensionSettings} from "@app/core/git-commands"
 import {EXTENSION_SETTINGS_DTAG} from "@app/core/git-requests"
-import type {ExtensionManifest, SmartWidgetEvent, WidgetDisplayLocation} from "./types"
+import type {ExtensionManifest, SmartWidgetEvent} from "./types"
 import {getWidgetLineId} from "./widget-identity"
 
 export const EXTENSION_SETTINGS_KEY = "flotilla/extensions"
@@ -15,11 +15,6 @@ let isApplyingRemoteSettings = false
 let hasAppliedRemoteExtensionSettings = false
 // Track the last published timestamp to avoid re-publishing the same data
 let lastPublishedAt = 0
-
-export type WidgetDisplayConfig = {
-  location: WidgetDisplayLocation
-  menuLabel?: string // Custom label for menu-route display
-}
 
 export type InstalledExtensions = {
   nip89: Record<string, ExtensionManifest>
@@ -188,7 +183,6 @@ export type ExtensionSettings = {
   enabled: string[]
   disabledDefaultIds: string[]
   installed: InstalledExtensions
-  widgetDisplay: Record<string, WidgetDisplayConfig>
   manifestUrls: Record<string, string> // Track manifest URLs for update checking
   widgetInstallSources: Record<string, WidgetInstallSource>
 }
@@ -200,7 +194,6 @@ export const defaultExtensionSettings: ExtensionSettings = {
     nip89: {},
     widget: {},
   },
-  widgetDisplay: {},
   manifestUrls: {},
   widgetInstallSources: {},
 }
@@ -360,37 +353,6 @@ export const disableDefaultExtension = (id: string): void => {
   }))
 }
 
-export const getWidgetDisplayConfig = (id: string): WidgetDisplayConfig => {
-  const settings = get(extensionSettings)
-  const widgetDisplay = settings.widgetDisplay || {}
-  return widgetDisplay[id] || {location: "modal"}
-}
-
-export const setWidgetDisplayConfig = (id: string, config: WidgetDisplayConfig): void => {
-  extensionSettings.update(s => ({
-    ...s,
-    widgetDisplay: {...(s.widgetDisplay || {}), [id]: config},
-  }))
-  void syncExtensionSettingsNow()
-}
-
-export const getWidgetsForLocation = (location: WidgetDisplayLocation): SmartWidgetEvent[] => {
-  const settings = get(effectiveExtensionSettings)
-  const widgets: SmartWidgetEvent[] = []
-  const installedWidgets = settings.installed?.widget || {}
-  const widgetDisplay = settings.widgetDisplay || {}
-  const enabled = settings.enabled || []
-  for (const [id, widget] of Object.entries(installedWidgets)) {
-    if (enabled.includes(id)) {
-      const displayConfig = widgetDisplay[id] || {location: "modal"}
-      if (displayConfig.location === location) {
-        widgets.push(widget)
-      }
-    }
-  }
-  return widgets
-}
-
 export const getManifestUrl = (id: string): string | undefined => {
   const settings = get(extensionSettings)
   return settings.manifestUrls?.[id]
@@ -451,19 +413,6 @@ const normalizeExtensionSettings = (
   const installedIds = new Set([...Object.keys(installed.nip89), ...Object.keys(installed.widget)])
   const nip89Ids = new Set(Object.keys(installed.nip89))
   const widgetIds = new Set(Object.keys(installed.widget))
-  const defaultWidgetEntries = widgets.map(
-    widget => [getWidgetLineId(widget), widget] as [string, SmartWidgetEvent],
-  )
-  const widgetDisplayIds = new Set([...widgetIds, ...defaultWidgetEntries.map(([id]) => id)])
-  const widgetDisplayKeyMap = buildWidgetKeyMap([
-    ...Object.entries(installed.widget),
-    ...defaultWidgetEntries,
-  ])
-  const widgetDisplay = mapWidgetScopedRecord(
-    settings.widgetDisplay,
-    widgetDisplayIds,
-    widgetDisplayKeyMap,
-  )
   const manifestUrls = Object.fromEntries(
     Object.entries(settings.manifestUrls || {}).filter(([id]) => nip89Ids.has(id)),
   )
@@ -487,7 +436,6 @@ const normalizeExtensionSettings = (
       widgets,
     ),
     installed,
-    widgetDisplay,
     manifestUrls,
     widgetInstallSources,
   }

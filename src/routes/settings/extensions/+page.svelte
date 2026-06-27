@@ -9,7 +9,6 @@
   import {
     defaultExtensionWidgets,
     effectiveExtensionSettings,
-    setWidgetDisplayConfig,
   } from "@app/extensions/settings"
   import ExtensionCard from "@app/components/ExtensionCard.svelte"
   import {
@@ -825,8 +824,6 @@
     {#if installed.length > 0}
       <div class="flex flex-col gap-3">
         {#each installed as item (item.id)}
-          {@const widgetDisplay = settings.widgetDisplay || {}}
-          {@const displayLocation = widgetDisplay[item.id]?.location || "modal"}
           {@const installedManifestUrl = settings.manifestUrls?.[item.id]}
           <ExtensionCard
             manifest={item.manifest}
@@ -835,8 +832,6 @@
             isDefault={item.isDefault}
             ontoggle={({enabled}) => toggle(item.id, enabled)}
             onuninstall={item.isDefault ? undefined : () => onUninstall(item.id)}
-            {displayLocation}
-            onDisplayLocationChange={loc => setWidgetDisplayConfig(item.id, {location: loc})}
             manifestUrl={installedManifestUrl}
             widgetUpdate={item.type === "widget" ? widgetUpdates[item.id] : undefined}
             widgetUpdateChecking={item.type === "widget"

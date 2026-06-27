@@ -194,12 +194,10 @@ export const uninstallExtension = async (id: string) => {
     const nip89 = {...(s.installed?.nip89 || {})}
     const widget = {...(s.installed?.widget || {})}
     const manifestUrls = {...(s.manifestUrls || {})}
-    const widgetDisplay = {...(s.widgetDisplay || {})}
     const widgetInstallSources = {...(s.widgetInstallSources || {})}
     delete nip89[id]
     delete widget[id]
     delete manifestUrls[id]
-    delete widgetDisplay[id]
     delete widgetInstallSources[id]
     return {
       ...s,
@@ -210,7 +208,6 @@ export const uninstallExtension = async (id: string) => {
       },
       enabled: s.enabled.filter(e => e !== id),
       manifestUrls,
-      widgetDisplay,
       widgetInstallSources,
     }
   })
