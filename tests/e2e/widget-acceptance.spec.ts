@@ -784,7 +784,7 @@ test.describe("Widget State Persistence", () => {
 
       if (storageValue) {
         const parsed = JSON.parse(storageValue)
-        // Should have widget in installed.widget or installed.nip89
+        // Should have widget install metadata.
         expect(parsed.installed).toBeTruthy()
       }
     }

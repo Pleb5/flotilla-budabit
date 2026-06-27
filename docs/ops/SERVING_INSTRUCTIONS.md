@@ -21,7 +21,7 @@ npx serve build -s -p 3000
 The `-s` flag tells `serve` to:
 
 - Redirect all non-file routes to index.html (enabling SPA routing)
-- Properly handle client-side routing for routes like `/settings`, `/git/...`, `/c/...`, `/widgets`, and `/people/...`.
+- Properly handle client-side routing for routes like `/settings`, `/git/...`, `/c/...`, `/c/.../widgets`, and `/people/...`.
 
 ## Alternative: Using Python's http.server
 

@@ -85,7 +85,7 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 - **Decentralized Git Repositories**: Discover and manage Git repositories using Nostr relays and Git remotes
 - **Issue And Pull Request Tracking**: Create, manage, and discuss issues and PRs with Nostr-native status updates
 - **Community Catalogs**: Target repositories, calendar events, goals, permalinks, and widgets to `/c/<community>` pages
-- **Extensions And Smart Widgets**: Install extensions from Nostr `kind:30033` events or manifest URLs; built-in extensions are not bundled by default
+- **Extensions And Smart Widgets**: Install Smart Widget extensions from Nostr `kind:30033` events; built-in extensions are not bundled by default
 - **Collaborative Development**: Work with teams using Nostr-based communication, moderation, and membership requests
 - **Notifications**: In-app unread badges and sounds are available; external email and web push alert setup is build-gated behind `FEATURE_ALERTS=1`
 

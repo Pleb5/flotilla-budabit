@@ -32,7 +32,7 @@ Budabit does not bundle extension code, but it does load default extensions cura
 
 Default community extensions appear in Settings > Extensions as installed and enabled. Users can disable them, but cannot uninstall them because they come from community curation rather than user-installed storage.
 
-Additional extensions are installed through community-curated `kind:30033` discovery, direct Smart Widget `naddr` values, or advanced manifest URLs from Settings > Extensions.
+Additional extensions are installed through community-curated `kind:30033` discovery or direct Smart Widget `naddr` values from Settings > Extensions.
 
 ## Optional Extension Packages
 

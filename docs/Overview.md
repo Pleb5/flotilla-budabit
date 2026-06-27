@@ -11,7 +11,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - `@welshman/*`: app, store, net, router, signer, util.
   - `nostr-tools` for nip19, etc.
 - Internal Git/NIP-34 features provided by `packages/nostr-git-core` and `packages/nostr-git-ui` (workspace dependencies: `@nostr-git/core` and `@nostr-git/ui`).
-- Extension surfaces support NIP-89 manifests and Smart Widget `kind:30033` events in sandboxed iframes.
+- Extension surfaces support Smart Widget `kind:30033` events through declared slots and sandboxed iframes for iframe widgets.
 
 ## High-Level Architecture
 
@@ -72,11 +72,11 @@ This document summarizes how the Budabit client is structured and how the main p
 ## Extensions and Widgets
 
 - Built-in extensions are not bundled or auto-installed; `src/app/extensions/builtin.ts` keeps `installBuiltinExtensions()` as a no-op for the existing call site.
-- Users install extensions from Settings > Extensions using NIP-89 manifest URLs or Smart Widget `kind:30033` events.
-- `src/app/extensions/registry.ts` validates embeddable URLs, fetches manifests without cache, parses Smart Widget button/slot metadata, and registers extension origins.
+- Users install extensions from Settings > Extensions using community-curated Smart Widget `kind:30033` events or direct widget `naddr` values.
+- `src/app/extensions/registry.ts` validates embeddable URLs, parses Smart Widget button/slot metadata, and registers extension origins.
 - `src/app/extensions/bridge.ts` and `provider.svelte` host extensions in iframes and expose a permissioned host bridge.
 - Extension slots are rendered through `src/app/extensions/components/SlotRenderer.svelte`; repo-tab extensions are mounted under `/git/[id]/extensions/[extId]` and surfaced from the Git repo layout.
-- Global and community widget routes live at `/widgets` and `/c/[community]/widgets`.
+- Community widget routes live at `/c/[community]/widgets`; generic widget launching is handled through declared widget slots and settings preview actions.
 
 ## Configuration and Environment
 
@@ -134,7 +134,7 @@ This document summarizes how the Budabit client is structured and how the main p
 - Messaging: `src/app/components/Chat.svelte`, `ChannelMessage*.svelte` components.
 - Community git catalog: `src/routes/c/[community]/git/` and components in `packages/nostr-git-ui/src/lib/components/git/`.
 - Canonical Git surface: `src/routes/git/`.
-- Extension settings and widgets: `src/routes/settings/extensions/`, `src/routes/widgets/`, `src/routes/c/[community]/widgets/`, and `src/routes/git/[id=naddr]/extensions/[extId]/`.
+- Extension settings and widgets: `src/routes/settings/extensions/`, `src/routes/c/[community]/widgets/`, and `src/routes/git/[id=naddr]/extensions/[extId]/`.
 - Community state: `src/app/core/community-state.ts`, `src/app/core/community.ts`, and `src/app/core/community-feeds.ts`.
 - Shared state: `src/app/core/state.ts`.
 

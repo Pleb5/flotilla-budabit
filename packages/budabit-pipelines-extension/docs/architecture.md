@@ -2,7 +2,7 @@
 
 Technical architecture of Flotilla Smart Widgets.
 
-> **Note:** This document covers Smart Widget architecture specifically. Flotilla also supports NIP-89 Manifest Extensions (kind 31990), which share the same postMessage bridge protocol but differ in discovery and registration. For the full extension architecture covering both models, see the [Flotilla Extension Developer Guide](../../../docs/extensions/README.md).
+> **Note:** This document covers Smart Widget architecture for Flotilla. For host-specific behavior, see the [Flotilla Extension Developer Guide](../../../docs/extensions/README.md).
 
 ## System Architecture
 

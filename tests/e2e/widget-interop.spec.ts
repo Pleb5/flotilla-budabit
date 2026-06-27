@@ -710,7 +710,7 @@ test.describe("Cross-Client Compatibility", () => {
       pubkey: randomHex(64),
       created_at: nowSeconds(),
       tags: [
-        ["client", "flotilla-budabit", "31990:pubkey:flotilla"],
+        ["client", "flotilla-budabit", "https://flotilla.dev"],
         ["d", "client-origin-widget"],
         ["l", "basic"],
       ],

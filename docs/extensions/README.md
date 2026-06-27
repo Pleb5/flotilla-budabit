@@ -1,109 +1,95 @@
-# Flotilla Extension Developer Guide
+# Budabit Smart Widget Developer Guide
 
-Flotilla ships two complementary runtime paths for building integrations:
+Budabit supports Smart Widgets as its extension model. A Smart Widget is a Nostr `kind:30033` addressable event that declares metadata, launch URLs, permissions, and an optional UI slot. Budabit renders `basic` widgets through host slot handlers and loads `action` or `tool` widgets in sandboxed iframes.
 
-1. **NIP‑89 Manifest Extensions** – sandboxed iframe apps described by JSON manifests (kind 31990) discovered via relays.
-2. **Smart Widgets (NIP‑XX / kind 30033)** – rich, event-based widgets published directly to Nostr relays (YakiHonne ecosystem) that Flotilla can render inline or sandbox in an iframe depending on widget type.
-
-This guide explains how to target both models, how they coexist inside Flotilla, and what you need to know about storage, permissions, discovery, and UI slots.
-
-> 📚 See [`docs/extensions/XX.md`](./XX.md) for the full Smart Widget specification; this guide focuses on how Flotilla interprets and hosts those events.
+See [`XX.md`](./XX.md) for the Smart Widget specification details. This guide focuses on how Budabit interprets and hosts those events.
 
 ---
 
-## 📖 Terminology
+## Terminology
 
-| Term                   | Meaning                                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Manifest Extension** | Legacy iframe-based integration defined by a NIP‑89 manifest (kind 31990 event or HTTPS URL).                             |
-| **Smart Widget Event** | Kind 30033 event describing a widget payload published to relays.                                                         |
-| **Widget Types**       | `basic` (host-rendered), `action` (iframe app without return channel), `tool` (iframe app expecting bi-directional data). |
-| **Extension Runtime**  | Flotilla’s host infrastructure (registry, provider, bridge) that loads and enforces each integration.                     |
-| **Permissions**        | Capabilities declared either in manifest `permissions[]` (NIP‑89) or widget tags.                                         |
-
----
-
-## 🧩 Support Matrix
-
-| Capability        | Manifest Extensions                                                   | Smart Widgets – `basic`                                                                                  | Smart Widgets – `action` / `tool`                    |
-| ----------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Discovery         | Manual URL under Advanced settings                                    | Community-curated kind 30033 events or direct naddr                                                      | Same as `basic`                                      |
-| Install UX        | Paste manifest URL under Advanced settings                            | Search a community's curated extensions or paste naddr under Advanced settings                           | Same as `basic`                                      |
-| Runtime Container | Sandboxed iframe (`allow-scripts allow-same-origin`)                  | Host-rendered via slot handler (no iframe)                                                               | Sandboxed iframe (appUrl)                            |
-| Storage Bucket    | `extensionSettings.installed.nip89[id]`                               | `extensionSettings.installed.widget[id]`                                                                 | `extensionSettings.installed.widget[id]`             |
-| Enable / Disable  | `extensionRegistry.loadIframeExtension()`                             | `extensionRegistry.loadWidget()` (metadata only)                                                         | `extensionRegistry.loadWidget()` (iframe + bridge)   |
-| Permissions       | Explicit `permissions[]` in manifest (default deny otherwise)         | Default deny; host recognizes widget tag-derived capabilities                                            | Same as `basic`, enforced before bridge requests     |
-| UI Slot Rendering | Extension-specific slot handlers receive `extension.type === "nip89"` | Slot handlers see `extension.type === "widget"` and `widget.widgetType === "basic"`; render DOM directly | Slot handlers interact with widget iframe via bridge |
+| Term | Meaning |
+| --- | --- |
+| Smart Widget Event | A `kind:30033` event describing a widget payload published to relays. |
+| Widget Types | `basic` (host-rendered), `action` (iframe app without return channel), `tool` (iframe app expecting bidirectional data). |
+| Widget Slot | A supported placement declared by the widget `slot` tag. |
+| Extension Runtime | Budabit host infrastructure (`registry`, `provider`, `bridge`) that loads and enforces widgets. |
+| Permissions | Capabilities declared by widget `permission` tags. |
 
 ---
 
-## 🧱 Storage & Settings Layout
+## Support Matrix
 
-Flotilla persists extension state in a single synced store:
+| Capability | Smart Widgets - `basic` | Smart Widgets - `action` / `tool` |
+| --- | --- | --- |
+| Discovery | Community-curated `kind:30033` events or direct `naddr` | Same as `basic` |
+| Install UX | Search a community's curated widgets or paste `naddr` under Advanced settings | Same as `basic` |
+| Runtime Container | Host-rendered via slot handler, no iframe | Sandboxed iframe from the widget app URL |
+| Storage Bucket | `extensionSettings.installed.widget[id]` | `extensionSettings.installed.widget[id]` |
+| Enable / Disable | Settings `enabled[]` controls whether the widget is available to slots | Settings `enabled[]` controls iframe preload/slot availability |
+| Permissions | Default deny for privileged bridge actions | Same as `basic`, enforced before bridge requests |
+| UI Slot Rendering | Slot handlers see `extension.type === "widget"` and render metadata | Slot handlers launch or mount the widget iframe |
+
+---
+
+## Storage And Settings Layout
+
+Budabit persists extension state in a single synced store:
 
 ```ts
 type ExtensionSettings = {
-  enabled: string[] // shared ids (manifest.id or widget.identifier)
+  enabled: string[]
+  disabledDefaultIds: string[]
   installed: {
-    nip89: Record<string, ExtensionManifest>
     widget: Record<string, SmartWidgetEvent>
-    legacy?: Record<string, unknown> // auto-migrated flat installs
+    legacy?: Record<string, unknown>
   }
+  widgetInstallSources: Record<string, {naddr?: string; relays?: string[]}>
 }
 ```
 
-- Legacy installs stored as a flat `{[id]: manifest}` map are auto-migrated into `installed.nip89` on load.
-- Both manifest ids and widget identifiers share the `enabled[]` list; disabling an id unloads whichever runtime is active.
+- Widget ids are line ids derived from publisher pubkey, `kind:30033`, and the `d` identifier.
+- Default community widgets are overlaid into effective settings as installed and enabled unless the user disables them.
+- `widgetInstallSources` preserves direct install relay hints and `naddr` values for refresh/update operations.
+- `legacy` can preserve old local data but is not an active extension runtime bucket.
 
 ---
 
-## 🔍 Discovery & Installation
+## Discovery And Installation
 
-### Manifest Extensions (NIP‑89)
+Budabit installs Smart Widgets through these paths:
 
-- **Relays:** `INDEXER_RELAYS` (same set used elsewhere in Flotilla).
-- **Install flows:**
-  - Paste manifest URL into **Settings → Extensions → Advanced → Install by URL**.
-- **Runtime:** Flotilla validates optional `sha256`, registers the manifest with the registry, and spawns an iframe when enabled.
+- Default community curation: `VITE_DEFAULT_COMMUNITY` points at a community whose latest `kind:10222` definition is validated, then its targeted `kind:30033` widgets are loaded as default extensions.
+- Settings discovery: users choose a community in Settings > Extensions and install from that community's curated widgets.
+- Direct install: users paste a Smart Widget `naddr` in Settings > Extensions > Advanced.
 
-### Smart Widgets
-
-- **Relays:** YakiHonne curated set (`SMART_WIDGET_RELAYS`, currently `wss://relay.yakihonne.com`). naddr installs honor relay hints in the address pointer.
-- **Install flows:**
-  - Search a valid community profile in **Settings → Extensions → Discover extensions** and pick from that community's curated widgets.
-  - Paste `naddr` (kind 30033 address pointer) in **Settings → Extensions → Advanced → Install Smart Widget (naddr)**.
-- **Event parsing:** Runtime extracts `identifier`, `widgetType`, `buttons`, `appUrl`, and permissions from event tags. See `parseSmartWidget` implementation for details.
-- **Container:**
-  - `basic` widgets render through host slot handlers (no iframe).
-  - `action` / `tool` widgets create sandboxed iframes with the widget’s `appUrl`.
+Runtime parsing extracts the widget `identifier`, `widgetType`, `buttons`, `appUrl`, fallback `app-url` values, permissions, version metadata, and supported slot from event tags.
 
 ---
 
-## 🔐 Permissions & Security Model
+## Permissions And Security Model
 
-### Manifest Extensions
+Smart Widgets declare privileges with repeatable `permission` tags:
 
-- Must declare privileges in the manifest `permissions[]` array (e.g., `"nostr:publish"`, `"ui:toast"`).
-- Host denies privileged bridge requests unless allowed by the manifest.
-- Optional SHA‑256 integrity hash is verified before install when provided.
+```json
+["permission", "nostr:publish"]
+["permission", "storage:get"]
+["permission", "community:queryEvents"]
+```
 
-### Smart Widgets
+Budabit enforces these rules:
 
-- Permission tags (`["permission", "nostr:publish"]`, etc.) are parsed into an allowlist.
-- Flotilla currently recognizes the same privilege namespace as manifest extensions (`nostr:*`, `ui:*`). Requests without explicit permission are rejected.
-- `basic` widgets have no iframe to message; they call host slot APIs and should surface UI without privileged operations unless granted.
-
-### Common Safeguards
-
-- Action/tool iframes use `allow-scripts allow-same-origin` only.
-- Kind 31993 policy events (user consent) remain available for gating future capabilities.
-- Bridge always checks origin matches the registered iframe/app URL.
+- Privileged bridge actions under `nostr:*`, `storage:*`, and `community:*` require an exact matching permission tag.
+- UI actions such as `ui:toast` and `ui:navigate` are not privileged by the bridge policy, but handlers still validate payload shape and host constraints.
+- `action` and `tool` widgets run in iframes with `allow-scripts allow-same-origin` only.
+- The bridge checks that incoming messages originate from the registered widget origin.
+- `action` and `tool` app URLs must be secure and embeddable.
 
 ---
 
-## 🎛️ UI Slot Integration
+## UI Slot Integration
 
-Smart Widgets declare one supported slot with a `slot` tag in the kind 30033 event. Current supported slots are:
+Smart Widgets declare one supported slot with a `slot` tag in the `kind:30033` event. Current supported slots are:
 
 | Slot | Tag shape | Rendering model |
 | --- | --- | --- |
@@ -123,67 +109,30 @@ Example `chat-message-actions` tag:
 
 ---
 
-## ⚡ Quick Start Workflows
+## Build A Smart Widget
 
-### Build a Manifest Extension (NIP‑89)
+1. Decide on widget type: `basic`, `action`, or `tool`.
+2. For `basic`, publish host-renderable metadata and button tags.
+3. For `action` or `tool`, deploy the iframe application and reference it via a `button` tag of type `app`.
+4. Add a supported `slot` tag if the widget should appear in a Budabit surface.
+5. Publish the `kind:30033` event to relays reachable by the target community or installation flow.
+6. Install in Budabit via community discovery or direct `naddr`, then enable.
 
-1. Scaffold an iframe app (see [`flotilla-extension-template`](../../flotilla-extension-template/README.md)).
-2. Host the bundled HTML + assets on HTTPS.
-3. Create a manifest JSON with metadata, entrypoint URL, and requested permissions.
-4. Publish the manifest to relays (kind 31990) or share the HTTPS URL directly.
-5. In Flotilla, install via URL or discovery, then enable.
-
-### Build a Smart Widget
-
-1. Decide on widget type (`basic`, `action`, `tool`).
-2. For `basic`, craft the event tags (image, buttons, optional app URL) using YakiHonne tooling or your own signer.
-3. For `action/tool`, deploy the iframe application and reference it via a button of type `app`.
-4. Publish the kind 30033 event (naddr) to Smart Widget relays.
-5. Install in Flotilla via naddr or discovery and enable.
-
-> Refer to [`docs/extensions/XX.md`](./XX.md) for detailed tag schemas, button semantics, and YakiHonne builder references.
+The widget template in [`packages/flotilla-extension-template`](../../packages/flotilla-extension-template/README.md) provides a Svelte iframe app, bridge helpers, publishing scripts, and Smart Widget event generation.
 
 ---
 
-## 🔁 Migration Guidance
+## Troubleshooting
 
-- Existing NIP‑89 extensions continue to function unchanged; their manifests live in `installed.nip89`.
-- To “widgetize” an iframe extension:
-  1. Identify the primary user interaction you want to expose in a widget slot.
-  2. Publish a Smart Widget event pointing to the same iframe entrypoint (`action`/`tool`) or provide host-renderable metadata (`basic`).
-  3. Optionally keep both manifest + widget entries enabled; Flotilla treats them independently.
-- Legacy settings stored as `{[id]: manifest}` are automatically migrated to the `nip89` bucket the next time Flotilla loads the store.
-
----
-
-## 🧠 Troubleshooting
-
-- **Widget installs but renders blank:** double-check required tags (`d`, `l`, `image`, `button` for `action/tool`).
-- **Bridge request denied:** confirm permission in manifest or widget tags matches the action (`nostr:publish`, etc.).
-- **Iframe fails to load:** ensure `appUrl` / `entrypoint` is served over HTTPS and allows embedding.
-- **Discovery missing my widget:** verify relays include YakiHonne defaults or publish to additional relays the install flow can reach.
+- Widget installs but renders blank: check required tags (`d`, `l`, `image`, and `button` for `action`/`tool`).
+- Bridge request denied: confirm the exact `permission` tag matches the requested action.
+- Iframe fails to load: ensure every app URL is HTTPS and passes Budabit's embeddable URL policy.
+- Discovery misses a widget: verify it was published to relays used by the target community or included in the `naddr` relay hints.
+- Slot does not appear: confirm the widget is enabled and its `slot` tag uses one of the supported slot names above.
 
 ---
 
-## 🧾 Reference Examples
-
-### Sample Manifest (NIP‑89)
-
-```json
-{
-  "id": "flotilla-huddle",
-  "name": "Huddle",
-  "description": "Lightweight audio/room interaction extension.",
-  "author": "Flotilla Team",
-  "version": "1.0.0",
-  "homepage": "https://flotilla.app/extensions/huddle",
-  "entrypoint": "https://cdn.flotilla.app/extensions/huddle/index.html",
-  "permissions": ["nostr:publish", "ui:toast"],
-  "icon": "/images/extensions/huddle-icon.png"
-}
-```
-
-### Sample Smart Widget Event (Kind 30033)
+## Sample Smart Widget Event
 
 ```json
 {
@@ -202,12 +151,12 @@ Example `chat-message-actions` tag:
 
 ---
 
-## 🤝 Resources
+## Resources
 
-- [`flotilla-extension-template`](../../flotilla-extension-template/README.md)
+- Smart Widget Spec draft: [`XX.md`](./XX.md)
+- Interoperability notes: [`INTEROPERABILITY.md`](./INTEROPERABILITY.md)
+- Smart Widget template: [`packages/flotilla-extension-template`](../../packages/flotilla-extension-template/README.md)
 - Welshman SDK: https://github.com/bizarro/welshman
-- NIP‑89 spec: https://github.com/nostr-protocol/nips/blob/master/89.md
-- Smart Widget Spec (NIP‑XX draft): [`docs/extensions/XX.md`](./XX.md)
 - YakiHonne Smart Widget tooling: https://yakihonne.com/docs/sw/intro
 
-_© 2026 Flotilla Project — Extensions Runtime v2_
+_Last updated: 2026-06-27_

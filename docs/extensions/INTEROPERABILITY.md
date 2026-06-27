@@ -139,20 +139,19 @@ Flotilla accepts both `permission` and `perm` tags for permission declarations:
 
 **Recommendation:** Use `permission` for maximum compatibility with other hosts.
 
-### 4. Extension Slot Configuration
+### 4. Slot Tags
 
-Flotilla supports a `slot` configuration for manifest extensions that allows widgets to appear in specific UI locations. This is not part of the Smart Widget event structure but is relevant for NIP-89 manifest extensions:
+Flotilla supports a `slot` tag in Smart Widget events that allows widgets to appear in specific UI locations:
 
 ```typescript
-type ExtensionSlotConfig = {
+type WidgetSlotConfig = {
   type: "repo-tab"
   label: string
   path: string
-  builtinRoute?: string
 }
 ```
 
-**Note:** This configuration is only available for NIP-89 manifest extensions, not for Smart Widget events.
+Community-scoped slots use the same `slot` tag with a supported community slot name and label.
 
 ### 5. Origin Derivation
 

@@ -180,16 +180,15 @@ Budabit supports these install and discovery paths:
 
 - Community-curated Smart Widget `kind:30033` events targeted through `kind:30222` by a valid `kind:10222` community.
 - Direct Smart Widget `naddr` installs from Settings > Extensions > Advanced.
-- NIP-89-style manifest URLs from Settings > Extensions > Advanced.
 
 Runtime pieces:
 
-- `src/app/extensions/registry.ts` fetches manifests, parses Smart Widget metadata, validates embeddable URLs, registers origins, and tracks repo context.
+- `src/app/extensions/registry.ts` parses Smart Widget metadata, validates embeddable app URLs, registers origins, loads widget iframes when needed, and tracks repo context.
 - `src/app/extensions/community-curation.ts` validates community profiles and loads community-targeted widgets.
 - `src/app/extensions/bridge.ts` provides the iframe host bridge and permissioned messaging.
 - `src/app/extensions/settings.ts` persists installed/enabled extension state.
 - `src/app/extensions/slots.ts` and `components/SlotRenderer.svelte` render extension slots.
-- Repo-tab slots appear under `/git/[id=naddr]/extensions/[extId]`; global/community widget views live under `/widgets` and `/c/[community]/widgets`.
+- Repo-tab slots appear under `/git/[id=naddr]/extensions/[extId]`; community widget views live under `/c/[community]/widgets`.
 
 ---
 
