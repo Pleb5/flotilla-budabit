@@ -62,7 +62,7 @@
   import {publishEditedMessage} from "@app/core/event-edit-publish"
   import {
     checked,
-    communityNotificationBaselines,
+    effectiveCommunityNotificationBaselines,
     getNotificationCheckedAt,
     setChecked,
   } from "@app/util/notifications"
@@ -91,7 +91,7 @@
       checked: $checked,
       path: roomPath,
       currentPubkey: $pubkey || undefined,
-      communityBaselines: $communityNotificationBaselines,
+      communityBaselines: $effectiveCommunityNotificationBaselines,
     }),
   )
 

@@ -69,7 +69,7 @@
   import {getPeopleSearchTextScore} from "@app/util/people-search"
   import {
     checked,
-    communityNotificationBaselines,
+    effectiveCommunityNotificationBaselines,
     getNotificationCheckedAt,
     setChecked,
   } from "@app/util/notifications"
@@ -255,7 +255,7 @@
       checked: $checked,
       path: accessPath || $page.url.pathname,
       currentPubkey: $pubkey || undefined,
-      communityBaselines: $communityNotificationBaselines,
+      communityBaselines: $effectiveCommunityNotificationBaselines,
     }),
   )
   const getModeratorRequestKey = ({

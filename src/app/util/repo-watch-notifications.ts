@@ -45,7 +45,7 @@ import {
 } from "@app/core/repo-watch"
 import {
   checked,
-  communityNotificationBaselines,
+  effectiveCommunityNotificationBaselines,
   hasNotificationForPath,
   normalizeChecked,
   setNotificationsConfig,
@@ -843,10 +843,16 @@ const repoWatchNotificationPaths = derived(
     pubkey,
     checked,
     repoWatchNotificationSeen,
-    communityNotificationBaselines,
+    effectiveCommunityNotificationBaselines,
     repoWatchNotificationCandidates,
   ],
-  ([$pubkey, $checked, $notificationSeen, $communityNotificationBaselines, $candidates]) => {
+  ([
+    $pubkey,
+    $checked,
+    $notificationSeen,
+    $effectiveCommunityNotificationBaselines,
+    $candidates,
+  ]) => {
     const paths = new Set<string>()
     const mergedChecked = mergeCheckedState($checked, $notificationSeen)
 
@@ -857,7 +863,7 @@ const repoWatchNotificationPaths = derived(
           latestEvent: candidate.latestEvent,
           currentPubkey: $pubkey || undefined,
           checked: mergedChecked,
-          communityBaselines: $communityNotificationBaselines,
+          communityBaselines: $effectiveCommunityNotificationBaselines,
         })
       ) {
         paths.add(candidate.path)

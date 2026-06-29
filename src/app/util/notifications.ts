@@ -50,6 +50,8 @@ export const communityNotificationBaselines = synced<Record<string, number>>({
   storage: kv,
 })
 
+const optimisticCommunityNotificationBaselines = writable<Record<string, number>>({})
+
 export const deriveChecked = (key: string) => derived(checked, prop(key))
 
 export const setChecked = (key: string) => checked.update(state => ({...state, [key]: now()}))
@@ -111,6 +113,48 @@ const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
 export const normalizeChecked = (value: number) =>
   value > 10_000_000_000 ? Math.round(value / 1000) : value
 
+export const mergeCommunityNotificationBaselines = (
+  ...states: Record<string, number>[]
+): Record<string, number> => {
+  const merged: Record<string, number> = {}
+
+  for (const state of states) {
+    for (const [key, timestamp] of Object.entries(state)) {
+      const normalized = normalizeChecked(Number(timestamp || 0))
+      if (!key || normalized <= 0) continue
+
+      merged[key] = Math.max(merged[key] || 0, normalized)
+    }
+  }
+
+  return merged
+}
+
+export const effectiveCommunityNotificationBaselines = derived(
+  [communityNotificationBaselines, optimisticCommunityNotificationBaselines],
+  ([$communityNotificationBaselines, $optimisticCommunityNotificationBaselines]) =>
+    mergeCommunityNotificationBaselines(
+      $communityNotificationBaselines,
+      $optimisticCommunityNotificationBaselines,
+    ),
+)
+
+const persistedNotificationStateReady = readable(false, set => {
+  let active = true
+  const markReady = () => {
+    if (active) set(true)
+  }
+
+  Promise.all([checked.ready, communityNotificationBaselines.ready]).then(markReady, error => {
+    console.warn("[notifications] Failed to hydrate notification state", error)
+    markReady()
+  })
+
+  return () => {
+    active = false
+  }
+})
+
 type CommunityNotificationBaselineOptions = {
   viewerPubkey?: string
   communityPubkey?: string
@@ -147,16 +191,27 @@ export const ensureCommunityNotificationBaseline = ({
   timestamp = now(),
 }: CommunityNotificationBaselineOptions) => {
   const key = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
-  if (!key) return false
+  const normalizedTimestamp = normalizeChecked(timestamp)
+  if (!key || normalizedTimestamp <= 0) return false
 
   let added = false
 
-  communityNotificationBaselines.update(state => {
-    if (Object.prototype.hasOwnProperty.call(state, key)) return state
+  optimisticCommunityNotificationBaselines.update(state => {
+    if (normalizeChecked(Number(state[key] || 0)) >= normalizedTimestamp) return state
 
     added = true
-    return {...state, [key]: timestamp}
+    return {...state, [key]: normalizedTimestamp}
   })
+
+  const persist = () => {
+    communityNotificationBaselines.update(state => {
+      if (normalizeChecked(Number(state[key] || 0)) >= normalizedTimestamp) return state
+
+      return {...state, [key]: normalizedTimestamp}
+    })
+  }
+
+  void communityNotificationBaselines.ready.then(persist, persist)
 
   return added
 }
@@ -700,7 +755,8 @@ export const notifications = derived(
       [
         pubkey,
         checked,
-        communityNotificationBaselines,
+        persistedNotificationStateReady,
+        effectiveCommunityNotificationBaselines,
         chatsById,
         notificationsConfig,
         extraCandidates,
@@ -711,18 +767,21 @@ export const notifications = derived(
   ([
     $pubkey,
     $checked,
-    $communityNotificationBaselines,
+    $persistedNotificationStateReady,
+    $effectiveCommunityNotificationBaselines,
     $chatsById,
     $notificationsConfig,
     $extraCandidates,
   ]) => {
+    if (!$persistedNotificationStateReady) return new Set<string>()
+
     const hasNotification = (path: string, latestEvent: TrustedEvent | undefined) => {
       return hasNotificationForPath({
         path,
         latestEvent,
         currentPubkey: $pubkey,
         checked: $checked,
-        communityBaselines: $communityNotificationBaselines,
+        communityBaselines: $effectiveCommunityNotificationBaselines,
       })
     }
 

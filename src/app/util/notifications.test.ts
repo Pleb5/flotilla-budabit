@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import {readable} from "svelte/store"
+import {get, readable} from "svelte/store"
 import {nip19} from "nostr-tools"
 import {describe, expect, it, vi} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
@@ -399,6 +399,25 @@ describe("notifications", () => {
         communityBaselines,
       }),
     ).toBe(true)
+  })
+
+  it("applies community first-encounter baselines optimistically", async () => {
+    const {
+      effectiveCommunityNotificationBaselines,
+      ensureCommunityNotificationBaseline,
+      getCommunityNotificationBaselineKey,
+    } = await import("./notifications")
+    const viewerPubkey = "f".repeat(64)
+    const communityPubkey = "1".repeat(64)
+    const baselineKey = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
+
+    ensureCommunityNotificationBaseline({
+      viewerPubkey,
+      communityPubkey,
+      timestamp: 123,
+    })
+
+    expect(get(effectiveCommunityNotificationBaselines)[baselineKey]).toBe(123)
   })
 
   it("does not apply community baselines to non-community paths", async () => {

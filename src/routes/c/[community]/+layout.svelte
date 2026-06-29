@@ -189,7 +189,7 @@
     load()
   })
 
-  $effect(() => {
+  $effect.pre(() => {
     ensureCommunityNotificationBaseline({
       viewerPubkey: $pubkey || undefined,
       communityPubkey: parsedCommunity?.pubkey,
