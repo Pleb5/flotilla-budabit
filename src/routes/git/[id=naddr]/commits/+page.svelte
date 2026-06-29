@@ -63,7 +63,7 @@
   let initialLoadComplete = $state(false)
 
   // Track if we're currently loading more commits
-  let isLoadingMore = $state(true)
+  let isLoadingMore = $state(false)
 
   // Debounce timer for commit loading effect
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
@@ -242,17 +242,17 @@
       commitsLoading = true
     }
 
-    // Ensure repo is ready before attempting operations
-    // This handles cases where loadCommits is called directly (e.g., pagination, retry)
-    if (!repoClass.isInitialized) {
-      await repoClass.waitForReady()
-    }
-
-    if (!repoClass.repoEvent || !repoClass.repoId) {
-      return
-    }
-
     try {
+      // Ensure repo is ready before attempting operations
+      // This handles cases where loadCommits is called directly (e.g., pagination, retry)
+      if (!repoClass.isInitialized) {
+        await repoClass.waitForReady()
+      }
+
+      if (!repoClass.repoEvent || !repoClass.repoId) {
+        return
+      }
+
       const result = await repoClass.loadPage(currentPage)
 
       // Check if the result indicates an error
@@ -294,10 +294,14 @@
 
   // Handle loading more commits (next page)
   async function loadMore() {
-    if (hasMoreCommits && !commitsLoading && !isLoadingMore) {
-      isLoadingMore = true
-      currentPage++
+    if (!hasMoreCommits || commitsLoading || isLoadingMore) return
+
+    isLoadingMore = true
+    currentPage++
+
+    try {
       await loadCommits()
+    } finally {
       isLoadingMore = false
     }
   }
@@ -486,17 +490,17 @@
                     loadCommits()
                   }
                 }}
-                disabled={currentPage <= 1 || commitsLoading}
+                disabled={currentPage <= 1 || commitsLoading || isLoadingMore}
                 class="focus:z-10 inline-flex items-center rounded-l-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
                 Previous
               </button>
 
               <button
                 onclick={loadMore}
-                disabled={!hasMoreCommits || commitsLoading}
+                disabled={!hasMoreCommits || commitsLoading || isLoadingMore}
                 class="focus:z-10 inline-flex items-center rounded-r-md border border-l-0 border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
-                {#if commitsLoading}
-                  <Spinner loading={commitsLoading}>Loading...</Spinner>
+                {#if commitsLoading || isLoadingMore}
+                  <Spinner loading={commitsLoading || isLoadingMore}>Loading...</Spinner>
                 {:else}
                   Next
                 {/if}
