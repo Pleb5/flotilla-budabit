@@ -60,6 +60,8 @@
     {label: "Events-and-goals", detail: "Calendar events and fundraiser goals together"},
     {label: "Code-and-widget-curator", detail: "Repo, permalink, and widget curation together"},
   ]
+
+  let {showStartCommunityCta = false}: {showStartCommunityCta?: boolean} = $props()
 </script>
 
 <svelte:head>
@@ -451,5 +453,11 @@
         enables fully portable and permissionless collaboration over open protocols.
       </p>
     </section>
+
+    {#if showStartCommunityCta}
+      <div class="flex justify-center pt-2">
+        <a class="btn btn-primary btn-lg" href="/explore/create-community">Start My Community</a>
+      </div>
+    {/if}
   </main>
 </Page>

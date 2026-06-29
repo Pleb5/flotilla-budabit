@@ -23,6 +23,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Tooltip from "@lib/components/Tooltip.svelte"
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import Profile from "@app/components/Profile.svelte"
   import CommunityBootstrapPeopleEditor from "@app/components/community/CommunityBootstrapPeopleEditor.svelte"
   import CommunitySectionChangeWarning from "@app/components/community/CommunitySectionChangeWarning.svelte"
@@ -2140,6 +2141,7 @@
   const title = $derived(isEdit ? "Edit community settings." : "Create a BudaBit community.")
   const eyebrow = $derived(isEdit ? "Community Admin" : "Community Setup")
   const activeCommunityPubkey = $derived(definition?.pubkey || $pubkey || "")
+  const login = () => pushModal(LogIn)
   const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
   const activeCommunityRelays = $derived.by(() =>
     normalizeRelays([primaryRelay, ...splitLines(extraRelays)]),
@@ -2367,9 +2369,17 @@
                   type="text" />{/snippet}
             </Field>
             <div class="rounded-xl border border-base-300 bg-base-200 p-3 text-sm">
-              <strong>Community pubkey</strong>
-              <code class="mt-2 block break-all text-xs opacity-75"
-                >{activeCommunityPubkey || "Not logged in"}</code>
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <strong>Community pubkey</strong>
+                  <code class="mt-2 block break-all text-xs opacity-75">
+                    {activeCommunityPubkey || "Not logged in"}
+                  </code>
+                </div>
+                {#if !activeCommunityPubkey}
+                  <Button class="btn btn-primary btn-sm shrink-0" onclick={login}>Login</Button>
+                {/if}
+              </div>
             </div>
             <div class="md:col-span-2">
               <Field>
