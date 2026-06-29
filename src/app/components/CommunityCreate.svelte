@@ -43,7 +43,7 @@
     setActiveCommunityInput,
     type CommunityProfile,
   } from "@app/core/community-state"
-  import {makeCommunityPath} from "@app/util/routes"
+  import {COMMUNITY_EXPLAINER_PATH, makeCommunityPath} from "@app/util/routes"
   import {
     DEFAULT_COMMUNITY_SECTION_NAMES,
     FORM_RESPONSE_KIND,
@@ -2299,6 +2299,16 @@
               Publish the community definition. Your logged-in account becomes the community.
             {/if}
           </p>
+          <div class="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <a
+              class="btn btn-outline btn-primary w-full sm:w-auto"
+              href={COMMUNITY_EXPLAINER_PATH}
+              target="_blank"
+              rel="noopener noreferrer">
+              How communities work
+            </a>
+            <span class="self-center text-xs opacity-60">Opens in a new tab</span>
+          </div>
         </div>
         <div
           class="min-w-0 rounded-2xl border border-warning/35 bg-warning/15 p-4 text-sm leading-relaxed text-base-content shadow-sm shadow-warning/5">

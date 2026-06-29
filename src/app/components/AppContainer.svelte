@@ -25,6 +25,9 @@
       pathname === "/" ||
       pathname === "/home" ||
       pathname === "/trust-model" ||
+      pathname === "/community-guide" ||
+      pathname === "/communities" ||
+      pathname.startsWith("/communities/") ||
       pathname === "/explore" ||
       pathname.startsWith("/explore/") ||
       pathname === "/people" ||

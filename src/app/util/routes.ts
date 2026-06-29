@@ -27,6 +27,8 @@ import {
 import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
 import {getEventRelayHints, makeEventNevent} from "@app/util/event-links"
 
+export const COMMUNITY_EXPLAINER_PATH = "/community-guide"
+
 export const parseCommunityRouteParam = (community: string | undefined) => {
   if (!community) return undefined
 
