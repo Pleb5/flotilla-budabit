@@ -6,10 +6,7 @@
   import {request} from "@welshman/net"
   import {deriveEventsDesc, deriveEventsById} from "@welshman/store"
   import {DELETE, type Filter, type TrustedEvent} from "@welshman/util"
-  import {
-    defaultExtensionWidgets,
-    effectiveExtensionSettings,
-  } from "@app/extensions/settings"
+  import {defaultExtensionWidgets, effectiveExtensionSettings} from "@app/extensions/settings"
   import ExtensionCard from "@app/components/ExtensionCard.svelte"
   import {
     enableExtension,
@@ -169,8 +166,11 @@
   const widgetUpdateCheckingCount = $derived(
     Object.values(checkingWidgetUpdates).filter(Boolean).length,
   )
-  const trustedWidgetsToInstall = $derived(
+  const trustedWidgetsToEnable = $derived(
     trustedCuratedWidgets.filter(widget => !enabledIds.includes(getWidgetLineId(widget))),
+  )
+  const trustedWidgetsToInstall = $derived(
+    trustedCuratedWidgets.filter(widget => !installedWidgetIds.has(getWidgetLineId(widget))),
   )
   const requestedCommunityPubkey = $derived(
     normalizePubkey($page.url.searchParams.get("community") || ""),
@@ -648,23 +648,42 @@
   }
 
   const onInstallTrustedWidgets = async () => {
-    if (trustedInstallInProgress || trustedWidgetsToInstall.length === 0) return
+    if (trustedInstallInProgress || trustedWidgetsToEnable.length === 0) return
 
-    const widgets = trustedWidgetsToInstall
+    const widgets = trustedWidgetsToEnable
+    const installedIds = new Set(installedWidgetIds)
+    let installedCount = 0
     trustedInstallInProgress = true
     try {
       for (const widget of widgets) {
-        const installedWidget = installWidgetFromEvent(widget as any, {
-          relays: getWidgetInstallSourceRelays(widget),
-        })
-        await enableExtension(getWidgetLineId(installedWidget))
+        const widgetId = getWidgetLineId(widget)
+
+        if (!installedIds.has(widgetId)) {
+          const installedWidget = installWidgetFromEvent(widget as any, {
+            relays: getWidgetInstallSourceRelays(widget),
+          })
+          const installedWidgetId = getWidgetLineId(installedWidget)
+          installedIds.add(installedWidgetId)
+          installedCount += 1
+          await enableExtension(installedWidgetId)
+        } else {
+          await enableExtension(widgetId)
+        }
       }
 
       clearCommunityWidgetSlotCache()
 
+      const widgetLabel = `trusted widget${widgets.length === 1 ? "" : "s"}`
+      const message =
+        installedCount === widgets.length
+          ? `Installed and enabled ${widgets.length} ${widgetLabel}`
+          : installedCount > 0
+            ? `Installed missing widgets and enabled ${widgets.length} ${widgetLabel}`
+            : `Enabled ${widgets.length} ${widgetLabel}`
+
       pushToast({
         theme: "success",
-        message: `Installed and enabled ${widgets.length} trusted widget${widgets.length === 1 ? "" : "s"}`,
+        message,
       })
     } catch (e: any) {
       pushToast({theme: "error", message: e?.message || "Failed to install trusted widgets."})
@@ -881,14 +900,16 @@
           </div>
           <Button
             class="btn btn-primary btn-sm"
-            disabled={trustedWidgetsToInstall.length === 0 || trustedInstallInProgress}
+            disabled={trustedWidgetsToEnable.length === 0 || trustedInstallInProgress}
             onclick={onInstallTrustedWidgets}>
             {#if trustedInstallInProgress}
               Installing...
+            {:else if trustedWidgetsToEnable.length === 0}
+              All trusted enabled
             {:else if trustedWidgetsToInstall.length === 0}
-              All trusted installed
+              Enable all trusted
             {:else}
-              Install all trusted
+              Install and enable all trusted
             {/if}
           </Button>
         </div>
@@ -922,9 +943,7 @@
       <strong class="text-lg">Advanced</strong>
     {/snippet}
     {#snippet description()}
-      <p class="text-sm opacity-70">
-        Manual install options for Smart Widget naddr values.
-      </p>
+      <p class="text-sm opacity-70">Manual install options for Smart Widget naddr values.</p>
     {/snippet}
 
     <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
