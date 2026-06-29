@@ -1,6 +1,7 @@
 <script lang="ts">
   import {nsecEncode} from "nostr-tools/nip19"
   import {encrypt} from "nostr-tools/nip49"
+  import {loginWithNip01} from "@welshman/app"
   import {hexToBytes} from "@welshman/lib"
   import {makeSecret} from "@welshman/util"
   import type {Profile} from "@welshman/util"
@@ -9,15 +10,20 @@
   import ArrowDown from "@assets/icons/arrow-down.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
+  import Eye from "@assets/icons/eye.svg?dataurl"
+  import EyeClosed from "@assets/icons/eye-closed.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Field from "@lib/components/Field.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import SignUpComplete from "@app/components/SignUpComplete.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
   import {cleanupBackupCopy} from "@app/util/secret-file"
+  import {validateNewPassphrase} from "@app/util/passphrase"
+  import {PROFILE_PUBLISH_RETRY_MESSAGE, updateProfile} from "@app/core/commands"
 
   type Props = {
     profile: Profile
@@ -43,17 +49,19 @@
     `
 
     if (usePassword) {
-      if (password.length < 12) {
+      const passphraseError = validateNewPassphrase(passphrase, passphraseConfirm)
+
+      if (passphraseError) {
         return pushToast({
           theme: "error",
-          message: "Your password must be at least 12 characters long.",
+          message: passphraseError,
         })
       }
 
-      const ncryptsec = encrypt(hexToBytes(secret), password)
+      const ncryptsec = encrypt(hexToBytes(secret), passphrase)
       const instructions = `
       This file contains a backup of your Nostr secret key, encrypted using
-      a password you chose when you signed up.
+      a passphrase you chose when you signed up.
 
       ${sharedCopy}
 
@@ -87,8 +95,24 @@
     didDownload = true
   }
 
-  const next = () => {
-    pushModal(SignUpComplete, {profile, secret})
+  const publishProfile = async () => {
+    if (publishing || !didDownload) return
+
+    publishing = true
+    loginWithNip01(secret)
+
+    try {
+      await updateProfile({profile})
+      pushToast({theme: "success", message: "Profile published."})
+      pushModal(SignUpComplete)
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: `${error instanceof Error ? error.message : "Profile publish failed."} ${PROFILE_PUBLISH_RETRY_MESSAGE}`,
+      })
+    } finally {
+      publishing = false
+    }
   }
 
   const onPasswordChange = () => {
@@ -100,12 +124,16 @@
     didDownload = false
   }
 
-  let password = $state("")
+  let passphrase = $state("")
+  let passphraseConfirm = $state("")
+  let showPassphrase = $state(false)
+  let showPassphraseConfirm = $state(false)
   let usePassword = $state(false)
   let didDownload = $state(false)
+  let publishing = $state(false)
 </script>
 
-<form class="column gap-4" onsubmit={preventDefault(next)}>
+<form class="column gap-4" onsubmit={preventDefault(publishProfile)}>
   <ModalHeader>
     {#snippet title()}
       <div>Your Keys are Ready!</div>
@@ -122,16 +150,51 @@
   {#if usePassword}
     <Field>
       {#snippet label()}
-        Password*
+        Encryption passphrase*
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
           <Icon icon={Key} />
-          <input bind:value={password} onchange={onPasswordChange} class="grow" type="password" />
+          <input
+            bind:value={passphrase}
+            oninput={onPasswordChange}
+            class="grow"
+            type={showPassphrase ? "text" : "password"}
+            autocomplete="new-password" />
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-xs"
+            aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+            onclick={() => (showPassphrase = !showPassphrase)}>
+            <Icon icon={showPassphrase ? EyeClosed : Eye} />
+          </button>
         </label>
       {/snippet}
       {#snippet info()}
-        <p>Passwords should be at least 12 characters long. Write this down!</p>
+        <p>Use at least 12 characters. This passphrase is not recoverable.</p>
+      {/snippet}
+    </Field>
+    <Field>
+      {#snippet label()}
+        Confirm passphrase*
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={Key} />
+          <input
+            bind:value={passphraseConfirm}
+            oninput={onPasswordChange}
+            class="grow"
+            type={showPassphraseConfirm ? "text" : "password"}
+            autocomplete="new-password" />
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-xs"
+            aria-label={showPassphraseConfirm ? "Hide passphrase" : "Show passphrase"}
+            onclick={() => (showPassphraseConfirm = !showPassphraseConfirm)}>
+            <Icon icon={showPassphraseConfirm ? EyeClosed : Eye} />
+          </button>
+        </label>
       {/snippet}
     </Field>
   {/if}
@@ -153,8 +216,8 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button disabled={!didDownload} class="btn btn-primary" type="submit">
-      Continue
+    <Button disabled={!didDownload || publishing} class="btn btn-primary" type="submit">
+      <Spinner loading={publishing}>Publish Profile</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>

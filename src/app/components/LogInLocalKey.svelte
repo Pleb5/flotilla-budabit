@@ -26,6 +26,7 @@
   import {clearModals} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
+  import {validateNewPassphrase} from "@app/util/passphrase"
 
   const back = () => history.back()
 
@@ -39,16 +40,10 @@
     if (!key) return
 
     if (encryptAtRest) {
-      if (passphrase.length < 12) {
-        pushToast({
-          theme: "error",
-          message: "Use an encryption passphrase of at least 12 characters.",
-        })
-        return
-      }
+      const passphraseError = validateNewPassphrase(passphrase, passphraseConfirm)
 
-      if (passphrase !== passphraseConfirm) {
-        pushToast({theme: "error", message: "Encryption passphrases do not match."})
+      if (passphraseError) {
+        pushToast({theme: "error", message: passphraseError})
         return
       }
     }

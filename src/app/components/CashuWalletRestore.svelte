@@ -26,6 +26,7 @@
     SECRET_FILE_MAX_BYTES,
     isSupportedSecretFile,
   } from "@app/util/secret-file"
+  import {validateNewPassphrase} from "@app/util/passphrase"
   import {downloadText} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
   import CashuRecoveryLoader from "@app/components/CashuRecoveryLoader.svelte"
@@ -107,12 +108,6 @@
       .filter(recommendation => !saved.has(recommendation.mintUrl))
       .slice(0, 6)
   })
-
-  const validateNewPassphrase = (passphrase: string, confirm: string) => {
-    if (passphrase.length < 12) return "Use an encryption passphrase of at least 12 characters."
-    if (passphrase !== confirm) return "Encryption passphrases do not match."
-    return ""
-  }
 
   const showError = (message: string) => {
     error = message

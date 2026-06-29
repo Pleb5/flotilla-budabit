@@ -13,6 +13,7 @@
     type CashuBackupData,
   } from "@app/util/cashu-backup"
   import {downloadText} from "@lib/html"
+  import {validateNewPassphrase} from "@app/util/passphrase"
   import CashuMintManager from "@app/components/CashuMintManager.svelte"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -64,12 +65,6 @@
   const backupData = $derived<CashuBackupData>({mnemonic, mints})
   const backupKey = $derived(JSON.stringify(backupData))
   const hasDownloadedCurrentBackup = $derived(Boolean(backupKey && backupDownloadKey === backupKey))
-
-  const validateNewPassphrase = (passphrase: string, confirm: string) => {
-    if (passphrase.length < 12) return "Use an encryption passphrase of at least 12 characters."
-    if (passphrase !== confirm) return "Encryption passphrases do not match."
-    return ""
-  }
 
   const downloadBackup = async () => {
     if (!mnemonic || mints.length === 0) return
