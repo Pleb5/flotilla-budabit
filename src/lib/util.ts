@@ -1,4 +1,5 @@
 import * as nip19 from "nostr-tools/nip19"
+import {decrypt as decryptNcryptsec} from "nostr-tools/nip49"
 import {range, DAY, hexToBytes, bytesToHex} from "@welshman/lib"
 
 export const nsecEncode = (secret: string) => nip19.nsecEncode(hexToBytes(secret))
@@ -11,8 +12,12 @@ export const nsecDecode = (nsec: string) => {
   return bytesToHex(data)
 }
 
+export const ncryptsecDecode = (ncryptsec: string, password: string) =>
+  bytesToHex(decryptNcryptsec(ncryptsec, password))
+
 export type NsecTextParseResult = {
   nsecs: string[]
+  ncryptsecs: string[]
   hasInvalidNsec: boolean
   hasEncryptedNsec: boolean
 }
@@ -30,6 +35,7 @@ const normalizeBech32Candidate = (candidate: string) => {
 
 export const parseNsecsFromText = (text: string): NsecTextParseResult => {
   const nsecs = new Set<string>()
+  const ncryptsecs = new Set<string>()
   let hasInvalidNsec = false
   let hasEncryptedNsec = false
 
@@ -46,6 +52,7 @@ export const parseNsecsFromText = (text: string): NsecTextParseResult => {
 
     if (normalized.startsWith("ncryptsec1")) {
       hasEncryptedNsec = true
+      ncryptsecs.add(normalized)
       continue
     }
 
@@ -57,7 +64,7 @@ export const parseNsecsFromText = (text: string): NsecTextParseResult => {
     }
   }
 
-  return {nsecs: [...nsecs], hasInvalidNsec, hasEncryptedNsec}
+  return {nsecs: [...nsecs], ncryptsecs: [...ncryptsecs], hasInvalidNsec, hasEncryptedNsec}
 }
 
 export const day = (seconds: number) => Math.floor(seconds / DAY)

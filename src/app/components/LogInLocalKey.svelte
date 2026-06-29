@@ -3,7 +3,7 @@
   import {hexToBytes} from "@welshman/lib"
   import {encrypt} from "nostr-tools/nip49"
   import {preventDefault} from "@lib/html"
-  import {nsecDecode, parseNsecsFromText} from "@lib/util"
+  import {ncryptsecDecode, nsecDecode, parseNsecsFromText} from "@lib/util"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
@@ -30,7 +30,7 @@
 
   const back = () => history.back()
 
-  const loginWithNsec = async (
+  const loginWithLocalKey = async (
     value: string,
     invalidMessage = "Enter a valid nsec private key.",
   ) => {
@@ -38,6 +38,13 @@
 
     const key = value.trim()
     if (!key) return
+
+    const encryptedKey = key.toLowerCase().startsWith("ncryptsec1")
+
+    if (encryptedKey && !encryptedKeyPassphrase) {
+      pushToast({theme: "error", message: "Enter the encrypted key passphrase."})
+      return
+    }
 
     if (encryptAtRest) {
       const passphraseError = validateNewPassphrase(passphrase, passphraseConfirm)
@@ -52,7 +59,7 @@
     loading = true
 
     try {
-      const secret = nsecDecode(key)
+      const secret = encryptedKey ? ncryptsecDecode(key, encryptedKeyPassphrase) : nsecDecode(key)
       const session = makeNip01Session(secret)
       const encryptedSession = encryptAtRest
         ? {
@@ -69,13 +76,23 @@
       setChecked("*")
       clearModals()
     } catch {
-      pushToast({theme: "error", message: invalidMessage})
+      pushToast({
+        theme: "error",
+        message: encryptedKey
+          ? "Could not decrypt encrypted key. Check the passphrase."
+          : invalidMessage,
+      })
     } finally {
       loading = false
     }
   }
 
-  const submit = async () => loginWithNsec(nsec)
+  const submit = async () => loginWithLocalKey(nsec)
+
+  const onPrivateKeyInput = () => {
+    fileError = ""
+    selectedFileName = ""
+  }
 
   const showFileError = (message: string) => {
     fileError = message
@@ -109,19 +126,24 @@
 
     const result = parseNsecsFromText(text)
 
+    const secretKeyCount = result.nsecs.length + result.ncryptsecs.length
+
+    if (secretKeyCount > 1) {
+      showFileError(
+        "The selected file contains multiple private keys. Paste the key you want to use.",
+      )
+      return
+    }
+
     if (result.nsecs.length === 1) {
       nsec = result.nsecs[0]
-      await loginWithNsec(result.nsecs[0], "The selected file does not contain a valid nsec.")
+      await loginWithLocalKey(result.nsecs[0], "The selected file does not contain a valid nsec.")
       return
     }
 
-    if (result.nsecs.length > 1) {
-      showFileError("The selected file contains multiple nsecs. Paste the key you want to use.")
-      return
-    }
-
-    if (result.hasEncryptedNsec) {
-      showFileError("Encrypted ncryptsec key files need a password and are not supported here yet.")
+    if (result.ncryptsecs.length === 1) {
+      nsec = result.ncryptsecs[0]
+      encryptedKeyPassphrase = ""
       return
     }
 
@@ -192,6 +214,8 @@
   }
 
   let nsec = $state("")
+  let encryptedKeyPassphrase = $state("")
+  let showEncryptedKeyPassphrase = $state(false)
   let encryptAtRest = $state(false)
   let passphrase = $state("")
   let passphraseConfirm = $state("")
@@ -201,6 +225,8 @@
   let fileError = $state("")
   let dragActive = $state(false)
   let selectedFileName = $state("")
+  const keyInput = $derived(nsec.trim())
+  const keyInputIsEncrypted = $derived(keyInput.toLowerCase().startsWith("ncryptsec1"))
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(submit)}>
@@ -233,19 +259,49 @@
         <Icon icon={Key} />
         <input
           bind:value={nsec}
-          oninput={() => (fileError = "")}
+          oninput={onPrivateKeyInput}
           disabled={loading}
           type="password"
           class="grow"
           autocomplete="off"
           spellcheck="false"
-          placeholder="nsec1..." />
+          placeholder="nsec1... or ncryptsec1..." />
       </label>
     {/snippet}
     {#snippet info()}
-      <p>The key is stored on this device so this account stays logged in after reloads.</p>
+      <p>Paste an nsec key or an encrypted ncryptsec key.</p>
     {/snippet}
   </Field>
+
+  {#if keyInputIsEncrypted}
+    <Field>
+      {#snippet label()}
+        <p>Encrypted key passphrase</p>
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={Key} />
+          <input
+            bind:value={encryptedKeyPassphrase}
+            disabled={loading}
+            type={showEncryptedKeyPassphrase ? "text" : "password"}
+            class="grow"
+            autocomplete="current-password" />
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-xs"
+            disabled={loading}
+            aria-label={showEncryptedKeyPassphrase ? "Hide passphrase" : "Show passphrase"}
+            onclick={() => (showEncryptedKeyPassphrase = !showEncryptedKeyPassphrase)}>
+            <Icon icon={showEncryptedKeyPassphrase ? EyeClosed : Eye} />
+          </button>
+        </label>
+      {/snippet}
+      {#snippet info()}
+        <p>Enter the passphrase used when the encrypted key file was created.</p>
+      {/snippet}
+    </Field>
+  {/if}
 
   <label
     class="flex cursor-pointer gap-3 rounded-box border border-base-content/10 bg-base-200/50 p-3 text-sm"
@@ -288,7 +344,7 @@
         </label>
       {/snippet}
       {#snippet info()}
-        <p>Use at least 12 characters. This passphrase is not recoverable.</p>
+        <p>Use at least 12 characters. This stores the decrypted key encrypted on this device.</p>
       {/snippet}
     </Field>
     <Field>
@@ -346,7 +402,8 @@
           {selectedFileName || "Choose a key file or drop it here"}
         </div>
         <p class="text-xs opacity-60">
-          Text files only. If one valid nsec is found, log in starts automatically.
+          Text files only. Plain nsec files log in automatically; encrypted ncryptsec files ask for
+          a passphrase.
         </p>
       </label>
     {/snippet}
@@ -363,7 +420,10 @@
     <Button
       type="submit"
       class="btn btn-primary"
-      disabled={loading || !nsec.trim() || (encryptAtRest && (!passphrase || !passphraseConfirm))}>
+      disabled={loading ||
+        !keyInput ||
+        (keyInputIsEncrypted && !encryptedKeyPassphrase) ||
+        (encryptAtRest && (!passphrase || !passphraseConfirm))}>
       <Spinner {loading}>Log in</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>
