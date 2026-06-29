@@ -28,6 +28,7 @@ import type {
   CommunityWidgetContext,
   CommunityWidgetRuntimeContext,
   LoadedExtension,
+  WidgetResizeRequest,
 } from "./types"
 import {getRepoAddress} from "./types"
 
@@ -237,6 +238,36 @@ const parseNostrPublishPayload = (payload: any): {event: any; relays?: string[]}
   }
 
   return {event: payload}
+}
+
+const normalizeUiResizePayload = (payload: unknown): WidgetResizeRequest => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid resize payload: expected object")
+  }
+
+  const resize: WidgetResizeRequest = {}
+  const height = (payload as any).height
+  const width = (payload as any).width
+
+  if (height !== undefined) {
+    if (typeof height !== "number" || !Number.isFinite(height) || height <= 0) {
+      throw new Error("Invalid resize height: expected positive finite number")
+    }
+    resize.height = height
+  }
+
+  if (width !== undefined) {
+    if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) {
+      throw new Error("Invalid resize width: expected positive finite number")
+    }
+    resize.width = width
+  }
+
+  if (resize.height === undefined && resize.width === undefined) {
+    throw new Error("Invalid resize payload: expected positive finite height or width")
+  }
+
+  return resize
 }
 
 const getActiveRepo = () => {
@@ -1096,6 +1127,18 @@ registerBridgeHandler("ui:navigate", async (payload, ext) => {
   } catch (err: any) {
     console.error("Error in ui:navigate bridge handler:", err)
     return {error: err.message || "Navigation failed"}
+  }
+})
+
+registerBridgeHandler("ui:resize", (payload, ext) => {
+  if (ext) console.log(`[bridge] ui:resize from ${ext.id}`, payload)
+  try {
+    const resize = normalizeUiResizePayload(payload)
+    if (ext.type === "widget") ext.onResizeRequest?.(resize)
+    return {status: "ok"}
+  } catch (err: any) {
+    console.error("Error in ui:resize bridge handler:", err)
+    return {error: err.message}
   }
 })
 

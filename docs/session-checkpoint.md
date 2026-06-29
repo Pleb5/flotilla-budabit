@@ -13,18 +13,14 @@
 
 ## Current Phase
 
-- Phase 2: Add Host Resize Bridge Support
+- Complete
 
 ## Phase Exit Criteria
 
-- `bridge.ts` registers a `ui:resize` handler that validates positive finite dimensions and forwards them to the loaded widget extension runtime.
-- `LoadedWidgetExtension` can carry an internal resize callback without exposing it to widget payloads.
-- `WidgetFrame.svelte` applies a bounded requested height to its wrapper when a widget requests resize.
-- Settings preview modal body can host-scroll when a resize-aware widget grows taller than the available modal body.
-- Existing non-resize-aware widgets continue to preview with the fallback frame size.
-- Focused bridge tests cover `ui:resize` callback behavior.
-- Focused tests and `pnpm check` pass.
-- Checkpoint records `Current Phase: Complete` and final closeout is committed and pushed.
+- Settings widget preview modal layout is host-side stabilized.
+- Host `ui:resize` bridge support is implemented and verified.
+- Checkpoint records completion.
+- Final closeout commit is pushed before final response.
 
 ## Completed With Evidence
 
@@ -34,6 +30,14 @@
 - Phase 1 updated `ExtensionCard.svelte` so the settings widget modal body uses a dark padded widget surface (`bg-base-300 p-4`), includes `min-h-0`, and no longer forces `WidgetFrame` to `minHeight={500}`.
 - Phase 1 kept the fix host-side and did not add calendar-widget-specific scrollbar styling.
 - Phase 1 verification passed: `pnpm check`.
+- Phase 1 was committed and pushed as `8296f825 fix: stabilize settings widget preview modal`.
+- Phase 2 added a widget-only `onResizeRequest` callback to `LoadedWidgetExtension`.
+- Phase 2 registered `ui:resize` in `bridge.ts`, validating provided positive finite `height` and `width` before forwarding to the widget runtime callback.
+- Phase 2 wired `WidgetFrame.svelte` to reset requested height on iframe load and apply a bounded requested wrapper height with a 2400px maximum.
+- Phase 2 changed the settings preview modal body to `overflow-auto` so resize-aware widgets can grow and host-scroll inside the modal.
+- Phase 2 focused bridge tests cover successful resize callback forwarding and invalid resize dimensions.
+- Phase 2 verification passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
+- Phase 2 verification passed: `pnpm check`.
 
 ## Decisions
 
@@ -46,14 +50,13 @@
 ## Current State
 
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
-- Budabit worktree has unrelated dirty files outside this workflow; only `docs/session-plan.md`, `docs/session-checkpoint.md`, and `src/app/components/ExtensionCard.svelte` are intended for the Phase 1 commit.
-- `ExtensionCard.svelte` contains the verified host modal body layout change for Phase 1.
-- `WidgetFrame.svelte` has no host `ui:resize` callback support yet.
-- `bridge.ts` has no `ui:resize` handler yet.
+- Budabit worktree has unrelated dirty files outside this workflow; they were not staged or modified by this workflow.
+- Phase 2 workflow files are `docs/session-checkpoint.md`, `src/app/components/ExtensionCard.svelte`, `src/app/components/WidgetFrame.svelte`, `src/app/extensions/bridge.ts`, `src/app/extensions/bridge.test.ts`, and `src/app/extensions/types.ts`.
+- `docs/session-plan.md` remains the durable plan document; no Phase 2 plan edit was required.
 
 ## Next Action
 
-- Commit and push Phase 1, reread this checkpoint, then execute Phase 2 by adding host `ui:resize` support.
+- Commit and push this final closeout, reread this checkpoint, then send the final response.
 
 ## Verification
 
@@ -61,11 +64,14 @@
 - Startup inspection ran `git status --short --branch` and `git log --oneline -10`.
 - Relevant files inspected: `ExtensionCard.svelte`, `WidgetFrame.svelte`, `bridge.ts`, SDK `types.ts`, and calendar widget `src/App.svelte`.
 - Phase 1 project check passed: `pnpm check`.
+- Phase 2 focused bridge tests passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
+- Phase 2 project check passed: `pnpm check`.
+- Pre-closeout inspection ran `git status --short --branch`, scoped `git diff`, and `git log --oneline -10`.
 
 ## Risks Or Blockers
 
-- Budabit worktree has many unrelated dirty files; staging must be narrow.
-- Calendar widget repo has unrelated dirty changes; external widget changes are not safe to include without separation.
+- Budabit worktree still has many unrelated dirty files; final staging must remain narrow.
+- Calendar widget repo has unrelated dirty changes; external widget changes were not needed for this host fix.
 - `ui:resize` support needs a widget to emit resize requests before it can eliminate iframe scrollbars for that widget.
 
 ## Files

@@ -7,6 +7,7 @@
     CommunityWidgetRuntimeContext,
     LoadedWidgetExtension,
     SmartWidgetEvent,
+    WidgetResizeRequest,
   } from "@app/extensions/types"
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
@@ -43,6 +44,8 @@
   let themePostFrame: number | undefined
   let bridgeExtension: LoadedWidgetExtension | undefined
   let readyOrigin = ""
+  let requestedHeight: number | undefined = $state()
+  const maxRequestedHeight = 2400
   const widgetLineId = $derived(getWidgetLineId(widget))
   const appTheme = $derived($theme === "dark" ? "dark" : "light")
   const appUrls = $derived(
@@ -101,6 +104,23 @@
   })
 
   const getAppOrigin = () => (appUrl ? new URL(appUrl).origin : "")
+
+  const frameHeight = $derived.by(() => {
+    if (requestedHeight === undefined) return undefined
+
+    return Math.min(maxRequestedHeight, Math.max(minHeight, 1, Math.ceil(requestedHeight)))
+  })
+
+  const frameWrapperStyle = $derived.by(() => {
+    const styles = [`min-height: ${minHeight}px`]
+    if (frameHeight !== undefined) styles.push(`height: ${frameHeight}px`)
+
+    return styles.join("; ")
+  })
+
+  const handleResizeRequest = ({height}: WidgetResizeRequest) => {
+    if (height !== undefined) requestedHeight = height
+  }
 
   type RgbaColor = {r: number; g: number; b: number; a: number}
 
@@ -321,6 +341,7 @@
 
   const onIframeLoad = () => {
     loaded = true
+    requestedHeight = undefined
     initSent = false
     lastCommunityContextKey = ""
     bridge?.detach()
@@ -335,6 +356,7 @@
         iframe: iframeRef,
         communityContext: getCommunityContext(),
         communityRuntimeContext: getCommunityRuntimeContext(),
+        onResizeRequest: handleResizeRequest,
       }
       bridgeExtension = ext
       bridge = new ExtensionBridge(ext)
@@ -427,7 +449,7 @@
 <div
   bind:this={frameWrapperRef}
   class={`relative overflow-hidden bg-transparent ${className}`}
-  style={`min-height: ${minHeight}px`}>
+  style={frameWrapperStyle}>
   {#if !loaded}
     <div class="absolute inset-0 z-10 flex items-center justify-center bg-base-200">
       <span class="loading loading-spinner loading-lg"></span>

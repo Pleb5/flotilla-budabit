@@ -190,6 +190,11 @@ export type RepoContext = {
  */
 export const getRepoAddress = (ctx: RepoContext): string => `30617:${ctx.pubkey}:${ctx.name}`
 
+export type WidgetResizeRequest = {
+  height?: number
+  width?: number
+}
+
 export type LoadedWidgetExtension = {
   type: "widget"
   id: string
@@ -199,6 +204,8 @@ export type LoadedWidgetExtension = {
   bridge?: import("./bridge").ExtensionBridge
   communityContext?: CommunityWidgetContext
   communityRuntimeContext?: CommunityWidgetRuntimeContext
+  /** Internal host callback for SDK ui:resize requests. */
+  onResizeRequest?: (request: WidgetResizeRequest) => void
   /** Repository context when loaded for a specific repository */
   repoContext?: RepoContext
 }

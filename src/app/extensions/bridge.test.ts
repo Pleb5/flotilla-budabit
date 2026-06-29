@@ -320,6 +320,33 @@ describe("ExtensionBridge", () => {
     ).resolves.toEqual({error: "Invalid navigation path"})
   })
 
+  it("forwards ui:resize requests to the widget resize callback", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const onResizeRequest = vi.fn()
+    const extension = makeExtension({onResizeRequest})
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "ui:resize", {height: 640, width: 320}),
+    ).resolves.toEqual({status: "ok"})
+    expect(onResizeRequest).toHaveBeenCalledWith({height: 640, width: 320})
+  })
+
+  it("rejects invalid ui:resize dimensions", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const onResizeRequest = vi.fn()
+    const extension = makeExtension({onResizeRequest})
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "ui:resize", {height: -1}),
+    ).resolves.toEqual({error: "Invalid resize height: expected positive finite number"})
+    await expect(sendBridgeRequest(bridge, extension, "ui:resize", {})).resolves.toEqual({
+      error: "Invalid resize payload: expected positive finite height or width",
+    })
+    expect(onResizeRequest).not.toHaveBeenCalled()
+  })
+
   it("writes storage values to encoded v2 keys and reports decoded keys", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const extension = makeStorageExtension({id: "ext:with/slash"})

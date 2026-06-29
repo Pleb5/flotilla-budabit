@@ -404,7 +404,7 @@
         </div>
         <button class="btn btn-ghost btn-sm" onclick={closeWidget}>✕</button>
       </div>
-      <div class="relative min-h-0 flex-1 overflow-hidden bg-base-300 p-4">
+      <div class="relative min-h-0 flex-1 overflow-auto bg-base-300 p-4">
         <WidgetFrame widget={widget} context={previewWidgetContext} class="h-full" minHeight={0} />
       </div>
     </div>
