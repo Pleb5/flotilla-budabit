@@ -12,15 +12,13 @@
 
 ## Current Phase
 
-- Phase 3: End-to-End Verification And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Targeted core and UI GRASP tests pass after all phases.
-- `git diff --check` passes.
-- Final diff review shows only intentional Budabit files plus session docs.
+- Durable GRASP/NIP-34 state-event cleanup is complete.
+- Phase 1, Phase 2, and final targeted verification passed.
 - No ngit-grasp changes are required for Budabit behavior.
-- Checkpoint records `Current Phase: Complete` and final verification evidence.
 - Final closeout commit is pushed before final response.
 
 ## Completed With Evidence
@@ -53,6 +51,12 @@
   - `git diff --check` passed.
   - `corepack pnpm --filter @nostr-git/ui typecheck` passed with 0 errors and 0 warnings.
   - `corepack pnpm vitest run -c packages/nostr-git-ui/vitest.config.ts src/lib/utils/remote-sync.test.ts` passed: 1 file, 3 tests.
+- Phase 3 final verification passed:
+  - `corepack pnpm vitest run -c packages/nostr-git-core/vitest.config.ts test/events/nip34-builders.spec.ts test/api/providers/grasp-state.spec.ts test/api/providers/grasp-api-provider.spec.ts test/api/providers/grasp-full-cycle.spec.ts` passed: 4 files, 102 tests.
+  - `corepack pnpm vitest run -c packages/nostr-git-ui/vitest.config.ts src/lib/utils/grasp-availability.test.ts src/lib/utils/grasp-pipeline.test.ts src/lib/utils/import-repo-metadata.test.ts src/lib/utils/remote-sync.test.ts` passed: 4 files, 23 tests.
+  - `git diff --check` passed.
+  - Final tracked diff was empty before this checkpoint closeout update.
+  - `git status --short --branch` showed only unrelated untracked `docs/architecture/rely-nostr-sqlite-learning-plan.md` before this checkpoint closeout update.
 
 ## Decisions
 
@@ -67,13 +71,14 @@
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `packages/nostr-git-core/src/api/providers/grasp-state.ts`, `packages/nostr-git-core/src/api/providers/grasp.ts`, `packages/nostr-git-core/src/events/nip34/nip34-utils.ts`, `packages/nostr-git-core/test/api/providers/grasp-api-provider.spec.ts`, `packages/nostr-git-core/test/api/providers/grasp-full-cycle.spec.ts`, `packages/nostr-git-core/test/api/providers/grasp-state.spec.ts`, `packages/nostr-git-core/test/events/nip34-builders.spec.ts`, `packages/nostr-git-ui/src/lib/utils/grasp-availability.ts`, and `packages/nostr-git-ui/src/lib/utils/grasp-availability.test.ts`.
 - Phase 2 changed files: `docs/session-checkpoint.md`, `packages/nostr-git-ui/src/lib/hooks/useCloneRepo.svelte.ts`, `packages/nostr-git-ui/src/lib/hooks/useEditRepo.svelte.ts`, `packages/nostr-git-ui/src/lib/hooks/useForkRepo.svelte.ts`, `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`, `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.test.ts`, `packages/nostr-git-ui/src/lib/utils/import-repo-metadata.ts`, and `packages/nostr-git-ui/src/lib/utils/import-repo-metadata.test.ts`.
-- After the Phase 2 commit/push, the expected remaining dirty file is the unrelated untracked `docs/architecture/rely-nostr-sqlite-learning-plan.md`.
+- Phase 3 changed file: `docs/session-checkpoint.md`.
+- After the final closeout commit/push, the expected remaining dirty file is the unrelated untracked `docs/architecture/rely-nostr-sqlite-learning-plan.md`.
 - Unrelated dirty file present and must not be staged: `docs/architecture/rely-nostr-sqlite-learning-plan.md`.
 - `/home/johnd/Work/ngit-grasp` may still contain exploratory local changes from investigation; they are outside this Budabit workflow.
 
 ## Next Action
 
-- Start Phase 3 by rerunning the targeted core and UI GRASP tests, checking `git diff --check`, and reviewing final diffs/status before marking the checkpoint complete.
+- Send final response summarizing completed commits, verification, and the remaining unrelated untracked file.
 
 ## Verification
 
@@ -90,12 +95,14 @@
 - Phase 2 UI package typecheck passed.
 - Phase 2 remote-sync guard passed.
 - Phase 2 whitespace check passed.
+- Phase 3 final targeted core GRASP tests passed.
+- Phase 3 final targeted UI GRASP tests passed.
+- Phase 3 final whitespace/status/diff review passed.
 
 ## Risks Or Blockers
 
-- Need narrow staging because the worktree includes unrelated untracked documentation.
-- Need confirm push to `origin/dev` succeeds after each phase.
-- Full project checks may be slower than focused tests; run focused tests first and broader checks when phase criteria require them.
+- Unrelated untracked documentation remains and was intentionally not staged: `docs/architecture/rely-nostr-sqlite-learning-plan.md`.
+- No blocker remains for the GRASP/NIP-34 cleanup.
 
 ## Files
 
