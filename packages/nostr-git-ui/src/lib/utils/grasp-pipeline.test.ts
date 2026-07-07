@@ -3,6 +3,7 @@ import { createRepoStateEvent } from "@nostr-git/core/events";
 
 import {
   buildGraspRepoUrls,
+  createGraspStateEventFromExistingState,
   createGraspAnnouncementAndState,
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
@@ -87,6 +88,70 @@ describe("grasp-pipeline", () => {
     });
 
     expect(announcementEvent.tags).toContainEqual(["maintainers", maintainer]);
+  });
+
+  it("keeps relay hints on announcements and omits them from state events", () => {
+    const { announcementEvent, stateEvent } = createGraspAnnouncementAndState({
+      relayUrl: "wss://relay.ngit.dev",
+      ownerPubkey: "a".repeat(64),
+      repoName: "flotilla-budabit",
+      relays: ["wss://relay.ngit.dev", "wss://relay.extra"],
+      refs: [{ type: "heads", name: "main", commit: "a".repeat(40) }],
+      head: "main",
+    });
+
+    expect(announcementEvent.tags).toContainEqual([
+      "relays",
+      "wss://relay.ngit.dev",
+      "wss://relay.extra",
+    ]);
+    expect(stateEvent.tags.some((tag) => tag[0] === "relays")).toBe(false);
+  });
+
+  it("builds replacement state from existing refs instead of HEAD only", () => {
+    const stateEvent = createGraspStateEventFromExistingState({
+      repoId: "flotilla-budabit",
+      currentState: {
+        kind: 30618,
+        created_at: 1_717_171_700,
+        tags: [
+          ["d", "flotilla-budabit"],
+          ["refs/heads/main", "a".repeat(40)],
+          ["refs/heads/dev", "b".repeat(40)],
+          ["refs/tags/v1.0.0", "c".repeat(40)],
+          ["HEAD", "ref: refs/heads/main"],
+        ],
+        content: "",
+        pubkey: "f".repeat(64),
+        id: "state-id",
+        sig: "sig",
+      },
+      head: "dev",
+      created_at: 1_717_171_800,
+    } as any);
+
+    expect(stateEvent?.tags).toEqual(
+      expect.arrayContaining([
+        ["d", "flotilla-budabit"],
+        ["refs/heads/main", "a".repeat(40)],
+        ["refs/heads/dev", "b".repeat(40)],
+        ["refs/tags/v1.0.0", "c".repeat(40)],
+        ["HEAD", "ref: refs/heads/dev"],
+      ])
+    );
+  });
+
+  it("skips replacement state when existing refs are unknown", () => {
+    expect(
+      createGraspStateEventFromExistingState({
+        repoId: "flotilla-budabit",
+        currentState: {
+          kind: 30618,
+          tags: [["d", "flotilla-budabit"], ["HEAD", "ref: refs/heads/main"]],
+        } as any,
+        head: "main",
+      })
+    ).toBeUndefined();
   });
 
   it("waits until a matching GRASP repo state is visible on the relay", async () => {

@@ -401,6 +401,30 @@ export function resolveGraspStateHead(params: {
   return heads.values().next().value;
 }
 
+export function createGraspStateEventFromExistingState(params: {
+  repoId: string;
+  currentState?: NostrEvent | RepoStateEvent;
+  head?: string;
+  created_at?: number;
+}): RepoStateEvent | undefined {
+  const refs = getGraspStateRefsFromEvent(params.currentState);
+  if (refs.length === 0) return undefined;
+
+  const head = resolveGraspStateHead({
+    existingHead: getGraspStateHeadFromEvent(params.currentState),
+    refs,
+    fallbackHead: params.head,
+    preferFallback: Boolean(params.head),
+  });
+
+  return createRepoStateEvent({
+    repoId: params.repoId,
+    refs,
+    head,
+    created_at: params.created_at,
+  });
+}
+
 export async function fetchLatestGraspRepoStateEvent({
   relayUrl,
   repoName,
@@ -586,10 +610,6 @@ export function createGraspAnnouncementAndState({
     refs,
     head,
   });
-
-  if (normalizedRelays.length > 0 && !(stateEvent.tags as any[])?.some((t) => t[0] === "relays")) {
-    stateEvent.tags = [...(stateEvent.tags || []), ["relays", ...normalizedRelays] as any];
-  }
 
   return {
     ownerNpub,

@@ -177,8 +177,11 @@ export function buildImportedRepoEvents(params: {
 
   const finalRelays = Array.from(new Set([...(relays || []), ...successfulGraspRelays]));
 
-  if (finalRelays.length > 0 && !state.tags.some((tag) => tag[0] === "relays")) {
-    state.tags = [...state.tags, ["relays", ...finalRelays] as any];
+  if (finalRelays.length > 0) {
+    announcement.tags = [
+      ...announcement.tags.filter((tag) => tag[0] !== "relays"),
+      ["relays", ...finalRelays],
+    ];
   }
 
   return { announcement, state };

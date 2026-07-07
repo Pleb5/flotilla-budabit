@@ -779,9 +779,6 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         head: preparedSource.defaultBranch,
         created_at: finalCreatedAt,
       });
-      if (relays.length > 0 && !(stateEvent.tags as any[]).some((tag) => tag[0] === "relays")) {
-        stateEvent.tags = [...stateEvent.tags, ["relays", ...relays] as any];
-      }
 
       updateProgress("events", "Final Nostr events created", "completed");
 

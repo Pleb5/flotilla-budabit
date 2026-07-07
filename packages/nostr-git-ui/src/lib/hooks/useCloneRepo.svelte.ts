@@ -1,6 +1,5 @@
 import type { NostrEvent } from "nostr-tools";
-import type { RepoStateTag } from "@nostr-git/core/events";
-import { GIT_REPO_STATE } from "@nostr-git/core/events";
+import { createRepoStateEvent } from "@nostr-git/core/events";
 import { tokens as tokensStore } from "../stores/tokens.js";
 import { tryTokensForHost, getTokensForHost } from "../utils/tokenHelpers.js";
 
@@ -153,6 +152,7 @@ export function useCloneRepo(options: CloneRepoOptions): CloneRepoHook {
 
       // Get the actual default branch from the cloned repository
       let defaultBranch: string | undefined;
+      let defaultBranchCommit: string | undefined;
 
       try {
         // Query the worker for the repository's branches to determine the default
@@ -171,25 +171,28 @@ export function useCloneRepo(options: CloneRepoOptions): CloneRepoHook {
         return;
       }
 
-      // Create NIP-34 repository state event using proper types
-      const repoStateTags: RepoStateTag[] = [
-        ["d", repoSlug], // Repository identifier
-        [`refs/heads/${defaultBranch}`, ""], // Default branch ref
-        ["HEAD", `ref: refs/heads/${defaultBranch}`], // HEAD reference
-      ];
+      try {
+        const resolved = await workerApi.resolveRef?.({
+          repoId: repoSlug,
+          ref: `refs/heads/${defaultBranch}`,
+        });
+        const oid = String(resolved || "").trim();
+        defaultBranchCommit = /^[0-9a-f]{40,64}$/i.test(oid) ? oid : undefined;
+      } catch {
+        // fall through to the guard below
+      }
 
-      const repoStateEvent: Partial<NostrEvent> = {
-        kind: GIT_REPO_STATE,
-        content: JSON.stringify({
-          name: repoName,
-          description: `Cloned repository: ${repoSlug}`,
-          clone_url: repoUrl,
-          web_url: repoUrl.replace(/\.git$/, ""),
-          default_branch: defaultBranch,
-        }),
-        tags: repoStateTags,
+      if (!defaultBranchCommit) {
+        console.warn("Could not determine default branch commit - skipping repo state event creation");
+        return;
+      }
+
+      const repoStateEvent = createRepoStateEvent({
+        repoId: repoSlug,
+        refs: [{ type: "heads", name: defaultBranch, commit: defaultBranchCommit }],
+        head: defaultBranch,
         created_at: Math.floor(Date.now() / 1000),
-      };
+      });
 
       // Sign the event using the injected signing function
       const signedEvent = await onSignEvent(repoStateEvent as NostrEvent);

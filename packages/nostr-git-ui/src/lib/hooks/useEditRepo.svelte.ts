@@ -2,13 +2,15 @@ import type { Event } from "nostr-tools";
 import type { RepoAnnouncementEvent, RepoStateEvent } from "@nostr-git/core/events";
 import {
   createRepoAnnouncementEvent,
-  createRepoStateEvent,
   getTagValue,
 } from "@nostr-git/core/events";
 import { detectVendorFromUrl } from "@nostr-git/core/git";
 import { isGraspRepoHttpUrl } from "@nostr-git/core/utils";
 import { tokens as tokensStore } from "../stores/tokens.js";
-import { normalizeGraspOrigins } from "../utils/grasp-pipeline.js";
+import {
+  createGraspStateEventFromExistingState,
+  normalizeGraspOrigins,
+} from "../utils/grasp-pipeline.js";
 import { getAccessTokenManagementMessage, isWorkflowScopeIssue } from "../utils/tokenManagement.js";
 import { tryTokensForHost } from "../utils/tokenHelpers.js";
 
@@ -244,9 +246,11 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
         created_at: Math.floor(Date.now() / 1000),
       });
 
-      // Create updated repository state event
-      const stateEvent = createRepoStateEvent({
+      // Preserve known refs when replacing addressable state. A HEAD-only state
+      // event would discard branches/tags from the latest known repo state.
+      const stateEvent = createGraspStateEventFromExistingState({
         repoId: repoId,
+        currentState,
         head: config.defaultBranch,
         created_at: Math.floor(Date.now() / 1000),
       });
@@ -261,9 +265,10 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
       const signedAnnouncement = await onSignEvent(announcementEvent);
       await onPublishEvent(signedAnnouncement);
 
-      // Sign and publish the state event
-      const signedState = await onSignEvent(stateEvent);
-      await onPublishEvent(signedState);
+      if (stateEvent) {
+        const signedState = await onSignEvent(stateEvent);
+        await onPublishEvent(signedState);
+      }
 
       // Step 4: Update local store
       if (onUpdateStore) {

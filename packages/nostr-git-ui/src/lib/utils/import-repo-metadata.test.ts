@@ -96,7 +96,8 @@ describe("import-repo-metadata", () => {
     const cloneTag = announcement.tags.find((tag) => tag[0] === "clone");
     const dTag = announcement.tags.find((tag) => tag[0] === "d");
     const webTag = announcement.tags.find((tag) => tag[0] === "web");
-    const relayTag = state.tags.find((tag) => tag[0] === "relays");
+    const announcementRelayTag = announcement.tags.find((tag) => tag[0] === "relays");
+    const stateRelayTag = state.tags.find((tag) => tag[0] === "relays");
 
     expect(announcement.created_at).toBe(2006);
     expect(state.created_at).toBe(2006);
@@ -113,6 +114,7 @@ describe("import-repo-metadata", () => {
       "https://github.com/me/flotilla-budabit",
       "https://gitlab.com/me/flotilla-budabit",
     ]);
-    expect(relayTag).toEqual(["relays", "wss://relay.one", "wss://gitnostr.com"]);
+    expect(announcementRelayTag).toEqual(["relays", "wss://relay.one", "wss://gitnostr.com"]);
+    expect(stateRelayTag).toBeUndefined();
   });
 });
