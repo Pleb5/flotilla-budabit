@@ -4,10 +4,16 @@ import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_THREADS,
   PROFILE_LIST_KIND,
+  RENOUNCED_COMMUNITIES_DTAG,
   parseCommunityDefinition,
 } from "./community"
 import type {EffectiveCommunityReportState} from "./community-reports"
-import {selectCommunityMemberList, selectUserCommunityRefs} from "./community-membership"
+import {
+  type ActiveUserCommunityRef,
+  filterExcludedCommunityRefs,
+  selectCommunityMemberList,
+  selectUserCommunityRefs,
+} from "./community-membership"
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -225,6 +231,90 @@ describe("community membership", () => {
       {pubkey: memberCommunityPubkey, roles: ["member"]},
     ])
     expect(refs.map(ref => ref.writableSections)).toEqual([["General"], ["Moderated"], ["Members"]])
+  })
+
+  it("excludes renounced non-admin community refs but keeps admin refs", () => {
+    const userPubkey = "b".repeat(64)
+    const memberCommunityPubkey = "d".repeat(64)
+    const memberListOwner = "f".repeat(64)
+    const memberListAddress = `${PROFILE_LIST_KIND}:${memberListOwner}:Members`
+
+    const refs = selectUserCommunityRefs({
+      author: userPubkey,
+      definitions: [
+        makeDefinition({id: "admin-definition", pubkey: userPubkey}),
+        makeDefinition({
+          id: "member-definition",
+          pubkey: memberCommunityPubkey,
+          sectionName: "Members",
+          profileListAddress: memberListAddress,
+        }),
+      ],
+      profileListEvents: [
+        makeProfileList({
+          id: "member-list",
+          pubkey: memberListOwner,
+          identifier: "Members",
+          members: [userPubkey],
+        }),
+      ],
+      excludedCommunityPubkeys: [userPubkey, memberCommunityPubkey],
+    })
+
+    expect(refs.map(ref => ref.communityPubkey)).toEqual([userPubkey])
+  })
+
+  it("filters existing refs by renounced non-admin communities", () => {
+    const definition = makeDefinition({id: "definition", pubkey: "a".repeat(64)})
+    const adminRef: ActiveUserCommunityRef = {
+      communityPubkey: "a".repeat(64),
+      definition,
+      relayHints: [],
+      roles: ["admin" as const],
+      writableSections: [],
+    }
+    const memberRef: ActiveUserCommunityRef = {
+      communityPubkey: "b".repeat(64),
+      definition,
+      relayHints: [],
+      roles: ["member" as const],
+      writableSections: [],
+    }
+
+    expect(
+      filterExcludedCommunityRefs([adminRef, memberRef], [
+        adminRef.communityPubkey,
+        memberRef.communityPubkey,
+      ]).map(ref => ref.communityPubkey),
+    ).toEqual([adminRef.communityPubkey])
+  })
+
+  it("ignores the renounced communities list as profile-list membership evidence", () => {
+    const userPubkey = "b".repeat(64)
+    const communityPubkey = "d".repeat(64)
+    const listOwner = "f".repeat(64)
+    const listAddress = `${PROFILE_LIST_KIND}:${listOwner}:${RENOUNCED_COMMUNITIES_DTAG}`
+
+    expect(
+      selectUserCommunityRefs({
+        author: userPubkey,
+        definitions: [
+          makeDefinition({
+            id: "definition",
+            pubkey: communityPubkey,
+            profileListAddress: listAddress,
+          }),
+        ],
+        profileListEvents: [
+          makeEvent({
+            id: "renounced-list",
+            pubkey: listOwner,
+            kind: PROFILE_LIST_KIND,
+            tags: [["d", RENOUNCED_COMMUNITIES_DTAG], ["p", userPubkey]],
+          }),
+        ],
+      }),
+    ).toEqual([])
   })
 
   it("uses stored section names for member grant display", () => {

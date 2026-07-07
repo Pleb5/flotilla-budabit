@@ -4,6 +4,7 @@ import {
   FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
   type CommunityDefinition,
+  isRenouncedCommunitiesListEvent,
   isProfileListDeclined,
   normalizePubkey,
   normalizeRelays,
@@ -48,6 +49,7 @@ type PreferenceInput = {
   moderatorFormEvents?: TrustedEvent[]
   moderatorProfileListEvents?: TrustedEvent[]
   moderatorDefinitionEvents?: TrustedEvent[]
+  excludedCommunityPubkeys?: string[]
   author?: string
 }
 
@@ -62,6 +64,9 @@ const getAddress = (event: TrustedEvent) => {
 
   return identifier ? `${event.kind}:${event.pubkey}:${identifier}` : ""
 }
+
+const makeCommunityPubkeySet = (pubkeys: string[] = []) =>
+  new Set(pubkeys.map(pubkey => normalizePubkey(pubkey)).filter(Boolean))
 
 export const makeCommunityAdminDefinitionFilter = (author: string) => {
   const pubkey = normalizePubkey(author)
@@ -89,6 +94,7 @@ export const makeCommunityDefinitionProfileListRefFilters = (profileListEvents: 
     new Set(
       profileListEvents
         .filter(event => event.kind === PROFILE_LIST_KIND)
+        .filter(event => !isRenouncedCommunitiesListEvent(event))
         .map(getAddress)
         .filter(Boolean),
     ),
@@ -163,6 +169,7 @@ export const getModeratorProfileListEventMap = (events: TrustedEvent[], author?:
 
   for (const event of events) {
     if (event.kind !== PROFILE_LIST_KIND) continue
+    if (isRenouncedCommunitiesListEvent(event)) continue
     if (isProfileListDeclined(event)) continue
     if (normalizedAuthor && event.pubkey !== normalizedAuthor) continue
 
@@ -211,10 +218,12 @@ export const selectPreferredCommunities = ({
   moderatorFormEvents = [],
   moderatorProfileListEvents = [],
   moderatorDefinitionEvents = [],
+  excludedCommunityPubkeys = [],
   author,
 }: PreferenceInput): PreferredCommunityRef[] => {
   const normalizedAuthor = author ? normalizePubkey(author) : ""
   const preferences = new Map<string, MutablePreference>()
+  const excludedCommunities = makeCommunityPubkeySet(excludedCommunityPubkeys)
   const definitions = getLatestDefinitionsByPubkey([
     ...adminDefinitionEvents,
     ...moderatorDefinitionEvents,
@@ -301,6 +310,7 @@ export const selectPreferredCommunities = ({
   }
 
   return Array.from(preferences.values())
+    .filter(preference => preference.isAdmin || !excludedCommunities.has(preference.communityPubkey))
     .map(({scoreParts, ...preference}) => preference)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score

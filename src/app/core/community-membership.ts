@@ -3,6 +3,7 @@ import {
   PROFILE_LIST_KIND,
   getCommunitySectionDisplayName,
   getProfileListPubkeys,
+  isRenouncedCommunitiesListEvent,
   isProfileListDeclined,
   normalizePubkey,
   parseCommunityDefinition,
@@ -54,9 +55,13 @@ export type SelectUserCommunityRefsOptions = {
   definitionEvents?: TrustedEvent[]
   profileListEvents?: TrustedEvent[]
   reportStates?: UserCommunityReportStates
+  excludedCommunityPubkeys?: string[]
 }
 
 const roleOrder: ActiveUserCommunityRole[] = ["admin", "moderator", "member"]
+
+const makeCommunityPubkeySet = (pubkeys: string[] = []) =>
+  new Set(pubkeys.map(pubkey => normalizePubkey(pubkey)).filter(Boolean))
 
 const getDTag = (event: TrustedEvent) => event.tags.find(tag => tag[0] === "d")?.[1] || ""
 
@@ -91,6 +96,7 @@ const getLatestProfileListEventsByAddress = (events: TrustedEvent[]) => {
 
   for (const event of events) {
     if (event.kind !== PROFILE_LIST_KIND) continue
+    if (isRenouncedCommunitiesListEvent(event)) continue
 
     const address = getAddress(event)
     if (!address) continue
@@ -302,10 +308,12 @@ export const selectUserCommunityRefs = ({
   definitionEvents = [],
   profileListEvents = [],
   reportStates,
+  excludedCommunityPubkeys = [],
 }: SelectUserCommunityRefsOptions): ActiveUserCommunityRef[] => {
   const normalizedAuthor = normalizePubkey(author || "")
   if (!normalizedAuthor) return []
 
+  const excludedCommunities = makeCommunityPubkeySet(excludedCommunityPubkeys)
   const parsedDefinitions = definitionEvents.flatMap(event => {
     const definition = parseCommunityDefinition(event)
     return definition ? [definition] : []
@@ -317,6 +325,7 @@ export const selectUserCommunityRefs = ({
       const isAdmin = definition.pubkey === normalizedAuthor
       const reportState = getReportState(reportStates, definition.pubkey)
 
+      if (!isAdmin && excludedCommunities.has(definition.pubkey)) return []
       if (!isAdmin && isCommunityPersonBanned(reportState, normalizedAuthor)) return []
 
       const roles = new Set<ActiveUserCommunityRole>()
@@ -358,4 +367,15 @@ export const selectUserCommunityRefs = ({
       ]
     })
     .sort((a, b) => a.communityPubkey.localeCompare(b.communityPubkey))
+}
+
+export const filterExcludedCommunityRefs = (
+  refs: ActiveUserCommunityRef[],
+  excludedCommunityPubkeys: string[] = [],
+) => {
+  const excludedCommunities = makeCommunityPubkeySet(excludedCommunityPubkeys)
+
+  return refs.filter(
+    ref => ref.roles.includes("admin") || !excludedCommunities.has(ref.communityPubkey),
+  )
 }

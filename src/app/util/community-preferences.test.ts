@@ -4,6 +4,7 @@ import {
   COMMUNITY_DEFINITION_KIND,
   FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
+  RENOUNCED_COMMUNITIES_DTAG,
   parseCommunityDefinition,
 } from "@app/core/community"
 import {makeCommunityDefinitionAddress} from "@app/core/community-forms"
@@ -196,6 +197,50 @@ describe("community preferences", () => {
         isModerator: true,
       }),
     ])
+  })
+
+  it("excludes renounced non-admin communities from preferences", () => {
+    const adminDefinition = makeDefinition({id: "admin", pubkey: userPubkey, created_at: 1})
+    const memberRef = makeMemberCommunityRef({
+      communityPubkey: memberCommunityPubkey,
+      created_at: 6,
+    })
+    const starred = makeStar(starredCommunityPubkey, 10)
+
+    expect(
+      selectPreferredCommunities({
+        stars: [starred],
+        memberCommunityRefs: [
+          makeMemberCommunityRef({communityPubkey: userPubkey, roles: ["admin"]}),
+          memberRef,
+        ],
+        adminDefinitionEvents: [adminDefinition],
+        excludedCommunityPubkeys: [userPubkey, memberCommunityPubkey, starredCommunityPubkey],
+        author: userPubkey,
+      }).map(community => community.communityPubkey),
+    ).toEqual([userPubkey])
+  })
+
+  it("ignores renounced-community lists as moderator list evidence", () => {
+    const definition = makeDefinition({
+      id: "definition",
+      pubkey: moderatorCommunityPubkey,
+      listIdentifier: RENOUNCED_COMMUNITIES_DTAG,
+    })
+    const renouncedList = makeEvent({
+      id: "renounced-list",
+      pubkey: userPubkey,
+      kind: PROFILE_LIST_KIND,
+      tags: [["d", RENOUNCED_COMMUNITIES_DTAG]],
+    })
+
+    expect(
+      selectPreferredCommunities({
+        moderatorProfileListEvents: [renouncedList],
+        moderatorDefinitionEvents: [definition],
+        author: userPubkey,
+      }),
+    ).toEqual([])
   })
 
   it("ignores definitions that reference non-grant-capable user lists", () => {

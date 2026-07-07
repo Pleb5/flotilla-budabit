@@ -10,6 +10,7 @@ export const FORM_TEMPLATE_KIND = 30168
 export const FORM_RESPONSE_KIND = 1069
 export const MAX_TARGET_COMMUNITIES = 12
 export const PROFILE_LIST_STATUS_DECLINED = "declined"
+export const RENOUNCED_COMMUNITIES_DTAG = "app/budabit/renounced-communities"
 
 export const COMMUNITY_SECTION_GENERAL = "General"
 export const COMMUNITY_SECTION_ROOMS = "Room-creator"
@@ -675,8 +676,17 @@ export const getProfileListStatus = (event: TrustedEvent | undefined) =>
 export const isProfileListDeclined = (event: TrustedEvent | undefined) =>
   getProfileListStatus(event) === PROFILE_LIST_STATUS_DECLINED
 
+export const isRenouncedCommunitiesListEvent = (
+  event: Pick<TrustedEvent, "kind" | "tags"> | undefined,
+) =>
+  Boolean(
+    event?.kind === PROFILE_LIST_KIND &&
+      event.tags?.some(tag => tag[0] === "d" && tag[1] === RENOUNCED_COMMUNITIES_DTAG),
+  )
+
 export const getProfileListPubkeys = (event: TrustedEvent | undefined) => {
   if (!event || event.kind !== PROFILE_LIST_KIND) return []
+  if (isRenouncedCommunitiesListEvent(event)) return []
   if (isProfileListDeclined(event)) return []
 
   return Array.from(

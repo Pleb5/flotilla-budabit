@@ -43,7 +43,12 @@ import {
   type PreferredCommunityRef,
 } from "@app/util/community-preferences"
 import type {BlossomMemberCommunityRef} from "@app/core/blossom"
-import {selectUserCommunityRefs, type ActiveUserCommunityRef} from "@app/core/community-membership"
+import {
+  filterExcludedCommunityRefs,
+  selectUserCommunityRefs,
+  type ActiveUserCommunityRef,
+} from "@app/core/community-membership"
+import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
 import {
   MODERATOR_REQUEST_REACTION_KIND,
   getModeratorPromotionRequestStates,
@@ -1010,7 +1015,7 @@ export const communityMemberReportStates: Readable<Map<string, EffectiveCommunit
     new Map<string, EffectiveCommunityReportState>(),
   )
 
-export const activeUserCommunityRefs: Readable<ActiveUserCommunityRef[]> = derived(
+export const rawActiveUserCommunityRefs: Readable<ActiveUserCommunityRef[]> = derived(
   [
     pubkey,
     activeUserCommunityDefinitionEvents,
@@ -1034,6 +1039,13 @@ export const activeUserCommunityRefs: Readable<ActiveUserCommunityRef[]> = deriv
       ]),
       reportStates: $communityMemberReportStates,
     }),
+  [] as ActiveUserCommunityRef[],
+)
+
+export const activeUserCommunityRefs: Readable<ActiveUserCommunityRef[]> = derived(
+  [rawActiveUserCommunityRefs, userRenouncedCommunityPubkeys],
+  ([$rawActiveUserCommunityRefs, $userRenouncedCommunityPubkeys]) =>
+    filterExcludedCommunityRefs($rawActiveUserCommunityRefs, $userRenouncedCommunityPubkeys),
   [] as ActiveUserCommunityRef[],
 )
 
@@ -1061,6 +1073,7 @@ export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = der
     pubkey,
     activeCommunityStars,
     activeUserCommunityRefs,
+    userRenouncedCommunityPubkeys,
     communityAdminDefinitionEvents,
     communityModeratorFormEvents,
     communityModeratorProfileListEvents,
@@ -1070,6 +1083,7 @@ export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = der
     $pubkey,
     $activeCommunityStars,
     $activeUserCommunityRefs,
+    $userRenouncedCommunityPubkeys,
     $communityAdminDefinitionEvents,
     $communityModeratorFormEvents,
     $communityModeratorProfileListEvents,
@@ -1078,6 +1092,7 @@ export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = der
     selectPreferredCommunities({
       stars: $activeCommunityStars,
       memberCommunityRefs: $activeUserCommunityRefs,
+      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
       adminDefinitionEvents: $communityAdminDefinitionEvents,
       moderatorFormEvents: $communityModeratorFormEvents,
       moderatorProfileListEvents: $communityModeratorProfileListEvents,
