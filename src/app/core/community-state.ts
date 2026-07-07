@@ -1060,6 +1060,7 @@ export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = der
   [
     pubkey,
     activeCommunityStars,
+    activeUserCommunityRefs,
     communityAdminDefinitionEvents,
     communityModeratorFormEvents,
     communityModeratorProfileListEvents,
@@ -1068,6 +1069,7 @@ export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = der
   ([
     $pubkey,
     $activeCommunityStars,
+    $activeUserCommunityRefs,
     $communityAdminDefinitionEvents,
     $communityModeratorFormEvents,
     $communityModeratorProfileListEvents,
@@ -1075,6 +1077,7 @@ export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = der
   ]) =>
     selectPreferredCommunities({
       stars: $activeCommunityStars,
+      memberCommunityRefs: $activeUserCommunityRefs,
       adminDefinitionEvents: $communityAdminDefinitionEvents,
       moderatorFormEvents: $communityModeratorFormEvents,
       moderatorProfileListEvents: $communityModeratorProfileListEvents,

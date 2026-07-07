@@ -61,6 +61,7 @@
     isCurrent: boolean
     isAdmin: boolean
     isModerator: boolean
+    isMember: boolean
   }
 
   let communitySearchInput = $state("")
@@ -376,6 +377,7 @@
             isCurrent: true,
             isAdmin: Boolean(currentPreference?.isAdmin),
             isModerator: Boolean(currentPreference?.isModerator),
+            isMember: Boolean(currentPreference?.isMember),
           },
         ]
       : []
@@ -390,6 +392,7 @@
         isCurrent: false,
         isAdmin: community.isAdmin,
         isModerator: community.isModerator,
+        isMember: community.isMember,
       }))
 
     return [...current, ...preferred]
@@ -746,6 +749,7 @@
                   isCurrent={item.isCurrent}
                   isAdmin={item.isAdmin}
                   isModerator={item.isModerator}
+                  isMember={item.isMember}
                   loading={enteringCommunityKey === getEnteringCommunityKey(selectorInput)}
                   disabled={Boolean(enteringCommunityKey)}
                   onOpen={() => enterCommunity(selectorInput)} />

@@ -14,6 +14,7 @@
     isCurrent?: boolean
     isAdmin?: boolean
     isModerator?: boolean
+    isMember?: boolean
     loading?: boolean
     disabled?: boolean
     onOpen: () => void
@@ -26,6 +27,7 @@
     isCurrent = false,
     isAdmin = false,
     isModerator = false,
+    isMember = false,
     loading = false,
     disabled = false,
     onOpen,
@@ -40,6 +42,7 @@
   const fallbackName = $derived(formatShortNpub(pubkey) || "Unknown community")
   const name = $derived($profileDisplay || fallbackName)
   const info = $derived($profile?.about || profileRelays[0] || fallbackName)
+  const showMember = $derived(isMember && !isAdmin && !isModerator)
 
   let profileHydrationKey = ""
 
@@ -78,6 +81,9 @@
             {/if}
             {#if isModerator}
               <span class="badge badge-accent badge-sm shrink-0">Moderator</span>
+            {/if}
+            {#if showMember}
+              <span class="badge badge-outline badge-sm shrink-0">Member</span>
             {/if}
           </div>
         </div>

@@ -15,8 +15,9 @@ import type {CommunityStarRef} from "@app/util/community-stars"
 
 export const COMMUNITY_PREFERENCE_SCORE = {
   star: 1,
-  moderator: 2,
-  admin: 4,
+  member: 2,
+  moderator: 4,
+  admin: 8,
 } as const
 
 export const COMMUNITY_PREFERENCE_LIMIT = 200
@@ -27,13 +28,22 @@ export type PreferredCommunityRef = {
   score: number
   lastInteractedAt: number
   isStarred: boolean
+  isMember: boolean
   isModerator: boolean
   isAdmin: boolean
   star?: CommunityStarRef
 }
 
+type MemberCommunityRefInput = {
+  communityPubkey: string
+  relayHints?: string[]
+  roles?: string[]
+  definition?: Pick<CommunityDefinition, "event" | "relays">
+}
+
 type PreferenceInput = {
   stars?: CommunityStarRef[]
+  memberCommunityRefs?: MemberCommunityRefInput[]
   adminDefinitionEvents?: TrustedEvent[]
   moderatorFormEvents?: TrustedEvent[]
   moderatorProfileListEvents?: TrustedEvent[]
@@ -106,6 +116,7 @@ const addRole = (
     score: 0,
     lastInteractedAt: 0,
     isStarred: false,
+    isMember: false,
     isModerator: false,
     isAdmin: false,
     scoreParts: new Set(),
@@ -119,6 +130,10 @@ const addRole = (
   current.relayHints = normalizeRelays([...current.relayHints, ...(options.relayHints || [])])
   current.lastInteractedAt = Math.max(current.lastInteractedAt, options.lastInteractedAt || 0)
   current.isStarred = current.scoreParts.has("star")
+  current.isMember =
+    current.scoreParts.has("member") &&
+    !current.scoreParts.has("moderator") &&
+    !current.scoreParts.has("admin")
   current.isModerator = current.scoreParts.has("moderator")
   current.isAdmin = current.scoreParts.has("admin")
   if (options.star) current.star = options.star
@@ -191,6 +206,7 @@ const getModeratorEvidence = ({
 
 export const selectPreferredCommunities = ({
   stars = [],
+  memberCommunityRefs = [],
   adminDefinitionEvents = [],
   moderatorFormEvents = [],
   moderatorProfileListEvents = [],
@@ -267,6 +283,20 @@ export const selectPreferredCommunities = ({
     addRole(preferences, definition.pubkey, "moderator", {
       relayHints: definition.relays,
       lastInteractedAt: latestAt,
+    })
+  }
+
+  for (const ref of memberCommunityRefs) {
+    const hasMemberRole = ref.roles?.includes("member")
+    const hasHigherRole = ref.roles?.some(role => role === "admin" || role === "moderator")
+    const normalizedCommunity = normalizePubkey(ref.communityPubkey)
+    const current = normalizedCommunity ? preferences.get(normalizedCommunity) : undefined
+
+    if (!hasMemberRole || hasHigherRole || current?.isAdmin || current?.isModerator) continue
+
+    addRole(preferences, ref.communityPubkey, "member", {
+      relayHints: normalizeRelays([...(ref.relayHints || []), ...(ref.definition?.relays || [])]),
+      lastInteractedAt: ref.definition?.event.created_at,
     })
   }
 

@@ -1,6 +1,11 @@
 import {describe, expect, it} from "vitest"
 import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
-import {COMMUNITY_DEFINITION_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND} from "@app/core/community"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  FORM_TEMPLATE_KIND,
+  PROFILE_LIST_KIND,
+  parseCommunityDefinition,
+} from "@app/core/community"
 import {makeCommunityDefinitionAddress} from "@app/core/community-forms"
 import {COMMUNITY_STAR_CONTENT} from "@app/util/community-stars"
 import {selectPreferredCommunities} from "@app/util/community-preferences"
@@ -9,6 +14,7 @@ const userPubkey = "a".repeat(64)
 const moderatorCommunityPubkey = "b".repeat(64)
 const starredCommunityPubkey = "c".repeat(64)
 const otherCommunityPubkey = "d".repeat(64)
+const memberCommunityPubkey = "e".repeat(64)
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -75,8 +81,24 @@ const makeStar = (communityPubkey: string, created_at = 1) => {
   return {communityPubkey, relayHints: ["wss://star.example.com/"], reaction}
 }
 
+const makeMemberCommunityRef = ({
+  communityPubkey,
+  roles = ["member"],
+  created_at = 1,
+}: {
+  communityPubkey: string
+  roles?: string[]
+  created_at?: number
+}) => {
+  const definition = parseCommunityDefinition(
+    makeDefinition({id: `definition-${communityPubkey}`, pubkey: communityPubkey, created_at}),
+  )!
+
+  return {communityPubkey, relayHints: definition.relays, roles, definition}
+}
+
 describe("community preferences", () => {
-  it("sorts admin, moderator, and star communities by score", () => {
+  it("sorts admin, moderator, member, and star communities by score", () => {
     const adminDefinition = makeDefinition({id: "admin", pubkey: userPubkey, created_at: 1})
     const moderatorDefinition = makeDefinition({
       id: "moderator",
@@ -86,21 +108,44 @@ describe("community preferences", () => {
     })
     const moderatorProfileList = makeProfileList("moderator-list", 3)
     const starred = makeStar(starredCommunityPubkey, 10)
+    const memberRef = makeMemberCommunityRef({
+      communityPubkey: memberCommunityPubkey,
+      created_at: 6,
+    })
 
     expect(
       selectPreferredCommunities({
         stars: [starred],
+        memberCommunityRefs: [
+          makeMemberCommunityRef({communityPubkey: userPubkey, roles: ["admin", "member"]}),
+          makeMemberCommunityRef({
+            communityPubkey: moderatorCommunityPubkey,
+            roles: ["moderator", "member"],
+          }),
+          memberRef,
+        ],
         adminDefinitionEvents: [adminDefinition],
         moderatorProfileListEvents: [moderatorProfileList],
         moderatorDefinitionEvents: [moderatorDefinition],
         author: userPubkey,
       }),
     ).toEqual([
-      expect.objectContaining({communityPubkey: userPubkey, score: 4, isAdmin: true}),
+      expect.objectContaining({
+        communityPubkey: userPubkey,
+        score: 8,
+        isAdmin: true,
+        isMember: false,
+      }),
       expect.objectContaining({
         communityPubkey: moderatorCommunityPubkey,
-        score: 2,
+        score: 4,
         isModerator: true,
+        isMember: false,
+      }),
+      expect.objectContaining({
+        communityPubkey: memberCommunityPubkey,
+        score: 2,
+        isMember: true,
       }),
       expect.objectContaining({
         communityPubkey: starredCommunityPubkey,
@@ -123,7 +168,7 @@ describe("community preferences", () => {
     ).toEqual([
       expect.objectContaining({
         communityPubkey: userPubkey,
-        score: 5,
+        score: 9,
         isAdmin: true,
         isStarred: true,
         lastInteractedAt: 5,
@@ -147,7 +192,7 @@ describe("community preferences", () => {
     expect(selectPreferredCommunities({moderatorFormEvents: [form], author: userPubkey})).toEqual([
       expect.objectContaining({
         communityPubkey: moderatorCommunityPubkey,
-        score: 2,
+        score: 4,
         isModerator: true,
       }),
     ])
