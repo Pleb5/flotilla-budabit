@@ -13,14 +13,14 @@
 
 ## Current Phase
 
-- Phase 4: Final Verification And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Targeted tests from phases 1 and 2 pass after all changes.
-- `pnpm check` passes.
-- `git diff --check` passes.
-- Final diff review shows only intentional Budabit files plus session docs.
+- Targeted tests from phases 1 and 2 passed after all changes.
+- `pnpm check` passed.
+- `git diff --check` passed.
+- Final diff review showed only the closeout checkpoint document before final commit.
 - Checkpoint records `Current Phase: Complete` and final verification evidence.
 - Final closeout commit is pushed before final response.
 
@@ -60,6 +60,12 @@
 - Phase 3 verification passed:
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 3 was committed as `af4fbf4c feat: add community leave controls` and pushed to `origin/dev`.
+- Phase 4 final verification passed:
+  - `pnpm vitest run src/app/core/community-renunciations.test.ts src/app/core/community-membership.test.ts src/app/util/community-preferences.test.ts src/app/core/community-trust.test.ts src/app/util/people-search.test.ts --project=main` passed: 5 files, 37 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Pre-closeout status was clean on `dev...origin/dev`.
 
 ## Decisions
 
@@ -79,11 +85,12 @@
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/core/community.ts`, `src/app/core/community-renunciations.ts`, `src/app/core/community-renunciations.test.ts`, `src/app/core/community-membership.ts`, `src/app/core/community-membership.test.ts`, `src/app/core/community-state.ts`, `src/app/util/community-preferences.ts`, and `src/app/util/community-preferences.test.ts`.
 - Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/core/community-trust.ts`, `src/app/core/community-trust.test.ts`, `src/app/util/people-search.ts`, `src/app/util/people-search.test.ts`, `src/routes/explore/+page.svelte`, `src/routes/people/+page.svelte`, `src/routes/git/+page.svelte`, `src/app/components/ProfileSingleSelect.svelte`, `src/app/components/ChatSearchResults.svelte`, and `src/app/core/profile-collab-analysis.ts`.
 - Phase 3 changed files: `docs/session-checkpoint.md` and `src/routes/c/[community]/access/+page.svelte`.
+- Phase 4 changed files: `docs/session-checkpoint.md`.
 - Direct community permission helpers were intentionally not changed.
 
 ## Next Action
 
-- Start Phase 4 by running final targeted tests, `pnpm check`, and `git diff --check`, then close the checkpoint to `Complete`.
+- Final response after pushing the closeout commit.
 
 ## Verification
 
@@ -99,6 +106,10 @@
 - Phase 2 whitespace check passed.
 - Phase 3 project check passed.
 - Phase 3 whitespace check passed.
+- Phase 3 closeout commit was pushed.
+- Phase 4 targeted tests passed.
+- Phase 4 project check passed.
+- Phase 4 whitespace check passed.
 
 ## Risks Or Blockers
 
