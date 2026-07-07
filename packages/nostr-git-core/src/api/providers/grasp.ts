@@ -207,7 +207,7 @@ export class GraspApiProvider implements GitServiceApi {
   /**
    * Repository Operations
    */
-  // Parse kind 31990 repo state event into head + refs
+  // Parse kind 30618 repo state event into head + refs
   // Mirrors ngit repo_state.rs::try_from
   private parseRepoStateFromEvent(ev: NostrEvent | any): {
     head?: string
@@ -216,9 +216,23 @@ export class GraspApiProvider implements GitServiceApi {
     const tags: string[][] = ev?.tags || []
     const refs: Record<string, string> = {}
     let head: string | undefined
+
+    const peeledRefs = new Map<string, string>()
     for (const t of tags) {
-      if (t[0] === "HEAD" && t[1]) head = t[1]
-      if (t[0] === "ref" && t[1] && t[2]) refs[t[1]] = t[2]
+      const name = String(t?.[0] || "")
+      const commit = String(t?.[1] || "").trim()
+      if (name.startsWith("refs/tags/") && name.endsWith("^{}") && commit) {
+        peeledRefs.set(name.slice(0, -3), commit)
+      }
+    }
+
+    for (const t of tags) {
+      const name = String(t?.[0] || "")
+      const commit = String(t?.[1] || "").trim()
+      if (name === "HEAD" && commit) head = commit
+      if ((name.startsWith("refs/heads/") || name.startsWith("refs/tags/")) && !name.endsWith("^{}") && commit) {
+        refs[name] = peeledRefs.get(name) ?? commit
+      }
     }
     return {head, refs}
   }
@@ -230,16 +244,62 @@ export class GraspApiProvider implements GitServiceApi {
     owner: string,
     repo: string,
   ): Promise<{head?: string; refs: Record<string, string>} | null> {
-    const npub = toNpub(owner)
-    const addr = `${npub}:${repo}`
     try {
-      const events = await this.queryEvents([{kinds: [30618], "#a": [addr], limit: 1}])
-      const ev = events?.[0]
+      const events = await this.queryEvents([
+        {kinds: [30618], authors: [toHexPubkey(owner)], "#d": [repo], limit: 20},
+      ])
+      const ev = events
+        ?.filter(event => event?.kind === 30618)
+        .filter(event =>
+          Array.isArray(event.tags)
+            ? event.tags.some(tag => tag?.[0] === "d" && String(tag?.[1] || "") === repo)
+            : false
+        )
+        .sort((a, b) => {
+          const createdAtDiff = (a.created_at || 0) - (b.created_at || 0)
+          if (createdAtDiff !== 0) return createdAtDiff
+          return String(a.id || "").localeCompare(String(b.id || ""))
+        })
+        .at(-1)
       if (!ev) return null
       return this.parseRepoStateFromEvent(ev)
     } catch {
       return null
     }
+  }
+
+  private resolveHeadBranch(resolvedHead: string | undefined, refs: Record<string, string>): string | undefined {
+    const value = String(resolvedHead || "").trim()
+    if (!value || value === "HEAD") return undefined
+
+    const ref = value.startsWith("ref: ") ? value.slice("ref: ".length).trim() : value
+    if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length)
+    if (!ref.startsWith("refs/") && !/^[0-9a-f]{40,64}$/i.test(ref)) return ref
+    if (!/^[0-9a-f]{40,64}$/i.test(ref)) return undefined
+
+    const matchingBranches = Object.entries(refs)
+      .filter(([name, commit]) => name.startsWith("refs/heads/") && commit === ref)
+      .map(([name]) => name.slice("refs/heads/".length))
+    return matchingBranches.find(name => name === "main") ??
+      matchingBranches.find(name => name === "master") ??
+      matchingBranches[0]
+  }
+
+  private toRepoStateRef(
+    ref: string,
+    commit: string,
+  ): {
+    type: "heads" | "tags"
+    name: string
+    commit: string
+  } | null {
+    const headName = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null
+    if (headName) return {type: "heads", name: headName, commit}
+
+    const tagName = ref.startsWith("refs/tags/") ? ref.slice("refs/tags/".length) : null
+    if (tagName) return {type: "tags", name: tagName, commit}
+
+    return null
   }
 
   async getRepo(owner: string, repo: string): Promise<RepoMetadata> {
@@ -324,27 +384,19 @@ export class GraspApiProvider implements GitServiceApi {
           } catch {}
         }
       }
-      let headRef: string | undefined
+      let headBranch: string | undefined
       try {
         const resolvedHead = await git.resolveRef({fs, dir, ref: "HEAD"})
-        headRef = resolvedHead.startsWith("refs/") ? resolvedHead : `refs/heads/${resolvedHead}`
+        headBranch = this.resolveHeadBranch(resolvedHead, refs)
       } catch {}
 
       const event = createRepoStateEvent({
-        // Mirrors ngit repo_state.rs address tag: "a" -> "<npub>:<repo>"
         repoId: encodeRepoAddress(toHexPubkey(owner), repo),
-        head: headRef,
-        refs: Object.entries(refs).map(([ref, commit]) => ({
-          type: ref.startsWith("refs/heads/") ? "heads" : "tags",
-          name: ref, // keep full ref path; shared-types flattener will handle
-          commit,
-        })),
+        head: headBranch,
+        refs: Object.entries(refs)
+          .map(([ref, commit]) => this.toRepoStateRef(ref, commit))
+          .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
       })
-      if (headRef && !event.tags.find(t => t[0] === "HEAD")) {
-        // shared-types expects HEAD tag value in the form `ref: refs/heads/<branch>`
-        // Mirrors ngit repo_state.rs::add_head
-        event.tags.push(["HEAD", `ref: ${headRef}` as any])
-      }
       // If an EventIO is injected, publish directly; otherwise return unsigned for the UI to handle.
       // Mirrors ngit architectural flexibility where publishing lives in client layer (client.rs)
       if (this.eventIO?.publishEvent) {

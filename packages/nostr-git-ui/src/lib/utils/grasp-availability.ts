@@ -135,8 +135,7 @@ export async function checkGraspReceivePackReady({
 }: Omit<CheckGraspRepoExistsParams, "userPubkey">): Promise<boolean> {
   const ownerNpub = toNpub(owner);
   const httpBase = trimTrailingSlash(toHttpBase(relayUrl));
-  const cacheBust = Date.now();
-  const url = `${httpBase}/${ownerNpub}/${repoName}.git/info/refs?service=git-receive-pack&_ts=${cacheBust}`;
+  const url = `${httpBase}/${ownerNpub}/${repoName}.git/info/refs?service=git-receive-pack`;
 
   try {
     const response = await probeSmartHttp(url);

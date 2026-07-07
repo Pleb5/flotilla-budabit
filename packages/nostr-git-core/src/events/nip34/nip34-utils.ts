@@ -429,9 +429,9 @@ export function createRepoStateEvent(opts: {
     }
   }
 
-  // Add HEAD reference according to NIP-34
-  if (opts.head) {
-    tags.push(["HEAD", `ref: refs/heads/${opts.head}`])
+  const headBranch = normalizeRepoStateHeadBranch(opts.head)
+  if (headBranch) {
+    tags.push(["HEAD", `ref: refs/heads/${headBranch}`])
   }
 
   return {
@@ -440,6 +440,17 @@ export function createRepoStateEvent(opts: {
     content: "",
     created_at: opts.created_at ?? Math.floor(Date.now() / 1000),
   } as RepoStateEvent
+}
+
+function normalizeRepoStateHeadBranch(head: string | undefined): string | undefined {
+  const value = String(head || "").trim()
+  if (!value || value === "HEAD") return undefined
+
+  const ref = value.startsWith("ref: ") ? value.slice("ref: ".length).trim() : value
+  if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length)
+  if (ref.startsWith("refs/") || /^[0-9a-f]{40,64}$/i.test(ref)) return undefined
+
+  return ref
 }
 
 /**

@@ -1,7 +1,7 @@
 /**
  * GRASP Repository State Management Helper
  *
- * Provides utilities for working with GRASP repository state events (kind 31990).
+ * Provides utilities for working with GRASP repository state events (kind 30618).
  * Based on implementation patterns observed in ngit repo_state.rs.
  */
 
@@ -45,10 +45,14 @@ export function parseRepoAddress(address: string): { npub: string; repo: string 
  * - Falls back to first available refs/heads/ branch
  */
 export function getDefaultBranchFromHead(head: string): string {
-  if (head.startsWith('refs/heads/')) {
-    return head.substring('refs/heads/'.length);
-  }
-  return 'main'; // fallback
+  const value = String(head || '').trim();
+  if (!value || value === 'HEAD') return '';
+
+  const ref = value.startsWith('ref: ') ? value.slice('ref: '.length).trim() : value;
+  if (ref.startsWith('refs/heads/')) return ref.substring('refs/heads/'.length);
+  if (ref.startsWith('refs/') || /^[0-9a-f]{40,64}$/i.test(ref)) return '';
+
+  return ref;
 }
 
 /**

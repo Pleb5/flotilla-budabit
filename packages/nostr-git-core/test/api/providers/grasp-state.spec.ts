@@ -24,9 +24,12 @@ describe('grasp-state helpers', () => {
     expect(parsed.repo).toBe('myrepo');
   });
 
-  it('getDefaultBranchFromHead extracts branch from refs/heads', () => {
+  it('getDefaultBranchFromHead extracts branch from HEAD refs', () => {
     expect(getDefaultBranchFromHead('refs/heads/main')).toBe('main');
-    expect(getDefaultBranchFromHead('HEAD')).toBe('main'); // fallback
+    expect(getDefaultBranchFromHead('ref: refs/heads/dev')).toBe('dev');
+    expect(getDefaultBranchFromHead('feature')).toBe('feature');
+    expect(getDefaultBranchFromHead('HEAD')).toBe('');
+    expect(getDefaultBranchFromHead('a'.repeat(40))).toBe('');
   });
 
   it('nostr ref helpers map correctly', () => {

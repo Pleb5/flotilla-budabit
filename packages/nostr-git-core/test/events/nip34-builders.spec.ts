@@ -95,6 +95,26 @@ describe("NIP-34 builders", () => {
     expect(head).toEqual(["HEAD", "ref: refs/heads/main"])
   })
 
+  it("createRepoStateEvent normalizes HEAD refs and ignores commit OIDs", () => {
+    expect(
+      getTag(
+        createRepoStateEvent({repoId: "owner/name", head: "refs/heads/dev"}) as any,
+        "HEAD",
+      ),
+    ).toEqual(["HEAD", "ref: refs/heads/dev"])
+
+    expect(
+      getTag(
+        createRepoStateEvent({repoId: "owner/name", head: "ref: refs/heads/main"}) as any,
+        "HEAD",
+      ),
+    ).toEqual(["HEAD", "ref: refs/heads/main"])
+
+    const evt = createRepoStateEvent({repoId: "owner/name", head: "a".repeat(40)})
+    expect(getTag(evt as any, "HEAD")).toBeUndefined()
+    expect(getTag(evt as any, "a")).toBeUndefined()
+  })
+
   it("createIssueEvent encodes recipients, subject, labels", () => {
     const evt = createIssueEvent({
       content: "issue body",

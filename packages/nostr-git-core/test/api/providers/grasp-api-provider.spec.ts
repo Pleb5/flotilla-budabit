@@ -165,14 +165,82 @@ describe('GraspApiProvider basic behavior', () => {
     expect(tagKeys).toContain('HEAD');
     // Ensure HEAD uses ref: refs/heads/main form
     const headTag = event.tags.find((t: any) => t[0] === 'HEAD');
-    // Some environments may double-prefix when resolving HEAD; accept both
-    expect(headTag?.[1]).toMatch(/^ref: refs\/heads\/(?:refs\/heads\/)?main$/);
-    // Don't assert exact ref tags; shared-types normalizer may alter encoding.
+    expect(headTag).toEqual(['HEAD', 'ref: refs/heads/main']);
+    expect(event.tags).toContainEqual(['refs/heads/main', 'abc123']);
+    expect(event.tags).toContainEqual(['refs/tags/v1', 'tagsha1']);
+    expect(event.tags.some((t: any) => String(t[0]).includes('refs/heads/refs/heads/'))).toBe(false);
 
     fetchSpy.mockRestore();
     branchesSpy.mockRestore();
     tagsSpy.mockRestore();
     resolveSpy.mockRestore();
+  });
+
+  it('publishStateFromLocal maps a resolved HEAD commit back to a branch name', async () => {
+    const api = new GraspApiProvider(relay, ownerHex as any);
+    (api as any).capabilities = { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
+    (api as any).httpBase = 'https://relay.example';
+
+    const mainCommit = 'a'.repeat(40);
+    const devCommit = 'b'.repeat(40);
+    vi.spyOn(git as any, 'fetch').mockResolvedValue(undefined);
+    vi.spyOn(git as any, 'listBranches').mockResolvedValue(['dev', 'main']);
+    vi.spyOn(git as any, 'listTags').mockResolvedValue([]);
+    vi.spyOn(git as any, 'resolveRef').mockImplementation(async ({ ref }: any) => {
+      if (ref === 'refs/heads/main') return mainCommit;
+      if (ref === 'refs/heads/dev') return devCommit;
+      if (ref === 'HEAD') return mainCommit;
+      return 'deadbeef';
+    });
+
+    const event: any = await api.publishStateFromLocal(ownerHex, 'repo');
+    expect(event.tags).toContainEqual(['HEAD', 'ref: refs/heads/main']);
+    expect(event.tags).not.toContainEqual(['HEAD', `ref: refs/heads/${mainCommit}`]);
+    expect(event.tags).toContainEqual(['refs/heads/main', mainCommit]);
+    expect(event.tags).toContainEqual(['refs/heads/dev', devCommit]);
+  });
+
+  it('fetchLatestState queries by d tag and parses canonical full ref tags', async () => {
+    const api = new GraspApiProvider(relay, ownerHex as any);
+    const querySpy = vi.spyOn(api as any, 'queryEvents').mockResolvedValue([
+      {
+        id: 'newer-wrong-repo',
+        kind: 30618,
+        created_at: 3,
+        tags: [['d', 'other'], ['HEAD', 'ref: refs/heads/other'], ['refs/heads/other', 'wrong']],
+      },
+      {
+        id: 'older',
+        kind: 30618,
+        created_at: 1,
+        tags: [['d', 'repo'], ['HEAD', 'ref: refs/heads/old'], ['refs/heads/old', 'oldsha'], ['ref', 'legacy', 'legacysha']],
+      },
+      {
+        id: 'newer',
+        kind: 30618,
+        created_at: 2,
+        tags: [
+          ['d', 'repo'],
+          ['HEAD', 'ref: refs/heads/main'],
+          ['refs/heads/main', 'abc123'],
+          ['refs/tags/v1', 'annotated-tag-oid'],
+          ['refs/tags/v1^{}', 'peeled-commit-oid'],
+        ],
+      },
+    ] as any);
+
+    const state = await (api as any).fetchLatestState(ownerHex, 'repo');
+
+    expect(querySpy).toHaveBeenCalledWith([
+      { kinds: [30618], authors: [ownerHex], '#d': ['repo'], limit: 20 },
+    ]);
+    expect(state).toEqual({
+      head: 'ref: refs/heads/main',
+      refs: {
+        'refs/heads/main': 'abc123',
+        'refs/tags/v1': 'peeled-commit-oid',
+      },
+    });
   });
 
   it('getUser tolerates invalid JSON profile for a valid npub and leaves fields defaulted', async () => {
@@ -229,17 +297,16 @@ describe('GraspApiProvider basic behavior', () => {
     (vi.spyOn(api as any, 'queryEvents') as any).mockRejectedValueOnce(new Error('ann fail'));
     (vi.spyOn(api as any, 'fetchLatestState') as any).mockResolvedValueOnce(null);
     const repo = await api.getRepo(ownerHex, 'r');
-    expect(['', 'main']).toContain(repo.defaultBranch);
+    expect(repo.defaultBranch).toBe('');
     expect(repo.description).toBeUndefined();
   });
 
-  it('listCommits resolves [] when no sha provided and no HEAD in repo state', async () => {
+  it('listCommits rejects when no sha is provided and no HEAD exists in repo state', async () => {
     const api = new GraspApiProvider(relay, ownerHex as any);
     (api as any).capabilities = { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
     (api as any).httpBase = 'https://relay.example';
     (vi.spyOn(api as any, 'fetchLatestState') as any).mockResolvedValueOnce(null);
-    const res = await api.listCommits(ownerHex, 'r', {});
-    expect(res).toEqual([]);
+    await expect(api.listCommits(ownerHex, 'r', {})).rejects.toThrow(/No ref provided/);
   });
 
   it('queryEvents dedupes results by id across multiple filters', async () => {
@@ -329,7 +396,7 @@ describe('GraspApiProvider basic behavior', () => {
     expect(repo.description).toBeUndefined();
   });
 
-  it('getRepo falls back to defaultBranch "main" when no state event HEAD is available', async () => {
+  it('getRepo leaves defaultBranch empty when no state event HEAD is available', async () => {
     const api = new GraspApiProvider(relay, ownerHex as any);
     setPriv(api, 'capabilities', { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] });
     setPriv(api, 'httpBase', 'https://relay.example');
@@ -339,7 +406,7 @@ describe('GraspApiProvider basic behavior', () => {
     // fetchLatestState returns null
     (vi.spyOn(api as any, 'fetchLatestState') as any).mockResolvedValueOnce(null);
     const repo = await api.getRepo(ownerHex, 'repo');
-    expect(repo.defaultBranch).toBe('main');
+    expect(repo.defaultBranch).toBe('');
   });
 
   it('getRepo builds metadata from relay/httpBase and event state', async () => {
@@ -350,7 +417,7 @@ describe('GraspApiProvider basic behavior', () => {
 
     // Mock announcement and state returns via queryEvents
     const ann = { content: JSON.stringify({ description: 'test repo' }), tags: [] };
-    const st = { tags: [['HEAD', 'ref: refs/heads/main']] };
+    const st = { kind: 30618, created_at: 1, tags: [['d', 'myrepo'], ['HEAD', 'ref: refs/heads/main']] };
     (vi.spyOn(api as any, 'queryEvents') as any).mockImplementation(async (filters: any[]) => {
       const kinds = filters?.[0]?.kinds || [];
       if (kinds.includes(30617)) return [ann as any]; // announcement

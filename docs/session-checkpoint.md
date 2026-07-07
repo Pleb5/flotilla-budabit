@@ -7,79 +7,89 @@
 
 ## Goal
 
-- Fix the Settings > Extensions widget preview regression comprehensively while keeping context-aware widget preview behavior.
-- Make the modal preview work without widget content touching the header, being cropped, or exposing avoidable native iframe scrollbar artifacts.
-- Prefer host-side modal layout and resize bridge support over deployed-widget-specific scrollbar changes.
+- Make Budabit's GRASP/NIP-34 repository state handling conform to ngit, ngit-grasp, gitworkshop, and NIP-34 from both read and write perspectives.
+- Keep the fix self-contained in Budabit; do not require ngit-grasp changes.
 
 ## Current Phase
 
-- Complete
+- Phase 2: UI State Writer Cleanup
 
 ## Phase Exit Criteria
 
-- Settings widget preview modal layout is host-side stabilized.
-- Host `ui:resize` bridge support is implemented and verified.
-- Checkpoint records completion.
-- Final closeout commit is pushed before final response.
+- Active UI GRASP state writers do not add `relays` tags to `kind:30618`; relay hints remain on announcements.
+- Edit flows preserve refs from the current state event when publishing a replacement state event and only update HEAD when appropriate.
+- Import/create/fork/sync paths publish state refs only when real commit IDs are known.
+- Existing GRASP state merge behavior still preserves existing refs and HEAD for push/sync.
+- Focused UI tests cover absence of state `relays` tags and ref preservation where practical.
+- Focused UI tests and project type/check verification pass.
+- Phase 2 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
-- Previous context-aware settings preview workflow completed and was pushed as `fa61298f feat: wire settings widget preview context`.
-- Regression root cause identified: the settings modal changed to `WidgetFrame`, then a later `pt-4`/fixed-min-height layout squeezed the iframe area and exposed internal iframe scrolling/cropping.
-- Current deployed calendar widget behavior is not the root regression; the host preview container is.
-- Phase 1 updated `ExtensionCard.svelte` so the settings widget modal body uses a dark padded widget surface (`bg-base-300 p-4`), includes `min-h-0`, and no longer forces `WidgetFrame` to `minHeight={500}`.
-- Phase 1 kept the fix host-side and did not add calendar-widget-specific scrollbar styling.
-- Phase 1 verification passed: `pnpm check`.
-- Phase 1 was committed and pushed as `8296f825 fix: stabilize settings widget preview modal`.
-- Phase 2 added a widget-only `onResizeRequest` callback to `LoadedWidgetExtension`.
-- Phase 2 registered `ui:resize` in `bridge.ts`, validating provided positive finite `height` and `width` before forwarding to the widget runtime callback.
-- Phase 2 wired `WidgetFrame.svelte` to reset requested height on iframe load and apply a bounded requested wrapper height with a 2400px maximum.
-- Phase 2 changed the settings preview modal body to `overflow-auto` so resize-aware widgets can grow and host-scroll inside the modal.
-- Phase 2 focused bridge tests cover successful resize callback forwarding and invalid resize dimensions.
-- Phase 2 verification passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
-- Phase 2 verification passed: `pnpm check`.
+- Prior widget-preview workflow in these session files was already complete; this checkpoint starts a new GRASP state-event cleanup workflow.
+- Investigation evidence: NIP-34, ngit, ngit-grasp, and gitworkshop all use `d` as the state event identity tag, full `refs/*` tag names, and `HEAD = ref: refs/heads/<branch>`.
+- Existing uncommitted Budabit fixes before this workflow: receive-pack readiness no longer appends `_ts`, provider state publishing avoids doubled ref names, and focused tests were added/adjusted.
+- Phase 1 implemented core GRASP state semantics:
+  - `createRepoStateEvent()` now normalizes branch names, full `refs/heads/*`, and `ref: refs/heads/*` HEAD inputs and ignores commit OIDs as HEAD branch names.
+  - `getDefaultBranchFromHead()` now parses canonical `ref: refs/heads/<branch>` and full branch refs without inventing `main` when HEAD is absent.
+  - `GraspApiProvider.fetchLatestState()` queries `kind:30618` by author plus `#d`, filters matching `d` tags, and selects the newest matching state event.
+  - `GraspApiProvider.parseRepoStateFromEvent()` reads canonical full `refs/heads/*` and `refs/tags/*` tags and prefers peeled `refs/tags/*^{}` commit IDs.
+  - `GraspApiProvider.publishStateFromLocal()` maps resolved HEAD commit OIDs back to known branch refs before writing HEAD and emits canonical full ref tags.
+  - Receive-pack readiness keeps the upstream-compatible `?service=git-receive-pack` URL without `_ts`.
+- Phase 1 verification passed:
+  - `corepack pnpm vitest run -c packages/nostr-git-core/vitest.config.ts test/events/nip34-builders.spec.ts test/api/providers/grasp-state.spec.ts test/api/providers/grasp-api-provider.spec.ts` passed: 3 files, 65 tests.
+  - `corepack pnpm vitest run -c packages/nostr-git-ui/vitest.config.ts src/lib/utils/grasp-availability.test.ts src/lib/utils/grasp-pipeline.test.ts` passed: 2 files, 13 tests.
+  - `git diff --check` passed.
+  - `corepack pnpm --filter @nostr-git/core typecheck` passed.
+  - `corepack pnpm vitest run -c packages/nostr-git-core/vitest.config.ts test/api/providers/grasp-full-cycle.spec.ts` passed: 1 file, 37 tests.
 
 ## Decisions
 
-- Fix the host modal layout first.
-- Add host `ui:resize` support as the comprehensive path for resize-aware widgets.
-- Do not use calendar-widget scrollbar CSS as the primary fix.
-- Do not touch unrelated dirty files in the Budabit worktree.
-- Do not edit or commit `/home/johnd/Work/budabit-calendar-widget` unless a later phase explicitly requires it and unrelated dirty changes can be separated safely.
+- Do not rely on ngit-grasp query-parser changes; fix Budabit's client behavior.
+- Do not add `a` tags to `kind:30618` state events.
+- Keep relay hints on repository announcements, not state events.
+- Treat state event writes as current known state, not lossy deltas.
+- Do not stage unrelated dirty files.
 
 ## Current State
 
 - Root repo `/home/johnd/Work/budabit` is on branch `dev` tracking `origin/dev`.
-- Budabit worktree has unrelated dirty files outside this workflow; they were not staged or modified by this workflow.
-- Phase 2 workflow files are `docs/session-checkpoint.md`, `src/app/components/ExtensionCard.svelte`, `src/app/components/WidgetFrame.svelte`, `src/app/extensions/bridge.ts`, `src/app/extensions/bridge.test.ts`, and `src/app/extensions/types.ts`.
-- `docs/session-plan.md` remains the durable plan document; no Phase 2 plan edit was required.
+- Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `packages/nostr-git-core/src/api/providers/grasp-state.ts`, `packages/nostr-git-core/src/api/providers/grasp.ts`, `packages/nostr-git-core/src/events/nip34/nip34-utils.ts`, `packages/nostr-git-core/test/api/providers/grasp-api-provider.spec.ts`, `packages/nostr-git-core/test/api/providers/grasp-full-cycle.spec.ts`, `packages/nostr-git-core/test/api/providers/grasp-state.spec.ts`, `packages/nostr-git-core/test/events/nip34-builders.spec.ts`, `packages/nostr-git-ui/src/lib/utils/grasp-availability.ts`, and `packages/nostr-git-ui/src/lib/utils/grasp-availability.test.ts`.
+- After the Phase 1 commit/push, the expected remaining dirty file is the unrelated untracked `docs/architecture/rely-nostr-sqlite-learning-plan.md`.
+- Unrelated dirty file present and must not be staged: `docs/architecture/rely-nostr-sqlite-learning-plan.md`.
+- `/home/johnd/Work/ngit-grasp` may still contain exploratory local changes from investigation; they are outside this Budabit workflow.
 
 ## Next Action
 
-- Commit and push this final closeout, reread this checkpoint, then send the final response.
+- Start Phase 2 by inspecting active UI state writers in `grasp-pipeline`, import metadata, and edit-repo flows.
 
 ## Verification
 
 - Startup inspection read the previous completed checkpoint and full previous plan.
-- Startup inspection ran `git status --short --branch` and `git log --oneline -10`.
-- Relevant files inspected: `ExtensionCard.svelte`, `WidgetFrame.svelte`, `bridge.ts`, SDK `types.ts`, and calendar widget `src/App.svelte`.
-- Phase 1 project check passed: `pnpm check`.
-- Phase 2 focused bridge tests passed: `pnpm vitest run src/app/extensions/bridge.test.ts`.
-- Phase 2 project check passed: `pnpm check`.
-- Pre-closeout inspection ran `git status --short --branch`, scoped `git diff`, and `git log --oneline -10`.
+- Startup inspection ran `git status --short --branch`, `git diff --stat`, `git log --oneline -10`, and `git remote -v`.
+- Compatibility investigation inspected NIP-34, gitworkshop state read/write code, ngit state builder, and ngit-grasp state parser/authorization.
+- Phase 1 focused core/provider suite passed.
+- Phase 1 focused UI GRASP availability/pipeline suite passed.
+- Phase 1 whitespace check passed.
+- Phase 1 core typecheck passed.
+- Touched `grasp-full-cycle.spec.ts` guard passed.
 
 ## Risks Or Blockers
 
-- Budabit worktree still has many unrelated dirty files; final staging must remain narrow.
-- Calendar widget repo has unrelated dirty changes; external widget changes were not needed for this host fix.
-- `ui:resize` support needs a widget to emit resize requests before it can eliminate iframe scrollbars for that widget.
+- Need narrow staging because the worktree includes unrelated untracked documentation.
+- Need confirm push to `origin/dev` succeeds after each phase.
+- Full project checks may be slower than focused tests; run focused tests first and broader checks when phase criteria require them.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `src/app/components/ExtensionCard.svelte`
-- `src/app/components/WidgetFrame.svelte`
-- `src/app/extensions/types.ts`
-- `src/app/extensions/bridge.ts`
-- `src/app/extensions/bridge.test.ts`
+- `packages/nostr-git-core/src/api/providers/grasp.ts`
+- `packages/nostr-git-core/src/api/providers/grasp-state.ts`
+- `packages/nostr-git-core/src/events/nip34/nip34-utils.ts`
+- `packages/nostr-git-core/test/events/nip34-builders.spec.ts`
+- `packages/nostr-git-core/test/api/providers/grasp-state.spec.ts`
+- `packages/nostr-git-core/test/api/providers/grasp-api-provider.spec.ts`
+- `packages/nostr-git-core/test/api/providers/grasp-full-cycle.spec.ts`
+- `packages/nostr-git-ui/src/lib/utils/grasp-availability.ts`
+- `packages/nostr-git-ui/src/lib/utils/grasp-availability.test.ts`

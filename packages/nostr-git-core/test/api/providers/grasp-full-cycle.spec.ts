@@ -246,7 +246,7 @@ describe('GRASP Full Cycle Integration Tests', () => {
     it('extracts default branch from HEAD ref', () => {
       expect(getDefaultBranchFromHead('ref: refs/heads/main')).toBe('main');
       expect(getDefaultBranchFromHead('refs/heads/develop')).toBe('develop');
-      expect(getDefaultBranchFromHead('HEAD')).toBe('main'); // fallback
+      expect(getDefaultBranchFromHead('HEAD')).toBe('');
     });
 
     it('getRepo returns repository metadata', async () => {
@@ -380,8 +380,7 @@ describe('GRASP Full Cycle Integration Tests', () => {
       // Should return repo with default/empty fields
       expect(repo.name).toBe('missing-repo');
       expect(repo.description).toBeUndefined();
-      // getDefaultBranchFromHead returns 'main' as fallback when no HEAD
-      expect(repo.defaultBranch).toBe('main');
+      expect(repo.defaultBranch).toBe('');
     });
 
     it('handles relay without GRASP-01 support', async () => {
