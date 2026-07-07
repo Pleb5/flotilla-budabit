@@ -203,6 +203,57 @@ describe("community trust", () => {
     expect(assessment.evidence).toEqual([])
   })
 
+  it("ignores renounced active-community trust and report evidence", () => {
+    const viewerPubkey = "1".repeat(64)
+    const memberPubkey = "2".repeat(64)
+    const communityPubkey = "3".repeat(64)
+    const listOwner = "4".repeat(64)
+    const definitions = [
+      makeDefinition({
+        id: "community",
+        pubkey: communityPubkey,
+        profileListAddress: `${PROFILE_LIST_KIND}:${listOwner}:Repositories`,
+      }),
+    ]
+    const profileListEvents = [
+      makeProfileList({
+        id: "members",
+        pubkey: listOwner,
+        identifier: "Repositories",
+        members: [memberPubkey],
+      }),
+    ]
+    const reportEvent = makeEvent({
+      id: "event-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "Repositories",
+        eventId: "reported-event",
+        eventPubkey: memberPubkey,
+      }).tags,
+    })
+    const reportState = getEffectiveCommunityReportState({
+      definition: definitions[0],
+      reportEvents: [reportEvent],
+    })
+
+    const assessment = buildCommunityTrustAssessment({
+      viewerPubkey,
+      targetPubkey: memberPubkey,
+      context: {scope: "active_community", communityPubkey},
+      definitions,
+      profileListEvents,
+      reportStates: new Map([[communityPubkey, reportState]]),
+      renouncedCommunityPubkeys: [communityPubkey],
+    })
+
+    expect(assessment.category).toBe("unknown")
+    expect(assessment.score).toBe(0)
+    expect(assessment.evidence).toEqual([])
+  })
+
   it("applies contextual event report penalties to target authors", () => {
     const viewerPubkey = "1".repeat(64)
     const memberPubkey = "2".repeat(64)

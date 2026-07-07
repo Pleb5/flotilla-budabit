@@ -13,17 +13,18 @@
 
 ## Current Phase
 
-- Phase 2: Trust, Search, And Recommendation Integration
+- Phase 3: Membership Page Leave And Rejoin UI
 
 ## Phase Exit Criteria
 
-- Community trust builders accept viewer-renounced community pubkeys and exclude those communities from viewer/target trust refs and shared evidence.
-- Callers that compute global or active-community trust pass the current user renounced set where available.
-- People search/community candidate discovery ignores renounced community definitions/profile-list evidence where appropriate.
-- Recommendation paths relying on `activeUserCommunityRefs` naturally use effective membership; any direct raw community evidence paths are filtered.
-- Profile trust badges and flag/report evidence use effective membership and do not include renounced community evidence.
-- Focused tests cover trust exclusion and search/community candidate exclusion.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Membership page shows a subtle red `Leave group` button to the right of the normal tabs when the current signed-in user is a non-admin raw member and has not renounced the group.
+- Membership page shows `Rejoin group` in the same location when the current group is renounced and raw membership evidence still exists.
+- No leave/rejoin button is shown for the community owner/admin key.
+- Both actions require confirmation via modal before publishing the encrypted list update.
+- Leave confirmation explains that underlying grants are not revoked and direct community access is not blocked.
+- Rejoin confirmation explains that the group is restored to Budabit membership lists, recommendations, and trust calculations.
+- UI reports success/failure through toasts and avoids duplicate publishes while an action is in flight.
+- Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -41,6 +42,17 @@
   - `pnpm vitest run src/app/core/community-renunciations.test.ts src/app/core/community-membership.test.ts src/app/util/community-preferences.test.ts --project=main` passed: 3 files, 21 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 2 implemented trust/search/recommendation integration:
+  - Added `renouncedCommunityPubkeys` inputs to community trust builders and filtered viewer/target refs plus active-context community evidence.
+  - Kept report-state bans as moderation overlay evidence instead of filtering refs during trust collection.
+  - Added `excludedCommunityPubkeys` to `getCommunityPeoplePubkeys()` and skipped renounced definitions/profile-list evidence plus renunciation-list events.
+  - Wired `userRenouncedCommunityPubkeys` through `/explore`, `/people`, `/git`, `ProfileSingleSelect`, `ChatSearchResults`, and profile collaboration analysis trust/search calls.
+  - Recommendation paths using `activeUserCommunityRefs` remain covered by Phase 1 effective membership filtering.
+- Phase 2 verification passed:
+  - Initial focused test run exposed a report-overlay regression, which was fixed before closeout.
+  - `pnpm vitest run src/app/core/community-trust.test.ts src/app/util/people-search.test.ts --project=main` passed: 2 files, 16 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -51,17 +63,19 @@
 - Do not artificially gate direct publishing access or section permission checks for a renounced community.
 - Do not allow admin/community-owner keys to renounce their own community; ignore accidental admin renunciation entries in effective membership filtering.
 - Keep `activeUserCommunityRefs` as the effective filtered membership store and expose `rawActiveUserCommunityRefs` for UI eligibility.
+- Trust builders should not pass report states into membership-ref selection; reports remain overlays.
 
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/core/community.ts`, `src/app/core/community-renunciations.ts`, `src/app/core/community-renunciations.test.ts`, `src/app/core/community-membership.ts`, `src/app/core/community-membership.test.ts`, `src/app/core/community-state.ts`, `src/app/util/community-preferences.ts`, and `src/app/util/community-preferences.test.ts`.
+- Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/core/community-trust.ts`, `src/app/core/community-trust.test.ts`, `src/app/util/people-search.ts`, `src/app/util/people-search.test.ts`, `src/routes/explore/+page.svelte`, `src/routes/people/+page.svelte`, `src/routes/git/+page.svelte`, `src/app/components/ProfileSingleSelect.svelte`, `src/app/components/ChatSearchResults.svelte`, and `src/app/core/profile-collab-analysis.ts`.
 - Direct community permission helpers were intentionally not changed.
 
 ## Next Action
 
-- Start Phase 2 by extending community trust and people-search inputs to filter viewer-renounced community evidence.
+- Start Phase 3 by adding the Membership page leave/rejoin action using raw membership and renunciation state.
 
 ## Verification
 
@@ -72,10 +86,13 @@
 - Phase 1 focused tests passed.
 - Phase 1 project check passed.
 - Phase 1 whitespace check passed.
+- Phase 2 focused tests passed after fixing report overlay semantics.
+- Phase 2 project check passed.
+- Phase 2 whitespace check passed.
 
 ## Risks Or Blockers
 
-- Kind `30000` overlaps Budabit community profile-list events; Phase 1 added guards in core membership/preference parsing, and Phase 2 must preserve this when filtering search evidence.
+- Kind `30000` overlaps Budabit community profile-list events; Phase 1 and Phase 2 added guards for membership, preference, and people-search evidence paths.
 - No current blocker.
 
 ## Files
@@ -90,3 +107,13 @@
 - `src/app/core/community-state.ts`
 - `src/app/util/community-preferences.ts`
 - `src/app/util/community-preferences.test.ts`
+- `src/app/core/community-trust.ts`
+- `src/app/core/community-trust.test.ts`
+- `src/app/util/people-search.ts`
+- `src/app/util/people-search.test.ts`
+- `src/routes/explore/+page.svelte`
+- `src/routes/people/+page.svelte`
+- `src/routes/git/+page.svelte`
+- `src/app/components/ProfileSingleSelect.svelte`
+- `src/app/components/ChatSearchResults.svelte`
+- `src/app/core/profile-collab-analysis.ts`

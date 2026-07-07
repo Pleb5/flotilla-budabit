@@ -18,6 +18,7 @@ import {
 } from "@app/core/git-state"
 import type {CommunityDefinition} from "@app/core/community"
 import type {EffectiveCommunityReportState} from "@app/core/community-reports"
+import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
 import {loadBudabitProfile} from "@app/core/profile-resolver"
 import {buildCommunityTrustAssessments} from "./community-trust"
 
@@ -685,6 +686,7 @@ const getProfileCommunityAlignedScores = ({
     reportStates: communityContext?.reportState
       ? new Map([[communityPubkey, communityContext.reportState]])
       : undefined,
+    renouncedCommunityPubkeys: get(userRenouncedCommunityPubkeys),
   })
 
   return new Map(

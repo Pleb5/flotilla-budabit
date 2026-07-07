@@ -15,6 +15,7 @@
     communityModeratorProfileListEvents,
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
   import {
     buildPeopleSearchCandidates,
     getCommunityPeoplePubkeys,
@@ -81,6 +82,7 @@
     getCommunityPeoplePubkeys({
       definitionEvents: communityDefinitionEvents,
       profileListEvents: communityProfileListEvents,
+      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
     }),
   )
   const peopleSearchCandidates = $derived(
@@ -109,6 +111,7 @@
               definitionEvents: communityDefinitionEvents,
               profileListEvents: communityProfileListEvents,
               reportStates: $communityMemberReportStates,
+              renouncedCommunityPubkeys: $userRenouncedCommunityPubkeys,
             }),
           scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
           resultLimit: PEOPLE_RESULT_LIMIT,

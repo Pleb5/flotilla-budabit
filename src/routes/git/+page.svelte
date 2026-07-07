@@ -99,6 +99,7 @@
     selectLatestCommunityDefinition,
     setActiveCommunityInput,
   } from "@app/core/community-state"
+  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
   import {parseTargetedPublication, TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
@@ -1762,6 +1763,7 @@
         selectedCommunityPubkey && selectedCommunityReportState
           ? new Map([[selectedCommunityPubkey, selectedCommunityReportState]])
           : undefined,
+      renouncedCommunityPubkeys: $userRenouncedCommunityPubkeys,
     })
 
     return new Map(

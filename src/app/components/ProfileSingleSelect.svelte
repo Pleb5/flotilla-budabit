@@ -26,6 +26,7 @@
     communityModeratorProfileListEvents,
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
   import {
     buildPeopleSearchCandidates,
     getCommunityPeoplePubkeys,
@@ -88,6 +89,7 @@
     const communityPubkeys = getCommunityPeoplePubkeys({
       definitionEvents: communityDefinitionEvents,
       profileListEvents: communityProfileListEvents,
+      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
     })
     const candidates = buildPeopleSearchCandidates({
       query,
@@ -109,6 +111,7 @@
           definitionEvents: communityDefinitionEvents,
           profileListEvents: communityProfileListEvents,
           reportStates: $communityMemberReportStates,
+          renouncedCommunityPubkeys: $userRenouncedCommunityPubkeys,
         }),
       scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
       resultLimit: 8,

@@ -18,6 +18,7 @@
     communityModeratorProfileListEvents,
   } from "@app/core/community-state"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
   import {
     buildPeopleSearchCandidates,
     getCommunityPeoplePubkeys,
@@ -65,6 +66,7 @@
     getCommunityPeoplePubkeys({
       definitionEvents: communityDefinitionEvents,
       profileListEvents: communityProfileListEvents,
+      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
     }),
   )
   const peopleSearchCandidates = $derived(
@@ -166,6 +168,7 @@
     const definitionEvents = communityDefinitionEvents
     const profileListEvents = communityProfileListEvents
     const reportStates = $communityMemberReportStates
+    const renouncedCommunityPubkeys = $userRenouncedCommunityPubkeys
     const profiles = $profilesByPubkey
     const communityAssessmentCache = new Map<string, TrustAssessment>()
 
@@ -193,6 +196,7 @@
           definitionEvents,
           profileListEvents,
           reportStates,
+          renouncedCommunityPubkeys,
         })
 
         for (const [pubkey, assessment] of assessments) {

@@ -2,6 +2,7 @@ import * as nip19 from "nostr-tools/nip19"
 import type {TrustedEvent} from "@welshman/util"
 import {
   getProfileListPubkeys,
+  isRenouncedCommunitiesListEvent,
   normalizePubkey,
   parseCommunityDefinition,
   PROFILE_LIST_KIND,
@@ -125,19 +126,39 @@ export const decodePeopleSearchPubkey = (query: string) => {
 export const getCommunityPeoplePubkeys = ({
   definitionEvents = [],
   profileListEvents = [],
+  excludedCommunityPubkeys = [],
 }: {
   definitionEvents?: TrustedEvent[]
   profileListEvents?: TrustedEvent[]
+  excludedCommunityPubkeys?: string[]
 }) => {
   const pubkeys = new Set<string>()
+  const excludedCommunities = new Set(
+    excludedCommunityPubkeys.map(pubkey => normalizePubkey(pubkey)).filter(Boolean),
+  )
+  const excludedProfileListAddresses = new Set<string>()
 
   for (const event of definitionEvents) {
     const definition = parseCommunityDefinition(event)
-    if (definition?.pubkey) pubkeys.add(definition.pubkey)
+    if (!definition?.pubkey) continue
+
+    if (excludedCommunities.has(definition.pubkey)) {
+      for (const section of definition.sections) {
+        for (const ref of section.profileLists) excludedProfileListAddresses.add(ref.address)
+      }
+      continue
+    }
+
+    pubkeys.add(definition.pubkey)
   }
 
   for (const event of profileListEvents) {
     if (event.kind !== PROFILE_LIST_KIND) continue
+    if (isRenouncedCommunitiesListEvent(event)) continue
+
+    const identifier = event.tags.find(tag => tag[0] === "d")?.[1] || ""
+    const address = identifier ? `${event.kind}:${event.pubkey}:${identifier}` : ""
+    if (address && excludedProfileListAddresses.has(address)) continue
 
     const listOwner = normalizePubkey(event.pubkey)
     if (listOwner) pubkeys.add(listOwner)

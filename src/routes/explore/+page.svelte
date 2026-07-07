@@ -46,6 +46,7 @@
   import {makeCommunityPath} from "@app/util/routes"
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {buildCommunityTrustAssessments} from "@app/core/community-trust"
+  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
   import {
     buildPeopleSearchCandidates,
     getCommunityPeoplePubkeys,
@@ -270,6 +271,7 @@
           definitionEvents,
           profileListEvents,
           reportStates: $communityMemberReportStates,
+          renouncedCommunityPubkeys: $userRenouncedCommunityPubkeys,
         }),
       scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
       resultLimit: COMMUNITY_INPUT_SEARCH_LIMIT,
@@ -310,6 +312,7 @@
     getCommunityPeoplePubkeys({
       definitionEvents: communityDefinitionEvents,
       profileListEvents: communityProfileListEvents,
+      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
     }),
   )
   const directFollowPubkeys = $derived($pubkey ? getFollows($pubkey) : [])

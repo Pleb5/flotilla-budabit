@@ -33,6 +33,7 @@ export type CommunityTrustInput = {
   definitionEvents?: TrustedEvent[]
   profileListEvents?: TrustedEvent[]
   reportStates?: UserCommunityReportStates
+  renouncedCommunityPubkeys?: string[]
 }
 
 export type CommunityTrustBatchInput = Omit<CommunityTrustInput, "targetPubkey"> & {
@@ -62,6 +63,14 @@ const roleEvidence: Record<ActiveUserCommunityRole, Pick<TrustEvidence, "type" |
 }
 
 const roleOrder: ActiveUserCommunityRole[] = ["admin", "moderator", "member"]
+
+const makeCommunityPubkeySet = (pubkeys: string[] = []) =>
+  new Set(pubkeys.map(pubkey => normalizePubkey(pubkey)).filter(Boolean))
+
+const filterRefsByCommunity = (
+  refs: ActiveUserCommunityRef[],
+  excludedCommunityPubkeys: Set<string>,
+) => refs.filter(ref => !excludedCommunityPubkeys.has(ref.communityPubkey))
 
 const getPrimaryRole = (ref: ActiveUserCommunityRef): ActiveUserCommunityRole | undefined =>
   roleOrder.find(role => ref.roles.includes(role))
@@ -143,7 +152,7 @@ export const collectCommunityTrustRefs = ({
   definitions = [],
   definitionEvents = [],
   profileListEvents = [],
-  reportStates,
+  renouncedCommunityPubkeys = [],
 }: CommunityTrustRefsInput) => {
   const refsByPubkey = new Map<string, ActiveUserCommunityRef[]>()
 
@@ -158,7 +167,7 @@ export const collectCommunityTrustRefs = ({
         definitions,
         definitionEvents,
         profileListEvents,
-        reportStates,
+        excludedCommunityPubkeys: renouncedCommunityPubkeys,
       }),
     )
   }
@@ -173,6 +182,7 @@ export const assessCommunityTrustFromRefs = ({
   viewerRefs = [],
   targetRefs = [],
   reportStates,
+  renouncedCommunityPubkeys = [],
 }: {
   viewerPubkey?: string
   targetPubkey?: string
@@ -180,9 +190,11 @@ export const assessCommunityTrustFromRefs = ({
   viewerRefs?: ActiveUserCommunityRef[]
   targetRefs?: ActiveUserCommunityRef[]
   reportStates?: UserCommunityReportStates
+  renouncedCommunityPubkeys?: string[]
 }): TrustAssessment => {
   const normalizedViewer = normalizePubkey(viewerPubkey || "")
   const normalizedTarget = normalizePubkey(targetPubkey || "")
+  const excludedCommunities = makeCommunityPubkeySet(renouncedCommunityPubkeys)
 
   if (!normalizedTarget) return makeTrustAssessment()
 
@@ -195,17 +207,23 @@ export const assessCommunityTrustFromRefs = ({
   }
 
   const contextCommunityPubkey = getContextCommunityPubkey(context)
-  const viewerRefsByCommunity = new Map(viewerRefs.map(ref => [ref.communityPubkey, ref]))
-  const sharedRefs = targetRefs.filter(targetRef => {
+  if (contextCommunityPubkey && excludedCommunities.has(contextCommunityPubkey)) {
+    return makeTrustAssessment()
+  }
+
+  const filteredViewerRefs = filterRefsByCommunity(viewerRefs, excludedCommunities)
+  const filteredTargetRefs = filterRefsByCommunity(targetRefs, excludedCommunities)
+  const viewerRefsByCommunity = new Map(filteredViewerRefs.map(ref => [ref.communityPubkey, ref]))
+  const sharedRefs = filteredTargetRefs.filter(targetRef => {
     const viewerRef = viewerRefsByCommunity.get(targetRef.communityPubkey)
     if (!viewerRef) return false
     return !contextCommunityPubkey || targetRef.communityPubkey === contextCommunityPubkey
   })
   const relevantTargetRefs = contextCommunityPubkey
-    ? targetRefs.filter(ref => ref.communityPubkey === contextCommunityPubkey)
+    ? filteredTargetRefs.filter(ref => ref.communityPubkey === contextCommunityPubkey)
     : normalizedViewer
       ? sharedRefs
-      : targetRefs
+      : filteredTargetRefs
 
   let bestRole: ActiveUserCommunityRole | undefined
   let bestRoleRef: ActiveUserCommunityRef | undefined
@@ -288,12 +306,14 @@ export const buildCommunityTrustAssessment = ({
   definitionEvents = [],
   profileListEvents = [],
   reportStates,
+  renouncedCommunityPubkeys = [],
 }: CommunityTrustInput): TrustAssessment => {
   const refsByPubkey = collectCommunityTrustRefs({
     pubkeys: [viewerPubkey || "", targetPubkey || ""],
     definitions,
     definitionEvents,
     profileListEvents,
+    renouncedCommunityPubkeys,
   })
 
   return assessCommunityTrustFromRefs({
@@ -303,6 +323,7 @@ export const buildCommunityTrustAssessment = ({
     viewerRefs: refsByPubkey.get(normalizePubkey(viewerPubkey || "")) || [],
     targetRefs: refsByPubkey.get(normalizePubkey(targetPubkey || "")) || [],
     reportStates,
+    renouncedCommunityPubkeys,
   })
 }
 
@@ -314,12 +335,14 @@ export const buildCommunityTrustAssessments = ({
   definitionEvents = [],
   profileListEvents = [],
   reportStates,
+  renouncedCommunityPubkeys = [],
 }: CommunityTrustBatchInput) => {
   const refsByPubkey = collectCommunityTrustRefs({
     pubkeys: [viewerPubkey || "", ...candidatePubkeys],
     definitions,
     definitionEvents,
     profileListEvents,
+    renouncedCommunityPubkeys,
   })
   const viewerRefs = refsByPubkey.get(normalizePubkey(viewerPubkey || "")) || []
   const assessments = new Map<string, TrustAssessment>()
@@ -337,6 +360,7 @@ export const buildCommunityTrustAssessments = ({
         viewerRefs,
         targetRefs: refsByPubkey.get(candidatePubkey) || [],
         reportStates,
+        renouncedCommunityPubkeys,
       }),
     )
   }

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {PROFILE_LIST_KIND} from "@app/core/community"
+import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "@app/core/community"
 import {
   buildPeopleSearchCandidates,
   buildPeopleSearchResults,
@@ -87,6 +87,57 @@ describe("people-search", () => {
     })
 
     expect(pubkeys).toEqual([listOwner, member])
+  })
+
+  it("skips people from renounced community profile-list evidence", () => {
+    const allowedCommunity = "1".repeat(64)
+    const renouncedCommunity = "2".repeat(64)
+    const allowedListOwner = "3".repeat(64)
+    const renouncedListOwner = "4".repeat(64)
+    const allowedMember = "5".repeat(64)
+    const renouncedMember = "6".repeat(64)
+
+    const pubkeys = getCommunityPeoplePubkeys({
+      excludedCommunityPubkeys: [renouncedCommunity],
+      definitionEvents: [
+        {
+          id: "allowed-definition",
+          kind: COMMUNITY_DEFINITION_KIND,
+          pubkey: allowedCommunity,
+          tags: [
+            ["content", "Repositories"],
+            ["k", "30617"],
+            ["a", `${PROFILE_LIST_KIND}:${allowedListOwner}:Repositories`],
+          ],
+        } as any,
+        {
+          id: "renounced-definition",
+          kind: COMMUNITY_DEFINITION_KIND,
+          pubkey: renouncedCommunity,
+          tags: [
+            ["content", "Repositories"],
+            ["k", "30617"],
+            ["a", `${PROFILE_LIST_KIND}:${renouncedListOwner}:Repositories`],
+          ],
+        } as any,
+      ],
+      profileListEvents: [
+        {
+          id: "allowed-profile-list",
+          kind: PROFILE_LIST_KIND,
+          pubkey: allowedListOwner,
+          tags: [["d", "Repositories"], ["p", allowedMember]],
+        } as any,
+        {
+          id: "renounced-profile-list",
+          kind: PROFILE_LIST_KIND,
+          pubkey: renouncedListOwner,
+          tags: [["d", "Repositories"], ["p", renouncedMember]],
+        } as any,
+      ],
+    })
+
+    expect(pubkeys).toEqual([allowedCommunity, allowedListOwner, allowedMember])
   })
 
   it("returns bounded batches with a resumable cursor", () => {
