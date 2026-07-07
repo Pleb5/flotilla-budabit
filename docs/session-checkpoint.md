@@ -13,18 +13,16 @@
 
 ## Current Phase
 
-- Phase 3: Membership Page Leave And Rejoin UI
+- Phase 4: Final Verification And Closeout
 
 ## Phase Exit Criteria
 
-- Membership page shows a subtle red `Leave group` button to the right of the normal tabs when the current signed-in user is a non-admin raw member and has not renounced the group.
-- Membership page shows `Rejoin group` in the same location when the current group is renounced and raw membership evidence still exists.
-- No leave/rejoin button is shown for the community owner/admin key.
-- Both actions require confirmation via modal before publishing the encrypted list update.
-- Leave confirmation explains that underlying grants are not revoked and direct community access is not blocked.
-- Rejoin confirmation explains that the group is restored to Budabit membership lists, recommendations, and trust calculations.
-- UI reports success/failure through toasts and avoids duplicate publishes while an action is in flight.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- Targeted tests from phases 1 and 2 pass after all changes.
+- `pnpm check` passes.
+- `git diff --check` passes.
+- Final diff review shows only intentional Budabit files plus session docs.
+- Checkpoint records `Current Phase: Complete` and final verification evidence.
+- Final closeout commit is pushed before final response.
 
 ## Completed With Evidence
 
@@ -53,6 +51,15 @@
   - `pnpm vitest run src/app/core/community-trust.test.ts src/app/util/people-search.test.ts --project=main` passed: 2 files, 16 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 3 implemented Membership page UI:
+  - Added raw-membership and renounced-state derivation to `src/routes/c/[community]/access/+page.svelte`.
+  - Added subtle right-aligned `Leave group` / `Rejoin group` action beside the normal Membership tabs.
+  - Suppressed the action for community owner/admin keys.
+  - Added confirmation modals explaining that leave hides the group from Budabit memberships/recommendations/trust without revoking direct grants, and rejoin restores those calculations.
+  - Added in-flight duplicate-publish protection and success/failure toasts.
+- Phase 3 verification passed:
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -71,11 +78,12 @@
 - Branch: `dev`, tracking `origin/dev`.
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/core/community.ts`, `src/app/core/community-renunciations.ts`, `src/app/core/community-renunciations.test.ts`, `src/app/core/community-membership.ts`, `src/app/core/community-membership.test.ts`, `src/app/core/community-state.ts`, `src/app/util/community-preferences.ts`, and `src/app/util/community-preferences.test.ts`.
 - Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/core/community-trust.ts`, `src/app/core/community-trust.test.ts`, `src/app/util/people-search.ts`, `src/app/util/people-search.test.ts`, `src/routes/explore/+page.svelte`, `src/routes/people/+page.svelte`, `src/routes/git/+page.svelte`, `src/app/components/ProfileSingleSelect.svelte`, `src/app/components/ChatSearchResults.svelte`, and `src/app/core/profile-collab-analysis.ts`.
+- Phase 3 changed files: `docs/session-checkpoint.md` and `src/routes/c/[community]/access/+page.svelte`.
 - Direct community permission helpers were intentionally not changed.
 
 ## Next Action
 
-- Start Phase 3 by adding the Membership page leave/rejoin action using raw membership and renunciation state.
+- Start Phase 4 by running final targeted tests, `pnpm check`, and `git diff --check`, then close the checkpoint to `Complete`.
 
 ## Verification
 
@@ -89,10 +97,12 @@
 - Phase 2 focused tests passed after fixing report overlay semantics.
 - Phase 2 project check passed.
 - Phase 2 whitespace check passed.
+- Phase 3 project check passed.
+- Phase 3 whitespace check passed.
 
 ## Risks Or Blockers
 
-- Kind `30000` overlaps Budabit community profile-list events; Phase 1 and Phase 2 added guards for membership, preference, and people-search evidence paths.
+- Kind `30000` overlaps Budabit community profile-list events; guards now cover membership, preference, and people-search evidence paths.
 - No current blocker.
 
 ## Files
@@ -117,3 +127,4 @@
 - `src/app/components/ProfileSingleSelect.svelte`
 - `src/app/components/ChatSearchResults.svelte`
 - `src/app/core/profile-collab-analysis.ts`
+- `src/routes/c/[community]/access/+page.svelte`

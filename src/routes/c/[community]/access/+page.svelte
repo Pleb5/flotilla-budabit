@@ -42,7 +42,13 @@
     activeCommunityUserModeratorRequestsLoading,
     hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
+    rawActiveUserCommunityRefs,
   } from "@app/core/community-state"
+  import {
+    rejoinCommunity,
+    renounceCommunity,
+    userRenouncedCommunityPubkeys,
+  } from "@app/core/community-renunciations"
   import {
     getGrantCapability,
     getGrantCapableSectionModeratorPubkeys,
@@ -118,6 +124,7 @@
   let activeTab = $state<AccessPageTab>("requests")
   let memberSearch = $state("")
   let openMemberPopover = $state<string | null>(null)
+  let renunciationActionInFlight = $state(false)
   const currentUserBanned = $derived(
     isCommunityPersonBanned($activeCommunityReportState, $pubkey || ""),
   )
@@ -155,6 +162,18 @@
           }).canGrant,
       ),
     ),
+  )
+  const rawCurrentCommunityRef = $derived(
+    $rawActiveUserCommunityRefs.find(ref => ref.communityPubkey === communityPubkey),
+  )
+  const currentCommunityRenounced = $derived(
+    $userRenouncedCommunityPubkeys.includes(communityPubkey),
+  )
+  const canToggleCommunityRenunciation = $derived(
+    Boolean($pubkey && rawCurrentCommunityRef && !currentUserAdmin),
+  )
+  const renunciationActionLabel = $derived(
+    currentCommunityRenounced ? "Rejoin group" : "Leave group",
   )
 
   const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
@@ -787,6 +806,73 @@
     if (moderationPath) void goto(moderationPath)
   }
 
+  const updateCommunityRenunciation = async (action: "leave" | "rejoin") => {
+    if (renunciationActionInFlight) return false
+
+    if (!$pubkey) {
+      pushToast({theme: "error", message: "Log in to update group membership preferences."})
+      return false
+    }
+
+    if (!communityPubkey || !rawCurrentCommunityRef) {
+      pushToast({theme: "error", message: "No active group membership is available."})
+      return false
+    }
+
+    if (currentUserAdmin) {
+      pushToast({theme: "error", message: "Community owner keys cannot leave their own group."})
+      return false
+    }
+
+    renunciationActionInFlight = true
+
+    try {
+      const thunk =
+        action === "leave"
+          ? await renounceCommunity(communityPubkey)
+          : await rejoinCommunity(communityPubkey)
+
+      if (thunk) await waitForThunkCompletion(thunk)
+
+      pushToast({
+        theme: "success",
+        message:
+          action === "leave"
+            ? "Group hidden from your Budabit memberships and recommendations."
+            : "Group restored to your Budabit memberships and recommendations.",
+      })
+      return true
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: `Failed to ${action === "leave" ? "leave" : "rejoin"} group: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      })
+      return false
+    } finally {
+      renunciationActionInFlight = false
+    }
+  }
+
+  const confirmCommunityRenunciation = () => {
+    if (!canToggleCommunityRenunciation) return
+
+    const action = currentCommunityRenounced ? "rejoin" : "leave"
+
+    pushModal(Confirm, {
+      title: action === "leave" ? "Leave group" : "Rejoin group",
+      message:
+        action === "leave"
+          ? "Leave this group in Budabit? This hides it from your memberships, recommendations, and trust calculations, but it does not revoke your underlying group grants or block direct publishing access."
+          : "Rejoin this group in Budabit? This restores it to your memberships, recommendations, and trust calculations because the group already grants your pubkey access.",
+      confirmLabel: action === "leave" ? "Leave group" : "Rejoin group",
+      confirm: async () => {
+        if (await updateCommunityRenunciation(action)) history.back()
+      },
+    })
+  }
+
   const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
     `${count} ${count === 1 ? singular : plural}`
 
@@ -872,29 +958,39 @@
       </p>
     </div>
 
-    <div class="grid grid-cols-2 gap-2 sm:flex sm:w-fit sm:flex-wrap">
-      <Button
-        class={`btn h-auto min-h-12 justify-center gap-2 px-4 py-3 text-center font-semibold ${
-          activeTab === "requests"
-            ? "btn-primary"
-            : "border border-base-300 bg-base-100 text-base-content hover:border-primary/60 hover:bg-base-200"
-        }`}
-        onclick={() => selectTab("requests")}>
-        Membership requests
-      </Button>
-      <Button
-        class={`btn h-auto min-h-12 justify-center gap-2 px-4 py-3 text-center font-semibold ${
-          activeTab === "members"
-            ? "btn-primary"
-            : "border border-base-300 bg-base-100 text-base-content hover:border-primary/60 hover:bg-base-200"
-        }`}
-        onclick={() => selectTab("members")}>
-        Group members
-        <span
-          class={`badge badge-sm ${activeTab === "members" ? "border-primary-content/40 bg-primary-content text-primary" : "badge-neutral"}`}>
-          {memberItems.length}
-        </span>
-      </Button>
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div class="grid grid-cols-2 gap-2 sm:flex sm:w-fit sm:flex-wrap">
+        <Button
+          class={`btn h-auto min-h-12 justify-center gap-2 px-4 py-3 text-center font-semibold ${
+            activeTab === "requests"
+              ? "btn-primary"
+              : "border border-base-300 bg-base-100 text-base-content hover:border-primary/60 hover:bg-base-200"
+          }`}
+          onclick={() => selectTab("requests")}>
+          Membership requests
+        </Button>
+        <Button
+          class={`btn h-auto min-h-12 justify-center gap-2 px-4 py-3 text-center font-semibold ${
+            activeTab === "members"
+              ? "btn-primary"
+              : "border border-base-300 bg-base-100 text-base-content hover:border-primary/60 hover:bg-base-200"
+          }`}
+          onclick={() => selectTab("members")}>
+          Group members
+          <span
+            class={`badge badge-sm ${activeTab === "members" ? "border-primary-content/40 bg-primary-content text-primary" : "badge-neutral"}`}>
+            {memberItems.length}
+          </span>
+        </Button>
+      </div>
+      {#if canToggleCommunityRenunciation}
+        <Button
+          class="btn h-auto min-h-10 justify-center border border-error/30 bg-error/10 px-4 py-2 text-sm font-semibold text-error hover:border-error/40 hover:bg-error/20 sm:ml-auto"
+          disabled={renunciationActionInFlight}
+          onclick={confirmCommunityRenunciation}>
+          <Spinner loading={renunciationActionInFlight}>{renunciationActionLabel}</Spinner>
+        </Button>
+      {/if}
     </div>
 
     {#if activeTab === "members"}
