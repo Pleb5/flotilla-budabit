@@ -12,16 +12,17 @@
 
 ## Current Phase
 
-- Phase 3: Calendar Widget Resume Retry
+- Phase 4: Final Verification And Closeout
 
 ## Phase Exit Criteria
 
-- The calendar widget tracks last successful data load or failed load state for capabilities, shared config, and calendar events.
-- The widget retries stale or failed data loads on `pageshow`, visible `visibilitychange`, `focus`, and `online` when it has a current community context.
-- Retry logic respects `contextSessionId` / `contextVersion` stale-response guards already present in the widget.
-- The widget avoids duplicate concurrent reloads where practical.
-- Calendar widget verification passes.
-- Phase 3 changes are committed and pushed in the calendar widget repo, the Budabit checkpoint is advanced and pushed, and the checkpoint is reread.
+- Host targeted widget-slot tests pass after all changes.
+- Host `pnpm check` passes.
+- Calendar widget `pnpm check` passes after all changes.
+- `git diff --check` passes in every touched repository.
+- Final diff review shows only intentional files for this workflow plus pre-existing unrelated dirty files are not staged.
+- Checkpoint records `Current Phase: Complete` and final verification evidence.
+- Final closeout commit is pushed before final response.
 
 ## Completed With Evidence
 
@@ -45,6 +46,15 @@
 - Phase 2 verification passed:
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 3 implemented calendar widget resume retry in `/home/johnd/Work/budabit-calendar-widget`:
+  - Added per-load success timestamps and failure flags for write capabilities, shared config, and calendar events.
+  - Added concurrency guards so lifecycle recovery skips already running loads.
+  - Added `pageshow`, `focus`, `online`, and visible `visibilitychange` retry triggers for stale or failed data loads with a current community context.
+  - Kept existing `contextSessionId` / `contextVersion` stale-response guards around all response handling.
+- Phase 3 verification passed:
+  - Calendar widget `pnpm check` passed with 0 errors and 0 warnings, including production build.
+  - Calendar widget `git diff --check` passed.
+  - Budabit `git diff --check` passed.
 
 ## Decisions
 
@@ -63,10 +73,12 @@
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/extensions/community-widget-slots.ts`, `src/app/extensions/community-widget-slots.test.ts`, `src/app/components/community/CommunityHomeWidgetSlot.svelte`, and `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`.
 - Additional unrelated dirty Budabit files observed before Phase 2 closeout: `src/app/core/community-feeds.ts`, `src/app/core/community-feeds.test.ts`, `src/routes/c/[community]/calendar/[event]/+page.svelte`, `src/routes/c/[community]/goals/[goal]/+page.svelte`, and `src/routes/c/[community]/threads/[thread]/+page.svelte`.
 - Phase 2 changed files: `docs/session-checkpoint.md` and `src/app/components/WidgetFrame.svelte`.
+- Phase 3 changed files: `/home/johnd/Work/budabit-calendar-widget/src/App.svelte` and Budabit `docs/session-checkpoint.md`.
+- Phase 3 calendar widget commit `2e6d005` was pushed to `origin/master`.
 
 ## Next Action
 
-- Start Phase 3 by adding retry bookkeeping and browser lifecycle listeners to `/home/johnd/Work/budabit-calendar-widget/src/App.svelte`.
+- Start Phase 4 by rerunning host targeted widget-slot tests in `/home/johnd/Work/budabit`.
 
 ## Verification
 
@@ -83,11 +95,16 @@
 - Phase 2 project check passed.
 - Phase 2 whitespace check passed.
 - Phase 2 pre-closeout inspected `git status --short --branch`, the intended phase diff, and `git log --oneline -10`.
+- Phase 2 commit `cf3b8d2d` was pushed to `origin/dev`.
+- Phase 3 startup reread this checkpoint and the full session plan, then inspected Budabit and calendar widget `git status --short --branch`.
+- Phase 3 calendar widget project check passed.
+- Phase 3 calendar widget whitespace check passed.
+- Phase 3 Budabit whitespace check passed.
+- Phase 3 pre-closeout inspected calendar widget status, diff, and recent commits before committing, then inspected Budabit status, checkpoint diff, and recent commits before committing the checkpoint.
 
 ## Risks Or Blockers
 
 - Pre-existing unrelated dirty files in Budabit require careful staging.
-- Cross-repo Phase 3 requires separate commits and pushes for the calendar widget repo and Budabit checkpoint.
 - No current blocker.
 
 ## Files
