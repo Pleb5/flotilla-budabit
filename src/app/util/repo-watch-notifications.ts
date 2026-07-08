@@ -91,6 +91,7 @@ const repoActivityKinds = [
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   ...statusKinds,
+  GIT_COMMENT,
   GIT_LABEL,
 ]
 
@@ -223,6 +224,28 @@ const getCommentRootId = (event: TrustedEvent) =>
   getTagValue("E", event.tags) || getTagValue("e", event.tags) || ""
 
 const getLabelRootId = (event: TrustedEvent) => getTagValue("e", event.tags) || ""
+
+const getRootKind = (event: TrustedEvent) =>
+  Number(getTagValue("K", event.tags) || getTagValue("k", event.tags) || 0)
+
+const getRootSection = (event: TrustedEvent): RepoWatchCandidateSection | undefined => {
+  const rootKind = getRootKind(event)
+
+  if (rootKind === GIT_ISSUE) return "issues"
+  if (rootKind === GIT_PULL_REQUEST) return "prs"
+}
+
+const getRepoWatchRootIdsForEvent = (event: TrustedEvent) => {
+  if (event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST) return [event.id]
+  if (statusKinds.includes(event.kind)) return [getStatusRootId(event as any)]
+  if (event.kind === GIT_COMMENT) return [getCommentRootId(event)]
+  if (event.kind === GIT_LABEL) return [getLabelRootId(event)]
+
+  return []
+}
+
+export const getRepoWatchRootIdsForEvents = (events: TrustedEvent[]) =>
+  Array.from(new Set(events.flatMap(getRepoWatchRootIdsForEvent).filter(Boolean)))
 
 const getStatusOption = (kind: number): keyof RepoWatchOptions["status"] | undefined => {
   if (kind === GIT_STATUS_OPEN) return "open"
@@ -398,25 +421,29 @@ export const getRepoWatchNotificationCandidates = ({
     const rootId = getStatusRootId(status as any)
     const issueRepo = issueReposByRootId.get(rootId)
     const prRepo = prReposByRootId.get(rootId)
+    const fallbackRepo = reposByAddress.get(getRepoAddress(status))
+    const fallbackSection = getRootSection(status)
+    const issueCandidateRepo = issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
+    const prCandidateRepo = prRepo || (fallbackSection === "prs" ? fallbackRepo : undefined)
 
-    if (issueRepo) {
+    if (issueCandidateRepo) {
       addCandidate({
         candidates,
-        repo: issueRepo,
+        repo: issueCandidateRepo,
         section: "issues",
         event: status,
-        enabled: issueRepo.options.status[statusOption],
+        enabled: issueCandidateRepo.options.status[statusOption],
         currentPubkey,
       })
     }
 
-    if (prRepo) {
+    if (prCandidateRepo) {
       addCandidate({
         candidates,
-        repo: prRepo,
+        repo: prCandidateRepo,
         section: "prs",
         event: status,
-        enabled: prRepo.options.status[statusOption],
+        enabled: prCandidateRepo.options.status[statusOption],
         currentPubkey,
       })
     }
@@ -428,25 +455,29 @@ export const getRepoWatchNotificationCandidates = ({
     const rootId = getCommentRootId(comment)
     const issueRepo = issueReposByRootId.get(rootId)
     const prRepo = prReposByRootId.get(rootId)
+    const fallbackRepo = reposByAddress.get(getRepoAddress(comment))
+    const fallbackSection = getRootSection(comment)
+    const issueCandidateRepo = issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
+    const prCandidateRepo = prRepo || (fallbackSection === "prs" ? fallbackRepo : undefined)
 
-    if (issueRepo) {
+    if (issueCandidateRepo) {
       addCandidate({
         candidates,
-        repo: issueRepo,
+        repo: issueCandidateRepo,
         section: "issues",
         event: comment,
-        enabled: issueRepo.options.issues.comments,
+        enabled: issueCandidateRepo.options.issues.comments,
         currentPubkey,
       })
     }
 
-    if (prRepo) {
+    if (prCandidateRepo) {
       addCandidate({
         candidates,
-        repo: prRepo,
+        repo: prCandidateRepo,
         section: "prs",
         event: comment,
-        enabled: prRepo.options.prs.comments,
+        enabled: prCandidateRepo.options.prs.comments,
         currentPubkey,
       })
     }
@@ -458,25 +489,29 @@ export const getRepoWatchNotificationCandidates = ({
     const rootId = getLabelRootId(label)
     const issueRepo = issueReposByRootId.get(rootId)
     const prRepo = prReposByRootId.get(rootId)
+    const fallbackRepo = reposByAddress.get(getRepoAddress(label))
+    const fallbackSection = getRootSection(label)
+    const issueCandidateRepo = issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
+    const prCandidateRepo = prRepo || (fallbackSection === "prs" ? fallbackRepo : undefined)
 
-    if (issueRepo) {
+    if (issueCandidateRepo) {
       addCandidate({
         candidates,
-        repo: issueRepo,
+        repo: issueCandidateRepo,
         section: "issues",
         event: label,
-        enabled: issueRepo.options.assignments,
+        enabled: issueCandidateRepo.options.assignments,
         currentPubkey,
       })
     }
 
-    if (prRepo) {
+    if (prCandidateRepo) {
       addCandidate({
         candidates,
-        repo: prRepo,
+        repo: prCandidateRepo,
         section: "prs",
         event: label,
-        enabled: prRepo.options.assignments,
+        enabled: prCandidateRepo.options.assignments,
         currentPubkey,
       })
     }
@@ -672,16 +707,7 @@ const watchedRepoActivityEvents = deriveLoadedEvents<TrustedEvent>({
   label: "repo activity",
 })
 
-const watchedRepoRootIds = derived(watchedRepoActivityEvents, $events =>
-  Array.from(
-    new Set(
-      $events
-        .filter(event => event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST)
-        .map(event => event.id)
-        .filter(Boolean),
-    ),
-  ),
-)
+const watchedRepoRootIds = derived(watchedRepoActivityEvents, getRepoWatchRootIdsForEvents)
 
 const watchedRepoRootScopedFilters = derived(
   [watchedRepoRootIds, watchedReposWithAnnouncements, checked, repoWatchNotificationSeen],
@@ -698,6 +724,7 @@ const watchedRepoRootScopedFilters = derived(
         {kinds: [GIT_COMMENT], "#e": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
         {kinds: [GIT_LABEL], "#e": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
         {kinds: statusKinds, "#e": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
+        {kinds: [GIT_ISSUE, GIT_PULL_REQUEST], ids: rootChunk, limit: REPO_WATCH_LOAD_LIMIT},
       )
     }
 

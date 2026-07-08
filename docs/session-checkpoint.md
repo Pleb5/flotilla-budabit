@@ -15,19 +15,14 @@
 
 ## Current Phase
 
-- Phase 3: Review Cycles And Final Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Review cycle 1 inspects source scope/read-state behavior, records findings, and applies any needed fixes.
-- Review cycle 2 inspects modal UX/filter/search/profile interactions, records findings, and applies any needed fixes.
-- Review cycle 3 inspects tests, edge cases, and regression risk, records findings, and applies any needed fixes.
-- All focused notification tests pass.
-- `pnpm check` passes.
-- `git diff --check` passes.
-- Final status/diff review shows no staged files and no unrelated files included.
-- Checkpoint records `Current Phase: Complete` and final evidence.
-- Final closeout commit is pushed before final response if the checkpoint changed.
+- Notification-center correction workflow is complete.
+- Phase 1, Phase 2, and Phase 3 evidence is recorded below.
+- Final focused notification tests, `pnpm check`, and `git diff --check` pass.
+- Final closeout commit is pushed and this checkpoint is reread before final response.
 
 ## Completed With Evidence
 
@@ -64,6 +59,15 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, and `git log --oneline -10 --decorate`.
+- Phase 3 completed three review/improvement cycles:
+  - Cycle 1 reviewed source scope and global read-state behavior. Findings: community room/thread reply classification needed same-context parent validation. Fixes: validated hydrated room parents against the same community/room, validated thread comment parents against the same community/thread, and used normalized read-state comparison for top-level unread state.
+  - Cycle 2 reviewed modal UX, filters, search, and profile interactions. Findings: none. Verified compact `Notifications` header, checkbox icon filters only, no raw card path metadata, no read/unread row UI, actor-name search enrichment, and avatar profile-modal behavior.
+  - Cycle 3 reviewed tests, edge cases, and regression risk. Fixes: tightened route fallback source classification, used status root markers for repo notification paths, improved repo-watch scoped event handling/root hydration, and added focused tests for the new cases.
+- Phase 3 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 3 files, 16 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Final pre-closeout inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -85,10 +89,12 @@
 - Phase 1 is verified and closed by the current phase transition commit.
 - Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
 - Phase 2 is verified and closed by the current phase transition commit.
+- Phase 3 changed files: `docs/session-checkpoint.md`, `src/app/util/notification-sources.ts`, `src/app/util/notification-sources.test.ts`, `src/app/util/repo-watch-notifications.ts`, and `src/app/util/repo-watch-notifications.test.ts`.
+- Phase 3 is verified and closed by the final closeout commit.
 
 ## Next Action
 
-- Phase 3 startup: reread this checkpoint and the full session plan, inspect current git state, then run three review/improvement cycles before final closeout.
+- Final response after final closeout commit is pushed and this checkpoint is reread.
 
 ## Verification
 
@@ -107,10 +113,18 @@
 - Phase 2 project check passed.
 - Phase 2 whitespace check passed.
 - Phase 2 pre-closeout inspected status, diff summary, and recent commits.
+- Phase 3 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch` and recent commits.
+- Phase 3 review cycle 1 completed with source/read-state fixes.
+- Phase 3 review cycle 2 completed with no findings.
+- Phase 3 review cycle 3 completed with repo-watch, route fallback, status-path, and test fixes.
+- Phase 3 focused test command passed after fixes.
+- Phase 3 project check passed after fixes.
+- Phase 3 whitespace check passed after fixes.
 
 ## Risks Or Blockers
 
 - No current blocker.
+- Residual risk: legacy fallback-only route notifications still do not carry event timestamps, so they cannot independently drive the global timestamp unread indicator without broader notification-candidate metadata changes.
 
 ## Files
 
@@ -121,5 +135,7 @@
 - `src/app/util/notification-display.ts`
 - `src/app/util/notification-sources.ts`
 - `src/app/util/notification-sources.test.ts`
+- `src/app/util/repo-watch-notifications.ts`
+- `src/app/util/repo-watch-notifications.test.ts`
 - `src/app/components/NotificationsModal.svelte`
 - `src/app/components/PrimaryNav.svelte`

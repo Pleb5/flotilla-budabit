@@ -65,6 +65,7 @@ import {
 } from "@app/util/notifications"
 import {repoWatchNotificationCandidates} from "@app/util/repo-watch-notifications"
 import {
+  hasUnreadNotificationsState,
   notificationReadState,
 } from "@app/util/notification-center"
 import {
@@ -108,6 +109,7 @@ export type BuildRepoWatchNotificationRowsOptions = {
 }
 
 const COMMUNITY_NOTIFICATION_LOAD_LIMIT = 200
+const GIT_STATUS_KINDS = [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_APPLIED, GIT_STATUS_CLOSED]
 
 const getEventPreview = (
   event: TrustedEvent,
@@ -395,8 +397,13 @@ export const buildCommunityNotificationRows = ({
       const message = readCommunityRoomMessage(event, ref.communityPubkey)
       if (message) {
         const parentMessage = targetEventsById.get(message.parentMessageId)
+        const parentRoomMessage = parentMessage
+          ? readCommunityRoomMessage(parentMessage, ref.communityPubkey, message.roomRootId)
+          : undefined
         const isReplyToViewer =
-          normalizedCurrentPubkey && normalizePubkey(parentMessage?.pubkey || "") === normalizedCurrentPubkey
+          normalizedCurrentPubkey &&
+          parentRoomMessage &&
+          normalizePubkey(parentMessage?.pubkey || "") === normalizedCurrentPubkey
 
         addRow({
           ref,
@@ -449,11 +456,14 @@ export const buildCommunityNotificationRows = ({
       const threadReply = readCommunityThreadReply(event, ref.communityPubkey)
       if (threadReply) {
         const parentReply = targetEventsById.get(threadReply.parentReplyId)
+        const parentThreadReply = parentReply
+          ? readCommunityThreadReply(parentReply, ref.communityPubkey, threadReply.threadId)
+          : undefined
         if (
           !threadReply.parentReplyId ||
-          parentReply?.kind !== COMMENT ||
+          !parentThreadReply ||
           !normalizedCurrentPubkey ||
-          normalizePubkey(parentReply.pubkey) !== normalizedCurrentPubkey
+          normalizePubkey(parentReply?.pubkey || "") !== normalizedCurrentPubkey
         ) {
           continue
         }
@@ -494,17 +504,23 @@ const getRepoEventTitle = (event: TrustedEvent) => {
   if (event.kind === GIT_PULL_REQUEST_UPDATE) return "Pull request update"
   if (event.kind === GIT_COMMENT) return "New git comment"
   if (event.kind === GIT_LABEL) return "Git assignment"
-  if (
-    [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_APPLIED, GIT_STATUS_CLOSED].includes(event.kind)
-  ) {
+  if (GIT_STATUS_KINDS.includes(event.kind)) {
     return "Git status update"
   }
 
   return "Git activity"
 }
 
-const getRepoRootId = (event: TrustedEvent) =>
-  getTagValue("E", event.tags) || getTagValue("e", event.tags) || ""
+const getRepoStatusRootId = (event: TrustedEvent) =>
+  event.tags.find(tag => tag[0] === "e" && tag[3] === "root")?.[1] ||
+  getTagValue("e", event.tags) ||
+  ""
+
+const getRepoRootId = (event: TrustedEvent) => {
+  if (GIT_STATUS_KINDS.includes(event.kind)) return getRepoStatusRootId(event)
+
+  return getTagValue("E", event.tags) || getTagValue("e", event.tags) || ""
+}
 
 const getRepoRowPath = (sectionPath: string, event: TrustedEvent) => {
   if (event.kind === GIT_ISSUE || event.kind === GIT_PULL_REQUEST) {
@@ -551,7 +567,7 @@ export const buildRepoWatchNotificationRows = ({
 
 export const getRouteNotificationSource = (path: string): NotificationRowSource => {
   if (path === "/chat" || path.startsWith("/chat/")) return "chat"
-  if (path === "/git" || path.startsWith("/git/") || path.includes("/git")) return "git"
+  if (path === "/git" || path.startsWith("/git/")) return "git"
   if (path === "/c" || path.startsWith("/c/")) return "community"
 
   return "other"
@@ -810,5 +826,8 @@ export const latestNotificationCenterTimestamp = derived(notificationCenterRows,
 export const hasNotificationCenterUnread = derived(
   [latestNotificationCenterTimestamp, notificationReadState],
   ([$latestNotificationCenterTimestamp, $notificationReadState]) =>
-    $latestNotificationCenterTimestamp > $notificationReadState.lastReadTimestamp,
+    hasUnreadNotificationsState({
+      latestNotificationTimestamp: $latestNotificationCenterTimestamp,
+      lastReadTimestamp: $notificationReadState.lastReadTimestamp,
+    }),
 )

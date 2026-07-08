@@ -2,7 +2,7 @@
 
 import {describe, expect, it, vi} from "vitest"
 import {readable} from "svelte/store"
-import {GIT_COMMENT, GIT_ISSUE} from "@nostr-git/core/events"
+import {GIT_COMMENT, GIT_ISSUE, GIT_STATUS_CLOSED} from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
 import {COMMENT, MESSAGE, THREAD} from "@welshman/util"
 import type {Chat} from "@app/core/state"
@@ -146,17 +146,27 @@ describe("notification sources", () => {
     const {buildRouteNotificationRows} = await import("./notification-sources")
 
     const rows = buildRouteNotificationRows({
-      paths: ["/chat", "/chat/alice", "/git/repo", "/c/community/rooms/root", "/settings"],
+      paths: [
+        "/chat",
+        "/chat/alice",
+        "/git/repo",
+        "/c/community/rooms/root",
+        "/c/community/git",
+        "/settings",
+        "/settings/git",
+      ],
       excludedPaths: new Set(["/chat/alice"]),
     })
 
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(6)
     expect(rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({source: "chat", path: "/chat", readPath: "/chat/*"}),
         expect.objectContaining({source: "community", path: "/c/community/rooms/root"}),
+        expect.objectContaining({source: "community", path: "/c/community/git"}),
         expect.objectContaining({source: "git", path: "/git/repo"}),
         expect.objectContaining({source: "other", path: "/settings"}),
+        expect.objectContaining({source: "other", path: "/settings/git"}),
       ]),
     )
     expect(rows.find(row => row.path === "/git/repo")?.preview).toBe("Open git activity")
@@ -342,6 +352,16 @@ describe("notification sources", () => {
         ["K", String(GIT_ISSUE)],
       ],
     })
+    const status = makeEvent({
+      id: "status-id",
+      kind: GIT_STATUS_CLOSED,
+      pubkey: writer,
+      created_at: 300,
+      tags: [
+        ["e", "non-root-id"],
+        ["e", issue.id, "", "root"],
+      ],
+    })
     const path = "/git/repo/issues"
 
     expect(
@@ -369,6 +389,12 @@ describe("notification sources", () => {
         path: `${path}/${issue.id}#comment-${comment.id}`,
       }),
     )
+
+    expect(
+      buildRepoWatchNotificationRows({
+        candidates: [{path, latestEvent: status}],
+      })[0]?.path,
+    ).toBe(`${path}/${issue.id}`)
   })
 
   it("labels community room replies to the signed-in user's message", async () => {
@@ -415,6 +441,48 @@ describe("notification sources", () => {
     )
   })
 
+  it("does not label room replies when the parent is outside the same room", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const parentMessage = makeEvent({
+      id: "parent-message",
+      kind: MESSAGE,
+      pubkey: viewer,
+      created_at: 90,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-two"],
+      ],
+    })
+    const replyMessage = makeEvent({
+      id: "reply-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 100,
+      content: "reply in another room",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-one"],
+        ["q", parentMessage.id, "", viewer],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [replyMessage],
+      targetEvents: [parentMessage],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === replyMessage.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        title: "New room message",
+      }),
+    )
+  })
+
   it("notifies only thread replies to the signed-in user's comments", async () => {
     const {buildCommunityNotificationRows} = await import("./notification-sources")
     const ref = makeCommunityRef()
@@ -457,11 +525,37 @@ describe("notification sources", () => {
         ["P", viewer],
       ],
     })
+    const foreignParentComment = makeEvent({
+      id: "foreign-parent-comment",
+      kind: COMMENT,
+      pubkey: viewer,
+      created_at: 90,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "thread-two"],
+        ["K", String(THREAD)],
+      ],
+    })
+    const crossThreadReply = makeEvent({
+      id: "cross-thread-reply",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 130,
+      content: "reply to a parent in another thread",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "thread-one"],
+        ["K", String(THREAD)],
+        ["e", foreignParentComment.id, "", viewer],
+        ["k", String(COMMENT)],
+        ["p", viewer],
+      ],
+    })
 
     const rows = buildCommunityNotificationRows({
       refs: [ref],
-      events: [commentReply, rootThreadReply],
-      targetEvents: [parentComment],
+      events: [commentReply, rootThreadReply, crossThreadReply],
+      targetEvents: [parentComment, foreignParentComment],
       profileListEvents: [makeProfileList()],
       currentPubkey: viewer,
     })
@@ -469,7 +563,9 @@ describe("notification sources", () => {
     expect(rows.map(row => row.eventId)).toEqual(
       expect.arrayContaining(["profile-list-General", commentReply.id]),
     )
-    expect(rows.map(row => row.eventId)).not.toEqual(expect.arrayContaining([rootThreadReply.id]))
+    expect(rows.map(row => row.eventId)).not.toEqual(
+      expect.arrayContaining([rootThreadReply.id, crossThreadReply.id]),
+    )
     expect(rows.find(row => row.eventId === commentReply.id)).toEqual(
       expect.objectContaining({
         source: "community",

@@ -4,7 +4,13 @@ import {readable} from "svelte/store"
 import {nip19} from "nostr-tools"
 import {describe, expect, it, vi} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
-import {GIT_ISSUE, GIT_LABEL, GIT_PULL_REQUEST, GIT_STATUS_CLOSED} from "@nostr-git/core/events"
+import {
+  GIT_COMMENT,
+  GIT_ISSUE,
+  GIT_LABEL,
+  GIT_PULL_REQUEST,
+  GIT_STATUS_CLOSED,
+} from "@nostr-git/core/events"
 import {COMMUNITY_SECTION_REPO_CURATOR, PROFILE_LIST_KIND} from "@app/core/community"
 import {defaultRepoWatchOptions, type RepoWatchOptions} from "@app/core/repo-watch"
 import {ROLE_NS} from "@app/util/labels"
@@ -209,6 +215,69 @@ describe("repo watch notifications", () => {
         statuses: [prStatus],
         comments: [issueComment],
         labels: [assignment, reviewerLabel],
+        currentPubkey: viewer,
+      }),
+    ).toEqual([
+      {path: `${repoPath}/issues`, latestEvent: assignment},
+      {path: `${repoPath}/prs`, latestEvent: prStatus},
+    ])
+  })
+
+  it("handles scoped repo events when the root event is absent", async () => {
+    const {getRepoWatchNotificationCandidates, getRepoWatchRootIdsForEvents} = await import(
+      "./repo-watch-notifications"
+    )
+    const issueComment = makeEvent({
+      id: "old-issue-comment",
+      kind: GIT_COMMENT,
+      created_at: 20,
+      tags: [
+        ["a", repoAddress],
+        ["E", "old-issue"],
+        ["K", String(GIT_ISSUE)],
+      ],
+    })
+    const prStatus = makeEvent({
+      id: "old-pr-status",
+      kind: GIT_STATUS_CLOSED,
+      created_at: 30,
+      tags: [
+        ["a", repoAddress],
+        ["e", "old-pr", "", "root"],
+        ["K", String(GIT_PULL_REQUEST)],
+      ],
+    })
+    const assignment = makeEvent({
+      id: "old-issue-assignment",
+      kind: GIT_LABEL,
+      created_at: 40,
+      pubkey: maintainer,
+      tags: [
+        ["L", ROLE_NS],
+        ["l", "assignee", ROLE_NS],
+        ["a", repoAddress],
+        ["e", "old-issue"],
+        ["K", String(GIT_ISSUE)],
+        ["p", viewer],
+      ],
+    })
+    const options = watchOptions({
+      issues: {new: false, comments: true},
+      prs: {new: false, comments: false, updates: false},
+      status: {open: false, draft: false, applied: false, closed: true},
+      assignments: true,
+    })
+
+    expect(getRepoWatchRootIdsForEvents([issueComment, prStatus, assignment])).toEqual([
+      "old-issue",
+      "old-pr",
+    ])
+    expect(
+      getRepoWatchNotificationCandidates({
+        repos: [makeRepo(options)],
+        statuses: [prStatus],
+        comments: [issueComment],
+        labels: [assignment],
         currentPubkey: viewer,
       }),
     ).toEqual([
