@@ -15,21 +15,22 @@
 
 ## Current Phase
 
-- Phase 1: Source Scope And Global Read State
+- Phase 2: Modal UX, Search, And Filters
 
 ## Phase Exit Criteria
 
-- No notification-center source loads generic social media kinds `NOTE`, `REACTION`, or `ZAP_RESPONSE` as standalone notifications.
-- `NotificationRowSource` and filters no longer include `social`.
-- Notification rows are not marked read/unread per event and row sorting no longer prioritizes read state.
-- The bell/top-level notification unread state is derived from a persisted global last-read timestamp and the latest notification row timestamp.
-- Opening the notification modal updates the global read timestamp to the latest notification timestamp.
-- Community-context reply rows are derived only from existing Budabit/community kinds: kind `9` room replies and kind `1111` replies to thread comments authored by the signed-in user.
-- Kind `1111` replies to a thread root itself are not added as reply notifications; only replies to existing comments count.
-- Focused tests cover removal of standalone social rows, global timestamp unread behavior, room reply notifications, and thread-comment reply notifications.
+- Modal header shows only `Notifications` with a smaller title and no explanatory subtitle.
+- Notification cards no longer render raw path-like strings such as `/nevent...` or route paths.
+- Cards do not render read/unread badges or dots.
+- Filter UI uses checkbox-style toggles, not radio buttons, and has no `All`, `Read`, or `Unread` options.
+- Filter UI includes a compact icon row representing available notification types/sources.
+- The `social` filter is absent.
+- Search uses weighted fields similar to git issue search and includes profile display names for row actors where available.
+- Profile avatars in notification rows are clickable and open the existing profile detail modal without triggering row navigation.
+- Focused tests cover filter/search behavior including profile names and the absence of social/read filters.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 1 changes are committed, pushed, and the checkpoint is reread.
+- Phase 2 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -37,6 +38,23 @@
 - New correction workflow startup reread the completed checkpoint and full prior session plan.
 - Startup inspection found `/home/johnd/Work/budabit` on clean `dev...origin/dev` at `a303d660`.
 - Startup inspected current notification center source, display, modal, primary nav, community message/thread helpers, git issue search patterns, profile modal usage, and available icons.
+- Workflow setup plan/checkpoint commit `a2ed7281` was pushed to `origin/dev`.
+- Phase 1 implemented source scope and global read-state corrections:
+  - Replaced event-id/readAt notification history with persisted global read/latest timestamps in `src/app/util/notification-center.ts`.
+  - Removed standalone social notification row/source/filter support from notification display and sources.
+  - Removed `NOTE`, `REACTION`, and `ZAP_RESPONSE` notification-center source loading.
+  - Changed top-level bell unread derivation to compare latest non-chat notification row timestamp against global last-read timestamp.
+  - Updated `PrimaryNav.svelte` to persist the latest notification timestamp while the bell is mounted.
+  - Updated `NotificationsModal.svelte` to mark the global latest timestamp read while open and stop marking individual event ids read.
+  - Added community-context reply derivation for kind `9` room replies and kind `1111` replies to comments authored by the signed-in user.
+  - Kept kind `1111` thread-root replies out of reply notifications.
+  - Removed row-level read state from notification rows and sort/filter helpers.
+- Phase 1 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 3 files, 14 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - `grep` over `src/app/util/notification-*.ts` found no standalone social notification source symbols.
+  - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -54,11 +72,12 @@
 - Branch: `dev`, tracking `origin/dev`.
 - Starting HEAD: `a303d660`.
 - Worktree was clean at workflow startup.
-- Existing notification code still contains the previous social source and per-event read state before Phase 1 implementation.
+- Phase 1 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/components/PrimaryNav.svelte`, `src/app/util/notification-center.ts`, `src/app/util/notification-center.test.ts`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
+- Phase 1 is verified and closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 1 startup: reread this checkpoint and the full session plan, inspect current git state, then implement source scope and global read-state corrections.
+- Phase 2 startup: reread this checkpoint and the full session plan, inspect current git state, then implement modal UI, checkbox filters, weighted/profile-name search, and clickable profile avatars.
 
 ## Verification
 
@@ -66,6 +85,12 @@
 - Startup ran `git log --oneline -10 --decorate`.
 - Startup read prior completed checkpoint and full prior session plan.
 - Startup inspected relevant implementation files before replacing this plan/checkpoint.
+- Setup commit `a2ed7281` was pushed and this checkpoint was reread.
+- Phase 1 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch` and `git log --oneline -10 --decorate`.
+- Phase 1 focused test command passed.
+- Phase 1 project check passed.
+- Phase 1 whitespace check passed.
+- Phase 1 pre-closeout inspected status, diff summary, recent commits, and social-source grep output.
 
 ## Risks Or Blockers
 

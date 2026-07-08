@@ -6,50 +6,48 @@ vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
 }))
 
-describe("notification center history", () => {
-  it("normalizes, deduplicates, and caps history ids", async () => {
-    const {normalizeNotificationHistoryState} = await import("./notification-center")
+describe("notification center read state", () => {
+  it("normalizes persisted timestamps", async () => {
+    const {normalizeNotificationReadState} = await import("./notification-center")
 
     expect(
-      normalizeNotificationHistoryState(
-        {
-          ids: ["a", "", "b", "a", "c"],
-          readAt: {a: 1000, b: 20_000_000_000, stale: 10},
-        },
-        2,
-      ),
+      normalizeNotificationReadState({
+        lastReadTimestamp: 20_000_000_000,
+        latestNotificationTimestamp: 1000,
+      }),
     ).toEqual({
-      ids: ["a", "b"],
-      readAt: {a: 1000, b: 20_000_000},
+      lastReadTimestamp: 20_000_000,
+      latestNotificationTimestamp: 1000,
     })
   })
 
-  it("prepends new event ids without duplicating existing ids", async () => {
-    const {upsertNotificationHistoryIds} = await import("./notification-center")
+  it("remembers only newer notification timestamps", async () => {
+    const {rememberLatestNotificationTimestampState} = await import("./notification-center")
 
     expect(
-      upsertNotificationHistoryIds(
-        {ids: ["old", "existing"], readAt: {existing: 123}},
-        ["new", "existing", "new"],
-        4,
+      rememberLatestNotificationTimestampState(
+        {lastReadTimestamp: 50, latestNotificationTimestamp: 100},
+        80,
       ),
-    ).toEqual({
-      ids: ["new", "existing", "old"],
-      readAt: {existing: 123},
-    })
+    ).toEqual({lastReadTimestamp: 50, latestNotificationTimestamp: 100})
+
+    expect(
+      rememberLatestNotificationTimestampState(
+        {lastReadTimestamp: 50, latestNotificationTimestamp: 100},
+        120,
+      ),
+    ).toEqual({lastReadTimestamp: 50, latestNotificationTimestamp: 120})
   })
 
-  it("marks only known notification ids as read", async () => {
-    const {markNotificationIdsReadState, getUnreadNotificationHistoryIds} = await import(
+  it("marks the global notification timestamp read", async () => {
+    const {hasUnreadNotificationsState, markNotificationsReadState} = await import(
       "./notification-center"
     )
-    const state = markNotificationIdsReadState(
-      {ids: ["a", "b"], readAt: {}},
-      ["a", "unknown"],
-      55,
-    )
+    const unread = {lastReadTimestamp: 50, latestNotificationTimestamp: 120}
+    const read = markNotificationsReadState(unread)
 
-    expect(state).toEqual({ids: ["a", "b"], readAt: {a: 55}})
-    expect(getUnreadNotificationHistoryIds(state)).toEqual(["b"])
+    expect(hasUnreadNotificationsState(unread)).toBe(true)
+    expect(read).toEqual({lastReadTimestamp: 120, latestNotificationTimestamp: 120})
+    expect(hasUnreadNotificationsState(read)).toBe(false)
   })
 })

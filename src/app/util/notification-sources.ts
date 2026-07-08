@@ -1,5 +1,5 @@
 import {derived, readable, type Readable} from "svelte/store"
-import {getMutes, getPlaintext, getValidZap, pubkey, repository} from "@welshman/app"
+import {getMutes, getPlaintext, pubkey, repository} from "@welshman/app"
 import {load, request} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {
@@ -7,19 +7,10 @@ import {
   EVENT_DATE,
   EVENT_TIME,
   MESSAGE,
-  NOTE,
-  REACTION,
   THREAD,
-  ZAP_RESPONSE,
   ZAP_GOAL,
-  fromMsats,
-  getAddress,
-  getCommentTags,
   getIdFilters,
-  getPubkeyTagValues,
-  getReplyTags,
   getTagValue,
-  isReplaceable,
   type Filter,
   type TrustedEvent,
 } from "@welshman/util"
@@ -34,7 +25,7 @@ import {
   GIT_STATUS_DRAFT,
   GIT_STATUS_OPEN,
 } from "@nostr-git/core/events"
-import {APP_RELAYS, chatsById, type Chat} from "@app/core/state"
+import {chatsById, type Chat} from "@app/core/state"
 import {
   activeUserCommunityRefs,
   communityMemberProfileListEvents,
@@ -55,7 +46,7 @@ import {
   makeCommunityTargetingFilter,
 } from "@app/core/community-feeds"
 import {readCommunityRoomMessage} from "@app/core/community-messages"
-import {readCommunityThread} from "@app/core/community-threads"
+import {readCommunityThread, readCommunityThreadReply} from "@app/core/community-threads"
 import {
   COMMUNITY_CALENDAR_WRITE_TARGETS,
   COMMUNITY_WRITE_TARGETS,
@@ -68,38 +59,22 @@ import {
   getCommunityCensorReason,
   isCommunityPersonBanned,
 } from "@app/core/community-reports"
-import {repoWatchNotificationSeen} from "@app/core/repo-watch"
 import {
-  checked,
-  effectiveCommunityNotificationBaselines,
-  getNotificationCheckedAt,
-  hasNotificationForPath,
-  normalizeChecked,
   notifications,
   type NotificationCandidate,
 } from "@app/util/notifications"
 import {repoWatchNotificationCandidates} from "@app/util/repo-watch-notifications"
 import {
-  notificationHistory,
-  normalizeNotificationHistoryState,
-  type NotificationHistoryState,
+  notificationReadState,
 } from "@app/util/notification-center"
 import {
   makeChatPath,
   makeCommunityCalendarPath,
-  getCommunityEventPath,
   makeCommunityGoalPath,
   makeCommunityPath,
   makeCommunityRoomPath,
   makeCommunityThreadPath,
 } from "@app/util/routes"
-import {
-  getAuthorRelayHints,
-  getEventRelayHints,
-  getUserRelayHints,
-  makeEventShareEntity,
-  normalizeRelayHints,
-} from "@app/util/event-links"
 import {
   buildNotificationSearchText,
   getNotificationSourceLabel,
@@ -110,10 +85,6 @@ import {
 
 export type BuildChatNotificationRowsOptions = {
   chats: Iterable<Chat>
-  checked?: Record<string, number>
-  currentPubkey?: string
-  communityBaselines?: Record<string, number>
-  history?: Partial<NotificationHistoryState>
   getPlaintext?: (event: TrustedEvent) => string | undefined
 }
 
@@ -126,37 +97,17 @@ export type BuildCommunityNotificationRowsOptions = {
   refs: ActiveUserCommunityRef[]
   events: TrustedEvent[]
   profileListEvents?: TrustedEvent[]
-  checked?: Record<string, number>
   currentPubkey?: string
-  communityBaselines?: Record<string, number>
   reportStates?: UserCommunityReportStates
-  history?: Partial<NotificationHistoryState>
   mutedPubkeys?: string[]
+  targetEvents?: TrustedEvent[]
 }
 
 export type BuildRepoWatchNotificationRowsOptions = {
   candidates: NotificationCandidate[]
-  checked?: Record<string, number>
-  notificationSeen?: Record<string, number>
-  currentPubkey?: string
-  communityBaselines?: Record<string, number>
-  history?: Partial<NotificationHistoryState>
-}
-
-export type BuildSocialNotificationRowsOptions = {
-  events: TrustedEvent[]
-  targetEvents?: TrustedEvent[]
-  checked?: Record<string, number>
-  currentPubkey?: string
-  communityBaselines?: Record<string, number>
-  history?: Partial<NotificationHistoryState>
-  mutedPubkeys?: string[]
-  validZapResponseIds?: Set<string>
 }
 
 const COMMUNITY_NOTIFICATION_LOAD_LIMIT = 200
-const SOCIAL_NOTIFICATION_LOAD_LIMIT = 200
-const SOCIAL_NOTIFICATION_KINDS = [NOTE, COMMENT, REACTION, ZAP_RESPONSE]
 
 const getEventPreview = (
   event: TrustedEvent,
@@ -189,146 +140,8 @@ const getTextPreview = (event: TrustedEvent, fallback: string) => {
 const uniqueStrings = (values: Iterable<string | undefined>) =>
   Array.from(new Set(Array.from(values).map(value => String(value || "").trim()).filter(Boolean)))
 
-const getEventAddressRef = (event: TrustedEvent) => (isReplaceable(event) ? getAddress(event) : "")
-
-const getEventRefKeys = (event: TrustedEvent) => uniqueStrings([event.id, getEventAddressRef(event)])
-
-const mapEventsByRef = (events: TrustedEvent[]) => {
-  const eventsByRef = new Map<string, TrustedEvent>()
-
-  for (const event of events) {
-    for (const ref of getEventRefKeys(event)) {
-      eventsByRef.set(ref, event)
-    }
-  }
-
-  return eventsByRef
-}
-
-const getEventRefTags = (event: TrustedEvent, names: string[]) =>
-  event.tags
-    .filter(tag => names.includes(tag[0]))
-    .map(tag => tag[1])
-    .filter(Boolean)
-
-const getReplyTargetRefs = (event: TrustedEvent) => {
-  const {roots, replies} = event.kind === COMMENT ? getCommentTags(event.tags) : getReplyTags(event.tags)
-
-  return uniqueStrings(
-    [...replies, ...roots]
-      .filter(tag => ["a", "e"].includes(tag[0].toLowerCase()))
-      .map(tag => tag[1]),
-  )
-}
-
-const getReactionTargetRefs = (event: TrustedEvent) => uniqueStrings(getEventRefTags(event, ["e", "a"]))
-
-type ZapRequestLike = {
-  pubkey?: string
-  content?: string
-  tags?: string[][]
-}
-
-const getZapRequest = (event: TrustedEvent): ZapRequestLike | undefined => {
-  const description = getTagValue("description", event.tags)
-  if (!description) return undefined
-
-  try {
-    const parsed = JSON.parse(description) as ZapRequestLike
-    if (!parsed || typeof parsed !== "object") return undefined
-
-    return {
-      ...parsed,
-      tags: Array.isArray(parsed.tags)
-        ? parsed.tags.filter(tag => Array.isArray(tag) && tag.every(value => typeof value === "string"))
-        : [],
-    }
-  } catch {
-    return undefined
-  }
-}
-
-const getZapRequestTags = (event: TrustedEvent) => getZapRequest(event)?.tags || []
-
-const getZapTargetRefs = (event: TrustedEvent) =>
-  uniqueStrings([
-    ...getEventRefTags(event, ["e", "a"]),
-    ...getZapRequestTags(event)
-      .filter(tag => ["e", "a"].includes(tag[0]))
-      .map(tag => tag[1]),
-  ])
-
-const getSocialTargetRefs = (event: TrustedEvent) => {
-  if (event.kind === REACTION) return getReactionTargetRefs(event)
-  if (event.kind === ZAP_RESPONSE) return getZapTargetRefs(event)
-  if (event.kind === NOTE || event.kind === COMMENT) return getReplyTargetRefs(event)
-
-  return []
-}
-
-const getZapActorPubkey = (event: TrustedEvent) =>
-  normalizePubkey(getZapRequest(event)?.pubkey || "") || event.pubkey
-
-const getSocialActorPubkey = (event: TrustedEvent) =>
-  event.kind === ZAP_RESPONSE ? getZapActorPubkey(event) : event.pubkey
-
-const getZapAmountMsats = (event: TrustedEvent) => {
-  const amount = Number.parseInt(getTagValue("amount", getZapRequestTags(event)) || "", 10)
-
-  return Number.isFinite(amount) && amount > 0 ? amount : 0
-}
-
-const getZapComment = (event: TrustedEvent) => getZapRequest(event)?.content?.trim() || ""
-
-const contentMentionsPubkey = (event: TrustedEvent, currentPubkey: string) => {
-  const mentionTagIndexes = event.tags.flatMap((tag, index) =>
-    tag[0] === "p" && normalizePubkey(tag[1] || "") === currentPubkey ? [index] : [],
-  )
-
-  return mentionTagIndexes.some(index => event.content.includes(`#[${index}]`))
-}
-
-const hasPubkeyMentionTag = (event: TrustedEvent, currentPubkey: string) =>
-  getPubkeyTagValues(event.tags).some(pubkey => normalizePubkey(pubkey) === currentPubkey)
-
-const getOwnedTarget = (
-  refs: string[],
-  eventsByRef: Map<string, TrustedEvent>,
-  currentPubkey: string,
-) =>
-  refs
-    .map(ref => eventsByRef.get(ref))
-    .find(event => normalizePubkey(event?.pubkey || "") === currentPubkey)
-
-const getSocialEventPath = (event: TrustedEvent) =>
-  getCommunityEventPath(event) || `/${makeEventShareEntity(event)}`
-
-const getSocialTargetLabel = (target: TrustedEvent | undefined) => {
-  if (!target) return "your post"
-  if (target.kind === NOTE) return "your note"
-  if (target.kind === COMMENT) return "your comment"
-  if (target.kind === THREAD) return "your thread"
-  if (target.kind === MESSAGE) return "your message"
-
-  return "your post"
-}
-
-const getReactionPreview = (events: TrustedEvent[], target: TrustedEvent) => {
-  const reactions = uniqueStrings(events.map(event => event.content).filter(content => content && content !== "+"))
-  const reactionLabel = reactions.length > 0 ? ` with ${reactions.slice(0, 3).join(" ")}` : ""
-  const countLabel = events.length > 1 ? `${events.length} people reacted` : "Reacted"
-
-  return `${countLabel}${reactionLabel} to ${getSocialTargetLabel(target)}.`
-}
-
-const getZapPreview = (events: TrustedEvent[], target: TrustedEvent) => {
-  const totalMsats = events.reduce((sum, event) => sum + getZapAmountMsats(event), 0)
-  const amountLabel = totalMsats > 0 ? ` ${fromMsats(totalMsats)} sats` : ""
-  const countLabel = events.length > 1 ? `${events.length} zaps sent` : "Zapped"
-  const comment = events.map(getZapComment).find(Boolean)
-
-  return `${countLabel}${amountLabel} to ${getSocialTargetLabel(target)}${comment ? `: ${comment}` : "."}`
-}
+const mapEventsById = (events: TrustedEvent[]) =>
+  new Map(events.map(event => [event.id, event]))
 
 const getTargetingEventTarget = (event: TrustedEvent): CommunityWriteTarget | undefined => {
   const targeting = parseTargetedPublication(event)
@@ -383,33 +196,6 @@ const getMembershipCommunityRef = (
       section.profileLists.some(profileList => profileList.address === address),
     ),
   )
-}
-
-const getRowReadState = ({
-  event,
-  path,
-  checked: checkedState = {},
-  currentPubkey,
-  communityBaselines = {},
-  history,
-}: {
-  event: TrustedEvent
-  path: string
-  checked?: Record<string, number>
-  currentPubkey?: string
-  communityBaselines?: Record<string, number>
-  history?: Partial<NotificationHistoryState>
-}) => {
-  const normalizedHistory = normalizeNotificationHistoryState(history)
-  const pathUnread = hasNotificationForPath({
-    checked: checkedState,
-    path,
-    latestEvent: event,
-    currentPubkey,
-    communityBaselines,
-  })
-
-  return Boolean(normalizedHistory.readAt[event.id]) || !pathUnread
 }
 
 const deriveLoadedNotificationEvents = ({
@@ -474,13 +260,8 @@ const deriveLoadedNotificationEvents = ({
 
 export const buildChatNotificationRows = ({
   chats,
-  checked: checkedState = {},
-  currentPubkey,
-  communityBaselines = {},
-  history,
   getPlaintext: getPlaintextForEvent = () => undefined,
 }: BuildChatNotificationRowsOptions): NotificationRow[] => {
-  const normalizedHistory = normalizeNotificationHistoryState(history)
   const rows: NotificationRow[] = []
 
   for (const chat of chats) {
@@ -488,21 +269,6 @@ export const buildChatNotificationRows = ({
     if (!event) continue
 
     const path = makeChatPath(chat.id)
-    const checkedAt = getNotificationCheckedAt({
-      checked: checkedState,
-      path,
-      currentPubkey,
-      communityBaselines,
-    })
-    const pathUnread = hasNotificationForPath({
-      checked: checkedState,
-      path,
-      latestEvent: event,
-      currentPubkey,
-      communityBaselines,
-    })
-    const historyRead = Boolean(normalizedHistory.readAt[event.id])
-    const read = historyRead || !pathUnread
     const preview = getEventPreview(event, getPlaintextForEvent(event))
 
     rows.push({
@@ -516,7 +282,6 @@ export const buildChatNotificationRows = ({
       path,
       readPath: path,
       createdAt: event.created_at,
-      read,
       searchText: buildNotificationSearchText(
         "chat",
         "direct message",
@@ -524,7 +289,6 @@ export const buildChatNotificationRows = ({
         chat.id,
         path,
         preview,
-        checkedAt,
       ),
     })
   }
@@ -536,16 +300,15 @@ export const buildCommunityNotificationRows = ({
   refs,
   events,
   profileListEvents = [],
-  checked: checkedState = {},
   currentPubkey,
-  communityBaselines = {},
   reportStates,
-  history,
   mutedPubkeys = [],
+  targetEvents = [],
 }: BuildCommunityNotificationRowsOptions): NotificationRow[] => {
   const rowsById = new Map<string, NotificationRow>()
   const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
   const muted = new Set(mutedPubkeys.map(normalizePubkey).filter(Boolean))
+  const targetEventsById = mapEventsById([...events, ...targetEvents])
 
   const addRow = ({
     ref,
@@ -614,14 +377,6 @@ export const buildCommunityNotificationRows = ({
       path,
       readPath,
       createdAt: event.created_at,
-      read: getRowReadState({
-        event,
-        path: readPath,
-        checked: checkedState,
-        currentPubkey,
-        communityBaselines,
-        history,
-      }),
       searchText: buildNotificationSearchText(
         "community",
         title,
@@ -639,11 +394,15 @@ export const buildCommunityNotificationRows = ({
     for (const event of events) {
       const message = readCommunityRoomMessage(event, ref.communityPubkey)
       if (message) {
+        const parentMessage = targetEventsById.get(message.parentMessageId)
+        const isReplyToViewer =
+          normalizedCurrentPubkey && normalizePubkey(parentMessage?.pubkey || "") === normalizedCurrentPubkey
+
         addRow({
           ref,
           event,
           path: makeCommunityRoomPath(ref.communityPubkey, message.roomRootId),
-          title: "New room message",
+          title: isReplyToViewer ? "New room reply" : "New room message",
           preview: getTextPreview(event, "Room message"),
           target: COMMUNITY_WRITE_TARGETS.roomMessage,
         })
@@ -684,6 +443,30 @@ export const buildCommunityNotificationRows = ({
           preview: getTextPreview(event, getTargetingEventTitle(event)),
           target,
         })
+        continue
+      }
+
+      const threadReply = readCommunityThreadReply(event, ref.communityPubkey)
+      if (threadReply) {
+        const parentReply = targetEventsById.get(threadReply.parentReplyId)
+        if (
+          !threadReply.parentReplyId ||
+          parentReply?.kind !== COMMENT ||
+          !normalizedCurrentPubkey ||
+          normalizePubkey(parentReply.pubkey) !== normalizedCurrentPubkey
+        ) {
+          continue
+        }
+
+        addRow({
+          ref,
+          event,
+          path: makeCommunityThreadPath(ref.communityPubkey, threadReply.threadId),
+          readPath: makeCommunityThreadPath(ref.communityPubkey),
+          title: "New thread comment reply",
+          preview: getTextPreview(event, "Thread comment reply"),
+          target: COMMUNITY_WRITE_TARGETS.comment,
+        })
       }
     }
 
@@ -703,26 +486,6 @@ export const buildCommunityNotificationRows = ({
   }
 
   return sortNotificationRows(Array.from(rowsById.values()))
-}
-
-const mergeRepoCheckedState = (
-  checkedState: Record<string, number> = {},
-  notificationSeen: Record<string, number> = {},
-) => {
-  const merged: Record<string, number> = {}
-
-  for (const [path, timestamp] of Object.entries(notificationSeen)) {
-    const normalized = normalizeChecked(Number(timestamp || 0))
-    if (path && normalized > 0) merged[path] = normalized
-  }
-
-  for (const [path, timestamp] of Object.entries(checkedState)) {
-    const normalized = normalizeChecked(Number(timestamp || 0))
-    if (!path || normalized <= 0) continue
-    merged[path] = Math.max(merged[path] || 0, normalized)
-  }
-
-  return merged
 }
 
 const getRepoEventTitle = (event: TrustedEvent) => {
@@ -757,27 +520,12 @@ const getRepoRowPath = (sectionPath: string, event: TrustedEvent) => {
 
 export const buildRepoWatchNotificationRows = ({
   candidates,
-  checked: checkedState = {},
-  notificationSeen = {},
-  currentPubkey,
-  communityBaselines = {},
-  history,
 }: BuildRepoWatchNotificationRowsOptions): NotificationRow[] => {
-  const mergedChecked = mergeRepoCheckedState(checkedState, notificationSeen)
-
   return sortNotificationRows(
     candidates.flatMap(candidate => {
       const event = candidate.latestEvent
       if (!event) return []
 
-      const read = getRowReadState({
-        event,
-        path: candidate.path,
-        checked: mergedChecked,
-        currentPubkey,
-        communityBaselines,
-        history,
-      })
       const title = getRepoEventTitle(event)
       const preview = getTextPreview(event, title)
 
@@ -794,200 +542,11 @@ export const buildRepoWatchNotificationRows = ({
           readPath: candidate.path,
           repoWatchSeenPath: candidate.path,
           createdAt: event.created_at,
-          read,
           searchText: buildNotificationSearchText("git", title, preview, event.pubkey, candidate.path),
         } satisfies NotificationRow,
       ]
     }),
   )
-}
-
-export const buildSocialNotificationRows = ({
-  events,
-  targetEvents = [],
-  checked: checkedState = {},
-  currentPubkey,
-  communityBaselines = {},
-  history,
-  mutedPubkeys = [],
-  validZapResponseIds,
-}: BuildSocialNotificationRowsOptions): NotificationRow[] => {
-  const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
-  if (!normalizedCurrentPubkey) return []
-
-  const muted = new Set(mutedPubkeys.map(normalizePubkey).filter(Boolean))
-  const targetEventsByRef = mapEventsByRef(targetEvents)
-  const rows: NotificationRow[] = []
-  const reactionGroups = new Map<string, {target: TrustedEvent; events: TrustedEvent[]}>()
-  const zapGroups = new Map<string, {target: TrustedEvent; events: TrustedEvent[]}>()
-
-  const getReadState = (event: TrustedEvent, path: string) =>
-    getRowReadState({
-      event,
-      path,
-      checked: checkedState,
-      currentPubkey,
-      communityBaselines,
-      history,
-    })
-
-  const addEventRow = ({
-    event,
-    title,
-    preview,
-    path = getSocialEventPath(event),
-  }: {
-    event: TrustedEvent
-    title: string
-    preview: string
-    path?: string
-  }) => {
-    rows.push({
-      id: `event:${event.id}`,
-      eventId: event.id,
-      actorPubkey: getSocialActorPubkey(event),
-      source: "social",
-      sourceLabel: getNotificationSourceLabel("social"),
-      title,
-      preview,
-      path,
-      readPath: path,
-      createdAt: event.created_at,
-      read: getReadState(event, path),
-      searchText: buildNotificationSearchText(
-        "social",
-        title,
-        preview,
-        event.pubkey,
-        getSocialActorPubkey(event),
-        path,
-      ),
-    })
-  }
-
-  const addGroupedEvent = (
-    groups: Map<string, {target: TrustedEvent; events: TrustedEvent[]}>,
-    keyPrefix: string,
-    event: TrustedEvent,
-    target: TrustedEvent,
-  ) => {
-    const key = `${keyPrefix}:${target.id}`
-    const group = groups.get(key)
-
-    if (group) {
-      group.events.push(event)
-    } else {
-      groups.set(key, {target, events: [event]})
-    }
-  }
-
-  for (const event of events) {
-    if (!SOCIAL_NOTIFICATION_KINDS.includes(event.kind)) continue
-
-    const actorPubkey = normalizePubkey(getSocialActorPubkey(event) || "")
-    if (!actorPubkey || actorPubkey === normalizedCurrentPubkey || muted.has(actorPubkey)) continue
-
-    if (event.kind === NOTE || event.kind === COMMENT) {
-      const target = getOwnedTarget(getReplyTargetRefs(event), targetEventsByRef, normalizedCurrentPubkey)
-
-      if (target) {
-        addEventRow({
-          event,
-          title: "New reply",
-          preview: getTextPreview(event, `Reply to ${getSocialTargetLabel(target)}`),
-        })
-        continue
-      }
-
-      if (
-        hasPubkeyMentionTag(event, normalizedCurrentPubkey) &&
-        (getReplyTargetRefs(event).length === 0 || contentMentionsPubkey(event, normalizedCurrentPubkey))
-      ) {
-        addEventRow({
-          event,
-          title: "New mention",
-          preview: getTextPreview(event, "Mentioned you"),
-        })
-      }
-
-      continue
-    }
-
-    if (event.kind === REACTION) {
-      const target = getOwnedTarget(getReactionTargetRefs(event), targetEventsByRef, normalizedCurrentPubkey)
-      if (target) addGroupedEvent(reactionGroups, "reaction", event, target)
-      continue
-    }
-
-    if (event.kind === ZAP_RESPONSE) {
-      if (validZapResponseIds && !validZapResponseIds.has(event.id)) continue
-
-      const target = getOwnedTarget(getZapTargetRefs(event), targetEventsByRef, normalizedCurrentPubkey)
-      if (target) addGroupedEvent(zapGroups, "zap", event, target)
-    }
-  }
-
-  for (const [key, group] of reactionGroups) {
-    const groupEvents = [...group.events].sort((a, b) => b.created_at - a.created_at)
-    const [latestEvent] = groupEvents
-    const path = getSocialEventPath(group.target)
-    const preview = getReactionPreview(groupEvents, group.target)
-
-    rows.push({
-      id: `social:${key}`,
-      eventId: latestEvent.id,
-      eventIds: groupEvents.map(event => event.id),
-      actorPubkey: getSocialActorPubkey(latestEvent),
-      source: "social",
-      sourceLabel: getNotificationSourceLabel("social"),
-      title: groupEvents.length > 1 ? "New reactions" : "New reaction",
-      preview,
-      path,
-      readPath: path,
-      createdAt: latestEvent.created_at,
-      read: groupEvents.every(event => getReadState(event, path)),
-      searchText: buildNotificationSearchText(
-        "social",
-        "reaction",
-        preview,
-        path,
-        group.target.id,
-        ...groupEvents.flatMap(event => [event.pubkey, event.content]),
-      ),
-    })
-  }
-
-  for (const [key, group] of zapGroups) {
-    const groupEvents = [...group.events].sort((a, b) => b.created_at - a.created_at)
-    const [latestEvent] = groupEvents
-    const path = getSocialEventPath(group.target)
-    const preview = getZapPreview(groupEvents, group.target)
-
-    rows.push({
-      id: `social:${key}`,
-      eventId: latestEvent.id,
-      eventIds: groupEvents.map(event => event.id),
-      actorPubkey: getSocialActorPubkey(latestEvent),
-      source: "social",
-      sourceLabel: getNotificationSourceLabel("social"),
-      title: groupEvents.length > 1 ? "New zaps" : "New zap",
-      preview,
-      path,
-      readPath: path,
-      createdAt: latestEvent.created_at,
-      read: groupEvents.every(event => getReadState(event, path)),
-      searchText: buildNotificationSearchText(
-        "social",
-        "zap",
-        preview,
-        path,
-        group.target.id,
-        ...groupEvents.flatMap(event => [event.pubkey, getSocialActorPubkey(event), getZapComment(event)]),
-      ),
-    })
-  }
-
-  return sortNotificationRows(rows)
 }
 
 export const getRouteNotificationSource = (path: string): NotificationRowSource => {
@@ -1039,7 +598,6 @@ export const buildRouteNotificationRows = ({
       path,
       readPath: path === "/chat" ? "/chat/*" : path,
       createdAt: 0,
-      read: false,
       searchText: buildNotificationSearchText(source, title, preview, path),
     })
   }
@@ -1070,6 +628,12 @@ const globalCommunityNotificationFilters = derived(
         definition: ref.definition,
         profileListEvents,
         target: COMMUNITY_WRITE_TARGETS.thread,
+        reportState,
+      })
+      const commentAuthors = getCommunityTargetWriterPubkeys({
+        definition: ref.definition,
+        profileListEvents,
+        target: COMMUNITY_WRITE_TARGETS.comment,
         reportState,
       })
       const calendarAuthors = COMMUNITY_CALENDAR_WRITE_TARGETS.flatMap(target =>
@@ -1104,6 +668,14 @@ const globalCommunityNotificationFilters = derived(
           }),
         )
       }
+      if (commentAuthors.length > 0) {
+        filters.push(
+          makeCommunityExclusiveFilter(ref.communityPubkey, [COMMENT], {
+            authors: commentAuthors,
+            limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
+          }),
+        )
+      }
       if (targetAuthors.length > 0) {
         filters.push(
           makeCommunityTargetingFilter(ref.communityPubkey, [EVENT_DATE, EVENT_TIME, ZAP_GOAL], {
@@ -1130,6 +702,29 @@ const globalCommunityNotificationEvents = deriveLoadedNotificationEvents({
   label: "global community notifications",
 })
 
+const getCommunityNotificationTargetRefs = (event: TrustedEvent) => {
+  const roomMessage = readCommunityRoomMessage(event)
+  if (roomMessage?.parentMessageId) return [roomMessage.parentMessageId]
+
+  const threadReply = readCommunityThreadReply(event)
+  if (threadReply?.parentReplyId) return [threadReply.parentReplyId]
+
+  return []
+}
+
+const globalCommunityNotificationTargetFilters = derived(globalCommunityNotificationEvents, $events =>
+  getIdFilters(uniqueStrings($events.flatMap(getCommunityNotificationTargetRefs))).map(filter => ({
+    ...filter,
+    limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
+  })),
+)
+
+const globalCommunityNotificationTargetEvents = deriveLoadedNotificationEvents({
+  filters: globalCommunityNotificationTargetFilters,
+  relays: globalCommunityNotificationRelays,
+  label: "global community notification targets",
+})
+
 const globalCommunityProfileListEvents = derived(
   [communityMemberProfileListEvents, communityModeratorProfileListEvents],
   ([$memberProfileListEvents, $moderatorProfileListEvents]) =>
@@ -1145,216 +740,60 @@ const globalCommunityNotificationRows = derived(
     pubkey,
     activeUserCommunityRefs,
     globalCommunityNotificationEvents,
+    globalCommunityNotificationTargetEvents,
     globalCommunityProfileListEvents,
-    checked,
-    effectiveCommunityNotificationBaselines,
     communityMemberReportStates,
-    notificationHistory,
   ],
   ([
     $pubkey,
     $activeUserCommunityRefs,
     $globalCommunityNotificationEvents,
+    $globalCommunityNotificationTargetEvents,
     $globalCommunityProfileListEvents,
-    $checked,
-    $effectiveCommunityNotificationBaselines,
     $communityMemberReportStates,
-    $notificationHistory,
   ]) =>
     buildCommunityNotificationRows({
       refs: $activeUserCommunityRefs,
       events: $globalCommunityNotificationEvents,
+      targetEvents: $globalCommunityNotificationTargetEvents,
       profileListEvents: $globalCommunityProfileListEvents,
-      checked: $checked,
       currentPubkey: $pubkey || undefined,
-      communityBaselines: $effectiveCommunityNotificationBaselines,
       reportStates: $communityMemberReportStates,
-      history: $notificationHistory,
       mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
     }),
 )
 
 const repoWatchNotificationRows = derived(
   [
-    pubkey,
     repoWatchNotificationCandidates,
-    checked,
-    repoWatchNotificationSeen,
-    effectiveCommunityNotificationBaselines,
-    notificationHistory,
   ],
-  ([
-    $pubkey,
-    $repoWatchNotificationCandidates,
-    $checked,
-    $repoWatchNotificationSeen,
-    $effectiveCommunityNotificationBaselines,
-    $notificationHistory,
-  ]) =>
+  ([$repoWatchNotificationCandidates]) =>
     buildRepoWatchNotificationRows({
       candidates: $repoWatchNotificationCandidates,
-      checked: $checked,
-      notificationSeen: $repoWatchNotificationSeen,
-      currentPubkey: $pubkey || undefined,
-      communityBaselines: $effectiveCommunityNotificationBaselines,
-      history: $notificationHistory,
-    }),
-)
-
-const socialNotificationFilters = derived(pubkey, $pubkey =>
-  $pubkey
-    ? [
-        {
-          kinds: SOCIAL_NOTIFICATION_KINDS,
-          "#p": [$pubkey],
-          limit: SOCIAL_NOTIFICATION_LOAD_LIMIT,
-        },
-      ]
-    : [],
-)
-
-const socialNotificationRelays = derived(pubkey, $pubkey =>
-  $pubkey ? normalizeRelayHints(getUserRelayHints(), getAuthorRelayHints($pubkey), APP_RELAYS) : [],
-)
-
-const socialNotificationEvents = deriveLoadedNotificationEvents({
-  filters: socialNotificationFilters,
-  relays: socialNotificationRelays,
-  label: "social notifications",
-})
-
-const socialNotificationTargetFilters = derived(socialNotificationEvents, $events =>
-  getIdFilters(uniqueStrings($events.flatMap(getSocialTargetRefs))).map(filter => ({
-    ...filter,
-    limit: SOCIAL_NOTIFICATION_LOAD_LIMIT,
-  })),
-)
-
-const socialNotificationTargetRelays = derived(
-  [pubkey, socialNotificationEvents],
-  ([$pubkey, $events]) =>
-    normalizeRelayHints(
-      $pubkey ? getAuthorRelayHints($pubkey) : [],
-      getUserRelayHints(),
-      APP_RELAYS,
-      $events.flatMap(event => getEventRelayHints(event)),
-    ),
-)
-
-const socialNotificationTargetEvents = deriveLoadedNotificationEvents({
-  filters: socialNotificationTargetFilters,
-  relays: socialNotificationTargetRelays,
-  label: "social notification target events",
-})
-
-const validSocialZapResponseIds = derived(
-  [socialNotificationEvents, socialNotificationTargetEvents],
-  ([$events, $targetEvents], set) => {
-    let cancelled = false
-    const targetEventsByRef = mapEventsByRef($targetEvents)
-    const zapPairs = $events
-      .filter(event => event.kind === ZAP_RESPONSE)
-      .flatMap(event => {
-        const target = getZapTargetRefs(event)
-          .map(ref => targetEventsByRef.get(ref))
-          .find(Boolean)
-
-        return target ? [{event, target}] : []
-      })
-
-    if (zapPairs.length === 0) {
-      set(new Set<string>())
-      return () => {
-        cancelled = true
-      }
-    }
-
-    Promise.all(
-      zapPairs.map(async ({event, target}) => {
-        try {
-          return (await getValidZap(event, target)) ? event.id : ""
-        } catch {
-          return ""
-        }
-      }),
-    ).then(ids => {
-      if (!cancelled) set(new Set(ids.filter(Boolean)))
-    })
-
-    return () => {
-      cancelled = true
-    }
-  },
-  new Set<string>(),
-)
-
-const socialNotificationRows = derived(
-  [
-    pubkey,
-    socialNotificationEvents,
-    socialNotificationTargetEvents,
-    checked,
-    effectiveCommunityNotificationBaselines,
-    notificationHistory,
-    validSocialZapResponseIds,
-  ],
-  ([
-    $pubkey,
-    $socialNotificationEvents,
-    $socialNotificationTargetEvents,
-    $checked,
-    $effectiveCommunityNotificationBaselines,
-    $notificationHistory,
-    $validSocialZapResponseIds,
-  ]) =>
-    buildSocialNotificationRows({
-      events: $socialNotificationEvents,
-      targetEvents: $socialNotificationTargetEvents,
-      checked: $checked,
-      currentPubkey: $pubkey || undefined,
-      communityBaselines: $effectiveCommunityNotificationBaselines,
-      history: $notificationHistory,
-      mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
-      validZapResponseIds: $validSocialZapResponseIds,
     }),
 )
 
 export const notificationCenterRows = derived(
   [
-    pubkey,
     chatsById,
-    checked,
-    effectiveCommunityNotificationBaselines,
-    notificationHistory,
     notifications,
     globalCommunityNotificationRows,
     repoWatchNotificationRows,
-    socialNotificationRows,
   ],
   ([
-    $pubkey,
     $chatsById,
-    $checked,
-    $effectiveCommunityNotificationBaselines,
-    $notificationHistory,
     $notifications,
     $globalCommunityNotificationRows,
     $repoWatchNotificationRows,
-    $socialNotificationRows,
   ]) => {
     const chatRows = buildChatNotificationRows({
       chats: $chatsById.values(),
-      checked: $checked,
-      currentPubkey: $pubkey || undefined,
-      communityBaselines: $effectiveCommunityNotificationBaselines,
-      history: $notificationHistory,
       getPlaintext: getPlaintext,
     })
     const sourceRows = [
       ...chatRows,
       ...$globalCommunityNotificationRows,
       ...$repoWatchNotificationRows,
-      ...$socialNotificationRows,
     ]
     const excludedPaths = new Set(sourceRows.flatMap(row => [row.path, row.readPath]))
 
@@ -1367,16 +806,12 @@ export const notificationCenterRows = derived(
   },
 )
 
-export const unreadNotificationCenterRows = derived(notificationCenterRows, rows =>
-  rows.filter(row => !row.read),
-)
-
-export const unreadNotificationCenterCount = derived(
-  unreadNotificationCenterRows,
-  rows => rows.length,
+export const latestNotificationCenterTimestamp = derived(notificationCenterRows, rows =>
+  rows.reduce((latest, row) => Math.max(latest, row.source === "chat" ? 0 : row.createdAt), 0),
 )
 
 export const hasNotificationCenterUnread = derived(
-  unreadNotificationCenterCount,
-  count => count > 0,
+  [latestNotificationCenterTimestamp, notificationReadState],
+  ([$latestNotificationCenterTimestamp, $notificationReadState]) =>
+    $latestNotificationCenterTimestamp > $notificationReadState.lastReadTimestamp,
 )

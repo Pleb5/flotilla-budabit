@@ -1,8 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {formatTimestamp, now} from "@welshman/lib"
+  import {formatTimestamp} from "@welshman/lib"
   import Bell from "@assets/icons/bell.svg?dataurl"
-  import Check from "@assets/icons/check.svg?dataurl"
   import Filter from "@assets/icons/filter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -12,16 +11,12 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
-  import {setCheckedAt} from "@app/util/notifications"
   import {clearModals} from "@app/util/modal"
-  import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
+  import {markNotificationsRead} from "@app/util/notification-center"
   import {
-    markNotificationHistoryIdsRead,
-    NOTIFICATION_HISTORY_LIMIT,
-    notificationHistory,
-    rememberNotificationHistoryIds,
-  } from "@app/util/notification-center"
-  import {notificationCenterRows} from "@app/util/notification-sources"
+    latestNotificationCenterTimestamp,
+    notificationCenterRows,
+  } from "@app/util/notification-sources"
   import {
     filterNotificationRows,
     NOTIFICATION_ROW_FILTERS,
@@ -30,51 +25,16 @@
   } from "@app/util/notification-display"
 
   let term = $state("")
-  let rowFilter = $state<NotificationRowFilter>("all")
+  let rowFilter = $state<NotificationRowFilter | "">("")
   let filterOpen = $state(false)
 
   const rows = $derived(filterNotificationRows($notificationCenterRows, {filter: rowFilter, term}))
-  const unreadRows = $derived(rows.filter(row => !row.read))
-  const hasUnread = $derived($notificationCenterRows.some(row => !row.read))
-
-  const getRowEventIds = (rows: NotificationRow[]) =>
-    Array.from(new Set(rows.flatMap(row => row.eventIds || (row.eventId ? [row.eventId] : []))))
 
   $effect(() => {
-    const knownIds = new Set($notificationHistory.ids)
-    const missingIds = getRowEventIds($notificationCenterRows)
-      .slice(0, NOTIFICATION_HISTORY_LIMIT)
-      .filter(id => !knownIds.has(id))
-    if (missingIds.length > 0) rememberNotificationHistoryIds(missingIds)
+    if ($latestNotificationCenterTimestamp > 0) markNotificationsRead($latestNotificationCenterTimestamp)
   })
 
-  const markRowsRead = (rows: NotificationRow[]) => {
-    const timestamp = now()
-    const eventIds = getRowEventIds(rows)
-    if (eventIds.length > 0) {
-      rememberNotificationHistoryIds(eventIds)
-      markNotificationHistoryIdsRead(eventIds, timestamp)
-    }
-
-    for (const path of new Set(rows.map(row => row.readPath).filter(Boolean))) {
-      setCheckedAt(path, timestamp)
-    }
-
-    const repoSeenUpdates = Object.fromEntries(
-      Array.from(new Set(rows.map(row => row.repoWatchSeenPath).filter(Boolean))).map(path => [
-        path,
-        timestamp,
-      ]),
-    )
-    if (Object.keys(repoSeenUpdates).length > 0) {
-      updateRepoWatchNotificationSeen(repoSeenUpdates).catch(error => {
-        console.warn("[notifications] Failed to sync repo watch seen timestamp", error)
-      })
-    }
-  }
-
   const openRow = (row: NotificationRow) => {
-    markRowsRead([row])
     clearModals()
     goto(row.path)
   }
@@ -89,11 +49,7 @@
       </span>
     {/snippet}
     {#snippet info()}
-      {#if hasUnread}
-        Review unread activity without clearing it just by opening this modal.
-      {:else}
-        Your notification history will appear here as events are indexed.
-      {/if}
+      Your notification history will appear here as events are indexed.
     {/snippet}
   </ModalHeader>
 
@@ -134,13 +90,6 @@
       {/if}
     </div>
 
-    <Button
-      class="btn btn-neutral btn-sm shrink-0"
-      disabled={unreadRows.length === 0}
-      onclick={() => markRowsRead(unreadRows)}>
-      <Icon icon={Check} size={4} />
-      Mark read
-    </Button>
   </div>
 
   <div class="scroll-container -mx-2 min-h-0 flex-1 overflow-auto px-2">
@@ -155,10 +104,6 @@
               type="button"
               class="card2 flex items-start gap-3 bg-alt p-3 text-left transition-colors hover:bg-base-200"
               onclick={() => openRow(row)}>
-              <div
-                class="relative mt-2 h-2 w-2 rounded-full"
-                class:bg-primary={!row.read}
-                class:bg-base-300={row.read}></div>
               {#if row.actorPubkey}
                 <ProfileCircle pubkey={row.actorPubkey} size={8} />
               {:else}
@@ -178,9 +123,6 @@
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
                     <span class="badge badge-neutral badge-sm">{row.sourceLabel}</span>
-                    <span class="badge badge-sm {row.read ? 'badge-neutral' : 'badge-primary'}">
-                      {row.read ? "read" : "unread"}
-                    </span>
                   </div>
                 </div>
                 <p class="mt-2 line-clamp-2 text-sm">{row.preview}</p>

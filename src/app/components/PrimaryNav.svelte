@@ -15,7 +15,11 @@
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import NotificationsModal from "@app/components/NotificationsModal.svelte"
   import {pushModal} from "@app/util/modal"
-  import {hasNotificationCenterUnread} from "@app/util/notification-sources"
+  import {
+    hasNotificationCenterUnread,
+    latestNotificationCenterTimestamp,
+  } from "@app/util/notification-sources"
+  import {rememberLatestNotificationTimestamp} from "@app/util/notification-center"
   import Git from "@assets/icons/git.svg?dataurl"
 
   type Props = {
@@ -33,6 +37,10 @@
     else pushModal(LogIn)
   }
   const hasTopLevelNotification = $derived($hasNotificationCenterUnread)
+
+  $effect(() => {
+    rememberLatestNotificationTimestamp($latestNotificationCenterTimestamp)
+  })
 </script>
 
 <div
