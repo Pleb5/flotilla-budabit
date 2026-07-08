@@ -46,6 +46,7 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, intended phase diff, and `git log --oneline -10 --decorate`.
+- Phase 1 commit `a4aa1fb1` was pushed to `origin/dev`.
 
 ## Decisions
 
@@ -63,11 +64,11 @@
 - Branch: `dev`, tracking `origin/dev`, ahead by three commits at workflow startup before Phase 1 commit.
 - Existing completed durable workflow files were replaced for this workflow.
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/components/PrimaryNav.svelte`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-center.ts`, and `src/app/util/notification-center.test.ts`.
-- Phase 1 is verified and ready for commit/push as the transition to Phase 2.
+- Phase 1 is verified, committed, pushed, and closed.
 
 ## Next Action
 
-- Commit and push Phase 1, reread this checkpoint, then begin Phase 2 startup by rereading this checkpoint and the full session plan and inspecting current git state.
+- Phase 2 startup: reread this checkpoint and the full session plan, inspect current git state, then implement core event-backed notification rows.
 
 ## Verification
 
@@ -79,10 +80,10 @@
 - Phase 1 project check passed.
 - Phase 1 whitespace check passed.
 - Phase 1 pre-closeout inspected status, intended diff, and recent commits.
+- Phase 1 commit `a4aa1fb1` was pushed to `origin/dev`.
 
 ## Risks Or Blockers
 
-- First phase push will also publish the three existing local commits currently ahead of `origin/dev`.
 - No current blocker.
 
 ## Files
