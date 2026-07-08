@@ -12,15 +12,16 @@
 
 ## Current Phase
 
-- Phase 2: Host Widget Frame Lifecycle Recovery
+- Phase 3: Calendar Widget Resume Retry
 
 ## Phase Exit Criteria
 
-- `WidgetFrame` detects iframe load stalls and retries with bounded attempts.
-- `WidgetFrame` retries unloaded or uninitialized widgets on browser resume/focus/online without weakening origin or sandbox behavior.
-- Widget context and theme posting still happens only after load/bridge setup and remains compatible with the existing `widget:ready` handshake.
-- Visible fallback state gives users a retry path after bounded automatic retry attempts.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- The calendar widget tracks last successful data load or failed load state for capabilities, shared config, and calendar events.
+- The widget retries stale or failed data loads on `pageshow`, visible `visibilitychange`, `focus`, and `online` when it has a current community context.
+- Retry logic respects `contextSessionId` / `contextVersion` stale-response guards already present in the widget.
+- The widget avoids duplicate concurrent reloads where practical.
+- Calendar widget verification passes.
+- Phase 3 changes are committed and pushed in the calendar widget repo, the Budabit checkpoint is advanced and pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -34,6 +35,14 @@
   - Kept installed/enabled/curated slot selection semantics unchanged.
 - Phase 1 verification passed:
   - `pnpm vitest run src/app/extensions/community-widget-slots.test.ts --project=main` passed: 1 file, 8 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+- Phase 2 implemented host widget frame lifecycle recovery:
+  - Added an iframe load watchdog in `WidgetFrame.svelte` with bounded automatic retries and cache-busted retry URLs.
+  - Added `pageshow`, `focus`, `online`, and visible `visibilitychange` recovery hooks for unloaded or uninitialized frames.
+  - Preserved existing iframe sandbox and origin checks; context/theme posting still happens through the existing load/ready bridge path.
+  - Added a visible `Retry widget` fallback after automatic retries are exhausted.
+- Phase 2 verification passed:
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
 
@@ -52,10 +61,12 @@
 - Known unrelated dirty Budabit files at startup: `src/app/core/community-renunciations.test.ts`, `src/app/core/community-renunciations.ts`, `src/app/util/notifications.test.ts`, `src/app/util/notifications.ts`, and `src/routes/c/[community]/access/+page.svelte`.
 - Additional unrelated dirty Budabit files observed before Phase 1 closeout: `src/app/core/community-live.ts`, `src/app/core/requests.ts`, `src/routes/c/[community]/+layout.svelte`, `src/routes/c/[community]/calendar/+page.svelte`, `src/routes/c/[community]/goals/+page.svelte`, `src/routes/c/[community]/rooms/[room]/+page.svelte`, `src/routes/c/[community]/threads/+page.svelte`, and `src/app/core/community-live.test.ts`.
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/extensions/community-widget-slots.ts`, `src/app/extensions/community-widget-slots.test.ts`, `src/app/components/community/CommunityHomeWidgetSlot.svelte`, and `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`.
+- Additional unrelated dirty Budabit files observed before Phase 2 closeout: `src/app/core/community-feeds.ts`, `src/app/core/community-feeds.test.ts`, `src/routes/c/[community]/calendar/[event]/+page.svelte`, `src/routes/c/[community]/goals/[goal]/+page.svelte`, and `src/routes/c/[community]/threads/[thread]/+page.svelte`.
+- Phase 2 changed files: `docs/session-checkpoint.md` and `src/app/components/WidgetFrame.svelte`.
 
 ## Next Action
 
-- Start Phase 2 by adding a bounded iframe load watchdog and retry path to `src/app/components/WidgetFrame.svelte`.
+- Start Phase 3 by adding retry bookkeeping and browser lifecycle listeners to `/home/johnd/Work/budabit-calendar-widget/src/App.svelte`.
 
 ## Verification
 
@@ -67,6 +78,11 @@
 - Phase 1 project check passed.
 - Phase 1 whitespace check passed.
 - Phase 1 pre-closeout inspected `git status --short --branch`, the intended phase diff, and `git log --oneline -10`.
+- Phase 1 commit `30d75c26` was pushed to `origin/dev`.
+- Phase 2 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch`.
+- Phase 2 project check passed.
+- Phase 2 whitespace check passed.
+- Phase 2 pre-closeout inspected `git status --short --branch`, the intended phase diff, and `git log --oneline -10`.
 
 ## Risks Or Blockers
 

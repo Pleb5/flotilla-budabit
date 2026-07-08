@@ -42,10 +42,19 @@
   let lastThemeBackgroundPosted = ""
   let surfaceObserver: ResizeObserver | undefined
   let themePostFrame: number | undefined
+  let loadWatchdogTimer: ReturnType<typeof setTimeout> | undefined
   let bridgeExtension: LoadedWidgetExtension | undefined
   let readyOrigin = ""
+  let loadFailed = $state(false)
+  let loadAttempt = $state(0)
+  let autoRetryCount = 0
+  let lastLifecycleRetryAt = 0
+  let lastAppUrl = ""
   let requestedHeight: number | undefined = $state()
   const maxRequestedHeight = 2400
+  const iframeLoadTimeoutMs = 15_000
+  const maxAutomaticRetries = 2
+  const lifecycleRetryDebounceMs = 5_000
   const widgetLineId = $derived(getWidgetLineId(widget))
   const appTheme = $derived($theme === "dark" ? "dark" : "light")
   const appUrls = $derived(
@@ -54,6 +63,80 @@
     ),
   )
   const appUrl = $derived(appUrls[appUrlIndex])
+  const frameSrc = $derived.by(() => {
+    if (!appUrl) return ""
+    if (loadAttempt <= 0) return appUrl
+
+    const url = new URL(appUrl)
+    url.searchParams.set("_budabitWidgetRetry", String(loadAttempt))
+    return url.toString()
+  })
+
+  const clearLoadWatchdog = () => {
+    if (!loadWatchdogTimer) return
+
+    clearTimeout(loadWatchdogTimer)
+    loadWatchdogTimer = undefined
+  }
+
+  const detachBridge = () => {
+    bridge?.detach()
+    bridge = undefined
+    bridgeExtension = undefined
+  }
+
+  const resetFrameStateForLoad = () => {
+    loaded = false
+    loadFailed = false
+    requestedHeight = undefined
+    initSent = false
+    lastCommunityContextKey = ""
+    readyOrigin = ""
+    detachBridge()
+  }
+
+  const retryIframeLoad = (manual = false) => {
+    if (!appUrl) return
+
+    if (manual) {
+      autoRetryCount = 0
+    } else if (autoRetryCount >= maxAutomaticRetries) {
+      loadFailed = true
+      clearLoadWatchdog()
+      return
+    } else {
+      autoRetryCount += 1
+    }
+
+    logCommunityWidgetDebug("widget frame retrying iframe load", {
+      widgetId: widgetLineId,
+      appUrl,
+      loadAttempt: loadAttempt + 1,
+      autoRetryCount,
+      manual,
+    })
+    resetFrameStateForLoad()
+    loadAttempt += 1
+  }
+
+  const recoverWidgetFrame = () => {
+    if (!appUrl) return
+    if (loaded && bridge && initSent) return
+
+    if (loaded && bridge && !initSent) {
+      sendContext(readyOrigin)
+      return
+    }
+
+    const now = Date.now()
+    if (now - lastLifecycleRetryAt < lifecycleRetryDebounceMs) return
+    lastLifecycleRetryAt = now
+    retryIframeLoad(loadFailed)
+  }
+
+  const recoverVisibleWidgetFrame = () => {
+    if (document.visibilityState === "visible") recoverWidgetFrame()
+  }
 
   const getUserContext = () => {
     const userPubkey = get(pubkey)
@@ -340,11 +423,14 @@
   }
 
   const onIframeLoad = () => {
+    clearLoadWatchdog()
     loaded = true
+    loadFailed = false
+    autoRetryCount = 0
     requestedHeight = undefined
     initSent = false
     lastCommunityContextKey = ""
-    bridge?.detach()
+    detachBridge()
 
     if (iframeRef?.contentWindow && appUrl) {
       const origin = readyOrigin && isAllowedWidgetOrigin(readyOrigin) ? readyOrigin : getAppOrigin()
@@ -367,10 +453,27 @@
   }
 
   const onIframeError = () => {
+    clearLoadWatchdog()
     if (appUrlIndex < appUrls.length - 1) {
       loaded = false
+      loadFailed = false
       appUrlIndex += 1
+      return
     }
+
+    retryIframeLoad()
+  }
+
+  const onIframeLoadStalled = () => {
+    if (loaded) return
+
+    logCommunityWidgetDebug("widget frame iframe load stalled", {
+      widgetId: widgetLineId,
+      appUrl,
+      frameSrc,
+      autoRetryCount,
+    })
+    retryIframeLoad()
   }
 
   const handleMessage = (event: MessageEvent) => {
@@ -401,8 +504,36 @@
     }
   }
 
+  $effect(() => {
+    const src = frameSrc
+    if (!src || loaded) {
+      clearLoadWatchdog()
+      return
+    }
+
+    clearLoadWatchdog()
+    loadWatchdogTimer = setTimeout(onIframeLoadStalled, iframeLoadTimeoutMs)
+
+    return clearLoadWatchdog
+  })
+
+  $effect(() => {
+    const currentAppUrl = appUrl || ""
+    if (currentAppUrl === lastAppUrl) return
+
+    lastAppUrl = currentAppUrl
+    autoRetryCount = 0
+    loadAttempt = 0
+    loadFailed = false
+    if (currentAppUrl) resetFrameStateForLoad()
+  })
+
   onMount(() => {
     window.addEventListener("message", handleMessage)
+    window.addEventListener("pageshow", recoverWidgetFrame)
+    window.addEventListener("focus", recoverWidgetFrame)
+    window.addEventListener("online", recoverWidgetFrame)
+    document.addEventListener("visibilitychange", recoverVisibleWidgetFrame)
 
     if (typeof ResizeObserver !== "undefined" && frameWrapperRef) {
       surfaceObserver = new ResizeObserver(() => scheduleThemePost())
@@ -438,11 +569,15 @@
 
   onDestroy(() => {
     window.removeEventListener("message", handleMessage)
+    window.removeEventListener("pageshow", recoverWidgetFrame)
+    window.removeEventListener("focus", recoverWidgetFrame)
+    window.removeEventListener("online", recoverWidgetFrame)
+    document.removeEventListener("visibilitychange", recoverVisibleWidgetFrame)
     surfaceObserver?.disconnect()
+    clearLoadWatchdog()
     if (themePostFrame !== undefined) cancelAnimationFrame(themePostFrame)
     bridge?.post("widget:unmounting", {timestamp: Date.now()})
-    bridge?.detach()
-    bridgeExtension = undefined
+    detachBridge()
   })
 </script>
 
@@ -452,13 +587,22 @@
   style={frameWrapperStyle}>
   {#if !loaded}
     <div class="absolute inset-0 z-10 flex items-center justify-center bg-base-200">
-      <span class="loading loading-spinner loading-lg"></span>
+      {#if loadFailed}
+        <div class="flex max-w-sm flex-col items-center gap-3 p-4 text-center text-sm">
+          <p class="opacity-75">This widget is taking too long to load.</p>
+          <button type="button" class="btn btn-primary btn-sm" onclick={() => retryIframeLoad(true)}>
+            Retry widget
+          </button>
+        </div>
+      {:else}
+        <span class="loading loading-spinner loading-lg"></span>
+      {/if}
     </div>
   {/if}
   {#if appUrl}
     <iframe
       bind:this={iframeRef}
-      src={appUrl}
+      src={frameSrc}
       title={widget.content || widget.identifier}
       class={frameClass}
       style="background: transparent;"
