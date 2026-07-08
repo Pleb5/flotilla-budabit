@@ -15,7 +15,7 @@
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import NotificationsModal from "@app/components/NotificationsModal.svelte"
   import {pushModal} from "@app/util/modal"
-  import {notifications} from "@app/util/notifications"
+  import {hasNotificationCenterUnread} from "@app/util/notification-sources"
   import Git from "@assets/icons/git.svg?dataurl"
 
   type Props = {
@@ -32,7 +32,7 @@
     if ($pubkey) goto("/chat")
     else pushModal(LogIn)
   }
-  const hasTopLevelNotification = $derived($notifications.size > 0)
+  const hasTopLevelNotification = $derived($hasNotificationCenterUnread)
 </script>
 
 <div

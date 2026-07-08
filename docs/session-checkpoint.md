@@ -13,21 +13,20 @@
 
 ## Current Phase
 
-- Phase 2: Core Notification Event Sources And Modal Rows
+- Phase 3: Global Community And Git Notification Coverage
 
 ## Phase Exit Criteria
 
-- Add reusable notification source/inference modules that operate on `TrustedEvent` and existing stores rather than duplicating event data.
-- DM/chat notification events appear in the modal with actor, timestamp, preview, path, read/unread state, and search text.
-- Existing active badge paths are represented in the modal as interim route notifications when no event-backed row is available, without persisting rich records.
-- Modal rows are compact, readable on desktop/mobile, and clicking a row marks the related event/path read explicitly.
-- Search filters notification rows by actor/source/preview/path text using `createSearch` or equivalent existing helper.
-- Filter popover controls at least All, Unread, Read, Chats, Git, Communities, and Other.
-- Bell unread state starts using the notification-center unread derivation when event-backed rows exist, while still reflecting existing unread path badges during migration.
-- Focused tests cover row derivation/search/read filtering where practical.
+- Community notification derivation uses `activeUserCommunityRefs` and `communityMemberReportStates`, not only active-community stores.
+- Community source derivation applies `canWriteCommunityTarget`, `isCommunityPersonBanned`, and `getCommunityCensorReason` or equivalent existing moderation helpers before surfacing rows.
+- Community notification rows include community/source context and link to the correct room/thread/calendar/goal/admin/membership route.
+- Repo-watch notification rows show issues/PRs/comments/status/assignments from watched repos with readable labels and target paths.
+- Repo notifications continue to respect repo-watch settings and update both local checked state and `repoWatchNotificationSeen` where applicable.
+- Top-level bell reflects global community and git unread state; lower-level badges still work.
+- Focused tests cover global community filtering and repo notification display/read behavior where practical.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -47,6 +46,18 @@
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, intended phase diff, and `git log --oneline -10 --decorate`.
 - Phase 1 commit `a4aa1fb1` was pushed to `origin/dev`.
+- Phase 1 closeout checkpoint commit `2bc74edb` was pushed to `origin/dev`.
+- Phase 2 implemented core notification event rows:
+  - Added `src/app/util/notification-display.ts` with row types, source/read/search filters, `createSearch`-backed search, and stable sorting.
+  - Added `src/app/util/notification-sources.ts` with `TrustedEvent`-backed DM/chat rows, route fallback rows for unread paths without event rows, and derived unread row stores for the bell.
+  - Added focused `src/app/util/notification-sources.test.ts` coverage for DM rows, path/history read-state handling, route fallback rows, and filters/search.
+  - Updated `src/app/components/NotificationsModal.svelte` to render compact row cards with actor, timestamp, preview, path, source/read badges, source filters, and explicit event/path read handling on row click or mark-visible-read.
+  - Updated `src/app/components/PrimaryNav.svelte` so the bell uses the notification-center unread derivation instead of the raw unread path set.
+- Phase 2 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts --project=main` passed: 2 files, 7 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Pre-closeout inspected `git status --short --branch`, intended phase source diff, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -65,10 +76,12 @@
 - Existing completed durable workflow files were replaced for this workflow.
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/components/PrimaryNav.svelte`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-center.ts`, and `src/app/util/notification-center.test.ts`.
 - Phase 1 is verified, committed, pushed, and closed.
+- Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/components/PrimaryNav.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
+- Phase 2 is verified and closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 2 startup: reread this checkpoint and the full session plan, inspect current git state, then implement core event-backed notification rows.
+- Phase 3 startup: reread this checkpoint and the full session plan, inspect current git state, then implement global community and git notification coverage.
 
 ## Verification
 
@@ -81,6 +94,11 @@
 - Phase 1 whitespace check passed.
 - Phase 1 pre-closeout inspected status, intended diff, and recent commits.
 - Phase 1 commit `a4aa1fb1` was pushed to `origin/dev`.
+- Phase 2 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch` and `git log --oneline -10 --decorate`.
+- Phase 2 focused test command passed.
+- Phase 2 project check passed.
+- Phase 2 whitespace check passed.
+- Phase 2 pre-closeout inspected status, intended diff, and recent commits.
 
 ## Risks Or Blockers
 
@@ -94,3 +112,6 @@
 - `src/app/components/NotificationsModal.svelte`
 - `src/app/util/notification-center.ts`
 - `src/app/util/notification-center.test.ts`
+- `src/app/util/notification-display.ts`
+- `src/app/util/notification-sources.ts`
+- `src/app/util/notification-sources.test.ts`
