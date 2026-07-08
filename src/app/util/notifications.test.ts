@@ -118,6 +118,16 @@ describe("notifications", () => {
         ["E", "room-two"],
       ],
     })
+    const legacyLowercaseRoomTag = makeEvent({
+      id: "legacy-lowercase-room-tag",
+      pubkey: incomingPubkey,
+      created_at: 18,
+      kind: 9,
+      tags: [
+        ["h", nip19.npubEncode(communityPubkey)],
+        ["e", "room-legacy"],
+      ],
+    })
     const banned = makeEvent({
       id: "banned-message",
       pubkey: bannedPubkey,
@@ -141,12 +151,21 @@ describe("notifications", () => {
 
     expect(
       getRoomMessageNotificationCandidates({
-        events: [roomOneOlder, roomOneNewer, ownLatest, roomTwo, banned, otherCommunity],
+        events: [
+          roomOneOlder,
+          roomOneNewer,
+          ownLatest,
+          roomTwo,
+          legacyLowercaseRoomTag,
+          banned,
+          otherCommunity,
+        ],
         communityPubkey,
         currentPubkey,
         allowPubkey: candidatePubkey => candidatePubkey !== bannedPubkey,
       }),
     ).toEqual([
+      {path: `/c/${communityPubkey}/rooms/room-legacy`, latestEvent: legacyLowercaseRoomTag},
       {path: `/c/${communityPubkey}/rooms/room-one`, latestEvent: roomOneNewer},
       {path: `/c/${communityPubkey}/rooms/room-two`, latestEvent: roomTwo},
     ])
@@ -418,6 +437,71 @@ describe("notifications", () => {
     })
 
     expect(get(effectiveCommunityNotificationBaselines)[baselineKey]).toBe(123)
+  })
+
+  it("does not advance community baselines on later visits", async () => {
+    const {
+      communityNotificationBaselines,
+      effectiveCommunityNotificationBaselines,
+      ensureCommunityNotificationBaseline,
+      getCommunityNotificationBaselineKey,
+      hasNotificationForPath,
+    } = await import("./notifications")
+    const viewerPubkey = "2".repeat(64)
+    const communityPubkey = "3".repeat(64)
+    const authorPubkey = "4".repeat(64)
+    const path = `/c/${communityPubkey}/rooms/room-one`
+    const baselineKey = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
+
+    await communityNotificationBaselines.ready
+    communityNotificationBaselines.set({[baselineKey]: 100})
+
+    expect(
+      ensureCommunityNotificationBaseline({
+        viewerPubkey,
+        communityPubkey,
+        timestamp: 200,
+      }),
+    ).toBe(false)
+    expect(get(effectiveCommunityNotificationBaselines)[baselineKey]).toBe(100)
+    expect(
+      hasNotificationForPath({
+        checked: {},
+        path,
+        latestEvent: makeEvent({pubkey: authorPubkey, created_at: 150}),
+        currentPubkey: viewerPubkey,
+        communityBaselines: get(effectiveCommunityNotificationBaselines),
+      }),
+    ).toBe(true)
+  })
+
+  it("uses explicit path checks instead of later community baselines", async () => {
+    const {getCommunityNotificationBaselineKey, getNotificationCheckedAt, hasNotificationForPath} =
+      await import("./notifications")
+    const viewerPubkey = "5".repeat(64)
+    const communityPubkey = "6".repeat(64)
+    const authorPubkey = "7".repeat(64)
+    const path = `/c/${communityPubkey}/rooms/room-one`
+    const baselineKey = getCommunityNotificationBaselineKey(viewerPubkey, communityPubkey)
+    const communityBaselines = {[baselineKey]: 200}
+
+    expect(
+      getNotificationCheckedAt({
+        checked: {[path]: 100},
+        path,
+        currentPubkey: viewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(100)
+    expect(
+      hasNotificationForPath({
+        checked: {[path]: 100},
+        path,
+        latestEvent: makeEvent({pubkey: authorPubkey, created_at: 150}),
+        currentPubkey: viewerPubkey,
+        communityBaselines,
+      }),
+    ).toBe(true)
   })
 
   it("does not apply community baselines to non-community paths", async () => {

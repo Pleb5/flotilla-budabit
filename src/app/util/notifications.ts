@@ -50,8 +50,6 @@ export const communityNotificationBaselines = synced<Record<string, number>>({
   storage: kv,
 })
 
-const optimisticCommunityNotificationBaselines = writable<Record<string, number>>({})
-
 export const deriveChecked = (key: string) => derived(checked, prop(key))
 
 export const setChecked = (key: string) => checked.update(state => ({...state, [key]: now()}))
@@ -131,12 +129,9 @@ export const mergeCommunityNotificationBaselines = (
 }
 
 export const effectiveCommunityNotificationBaselines = derived(
-  [communityNotificationBaselines, optimisticCommunityNotificationBaselines],
-  ([$communityNotificationBaselines, $optimisticCommunityNotificationBaselines]) =>
-    mergeCommunityNotificationBaselines(
-      $communityNotificationBaselines,
-      $optimisticCommunityNotificationBaselines,
-    ),
+  communityNotificationBaselines,
+  $communityNotificationBaselines =>
+    mergeCommunityNotificationBaselines($communityNotificationBaselines),
 )
 
 const persistedNotificationStateReady = readable(false, set => {
@@ -196,22 +191,17 @@ export const ensureCommunityNotificationBaseline = ({
 
   let added = false
 
-  optimisticCommunityNotificationBaselines.update(state => {
-    if (normalizeChecked(Number(state[key] || 0)) >= normalizedTimestamp) return state
-
-    added = true
-    return {...state, [key]: normalizedTimestamp}
-  })
-
-  const persist = () => {
+  const addBaselineIfMissing = () => {
     communityNotificationBaselines.update(state => {
-      if (normalizeChecked(Number(state[key] || 0)) >= normalizedTimestamp) return state
+      if (normalizeChecked(Number(state[key] || 0)) > 0) return state
 
+      added = true
       return {...state, [key]: normalizedTimestamp}
     })
   }
 
-  void communityNotificationBaselines.ready.then(persist, persist)
+  addBaselineIfMissing()
+  void communityNotificationBaselines.ready.then(addBaselineIfMissing, addBaselineIfMissing)
 
   return added
 }
@@ -245,11 +235,7 @@ export const getNotificationCheckedAt = ({
   currentPubkey,
   communityBaselines = {},
 }: NotificationCheckedAtOptions) => {
-  let checkedAt = getCommunityNotificationBaselineForPath({
-    path,
-    currentPubkey,
-    communityBaselines,
-  })
+  let checkedAt = 0
 
   for (const [entryPath, timestamp] of Object.entries(checkedState)) {
     if (entryPath.endsWith(":seen")) continue
@@ -262,7 +248,14 @@ export const getNotificationCheckedAt = ({
     if (isMatch) checkedAt = Math.max(checkedAt, normalizeChecked(timestamp))
   }
 
-  return checkedAt
+  return (
+    checkedAt ||
+    getCommunityNotificationBaselineForPath({
+      path,
+      currentPubkey,
+      communityBaselines,
+    })
+  )
 }
 
 export const hasNotificationForPath = ({
@@ -359,10 +352,10 @@ const targetedPublicationMatchesCommunity = (
 
   return Boolean(
     targeting &&
-      kinds.includes(targeting.kind) &&
-      targeting.communities.some(
-        community => normalizePubkey(community.pubkey) === normalizedCommunityPubkey,
-      ),
+    kinds.includes(targeting.kind) &&
+    targeting.communities.some(
+      community => normalizePubkey(community.pubkey) === normalizedCommunityPubkey,
+    ),
   )
 }
 
@@ -413,7 +406,9 @@ export const getTargetedPublicationRootNotificationCandidates = ({
       continue
     }
 
-    const root = rootEvents.find(event => rootMatchesTargetingEvent(event, targetingEvent, targetKinds))
+    const root = rootEvents.find(event =>
+      rootMatchesTargetingEvent(event, targetingEvent, targetKinds),
+    )
     if (!root) continue
     if (normalizedCurrentPubkey && normalizePubkey(root.pubkey) === normalizedCurrentPubkey)
       continue
@@ -626,7 +621,9 @@ const makeTargetedPublicationRootNotificationCandidates = ({
         return
       }
 
-      const targetingFilters = [makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, targetKinds)]
+      const targetingFilters = [
+        makeCommunityTargetingFilter($activeCommunityDefinition.pubkey, targetKinds),
+      ]
       const targetingController = new AbortController()
 
       request({
@@ -656,7 +653,8 @@ const makeTargetedPublicationRootNotificationCandidates = ({
         unsubscribeRootEvents = undefined
 
         const rootFilters = targets.flatMap(currentTarget => {
-          const authors = targets.length > 1 ? authorPubkeys : authorPubkeysByKind.get(currentTarget.kind) || []
+          const authors =
+            targets.length > 1 ? authorPubkeys : authorPubkeysByKind.get(currentTarget.kind) || []
           if (authors.length === 0) return []
 
           return makeTargetedPublicationOriginalFilters(

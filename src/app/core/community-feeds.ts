@@ -14,6 +14,7 @@ import {
   TARGETED_PUBLICATION_KIND,
   TARGETED_PUBLICATION_KINDS,
   normalizePubkey,
+  parseCommunityInput,
   parseTargetedPublication,
 } from "@app/core/community"
 import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
@@ -71,8 +72,11 @@ export const makeCommunityTargetingFilter = (
   ...extra,
 })
 
-export const eventTargetsCommunity = (event: TrustedEvent, communityPubkey: string) =>
-  getTagValue("h", event.tags) === normalizePubkey(communityPubkey)
+export const eventTargetsCommunity = (event: TrustedEvent, communityPubkey: string) => {
+  const eventCommunityPubkey = parseCommunityInput(getTagValue("h", event.tags) || "")?.pubkey
+
+  return Boolean(eventCommunityPubkey && eventCommunityPubkey === normalizePubkey(communityPubkey))
+}
 
 export const isRoomRoot = (event: TrustedEvent, communityPubkey?: string) => {
   if (event.kind !== THREAD) return false
@@ -97,7 +101,7 @@ export const filterThreadRoots = (events: TrustedEvent[], communityPubkey?: stri
 export const getRoomRootIdForMessage = (event: TrustedEvent) => {
   if (event.kind !== MESSAGE) return ""
 
-  return getTagValue("E", event.tags) || ""
+  return getTagValue("E", event.tags) || getTagValue("e", event.tags) || ""
 }
 
 export const isRoomMessage = (

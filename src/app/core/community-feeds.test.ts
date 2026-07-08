@@ -1,7 +1,9 @@
 import {describe, expect, it} from "vitest"
+import * as nip19 from "nostr-tools/nip19"
 import {EVENT_DATE, EVENT_TIME, type TrustedEvent} from "@welshman/util"
 import {TARGETED_PUBLICATION_KIND, buildTargetedPublication} from "./community"
 import {
+  eventTargetsCommunity,
   filterRoomRoots,
   filterThreadRoots,
   getRoomRootIdForMessage,
@@ -107,6 +109,34 @@ describe("community feed helpers", () => {
     expect(getRoomRootIdForMessage(message)).toBe("room-root")
     expect(isRoomMessage(message, communityPubkey, "room-root")).toBe(true)
     expect(isRoomMessage(message, communityPubkey, "other-room")).toBe(false)
+  })
+
+  it("accepts legacy lowercase room-root tags on room messages", () => {
+    const message = makeEvent({
+      kind: 9,
+      tags: [
+        ["h", communityPubkey],
+        ["e", "room-root", "wss://relay.example.com", authorPubkey],
+        ["K", "11"],
+      ],
+    })
+
+    expect(getRoomRootIdForMessage(message)).toBe("room-root")
+    expect(isRoomMessage(message, communityPubkey, "room-root")).toBe(true)
+  })
+
+  it("accepts encoded community tags on room messages", () => {
+    const message = makeEvent({
+      kind: 9,
+      tags: [
+        ["h", nip19.npubEncode(communityPubkey)],
+        ["E", "room-root", "wss://relay.example.com", authorPubkey],
+        ["K", "11"],
+      ],
+    })
+
+    expect(eventTargetsCommunity(message, communityPubkey)).toBe(true)
+    expect(isRoomMessage(message, communityPubkey, "room-root")).toBe(true)
   })
 
   it("builds original publication filters from targeting events", () => {
