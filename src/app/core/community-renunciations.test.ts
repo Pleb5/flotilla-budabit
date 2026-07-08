@@ -1,9 +1,15 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 import {NAMED_PEOPLE} from "@welshman/util"
+
+vi.mock("@app/core/state", () => ({
+  INDEXER_RELAYS: ["wss://indexer.example", "bad-relay"],
+}))
+
 import {
   RENOUNCED_COMMUNITIES_DTAG,
   addRenouncedCommunityToList,
   getRenouncedCommunityPubkeysFromList,
+  getRenunciationPublishRelays,
   makeRenouncedCommunitiesList,
   removeRenouncedCommunityFromList,
 } from "@app/core/community-renunciations"
@@ -61,5 +67,15 @@ describe("community renunciations", () => {
       tags: [["d", RENOUNCED_COMMUNITIES_DTAG]],
       content: `encrypted:${JSON.stringify([["p", otherCommunityPubkey]])}`,
     })
+  })
+
+  it("falls back to indexer relays when the user has no outbox relays", () => {
+    expect(getRenunciationPublishRelays([])).toEqual(["wss://indexer.example/"])
+  })
+
+  it("prefers normalized user outbox relays for renunciation publishes", () => {
+    expect(
+      getRenunciationPublishRelays(["bad-relay", "wss://outbox.example", "wss://outbox.example/"]),
+    ).toEqual(["wss://outbox.example/"])
   })
 })

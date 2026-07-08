@@ -1,5 +1,6 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
+  import {writable} from "svelte/store"
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
@@ -125,6 +126,8 @@
   let memberSearch = $state("")
   let openMemberPopover = $state<string | null>(null)
   let renunciationActionInFlight = $state(false)
+  let renunciationAbortController: AbortController | undefined
+  const renunciationPublishStatus = writable("")
   const currentUserBanned = $derived(
     isCommunityPersonBanned($activeCommunityReportState, $pubkey || ""),
   )
@@ -806,52 +809,86 @@
     if (moderationPath) void goto(moderationPath)
   }
 
+  const isAbortError = (error: unknown) => error instanceof Error && error.name === "AbortError"
+
+  const cancelCommunityRenunciation = () => {
+    if (!renunciationActionInFlight) return
+
+    renunciationPublishStatus.set("Cancelling...")
+    renunciationAbortController?.abort()
+    renunciationAbortController = undefined
+    renunciationActionInFlight = false
+  }
+
   const updateCommunityRenunciation = async (action: "leave" | "rejoin") => {
     if (renunciationActionInFlight) return false
 
     if (!$pubkey) {
-      pushToast({theme: "error", message: "Log in to update group membership preferences."})
+      pushToast({theme: "error", message: "Log in to update your groups."})
       return false
     }
 
     if (!communityPubkey || !rawCurrentCommunityRef) {
-      pushToast({theme: "error", message: "No active group membership is available."})
+      pushToast({theme: "error", message: "This group is not available right now."})
       return false
     }
 
     if (currentUserAdmin) {
-      pushToast({theme: "error", message: "Community owner keys cannot leave their own group."})
+      pushToast({theme: "error", message: "Group owners can't leave their own group."})
       return false
     }
 
     renunciationActionInFlight = true
+    const controller = new AbortController()
+    renunciationAbortController = controller
+    const successMessage =
+      action === "leave"
+        ? "You left this group in Budabit."
+        : "You're back in this group in Budabit."
 
     try {
-      const thunk =
-        action === "leave"
-          ? await renounceCommunity(communityPubkey)
-          : await rejoinCommunity(communityPubkey)
-
-      if (thunk) await waitForThunkCompletion(thunk)
+      renunciationPublishStatus.set("Saving your choice...")
+      if (action === "leave") {
+        await renounceCommunity(communityPubkey, {
+          signal: controller.signal,
+          onStatus: renunciationPublishStatus.set,
+        })
+      } else {
+        await rejoinCommunity(communityPubkey, {
+          signal: controller.signal,
+          onStatus: renunciationPublishStatus.set,
+        })
+      }
 
       pushToast({
         theme: "success",
-        message:
-          action === "leave"
-            ? "Group hidden from your Budabit memberships and recommendations."
-            : "Group restored to your Budabit memberships and recommendations.",
+        message: successMessage,
       })
       return true
     } catch (error) {
+      if (isAbortError(error)) {
+        pushToast({theme: "warning", message: "Update cancelled."})
+        return false
+      }
+
       pushToast({
         theme: "error",
-        message: `Failed to ${action === "leave" ? "leave" : "rejoin"} group: ${
+        message: `Couldn't ${action === "leave" ? "leave" : "rejoin"} this group: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
       })
       return false
     } finally {
-      renunciationActionInFlight = false
+      const ownsController = renunciationAbortController === controller
+
+      if (ownsController) {
+        renunciationAbortController = undefined
+      }
+
+      if (ownsController || !renunciationAbortController) {
+        renunciationActionInFlight = false
+        renunciationPublishStatus.set("")
+      }
     }
   }
 
@@ -860,17 +897,23 @@
 
     const action = currentCommunityRenounced ? "rejoin" : "leave"
 
-    pushModal(Confirm, {
-      title: action === "leave" ? "Leave group" : "Rejoin group",
-      message:
-        action === "leave"
-          ? "Leave this group in Budabit? This hides it from your memberships, recommendations, and trust calculations, but it does not revoke your underlying group grants or block direct publishing access."
-          : "Rejoin this group in Budabit? This restores it to your memberships, recommendations, and trust calculations because the group already grants your pubkey access.",
-      confirmLabel: action === "leave" ? "Leave group" : "Rejoin group",
-      confirm: async () => {
-        if (await updateCommunityRenunciation(action)) history.back()
+    pushModal(
+      Confirm,
+      {
+        title: action === "leave" ? "Leave group" : "Rejoin group",
+        message:
+          action === "leave"
+            ? "Leave this group in Budabit? It will no longer show in your groups, recommendations, or trust. Your access stays in place."
+            : "Rejoin this group in Budabit? It will show in your groups, recommendations, and trust again.",
+        confirmLabel: action === "leave" ? "Leave group" : "Rejoin group",
+        status: renunciationPublishStatus,
+        cancel: cancelCommunityRenunciation,
+        confirm: async () => {
+          if (await updateCommunityRenunciation(action)) history.back()
+        },
       },
-    })
+      {noEscape: true},
+    )
   }
 
   const pluralize = (count: number, singular: string, plural = `${singular}s`) =>

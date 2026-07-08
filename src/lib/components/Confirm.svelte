@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {onDestroy} from "svelte"
   import type {Readable} from "svelte/store"
   import {preventDefault} from "@lib/html"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
@@ -13,6 +14,7 @@
     subtitle?: string
     message: any
     confirm: any
+    cancel?: () => void
     confirmLabel?: string
     status?: Readable<string>
   }
@@ -21,6 +23,7 @@
     subtitle = "",
     message,
     confirm,
+    cancel,
     confirmLabel = "Confirm",
     status,
     ...restProps
@@ -50,7 +53,18 @@
     }
   }
 
-  const back = () => history.back()
+  const back = () => {
+    if (loading) {
+      loading = false
+      cancel?.()
+    }
+
+    history.back()
+  }
+
+  onDestroy(() => {
+    if (loading) cancel?.()
+  })
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(tryConfirm)}>
