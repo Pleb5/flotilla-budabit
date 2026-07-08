@@ -13,20 +13,20 @@
 
 ## Current Phase
 
-- Phase 3: Global Community And Git Notification Coverage
+- Phase 4: Mentions, Replies, Reactions, Zaps, And Inline Actions
 
 ## Phase Exit Criteria
 
-- Community notification derivation uses `activeUserCommunityRefs` and `communityMemberReportStates`, not only active-community stores.
-- Community source derivation applies `canWriteCommunityTarget`, `isCommunityPersonBanned`, and `getCommunityCensorReason` or equivalent existing moderation helpers before surfacing rows.
-- Community notification rows include community/source context and link to the correct room/thread/calendar/goal/admin/membership route.
-- Repo-watch notification rows show issues/PRs/comments/status/assignments from watched repos with readable labels and target paths.
-- Repo notifications continue to respect repo-watch settings and update both local checked state and `repoWatchNotificationSeen` where applicable.
-- Top-level bell reflects global community and git unread state; lower-level badges still work.
-- Focused tests cover global community filtering and repo notification display/read behavior where practical.
+- Mentions and replies to user-authored content are detected using Welshman tag/parent helpers and repository context.
+- Reactions and zaps notify only when the referenced event belongs to the signed-in user or otherwise passes an explicit ownership/context check; do not trust inherited `p` tags alone.
+- Zaps are validated with Welshman zap helpers where possible.
+- No repost notifications are added. Quote support remains low priority and optional.
+- Reply/mention rows can expose an inline reply affordance or link to an existing reply flow; reaction/zap rows do not show reply composer actions.
+- Repeated noisy zap/reaction rows are de-duped or collapsed enough to avoid spammy modal output, while read state remains event-id based.
+- Focused tests cover false-positive suppression for reactions/zaps and mention/reply classification.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- Phase 4 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -58,6 +58,19 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, intended phase source diff, and `git log --oneline -10 --decorate`.
+- Phase 2 commit `617192f1` was pushed to `origin/dev`.
+- Phase 3 implemented global community and git notification coverage:
+  - Exported `repoWatchNotificationCandidates` from `src/app/util/repo-watch-notifications.ts` for reuse by the notification center.
+  - Added global community event loading in `src/app/util/notification-sources.ts` using `activeUserCommunityRefs`, global member/moderator profile-list events, `communityMemberReportStates`, and each community's relays.
+  - Added community row derivation for room messages, threads, calendar/goal targeting events, and access/profile-list updates with `canWriteCommunityTarget`, `isCommunityPersonBanned`, `getCommunityCensorReason`, and personal mute suppression.
+  - Added repo-watch row derivation from watched repo candidates with readable labels for issues, PRs, comments, statuses, assignments, detail target paths, and `repoWatchSeenPath` metadata.
+  - Updated `src/app/components/NotificationsModal.svelte` so mark-read and row-click set local checked timestamps and sync repo rows to `repoWatchNotificationSeen`.
+  - Extended `src/app/util/notification-sources.test.ts` with community permission/moderation/mute coverage and repo-watch row/read-state coverage.
+- Phase 3 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 3 files, 13 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Pre-closeout inspected `git status --short --branch`, intended phase source diff, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -77,11 +90,13 @@
 - Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/components/PrimaryNav.svelte`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-center.ts`, and `src/app/util/notification-center.test.ts`.
 - Phase 1 is verified, committed, pushed, and closed.
 - Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/components/PrimaryNav.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
-- Phase 2 is verified and closed by the current phase transition commit.
+- Phase 2 is verified, committed, pushed, and closed.
+- Phase 3 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, `src/app/util/notification-sources.test.ts`, and `src/app/util/repo-watch-notifications.ts`.
+- Phase 3 is verified and closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 3 startup: reread this checkpoint and the full session plan, inspect current git state, then implement global community and git notification coverage.
+- Phase 4 startup: reread this checkpoint and the full session plan, inspect current git state, then implement mentions, replies, reactions, zaps, and inline actions.
 
 ## Verification
 
@@ -99,6 +114,12 @@
 - Phase 2 project check passed.
 - Phase 2 whitespace check passed.
 - Phase 2 pre-closeout inspected status, intended diff, and recent commits.
+- Phase 2 commit `617192f1` was pushed to `origin/dev`.
+- Phase 3 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch` and `git log --oneline -10 --decorate`.
+- Phase 3 focused test command passed.
+- Phase 3 project check passed.
+- Phase 3 whitespace check passed.
+- Phase 3 pre-closeout inspected status, intended diff, and recent commits.
 
 ## Risks Or Blockers
 
@@ -115,3 +136,4 @@
 - `src/app/util/notification-display.ts`
 - `src/app/util/notification-sources.ts`
 - `src/app/util/notification-sources.test.ts`
+- `src/app/util/repo-watch-notifications.ts`

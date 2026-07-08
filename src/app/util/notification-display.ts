@@ -21,6 +21,7 @@ export type NotificationRow = {
   searchText: string
   eventId?: string
   actorPubkey?: string
+  repoWatchSeenPath?: string
 }
 
 export type NotificationRowFilterOptions = {

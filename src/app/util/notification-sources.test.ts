@@ -1,11 +1,28 @@
 // @vitest-environment jsdom
 
 import {describe, expect, it, vi} from "vitest"
+import {readable} from "svelte/store"
+import {GIT_COMMENT, GIT_ISSUE} from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
+import {MESSAGE, THREAD} from "@welshman/util"
 import type {Chat} from "@app/core/state"
+import type {ActiveUserCommunityRef} from "@app/core/community-membership"
+import {
+  COMMUNITY_SECTION_GENERAL,
+  COMMUNITY_SECTION_THREADS,
+  PROFILE_LIST_KIND,
+} from "@app/core/community"
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
+}))
+
+vi.mock("@app/core/repo-watch", () => ({
+  repoWatchNotificationSeen: readable({}),
+}))
+
+vi.mock("@app/util/repo-watch-notifications", () => ({
+  repoWatchNotificationCandidates: readable([]),
 }))
 
 const makeEvent = (overrides: Partial<TrustedEvent> = {}) =>
@@ -30,6 +47,75 @@ const makeChat = (event: TrustedEvent, overrides: Partial<Chat> = {}): Chat => (
   search_text: event.pubkey,
   ...overrides,
 })
+
+const viewer = "a".repeat(64)
+const writer = "b".repeat(64)
+const outsider = "c".repeat(64)
+const banned = "d".repeat(64)
+const muted = "e".repeat(64)
+const communityPubkey = "f".repeat(64)
+const profileListPubkey = "1".repeat(64)
+const profileListAddress = `${PROFILE_LIST_KIND}:${profileListPubkey}:${COMMUNITY_SECTION_GENERAL}`
+const threadProfileListAddress = `${PROFILE_LIST_KIND}:${profileListPubkey}:${COMMUNITY_SECTION_THREADS}`
+
+const makeCommunityRef = (): ActiveUserCommunityRef => ({
+  communityPubkey,
+  relayHints: [],
+  roles: ["member"],
+  writableSections: [COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_THREADS],
+  definition: {
+    event: makeEvent({id: "community", kind: 10222, pubkey: communityPubkey}),
+    pubkey: communityPubkey,
+    relays: [],
+    blossomServers: [],
+    mints: [],
+    sections: [
+      {
+        name: COMMUNITY_SECTION_GENERAL,
+        kinds: [{kind: MESSAGE, subtype: "room-message"}],
+        profileLists: [
+          {
+            kind: PROFILE_LIST_KIND,
+            pubkey: profileListPubkey,
+            identifier: COMMUNITY_SECTION_GENERAL,
+            address: profileListAddress,
+          },
+        ],
+        badges: [],
+        retention: [],
+      },
+      {
+        name: COMMUNITY_SECTION_THREADS,
+        kinds: [{kind: THREAD, subtype: "threads"}],
+        profileLists: [
+          {
+            kind: PROFILE_LIST_KIND,
+            pubkey: profileListPubkey,
+            identifier: COMMUNITY_SECTION_THREADS,
+            address: threadProfileListAddress,
+          },
+        ],
+        badges: [],
+        retention: [],
+      },
+    ],
+  },
+})
+
+const makeProfileList = (address = profileListAddress) => {
+  const [, pubkey, identifier] = address.split(":")
+
+  return makeEvent({
+    id: `profile-list-${identifier}`,
+    kind: PROFILE_LIST_KIND,
+    pubkey,
+    tags: [
+      ["d", identifier],
+      ["p", writer],
+      ["p", viewer],
+    ],
+  })
+}
 
 describe("notification sources", () => {
   it("builds unread chat rows from latest incoming DM events", async () => {
@@ -139,5 +225,158 @@ describe("notification sources", () => {
     expect(filterNotificationRows([...rows], {term: "alice"}).map(row => row.id)).toEqual([
       "event:chat",
     ])
+  })
+
+  it("builds global community rows with permission and moderation filters", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const allowedMessage = makeEvent({
+      id: "allowed-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 50,
+      content: "hello community",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-one"],
+      ],
+    })
+    const outsiderMessage = makeEvent({
+      id: "outsider-message",
+      kind: MESSAGE,
+      pubkey: outsider,
+      created_at: 60,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-two"],
+      ],
+    })
+    const bannedMessage = makeEvent({
+      id: "banned-message",
+      kind: MESSAGE,
+      pubkey: banned,
+      created_at: 70,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-three"],
+      ],
+    })
+    const mutedMessage = makeEvent({
+      id: "muted-message",
+      kind: MESSAGE,
+      pubkey: muted,
+      created_at: 80,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-four"],
+      ],
+    })
+    const censoredMessage = makeEvent({
+      id: "censored-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 90,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-five"],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [allowedMessage, outsiderMessage, bannedMessage, mutedMessage, censoredMessage],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+      reportStates: new Map([
+        [
+          communityPubkey,
+          {
+            personReports: [{targetPubkey: banned}],
+            eventReports: [
+              {
+                targetEventId: censoredMessage.id,
+                sectionName: COMMUNITY_SECTION_GENERAL,
+              },
+            ],
+          } as any,
+        ],
+      ]),
+      mutedPubkeys: [muted],
+    })
+
+    expect(rows.map(row => row.eventId)).toEqual(
+      expect.arrayContaining(["profile-list-General", "allowed-message"]),
+    )
+    expect(rows.map(row => row.eventId)).not.toEqual(
+      expect.arrayContaining([
+        "outsider-message",
+        "banned-message",
+        "muted-message",
+        "censored-message",
+      ]),
+    )
+    expect(rows.find(row => row.eventId === allowedMessage.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        title: "New room message",
+        preview: "hello community",
+        read: false,
+      }),
+    )
+    expect(rows.find(row => row.eventId === allowedMessage.id)?.path).toContain("/rooms/room-one")
+  })
+
+  it("builds repo-watch rows with readable labels and seen paths", async () => {
+    const {buildRepoWatchNotificationRows} = await import("./notification-sources")
+    const issue = makeEvent({
+      id: "issue-id",
+      kind: GIT_ISSUE,
+      pubkey: writer,
+      created_at: 100,
+      content: "Broken thing",
+    })
+    const comment = makeEvent({
+      id: "comment-id",
+      kind: GIT_COMMENT,
+      pubkey: writer,
+      created_at: 200,
+      content: "I can reproduce this",
+      tags: [
+        ["E", issue.id],
+        ["K", String(GIT_ISSUE)],
+      ],
+    })
+    const path = "/git/repo/issues"
+
+    expect(
+      buildRepoWatchNotificationRows({
+        candidates: [{path, latestEvent: issue}],
+        currentPubkey: viewer,
+      })[0],
+    ).toEqual(
+      expect.objectContaining({
+        source: "git",
+        title: "New issue",
+        preview: "Broken thing",
+        path: `${path}/${issue.id}`,
+        readPath: path,
+        repoWatchSeenPath: path,
+        read: false,
+      }),
+    )
+
+    expect(
+      buildRepoWatchNotificationRows({
+        candidates: [{path, latestEvent: comment}],
+        currentPubkey: viewer,
+        notificationSeen: {[path]: 250},
+      })[0],
+    ).toEqual(
+      expect.objectContaining({
+        title: "New git comment",
+        path: `${path}/${issue.id}#comment-${comment.id}`,
+        read: true,
+      }),
+    )
   })
 })

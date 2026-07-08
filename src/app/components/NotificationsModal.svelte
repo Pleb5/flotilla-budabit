@@ -1,6 +1,6 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {formatTimestamp} from "@welshman/lib"
+  import {formatTimestamp, now} from "@welshman/lib"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Check from "@assets/icons/check.svg?dataurl"
   import Filter from "@assets/icons/filter.svg?dataurl"
@@ -12,8 +12,9 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
-  import {setChecked} from "@app/util/notifications"
+  import {setCheckedAt} from "@app/util/notifications"
   import {clearModals} from "@app/util/modal"
+  import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {
     markNotificationHistoryIdsRead,
     NOTIFICATION_HISTORY_LIMIT,
@@ -48,14 +49,27 @@
   })
 
   const markRowsRead = (rows: NotificationRow[]) => {
+    const timestamp = now()
     const eventIds = getRowEventIds(rows)
     if (eventIds.length > 0) {
       rememberNotificationHistoryIds(eventIds)
-      markNotificationHistoryIdsRead(eventIds)
+      markNotificationHistoryIdsRead(eventIds, timestamp)
     }
 
     for (const path of new Set(rows.map(row => row.readPath).filter(Boolean))) {
-      setChecked(path)
+      setCheckedAt(path, timestamp)
+    }
+
+    const repoSeenUpdates = Object.fromEntries(
+      Array.from(new Set(rows.map(row => row.repoWatchSeenPath).filter(Boolean))).map(path => [
+        path,
+        timestamp,
+      ]),
+    )
+    if (Object.keys(repoSeenUpdates).length > 0) {
+      updateRepoWatchNotificationSeen(repoSeenUpdates).catch(error => {
+        console.warn("[notifications] Failed to sync repo watch seen timestamp", error)
+      })
     }
   }
 

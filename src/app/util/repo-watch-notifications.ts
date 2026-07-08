@@ -781,7 +781,7 @@ const watchedRepoCommunityProfileListEvents = deriveLoadedEvents<TrustedEvent>({
   label: "repo community profile lists",
 })
 
-const repoWatchNotificationCandidates = derived(
+export const repoWatchNotificationCandidates = derived(
   [
     pubkey,
     watchedRepoRefs,
