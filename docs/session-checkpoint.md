@@ -13,16 +13,15 @@
 
 ## Current Phase
 
-- Phase 5: Final Verification And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- All focused notification tests pass.
-- `pnpm check` passes.
-- `git diff --check` passes.
-- Final status/diff review shows no staged files and no unrelated files included in this workflow.
-- Checkpoint records `Current Phase: Complete` and final verification evidence.
-- Final closeout commit is pushed before final response if the checkpoint changed in this phase.
+- Global notification-center workflow is complete.
+- Final focused notification tests passed.
+- Final `pnpm check` passed.
+- Final `git diff --check` passed.
+- Final closeout checkpoint commit is pushed before final response.
 
 ## Completed With Evidence
 
@@ -83,6 +82,17 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, intended phase source diff, and `git log --oneline -10 --decorate`.
+- Phase 4 commit `d0a42dbc` was pushed to `origin/dev`.
+- Phase 5 final verification and closeout completed:
+  - Reread this checkpoint and the full session plan.
+  - Inspected `git status --short --branch` and `git log --oneline -10 --decorate` at Phase 5 startup; branch was clean at `d0a42dbc` tracking `origin/dev`.
+  - Reran all focused notification tests added during this workflow.
+  - Reran the project check and whitespace diff check.
+  - Updated this checkpoint to `Current Phase: Complete`.
+- Phase 5 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 3 files, 15 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -108,10 +118,12 @@
 - Phase 3 is verified and closed by the current phase transition commit.
 - Phase 4 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
 - Phase 4 is verified and closed by the current phase transition commit.
+- Phase 5 changed files: `docs/session-checkpoint.md`.
+- Phase 5 is verified and closed by the final closeout commit.
 
 ## Next Action
 
-- Phase 5 startup: reread this checkpoint and the full session plan, inspect current git state, then run final focused notification tests, `pnpm check`, and `git diff --check`.
+- Final response.
 
 ## Verification
 
@@ -140,6 +152,11 @@
 - Phase 4 project check passed.
 - Phase 4 whitespace check passed.
 - Phase 4 pre-closeout inspected status, intended diff, and recent commits.
+- Phase 4 commit `d0a42dbc` was pushed to `origin/dev` and the checkpoint was reread.
+- Phase 5 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch` and `git log --oneline -10 --decorate`.
+- Phase 5 focused test command passed.
+- Phase 5 project check passed.
+- Phase 5 whitespace check passed.
 
 ## Risks Or Blockers
 
