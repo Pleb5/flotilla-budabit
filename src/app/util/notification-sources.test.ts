@@ -159,9 +159,11 @@ describe("notification sources", () => {
         expect.objectContaining({source: "other", path: "/settings"}),
       ]),
     )
+    expect(rows.find(row => row.path === "/git/repo")?.preview).toBe("Open git activity")
+    expect(rows.find(row => row.path === "/git/repo")?.preview).not.toContain("/")
   })
 
-  it("filters notification rows by source and search text without social/read filters", async () => {
+  it("filters notification rows by selected sources and profile names", async () => {
     const {filterNotificationRows, NOTIFICATION_ROW_FILTERS} = await import("./notification-display")
     const rows = [
       {
@@ -177,6 +179,19 @@ describe("notification sources", () => {
         searchText: "chat alice hello",
       },
       {
+        id: "event:community",
+        eventId: "community",
+        source: "community",
+        sourceLabel: "Communities",
+        title: "New room reply",
+        preview: "reply from a community member",
+        path: "/c/community/rooms/root",
+        readPath: "/c/community/rooms/root",
+        createdAt: 50,
+        actorName: "Ada Lovelace",
+        searchText: "community reply",
+      },
+      {
         id: "route:/git/repo",
         source: "git",
         sourceLabel: "Git",
@@ -185,22 +200,28 @@ describe("notification sources", () => {
         path: "/git/repo",
         readPath: "/git/repo",
         createdAt: 0,
-        searchText: "git repo issue",
+        searchText: "git repo ada issue",
       },
     ] as const
+    const filterValues = NOTIFICATION_ROW_FILTERS.map(option => option.value)
 
-    expect(NOTIFICATION_ROW_FILTERS.map(option => option.value)).toEqual([
-      "chat",
-      "git",
-      "community",
-      "other",
-    ])
-    expect(filterNotificationRows([...rows], {filter: "git"}).map(row => row.id)).toEqual([
+    expect(filterValues).toEqual(["chat", "git", "community", "other"])
+    expect(filterValues).not.toEqual(expect.arrayContaining(["all", "read", "social", "unread"]))
+    expect(filterNotificationRows([...rows], {filters: ["git"]}).map(row => row.id)).toEqual([
       "route:/git/repo",
     ])
+    expect(
+      filterNotificationRows([...rows], {filters: ["git", "community"]}).map(row => row.id),
+    ).toEqual(["event:community", "route:/git/repo"])
     expect(filterNotificationRows([...rows], {term: "alice"}).map(row => row.id)).toEqual([
       "event:chat",
     ])
+    expect(filterNotificationRows([...rows], {term: "lovelace"}).map(row => row.id)).toEqual([
+      "event:community",
+    ])
+    expect(filterNotificationRows([...rows], {term: "ada"}).map(row => row.id)[0]).toBe(
+      "event:community",
+    )
   })
 
   it("builds global community rows with permission and moderation filters", async () => {

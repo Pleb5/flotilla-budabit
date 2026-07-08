@@ -15,22 +15,19 @@
 
 ## Current Phase
 
-- Phase 2: Modal UX, Search, And Filters
+- Phase 3: Review Cycles And Final Closeout
 
 ## Phase Exit Criteria
 
-- Modal header shows only `Notifications` with a smaller title and no explanatory subtitle.
-- Notification cards no longer render raw path-like strings such as `/nevent...` or route paths.
-- Cards do not render read/unread badges or dots.
-- Filter UI uses checkbox-style toggles, not radio buttons, and has no `All`, `Read`, or `Unread` options.
-- Filter UI includes a compact icon row representing available notification types/sources.
-- The `social` filter is absent.
-- Search uses weighted fields similar to git issue search and includes profile display names for row actors where available.
-- Profile avatars in notification rows are clickable and open the existing profile detail modal without triggering row navigation.
-- Focused tests cover filter/search behavior including profile names and the absence of social/read filters.
+- Review cycle 1 inspects source scope/read-state behavior, records findings, and applies any needed fixes.
+- Review cycle 2 inspects modal UX/filter/search/profile interactions, records findings, and applies any needed fixes.
+- Review cycle 3 inspects tests, edge cases, and regression risk, records findings, and applies any needed fixes.
+- All focused notification tests pass.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Final status/diff review shows no staged files and no unrelated files included.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if the checkpoint changed.
 
 ## Completed With Evidence
 
@@ -55,6 +52,18 @@
   - `git diff --check` passed.
   - `grep` over `src/app/util/notification-*.ts` found no standalone social notification source symbols.
   - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, and `git log --oneline -10 --decorate`.
+- Phase 2 implemented modal UX, search, and filter corrections:
+  - Replaced the modal header with a compact `Notifications` title and no subtitle.
+  - Replaced radio filter controls with inline checkbox-style icon toggles for chats, git, communities, and other sources only.
+  - Removed raw path metadata from notification cards and changed route fallback previews to human text.
+  - Kept cards free of read/unread badges or dots.
+  - Added weighted notification search fields and actor display-name support via Budabit profile display stores.
+  - Made row avatars clickable profile buttons that open `ProfileDetail` without triggering row navigation, including keyboard propagation handling.
+- Phase 2 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 3 files, 14 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -74,10 +83,12 @@
 - Worktree was clean at workflow startup.
 - Phase 1 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/components/PrimaryNav.svelte`, `src/app/util/notification-center.ts`, `src/app/util/notification-center.test.ts`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
 - Phase 1 is verified and closed by the current phase transition commit.
+- Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
+- Phase 2 is verified and closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 2 startup: reread this checkpoint and the full session plan, inspect current git state, then implement modal UI, checkbox filters, weighted/profile-name search, and clickable profile avatars.
+- Phase 3 startup: reread this checkpoint and the full session plan, inspect current git state, then run three review/improvement cycles before final closeout.
 
 ## Verification
 
@@ -91,6 +102,11 @@
 - Phase 1 project check passed.
 - Phase 1 whitespace check passed.
 - Phase 1 pre-closeout inspected status, diff summary, recent commits, and social-source grep output.
+- Phase 2 startup reread this checkpoint and the full session plan, then inspected implementation files before editing.
+- Phase 2 focused test command passed.
+- Phase 2 project check passed.
+- Phase 2 whitespace check passed.
+- Phase 2 pre-closeout inspected status, diff summary, and recent commits.
 
 ## Risks Or Blockers
 

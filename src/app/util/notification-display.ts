@@ -16,11 +16,12 @@ export type NotificationRow = {
   searchText: string
   eventId?: string
   actorPubkey?: string
+  actorName?: string
   repoWatchSeenPath?: string
 }
 
 export type NotificationRowFilterOptions = {
-  filter?: NotificationRowFilter | ""
+  filters?: NotificationRowFilter[]
   term?: string
 }
 
@@ -67,20 +68,28 @@ export const searchNotificationRows = (rows: NotificationRow[], term: string) =>
     getValue: (row: NotificationRow) => row.id,
     fuseOptions: {
       ignoreLocation: true,
-      keys: ["searchText"],
-      threshold: 0.35,
+      includeScore: true,
+      isCaseSensitive: false,
+      keys: [
+        {name: "actorName", weight: 0.35},
+        {name: "title", weight: 0.25},
+        {name: "preview", weight: 0.2},
+        {name: "sourceLabel", weight: 0.1},
+        {name: "searchText", weight: 0.1},
+      ],
+      threshold: 0.3,
     },
   }).searchOptions(normalizedTerm) as NotificationRow[]
 }
 
 export const filterNotificationRows = (
   rows: NotificationRow[],
-  {filter = "", term = ""}: NotificationRowFilterOptions = {},
+  {filters = [], term = ""}: NotificationRowFilterOptions = {},
 ) => {
   const filtered = rows.filter(row => {
-    if (!filter) return true
+    if (filters.length === 0) return true
 
-    return row.source === filter
+    return filters.includes(row.source)
   })
 
   return sortNotificationRows(searchNotificationRows(filtered, term))

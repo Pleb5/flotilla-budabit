@@ -571,10 +571,7 @@ export const getRouteNotificationTitle = (source: NotificationRowSource) => {
 }
 
 const getRouteNotificationPreview = (path: string) =>
-  path
-    .split("/")
-    .filter(Boolean)
-    .join(" / ") || path
+  `Open ${getNotificationSourceLabel(getRouteNotificationSource(path)).toLowerCase()} activity`
 
 export const buildRouteNotificationRows = ({
   paths,

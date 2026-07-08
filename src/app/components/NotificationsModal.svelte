@@ -1,17 +1,21 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {formatTimestamp} from "@welshman/lib"
+  import {derived} from "svelte/store"
   import Bell from "@assets/icons/bell.svg?dataurl"
-  import Filter from "@assets/icons/filter.svg?dataurl"
+  import Chat from "@assets/icons/chat-round-line.svg?dataurl"
+  import Check from "@assets/icons/check.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
+  import Users from "@assets/icons/users-group-rounded.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import InlinePopover from "@lib/components/InlinePopover.svelte"
-  import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
-  import {clearModals} from "@app/util/modal"
+  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
+  import {clearModals, pushModal} from "@app/util/modal"
   import {markNotificationsRead} from "@app/util/notification-center"
   import {
     latestNotificationCenterTimestamp,
@@ -25,10 +29,34 @@
   } from "@app/util/notification-display"
 
   let term = $state("")
-  let rowFilter = $state<NotificationRowFilter | "">("")
-  let filterOpen = $state(false)
+  let rowFilters = $state<NotificationRowFilter[]>([])
 
-  const rows = $derived(filterNotificationRows($notificationCenterRows, {filter: rowFilter, term}))
+  const rowsWithActorNames = derived(notificationCenterRows, ($rows, set) => {
+    const actorPubkeys = Array.from(
+      new Set($rows.map(row => row.actorPubkey).filter((value): value is string => Boolean(value))),
+    )
+
+    if (actorPubkeys.length === 0) {
+      set($rows)
+      return
+    }
+
+    const nameStores = actorPubkeys.map(pubkey => deriveBudabitProfileDisplay(pubkey))
+
+    return derived(nameStores, actorNames => {
+      const namesByPubkey = new Map(
+        actorPubkeys.map((pubkey, index) => [pubkey, String(actorNames[index] || "").trim()]),
+      )
+
+      return $rows.map(row => {
+        const actorName = row.actorPubkey ? namesByPubkey.get(row.actorPubkey) : ""
+
+        return actorName && actorName !== row.actorName ? {...row, actorName} : row
+      })
+    }).subscribe(set)
+  }, [] as NotificationRow[])
+
+  const rows = $derived(filterNotificationRows($rowsWithActorNames, {filters: rowFilters, term}))
 
   $effect(() => {
     if ($latestNotificationCenterTimestamp > 0) markNotificationsRead($latestNotificationCenterTimestamp)
@@ -38,22 +66,39 @@
     clearModals()
     goto(row.path)
   }
+
+  const openProfile = (event: Event, pubkey: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    pushModal(ProfileDetail, {pubkey})
+  }
+
+  const openRowFromKeyboard = (event: KeyboardEvent, row: NotificationRow) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+
+    event.preventDefault()
+    openRow(row)
+  }
+
+  const stopKeyboardPropagation = (event: KeyboardEvent) => event.stopPropagation()
+
+  const getFilterIcon = (source: NotificationRowFilter) => {
+    if (source === "chat") return Chat
+    if (source === "git") return Git
+    if (source === "community") return Users
+
+    return Bell
+  }
+
+  const isFilterActive = (source: NotificationRowFilter) => rowFilters.includes(source)
 </script>
 
 <div class="flex max-h-[82vh] min-h-[28rem] flex-col gap-4 sm:min-w-[28rem]">
-  <ModalHeader>
-    {#snippet title()}
-      <span class="inline-flex items-center justify-center gap-2">
-        <ImageIcon alt="Notifications" src={Bell} size={6} />
-        Notifications
-      </span>
-    {/snippet}
-    {#snippet info()}
-      Your notification history will appear here as events are indexed.
-    {/snippet}
-  </ModalHeader>
+  <header class="px-1">
+    <h1 class="text-lg font-semibold leading-none">Notifications</h1>
+  </header>
 
-  <div class="flex items-center gap-2">
+  <div class="grid gap-3">
     <label class="input input-bordered input-sm flex min-w-0 flex-1 items-center gap-2">
       <Icon icon={Magnifier} size={4} />
       <input
@@ -63,33 +108,25 @@
         placeholder="Search notifications" />
     </label>
 
-    <div class="relative shrink-0">
-      <Button
-        class="btn btn-neutral btn-square btn-sm"
-        aria-label="Filter notifications"
-        aria-expanded={filterOpen}
-        onclick={() => (filterOpen = !filterOpen)}>
-        <Icon icon={Filter} size={4} />
-      </Button>
-      {#if filterOpen}
-        <InlinePopover align="right" widthClass="w-72" onClose={() => (filterOpen = false)}>
-          <div class="grid gap-3 text-sm">
-            <strong>Show</strong>
-            {#each NOTIFICATION_ROW_FILTERS as option}
-              <label class="flex items-center gap-2">
-                <input
-                  class="radio radio-primary radio-sm"
-                  type="radio"
-                  value={option.value}
-                  bind:group={rowFilter} />
-                {option.label}
-              </label>
-            {/each}
-          </div>
-        </InlinePopover>
-      {/if}
+    <div class="flex flex-wrap gap-2">
+      {#each NOTIFICATION_ROW_FILTERS as option}
+        <label
+          class="btn btn-xs gap-1.5"
+          class:btn-primary={isFilterActive(option.value)}
+          class:btn-outline={!isFilterActive(option.value)}>
+          <input
+            class="sr-only"
+            type="checkbox"
+            value={option.value}
+            bind:group={rowFilters} />
+          <Icon icon={getFilterIcon(option.value)} size={3.5} />
+          <span>{option.label}</span>
+          {#if isFilterActive(option.value)}
+            <Icon icon={Check} size={3} />
+          {/if}
+        </label>
+      {/each}
     </div>
-
   </div>
 
   <div class="scroll-container -mx-2 min-h-0 flex-1 overflow-auto px-2">
@@ -100,12 +137,20 @@
             Activity
           </h2>
           {#each rows as row (row.id)}
-            <button
-              type="button"
+            <div
+              role="button"
+              tabindex="0"
               class="card2 flex items-start gap-3 bg-alt p-3 text-left transition-colors hover:bg-base-200"
-              onclick={() => openRow(row)}>
+              onclick={() => openRow(row)}
+              onkeydown={event => openRowFromKeyboard(event, row)}>
               {#if row.actorPubkey}
-                <ProfileCircle pubkey={row.actorPubkey} size={8} />
+                <Button
+                  class="btn btn-ghost btn-circle btn-sm shrink-0 p-0"
+                  aria-label="View profile"
+                  onkeydown={stopKeyboardPropagation}
+                  onclick={event => openProfile(event, row.actorPubkey!)}>
+                  <ProfileCircle pubkey={row.actorPubkey} size={8} />
+                </Button>
               {:else}
                 <div class="flex h-8 w-8 items-center justify-center rounded-full bg-base-200">
                   <ImageIcon alt={row.sourceLabel} src={Bell} size={5} />
@@ -126,11 +171,11 @@
                   </div>
                 </div>
                 <p class="mt-2 line-clamp-2 text-sm">{row.preview}</p>
-                <p class="mt-1 break-all text-xs text-muted-foreground">
-                  {row.path}{#if row.createdAt > 0} · {formatTimestamp(row.createdAt)}{/if}
-                </p>
+                {#if row.createdAt > 0}
+                  <p class="mt-1 text-xs text-muted-foreground">{formatTimestamp(row.createdAt)}</p>
+                {/if}
               </div>
-            </button>
+            </div>
           {/each}
         </section>
       {/if}
