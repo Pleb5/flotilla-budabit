@@ -7,128 +7,89 @@
 
 ## Goal
 
-- Make community-home smart widgets, especially the featured calendar events widget, load reliably after mobile backgrounding, session/auth expiry, stale relay sockets, and transient widget CDN failures.
-- Improve host-side widget discovery/retry behavior first, then harden the host iframe lifecycle and calendar widget self-retry.
+- Build a global Budabit notification center opened from a bell nav item.
+- Persist compact event-id/read-state history and derive display/context/actions from repository events with existing Welshman and Budabit helpers.
+- Cover all signed-in user communities and watched repos, then mentions/replies/reactions/zaps, while preserving lower-level badges and explicit clearing.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Core Notification Event Sources And Modal Rows
 
 ## Phase Exit Criteria
 
-- Host targeted widget-slot tests passed after all changes.
-- Host `pnpm check` passed.
-- Calendar widget `pnpm check` passed after all changes.
-- `git diff --check` passed in every touched repository.
-- Final diff review showed no staged files and only pre-existing unrelated dirty Budabit files outside this workflow.
-- Checkpoint records `Current Phase: Complete` and final verification evidence.
-- Final closeout commit is pushed before final response.
+- Add reusable notification source/inference modules that operate on `TrustedEvent` and existing stores rather than duplicating event data.
+- DM/chat notification events appear in the modal with actor, timestamp, preview, path, read/unread state, and search text.
+- Existing active badge paths are represented in the modal as interim route notifications when no event-backed row is available, without persisting rich records.
+- Modal rows are compact, readable on desktop/mobile, and clicking a row marks the related event/path read explicitly.
+- Search filters notification rows by actor/source/preview/path text using `createSearch` or equivalent existing helper.
+- Filter popover controls at least All, Unread, Read, Chats, Git, Communities, and Other.
+- Bell unread state starts using the notification-center unread derivation when event-backed rows exist, while still reflecting existing unread path badges during migration.
+- Focused tests cover row derivation/search/read filtering where practical.
+- `pnpm check` passes.
+- `git diff --check` passes.
+- Phase 2 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
-- Previous session files described a completed community-renunciation workflow and were replaced for this widget-loading reliability workflow.
-- Startup inspection found `/home/johnd/Work/budabit` on `dev...origin/dev` and `/home/johnd/Work/budabit-calendar-widget` on `master...origin/master`.
-- Startup inspection found pre-existing unrelated Budabit modifications in community-renunciation, notifications, and community access files; these must not be staged for this workflow.
-- Phase 1 implemented host slot discovery recovery:
-  - Added bounded cache metadata to `loadCachedCommunityCuratedWidgets`, including explicit force refresh, short TTL for empty/non-community results, and longer TTL for non-empty community results.
-  - Preserved in-flight request deduplication for normal cache loads and eviction on thrown errors.
-  - Added `pageshow`, `focus`, `online`, and visible `visibilitychange` force-refresh triggers to `CommunityHomeWidgetSlot.svelte` and `CommunityWidgetSlotLaunchers.svelte`.
-  - Kept installed/enabled/curated slot selection semantics unchanged.
+- Previous `docs/session-plan.md` and `docs/session-checkpoint.md` described a completed widget reliability workflow and were replaced for this global notification-center workflow.
+- Startup inspection found `/home/johnd/Work/budabit` on `dev...origin/dev [ahead 3]` with no dirty working-tree paths reported by `git status --short --branch`.
+- Startup inspection found remotes including `origin` and upstream tracking `origin/dev`.
+- Startup read the completed previous checkpoint and the full previous session plan before replacing them.
+- Phase 1 implemented the nav/modal/event-id foundation:
+  - Added `src/app/util/notification-center.ts` with capped event-id history, read timestamps, read helpers, unread derived stores, and clear helper.
+  - Added focused `src/app/util/notification-center.test.ts` coverage for normalization/capping, upsert dedupe, and read-state behavior.
+  - Added `src/app/components/NotificationsModal.svelte` with search, read/unread filter popover, scrollable content, current unread path rows, event-history rows, explicit mark-read controls, and empty states.
+  - Updated `src/app/components/PrimaryNav.svelte` to place the bell under Explore on desktop and between Search and Settings/Profile on mobile.
+  - Removed top-level primary-nav notification badges from Messages and Git while leaving lower-level badge code untouched.
 - Phase 1 verification passed:
-  - `pnpm vitest run src/app/extensions/community-widget-slots.test.ts --project=main` passed: 1 file, 8 tests.
+  - `pnpm vitest run src/app/util/notification-center.test.ts --project=main` passed: 1 file, 3 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
-- Phase 2 implemented host widget frame lifecycle recovery:
-  - Added an iframe load watchdog in `WidgetFrame.svelte` with bounded automatic retries and cache-busted retry URLs.
-  - Added `pageshow`, `focus`, `online`, and visible `visibilitychange` recovery hooks for unloaded or uninitialized frames.
-  - Preserved existing iframe sandbox and origin checks; context/theme posting still happens through the existing load/ready bridge path.
-  - Added a visible `Retry widget` fallback after automatic retries are exhausted.
-- Phase 2 verification passed:
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `git diff --check` passed.
-- Phase 3 implemented calendar widget resume retry in `/home/johnd/Work/budabit-calendar-widget`:
-  - Added per-load success timestamps and failure flags for write capabilities, shared config, and calendar events.
-  - Added concurrency guards so lifecycle recovery skips already running loads.
-  - Added `pageshow`, `focus`, `online`, and visible `visibilitychange` retry triggers for stale or failed data loads with a current community context.
-  - Kept existing `contextSessionId` / `contextVersion` stale-response guards around all response handling.
-- Phase 3 verification passed:
-  - Calendar widget `pnpm check` passed with 0 errors and 0 warnings, including production build.
-  - Calendar widget `git diff --check` passed.
-  - Budabit `git diff --check` passed.
-- Phase 4 final verification passed:
-  - Host `pnpm vitest run src/app/extensions/community-widget-slots.test.ts --project=main` passed: 1 file, 8 tests.
-  - Host `pnpm check` passed with 0 errors and 0 warnings.
-  - Calendar widget `pnpm check` passed with 0 errors and 0 warnings, including production build.
-  - Budabit `git diff --check` passed.
-  - Calendar widget `git diff --check` passed.
-  - Final status/diff review found `/home/johnd/Work/budabit-calendar-widget` clean, no staged files in either repo, and only known unrelated dirty Budabit files remaining.
+  - Pre-closeout inspected `git status --short --branch`, intended phase diff, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
 - Use `docs/session-plan.md` and `docs/session-checkpoint.md` for durable state.
-- Treat transient empty curation results as recoverable rather than durable proof that no widgets exist.
-- Keep widget permission, origin, sandbox, and secure URL policies intact.
-- Include the separate calendar widget repo in Phase 3 because it has a clean upstream branch.
+- The bell is the only top-level unread indicator; remove top-level badges from Messages and Git, but preserve lower-level badges/highlights.
+- Persist notification history/read state as compact event ids/timestamps. Do not persist duplicated rich notification records.
+- Runtime display descriptors may exist as presentation adapters, but source data remains `TrustedEvent` plus existing repository/context helpers.
+- Explicit clearing only: opening the modal does not mark notifications read.
+- No repost notifications; quote support remains low priority.
+- Reuse Welshman repository/store/tag/filter/content/profile/zap/DM/search helpers and Budabit community moderation/permission helpers.
 
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`.
-- Calendar widget repository: `/home/johnd/Work/budabit-calendar-widget`, branch `master`, tracking `origin/master`.
-- Known unrelated dirty Budabit files at startup: `src/app/core/community-renunciations.test.ts`, `src/app/core/community-renunciations.ts`, `src/app/util/notifications.test.ts`, `src/app/util/notifications.ts`, and `src/routes/c/[community]/access/+page.svelte`.
-- Additional unrelated dirty Budabit files observed before Phase 1 closeout: `src/app/core/community-live.ts`, `src/app/core/requests.ts`, `src/routes/c/[community]/+layout.svelte`, `src/routes/c/[community]/calendar/+page.svelte`, `src/routes/c/[community]/goals/+page.svelte`, `src/routes/c/[community]/rooms/[room]/+page.svelte`, `src/routes/c/[community]/threads/+page.svelte`, and `src/app/core/community-live.test.ts`.
-- Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/extensions/community-widget-slots.ts`, `src/app/extensions/community-widget-slots.test.ts`, `src/app/components/community/CommunityHomeWidgetSlot.svelte`, and `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`.
-- Additional unrelated dirty Budabit files observed before Phase 2 closeout: `src/app/core/community-feeds.ts`, `src/app/core/community-feeds.test.ts`, `src/routes/c/[community]/calendar/[event]/+page.svelte`, `src/routes/c/[community]/goals/[goal]/+page.svelte`, and `src/routes/c/[community]/threads/[thread]/+page.svelte`.
-- Phase 2 changed files: `docs/session-checkpoint.md` and `src/app/components/WidgetFrame.svelte`.
-- Phase 3 changed files: `/home/johnd/Work/budabit-calendar-widget/src/App.svelte` and Budabit `docs/session-checkpoint.md`.
-- Phase 3 calendar widget commit `2e6d005` was pushed to `origin/master`.
-- Phase 3 Budabit checkpoint commit `39e4f27f` was pushed to `origin/dev`.
-- Phase 4 changed files: Budabit `docs/session-checkpoint.md`.
+- Branch: `dev`, tracking `origin/dev`, ahead by three commits at workflow startup before Phase 1 commit.
+- Existing completed durable workflow files were replaced for this workflow.
+- Phase 1 changed files: `docs/session-plan.md`, `docs/session-checkpoint.md`, `src/app/components/PrimaryNav.svelte`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-center.ts`, and `src/app/util/notification-center.test.ts`.
+- Phase 1 is verified and ready for commit/push as the transition to Phase 2.
 
 ## Next Action
 
-- Final response.
+- Commit and push Phase 1, reread this checkpoint, then begin Phase 2 startup by rereading this checkpoint and the full session plan and inspecting current git state.
 
 ## Verification
 
-- Startup read the prior completed checkpoint and full prior session plan.
-- Startup inspected Budabit `git status --short --branch`, `git remote -v`, and `git log --oneline -10`.
-- Startup inspected calendar widget `git status --short --branch`, `git remote -v`, and `git log --oneline -5`.
+- Startup ran `git status --short --branch` and `git remote -v`.
+- Startup ran `git log --oneline -10 --decorate` and observed three local commits ahead of `origin/dev`.
+- Startup read the old completed checkpoint and full old session plan.
 - Phase 1 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch`.
-- Phase 1 focused tests passed.
+- Phase 1 focused test command passed.
 - Phase 1 project check passed.
 - Phase 1 whitespace check passed.
-- Phase 1 pre-closeout inspected `git status --short --branch`, the intended phase diff, and `git log --oneline -10`.
-- Phase 1 commit `30d75c26` was pushed to `origin/dev`.
-- Phase 2 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch`.
-- Phase 2 project check passed.
-- Phase 2 whitespace check passed.
-- Phase 2 pre-closeout inspected `git status --short --branch`, the intended phase diff, and `git log --oneline -10`.
-- Phase 2 commit `cf3b8d2d` was pushed to `origin/dev`.
-- Phase 3 startup reread this checkpoint and the full session plan, then inspected Budabit and calendar widget `git status --short --branch`.
-- Phase 3 calendar widget project check passed.
-- Phase 3 calendar widget whitespace check passed.
-- Phase 3 Budabit whitespace check passed.
-- Phase 3 pre-closeout inspected calendar widget status, diff, and recent commits before committing, then inspected Budabit status, checkpoint diff, and recent commits before committing the checkpoint.
-- Phase 4 startup reread this checkpoint and inspected Budabit and calendar widget `git status --short --branch`.
-- Phase 4 host targeted widget-slot tests passed.
-- Phase 4 host project check passed.
-- Phase 4 calendar widget project check passed.
-- Phase 4 whitespace checks passed in both touched repositories.
-- Phase 4 final status/diff review confirmed no staged files and no remaining workflow diffs outside this checkpoint update.
+- Phase 1 pre-closeout inspected status, intended diff, and recent commits.
 
 ## Risks Or Blockers
 
-- Pre-existing unrelated dirty files in Budabit remain outside this workflow.
+- First phase push will also publish the three existing local commits currently ahead of `origin/dev`.
 - No current blocker.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `src/app/extensions/community-widget-slots.ts`
-- `src/app/extensions/community-widget-slots.test.ts`
-- `src/app/components/community/CommunityHomeWidgetSlot.svelte`
-- `src/app/components/community/CommunityWidgetSlotLaunchers.svelte`
-- `src/app/components/WidgetFrame.svelte`
-- `/home/johnd/Work/budabit-calendar-widget/src/App.svelte`
+- `src/app/components/PrimaryNav.svelte`
+- `src/app/components/NotificationsModal.svelte`
+- `src/app/util/notification-center.ts`
+- `src/app/util/notification-center.test.ts`

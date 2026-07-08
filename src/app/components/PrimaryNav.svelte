@@ -4,6 +4,7 @@
   import {pubkey} from "@welshman/app"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import LogIn from "@app/components/LogIn.svelte"
+  import Bell from "@assets/icons/bell.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
@@ -12,9 +13,9 @@
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import PrimaryNavItem from "@lib/components/PrimaryNavItem.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
+  import NotificationsModal from "@app/components/NotificationsModal.svelte"
   import {pushModal} from "@app/util/modal"
   import {notifications} from "@app/util/notifications"
-  import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import Git from "@assets/icons/git.svg?dataurl"
 
   type Props = {
@@ -25,12 +26,13 @@
 
   const showSettingsMenu = () => pushModal(MenuSettings)
 
+  const showNotifications = () => pushModal(NotificationsModal)
+
   const openChat = () => {
     if ($pubkey) goto("/chat")
     else pushModal(LogIn)
   }
-
-  const gitNotification = $derived(hasGitNotification($notifications))
+  const hasTopLevelNotification = $derived($notifications.size > 0)
 </script>
 
 <div
@@ -43,21 +45,19 @@
       <PrimaryNavItem title="Explore" href="/explore" prefix="/explore" class="tooltip-right">
         <ImageIcon alt="Explore" src={Compass} size={7} />
       </PrimaryNavItem>
+      <PrimaryNavItem
+        title="Notifications"
+        onclick={showNotifications}
+        class="tooltip-right"
+        notification={hasTopLevelNotification}>
+        <ImageIcon alt="Notifications" src={Bell} size={7} />
+      </PrimaryNavItem>
     </div>
     <div>
-      <PrimaryNavItem
-        title="Messages"
-        onclick={openChat}
-        class="tooltip-right"
-        notification={$notifications.has("/chat")}>
+      <PrimaryNavItem title="Messages" onclick={openChat} class="tooltip-right">
         <ImageIcon alt="Messages" src={Letter} size={7} />
       </PrimaryNavItem>
-      <PrimaryNavItem
-        title="Git"
-        href="/git"
-        prefix="/git"
-        class="tooltip-right"
-        notification={gitNotification}>
+      <PrimaryNavItem title="Git" href="/git" prefix="/git" class="tooltip-right">
         <ImageIcon alt="Git" src={Git} size={7} />
       </PrimaryNavItem>
       <PrimaryNavItem title="Search" href="/people" class="tooltip-right">
@@ -108,18 +108,21 @@
     <PrimaryNavItem compact title="Explore" href="/explore" prefix="/explore">
       <ImageIcon alt="Explore" src={Compass} size={5} />
     </PrimaryNavItem>
-    <PrimaryNavItem compact title="Git" href="/git" prefix="/git" notification={gitNotification}>
+    <PrimaryNavItem compact title="Git" href="/git" prefix="/git">
       <ImageIcon alt="Git" src={Git} size={5} />
     </PrimaryNavItem>
-    <PrimaryNavItem
-      compact
-      title="Messages"
-      onclick={openChat}
-      notification={$notifications.has("/chat")}>
+    <PrimaryNavItem compact title="Messages" onclick={openChat}>
       <ImageIcon alt="Messages" src={Letter} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Search" href="/people">
       <ImageIcon alt="Search" src={Magnifier} size={5} />
+    </PrimaryNavItem>
+    <PrimaryNavItem
+      compact
+      title="Notifications"
+      onclick={showNotifications}
+      notification={hasTopLevelNotification}>
+      <ImageIcon alt="Notifications" src={Bell} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
       {#if $pubkey}
