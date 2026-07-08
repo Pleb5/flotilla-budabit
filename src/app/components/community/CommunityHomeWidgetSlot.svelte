@@ -1,7 +1,7 @@
 <script lang="ts">
   import {getTagValue} from "@welshman/util"
   import {pubkey} from "@welshman/app"
-  import {onDestroy} from "svelte"
+  import {onDestroy, onMount} from "svelte"
   import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import {normalizePubkey} from "@app/core/community"
   import {
@@ -33,6 +33,10 @@
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
   let loadKey = ""
   let loadRequestId = 0
+  let loadRefreshNonce = $state(0)
+  let forceNextLoad = false
+  let lastForcedRefreshAt = 0
+  const FORCED_REFRESH_DEBOUNCE_MS = 1_000
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
@@ -77,7 +81,24 @@
     ...(communityContext ? {communityContext} : {}),
   })
 
+  const refreshWidgets = (force = false) => {
+    if (force) {
+      const now = Date.now()
+      if (now - lastForcedRefreshAt < FORCED_REFRESH_DEBOUNCE_MS) return
+      lastForcedRefreshAt = now
+      forceNextLoad = true
+    }
+
+    loadKey = ""
+    loadRefreshNonce += 1
+  }
+
+  const refreshVisibleWidgets = () => {
+    if (document.visibilityState === "visible") refreshWidgets(true)
+  }
+
   $effect(() => {
+    loadRefreshNonce
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
     const key = input ? `${slotType}:${input}` : ""
 
@@ -90,6 +111,8 @@
 
     if (key === loadKey) return
     loadKey = key
+    const force = forceNextLoad
+    forceNextLoad = false
     const requestId = ++loadRequestId
 
     logCommunityWidgetDebug("home slot loading curated widgets", {
@@ -98,9 +121,10 @@
       relayHints,
       input,
       key,
+      force,
     })
 
-    loadCachedCommunityCuratedWidgets(input)
+    loadCachedCommunityCuratedWidgets(input, {force})
       .then(result => {
         if (requestId !== loadRequestId || key !== loadKey) {
           logCommunityWidgetDebug("home slot discarded stale curated widgets result", {
@@ -144,6 +168,22 @@
         curatedWidgets = []
         loadKey = ""
       })
+  })
+
+  onMount(() => {
+    const refresh = () => refreshWidgets(true)
+
+    window.addEventListener("pageshow", refresh)
+    window.addEventListener("focus", refresh)
+    window.addEventListener("online", refresh)
+    document.addEventListener("visibilitychange", refreshVisibleWidgets)
+
+    return () => {
+      window.removeEventListener("pageshow", refresh)
+      window.removeEventListener("focus", refresh)
+      window.removeEventListener("online", refresh)
+      document.removeEventListener("visibilitychange", refreshVisibleWidgets)
+    }
   })
 
   onDestroy(() => {

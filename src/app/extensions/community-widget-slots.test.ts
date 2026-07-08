@@ -1,7 +1,21 @@
-import {describe, expect, it} from "vitest"
-import {getEnabledCommunitySlotWidgets} from "./community-widget-slots"
+import {beforeEach, describe, expect, it, vi} from "vitest"
+import type {CommunityCuratedExtensionsResult} from "./community-curation"
+import {
+  COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS,
+  clearCommunityWidgetSlotCache,
+  getEnabledCommunitySlotWidgets,
+  loadCachedCommunityCuratedWidgets,
+} from "./community-widget-slots"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "./types"
 import {getWidgetLineId} from "./widget-identity"
+
+const mocks = vi.hoisted(() => ({
+  loadCommunityCuratedWidgets: vi.fn(),
+}))
+
+vi.mock("./community-curation", () => ({
+  loadCommunityCuratedWidgets: mocks.loadCommunityCuratedWidgets,
+}))
 
 const makeWidget = (
   identifier: string,
@@ -22,7 +36,20 @@ const makeWidget = (
   slot: slotType ? {type: slotType, label} : undefined,
 })
 
+const makeCuratedResult = (widgets: SmartWidgetEvent[] = []): CommunityCuratedExtensionsResult => ({
+  status: "community",
+  relayHints: [],
+  trustedWidgetAuthorPubkeys: [],
+  widgets,
+})
+
 describe("community widget slots", () => {
+  beforeEach(() => {
+    vi.useRealTimers()
+    mocks.loadCommunityCuratedWidgets.mockReset()
+    clearCommunityWidgetSlotCache()
+  })
+
   it("selects installed and enabled widgets for a community slot", () => {
     const curated = [
       makeWidget("message-widget", "chat-message-actions", "Message tools"),
@@ -131,5 +158,62 @@ describe("community widget slots", () => {
     })
 
     expect(selected).toEqual([])
+  })
+
+  it("reuses cached curated widget loads while they are fresh", async () => {
+    const widget = makeWidget("featured-calendar-event", "community-home-after-quicklinks")
+    mocks.loadCommunityCuratedWidgets.mockResolvedValueOnce(makeCuratedResult([widget]))
+
+    const first = loadCachedCommunityCuratedWidgets("community-a")
+    const second = loadCachedCommunityCuratedWidgets(" community-a ")
+
+    expect(second).toBe(first)
+    await expect(first).resolves.toMatchObject({widgets: [widget]})
+    await expect(loadCachedCommunityCuratedWidgets("community-a")).resolves.toMatchObject({
+      widgets: [widget],
+    })
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(1)
+  })
+
+  it("force refresh bypasses fresh curated widget cache entries", async () => {
+    const firstWidget = makeWidget("first-widget", "community-home-after-quicklinks")
+    const secondWidget = makeWidget("second-widget", "community-home-after-quicklinks")
+    mocks.loadCommunityCuratedWidgets
+      .mockResolvedValueOnce(makeCuratedResult([firstWidget]))
+      .mockResolvedValueOnce(makeCuratedResult([secondWidget]))
+
+    await expect(loadCachedCommunityCuratedWidgets("community-a")).resolves.toMatchObject({
+      widgets: [firstWidget],
+    })
+    await expect(
+      loadCachedCommunityCuratedWidgets("community-a", {force: true}),
+    ).resolves.toMatchObject({widgets: [secondWidget]})
+
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(2)
+  })
+
+  it("expires empty curated widget cache entries quickly", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const widget = makeWidget("recovered-widget", "community-home-after-quicklinks")
+    mocks.loadCommunityCuratedWidgets
+      .mockResolvedValueOnce(makeCuratedResult())
+      .mockResolvedValueOnce(makeCuratedResult([widget]))
+
+    await expect(loadCachedCommunityCuratedWidgets("community-a")).resolves.toMatchObject({
+      widgets: [],
+    })
+
+    vi.setSystemTime(COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS - 1)
+    await expect(loadCachedCommunityCuratedWidgets("community-a")).resolves.toMatchObject({
+      widgets: [],
+    })
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(1)
+
+    vi.setSystemTime(COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS + 1)
+    await expect(loadCachedCommunityCuratedWidgets("community-a")).resolves.toMatchObject({
+      widgets: [widget],
+    })
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(2)
   })
 })

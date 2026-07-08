@@ -2,9 +2,9 @@
 
 ## Objective
 
-- Add user-side community renunciation so a member can leave/rejoin a group for Budabit's own recommendations, discovery, and web-of-trust logic without changing the underlying community moderator grants.
-- Store renounced communities as a private NIP-51 list using Welshman list utilities wherever possible.
-- Add a subtle Membership page `Leave group` / `Rejoin group` action with confirmation modals.
+- Make community-home smart widgets load reliably after mobile backgrounding, session/auth expiry, stale relay sockets, and transient widget CDN failures.
+- Prioritize the calendar widget case while improving the host-side widget slot scheduler for all community-bound widgets.
+- Preserve the existing extension permission and curation model: installed and enabled widgets must still be curated into the community slot before rendering.
 
 ## Constraints
 
@@ -12,15 +12,13 @@
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
 - Commit and push each verified phase before starting the next phase.
 - Branch `dev` tracks `origin/dev`; inspect push state before each phase push.
-- Stage only files intentionally changed for this renounced-community workflow.
-- Use Welshman utilities for NIP-51 lists where possible: `readList`, `makeList`, `addToListPrivately`, `removeFromList`, `updateList`, `getListTags`, `asDecryptedEvent`, and `nip44EncryptToSelf`.
-- Recommended list type is NIP-51 kind `30000` / Welshman `NAMED_PEOPLE`, with `d = app/budabit/renounced-communities` and only encrypted private `p` tags for community pubkeys.
-- Because Budabit also uses kind `30000` for community profile lists, explicitly guard the Budabit renunciation list from profile-list membership handling.
-- Do not artificially gate publishing access or direct section permission checks for a renounced community. Do not change `userHasSectionProfileListAccess` or `getGrantCapability` to deny permissions based on renunciation.
-- Do not allow admin/community-owner keys to renounce their own community. If such a pubkey appears in the renounced list, ignore it for effective membership filtering.
-- Renunciation is one-sided and reversible: rejoining only removes the community pubkey from the private renunciation list.
+- The calendar widget repository at `/home/johnd/Work/budabit-calendar-widget` tracks `origin/master` and is clean at planning time.
+- Stage only files intentionally changed for this workflow. Do not stage existing unrelated modified files in `src/app/core/community-renunciations.ts`, `src/app/core/community-renunciations.test.ts`, `src/app/util/notifications.ts`, `src/app/util/notifications.test.ts`, or `src/routes/c/[community]/access/+page.svelte` unless the current repository state proves they became part of this objective.
+- Prefer minimal host-side changes before changing widget-specific behavior.
+- Preserve community widget security: no weakening permission checks, origin checks, sandboxing, or secure URL requirements.
+- Keep checkpoints compact; put phase details here.
 
-## Phase 1: Core Renunciation List And Effective Membership
+## Phase 1: Host Slot Discovery Recovery
 
 ### Phase Startup
 
@@ -31,33 +29,29 @@
 
 ### Goal
 
-- Add the Welshman-backed private renounced-community list and wire it into central effective membership/preference state without changing direct permission checks.
+- Prevent transient authenticated relay failures from permanently hiding community-home widgets until a manual refresh.
 
 ### Exit Criteria
 
-- New renunciation core module reads a private NIP-51 `NAMED_PEOPLE` list with `d = app/budabit/renounced-communities` and exposes user renounced community pubkeys.
-- Leave/rejoin core helpers update private list `p` tags via Welshman list utilities and NIP-44 self-encryption.
-- Budabit profile-list helpers ignore the renounced-communities `30000` list so it cannot create membership evidence.
-- `selectUserCommunityRefs` can exclude renounced non-admin communities while preserving admin refs.
-- `activeUserCommunityRefs` is effective membership and filters renounced non-admin communities.
-- Raw active membership remains available for UI that must detect rejoin eligibility.
-- `activePreferredCommunities` excludes renounced communities even when starred/member/moderator-derived; admin renunciations are ignored.
-- Focused unit tests cover renunciation list parsing/updating, profile-list guard, effective membership filtering, and preference filtering.
+- `loadCachedCommunityCuratedWidgets` supports explicit refresh and does not cache empty community results indefinitely.
+- Failed, empty, and successful curation loads have bounded cache behavior that allows recovery without full page refresh.
+- Community home widget slots retry discovery on browser resume/focus/online and can force-refresh stale empty results.
+- Community action launcher slots use the same recovery behavior where practical.
+- Existing selection semantics remain unchanged: curated widgets must match installed and enabled widgets for the requested slot.
+- Focused tests cover cache reuse, forced refresh, and empty-result TTL behavior.
 - Phase 1 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Add `src/app/core/community-renunciations.ts` using Welshman list primitives and existing encrypted-list patterns from `src/app/core/nip85.ts`.
-- Add constants and guard helpers for `RENOUNCED_COMMUNITIES_DTAG` and the NIP-51 `NAMED_PEOPLE` list kind.
-- Extend community membership selection with an exclusion option.
-- Split `activeUserCommunityRefs` into raw/effective stores in `community-state.ts` while preserving the exported effective store name.
-- Pass effective membership and renounced pubkeys into preferred-community selection.
-- Add or update focused tests.
+- Extend `src/app/extensions/community-widget-slots.ts` with cache metadata, TTLs, and a `force` option.
+- Keep in-flight request deduplication for normal loads.
+- Add lifecycle-triggered reloads to `CommunityHomeWidgetSlot.svelte` and `CommunityWidgetSlotLaunchers.svelte` using `visibilitychange`, `pageshow`, `focus`, and `online`.
+- Add or update focused unit tests in `community-widget-slots.test.ts`.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/core/community-renunciations.test.ts src/app/core/community-membership.test.ts src/app/util/community-preferences.test.ts --project=main`.
-- Run `pnpm check` if touched types or store wiring require broader validation.
+- Run `pnpm vitest run src/app/extensions/community-widget-slots.test.ts --project=main`.
+- Run `pnpm check` if Svelte components or shared types changed.
 - Run `git diff --check`.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
@@ -85,7 +79,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Trust, Search, And Recommendation Integration
+## Phase 2: Host Widget Frame Lifecycle Recovery
 
 ### Phase Startup
 
@@ -96,31 +90,26 @@
 
 ### Goal
 
-- Ensure renounced communities do not contribute to web-of-trust, shared-community evidence, search ranking, or recommendation inputs while leaving direct community access untouched.
+- Recover inline widget iframes that stall or lose handshake after mobile resume or CDN/network hiccups.
 
 ### Exit Criteria
 
-- Community trust builders accept viewer-renounced community pubkeys and exclude those communities from viewer/target trust refs and shared evidence.
-- Callers that compute global or active-community trust pass the current user renounced set where available.
-- People search/community candidate discovery ignores renounced community definitions/profile-list evidence where appropriate.
-- Recommendation paths relying on `activeUserCommunityRefs` naturally use effective membership; any direct raw community evidence paths are filtered.
-- Profile trust badges and flag/report evidence use effective membership and do not include renounced community evidence.
-- Focused tests cover trust exclusion and search/community candidate exclusion.
+- `WidgetFrame` detects iframe load stalls and retries with bounded attempts.
+- `WidgetFrame` retries unloaded or uninitialized widgets on browser resume/focus/online without weakening origin or sandbox behavior.
+- Widget context and theme posting still happens only after load/bridge setup and remains compatible with the existing `widget:ready` handshake.
+- Visible fallback state gives users a retry path after bounded automatic retry attempts.
 - Phase 2 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Extend `community-trust.ts` inputs with renounced/excluded community pubkeys and filter refs by community before scoring.
-- Pass `userRenouncedCommunityPubkeys` into `/explore`, `/people`, `/git`, profile selectors, chat search, and profile-collab trust calls as needed.
-- Add filtering support to `getCommunityPeoplePubkeys` or pre-filter its inputs so renounced communities do not seed people search candidates.
-- Verify recommendation paths are covered by the central effective membership store and adjust only direct evidence paths.
-- Add or update focused tests.
+- Add a small load watchdog and retry counter to `src/app/components/WidgetFrame.svelte`.
+- Retry the current app URL with a cache-busting nonce after stalls; preserve fallback app URL behavior.
+- Add lifecycle listeners for `pageshow`, visible `visibilitychange`, `focus`, and `online` to retry only when needed.
+- Keep `ExtensionBridge` detach/setup behavior intact unless current code proves a minimal bridge fix is necessary.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/core/community-trust.test.ts src/app/util/people-search.test.ts --project=main`.
-- Run any additional focused tests for touched recommendation/search modules.
-- Run `pnpm check` if Svelte callers or shared types changed.
+- Run `pnpm check`.
 - Run `git diff --check`.
 - Inspect root `git status`, `git diff`, and recent commits before committing.
 
@@ -148,45 +137,41 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: Membership Page Leave And Rejoin UI
+## Phase 3: Calendar Widget Resume Retry
 
 ### Phase Startup
 
 - Read the session checkpoint.
 - Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
-- Inspect current repository state before trusting either file.
+- Inspect current repository state in both `/home/johnd/Work/budabit` and `/home/johnd/Work/budabit-calendar-widget` before trusting either file.
 - Restate this phase's goal and exit criteria briefly, then execute.
 
 ### Goal
 
-- Add the Membership page leave/rejoin action with confirmation modals and state-aware labeling.
+- Make the featured calendar events widget retry its host bridge data loads after mobile backgrounding, request timeout, or restored network connectivity.
 
 ### Exit Criteria
 
-- Membership page shows a subtle red `Leave group` button to the right of the normal tabs when the current signed-in user is a non-admin raw member and has not renounced the group.
-- Membership page shows `Rejoin group` in the same location when the current group is renounced and raw membership evidence still exists.
-- No leave/rejoin button is shown for the community owner/admin key.
-- Both actions require confirmation via modal before publishing the encrypted list update.
-- Leave confirmation explains that underlying grants are not revoked and direct community access is not blocked.
-- Rejoin confirmation explains that the group is restored to Budabit membership lists, recommendations, and trust calculations.
-- UI reports success/failure through toasts and avoids duplicate publishes while an action is in flight.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- The calendar widget tracks last successful data load or failed load state for capabilities, shared config, and calendar events.
+- The widget retries stale or failed data loads on `pageshow`, visible `visibilitychange`, `focus`, and `online` when it has a current community context.
+- Retry logic respects `contextSessionId` / `contextVersion` stale-response guards already present in the widget.
+- The widget avoids duplicate concurrent reloads where practical.
+- Calendar widget verification passes.
+- Phase 3 changes are committed and pushed in the calendar widget repo, the Budabit checkpoint is advanced and pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Import raw/effective membership and renunciation stores/helpers into `src/routes/c/[community]/access/+page.svelte`.
-- Derive raw membership, current renounced state, admin-owner state, and button eligibility.
-- Add right-aligned action button near the existing tabs with subtle destructive styling.
-- Add `Confirm` modals for leave and rejoin actions.
-- Publish via core helper functions and update local repository/store state through existing publish patterns.
-- Keep direct section permission UI unchanged except the explanatory renounced status if needed.
+- Modify `/home/johnd/Work/budabit-calendar-widget/src/App.svelte` with minimal retry bookkeeping and browser lifecycle listeners.
+- Reuse existing `refreshCalendarCapabilities`, `loadSharedConfig`, and `loadCalendarEvents` instead of adding new bridge APIs.
+- Run the calendar widget's local check command.
+- Commit and push the calendar widget repo separately, then update and commit/push the Budabit checkpoint.
 
 ### Verification
 
-- Run `pnpm check`.
-- Run focused unit tests touched in earlier phases if core helpers changed.
-- Run `git diff --check`.
-- Inspect root `git status`, `git diff`, and recent commits before committing.
+- In `/home/johnd/Work/budabit-calendar-widget`, run `pnpm check`.
+- In `/home/johnd/Work/budabit-calendar-widget`, run `git diff --check`.
+- In `/home/johnd/Work/budabit`, run `git diff --check`.
+- Inspect status, diff, and recent commits in both repos before committing.
 
 ### Mandatory Closeout
 
@@ -194,12 +179,12 @@
 - Update the checkpoint before committing:
   - Move this phase into `Completed With Evidence`.
   - Record verification commands and results.
-  - Record changed files.
+  - Record changed files and both repository commits when applicable.
   - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
   - Copy the next phase's exit criteria into `Phase Exit Criteria`.
   - Set `Next Action` to the first concrete step of the next phase.
   - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
+- Commit and push the phase. For this cross-repo phase, commit/push the calendar widget code and the Budabit checkpoint update separately. This is a phase transition, not a stopping point.
 - Read the session checkpoint again to verify status and next action.
 - Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
 - Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
@@ -227,26 +212,30 @@
 
 ### Exit Criteria
 
-- Targeted tests from phases 1 and 2 pass after all changes.
-- `pnpm check` passes.
-- `git diff --check` passes.
-- Final diff review shows only intentional Budabit files plus session docs.
+- Host targeted widget-slot tests pass after all changes.
+- Host `pnpm check` passes.
+- Calendar widget `pnpm check` passes after all changes.
+- `git diff --check` passes in every touched repository.
+- Final diff review shows only intentional files for this workflow plus pre-existing unrelated dirty files are not staged.
 - Checkpoint records `Current Phase: Complete` and final verification evidence.
 - Final closeout commit is pushed before final response.
 
 ### Steps
 
-- Rerun targeted core/preference/trust/search tests.
-- Run full Svelte/TypeScript project check.
-- Inspect final diffs and status.
+- Rerun host targeted widget-slot tests.
+- Run host full Svelte/TypeScript project check.
+- Rerun calendar widget check.
+- Inspect final diffs and status in touched repositories.
 - Update checkpoint to `Complete` with evidence and residual risks.
 
 ### Verification
 
-- Run `pnpm vitest run src/app/core/community-renunciations.test.ts src/app/core/community-membership.test.ts src/app/util/community-preferences.test.ts src/app/core/community-trust.test.ts src/app/util/people-search.test.ts --project=main`.
-- Run `pnpm check`.
-- Run `git diff --check`.
-- Inspect root `git status`, `git diff`, and recent commits before committing.
+- In `/home/johnd/Work/budabit`, run `pnpm vitest run src/app/extensions/community-widget-slots.test.ts --project=main`.
+- In `/home/johnd/Work/budabit`, run `pnpm check`.
+- In `/home/johnd/Work/budabit`, run `git diff --check`.
+- In `/home/johnd/Work/budabit-calendar-widget`, run `pnpm check`.
+- In `/home/johnd/Work/budabit-calendar-widget`, run `git diff --check`.
+- Inspect status, diff, and recent commits before committing.
 
 ### Mandatory Closeout
 

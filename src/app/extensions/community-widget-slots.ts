@@ -1,25 +1,61 @@
-import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+import {
+  loadCommunityCuratedWidgets,
+  type CommunityCuratedExtensionsResult,
+} from "@app/extensions/community-curation"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "@app/extensions/types"
 import {logCommunityWidgetDebug} from "./community-widget-debug"
 import {getWidgetLineId} from "./widget-identity"
 
-const curatedWidgetLoads = new Map<
-  string,
-  ReturnType<typeof loadCommunityCuratedWidgets>
->()
+export const COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS = 30_000
+export const COMMUNITY_WIDGET_SUCCESS_CACHE_TTL_MS = 5 * 60_000
 
-export const loadCachedCommunityCuratedWidgets = (input: string) => {
+type CuratedWidgetLoad = ReturnType<typeof loadCommunityCuratedWidgets>
+type CuratedWidgetCacheEntry = {
+  promise: CuratedWidgetLoad
+  settledAt?: number
+  ttlMs?: number
+}
+
+type LoadCachedCommunityCuratedWidgetsOptions = {
+  force?: boolean
+  now?: number
+}
+
+const curatedWidgetLoads = new Map<string, CuratedWidgetCacheEntry>()
+
+const getCuratedWidgetResultTtl = (result: CommunityCuratedExtensionsResult | undefined) =>
+  result?.status === "community" && result.widgets.length > 0
+    ? COMMUNITY_WIDGET_SUCCESS_CACHE_TTL_MS
+    : COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS
+
+const isFreshCacheEntry = (entry: CuratedWidgetCacheEntry, now: number) =>
+  entry.settledAt === undefined || now - entry.settledAt < (entry.ttlMs || 0)
+
+export const loadCachedCommunityCuratedWidgets = (
+  input: string,
+  {force = false, now = Date.now()}: LoadCachedCommunityCuratedWidgetsOptions = {},
+) => {
   const key = input.trim()
   if (!key) return Promise.resolve(undefined)
 
   const existing = curatedWidgetLoads.get(key)
-  if (existing) return existing
+  if (!force && existing && isFreshCacheEntry(existing, now)) return existing.promise
 
-  const pending = loadCommunityCuratedWidgets(key).catch(error => {
-    curatedWidgetLoads.delete(key)
-    throw error
-  })
-  curatedWidgetLoads.set(key, pending)
+  const pending = loadCommunityCuratedWidgets(key)
+    .then(result => {
+      const entry = curatedWidgetLoads.get(key)
+      if (entry?.promise === pending) {
+        entry.settledAt = Date.now()
+        entry.ttlMs = getCuratedWidgetResultTtl(result)
+      }
+
+      return result
+    })
+    .catch(error => {
+      if (curatedWidgetLoads.get(key)?.promise === pending) curatedWidgetLoads.delete(key)
+      throw error
+    })
+  curatedWidgetLoads.set(key, {promise: pending})
 
   return pending
 }
