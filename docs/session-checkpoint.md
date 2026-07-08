@@ -12,15 +12,15 @@
 
 ## Current Phase
 
-- Phase 4: Final Verification And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Host targeted widget-slot tests pass after all changes.
-- Host `pnpm check` passes.
-- Calendar widget `pnpm check` passes after all changes.
-- `git diff --check` passes in every touched repository.
-- Final diff review shows only intentional files for this workflow plus pre-existing unrelated dirty files are not staged.
+- Host targeted widget-slot tests passed after all changes.
+- Host `pnpm check` passed.
+- Calendar widget `pnpm check` passed after all changes.
+- `git diff --check` passed in every touched repository.
+- Final diff review showed no staged files and only pre-existing unrelated dirty Budabit files outside this workflow.
 - Checkpoint records `Current Phase: Complete` and final verification evidence.
 - Final closeout commit is pushed before final response.
 
@@ -55,6 +55,13 @@
   - Calendar widget `pnpm check` passed with 0 errors and 0 warnings, including production build.
   - Calendar widget `git diff --check` passed.
   - Budabit `git diff --check` passed.
+- Phase 4 final verification passed:
+  - Host `pnpm vitest run src/app/extensions/community-widget-slots.test.ts --project=main` passed: 1 file, 8 tests.
+  - Host `pnpm check` passed with 0 errors and 0 warnings.
+  - Calendar widget `pnpm check` passed with 0 errors and 0 warnings, including production build.
+  - Budabit `git diff --check` passed.
+  - Calendar widget `git diff --check` passed.
+  - Final status/diff review found `/home/johnd/Work/budabit-calendar-widget` clean, no staged files in either repo, and only known unrelated dirty Budabit files remaining.
 
 ## Decisions
 
@@ -75,10 +82,12 @@
 - Phase 2 changed files: `docs/session-checkpoint.md` and `src/app/components/WidgetFrame.svelte`.
 - Phase 3 changed files: `/home/johnd/Work/budabit-calendar-widget/src/App.svelte` and Budabit `docs/session-checkpoint.md`.
 - Phase 3 calendar widget commit `2e6d005` was pushed to `origin/master`.
+- Phase 3 Budabit checkpoint commit `39e4f27f` was pushed to `origin/dev`.
+- Phase 4 changed files: Budabit `docs/session-checkpoint.md`.
 
 ## Next Action
 
-- Start Phase 4 by rerunning host targeted widget-slot tests in `/home/johnd/Work/budabit`.
+- Final response.
 
 ## Verification
 
@@ -101,10 +110,16 @@
 - Phase 3 calendar widget whitespace check passed.
 - Phase 3 Budabit whitespace check passed.
 - Phase 3 pre-closeout inspected calendar widget status, diff, and recent commits before committing, then inspected Budabit status, checkpoint diff, and recent commits before committing the checkpoint.
+- Phase 4 startup reread this checkpoint and inspected Budabit and calendar widget `git status --short --branch`.
+- Phase 4 host targeted widget-slot tests passed.
+- Phase 4 host project check passed.
+- Phase 4 calendar widget project check passed.
+- Phase 4 whitespace checks passed in both touched repositories.
+- Phase 4 final status/diff review confirmed no staged files and no remaining workflow diffs outside this checkpoint update.
 
 ## Risks Or Blockers
 
-- Pre-existing unrelated dirty files in Budabit require careful staging.
+- Pre-existing unrelated dirty files in Budabit remain outside this workflow.
 - No current blocker.
 
 ## Files
