@@ -79,6 +79,8 @@
     | {type: "date"; id: string; value: string; showPubkey: false}
     | {type: "note"; id: string; value: TrustedEvent; showPubkey: boolean}
 
+  const FEED_EMPTY_SETTLE_TIMEOUT_MS = 10_000
+
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const roomId = $derived($page.params.room || "")
@@ -347,11 +349,30 @@
     }
   }
 
+  const clearFeedEmptySettleTimer = () => {
+    if (!feedEmptySettleTimer) return
+
+    clearTimeout(feedEmptySettleTimer)
+    feedEmptySettleTimer = undefined
+  }
+
+  const startFeedEmptySettleTimer = () => {
+    clearFeedEmptySettleTimer()
+    feedEmptySettled = false
+    feedEmptySettleTimer = setTimeout(() => {
+      feedEmptySettleTimer = undefined
+      feedEmptySettled = true
+    }, FEED_EMPTY_SETTLE_TIMEOUT_MS)
+  }
+
   const resetFeed = () => {
     feedCleanup?.()
     feedCleanup = undefined
+    clearFeedEmptySettleTimer()
     events = readable([])
     loadingEvents = false
+    feedSoftTimedOut = false
+    feedEmptySettled = false
     exhaustedEvents = false
     feedInitialized = false
     lastFeedKey = ""
@@ -362,6 +383,8 @@
       return
 
     loadingEvents = true
+    feedSoftTimedOut = false
+    startFeedEmptySettleTimer()
     exhaustedEvents = false
     newMessagesSeen = false
     showFixedNewMessages = false
@@ -373,11 +396,15 @@
       relays: $activeCommunityRelays,
       feedFilters: messageFilters,
       subscriptionFilters: messageFilters,
-      onInitialLoad: () => {
+      onInitialLoad: ({timedOut}) => {
         loadingEvents = false
+        feedSoftTimedOut = timedOut
       },
       onExhausted: () => {
         loadingEvents = false
+        feedSoftTimedOut = false
+        feedEmptySettled = true
+        clearFeedEmptySettleTimer()
         exhaustedEvents = true
       },
     })
@@ -410,7 +437,11 @@
     }
   }
 
+  let loadingRoom = $state(false)
+  let roomRequestDone = $state(false)
   let loadingEvents = $state(false)
+  let feedSoftTimedOut = $state(false)
+  let feedEmptySettled = $state(false)
   let exhaustedEvents = $state(false)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
   let parent: TrustedEvent | undefined = $state()
@@ -426,7 +457,18 @@
   let eventToEdit: TrustedEvent | undefined = $state()
   let feedCleanup: (() => void) | undefined = $state()
   let feedInitialized = $state(false)
+  let feedEmptySettleTimer: ReturnType<typeof setTimeout> | undefined
   let lastFeedKey = ""
+  const waitingForRoom = $derived(
+    Boolean(
+      communityBootstrapReady &&
+      !room &&
+      roomFilters.length > 0 &&
+      $activeCommunityRelays.length > 0 &&
+      (loadingRoom || !roomRequestDone),
+    ),
+  )
+  const waitingForFeed = $derived(Boolean(room && feedKey && !feedInitialized))
 
   const messages = $derived(
     readCommunityRoomMessages(
@@ -491,12 +533,39 @@
 
   $effect(() => {
     const relays = $activeCommunityRelays
-    if (!communityPubkey || !roomId || relays.length === 0 || roomFilters.length === 0) return
+    if (!communityPubkey || !roomId || relays.length === 0 || roomFilters.length === 0) {
+      loadingRoom = false
+      roomRequestDone = false
+      return
+    }
+
+    if (room) {
+      loadingRoom = false
+      roomRequestDone = true
+      return
+    }
 
     const controller = new AbortController()
+    loadingRoom = true
+    roomRequestDone = false
     request({relays, autoClose: true, filters: roomFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+
+        loadingRoom = false
+        roomRequestDone = true
+      })
 
     return () => controller.abort()
+  })
+
+  $effect(() => {
+    if (elements.length === 0) return
+
+    feedSoftTimedOut = false
+    feedEmptySettled = true
+    clearFeedEmptySettleTimer()
   })
 
   $effect(() => {
@@ -605,12 +674,20 @@
         </div>
       {/if}
     {/each}
-    {#if communityBootstrapLoading || loadingEvents || elements.length === 0 || exhaustedEvents}
+    {#if communityBootstrapLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         {#if communityBootstrapLoading}
           <Spinner loading>Loading community...</Spinner>
+        {:else if waitingForRoom}
+          <Spinner loading>Loading room...</Spinner>
+        {:else if waitingForFeed}
+          <Spinner loading>Looking for messages...</Spinner>
         {:else if loadingEvents}
           <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+        {:else if !feedEmptySettled && elements.length === 0}
+          <Spinner loading>Still looking for messages...</Spinner>
+        {:else if !room}
+          <span>Room not found or not approved for this community.</span>
         {:else if elements.length === 0}
           <span>No messages yet.</span>
         {:else}

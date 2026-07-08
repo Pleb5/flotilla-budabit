@@ -70,6 +70,9 @@
   import {pushToast} from "@app/util/toast"
   import {makeCommunityCalendarPath, parseCommunityRouteParam} from "@app/util/routes"
 
+  const REQUEST_SOFT_TIMEOUT_MS = 3_000
+  const REQUEST_HARD_TIMEOUT_MS = 10_000
+
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const eventParam = $derived($page.params.event || "")
@@ -385,9 +388,14 @@
   const canEditReply = (event: TrustedEvent) => canEditReplyEvent(event, $pubkey, canReply)
 
   let loadingEvent = $state(false)
+  let eventSoftTimedOut = $state(false)
   let eventRequestDone = $state(false)
   let loadingTargeting = $state(false)
+  let targetSoftTimedOut = $state(false)
   let targetRequestDone = $state(false)
+  let loadingReplies = $state(false)
+  let repliesSoftTimedOut = $state(false)
+  let replyRequestDone = $state(false)
   let showReply = $state(false)
   let parent: TrustedEvent | undefined = $state()
   let eventToEdit: TrustedEvent | undefined = $state()
@@ -410,17 +418,25 @@
       eventFilters.length === 0
     ) {
       loadingEvent = false
+      eventSoftTimedOut = false
       eventRequestDone = false
       return
     }
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => {
+    const softTimeout = setTimeout(() => {
       loadingEvent = false
+      eventSoftTimedOut = true
+    }, REQUEST_SOFT_TIMEOUT_MS)
+    const hardTimeout = setTimeout(() => {
+      loadingEvent = false
+      eventSoftTimedOut = false
       eventRequestDone = true
-    }, 3000)
+      controller.abort()
+    }, REQUEST_HARD_TIMEOUT_MS)
 
     loadingEvent = true
+    eventSoftTimedOut = false
     eventRequestDone = false
     request({
       relays: $activeCommunityRelays,
@@ -430,15 +446,18 @@
     })
       .catch(() => undefined)
       .finally(() => {
-        clearTimeout(timeout)
+        clearTimeout(softTimeout)
+        clearTimeout(hardTimeout)
         if (controller.signal.aborted) return
 
         loadingEvent = false
+        eventSoftTimedOut = false
         eventRequestDone = true
       })
 
     return () => {
-      clearTimeout(timeout)
+      clearTimeout(softTimeout)
+      clearTimeout(hardTimeout)
       controller.abort()
     }
   })
@@ -450,17 +469,25 @@
       targetingFilters.length === 0
     ) {
       loadingTargeting = false
+      targetSoftTimedOut = false
       targetRequestDone = false
       return
     }
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => {
+    const softTimeout = setTimeout(() => {
       loadingTargeting = false
+      targetSoftTimedOut = true
+    }, REQUEST_SOFT_TIMEOUT_MS)
+    const hardTimeout = setTimeout(() => {
+      loadingTargeting = false
+      targetSoftTimedOut = false
       targetRequestDone = true
-    }, 3000)
+      controller.abort()
+    }, REQUEST_HARD_TIMEOUT_MS)
 
     loadingTargeting = true
+    targetSoftTimedOut = false
     targetRequestDone = false
     request({
       relays: $activeCommunityRelays,
@@ -470,15 +497,18 @@
     })
       .catch(() => undefined)
       .finally(() => {
-        clearTimeout(timeout)
+        clearTimeout(softTimeout)
+        clearTimeout(hardTimeout)
         if (controller.signal.aborted) return
 
         loadingTargeting = false
+        targetSoftTimedOut = false
         targetRequestDone = true
       })
 
     return () => {
-      clearTimeout(timeout)
+      clearTimeout(softTimeout)
+      clearTimeout(hardTimeout)
       controller.abort()
     }
   })
@@ -488,18 +518,65 @@
       !communityBootstrapReady ||
       $activeCommunityRelays.length === 0 ||
       replyFilters.length === 0
-    )
+    ) {
+      loadingReplies = false
+      repliesSoftTimedOut = false
+      replyRequestDone = false
       return
+    }
 
     const controller = new AbortController()
+    const softTimeout = setTimeout(() => {
+      loadingReplies = false
+      repliesSoftTimedOut = true
+    }, REQUEST_SOFT_TIMEOUT_MS)
+    const hardTimeout = setTimeout(() => {
+      loadingReplies = false
+      repliesSoftTimedOut = false
+      replyRequestDone = true
+      controller.abort()
+    }, REQUEST_HARD_TIMEOUT_MS)
+
+    loadingReplies = true
+    repliesSoftTimedOut = false
+    replyRequestDone = false
     request({
       relays: $activeCommunityRelays,
       autoClose: true,
       filters: replyFilters,
       signal: controller.signal,
     })
+      .catch(() => undefined)
+      .finally(() => {
+        clearTimeout(softTimeout)
+        clearTimeout(hardTimeout)
+        if (controller.signal.aborted) return
 
-    return () => controller.abort()
+        loadingReplies = false
+        repliesSoftTimedOut = false
+        replyRequestDone = true
+      })
+
+    return () => {
+      clearTimeout(softTimeout)
+      clearTimeout(hardTimeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
+    if (event) {
+      loadingEvent = false
+      eventSoftTimedOut = false
+    }
+    if (approvedEvent) {
+      loadingTargeting = false
+      targetSoftTimedOut = false
+    }
+    if (replies.length > 0) {
+      loadingReplies = false
+      repliesSoftTimedOut = false
+    }
   })
 
   onDestroy(() => {
@@ -596,7 +673,17 @@
               replyTo={canReply ? event => openCommentPrompt(event) : undefined} />
           </div>
         {:else}
-          <p class="py-8 text-center opacity-70">No comments yet.</p>
+          {#if loadingReplies}
+            <p class="flex h-10 items-center justify-center py-20 text-center">
+              <Spinner loading>Looking for comments...</Spinner>
+            </p>
+          {:else if repliesSoftTimedOut && !replyRequestDone}
+            <p class="flex h-10 items-center justify-center py-20 text-center">
+              <Spinner loading>Still looking for comments...</Spinner>
+            </p>
+          {:else}
+            <p class="py-8 text-center opacity-70">No comments yet.</p>
+          {/if}
         {/each}
       </div>
     {/if}
@@ -649,9 +736,12 @@
         {/if}
       </div>
     {/if}
-  {:else if communityBootstrapLoading || loadingEvent || (event && (loadingTargeting || !targetRequestDone)) || (!event && !eventRequestDone)}
+  {:else if communityBootstrapLoading || loadingEvent || eventSoftTimedOut || (event && (loadingTargeting || targetSoftTimedOut || !targetRequestDone)) || (!event && !eventRequestDone)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
-      <Spinner loading>Loading event...</Spinner>
+      <Spinner loading
+        >{eventSoftTimedOut || targetSoftTimedOut
+          ? "Still loading event..."
+          : "Loading event..."}</Spinner>
     </p>
   {:else}
     <p class="py-8 text-center opacity-70">Event not found or not approved for this community.</p>

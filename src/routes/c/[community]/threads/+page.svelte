@@ -37,6 +37,8 @@
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
 
+  const FEED_EMPTY_SETTLE_TIMEOUT_MS = 10_000
+
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const threadsPath = $derived(
@@ -107,11 +109,14 @@
       : "",
   )
   let loadingEvents = $state(false)
+  let feedSoftTimedOut = $state(false)
+  let feedEmptySettled = $state(false)
   let exhaustedEvents = $state(false)
   let element: HTMLElement | undefined = $state()
   let events: Readable<TrustedEvent[]> = $state(readable([]))
   let feedCleanup: (() => void) | undefined = $state()
   let feedInitialized = $state(false)
+  let feedEmptySettleTimer: ReturnType<typeof setTimeout> | undefined
   let lastFeedKey = ""
   const waitingForFeed = $derived(Boolean(feedKey && !feedInitialized))
 
@@ -154,11 +159,30 @@
     ),
   )
 
+  const clearFeedEmptySettleTimer = () => {
+    if (!feedEmptySettleTimer) return
+
+    clearTimeout(feedEmptySettleTimer)
+    feedEmptySettleTimer = undefined
+  }
+
+  const startFeedEmptySettleTimer = () => {
+    clearFeedEmptySettleTimer()
+    feedEmptySettled = false
+    feedEmptySettleTimer = setTimeout(() => {
+      feedEmptySettleTimer = undefined
+      feedEmptySettled = true
+    }, FEED_EMPTY_SETTLE_TIMEOUT_MS)
+  }
+
   const resetFeed = () => {
     feedCleanup?.()
     feedCleanup = undefined
+    clearFeedEmptySettleTimer()
     events = readable([])
     loadingEvents = false
+    feedSoftTimedOut = false
+    feedEmptySettled = false
     exhaustedEvents = false
     feedInitialized = false
     lastFeedKey = ""
@@ -170,6 +194,8 @@
     const hydrationKey = `threads:feed:${key}`
 
     loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
+    feedSoftTimedOut = false
+    startFeedEmptySettleTimer()
     exhaustedEvents = false
     lastFeedKey = key
     feedInitialized = true
@@ -179,13 +205,17 @@
       relays: $activeCommunityRelays,
       feedFilters,
       subscriptionFilters: feedFilters,
-      onInitialLoad: () => {
-        markCommunityHydrationCompleted(hydrationKey)
+      onInitialLoad: ({timedOut}) => {
+        if (!timedOut) markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
+        feedSoftTimedOut = timedOut
       },
       onExhausted: () => {
         markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
+        feedSoftTimedOut = false
+        feedEmptySettled = true
+        clearFeedEmptySettleTimer()
         exhaustedEvents = true
       },
     })
@@ -206,6 +236,14 @@
       resetFeed()
       startFeed(key)
     }
+  })
+
+  $effect(() => {
+    if (threads.length === 0) return
+
+    feedSoftTimedOut = false
+    feedEmptySettled = true
+    clearFeedEmptySettleTimer()
   })
 
   onDestroy(() => {
@@ -254,9 +292,12 @@
       <p class="flex h-10 items-center justify-center py-20 text-center">
         <Spinner loading>Loading community permissions...</Spinner>
       </p>
-    {:else if waitingForFeed || loadingEvents}
+    {:else if waitingForFeed || loadingEvents || (!feedEmptySettled && threads.length === 0)}
       <p class="flex h-10 items-center justify-center py-20 text-center">
-        <Spinner loading>Looking for threads...</Spinner>
+        <Spinner loading
+          >{!waitingForFeed && !loadingEvents
+            ? "Still looking for threads..."
+            : "Looking for threads..."}</Spinner>
       </p>
     {:else if threads.length === 0}
       <p class="py-8 text-center opacity-70">No threads found.</p>

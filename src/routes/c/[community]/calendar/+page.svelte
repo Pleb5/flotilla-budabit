@@ -49,6 +49,9 @@
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityCalendarPath, parseCommunityRouteParam} from "@app/util/routes"
 
+  const REQUEST_SOFT_TIMEOUT_MS = 3_000
+  const REQUEST_HARD_TIMEOUT_MS = 10_000
+
   type CalendarItem = {
     event: TrustedEvent
     dateDisplay?: string
@@ -57,12 +60,16 @@
 
   let element: HTMLElement | undefined = $state()
   let loadingTargets = $state(false)
+  let targetSoftTimedOut = $state(false)
   let targetRequestDone = $state(false)
   let loadingEvents = $state(false)
+  let feedSoftTimedOut = $state(false)
+  let emptyStateSettled = $state(false)
   let exhaustedEvents = $state(false)
   let events: Readable<TrustedEvent[]> = $state(readable([]))
   let feedCleanup: (() => void) | undefined = $state()
   let feedInitialized = $state(false)
+  let emptyStateSettleTimer: ReturnType<typeof setTimeout> | undefined
   let lastFeedKey = ""
   let previousScrollHeight = 0
   let previousFirstEventId = ""
@@ -219,11 +226,29 @@
       })
   })
 
+  const clearEmptyStateSettleTimer = () => {
+    if (!emptyStateSettleTimer) return
+
+    clearTimeout(emptyStateSettleTimer)
+    emptyStateSettleTimer = undefined
+  }
+
+  const startEmptyStateSettleTimer = () => {
+    clearEmptyStateSettleTimer()
+    emptyStateSettled = false
+    emptyStateSettleTimer = setTimeout(() => {
+      emptyStateSettleTimer = undefined
+      emptyStateSettled = true
+    }, REQUEST_HARD_TIMEOUT_MS)
+  }
+
   const resetFeed = () => {
     feedCleanup?.()
     feedCleanup = undefined
     events = readable([])
     loadingEvents = false
+    feedSoftTimedOut = false
+    emptyStateSettled = false
     exhaustedEvents = false
     feedInitialized = false
     lastFeedKey = ""
@@ -239,6 +264,8 @@
     const hydrationKey = `calendar:feed:${key}`
 
     loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
+    feedSoftTimedOut = false
+    startEmptyStateSettleTimer()
     exhaustedEvents = false
     lastFeedKey = key
     feedInitialized = true
@@ -247,13 +274,17 @@
       element,
       relays: $activeCommunityRelays,
       filters: calendarFeedFilters,
-      onInitialLoad: () => {
-        markCommunityHydrationCompleted(hydrationKey)
+      onInitialLoad: ({timedOut}) => {
+        if (!timedOut) markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
+        feedSoftTimedOut = timedOut
       },
       onExhausted: () => {
         markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
+        feedSoftTimedOut = false
+        emptyStateSettled = true
+        clearEmptyStateSettleTimer()
         exhaustedEvents = true
       },
     })
@@ -270,7 +301,10 @@
       targetingFilters.length === 0
     ) {
       loadingTargets = false
+      targetSoftTimedOut = false
       targetRequestDone = false
+      emptyStateSettled = false
+      clearEmptyStateSettleTimer()
       return
     }
 
@@ -283,18 +317,28 @@
 
     if (hasCommunityHydrationCompleted(key)) {
       loadingTargets = false
+      targetSoftTimedOut = false
       targetRequestDone = true
       return
     }
 
-    const timeout = setTimeout(() => {
+    const softTimeout = setTimeout(() => {
+      targetSoftTimedOut = true
+    }, REQUEST_SOFT_TIMEOUT_MS)
+    const hardTimeout = setTimeout(() => {
       markCommunityHydrationCompleted(key)
       loadingTargets = false
+      targetSoftTimedOut = false
       targetRequestDone = true
-    }, 3000)
+      emptyStateSettled = true
+      clearEmptyStateSettleTimer()
+      controller.abort()
+    }, REQUEST_HARD_TIMEOUT_MS)
 
     loadingTargets = true
+    targetSoftTimedOut = false
     targetRequestDone = false
+    startEmptyStateSettleTimer()
     request({
       relays: $activeCommunityRelays,
       autoClose: true,
@@ -303,16 +347,19 @@
     })
       .catch(() => undefined)
       .finally(() => {
-        clearTimeout(timeout)
+        clearTimeout(softTimeout)
+        clearTimeout(hardTimeout)
         if (controller.signal.aborted) return
 
         markCommunityHydrationCompleted(key)
         loadingTargets = false
+        targetSoftTimedOut = false
         targetRequestDone = true
       })
 
     return () => {
-      clearTimeout(timeout)
+      clearTimeout(softTimeout)
+      clearTimeout(hardTimeout)
       controller.abort()
     }
   })
@@ -351,6 +398,14 @@
   })
 
   $effect(() => {
+    if (items.length === 0) return
+
+    feedSoftTimedOut = false
+    emptyStateSettled = true
+    clearEmptyStateSettleTimer()
+  })
+
+  $effect(() => {
     if (!element || items.length === 0) return
 
     requestAnimationFrame(() => {
@@ -383,6 +438,7 @@
 
   onDestroy(() => {
     resetFeed()
+    clearEmptyStateSettleTimer()
     setChecked(calendarPath)
   })
 </script>
@@ -439,9 +495,14 @@
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading community permissions...</Spinner>
     </p>
-  {:else if loadingTargets || waitingForFeed || loadingEvents || (!targetRequestDone && items.length === 0)}
+  {:else if loadingTargets || targetSoftTimedOut || waitingForFeed || loadingEvents || (!emptyStateSettled && items.length === 0) || (!targetRequestDone && items.length === 0)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
-      <Spinner loading>Looking for events...</Spinner>
+      <Spinner loading
+        >{targetSoftTimedOut ||
+        feedSoftTimedOut ||
+        (!emptyStateSettled && !loadingTargets && !waitingForFeed && !loadingEvents)
+          ? "Still looking for events..."
+          : "Looking for events..."}</Spinner>
     </p>
   {:else if items.length === 0}
     <p class="flex h-10 items-center justify-center py-20 text-center">No events found.</p>

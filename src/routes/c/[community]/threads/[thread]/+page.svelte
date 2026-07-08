@@ -59,6 +59,9 @@
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
 
+  const REQUEST_SOFT_TIMEOUT_MS = 3_000
+  const REQUEST_HARD_TIMEOUT_MS = 10_000
+
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const threadId = $derived($page.params.thread || "")
@@ -293,6 +296,9 @@
   let loadingThread = $state(false)
   let loadingReplies = $state(false)
   let threadRequestStarted = $state(false)
+  let threadRequestDone = $state(false)
+  let threadSoftTimedOut = $state(false)
+  let repliesSoftTimedOut = $state(false)
   let showReply = $state(false)
   let parent: TrustedEvent | undefined = $state()
   let eventToEdit: TrustedEvent | undefined = $state()
@@ -311,6 +317,9 @@
       loadingThread = false
       loadingReplies = false
       threadRequestStarted = false
+      threadRequestDone = false
+      threadSoftTimedOut = false
+      repliesSoftTimedOut = false
       return
     }
 
@@ -319,29 +328,64 @@
       loadingThread = false
       loadingReplies = false
       threadRequestStarted = false
+      threadRequestDone = false
+      threadSoftTimedOut = false
+      repliesSoftTimedOut = false
       return
     }
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => {
+    const softTimeout = setTimeout(() => {
       loadingThread = false
       loadingReplies = false
-    }, 3000)
+      threadSoftTimedOut = true
+      repliesSoftTimedOut = true
+    }, REQUEST_SOFT_TIMEOUT_MS)
+    const hardTimeout = setTimeout(() => {
+      loadingThread = false
+      loadingReplies = false
+      threadRequestDone = true
+      threadSoftTimedOut = false
+      repliesSoftTimedOut = false
+      controller.abort()
+    }, REQUEST_HARD_TIMEOUT_MS)
 
     threadRequestStarted = true
+    threadRequestDone = false
+    threadSoftTimedOut = false
+    repliesSoftTimedOut = false
     loadingThread = true
     loadingReplies = true
     request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        clearTimeout(softTimeout)
+        clearTimeout(hardTimeout)
+        if (controller.signal.aborted) return
+
+        loadingThread = false
+        loadingReplies = false
+        threadRequestDone = true
+        threadSoftTimedOut = false
+        repliesSoftTimedOut = false
+      })
 
     return () => {
-      clearTimeout(timeout)
+      clearTimeout(softTimeout)
+      clearTimeout(hardTimeout)
       controller.abort()
     }
   })
 
   $effect(() => {
-    if (thread) loadingThread = false
-    if (replies.length > 0) loadingReplies = false
+    if (thread) {
+      loadingThread = false
+      threadSoftTimedOut = false
+    }
+    if (replies.length > 0) {
+      loadingReplies = false
+      repliesSoftTimedOut = false
+    }
   })
 
   $effect(() => {
@@ -450,6 +494,10 @@
           <p class="flex h-10 items-center justify-center py-20 text-center">
             <Spinner loading={loadingReplies}>Looking for replies...</Spinner>
           </p>
+        {:else if repliesSoftTimedOut && !threadRequestDone && replies.length === 0}
+          <p class="flex h-10 items-center justify-center py-20 text-center">
+            <Spinner loading>Still looking for replies...</Spinner>
+          </p>
         {:else if replies.length === 0}
           <p class="py-8 text-center opacity-70">No replies yet.</p>
         {/if}
@@ -504,9 +552,10 @@
         {/if}
       </div>
     {/if}
-  {:else if communityBootstrapLoading || loadingThread || (threadFilters.length > 0 && !threadRequestStarted)}
+  {:else if communityBootstrapLoading || loadingThread || (threadFilters.length > 0 && !threadRequestStarted) || (!thread && threadSoftTimedOut && !threadRequestDone)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
-      <Spinner loading>Loading thread...</Spinner>
+      <Spinner loading
+        >{threadSoftTimedOut ? "Still loading thread..." : "Loading thread..."}</Spinner>
     </p>
   {:else}
     <p class="py-8 text-center opacity-70">Thread not found or not approved for this community.</p>

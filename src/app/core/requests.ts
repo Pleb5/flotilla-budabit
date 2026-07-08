@@ -75,7 +75,16 @@ export const makeCalendarTimeBasedFilters = (
 }
 
 const waitForSettled = async (promise: Promise<unknown>, timeoutMs: number) => {
-  await Promise.race([Promise.allSettled([promise]), sleep(timeoutMs)])
+  let timedOut = false
+
+  await Promise.race([
+    Promise.allSettled([promise]),
+    sleep(timeoutMs).then(() => {
+      timedOut = true
+    }),
+  ])
+
+  return timedOut
 }
 
 const withTimeoutSignal = (signal: AbortSignal, timeoutMs: number) =>
@@ -87,7 +96,7 @@ export interface FeedOptions {
   feedFilters: Filter[]
   subscriptionFilters?: Filter[]
   initialEvents?: TrustedEvent[]
-  onInitialLoad?: () => void
+  onInitialLoad?: (result: {timedOut: boolean}) => void
   onExhausted?: () => void
 }
 
@@ -108,7 +117,7 @@ export const makeFeed = ({
   let initialLoadComplete = false
   let initialLoadTimeout: ReturnType<typeof setTimeout> | undefined
 
-  const markInitialLoadComplete = () => {
+  const markInitialLoadComplete = (timedOut = false) => {
     if (initialLoadComplete || controller.signal.aborted) {
       return
     }
@@ -118,7 +127,7 @@ export const makeFeed = ({
       clearTimeout(initialLoadTimeout)
       initialLoadTimeout = undefined
     }
-    onInitialLoad?.()
+    onInitialLoad?.({timedOut})
   }
 
   const markExhausted = () => {
@@ -129,7 +138,7 @@ export const makeFeed = ({
     onExhausted?.()
   }
 
-  initialLoadTimeout = setTimeout(markInitialLoadComplete, INITIAL_FEED_LOAD_TIMEOUT)
+  initialLoadTimeout = setTimeout(() => markInitialLoadComplete(true), INITIAL_FEED_LOAD_TIMEOUT)
 
   const relaysSet = new Set(relays)
   const liveFilters = subscriptionFilters || feedFilters
@@ -245,10 +254,18 @@ export const makeFeed = ({
       const $buffer = get(buffer)
 
       if ($buffer.length < 100) {
-        await waitForSettled(
+        const timedOut = await waitForSettled(
           Promise.all(controllers.map(ctrl => ctrl.load(100))),
           INITIAL_FEED_LOAD_TIMEOUT,
         )
+
+        if (flushBuffer() > 0) {
+          markInitialLoadComplete()
+          return
+        }
+
+        markInitialLoadComplete(timedOut)
+        return
       }
 
       markInitialLoadComplete()
@@ -304,7 +321,7 @@ export const makeCalendarFeed = ({
   relays?: string[]
   filters: Filter[]
   element: HTMLElement
-  onInitialLoad?: () => void
+  onInitialLoad?: (result: {timedOut: boolean}) => void
   onExhausted?: () => void
 }) => {
   const interval = int(5, DAY)
@@ -390,13 +407,13 @@ export const makeCalendarFeed = ({
 
   let initialLoadComplete = false
 
-  const markInitialLoadComplete = () => {
+  const markInitialLoadComplete = (timedOut = false) => {
     if (initialLoadComplete || controller.signal.aborted) {
       return
     }
 
     initialLoadComplete = true
-    onInitialLoad?.()
+    onInitialLoad?.({timedOut})
   }
 
   const markExhausted = () => {
