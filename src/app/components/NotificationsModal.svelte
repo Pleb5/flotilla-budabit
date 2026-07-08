@@ -38,7 +38,7 @@
   const hasUnread = $derived($notificationCenterRows.some(row => !row.read))
 
   const getRowEventIds = (rows: NotificationRow[]) =>
-    Array.from(new Set(rows.flatMap(row => (row.eventId ? [row.eventId] : []))))
+    Array.from(new Set(rows.flatMap(row => row.eventIds || (row.eventId ? [row.eventId] : []))))
 
   $effect(() => {
     const knownIds = new Set($notificationHistory.ids)

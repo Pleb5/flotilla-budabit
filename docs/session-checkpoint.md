@@ -13,20 +13,16 @@
 
 ## Current Phase
 
-- Phase 4: Mentions, Replies, Reactions, Zaps, And Inline Actions
+- Phase 5: Final Verification And Closeout
 
 ## Phase Exit Criteria
 
-- Mentions and replies to user-authored content are detected using Welshman tag/parent helpers and repository context.
-- Reactions and zaps notify only when the referenced event belongs to the signed-in user or otherwise passes an explicit ownership/context check; do not trust inherited `p` tags alone.
-- Zaps are validated with Welshman zap helpers where possible.
-- No repost notifications are added. Quote support remains low priority and optional.
-- Reply/mention rows can expose an inline reply affordance or link to an existing reply flow; reaction/zap rows do not show reply composer actions.
-- Repeated noisy zap/reaction rows are de-duped or collapsed enough to avoid spammy modal output, while read state remains event-id based.
-- Focused tests cover false-positive suppression for reactions/zaps and mention/reply classification.
+- All focused notification tests pass.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 4 changes are committed, pushed, and the checkpoint is reread.
+- Final status/diff review shows no staged files and no unrelated files included in this workflow.
+- Checkpoint records `Current Phase: Complete` and final verification evidence.
+- Final closeout commit is pushed before final response if the checkpoint changed in this phase.
 
 ## Completed With Evidence
 
@@ -71,6 +67,22 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, intended phase source diff, and `git log --oneline -10 --decorate`.
+- Phase 3 commit `9405a5d8` was pushed to `origin/dev`.
+- Phase 4 startup reread this checkpoint and the full session plan, inspected a clean `dev...origin/dev` working tree, and confirmed current HEAD `9405a5d8`.
+- Phase 4 implemented social notification coverage:
+  - Added social source rows for mentions, replies, reactions, and zaps in `src/app/util/notification-sources.ts`.
+  - Loaded social candidates by `#p`, loaded referenced target events, and validated zap receipts with `getValidZap` before showing zap rows in the live notification store.
+  - Classified replies with Welshman `getReplyTags`/`getCommentTags` plus owned target events from repository context.
+  - Suppressed reaction and zap false positives unless the referenced target event is owned by the signed-in user.
+  - Used `zap.request.pubkey` as the zap actor and applied personal mute/self filters to social actors.
+  - Collapsed reactions and zaps by target while preserving underlying event ids through `NotificationRow.eventIds`.
+  - Added the Social filter/source label and updated modal read handling to mark every collapsed event id read.
+  - Linked reply/mention rows to existing event/community routes rather than adding a new inline composer.
+- Phase 4 verification passed:
+  - `pnpm vitest run src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 3 files, 15 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Pre-closeout inspected `git status --short --branch`, intended phase source diff, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -81,6 +93,7 @@
 - Explicit clearing only: opening the modal does not mark notifications read.
 - No repost notifications; quote support remains low priority.
 - Reuse Welshman repository/store/tag/filter/content/profile/zap/DM/search helpers and Budabit community moderation/permission helpers.
+- Social zap rows use the zap request pubkey as actor identity instead of the receipt pubkey.
 
 ## Current State
 
@@ -93,10 +106,12 @@
 - Phase 2 is verified, committed, pushed, and closed.
 - Phase 3 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, `src/app/util/notification-sources.test.ts`, and `src/app/util/repo-watch-notifications.ts`.
 - Phase 3 is verified and closed by the current phase transition commit.
+- Phase 4 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
+- Phase 4 is verified and closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 4 startup: reread this checkpoint and the full session plan, inspect current git state, then implement mentions, replies, reactions, zaps, and inline actions.
+- Phase 5 startup: reread this checkpoint and the full session plan, inspect current git state, then run final focused notification tests, `pnpm check`, and `git diff --check`.
 
 ## Verification
 
@@ -120,6 +135,11 @@
 - Phase 3 project check passed.
 - Phase 3 whitespace check passed.
 - Phase 3 pre-closeout inspected status, intended diff, and recent commits.
+- Phase 4 startup reread this checkpoint and the full session plan, then inspected `git status --short --branch` and `git log --oneline -10 --decorate`.
+- Phase 4 focused test command passed.
+- Phase 4 project check passed.
+- Phase 4 whitespace check passed.
+- Phase 4 pre-closeout inspected status, intended diff, and recent commits.
 
 ## Risks Or Blockers
 

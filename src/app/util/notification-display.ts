@@ -1,6 +1,6 @@
 import {createSearch} from "@welshman/app"
 
-export type NotificationRowSource = "chat" | "git" | "community" | "other"
+export type NotificationRowSource = "chat" | "git" | "community" | "social" | "other"
 
 export type NotificationRowFilter =
   | "all"
@@ -20,6 +20,7 @@ export type NotificationRow = {
   read: boolean
   searchText: string
   eventId?: string
+  eventIds?: string[]
   actorPubkey?: string
   repoWatchSeenPath?: string
 }
@@ -36,6 +37,7 @@ export const NOTIFICATION_ROW_FILTERS: {value: NotificationRowFilter; label: str
   {value: "chat", label: "Chats"},
   {value: "git", label: "Git"},
   {value: "community", label: "Communities"},
+  {value: "social", label: "Social"},
   {value: "other", label: "Other"},
 ]
 
@@ -47,6 +49,8 @@ export const getNotificationSourceLabel = (source: NotificationRowSource) => {
       return "Git"
     case "community":
       return "Communities"
+    case "social":
+      return "Social"
     default:
       return "Other"
   }

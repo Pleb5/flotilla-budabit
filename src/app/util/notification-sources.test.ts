@@ -4,7 +4,7 @@ import {describe, expect, it, vi} from "vitest"
 import {readable} from "svelte/store"
 import {GIT_COMMENT, GIT_ISSUE} from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
-import {MESSAGE, THREAD} from "@welshman/util"
+import {MESSAGE, NOTE, REACTION, THREAD, ZAP_RESPONSE} from "@welshman/util"
 import type {Chat} from "@app/core/state"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
@@ -55,6 +55,7 @@ const banned = "d".repeat(64)
 const muted = "e".repeat(64)
 const communityPubkey = "f".repeat(64)
 const profileListPubkey = "1".repeat(64)
+const zapper = "2".repeat(64)
 const profileListAddress = `${PROFILE_LIST_KIND}:${profileListPubkey}:${COMMUNITY_SECTION_GENERAL}`
 const threadProfileListAddress = `${PROFILE_LIST_KIND}:${profileListPubkey}:${COMMUNITY_SECTION_THREADS}`
 
@@ -377,6 +378,181 @@ describe("notification sources", () => {
         path: `${path}/${issue.id}#comment-${comment.id}`,
         read: true,
       }),
+    )
+  })
+
+  it("classifies social mentions and replies without inherited reply mentions", async () => {
+    const {buildSocialNotificationRows} = await import("./notification-sources")
+    const ownedNoteId = "3".repeat(64)
+    const otherNoteId = "4".repeat(64)
+    const replyId = "5".repeat(64)
+    const mentionId = "6".repeat(64)
+    const inheritedReplyTagId = "7".repeat(64)
+    const ownedNote = makeEvent({id: ownedNoteId, kind: NOTE, pubkey: viewer, content: "my note"})
+    const otherNote = makeEvent({id: otherNoteId, kind: NOTE, pubkey: outsider, content: "other note"})
+    const reply = makeEvent({
+      id: replyId,
+      kind: NOTE,
+      pubkey: writer,
+      created_at: 110,
+      content: "replying to your note",
+      tags: [
+        ["e", ownedNote.id, "", "reply"],
+        ["p", viewer],
+      ],
+    })
+    const mention = makeEvent({
+      id: mentionId,
+      kind: NOTE,
+      pubkey: outsider,
+      created_at: 120,
+      content: "hi #[0]",
+      tags: [["p", viewer]],
+    })
+    const inheritedReplyTag = makeEvent({
+      id: inheritedReplyTagId,
+      kind: NOTE,
+      pubkey: writer,
+      created_at: 130,
+      content: "replying elsewhere",
+      tags: [
+        ["e", otherNote.id, "", "reply"],
+        ["p", viewer],
+      ],
+    })
+
+    const rows = buildSocialNotificationRows({
+      events: [reply, mention, inheritedReplyTag],
+      targetEvents: [ownedNote, otherNote],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.map(row => row.eventId)).toEqual([mentionId, replyId])
+    expect(rows.find(row => row.eventId === reply.id)).toEqual(
+      expect.objectContaining({source: "social", title: "New reply", actorPubkey: writer}),
+    )
+    expect(rows.find(row => row.eventId === mention.id)).toEqual(
+      expect.objectContaining({source: "social", title: "New mention", actorPubkey: outsider}),
+    )
+  })
+
+  it("suppresses social reaction and zap false positives while collapsing owned targets", async () => {
+    const {buildSocialNotificationRows} = await import("./notification-sources")
+    const ownedNoteId = "3".repeat(64)
+    const otherNoteId = "4".repeat(64)
+    const reactionOneId = "5".repeat(64)
+    const reactionTwoId = "6".repeat(64)
+    const falseReactionId = "7".repeat(64)
+    const validZapId = "8".repeat(64)
+    const invalidZapId = "9".repeat(64)
+    const falseZapId = "0".repeat(64)
+    const ownedNote = makeEvent({id: ownedNoteId, kind: NOTE, pubkey: viewer, content: "my note"})
+    const otherNote = makeEvent({id: otherNoteId, kind: NOTE, pubkey: outsider, content: "other note"})
+    const reactionOne = makeEvent({
+      id: reactionOneId,
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 100,
+      content: "+",
+      tags: [
+        ["e", ownedNote.id],
+        ["p", viewer],
+      ],
+    })
+    const reactionTwo = makeEvent({
+      id: reactionTwoId,
+      kind: REACTION,
+      pubkey: outsider,
+      created_at: 120,
+      content: "fire",
+      tags: [
+        ["e", ownedNote.id],
+        ["p", viewer],
+      ],
+    })
+    const falseReaction = makeEvent({
+      id: falseReactionId,
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 130,
+      content: "+",
+      tags: [
+        ["e", otherNote.id],
+        ["p", viewer],
+      ],
+    })
+    const zapRequest = {
+      pubkey: writer,
+      content: "nice post",
+      tags: [
+        ["p", viewer],
+        ["e", ownedNote.id],
+        ["amount", "21000"],
+      ],
+    }
+    const validZap = makeEvent({
+      id: validZapId,
+      kind: ZAP_RESPONSE,
+      pubkey: zapper,
+      created_at: 140,
+      tags: [
+        ["p", viewer],
+        ["e", ownedNote.id],
+        ["description", JSON.stringify(zapRequest)],
+      ],
+    })
+    const invalidZap = makeEvent({
+      id: invalidZapId,
+      kind: ZAP_RESPONSE,
+      pubkey: zapper,
+      created_at: 150,
+      tags: [
+        ["p", viewer],
+        ["e", ownedNote.id],
+        ["description", JSON.stringify(zapRequest)],
+      ],
+    })
+    const falseZap = makeEvent({
+      id: falseZapId,
+      kind: ZAP_RESPONSE,
+      pubkey: zapper,
+      created_at: 160,
+      tags: [
+        ["p", viewer],
+        ["e", otherNote.id],
+        ["description", JSON.stringify({...zapRequest, tags: [["e", otherNote.id], ["p", viewer]]})],
+      ],
+    })
+
+    const rows = buildSocialNotificationRows({
+      events: [reactionOne, reactionTwo, falseReaction, validZap, invalidZap, falseZap],
+      targetEvents: [ownedNote, otherNote],
+      currentPubkey: viewer,
+      validZapResponseIds: new Set([validZap.id, falseZap.id]),
+    })
+    const reactionRow = rows.find(row => row.title === "New reactions")
+    const zapRow = rows.find(row => row.title === "New zap")
+
+    expect(reactionRow).toEqual(
+      expect.objectContaining({
+        source: "social",
+        eventId: reactionTwo.id,
+        eventIds: [reactionTwo.id, reactionOne.id],
+        id: expect.stringContaining(ownedNote.id),
+        path: expect.stringMatching(/^\/nevent/),
+      }),
+    )
+    expect(zapRow).toEqual(
+      expect.objectContaining({
+        source: "social",
+        eventId: validZap.id,
+        actorPubkey: writer,
+        eventIds: [validZap.id],
+        preview: expect.stringContaining("nice post"),
+      }),
+    )
+    expect(rows.flatMap(row => row.eventIds || [row.eventId])).not.toEqual(
+      expect.arrayContaining([falseReaction.id, invalidZap.id, falseZap.id]),
     )
   })
 })
