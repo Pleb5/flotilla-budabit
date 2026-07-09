@@ -85,6 +85,8 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
 }
 
 const dmLoad = makeLoader({delay: 200, timeout: 3000, threshold: 0.5})
+const DM_RECENT_BACKFILL_LIMIT = 100
+const DM_BOOTSTRAP_BACKFILL_LIMIT = 200
 
 const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
 const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
@@ -116,8 +118,23 @@ const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPu
   return Promise.all(promises)
 }
 
+const buildDmBootstrapFilters = (filters: Filter[]) =>
+  filters.map(filter => {
+    const bootstrapFilter = {...filter}
+
+    delete bootstrapFilter.since
+    delete bootstrapFilter.until
+
+    return {...bootstrapFilter, limit: DM_BOOTSTRAP_BACKFILL_LIMIT}
+  })
+
+const loadDmBootstrap = ({relays, filters, signal}: PullOpts) =>
+  Promise.all(relays.map(url => dmLoad({relays: [url], filters, signal})))
+
 const pullAndListenDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
-  const backfillFilters = fullHistory ? filters : filters.map(f => ({limit: 100, ...f}))
+  const backfillFilters = fullHistory
+    ? filters
+    : filters.map(f => ({limit: DM_RECENT_BACKFILL_LIMIT, ...f}))
   const liveFilters = unionFilters(filters).map(assoc("limit", 0))
 
   pullWithFallbackDm({
@@ -126,6 +143,14 @@ const pullAndListenDm = ({relays, filters, signal, fullHistory = false}: DmPullO
     filters: backfillFilters,
     fullHistory,
   })
+
+  if (!fullHistory) {
+    loadDmBootstrap({
+      relays,
+      signal,
+      filters: buildDmBootstrapFilters(filters),
+    })
+  }
 
   request({
     relays,

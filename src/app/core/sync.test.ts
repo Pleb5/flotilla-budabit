@@ -64,6 +64,7 @@ const mocks = vi.hoisted(() => {
     loadNip85ProviderConfig: vi.fn(),
     loadRepoWatch: vi.fn(),
     loadTrustGraphConfig: vi.fn(),
+    startGraspServerRecommendationsSync: vi.fn(() => () => {}),
   }
 })
 
@@ -179,6 +180,10 @@ vi.mock("@app/core/git-state", () => ({
   GIT_RELAYS: [],
 }))
 
+vi.mock("@app/core/grasp", () => ({
+  startGraspServerRecommendationsSync: mocks.startGraspServerRecommendationsSync,
+}))
+
 vi.mock("@app/core/git-requests", () => ({
   loadGraspServers: mocks.loadGraspServers,
   loadRepositories: mocks.loadRepositories,
@@ -223,23 +228,53 @@ describe("syncApplicationData", () => {
     mocks.trackerGetRelays.mockReturnValue(new Set<string>())
   })
 
-  it("refreshes DM relays without unbounded history loading after entering /chat", async () => {
-    mocks.pubkey.set("a".repeat(64))
+  it("bootstraps older DMs without adding bootstrap filters to live subscriptions", async () => {
+    const userPubkey = "a".repeat(64)
+
+    mocks.pubkey.set(userPubkey)
     mocks.userMessagingRelayList.set({tags: [["r", "wss://dm.relay.example.com"]]})
 
     const {syncApplicationData} = await import("./sync")
     const cleanup = syncApplicationData()
     await flush()
 
-    const recentCall = mocks.dmLoad.mock.calls.at(-1)?.[0]
+    const dmCalls = mocks.dmLoad.mock.calls.map(call => call[0])
+    const recentCall = dmCalls.find(call =>
+      call.filters.every((filter: any) => filter.limit === 100),
+    )
+    const bootstrapCall = dmCalls.find(call =>
+      call.filters.every((filter: any) => filter.limit === 200),
+    )
 
-    expect(recentCall?.filters).toEqual(
+    expect(recentCall).toBeTruthy()
+    expect(recentCall!.filters).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({limit: 100}),
-        expect.objectContaining({limit: 100}),
+        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 100}),
+        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 100}),
       ]),
     )
-    expect(recentCall?.filters.every((filter: any) => typeof filter.since === "number")).toBe(true)
+    expect(recentCall!.filters.every((filter: any) => typeof filter.since === "number")).toBe(true)
+
+    expect(bootstrapCall).toBeTruthy()
+    expect(bootstrapCall!.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 200}),
+        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 200}),
+      ]),
+    )
+    expect(bootstrapCall!.filters.every((filter: any) => filter.since === undefined)).toBe(true)
+    expect(bootstrapCall!.filters.every((filter: any) => filter.until === undefined)).toBe(true)
+
+    const liveCall = mocks.request.mock.calls.at(-1)?.[0]
+
+    expect(liveCall?.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 0}),
+        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 0}),
+      ]),
+    )
+    expect(liveCall?.filters.every((filter: any) => typeof filter.since === "number")).toBe(true)
+    expect(liveCall?.filters.some((filter: any) => filter.limit === 200)).toBe(false)
 
     mocks.dmLoad.mockClear()
 
