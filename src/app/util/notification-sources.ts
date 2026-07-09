@@ -69,6 +69,10 @@ import {
   notificationReadState,
 } from "@app/util/notification-center"
 import {
+  notificationHistoryFilterLimit,
+  notificationHistorySince,
+} from "@app/util/notification-history"
+import {
   makeChatPath,
   makeCommunityCalendarPath,
   makeCommunityGoalPath,
@@ -624,8 +628,17 @@ const globalCommunityNotificationFilters = derived(
     communityMemberProfileListEvents,
     communityModeratorProfileListEvents,
     communityMemberReportStates,
+    notificationHistorySince,
+    notificationHistoryFilterLimit,
   ],
-  ([$refs, $memberProfileListEvents, $moderatorProfileListEvents, $reportStates]) => {
+  ([
+    $refs,
+    $memberProfileListEvents,
+    $moderatorProfileListEvents,
+    $reportStates,
+    $notificationHistorySince,
+    $notificationHistoryFilterLimit,
+  ]) => {
     const profileListEvents = [...$memberProfileListEvents, ...$moderatorProfileListEvents]
     const filters: Filter[] = []
 
@@ -669,7 +682,8 @@ const globalCommunityNotificationFilters = derived(
         filters.push(
           makeCommunityExclusiveFilter(ref.communityPubkey, [MESSAGE], {
             authors: roomAuthors,
-            limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
+            since: $notificationHistorySince,
+            limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
           }),
         )
       }
@@ -677,7 +691,8 @@ const globalCommunityNotificationFilters = derived(
         filters.push(
           makeCommunityExclusiveFilter(ref.communityPubkey, [THREAD], {
             authors: threadAuthors,
-            limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
+            since: $notificationHistorySince,
+            limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
           }),
         )
       }
@@ -685,7 +700,8 @@ const globalCommunityNotificationFilters = derived(
         filters.push(
           makeCommunityExclusiveFilter(ref.communityPubkey, [COMMENT], {
             authors: commentAuthors,
-            limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
+            since: $notificationHistorySince,
+            limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
           }),
         )
       }
@@ -693,7 +709,8 @@ const globalCommunityNotificationFilters = derived(
         filters.push(
           makeCommunityTargetingFilter(ref.communityPubkey, [EVENT_DATE, EVENT_TIME, ZAP_GOAL], {
             authors: targetAuthors,
-            limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
+            since: $notificationHistorySince,
+            limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
           }),
         )
       }
@@ -725,11 +742,13 @@ const getCommunityNotificationTargetRefs = (event: TrustedEvent) => {
   return []
 }
 
-const globalCommunityNotificationTargetFilters = derived(globalCommunityNotificationEvents, $events =>
-  getIdFilters(uniqueStrings($events.flatMap(getCommunityNotificationTargetRefs))).map(filter => ({
-    ...filter,
-    limit: COMMUNITY_NOTIFICATION_LOAD_LIMIT,
-  })),
+const globalCommunityNotificationTargetFilters = derived(
+  [globalCommunityNotificationEvents, notificationHistoryFilterLimit],
+  ([$events, $notificationHistoryFilterLimit]) =>
+    getIdFilters(uniqueStrings($events.flatMap(getCommunityNotificationTargetRefs))).map(filter => ({
+      ...filter,
+      limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
+    })),
 )
 
 const globalCommunityNotificationTargetEvents = deriveLoadedNotificationEvents({

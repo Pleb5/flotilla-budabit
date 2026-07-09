@@ -51,6 +51,10 @@ import {
   setNotificationsConfig,
   type NotificationCandidate,
 } from "@app/util/notifications"
+import {
+  notificationHistoryFilterLimit,
+  notificationHistorySince,
+} from "@app/util/notification-history"
 import {makeGitPath} from "@app/util/routes"
 import {ROLE_NS} from "@app/util/labels"
 
@@ -195,6 +199,9 @@ const getBoundedSince = (seenAt: number) => {
     current - REPO_WATCH_HARD_LOOKBACK_SECONDS,
   )
 }
+
+const getHistoryBoundedSince = (seenAt: number, historySince: number) =>
+  Math.min(getBoundedSince(seenAt), normalizeChecked(historySince))
 
 const getFilterKey = (filters: Filter[]) =>
   filters
@@ -674,13 +681,28 @@ const watchedRepoActivityRelays = derived(watchedRepoAnnouncementEvents, $events
 })
 
 const watchedRepoActivityFilters = derived(
-  [watchedReposWithAnnouncements, checked, repoWatchNotificationSeen],
-  ([$repos, $checked, $notificationSeen]) => {
+  [
+    watchedReposWithAnnouncements,
+    checked,
+    repoWatchNotificationSeen,
+    notificationHistorySince,
+    notificationHistoryFilterLimit,
+  ],
+  ([
+    $repos,
+    $checked,
+    $notificationSeen,
+    $notificationHistorySince,
+    $notificationHistoryFilterLimit,
+  ]) => {
     const filters: Filter[] = []
     const addressesBySince = new Map<number, string[]>()
 
     for (const repo of $repos) {
-      const since = getBoundedSince(getRepoWatchSeenAt(repo, $checked, $notificationSeen))
+      const since = getHistoryBoundedSince(
+        getRepoWatchSeenAt(repo, $checked, $notificationSeen),
+        $notificationHistorySince,
+      )
       const addresses = addressesBySince.get(since) || []
       addresses.push(repo.address)
       addressesBySince.set(since, addresses)
@@ -692,7 +714,7 @@ const watchedRepoActivityFilters = derived(
           kinds: repoActivityKinds,
           "#a": addressChunk,
           since,
-          limit: REPO_WATCH_LOAD_LIMIT,
+          limit: Math.max(REPO_WATCH_LOAD_LIMIT, $notificationHistoryFilterLimit),
         })
       }
     }
@@ -710,21 +732,36 @@ const watchedRepoActivityEvents = deriveLoadedEvents<TrustedEvent>({
 const watchedRepoRootIds = derived(watchedRepoActivityEvents, getRepoWatchRootIdsForEvents)
 
 const watchedRepoRootScopedFilters = derived(
-  [watchedRepoRootIds, watchedReposWithAnnouncements, checked, repoWatchNotificationSeen],
-  ([$rootIds, $repos, $checked, $notificationSeen]) => {
+  [
+    watchedRepoRootIds,
+    watchedReposWithAnnouncements,
+    checked,
+    repoWatchNotificationSeen,
+    notificationHistorySince,
+    notificationHistoryFilterLimit,
+  ],
+  ([
+    $rootIds,
+    $repos,
+    $checked,
+    $notificationSeen,
+    $notificationHistorySince,
+    $notificationHistoryFilterLimit,
+  ]) => {
     const filters: Filter[] = []
     const sinceValues = $repos.map(repo =>
-      getBoundedSince(getRepoWatchSeenAt(repo, $checked, $notificationSeen)),
+      getHistoryBoundedSince(getRepoWatchSeenAt(repo, $checked, $notificationSeen), $notificationHistorySince),
     )
-    const since = sinceValues.length > 0 ? Math.min(...sinceValues) : getBoundedSince(0)
+    const since = sinceValues.length > 0 ? Math.min(...sinceValues) : $notificationHistorySince
+    const limit = Math.max(REPO_WATCH_LOAD_LIMIT, $notificationHistoryFilterLimit)
 
     for (const rootChunk of chunkBySize($rootIds, REPO_ACTIVITY_FILTER_CHUNK_SIZE)) {
       filters.push(
-        {kinds: [GIT_COMMENT], "#E": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
-        {kinds: [GIT_COMMENT], "#e": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
-        {kinds: [GIT_LABEL], "#e": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
-        {kinds: statusKinds, "#e": rootChunk, since, limit: REPO_WATCH_LOAD_LIMIT},
-        {kinds: [GIT_ISSUE, GIT_PULL_REQUEST], ids: rootChunk, limit: REPO_WATCH_LOAD_LIMIT},
+        {kinds: [GIT_COMMENT], "#E": rootChunk, since, limit},
+        {kinds: [GIT_COMMENT], "#e": rootChunk, since, limit},
+        {kinds: [GIT_LABEL], "#e": rootChunk, since, limit},
+        {kinds: statusKinds, "#e": rootChunk, since, limit},
+        {kinds: [GIT_ISSUE, GIT_PULL_REQUEST], ids: rootChunk, limit},
       )
     }
 

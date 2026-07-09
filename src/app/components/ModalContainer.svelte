@@ -2,12 +2,11 @@
   import {onMount, mount, unmount, createRawSnippet, getAllContexts} from "svelte"
   import Drawer from "@lib/components/Drawer.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
-  import {modal, clearModals} from "@app/util/modal"
+  import {modalStack, closeTopModal, type Modal} from "@app/util/modal"
 
   const closeModals = () => {
-    if ($modal && !$modal.options.noEscape) {
-      clearModals()
-    }
+    const topModal = $modalStack.at(-1)
+    if (topModal && !topModal.options.noEscape) closeTopModal()
   }
 
   const onKeyDown = (e: any) => {
@@ -17,43 +16,74 @@
   }
 
   let element: HTMLElement
-  let instance: any | undefined
-  let mountedModalId = ""
+  const mountedModals = new Map<string, {host: HTMLElement; instance: any}>()
   const modalContexts = getAllContexts()
 
-  onMount(() => {
-    return modal.subscribe($modal => {
-      if ($modal?.id === mountedModalId) return
+  const mountModal = (modal: Modal) => {
+    const host = document.createElement("div")
+    const {options, component, props} = modal
+    const wrapper = options.drawer ? Drawer : Dialog
 
-      if (instance) {
-        unmount(instance, {outro: true})
-        instance = undefined
-        mountedModalId = ""
-      }
+    element.appendChild(host)
 
-      if ($modal) {
-        const {options, component, props} = $modal
-        const wrapper = options.drawer ? Drawer : Dialog
-        mountedModalId = $modal.id
+    const instance = mount(wrapper as any, {
+      target: host,
+      context: modalContexts,
+      props: {
+        onClose: closeModals,
+        fullscreen: options.fullscreen,
+        children: createRawSnippet(() => ({
+          render: () => "<div></div>",
+          setup: (target: Element) => {
+            const child = mount(component, {target, props, context: modalContexts})
 
-        instance = mount(wrapper as any, {
-          target: element,
-          context: modalContexts,
-          props: {
-            onClose: closeModals,
-            fullscreen: options.fullscreen,
-            children: createRawSnippet(() => ({
-              render: () => "<div></div>",
-              setup: (target: Element) => {
-                const child = mount(component, {target, props, context: modalContexts})
-
-                return () => unmount(child)
-              },
-            })),
+            return () => unmount(child)
           },
-        })
-      }
+        })),
+      },
     })
+
+    mountedModals.set(modal.id, {host, instance})
+  }
+
+  const unmountModal = (id: string) => {
+    const mounted = mountedModals.get(id)
+    if (!mounted) return
+
+    unmount(mounted.instance, {outro: true})
+    mounted.host.remove()
+    mountedModals.delete(id)
+  }
+
+  const syncModalStack = (stack: Modal[]) => {
+    const activeId = stack.at(-1)?.id || ""
+    const activeIds = new Set(stack.map(modal => modal.id))
+
+    for (const id of Array.from(mountedModals.keys())) {
+      if (!activeIds.has(id)) unmountModal(id)
+    }
+
+    for (const modal of stack) {
+      if (!mountedModals.has(modal.id)) mountModal(modal)
+
+      const mounted = mountedModals.get(modal.id)
+      if (!mounted) continue
+
+      const active = modal.id === activeId
+
+      mounted.host.style.display = active ? "" : "none"
+      mounted.host.toggleAttribute("inert", !active)
+      mounted.host.setAttribute("aria-hidden", active ? "false" : "true")
+    }
+  }
+
+  onMount(() => {
+    const unsubscribe = modalStack.subscribe(syncModalStack)
+
+    return () => {
+      unsubscribe()
+      for (const id of Array.from(mountedModals.keys())) unmountModal(id)
+    }
   })
 </script>
 

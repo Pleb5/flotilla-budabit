@@ -1,6 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {formatTimestamp} from "@welshman/lib"
+  import {onMount} from "svelte"
   import {derived} from "svelte/store"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Chat from "@assets/icons/chat-round-line.svg?dataurl"
@@ -18,6 +19,12 @@
   import {clearModals, pushModal} from "@app/util/modal"
   import {markNotificationsRead} from "@app/util/notification-center"
   import {
+    loadMoreNotificationHistory,
+    NOTIFICATION_HISTORY_ROW_STEP,
+    notificationHistorySince,
+    resetNotificationHistory,
+  } from "@app/util/notification-history"
+  import {
     latestNotificationCenterTimestamp,
     notificationCenterRows,
   } from "@app/util/notification-sources"
@@ -30,6 +37,7 @@
 
   let term = $state("")
   let rowFilters = $state<NotificationRowFilter[]>([])
+  let visibleRowLimit = $state(NOTIFICATION_HISTORY_ROW_STEP)
 
   const rowsWithActorNames = derived(notificationCenterRows, ($rows, set) => {
     const actorPubkeys = Array.from(
@@ -57,6 +65,17 @@
   }, [] as NotificationRow[])
 
   const rows = $derived(filterNotificationRows($rowsWithActorNames, {filters: rowFilters, term}))
+  const visibleRows = $derived(rows.slice(0, visibleRowLimit))
+  const hasMoreLoadedRows = $derived(rows.length > visibleRows.length)
+  const canLoadOlderHistory = $derived($notificationHistorySince > 0)
+  const loadMoreLabel = $derived(
+    hasMoreLoadedRows ? "Show more notifications" : "Load older notifications",
+  )
+
+  onMount(() => {
+    visibleRowLimit = NOTIFICATION_HISTORY_ROW_STEP
+    resetNotificationHistory()
+  })
 
   $effect(() => {
     if ($latestNotificationCenterTimestamp > 0) markNotificationsRead($latestNotificationCenterTimestamp)
@@ -81,6 +100,11 @@
   }
 
   const stopKeyboardPropagation = (event: KeyboardEvent) => event.stopPropagation()
+
+  const loadMoreRows = () => {
+    visibleRowLimit += NOTIFICATION_HISTORY_ROW_STEP
+    loadMoreNotificationHistory()
+  }
 
   const getFilterIcon = (source: NotificationRowFilter) => {
     if (source === "chat") return Chat
@@ -131,12 +155,12 @@
 
   <div class="scroll-container -mx-2 min-h-0 flex-1 overflow-auto px-2">
     <div class="grid gap-3 pb-2">
-      {#if rows.length > 0}
+      {#if visibleRows.length > 0}
         <section class="grid gap-2">
           <h2 class="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Activity
           </h2>
-          {#each rows as row (row.id)}
+          {#each visibleRows as row (row.id)}
             <div
               role="button"
               tabindex="0"
@@ -177,10 +201,15 @@
               </div>
             </div>
           {/each}
+          {#if hasMoreLoadedRows || canLoadOlderHistory}
+            <Button class="btn btn-outline btn-sm justify-center" onclick={loadMoreRows}>
+              {loadMoreLabel}
+            </Button>
+          {/if}
         </section>
       {/if}
 
-      {#if rows.length === 0}
+      {#if visibleRows.length === 0}
         <div class="card2 col-2 items-center bg-alt p-8 text-center">
           <ImageIcon alt="Notifications" src={Bell} size={10} />
           <strong>No notifications found</strong>
@@ -191,6 +220,9 @@
               Event-backed notification history will appear here as activity is indexed.
             {/if}
           </p>
+          {#if canLoadOlderHistory}
+            <Button class="btn btn-outline btn-sm" onclick={loadMoreRows}>Load older notifications</Button>
+          {/if}
         </div>
       {/if}
     </div>

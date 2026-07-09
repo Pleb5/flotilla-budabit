@@ -1,6 +1,6 @@
 import type {Component} from "svelte"
 import {derived, get, writable} from "svelte/store"
-import {randomId, always, assoc, Emitter} from "@welshman/lib"
+import {randomId, always, Emitter} from "@welshman/lib"
 import {goto, replaceState} from "$app/navigation"
 import {page} from "$app/stores"
 
@@ -22,10 +22,45 @@ export type Modal = {
 export const emitter = new Emitter()
 
 export const modals = writable<Record<string, Modal>>({})
+export const modalIds = writable<string[]>([])
 
-export const modal = derived([page, modals], ([$page, $modals]) => {
-  return $modals[$page.url.hash.slice(1)]
+export const modalStack = derived([page, modals, modalIds], ([$page, $modals, $modalIds]) => {
+  const activeId = $page.url.hash.slice(1)
+  const activeIndex = $modalIds.indexOf(activeId)
+  if (activeIndex < 0) return []
+
+  return $modalIds
+    .slice(0, activeIndex + 1)
+    .map(id => $modals[id])
+    .filter((modal): modal is Modal => Boolean(modal))
 })
+
+export const modal = derived(modalStack, $modalStack => $modalStack.at(-1))
+
+const getCurrentModalId = () => {
+  const currentPage = get(page)
+  const liveUrl = typeof window === "undefined" ? undefined : new URL(window.location.href)
+
+  return liveUrl?.hash.slice(1) || currentPage.url.hash.slice(1)
+}
+
+const replaceModalHash = (id: string) => {
+  const currentPage = get(page)
+  const liveUrl = typeof window === "undefined" ? undefined : new URL(window.location.href)
+  const url = liveUrl || new URL(currentPage.url)
+
+  url.hash = id
+  replaceState(`${url.pathname}${url.search}${url.hash}`, currentPage.state)
+}
+
+const clearModalHash = () => {
+  const currentPage = get(page)
+  const liveUrl = typeof window === "undefined" ? undefined : new URL(window.location.href)
+  const url = liveUrl || new URL(currentPage.url)
+
+  url.hash = ""
+  replaceState(`${url.pathname}${url.search}`, currentPage.state)
+}
 
 function isValidModalPath(path: string): boolean {
   if (!path) return true
@@ -52,7 +87,18 @@ export const pushModal = (
     return null
   }
 
-  modals.update(assoc(id, {id, component, props, options}))
+  const currentId = getCurrentModalId()
+  const currentIds = get(modalIds)
+  const activeIndex = currentIds.indexOf(currentId)
+  const retainedIds = activeIndex >= 0 ? currentIds.slice(0, activeIndex + 1) : []
+  const retained = new Set(retainedIds)
+
+  modals.update(current => {
+    const next = Object.fromEntries(Object.entries(current).filter(([modalId]) => retained.has(modalId)))
+
+    return {...next, [id]: {id, component, props, options}}
+  })
+  modalIds.set([...retainedIds, id])
 
   goto(path + "#" + id, {replaceState: options.replaceState, noScroll: true, keepFocus: true})
 
@@ -65,6 +111,27 @@ export const pushDrawer = (
   options: ModalOptions = {},
 ) => pushModal(component, props, {...options, drawer: true})
 
+export const closeTopModal = () => {
+  const currentId = getCurrentModalId()
+  const currentModals = get(modals)
+  const currentIds = get(modalIds)
+  const activeIndex = currentIds.indexOf(currentId)
+
+  if (activeIndex < 0 || !currentModals[currentId]) return clearModalHash()
+
+  const previousId = activeIndex > 0 ? currentIds[activeIndex - 1] : ""
+  const removedIds = new Set(currentIds.slice(activeIndex))
+
+  modals.update(current =>
+    Object.fromEntries(Object.entries(current).filter(([modalId]) => !removedIds.has(modalId))),
+  )
+  if (!previousId) modalIds.set([])
+  emitter.emit("close")
+
+  if (previousId && currentModals[previousId]) replaceModalHash(previousId)
+  else clearModalHash()
+}
+
 export const clearModals = () => {
   const currentPage = get(page)
   const liveUrl = typeof window === "undefined" ? undefined : new URL(window.location.href)
@@ -73,11 +140,10 @@ export const clearModals = () => {
   const currentModals = get(modals)
 
   modals.update(always({}))
+  modalIds.set([])
   emitter.emit("close")
 
   if (currentModalId && currentModals[currentModalId]) {
-    const url = liveUrl || new URL(currentPage.url)
-    url.hash = ""
-    replaceState(`${url.pathname}${url.search}`, currentPage.state)
+    clearModalHash()
   }
 }
