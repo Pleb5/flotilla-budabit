@@ -9,6 +9,7 @@ import {
   GIT_ISSUE,
   GIT_LABEL,
   GIT_PULL_REQUEST,
+  GIT_REPO_ANNOUNCEMENT,
   GIT_STATUS_CLOSED,
 } from "@nostr-git/core/events"
 import {COMMUNITY_SECTION_REPO_CURATOR, PROFILE_LIST_KIND} from "@app/core/community"
@@ -50,6 +51,7 @@ vi.mock("@app/core/state", () => ({
 
 vi.mock("@app/core/git-state", () => ({
   GIT_RELAYS: [],
+  repoAnnouncements: readable([]),
   getRepoMaintainers: (event: TrustedEvent) =>
     Array.from(
       new Set([
@@ -117,7 +119,7 @@ const makeRepo = (options = watchOptions()) => ({
 })
 
 describe("repo watch notifications", () => {
-  it("creates candidates only for explicitly watched repos", async () => {
+  it("creates candidates for supplied notification repos", async () => {
     const {getRepoWatchNotificationCandidates} = await import("./repo-watch-notifications")
     const issue = makeEvent({
       id: "issue",
@@ -140,6 +142,59 @@ describe("repo watch notifications", () => {
         currentPubkey: viewer,
       }),
     ).toEqual([{path: `${repoPath}/issues`, latestEvent: issue}])
+  })
+
+  it("adds owned and maintained repos as baseline notification repos", async () => {
+    const {defaultOwnedRepoNotificationOptions, getRepoNotificationRepos} = await import(
+      "./repo-watch-notifications"
+    )
+    const watchedOptions = watchOptions({
+      issues: {...defaultRepoWatchOptions.issues, comments: false},
+    })
+    const watchedRepoEvent = makeEvent({
+      id: "watched-repo-event",
+      kind: GIT_REPO_ANNOUNCEMENT,
+      pubkey: owner,
+      tags: [["d", repoIdentifier]],
+    })
+    const ownedRepoEvent = makeEvent({
+      id: "owned-repo-event",
+      kind: GIT_REPO_ANNOUNCEMENT,
+      pubkey: viewer,
+      tags: [["d", "owned-repo"]],
+    })
+    const maintainedRepoEvent = makeEvent({
+      id: "maintained-repo-event",
+      kind: GIT_REPO_ANNOUNCEMENT,
+      pubkey: owner,
+      tags: [
+        ["d", "maintained-repo"],
+        ["maintainers", viewer],
+      ],
+    })
+
+    const repos = getRepoNotificationRepos({
+      watchedRepos: [makeRepo(watchedOptions)],
+      repoEvents: [watchedRepoEvent, ownedRepoEvent, maintainedRepoEvent],
+      currentPubkey: viewer,
+    })
+    const watched = repos.find(repo => repo.address === repoAddress)
+    const owned = repos.find(repo => repo.address === `${GIT_REPO_ANNOUNCEMENT}:${viewer}:owned-repo`)
+    const maintained = repos.find(
+      repo => repo.address === `${GIT_REPO_ANNOUNCEMENT}:${owner}:maintained-repo`,
+    )
+
+    expect(watched).toEqual(
+      expect.objectContaining({
+        address: repoAddress,
+        options: watchedOptions,
+        repoEvent: watchedRepoEvent,
+      }),
+    )
+    expect(owned?.options).toEqual(defaultOwnedRepoNotificationOptions)
+    expect(maintained?.options).toEqual(defaultOwnedRepoNotificationOptions)
+    expect(defaultOwnedRepoNotificationOptions.issues.comments).toBe(true)
+    expect(defaultOwnedRepoNotificationOptions.prs.comments).toBe(true)
   })
 
   it("respects issue, PR, status, and assignment watch options", async () => {
@@ -205,6 +260,7 @@ describe("repo watch notifications", () => {
       prs: {new: false, comments: false, updates: false},
       status: {open: false, draft: false, applied: false, closed: true},
       assignments: true,
+      reviews: false,
     })
 
     expect(
@@ -220,6 +276,21 @@ describe("repo watch notifications", () => {
     ).toEqual([
       {path: `${repoPath}/issues`, latestEvent: assignment},
       {path: `${repoPath}/prs`, latestEvent: prStatus},
+    ])
+
+    expect(
+      getRepoWatchNotificationCandidates({
+        repos: [makeRepo({...options, reviews: true})],
+        issues: [issue],
+        pullRequests: [pullRequest],
+        statuses: [prStatus],
+        comments: [issueComment],
+        labels: [assignment, reviewerLabel],
+        currentPubkey: viewer,
+      }),
+    ).toEqual([
+      {path: `${repoPath}/issues`, latestEvent: assignment},
+      {path: `${repoPath}/prs`, latestEvent: reviewerLabel},
     ])
   })
 

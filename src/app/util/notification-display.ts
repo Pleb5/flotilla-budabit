@@ -15,6 +15,7 @@ export type NotificationRow = {
   createdAt: number
   searchText: string
   eventId?: string
+  eventIds?: string[]
   actorPubkey?: string
   actorName?: string
   repoWatchSeenPath?: string

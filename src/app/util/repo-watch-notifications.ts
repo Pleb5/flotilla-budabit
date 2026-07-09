@@ -36,8 +36,9 @@ import {
   selectLatestCommunityDefinition,
 } from "@app/core/community-state"
 import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
-import {GIT_RELAYS, getRepoMaintainers, getStatusRootId} from "@app/core/git-state"
+import {GIT_RELAYS, getRepoMaintainers, getStatusRootId, repoAnnouncements} from "@app/core/git-state"
 import {
+  defaultRepoWatchOptions,
   repoWatchNotificationSeen,
   updateRepoWatchNotificationSeen,
   userRepoWatchValues,
@@ -69,10 +70,17 @@ type WatchedRepoRef = RepoWatchAddressRef & {
   options: RepoWatchOptions
 }
 
-export type RepoWatchNotificationRepo = WatchedRepoRef & {
+export type RepoWatchNotificationRepo = RepoWatchAddressRef & {
+  options: RepoWatchOptions
   repoEvent?: TrustedEvent
   communityDefinition?: CommunityDefinition
   communityProfileListEvents?: TrustedEvent[]
+}
+
+export type GetRepoNotificationReposOptions = {
+  watchedRepos: WatchedRepoRef[]
+  repoEvents: TrustedEvent[]
+  currentPubkey?: string
 }
 
 export type RepoWatchNotificationInput = {
@@ -103,6 +111,13 @@ const REPO_ACTIVITY_FILTER_CHUNK_SIZE = 100
 const REPO_WATCH_SEEN_BUFFER_SECONDS = 60
 const REPO_WATCH_HARD_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
 const REPO_WATCH_LOAD_LIMIT = 200
+
+export const defaultOwnedRepoNotificationOptions: RepoWatchOptions = {
+  ...defaultRepoWatchOptions,
+  issues: {...defaultRepoWatchOptions.issues, comments: true},
+  prs: {...defaultRepoWatchOptions.prs, comments: true},
+  reviews: true,
+}
 
 export const hasGitNotification = (paths: Set<string>) => {
   for (const path of paths) {
@@ -225,6 +240,73 @@ const parseWatchedRepoAddress = (address: string): RepoWatchAddressRef | undefin
   }
 }
 
+const parseRepoAnnouncementRef = (event: TrustedEvent): RepoWatchAddressRef | undefined => {
+  if (event.kind !== GIT_REPO_ANNOUNCEMENT) return undefined
+
+  try {
+    const ref = Address.fromEvent(event)
+    if (ref.kind !== GIT_REPO_ANNOUNCEMENT || !ref.pubkey || !ref.identifier) return undefined
+
+    return {
+      address: ref.toString(),
+      pubkey: ref.pubkey,
+      identifier: ref.identifier,
+      naddr: ref.toNaddr(),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+const mapRepoEventsByAddress = (events: TrustedEvent[]) => {
+  const byAddress = new Map<string, TrustedEvent>()
+
+  for (const event of events) {
+    const ref = parseRepoAnnouncementRef(event)
+    if (ref) byAddress.set(ref.address, event)
+  }
+
+  return byAddress
+}
+
+export const getRepoNotificationRepos = ({
+  watchedRepos,
+  repoEvents,
+  currentPubkey,
+}: GetRepoNotificationReposOptions): RepoWatchNotificationRepo[] => {
+  const reposByAddress = new Map<string, RepoWatchNotificationRepo>()
+  const repoEventsByAddress = mapRepoEventsByAddress(repoEvents)
+
+  for (const repo of watchedRepos) {
+    reposByAddress.set(repo.address, {
+      ...repo,
+      repoEvent: repoEventsByAddress.get(repo.address),
+    })
+  }
+
+  if (currentPubkey) {
+    for (const event of repoEventsByAddress.values()) {
+      const ref = parseRepoAnnouncementRef(event)
+      if (!ref) continue
+      if (!getRepoMaintainers(event as RepoAnnouncementEvent).includes(currentPubkey)) continue
+
+      const existing = reposByAddress.get(ref.address)
+      if (existing) {
+        if (!existing.repoEvent) reposByAddress.set(ref.address, {...existing, repoEvent: event})
+        continue
+      }
+
+      reposByAddress.set(ref.address, {
+        ...ref,
+        options: defaultOwnedRepoNotificationOptions,
+        repoEvent: event,
+      })
+    }
+  }
+
+  return Array.from(reposByAddress.values()).sort((a, b) => a.address.localeCompare(b.address))
+}
+
 const getRepoAddress = (event: TrustedEvent) => getTagValue("a", event.tags) || ""
 
 const getCommentRootId = (event: TrustedEvent) =>
@@ -305,7 +387,7 @@ const repoAllowsAuthor = ({
   return true
 }
 
-const isAssigneeLabelForCurrentUser = (event: TrustedEvent, currentPubkey?: string) => {
+const isRoleLabelForCurrentUser = (event: TrustedEvent, currentPubkey: string | undefined, role: string) => {
   if (!currentPubkey || event.kind !== GIT_LABEL) return false
 
   const hasRoleNamespace = event.tags.some(tag => tag[0] === "L" && tag[1] === ROLE_NS)
@@ -315,9 +397,15 @@ const isAssigneeLabelForCurrentUser = (event: TrustedEvent, currentPubkey?: stri
   if (!assignsCurrentUser) return false
 
   return event.tags.some(
-    tag => tag[0] === "l" && tag[1] === "assignee" && tag[2] === ROLE_NS && tag[3] !== "del",
+    tag => tag[0] === "l" && tag[1] === role && tag[2] === ROLE_NS && tag[3] !== "del",
   )
 }
+
+const isAssigneeLabelForCurrentUser = (event: TrustedEvent, currentPubkey?: string) =>
+  isRoleLabelForCurrentUser(event, currentPubkey, "assignee")
+
+const isReviewerLabelForCurrentUser = (event: TrustedEvent, currentPubkey?: string) =>
+  isRoleLabelForCurrentUser(event, currentPubkey, "reviewer")
 
 const isNewerEvent = (event: TrustedEvent, current: TrustedEvent) =>
   event.created_at > current.created_at ||
@@ -491,7 +579,9 @@ export const getRepoWatchNotificationCandidates = ({
   }
 
   for (const label of labels) {
-    if (!isAssigneeLabelForCurrentUser(label, currentPubkey)) continue
+    const isAssignment = isAssigneeLabelForCurrentUser(label, currentPubkey)
+    const isReviewRequest = isReviewerLabelForCurrentUser(label, currentPubkey)
+    if (!isAssignment && !isReviewRequest) continue
 
     const rootId = getLabelRootId(label)
     const issueRepo = issueReposByRootId.get(rootId)
@@ -507,7 +597,7 @@ export const getRepoWatchNotificationCandidates = ({
         repo: issueCandidateRepo,
         section: "issues",
         event: label,
-        enabled: issueCandidateRepo.options.assignments,
+        enabled: isAssignment ? issueCandidateRepo.options.assignments : issueCandidateRepo.options.reviews,
         currentPubkey,
       })
     }
@@ -518,7 +608,7 @@ export const getRepoWatchNotificationCandidates = ({
         repo: prCandidateRepo,
         section: "prs",
         event: label,
-        enabled: prCandidateRepo.options.assignments,
+        enabled: isAssignment ? prCandidateRepo.options.assignments : prCandidateRepo.options.reviews,
         currentPubkey,
       })
     }
@@ -643,32 +733,49 @@ const watchedRepoAnnouncementEvents = deriveLoadedEvents<TrustedEvent>({
   label: "repo announcements",
 })
 
-const repoAnnouncementEventsByAddress = derived(watchedRepoAnnouncementEvents, $events => {
-  const eventsByAddress = new Map<string, TrustedEvent>()
-
-  for (const event of $events) {
-    try {
-      const announcement = parseRepoAnnouncementEvent(event as RepoAnnouncementEvent)
-      if (announcement.address) eventsByAddress.set(announcement.address, event)
-    } catch {
-      continue
-    }
-  }
-
-  return eventsByAddress
-})
-
-const watchedReposWithAnnouncements = derived(
-  [watchedRepoRefs, repoAnnouncementEventsByAddress],
-  ([$repos, $eventsByAddress]) =>
-    $repos
-      .map(repo => ({...repo, repoEvent: $eventsByAddress.get(repo.address)}))
-      .filter((repo): repo is WatchedRepoRef & {repoEvent: TrustedEvent} =>
-        Boolean(repo.repoEvent),
-      ),
+const ownedRepoAnnouncementFilters = derived(pubkey, $pubkey =>
+  $pubkey
+    ? [
+        {
+          authors: [$pubkey],
+          kinds: [GIT_REPO_ANNOUNCEMENT],
+          limit: 100,
+        },
+      ]
+    : [],
 )
 
-const watchedRepoActivityRelays = derived(watchedRepoAnnouncementEvents, $events => {
+const ownedRepoAnnouncementEvents = deriveLoadedEvents<TrustedEvent>({
+  filters: ownedRepoAnnouncementFilters,
+  relays: baseRelays,
+  label: "owned repo announcements",
+})
+
+const knownRepoAnnouncementEvents = derived(
+  [repoAnnouncements, watchedRepoAnnouncementEvents, ownedRepoAnnouncementEvents],
+  ([$repoAnnouncements, $watchedRepoAnnouncementEvents, $ownedRepoAnnouncementEvents]) =>
+    Array.from(
+      mapRepoEventsByAddress([
+        ...($repoAnnouncements as TrustedEvent[]),
+        ...$watchedRepoAnnouncementEvents,
+        ...$ownedRepoAnnouncementEvents,
+      ]).values(),
+    ),
+)
+
+const notificationReposWithAnnouncements = derived(
+  [pubkey, watchedRepoRefs, knownRepoAnnouncementEvents],
+  ([$pubkey, $watchedRepos, $repoEvents]) =>
+    getRepoNotificationRepos({
+      watchedRepos: $watchedRepos,
+      repoEvents: $repoEvents,
+      currentPubkey: $pubkey || undefined,
+    }).filter((repo): repo is RepoWatchNotificationRepo & {repoEvent: TrustedEvent} =>
+      Boolean(repo.repoEvent),
+    ),
+)
+
+const watchedRepoActivityRelays = derived(knownRepoAnnouncementEvents, $events => {
   const repoRelays = $events.flatMap(event => {
     try {
       return parseRepoAnnouncementEvent(event as RepoAnnouncementEvent).relays || []
@@ -682,7 +789,7 @@ const watchedRepoActivityRelays = derived(watchedRepoAnnouncementEvents, $events
 
 const watchedRepoActivityFilters = derived(
   [
-    watchedReposWithAnnouncements,
+    notificationReposWithAnnouncements,
     checked,
     repoWatchNotificationSeen,
     notificationHistorySince,
@@ -734,7 +841,7 @@ const watchedRepoRootIds = derived(watchedRepoActivityEvents, getRepoWatchRootId
 const watchedRepoRootScopedFilters = derived(
   [
     watchedRepoRootIds,
-    watchedReposWithAnnouncements,
+    notificationReposWithAnnouncements,
     checked,
     repoWatchNotificationSeen,
     notificationHistorySince,
@@ -775,7 +882,7 @@ const watchedRepoRootScopedEvents = deriveLoadedEvents<TrustedEvent>({
   label: "repo root activity",
 })
 
-const watchedRepoCommunityRefs = derived(watchedRepoAnnouncementEvents, $events => {
+const watchedRepoCommunityRefs = derived(knownRepoAnnouncementEvents, $events => {
   const refs = new Map<string, string[]>()
 
   for (const event of $events) {
@@ -848,8 +955,7 @@ const watchedRepoCommunityProfileListEvents = deriveLoadedEvents<TrustedEvent>({
 export const repoWatchNotificationCandidates = derived(
   [
     pubkey,
-    watchedRepoRefs,
-    repoAnnouncementEventsByAddress,
+    notificationReposWithAnnouncements,
     watchedRepoActivityEvents,
     watchedRepoRootScopedEvents,
     watchedRepoCommunityDefinitions,
@@ -858,14 +964,13 @@ export const repoWatchNotificationCandidates = derived(
   ([
     $pubkey,
     $repos,
-    $repoEventsByAddress,
     $activityEvents,
     $rootScopedEvents,
     $communityDefinitions,
     $communityProfileListEvents,
   ]) => {
     const repos = $repos.map(repo => {
-      const repoEvent = $repoEventsByAddress.get(repo.address)
+      const repoEvent = repo.repoEvent
       let communityDefinition: CommunityDefinition | undefined
 
       if (repoEvent) {

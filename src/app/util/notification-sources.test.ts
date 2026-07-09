@@ -4,7 +4,7 @@ import {describe, expect, it, vi} from "vitest"
 import {readable} from "svelte/store"
 import {GIT_COMMENT, GIT_ISSUE, GIT_STATUS_CLOSED} from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
-import {COMMENT, MESSAGE, THREAD} from "@welshman/util"
+import {COMMENT, MESSAGE, NOTE, REACTION, THREAD, ZAP_RESPONSE} from "@welshman/util"
 import type {Chat} from "@app/core/state"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
@@ -55,6 +55,7 @@ const banned = "d".repeat(64)
 const muted = "e".repeat(64)
 const communityPubkey = "f".repeat(64)
 const profileListPubkey = "1".repeat(64)
+const zapper = "2".repeat(64)
 const profileListAddress = `${PROFILE_LIST_KIND}:${profileListPubkey}:${COMMUNITY_SECTION_GENERAL}`
 const threadProfileListAddress = `${PROFILE_LIST_KIND}:${profileListPubkey}:${COMMUNITY_SECTION_THREADS}`
 
@@ -158,16 +159,17 @@ describe("notification sources", () => {
       excludedPaths: new Set(["/chat/alice"]),
     })
 
-    expect(rows).toHaveLength(6)
+    expect(rows).toHaveLength(4)
     expect(rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({source: "chat", path: "/chat", readPath: "/chat/*"}),
-        expect.objectContaining({source: "community", path: "/c/community/rooms/root"}),
-        expect.objectContaining({source: "community", path: "/c/community/git"}),
         expect.objectContaining({source: "git", path: "/git/repo"}),
         expect.objectContaining({source: "other", path: "/settings"}),
         expect.objectContaining({source: "other", path: "/settings/git"}),
       ]),
+    )
+    expect(rows.map(row => row.path)).not.toEqual(
+      expect.arrayContaining(["/c/community/rooms/root", "/c/community/git"]),
     )
     expect(rows.find(row => row.path === "/git/repo")?.preview).toBe("Open git activity")
     expect(rows.find(row => row.path === "/git/repo")?.preview).not.toContain("/")
@@ -216,7 +218,10 @@ describe("notification sources", () => {
     const filterValues = NOTIFICATION_ROW_FILTERS.map(option => option.value)
 
     expect(filterValues).toEqual(["chat", "git", "community", "other"])
-    expect(filterValues).not.toEqual(expect.arrayContaining(["all", "read", "social", "unread"]))
+    expect(filterValues).not.toEqual(
+      expect.arrayContaining(["all", "read", "social", "unread"]),
+    )
+    expect(filterValues.join(" ")).not.toMatch(new RegExp(["re", "post"].join(""), "i"))
     expect(filterNotificationRows([...rows], {filters: ["git"]}).map(row => row.id)).toEqual([
       "route:/git/repo",
     ])
@@ -234,7 +239,7 @@ describe("notification sources", () => {
     )
   })
 
-  it("builds global community rows with permission and moderation filters", async () => {
+  it("keeps user-specific community access and suppresses generic community rows", async () => {
     const {buildCommunityNotificationRows} = await import("./notification-sources")
     const ref = makeCommunityRef()
     const allowedMessage = makeEvent({
@@ -311,25 +316,23 @@ describe("notification sources", () => {
       mutedPubkeys: [muted],
     })
 
-    expect(rows.map(row => row.eventId)).toEqual(
-      expect.arrayContaining(["profile-list-General", "allowed-message"]),
-    )
+    expect(rows.map(row => row.eventId)).toEqual(expect.arrayContaining(["profile-list-General"]))
     expect(rows.map(row => row.eventId)).not.toEqual(
       expect.arrayContaining([
+        "allowed-message",
         "outsider-message",
         "banned-message",
         "muted-message",
         "censored-message",
       ]),
     )
-    expect(rows.find(row => row.eventId === allowedMessage.id)).toEqual(
+    expect(rows.find(row => row.eventId === allowedMessage.id)).toBeUndefined()
+    expect(rows.find(row => row.eventId === "profile-list-General")).toEqual(
       expect.objectContaining({
         source: "community",
-        title: "New room message",
-        preview: "hello community",
+        title: "Community access update",
       }),
     )
-    expect(rows.find(row => row.eventId === allowedMessage.id)?.path).toContain("/rooms/room-one")
   })
 
   it("builds repo-watch rows with readable labels and seen paths", async () => {
@@ -475,12 +478,7 @@ describe("notification sources", () => {
       currentPubkey: viewer,
     })
 
-    expect(rows.find(row => row.eventId === replyMessage.id)).toEqual(
-      expect.objectContaining({
-        source: "community",
-        title: "New room message",
-      }),
-    )
+    expect(rows.find(row => row.eventId === replyMessage.id)).toBeUndefined()
   })
 
   it("notifies only thread replies to the signed-in user's comments", async () => {
@@ -572,6 +570,206 @@ describe("notification sources", () => {
         title: "New thread comment reply",
         path: expect.stringContaining("/threads/thread-one"),
       }),
+    )
+  })
+
+  it("builds targeted engagement rows without generic p-tag noise", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const ownedNoteId = "3".repeat(64)
+    const otherNoteId = "4".repeat(64)
+    const replyId = "5".repeat(64)
+    const mentionId = "6".repeat(64)
+    const inheritedReplyTagId = "7".repeat(64)
+    const ignoredBoostId = "8".repeat(64)
+    const ownedNote = makeEvent({id: ownedNoteId, kind: NOTE, pubkey: viewer, content: "my note"})
+    const otherNote = makeEvent({id: otherNoteId, kind: NOTE, pubkey: outsider, content: "other note"})
+    const reply = makeEvent({
+      id: replyId,
+      kind: NOTE,
+      pubkey: writer,
+      created_at: 110,
+      content: "replying to your note",
+      tags: [
+        ["e", ownedNote.id, "", "reply"],
+        ["p", viewer],
+      ],
+    })
+    const mention = makeEvent({
+      id: mentionId,
+      kind: NOTE,
+      pubkey: outsider,
+      created_at: 120,
+      content: "hi #[0]",
+      tags: [["p", viewer]],
+    })
+    const inheritedReplyTag = makeEvent({
+      id: inheritedReplyTagId,
+      kind: NOTE,
+      pubkey: writer,
+      created_at: 130,
+      content: "replying elsewhere",
+      tags: [
+        ["e", otherNote.id, "", "reply"],
+        ["p", viewer],
+      ],
+    })
+    const ignoredBoost = makeEvent({
+      id: ignoredBoostId,
+      kind: 6,
+      pubkey: writer,
+      created_at: 140,
+      tags: [
+        ["e", ownedNote.id],
+        ["p", viewer],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [reply, mention, inheritedReplyTag, ignoredBoost],
+      targetEvents: [ownedNote, otherNote],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.map(row => row.eventId)).toEqual([mentionId, replyId])
+    expect(rows.find(row => row.eventId === reply.id)).toEqual(
+      expect.objectContaining({
+        source: "other",
+        sourceLabel: "Engagement",
+        title: "New reply",
+        actorPubkey: writer,
+      }),
+    )
+    expect(rows.find(row => row.eventId === mention.id)).toEqual(
+      expect.objectContaining({
+        source: "other",
+        sourceLabel: "Engagement",
+        title: "New mention",
+        actorPubkey: outsider,
+      }),
+    )
+    expect(rows.map(row => row.eventId)).not.toEqual(
+      expect.arrayContaining([inheritedReplyTag.id, ignoredBoost.id]),
+    )
+  })
+
+  it("groups reactions and verified zaps only for signed-in user's targets", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const ownedNoteId = "3".repeat(64)
+    const otherNoteId = "4".repeat(64)
+    const reactionOneId = "5".repeat(64)
+    const reactionTwoId = "6".repeat(64)
+    const falseReactionId = "7".repeat(64)
+    const validZapId = "8".repeat(64)
+    const invalidZapId = "9".repeat(64)
+    const falseZapId = "0".repeat(64)
+    const ownedNote = makeEvent({id: ownedNoteId, kind: NOTE, pubkey: viewer, content: "my note"})
+    const otherNote = makeEvent({id: otherNoteId, kind: NOTE, pubkey: outsider, content: "other note"})
+    const reactionOne = makeEvent({
+      id: reactionOneId,
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 100,
+      content: "+",
+      tags: [
+        ["e", ownedNote.id],
+        ["p", viewer],
+      ],
+    })
+    const reactionTwo = makeEvent({
+      id: reactionTwoId,
+      kind: REACTION,
+      pubkey: outsider,
+      created_at: 120,
+      content: "fire",
+      tags: [
+        ["e", ownedNote.id],
+        ["p", viewer],
+      ],
+    })
+    const falseReaction = makeEvent({
+      id: falseReactionId,
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 130,
+      content: "+",
+      tags: [
+        ["e", otherNote.id],
+        ["p", viewer],
+      ],
+    })
+    const zapRequest = {
+      pubkey: writer,
+      content: "nice post",
+      tags: [
+        ["p", viewer],
+        ["e", ownedNote.id],
+        ["amount", "21000"],
+      ],
+    }
+    const validZap = makeEvent({
+      id: validZapId,
+      kind: ZAP_RESPONSE,
+      pubkey: zapper,
+      created_at: 140,
+      tags: [
+        ["p", viewer],
+        ["e", ownedNote.id],
+        ["description", JSON.stringify(zapRequest)],
+      ],
+    })
+    const invalidZap = makeEvent({
+      id: invalidZapId,
+      kind: ZAP_RESPONSE,
+      pubkey: zapper,
+      created_at: 150,
+      tags: [
+        ["p", viewer],
+        ["e", ownedNote.id],
+        ["description", JSON.stringify(zapRequest)],
+      ],
+    })
+    const falseZap = makeEvent({
+      id: falseZapId,
+      kind: ZAP_RESPONSE,
+      pubkey: zapper,
+      created_at: 160,
+      tags: [
+        ["p", viewer],
+        ["e", otherNote.id],
+        ["description", JSON.stringify({...zapRequest, tags: [["e", otherNote.id], ["p", viewer]]})],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [reactionOne, reactionTwo, falseReaction, validZap, invalidZap, falseZap],
+      targetEvents: [ownedNote, otherNote],
+      currentPubkey: viewer,
+      validZapResponseIds: new Set([validZap.id, falseZap.id]),
+    })
+    const reactionRow = rows.find(row => row.title === "New reactions")
+    const zapRow = rows.find(row => row.title === "New zap")
+
+    expect(reactionRow).toEqual(
+      expect.objectContaining({
+        source: "other",
+        sourceLabel: "Engagement",
+        eventId: reactionTwo.id,
+        eventIds: [reactionTwo.id, reactionOne.id],
+        id: expect.stringContaining(ownedNote.id),
+      }),
+    )
+    expect(zapRow).toEqual(
+      expect.objectContaining({
+        source: "other",
+        sourceLabel: "Engagement",
+        eventId: validZap.id,
+        actorPubkey: writer,
+        eventIds: [validZap.id],
+        preview: expect.stringContaining("nice post"),
+      }),
+    )
+    expect(rows.flatMap(row => row.eventIds || [row.eventId])).not.toEqual(
+      expect.arrayContaining([falseReaction.id, invalidZap.id, falseZap.id]),
     )
   })
 })

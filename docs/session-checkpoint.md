@@ -15,20 +15,23 @@
 
 ## Current Phase
 
-- Phase 2: Relevant Notification Sources And Read State
+- Phase 3: Compact Expandable Notification UI
 
 ## Phase Exit Criteria
 
-- No Budabit notification type/source/filter references reposts.
-- Generic new community room messages, generic new threads, generic calendar/goals, and generic community activity no longer appear as notification-center history rows.
-- Notification history includes incoming DMs, replies to user-authored events, reactions to user-authored events, mentions, zaps to the user or user-authored events, user-owned/user-maintained repo events, opt-in watched repo events, assignments/review requests tagging the user, and user-specific community access/moderation decisions where existing data supports them.
-- Repo notification baseline includes owned/maintained repos without requiring opt-in watch, while watched repos remain opt-in expansion.
-- Opening the notification modal may mark the global bell timestamp read but does not clear per-target read/unread markers for issues, PRs, comments, chats, or concrete route targets.
-- Tests assert noisy generic community rows are absent and relevant user-targeted rows are present.
-- Tests assert no repost notification/filter symbols remain in notification-center code.
+- Notification rows are compact by default and visually similar in spirit to Dark Wisp: type icon, actor avatar, actor name, verb/action text, source/target context when useful, timestamp.
+- Rows expand/collapse in place; at most one row is expanded at a time unless a simpler accessible multi-expand approach is explicitly chosen and documented.
+- Expanded reply rows show the quoted/referenced event and the reply event itself where data is loaded.
+- Expanded reaction/zap/mention/repo rows show the referenced context and the notification event/context without raw ids.
+- Clicking the row toggles expansion; clicking explicit action/quoted target navigates to the correct route and scrolls/opens the target event directly.
+- No raw `nostr:nevent`, `nevent`, route path, or long event id is rendered in compact or expanded UI.
+- Search filters all loaded notification rows, not only the currently visible 50-row slice.
+- Load-more behavior remains functional.
+- Profile avatar click still opens stacked profile modal and returns to notification state after dismissal.
+- Focused tests or source tests cover row display metadata, no raw ids, expansion route metadata, and no repost UI.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -54,6 +57,23 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Pre-closeout inspected `git status --short --branch`, `git diff`, and `git log --oneline -10 --decorate`.
+- Phase 2 startup reread this checkpoint and the full session plan, inspected current git state, and inspected Dark Wisp notification data/filtering references in `NotificationsViewModel.kt`, `NotificationItem.kt`, and `EventRouter.kt`.
+- Phase 2 implemented relevant notification source/read-state corrections:
+  - Removed generic notification-center community rows for ordinary room messages, new threads, calendar events, goals, and community route fallback rows.
+  - Kept user-specific community rows for room replies to the signed-in user's room messages, thread replies to the signed-in user's comments, and community membership/access profile-list updates.
+  - Added targeted engagement rows under `source: "other"` / `sourceLabel: "Engagement"` for replies to user-authored targets, direct mentions, reactions to user-authored targets, and verified zaps to user-authored targets.
+  - Added zap validation before zap rows are emitted.
+  - Added optional `eventIds` row metadata for grouped reactions/zaps.
+  - Added owned/maintained repo notification baseline refs with default issue/PR/comment/status/assignment/review coverage while preserving explicit watched-repo options as opt-in expansion.
+  - Added review-request label handling for repo notifications.
+  - Preserved global notification read timestamp behavior without clearing route-specific checked/read state.
+- Phase 2 verification passed:
+  - `pnpm vitest run src/app/util/modal-stack.test.ts src/app/util/notification-history.test.ts src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 5 files, 26 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Grep over notification app files found no repost notification symbols.
+  - Grep over notification app files found no `social` notification source/filter symbols.
+  - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10 --decorate`.
 
 ## Decisions
 
@@ -74,10 +94,12 @@
 - Plan/checkpoint setup files changed for this workflow: `docs/session-plan.md`, `docs/session-checkpoint.md`.
 - Phase 1 changed files: `docs/session-checkpoint.md`, `docs/session-plan.md`, `src/app/components/ModalContainer.svelte`, `src/app/util/modal.ts`, `src/app/util/modal-stack.ts`, and `src/app/util/modal-stack.test.ts`.
 - Phase 1 is verified and closed by the current phase transition commit.
+- Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, `src/app/util/notification-sources.test.ts`, `src/app/util/repo-watch-notifications.ts`, and `src/app/util/repo-watch-notifications.test.ts`.
+- Phase 2 is verified and closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 2 startup: reread this checkpoint and the full session plan, inspect current git state, inspect Dark Wisp notification data/filtering references, then replace noisy notification sources with tightly user-relevant rows while preserving per-target read state.
+- Phase 3 startup: reread this checkpoint and the full session plan, inspect current git state, inspect Dark Wisp notification UI references, then redesign notification rows into compact expandable accordions with safe context display and direct navigation metadata.
 
 ## Verification
 
@@ -91,12 +113,18 @@
 - Phase 1 project check passed.
 - Phase 1 whitespace check passed.
 - Phase 1 pre-closeout inspected status, diff, and recent commits.
+- Phase 2 focused notification/modal regression command passed.
+- Phase 2 project check passed.
+- Phase 2 whitespace check passed.
+- Phase 2 no-repost/no-social-source greps passed.
+- Phase 2 pre-closeout inspected status, diff summary, diff, and recent commits.
 
 ## Risks Or Blockers
 
 - No current blocker.
 - Browser Back behavior is covered by pure stack-helper tests and code evidence; no browser e2e was added in Phase 1.
-- Notification redesign scope is broad; later phases may need targeted follow-up if repo ownership/maintainer data is incomplete.
+- Maintained repo baseline notifications use repo announcements known to Budabit plus actively loaded owned repo announcements; NIP-34 maintainer data is stored in a multi-value `maintainers` tag that cannot be targeted by a relay tag filter.
+- Phase 3 must avoid rendering raw event/share paths from engagement rows.
 
 ## Files
 
