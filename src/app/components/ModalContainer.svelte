@@ -1,8 +1,9 @@
 <script lang="ts">
   import {onMount, mount, unmount, createRawSnippet, getAllContexts} from "svelte"
+  import {page} from "$app/stores"
   import Drawer from "@lib/components/Drawer.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
-  import {modalStack, closeTopModal, type Modal} from "@app/util/modal"
+  import {modalStack, closeTopModal, syncModalStoresToActiveId, type Modal} from "@app/util/modal"
 
   const closeModals = () => {
     const topModal = $modalStack.at(-1)
@@ -78,10 +79,12 @@
   }
 
   onMount(() => {
-    const unsubscribe = modalStack.subscribe(syncModalStack)
+    const unsubscribePage = page.subscribe($page => syncModalStoresToActiveId($page.url.hash.slice(1)))
+    const unsubscribeStack = modalStack.subscribe(syncModalStack)
 
     return () => {
-      unsubscribe()
+      unsubscribePage()
+      unsubscribeStack()
       for (const id of Array.from(mountedModals.keys())) unmountModal(id)
     }
   })

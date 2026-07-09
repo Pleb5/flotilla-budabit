@@ -3,6 +3,12 @@ import {derived, get, writable} from "svelte/store"
 import {randomId, always, Emitter} from "@welshman/lib"
 import {goto, replaceState} from "$app/navigation"
 import {page} from "$app/stores"
+import {
+  getModalHashSyncPlan,
+  getModalStackForActiveId,
+  getModalTopClosePlan,
+  shouldUseHistoryForTopClose,
+} from "./modal-stack"
 
 export type ModalOptions = {
   drawer?: boolean
@@ -26,11 +32,8 @@ export const modalIds = writable<string[]>([])
 
 export const modalStack = derived([page, modals, modalIds], ([$page, $modals, $modalIds]) => {
   const activeId = $page.url.hash.slice(1)
-  const activeIndex = $modalIds.indexOf(activeId)
-  if (activeIndex < 0) return []
 
-  return $modalIds
-    .slice(0, activeIndex + 1)
+  return getModalStackForActiveId($modalIds, activeId)
     .map(id => $modals[id])
     .filter((modal): modal is Modal => Boolean(modal))
 })
@@ -62,6 +65,27 @@ const clearModalHash = () => {
   replaceState(`${url.pathname}${url.search}`, currentPage.state)
 }
 
+const retainModalIds = (retainedIds: string[]) => {
+  const current = get(modals)
+  const retained = new Set(retainedIds.filter(id => current[id]))
+
+  modals.set(Object.fromEntries(Object.entries(current).filter(([modalId]) => retained.has(modalId))))
+  modalIds.set(retainedIds.filter(id => retained.has(id)))
+}
+
+export const syncModalStoresToActiveId = (activeId: string) => {
+  const currentIds = get(modalIds)
+  const currentModals = get(modals)
+  const plan =
+    activeId && currentModals[activeId]
+      ? getModalHashSyncPlan(currentIds, activeId)
+      : {retainedIds: [], removedIds: [...currentIds]}
+
+  if (plan.removedIds.length === 0) return
+
+  retainModalIds(plan.retainedIds)
+}
+
 function isValidModalPath(path: string): boolean {
   if (!path) return true
   if (path.startsWith("/") && !path.startsWith("//")) return true
@@ -89,8 +113,7 @@ export const pushModal = (
 
   const currentId = getCurrentModalId()
   const currentIds = get(modalIds)
-  const activeIndex = currentIds.indexOf(currentId)
-  const retainedIds = activeIndex >= 0 ? currentIds.slice(0, activeIndex + 1) : []
+  const retainedIds = getModalStackForActiveId(currentIds, currentId)
   const retained = new Set(retainedIds)
 
   modals.update(current => {
@@ -115,21 +138,29 @@ export const closeTopModal = () => {
   const currentId = getCurrentModalId()
   const currentModals = get(modals)
   const currentIds = get(modalIds)
-  const activeIndex = currentIds.indexOf(currentId)
+  const currentModal = currentModals[currentId]
+  const plan = getModalTopClosePlan(currentIds, currentId)
 
-  if (activeIndex < 0 || !currentModals[currentId]) return clearModalHash()
+  if (!currentModal) {
+    retainModalIds([])
+    return clearModalHash()
+  }
 
-  const previousId = activeIndex > 0 ? currentIds[activeIndex - 1] : ""
-  const removedIds = new Set(currentIds.slice(activeIndex))
-
-  modals.update(current =>
-    Object.fromEntries(Object.entries(current).filter(([modalId]) => !removedIds.has(modalId))),
-  )
-  if (!previousId) modalIds.set([])
   emitter.emit("close")
 
-  if (previousId && currentModals[previousId]) replaceModalHash(previousId)
-  else clearModalHash()
+  if (plan.previousId && currentModals[plan.previousId]) {
+    if (shouldUseHistoryForTopClose(plan, currentModal.options, typeof window !== "undefined")) {
+      window.history.back()
+      return
+    }
+
+    retainModalIds(plan.retainedIds)
+    replaceModalHash(plan.previousId)
+    return
+  }
+
+  retainModalIds([])
+  clearModalHash()
 }
 
 export const clearModals = () => {
