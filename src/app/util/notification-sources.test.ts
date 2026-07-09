@@ -134,10 +134,15 @@ describe("notification sources", () => {
         eventId: "event-a",
         actorPubkey: "alice",
         source: "chat",
+        type: "chat",
         title: "Direct message",
         preview: "hello from alice",
+        action: "messaged you",
+        contextLabel: "Direct message",
         path: "/chat/alice",
         readPath: "/chat/alice",
+        navigationEventId: "event-a",
+        detail: expect.objectContaining({label: "Message", actionLabel: "Open chat"}),
         createdAt: 100,
       }),
     ])
@@ -374,11 +379,15 @@ describe("notification sources", () => {
     ).toEqual(
       expect.objectContaining({
         source: "git",
+        type: "repo",
         title: "New issue",
         preview: "Broken thing",
+        action: "opened an issue",
+        contextLabel: "Issue",
         path: `${path}/${issue.id}`,
         readPath: path,
         repoWatchSeenPath: path,
+        target: expect.objectContaining({label: "Issue", eventId: issue.id}),
       }),
     )
 
@@ -437,9 +446,12 @@ describe("notification sources", () => {
     expect(rows.find(row => row.eventId === replyMessage.id)).toEqual(
       expect.objectContaining({
         source: "community",
+        type: "reply",
         title: "New room reply",
         actorPubkey: writer,
         path: expect.stringContaining("/rooms/room-one"),
+        target: expect.objectContaining({label: "Your room message", eventId: parentMessage.id}),
+        detail: expect.objectContaining({label: "Reply", eventId: replyMessage.id}),
       }),
     )
   })
@@ -567,8 +579,10 @@ describe("notification sources", () => {
     expect(rows.find(row => row.eventId === commentReply.id)).toEqual(
       expect.objectContaining({
         source: "community",
+        type: "reply",
         title: "New thread comment reply",
         path: expect.stringContaining("/threads/thread-one"),
+        target: expect.objectContaining({label: "Your comment", eventId: parentComment.id}),
       }),
     )
   })
@@ -635,16 +649,21 @@ describe("notification sources", () => {
       expect.objectContaining({
         source: "other",
         sourceLabel: "Engagement",
+        type: "reply",
         title: "New reply",
         actorPubkey: writer,
+        target: expect.objectContaining({label: "your note", eventId: ownedNote.id}),
+        detail: expect.objectContaining({label: "Reply", eventId: reply.id}),
       }),
     )
     expect(rows.find(row => row.eventId === mention.id)).toEqual(
       expect.objectContaining({
         source: "other",
         sourceLabel: "Engagement",
+        type: "mention",
         title: "New mention",
         actorPubkey: outsider,
+        detail: expect.objectContaining({label: "Mention", eventId: mention.id}),
       }),
     )
     expect(rows.map(row => row.eventId)).not.toEqual(
@@ -753,19 +772,23 @@ describe("notification sources", () => {
       expect.objectContaining({
         source: "other",
         sourceLabel: "Engagement",
+        type: "reaction",
         eventId: reactionTwo.id,
         eventIds: [reactionTwo.id, reactionOne.id],
         id: expect.stringContaining(ownedNote.id),
+        target: expect.objectContaining({label: "your note", eventId: ownedNote.id}),
       }),
     )
     expect(zapRow).toEqual(
       expect.objectContaining({
         source: "other",
         sourceLabel: "Engagement",
+        type: "zap",
         eventId: validZap.id,
         actorPubkey: writer,
         eventIds: [validZap.id],
         preview: expect.stringContaining("nice post"),
+        target: expect.objectContaining({label: "your note", eventId: ownedNote.id}),
       }),
     )
     expect(rows.flatMap(row => row.eventIds || [row.eventId])).not.toEqual(

@@ -15,23 +15,20 @@
 
 ## Current Phase
 
-- Phase 3: Compact Expandable Notification UI
+- Phase 4: Review And Final Closeout
 
 ## Phase Exit Criteria
 
-- Notification rows are compact by default and visually similar in spirit to Dark Wisp: type icon, actor avatar, actor name, verb/action text, source/target context when useful, timestamp.
-- Rows expand/collapse in place; at most one row is expanded at a time unless a simpler accessible multi-expand approach is explicitly chosen and documented.
-- Expanded reply rows show the quoted/referenced event and the reply event itself where data is loaded.
-- Expanded reaction/zap/mention/repo rows show the referenced context and the notification event/context without raw ids.
-- Clicking the row toggles expansion; clicking explicit action/quoted target navigates to the correct route and scrolls/opens the target event directly.
-- No raw `nostr:nevent`, `nevent`, route path, or long event id is rendered in compact or expanded UI.
-- Search filters all loaded notification rows, not only the currently visible 50-row slice.
-- Load-more behavior remains functional.
-- Profile avatar click still opens stacked profile modal and returns to notification state after dismissal.
-- Focused tests or source tests cover row display metadata, no raw ids, expansion route metadata, and no repost UI.
+- Review confirms modal Back/Escape/backdrop stack behavior works by code evidence and tests where practical.
+- Review confirms no repost notification concepts remain in Budabit notification-center files.
+- Review confirms generic noisy community rows are absent from notification-center history.
+- Review confirms compact/expanded row UI suppresses raw ids/paths and has direct target navigation metadata.
+- All focused notification/modal tests pass.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- Final status/diff review shows no staged files and no unrelated files included.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if the checkpoint changed.
 
 ## Completed With Evidence
 
@@ -74,6 +71,22 @@
   - Grep over notification app files found no repost notification symbols.
   - Grep over notification app files found no `social` notification source/filter symbols.
   - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10 --decorate`.
+- Phase 3 startup reread this checkpoint and the full session plan, inspected current git state, and inspected Dark Wisp UI references in `NotificationsScreen.kt`, including `ZenNotificationRow`, `NotificationTypeIcon`, `ReplyExpansion`, `NoteExpansion`, and `GroupChatExpansion`.
+- Phase 3 implemented compact expandable notification rows:
+  - Added notification display metadata and sanitizing helpers in `src/app/util/notification-display.ts` for compact row type/action/context text, expansion sections, explicit navigation targets, and visible-text raw id/path suppression.
+  - Updated notification source row builders to populate row type, action, context, target, detail, and navigation metadata for chats, community replies/access updates, repo items, route fallbacks, replies, mentions, grouped reactions, and zaps.
+  - Updated `src/app/components/NotificationsModal.svelte` to render compact rows with type icon, actor avatar/name, action/context text, source/timestamp, and one-expanded-row accordion behavior.
+  - Changed row clicks and keyboard activation to toggle expansion; explicit expanded action buttons navigate to the row/section path and call `scrollToEvent` with hidden event ids.
+  - Preserved profile avatar stacked profile modal behavior with `pushModal(ProfileDetail, {pubkey})`.
+  - Preserved search-before-slice behavior, visible 50-row batches, and existing load-more behavior.
+  - Added `src/app/util/notification-display.test.ts` and expanded source tests for row display metadata, expansion route metadata, raw visible-text suppression, and no repost UI symbols.
+- Phase 3 verification passed:
+  - `pnpm vitest run src/app/util/notification-display.test.ts src/app/util/modal-stack.test.ts src/app/util/notification-history.test.ts src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 6 files, 28 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Grep over notification app files found no repost notification symbols.
+  - Grep over `NotificationsModal.svelte` found no raw `nostr:nevent`, `nevent`, `row.path`, or long hex id rendering.
+  - Pre-closeout inspected `git status --short --branch`, `git diff --stat`, `git diff`, and the new display test file.
 
 ## Decisions
 
@@ -96,10 +109,12 @@
 - Phase 1 is verified and closed by the current phase transition commit.
 - Phase 2 changed files: `docs/session-checkpoint.md`, `src/app/util/notification-display.ts`, `src/app/util/notification-sources.ts`, `src/app/util/notification-sources.test.ts`, `src/app/util/repo-watch-notifications.ts`, and `src/app/util/repo-watch-notifications.test.ts`.
 - Phase 2 is verified and closed by the current phase transition commit.
+- Phase 3 changed files: `docs/session-checkpoint.md`, `src/app/components/NotificationsModal.svelte`, `src/app/util/notification-display.ts`, `src/app/util/notification-display.test.ts`, `src/app/util/notification-sources.ts`, and `src/app/util/notification-sources.test.ts`.
+- Phase 3 is verified and will be closed by the current phase transition commit.
 
 ## Next Action
 
-- Phase 3 startup: reread this checkpoint and the full session plan, inspect current git state, inspect Dark Wisp notification UI references, then redesign notification rows into compact expandable accordions with safe context display and direct navigation metadata.
+- Phase 4 startup: reread this checkpoint and the full session plan, inspect current git state, re-inspect Dark Wisp notification UX/data references, then review the full redesign for noisy source regressions, modal stack correctness, UI raw-id/path suppression, route navigation/scroll behavior, and test coverage.
 
 ## Verification
 
@@ -118,13 +133,18 @@
 - Phase 2 whitespace check passed.
 - Phase 2 no-repost/no-social-source greps passed.
 - Phase 2 pre-closeout inspected status, diff summary, diff, and recent commits.
+- Phase 3 focused notification/modal regression command passed.
+- Phase 3 project check passed.
+- Phase 3 whitespace check passed.
+- Phase 3 no-repost and raw-rendering greps passed.
+- Phase 3 pre-closeout inspected status, diff summary, diff, and the new display test file.
 
 ## Risks Or Blockers
 
 - No current blocker.
 - Browser Back behavior is covered by pure stack-helper tests and code evidence; no browser e2e was added in Phase 1.
 - Maintained repo baseline notifications use repo announcements known to Budabit plus actively loaded owned repo announcements; NIP-34 maintainer data is stored in a multi-value `maintainers` tag that cannot be targeted by a relay tag filter.
-- Phase 3 must avoid rendering raw event/share paths from engagement rows.
+- Notification row navigation/scroll behavior is covered by source/display metadata tests and code evidence; no browser e2e was added in Phase 3.
 
 ## Files
 
@@ -136,6 +156,7 @@
 - `src/app/components/ModalContainer.svelte`
 - `src/app/components/NotificationsModal.svelte`
 - `src/app/util/notification-display.ts`
+- `src/app/util/notification-display.test.ts`
 - `src/app/util/notification-sources.ts`
 - `src/app/util/notification-sources.test.ts`
 - `src/app/util/notification-center.ts`

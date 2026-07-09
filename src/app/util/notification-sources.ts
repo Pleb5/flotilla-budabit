@@ -90,6 +90,8 @@ import {
   sortNotificationRows,
   type NotificationRow,
   type NotificationRowSource,
+  type NotificationRowTarget,
+  type NotificationRowType,
 } from "@app/util/notification-display"
 import {ROLE_NS} from "@app/util/labels"
 
@@ -156,6 +158,53 @@ const getTextPreview = (event: TrustedEvent, fallback: string) => {
   if (!content) return fallback
 
   return content.length > 180 ? `${content.slice(0, 180).trim()}...` : content
+}
+
+const makeEventDisplayTarget = ({
+  label,
+  event,
+  path,
+  actionLabel,
+  fallback,
+}: {
+  label: string
+  event?: TrustedEvent
+  path?: string
+  actionLabel?: string
+  fallback?: string
+}): NotificationRowTarget => ({
+  label,
+  preview: event ? getTextPreview(event, fallback || label) : fallback || label,
+  path,
+  eventId: event?.id,
+  actionLabel,
+})
+
+const getCommunityEventLabel = (event: TrustedEvent | undefined) => {
+  if (!event) return "Community context"
+  if (event.kind === MESSAGE) return "Your room message"
+  if (event.kind === COMMENT) return "Your comment"
+  if (event.kind === THREAD) return "Your thread"
+
+  return "Community context"
+}
+
+const getRepoContextLabel = (path: string, event: TrustedEvent) => {
+  if (path.includes("/prs")) return event.kind === GIT_COMMENT ? "Pull request comment" : "Pull request"
+  if (path.includes("/issues")) return event.kind === GIT_COMMENT ? "Issue comment" : "Issue"
+
+  return "Repository"
+}
+
+const getRepoAction = (event: TrustedEvent) => {
+  if (event.kind === GIT_ISSUE) return "opened an issue"
+  if (event.kind === GIT_PULL_REQUEST) return "opened a pull request"
+  if (event.kind === GIT_PULL_REQUEST_UPDATE) return "updated a pull request"
+  if (event.kind === GIT_COMMENT) return "commented"
+  if (event.kind === GIT_LABEL) return getRepoEventTitle(event) === "Git review request" ? "requested review" : "assigned you"
+  if (GIT_STATUS_KINDS.includes(event.kind)) return "updated status"
+
+  return "updated"
 }
 
 const uniqueStrings = (values: Iterable<string | undefined>) =>
@@ -413,10 +462,22 @@ export const buildChatNotificationRows = ({
       actorPubkey: event.pubkey,
       source: "chat",
       sourceLabel: getNotificationSourceLabel("chat"),
+      type: "chat",
       title: "Direct message",
       preview,
+      action: "messaged you",
+      actionLabel: "Open chat",
+      contextLabel: "Direct message",
       path,
       readPath: path,
+      navigationEventId: event.id,
+      detail: makeEventDisplayTarget({
+        label: "Message",
+        event,
+        path,
+        actionLabel: "Open chat",
+        fallback: preview,
+      }),
       createdAt: event.created_at,
       searchText: buildNotificationSearchText(
         "chat",
@@ -455,6 +516,13 @@ export const buildCommunityNotificationRows = ({
     preview,
     target,
     sectionName,
+    displayType = "community",
+    action = "updated",
+    contextLabel,
+    targetEvent,
+    targetLabel,
+    detailLabel,
+    actionLabel,
   }: {
     ref: ActiveUserCommunityRef
     event: TrustedEvent
@@ -464,6 +532,13 @@ export const buildCommunityNotificationRows = ({
     preview: string
     target?: CommunityWriteTarget
     sectionName?: string
+    displayType?: NotificationRowType
+    action?: string
+    contextLabel?: string
+    targetEvent?: TrustedEvent
+    targetLabel?: string
+    detailLabel?: string
+    actionLabel?: string
   }) => {
     if (!path) return
     if (normalizedCurrentPubkey && normalizePubkey(event.pubkey) === normalizedCurrentPubkey) return
@@ -508,10 +583,30 @@ export const buildCommunityNotificationRows = ({
       actorPubkey: event.pubkey,
       source: "community",
       sourceLabel: getNotificationSourceLabel("community"),
+      type: displayType,
       title,
       preview,
+      action,
+      actionLabel: actionLabel || "Open community",
+      contextLabel: contextLabel || resolvedSectionName || "Community activity",
       path,
       readPath,
+      navigationEventId: event.id,
+      target: targetEvent
+        ? makeEventDisplayTarget({
+            label: targetLabel || getCommunityEventLabel(targetEvent),
+            event: targetEvent,
+            path,
+            actionLabel: "Open context",
+          })
+        : undefined,
+      detail: makeEventDisplayTarget({
+        label: detailLabel || title,
+        event,
+        path,
+        actionLabel: actionLabel || "Open community",
+        fallback: preview,
+      }),
       createdAt: event.created_at,
       searchText: buildNotificationSearchText(
         "community",
@@ -547,6 +642,12 @@ export const buildCommunityNotificationRows = ({
           title: "New room reply",
           preview: getTextPreview(event, "Room message"),
           target: COMMUNITY_WRITE_TARGETS.roomMessage,
+          displayType: "reply",
+          action: "replied",
+          contextLabel: "to your room message",
+          targetEvent: parentMessage,
+          detailLabel: "Reply",
+          actionLabel: "Open room reply",
         })
         continue
       }
@@ -574,6 +675,12 @@ export const buildCommunityNotificationRows = ({
           title: "New thread comment reply",
           preview: getTextPreview(event, "Thread comment reply"),
           target: COMMUNITY_WRITE_TARGETS.comment,
+          displayType: "reply",
+          action: "replied",
+          contextLabel: "to your comment",
+          targetEvent: parentReply,
+          detailLabel: "Reply",
+          actionLabel: "Open thread reply",
         })
       }
     }
@@ -589,6 +696,11 @@ export const buildCommunityNotificationRows = ({
         title: "Community access update",
         preview: "Your community membership changed.",
         sectionName: "access",
+        displayType: "community",
+        action: "updated access for you",
+        contextLabel: "Community access",
+        detailLabel: "Access update",
+        actionLabel: "Open access settings",
       })
     }
   }
@@ -648,6 +760,8 @@ export const buildRepoWatchNotificationRows = ({
 
       const title = getRepoEventTitle(event)
       const preview = getTextPreview(event, title)
+      const path = getRepoRowPath(candidate.path, event)
+      const contextLabel = getRepoContextLabel(candidate.path, event)
 
       return [
         {
@@ -656,11 +770,30 @@ export const buildRepoWatchNotificationRows = ({
           actorPubkey: event.pubkey,
           source: "git",
           sourceLabel: getNotificationSourceLabel("git"),
+          type: "repo",
           title,
           preview,
-          path: getRepoRowPath(candidate.path, event),
+          action: getRepoAction(event),
+          actionLabel: "Open git item",
+          contextLabel,
+          path,
           readPath: candidate.path,
           repoWatchSeenPath: candidate.path,
+          navigationEventId: event.id,
+          target: makeEventDisplayTarget({
+            label: contextLabel,
+            event,
+            path,
+            actionLabel: "Open git item",
+            fallback: preview,
+          }),
+          detail: makeEventDisplayTarget({
+            label: title,
+            event,
+            path,
+            actionLabel: "Open git item",
+            fallback: preview,
+          }),
           createdAt: event.created_at,
           searchText: buildNotificationSearchText("git", title, preview, event.pubkey, candidate.path),
         } satisfies NotificationRow,
@@ -690,22 +823,56 @@ export const buildEngagementNotificationRows = ({
     title,
     preview,
     path = getEngagementEventPath(event),
+    displayType,
+    action,
+    contextLabel,
+    target,
+    detailLabel,
+    actionLabel,
   }: {
     event: TrustedEvent
     title: string
     preview: string
     path?: string
+    displayType: NotificationRowType
+    action: string
+    contextLabel: string
+    target?: TrustedEvent
+    detailLabel?: string
+    actionLabel?: string
   }) => {
+    const targetPath = target ? getEngagementEventPath(target) : undefined
+
     rows.push({
       id: `event:${event.id}`,
       eventId: event.id,
       actorPubkey: getEngagementActorPubkey(event),
       source: "other",
       sourceLabel: "Engagement",
+      type: displayType,
       title,
       preview,
+      action,
+      actionLabel: actionLabel || "Open event",
+      contextLabel,
       path,
       readPath: path,
+      navigationEventId: event.id,
+      target: target
+        ? makeEventDisplayTarget({
+            label: getEngagementTargetLabel(target),
+            event: target,
+            path: targetPath,
+            actionLabel: "Open context",
+          })
+        : undefined,
+      detail: makeEventDisplayTarget({
+        label: detailLabel || title,
+        event,
+        path,
+        actionLabel: actionLabel || "Open event",
+        fallback: preview,
+      }),
       createdAt: event.created_at,
       searchText: buildNotificationSearchText(
         "engagement",
@@ -745,6 +912,12 @@ export const buildEngagementNotificationRows = ({
           event,
           title: "New reply",
           preview: getTextPreview(event, `Reply to ${getEngagementTargetLabel(target)}`),
+          displayType: "reply",
+          action: "replied",
+          contextLabel: `to ${getEngagementTargetLabel(target)}`,
+          target,
+          detailLabel: "Reply",
+          actionLabel: "Open reply",
         })
         continue
       }
@@ -757,6 +930,11 @@ export const buildEngagementNotificationRows = ({
           event,
           title: "New mention",
           preview: getTextPreview(event, "Mentioned you"),
+          displayType: "mention",
+          action: "mentioned you",
+          contextLabel: "in a note",
+          detailLabel: "Mention",
+          actionLabel: "Open mention",
         })
       }
 
@@ -790,10 +968,28 @@ export const buildEngagementNotificationRows = ({
       actorPubkey: getEngagementActorPubkey(latestEvent),
       source: "other",
       sourceLabel: "Engagement",
+      type: "reaction",
       title: groupEvents.length > 1 ? "New reactions" : "New reaction",
       preview,
+      action: "reacted",
+      actionLabel: "Open context",
+      contextLabel: `to ${getEngagementTargetLabel(group.target)}`,
       path,
       readPath: path,
+      navigationEventId: group.target.id,
+      target: makeEventDisplayTarget({
+        label: getEngagementTargetLabel(group.target),
+        event: group.target,
+        path,
+        actionLabel: "Open context",
+      }),
+      detail: {
+        label: groupEvents.length > 1 ? "Reactions" : "Reaction",
+        preview,
+        path,
+        eventId: latestEvent.id,
+        actionLabel: "Open context",
+      },
       createdAt: latestEvent.created_at,
       searchText: buildNotificationSearchText(
         "engagement",
@@ -819,10 +1015,28 @@ export const buildEngagementNotificationRows = ({
       actorPubkey: getEngagementActorPubkey(latestEvent),
       source: "other",
       sourceLabel: "Engagement",
+      type: "zap",
       title: groupEvents.length > 1 ? "New zaps" : "New zap",
       preview,
+      action: "zapped",
+      actionLabel: "Open context",
+      contextLabel: `to ${getEngagementTargetLabel(group.target)}`,
       path,
       readPath: path,
+      navigationEventId: group.target.id,
+      target: makeEventDisplayTarget({
+        label: getEngagementTargetLabel(group.target),
+        event: group.target,
+        path,
+        actionLabel: "Open context",
+      }),
+      detail: {
+        label: groupEvents.length > 1 ? "Zaps" : "Zap",
+        preview,
+        path,
+        eventId: latestEvent.id,
+        actionLabel: "Open context",
+      },
       createdAt: latestEvent.created_at,
       searchText: buildNotificationSearchText(
         "engagement",
@@ -881,10 +1095,20 @@ export const buildRouteNotificationRows = ({
       id: `route:${path}`,
       source,
       sourceLabel: getNotificationSourceLabel(source),
+      type: "route",
       title,
       preview,
+      action: "needs attention",
+      actionLabel: "Open activity",
+      contextLabel: getNotificationSourceLabel(source),
       path,
       readPath: path === "/chat" ? "/chat/*" : path,
+      detail: {
+        label: title,
+        preview,
+        path,
+        actionLabel: "Open activity",
+      },
       createdAt: 0,
       searchText: buildNotificationSearchText(source, title, preview, path),
     })
