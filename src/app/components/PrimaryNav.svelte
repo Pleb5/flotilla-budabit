@@ -119,6 +119,13 @@
     <PrimaryNavItem compact title="Git" href="/git" prefix="/git">
       <ImageIcon alt="Git" src={Git} size={5} />
     </PrimaryNavItem>
+    <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
+      {#if $pubkey}
+        <ProfileCircle pubkey={$pubkey} size={5} />
+      {:else}
+        <ImageIcon alt="Settings" src={UserRounded} size={5} class="rounded-full" />
+      {/if}
+    </PrimaryNavItem>
     <PrimaryNavItem compact title="Messages" onclick={openChat}>
       <ImageIcon alt="Messages" src={Letter} size={5} />
     </PrimaryNavItem>
@@ -131,13 +138,6 @@
       onclick={showNotifications}
       notification={hasTopLevelNotification}>
       <ImageIcon alt="Notifications" src={Bell} size={5} />
-    </PrimaryNavItem>
-    <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
-      {#if $pubkey}
-        <ProfileCircle pubkey={$pubkey} size={5} />
-      {:else}
-        <ImageIcon alt="Settings" src={UserRounded} size={5} class="rounded-full" />
-      {/if}
     </PrimaryNavItem>
   </div>
 </div>
