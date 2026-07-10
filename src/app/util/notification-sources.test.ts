@@ -12,7 +12,7 @@ import {
   GIT_STATUS_CLOSED,
 } from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
-import {COMMENT, EVENT_TIME, MESSAGE, REACTION, THREAD, ZAP_GOAL, ZAP_RESPONSE} from "@welshman/util"
+import {COMMENT, DELETE, EVENT_TIME, MESSAGE, REACTION, THREAD, ZAP_GOAL, ZAP_RESPONSE} from "@welshman/util"
 import type {Chat} from "@app/core/state"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
@@ -24,6 +24,12 @@ import {
   PROFILE_LIST_KIND,
 } from "@app/core/community"
 import {COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
+import {
+  COMMUNITY_REPORT_KIND,
+  COMMUNITY_REPORT_REVIEW_LABEL_KIND,
+  COMMUNITY_REPORT_REVIEW_NAMESPACE,
+  COMMUNITY_REPORT_REVIEWED_LABEL,
+} from "@app/core/community-reports"
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
@@ -713,6 +719,248 @@ describe("notification sources", () => {
         preview: "Moderated comment",
       }),
     )
+  })
+
+  it("builds content report rows for reported authors and section moderators", async () => {
+    const {buildCommunityModerationNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    ref.definition.sections[0].kinds.push({kind: COMMUNITY_REPORT_KIND})
+    const report = makeEvent({
+      id: "content-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: writer,
+      created_at: 150,
+      tags: [
+        ["e", "reported-event", "spam"],
+        ["p", viewer],
+        ["a", `10222:${communityPubkey}:`],
+        ["h", communityPubkey],
+        ["content", COMMUNITY_SECTION_GENERAL],
+        ["target-kind", String(COMMENT)],
+        ["target-content", "Reported comment"],
+      ],
+    })
+
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: viewer,
+        profileListEvents: [makeProfileList()],
+        reportEvents: [report],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        title: "Content reported",
+        action: "reported your content",
+        actorPubkey: writer,
+        path: expect.stringContaining("/moderation"),
+      }),
+    ])
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: profileListPubkey,
+        profileListEvents: [makeProfileList()],
+        reportEvents: [report],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        title: "New content report",
+        action: "reported content",
+        actorPubkey: writer,
+        path: expect.stringContaining("/moderation"),
+      }),
+    ])
+  })
+
+  it("notifies reporters and other moderators when reported content is censored", async () => {
+    const {buildCommunityModerationNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    ref.definition.sections[0].kinds.push({kind: COMMUNITY_REPORT_KIND})
+    const contentReport = makeEvent({
+      id: "prior-content-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: writer,
+      created_at: 120,
+      tags: [
+        ["e", "reported-event", "spam"],
+        ["p", viewer],
+        ["a", `10222:${communityPubkey}:`],
+        ["h", communityPubkey],
+        ["content", COMMUNITY_SECTION_GENERAL],
+        ["target-kind", String(COMMENT)],
+        ["target-content", "Reported comment"],
+      ],
+    })
+    const censor = makeEvent({
+      id: "censor-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: profileListPubkey,
+      created_at: 160,
+      tags: [
+        ["e", "reported-event", "spam"],
+        ["p", viewer],
+        ["a", `10222:${communityPubkey}:`],
+        ["h", communityPubkey],
+        ["content", COMMUNITY_SECTION_GENERAL],
+        ["target-kind", String(COMMENT)],
+        ["target-content", "Reported comment"],
+      ],
+    })
+    const reportState = {
+      personReports: [],
+      eventReports: [
+        {
+          event: censor,
+          target: "event",
+          targetPubkey: viewer,
+          targetEventId: "reported-event",
+          targetEventKind: COMMENT,
+          targetEventContent: "Reported comment",
+          sectionName: COMMUNITY_SECTION_GENERAL,
+          reporterPubkey: profileListPubkey,
+          adminAuthored: false,
+        },
+      ],
+    } as any
+
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: writer,
+        profileListEvents: [makeProfileList()],
+        reportEvents: [contentReport, censor],
+        reportStates: new Map([[communityPubkey, reportState]]),
+      }).map(row => row.title),
+    ).toEqual(["Reported content moderated"])
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: communityPubkey,
+        profileListEvents: [makeProfileList()],
+        reportEvents: [contentReport, censor],
+        reportStates: new Map([[communityPubkey, reportState]]),
+      }).map(row => row.title),
+    ).toEqual(["Content moderated", "New content report"])
+  })
+
+  it("notifies reporters when reports are reviewed and suppresses deleted reports", async () => {
+    const {buildCommunityModerationNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    ref.definition.sections[0].kinds.push({kind: COMMUNITY_REPORT_KIND})
+    const report = makeEvent({
+      id: "reviewed-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: writer,
+      created_at: 120,
+      tags: [
+        ["e", "reported-event", "spam"],
+        ["p", viewer],
+        ["a", `10222:${communityPubkey}:`],
+        ["h", communityPubkey],
+        ["content", COMMUNITY_SECTION_GENERAL],
+        ["target-kind", String(COMMENT)],
+      ],
+    })
+    const review = makeEvent({
+      id: "report-review",
+      kind: COMMUNITY_REPORT_REVIEW_LABEL_KIND,
+      pubkey: profileListPubkey,
+      created_at: 160,
+      tags: [
+        ["L", COMMUNITY_REPORT_REVIEW_NAMESPACE],
+        ["l", COMMUNITY_REPORT_REVIEWED_LABEL, COMMUNITY_REPORT_REVIEW_NAMESPACE],
+        ["e", report.id],
+        ["a", `10222:${communityPubkey}:`],
+        ["h", communityPubkey],
+        ["E", "reported-event"],
+        ["K", String(COMMENT)],
+        ["content", COMMUNITY_SECTION_GENERAL],
+      ],
+    })
+    const deletion = makeEvent({
+      id: "report-delete",
+      kind: DELETE,
+      pubkey: writer,
+      created_at: 170,
+      tags: [
+        ["e", report.id],
+        ["k", String(COMMUNITY_REPORT_KIND)],
+      ],
+    })
+
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: writer,
+        profileListEvents: [makeProfileList()],
+        reportEvents: [report],
+        reportReviewEvents: [review],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        title: "Report reviewed",
+        action: "reviewed your report",
+        actorPubkey: profileListPubkey,
+      }),
+    ])
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: profileListPubkey,
+        profileListEvents: [makeProfileList()],
+        reportEvents: [report],
+        reportDeleteEvents: [deletion],
+      }),
+    ).toEqual([])
+  })
+
+  it("notifies active community members when a person is banned", async () => {
+    const {buildCommunityModerationNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const banReport = makeEvent({
+      id: "member-ban-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      created_at: 180,
+      content: "banned for spam",
+      tags: [
+        ["p", banned, "spam"],
+        ["a", `10222:${communityPubkey}:`],
+        ["h", communityPubkey],
+      ],
+    })
+
+    expect(
+      buildCommunityModerationNotificationRows({
+        refs: [ref],
+        currentPubkey: viewer,
+        reportStates: new Map([
+          [
+            communityPubkey,
+            {
+              eventReports: [],
+              personReports: [
+                {
+                  event: banReport,
+                  target: "person",
+                  targetPubkey: banned,
+                  reporterPubkey: communityPubkey,
+                  adminAuthored: true,
+                },
+              ],
+            } as any,
+          ],
+        ]),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        title: "Member banned",
+        action: "banned a member",
+        actorPubkey: communityPubkey,
+        path: expect.stringContaining("/access"),
+      }),
+    ])
   })
 
   it("builds repo-watch rows with readable labels and seen paths", async () => {

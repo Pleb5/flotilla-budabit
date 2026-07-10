@@ -16,21 +16,18 @@
 
 ## Current Phase
 
-- Phase 3: Reports, Censoring, And Person Bans
+- Phase 4: Route Clearing And Final Review
 
 ## Phase Exit Criteria
 
-- New content reports notify the reported content author and moderators/admin who can review that section.
-- Effective event censors notify the censored content author.
-- Effective event censors notify original reporters when a prior content report matches the censored event/address and section.
-- Effective event censors notify other moderators/admin for the section, excluding the actor's own event where standard self-notification suppression applies.
-- Effective person bans notify all active members in that community, not only admins/moderators, and still notify the banned pubkey when target data is available.
-- Report review labels notify original reporters that their report was reviewed.
-- Deleted reports are suppressed from pending report notifications.
-- Focused tests cover reporter, reported member, section moderator/admin, all-member person-ban, and deleted/reviewed suppression cases.
+- `/moderation` marks its notification path checked on page exit.
+- `/access` and `/admin` outcome clearing still works.
+- Modal rows remain under Communities source; no `Other` source/filter is introduced.
+- Focused notification tests pass.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if files changed.
 
 ## Completed With Evidence
 
@@ -56,6 +53,18 @@
   - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notifications.test.ts --project=main` passed: 2 files, 39 tests.
   - `pnpm check` passed with 0 errors and 0 warnings after one type-guard fix.
   - `git diff --check` passed.
+- Phase 2 was committed and pushed as `61cbf46b fix: notify community access applications`.
+- Phase 3 startup reread this checkpoint and the full session plan, inspected current status/log, and inspected report/moderation code plus notification source tests.
+- Phase 3 implemented report, censoring, report-review, and person-ban notification rows:
+  - Content reports now produce rows for reported authors and section moderators/admin who can review.
+  - Effective event censors produce rows for original reporters when prior reports match and for other section moderators/admin.
+  - Report review labels produce rows for original reporters.
+  - Person bans produce rows for active community members beyond admin/moderators.
+  - Deleted reports are suppressed from pending report rows.
+- Phase 3 verification passed:
+  - `pnpm vitest run src/app/util/notification-sources.test.ts --project=main` passed: 1 file, 32 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -69,17 +78,18 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; before Phase 2 commit, HEAD and origin are both `6fe78c21`.
+- Branch: `dev`, tracking `origin/dev`; before Phase 3 commit, HEAD and origin are both `61cbf46b`.
 - Existing dirty files before this workflow:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notifications.test.ts`
   - `src/app/components/NotificationDmContent.svelte` (untracked)
 - Phase 1 docs were committed and pushed.
-- Phase 2 is verified and this checkpoint is advanced to Phase 3 for the phase transition commit.
+- Phase 2 was committed and pushed.
+- Phase 3 is verified and this checkpoint is advanced to Phase 4 for the phase transition commit.
 
 ## Next Action
 
-- Phase 3 startup: read checkpoint and full plan, inspect report/moderation code, then implement report, censoring, and person-ban notifications.
+- Phase 4 startup: read checkpoint and full plan, add `/moderation` clear-on-visit if still missing, then run final verification.
 
 ## Verification
 
@@ -88,6 +98,7 @@
 - Replaced durable plan/checkpoint with this new workflow.
 - Phase 1 commit/push succeeded; this checkpoint repair records the successful transition.
 - Phase 2 focused tests, `pnpm check`, and `git diff --check` passed.
+- Phase 3 focused tests, `pnpm check`, and `git diff --check` passed.
 
 ## Risks Or Blockers
 
@@ -95,6 +106,7 @@
 - Applicant outcome notifications from review events can be made robust without active community membership because review tags include applicant `p` and community `h`.
 - Banned target notification may require target-specific report loading because banned users can disappear from active member refs.
 - Direct write-access revoke events reuse rejected review shape; Phase 2 labels them as revoked only when prior grant history for the same response is loaded.
+- Phase 3 all-member person-ban rows cover active community refs; banned-target delivery outside active refs remains a risk for future targeted loading.
 
 ## Files
 

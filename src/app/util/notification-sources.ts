@@ -40,10 +40,13 @@ import {
 import {APP_RELAYS, DM_KIND, chatsById, type Chat} from "@app/core/state"
 import {
   activeUserCommunityRefs,
+  communityMemberReportDeleteEvents,
+  communityMemberReportEvents,
   communityMemberProfileListEvents,
   communityMemberReportStates,
   communityModeratorProfileListEvents,
   makeCommunityAdmissionFormFilters,
+  makeCommunityReportReviewFilters,
 } from "@app/core/community-state"
 import type {
   ActiveUserCommunityRef,
@@ -72,6 +75,8 @@ import {
   type CommunityWriteTarget,
 } from "@app/core/community-permissions"
 import {
+  canReviewCommunityContentReport,
+  getCommunityContentReports,
   getCommunityCensorReason,
   isCommunityPersonBanned,
   type EffectiveCommunityReportState,
@@ -151,6 +156,17 @@ export type BuildCommunityApplicationNotificationRowsOptions = {
   admissionResponseEvents?: TrustedEvent[]
   admissionDeleteEvents?: TrustedEvent[]
   admissionReviewEvents?: TrustedEvent[]
+  mutedPubkeys?: string[]
+}
+
+export type BuildCommunityModerationNotificationRowsOptions = {
+  refs: ActiveUserCommunityRef[]
+  currentPubkey?: string
+  profileListEvents?: TrustedEvent[]
+  reportStates?: UserCommunityReportStates
+  reportEvents?: TrustedEvent[]
+  reportDeleteEvents?: TrustedEvent[]
+  reportReviewEvents?: TrustedEvent[]
   mutedPubkeys?: string[]
 }
 
@@ -1495,6 +1511,236 @@ export const buildCommunityApplicationNotificationRows = ({
   return sortNotificationRows(Array.from(rowsById.values()))
 }
 
+const communityReportTargetsMatch = (
+  left: {targetEventId?: string; targetAddress?: string; sectionName?: string},
+  right: {targetEventId?: string; targetAddress?: string; sectionName?: string},
+) => {
+  if ((left.sectionName || "") !== (right.sectionName || "")) return false
+
+  return Boolean(
+    (left.targetEventId && left.targetEventId === right.targetEventId) ||
+      (left.targetAddress && left.targetAddress === right.targetAddress),
+  )
+}
+
+export const buildCommunityModerationNotificationRows = ({
+  refs,
+  currentPubkey,
+  profileListEvents = [],
+  reportStates,
+  reportEvents = [],
+  reportDeleteEvents = [],
+  reportReviewEvents = [],
+  mutedPubkeys = [],
+}: BuildCommunityModerationNotificationRowsOptions): NotificationRow[] => {
+  const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
+  if (!normalizedCurrentPubkey) return []
+
+  const rowsById = new Map<string, NotificationRow>()
+  const muted = new Set(mutedPubkeys.map(normalizePubkey).filter(Boolean))
+  const dedupedReportEvents = dedupeTrustedEvents(reportEvents)
+  const dedupedReportDeleteEvents = dedupeTrustedEvents(reportDeleteEvents)
+  const dedupedReportReviewEvents = dedupeTrustedEvents(reportReviewEvents)
+
+  const addRow = ({
+    id,
+    event,
+    path,
+    title,
+    preview,
+    action,
+    contextLabel,
+    detailLabel,
+    actionLabel,
+  }: {
+    id: string
+    event: TrustedEvent
+    path: string
+    title: string
+    preview: string
+    action: string
+    contextLabel: string
+    detailLabel: string
+    actionLabel: string
+  }) => {
+    if (!path) return
+
+    const actorPubkey = normalizePubkey(event.pubkey || "")
+    if (!actorPubkey || actorPubkey === normalizedCurrentPubkey || muted.has(actorPubkey)) return
+
+    const current = rowsById.get(id)
+    if (current && current.createdAt >= event.created_at) return
+
+    rowsById.set(id, {
+      id,
+      eventId: event.id,
+      actorPubkey,
+      source: "community",
+      sourceLabel: getNotificationSourceLabel("community"),
+      type: "community",
+      title,
+      preview,
+      action,
+      actionLabel,
+      contextLabel,
+      path,
+      readPath: path,
+      navigationEventId: event.id,
+      detail: makeEventDisplayTarget({
+        label: detailLabel,
+        event,
+        path,
+        actionLabel,
+        fallback: preview,
+      }),
+      createdAt: event.created_at,
+      searchText: buildNotificationSearchText(
+        "community",
+        title,
+        preview,
+        event.pubkey,
+        path,
+        contextLabel,
+      ),
+    })
+  }
+
+  for (const ref of refs) {
+    const reportState = getReportState(reportStates, ref.communityPubkey)
+    const moderationPath = makeCommunityPath(ref.communityPubkey, "moderation")
+    const contentReports = getCommunityContentReports({
+      definition: ref.definition,
+      reportEvents: dedupedReportEvents,
+      reviewEvents: dedupedReportReviewEvents,
+      deleteEvents: dedupedReportDeleteEvents,
+      profileListEvents,
+      reportState,
+    })
+
+    for (const report of contentReports) {
+      const targetPath = getCommunityReportTargetPath(ref.communityPubkey, report) || moderationPath
+      const preview = report.targetEventTitle || report.targetEventContent || "Community content was reported."
+
+      if (normalizePubkey(report.targetPubkey || "") === normalizedCurrentPubkey) {
+        addRow({
+          id: `community-report-target:${report.event.id}`,
+          event: report.event,
+          path: targetPath,
+          title: "Content reported",
+          preview,
+          action: "reported your content",
+          contextLabel: report.sectionName || "Community moderation",
+          detailLabel: "Content report",
+          actionLabel: "Open reported content",
+        })
+      }
+
+      if (
+        !report.reviewed &&
+        canReviewCommunityContentReport({
+          definition: ref.definition,
+          reviewerPubkey: normalizedCurrentPubkey,
+          report,
+          profileListEvents,
+          reportState,
+        })
+      ) {
+        addRow({
+          id: `community-report-review:${report.event.id}`,
+          event: report.event,
+          path: moderationPath,
+          title: "New content report",
+          preview,
+          action: "reported content",
+          contextLabel: report.sectionName || "Community moderation",
+          detailLabel: "Content report",
+          actionLabel: "Open moderation queue",
+        })
+      }
+
+      if (normalizePubkey(report.reporterPubkey || "") === normalizedCurrentPubkey) {
+        for (const review of report.reviews) {
+          addRow({
+            id: `community-report-reviewed:${review.event.id}`,
+            event: review.event,
+            path: targetPath,
+            title: "Report reviewed",
+            preview: "A moderator reviewed your content report.",
+            action: "reviewed your report",
+            contextLabel: report.sectionName || "Community moderation",
+            detailLabel: "Report review",
+            actionLabel: "Open reported content",
+          })
+        }
+      }
+    }
+
+    if (reportState) {
+      for (const report of reportState.eventReports) {
+        const targetPath = getCommunityReportTargetPath(ref.communityPubkey, report) || moderationPath
+        const preview = report.targetEventTitle || report.targetEventContent || "Community content was moderated."
+        const sectionModerators = report.sectionName
+          ? getGrantCapableSectionModeratorPubkeys({
+              definition: ref.definition,
+              sectionName: report.sectionName,
+              profileListEvents,
+              reportState,
+            })
+          : []
+
+        for (const contentReport of contentReports) {
+          if (!communityReportTargetsMatch(report, contentReport)) continue
+          if (normalizePubkey(contentReport.reporterPubkey || "") !== normalizedCurrentPubkey) continue
+
+          addRow({
+            id: `community-censor-reporter:${report.event.id}:${contentReport.event.id}`,
+            event: report.event,
+            path: targetPath,
+            title: "Reported content moderated",
+            preview,
+            action: "acted on your report",
+            contextLabel: report.sectionName || "Community moderation",
+            detailLabel: "Moderation action",
+            actionLabel: "Open moderated content",
+          })
+        }
+
+        if (sectionModerators.includes(normalizedCurrentPubkey)) {
+          addRow({
+            id: `community-censor-moderator:${report.event.id}`,
+            event: report.event,
+            path: moderationPath,
+            title: "Content moderated",
+            preview,
+            action: "moderated content",
+            contextLabel: report.sectionName || "Community moderation",
+            detailLabel: "Moderation action",
+            actionLabel: "Open moderation",
+          })
+        }
+      }
+
+      for (const report of reportState.personReports) {
+        if (normalizePubkey(report.targetPubkey || "") === normalizedCurrentPubkey) continue
+
+        addRow({
+          id: `community-ban-member:${report.event.id}`,
+          event: report.event,
+          path: makeCommunityPath(ref.communityPubkey, "access"),
+          title: "Member banned",
+          preview: report.event.content || "A member was banned from this community.",
+          action: "banned a member",
+          contextLabel: "Community moderation",
+          detailLabel: "Ban notice",
+          actionLabel: "Open access settings",
+        })
+      }
+    }
+  }
+
+  return sortNotificationRows(Array.from(rowsById.values()))
+}
+
 const getRepoEventTitle = (event: TrustedEvent) => {
   if (event.kind === GIT_ISSUE) return "New issue"
   if (event.kind === GIT_PULL_REQUEST) return "New pull request"
@@ -2235,6 +2481,18 @@ const communityApplicationOutcomeEvents = deriveLoadedNotificationEvents({
   label: "community application outcomes",
 })
 
+const globalCommunityReportReviewFilters = derived(
+  [activeUserCommunityRefs, communityMemberReportEvents],
+  ([$refs, $reportEvents]) =>
+    $refs.flatMap(ref => makeCommunityReportReviewFilters(ref.definition, $reportEvents)),
+)
+
+const globalCommunityReportReviewEvents = deriveLoadedNotificationEvents({
+  filters: globalCommunityReportReviewFilters,
+  relays: globalCommunityNotificationRelays,
+  label: "global community report reviews",
+})
+
 const getCommunityNotificationTargetRefs = (event: TrustedEvent) => {
   const roomMessage = readCommunityRoomMessage(event)
   if (roomMessage?.parentMessageId) return [roomMessage.parentMessageId]
@@ -2343,6 +2601,37 @@ const globalCommunityApplicationRows = derived(
         ...$globalCommunityAdmissionDecisionEvents,
         ...$communityApplicationOutcomeEvents,
       ],
+      mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
+    }),
+)
+
+const globalCommunityModerationRows = derived(
+  [
+    pubkey,
+    activeUserCommunityRefs,
+    globalCommunityProfileListEvents,
+    communityMemberReportStates,
+    communityMemberReportEvents,
+    communityMemberReportDeleteEvents,
+    globalCommunityReportReviewEvents,
+  ],
+  ([
+    $pubkey,
+    $activeUserCommunityRefs,
+    $globalCommunityProfileListEvents,
+    $communityMemberReportStates,
+    $communityMemberReportEvents,
+    $communityMemberReportDeleteEvents,
+    $globalCommunityReportReviewEvents,
+  ]) =>
+    buildCommunityModerationNotificationRows({
+      refs: $activeUserCommunityRefs,
+      currentPubkey: $pubkey || undefined,
+      profileListEvents: $globalCommunityProfileListEvents,
+      reportStates: $communityMemberReportStates,
+      reportEvents: $communityMemberReportEvents,
+      reportDeleteEvents: $communityMemberReportDeleteEvents,
+      reportReviewEvents: $globalCommunityReportReviewEvents,
       mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
     }),
 )
@@ -2493,6 +2782,7 @@ export const notificationCenterRows = derived(
     notificationCandidates,
     globalCommunityNotificationRows,
     globalCommunityApplicationRows,
+    globalCommunityModerationRows,
     repoWatchNotificationRows,
     engagementNotificationRows,
   ],
@@ -2503,6 +2793,7 @@ export const notificationCenterRows = derived(
     $notificationCandidates,
     $globalCommunityNotificationRows,
     $globalCommunityApplicationRows,
+    $globalCommunityModerationRows,
     $repoWatchNotificationRows,
     $engagementNotificationRows,
   ]) => {
@@ -2514,6 +2805,7 @@ export const notificationCenterRows = derived(
       ...chatRows,
       ...$globalCommunityNotificationRows,
       ...$globalCommunityApplicationRows,
+      ...$globalCommunityModerationRows,
       ...$repoWatchNotificationRows,
       ...$engagementNotificationRows,
     ]
