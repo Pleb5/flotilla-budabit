@@ -14,17 +14,17 @@
 
 ## Current Phase
 
-- Phase 3: Final Review And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Modal sequencing remains unchanged by final diff inspection.
+- Workflow is complete.
+- Modal sequencing remained unchanged by final diff inspection.
 - Deferred hydration code is documented by clear names and does not hide required context from child routes.
-- Focused navigation-performance changes remain limited to intended files.
-- `pnpm check` passes or a fresh successful Phase 2 result remains valid with no code changes after it.
-- `git diff --check` passes.
-- Checkpoint records `Current Phase: Complete` and final evidence.
-- Final closeout commit is pushed before final response if files changed.
+- Focused navigation-performance changes remained limited to intended files.
+- `pnpm check` passed in Phase 2 and no code changed after that check.
+- `git diff --check` passed.
+- Final closeout checkpoint update is committed and pushed if this file changed.
 
 ## Completed With Evidence
 
@@ -47,6 +47,13 @@
 - Phase 2 added pulsing `Opening...` feedback to existing repo card overlays in `src/app/components/GitItem.svelte` and `src/routes/git/+page.svelte` without changing selection paint timing.
 - Phase 2 verification passed: `pnpm check` reported 0 errors and 0 warnings; `git diff --check` produced no output.
 - Pre-commit inspection for Phase 2 showed `dev...origin/dev [ahead 1]` due unrelated commit `a8a8dbf6 fix: backfill DMs after first relay setup`; user approved committing and pushing Phase 2 even though the push will include that existing ahead commit.
+- Phase 2 was committed as `5aa29fcf perf: defer repo activity hydration` and pushed to `origin/dev` together with the pre-existing approved ahead commit `a8a8dbf6`.
+- Phase 2 checkpoint was reread after push and showed `Current Phase: Phase 3: Final Review And Closeout`.
+- Phase 3 startup reread this checkpoint and the full session plan, then inspected status/log/diff: `git status --short --branch` showed `dev...origin/dev`, `git diff --stat` produced no output, and `git log --oneline --decorate -8` showed `5aa29fcf` at `HEAD` and `origin/dev`.
+- Phase 3 final modal sequencing review confirmed `navigateToCreatedRepo` still calls `hydrateRepoEvents(result)`, awaits `goto(withCurrentModalHash(destination))`, then calls `clearModals()`.
+- Phase 3 final repo-card review confirmed `waitForNavigationIntentPaint` and card navigation timing were not changed by the Phase 2 diff.
+- Phase 3 final hydration review confirmed repo announcement/state loading remains immediate while deferred activity stores still provide immediate empty readable values to context consumers.
+- Phase 3 verification used the fresh Phase 2 `pnpm check` result because no code changed after it, and `git diff --check HEAD^..HEAD` passed with no output.
 
 ## Decisions
 
@@ -59,13 +66,13 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; Phase 2 pre-commit status showed `dev...origin/dev [ahead 1]` from `a8a8dbf6`.
-- The earlier pre-existing sync changes are now contained in the unrelated ahead commit `a8a8dbf6`.
-- Phase 2 changed only repo navigation/hydration files plus this checkpoint.
+- Branch: `dev`, tracking `origin/dev`; after the Phase 2 push, status showed `dev...origin/dev`.
+- The earlier pre-existing sync changes are contained in the unrelated commit `a8a8dbf6`, which was pushed with user approval.
+- Phase 2 changed only repo navigation/hydration files plus this checkpoint; Phase 3 only updates this checkpoint.
 
 ## Next Action
 
-- Begin Phase 3 final diff review, then mark this workflow complete if no issues are found.
+- Final response.
 
 ## Verification
 
@@ -76,11 +83,14 @@
 - Phase 2 inspected current status, diff, and log before closeout.
 - Phase 2 ran `pnpm check`: passed with 0 errors and 0 warnings.
 - Phase 2 ran `git diff --check`: passed with no output.
+- Phase 3 inspected final status/log/diff and Phase 2 commit contents.
+- Phase 3 inspected post-import navigation sequencing in `src/routes/git/+page.svelte`.
+- Phase 3 ran `git diff --check HEAD^..HEAD`: passed with no output.
 
 ## Risks Or Blockers
 
-- `dev` was ahead of `origin/dev` by unrelated commit `a8a8dbf6` before the Phase 2 commit; user approved pushing it with the Phase 2 push.
-- Verify final diff still preserves post-import `goto` before `clearModals()` ordering.
+- No known blockers remain.
+- Residual risk: behavior was verified by static review and type/Svelte checks, not by an automated browser navigation performance test.
 
 ## Files
 
