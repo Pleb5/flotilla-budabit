@@ -2,71 +2,58 @@
 
 ## Objective
 
-- Redesign Budabit notifications into a low-noise history of tightly user-relevant events.
-- Fix stacked modal browser-back behavior so profile/detail modals opened from notifications fall back to the notification modal without losing scroll or expansion state.
-- Remove repost notification concepts entirely from Budabit notification code and UI; reposts do not exist in Budabit for this workflow.
-- Replace noisy notification sources with relevant events only: new incoming DMs, replies to user-authored events, reactions to user-authored events, mentions of the signed-in user, zaps to the user or user-authored events, repo events for user-owned/user-maintained repos, opt-in watched repo events, user assignments/review requests, community access/moderation decisions involving the user, and badge awards to the user if already available in app data.
-- Preserve individual read/unread/highlight behavior in places that highlight concrete items such as new issues, PRs, comments, and chats; opening the notification modal must not erase those target-specific states.
-- Redesign notification rows as compact expandable accordions inspired by Dark Wisp: compact list row first; expanded content shows quoted/referenced context and the notification event itself; no raw `nostr:nevent`, `nevent`, path, or long identifier strings.
-- Clicking quoted/referenced events inside expanded notification content must navigate to the right Budabit route and scroll/open the target event directly.
-- Keep existing notification history loading behavior: reset every modal open, initial two-week `since`, 50 visible rows, load-more expands loaded history and visible row count.
+- Adjust Budabit notification semantics so important roots notify their creators for meaningful descendant activity while keeping noisy ongoing discussions out of notification history.
+- Important community roots: thread roots, calendar date/time events, and goals.
+- Important Git roots: user-authored issues and pull requests, plus important activity under them including comments, pull request updates, and status changes.
+- Room roots are the explicit exception: rooms are unbounded ongoing discussions, so room notifications remain direct-parent only for user-authored kind `9` messages and direct mentions.
+- Reactions and zaps stay direct-target only: notify only when the reaction/zap targets an event the signed-in user authored directly.
+- Add user-facing notification rows for permission and moderation outcomes that affect the signed-in user where current app data can support them.
 
 ## Constraints
 
 - Current repository state is authoritative over this plan.
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
-- Commit and push each verified phase before starting the next phase.
 - Branch `dev` tracks `origin/dev`; inspect status, diff, and recent commits before each phase commit.
-- Stage only files intentionally changed for this workflow. Do not stage unrelated user changes if they appear.
-- Every phase startup must inspect relevant Dark Wisp inspiration from `/home/johnd/Work/dark-wisp-android` before creating phase todos or implementation details.
-- Mirror Dark Wisp concepts, not Android/Kotlin implementation details: compact row anatomy, type icons, one-expanded-row behavior, referenced-note expansion, zaps/reaction grouping, and click-through callbacks.
-- No repost notifications, filters, icons, summary stats, tests, or row types in Budabit notification center.
-- Do not reintroduce noisy general community activity: generic new room posts, generic new threads, generic calendar/goals, and generic community feed items are not notification-center history rows.
-- Keep lower-level badges and route-specific unread/read systems intact where they already exist.
-- The global notification-tab unread indicator may remain timestamp-based, but target-specific read/unread state must remain for concrete highlighted items.
-- Keep checkpoints compact; put design details here.
+- Current branch started this workflow one commit ahead of `origin/dev` at `3efb5428 fix: bootstrap older dm conversations` with existing dirty notification files.
+- Stage only files intentionally changed for each phase. Do not stage unrelated user changes.
+- If unrelated existing changes overlap a phase file, inspect and work with current code; stop only if the overlap conflicts with this objective.
+- Commit and push each verified phase before starting the next phase.
+- Do not reintroduce `Other` as a user-facing notification source or filter.
+- Keep Budabit context buckets as DMs, Git, and Communities; keep reply/mention/reaction/zap/status as action types, not source filters.
+- Do not reintroduce generic noisy community activity as notification-center history.
+- Keep the checkpoint compact; put durable design details here.
 
-## Phase 1: Modal Stack Back Navigation
+## Phase 1: Plan Bootstrap
 
 ### Phase Startup
 
 - Read the session checkpoint.
 - Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
 - Inspect current repository state before trusting either file.
-- Inspect Dark Wisp notification navigation/back UX references in `/home/johnd/Work/dark-wisp-android`, especially `NotificationsScreen.kt`, before creating phase todos or edits.
 - Restate this phase's goal and exit criteria briefly, then execute.
 
 ### Goal
 
-- Make stacked modals handle browser/app back correctly while preserving notification modal instance state beneath a profile/detail modal.
+- Replace the completed previous workflow checkpoint/plan with this new notification-root workflow and record current repository facts.
 
 ### Exit Criteria
 
-- Opening a profile/detail modal from `NotificationsModal` keeps the notification modal mounted beneath it.
-- Browser Back from the top modal returns to the previous modal hash and does not clear the whole stack.
-- Backdrop/Escape closes only the top modal unless that modal has `noEscape`.
-- Closing the last modal removes the hash and clears modal stack state.
-- Navigating from a notification row still intentionally clears all modals.
-- Modal stack pruning handles opening a new modal after navigating back in a stack.
-- Focused modal helper tests or code-level tests cover stack derivation/pruning/back behavior if practical.
-- `pnpm check` passes.
-- `git diff --check` passes.
+- `docs/session-plan.md` describes all phases with `Phase Startup`, `Mandatory Closeout`, and `Continue` sections.
+- `docs/session-checkpoint.md` records the new objective, current phase, current dirty state, branch/upstream facts, and next action.
+- No code files are intentionally changed in this phase.
+- Checkpoint is advanced to Phase 2 before commit.
 - Phase 1 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Refactor `src/app/util/modal.ts` to keep route/hash history and stack state consistent when the active hash changes from browser Back.
-- Update `src/app/components/ModalContainer.svelte` only if necessary after the stack utility changes.
-- Preserve existing `clearModals()` full-dismiss behavior for row navigation.
-- Add focused tests for pure stack helpers if direct Svelte/router testing is too heavy.
+- Create the durable plan and checkpoint for this workflow.
+- Inspect `git status --short --branch`, `git log --oneline -10 --decorate`, and remotes.
+- Commit only the plan/checkpoint changes for Phase 1.
 
 ### Verification
 
-- Run focused modal tests if added.
-- Run `pnpm vitest run src/app/util/notification-history.test.ts src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main`.
-- Run `pnpm check`.
-- Run `git diff --check`.
-- Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10 --decorate` before committing.
+- Read both durable files after editing.
+- Inspect `git status --short --branch`, `git diff -- docs/session-plan.md docs/session-checkpoint.md`, and `git log --oneline -10 --decorate` before committing.
 
 ### Mandatory Closeout
 
@@ -92,46 +79,44 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Relevant Notification Sources And Read State
+## Phase 2: Community Important Roots And Chain Depth
 
 ### Phase Startup
 
 - Read the session checkpoint.
 - Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
 - Inspect current repository state before trusting either file.
-- Inspect Dark Wisp notification data/filtering inspiration in `/home/johnd/Work/dark-wisp-android`, especially `NotificationsViewModel.kt`, `NotificationItem.kt`, and notification routing snippets, before creating phase todos or edits.
 - Restate this phase's goal and exit criteria briefly, then execute.
 
 ### Goal
 
-- Replace noisy notification-center source derivation with user-relevant notification item history and keep target-specific unread/highlight state intact.
+- Implement community notification semantics for direct room replies versus important-root thread/calendar/goal comments.
 
 ### Exit Criteria
 
-- No Budabit notification type/source/filter references reposts.
-- Generic new community room messages, generic new threads, generic calendar/goals, and generic community activity no longer appear as notification-center history rows.
-- Notification history includes incoming DMs, replies to user-authored events, reactions to user-authored events, mentions, zaps to the user or user-authored events, user-owned/user-maintained repo events, opt-in watched repo events, assignments/review requests tagging the user, and user-specific community access/moderation decisions where existing data supports them.
-- Repo notification baseline includes owned/maintained repos without requiring opt-in watch, while watched repos remain opt-in expansion.
-- Opening the notification modal may mark the global bell timestamp read but does not clear per-target read/unread markers for issues, PRs, comments, chats, or concrete route targets.
-- Tests assert noisy generic community rows are absent and relevant user-targeted rows are present.
-- Tests assert no repost notification/filter symbols remain in notification-center code.
+- Room message replies notify only when the immediate `q` parent is the signed-in user's kind `9` message; replies to replies do not notify the original room message author.
+- Thread creators receive notifications for comments under their thread root at any depth.
+- Calendar date/time creators receive notifications for comments under their calendar root at any depth.
+- Goal creators receive notifications for comments under their goal root at any depth.
+- Direct parent authors of kind `1111` comments still receive one-level reply notifications.
+- Root-owner and direct-parent qualification dedupe to one row per event.
+- Reactions/zaps remain direct-target only and do not become root-owner descendant notifications.
+- Tests cover room second-order suppression, thread nested root-owner notification, calendar nested root-owner notification, goal nested root-owner notification, and direct comment parent notification.
 - `pnpm check` passes.
 - `git diff --check` passes.
 - Phase 2 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Add or refine a normalized notification item layer in `src/app/util/notification-display.ts` and `src/app/util/notification-sources.ts`.
-- Remove generic community rows from `buildCommunityNotificationRows` and related source filters.
-- Add targeted reaction/mention/zap/reply derivation only where target ownership can be verified.
-- Add owned/maintained repo candidate derivation or expand repo-watch candidate inputs to include baseline repos.
-- Preserve existing checked/read state flows for target-specific highlights.
-- Update focused notification source tests.
+- Import/use existing community parsers for threads and calendar replies; add minimal goal reply parsing if no helper exists.
+- Add descriptor-aware important-root ownership checks for community roots.
+- Adjust community/engagement row building so root-owner comments and direct-parent replies are classified as Communities.
+- Ensure target event loading/filter derivation loads both immediate parents and important roots needed for decisions.
+- Add focused unit tests in notification source tests.
 
 ### Verification
 
-- Run focused notification source/read-state tests.
-- Run `pnpm vitest run src/app/util/notification-history.test.ts src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main`.
+- Run `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notification-display.test.ts --project=main`.
 - Run `pnpm check`.
 - Run `git diff --check`.
 - Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10 --decorate` before committing.
@@ -160,49 +145,42 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: Compact Expandable Notification UI
+## Phase 3: Git Important Roots And Status Activity
 
 ### Phase Startup
 
 - Read the session checkpoint.
 - Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
 - Inspect current repository state before trusting either file.
-- Inspect Dark Wisp notification UI inspiration in `/home/johnd/Work/dark-wisp-android`, especially `ZenNotificationRow`, `NotificationTypeIcon`, `ReplyExpansion`, `NoteExpansion`, and `GroupChatExpansion`, before creating phase todos or edits.
 - Restate this phase's goal and exit criteria briefly, then execute.
 
 ### Goal
 
-- Redesign the notification modal into compact expandable rows with quoted/referenced context and direct event navigation/scrolling.
+- Notify issue/PR creators about important Git activity under their issues/PRs, including comments, pull request updates, and status changes.
 
 ### Exit Criteria
 
-- Notification rows are compact by default and visually similar in spirit to Dark Wisp: type icon, actor avatar, actor name, verb/action text, source/target context when useful, timestamp.
-- Rows expand/collapse in place; at most one row is expanded at a time unless a simpler accessible multi-expand approach is explicitly chosen and documented.
-- Expanded reply rows show the quoted/referenced event and the reply event itself where data is loaded.
-- Expanded reaction/zap/mention/repo rows show the referenced context and the notification event/context without raw ids.
-- Clicking the row toggles expansion; clicking explicit action/quoted target navigates to the correct route and scrolls/opens the target event directly.
-- No raw `nostr:nevent`, `nevent`, route path, or long event id is rendered in compact or expanded UI.
-- Search filters all loaded notification rows, not only the currently visible 50-row slice.
-- Load-more behavior remains functional.
-- Profile avatar click still opens stacked profile modal and returns to notification state after dismissal.
-- Focused tests or source tests cover row display metadata, no raw ids, expansion route metadata, and no repost UI.
+- User-authored `GIT_ISSUE` roots notify the issue creator for comments and status changes rooted at that issue.
+- User-authored `GIT_PULL_REQUEST` roots notify the PR creator for comments, PR updates, and status changes rooted at that PR.
+- Direct parent authors of Git comments still receive one-level reply notifications.
+- Reactions/zaps remain direct-target only and do not become issue/PR root-owner descendant notifications.
+- Git rows use `source: "git"`, source label `Git`, and navigate to the issue/PR route or anchored comment/status path where available.
+- Tests cover issue nested comments, PR updates, status changes, direct comment parent notification, and reaction non-expansion.
 - `pnpm check` passes.
 - `git diff --check` passes.
 - Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Extend `NotificationRow` metadata with `type`, `action`, `target`, `context`, `expandable`, and navigation target ids/paths as needed.
-- Update `NotificationsModal.svelte` to render compact accordion rows and expanded content blocks.
-- Add helper functions to build safe display labels and route/scroll targets.
-- Use existing route helpers and `scrollToEvent` patterns for event anchors where possible.
-- Add missing route anchors if needed for community replies or repo comments.
-- Update tests around display metadata and raw-id suppression.
+- Identify Git important-root references from NIP-34/NIP-22 tags: repo `a`, root `E`/`K`, status root `e` with marker `root`, PR update `E`/`P`.
+- Add Git important-root ownership lookup using loaded target events.
+- Adjust engagement row building for Git descendant comments/status/PR updates without expanding reactions/zaps.
+- Ensure target loading filters include roots required by status and PR-update events.
+- Add focused unit tests.
 
 ### Verification
 
-- Run focused notification display/source tests.
-- Run `pnpm vitest run src/app/util/notification-history.test.ts src/app/util/notification-center.test.ts src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main`.
+- Run `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main`.
 - Run `pnpm check`.
 - Run `git diff --check`.
 - Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10 --decorate` before committing.
@@ -231,46 +209,105 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 4: Review And Final Closeout
+## Phase 4: Permission And Moderation Outcomes
 
 ### Phase Startup
 
 - Read the session checkpoint.
 - Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
 - Inspect current repository state before trusting either file.
-- Re-inspect Dark Wisp notification UX/data references in `/home/johnd/Work/dark-wisp-android` and compare against Budabit implementation before creating phase todos or edits.
 - Restate this phase's goal and exit criteria briefly, then execute.
 
 ### Goal
 
-- Review the full redesign for noisy source regressions, modal stack correctness, UI polish, route navigation/scroll behavior, and test coverage, then close the workflow.
+- Add explicit notification rows for access decisions and moderation outcomes that affect the signed-in user.
 
 ### Exit Criteria
 
-- Review confirms modal Back/Escape/backdrop stack behavior works by code evidence and tests where practical.
-- Review confirms no repost notification concepts remain in Budabit notification-center files.
-- Review confirms generic noisy community rows are absent from notification-center history.
-- Review confirms compact/expanded row UI suppresses raw ids/paths and has direct target navigation metadata.
-- All focused notification/modal tests pass.
+- Moderator request accepted/rejected outcomes for the signed-in requester produce explicit community notification rows.
+- Publishing permission request granted/rejected outcomes for the signed-in applicant produce explicit community notification rows where form/review state is available.
+- Person bans targeting the signed-in user produce explicit community notification rows.
+- Event moderation reports targeting events authored by the signed-in user produce explicit community notification rows where report state includes the target author.
+- Rows are source `community`, have action-specific titles/labels, and route to relevant access/moderation/context pages.
+- Tests cover at least moderator decision rows and one publishing permission or moderation outcome supported by current state.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Final status/diff review shows no staged files and no unrelated files included.
+- Phase 4 changes are committed, pushed, and the checkpoint is reread.
+
+### Steps
+
+- Inspect active community request/report stores and row builders.
+- Add minimal row-building helpers or candidates from existing state without broad architecture changes.
+- Prefer explicit rows over generic `Community access update` when the outcome is known.
+- Add tests for supported outcomes.
+
+### Verification
+
+- Run `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notifications.test.ts --project=main`.
+- Run `pnpm check`.
+- Run `git diff --check`.
+- Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10 --decorate` before committing.
+
+### Mandatory Closeout
+
+- Verify every exit criterion for this phase.
+- Update the checkpoint before committing:
+  - Move this phase into `Completed With Evidence`.
+  - Record verification commands and results.
+  - Record changed files.
+  - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
+  - Copy the next phase's exit criteria into `Phase Exit Criteria`.
+  - Set `Next Action` to the first concrete step of the next phase.
+  - Record any remaining risks or blockers.
+- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
+- Read the session checkpoint again to verify status and next action.
+- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
+- Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
+- Do not consider the whole plan complete unless the session checkpoint says so.
+
+### Continue
+
+- If the checkpoint says `Current Phase: Complete`, perform the final response.
+- If the checkpoint does not say `Current Phase: Complete`, immediately begin the next phase startup.
+- Do not send a final response before starting the next phase.
+- Do not treat commit/push output as completion of the command.
+
+## Phase 5: Review And Final Closeout
+
+### Phase Startup
+
+- Read the session checkpoint.
+- Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
+- Inspect current repository state before trusting either file.
+- Restate this phase's goal and exit criteria briefly, then execute.
+
+### Goal
+
+- Verify the full notification-root workflow, guard against noisy regressions, and close the checkpoint as complete.
+
+### Exit Criteria
+
+- Review confirms room notifications remain direct-parent only and do not notify room-root creators for reply chains.
+- Review confirms thread/calendar/goal creators receive comment activity at any depth.
+- Review confirms issue/PR creators receive comment, PR update, and status activity at any depth under their roots.
+- Review confirms reactions/zaps remain direct-target only.
+- Review confirms context sources remain DMs, Git, and Communities with no user-facing Other filter/source.
+- Focused notification tests pass.
+- `pnpm check` passes.
+- `git diff --check` passes.
 - Checkpoint records `Current Phase: Complete` and final evidence.
 - Final closeout commit is pushed before final response if the checkpoint changed.
 
 ### Steps
 
-- Run source grep checks for repost and raw-id/path rendering risks.
-- Review notification source derivation for noisy event classes.
-- Review modal stack code for browser Back edge cases.
-- Review expanded row navigation/scroll code paths.
-- Apply minimal fixes for findings.
-- Rerun focused tests and full checks.
+- Run source grep checks for `Other` notification source/filter regressions.
+- Review notification source derivation for root-owner and direct-parent rules.
+- Rerun focused tests and checks.
 - Update checkpoint to `Complete` with evidence and residual risks.
 
 ### Verification
 
-- Run all focused notification/modal tests added or changed during this workflow.
+- Run focused notification tests changed during this workflow.
 - Run `pnpm check`.
 - Run `git diff --check`.
 - Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10 --decorate` before committing.
