@@ -42,6 +42,8 @@
 - Phase 1 created this durable plan/checkpoint for repository navigation performance.
 - Phase 1 changed only `docs/session-plan.md` and `docs/session-checkpoint.md` intentionally.
 - Phase 1 advanced this checkpoint to Phase 2 before commit.
+- Phase 1 was committed and pushed as `182ea624 chore: start repo navigation performance workflow`.
+- Phase 1 post-push checkpoint reread found this checkpoint on Phase 2 but with a stale Phase 1 next action; this repair records the successful transition.
 
 ## Decisions
 
@@ -55,17 +57,18 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`; Phase 1 verification observed branch ahead of origin by 4 commits after unrelated outside commit `b594978c`.
 - Existing unstaged sync files before this workflow must remain unstaged unless intentionally touched.
-- Phase 1 docs are ready to commit and push as the transition into Phase 2.
+- Phase 1 docs were committed and pushed. Working tree still has pre-existing unstaged sync changes only.
 
 ## Next Action
 
-- Commit and push Phase 1 docs-only bootstrap, reread this checkpoint, then begin Phase 2 startup.
+- Begin Phase 2 by editing repo navigation feedback and deferred repo-route hydration.
 
 ## Verification
 
 - Read previous `docs/session-checkpoint.md` and full `docs/session-plan.md`.
 - Inspected branch/status, recent log, remotes, staged diff stat, unstaged diff stat, and relevant target-file diffs.
 - Replaced durable plan/checkpoint with this new workflow.
+- Phase 1 commit/push succeeded and checkpoint was reread.
 
 ## Risks Or Blockers
 
