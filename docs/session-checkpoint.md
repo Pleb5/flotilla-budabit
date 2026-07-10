@@ -82,6 +82,7 @@
   - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notifications.test.ts --project=main` passed: 2 files, 37 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 4 was committed and pushed as `97f60bd1 fix: show community outcome notifications`.
 
 ## Decisions
 
@@ -94,7 +95,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; after Phase 3 repair, `HEAD` and `origin/dev` are both `6d7a89bd` before Phase 4 commit.
+- Branch: `dev`, tracking `origin/dev`; after Phase 4 push, `HEAD` and `origin/dev` are both `97f60bd1`.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -107,12 +108,12 @@
 - Phase 1 docs were committed and pushed.
 - Phase 2 was committed and pushed.
 - Phase 3 was committed and pushed.
-- Phase 4 is verified and ready to commit/push as the phase transition.
+- Phase 4 was committed and pushed.
 - Phase 5 must review the full workflow and close the checkpoint as Complete.
 
 ## Next Action
 
-- Finish Phase 4 closeout by committing/pushing Phase 4 files, reread checkpoint, then start Phase 5 final review.
+- Start Phase 5 final review: run grep checks, focused tests, `pnpm check`, `git diff --check`, then update checkpoint to Complete if all criteria pass.
 
 ## Verification
 
@@ -131,11 +132,12 @@
 - Phase 4 focused outcome tests passed.
 - Phase 4 `pnpm check` passed.
 - Phase 4 `git diff --check` passed.
+- Phase 4 commit/push succeeded, then checkpoint reread found stale `Next Action`; checkpoint repair records the successful transition.
 
 ## Risks Or Blockers
 
 - Existing dirty notification files predate this plan update; later phases must avoid staging unrelated changes or stop if conflicts appear.
-- Branch is synced with origin after Phase 3 push.
+- Branch is synced with origin after Phase 4 push.
 - Existing dirty files not needed for Phase 2 remain unstaged unless intentionally included by overlapping source/test files.
 
 ## Files
