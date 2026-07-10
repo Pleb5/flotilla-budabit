@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onMount} from "svelte"
+  import {onMount, tick} from "svelte"
   import {goto} from "$app/navigation"
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
@@ -276,10 +276,28 @@
   }
 
   let replaceState = $state(false)
+  let menuBackgroundHydrationReady = $state(false)
   let element: Element | undefined = $state()
 
+  const waitForPostPaintHydration = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
   onMount(() => {
+    let cancelled = false
     replaceState = Boolean(element?.closest(".drawer"))
+
+    void waitForPostPaintHydration().then(() => {
+      if (!cancelled) menuBackgroundHydrationReady = true
+    })
+
+    return () => {
+      cancelled = true
+      menuBackgroundHydrationReady = false
+    }
   })
 
   $effect(() => {
@@ -293,6 +311,7 @@
   })
 
   $effect(() => {
+    if (!menuBackgroundHydrationReady) return
     if (!community || $activeCommunityRelays.length === 0) return
 
     const filters = [

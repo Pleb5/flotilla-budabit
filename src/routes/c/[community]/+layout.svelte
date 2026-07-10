@@ -7,7 +7,7 @@
 </style>
 
 <script lang="ts">
-  import {onDestroy, type Snippet} from "svelte"
+  import {onDestroy, onMount, tick, type Snippet} from "svelte"
   import {page} from "$app/stores"
   import {ago, MONTH} from "@welshman/lib"
   import {pubkey, repository} from "@welshman/app"
@@ -103,6 +103,7 @@
   let communityDeleteLoadKey = ""
   let communityDeleteLoadController: AbortController | null = null
   let latestCommunityDeleteSeen = 0
+  let communityBackgroundHydrationReady = $state(false)
   const COMMUNITY_HISTORY_LOAD_TIMEOUT_MS = 5_000
   const communityDeleteKinds = Array.from(
     new Set(
@@ -164,6 +165,26 @@
       pushDrawer(CommunityMenu, {community: parsedCommunity.pubkey}, {replaceState: true})
   }
 
+  const waitForPostPaintHydration = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
+  onMount(() => {
+    let cancelled = false
+
+    void waitForPostPaintHydration().then(() => {
+      if (!cancelled) communityBackgroundHydrationReady = true
+    })
+
+    return () => {
+      cancelled = true
+      communityBackgroundHydrationReady = false
+    }
+  })
+
   $effect(() => {
     const routeCommunity = $page.params.community || ""
     const currentPubkey = $pubkey || ""
@@ -223,6 +244,11 @@
   })
 
   $effect(() => {
+    if (!communityBackgroundHydrationReady) {
+      stopCommunityHistoryLoad()
+      return
+    }
+
     const definition = $activeCommunityDefinition
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
 
@@ -261,6 +287,11 @@
   })
 
   $effect(() => {
+    if (!communityBackgroundHydrationReady) {
+      stopCommunityDeleteLoad()
+      return
+    }
+
     const definition = $activeCommunityDefinition
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
 
@@ -291,6 +322,11 @@
   })
 
   $effect(() => {
+    if (!communityBackgroundHydrationReady) {
+      stopCommunityLiveSubscription()
+      return
+    }
+
     const definition = $activeCommunityDefinition
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
 

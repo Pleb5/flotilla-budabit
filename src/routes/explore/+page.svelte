@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {onMount, tick} from "svelte"
   import {goto} from "$app/navigation"
   import {
     getFollows,
@@ -35,6 +36,7 @@
     communityPreferencesLoading,
     communityStarsLoading,
     getCommunityDefinitionRelayHints,
+    hydratePreferredCommunityList,
     hydratePreferredCommunities,
     loadCommunityDefinitionWithOutboxFallback,
     selectLatestCommunityDefinition,
@@ -82,16 +84,61 @@
   let selectorRelayHints = $state<Record<string, string[]>>({})
   let relayResumeVersion = $state(0)
   let preferredHydrationKey = ""
-  let preferredHydrationAttempts = 0
+  let preferredHydrationLoadingKey = $state("")
+  let preferredFullHydrationKey = ""
+  let preferredFullHydrationTimer: ReturnType<typeof setTimeout> | undefined
+  let exploreBackgroundHydrationReady = $state(false)
   let userRelayListHydrationKey = $state("")
   let userRelayListHydrationLoadingKey = $state("")
   const selectorRelayLoadAttempts = new Map<string, number>()
   const SELECTOR_RELAY_RETRY_MS = 30_000
-  const PREFERRED_HYDRATION_MAX_ATTEMPTS = 2
+  const PREFERRED_FULL_HYDRATION_DELAY_MS = 1_500
+  const USER_RELAY_LIST_LOAD_TIMEOUT_MS = 3_000
+  const preferredListHydrationLoading = $derived(Boolean(preferredHydrationLoadingKey))
+
+  const loadUserRelayListWithTimeout = async (user: string) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+
+    try {
+      await Promise.race([
+        loadUserRelayList(user),
+        new Promise<void>(resolve => {
+          timeout = setTimeout(resolve, USER_RELAY_LIST_LOAD_TIMEOUT_MS)
+        }),
+      ])
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
+  }
+
+  const waitForPostPaintHydration = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
+  const clearPreferredFullHydrationTimer = () => {
+    if (!preferredFullHydrationTimer) return
+
+    clearTimeout(preferredFullHydrationTimer)
+    preferredFullHydrationTimer = undefined
+  }
+
+  const schedulePreferredFullHydration = (key: string, relayHints: string[]) => {
+    if (preferredFullHydrationKey === key) return
+
+    clearPreferredFullHydrationTimer()
+    preferredFullHydrationKey = key
+    preferredFullHydrationTimer = setTimeout(() => {
+      preferredFullHydrationTimer = undefined
+      if (preferredHydrationKey !== key) return
+
+      hydratePreferredCommunities({relayHints}).catch(() => {})
+    }, PREFERRED_FULL_HYDRATION_DELAY_MS)
+  }
 
   const createCommunity = () => {
-    if (hasOwnCommunity || checkingOwnCommunity) return
-
     if ($pubkey) goto("/explore/create-community")
     else pushModal(LogIn)
   }
@@ -120,6 +167,12 @@
   }
 
   const loadCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
+    const cachedDefinition = selectLatestCommunityDefinition(
+      communityDefinitionEvents,
+      communityPubkey,
+    )
+    if (cachedDefinition) return cachedDefinition
+
     return loadCommunityDefinitionWithOutboxFallback(communityPubkey, {
       relayHints,
       onOutboxDefinition: definition => rememberCommunityDefinitionRelays(definition, relayHints),
@@ -348,28 +401,6 @@
     normalizeRelays([...currentRelayHints, ...userRelayHints]),
   )
   const userRelayListKey = $derived($userRelayList?.event?.id || userRelayHints.join(","))
-  const userRelayListHydrated = $derived(
-    Boolean(
-      $pubkey &&
-      (userRelayListHydrationKey === $pubkey || $userRelayList?.event?.pubkey === $pubkey),
-    ),
-  )
-  const missingOwnAdminCommunity = $derived(Boolean($pubkey && !hasOwnCommunity))
-  const checkingOwnCommunity = $derived(
-    Boolean(
-      $pubkey &&
-      !hasOwnCommunity &&
-      (!userRelayListHydrated ||
-        $communityPreferencesLoading ||
-        preferredHydrationAttempts < PREFERRED_HYDRATION_MAX_ATTEMPTS),
-    ),
-  )
-  const createCommunityDisabled = $derived(
-    Boolean($pubkey && (checkingOwnCommunity || hasOwnCommunity)),
-  )
-  const createCommunityLabel = $derived(
-    hasOwnCommunity ? "account is already a community" : "Create Community",
-  )
   const selectorCommunities = $derived.by((): SelectorCommunity[] => {
     const session = $activeCommunitySession
     const currentPreference = session
@@ -426,6 +457,7 @@
     Boolean(
       previewPubkey &&
       ($activeCommunityDefinition?.pubkey === previewPubkey ||
+        selectLatestCommunityDefinition(communityDefinitionEvents, previewPubkey) ||
         selectorRelayHints[previewPubkey]?.length),
     ),
   )
@@ -473,6 +505,7 @@
     Boolean(
       defaultCommunityPubkey &&
       ($activeCommunityDefinition?.pubkey === defaultCommunityPubkey ||
+        selectLatestCommunityDefinition(communityDefinitionEvents, defaultCommunityPubkey) ||
         loadedDefaultRelayHints.length ||
         selectorRelayHints[defaultCommunityPubkey]?.length),
     ),
@@ -497,23 +530,36 @@
     ),
   )
   const preferredCommunitiesLoading = $derived(
-    Boolean($pubkey && !userRelayListHydrated) ||
+    preferredListHydrationLoading ||
       $communityStarsLoading ||
       $communityPreferencesLoading,
   )
-  const showPreferredCommunitiesLoading = $derived(
-    preferredCommunitiesLoading && selectorCommunities.length === 0,
-  )
   const showPreferredCommunities = $derived(
-    selectorCommunities.length > 0 || showPreferredCommunitiesLoading,
+    selectorCommunities.length > 0 || preferredCommunitiesLoading,
   )
+
+  onMount(() => {
+    let cancelled = false
+
+    void waitForPostPaintHydration().then(() => {
+      if (!cancelled) exploreBackgroundHydrationReady = true
+    })
+
+    return () => {
+      cancelled = true
+      exploreBackgroundHydrationReady = false
+      clearPreferredFullHydrationTimer()
+    }
+  })
 
   $effect(() => {
     const onRelayResume = () => {
       defaultRequestKey = ""
       previewRequestKey = ""
       preferredHydrationKey = ""
-      preferredHydrationAttempts = 0
+      preferredHydrationLoadingKey = ""
+      preferredFullHydrationKey = ""
+      clearPreferredFullHydrationTimer()
       selectorRelayLoadAttempts.clear()
       relayResumeVersion += 1
     }
@@ -542,10 +588,12 @@
       return
     }
 
+    if (!exploreBackgroundHydrationReady || preferredListHydrationLoading) return
+
     if (userRelayListHydrationKey === user || userRelayListHydrationLoadingKey === user) return
 
     userRelayListHydrationLoadingKey = user
-    loadUserRelayList([])
+    loadUserRelayListWithTimeout(user)
       .catch(() => {})
       .finally(() => {
         if (userRelayListHydrationLoadingKey !== user) return
@@ -561,33 +609,35 @@
       ? `${$pubkey}:${relayHints.join(",")}:${userRelayListKey}:${relayResumeVersion}`
       : ""
 
-    if (!$pubkey || !key) return
-    if (!userRelayListHydrated) return
-
-    if (preferredHydrationKey !== key) {
-      preferredHydrationKey = key
-      preferredHydrationAttempts = 0
+    if (!$pubkey || !key) {
+      preferredHydrationKey = ""
+      preferredHydrationLoadingKey = ""
+      preferredFullHydrationKey = ""
+      clearPreferredFullHydrationTimer()
+      return
     }
 
-    if (preferredCommunitiesLoading) return
-    if (
-      preferredCommunities.length > 0 &&
-      !missingOwnAdminCommunity &&
-      preferredHydrationAttempts > 0
-    )
-      return
-    if (preferredHydrationAttempts >= PREFERRED_HYDRATION_MAX_ATTEMPTS) return
+    if (preferredHydrationKey === key || preferredHydrationLoadingKey === key) return
 
-    preferredHydrationAttempts += 1
-    hydratePreferredCommunities({
-      relayHints,
-      force: preferredHydrationAttempts > 1,
-    }).catch(() => {})
+    preferredHydrationKey = key
+    preferredHydrationLoadingKey = key
+    preferredFullHydrationKey = ""
+    clearPreferredFullHydrationTimer()
+    hydratePreferredCommunityList({relayHints})
+      .catch(() => {})
+      .finally(() => {
+        if (preferredHydrationKey !== key) return
+
+        preferredHydrationLoadingKey = ""
+        schedulePreferredFullHydration(key, relayHints)
+      })
   })
 
   $effect(() => {
     const items = selectorCommunities
     const resumeVersion = relayResumeVersion
+
+    if (!exploreBackgroundHydrationReady || preferredListHydrationLoading) return
 
     for (const item of items) {
       const key = `${resumeVersion}:${item.pubkey}:${item.relayHints.join(",")}`
@@ -608,6 +658,8 @@
 
   $effect(() => {
     const parsed = defaultCommunityInput
+
+    if (!exploreBackgroundHydrationReady || preferredListHydrationLoading) return
 
     if (!parsed) {
       defaultRequestKey = ""
@@ -747,14 +799,9 @@
           <div class="flex min-w-0 flex-col gap-2 sm:flex-row">
             <Button
               onclick={createCommunity}
-              disabled={createCommunityDisabled}
               class="btn btn-neutral min-h-10 min-w-0 flex-1 items-center justify-start gap-2 rounded-box px-3 py-2 text-sm sm:min-h-16 sm:gap-4 sm:px-6 sm:py-4 sm:text-base">
-              {#if checkingOwnCommunity}
-                <span class="loading loading-spinner loading-sm"></span>
-              {:else}
-                <Icon icon={AddCircle} size={7} />
-              {/if}
-              <span class="min-w-0 truncate font-bold leading-none">{createCommunityLabel}</span>
+              <Icon icon={AddCircle} size={7} />
+              <span class="min-w-0 truncate font-bold leading-none">Create Community</span>
             </Button>
             {#if hasOwnCommunity}
               <Button
@@ -773,10 +820,15 @@
                 <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
                   Preferred Communities
                 </p>
-                {#if showPreferredCommunitiesLoading}
+                {#if preferredCommunitiesLoading}
                   <span class="loading loading-spinner loading-xs opacity-60"></span>
                 {/if}
               </div>
+              {#if preferredCommunitiesLoading && selectorCommunities.length === 0}
+                <div class="rounded-box bg-base-100/60 px-3 py-2 text-sm opacity-70">
+                  Loading your communities...
+                </div>
+              {/if}
               {#each selectorCommunities as item (item.pubkey)}
                 {@const selectorInput =
                   makeCommunityInputValue({pubkey: item.pubkey, relayHints: item.relayHints}) ||

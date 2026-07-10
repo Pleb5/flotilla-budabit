@@ -111,6 +111,10 @@
       : "",
   )
   const gitPath = $derived(makeGitCommunityPath(gitCommunityInput))
+  const routeCommunityDefinition = $derived(
+    $activeCommunityDefinition?.pubkey === communityId ? $activeCommunityDefinition : undefined,
+  )
+  const communityDefinitionReady = $derived(Boolean(communityId && routeCommunityDefinition))
   const retryCommunityBootstrap = async () => {
     const session =
       $activeCommunitySession || (parsedCommunity && makeCommunitySession(parsedCommunity))
@@ -130,9 +134,9 @@
     }
   }
   const roomAuthorPubkeys = $derived(
-    $activeCommunityDefinition
+    routeCommunityDefinition
       ? getCommunityTargetWriterPubkeys({
-          definition: $activeCommunityDefinition,
+          definition: routeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           target: COMMUNITY_WRITE_TARGETS.roomRoot,
           reportState: $activeCommunityReportState,
@@ -142,17 +146,14 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityId &&
-      $activeCommunityDefinition?.pubkey === communityId &&
+      routeCommunityDefinition &&
       $activeCommunityBootstrapStatus.loaded &&
       !$activeCommunityBootstrapStatus.loading,
     ),
   )
-  const communityBootstrapLoading = $derived(
-    Boolean(communityId && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
-  )
   const communityBootstrapError = $derived($activeCommunityBootstrapStatus.error || "")
   const roomFilters = $derived(
-    communityBootstrapReady && communityId && roomAuthorPubkeys.length
+    communityDefinitionReady && communityId && roomAuthorPubkeys.length
       ? [makeCommunityRoomRootsFilter(communityId, {authors: roomAuthorPubkeys})]
       : [],
   )
@@ -205,7 +206,27 @@
   let roomLoadRetryNonce = $state(0)
   let roomLoadEmptyRetries = 0
   let roomLoadRetryTimer: ReturnType<typeof setTimeout> | undefined
-  const roomsLoading = $derived(communityBootstrapLoading || roomRootsLoading || !roomRootsLoaded)
+  const roomsWaitingForDefinition = $derived(
+    Boolean(communityId && !communityDefinitionReady && !communityBootstrapError),
+  )
+  const roomsUnavailable = $derived(
+    Boolean(communityId && !communityDefinitionReady && communityBootstrapError),
+  )
+  const roomsWaitingForRequest = $derived(
+    Boolean(roomFilters.length > 0 && (roomRootsLoading || !roomRootsLoaded)),
+  )
+  const roomsLoading = $derived(roomsWaitingForDefinition || roomsWaitingForRequest)
+  const roomsSettledEmpty = $derived(
+    Boolean(
+      communityId &&
+        rooms.length === 0 &&
+        roomFilters.length > 0 &&
+        roomRootsLoaded &&
+        !roomRootsLoading &&
+        !roomsWaitingForDefinition &&
+        !roomsUnavailable,
+    ),
+  )
 
   const clearRoomLoadRetry = () => {
     if (!roomLoadRetryTimer) return
@@ -318,16 +339,20 @@
 
   $effect(() => {
     if (
-      !communityBootstrapReady ||
+      !communityDefinitionReady ||
       !communityId ||
       $activeCommunityRelays.length === 0 ||
       roomFilters.length === 0
     ) {
       roomRootsLoading = false
-      roomRootsLoaded = false
       roomLoadKey = ""
       roomLoadHydrationKey = ""
       roomLoadEmptyRetries = 0
+      roomRootsLoaded = Boolean(
+        communityDefinitionReady &&
+          communityId &&
+          ($activeCommunityRelays.length === 0 || roomFilters.length === 0),
+      )
       clearRoomLoadRetry()
       return
     }
@@ -383,6 +408,7 @@
       const shouldRetryEmpty = roomLoadEmptyRetries === 0 || interrupted || timedOut
       if (shouldRetryEmpty && scheduleRoomLoadRetry()) return
 
+      if (!interrupted && !timedOut) markCommunityHydrationCompleted(key)
       roomRootsLoading = false
       roomRootsLoaded = true
     }
@@ -617,17 +643,23 @@
         <div>
           <h3 class="flex items-center gap-2 text-lg font-semibold">
             <Icon icon={Hashtag} />
-            {roomsLoading ? "Looking for rooms..." : "No rooms found"}
+            {roomsLoading
+              ? "Looking for rooms..."
+              : roomsUnavailable
+                ? "Rooms unavailable"
+                : "No rooms found"}
           </h3>
           <p class="text-sm opacity-70">
             {roomsLoading
-              ? "Loading community rooms and permissions."
-              : canCreateRoom
+              ? "Loading community rooms."
+              : roomsUnavailable
+                ? "Community definition must load before rooms can be checked."
+              : canCreateRoom && roomsSettledEmpty
                 ? "Create the first room for this community."
                 : "No rooms have been published yet."}
           </p>
         </div>
-        {#if canCreateRoom}
+        {#if canCreateRoom && roomsSettledEmpty}
           <button class="btn btn-primary" type="button" onclick={createRoom}> Create Room </button>
         {/if}
       </div>

@@ -463,6 +463,7 @@ const COMMUNITY_AUTHORITY_LOAD_TIMEOUT = 3000
 const COMMUNITY_RELAY_AUTH_TIMEOUT = 2000
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
+const COMMUNITY_PREFERENCE_FAST_LOAD_TIMEOUT = 800
 const COMMUNITY_PREFERENCE_LOAD_TIMEOUT = 1500
 const COMMUNITY_PREFERENCE_HYDRATION_TTL = 30_000
 const COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT = 1500
@@ -1183,6 +1184,87 @@ export const communityPreferencesLoading = writable(false)
 let communityPreferenceHydrationKey = ""
 let communityPreferenceHydrationRequestId = 0
 let communityPreferenceHydratedAt = 0
+let preferredCommunityListHydrationKey = ""
+let preferredCommunityListHydrationRequestId = 0
+let preferredCommunityListHydratedAt = 0
+
+export const hydratePreferredCommunityList = async ({
+  relayHints = [],
+  force = false,
+}: {
+  relayHints?: string[]
+  force?: boolean
+} = {}) => {
+  const user = pubkey.get()
+  const relays = getCommunityStarRelays(relayHints)
+  const key = `${user || ""}:${relays.slice().sort().join(",")}`
+
+  if (!user || relays.length === 0) {
+    preferredCommunityListHydrationKey = ""
+    preferredCommunityListHydratedAt = 0
+    return
+  }
+  if (
+    !force &&
+    preferredCommunityListHydrationKey === key &&
+    Date.now() - preferredCommunityListHydratedAt < COMMUNITY_PREFERENCE_HYDRATION_TTL
+  )
+    return
+
+  const filters = [
+    makeCommunityStarReactionFilter(user),
+    makeRecentCommunityStarDeleteFilter(user),
+    makeCommunityAdminDefinitionFilter(user),
+    makeCommunityModeratorFormFilter(user),
+    makeCommunityModeratorProfileListFilter(user),
+    {
+      kinds: [PROFILE_LIST_KIND],
+      "#p": [user],
+      limit: COMMUNITY_PREFERENCE_LIMIT,
+    },
+  ].filter(Boolean) as Filter[]
+
+  if (filters.length === 0) return
+
+  const requestId = ++preferredCommunityListHydrationRequestId
+  preferredCommunityListHydrationKey = key
+  preferredCommunityListHydratedAt = Date.now()
+
+  const loadedEvents = await loadCommunityEvents(relays, filters, {
+    timeout: COMMUNITY_PREFERENCE_FAST_LOAD_TIMEOUT,
+  })
+
+  if (requestId !== preferredCommunityListHydrationRequestId) return
+
+  const profileListEvents = [
+    ...loadedEvents,
+    ...get(communityModeratorProfileListEvents),
+    ...get(communityMemberProfileListEvents),
+  ].filter(event => event.kind === PROFILE_LIST_KIND)
+  const profileListCommunityRefs = getCommunityDefinitionRefsFromEvents(profileListEvents)
+  const formCommunityPubkeys = Array.from(
+    new Set(
+      [...loadedEvents, ...get(communityModeratorFormEvents)]
+        .map(event => parseAdmissionForm(event)?.communityPubkey || "")
+        .filter(Boolean),
+    ),
+  )
+  const definitionFilters = [
+    ...makeCommunityDefinitionProfileListRefFilters(profileListEvents),
+    ...profileListCommunityRefs.map(ref => makeCommunityDefinitionFilter(ref.pubkey)),
+    ...formCommunityPubkeys.map(makeCommunityDefinitionFilter),
+  ]
+  const definitionRelays = normalizeRelays([
+    ...relays,
+    ...profileListCommunityRefs.flatMap(ref => (ref.relay ? [ref.relay] : [])),
+  ])
+
+  if (definitionFilters.length === 0 || definitionRelays.length === 0) return
+
+  await loadCommunityEvents(definitionRelays, definitionFilters, {
+    timeout: COMMUNITY_PREFERENCE_FAST_LOAD_TIMEOUT,
+  })
+}
 
 export const hydrateCommunityPreferences = async ({
   relayHints = [],

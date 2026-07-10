@@ -69,10 +69,12 @@
   import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
   import CashuPayConfirm from "@app/components/CashuPayConfirm.svelte"
   import {
+    activePreferredCommunities,
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunitySession,
     clearCommunityBootstrapCache,
+    communityPreferencesLoading,
     ensureCommunityBootstrap,
     getCommunityBootstrapKey,
     hydrateCommunityPreferences,
@@ -131,6 +133,7 @@
   const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
   const RELAY_RESUME_IDLE_MS = 30_000
   const RELAY_RESUME_THROTTLE_MS = 5_000
+  const EXPLORE_NOTIFICATION_STARTUP_DELAY_MS = 4_000
   let updateCheckInterval: number | null = null
   let updateCheckOnFocus: (() => void) | null = null
   let updateCheckOnVisibilityChange: (() => void) | null = null
@@ -146,6 +149,11 @@
   let loadingUserProfileKey = ""
   let loadedCommunityPreferencesKey = ""
   let loadingCommunityPreferencesKey = ""
+  let notificationStartupDelayKey = ""
+  let notificationPreferenceLoadingSeenKey = ""
+  let notificationStartupTimer: ReturnType<typeof setTimeout> | null = null
+  let notificationBackgroundStarted = false
+  let notificationBackgroundUnsubscribers: Array<() => void> = []
   let relayResumeHiddenAt = browser && document.visibilityState === "hidden" ? Date.now() : 0
   let relayResumeLastResetAt = 0
 
@@ -177,8 +185,74 @@
   // Keep unwrap enabled globally so wrapped relay traffic does not throw noisily.
   shouldUnwrap.set(true)
 
-  setupBudabitNotifications()
-  setupRepoWatchNotifications()
+  const clearNotificationStartupTimer = () => {
+    if (!notificationStartupTimer) return
+
+    clearTimeout(notificationStartupTimer)
+    notificationStartupTimer = null
+  }
+
+  const startNotificationBackground = () => {
+    if (notificationBackgroundStarted) return
+
+    clearNotificationStartupTimer()
+    notificationBackgroundStarted = true
+    notificationBackgroundUnsubscribers = [
+      setupBudabitNotifications(),
+      setupRepoWatchNotifications(),
+      setupWidgetUpdateNotifications(),
+      notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges),
+    ]
+  }
+
+  const stopNotificationBackground = () => {
+    clearNotificationStartupTimer()
+    notificationBackgroundUnsubscribers.forEach(call)
+    notificationBackgroundUnsubscribers = []
+    notificationBackgroundStarted = false
+    notificationStartupDelayKey = ""
+    notificationPreferenceLoadingSeenKey = ""
+  }
+
+  $effect(() => {
+    if (!browser || notificationBackgroundStarted) return
+
+    const routeId = $page.route.id || ""
+    const user = $pubkey || ""
+    const isExploreRoute = routeId === "/explore"
+
+    if (!isExploreRoute) {
+      startNotificationBackground()
+      return
+    }
+
+    if (!user) {
+      clearNotificationStartupTimer()
+      notificationStartupDelayKey = ""
+      notificationPreferenceLoadingSeenKey = ""
+      return
+    }
+
+    const key = `${routeId}:${user}`
+    if ($communityPreferencesLoading) notificationPreferenceLoadingSeenKey = key
+
+    const preferredCommunitiesReady = $activePreferredCommunities.length > 0
+    const preferencesSettled =
+      notificationPreferenceLoadingSeenKey === key && !$communityPreferencesLoading
+
+    if (preferredCommunitiesReady || preferencesSettled) {
+      startNotificationBackground()
+      return
+    }
+
+    if (notificationStartupDelayKey === key && notificationStartupTimer) return
+
+    clearNotificationStartupTimer()
+    notificationStartupDelayKey = key
+    notificationStartupTimer = setTimeout(() => {
+      startNotificationBackground()
+    }, EXPLORE_NOTIFICATION_STARTUP_DELAY_MS)
+  })
 
   $effect(() => {
     const session = $activeCommunitySession
@@ -196,10 +270,12 @@
     const user = $pubkey || ""
     const relayHints = $activeCommunityRelays
     const relayListKey = $userRelayList?.event?.id || ""
+    const inExploreRoute = $page.route.id?.startsWith("/explore")
     const key = user ? `${user}:${relayHints.join(",")}:${relayListKey}` : ""
 
     if (
       !browser ||
+      inExploreRoute ||
       !user ||
       !key ||
       loadedCommunityPreferencesKey === key ||
@@ -995,17 +1071,14 @@
       setupHistory(),
       setupGitCorsProxy(),
       setupRelayResumeRecovery(),
-      setupWidgetUpdateNotifications(),
       syncApplicationData(),
       syncGitData(),
     )
+    unsubscribers.push(stopNotificationBackground)
 
     // Initialize an existing Cashu wallet eagerly so balance is available immediately.
     // If no seed exists, setup remains explicit until the user creates or restores a wallet.
     void initializeCashuWallet()
-
-    // Subscribe to badge count for changes
-    unsubscribers.push(notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges))
 
     // Initialize keyboard state tracking
     unsubscribers.push(syncKeyboard())

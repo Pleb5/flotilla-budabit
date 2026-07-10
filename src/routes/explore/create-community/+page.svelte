@@ -1,123 +1,144 @@
 <script lang="ts">
+  import {onMount, tick} from "svelte"
   import {goto} from "$app/navigation"
-  import {loadUserRelayList, pubkey, userRelayList} from "@welshman/app"
+  import {pubkey, userRelayList} from "@welshman/app"
   import {getRelaysFromList} from "@welshman/util"
   import Page from "@lib/components/Page.svelte"
-  import Spinner from "@lib/components/Spinner.svelte"
+  import Button from "@lib/components/Button.svelte"
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
   import {
     communityAdminDefinitionEvents,
-    communityPreferencesLoading,
-    hydratePreferredCommunities,
+    getCommunityDefinitionRelayHints,
+    loadCommunityDefinitionWithOutboxFallback,
     selectLatestCommunityDefinition,
     setActiveCommunityDefinition,
   } from "@app/core/community-state"
-  import {makeCommunityNcommunity, normalizeRelays} from "@app/core/community"
-  import {pushToast} from "@app/util/toast"
+  import {
+    makeCommunityNcommunity,
+    normalizeRelays,
+    type CommunityDefinition,
+  } from "@app/core/community"
   import {makeCommunityPath} from "@app/util/routes"
 
-  const EXISTING_COMMUNITY_HYDRATION_MAX_ATTEMPTS = 2
+  const EXISTING_COMMUNITY_LOOKUP_TIMEOUT_MS = 2_000
 
-  let userRelayListHydrationKey = $state("")
-  let userRelayListHydrationLoadingKey = $state("")
-  let existingCommunityHydrationKey = $state("")
-  let existingCommunityHydrationAttempts = $state(0)
-  let existingCommunityRedirected = $state(false)
+  let existingCommunityCheckReady = $state(false)
+  let existingCommunityDefinition = $state<CommunityDefinition | undefined>()
+  let existingCommunityUser = ""
+  let existingCommunityCheckKey = ""
+  let existingCommunityRequestId = 0
+
+  const waitForPostPaintHydration = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
 
   const userRelayHints = $derived.by(() => normalizeRelays(getRelaysFromList($userRelayList)))
-  const userRelayListKey = $derived($userRelayList?.event?.id || userRelayHints.join(","))
-  const userRelayListHydrated = $derived(
-    Boolean(
-      $pubkey &&
-        (userRelayListHydrationKey === $pubkey || $userRelayList?.event?.pubkey === $pubkey),
-    ),
-  )
-  const existingCommunityDefinition = $derived.by(() =>
+  const cachedExistingCommunityDefinition = $derived.by(() =>
     $pubkey ? selectLatestCommunityDefinition($communityAdminDefinitionEvents, $pubkey) : undefined,
   )
-  const checkingExistingCommunity = $derived(
-    Boolean(
-      $pubkey &&
-        !existingCommunityDefinition &&
-        (!userRelayListHydrated ||
-          $communityPreferencesLoading ||
-          existingCommunityHydrationAttempts < EXISTING_COMMUNITY_HYDRATION_MAX_ATTEMPTS),
-    ),
+  const existingCommunityRelayHints = $derived.by(() =>
+    existingCommunityDefinition
+      ? getCommunityDefinitionRelayHints(existingCommunityDefinition, userRelayHints)
+      : [],
   )
+
+  const editExistingCommunity = () => {
+    const definition = existingCommunityDefinition
+    if (!definition) return
+
+    const communityInput = makeCommunityNcommunity({
+      pubkey: definition.pubkey,
+      relayHints: existingCommunityRelayHints,
+    })
+
+    setActiveCommunityDefinition(definition)
+    goto(makeCommunityPath(communityInput, "admin"))
+  }
+
+  onMount(() => {
+    let cancelled = false
+
+    void waitForPostPaintHydration().then(() => {
+      if (!cancelled) existingCommunityCheckReady = true
+    })
+
+    return () => {
+      cancelled = true
+      existingCommunityCheckReady = false
+      existingCommunityRequestId += 1
+    }
+  })
 
   $effect(() => {
     const user = $pubkey || ""
 
-    if (!user) {
-      userRelayListHydrationKey = ""
-      userRelayListHydrationLoadingKey = ""
-      existingCommunityHydrationKey = ""
-      existingCommunityHydrationAttempts = 0
-      existingCommunityRedirected = false
-      return
-    }
+    if (existingCommunityUser === user) return
 
-    if (userRelayListHydrationKey === user || userRelayListHydrationLoadingKey === user) return
-
-    userRelayListHydrationLoadingKey = user
-    loadUserRelayList([])
-      .catch(() => {})
-      .finally(() => {
-        if (userRelayListHydrationLoadingKey !== user) return
-
-        userRelayListHydrationKey = user
-        userRelayListHydrationLoadingKey = ""
-      })
+    existingCommunityUser = user
+    existingCommunityDefinition = undefined
+    existingCommunityCheckKey = ""
+    existingCommunityRequestId += 1
   })
 
   $effect(() => {
+    const user = $pubkey || ""
+    const definition = cachedExistingCommunityDefinition
+
+    if (!user || !definition) return
+
+    existingCommunityDefinition = definition
+    existingCommunityRequestId += 1
+  })
+
+  $effect(() => {
+    const user = $pubkey || ""
     const relayHints = userRelayHints
-    const key = $pubkey ? `${$pubkey}:${relayHints.join(",")}:${userRelayListKey}` : ""
+    const key = user ? `${user}:${relayHints.join(",")}` : ""
 
-    if (!$pubkey || !key || !userRelayListHydrated || existingCommunityDefinition) return
+    if (!existingCommunityCheckReady || !user || !key) return
+    if (existingCommunityDefinition?.pubkey === user) return
+    if (existingCommunityCheckKey === key) return
 
-    if (existingCommunityHydrationKey !== key) {
-      existingCommunityHydrationKey = key
-      existingCommunityHydrationAttempts = 0
-    }
+    existingCommunityCheckKey = key
+    const requestId = ++existingCommunityRequestId
 
-    if ($communityPreferencesLoading) return
-    if (existingCommunityHydrationAttempts >= EXISTING_COMMUNITY_HYDRATION_MAX_ATTEMPTS) return
-
-    existingCommunityHydrationAttempts += 1
-    hydratePreferredCommunities({
+    loadCommunityDefinitionWithOutboxFallback(user, {
       relayHints,
-      force: existingCommunityHydrationAttempts > 1,
-    }).catch(() => {})
-  })
-
-  $effect(() => {
-    const definition = existingCommunityDefinition
-    if (!definition || existingCommunityRedirected) return
-
-    existingCommunityRedirected = true
-    setActiveCommunityDefinition(definition)
-    pushToast({
-      theme: "info",
-      message: "This account already has a community. Edit it from the community menu.",
+      authenticate: true,
+      timeout: EXISTING_COMMUNITY_LOOKUP_TIMEOUT_MS,
     })
+      .then(definition => {
+        if (requestId !== existingCommunityRequestId || existingCommunityUser !== user) return
 
-    const communityInput = makeCommunityNcommunity({
-      pubkey: definition.pubkey,
-      relayHints: definition.relays,
-    })
-    goto(makeCommunityPath(communityInput, "admin"), {replaceState: true}).catch(() => {
-      existingCommunityRedirected = false
-    })
+        if (definition) {
+          existingCommunityDefinition = definition
+          return
+        }
+      })
+      .catch(() => {})
   })
 </script>
 
 <Page class="cw-full bg-base-200">
-  {#if checkingExistingCommunity}
-    <div class="flex min-h-screen items-center justify-center p-6 text-center">
-      <Spinner loading>Checking for an existing community...</Spinner>
+  {#if existingCommunityDefinition}
+    <div class="flex min-h-screen items-center justify-center p-6">
+      <div class="card2 bg-alt flex w-full max-w-xl flex-col gap-4 p-6 text-center shadow-md">
+        <div>
+          <h1 class="text-2xl font-bold">This account already has a community</h1>
+          <p class="mt-2 text-sm opacity-70">
+            A signer can only own one community. Edit the existing community instead.
+          </p>
+        </div>
+        <div class="flex flex-col justify-center gap-2 sm:flex-row">
+          <Button onclick={editExistingCommunity} class="btn btn-primary">Edit community</Button>
+          <Button onclick={() => goto("/explore")} class="btn btn-ghost">Back to explore</Button>
+        </div>
+      </div>
     </div>
-  {:else if !existingCommunityDefinition}
+  {:else}
     <CommunityCreate />
   {/if}
 </Page>
