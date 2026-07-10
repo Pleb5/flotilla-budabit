@@ -271,22 +271,50 @@ const syncDMRelay = (url: string, pubkey: string, fullHistory = false) => {
   return () => controller.abort()
 }
 
+const backfillDMRelayHistory = (url: string, pubkey: string) => {
+  const controller = new AbortController()
+
+  pullWithFallbackDm({
+    relays: [url],
+    signal: controller.signal,
+    filters: buildDmSyncFilters(pubkey, true),
+    fullHistory: true,
+  }).catch(error => {
+    if (!controller.signal.aborted) {
+      console.warn("[sync] Failed to backfill DM relay history", error)
+    }
+  })
+
+  return () => controller.abort()
+}
+
 const syncDMs = () => {
   const unsubscribersByUrl = new Map<string, Unsubscriber>()
+  const historyBackfillUnsubscribersByUrl = new Map<string, Unsubscriber>()
 
   let currentPubkey: string | undefined
   let currentFullHistory = false
   let hasRequestedChatRelayRefresh = false
+  let hasObservedMessagingRelays = false
+  let previousRelayUrls: string[] = []
 
   const unsubscribeAll = () => {
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
       unsubscribersByUrl.delete(url)
       unsubscribe()
     }
+
+    for (const [url, unsubscribe] of historyBackfillUnsubscribersByUrl.entries()) {
+      historyBackfillUnsubscribersByUrl.delete(url)
+      unsubscribe()
+    }
   }
 
   const subscribeAll = (pubkey: string, urls: string[], fullHistory = false) => {
     const sanitizedUrls = sanitizeRelayList(urls)
+    const newRelayUrls = sanitizedUrls.filter(url => !previousRelayUrls.includes(url))
+    const shouldBackfillFirstRelayHistory =
+      hasObservedMessagingRelays && previousRelayUrls.length === 0 && sanitizedUrls.length > 0
 
     if (fullHistory !== currentFullHistory) {
       unsubscribeAll()
@@ -295,12 +323,20 @@ const syncDMs = () => {
 
     if (sanitizedUrls.length === 0) {
       unsubscribeAll()
+      previousRelayUrls = []
+      hasObservedMessagingRelays = true
       return
     }
+
     // Start syncing newly added relays
     for (const url of sanitizedUrls) {
       if (!unsubscribersByUrl.has(url)) {
         unsubscribersByUrl.set(url, syncDMRelay(url, pubkey, fullHistory))
+      }
+
+      if (shouldBackfillFirstRelayHistory && newRelayUrls.includes(url)) {
+        historyBackfillUnsubscribersByUrl.get(url)?.()
+        historyBackfillUnsubscribersByUrl.set(url, backfillDMRelayHistory(url, pubkey))
       }
     }
 
@@ -311,6 +347,16 @@ const syncDMs = () => {
         unsubscribe()
       }
     }
+
+    for (const [url, unsubscribe] of historyBackfillUnsubscribersByUrl.entries()) {
+      if (!sanitizedUrls.includes(url)) {
+        historyBackfillUnsubscribersByUrl.delete(url)
+        unsubscribe()
+      }
+    }
+
+    previousRelayUrls = sanitizedUrls
+    hasObservedMessagingRelays = true
   }
 
   // When pubkey changes, re-sync
@@ -319,6 +365,8 @@ const syncDMs = () => {
       unsubscribeAll()
       currentFullHistory = false
       hasRequestedChatRelayRefresh = false
+      hasObservedMessagingRelays = false
+      previousRelayUrls = []
     }
 
     // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.

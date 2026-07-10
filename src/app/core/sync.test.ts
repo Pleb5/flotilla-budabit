@@ -99,9 +99,15 @@ vi.mock("@welshman/lib", () => ({
 }))
 
 vi.mock("@welshman/util", () => ({
-  getListTags: (event: any) => event?.tags || [],
+  getListTags: (list: any) => [
+    ...(list?.tags || []),
+    ...(list?.publicTags || []),
+    ...(list?.privateTags || []),
+  ],
   getRelayTagValues: (tags: string[][]) =>
-    tags.flatMap(tag => (tag[0] === "r" && typeof tag[1] === "string" ? [tag[1]] : [])),
+    tags.flatMap(tag =>
+      ["r", "relay"].includes(tag[0]) && typeof tag[1] === "string" ? [tag[1]] : [],
+    ),
   getTag: (tags: string[][], name: string) => tags.find(tag => tag[0] === name),
   getTagValue: (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1],
   COMMENT: 1111,
@@ -245,6 +251,9 @@ describe("syncApplicationData", () => {
     const bootstrapCall = dmCalls.find(call =>
       call.filters.every((filter: any) => filter.limit === 200),
     )
+    const fullHistoryCall = dmCalls.find(call =>
+      call.filters.every((filter: any) => filter.limit === undefined && filter.since === undefined),
+    )
 
     expect(recentCall).toBeTruthy()
     expect(recentCall!.filters).toEqual(
@@ -264,6 +273,7 @@ describe("syncApplicationData", () => {
     )
     expect(bootstrapCall!.filters.every((filter: any) => filter.since === undefined)).toBe(true)
     expect(bootstrapCall!.filters.every((filter: any) => filter.until === undefined)).toBe(true)
+    expect(fullHistoryCall).toBeFalsy()
 
     const liveCall = mocks.request.mock.calls.at(-1)?.[0]
 
@@ -283,6 +293,54 @@ describe("syncApplicationData", () => {
 
     expect(mocks.forceLoadUserMessagingRelayList).toHaveBeenCalledTimes(2)
     expect(mocks.dmLoad).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it("fully backfills DMs when the first messaging relay is configured after startup", async () => {
+    const userPubkey = "a".repeat(64)
+
+    mocks.pubkey.set(userPubkey)
+
+    const {syncApplicationData} = await import("./sync")
+    const cleanup = syncApplicationData()
+    await flush()
+
+    mocks.dmLoad.mockClear()
+    mocks.request.mockClear()
+
+    mocks.userMessagingRelayList.set({
+      publicTags: [["relay", "wss://first-dm.relay.example.com"]],
+    })
+    await flush()
+
+    const dmCalls = mocks.dmLoad.mock.calls.map(call => call[0])
+    const fullHistoryCall = dmCalls.find(call =>
+      call.filters.every((filter: any) => filter.limit === undefined && filter.since === undefined),
+    )
+    const bootstrapCall = dmCalls.find(call =>
+      call.filters.every((filter: any) => filter.limit === 200),
+    )
+
+    expect(fullHistoryCall).toBeTruthy()
+    expect(fullHistoryCall!.relays).toEqual(["wss://first-dm.relay.example.com/"])
+    expect(fullHistoryCall!.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({kinds: [4444], "#p": [userPubkey]}),
+        expect.objectContaining({kinds: [4444], authors: [userPubkey]}),
+      ]),
+    )
+    expect(bootstrapCall).toBeTruthy()
+
+    const liveCall = mocks.request.mock.calls.at(-1)?.[0]
+
+    expect(liveCall?.relays).toEqual(["wss://first-dm.relay.example.com/"])
+    expect(liveCall?.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 0}),
+        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 0}),
+      ]),
+    )
 
     cleanup()
   })
