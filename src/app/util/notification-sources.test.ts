@@ -138,15 +138,16 @@ const makeProfileList = (address = profileListAddress) => {
 
 describe("notification sources", () => {
   it("builds unread chat rows from latest incoming DM events", async () => {
-    const {buildChatNotificationRows} = await import("./notification-sources")
+    const {buildChatNotificationRows, getLatestNotificationCenterTimestamp} = await import(
+      "./notification-sources"
+    )
     const event = makeEvent()
+    const rows = buildChatNotificationRows({
+      chats: [makeChat(event)],
+      getPlaintext: () => "hello from alice",
+    })
 
-    expect(
-      buildChatNotificationRows({
-        chats: [makeChat(event)],
-        getPlaintext: () => "hello from alice",
-      }),
-    ).toEqual([
+    expect(rows).toEqual([
       expect.objectContaining({
         id: "event:event-a",
         eventId: "event-a",
@@ -164,6 +165,7 @@ describe("notification sources", () => {
         createdAt: 100,
       }),
     ])
+    expect(getLatestNotificationCenterTimestamp(rows)).toBe(100)
   })
 
   it("builds route fallback rows with source labels and read paths", async () => {
@@ -233,6 +235,37 @@ describe("notification sources", () => {
     ])
   })
 
+  it("uses the newest route candidate for unread timestamps", async () => {
+    const {buildRouteNotificationRows, getLatestNotificationCenterTimestamp} = await import(
+      "./notification-sources"
+    )
+    const path = `/c/${communityPubkey}/access`
+    const older = makeEvent({
+      id: "older-access-event",
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 100,
+      content: "+",
+      tags: [["e", "older-request"]],
+    })
+    const newer = makeEvent({
+      id: "newer-access-event",
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 200,
+      content: "-",
+      tags: [["e", "newer-request"]],
+    })
+    const rows = buildRouteNotificationRows({
+      paths: [path],
+      candidates: [newer, older].map(latestEvent => ({path, latestEvent})),
+      currentPubkey: viewer,
+    })
+
+    expect(rows[0]).toEqual(expect.objectContaining({eventId: newer.id, createdAt: 200}))
+    expect(getLatestNotificationCenterTimestamp(rows)).toBe(200)
+  })
+
   it("builds explicit access decision route rows", async () => {
     const {buildRouteNotificationRows} = await import("./notification-sources")
     const accessPath = `/c/${communityPubkey}/access`
@@ -266,8 +299,8 @@ describe("notification sources", () => {
       expect.objectContaining({
         source: "community",
         title: "Moderator request accepted",
-        action: "approved your moderator request",
-        contextLabel: "Community access",
+        action: "approved your request for",
+        contextLabel: "moderator role",
         eventId: moderatorAccepted.id,
       }),
     ])
@@ -279,8 +312,8 @@ describe("notification sources", () => {
       })[0],
     ).toEqual(
       expect.objectContaining({
-        title: "Publishing permission denied",
-        action: "denied your publishing request",
+        title: "Publishing request denied",
+        action: "denied your request for",
         eventId: publishingDenied.id,
       }),
     )
@@ -377,8 +410,8 @@ describe("notification sources", () => {
     expect(rows[0]).toEqual(
       expect.objectContaining({
         source: "community",
-        title: "New access application",
-        action: "requested publishing access",
+        title: "New publishing request",
+        action: "requested to publish in",
         actorPubkey: writer,
         path: expect.stringContaining("/moderation"),
         target: expect.objectContaining({label: "Application form", eventId: generalForm.id}),
@@ -441,16 +474,16 @@ describe("notification sources", () => {
     expect(rows).toEqual([
       expect.objectContaining({
         source: "community",
-        title: "Publishing permission revoked",
-        action: "revoked your publishing access",
+        title: "Publishing access revoked",
+        action: "revoked your access to publish in",
         actorPubkey: writer,
         path: expect.stringContaining("/access"),
         eventId: revoked.id,
       }),
       expect.objectContaining({
         source: "community",
-        title: "Publishing permission granted",
-        action: "approved your publishing request",
+        title: "Publishing request approved",
+        action: "approved your request to publish in",
         actorPubkey: writer,
         path: expect.stringContaining("/access"),
         eventId: accepted.id,
@@ -644,7 +677,7 @@ describe("notification sources", () => {
     expect(rows.find(row => row.eventId === "profile-list-General")).toEqual(
       expect.objectContaining({
         source: "community",
-        title: "Community access update",
+        title: "Community membership updated",
       }),
     )
   })

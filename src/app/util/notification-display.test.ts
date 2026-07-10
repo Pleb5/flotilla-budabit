@@ -92,6 +92,7 @@ describe("notification display", () => {
         type: "reply",
         action: "replied",
         context: "to your comment",
+        canExpand: true,
         sections: [
           expect.objectContaining({label: "Your comment", preview: "original body"}),
           expect.objectContaining({label: "New reply", preview: "reply body"}),
@@ -101,5 +102,55 @@ describe("notification display", () => {
     expect(sanitizeNotificationText("Open /chat/alice")).toBe("Open activity")
     expect(sanitizeNotificationText(`nostr:${shareEntity}qqqq reply body`)).toBe("reply body")
     expect(sanitizeNotificationText("nostr:nprofile1qqqq body")).toBe("body")
+  })
+
+  it("marks duplicate and machine-only detail rows as non-expandable", () => {
+    expect(
+      getNotificationRowDisplay({
+        id: "route:/c/community/access",
+        source: "community",
+        sourceLabel: "Communities",
+        type: "route",
+        title: "Unread community activity",
+        preview: "Open communities activity",
+        path: "/c/community/access",
+        readPath: "/c/community/access",
+        createdAt: 0,
+        searchText: "community",
+      }).canExpand,
+    ).toBe(false)
+
+    expect(
+      getNotificationRowDisplay({
+        id: "community-application-review:decision",
+        eventId: "decision",
+        source: "community",
+        sourceLabel: "Communities",
+        type: "community",
+        title: "Publishing request approved",
+        action: "approved your request to publish in",
+        contextLabel: "Calendar",
+        preview: "Your request to publish in Calendar was accepted.",
+        path: "/c/community/access",
+        readPath: "/c/community/access",
+        createdAt: 100,
+        searchText: "community",
+        detail: {
+          label: "Access decision",
+          preview: "+",
+          path: "/c/community/access",
+          eventId: "decision",
+          event: {
+            id: "decision",
+            kind: 7,
+            pubkey: "moderator",
+            created_at: 100,
+            content: "+",
+            tags: [],
+            sig: "sig",
+          } as any,
+        },
+      }).canExpand,
+    ).toBe(false)
   })
 })

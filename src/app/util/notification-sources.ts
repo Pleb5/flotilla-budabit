@@ -1239,12 +1239,12 @@ export const buildCommunityNotificationRows = ({
         ref,
         event,
         path: makeCommunityPath(ref.communityPubkey, "access"),
-        title: "Community access update",
+        title: "Community membership updated",
         preview: "Your community membership changed.",
         sectionName: "access",
         displayType: "community",
-        action: "updated access for you",
-        contextLabel: "Community access",
+        action: "updated",
+        contextLabel: "your community membership",
         detailLabel: "Access update",
         actionLabel: "Open access settings",
       })
@@ -1363,6 +1363,7 @@ export const buildCommunityApplicationNotificationRows = ({
       source: "community",
       sourceLabel: getNotificationSourceLabel("community"),
       type: "community",
+      expandable: false,
       title,
       preview,
       action,
@@ -1444,10 +1445,10 @@ export const buildCommunityApplicationNotificationRows = ({
           id: `community-application:${event.id}`,
           event,
           path,
-          title: "New access application",
-          preview: `New ${sectionName} publishing access application.`,
-          action: "requested publishing access",
-          contextLabel: `${sectionName} access`,
+          title: "New publishing request",
+          preview: `New request to publish in ${sectionName}.`,
+          action: "requested to publish in",
+          contextLabel: sectionName,
           detailLabel: "Access application",
           actionLabel: "Open application",
           targetEvent: form.event,
@@ -1486,21 +1487,21 @@ export const buildCommunityApplicationNotificationRows = ({
       event,
       path: makeCommunityPath(communityPubkey, "access"),
       title: accepted
-        ? "Publishing permission granted"
+        ? "Publishing request approved"
         : revoked
-          ? "Publishing permission revoked"
-          : "Publishing permission denied",
+          ? "Publishing access revoked"
+          : "Publishing request denied",
       preview: accepted
-        ? "Your publishing permission request was accepted."
+        ? `Your request to publish in ${review.sectionName || "this community"} was accepted.`
         : revoked
-          ? "Your publishing permission was revoked."
-        : "Your publishing permission request was denied.",
+          ? `Your access to publish in ${review.sectionName || "this community"} was revoked.`
+        : `Your request to publish in ${review.sectionName || "this community"} was denied.`,
       action: accepted
-        ? "approved your publishing request"
+        ? "approved your request to publish in"
         : revoked
-          ? "revoked your publishing access"
-          : "denied your publishing request",
-      contextLabel: review.sectionName ? `${review.sectionName} access` : "Community access",
+          ? "revoked your access to publish in"
+          : "denied your request to publish in",
+      contextLabel: review.sectionName || "this community",
       detailLabel: "Access decision",
       actionLabel: "Open access settings",
       targetEvent: form?.event,
@@ -1578,6 +1579,7 @@ export const buildCommunityModerationNotificationRows = ({
       source: "community",
       sourceLabel: getNotificationSourceLabel("community"),
       type: "community",
+      expandable: false,
       title,
       preview,
       action,
@@ -2136,12 +2138,12 @@ const getCommunityAccessRouteCandidateDisplay = (
   if (isPublishingReview) {
     return {
       type: "community",
-      title: isAccepted ? "Publishing permission granted" : "Publishing permission denied",
+      title: isAccepted ? "Publishing request approved" : "Publishing request denied",
       preview: isAccepted
-        ? "Your publishing permission request was accepted."
-        : "Your publishing permission request was denied.",
-      action: isAccepted ? "approved your publishing request" : "denied your publishing request",
-      contextLabel: "Community access",
+        ? "Your publishing request was accepted."
+        : "Your publishing request was denied.",
+      action: isAccepted ? "approved your request for" : "denied your request for",
+      contextLabel: "publishing access",
       actionLabel: "Open access settings",
     }
   }
@@ -2152,8 +2154,8 @@ const getCommunityAccessRouteCandidateDisplay = (
     preview: isAccepted
       ? "Your moderator role request was accepted."
       : "Your moderator role request was denied.",
-    action: isAccepted ? "approved your moderator request" : "denied your moderator request",
-    contextLabel: "Community access",
+    action: isAccepted ? "approved your request for" : "denied your request for",
+    contextLabel: "moderator role",
     actionLabel: "Open access settings",
   }
 }
@@ -2229,9 +2231,19 @@ export const buildRouteNotificationRows = ({
   currentPubkey,
 }: BuildRouteNotificationRowsOptions): NotificationRow[] => {
   const rows: NotificationRow[] = []
-  const candidatesByPath = new Map(
-    candidates.flatMap(candidate => (candidate.path ? [[candidate.path, candidate]] : [])),
-  )
+  const candidatesByPath = new Map<string, NotificationCandidate>()
+
+  for (const candidate of candidates) {
+    if (!candidate.path) continue
+
+    const current = candidatesByPath.get(candidate.path)
+    const candidateEvent = candidate.latestEvent
+    const currentEvent = current?.latestEvent
+
+    if (!current || (candidateEvent && (!currentEvent || isPreferredEvent(candidateEvent, currentEvent)))) {
+      candidatesByPath.set(candidate.path, candidate)
+    }
+  }
 
   for (const path of Array.from(paths).sort()) {
     if (!path || excludedPaths.has(path)) continue
@@ -2825,8 +2837,12 @@ export const notificationCenterRows = derived(
   },
 )
 
-export const latestNotificationCenterTimestamp = derived(notificationCenterRows, rows =>
-  rows.reduce((latest, row) => Math.max(latest, row.source === "chat" ? 0 : row.createdAt), 0),
+export const getLatestNotificationCenterTimestamp = (rows: NotificationRow[]) =>
+  rows.reduce((latest, row) => Math.max(latest, row.createdAt), 0)
+
+export const latestNotificationCenterTimestamp = derived(
+  notificationCenterRows,
+  getLatestNotificationCenterTimestamp,
 )
 
 export const hasNotificationCenterUnread = derived(

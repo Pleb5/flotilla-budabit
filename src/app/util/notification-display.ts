@@ -45,6 +45,7 @@ export type NotificationRowDisplay = {
   sourceLabel: string
   primaryAction: NotificationRowNavigation
   sections: NotificationRowDisplaySection[]
+  canExpand: boolean
 }
 
 export type NotificationRow = {
@@ -69,6 +70,7 @@ export type NotificationRow = {
   actorPubkey?: string
   actorName?: string
   repoWatchSeenPath?: string
+  expandable?: boolean
 }
 
 export type NotificationRowFilterOptions = {
@@ -209,6 +211,36 @@ const toDisplaySection = (
   ]
 }
 
+const normalizeComparableText = (value: string | undefined) =>
+  sanitizeNotificationText(value, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+
+const hasMeaningfulEventContent = (event: TrustedEvent | undefined) => {
+  const content = normalizeComparableText(event?.content)
+
+  return Boolean(content && content !== "+" && content !== "-")
+}
+
+const hasMeaningfulSection = (
+  section: NotificationRowDisplaySection,
+  displayPreview: string,
+  primaryAction: NotificationRowNavigation,
+) => {
+  if (hasMeaningfulEventContent(section.event)) return true
+
+  if (section.event && !hasMeaningfulEventContent(section.event)) return false
+
+  const sectionPreview = normalizeComparableText(section.preview)
+  const rowPreview = normalizeComparableText(displayPreview)
+  const sameNavigation =
+    section.path === primaryAction.path &&
+    (section.eventId || "") === (primaryAction.eventId || "")
+
+  return Boolean(sectionPreview && sectionPreview !== rowPreview && !sameNavigation)
+}
+
 export const getNotificationRowDisplay = (row: NotificationRow): NotificationRowDisplay => {
   const type = getNotificationRowType(row)
   const title = sanitizeNotificationText(row.title, "Notification")
@@ -223,6 +255,21 @@ export const getNotificationRowDisplay = (row: NotificationRow): NotificationRow
     ...toDisplaySection(row.target, preview),
     ...toDisplaySection(row.detail, preview),
   ]
+  const displaySections =
+    sections.length > 0
+      ? sections
+      : [
+          {
+            label: title,
+            preview,
+            path: row.path,
+            eventId: primaryAction.eventId,
+            actionLabel: primaryAction.label,
+          },
+        ]
+  const canExpand =
+    row.expandable ??
+    displaySections.some(section => hasMeaningfulSection(section, preview, primaryAction))
 
   return {
     type,
@@ -232,18 +279,8 @@ export const getNotificationRowDisplay = (row: NotificationRow): NotificationRow
     preview,
     sourceLabel: sanitizeNotificationText(row.sourceLabel, "Notifications"),
     primaryAction,
-    sections:
-      sections.length > 0
-        ? sections
-        : [
-            {
-              label: title,
-              preview,
-              path: row.path,
-              eventId: primaryAction.eventId,
-              actionLabel: primaryAction.label,
-            },
-          ],
+    sections: displaySections,
+    canExpand,
   }
 }
 

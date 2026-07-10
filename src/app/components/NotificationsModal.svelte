@@ -105,11 +105,11 @@
   const isExternalPath = (path: string) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path)
 
   const openNavigationTarget = async (
-    event: Event,
+    event: Event | undefined,
     target: NotificationRowNavigation | NotificationRowDisplaySection,
   ) => {
-    event.preventDefault()
-    event.stopPropagation()
+    event?.preventDefault()
+    event?.stopPropagation()
 
     if (!target.path) return
 
@@ -131,11 +131,30 @@
     pushModal(ProfileDetail, {pubkey})
   }
 
-  const toggleRowFromKeyboard = (event: KeyboardEvent, row: NotificationRow) => {
+  const activateRow = (
+    event: Event | undefined,
+    row: NotificationRow,
+    display: ReturnType<typeof getNotificationRowDisplay>,
+  ) => {
+    if (display.canExpand) {
+      event?.preventDefault()
+      event?.stopPropagation()
+      toggleRow(row)
+      return
+    }
+
+    void openNavigationTarget(event, display.primaryAction)
+  }
+
+  const activateRowFromKeyboard = (
+    event: KeyboardEvent,
+    row: NotificationRow,
+    display: ReturnType<typeof getNotificationRowDisplay>,
+  ) => {
     if (event.key !== "Enter" && event.key !== " ") return
 
     event.preventDefault()
-    toggleRow(row)
+    activateRow(event, row, display)
   }
 
   const stopKeyboardPropagation = (event: KeyboardEvent) => event.stopPropagation()
@@ -218,10 +237,10 @@
               <div
                 role="button"
                 tabindex="0"
-                aria-expanded={isExpanded}
+                aria-expanded={display.canExpand ? isExpanded : undefined}
                 class="flex cursor-pointer items-start gap-2.5 p-3 sm:gap-3"
-                onclick={() => toggleRow(row)}
-                onkeydown={event => toggleRowFromKeyboard(event, row)}>
+                onclick={event => activateRow(event, row, display)}
+                onkeydown={event => activateRowFromKeyboard(event, row, display)}>
                 <div
                   class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-200 text-primary">
                   <Icon icon={getTypeIcon(display.type)} size={4.5} />
@@ -267,10 +286,14 @@
                         {/if}
                       </div>
                     </div>
-                    <Icon
-                      icon={RoundAltArrowDown}
-                      size={4}
-                      class={isExpanded ? "mt-1 rotate-180 transition-transform" : "mt-1 transition-transform"} />
+                    {#if display.canExpand}
+                      <Icon
+                        icon={RoundAltArrowDown}
+                        size={4}
+                        class={isExpanded ? "mt-1 rotate-180 transition-transform" : "mt-1 transition-transform"} />
+                    {:else}
+                      <Icon icon={ArrowRightUp} size={3.5} class="mt-1 text-muted-foreground" />
+                    {/if}
                   </div>
                 </div>
               </div>
