@@ -80,8 +80,18 @@ export const makeCommunityGoalPath = (community: string, eventId?: string) =>
 export const makeCommunityGitPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "git", eventId)
 
+export const GIT_COMMUNITY_PARAM = "community"
+
 export const makeGitPath = (_url?: string, eventId?: string) =>
   `/git${eventId ? `/${encodeURIComponent(eventId)}` : ""}`
+
+export const makeGitCommunityPath = (community: string) => {
+  const value = community.trim()
+  if (!value) return makeGitPath()
+
+  const params = new URLSearchParams({[GIT_COMMUNITY_PARAM]: value})
+  return `${makeGitPath()}?${params}`
+}
 
 export const makeGitIssuePath = (url?: string, eventId?: string) =>
   `${makeGitPath(url, eventId)}/issues`

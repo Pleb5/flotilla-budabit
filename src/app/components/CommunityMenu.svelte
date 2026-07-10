@@ -59,8 +59,10 @@
   import {notifications} from "@app/util/notifications"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {formatShortNpub} from "@app/util/pubkeys"
+  import {makeCommunityInputValue} from "@app/util/community-stars"
   import {
     makeCommunityCalendarPath,
+    makeGitCommunityPath,
     makeCommunityGoalPath,
     makeCommunityPath,
     makeCommunityRoomPath,
@@ -91,7 +93,12 @@
   const badgesPath = $derived(makeCommunityPath(community, "badges"))
   const accessPath = $derived(makeCommunityPath(community, "access"))
   const moderationPath = $derived(makeCommunityPath(community, "moderation"))
-  const gitPath = "/git"
+  const gitCommunityInput = $derived(
+    community
+      ? makeCommunityInputValue({pubkey: community, relayHints: $activeCommunityRelays}) || community
+      : "",
+  )
+  const gitPath = $derived(makeGitCommunityPath(gitCommunityInput))
   const canViewAdmin = $derived(
     Boolean($pubkey && normalizePubkey($pubkey) === normalizePubkey(community)),
   )

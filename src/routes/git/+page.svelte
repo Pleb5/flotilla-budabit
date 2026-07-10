@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {page} from "$app/stores"
   import {
     normalizeRelayUrl,
     Address,
@@ -100,7 +101,11 @@
     setActiveCommunityInput,
   } from "@app/core/community-state"
   import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
-  import {parseTargetedPublication, TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {
+    parseCommunityInput,
+    parseTargetedPublication,
+    TARGETED_PUBLICATION_KIND,
+  } from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
@@ -122,7 +127,7 @@
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
   import Download from "@assets/icons/download.svg?dataurl"
   import Code from "@assets/icons/code.svg?dataurl"
-  import {makeGitPath} from "@app/util/routes"
+  import {GIT_COMMUNITY_PARAM, makeGitPath} from "@app/util/routes"
   import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import {
     getInitialGitMode,
@@ -387,13 +392,28 @@
     void promise.finally(settle).catch(() => {})
   }
 
+  const requestedGitCommunityInput = $derived(
+    $page.url.searchParams.get(GIT_COMMUNITY_PARAM)?.trim() || "",
+  )
+  const requestedGitCommunityPubkey = $derived(
+    parseCommunityInput(requestedGitCommunityInput)?.pubkey || "",
+  )
+  const getInitialGitCommunityInput = () =>
+    getStore(page).url.searchParams.get(GIT_COMMUNITY_PARAM)?.trim() || ""
+  const getInitialGitCommunityPubkey = () =>
+    parseCommunityInput(getInitialGitCommunityInput())?.pubkey || ""
+
   const getInitialGitModeForContext = (): GitMode =>
-    getStore(activeCommunitySession)?.communityPubkey ? getInitialGitMode() : "personal"
+    getInitialGitCommunityPubkey()
+      ? "community"
+      : getStore(activeCommunitySession)?.communityPubkey
+        ? getInitialGitMode()
+        : "personal"
 
   let loading = $state(true)
   let activeMode = $state<GitMode>(getInitialGitModeForContext())
   let activeTab = $state<GitTab>(getInitialGitTab())
-  let selectedCommunityPubkey = $state("")
+  let selectedCommunityPubkey = $state(getInitialGitCommunityPubkey())
   let gitTabHydrated = $state(false)
   let searchQuery = $state("")
   let activeRepoSearchQuery = $state("")
@@ -609,6 +629,21 @@
     }
 
     return Array.from(options.values())
+  })
+
+  let appliedGitCommunityInput = $state("")
+
+  $effect(() => {
+    const communityInput = requestedGitCommunityInput
+    if (!communityInput || communityInput === appliedGitCommunityInput) return
+
+    appliedGitCommunityInput = communityInput
+    const parsed = parseCommunityInput(communityInput)
+    if (!parsed) return
+
+    const session = setActiveCommunityInput(communityInput)
+    activeMode = "community"
+    selectedCommunityPubkey = session?.communityPubkey || parsed.pubkey
   })
 
   $effect(() => {

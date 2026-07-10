@@ -54,8 +54,10 @@
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {formatShortNpub} from "@app/util/pubkeys"
+  import {makeCommunityInputValue} from "@app/util/community-stars"
   import {
     makeCommunityCalendarPath,
+    makeGitCommunityPath,
     makeCommunityGoalPath,
     makeCommunityRoomPath,
     makeCommunityThreadPath,
@@ -94,7 +96,13 @@
   const threadsPath = $derived(communityId ? makeCommunityThreadPath(communityId) : "")
   const calendarPath = $derived(communityId ? makeCommunityCalendarPath(communityId) : "")
   const goalsPath = $derived(communityId ? makeCommunityGoalPath(communityId) : "")
-  const gitPath = "/git"
+  const gitCommunityInput = $derived(
+    communityId
+      ? makeCommunityInputValue({pubkey: communityId, relayHints: communityShareRelays}) ||
+          communityId
+      : "",
+  )
+  const gitPath = $derived(makeGitCommunityPath(gitCommunityInput))
   const roomAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunityTargetWriterPubkeys({
