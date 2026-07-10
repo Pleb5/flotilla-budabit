@@ -5,6 +5,7 @@ import {
   addPubkeyToCommunityProfileList,
   applyCommunityBootstrapGrants,
   findCommunityProfileListEvent,
+  getCommunityModeratorInviteProfileListRefs,
   getOwnerMembershipGrantProfileList,
   getPendingCommunityModeratorInvites,
   makeCommunityGrantEvent,
@@ -278,6 +279,46 @@ describe("community admin helpers", () => {
         definition,
         moderatorPubkey: memberPubkey,
         profileListEvents: [declined],
+      }),
+    ).toEqual([])
+  })
+
+  it("selects moderator invite refs for the active user", () => {
+    const moderatorRef = makeManualModeratorProfileListRef({
+      moderatorPubkey: memberPubkey,
+      sectionName: "General",
+      relays: ["wss://relay.example.com"],
+    })
+    const otherModeratorRef = makeManualModeratorProfileListRef({
+      moderatorPubkey: otherPubkey,
+      sectionName: "General",
+      relays: ["wss://relay.example.com"],
+    })
+    const definition = parseCommunityDefinition({
+      id: "definition",
+      kind: 10222,
+      pubkey: managerPubkey,
+      created_at: 1,
+      tags: [
+        ["content", "General"],
+        ["k", "1111"],
+        ["a", moderatorRef.address, moderatorRef.relay || ""],
+        ["a", otherModeratorRef.address, otherModeratorRef.relay || ""],
+      ],
+      content: "",
+      sig: "sig",
+    } as TrustedEvent)!
+
+    expect(
+      getCommunityModeratorInviteProfileListRefs({
+        definition,
+        moderatorPubkey: memberPubkey,
+      }).map(ref => ref.address),
+    ).toEqual([moderatorRef.address])
+    expect(
+      getCommunityModeratorInviteProfileListRefs({
+        definition,
+        moderatorPubkey: managerPubkey,
       }),
     ).toEqual([])
   })

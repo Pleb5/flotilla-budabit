@@ -13,7 +13,12 @@ import {
   type BlossomServerTarget,
 } from "./blossom"
 import {COMMUNITY_DEFINITION_KIND, parseCommunityDefinition} from "./community"
-import {clearActiveCommunity, setActiveCommunityDefinition} from "./community-state"
+import {
+  activeCommunitySession,
+  clearActiveCommunity,
+  setActiveCommunityDefinition,
+  setActiveCommunityInput,
+} from "./community-state"
 
 const utilMocks = vi.hoisted(() => ({
   uploadBlob: vi.fn(),
@@ -21,6 +26,8 @@ const utilMocks = vi.hoisted(() => ({
 
 const netMocks = vi.hoisted(() => ({
   request: vi.fn(),
+  poolClear: vi.fn(),
+  poolRelayAuthAttempt: vi.fn(),
 }))
 
 const registryMocks = vi.hoisted(() => ({
@@ -61,6 +68,12 @@ vi.mock("@welshman/net", async importOriginal => {
   return {
     ...actual,
     request: netMocks.request,
+    Pool: {
+      get: () => ({
+        clear: netMocks.poolClear,
+        get: () => ({auth: {attemptAuth: netMocks.poolRelayAuthAttempt}}),
+      }),
+    },
   }
 })
 
@@ -155,6 +168,8 @@ describe("commands", () => {
     utilMocks.uploadBlob.mockReset()
     netMocks.request.mockReset()
     netMocks.request.mockResolvedValue(undefined)
+    netMocks.poolClear.mockReset()
+    netMocks.poolRelayAuthAttempt.mockReset()
     registryMocks.unloadExtension.mockReset()
     registryMocks.registerWidget.mockReset()
     registryMocks.loadWidget.mockReset()
@@ -208,12 +223,15 @@ describe("commands", () => {
 
   it("logout clears local Git token caches", async () => {
     localStorage.setItem("budabit:git-auth:v1:pk999", "cached")
+    setActiveCommunityInput(communityPubkey)
 
     const {logout} = await import("./commands")
 
     await logout()
 
     expect(localStorage.getItem("budabit:git-auth:v1:pk999")).toBeNull()
+    expect(get(activeCommunitySession)).toBeUndefined()
+    expect(netMocks.poolClear).toHaveBeenCalledTimes(1)
   })
 
   it("normalizeBlossomUrl converts ws to http", async () => {

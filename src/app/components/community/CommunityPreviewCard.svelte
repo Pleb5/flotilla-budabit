@@ -32,6 +32,7 @@
     loading?: boolean
     opening?: boolean
     notFound?: boolean
+    unavailable?: boolean
     onSubmit?: () => void
     inputSearch?: (term: string) => string[]
     onInputSelect?: (pubkey: string) => void
@@ -55,6 +56,7 @@
     loading = false,
     opening = false,
     notFound = false,
+    unavailable = false,
     onSubmit = onOpen,
     inputSearch,
     onInputSelect,
@@ -73,18 +75,26 @@
     pubkey ? formatShortNpub(pubkey) || "Unknown community" : "No community selected",
   )
   const name = $derived(
-    notFound ? "Community not found" : pubkey ? $profileDisplay || fallbackName : fallbackName,
+    notFound
+      ? "Community not found"
+      : unavailable
+        ? "Community unavailable"
+        : pubkey
+          ? $profileDisplay || fallbackName
+          : fallbackName,
   )
   const info = $derived(
     notFound
       ? "No kind 10222 community definition was found for this npub."
-      : opening
-        ? "Opening community..."
-        : loading
-          ? "Looking for a community definition..."
-          : pubkey
-            ? $profile?.about || profileRelays[0] || fallbackName
-            : emptyInfo,
+      : unavailable
+        ? "Relays did not return the community definition. Tap to retry."
+        : opening
+          ? "Opening community..."
+          : loading
+            ? "Looking for a community definition..."
+            : pubkey
+              ? $profile?.about || profileRelays[0] || fallbackName
+              : emptyInfo,
   )
   let profileHydrationKey = ""
   let failedPicture = $state("")
@@ -153,7 +163,7 @@
       <div class="flex min-w-0 items-center gap-2 sm:gap-4">
         <div
           class="center !flex h-10 w-10 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300 sm:h-16 sm:w-16">
-          {#if pubkey && !notFound && showPicture}
+          {#if pubkey && !notFound && !unavailable && showPicture}
             <img
               alt=""
               src={picture}

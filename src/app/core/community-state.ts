@@ -452,7 +452,10 @@ export const getCommunityDefinitionRelayHints = (
 ) => {
   const sourceRelays = definition ? Array.from(tracker.getRelays(definition.event.id)) : []
 
-  return normalizeRelays(sourceRelays.length > 0 ? sourceRelays : fallbackRelays)
+  return normalizeRelays([
+    ...(definition?.relays || []),
+    ...(sourceRelays.length > 0 ? sourceRelays : fallbackRelays),
+  ])
 }
 
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
@@ -1997,6 +2000,10 @@ export const loadCommunityBootstrap = async (
   let definition = await loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
     relayHints: session.communityRelayHints,
   })
+  if (!definition) {
+    throw new Error("Community definition unavailable")
+  }
+
   const definitionEvents = definition ? [definition.event] : []
   let communityRelays = definition ? definition.relays : relays
 

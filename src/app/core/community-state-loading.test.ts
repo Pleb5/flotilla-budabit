@@ -34,14 +34,19 @@ vi.mock("@welshman/net", async importOriginal => {
   }
 })
 
-vi.mock("@welshman/router", () => ({
-  Router: {
-    get: () => ({
-      FromUser: () => ({getUrls: () => []}),
-      FromPubkeys: fromPubkeysMock,
-    }),
-  },
-}))
+vi.mock("@welshman/router", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/router")>()
+
+  return {
+    ...actual,
+    Router: {
+      get: () => ({
+        FromUser: () => ({getUrls: () => []}),
+        FromPubkeys: fromPubkeysMock,
+      }),
+    },
+  }
+})
 
 import {
   activeCommunityDefinition,
@@ -343,6 +348,17 @@ describe("community relay loading", () => {
     expect(bootstrap.definition?.event.id).toBe(definitionEvent.id)
     expect(bootstrap.profileListEvents.map(event => event.id)).toEqual([profileListEvent.id])
     expect(get(activeCommunityDefinition)?.event.id).toBe(definitionEvent.id)
+  })
+
+  it("fails bootstrap when no community definition loads", async () => {
+    loadMock.mockResolvedValue([])
+
+    await expect(
+      loadCommunityBootstrap({
+        communityPubkey,
+        communityRelayHints: [relayA],
+      }),
+    ).rejects.toThrow("Community definition unavailable")
   })
 
   it("discovers moderator communities from indexed definitions before loading profile lists", async () => {

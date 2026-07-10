@@ -69,13 +69,18 @@
   let communityInput = $state("")
   let previewRequestId = 0
   let previewRequestKey = ""
-  let previewLookupState = $state<"idle" | "loading" | "found" | "not-found">("idle")
+  let previewLookupState = $state<"idle" | "loading" | "found" | "not-found" | "unavailable">(
+    "idle",
+  )
   let defaultRequestId = 0
   let defaultRequestKey = ""
-  let defaultLookupState = $state<"idle" | "loading" | "found" | "not-found">("idle")
+  let defaultLookupState = $state<"idle" | "loading" | "found" | "not-found" | "unavailable">(
+    "idle",
+  )
   let loadedDefaultRelayHints = $state<string[]>([])
   let enteringCommunityKey = $state("")
   let selectorRelayHints = $state<Record<string, string[]>>({})
+  let relayResumeVersion = $state(0)
   let preferredHydrationKey = ""
   let preferredHydrationAttempts = 0
   let userRelayListHydrationKey = $state("")
@@ -149,8 +154,8 @@
       const definition = await loadCommunityDefinition(parsed.pubkey, parsed.relays)
 
       if (!definition) {
-        if (parsed.pubkey === previewPubkey) previewLookupState = "not-found"
-        pushToast({theme: "error", message: "No community found"})
+        if (parsed.pubkey === previewPubkey) previewLookupState = "unavailable"
+        pushToast({theme: "error", message: "Community unavailable. Try again."})
         return
       }
 
@@ -171,8 +176,8 @@
       communitySearchInput = ""
       communityInput = ""
     } catch (error) {
-      if (parsed.pubkey === previewPubkey) previewLookupState = "not-found"
-      pushToast({theme: "error", message: "No community found"})
+      if (parsed.pubkey === previewPubkey) previewLookupState = "unavailable"
+      pushToast({theme: "error", message: "Community unavailable. Try again."})
     } finally {
       if (enteringCommunityKey === requestKey) enteringCommunityKey = ""
     }
@@ -349,16 +354,14 @@
       (userRelayListHydrationKey === $pubkey || $userRelayList?.event?.pubkey === $pubkey),
     ),
   )
-  const missingOwnAdminCommunity = $derived(
-    Boolean($pubkey && !hasOwnCommunity),
-  )
+  const missingOwnAdminCommunity = $derived(Boolean($pubkey && !hasOwnCommunity))
   const checkingOwnCommunity = $derived(
     Boolean(
       $pubkey &&
-        !hasOwnCommunity &&
-        (!userRelayListHydrated ||
-          $communityPreferencesLoading ||
-          preferredHydrationAttempts < PREFERRED_HYDRATION_MAX_ATTEMPTS),
+      !hasOwnCommunity &&
+      (!userRelayListHydrated ||
+        $communityPreferencesLoading ||
+        preferredHydrationAttempts < PREFERRED_HYDRATION_MAX_ATTEMPTS),
     ),
   )
   const createCommunityDisabled = $derived(
@@ -432,6 +435,11 @@
   const previewCommunityNotFound = $derived(
     Boolean(previewPubkey && !previewHasCommunityDefinition && previewLookupState === "not-found"),
   )
+  const previewCommunityUnavailable = $derived(
+    Boolean(
+      previewPubkey && !previewHasCommunityDefinition && previewLookupState === "unavailable",
+    ),
+  )
   const previewLabel = $derived(hasCommunityInput ? "Preview community" : "Find community")
   const previewEmptyInfo = $derived(
     hasCommunityInput
@@ -481,6 +489,13 @@
       defaultLookupState === "not-found",
     ),
   )
+  const defaultCommunityUnavailable = $derived(
+    Boolean(
+      defaultCommunityPubkey &&
+      !defaultHasCommunityDefinition &&
+      defaultLookupState === "unavailable",
+    ),
+  )
   const preferredCommunitiesLoading = $derived(
     Boolean($pubkey && !userRelayListHydrated) ||
       $communityStarsLoading ||
@@ -492,6 +507,21 @@
   const showPreferredCommunities = $derived(
     selectorCommunities.length > 0 || showPreferredCommunitiesLoading,
   )
+
+  $effect(() => {
+    const onRelayResume = () => {
+      defaultRequestKey = ""
+      previewRequestKey = ""
+      preferredHydrationKey = ""
+      preferredHydrationAttempts = 0
+      selectorRelayLoadAttempts.clear()
+      relayResumeVersion += 1
+    }
+
+    window.addEventListener("budabit:relay-resume", onRelayResume)
+
+    return () => window.removeEventListener("budabit:relay-resume", onRelayResume)
+  })
 
   $effect(() => {
     const searchInput = communitySearchInput
@@ -527,7 +557,9 @@
 
   $effect(() => {
     const relayHints = preferredHydrationRelayHints
-    const key = $pubkey ? `${$pubkey}:${relayHints.join(",")}:${userRelayListKey}` : ""
+    const key = $pubkey
+      ? `${$pubkey}:${relayHints.join(",")}:${userRelayListKey}:${relayResumeVersion}`
+      : ""
 
     if (!$pubkey || !key) return
     if (!userRelayListHydrated) return
@@ -555,9 +587,10 @@
 
   $effect(() => {
     const items = selectorCommunities
+    const resumeVersion = relayResumeVersion
 
     for (const item of items) {
-      const key = `${item.pubkey}:${item.relayHints.join(",")}`
+      const key = `${resumeVersion}:${item.pubkey}:${item.relayHints.join(",")}`
       const lastAttempt = selectorRelayLoadAttempts.get(key) || 0
       if (!item.pubkey || selectorRelayHints[item.pubkey]?.length) continue
       if (lastAttempt && Date.now() - lastAttempt < SELECTOR_RELAY_RETRY_MS) continue
@@ -583,7 +616,7 @@
       return
     }
 
-    const requestKey = [parsed.pubkey, ...parsed.relays].join("|")
+    const requestKey = [parsed.pubkey, ...parsed.relays, relayResumeVersion].join("|")
     if (defaultRequestKey === requestKey) return
 
     defaultRequestKey = requestKey
@@ -596,7 +629,7 @@
       .then(relays => {
         if (requestId !== defaultRequestId) return
         if (relays.length === 0) {
-          defaultLookupState = "not-found"
+          defaultLookupState = "unavailable"
           return
         }
 
@@ -605,7 +638,7 @@
         defaultLookupState = "found"
       })
       .catch(() => {
-        if (requestId === defaultRequestId) defaultLookupState = "not-found"
+        if (requestId === defaultRequestId) defaultLookupState = "unavailable"
       })
   })
 
@@ -631,6 +664,7 @@
       ...activeDefinitionRelays,
       ...signedInPubkeyRelays,
       targetPubkey === $pubkey ? userRelayListKey : "",
+      relayResumeVersion,
     ].join("|")
 
     if (previewRequestKey === requestKey) return
@@ -647,7 +681,7 @@
       .then(relays => {
         if (requestId !== previewRequestId) return
         if (relays.length === 0) {
-          previewLookupState = "not-found"
+          previewLookupState = "unavailable"
           return
         }
 
@@ -655,7 +689,7 @@
         previewLookupState = "found"
       })
       .catch(() => {
-        if (requestId === previewRequestId) previewLookupState = "not-found"
+        if (requestId === previewRequestId) previewLookupState = "unavailable"
       })
   })
 </script>
@@ -690,6 +724,7 @@
             loading={previewLoading}
             opening={previewOpening}
             notFound={previewCommunityNotFound}
+            unavailable={previewCommunityUnavailable}
             inputSearch={searchCommunityInputProfiles}
             onInputSelect={selectCommunityInputProfile}
             onSubmit={submitCommunityInput} />
@@ -705,7 +740,8 @@
               showActions={defaultHasCommunityDefinition}
               loading={defaultLoading}
               opening={defaultOpening}
-              notFound={defaultCommunityNotFound} />
+              notFound={defaultCommunityNotFound}
+              unavailable={defaultCommunityUnavailable} />
           {/if}
 
           <div class="flex min-w-0 flex-col gap-2 sm:flex-row">

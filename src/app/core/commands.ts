@@ -129,6 +129,8 @@ import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/ut
 import {
   activeCommunityDefinition,
   activeUserCommunityBlossomRefs,
+  clearActiveCommunity,
+  clearCommunityBootstrapCache,
   DEFAULT_COMMUNITY_INPUT,
   getCommunityBlossomServers,
   loadCommunityDefinitionFromRelays,
@@ -480,6 +482,10 @@ export const logout = async () => {
   if ($pubkey) {
     dropSession($pubkey)
   }
+
+  clearActiveCommunity()
+  clearCommunityBootstrapCache()
+  Pool.get().clear()
 
   clearUnlockedLocalKeySecrets()
   localStorage.clear()

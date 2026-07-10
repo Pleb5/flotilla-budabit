@@ -122,6 +122,21 @@ export const makeModeratorInviteResponseProfileList = ({
 export const isDeclinedModeratorInviteProfileList = (event: TrustedEvent | undefined) =>
   getProfileListStatus(event) === PROFILE_LIST_STATUS_DECLINED
 
+export const getCommunityModeratorInviteProfileListRefs = ({
+  definition,
+  moderatorPubkey,
+}: {
+  definition: CommunityDefinition | undefined
+  moderatorPubkey: string | undefined
+}) => {
+  const pubkey = normalizePubkey(moderatorPubkey || "")
+  if (!definition || !pubkey || pubkey === normalizePubkey(definition.pubkey)) return []
+
+  return definition.sections.flatMap(section =>
+    section.profileLists.filter(profileList => normalizePubkey(profileList.pubkey) === pubkey),
+  )
+}
+
 export const getOwnerMembershipGrantProfileList = ({
   definition,
   sectionName,
@@ -183,14 +198,18 @@ export const getPendingCommunityModeratorInvites = ({
   moderatorPubkey: string | undefined
   profileListEvents?: TrustedEvent[]
 }): PendingCommunityModeratorInvite[] => {
-  const pubkey = normalizePubkey(moderatorPubkey || "")
-  if (!definition || !pubkey || pubkey === normalizePubkey(definition.pubkey)) return []
+  const inviteProfileListAddresses = new Set(
+    getCommunityModeratorInviteProfileListRefs({definition, moderatorPubkey}).map(
+      profileList => profileList.address,
+    ),
+  )
+  if (!definition || inviteProfileListAddresses.size === 0) return []
 
   return definition.sections.flatMap(section => {
     const displayName = getCommunitySectionDisplayName(section)
 
     return section.profileLists.flatMap(profileList => {
-      if (normalizePubkey(profileList.pubkey) !== pubkey) return []
+      if (!inviteProfileListAddresses.has(profileList.address)) return []
 
       const event = findCommunityProfileListEvent(profileList, profileListEvents)
       if (event || isDeclinedModeratorInviteProfileList(event)) return []

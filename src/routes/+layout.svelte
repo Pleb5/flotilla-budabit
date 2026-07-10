@@ -12,9 +12,10 @@
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
-  import {defaultSocketPolicies} from "@welshman/net"
+  import {Pool, defaultSocketPolicies} from "@welshman/net"
   import {
     pubkey,
+    loadUserRelayList,
     sessions,
     signerLog,
     shouldUnwrap,
@@ -71,9 +72,11 @@
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunitySession,
+    clearCommunityBootstrapCache,
     ensureCommunityBootstrap,
     getCommunityBootstrapKey,
     hydrateCommunityPreferences,
+    hydratePreferredCommunities,
     hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
@@ -126,6 +129,8 @@
   const APP_RELOAD_RECOVERY_ATTEMPT_KEY = "appReloadRecoveryAttempt"
   const APP_IMPORT_RECOVERY_KEY = "appImportRecoveryBuildId"
   const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
+  const RELAY_RESUME_IDLE_MS = 30_000
+  const RELAY_RESUME_THROTTLE_MS = 5_000
   let updateCheckInterval: number | null = null
   let updateCheckOnFocus: (() => void) | null = null
   let updateCheckOnVisibilityChange: (() => void) | null = null
@@ -141,6 +146,8 @@
   let loadingUserProfileKey = ""
   let loadedCommunityPreferencesKey = ""
   let loadingCommunityPreferencesKey = ""
+  let relayResumeHiddenAt = browser && document.visibilityState === "hidden" ? Date.now() : 0
+  let relayResumeLastResetAt = 0
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -581,6 +588,82 @@
     document.addEventListener("visibilitychange", updateCheckOnVisibilityChange)
   }
 
+  const resetRelayHydrationKeys = () => {
+    loadedCommunityPreferencesKey = ""
+    loadingCommunityPreferencesKey = ""
+    loadedUserModeratorRequestsKey = ""
+    loadingUserModeratorRequestsKey = ""
+    loadedUserProfileKey = ""
+    loadingUserProfileKey = ""
+  }
+
+  const recoverRelayConnections = (reason: string, force = false) => {
+    if (!browser) return
+
+    const now = Date.now()
+    const hiddenFor = relayResumeHiddenAt ? now - relayResumeHiddenAt : 0
+    if (!force && hiddenFor < RELAY_RESUME_IDLE_MS) return
+    if (now - relayResumeLastResetAt < RELAY_RESUME_THROTTLE_MS) return
+
+    relayResumeLastResetAt = now
+    relayResumeHiddenAt = 0
+    Pool.get().clear()
+    clearCommunityBootstrapCache()
+    resetRelayHydrationKeys()
+
+    const user = pubkey.get() || ""
+    const relayHints = get(activeCommunityRelays)
+    const session = get(activeCommunitySession)
+
+    if (user) {
+      loadUserRelayList(user).catch(error => {
+        console.warn("[relay-resume] Failed to refresh user relay list", error)
+      })
+      hydratePreferredCommunities({relayHints, force: true}).catch(error => {
+        console.warn("[relay-resume] Failed to refresh preferred communities", error)
+      })
+      hydratePubkeyProfiles({pubkeys: [user], relayHints, force: true}).catch(error => {
+        console.warn("[relay-resume] Failed to refresh active user profile", error)
+      })
+    }
+
+    if (session) {
+      ensureCommunityBootstrap(session, {
+        key: getCommunityBootstrapKey(session, user),
+        updateStatus: false,
+      }).catch(error => {
+        console.warn("[relay-resume] Failed to refresh active community metadata", error)
+      })
+    }
+
+    window.dispatchEvent(new CustomEvent("budabit:relay-resume", {detail: {reason}}))
+  }
+
+  const setupRelayResumeRecovery = () => {
+    if (!browser) return () => {}
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        relayResumeHiddenAt = Date.now()
+        return
+      }
+
+      recoverRelayConnections("visible")
+    }
+    const onFocus = () => recoverRelayConnections("focus")
+    const onOnline = () => recoverRelayConnections("online", true)
+
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("focus", onFocus)
+    window.addEventListener("online", onOnline)
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("focus", onFocus)
+      window.removeEventListener("online", onOnline)
+    }
+  }
+
   const getRegistrationScriptUrl = (registration: ServiceWorkerRegistration) =>
     registration.active?.scriptURL ||
     registration.waiting?.scriptURL ||
@@ -911,6 +994,7 @@
     unsubscribers.push(
       setupHistory(),
       setupGitCorsProxy(),
+      setupRelayResumeRecovery(),
       setupWidgetUpdateNotifications(),
       syncApplicationData(),
       syncGitData(),

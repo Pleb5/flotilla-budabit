@@ -39,23 +39,44 @@ const getRelayAuthSigner = () => {
 export const authPolicy = (socket: Socket) => {
   let inFlight = false
   let authenticatedWithGuest = false
+  let authenticatedPubkey = ""
+
+  const retryActiveSignerAuth = async (
+    activeSigner: NonNullable<ReturnType<typeof signer.get>>,
+  ) => {
+    inFlight = true
+    try {
+      await socket.auth.retryAuth(event => activeSigner.sign(event))
+      authenticatedWithGuest = false
+      authenticatedPubkey = pubkey.get() || ""
+    } finally {
+      inFlight = false
+    }
+  }
 
   const attemptAuth = async () => {
     if (inFlight) return
     const activeSigner = signer.get()
+    const activePubkey = pubkey.get() || ""
+    const hasCompletedAuth = [
+      AuthStatus.Ok,
+      AuthStatus.Forbidden,
+      AuthStatus.DeniedSignature,
+    ].includes(socket.auth.status)
+
+    if (authenticatedWithGuest && activeSigner && hasCompletedAuth) {
+      await retryActiveSignerAuth(activeSigner)
+      return
+    }
 
     if (
-      authenticatedWithGuest &&
       activeSigner &&
-      [AuthStatus.Ok, AuthStatus.Forbidden].includes(socket.auth.status)
+      activePubkey &&
+      authenticatedPubkey &&
+      authenticatedPubkey !== activePubkey &&
+      hasCompletedAuth
     ) {
-      inFlight = true
-      try {
-        await socket.auth.retryAuth(event => activeSigner.sign(event))
-        authenticatedWithGuest = false
-      } finally {
-        inFlight = false
-      }
+      await retryActiveSignerAuth(activeSigner)
       return
     }
 
@@ -66,6 +87,7 @@ export const authPolicy = (socket: Socket) => {
     try {
       await socket.auth.doAuth(event => relayAuthSigner.signer.sign(event))
       authenticatedWithGuest = relayAuthSigner.isGuest
+      authenticatedPubkey = relayAuthSigner.isGuest ? "" : activePubkey
     } finally {
       inFlight = false
       if (authenticatedWithGuest && signer.get()) attemptAuth()

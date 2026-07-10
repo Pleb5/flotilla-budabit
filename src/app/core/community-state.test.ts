@@ -14,6 +14,7 @@ import {
 } from "./community"
 import {
   getCommunityBootstrapRelays,
+  getCommunityDefinitionRelayHints,
   COMMUNITY_DISCOVERY_RELAYS,
   activeCommunityAdmissionFormEvents,
   activeCommunityAdmissionForms,
@@ -150,6 +151,14 @@ describe("community state helpers", () => {
       "wss://relay.example.com/",
       ...COMMUNITY_DISCOVERY_RELAYS,
     ])
+  })
+
+  it("preserves definition relays in community relay hints", () => {
+    const definition = parseCommunityDefinition(makeCommunityDefinitionEvent(1))!
+
+    expect(getCommunityDefinitionRelayHints(definition, ["wss://fallback.example.com"])).toContain(
+      "wss://relay.example.com/",
+    )
   })
 
   it("builds community definition filters", () => {

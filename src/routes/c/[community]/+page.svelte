@@ -3,7 +3,7 @@
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {makeEvent, type TrustedEvent} from "@welshman/util"
+  import {makeEvent, type Filter, type TrustedEvent} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import BillList from "@assets/icons/bill-list.svg?dataurl"
@@ -27,19 +27,26 @@
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {fade} from "@lib/transition"
   import {
+    activeCommunitySession,
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    clearCommunityBootstrapCache,
+    ensureCommunityBootstrap,
+    getCommunityBootstrapKey,
     getCommunityDefinitionRelayHints,
     hasCommunityHydrationCompleted,
+    loadCommunityEvents,
+    makeCommunitySession,
     markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
   import {
+    getCommunityModeratorInviteProfileListRefs,
     getPendingCommunityModeratorInvites,
     makeModeratorInviteResponseProfileList,
   } from "@app/core/community-admin"
@@ -76,6 +83,7 @@
   const communityDescriptionEvent = $derived({content: communityDescription, tags: []})
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   let failedPicture = $state("")
+  let retryingCommunityBootstrap = $state(false)
   const showCommunityPicture = $derived(
     Boolean(communityPicture && failedPicture !== communityPicture),
   )
@@ -103,6 +111,24 @@
       : "",
   )
   const gitPath = $derived(makeGitCommunityPath(gitCommunityInput))
+  const retryCommunityBootstrap = async () => {
+    const session =
+      $activeCommunitySession || (parsedCommunity && makeCommunitySession(parsedCommunity))
+    if (!session || retryingCommunityBootstrap) return
+
+    retryingCommunityBootstrap = true
+    clearCommunityBootstrapCache(session.communityPubkey)
+
+    try {
+      await ensureCommunityBootstrap(session, {
+        key: getCommunityBootstrapKey(session, $pubkey || ""),
+      })
+    } catch (error) {
+      console.warn("[community-home] Failed to retry community bootstrap", error)
+    } finally {
+      retryingCommunityBootstrap = false
+    }
+  }
   const roomAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunityTargetWriterPubkeys({
@@ -124,6 +150,7 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityId && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const communityBootstrapError = $derived($activeCommunityBootstrapStatus.error || "")
   const roomFilters = $derived(
     communityBootstrapReady && communityId && roomAuthorPubkeys.length
       ? [makeCommunityRoomRootsFilter(communityId, {authors: roomAuthorPubkeys})]
@@ -156,6 +183,18 @@
       profileListEvents: $activeCommunityProfileListEvents,
     })
   })
+  const moderatorInviteProfileListRefs = $derived.by(() =>
+    getCommunityModeratorInviteProfileListRefs({
+      definition: $activeCommunityDefinition,
+      moderatorPubkey: $pubkey || undefined,
+    }),
+  )
+  let moderatorInviteEvidenceKey = ""
+  let moderatorInviteEvidenceLoaded = $state(false)
+  const showPendingModeratorInvites = $derived(
+    moderatorInviteEvidenceLoaded && pendingModeratorInvites.length > 0,
+  )
+  const MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS = 2_000
   const ROOM_ROOT_LOAD_TIMEOUT_MS = 8_000
   const ROOM_ROOT_EMPTY_RETRY_DELAY_MS = 2_000
   const ROOM_ROOT_EMPTY_RETRY_LIMIT = 2
@@ -229,6 +268,53 @@
       },
     })
   }
+
+  $effect(() => {
+    const refs = Array.from(
+      new Map(moderatorInviteProfileListRefs.map(ref => [ref.address, ref])).values(),
+    )
+    const relays = $activeCommunityRelays
+    const definition = $activeCommunityDefinition
+    const user = $pubkey || ""
+    const key =
+      communityBootstrapReady && definition && user && refs.length > 0 && relays.length > 0
+        ? `${definition.event.id}:${user}:${relays.join(",")}:${refs.map(ref => ref.address).join(",")}`
+        : ""
+
+    if (!key) {
+      moderatorInviteEvidenceKey = ""
+      moderatorInviteEvidenceLoaded = refs.length === 0
+      return
+    }
+
+    if (moderatorInviteEvidenceKey === key) return
+
+    moderatorInviteEvidenceKey = key
+    moderatorInviteEvidenceLoaded = false
+
+    const filters = refs.map(
+      ref =>
+        ({
+          kinds: [ref.kind],
+          authors: [ref.pubkey],
+          "#d": [ref.identifier],
+          limit: 1,
+        }) satisfies Filter,
+    )
+
+    loadCommunityEvents(relays, filters, {
+      timeout: MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS,
+      settle: "all",
+    })
+      .catch(error => {
+        console.warn("[community-home] Failed to hydrate moderator invite evidence", error)
+      })
+      .finally(() => {
+        setTimeout(() => {
+          if (moderatorInviteEvidenceKey === key) moderatorInviteEvidenceLoaded = true
+        }, 0)
+      })
+  })
 
   $effect(() => {
     if (
@@ -392,7 +478,30 @@
     {/if}
   </div>
 
-  {#if pendingModeratorInvites.length > 0}
+  {#if communityBootstrapError && !communityBootstrapReady}
+    <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+          <h2 class="text-lg font-semibold text-warning">Community unavailable</h2>
+          <p class="mt-1 text-sm opacity-75">
+            The community definition did not load. This can happen after a stale mobile connection
+            or when relay auth is required.
+          </p>
+        </div>
+        <Button
+          class="btn btn-warning shrink-0 justify-center"
+          disabled={retryingCommunityBootstrap}
+          onclick={retryCommunityBootstrap}>
+          {#if retryingCommunityBootstrap}
+            <span class="loading loading-spinner loading-xs"></span>
+          {/if}
+          Retry
+        </Button>
+      </div>
+    </section>
+  {/if}
+
+  {#if showPendingModeratorInvites}
     <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
