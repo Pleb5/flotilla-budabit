@@ -2,9 +2,15 @@
 
 import {describe, expect, it, vi} from "vitest"
 import {readable} from "svelte/store"
-import {GIT_COMMENT, GIT_ISSUE, GIT_STATUS_CLOSED} from "@nostr-git/core/events"
+import {nip19} from "nostr-tools"
+import {
+  GIT_COMMENT,
+  GIT_ISSUE,
+  GIT_REPO_ANNOUNCEMENT,
+  GIT_STATUS_CLOSED,
+} from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
-import {COMMENT, MESSAGE, NOTE, REACTION, THREAD, ZAP_RESPONSE} from "@welshman/util"
+import {COMMENT, EVENT_TIME, MESSAGE, REACTION, THREAD, ZAP_GOAL, ZAP_RESPONSE} from "@welshman/util"
 import type {Chat} from "@app/core/state"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
@@ -169,15 +175,50 @@ describe("notification sources", () => {
       expect.arrayContaining([
         expect.objectContaining({source: "chat", path: "/chat", readPath: "/chat/*"}),
         expect.objectContaining({source: "git", path: "/git/repo"}),
-        expect.objectContaining({source: "other", path: "/settings"}),
-        expect.objectContaining({source: "other", path: "/settings/git"}),
+        expect.objectContaining({source: "community", path: "/c/community/rooms/root"}),
+        expect.objectContaining({source: "community", path: "/c/community/git"}),
       ]),
     )
-    expect(rows.map(row => row.path)).not.toEqual(
-      expect.arrayContaining(["/c/community/rooms/root", "/c/community/git"]),
-    )
+    expect(rows.map(row => row.path)).not.toEqual(expect.arrayContaining(["/settings", "/settings/git"]))
     expect(rows.find(row => row.path === "/git/repo")?.preview).toBe("Open git activity")
     expect(rows.find(row => row.path === "/git/repo")?.preview).not.toContain("/")
+  })
+
+  it("builds community route fallback rows with candidate event timestamps", async () => {
+    const {buildRouteNotificationRows} = await import("./notification-sources")
+    const {displayProfileByPubkey} = await import("@welshman/app")
+    const mentionMessage = makeEvent({
+      id: "mention-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 123,
+      content: "hey #[0]",
+      tags: [
+        ["p", viewer],
+        ["h", communityPubkey],
+        ["E", "room-one"],
+      ],
+    })
+    const path = `/c/${communityPubkey}/rooms/room-one`
+
+    expect(
+      buildRouteNotificationRows({
+        paths: [path],
+        candidates: [{path, latestEvent: mentionMessage}],
+        currentPubkey: viewer,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        source: "community",
+        type: "mention",
+        title: "New room mention",
+        preview: `hey @${displayProfileByPubkey(viewer)}`,
+        actorPubkey: writer,
+        createdAt: 123,
+        eventId: mentionMessage.id,
+        detail: expect.objectContaining({event: mentionMessage}),
+      }),
+    ])
   })
 
   it("filters notification rows by selected sources and profile names", async () => {
@@ -187,7 +228,7 @@ describe("notification sources", () => {
         id: "event:chat",
         eventId: "chat",
         source: "chat",
-        sourceLabel: "Chats",
+        sourceLabel: "DMs",
         title: "Direct message",
         preview: "hello alice",
         path: "/chat/alice",
@@ -222,7 +263,7 @@ describe("notification sources", () => {
     ] as const
     const filterValues = NOTIFICATION_ROW_FILTERS.map(option => option.value)
 
-    expect(filterValues).toEqual(["chat", "git", "community", "other"])
+    expect(filterValues).toEqual(["community", "git", "chat"])
     expect(filterValues).not.toEqual(
       expect.arrayContaining(["all", "read", "social", "unread"]),
     )
@@ -241,6 +282,37 @@ describe("notification sources", () => {
     ])
     expect(filterNotificationRows([...rows], {term: "ada"}).map(row => row.id)[0]).toBe(
       "event:community",
+    )
+  })
+
+  it("builds community notification filters even before profile-list authors are hydrated", async () => {
+    const {buildGlobalCommunityNotificationFilters} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const filters = buildGlobalCommunityNotificationFilters({
+      refs: [ref],
+      profileListEvents: [],
+      currentPubkey: viewer,
+      since: 10,
+      limit: 50,
+    })
+
+    expect(filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({kinds: [MESSAGE], "#h": [communityPubkey], since: 10}),
+        expect.objectContaining({kinds: [COMMENT], "#h": [communityPubkey], since: 10}),
+        expect.objectContaining({
+          kinds: [MESSAGE],
+          "#h": [communityPubkey],
+          "#p": [viewer],
+          since: 10,
+        }),
+        expect.objectContaining({
+          kinds: [COMMENT],
+          "#h": [communityPubkey],
+          "#p": [viewer],
+          since: 10,
+        }),
+      ]),
     )
   })
 
@@ -422,12 +494,13 @@ describe("notification sources", () => {
         ["E", "room-one"],
       ],
     })
+    const quoted = `nostr:${nip19.neventEncode({id: "9".repeat(64)})}`
     const replyMessage = makeEvent({
       id: "reply-message",
       kind: MESSAGE,
       pubkey: writer,
       created_at: 100,
-      content: "reply in room",
+      content: `${quoted}\n\nreply in room`,
       tags: [
         ["h", communityPubkey],
         ["E", "room-one"],
@@ -448,12 +521,120 @@ describe("notification sources", () => {
         source: "community",
         type: "reply",
         title: "New room reply",
+        preview: "reply in room",
         actorPubkey: writer,
         path: expect.stringContaining("/rooms/room-one"),
-        target: expect.objectContaining({label: "Your room message", eventId: parentMessage.id}),
-        detail: expect.objectContaining({label: "Reply", eventId: replyMessage.id}),
+        target: expect.objectContaining({label: "Context", eventId: parentMessage.id}),
+        detail: expect.objectContaining({label: "New room reply", eventId: replyMessage.id}),
       }),
     )
+  })
+
+  it("labels community room replies when the parent is not loaded but q tags the signed-in user", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const replyMessage = makeEvent({
+      id: "reply-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 100,
+      content: "reply in room",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-one"],
+        ["q", "missing-parent", "", viewer],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [replyMessage],
+      targetEvents: [],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === replyMessage.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        type: "reply",
+        title: "New room reply",
+        actorPubkey: writer,
+        path: expect.stringContaining("/rooms/room-one"),
+        target: undefined,
+        detail: expect.objectContaining({label: "New room reply", eventId: replyMessage.id}),
+      }),
+    )
+  })
+
+  it("labels community room mentions to the signed-in user", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const {displayProfileByPubkey} = await import("@welshman/app")
+    const ref = makeCommunityRef()
+    const mentionMessage = makeEvent({
+      id: "mention-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 100,
+      content: "hey #[0] please check this",
+      tags: [
+        ["p", viewer],
+        ["h", communityPubkey],
+        ["E", "room-one"],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [mentionMessage],
+      targetEvents: [],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === mentionMessage.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        type: "mention",
+        title: "New room mention",
+        preview: `hey @${displayProfileByPubkey(viewer)} please check this`,
+        action: "mentioned you",
+        actorPubkey: writer,
+        path: expect.stringContaining("/rooms/room-one"),
+        detail: expect.objectContaining({label: "New room mention", eventId: mentionMessage.id}),
+      }),
+    )
+  })
+
+  it("renders direct profile entities in compact notification previews", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const {displayProfileByPubkey} = await import("@welshman/app")
+    const ref = makeCommunityRef()
+    const profileEntity = nip19.nprofileEncode({pubkey: viewer})
+    const mentionMessage = makeEvent({
+      id: "mention-message",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 100,
+      content: `nostr:${profileEntity} test`,
+      tags: [
+        ["p", viewer],
+        ["h", communityPubkey],
+        ["E", "room-one"],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [mentionMessage],
+      targetEvents: [],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+    const row = rows.find(row => row.eventId === mentionMessage.id)
+
+    expect(row?.preview).toBe(`@${displayProfileByPubkey(viewer)} test`)
+    expect(row?.preview).not.toContain("profile")
   })
 
   it("does not label room replies when the parent is outside the same room", async () => {
@@ -491,6 +672,54 @@ describe("notification sources", () => {
     })
 
     expect(rows.find(row => row.eventId === replyMessage.id)).toBeUndefined()
+  })
+
+  it("does not notify original room message authors for second-order room replies", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const parentMessage = makeEvent({
+      id: "parent-message",
+      kind: MESSAGE,
+      pubkey: viewer,
+      created_at: 90,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-one"],
+      ],
+    })
+    const firstReply = makeEvent({
+      id: "first-reply",
+      kind: MESSAGE,
+      pubkey: writer,
+      created_at: 100,
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-one"],
+        ["q", parentMessage.id, "", viewer],
+      ],
+    })
+    const secondReply = makeEvent({
+      id: "second-reply",
+      kind: MESSAGE,
+      pubkey: outsider,
+      created_at: 110,
+      content: "reply to the reply",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "room-one"],
+        ["q", firstReply.id, "", writer],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [secondReply],
+      targetEvents: [parentMessage, firstReply],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === secondReply.id)).toBeUndefined()
   })
 
   it("notifies only thread replies to the signed-in user's comments", async () => {
@@ -582,48 +811,283 @@ describe("notification sources", () => {
         type: "reply",
         title: "New thread comment reply",
         path: expect.stringContaining("/threads/thread-one"),
-        target: expect.objectContaining({label: "Your comment", eventId: parentComment.id}),
+        target: expect.objectContaining({label: "Context", eventId: parentComment.id}),
+      }),
+    )
+  })
+
+  it("notifies thread creators for nested comments under their thread", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const threadRoot = makeEvent({
+      id: "thread-root",
+      kind: THREAD,
+      pubkey: viewer,
+      created_at: 80,
+      tags: [
+        ["h", communityPubkey],
+        ["title", "A thread"],
+      ],
+    })
+    const firstComment = makeEvent({
+      id: "first-comment",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 100,
+      content: "first comment",
+      tags: [
+        ["h", communityPubkey],
+        ["E", threadRoot.id, "", viewer],
+        ["K", String(THREAD)],
+        ["P", viewer],
+      ],
+    })
+    const nestedComment = makeEvent({
+      id: "nested-comment",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 110,
+      content: "nested comment",
+      tags: [
+        ["h", communityPubkey],
+        ["E", threadRoot.id, "", viewer],
+        ["K", String(THREAD)],
+        ["P", viewer],
+        ["e", firstComment.id, "", writer],
+        ["k", String(COMMENT)],
+        ["p", writer],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [nestedComment],
+      targetEvents: [threadRoot, firstComment],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === nestedComment.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        type: "reply",
+        title: "New thread comment",
+        action: "commented",
+        contextLabel: "on your thread",
+        path: expect.stringContaining("/threads/thread-root"),
+        target: expect.objectContaining({label: "Your thread", eventId: threadRoot.id}),
+      }),
+    )
+  })
+
+  it("notifies calendar event creators for nested comments under their event", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const calendarRoot = makeEvent({
+      id: "calendar-root",
+      kind: EVENT_TIME,
+      pubkey: viewer,
+      created_at: 80,
+      tags: [
+        ["h", communityPubkey],
+        ["d", "calendar-root"],
+      ],
+    })
+    const firstComment = makeEvent({
+      id: "calendar-first-comment",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 100,
+      tags: [
+        ["h", communityPubkey],
+        ["E", calendarRoot.id, "", viewer],
+        ["K", String(EVENT_TIME)],
+        ["P", viewer],
+        ["e", calendarRoot.id, "", viewer],
+        ["k", String(EVENT_TIME)],
+        ["p", viewer],
+      ],
+    })
+    const nestedComment = makeEvent({
+      id: "calendar-nested-comment",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 110,
+      content: "nested calendar comment",
+      tags: [
+        ["h", communityPubkey],
+        ["E", calendarRoot.id, "", viewer],
+        ["K", String(EVENT_TIME)],
+        ["P", viewer],
+        ["e", firstComment.id, "", writer],
+        ["k", String(COMMENT)],
+        ["p", writer],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [nestedComment],
+      targetEvents: [calendarRoot, firstComment],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === nestedComment.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        type: "reply",
+        title: "New calendar comment",
+        action: "commented",
+        contextLabel: "on your calendar event",
+        path: expect.stringContaining("/calendar/calendar-root"),
+        target: expect.objectContaining({label: "Your calendar event", eventId: calendarRoot.id}),
+      }),
+    )
+  })
+
+  it("notifies goal creators for nested comments under their goal", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const goalRoot = makeEvent({
+      id: "goal-root",
+      kind: ZAP_GOAL,
+      pubkey: viewer,
+      created_at: 80,
+      tags: [["h", communityPubkey]],
+    })
+    const firstComment = makeEvent({
+      id: "goal-first-comment",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 100,
+      tags: [
+        ["h", communityPubkey],
+        ["E", goalRoot.id, "", viewer],
+        ["K", String(ZAP_GOAL)],
+        ["P", viewer],
+        ["e", goalRoot.id, "", viewer],
+        ["k", String(ZAP_GOAL)],
+        ["p", viewer],
+      ],
+    })
+    const nestedComment = makeEvent({
+      id: "goal-nested-comment",
+      kind: COMMENT,
+      pubkey: writer,
+      created_at: 110,
+      content: "nested goal comment",
+      tags: [
+        ["h", communityPubkey],
+        ["E", goalRoot.id, "", viewer],
+        ["K", String(ZAP_GOAL)],
+        ["P", viewer],
+        ["e", firstComment.id, "", writer],
+        ["k", String(COMMENT)],
+        ["p", writer],
+      ],
+    })
+
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [nestedComment],
+      targetEvents: [goalRoot, firstComment],
+      profileListEvents: [makeProfileList()],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === nestedComment.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        type: "reply",
+        title: "New goal comment",
+        action: "commented",
+        contextLabel: "on your goal",
+        path: expect.stringContaining("/goals/goal-root"),
+        target: expect.objectContaining({label: "Your goal", eventId: goalRoot.id}),
       }),
     )
   })
 
   it("builds targeted engagement rows without generic p-tag noise", async () => {
     const {buildEngagementNotificationRows} = await import("./notification-sources")
-    const ownedNoteId = "3".repeat(64)
-    const otherNoteId = "4".repeat(64)
+    const ownedCommentId = "3".repeat(64)
+    const otherCommentId = "4".repeat(64)
     const replyId = "5".repeat(64)
     const mentionId = "6".repeat(64)
     const inheritedReplyTagId = "7".repeat(64)
     const ignoredBoostId = "8".repeat(64)
-    const ownedNote = makeEvent({id: ownedNoteId, kind: NOTE, pubkey: viewer, content: "my note"})
-    const otherNote = makeEvent({id: otherNoteId, kind: NOTE, pubkey: outsider, content: "other note"})
+    const genericMentionId = "9".repeat(64)
+    const ownedComment = makeEvent({
+      id: ownedCommentId,
+      kind: COMMENT,
+      pubkey: viewer,
+      content: "my comment",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "thread-one"],
+        ["K", String(THREAD)],
+      ],
+    })
+    const otherComment = makeEvent({
+      id: otherCommentId,
+      kind: COMMENT,
+      pubkey: outsider,
+      content: "other comment",
+      tags: [
+        ["h", communityPubkey],
+        ["E", "thread-two"],
+        ["K", String(THREAD)],
+      ],
+    })
     const reply = makeEvent({
       id: replyId,
-      kind: NOTE,
+      kind: COMMENT,
       pubkey: writer,
       created_at: 110,
-      content: "replying to your note",
+      content: "replying to your comment",
       tags: [
-        ["e", ownedNote.id, "", "reply"],
+        ["h", communityPubkey],
+        ["E", "thread-one"],
+        ["K", String(THREAD)],
+        ["e", ownedComment.id, "", "reply"],
+        ["k", String(COMMENT)],
         ["p", viewer],
       ],
     })
     const mention = makeEvent({
       id: mentionId,
-      kind: NOTE,
+      kind: COMMENT,
       pubkey: outsider,
       created_at: 120,
+      content: "hi #[0]",
+      tags: [
+        ["p", viewer],
+        ["h", communityPubkey],
+        ["E", "thread-one"],
+        ["K", String(THREAD)],
+      ],
+    })
+    const genericMention = makeEvent({
+      id: genericMentionId,
+      kind: COMMENT,
+      pubkey: outsider,
+      created_at: 125,
       content: "hi #[0]",
       tags: [["p", viewer]],
     })
     const inheritedReplyTag = makeEvent({
       id: inheritedReplyTagId,
-      kind: NOTE,
+      kind: COMMENT,
       pubkey: writer,
       created_at: 130,
       content: "replying elsewhere",
       tags: [
-        ["e", otherNote.id, "", "reply"],
+        ["h", communityPubkey],
+        ["E", "thread-two"],
+        ["K", String(THREAD)],
+        ["e", otherComment.id, "", "reply"],
+        ["k", String(COMMENT)],
         ["p", viewer],
       ],
     })
@@ -633,56 +1097,79 @@ describe("notification sources", () => {
       pubkey: writer,
       created_at: 140,
       tags: [
-        ["e", ownedNote.id],
+        ["e", ownedComment.id],
         ["p", viewer],
       ],
     })
 
     const rows = buildEngagementNotificationRows({
-      events: [reply, mention, inheritedReplyTag, ignoredBoost],
-      targetEvents: [ownedNote, otherNote],
+      events: [reply, mention, genericMention, inheritedReplyTag, ignoredBoost],
+      targetEvents: [ownedComment, otherComment],
       currentPubkey: viewer,
     })
 
     expect(rows.map(row => row.eventId)).toEqual([mentionId, replyId])
     expect(rows.find(row => row.eventId === reply.id)).toEqual(
       expect.objectContaining({
-        source: "other",
-        sourceLabel: "Engagement",
+        source: "community",
+        sourceLabel: "Communities",
         type: "reply",
         title: "New reply",
         actorPubkey: writer,
-        target: expect.objectContaining({label: "your note", eventId: ownedNote.id}),
-        detail: expect.objectContaining({label: "Reply", eventId: reply.id}),
+        path: expect.stringContaining("/threads/thread-one"),
+        target: expect.objectContaining({label: "your comment", eventId: ownedComment.id}),
+        detail: expect.objectContaining({label: "New reply", eventId: reply.id}),
       }),
     )
     expect(rows.find(row => row.eventId === mention.id)).toEqual(
       expect.objectContaining({
-        source: "other",
-        sourceLabel: "Engagement",
+        source: "community",
+        sourceLabel: "Communities",
         type: "mention",
         title: "New mention",
         actorPubkey: outsider,
-        detail: expect.objectContaining({label: "Mention", eventId: mention.id}),
+        path: expect.stringContaining("/threads/thread-one"),
+        detail: expect.objectContaining({label: "New mention", eventId: mention.id}),
       }),
     )
     expect(rows.map(row => row.eventId)).not.toEqual(
-      expect.arrayContaining([inheritedReplyTag.id, ignoredBoost.id]),
+      expect.arrayContaining([genericMention.id, inheritedReplyTag.id, ignoredBoost.id]),
     )
   })
 
   it("groups reactions and verified zaps only for signed-in user's targets", async () => {
     const {buildEngagementNotificationRows} = await import("./notification-sources")
-    const ownedNoteId = "3".repeat(64)
-    const otherNoteId = "4".repeat(64)
+    const ownedCommentId = "3".repeat(64)
+    const otherCommentId = "4".repeat(64)
     const reactionOneId = "5".repeat(64)
     const reactionTwoId = "6".repeat(64)
     const falseReactionId = "7".repeat(64)
     const validZapId = "8".repeat(64)
     const invalidZapId = "9".repeat(64)
     const falseZapId = "0".repeat(64)
-    const ownedNote = makeEvent({id: ownedNoteId, kind: NOTE, pubkey: viewer, content: "my note"})
-    const otherNote = makeEvent({id: otherNoteId, kind: NOTE, pubkey: outsider, content: "other note"})
+    const genericCommentId = "d".repeat(64)
+    const genericReactionId = "e".repeat(64)
+    const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${viewer}:repo`
+    const ownedComment = makeEvent({
+      id: ownedCommentId,
+      kind: GIT_ISSUE,
+      pubkey: viewer,
+      content: "my issue",
+      tags: [["a", repoAddress]],
+    })
+    const otherComment = makeEvent({
+      id: otherCommentId,
+      kind: GIT_ISSUE,
+      pubkey: outsider,
+      content: "other issue",
+      tags: [["a", repoAddress]],
+    })
+    const genericComment = makeEvent({
+      id: genericCommentId,
+      kind: COMMENT,
+      pubkey: viewer,
+      content: "my public comment",
+    })
     const reactionOne = makeEvent({
       id: reactionOneId,
       kind: REACTION,
@@ -690,7 +1177,7 @@ describe("notification sources", () => {
       created_at: 100,
       content: "+",
       tags: [
-        ["e", ownedNote.id],
+        ["e", ownedComment.id],
         ["p", viewer],
       ],
     })
@@ -701,7 +1188,7 @@ describe("notification sources", () => {
       created_at: 120,
       content: "fire",
       tags: [
-        ["e", ownedNote.id],
+        ["e", ownedComment.id],
         ["p", viewer],
       ],
     })
@@ -712,7 +1199,18 @@ describe("notification sources", () => {
       created_at: 130,
       content: "+",
       tags: [
-        ["e", otherNote.id],
+        ["e", otherComment.id],
+        ["p", viewer],
+      ],
+    })
+    const genericReaction = makeEvent({
+      id: genericReactionId,
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 135,
+      content: "+",
+      tags: [
+        ["e", genericComment.id],
         ["p", viewer],
       ],
     })
@@ -721,7 +1219,7 @@ describe("notification sources", () => {
       content: "nice post",
       tags: [
         ["p", viewer],
-        ["e", ownedNote.id],
+        ["e", ownedComment.id],
         ["amount", "21000"],
       ],
     }
@@ -732,7 +1230,7 @@ describe("notification sources", () => {
       created_at: 140,
       tags: [
         ["p", viewer],
-        ["e", ownedNote.id],
+        ["e", ownedComment.id],
         ["description", JSON.stringify(zapRequest)],
       ],
     })
@@ -743,7 +1241,7 @@ describe("notification sources", () => {
       created_at: 150,
       tags: [
         ["p", viewer],
-        ["e", ownedNote.id],
+        ["e", ownedComment.id],
         ["description", JSON.stringify(zapRequest)],
       ],
     })
@@ -754,14 +1252,14 @@ describe("notification sources", () => {
       created_at: 160,
       tags: [
         ["p", viewer],
-        ["e", otherNote.id],
-        ["description", JSON.stringify({...zapRequest, tags: [["e", otherNote.id], ["p", viewer]]})],
+        ["e", otherComment.id],
+        ["description", JSON.stringify({...zapRequest, tags: [["e", otherComment.id], ["p", viewer]]})],
       ],
     })
 
     const rows = buildEngagementNotificationRows({
-      events: [reactionOne, reactionTwo, falseReaction, validZap, invalidZap, falseZap],
-      targetEvents: [ownedNote, otherNote],
+      events: [reactionOne, reactionTwo, falseReaction, genericReaction, validZap, invalidZap, falseZap],
+      targetEvents: [ownedComment, otherComment, genericComment],
       currentPubkey: viewer,
       validZapResponseIds: new Set([validZap.id, falseZap.id]),
     })
@@ -770,29 +1268,31 @@ describe("notification sources", () => {
 
     expect(reactionRow).toEqual(
       expect.objectContaining({
-        source: "other",
-        sourceLabel: "Engagement",
+        source: "git",
+        sourceLabel: "Git",
         type: "reaction",
         eventId: reactionTwo.id,
         eventIds: [reactionTwo.id, reactionOne.id],
-        id: expect.stringContaining(ownedNote.id),
-        target: expect.objectContaining({label: "your note", eventId: ownedNote.id}),
+        id: expect.stringContaining(ownedComment.id),
+        path: expect.stringContaining("/git/"),
+        target: expect.objectContaining({label: "your issue", eventId: ownedComment.id}),
       }),
     )
     expect(zapRow).toEqual(
       expect.objectContaining({
-        source: "other",
-        sourceLabel: "Engagement",
+        source: "git",
+        sourceLabel: "Git",
         type: "zap",
         eventId: validZap.id,
         actorPubkey: writer,
         eventIds: [validZap.id],
         preview: expect.stringContaining("nice post"),
-        target: expect.objectContaining({label: "your note", eventId: ownedNote.id}),
+        path: expect.stringContaining("/git/"),
+        target: expect.objectContaining({label: "your issue", eventId: ownedComment.id}),
       }),
     )
     expect(rows.flatMap(row => row.eventIds || [row.eventId])).not.toEqual(
-      expect.arrayContaining([falseReaction.id, invalidZap.id, falseZap.id]),
+      expect.arrayContaining([falseReaction.id, genericReaction.id, invalidZap.id, falseZap.id]),
     )
   })
 })

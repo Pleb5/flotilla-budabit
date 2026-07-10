@@ -425,6 +425,12 @@ export const getCommunityEventPath = (event: TrustedEvent) => {
 
       return calendarId ? makeCommunityCalendarPath(communityPubkey, calendarId) : undefined
     }
+
+    if (rootKind === ZAP_GOAL) {
+      const goalId = getEventRootId(event)
+
+      return goalId ? makeCommunityGoalPath(communityPubkey, goalId) : undefined
+    }
   }
 
   return undefined

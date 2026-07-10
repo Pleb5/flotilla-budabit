@@ -108,6 +108,8 @@ const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
   return () => unsubscribe()
 }) as Readable<NotificationCandidate[]>
 
+export const notificationCandidates = extraCandidates
+
 export const normalizeChecked = (value: number) =>
   value > 10_000_000_000 ? Math.round(value / 1000) : value
 

@@ -16,21 +16,19 @@
 
 ## Current Phase
 
-- Phase 2: Community Important Roots And Chain Depth
+- Phase 3: Git Important Roots And Status Activity
 
 ## Phase Exit Criteria
 
-- Room message replies notify only when the immediate `q` parent is the signed-in user's kind `9` message; replies to replies do not notify the original room message author.
-- Thread creators receive notifications for comments under their thread root at any depth.
-- Calendar date/time creators receive notifications for comments under their calendar root at any depth.
-- Goal creators receive notifications for comments under their goal root at any depth.
-- Direct parent authors of kind `1111` comments still receive one-level reply notifications.
-- Root-owner and direct-parent qualification dedupe to one row per event.
-- Reactions/zaps remain direct-target only and do not become root-owner descendant notifications.
-- Tests cover room second-order suppression, thread nested root-owner notification, calendar nested root-owner notification, goal nested root-owner notification, and direct comment parent notification.
+- User-authored `GIT_ISSUE` roots notify the issue creator for comments and status changes rooted at that issue.
+- User-authored `GIT_PULL_REQUEST` roots notify the PR creator for comments, PR updates, and status changes rooted at that PR.
+- Direct parent authors of Git comments still receive one-level reply notifications.
+- Reactions/zaps remain direct-target only and do not become issue/PR root-owner descendant notifications.
+- Git rows use `source: "git"`, source label `Git`, and navigate to the issue/PR route or anchored comment/status path where available.
+- Tests cover issue nested comments, PR updates, status changes, direct comment parent notification, and reaction non-expansion.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -44,6 +42,20 @@
 - Phase 1 changed only `docs/session-plan.md` and `docs/session-checkpoint.md` intentionally.
 - Phase 1 advanced this checkpoint to Phase 2 before commit.
 - Phase 1 was committed and pushed as `b751961e chore: start notification root workflow`.
+- Checkpoint repair was committed and pushed as `e6bdd41a chore: repair notification workflow checkpoint`.
+- Phase 2 startup reread this checkpoint and the full session plan, inspected current status/log, and inspected community thread/calendar parsers plus notification source tests.
+- Phase 2 implemented community important-root notification semantics:
+  - Room replies remain direct-parent only; second-order room replies no longer notify the original room message author.
+  - Thread root creators receive nested comment notifications at any depth.
+  - Calendar date/time creators receive nested comment notifications at any depth.
+  - Goal creators receive nested comment notifications at any depth.
+  - Target loading now includes immediate parent comments and important root ids/addresses for community comments.
+  - Goal comment paths now resolve to `/goals/<goal-id>`.
+  - Calendar/goal/thread root-owner comments are Community rows; reactions/zaps remain direct-target only.
+- Phase 2 tests/verification passed:
+  - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notification-display.test.ts --project=main` passed: 2 files, 21 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -56,7 +68,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; after Phase 1 push, `HEAD` and `origin/dev` are both `b751961e`.
+- Branch: `dev`, tracking `origin/dev`; after checkpoint repair, `HEAD` and `origin/dev` are both `e6bdd41a` before Phase 2 commit.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -67,11 +79,12 @@
   - `src/app/util/notifications.ts`
   - `src/app/components/NotificationDmContent.svelte` (untracked)
 - Phase 1 docs were committed and pushed.
-- Phase 2 must implement community important-root and chain-depth semantics.
+- Phase 2 is verified and ready to commit/push as the phase transition.
+- Phase 3 must implement Git important-root comments, PR updates, and status notifications.
 
 ## Next Action
 
-- Start Phase 2: inspect current community notification parsers/rows/tests, then implement community important-root and chain-depth semantics.
+- Finish Phase 2 closeout by committing/pushing Phase 2 files, reread checkpoint, then start Phase 3 implementation.
 
 ## Verification
 
@@ -79,11 +92,15 @@
 - Startup inspected branch/status, recent log, remotes, diff summary, and relevant notification source code.
 - Phase 1 reread `docs/session-checkpoint.md` and `docs/session-plan.md` after editing.
 - Phase 1 commit/push succeeded, then checkpoint reread found this stale `Next Action`; checkpoint repair records the successful transition.
+- Phase 2 focused notification tests passed.
+- Phase 2 `pnpm check` passed.
+- Phase 2 `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - Existing dirty notification files predate this plan update; later phases must avoid staging unrelated changes or stop if conflicts appear.
 - Branch is synced with origin after Phase 1 push.
+- Existing dirty files not needed for Phase 2 remain unstaged unless intentionally included by overlapping source/test files.
 
 ## Files
 
@@ -97,3 +114,4 @@
 - `src/app/util/notifications.test.ts`
 - `src/app/components/NotificationsModal.svelte`
 - `src/app/components/NotificationDmContent.svelte`
+- `src/app/util/routes.ts`

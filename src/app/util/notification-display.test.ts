@@ -37,6 +37,7 @@ describe("notification display", () => {
     const visibleText = getNotificationRowVisibleText(display)
 
     expect(visibleText).not.toMatch(new RegExp(shareEntity, "i"))
+    expect(visibleText).not.toContain("quoted event")
     expect(visibleText).not.toContain("nostr:")
     expect(visibleText).not.toContain("/git/")
     expect(visibleText).not.toContain(longId)
@@ -59,24 +60,24 @@ describe("notification display", () => {
     const row: NotificationRow = {
       id: "event:reply",
       eventId: "reply",
-      source: "other",
-      sourceLabel: "Engagement",
+      source: "community",
+      sourceLabel: "Communities",
       type: "reply",
       title: "New reply",
       action: "replied",
-      contextLabel: "to your note",
+      contextLabel: "to your comment",
       preview: "reply body",
       path: `/${shareEntity}reply`,
       readPath: `/${shareEntity}reply`,
       target: {
-        label: "Your note",
+        label: "Your comment",
         preview: "original body",
         path: `/${shareEntity}target`,
         eventId: "target",
         actionLabel: "Open context",
       },
       detail: {
-        label: "Reply",
+        label: "New reply",
         preview: "reply body",
         path: `/${shareEntity}reply`,
         eventId: "reply",
@@ -90,13 +91,15 @@ describe("notification display", () => {
       expect.objectContaining({
         type: "reply",
         action: "replied",
-        context: "to your note",
+        context: "to your comment",
         sections: [
-          expect.objectContaining({label: "Your note", preview: "original body"}),
-          expect.objectContaining({label: "Reply", preview: "reply body"}),
+          expect.objectContaining({label: "Your comment", preview: "original body"}),
+          expect.objectContaining({label: "New reply", preview: "reply body"}),
         ],
       }),
     )
     expect(sanitizeNotificationText("Open /chat/alice")).toBe("Open activity")
+    expect(sanitizeNotificationText(`nostr:${shareEntity}qqqq reply body`)).toBe("reply body")
+    expect(sanitizeNotificationText("nostr:nprofile1qqqq body")).toBe("body")
   })
 })

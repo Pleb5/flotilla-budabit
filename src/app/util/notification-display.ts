@@ -1,6 +1,7 @@
 import {createSearch} from "@welshman/app"
+import type {TrustedEvent} from "@welshman/util"
 
-export type NotificationRowSource = "chat" | "git" | "community" | "other"
+export type NotificationRowSource = "chat" | "git" | "community"
 
 export type NotificationRowFilter = NotificationRowSource
 
@@ -20,6 +21,7 @@ export type NotificationRowTarget = {
   preview?: string
   path?: string
   eventId?: string
+  event?: TrustedEvent
   actionLabel?: string
 }
 
@@ -75,22 +77,21 @@ export type NotificationRowFilterOptions = {
 }
 
 export const NOTIFICATION_ROW_FILTERS: {value: NotificationRowFilter; label: string}[] = [
-  {value: "chat", label: "Chats"},
-  {value: "git", label: "Git"},
   {value: "community", label: "Communities"},
-  {value: "other", label: "Other"},
+  {value: "git", label: "Git"},
+  {value: "chat", label: "DMs"},
 ]
 
 export const getNotificationSourceLabel = (source: NotificationRowSource) => {
   switch (source) {
     case "chat":
-      return "Chats"
+      return "DMs"
     case "git":
       return "Git"
     case "community":
       return "Communities"
     default:
-      return "Other"
+      return "Notifications"
   }
 }
 
@@ -103,12 +104,14 @@ export const buildNotificationSearchText = (
     .join(" ")
 
 const LONG_EVENT_ID_RE = /\b[0-9a-f]{32,}\b/gi
-const NEVENT_RE = /\b(?:nostr:)?nevent1[0-9a-z]+\b/gi
+const NOSTR_EVENT_ENTITY_RE = /\b(?:nostr:)?(?:nevent1|naddr1)[0-9a-z]+\b/gi
+const NOSTR_PROFILE_ENTITY_RE = /\b(?:nostr:)?(?:nprofile1|npub1)[0-9a-z]+\b/gi
 const ROUTE_PATH_RE = /(^|[\s(["'])\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/-]+(?:[?#][^\s)"']*)?/g
 
 export const sanitizeNotificationText = (value: string | undefined, fallback = "Activity") => {
   const sanitized = String(value || "")
-    .replace(NEVENT_RE, "shared event")
+    .replace(NOSTR_EVENT_ENTITY_RE, "")
+    .replace(NOSTR_PROFILE_ENTITY_RE, "")
     .replace(LONG_EVENT_ID_RE, "event")
     .replace(ROUTE_PATH_RE, "$1activity")
     .replace(/\s+/g, " ")
