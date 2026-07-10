@@ -43,6 +43,7 @@
 - Phase 1 created a new durable plan/checkpoint for important-root notification semantics and reread both files.
 - Phase 1 changed only `docs/session-plan.md` and `docs/session-checkpoint.md` intentionally.
 - Phase 1 advanced this checkpoint to Phase 2 before commit.
+- Phase 1 was committed and pushed as `b751961e chore: start notification root workflow`.
 
 ## Decisions
 
@@ -55,7 +56,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`, currently ahead by one local commit at workflow setup.
+- Branch: `dev`, tracking `origin/dev`; after Phase 1 push, `HEAD` and `origin/dev` are both `b751961e`.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -65,23 +66,24 @@
   - `src/app/util/notifications.test.ts`
   - `src/app/util/notifications.ts`
   - `src/app/components/NotificationDmContent.svelte` (untracked)
-- Phase 1 docs are ready to commit/push as the phase transition.
+- Phase 1 docs were committed and pushed.
 - Phase 2 must implement community important-root and chain-depth semantics.
 
 ## Next Action
 
-- Finish Phase 1 closeout by committing/pushing docs only, reread checkpoint, then start Phase 2 implementation.
+- Start Phase 2: inspect current community notification parsers/rows/tests, then implement community important-root and chain-depth semantics.
 
 ## Verification
 
 - Startup read `docs/session-checkpoint.md` and the full `docs/session-plan.md`.
 - Startup inspected branch/status, recent log, remotes, diff summary, and relevant notification source code.
 - Phase 1 reread `docs/session-checkpoint.md` and `docs/session-plan.md` after editing.
+- Phase 1 commit/push succeeded, then checkpoint reread found this stale `Next Action`; checkpoint repair records the successful transition.
 
 ## Risks Or Blockers
 
 - Existing dirty notification files predate this plan update; later phases must avoid staging unrelated changes or stop if conflicts appear.
-- Branch starts one commit ahead of origin; the first successful phase push will push that existing local commit along with phase commits.
+- Branch is synced with origin after Phase 1 push.
 
 ## Files
 
