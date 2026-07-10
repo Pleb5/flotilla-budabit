@@ -16,18 +16,13 @@
 
 ## Current Phase
 
-- Phase 4: Route Clearing And Final Review
+- Complete
 
 ## Phase Exit Criteria
 
-- `/moderation` marks its notification path checked on page exit.
-- `/access` and `/admin` outcome clearing still works.
-- Modal rows remain under Communities source; no `Other` source/filter is introduced.
-- Focused notification tests pass.
-- `pnpm check` passes.
-- `git diff --check` passes.
-- Checkpoint records `Current Phase: Complete` and final evidence.
-- Final closeout commit is pushed before final response if files changed.
+- All workflow phases are complete, verified, committed, and pushed.
+- Checkpoint records final evidence and residual risks.
+- Final response may be sent.
 
 ## Completed With Evidence
 
@@ -65,6 +60,15 @@
   - `pnpm vitest run src/app/util/notification-sources.test.ts --project=main` passed: 1 file, 32 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 3 was committed and pushed as `cba36c88 fix: notify community moderation events`.
+- Phase 4 startup reread this checkpoint and the full session plan, inspected current status/log, and confirmed `/moderation` did not mark its notification path checked on exit.
+- Phase 4 added `/moderation` clear-on-visit behavior with `setChecked(moderationPath || $page.url.pathname)` on destroy.
+- Phase 4 final verification passed:
+  - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notifications.test.ts src/app/util/notification-display.test.ts --project=main` passed: 3 files, 45 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Grep checks found no notification `Other` source/filter regressions; remaining `Other` hits are unrelated labels/forms/report options.
+  - Final status/log inspection completed before checkpoint closeout.
 
 ## Decisions
 
@@ -78,18 +82,19 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; before Phase 3 commit, HEAD and origin are both `61cbf46b`.
+- Branch: `dev`, tracking `origin/dev`; before final closeout commit, HEAD and origin are both `cba36c88`.
 - Existing dirty files before this workflow:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notifications.test.ts`
   - `src/app/components/NotificationDmContent.svelte` (untracked)
 - Phase 1 docs were committed and pushed.
 - Phase 2 was committed and pushed.
-- Phase 3 is verified and this checkpoint is advanced to Phase 4 for the phase transition commit.
+- Phase 3 was committed and pushed.
+- Phase 4 is verified and this checkpoint is ready for the final closeout commit.
 
 ## Next Action
 
-- Phase 4 startup: read checkpoint and full plan, add `/moderation` clear-on-visit if still missing, then run final verification.
+- Commit/push this final checkpoint closeout, reread checkpoint, then send final response.
 
 ## Verification
 
@@ -99,6 +104,7 @@
 - Phase 1 commit/push succeeded; this checkpoint repair records the successful transition.
 - Phase 2 focused tests, `pnpm check`, and `git diff --check` passed.
 - Phase 3 focused tests, `pnpm check`, and `git diff --check` passed.
+- Phase 4 focused tests, `pnpm check`, `git diff --check`, and notification `Other` grep checks passed.
 
 ## Risks Or Blockers
 
@@ -107,6 +113,7 @@
 - Banned target notification may require target-specific report loading because banned users can disappear from active member refs.
 - Direct write-access revoke events reuse rejected review shape; Phase 2 labels them as revoked only when prior grant history for the same response is loaded.
 - Phase 3 all-member person-ban rows cover active community refs; banned-target delivery outside active refs remains a risk for future targeted loading.
+- Existing unrelated dirty notification modal/test files remain unstaged.
 
 ## Files
 

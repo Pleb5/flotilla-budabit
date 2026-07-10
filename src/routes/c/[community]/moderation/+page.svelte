@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {tick} from "svelte"
+  import {onDestroy, tick} from "svelte"
   import {writable} from "svelte/store"
   import {page} from "$app/stores"
   import {PublishStatus, request} from "@welshman/net"
@@ -79,7 +79,8 @@
     getCommunityRootPublishRelays,
     getCommunityScopedPublishRelays,
   } from "@app/core/community-relays"
-  import {parseCommunityRouteParam} from "@app/util/routes"
+  import {setChecked} from "@app/util/notifications"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type ReviewApplication = {
     sectionName: string
@@ -97,6 +98,9 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const moderationPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "moderation") : "",
+  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
@@ -873,6 +877,10 @@
     request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
 
     return () => controller.abort()
+  })
+
+  onDestroy(() => {
+    setChecked(moderationPath || $page.url.pathname)
   })
 </script>
 
