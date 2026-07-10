@@ -16,20 +16,13 @@
 
 ## Current Phase
 
-- Phase 5: Review And Final Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Review confirms room notifications remain direct-parent only and do not notify room-root creators for reply chains.
-- Review confirms thread/calendar/goal creators receive comment activity at any depth.
-- Review confirms issue/PR creators receive comment, PR update, and status activity at any depth under their roots.
-- Review confirms reactions/zaps remain direct-target only.
-- Review confirms context sources remain DMs, Git, and Communities with no user-facing Other filter/source.
-- Focused notification tests pass.
-- `pnpm check` passes.
-- `git diff --check` passes.
-- Checkpoint records `Current Phase: Complete` and final evidence.
-- Final closeout commit is pushed before final response if the checkpoint changed.
+- All workflow phases are complete, verified, committed, and pushed.
+- Checkpoint records final evidence and residual risks.
+- Final response may be sent.
 
 ## Completed With Evidence
 
@@ -83,6 +76,18 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
 - Phase 4 was committed and pushed as `97f60bd1 fix: show community outcome notifications`.
+- Checkpoint repair after Phase 4 was committed and pushed as `8299e9e2 chore: repair community outcomes checkpoint`.
+- Phase 5 final review confirmed the workflow criteria:
+  - Room notifications remain direct-parent only via focused second-order room reply test coverage.
+  - Thread/calendar/goal creators receive nested comment activity via focused source tests.
+  - Issue/PR creators receive nested comments, PR updates, and status activity via focused source tests.
+  - Reactions/zaps remain direct-target only via focused source tests.
+  - Context sources remain DMs, Git, and Communities; grep found no notification `Other` source/filter occurrences. The only `Other` hits were unrelated community form option tests.
+- Phase 5 final verification passed:
+  - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notification-display.test.ts src/app/util/notifications.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 4 files, 45 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
+  - Final status/log inspection completed before checkpoint closeout.
 
 ## Decisions
 
@@ -95,7 +100,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; after Phase 4 push, `HEAD` and `origin/dev` are both `97f60bd1`.
+- Branch: `dev`, tracking `origin/dev`; before final checkpoint commit, `HEAD` and `origin/dev` are both `8299e9e2`.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -109,11 +114,15 @@
 - Phase 2 was committed and pushed.
 - Phase 3 was committed and pushed.
 - Phase 4 was committed and pushed.
-- Phase 5 must review the full workflow and close the checkpoint as Complete.
+- Phase 5 is verified and this checkpoint is ready for the final closeout commit.
+- Remaining unstaged pre-existing files after this workflow:
+  - `src/app/components/NotificationsModal.svelte`
+  - `src/app/util/notifications.test.ts`
+  - `src/app/components/NotificationDmContent.svelte` (untracked)
 
 ## Next Action
 
-- Start Phase 5 final review: run grep checks, focused tests, `pnpm check`, `git diff --check`, then update checkpoint to Complete if all criteria pass.
+- Commit/push this final checkpoint closeout, reread checkpoint, then send final response.
 
 ## Verification
 
@@ -133,12 +142,18 @@
 - Phase 4 `pnpm check` passed.
 - Phase 4 `git diff --check` passed.
 - Phase 4 commit/push succeeded, then checkpoint reread found stale `Next Action`; checkpoint repair records the successful transition.
+- Phase 5 grep checks passed for notification source/filter `Other` regressions; remaining `Other` matches are unrelated community form options.
+- Phase 5 focused notification tests passed.
+- Phase 5 `pnpm check` passed.
+- Phase 5 `git diff --check` passed.
+- Phase 5 inspected final status and recent commits before checkpoint closeout.
 
 ## Risks Or Blockers
 
 - Existing dirty notification files predate this plan update; later phases must avoid staging unrelated changes or stop if conflicts appear.
 - Branch is synced with origin after Phase 4 push.
 - Existing dirty files not needed for Phase 2 remain unstaged unless intentionally included by overlapping source/test files.
+- Final closeout leaves pre-existing unstaged notification UI/test files untouched because they were not required for the root/outcome notification phases.
 
 ## Files
 
