@@ -1,7 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {formatTimestamp} from "@welshman/lib"
-  import {onMount} from "svelte"
+  import {onDestroy, onMount} from "svelte"
   import {derived} from "svelte/store"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import ArrowRightUp from "@assets/icons/arrow-right-up.svg?dataurl"
@@ -23,7 +23,10 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
+  import NoteContent from "@app/components/NoteContent.svelte"
+  import NotificationDmContent from "@app/components/NotificationDmContent.svelte"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
+  import {DM_KIND} from "@app/core/state"
   import {clearModals, pushModal} from "@app/util/modal"
   import {markNotificationsRead} from "@app/util/notification-center"
   import {
@@ -51,6 +54,9 @@
   let rowFilters = $state<NotificationRowFilter[]>([])
   let visibleRowLimit = $state(NOTIFICATION_HISTORY_ROW_STEP)
   let expandedRowId = $state<string | undefined>()
+  let loadMoreHistoryPending = $state(false)
+  let loadMoreHistoryRowCount = $state(0)
+  let loadMoreHistoryTimeout: ReturnType<typeof setTimeout> | undefined
 
   const rowsWithActorNames = derived(notificationCenterRows, ($rows, set) => {
     const actorPubkeys = Array.from(
@@ -81,13 +87,21 @@
   const visibleRows = $derived(rows.slice(0, visibleRowLimit))
   const hasMoreLoadedRows = $derived(rows.length > visibleRows.length)
   const canLoadOlderHistory = $derived($notificationHistorySince > 0)
-  const loadMoreLabel = $derived(
-    hasMoreLoadedRows ? "Show more notifications" : "Load older notifications",
-  )
+  const loadMoreLabel = $derived(loadMoreHistoryPending ? "Loading..." : "Load more")
+
+  const clearLoadMoreHistoryPending = () => {
+    loadMoreHistoryPending = false
+    if (loadMoreHistoryTimeout) clearTimeout(loadMoreHistoryTimeout)
+    loadMoreHistoryTimeout = undefined
+  }
 
   onMount(() => {
     visibleRowLimit = NOTIFICATION_HISTORY_ROW_STEP
     resetNotificationHistory()
+  })
+
+  onDestroy(() => {
+    if (loadMoreHistoryTimeout) clearTimeout(loadMoreHistoryTimeout)
   })
 
   $effect(() => {
@@ -96,6 +110,12 @@
 
   $effect(() => {
     if (expandedRowId && !rows.some(row => row.id === expandedRowId)) expandedRowId = undefined
+  })
+
+  $effect(() => {
+    if (loadMoreHistoryPending && rows.length > loadMoreHistoryRowCount) {
+      clearLoadMoreHistoryPending()
+    }
   })
 
   const toggleRow = (row: NotificationRow) => {
@@ -160,8 +180,17 @@
   const stopKeyboardPropagation = (event: KeyboardEvent) => event.stopPropagation()
 
   const loadMoreRows = () => {
+    if (loadMoreHistoryPending) return
+
     visibleRowLimit += NOTIFICATION_HISTORY_ROW_STEP
-    loadMoreNotificationHistory()
+    if (!hasMoreLoadedRows && canLoadOlderHistory) {
+      loadMoreHistoryRowCount = rows.length
+      loadMoreHistoryPending = true
+      loadMoreNotificationHistory()
+
+      if (loadMoreHistoryTimeout) clearTimeout(loadMoreHistoryTimeout)
+      loadMoreHistoryTimeout = setTimeout(clearLoadMoreHistoryPending, 5000)
+    }
   }
 
   const getFilterIcon = (source: NotificationRowFilter) => {
@@ -180,6 +209,15 @@
     if (type === "zap") return Bolt
     if (type === "repo") return Git
     if (type === "community") return Users
+
+    return Bell
+  }
+
+  const getSectionIcon = (
+    section: NotificationRowDisplaySection,
+    display: ReturnType<typeof getNotificationRowDisplay>,
+  ) => {
+    if (section.eventId === display.primaryAction.eventId) return getTypeIcon(display.type)
 
     return Bell
   }
@@ -277,7 +315,6 @@
                       </div>
                       <p class="mt-1 line-clamp-1 text-sm text-foreground">{display.preview}</p>
                       <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        <span class="badge badge-neutral badge-sm">{display.sourceLabel}</span>
                         {#if row.createdAt > 0}
                           <span>{formatTimestamp(row.createdAt)}</span>
                         {/if}
@@ -302,11 +339,15 @@
                 <div class="border-t border-base-300/70 px-3 pb-3 pt-2">
                   <div class="grid gap-2 sm:ml-[5.5rem]">
                     {#each display.sections as section}
-                      <article class="rounded-xl border border-base-300 bg-base-100/70 p-3 shadow-sm">
+                      <article class="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100/70 p-3 shadow-sm">
                         <div class="flex items-start justify-between gap-2">
-                          <span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {section.label}
-                          </span>
+                          <div class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                            {#if section.event?.pubkey}
+                              <ProfileCircle pubkey={section.event.pubkey} size={5} />
+                            {:else}
+                              <Icon icon={getSectionIcon(section, display)} size={3.5} />
+                            {/if}
+                          </div>
                           {#if section.path}
                             <Button
                               class="btn btn-ghost btn-xs shrink-0 gap-1"
@@ -314,31 +355,42 @@
                               onkeydown={stopKeyboardPropagation}
                               onclick={event => openNavigationTarget(event, section)}>
                               <Icon icon={ArrowRightUp} size={3} />
-                              <span>{section.actionLabel || display.primaryAction.label}</span>
+                              <span>Open</span>
                             </Button>
                           {/if}
                         </div>
-                        <p class="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">
-                          {section.preview}
-                        </p>
+                        {#if section.event}
+                          <div class="notification-event-content mt-2 min-w-0 max-w-full overflow-hidden text-sm leading-relaxed">
+                            {#if section.event.kind === DM_KIND}
+                              <NotificationDmContent event={section.event} />
+                            {:else}
+                              <NoteContent
+                                event={section.event}
+                                showEntire={true}
+                                expandMode="inline"
+                                minimalQuote={true} />
+                            {/if}
+                          </div>
+                        {:else}
+                          <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                            {section.preview}
+                          </p>
+                        {/if}
                       </article>
                     {/each}
-
-                    <Button
-                      class="btn btn-primary btn-sm justify-center gap-2"
-                      aria-label={display.primaryAction.label}
-                      onkeydown={stopKeyboardPropagation}
-                      onclick={event => openNavigationTarget(event, display.primaryAction)}>
-                      <Icon icon={ArrowRightUp} size={3.5} />
-                      <span>{display.primaryAction.label}</span>
-                    </Button>
                   </div>
                 </div>
               {/if}
             </article>
           {/each}
           {#if hasMoreLoadedRows || canLoadOlderHistory}
-            <Button class="btn btn-outline btn-sm justify-center" onclick={loadMoreRows}>
+            <Button
+              class="btn btn-outline btn-sm justify-center gap-2"
+              disabled={loadMoreHistoryPending}
+              onclick={loadMoreRows}>
+              {#if loadMoreHistoryPending}
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              {/if}
               {loadMoreLabel}
             </Button>
           {/if}
@@ -357,10 +409,29 @@
             {/if}
           </p>
           {#if canLoadOlderHistory}
-            <Button class="btn btn-outline btn-sm" onclick={loadMoreRows}>Load older notifications</Button>
+            <Button
+              class="btn btn-outline btn-sm gap-2"
+              disabled={loadMoreHistoryPending}
+              onclick={loadMoreRows}>
+              {#if loadMoreHistoryPending}
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              {/if}
+              {loadMoreLabel}
+            </Button>
           {/if}
         </div>
       {/if}
     </div>
   </div>
 </div>
+
+<style>
+  :global(.notification-event-content *) {
+    max-width: 100%;
+  }
+
+  :global(.notification-event-content .event-renderer) {
+    min-width: 0;
+    overflow-x: auto;
+  }
+</style>

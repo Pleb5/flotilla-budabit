@@ -42,7 +42,7 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
     id: "event-id",
     pubkey: "b".repeat(64),
     created_at: 1,
-    kind: 1,
+    kind: 1111,
     tags: [],
     content: "",
     sig: "sig",
