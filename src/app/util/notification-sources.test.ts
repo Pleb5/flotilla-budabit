@@ -12,7 +12,16 @@ import {
   GIT_STATUS_CLOSED,
 } from "@nostr-git/core/events"
 import type {TrustedEvent} from "@welshman/util"
-import {COMMENT, DELETE, EVENT_TIME, MESSAGE, REACTION, THREAD, ZAP_GOAL, ZAP_RESPONSE} from "@welshman/util"
+import {
+  COMMENT,
+  DELETE,
+  EVENT_TIME,
+  MESSAGE,
+  REACTION,
+  THREAD,
+  ZAP_GOAL,
+  ZAP_RESPONSE,
+} from "@welshman/util"
 import type {Chat} from "@app/core/state"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
@@ -41,6 +50,10 @@ vi.mock("@app/core/repo-watch", () => ({
 
 vi.mock("@app/util/repo-watch-notifications", () => ({
   repoWatchNotificationCandidates: readable([]),
+}))
+
+vi.mock("@app/extensions/widget-update-notifications", () => ({
+  installedWidgetUpdates: readable([]),
 }))
 
 const makeEvent = (overrides: Partial<TrustedEvent> = {}) =>
@@ -138,9 +151,8 @@ const makeProfileList = (address = profileListAddress) => {
 
 describe("notification sources", () => {
   it("builds unread chat rows from latest incoming DM events", async () => {
-    const {buildChatNotificationRows, getLatestNotificationCenterTimestamp} = await import(
-      "./notification-sources"
-    )
+    const {buildChatNotificationRows, getLatestNotificationCenterTimestamp} =
+      await import("./notification-sources")
     const event = makeEvent()
     const rows = buildChatNotificationRows({
       chats: [makeChat(event)],
@@ -193,7 +205,9 @@ describe("notification sources", () => {
         expect.objectContaining({source: "community", path: "/c/community/git"}),
       ]),
     )
-    expect(rows.map(row => row.path)).not.toEqual(expect.arrayContaining(["/settings", "/settings/git"]))
+    expect(rows.map(row => row.path)).not.toEqual(
+      expect.arrayContaining(["/settings", "/settings/git"]),
+    )
     expect(rows.find(row => row.path === "/git/repo")?.preview).toBe("Open git activity")
     expect(rows.find(row => row.path === "/git/repo")?.preview).not.toContain("/")
   })
@@ -236,9 +250,8 @@ describe("notification sources", () => {
   })
 
   it("uses the newest route candidate for unread timestamps", async () => {
-    const {buildRouteNotificationRows, getLatestNotificationCenterTimestamp} = await import(
-      "./notification-sources"
-    )
+    const {buildRouteNotificationRows, getLatestNotificationCenterTimestamp} =
+      await import("./notification-sources")
     const path = `/c/${communityPubkey}/access`
     const older = makeEvent({
       id: "older-access-event",
@@ -492,7 +505,8 @@ describe("notification sources", () => {
   })
 
   it("filters notification rows by selected sources and profile names", async () => {
-    const {filterNotificationRows, NOTIFICATION_ROW_FILTERS} = await import("./notification-display")
+    const {filterNotificationRows, NOTIFICATION_ROW_FILTERS} =
+      await import("./notification-display")
     const rows = [
       {
         id: "event:chat",
@@ -533,10 +547,8 @@ describe("notification sources", () => {
     ] as const
     const filterValues = NOTIFICATION_ROW_FILTERS.map(option => option.value)
 
-    expect(filterValues).toEqual(["community", "git", "chat"])
-    expect(filterValues).not.toEqual(
-      expect.arrayContaining(["all", "read", "social", "unread"]),
-    )
+    expect(filterValues).toEqual(["community", "git", "chat", "widget"])
+    expect(filterValues).not.toEqual(expect.arrayContaining(["all", "read", "social", "unread"]))
     expect(filterValues.join(" ")).not.toMatch(new RegExp(["re", "post"].join(""), "i"))
     expect(filterNotificationRows([...rows], {filters: ["git"]}).map(row => row.id)).toEqual([
       "route:/git/repo",
@@ -1063,6 +1075,68 @@ describe("notification sources", () => {
         candidates: [{path, latestEvent: status}],
       })[0]?.path,
     ).toBe(`${path}/${issue.id}`)
+  })
+
+  it("builds widget update rows that open extension settings", async () => {
+    const {buildWidgetUpdateNotificationRows} = await import("./notification-sources")
+    const widget = {
+      id: "weather-1",
+      kind: 30033,
+      content: "Weather",
+      pubkey: writer,
+      created_at: 100,
+      tags: [["d", "weather"]],
+      identifier: "weather",
+      widgetType: "tool",
+      buttons: [],
+      appUrl: "https://example.com/v1.html",
+      version: "1.0.0",
+    } as any
+    const latest = {
+      ...widget,
+      id: "weather-2",
+      created_at: 200,
+      appUrl: "https://example.com/v2.html",
+      version: "1.1.0",
+      changelog: "Better forecast data.",
+    }
+
+    expect(
+      buildWidgetUpdateNotificationRows({
+        updates: [
+          {
+            id: "30033:weather:weather",
+            installed: widget,
+            latest,
+            relays: ["wss://widgets.example/"],
+            diff: {
+              version: {from: "1.0.0", to: "1.1.0"},
+              changelog: "Better forecast data.",
+              appUrlChanged: true,
+              permissionsAdded: [],
+              permissionsRemoved: [],
+              slotChanged: false,
+              widgetTypeChanged: false,
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "widget-update:30033:weather:weather:weather-2",
+        source: "widget",
+        sourceLabel: "Widgets",
+        type: "widget",
+        title: "Widget update available",
+        action: "published an update for",
+        actionLabel: "Review widget update",
+        contextLabel: "Weather",
+        path: "/settings/extensions",
+        readPath: "/settings/extensions",
+        createdAt: 200,
+        preview: expect.stringContaining("Weather v1.1.0 is available."),
+      }),
+    ])
   })
 
   it("labels community room replies to the signed-in user's message", async () => {
@@ -2088,12 +2162,29 @@ describe("notification sources", () => {
       tags: [
         ["p", viewer],
         ["e", otherComment.id],
-        ["description", JSON.stringify({...zapRequest, tags: [["e", otherComment.id], ["p", viewer]]})],
+        [
+          "description",
+          JSON.stringify({
+            ...zapRequest,
+            tags: [
+              ["e", otherComment.id],
+              ["p", viewer],
+            ],
+          }),
+        ],
       ],
     })
 
     const rows = buildEngagementNotificationRows({
-      events: [reactionOne, reactionTwo, falseReaction, genericReaction, validZap, invalidZap, falseZap],
+      events: [
+        reactionOne,
+        reactionTwo,
+        falseReaction,
+        genericReaction,
+        validZap,
+        invalidZap,
+        falseZap,
+      ],
       targetEvents: [ownedComment, otherComment, genericComment],
       currentPubkey: viewer,
       validZapResponseIds: new Set([validZap.id, falseZap.id]),

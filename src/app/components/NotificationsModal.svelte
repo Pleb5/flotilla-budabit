@@ -1,3 +1,14 @@
+<style>
+  :global(.notification-event-content *) {
+    max-width: 100%;
+  }
+
+  :global(.notification-event-content .event-renderer) {
+    min-width: 0;
+    overflow-x: auto;
+  }
+</style>
+
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {formatTimestamp} from "@welshman/lib"
@@ -16,6 +27,7 @@
   import RoundAltArrowDown from "@assets/icons/round-alt-arrow-down.svg?dataurl"
   import UserSpeak from "@assets/icons/user-speak.svg?dataurl"
   import Users from "@assets/icons/users-group-rounded.svg?dataurl"
+  import Widget from "@assets/icons/widget.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -58,30 +70,36 @@
   let loadMoreHistoryRowCount = $state(0)
   let loadMoreHistoryTimeout: ReturnType<typeof setTimeout> | undefined
 
-  const rowsWithActorNames = derived(notificationCenterRows, ($rows, set) => {
-    const actorPubkeys = Array.from(
-      new Set($rows.map(row => row.actorPubkey).filter((value): value is string => Boolean(value))),
-    )
-
-    if (actorPubkeys.length === 0) {
-      set($rows)
-      return
-    }
-
-    const nameStores = actorPubkeys.map(pubkey => deriveBudabitProfileDisplay(pubkey))
-
-    return derived(nameStores, actorNames => {
-      const namesByPubkey = new Map(
-        actorPubkeys.map((pubkey, index) => [pubkey, String(actorNames[index] || "").trim()]),
+  const rowsWithActorNames = derived(
+    notificationCenterRows,
+    ($rows, set) => {
+      const actorPubkeys = Array.from(
+        new Set(
+          $rows.map(row => row.actorPubkey).filter((value): value is string => Boolean(value)),
+        ),
       )
 
-      return $rows.map(row => {
-        const actorName = row.actorPubkey ? namesByPubkey.get(row.actorPubkey) : ""
+      if (actorPubkeys.length === 0) {
+        set($rows)
+        return
+      }
 
-        return actorName && actorName !== row.actorName ? {...row, actorName} : row
-      })
-    }).subscribe(set)
-  }, [] as NotificationRow[])
+      const nameStores = actorPubkeys.map(pubkey => deriveBudabitProfileDisplay(pubkey))
+
+      return derived(nameStores, actorNames => {
+        const namesByPubkey = new Map(
+          actorPubkeys.map((pubkey, index) => [pubkey, String(actorNames[index] || "").trim()]),
+        )
+
+        return $rows.map(row => {
+          const actorName = row.actorPubkey ? namesByPubkey.get(row.actorPubkey) : ""
+
+          return actorName && actorName !== row.actorName ? {...row, actorName} : row
+        })
+      }).subscribe(set)
+    },
+    [] as NotificationRow[],
+  )
 
   const rows = $derived(filterNotificationRows($rowsWithActorNames, {filters: rowFilters, term}))
   const visibleRows = $derived(rows.slice(0, visibleRowLimit))
@@ -105,7 +123,8 @@
   })
 
   $effect(() => {
-    if ($latestNotificationCenterTimestamp > 0) markNotificationsRead($latestNotificationCenterTimestamp)
+    if ($latestNotificationCenterTimestamp > 0)
+      markNotificationsRead($latestNotificationCenterTimestamp)
   })
 
   $effect(() => {
@@ -197,6 +216,7 @@
     if (source === "chat") return Chat
     if (source === "git") return Git
     if (source === "community") return Users
+    if (source === "widget") return Widget
 
     return Bell
   }
@@ -209,6 +229,7 @@
     if (type === "zap") return Bolt
     if (type === "repo") return Git
     if (type === "community") return Users
+    if (type === "widget") return Widget
 
     return Bell
   }
@@ -231,7 +252,7 @@
   </header>
 
   <div class="grid gap-3">
-    <label class="input input-bordered input-sm flex min-w-0 flex-1 items-center gap-2">
+    <label class="input input-sm input-bordered flex min-w-0 flex-1 items-center gap-2">
       <Icon icon={Magnifier} size={4} />
       <input
         bind:value={term}
@@ -246,11 +267,7 @@
           class="btn btn-xs gap-1.5"
           class:btn-primary={isFilterActive(option.value)}
           class:btn-outline={!isFilterActive(option.value)}>
-          <input
-            class="sr-only"
-            type="checkbox"
-            value={option.value}
-            bind:group={rowFilters} />
+          <input class="sr-only" type="checkbox" value={option.value} bind:group={rowFilters} />
           <Icon icon={getFilterIcon(option.value)} size={3.5} />
           <span>{option.label}</span>
           {#if isFilterActive(option.value)}
@@ -271,7 +288,8 @@
           {#each visibleRows as row (row.id)}
             {@const display = getNotificationRowDisplay(row)}
             {@const isExpanded = expandedRowId === row.id}
-            <article class="card2 overflow-hidden bg-alt text-left transition-colors hover:bg-base-200">
+            <article
+              class="card2 bg-alt overflow-hidden text-left transition-colors hover:bg-base-200">
               <div
                 role="button"
                 tabindex="0"
@@ -286,14 +304,15 @@
 
                 {#if row.actorPubkey}
                   <Button
-                    class="btn btn-ghost btn-circle btn-sm shrink-0 p-0"
+                    class="btn btn-circle btn-ghost btn-sm shrink-0 p-0"
                     aria-label="View profile"
                     onkeydown={stopKeyboardPropagation}
                     onclick={event => openProfile(event, row.actorPubkey!)}>
                     <ProfileCircle pubkey={row.actorPubkey} size={8} />
                   </Button>
                 {:else}
-                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-200">
+                  <div
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-200">
                     <ImageIcon alt={display.sourceLabel} src={Bell} size={5} />
                   </div>
                 {/if}
@@ -301,7 +320,8 @@
                 <div class="min-w-0 flex-1">
                   <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
-                      <div class="flex min-w-0 flex-wrap items-baseline gap-x-1 text-sm leading-snug">
+                      <div
+                        class="flex min-w-0 flex-wrap items-baseline gap-x-1 text-sm leading-snug">
                         {#if row.actorPubkey}
                           <strong class="max-w-[9rem] truncate sm:max-w-[12rem]">
                             <ProfileName pubkey={row.actorPubkey} />
@@ -314,7 +334,8 @@
                         {/if}
                       </div>
                       <p class="mt-1 line-clamp-1 text-sm text-foreground">{display.preview}</p>
-                      <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <div
+                        class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                         {#if row.createdAt > 0}
                           <span>{formatTimestamp(row.createdAt)}</span>
                         {/if}
@@ -327,7 +348,9 @@
                       <Icon
                         icon={RoundAltArrowDown}
                         size={4}
-                        class={isExpanded ? "mt-1 rotate-180 transition-transform" : "mt-1 transition-transform"} />
+                        class={isExpanded
+                          ? "mt-1 rotate-180 transition-transform"
+                          : "mt-1 transition-transform"} />
                     {:else}
                       <Icon icon={ArrowRightUp} size={3.5} class="mt-1 text-muted-foreground" />
                     {/if}
@@ -339,7 +362,8 @@
                 <div class="border-t border-base-300/70 px-3 pb-3 pt-2">
                   <div class="grid gap-2 sm:ml-[5.5rem]">
                     {#each display.sections as section}
-                      <article class="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100/70 p-3 shadow-sm">
+                      <article
+                        class="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100/70 p-3 shadow-sm">
                         <div class="flex items-start justify-between gap-2">
                           <div class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                             {#if section.event?.pubkey}
@@ -360,7 +384,8 @@
                           {/if}
                         </div>
                         {#if section.event}
-                          <div class="notification-event-content mt-2 min-w-0 max-w-full overflow-hidden text-sm leading-relaxed">
+                          <div
+                            class="notification-event-content mt-2 min-w-0 max-w-full overflow-hidden text-sm leading-relaxed">
                             {#if section.event.kind === DM_KIND}
                               <NotificationDmContent event={section.event} />
                             {:else}
@@ -398,7 +423,7 @@
       {/if}
 
       {#if visibleRows.length === 0}
-        <div class="card2 col-2 items-center bg-alt p-8 text-center">
+        <div class="card2 col-2 bg-alt items-center p-8 text-center">
           <ImageIcon alt="Notifications" src={Bell} size={10} />
           <strong>No notifications found</strong>
           <p class="max-w-sm text-sm text-muted-foreground">
@@ -424,14 +449,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  :global(.notification-event-content *) {
-    max-width: 100%;
-  }
-
-  :global(.notification-event-content .event-renderer) {
-    min-width: 0;
-    overflow-x: auto;
-  }
-</style>

@@ -1,7 +1,7 @@
 import {createSearch} from "@welshman/app"
 import type {TrustedEvent} from "@welshman/util"
 
-export type NotificationRowSource = "chat" | "git" | "community"
+export type NotificationRowSource = "chat" | "git" | "community" | "widget"
 
 export type NotificationRowFilter = NotificationRowSource
 
@@ -13,6 +13,7 @@ export type NotificationRowType =
   | "zap"
   | "repo"
   | "community"
+  | "widget"
   | "route"
   | "activity"
 
@@ -82,6 +83,7 @@ export const NOTIFICATION_ROW_FILTERS: {value: NotificationRowFilter; label: str
   {value: "community", label: "Communities"},
   {value: "git", label: "Git"},
   {value: "chat", label: "DMs"},
+  {value: "widget", label: "Widgets"},
 ]
 
 export const getNotificationSourceLabel = (source: NotificationRowSource) => {
@@ -92,16 +94,20 @@ export const getNotificationSourceLabel = (source: NotificationRowSource) => {
       return "Git"
     case "community":
       return "Communities"
+    case "widget":
+      return "Widgets"
     default:
       return "Notifications"
   }
 }
 
-export const buildNotificationSearchText = (
-  ...values: Array<string | number | undefined>
-) =>
+export const buildNotificationSearchText = (...values: Array<string | number | undefined>) =>
   values
-    .map(value => String(value || "").trim().toLowerCase())
+    .map(value =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
     .filter(Boolean)
     .join(" ")
 
@@ -133,6 +139,7 @@ export const getNotificationRowType = (row: NotificationRow): NotificationRowTyp
   if (title.includes("zap")) return "zap"
   if (row.source === "git") return "repo"
   if (row.source === "community") return "community"
+  if (row.source === "widget") return "widget"
   if (row.id.startsWith("route:")) return "route"
 
   return "activity"
@@ -154,6 +161,8 @@ const getDefaultAction = (type: NotificationRowType) => {
       return "updated"
     case "community":
       return "updated"
+    case "widget":
+      return "published an update for"
     case "route":
       return "needs attention"
     default:
@@ -167,6 +176,7 @@ const getDefaultContext = (row: NotificationRow, type: NotificationRowType) => {
   if (type === "chat") return "Direct message"
   if (type === "repo") return "Git activity"
   if (type === "community") return "Community activity"
+  if (type === "widget") return "Widget update"
   if (type === "route") return row.sourceLabel
 
   return row.sourceLabel
@@ -188,6 +198,8 @@ const getDefaultActionLabel = (type: NotificationRowType) => {
       return "Open git item"
     case "community":
       return "Open community"
+    case "widget":
+      return "Review widget update"
     default:
       return "Open notification"
   }
@@ -212,10 +224,7 @@ const toDisplaySection = (
 }
 
 const normalizeComparableText = (value: string | undefined) =>
-  sanitizeNotificationText(value, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim()
+  sanitizeNotificationText(value, "").toLowerCase().replace(/\s+/g, " ").trim()
 
 const hasMeaningfulEventContent = (event: TrustedEvent | undefined) => {
   const content = normalizeComparableText(event?.content)
@@ -235,8 +244,7 @@ const hasMeaningfulSection = (
   const sectionPreview = normalizeComparableText(section.preview)
   const rowPreview = normalizeComparableText(displayPreview)
   const sameNavigation =
-    section.path === primaryAction.path &&
-    (section.eventId || "") === (primaryAction.eventId || "")
+    section.path === primaryAction.path && (section.eventId || "") === (primaryAction.eventId || "")
 
   return Boolean(sectionPreview && sectionPreview !== rowPreview && !sameNavigation)
 }

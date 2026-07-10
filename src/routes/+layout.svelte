@@ -62,6 +62,7 @@
   import {setupRepoWatchNotifications} from "@app/util/repo-watch-notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
+  import {setupWidgetUpdateNotifications} from "@app/extensions/widget-update-notifications"
   import {initializeCashuWallet} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
   import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
@@ -907,7 +908,13 @@
     unsubscribers.push(uninstallSocketPolicies)
 
     // History, navigation, and application data
-    unsubscribers.push(setupHistory(), setupGitCorsProxy(), syncApplicationData(), syncGitData())
+    unsubscribers.push(
+      setupHistory(),
+      setupGitCorsProxy(),
+      setupWidgetUpdateNotifications(),
+      syncApplicationData(),
+      syncGitData(),
+    )
 
     // Initialize an existing Cashu wallet eagerly so balance is available immediately.
     // If no seed exists, setup remains explicit until the user creates or restores a wallet.

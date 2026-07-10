@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest"
 import {
   getNotificationRowDisplay,
+  getNotificationSourceLabel,
+  NOTIFICATION_ROW_FILTERS,
   getNotificationRowVisibleText,
   sanitizeNotificationText,
   type NotificationRow,
@@ -152,5 +154,38 @@ describe("notification display", () => {
         },
       }).canExpand,
     ).toBe(false)
+  })
+
+  it("supports widget update notification rows", () => {
+    const row: NotificationRow = {
+      id: "widget-update:weather:weather-2",
+      source: "widget",
+      sourceLabel: getNotificationSourceLabel("widget"),
+      type: "widget",
+      title: "Widget update available",
+      action: "published an update for",
+      contextLabel: "Weather",
+      preview: "Weather v1.1.0 is available. Better forecast data.",
+      path: "/settings/extensions",
+      readPath: "/settings/extensions",
+      createdAt: 200,
+      searchText: "widget weather update",
+    }
+
+    expect(NOTIFICATION_ROW_FILTERS).toEqual(
+      expect.arrayContaining([{value: "widget", label: "Widgets"}]),
+    )
+    expect(getNotificationRowDisplay(row)).toEqual(
+      expect.objectContaining({
+        type: "widget",
+        sourceLabel: "Widgets",
+        action: "published an update for",
+        context: "Weather",
+        primaryAction: expect.objectContaining({
+          label: "Review widget update",
+          path: "/settings/extensions",
+        }),
+      }),
+    )
   })
 })
