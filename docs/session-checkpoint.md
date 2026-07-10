@@ -69,6 +69,7 @@
   - `git diff --check` passed.
   - Grep checks found no notification `Other` source/filter regressions; remaining `Other` hits are unrelated labels/forms/report options.
   - Final status/log inspection completed before checkpoint closeout.
+- Final closeout was committed and pushed as `14ccd2a5 fix: clear moderation notifications`.
 
 ## Decisions
 
@@ -82,7 +83,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; before final closeout commit, HEAD and origin are both `cba36c88`.
+- Branch: `dev`, tracking `origin/dev`; after final closeout commit, HEAD and origin are both `14ccd2a5`.
 - Existing dirty files before this workflow:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notifications.test.ts`
@@ -90,11 +91,11 @@
 - Phase 1 docs were committed and pushed.
 - Phase 2 was committed and pushed.
 - Phase 3 was committed and pushed.
-- Phase 4 is verified and this checkpoint is ready for the final closeout commit.
+- Phase 4 is verified and final closeout was committed and pushed.
 
 ## Next Action
 
-- Commit/push this final checkpoint closeout, reread checkpoint, then send final response.
+- Final response.
 
 ## Verification
 
@@ -105,6 +106,7 @@
 - Phase 2 focused tests, `pnpm check`, and `git diff --check` passed.
 - Phase 3 focused tests, `pnpm check`, and `git diff --check` passed.
 - Phase 4 focused tests, `pnpm check`, `git diff --check`, and notification `Other` grep checks passed.
+- Final closeout commit/push succeeded; this checkpoint repair records the successful transition to final response.
 
 ## Risks Or Blockers
 
