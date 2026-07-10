@@ -70,6 +70,7 @@
   - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/repo-watch-notifications.test.ts --project=main` passed: 2 files, 30 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 3 was committed and pushed as `6d4450e7 fix: notify git important root creators`.
 
 ## Decisions
 
@@ -82,7 +83,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; after Phase 2 repair, `HEAD` and `origin/dev` are both `1dc4eb15` before Phase 3 commit.
+- Branch: `dev`, tracking `origin/dev`; after Phase 3 push, `HEAD` and `origin/dev` are both `6d4450e7`.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -94,12 +95,12 @@
   - `src/app/components/NotificationDmContent.svelte` (untracked)
 - Phase 1 docs were committed and pushed.
 - Phase 2 was committed and pushed.
-- Phase 3 is verified and ready to commit/push as the phase transition.
+- Phase 3 was committed and pushed.
 - Phase 4 must implement explicit permission/moderation outcome rows where current app state supports them.
 
 ## Next Action
 
-- Finish Phase 3 closeout by committing/pushing Phase 3 files, reread checkpoint, then start Phase 4 implementation.
+- Start Phase 4: inspect community request/report/form state and implement explicit permission/moderation outcome rows where current data supports them.
 
 ## Verification
 
@@ -114,11 +115,12 @@
 - Phase 3 focused Git notification tests passed.
 - Phase 3 `pnpm check` passed.
 - Phase 3 `git diff --check` passed.
+- Phase 3 commit/push succeeded, then checkpoint reread found stale `Next Action`; checkpoint repair records the successful transition.
 
 ## Risks Or Blockers
 
 - Existing dirty notification files predate this plan update; later phases must avoid staging unrelated changes or stop if conflicts appear.
-- Branch is synced with origin after Phase 2 push.
+- Branch is synced with origin after Phase 3 push.
 - Existing dirty files not needed for Phase 2 remain unstaged unless intentionally included by overlapping source/test files.
 
 ## Files
