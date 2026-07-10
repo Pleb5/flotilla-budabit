@@ -16,11 +16,14 @@ import {COMMENT, EVENT_TIME, MESSAGE, REACTION, THREAD, ZAP_GOAL, ZAP_RESPONSE} 
 import type {Chat} from "@app/core/state"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
+  COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_THREADS,
   FORM_RESPONSE_KIND,
+  FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
 } from "@app/core/community"
+import {COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
@@ -275,6 +278,178 @@ describe("notification sources", () => {
         eventId: publishingDenied.id,
       }),
     )
+  })
+
+  it("builds section-scoped application rows for grant moderators", async () => {
+    const {buildCommunityApplicationNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const generalProfileListAddress = `${PROFILE_LIST_KIND}:${viewer}:${COMMUNITY_SECTION_GENERAL}`
+    const threadProfileListAddress = `${PROFILE_LIST_KIND}:${outsider}:${COMMUNITY_SECTION_THREADS}`
+    ref.definition.sections[0].profileLists = [
+      {
+        kind: PROFILE_LIST_KIND,
+        pubkey: viewer,
+        identifier: COMMUNITY_SECTION_GENERAL,
+        address: generalProfileListAddress,
+      },
+    ]
+    ref.definition.sections[1].profileLists = [
+      {
+        kind: PROFILE_LIST_KIND,
+        pubkey: outsider,
+        identifier: COMMUNITY_SECTION_THREADS,
+        address: threadProfileListAddress,
+      },
+    ]
+    const generalFormAddress = `${FORM_TEMPLATE_KIND}:${viewer}:general-application`
+    const threadFormAddress = `${FORM_TEMPLATE_KIND}:${outsider}:threads-application`
+    const generalForm = makeEvent({
+      id: "general-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: viewer,
+      tags: [
+        ["d", "general-application"],
+        ["a", `10222:${communityPubkey}:`],
+        ["content", COMMUNITY_SECTION_GENERAL],
+        ["name", "General application"],
+      ],
+    })
+    const threadForm = makeEvent({
+      id: "thread-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: outsider,
+      tags: [
+        ["d", "threads-application"],
+        ["a", `10222:${communityPubkey}:`],
+        ["content", COMMUNITY_SECTION_THREADS],
+        ["name", "Threads application"],
+      ],
+    })
+    const generalResponse = makeEvent({
+      id: "general-response",
+      kind: FORM_RESPONSE_KIND,
+      pubkey: writer,
+      created_at: 140,
+      tags: [
+        ["a", generalFormAddress],
+        ["response", "q1", "I would like to post updates."],
+      ],
+    })
+    const threadResponse = makeEvent({
+      id: "thread-response",
+      kind: FORM_RESPONSE_KIND,
+      pubkey: writer,
+      created_at: 150,
+      tags: [
+        ["a", threadFormAddress],
+        ["response", "q1", "I would like to create threads."],
+      ],
+    })
+
+    const rows = buildCommunityApplicationNotificationRows({
+      refs: [ref],
+      currentPubkey: viewer,
+      profileListEvents: [
+        makeEvent({
+          id: "general-profile-list",
+          kind: PROFILE_LIST_KIND,
+          pubkey: viewer,
+          tags: [["d", COMMUNITY_SECTION_GENERAL]],
+        }),
+        makeEvent({
+          id: "thread-profile-list",
+          kind: PROFILE_LIST_KIND,
+          pubkey: outsider,
+          tags: [["d", COMMUNITY_SECTION_THREADS]],
+        }),
+      ],
+      admissionFormEvents: [generalForm, threadForm],
+      admissionResponseEvents: [generalResponse, threadResponse],
+    })
+
+    expect(rows.map(row => row.eventId)).toEqual([generalResponse.id])
+    expect(rows[0]).toEqual(
+      expect.objectContaining({
+        source: "community",
+        title: "New access application",
+        action: "requested publishing access",
+        actorPubkey: writer,
+        path: expect.stringContaining("/moderation"),
+        target: expect.objectContaining({label: "Application form", eventId: generalForm.id}),
+      }),
+    )
+  })
+
+  it("builds applicant rows for publishing access decisions", async () => {
+    const {buildCommunityApplicationNotificationRows} = await import("./notification-sources")
+    const formAddress = `${FORM_TEMPLATE_KIND}:${writer}:calendar-application`
+    const form = makeEvent({
+      id: "calendar-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: writer,
+      tags: [
+        ["d", "calendar-application"],
+        ["a", `10222:${communityPubkey}:`],
+        ["content", COMMUNITY_SECTION_CALENDAR],
+        ["name", "Calendar application"],
+      ],
+    })
+    const accepted = makeEvent({
+      id: "calendar-accepted",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: writer,
+      created_at: 220,
+      content: "+",
+      tags: [
+        ["e", "calendar-response"],
+        ["p", viewer],
+        ["k", String(FORM_RESPONSE_KIND)],
+        ["a", formAddress],
+        ["h", communityPubkey],
+        ["content", COMMUNITY_SECTION_CALENDAR],
+      ],
+    })
+    const revoked = makeEvent({
+      id: "calendar-revoked",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: writer,
+      created_at: 240,
+      content: "-",
+      tags: [
+        ["e", "calendar-response"],
+        ["p", viewer],
+        ["k", String(FORM_RESPONSE_KIND)],
+        ["a", formAddress],
+        ["h", communityPubkey],
+        ["content", COMMUNITY_SECTION_CALENDAR],
+      ],
+    })
+
+    const rows = buildCommunityApplicationNotificationRows({
+      refs: [],
+      currentPubkey: viewer,
+      admissionFormEvents: [form],
+      admissionReviewEvents: [accepted, revoked],
+    })
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        source: "community",
+        title: "Publishing permission revoked",
+        action: "revoked your publishing access",
+        actorPubkey: writer,
+        path: expect.stringContaining("/access"),
+        eventId: revoked.id,
+      }),
+      expect.objectContaining({
+        source: "community",
+        title: "Publishing permission granted",
+        action: "approved your publishing request",
+        actorPubkey: writer,
+        path: expect.stringContaining("/access"),
+        eventId: accepted.id,
+      }),
+    ])
   })
 
   it("filters notification rows by selected sources and profile names", async () => {

@@ -6,6 +6,7 @@ import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {
   Address,
   COMMENT,
+  DELETE,
   EVENT_DATE,
   EVENT_TIME,
   MESSAGE,
@@ -42,12 +43,21 @@ import {
   communityMemberProfileListEvents,
   communityMemberReportStates,
   communityModeratorProfileListEvents,
+  makeCommunityAdmissionFormFilters,
 } from "@app/core/community-state"
 import type {
   ActiveUserCommunityRef,
   UserCommunityReportStates,
 } from "@app/core/community-membership"
 import {FORM_RESPONSE_KIND, normalizePubkey} from "@app/core/community"
+import {
+  COMMUNITY_FORM_REVIEW_KIND,
+  getAdmissionSubmissionState,
+  parseAdmissionForm,
+  parseAdmissionResponse,
+  parseAdmissionReview,
+  type CommunityAdmissionForm,
+} from "@app/core/community-forms"
 import {eventTargetsCommunity, makeCommunityExclusiveFilter} from "@app/core/community-feeds"
 import {readCommunityCalendarEventReply} from "@app/core/community-calendar"
 import {readCommunityRoomMessage} from "@app/core/community-messages"
@@ -55,6 +65,8 @@ import {readCommunityThread, readCommunityThreadReply} from "@app/core/community
 import {
   COMMUNITY_WRITE_TARGETS,
   canWriteCommunityTarget,
+  getGrantCapability,
+  getGrantCapableSectionModeratorPubkeys,
   getCommunityWriteTargetSectionName,
   getCommunityTargetWriterPubkeys,
   type CommunityWriteTarget,
@@ -62,6 +74,7 @@ import {
 import {
   getCommunityCensorReason,
   isCommunityPersonBanned,
+  type EffectiveCommunityReportState,
 } from "@app/core/community-reports"
 import {
   notificationCandidates,
@@ -127,6 +140,18 @@ export type BuildCommunityNotificationRowsOptions = {
   reportStates?: UserCommunityReportStates
   mutedPubkeys?: string[]
   targetEvents?: TrustedEvent[]
+}
+
+export type BuildCommunityApplicationNotificationRowsOptions = {
+  refs: ActiveUserCommunityRef[]
+  currentPubkey?: string
+  profileListEvents?: TrustedEvent[]
+  reportStates?: UserCommunityReportStates
+  admissionFormEvents?: TrustedEvent[]
+  admissionResponseEvents?: TrustedEvent[]
+  admissionDeleteEvents?: TrustedEvent[]
+  admissionReviewEvents?: TrustedEvent[]
+  mutedPubkeys?: string[]
 }
 
 export type BuildRepoWatchNotificationRowsOptions = {
@@ -314,6 +339,47 @@ const mapEventsByRef = (events: TrustedEvent[]) => {
 
   return eventsByRef
 }
+
+const isPreferredEvent = (event: TrustedEvent, current: TrustedEvent | undefined) =>
+  !current ||
+  event.created_at > current.created_at ||
+  (event.created_at === current.created_at && event.id < current.id)
+
+const mapAdmissionFormsBySection = ({
+  ref,
+  admissionFormEvents,
+  profileListEvents,
+  reportState,
+}: {
+  ref: ActiveUserCommunityRef
+  admissionFormEvents: TrustedEvent[]
+  profileListEvents: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
+}) => {
+  const formsBySection = new Map<string, CommunityAdmissionForm>()
+
+  for (const event of admissionFormEvents) {
+    const form = parseAdmissionForm(event)
+    const sectionName = form?.sectionName || ""
+    if (!form || form.communityPubkey !== ref.communityPubkey || !sectionName) continue
+
+    const moderators = getGrantCapableSectionModeratorPubkeys({
+      definition: ref.definition,
+      sectionName,
+      profileListEvents,
+      reportState,
+    })
+    if (!moderators.includes(normalizePubkey(form.pubkey))) continue
+
+    const current = formsBySection.get(sectionName)
+    if (isPreferredEvent(form.event, current?.event)) formsBySection.set(sectionName, form)
+  }
+
+  return formsBySection
+}
+
+const dedupeTrustedEvents = (events: TrustedEvent[]) =>
+  Array.from(new Map(events.filter(event => event.id).map(event => [event.id, event])).values())
 
 const getEventRefTags = (event: TrustedEvent, names: string[]) =>
   event.tags
@@ -1212,6 +1278,223 @@ export const buildCommunityNotificationRows = ({
   return sortNotificationRows(Array.from(rowsById.values()))
 }
 
+export const buildCommunityApplicationNotificationRows = ({
+  refs,
+  currentPubkey,
+  profileListEvents = [],
+  reportStates,
+  admissionFormEvents = [],
+  admissionResponseEvents = [],
+  admissionDeleteEvents = [],
+  admissionReviewEvents = [],
+  mutedPubkeys = [],
+}: BuildCommunityApplicationNotificationRowsOptions): NotificationRow[] => {
+  const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
+  if (!normalizedCurrentPubkey) return []
+
+  const rowsById = new Map<string, NotificationRow>()
+  const muted = new Set(mutedPubkeys.map(normalizePubkey).filter(Boolean))
+  const formsByAddress = new Map<string, CommunityAdmissionForm>()
+  const dedupedFormEvents = dedupeTrustedEvents(admissionFormEvents)
+  const dedupedResponseEvents = dedupeTrustedEvents(admissionResponseEvents)
+  const dedupedDeleteEvents = dedupeTrustedEvents(admissionDeleteEvents)
+  const dedupedReviewEvents = dedupeTrustedEvents(admissionReviewEvents)
+
+  for (const event of dedupedFormEvents) {
+    const form = parseAdmissionForm(event)
+    if (form) formsByAddress.set(form.address, form)
+  }
+
+  const addRow = ({
+    id,
+    event,
+    path,
+    readPath = path,
+    title,
+    preview,
+    action,
+    contextLabel,
+    detailLabel,
+    actionLabel,
+    targetEvent,
+    targetLabel,
+  }: {
+    id: string
+    event: TrustedEvent
+    path: string
+    readPath?: string
+    title: string
+    preview: string
+    action: string
+    contextLabel: string
+    detailLabel: string
+    actionLabel: string
+    targetEvent?: TrustedEvent
+    targetLabel?: string
+  }) => {
+    if (!path) return
+
+    const actorPubkey = normalizePubkey(event.pubkey || "")
+    if (!actorPubkey || actorPubkey === normalizedCurrentPubkey || muted.has(actorPubkey)) return
+
+    const current = rowsById.get(id)
+    if (current && current.createdAt >= event.created_at) return
+
+    rowsById.set(id, {
+      id,
+      eventId: event.id,
+      actorPubkey,
+      source: "community",
+      sourceLabel: getNotificationSourceLabel("community"),
+      type: "community",
+      title,
+      preview,
+      action,
+      actionLabel,
+      contextLabel,
+      path,
+      readPath,
+      navigationEventId: event.id,
+      target: targetEvent
+        ? makeEventDisplayTarget({
+            label: targetLabel || "Application form",
+            event: targetEvent,
+            path,
+            actionLabel: "Open context",
+          })
+        : undefined,
+      detail: makeEventDisplayTarget({
+        label: detailLabel,
+        event,
+        path,
+        actionLabel,
+        fallback: preview,
+      }),
+      createdAt: event.created_at,
+      searchText: buildNotificationSearchText(
+        "community",
+        title,
+        preview,
+        event.pubkey,
+        path,
+        contextLabel,
+      ),
+    })
+  }
+
+  for (const ref of refs) {
+    const reportState = getReportState(reportStates, ref.communityPubkey)
+    const formsBySection = mapAdmissionFormsBySection({
+      ref,
+      admissionFormEvents: dedupedFormEvents,
+      profileListEvents,
+      reportState,
+    })
+
+    for (const [sectionName, form] of formsBySection) {
+      const capability = getGrantCapability({
+        definition: ref.definition,
+        userPubkey: normalizedCurrentPubkey,
+        sectionName,
+        profileListEvents,
+        reportState,
+      })
+      if (!capability.canGrant) continue
+
+      const moderatorPubkeys = getGrantCapableSectionModeratorPubkeys({
+        definition: ref.definition,
+        sectionName,
+        profileListEvents,
+        reportState,
+      })
+      const path = makeCommunityPath(ref.communityPubkey, "moderation")
+
+      for (const event of dedupedResponseEvents) {
+        const response = parseAdmissionResponse(event)
+        if (!response || response.formAddress !== form.address) continue
+        if (isCommunityPersonBanned(reportState, response.event.pubkey)) continue
+
+        const submission = getAdmissionSubmissionState({
+          responseEvents: dedupedResponseEvents,
+          deleteEvents: dedupedDeleteEvents,
+          reviewEvents: dedupedReviewEvents,
+          formAddress: form.address,
+          applicantPubkey: response.event.pubkey,
+          moderatorPubkeys,
+        })
+        if (submission.status !== "pending" || submission.response?.event.id !== event.id) continue
+
+        addRow({
+          id: `community-application:${event.id}`,
+          event,
+          path,
+          title: "New access application",
+          preview: `New ${sectionName} publishing access application.`,
+          action: "requested publishing access",
+          contextLabel: `${sectionName} access`,
+          detailLabel: "Access application",
+          actionLabel: "Open application",
+          targetEvent: form.event,
+          targetLabel: "Application form",
+        })
+      }
+    }
+  }
+
+  for (const event of dedupedReviewEvents) {
+    const review = parseAdmissionReview(event)
+    const applicantPubkey = normalizePubkey(review?.applicantPubkey || "")
+    if (!review || applicantPubkey !== normalizedCurrentPubkey) continue
+
+    const communityPubkey = review.communityPubkey || formsByAddress.get(review.formAddress || "")?.communityPubkey || ""
+    if (!communityPubkey) continue
+
+    const accepted = review.status === "granted"
+    const revoked =
+      !accepted &&
+      dedupedReviewEvents.some(candidateEvent => {
+        const candidate = parseAdmissionReview(candidateEvent)
+
+        return Boolean(
+          candidate &&
+            candidate.responseId === review.responseId &&
+            normalizePubkey(candidate.applicantPubkey || "") === normalizedCurrentPubkey &&
+            candidate.status === "granted" &&
+            candidate.event.created_at < event.created_at,
+        )
+      })
+    const form = review.formAddress ? formsByAddress.get(review.formAddress) : undefined
+
+    addRow({
+      id: `community-application-review:${event.id}`,
+      event,
+      path: makeCommunityPath(communityPubkey, "access"),
+      title: accepted
+        ? "Publishing permission granted"
+        : revoked
+          ? "Publishing permission revoked"
+          : "Publishing permission denied",
+      preview: accepted
+        ? "Your publishing permission request was accepted."
+        : revoked
+          ? "Your publishing permission was revoked."
+        : "Your publishing permission request was denied.",
+      action: accepted
+        ? "approved your publishing request"
+        : revoked
+          ? "revoked your publishing access"
+          : "denied your publishing request",
+      contextLabel: review.sectionName ? `${review.sectionName} access` : "Community access",
+      detailLabel: "Access decision",
+      actionLabel: "Open access settings",
+      targetEvent: form?.event,
+      targetLabel: "Application form",
+    })
+  }
+
+  return sortNotificationRows(Array.from(rowsById.values()))
+}
+
 const getRepoEventTitle = (event: TrustedEvent) => {
   if (event.kind === GIT_ISSUE) return "New issue"
   if (event.kind === GIT_PULL_REQUEST) return "New pull request"
@@ -1868,6 +2151,90 @@ const globalCommunityNotificationEvents = deriveLoadedNotificationEvents({
   label: "global community notifications",
 })
 
+const globalCommunityAdmissionFormFilters = derived(activeUserCommunityRefs, $refs =>
+  $refs.flatMap(ref => makeCommunityAdmissionFormFilters(ref.definition)),
+)
+
+const globalCommunityAdmissionFormEvents = deriveLoadedNotificationEvents({
+  filters: globalCommunityAdmissionFormFilters,
+  relays: globalCommunityNotificationRelays,
+  label: "global community admission forms",
+})
+
+const globalCommunityAdmissionResponseFilters = derived(
+  [globalCommunityAdmissionFormEvents, notificationHistorySince, notificationHistoryFilterLimit],
+  ([$events, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
+    const addresses = uniqueStrings(
+      $events.map(event => parseAdmissionForm(event)?.address || ""),
+    )
+    if (addresses.length === 0) return []
+
+    return [
+      {
+        kinds: [FORM_RESPONSE_KIND],
+        "#a": addresses,
+        since: $notificationHistorySince,
+        limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
+      },
+    ]
+  },
+)
+
+const globalCommunityAdmissionResponseEvents = deriveLoadedNotificationEvents({
+  filters: globalCommunityAdmissionResponseFilters,
+  relays: globalCommunityNotificationRelays,
+  label: "global community admission responses",
+})
+
+const globalCommunityAdmissionDecisionFilters = derived(
+  [globalCommunityAdmissionResponseEvents, notificationHistorySince, notificationHistoryFilterLimit],
+  ([$events, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
+    const responseIds = uniqueStrings($events.map(event => event.id))
+    if (responseIds.length === 0) return []
+
+    return [
+      {
+        kinds: [DELETE, COMMUNITY_FORM_REVIEW_KIND],
+        "#e": responseIds,
+        since: $notificationHistorySince,
+        limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
+      },
+    ]
+  },
+)
+
+const globalCommunityAdmissionDecisionEvents = deriveLoadedNotificationEvents({
+  filters: globalCommunityAdmissionDecisionFilters,
+  relays: globalCommunityNotificationRelays,
+  label: "global community admission decisions",
+})
+
+const communityApplicationOutcomeFilters = derived(
+  [pubkey, notificationHistorySince, notificationHistoryFilterLimit],
+  ([$pubkey, $notificationHistorySince, $notificationHistoryFilterLimit]) =>
+    $pubkey
+      ? [
+          {
+            kinds: [COMMUNITY_FORM_REVIEW_KIND],
+            "#p": [$pubkey],
+            "#k": [String(FORM_RESPONSE_KIND)],
+            since: $notificationHistorySince,
+            limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
+          },
+        ]
+      : [],
+)
+
+const communityApplicationOutcomeRelays = derived(pubkey, $pubkey =>
+  $pubkey ? normalizeRelayHints(getUserRelayHints(), getAuthorRelayHints($pubkey), APP_RELAYS) : [],
+)
+
+const communityApplicationOutcomeEvents = deriveLoadedNotificationEvents({
+  filters: communityApplicationOutcomeFilters,
+  relays: communityApplicationOutcomeRelays,
+  label: "community application outcomes",
+})
+
 const getCommunityNotificationTargetRefs = (event: TrustedEvent) => {
   const roomMessage = readCommunityRoomMessage(event)
   if (roomMessage?.parentMessageId) return [roomMessage.parentMessageId]
@@ -1939,6 +2306,43 @@ const globalCommunityNotificationRows = derived(
       profileListEvents: $globalCommunityProfileListEvents,
       currentPubkey: $pubkey || undefined,
       reportStates: $communityMemberReportStates,
+      mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
+    }),
+)
+
+const globalCommunityApplicationRows = derived(
+  [
+    pubkey,
+    activeUserCommunityRefs,
+    globalCommunityProfileListEvents,
+    communityMemberReportStates,
+    globalCommunityAdmissionFormEvents,
+    globalCommunityAdmissionResponseEvents,
+    globalCommunityAdmissionDecisionEvents,
+    communityApplicationOutcomeEvents,
+  ],
+  ([
+    $pubkey,
+    $activeUserCommunityRefs,
+    $globalCommunityProfileListEvents,
+    $communityMemberReportStates,
+    $globalCommunityAdmissionFormEvents,
+    $globalCommunityAdmissionResponseEvents,
+    $globalCommunityAdmissionDecisionEvents,
+    $communityApplicationOutcomeEvents,
+  ]) =>
+    buildCommunityApplicationNotificationRows({
+      refs: $activeUserCommunityRefs,
+      currentPubkey: $pubkey || undefined,
+      profileListEvents: $globalCommunityProfileListEvents,
+      reportStates: $communityMemberReportStates,
+      admissionFormEvents: $globalCommunityAdmissionFormEvents,
+      admissionResponseEvents: $globalCommunityAdmissionResponseEvents,
+      admissionDeleteEvents: $globalCommunityAdmissionDecisionEvents,
+      admissionReviewEvents: [
+        ...$globalCommunityAdmissionDecisionEvents,
+        ...$communityApplicationOutcomeEvents,
+      ],
       mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
     }),
 )
@@ -2088,6 +2492,7 @@ export const notificationCenterRows = derived(
     notifications,
     notificationCandidates,
     globalCommunityNotificationRows,
+    globalCommunityApplicationRows,
     repoWatchNotificationRows,
     engagementNotificationRows,
   ],
@@ -2097,6 +2502,7 @@ export const notificationCenterRows = derived(
     $notifications,
     $notificationCandidates,
     $globalCommunityNotificationRows,
+    $globalCommunityApplicationRows,
     $repoWatchNotificationRows,
     $engagementNotificationRows,
   ]) => {
@@ -2107,6 +2513,7 @@ export const notificationCenterRows = derived(
     const sourceRows = [
       ...chatRows,
       ...$globalCommunityNotificationRows,
+      ...$globalCommunityApplicationRows,
       ...$repoWatchNotificationRows,
       ...$engagementNotificationRows,
     ]

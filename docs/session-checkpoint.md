@@ -16,19 +16,21 @@
 
 ## Current Phase
 
-- Phase 2: Access And Moderator Applications
+- Phase 3: Reports, Censoring, And Person Bans
 
 ## Phase Exit Criteria
 
-- Pending `FORM_RESPONSE_KIND` applications produce Community modal rows for moderators who can grant the exact form section and for the admin.
-- Moderators of other sections do not receive application rows.
-- `COMMUNITY_FORM_REVIEW_KIND` write-access judgments produce applicant outcome rows for granted, rejected, and revoked outcomes where represented by current events.
-- Admin judgments of moderator-role requests continue to produce requester outcome rows and tests cover the behavior.
-- Rows route to `/moderation` for reviewer work and `/access` for applicant outcomes.
-- Focused tests cover section-specific moderator filtering, applicant outcomes, and moderator request outcomes.
+- New content reports notify the reported content author and moderators/admin who can review that section.
+- Effective event censors notify the censored content author.
+- Effective event censors notify original reporters when a prior content report matches the censored event/address and section.
+- Effective event censors notify other moderators/admin for the section, excluding the actor's own event where standard self-notification suppression applies.
+- Effective person bans notify all active members in that community, not only admins/moderators, and still notify the banned pubkey when target data is available.
+- Report review labels notify original reporters that their report was reviewed.
+- Deleted reports are suppressed from pending report notifications.
+- Focused tests cover reporter, reported member, section moderator/admin, all-member person-ban, and deleted/reviewed suppression cases.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -42,6 +44,18 @@
 - Phase 1 changed only `docs/session-plan.md` and `docs/session-checkpoint.md` intentionally.
 - Phase 1 advanced this checkpoint to Phase 2 before commit.
 - Phase 1 was committed and pushed as `8cf6859d chore: start community management notification workflow`.
+- Checkpoint repair after Phase 1 was committed and pushed as `6fe78c21 chore: repair community notification checkpoint`.
+- Phase 2 startup reread this checkpoint and the full session plan, inspected current status/log, and inspected application form/review helpers plus notification source tests.
+- Phase 2 implemented access and moderator application notifications:
+  - Pending form responses now produce Community source rows for moderators/admin who can grant the exact section.
+  - Moderators of other sections are excluded from pending application rows.
+  - Applicant review events tagged to the signed-in user now produce granted, denied, and history-derived revoked Community rows.
+  - Application reviewer rows route to `/moderation`; applicant outcome rows route to `/access`.
+  - Existing moderator-role request decision route rows remain covered.
+- Phase 2 verification passed:
+  - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notifications.test.ts --project=main` passed: 2 files, 39 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings after one type-guard fix.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -55,16 +69,17 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; after Phase 1 push, HEAD and origin are both `8cf6859d`.
+- Branch: `dev`, tracking `origin/dev`; before Phase 2 commit, HEAD and origin are both `6fe78c21`.
 - Existing dirty files before this workflow:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notifications.test.ts`
   - `src/app/components/NotificationDmContent.svelte` (untracked)
 - Phase 1 docs were committed and pushed.
+- Phase 2 is verified and this checkpoint is advanced to Phase 3 for the phase transition commit.
 
 ## Next Action
 
-- Phase 2 startup: read checkpoint and full plan, inspect status/log, then implement access and moderator application notifications.
+- Phase 3 startup: read checkpoint and full plan, inspect report/moderation code, then implement report, censoring, and person-ban notifications.
 
 ## Verification
 
@@ -72,12 +87,14 @@
 - Inspected branch/status, recent log, remotes, and pre-existing dirty diffs.
 - Replaced durable plan/checkpoint with this new workflow.
 - Phase 1 commit/push succeeded; this checkpoint repair records the successful transition.
+- Phase 2 focused tests, `pnpm check`, and `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - Existing dirty notification modal/test files predate this workflow and must remain unstaged unless intentionally touched.
 - Applicant outcome notifications from review events can be made robust without active community membership because review tags include applicant `p` and community `h`.
 - Banned target notification may require target-specific report loading because banned users can disappear from active member refs.
+- Direct write-access revoke events reuse rejected review shape; Phase 2 labels them as revoked only when prior grant history for the same response is loaded.
 
 ## Files
 
