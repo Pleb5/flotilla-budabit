@@ -187,7 +187,7 @@
     {hideDate}>
     {#if navigating}
       <span
-        class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
+        class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
         Opening...
       </span>
     {/if}

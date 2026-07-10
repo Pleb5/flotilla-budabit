@@ -90,7 +90,7 @@
     resolveRepoRelayPolicy,
     getTaggedRelaysFromRepoEvent,
   } from "@nostr-git/core/utils"
-  import {derived, get as getStore, readable, type Readable} from "svelte/store"
+  import {derived, get as getStore, readable, writable, type Readable} from "svelte/store"
   import {
     repository,
     pubkey,
@@ -123,7 +123,7 @@
     type TrustedEvent,
   } from "@welshman/util"
   import {publishDelete} from "@src/app/core/commands"
-  import {setContext, onDestroy, tick} from "svelte"
+  import {setContext, onDestroy, onMount, tick} from "svelte"
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
@@ -285,6 +285,41 @@
   const SCOPED_DERIVE_THROTTLE_MS = 120
   const GIT_COVER_LETTER_KIND = 1624
   const REPO_LIVE_FILTER_CHUNK_SIZE = 100
+  const repoActivityHydrationReady = writable(false)
+
+  const waitForPostPaintHydration = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
+  const deferUntilRepoActivityHydrated = <T,>(initialValue: T, createStore: () => Readable<T>) =>
+    readable<T>(initialValue, set => {
+      let unsubscribeInner: (() => void) | undefined
+      const unsubscribeReady = repoActivityHydrationReady.subscribe(ready => {
+        if (!ready || unsubscribeInner) return
+        unsubscribeInner = createStore().subscribe(set)
+      })
+
+      return () => {
+        unsubscribeReady()
+        unsubscribeInner?.()
+      }
+    })
+
+  onMount(() => {
+    let cancelled = false
+
+    void waitForPostPaintHydration().then(() => {
+      if (!cancelled) repoActivityHydrationReady.set(true)
+    })
+
+    return () => {
+      cancelled = true
+      repoActivityHydrationReady.set(false)
+    }
+  })
   const repoStatusKinds = [
     GIT_STATUS_OPEN,
     GIT_STATUS_DRAFT,
@@ -775,6 +810,7 @@
   })
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     if (!isOwnedRepo || !$pubkey) return
     if (myRepoIds.length === 0) {
       repoStateSettled = false
@@ -1003,6 +1039,7 @@
   let wasOnOverview = $state(false)
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     if (!isOwnedRepo) {
       wasOnOverview = false
       return
@@ -1030,6 +1067,7 @@
   })
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     if (!isOwnedRepo) return
     if (!repoStateSettled) return
     if (branchUpdateCheckDone || branchUpdateChecking) return
@@ -1603,9 +1641,18 @@
   })
   const rootRepoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays)
   const repoRelaysStore: Readable<string[]> = rootRepoRelaysStore
-  const issuesStore = deriveIssues(repoAddressesStore)
-  const pullRequestsStore = derivePullRequests(repoAddressesStore)
-  const statusEventsStore = deriveStatusEvents(repoAddressesStore)
+  const realIssuesStore = deriveIssues(repoAddressesStore)
+  const realPullRequestsStore = derivePullRequests(repoAddressesStore)
+  const realStatusEventsStore = deriveStatusEvents(repoAddressesStore)
+  const issuesStore = deferUntilRepoActivityHydrated<IssueEvent[]>([], () => realIssuesStore)
+  const pullRequestsStore = deferUntilRepoActivityHydrated<PullRequestEvent[]>(
+    [],
+    () => realPullRequestsStore,
+  )
+  const statusEventsStore = deferUntilRepoActivityHydrated<StatusEvent[]>(
+    [],
+    () => realStatusEventsStore,
+  )
   const allRootIdsStore = deriveAllRootIds(issuesStore, pullRequestsStore)
   const rootStatusEventsStore = deriveRootScopedStatusEvents(allRootIdsStore)
   const mergedStatusEventsStore: Readable<StatusEvent[]> = derived(
@@ -1809,6 +1856,7 @@
   }
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     const relays = $repoRelaysStore || []
     if (relays.length === 0 || !repoAddress) return
     const since =
@@ -2157,6 +2205,7 @@
   // Use effect only for data loading, not for store/context creation
   // Only run once when component mounts, not on every navigation
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     // Prevent re-running on navigation - only initialize once
     if (dataLoadInitialized) return
 
@@ -2523,6 +2572,7 @@
   })
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
     const commentIds = normalizeScopeValues(
       (($rawCommentEventsStore || []) as CommentEvent[]).map(comment => comment.id).filter(Boolean),
@@ -2543,6 +2593,7 @@
   })
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) return
     const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
     const viewer = $pubkey || ""
     if (!viewer || relays.length === 0) {
@@ -2566,6 +2617,10 @@
   })
 
   $effect(() => {
+    if (!$repoActivityHydrationReady) {
+      stopRepoLiveSubscription()
+      return
+    }
     const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
     const addresses = normalizeScopeValues(($repoAddressesStore || []).filter(Boolean))
     const rootIds = normalizeScopeValues(($allRootIdsStore || []).filter(Boolean))
@@ -2712,6 +2767,8 @@
     }
 
     syncBookmarkState()
+
+    if (!$repoActivityHydrationReady) return
 
     const address = getPrimaryBookmarkAddress()
     hydrateRepoStars({relayHints: getStore(repoRelaysStore), repoAddress: address}).catch(error => {

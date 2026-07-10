@@ -14,20 +14,17 @@
 
 ## Current Phase
 
-- Phase 2: Fast Repo Route Entry
+- Phase 3: Final Review And Closeout
 
 ## Phase Exit Criteria
 
-- Existing card outline/selection paint timing remains unchanged.
-- `Opening...` overlays in repo cards pulse while navigation is pending.
-- Post-import navigation still waits for successful `goto` before clearing the import modal.
-- Initial repo detail route can render shell/header before activity-heavy issue, PR, comment, report, delete, live, star, and branch-update hydration starts.
-- Context consumers still receive compatible stores immediately, initially empty where hydration is deferred.
-- Deferred hydration starts after mount and at least one paint, then progressively loads activity.
-- Focused checks pass.
-- `pnpm check` passes.
+- Modal sequencing remains unchanged by final diff inspection.
+- Deferred hydration code is documented by clear names and does not hide required context from child routes.
+- Focused navigation-performance changes remain limited to intended files.
+- `pnpm check` passes or a fresh successful Phase 2 result remains valid with no code changes after it.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if files changed.
 
 ## Completed With Evidence
 
@@ -44,6 +41,12 @@
 - Phase 1 advanced this checkpoint to Phase 2 before commit.
 - Phase 1 was committed and pushed as `182ea624 chore: start repo navigation performance workflow`.
 - Phase 1 post-push checkpoint reread found this checkpoint on Phase 2 but with a stale Phase 1 next action; this repair records the successful transition.
+- Phase 2 implemented post-paint repo activity hydration in `src/routes/git/[id=naddr]/+layout.svelte` using a `repoActivityHydrationReady` gate after `tick()` and two animation frames.
+- Phase 2 kept repo announcement/state identity loading immediate while deferring activity-heavy issue, PR, status, comment, report, delete, live, star, and branch-update hydration.
+- Phase 2 kept context stores available immediately by wrapping issue, PR, and status stores with initially empty readable stores before real subscriptions attach.
+- Phase 2 added pulsing `Opening...` feedback to existing repo card overlays in `src/app/components/GitItem.svelte` and `src/routes/git/+page.svelte` without changing selection paint timing.
+- Phase 2 verification passed: `pnpm check` reported 0 errors and 0 warnings; `git diff --check` produced no output.
+- Pre-commit inspection for Phase 2 showed `dev...origin/dev [ahead 1]` due unrelated commit `a8a8dbf6 fix: backfill DMs after first relay setup`; user approved committing and pushing Phase 2 even though the push will include that existing ahead commit.
 
 ## Decisions
 
@@ -51,17 +54,18 @@
 - Do not clear import/new-repo modals before target route navigation succeeds.
 - Do not remove the existing pre-navigation paint delay that shows card selection before `goto`.
 - Defer repo activity hydration after first paint rather than deferring repo identity/header setup.
+- User approved pushing `dev` with the existing unrelated ahead commit `a8a8dbf6` as part of the Phase 2 push.
 
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; Phase 1 verification observed branch ahead of origin by 4 commits after unrelated outside commit `b594978c`.
-- Existing unstaged sync files before this workflow must remain unstaged unless intentionally touched.
-- Phase 1 docs were committed and pushed. Working tree still has pre-existing unstaged sync changes only.
+- Branch: `dev`, tracking `origin/dev`; Phase 2 pre-commit status showed `dev...origin/dev [ahead 1]` from `a8a8dbf6`.
+- The earlier pre-existing sync changes are now contained in the unrelated ahead commit `a8a8dbf6`.
+- Phase 2 changed only repo navigation/hydration files plus this checkpoint.
 
 ## Next Action
 
-- Begin Phase 2 by editing repo navigation feedback and deferred repo-route hydration.
+- Begin Phase 3 final diff review, then mark this workflow complete if no issues are found.
 
 ## Verification
 
@@ -69,14 +73,19 @@
 - Inspected branch/status, recent log, remotes, staged diff stat, unstaged diff stat, and relevant target-file diffs.
 - Replaced durable plan/checkpoint with this new workflow.
 - Phase 1 commit/push succeeded and checkpoint was reread.
+- Phase 2 inspected current status, diff, and log before closeout.
+- Phase 2 ran `pnpm check`: passed with 0 errors and 0 warnings.
+- Phase 2 ran `git diff --check`: passed with no output.
 
 ## Risks Or Blockers
 
-- Branch was already ahead of `origin/dev` before this workflow and reached ahead 4 after an unrelated outside commit; phase pushes will also publish those existing commits if still unpushed.
-- Existing unstaged sync changes predate this workflow and must not be accidentally included in phase commits.
-- `src/routes/+layout.svelte` has pre-existing staged changes, but current planned implementation should not need that file.
+- `dev` was ahead of `origin/dev` by unrelated commit `a8a8dbf6` before the Phase 2 commit; user approved pushing it with the Phase 2 push.
+- Verify final diff still preserves post-import `goto` before `clearModals()` ordering.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
+- `src/routes/git/[id=naddr]/+layout.svelte`
+- `src/routes/git/+page.svelte`
+- `src/app/components/GitItem.svelte`
