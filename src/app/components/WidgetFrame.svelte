@@ -63,6 +63,16 @@
     ),
   )
   const appUrl = $derived(appUrls[appUrlIndex])
+  const frameAllow = $derived.by(() => {
+    const permissions = new Set(widget.permissions || [])
+    const allow = new Set(["autoplay", "clipboard-write", "fullscreen"])
+
+    if (permissions.has("media:camera")) allow.add("camera")
+    if (permissions.has("media:microphone")) allow.add("microphone")
+    if (permissions.has("media:display-capture")) allow.add("display-capture")
+
+    return Array.from(allow).join("; ")
+  })
   const frameSrc = $derived.by(() => {
     if (!appUrl) return ""
     if (loadAttempt <= 0) return appUrl
@@ -606,6 +616,7 @@
       title={widget.content || widget.identifier}
       class={frameClass}
       style="background: transparent;"
+      allow={frameAllow}
       allowtransparency={true}
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
       onload={onIframeLoad}
