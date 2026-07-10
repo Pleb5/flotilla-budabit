@@ -88,6 +88,7 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
   - Final status/log inspection completed before checkpoint closeout.
+- Final checkpoint closeout was committed and pushed as `d34e392f chore: complete notification root workflow`.
 
 ## Decisions
 
@@ -100,7 +101,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; before final checkpoint commit, `HEAD` and `origin/dev` are both `8299e9e2`.
+- Branch: `dev`, tracking `origin/dev`; after final checkpoint closeout, `HEAD` and `origin/dev` are both `d34e392f`.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -114,7 +115,7 @@
 - Phase 2 was committed and pushed.
 - Phase 3 was committed and pushed.
 - Phase 4 was committed and pushed.
-- Phase 5 is verified and this checkpoint is ready for the final closeout commit.
+- Phase 5 is verified and final checkpoint closeout was committed and pushed.
 - Remaining unstaged pre-existing files after this workflow:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notifications.test.ts`
@@ -122,7 +123,7 @@
 
 ## Next Action
 
-- Commit/push this final checkpoint closeout, reread checkpoint, then send final response.
+- Final response.
 
 ## Verification
 
@@ -147,11 +148,12 @@
 - Phase 5 `pnpm check` passed.
 - Phase 5 `git diff --check` passed.
 - Phase 5 inspected final status and recent commits before checkpoint closeout.
+- Final checkpoint closeout commit/push succeeded; this checkpoint repair records the successful transition to final response.
 
 ## Risks Or Blockers
 
 - Existing dirty notification files predate this plan update; later phases must avoid staging unrelated changes or stop if conflicts appear.
-- Branch is synced with origin after Phase 4 push.
+- Branch is synced with origin after final checkpoint closeout.
 - Existing dirty files not needed for Phase 2 remain unstaged unless intentionally included by overlapping source/test files.
 - Final closeout leaves pre-existing unstaged notification UI/test files untouched because they were not required for the root/outcome notification phases.
 
