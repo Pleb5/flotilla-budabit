@@ -18,6 +18,7 @@ import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_THREADS,
+  FORM_RESPONSE_KIND,
   PROFILE_LIST_KIND,
 } from "@app/core/community"
 
@@ -223,6 +224,59 @@ describe("notification sources", () => {
     ])
   })
 
+  it("builds explicit access decision route rows", async () => {
+    const {buildRouteNotificationRows} = await import("./notification-sources")
+    const accessPath = `/c/${communityPubkey}/access`
+    const moderatorAccepted = makeEvent({
+      id: "moderator-accepted",
+      kind: REACTION,
+      pubkey: communityPubkey,
+      created_at: 200,
+      content: "+",
+      tags: [["e", "moderator-request"]],
+    })
+    const publishingDenied = makeEvent({
+      id: "publishing-denied",
+      kind: REACTION,
+      pubkey: writer,
+      created_at: 210,
+      content: "-",
+      tags: [
+        ["e", "form-response"],
+        ["k", String(FORM_RESPONSE_KIND)],
+      ],
+    })
+
+    expect(
+      buildRouteNotificationRows({
+        paths: [accessPath],
+        candidates: [{path: accessPath, latestEvent: moderatorAccepted}],
+        currentPubkey: viewer,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        source: "community",
+        title: "Moderator request accepted",
+        action: "approved your moderator request",
+        contextLabel: "Community access",
+        eventId: moderatorAccepted.id,
+      }),
+    ])
+    expect(
+      buildRouteNotificationRows({
+        paths: [accessPath],
+        candidates: [{path: accessPath, latestEvent: publishingDenied}],
+        currentPubkey: viewer,
+      })[0],
+    ).toEqual(
+      expect.objectContaining({
+        title: "Publishing permission denied",
+        action: "denied your publishing request",
+        eventId: publishingDenied.id,
+      }),
+    )
+  })
+
   it("filters notification rows by selected sources and profile names", async () => {
     const {filterNotificationRows, NOTIFICATION_ROW_FILTERS} = await import("./notification-display")
     const rows = [
@@ -410,6 +464,78 @@ describe("notification sources", () => {
       expect.objectContaining({
         source: "community",
         title: "Community access update",
+      }),
+    )
+  })
+
+  it("builds community moderation rows affecting the signed-in user", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const ref = makeCommunityRef()
+    const banReport = makeEvent({
+      id: "ban-report",
+      kind: 1984,
+      pubkey: writer,
+      created_at: 100,
+      content: "banned for spam",
+    })
+    const eventReport = makeEvent({
+      id: "event-report",
+      kind: 1984,
+      pubkey: writer,
+      created_at: 110,
+      content: "removed post",
+    })
+    const rows = buildCommunityNotificationRows({
+      refs: [ref],
+      events: [],
+      currentPubkey: viewer,
+      reportStates: new Map([
+        [
+          communityPubkey,
+          {
+            personReports: [
+              {
+                event: banReport,
+                target: "person",
+                targetPubkey: viewer,
+                reporterPubkey: writer,
+                adminAuthored: true,
+              },
+            ],
+            eventReports: [
+              {
+                event: eventReport,
+                target: "event",
+                targetPubkey: viewer,
+                targetEventId: "moderated-event",
+                targetEventKind: COMMENT,
+                targetEventTitle: "Moderated comment",
+                sectionName: COMMUNITY_SECTION_GENERAL,
+                reporterPubkey: writer,
+                adminAuthored: true,
+              },
+            ],
+          } as any,
+        ],
+      ]),
+    })
+
+    expect(rows.find(row => row.eventId === banReport.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        title: "Community ban",
+        action: "moderated you",
+        contextLabel: "Community moderation",
+        path: expect.stringContaining("/access"),
+      }),
+    )
+    expect(rows.find(row => row.eventId === eventReport.id)).toEqual(
+      expect.objectContaining({
+        source: "community",
+        title: "Content moderated",
+        action: "moderated your content",
+        contextLabel: "Community moderation",
+        preview: "Moderated comment",
       }),
     )
   })

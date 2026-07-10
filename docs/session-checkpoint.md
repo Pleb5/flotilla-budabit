@@ -16,19 +16,20 @@
 
 ## Current Phase
 
-- Phase 4: Permission And Moderation Outcomes
+- Phase 5: Review And Final Closeout
 
 ## Phase Exit Criteria
 
-- Moderator request accepted/rejected outcomes for the signed-in requester produce explicit community notification rows.
-- Publishing permission request granted/rejected outcomes for the signed-in applicant produce explicit community notification rows where form/review state is available.
-- Person bans targeting the signed-in user produce explicit community notification rows.
-- Event moderation reports targeting events authored by the signed-in user produce explicit community notification rows where report state includes the target author.
-- Rows are source `community`, have action-specific titles/labels, and route to relevant access/moderation/context pages.
-- Tests cover at least moderator decision rows and one publishing permission or moderation outcome supported by current state.
+- Review confirms room notifications remain direct-parent only and do not notify room-root creators for reply chains.
+- Review confirms thread/calendar/goal creators receive comment activity at any depth.
+- Review confirms issue/PR creators receive comment, PR update, and status activity at any depth under their roots.
+- Review confirms reactions/zaps remain direct-target only.
+- Review confirms context sources remain DMs, Git, and Communities with no user-facing Other filter/source.
+- Focused notification tests pass.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 4 changes are committed, pushed, and the checkpoint is reread.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if the checkpoint changed.
 
 ## Completed With Evidence
 
@@ -71,6 +72,16 @@
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
 - Phase 3 was committed and pushed as `6d4450e7 fix: notify git important root creators`.
+- Phase 4 startup reread this checkpoint and the full session plan, inspected current status/log, and inspected community request/report/form state.
+- Phase 4 implemented explicit user-affecting community outcome rows:
+  - `/access` route candidates with reaction `+`/`-` now display moderator request accepted/denied rows.
+  - `/access` route candidates with form-response review tags now display publishing permission granted/denied rows when such review events are supplied as candidates.
+  - Effective person-ban reports targeting the signed-in user now emit explicit `Community ban` rows.
+  - Effective event moderation reports targeting content authored by the signed-in user now emit explicit `Content moderated` rows.
+- Phase 4 tests/verification passed:
+  - `pnpm vitest run src/app/util/notification-sources.test.ts src/app/util/notifications.test.ts --project=main` passed: 2 files, 37 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -83,7 +94,7 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; after Phase 3 push, `HEAD` and `origin/dev` are both `6d4450e7`.
+- Branch: `dev`, tracking `origin/dev`; after Phase 3 repair, `HEAD` and `origin/dev` are both `6d7a89bd` before Phase 4 commit.
 - Existing dirty files at workflow setup:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notification-display.test.ts`
@@ -96,11 +107,12 @@
 - Phase 1 docs were committed and pushed.
 - Phase 2 was committed and pushed.
 - Phase 3 was committed and pushed.
-- Phase 4 must implement explicit permission/moderation outcome rows where current app state supports them.
+- Phase 4 is verified and ready to commit/push as the phase transition.
+- Phase 5 must review the full workflow and close the checkpoint as Complete.
 
 ## Next Action
 
-- Start Phase 4: inspect community request/report/form state and implement explicit permission/moderation outcome rows where current data supports them.
+- Finish Phase 4 closeout by committing/pushing Phase 4 files, reread checkpoint, then start Phase 5 final review.
 
 ## Verification
 
@@ -116,6 +128,9 @@
 - Phase 3 `pnpm check` passed.
 - Phase 3 `git diff --check` passed.
 - Phase 3 commit/push succeeded, then checkpoint reread found stale `Next Action`; checkpoint repair records the successful transition.
+- Phase 4 focused outcome tests passed.
+- Phase 4 `pnpm check` passed.
+- Phase 4 `git diff --check` passed.
 
 ## Risks Or Blockers
 

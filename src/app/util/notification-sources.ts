@@ -47,7 +47,7 @@ import type {
   ActiveUserCommunityRef,
   UserCommunityReportStates,
 } from "@app/core/community-membership"
-import {normalizePubkey} from "@app/core/community"
+import {FORM_RESPONSE_KIND, normalizePubkey} from "@app/core/community"
 import {eventTargetsCommunity, makeCommunityExclusiveFilter} from "@app/core/community-feeds"
 import {readCommunityCalendarEventReply} from "@app/core/community-calendar"
 import {readCommunityRoomMessage} from "@app/core/community-messages"
@@ -81,6 +81,7 @@ import {
   makeChatPath,
   makeCommunityCalendarPath,
   makeCommunityGoalPath,
+  getCommunityReportTargetPath,
   getCommunityEventPath,
   makeCommunityPath,
   makeCommunityRoomPath,
@@ -1166,6 +1167,46 @@ export const buildCommunityNotificationRows = ({
         actionLabel: "Open access settings",
       })
     }
+
+    if (normalizedCurrentPubkey && reportState) {
+      for (const report of reportState.personReports) {
+        if (normalizePubkey(report.targetPubkey || "") !== normalizedCurrentPubkey) continue
+        if (!report.event) continue
+
+        addRow({
+          ref,
+          event: report.event,
+          path: makeCommunityPath(ref.communityPubkey, "access"),
+          title: "Community ban",
+          preview: report.event.content || "You were banned from this community.",
+          sectionName: "moderation",
+          displayType: "community",
+          action: "moderated you",
+          contextLabel: "Community moderation",
+          detailLabel: "Ban notice",
+          actionLabel: "Open access settings",
+        })
+      }
+
+      for (const report of reportState.eventReports) {
+        if (normalizePubkey(report.targetPubkey || "") !== normalizedCurrentPubkey) continue
+        if (!report.event) continue
+
+        addRow({
+          ref,
+          event: report.event,
+          path: getCommunityReportTargetPath(ref.communityPubkey, report) || makeCommunityPath(ref.communityPubkey, "moderation"),
+          title: "Content moderated",
+          preview: report.targetEventTitle || report.targetEventContent || report.event.content || "Your content was moderated.",
+          sectionName: report.sectionName || "moderation",
+          displayType: "community",
+          action: "moderated your content",
+          contextLabel: "Community moderation",
+          detailLabel: "Moderation notice",
+          actionLabel: "Open moderated content",
+        })
+      }
+    }
   }
 
   return sortNotificationRows(Array.from(rowsById.values()))
@@ -1553,12 +1594,51 @@ export const getRouteNotificationTitle = (source: NotificationRowSource) => {
 const getRouteNotificationPreview = (source: NotificationRowSource) =>
   `Open ${getNotificationSourceLabel(source).toLowerCase()} activity`
 
+const getCommunityAccessRouteCandidateDisplay = (
+  event: TrustedEvent | undefined,
+  path: string,
+): Pick<NotificationRow, "type" | "title" | "preview" | "action" | "contextLabel" | "actionLabel"> | undefined => {
+  if (!event || !path.includes("/access") || event.kind !== REACTION) return undefined
+  if (event.content !== "+" && event.content !== "-") return undefined
+
+  const isAccepted = event.content === "+"
+  const isPublishingReview = event.tags.some(tag => tag[0] === "k" && tag[1] === String(FORM_RESPONSE_KIND))
+
+  if (isPublishingReview) {
+    return {
+      type: "community",
+      title: isAccepted ? "Publishing permission granted" : "Publishing permission denied",
+      preview: isAccepted
+        ? "Your publishing permission request was accepted."
+        : "Your publishing permission request was denied.",
+      action: isAccepted ? "approved your publishing request" : "denied your publishing request",
+      contextLabel: "Community access",
+      actionLabel: "Open access settings",
+    }
+  }
+
+  return {
+    type: "community",
+    title: isAccepted ? "Moderator request accepted" : "Moderator request denied",
+    preview: isAccepted
+      ? "Your moderator role request was accepted."
+      : "Your moderator role request was denied.",
+    action: isAccepted ? "approved your moderator request" : "denied your moderator request",
+    contextLabel: "Community access",
+    actionLabel: "Open access settings",
+  }
+}
+
 const getCommunityRouteCandidateDisplay = (
   event: TrustedEvent | undefined,
   currentPubkey: string | undefined,
+  path: string,
 ): Pick<NotificationRow, "type" | "title" | "preview" | "action" | "contextLabel" | "actionLabel"> | undefined => {
   const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
   if (!event || !normalizedCurrentPubkey) return undefined
+
+  const accessDisplay = getCommunityAccessRouteCandidateDisplay(event, path)
+  if (accessDisplay) return accessDisplay
 
   const roomMessage = readCommunityRoomMessage(event)
   if (roomMessage) {
@@ -1632,7 +1712,7 @@ export const buildRouteNotificationRows = ({
 
     const candidateEvent = candidatesByPath.get(path)?.latestEvent
     const communityDisplay =
-      source === "community" ? getCommunityRouteCandidateDisplay(candidateEvent, currentPubkey) : undefined
+      source === "community" ? getCommunityRouteCandidateDisplay(candidateEvent, currentPubkey, path) : undefined
     const title = communityDisplay?.title || getRouteNotificationTitle(source)
     const preview = communityDisplay?.preview || getRouteNotificationPreview(source)
     const actionLabel = communityDisplay?.actionLabel || "Open activity"
