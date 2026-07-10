@@ -6,6 +6,8 @@ import {nip19} from "nostr-tools"
 import {
   GIT_COMMENT,
   GIT_ISSUE,
+  GIT_PULL_REQUEST,
+  GIT_PULL_REQUEST_UPDATE,
   GIT_REPO_ANNOUNCEMENT,
   GIT_STATUS_CLOSED,
 } from "@nostr-git/core/events"
@@ -1134,6 +1136,257 @@ describe("notification sources", () => {
     )
     expect(rows.map(row => row.eventId)).not.toEqual(
       expect.arrayContaining([genericMention.id, inheritedReplyTag.id, ignoredBoost.id]),
+    )
+  })
+
+  it("notifies issue creators for nested git comments under their issue", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${viewer}:repo`
+    const issue = makeEvent({
+      id: "issue-root",
+      kind: GIT_ISSUE,
+      pubkey: viewer,
+      created_at: 80,
+      content: "Important issue",
+      tags: [["a", repoAddress]],
+    })
+    const firstComment = makeEvent({
+      id: "issue-first-comment",
+      kind: GIT_COMMENT,
+      pubkey: writer,
+      created_at: 100,
+      tags: [
+        ["E", issue.id, "", viewer],
+        ["K", String(GIT_ISSUE)],
+        ["P", viewer],
+        ["e", issue.id, "", viewer],
+        ["k", String(GIT_ISSUE)],
+        ["p", viewer],
+        ["q", repoAddress],
+      ],
+    })
+    const nestedComment = makeEvent({
+      id: "issue-nested-comment",
+      kind: GIT_COMMENT,
+      pubkey: writer,
+      created_at: 110,
+      content: "nested issue comment",
+      tags: [
+        ["E", issue.id, "", viewer],
+        ["K", String(GIT_ISSUE)],
+        ["P", viewer],
+        ["e", firstComment.id, "", writer],
+        ["k", String(GIT_COMMENT)],
+        ["p", writer],
+        ["q", repoAddress],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [nestedComment],
+      targetEvents: [issue, firstComment],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === nestedComment.id)).toEqual(
+      expect.objectContaining({
+        source: "git",
+        sourceLabel: "Git",
+        type: "reply",
+        title: "New reply",
+        contextLabel: "to your issue",
+        path: expect.stringContaining("/git/"),
+        target: expect.objectContaining({label: "your issue", eventId: issue.id}),
+      }),
+    )
+  })
+
+  it("notifies pull request creators for pull request updates", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${viewer}:repo`
+    const pullRequest = makeEvent({
+      id: "pr-root",
+      kind: GIT_PULL_REQUEST,
+      pubkey: viewer,
+      created_at: 80,
+      content: "Important PR",
+      tags: [["a", repoAddress]],
+    })
+    const update = makeEvent({
+      id: "pr-update",
+      kind: GIT_PULL_REQUEST_UPDATE,
+      pubkey: writer,
+      created_at: 120,
+      content: "pushed more commits",
+      tags: [
+        ["a", repoAddress],
+        ["E", pullRequest.id, "", viewer],
+        ["P", viewer],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [update],
+      targetEvents: [pullRequest],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === update.id)).toEqual(
+      expect.objectContaining({
+        source: "git",
+        sourceLabel: "Git",
+        type: "repo",
+        title: "Pull request update",
+        action: "updated a pull request",
+        contextLabel: "on your pull request",
+        path: expect.stringContaining("/prs/pr-root"),
+      }),
+    )
+  })
+
+  it("notifies issue creators for status changes", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${viewer}:repo`
+    const issue = makeEvent({
+      id: "status-issue-root",
+      kind: GIT_ISSUE,
+      pubkey: viewer,
+      created_at: 80,
+      tags: [["a", repoAddress]],
+    })
+    const status = makeEvent({
+      id: "issue-status",
+      kind: GIT_STATUS_CLOSED,
+      pubkey: writer,
+      created_at: 120,
+      content: "closed",
+      tags: [
+        ["a", repoAddress],
+        ["e", issue.id, "", "root"],
+        ["p", viewer],
+        ["K", String(GIT_ISSUE)],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [status],
+      targetEvents: [issue],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === status.id)).toEqual(
+      expect.objectContaining({
+        source: "git",
+        sourceLabel: "Git",
+        type: "repo",
+        title: "Git status update",
+        action: "updated status",
+        contextLabel: "on your issue",
+        path: expect.stringContaining("/issues/status-issue-root"),
+      }),
+    )
+  })
+
+  it("still notifies only direct git comment parents for direct parent replies", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${viewer}:repo`
+    const issue = makeEvent({
+      id: "parent-issue-root",
+      kind: GIT_ISSUE,
+      pubkey: outsider,
+      created_at: 80,
+      tags: [["a", repoAddress]],
+    })
+    const parentComment = makeEvent({
+      id: "viewer-git-comment",
+      kind: GIT_COMMENT,
+      pubkey: viewer,
+      created_at: 100,
+      tags: [
+        ["E", issue.id, "", outsider],
+        ["K", String(GIT_ISSUE)],
+        ["P", outsider],
+        ["e", issue.id, "", outsider],
+        ["k", String(GIT_ISSUE)],
+        ["p", outsider],
+        ["q", repoAddress],
+      ],
+    })
+    const reply = makeEvent({
+      id: "viewer-git-comment-reply",
+      kind: GIT_COMMENT,
+      pubkey: writer,
+      created_at: 110,
+      content: "reply to your git comment",
+      tags: [
+        ["E", issue.id, "", outsider],
+        ["K", String(GIT_ISSUE)],
+        ["P", outsider],
+        ["e", parentComment.id, "", viewer],
+        ["k", String(GIT_COMMENT)],
+        ["p", viewer],
+        ["q", repoAddress],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [reply],
+      targetEvents: [issue, parentComment],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.find(row => row.eventId === reply.id)).toEqual(
+      expect.objectContaining({
+        source: "git",
+        type: "reply",
+        contextLabel: "to your git comment",
+        target: expect.objectContaining({label: "your git comment", eventId: parentComment.id}),
+      }),
+    )
+  })
+
+  it("does not notify issue creators for reactions to someone else's git comment", async () => {
+    const {buildEngagementNotificationRows} = await import("./notification-sources")
+    const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${viewer}:repo`
+    const issue = makeEvent({
+      id: "reaction-issue-root",
+      kind: GIT_ISSUE,
+      pubkey: viewer,
+      created_at: 80,
+      tags: [["a", repoAddress]],
+    })
+    const comment = makeEvent({
+      id: "other-git-comment",
+      kind: GIT_COMMENT,
+      pubkey: writer,
+      created_at: 100,
+      tags: [
+        ["E", issue.id, "", viewer],
+        ["K", String(GIT_ISSUE)],
+        ["P", viewer],
+        ["q", repoAddress],
+      ],
+    })
+    const reaction = makeEvent({
+      id: "comment-reaction",
+      kind: REACTION,
+      pubkey: outsider,
+      created_at: 110,
+      content: "+",
+      tags: [
+        ["e", comment.id],
+        ["p", viewer],
+      ],
+    })
+
+    const rows = buildEngagementNotificationRows({
+      events: [reaction],
+      targetEvents: [issue, comment],
+      currentPubkey: viewer,
+    })
+
+    expect(rows.flatMap(row => row.eventIds || [row.eventId])).not.toEqual(
+      expect.arrayContaining([reaction.id]),
     )
   })
 

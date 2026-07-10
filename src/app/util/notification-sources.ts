@@ -30,6 +30,7 @@ import {
   GIT_LABEL,
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
+  GIT_REPO_ANNOUNCEMENT,
   GIT_STATUS_APPLIED,
   GIT_STATUS_CLOSED,
   GIT_STATUS_DRAFT,
@@ -150,8 +151,14 @@ export type BuildGlobalCommunityNotificationFiltersOptions = {
 
 const COMMUNITY_NOTIFICATION_LOAD_LIMIT = 200
 const ENGAGEMENT_NOTIFICATION_LOAD_LIMIT = 200
-const ENGAGEMENT_NOTIFICATION_KINDS = [COMMENT, REACTION, ZAP_RESPONSE]
 const GIT_STATUS_KINDS = [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_APPLIED, GIT_STATUS_CLOSED]
+const ENGAGEMENT_NOTIFICATION_KINDS = [
+  COMMENT,
+  REACTION,
+  ZAP_RESPONSE,
+  GIT_PULL_REQUEST_UPDATE,
+  ...GIT_STATUS_KINDS,
+]
 const GIT_ENGAGEMENT_TARGET_KINDS = new Set([
   GIT_ISSUE,
   GIT_PULL_REQUEST,
@@ -364,6 +371,9 @@ const getEngagementTargetRefs = (event: TrustedEvent) => {
   if (event.kind === REACTION) return getReactionTargetRefs(event)
   if (event.kind === ZAP_RESPONSE) return getZapTargetRefs(event)
   if (event.kind === COMMENT) return getReplyTargetRefs(event)
+  if (event.kind === GIT_PULL_REQUEST_UPDATE || GIT_STATUS_KINDS.includes(event.kind)) {
+    return getGitActivityTargetRefs(event)
+  }
 
   return []
 }
@@ -456,7 +466,18 @@ const getCommunityRootOwnerPubkey = ({
 
 type RepoNotificationSection = "issues" | "prs"
 
-const getRepoAddress = (event: TrustedEvent) => getTagValue("a", event.tags) || ""
+const getRepoAddress = (event: TrustedEvent) =>
+  getTagValue("a", event.tags) ||
+  event.tags.find(tag => {
+    if (tag[0] !== "q" || !Address.isAddress(tag[1] || "")) return false
+
+    try {
+      return Address.from(tag[1] || "").kind === GIT_REPO_ANNOUNCEMENT
+    } catch {
+      return false
+    }
+  })?.[1] ||
+  ""
 
 const getRepoNaddr = (event: TrustedEvent) => {
   const address = getRepoAddress(event)
@@ -482,6 +503,9 @@ const getRepoRootId = (event: TrustedEvent) => {
 
   return getTagValue("E", event.tags) || getTagValue("e", event.tags) || ""
 }
+
+const getGitActivityTargetRefs = (event: TrustedEvent) =>
+  uniqueStrings([getRepoRootId(event), getTagValue("E", event.tags), getRepoAddress(event)])
 
 const getRepoNotificationSection = (event: TrustedEvent): RepoNotificationSection | undefined => {
   if (event.kind === GIT_ISSUE) return "issues"
@@ -563,7 +587,10 @@ const getEngagementRowContext = ({
   const eventContext = getEngagementEventContext(event, currentPubkey)
   const targetContext = target ? getEngagementEventContext(target, currentPubkey) : undefined
   const source = eventContext?.source || targetContext?.source
-  const resolvedPath = path || eventContext?.path || targetContext?.path
+  const eventPath = eventContext?.path?.match(/^\/(?:nevent|naddr)1/i)
+    ? undefined
+    : eventContext?.path
+  const resolvedPath = path || eventPath || targetContext?.path || eventContext?.path
 
   return source && resolvedPath ? {source, path: resolvedPath} : undefined
 }
@@ -1365,6 +1392,32 @@ export const buildEngagementNotificationRows = ({
       continue
     }
 
+    if (event.kind === GIT_PULL_REQUEST_UPDATE || GIT_STATUS_KINDS.includes(event.kind)) {
+      const target = getOwnedTarget(
+        getGitActivityTargetRefs(event),
+        targetEventsByRef,
+        normalizedCurrentPubkey,
+      )
+
+      if (target) {
+        const title = getRepoEventTitle(event)
+
+        addEventRow({
+          event,
+          title,
+          preview: getTextPreview(event, title),
+          displayType: "repo",
+          action: getRepoAction(event),
+          contextLabel: `on ${getEngagementTargetLabel(target)}`,
+          target,
+          detailLabel: title,
+          actionLabel: "Open git item",
+        })
+      }
+
+      continue
+    }
+
     if (event.kind === REACTION) {
       const target = getOwnedTarget(getReactionTargetRefs(event), targetEventsByRef, normalizedCurrentPubkey)
       if (target) addGroupedEvent(reactionGroups, "reaction", event, target)
@@ -1822,17 +1875,41 @@ const repoWatchNotificationRows = derived(
 
 const engagementNotificationFilters = derived(
   [pubkey, notificationHistorySince, notificationHistoryFilterLimit],
-  ([$pubkey, $notificationHistorySince, $notificationHistoryFilterLimit]) =>
-    $pubkey
-      ? [
-          {
-            kinds: ENGAGEMENT_NOTIFICATION_KINDS,
-            "#p": [$pubkey],
-            since: $notificationHistorySince,
-            limit: Math.max(ENGAGEMENT_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
-          },
-        ]
-      : [],
+  ([$pubkey, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
+    if (!$pubkey) return []
+
+    const limit = Math.max(ENGAGEMENT_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit)
+
+    const filters: Filter[] = [
+      {
+        kinds: [COMMENT, REACTION, ZAP_RESPONSE],
+        "#p": [$pubkey],
+        since: $notificationHistorySince,
+        limit,
+      },
+      {
+        kinds: [COMMENT],
+        "#P": [$pubkey],
+        "#K": [String(GIT_ISSUE), String(GIT_PULL_REQUEST)],
+        since: $notificationHistorySince,
+        limit,
+      },
+      {
+        kinds: [GIT_PULL_REQUEST_UPDATE],
+        "#P": [$pubkey],
+        since: $notificationHistorySince,
+        limit,
+      },
+      {
+        kinds: GIT_STATUS_KINDS,
+        "#p": [$pubkey],
+        since: $notificationHistorySince,
+        limit,
+      },
+    ]
+
+    return filters
+  },
 )
 
 const engagementNotificationRelays = derived(pubkey, $pubkey =>
