@@ -41,6 +41,7 @@
 - Phase 1 created this durable plan/checkpoint for community management notifications.
 - Phase 1 changed only `docs/session-plan.md` and `docs/session-checkpoint.md` intentionally.
 - Phase 1 advanced this checkpoint to Phase 2 before commit.
+- Phase 1 was committed and pushed as `8cf6859d chore: start community management notification workflow`.
 
 ## Decisions
 
@@ -54,22 +55,23 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev`; startup HEAD and origin were both `72a924ef`.
+- Branch: `dev`, tracking `origin/dev`; after Phase 1 push, HEAD and origin are both `8cf6859d`.
 - Existing dirty files before this workflow:
   - `src/app/components/NotificationsModal.svelte`
   - `src/app/util/notifications.test.ts`
   - `src/app/components/NotificationDmContent.svelte` (untracked)
-- Phase 1 docs are ready for commit/push.
+- Phase 1 docs were committed and pushed.
 
 ## Next Action
 
-- Commit/push Phase 1 docs, reread checkpoint, then start Phase 2 startup.
+- Phase 2 startup: read checkpoint and full plan, inspect status/log, then implement access and moderator application notifications.
 
 ## Verification
 
 - Read previous `docs/session-checkpoint.md` and full `docs/session-plan.md`.
 - Inspected branch/status, recent log, remotes, and pre-existing dirty diffs.
 - Replaced durable plan/checkpoint with this new workflow.
+- Phase 1 commit/push succeeded; this checkpoint repair records the successful transition.
 
 ## Risks Or Blockers
 
