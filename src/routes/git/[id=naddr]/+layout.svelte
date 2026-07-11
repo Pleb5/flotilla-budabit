@@ -1917,27 +1917,46 @@
     const key = `${ownerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
     if (repoLoadKey === key) return
     repoLoadKey = key
-    load({
-      relays: announcementRelays,
-      filters: [
-        {
-          authors: [repoPubkey],
-          kinds: [GIT_REPO_ANNOUNCEMENT],
-          "#d": [repoName],
-        },
-      ],
-    }).catch(() => {})
-    load({
-      relays,
-      filters: [
-        {
-          authors: ownerList,
-          kinds: [GIT_REPO_STATE],
-          "#d": [repoName],
-        },
-      ],
-    }).catch(() => {})
-    if (!repoLoadRetryTimer) {
+
+    // Cache-first: if the repository already has the announcement/state,
+    // don't fire a network load - we already have what we need to render.
+    // A background staleness refresh is not needed because the reactive
+    // subscriptions further down (issues, PRs, live, etc.) will pick up any
+    // newer versions that arrive from other sources.
+    const cachedAnnouncement = getStore(repoEventStore)
+    const cachedState = getStore(repoStateEventStore)
+    const needAnnouncement = !cachedAnnouncement
+    const needState = !cachedState
+
+    if (needAnnouncement) {
+      load({
+        relays: announcementRelays,
+        filters: [
+          {
+            authors: [repoPubkey],
+            kinds: [GIT_REPO_ANNOUNCEMENT],
+            "#d": [repoName],
+          },
+        ],
+      }).catch(() => {})
+    }
+    if (needState) {
+      load({
+        relays,
+        filters: [
+          {
+            authors: ownerList,
+            kinds: [GIT_REPO_STATE],
+            "#d": [repoName],
+          },
+        ],
+      }).catch(() => {})
+    }
+
+    // Only arm the retry timer if we actually issued a network load - the
+    // retry exists to cover slow relays, and a fully-cached repo has nothing
+    // to retry.
+    if ((needAnnouncement || needState) && !repoLoadRetryTimer) {
       repoLoadRetryTimer = setTimeout(() => {
         repoLoadRetryTimer = null
         const currentRepoEvent = getStore(repoEventStore)
@@ -1948,26 +1967,30 @@
         if (announcementRelaysRetry.length === 0 || relaysRetry.length === 0) return
         const ownersRetry = getStore(repoOwnerStore)
         const ownerListRetry = ownersRetry && ownersRetry.length > 0 ? ownersRetry : [repoPubkey]
-        load({
-          relays: announcementRelaysRetry,
-          filters: [
-            {
-              authors: [repoPubkey],
-              kinds: [GIT_REPO_ANNOUNCEMENT],
-              "#d": [repoName],
-            },
-          ],
-        }).catch(() => {})
-        load({
-          relays: relaysRetry,
-          filters: [
-            {
-              authors: ownerListRetry,
-              kinds: [GIT_REPO_STATE],
-              "#d": [repoName],
-            },
-          ],
-        }).catch(() => {})
+        if (!currentRepoEvent) {
+          load({
+            relays: announcementRelaysRetry,
+            filters: [
+              {
+                authors: [repoPubkey],
+                kinds: [GIT_REPO_ANNOUNCEMENT],
+                "#d": [repoName],
+              },
+            ],
+          }).catch(() => {})
+        }
+        if (!currentRepoStateEvent) {
+          load({
+            relays: relaysRetry,
+            filters: [
+              {
+                authors: ownerListRetry,
+                kinds: [GIT_REPO_STATE],
+                "#d": [repoName],
+              },
+            ],
+          }).catch(() => {})
+        }
       }, 2500)
     }
   })
@@ -2152,14 +2175,21 @@
   let repoAddressLoadRelaysKey = ""
   let repoAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let dataLoadInitialized = $state(false)
-  let repoLiveSubscriptionKey = ""
-  let repoLiveSubscriptionController: AbortController | null = null
+  // The live subscription is split per-relay so that a growing relay set
+  // (e.g. discovering maintainer outbox relays after the announcement lands)
+  // adds new streams without tearing down the ones already receiving events.
+  // `repoLiveSubscriptionFiltersKey` still forces a full restart when the
+  // filters themselves change (addresses/root ids/viewer differ).
+  let repoLiveSubscriptionFiltersKey = ""
+  const repoLiveSubscriptionsByRelay = new Map<string, AbortController>()
   let viewerScopedLoadKey = ""
 
   const stopRepoLiveSubscription = () => {
-    repoLiveSubscriptionController?.abort()
-    repoLiveSubscriptionController = null
-    repoLiveSubscriptionKey = ""
+    for (const controller of repoLiveSubscriptionsByRelay.values()) {
+      controller.abort()
+    }
+    repoLiveSubscriptionsByRelay.clear()
+    repoLiveSubscriptionFiltersKey = ""
   }
 
   const buildRepoLiveFilters = ({
@@ -2632,23 +2662,40 @@
       return
     }
 
-    const key = [relays.join("|"), addresses.join("|"), rootIds.join("|"), viewer].join("::")
-    if (repoLiveSubscriptionKey === key) return
+    // Key on the filter shape only. If it changes we tear down and rebuild.
+    // If only the relay set changes we compute the diff below and adjust
+    // additively.
+    const filtersKey = [addresses.join("|"), rootIds.join("|"), viewer].join("::")
+    if (repoLiveSubscriptionFiltersKey !== filtersKey) {
+      stopRepoLiveSubscription()
+      repoLiveSubscriptionFiltersKey = filtersKey
+    }
 
-    repoLiveSubscriptionController?.abort()
-    repoLiveSubscriptionKey = key
-    const controller = new AbortController()
-    repoLiveSubscriptionController = controller
+    const targetRelays = new Set(relays)
 
-    request({
-      relays,
-      signal: controller.signal,
-      filters,
-    }).catch(error => {
-      if (!controller.signal.aborted) {
-        console.warn("[repo-live] Failed to subscribe to repo activity", error)
+    // Remove relays that dropped off the target list.
+    for (const [url, controller] of repoLiveSubscriptionsByRelay) {
+      if (!targetRelays.has(url)) {
+        controller.abort()
+        repoLiveSubscriptionsByRelay.delete(url)
       }
-    })
+    }
+
+    // Add subscriptions for newly-present relays without touching the rest.
+    for (const url of targetRelays) {
+      if (repoLiveSubscriptionsByRelay.has(url)) continue
+      const controller = new AbortController()
+      repoLiveSubscriptionsByRelay.set(url, controller)
+      request({
+        relays: [url],
+        signal: controller.signal,
+        filters,
+      }).catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[repo-live] Failed to subscribe to repo activity", error)
+        }
+      })
+    }
   })
 
   // Cleanup on component destroy
