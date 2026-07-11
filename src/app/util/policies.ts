@@ -1,4 +1,5 @@
 import {on, call, dissoc, assoc, uniq} from "@welshman/lib"
+import {get} from "svelte/store"
 import type {Socket, RelayMessage, ClientMessage} from "@welshman/net"
 import {
   AuthStateEvent,
@@ -14,21 +15,81 @@ import {
   isClientNegOpen,
   isClientNegClose,
 } from "@welshman/net"
-import {pubkey, signer} from "@welshman/app"
+import {pubkey, signer, userRelayList, userMessagingRelayList} from "@welshman/app"
+import {getRelaysFromList, normalizeRelayUrl} from "@welshman/util"
 import {Nip01Signer} from "@welshman/signer"
 import {
   userSettingsValues,
   getSetting,
   relaysPendingTrust,
   relaysMostlyRestricted,
+  INDEXER_RELAYS,
+  SIGNER_RELAYS,
+  NOTIFIER_RELAY,
 } from "@app/core/state"
+import {activeCommunityRelays} from "@app/core/community-state"
 
 let guestRelaySigner: Nip01Signer | undefined
 
-const getRelayAuthSigner = () => {
+const safeNormalizeUrl = (url: string) => {
+  try {
+    return normalizeRelayUrl(url)
+  } catch {
+    return ""
+  }
+}
+
+// Relays we always allow the real signer to authenticate to. These are
+// operational relays the app needs regardless of the user's own relay list.
+const buildAlwaysAllowedRelays = () => {
+  const urls = new Set<string>()
+  for (const url of INDEXER_RELAYS) urls.add(safeNormalizeUrl(url))
+  for (const url of SIGNER_RELAYS) urls.add(safeNormalizeUrl(url))
+  if (NOTIFIER_RELAY) urls.add(safeNormalizeUrl(NOTIFIER_RELAY))
+  urls.delete("")
+  return urls
+}
+
+const alwaysAllowedRelays = buildAlwaysAllowedRelays()
+
+// A relay is "user-owned" if it's in the user's kind:10002 or the
+// messaging relay list (kind:10050), if the user has explicitly trusted
+// it, or if it's a community relay for the currently-active community.
+const isUserOwnedRelay = (url: string) => {
+  const normalized = safeNormalizeUrl(url)
+  if (!normalized) return false
+  if (alwaysAllowedRelays.has(normalized)) return true
+
+  const userRelays = getRelaysFromList(get(userRelayList))
+  if (userRelays.some(r => safeNormalizeUrl(r) === normalized)) return true
+
+  const messagingRelays = getRelaysFromList(get(userMessagingRelayList))
+  if (messagingRelays.some(r => safeNormalizeUrl(r) === normalized)) return true
+
+  const trusted = get(userSettingsValues).trusted_relays || []
+  if (trusted.some(r => safeNormalizeUrl(r) === normalized)) return true
+
+  const communityRelays = get(activeCommunityRelays)
+  if (communityRelays.some(r => safeNormalizeUrl(r) === normalized)) return true
+
+  return false
+}
+
+const getRelayAuthSigner = (socketUrl: string) => {
   const activeSigner = signer.get()
-  if (activeSigner) return {signer: activeSigner, isGuest: false}
-  if (pubkey.get()) return undefined
+  const activePubkey = pubkey.get()
+
+  if (activeSigner && activePubkey) {
+    // Only authenticate the real user against relays we've decided are
+    // "ours". Random relays that send AUTH challenge (e.g. via a subscription
+    // to a relay hint from an event) are ignored to avoid unnecessary
+    // bunker roundtrips.
+    if (!isUserOwnedRelay(socketUrl)) return undefined
+
+    return {signer: activeSigner, isGuest: false}
+  }
+
+  if (activePubkey) return undefined
 
   // Use a throwaway key only for NIP-42 relay auth so public reads work for guests.
   guestRelaySigner ||= Nip01Signer.ephemeral()
@@ -44,6 +105,11 @@ export const authPolicy = (socket: Socket) => {
   const retryActiveSignerAuth = async (
     activeSigner: NonNullable<ReturnType<typeof signer.get>>,
   ) => {
+    // Only retry with the real signer when this relay is one we'd auth to
+    // in the first place. Prevents surprise bunker roundtrips against
+    // random relays when the user logs in.
+    if (!isUserOwnedRelay(socket.url)) return
+
     inFlight = true
     try {
       await socket.auth.retryAuth(event => activeSigner.sign(event))
@@ -81,7 +147,7 @@ export const authPolicy = (socket: Socket) => {
     }
 
     if (socket.auth.status !== AuthStatus.Requested) return
-    const relayAuthSigner = getRelayAuthSigner()
+    const relayAuthSigner = getRelayAuthSigner(socket.url)
     if (!relayAuthSigner) return
     inFlight = true
     try {
@@ -102,6 +168,18 @@ export const authPolicy = (socket: Socket) => {
       attemptAuth()
     }),
     pubkey.subscribe(() => {
+      attemptAuth()
+    }),
+    // Re-evaluate when the user's relay list or community relays change so
+    // a relay that just became "ours" gets authed and one that dropped off
+    // no longer receives auth attempts.
+    userRelayList.subscribe(() => {
+      attemptAuth()
+    }),
+    userMessagingRelayList.subscribe(() => {
+      attemptAuth()
+    }),
+    activeCommunityRelays.subscribe(() => {
       attemptAuth()
     }),
   ]

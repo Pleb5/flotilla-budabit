@@ -62,7 +62,6 @@ import {Pool} from "@welshman/net"
 import {Router} from "@welshman/router"
 import {
   pubkey,
-  sign,
   signer,
   session,
   repository,
@@ -78,6 +77,7 @@ import {
   userRelayList,
   userBlossomServerList,
 } from "@welshman/app"
+import {signWithTimeout as sign} from "@app/util/signer-nudge"
 import {GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
 import {compressFile} from "@lib/html"
 import {kv, db} from "@app/core/storage"

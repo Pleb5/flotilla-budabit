@@ -606,11 +606,49 @@ export const shouldIgnoreError = (error: string) => {
   return isIgnored || isAborted
 }
 
+// Track relays we've already kicked off auth for so we don't fire duplicate
+// bunker signs each time a component subscribes to the auth-error store.
+const authAttemptStartedFor = new Set<string>()
+
+const RELAY_AUTH_SIGN_TIMEOUT_MS = 3_000
+
+// Wrap sign() with a hard timeout so a hanging bunker cannot leave the
+// socket's AuthState stuck in PendingSignature forever. The underlying
+// signer promise is not cancelled but the auth state machine can move on.
+const signWithHardTimeout: typeof sign = event =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Relay-auth sign timed out"))
+    }, RELAY_AUTH_SIGN_TIMEOUT_MS)
+
+    Promise.resolve(sign(event))
+      .then(value => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch(error => {
+        clearTimeout(timer)
+        reject(error)
+      })
+  })
+
 export const deriveRelayAuthError = (url: string) => {
   const stripPrefix = (m: string) => m.replace(/^\w+: /, "")
 
-  // Kick off the auth process
-  Pool.get().get(url).auth.attemptAuth(sign)
+  // Kick off the auth process, but only once per url per session. Every
+  // subscription to this store previously re-fired attemptAuth which for a
+  // Nip46 signer means a fresh bunker roundtrip.
+  if (!authAttemptStartedFor.has(url)) {
+    authAttemptStartedFor.add(url)
+    Pool.get()
+      .get(url)
+      .auth.attemptAuth(signWithHardTimeout)
+      .catch(() => {
+        // Retry is safe next time a consumer subscribes; drop the memo so
+        // the next call can try again.
+        authAttemptStartedFor.delete(url)
+      })
+  }
 
   return derived(
     [relaysMostlyRestricted, deriveSocket(url)],
