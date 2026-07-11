@@ -12,7 +12,7 @@
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
-  import {Pool, defaultSocketPolicies} from "@welshman/net"
+  import {Pool, SocketStatus, defaultSocketPolicies} from "@welshman/net"
   import {
     pubkey,
     loadUserRelayList,
@@ -57,6 +57,7 @@
   import * as storage from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
+  import {setupSignerNudgeWatcher} from "@app/util/signer-nudge"
   import {syncApplicationData, syncGitData} from "@app/core/sync"
   import {setupChiiDevInjection} from "@app/util/chii-dev"
   import {setupBudabitNotifications} from "@app/util/notifications"
@@ -79,6 +80,7 @@
     getCommunityBootstrapKey,
     hydrateCommunityPreferences,
     hydratePreferredCommunities,
+    hydratePreferredCommunityList,
     hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
@@ -131,7 +133,15 @@
   const APP_RELOAD_RECOVERY_ATTEMPT_KEY = "appReloadRecoveryAttempt"
   const APP_IMPORT_RECOVERY_KEY = "appImportRecoveryBuildId"
   const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
-  const RELAY_RESUME_IDLE_MS = 30_000
+  // Android freezes WebSockets within ~3s of backgrounding a Chromium tab,
+  // so the "safe to reuse" window is much shorter than on desktop. Use a
+  // shorter idle threshold when we can detect Android, otherwise keep the
+  // desktop value that avoids alt-tab false positives.
+  const isAndroidUserAgent =
+    browser &&
+    typeof navigator !== "undefined" &&
+    /android/i.test(navigator.userAgent || "")
+  const RELAY_RESUME_IDLE_MS = isAndroidUserAgent ? 3_000 : 30_000
   const RELAY_RESUME_THROTTLE_MS = 5_000
   const EXPLORE_NOTIFICATION_STARTUP_DELAY_MS = 4_000
   let updateCheckInterval: number | null = null
@@ -673,6 +683,32 @@
     loadingUserProfileKey = ""
   }
 
+  const refreshRelaySockets = () => {
+    // Selectively refresh sockets instead of clearing the entire Pool. A
+    // full clear:
+    //   - tears down all EventEmitter listeners (many components subscribe
+    //     via deriveSocket/deriveSocketStatus)
+    //   - forces NIP-42 auth to fire again for every relay (a thundering
+    //     herd on the bunker when NIP-46 is active)
+    //   - drops in-flight subscription streams
+    //
+    // The `Socket` implementation from `@welshman/net` will already reopen
+    // the underlying WebSocket on the next `.send()` via
+    // `socketPolicyConnectOnSend`, so we only need to remove sockets that
+    // are terminally broken.
+    for (const url of Array.from(Pool.get()._data.keys())) {
+      const socket = Pool.get()._data.get(url)
+      if (!socket) continue
+      const status = socket.status
+      // Remove sockets whose connection is truly gone. Anything else can
+      // stay - the reconnect timer + socketPolicyConnectOnSend will
+      // recover it lazily when a subscription needs it.
+      if (status === SocketStatus.Closed || status === SocketStatus.Error) {
+        Pool.get().remove(url)
+      }
+    }
+  }
+
   const recoverRelayConnections = (reason: string, force = false) => {
     if (!browser) return
 
@@ -683,8 +719,12 @@
 
     relayResumeLastResetAt = now
     relayResumeHiddenAt = 0
-    Pool.get().clear()
-    clearCommunityBootstrapCache()
+    refreshRelaySockets()
+    // We intentionally do NOT call clearCommunityBootstrapCache() here.
+    // The cache prevents redundant loads; the below re-hydration calls
+    // pass `force: true` where a refresh is genuinely wanted. Wiping the
+    // whole cache made every mobile foreground event re-fetch every
+    // community definition even when the definition was fine.
     resetRelayHydrationKeys()
 
     const user = pubkey.get() || ""
@@ -695,7 +735,9 @@
       loadUserRelayList(user).catch(error => {
         console.warn("[relay-resume] Failed to refresh user relay list", error)
       })
-      hydratePreferredCommunities({relayHints, force: true}).catch(error => {
+      // Use the fast preferred-list hydration: no relay auth, so a slow
+      // bunker cannot stall the resume path.
+      hydratePreferredCommunityList({relayHints, force: true}).catch(error => {
         console.warn("[relay-resume] Failed to refresh preferred communities", error)
       })
       hydratePubkeyProfiles({pubkeys: [user], relayHints, force: true}).catch(error => {
@@ -986,6 +1028,30 @@
       }),
     ])
 
+    // Eagerly warm up a restored NIP-46 bunker session so the first sign
+    // operation doesn't have to open the receiver subscription and do the
+    // initial handshake in-band. `signer.getPubkey()` is a cheap no-op call
+    // to the bunker (also cached), but it triggers `receiver.start()` which
+    // opens the relay subscription to SIGNER_RELAYS. If the bunker is
+    // unreachable this simply resolves later and we've paid nothing.
+    const currentSession = get(sessions)
+    const nip46SessionActive =
+      currentSession &&
+      Object.values(currentSession).some(
+        session => (session as {method?: string})?.method === "nip46",
+      )
+    if (nip46SessionActive) {
+      // Give the derived `signer` store a tick to recompute after `sessions`
+      // was populated, then fire the warm-up. Don't await it.
+      queueMicrotask(() => {
+        const activeSigner = app.signer.get()
+        if (!activeSigner) return
+        activeSigner
+          .getPubkey()
+          .catch(error => console.warn("[+layout] Bunker warm-up failed", error))
+      })
+    }
+
     // Set up our storage adapters
     db.adapters = storage.adapters
 
@@ -1082,6 +1148,10 @@
 
     // Initialize keyboard state tracking
     unsubscribers.push(syncKeyboard())
+
+    // Show a gentle nudge toast when any signer op has been pending too long,
+    // which surfaces bunker slowness before it turns into a chain of failures.
+    unsubscribers.push(setupSignerNudgeWatcher())
 
     // Listen for signer errors, report to user via toast
     unsubscribers.push(
