@@ -93,6 +93,7 @@
     activeUserCommunityRefs,
     communityPreferencesLoading,
     hydratePreferredCommunities,
+    hydratePreferredCommunityList,
     makeCommunityDefinitionFilter,
     makeCommunityProfileListFilters,
     makeCommunityReportDeleteFilters,
@@ -567,7 +568,13 @@
 
   $effect(() => {
     if (!$pubkey) return
-    hydratePreferredCommunities({relayHints: bookmarkRelays}).catch(error => {
+    // Fast path: reads community stars, admin defs, moderator forms, and
+    // memberships without waiting on relay auth. This is enough for the
+    // community selector to render. The slower `hydratePreferredCommunities`
+    // is intentionally NOT called here because it authenticates on every
+    // request and blocks on slow bunkers, which stalls the community mode
+    // switch even when the fast path could have served results.
+    hydratePreferredCommunityList({relayHints: bookmarkRelays}).catch(error => {
       console.warn("[git/+page] Failed to hydrate preferred communities", error)
     })
   })
