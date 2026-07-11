@@ -1,6 +1,7 @@
 import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
-import {deriveProfile, forceLoadRelayList, pubkey, repository, sign, tracker} from "@welshman/app"
+import {deriveProfile, forceLoadRelayList, pubkey, repository, tracker} from "@welshman/app"
+import {signWithTimeout as sign} from "@app/util/signer-nudge"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {normalizeUrl, sortBy} from "@welshman/lib"
 import {AuthStatus, load, Pool} from "@welshman/net"
@@ -630,32 +631,50 @@ export const loadCommunityDefinitionWithOutboxFallback = async (
     timeout: loadOptions.timeout ?? COMMUNITY_DEFINITION_LOOKUP_TIMEOUT,
   }
   const discoveryRelays = normalizeRelays([...relayHints, ...COMMUNITY_DISCOVERY_RELAYS])
-  const outboxRelaysPromise = hydratePubkeyOutboxRelays(normalizedPubkey, discoveryRelays)
-  const indexerDefinition = await loadCommunityDefinitionFromRelays(
+
+  // Kick off the indexer lookup and the outbox lookup in parallel so cold
+  // cases resolve in max(indexer, outbox) wall time rather than indexer +
+  // outbox. Whichever returns first (and has a definition) is used; the
+  // slower one still runs to give the caller a chance to see a newer
+  // version via `onOutboxDefinition`.
+  const indexerPromise = loadCommunityDefinitionFromRelays(
     normalizedPubkey,
     discoveryRelays,
     definitionLoadOptions,
-  )
-  const loadOutboxDefinition = async () => {
+  ).catch(() => undefined)
+  const outboxRelaysPromise = hydratePubkeyOutboxRelays(normalizedPubkey, discoveryRelays)
+  const outboxPromise = (async () => {
     const outboxRelays = await outboxRelaysPromise
+    if (!outboxRelays?.length) return undefined
     const outboxDefinition = await loadCommunityDefinitionFromRelays(
       normalizedPubkey,
       outboxRelays,
       definitionLoadOptions,
-    )
+    ).catch(() => undefined)
 
     if (outboxDefinition) onOutboxDefinition?.(outboxDefinition)
 
     return outboxDefinition
+  })()
+
+  // Race for the first non-empty result; if both return undefined we still
+  // resolve so the caller can fall back to cached repository data.
+  const firstDefinition = await Promise.race<CommunityDefinition | undefined>([
+    indexerPromise.then(def => def ?? new Promise<undefined>(() => undefined)),
+    outboxPromise.then(def => def ?? new Promise<undefined>(() => undefined)),
+    Promise.all([indexerPromise, outboxPromise]).then(([a, b]) => a ?? b),
+  ])
+
+  if (firstDefinition) {
+    // Let the slower path finish in the background so a newer version can
+    // still land in the repository via onOutboxDefinition/publish.
+    void Promise.allSettled([indexerPromise, outboxPromise])
+    return firstDefinition
   }
 
-  if (indexerDefinition) {
-    void loadOutboxDefinition().catch(() => undefined)
-
-    return indexerDefinition
-  }
-
-  return loadOutboxDefinition()
+  // Both returned undefined; return the settled result (still undefined).
+  const [indexerResult, outboxResult] = await Promise.all([indexerPromise, outboxPromise])
+  return indexerResult ?? outboxResult
 }
 
 const profileHydratedAt = new Map<string, number>()
@@ -2070,38 +2089,82 @@ export const activeCommunityAdmissionForms: Readable<Record<string, CommunityAdm
         : {},
   )
 
+// Look up a community definition synchronously in the repository cache
+// (IndexedDB warm-start populates this before any effect runs). Returns
+// undefined if not cached.
+const readCachedCommunityDefinition = (communityPubkey: string) => {
+  const cachedEvents = repository.query([makeCommunityDefinitionFilter(communityPubkey)])
+  return selectLatestCommunityDefinition(cachedEvents, communityPubkey)
+}
+
 export const loadCommunityBootstrap = async (
   session: CommunitySession,
 ): Promise<CommunityBootstrap> => {
   const relays = getCommunityBootstrapRelays(session.communityRelayHints)
   const definitionFilter = makeCommunityDefinitionFilter(session.communityPubkey)
-  if (session.communityRelayHints.length > 0) {
-    await authenticateCommunityRelays(session.communityRelayHints)
-  }
 
-  let definition = await loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
-    relayHints: session.communityRelayHints,
-  })
-  if (!definition) {
-    throw new Error("Community definition unavailable")
+  // Do NOT block on relay auth before we even try to load the definition.
+  // Individual `loadCommunityEvents({authenticate: true})` calls below still
+  // authenticate for the requests that require it. Slow bunker signers no
+  // longer stall the entire bootstrap.
+
+  // Cache-first: if the repository already has a definition (warm-start from
+  // IndexedDB, a prior visit, or a parallel path), use it immediately and
+  // fire the network refresh in the background. This is the biggest win
+  // for perceived speed: warm cache paths never wait on a round-trip.
+  let definition = readCachedCommunityDefinition(session.communityPubkey)
+  const cacheHit = Boolean(definition)
+
+  if (cacheHit) {
+    // Background refresh - non-awaited. The repository will emit updates
+    // when a newer definition arrives, and reactive stores will pick it up.
+    void loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
+      relayHints: session.communityRelayHints,
+    }).catch(() => undefined)
+  } else {
+    definition = await loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
+      relayHints: session.communityRelayHints,
+    })
+
+    if (!definition) {
+      // Final chance: the network fetch may have populated the cache during
+      // its await (e.g. via the outbox path emitting to the repository).
+      definition = readCachedCommunityDefinition(session.communityPubkey)
+
+      if (!definition) throw new Error("Community definition unavailable")
+    }
   }
 
   const definitionEvents = definition ? [definition.event] : []
   let communityRelays = definition ? definition.relays : relays
 
   if (definition?.relays.length) {
-    await authenticateCommunityRelays(communityRelays)
-    const relayDefinitionEvents = await loadCommunityEvents(communityRelays, [definitionFilter], {
-      settle: "first-non-empty",
-    })
-    const communityRelayDefinition = selectLatestCommunityDefinition(
-      [...definitionEvents, ...relayDefinitionEvents],
-      session.communityPubkey,
-    )
+    // Fire-and-forget auth for community-declared relays; do not await here.
+    // The definition refresh below only requires public reads, and the
+    // socket-level auth policy will attempt auth when a challenge is issued.
+    void authenticateCommunityRelays(communityRelays).catch(() => {})
 
-    if (communityRelayDefinition) {
-      definition = communityRelayDefinition
-      communityRelays = definition.relays.length ? definition.relays : communityRelays
+    if (cacheHit) {
+      // We already have a valid definition. Refresh from the community's own
+      // relays in the background - do not block bootstrap on it.
+      void loadCommunityEvents(communityRelays, [definitionFilter], {
+        settle: "first-non-empty",
+      }).catch(() => undefined)
+    } else {
+      const relayDefinitionEvents = await loadCommunityEvents(
+        communityRelays,
+        [definitionFilter],
+        {settle: "first-non-empty"},
+      )
+      const communityRelayDefinition = selectLatestCommunityDefinition(
+        [...definitionEvents, ...relayDefinitionEvents],
+        session.communityPubkey,
+      )
+
+      if (communityRelayDefinition) {
+        definition = communityRelayDefinition
+        communityRelays = definition.relays.length ? definition.relays : communityRelays
+      }
     }
   }
   const authorityFilters: Filter[] = []
@@ -2115,35 +2178,94 @@ export const loadCommunityBootstrap = async (
     reportFilters.push(...makeCommunityReportFilters(definition))
   }
 
-  const [authorityEvents, admissionFormEvents, reportEvents] = await Promise.all([
-    authorityFilters.length > 0
-      ? loadCommunityEvents(communityRelays, authorityFilters, {
-          timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
-          settle: "first-non-empty",
-        })
-      : [],
-    admissionFormFilters.length > 0
-      ? loadCommunityEvents(communityRelays, admissionFormFilters, {settle: "first"})
-      : [],
-    reportFilters.length > 0
-      ? loadCommunityEvents(communityRelays, reportFilters, {authenticate: true, settle: "first"})
-      : [],
-  ])
+  // Cache-first for the authority/admission/report events too. When the
+  // definition is a cache hit we already have those events in the
+  // repository as well (they came from the same warm-start). Read them
+  // synchronously and refresh in the background so `communityBootstrapReady`
+  // fires immediately.
+  const readFromRepository = (filters: Filter[]) =>
+    filters.length > 0 ? repository.query(filters) : []
 
-  void hydrateCommunityReportDeleteEvents({relays: communityRelays, reportEvents}).catch(error => {
-    console.warn("[community] Failed to hydrate moderation report deletes", error)
-  })
+  let authorityEvents: TrustedEvent[]
+  let admissionFormEvents: TrustedEvent[]
+  let reportEvents: TrustedEvent[]
+
+  if (cacheHit) {
+    authorityEvents = readFromRepository(authorityFilters)
+    admissionFormEvents = readFromRepository(admissionFormFilters)
+    reportEvents = readFromRepository(reportFilters)
+
+    // Background refresh - non-awaited, results land in the repository and
+    // the reactive stores emit updates naturally.
+    if (authorityFilters.length > 0) {
+      void loadCommunityEvents(communityRelays, authorityFilters, {
+        timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
+        settle: "first-non-empty",
+      }).catch(() => undefined)
+    }
+    if (admissionFormFilters.length > 0) {
+      void loadCommunityEvents(communityRelays, admissionFormFilters, {
+        settle: "first",
+      }).catch(() => undefined)
+    }
+    if (reportFilters.length > 0) {
+      void loadCommunityEvents(communityRelays, reportFilters, {
+        authenticate: true,
+        settle: "first",
+      })
+        .then(freshReports => {
+          void hydrateCommunityReportDeleteEvents({
+            relays: communityRelays,
+            reportEvents: freshReports,
+          }).catch(() => undefined)
+        })
+        .catch(() => undefined)
+    }
+  } else {
+    ;[authorityEvents, admissionFormEvents, reportEvents] = await Promise.all([
+      authorityFilters.length > 0
+        ? loadCommunityEvents(communityRelays, authorityFilters, {
+            timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
+            settle: "first-non-empty",
+          })
+        : [],
+      admissionFormFilters.length > 0
+        ? loadCommunityEvents(communityRelays, admissionFormFilters, {settle: "first"})
+        : [],
+      reportFilters.length > 0
+        ? loadCommunityEvents(communityRelays, reportFilters, {authenticate: true, settle: "first"})
+        : [],
+    ])
+
+    void hydrateCommunityReportDeleteEvents({relays: communityRelays, reportEvents}).catch(
+      error => {
+        console.warn("[community] Failed to hydrate moderation report deletes", error)
+      },
+    )
+  }
 
   const reportReviewFilters = definition
     ? makeCommunityReportReviewFilters(definition, reportEvents)
     : []
-  const reportReviewEvents =
-    reportReviewFilters.length > 0
-      ? await loadCommunityEvents(communityRelays, reportReviewFilters, {
-          authenticate: true,
-          settle: "first",
-        })
-      : []
+
+  let reportReviewEvents: TrustedEvent[]
+  if (cacheHit) {
+    reportReviewEvents = readFromRepository(reportReviewFilters)
+    if (reportReviewFilters.length > 0) {
+      void loadCommunityEvents(communityRelays, reportReviewFilters, {
+        authenticate: true,
+        settle: "first",
+      }).catch(() => undefined)
+    }
+  } else {
+    reportReviewEvents =
+      reportReviewFilters.length > 0
+        ? await loadCommunityEvents(communityRelays, reportReviewFilters, {
+            authenticate: true,
+            settle: "first",
+          })
+        : []
+  }
 
   const bootstrap = {
     definition,
@@ -2168,7 +2290,12 @@ export const ensureCommunityBootstrap = async (
   const completed = completedCommunityBootstrap.get(key)
 
   if (completed) {
-    if (updateStatus) activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
+    if (updateStatus) {
+      // Always overwrite the status when we hit a completed cache entry so a
+      // ghost `error` from a previous failed attempt cannot linger and
+      // trigger the "Community unavailable" banner.
+      activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
+    }
     return completed
   }
 
@@ -2176,6 +2303,8 @@ export const ensureCommunityBootstrap = async (
   if (existing) {
     if (!updateStatus) return existing
 
+    // Reset the error field when we start following an existing in-flight
+    // bootstrap for this key.
     activeCommunityBootstrapStatus.set({key, loading: true, loaded: false})
 
     return existing
@@ -2200,7 +2329,13 @@ export const ensureCommunityBootstrap = async (
       })
   }
 
-  if (updateStatus) activeCommunityBootstrapStatus.set({key, loading: true, loaded: false})
+  if (updateStatus) {
+    // Clear any prior error from a different key before we start a fresh
+    // bootstrap for this one. Without this, navigating from a failed
+    // community to a healthy one can leave the error visible until the new
+    // load completes.
+    activeCommunityBootstrapStatus.set({key, loading: true, loaded: false})
+  }
 
   const cacheVersion = communityBootstrapCacheVersion
   const promise = loadCommunityBootstrap(session)

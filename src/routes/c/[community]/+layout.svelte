@@ -96,8 +96,10 @@
   let authRelayUrl = $state("")
   let relayAuthError = $state("")
   let shownAuthErrorKey = $state("")
-  let communityLiveKey = ""
-  let communityLiveController: AbortController | null = null
+  // Per-relay subscriptions so the community live stream expands additively
+  // when new relays are discovered instead of tearing down existing streams.
+  let communityLiveFiltersKey = ""
+  const communityLiveSubscriptionsByRelay = new Map<string, AbortController>()
   let communityHistoryLoadKey = ""
   let communityHistoryLoadController: AbortController | null = null
   let communityDeleteLoadKey = ""
@@ -143,9 +145,11 @@
   )
 
   const stopCommunityLiveSubscription = () => {
-    communityLiveController?.abort()
-    communityLiveController = null
-    communityLiveKey = ""
+    for (const controller of communityLiveSubscriptionsByRelay.values()) {
+      controller.abort()
+    }
+    communityLiveSubscriptionsByRelay.clear()
+    communityLiveFiltersKey = ""
   }
 
   const stopCommunityHistoryLoad = () => {
@@ -199,6 +203,12 @@
         setActiveCommunityInput(decodeURIComponent(routeCommunity)) ||
         makeCommunitySession(parsedCommunity)
       const communityKey = getCommunityBootstrapKey(session, currentPubkey)
+
+      // Immediately clear any stale error left over from a previous community
+      // or a previous failed attempt on this one. `ensureCommunityBootstrap`
+      // will re-set the status below; this just guarantees the banner never
+      // paints for the wrong community while navigation is in flight.
+      activeCommunityBootstrapStatus.set({key: communityKey, loading: true, loaded: false})
 
       try {
         await ensureCommunityBootstrap(session, {key: communityKey})
@@ -350,23 +360,37 @@
       return
     }
 
-    const key = getCommunityLiveSubscriptionKey({
+    // Key on the filter/community shape without relays. If it changes we
+    // tear down and rebuild; if only the relay set changes we diff below.
+    const filtersKey = getCommunityLiveSubscriptionKey({
       communityPubkey: definition.pubkey,
-      relays,
+      relays: [],
       filters,
     })
-    if (communityLiveKey === key) return
+    if (communityLiveFiltersKey !== filtersKey) {
+      stopCommunityLiveSubscription()
+      communityLiveFiltersKey = filtersKey
+    }
 
-    communityLiveController?.abort()
-    communityLiveKey = key
-    const controller = new AbortController()
-    communityLiveController = controller
+    const targetRelays = new Set(relays)
 
-    request({relays, filters, signal: controller.signal}).catch(error => {
-      if (!controller.signal.aborted) {
-        console.warn("[community-live] Failed to subscribe to community activity", error)
+    for (const [url, controller] of communityLiveSubscriptionsByRelay) {
+      if (!targetRelays.has(url)) {
+        controller.abort()
+        communityLiveSubscriptionsByRelay.delete(url)
       }
-    })
+    }
+
+    for (const url of targetRelays) {
+      if (communityLiveSubscriptionsByRelay.has(url)) continue
+      const controller = new AbortController()
+      communityLiveSubscriptionsByRelay.set(url, controller)
+      request({relays: [url], filters, signal: controller.signal}).catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-live] Failed to subscribe to community activity", error)
+        }
+      })
+    }
   })
 
   onDestroy(() => {

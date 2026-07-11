@@ -152,6 +152,35 @@
     ),
   )
   const communityBootstrapError = $derived($activeCommunityBootstrapStatus.error || "")
+  // Short settle window: hide the "Community unavailable" banner for a brief
+  // moment after entering a community so a fast bootstrap or an incoming
+  // cached definition never causes an error flash.
+  const COMMUNITY_UNAVAILABLE_SETTLE_MS = 1_200
+  let communityUnavailableSettleReady = $state(false)
+  $effect(() => {
+    // Reset the settle gate whenever the community changes.
+    communityId
+    communityUnavailableSettleReady = false
+
+    const timer = setTimeout(() => {
+      communityUnavailableSettleReady = true
+    }, COMMUNITY_UNAVAILABLE_SETTLE_MS)
+
+    return () => clearTimeout(timer)
+  })
+  // Only show the unavailable banner when:
+  // 1. The bootstrap reported an error
+  // 2. The bootstrap is not currently retrying
+  // 3. No cached definition is present in the store
+  // 4. The settle gate has elapsed
+  const showCommunityUnavailable = $derived(
+    Boolean(
+      communityBootstrapError &&
+        !$activeCommunityBootstrapStatus.loading &&
+        !routeCommunityDefinition &&
+        communityUnavailableSettleReady,
+    ),
+  )
   const roomFilters = $derived(
     communityDefinitionReady && communityId && roomAuthorPubkeys.length
       ? [makeCommunityRoomRootsFilter(communityId, {authors: roomAuthorPubkeys})]
@@ -207,15 +236,29 @@
   let roomLoadEmptyRetries = 0
   let roomLoadRetryTimer: ReturnType<typeof setTimeout> | undefined
   const roomsWaitingForDefinition = $derived(
-    Boolean(communityId && !communityDefinitionReady && !communityBootstrapError),
+    Boolean(communityId && !communityDefinitionReady && !showCommunityUnavailable),
   )
   const roomsUnavailable = $derived(
-    Boolean(communityId && !communityDefinitionReady && communityBootstrapError),
+    Boolean(communityId && !communityDefinitionReady && showCommunityUnavailable),
   )
   const roomsWaitingForRequest = $derived(
     Boolean(roomFilters.length > 0 && (roomRootsLoading || !roomRootsLoaded)),
   )
   const roomsLoading = $derived(roomsWaitingForDefinition || roomsWaitingForRequest)
+  // Skeleton delay: suppress the loading card entirely for the first
+  // ~800ms after entering a community so fast/warm cache paths never
+  // flash a "Looking for rooms..." spinner.
+  const ROOMS_SKELETON_DELAY_MS = 800
+  let roomsSkeletonDelayElapsed = $state(false)
+  $effect(() => {
+    // Reset whenever the community changes.
+    communityId
+    roomsSkeletonDelayElapsed = false
+    const timer = setTimeout(() => {
+      roomsSkeletonDelayElapsed = true
+    }, ROOMS_SKELETON_DELAY_MS)
+    return () => clearTimeout(timer)
+  })
   const roomsSettledEmpty = $derived(
     Boolean(
       communityId &&
@@ -504,7 +547,7 @@
     {/if}
   </div>
 
-  {#if communityBootstrapError && !communityBootstrapReady}
+  {#if showCommunityUnavailable}
     <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="min-w-0">
@@ -638,7 +681,7 @@
         {/if}
       </Link>
     {/each}
-    {#if communityId && rooms.length === 0}
+    {#if communityId && rooms.length === 0 && (roomsSkeletonDelayElapsed || !roomsLoading)}
       <div class="card2 bg-alt col-span-full flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <h3 class="flex items-center gap-2 text-lg font-semibold">
