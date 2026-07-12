@@ -639,55 +639,76 @@ const deriveLoadedEvents = <T extends TrustedEvent>({
   label: string
 }): Readable<T[]> =>
   readable<T[]>([], set => {
-    let previousKey = ""
-    let controller: AbortController | undefined
+    let filtersKey = ""
+    const controllersByRelay = new Map<string, AbortController>()
     let unsubscribeEvents: (() => void) | undefined
+
+    const stopRelaySubscriptions = () => {
+      for (const controller of controllersByRelay.values()) {
+        controller.abort()
+      }
+      controllersByRelay.clear()
+    }
 
     const unsubscribe = derived([filters, relays], ([$filters, $relays]) => ({
       filters: $filters,
-      relays: $relays,
+      relays: normalizeRelays($relays).sort(),
     })).subscribe(({filters, relays}) => {
-      const normalizedRelays = normalizeRelays(relays)
-      const key = `${getFilterKey(filters)}::${normalizedRelays.join("|")}`
-      if (key === previousKey) return
-      previousKey = key
+      const nextFiltersKey = getFilterKey(filters)
 
-      controller?.abort()
-      unsubscribeEvents?.()
-      controller = undefined
-      unsubscribeEvents = undefined
+      if (nextFiltersKey !== filtersKey) {
+        stopRelaySubscriptions()
+        unsubscribeEvents?.()
+        unsubscribeEvents = undefined
+        filtersKey = nextFiltersKey
+
+        if (filters.length > 0) {
+          unsubscribeEvents = deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(
+            events => set(events as T[]),
+          )
+        }
+      }
 
       if (filters.length === 0) {
+        stopRelaySubscriptions()
         set([])
         return
       }
 
-      unsubscribeEvents = deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(
-        events => set(events as T[]),
-      )
+      const targetRelays = new Set(relays)
 
-      if (normalizedRelays.length === 0) return
+      for (const [url, controller] of controllersByRelay) {
+        if (!targetRelays.has(url)) {
+          controller.abort()
+          controllersByRelay.delete(url)
+        }
+      }
 
-      const currentController = new AbortController()
-      controller = currentController
-      load({relays: normalizedRelays, filters, signal: currentController.signal}).catch(error => {
-        if (!currentController.signal.aborted) {
-          console.warn(`[repo-watch-notifications] Failed to load ${label}`, error)
-        }
-      })
-      request({
-        relays: normalizedRelays,
-        signal: currentController.signal,
-        filters: filters.map(filter => ({...filter, limit: 0})),
-      }).catch(error => {
-        if (!currentController.signal.aborted) {
-          console.warn(`[repo-watch-notifications] Failed to subscribe to ${label}`, error)
-        }
-      })
+      const liveFilters = filters.map(filter => ({...filter, limit: 0}))
+      for (const url of targetRelays) {
+        if (controllersByRelay.has(url)) continue
+
+        const controller = new AbortController()
+        controllersByRelay.set(url, controller)
+        load({relays: [url], filters, signal: controller.signal}).catch(error => {
+          if (!controller.signal.aborted) {
+            console.warn(`[repo-watch-notifications] Failed to load ${label}`, error)
+          }
+        })
+        request({
+          relays: [url],
+          signal: controller.signal,
+          filters: liveFilters,
+        }).catch(error => {
+          if (!controller.signal.aborted) {
+            console.warn(`[repo-watch-notifications] Failed to subscribe to ${label}`, error)
+          }
+        })
+      }
     })
 
     return () => {
-      controller?.abort()
+      stopRelaySubscriptions()
       unsubscribeEvents?.()
       unsubscribe()
     }
