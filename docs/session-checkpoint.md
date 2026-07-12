@@ -13,15 +13,15 @@
 
 ## Current Phase
 
-- Phase 5: Final Verification And Closeout
+- Complete
 
 ## Phase Exit Criteria
 
 - Final diff shows QR login restored to known-good no-perms behavior.
 - Final diff shows no hidden startup NIP-46 warm-up or nudge watcher.
 - Final diff shows passive notifications/background services do not silently sign/encrypt/publish on startup.
-- `pnpm check` passes or a fresh successful result remains valid with no code changes after it.
-- `git diff --check` passes.
+- `pnpm check` passed after all code changes.
+- `git diff --check` passed.
 - Checkpoint records `Current Phase: Complete` and final evidence.
 - Final closeout commit is pushed before final response if files changed.
 
@@ -100,6 +100,22 @@
   - `pnpm check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
   - Inspected `git status --short --branch`, `git diff`, and `git log --oneline --decorate -12` before checkpoint update.
+- Phase 4 was committed and pushed as `7649306d fix: gate passive startup signer writes`.
+- Phase 5 final verification:
+  - Read this checkpoint and the full session plan after Phase 4 push; checkpoint said `Current Phase: Phase 5: Final Verification And Closeout`.
+  - `git status --short --branch`: clean on `dev`, tracking `origin/dev`.
+  - `git log --oneline --decorate -12`: HEAD was `7649306d (HEAD -> dev, origin/dev) fix: gate passive startup signer writes`.
+  - `git diff --stat origin/master...HEAD`: cumulative workflow diff covered the planned docs and code/test files, including QR login, startup signer removals, and passive write gating.
+  - Inspected current `src/app/util/nip46.ts`: `Nip46Controller.makeNostrconnectUrl(...)` has no `perms`, and `start()` awaits/catches async finalization.
+  - Inspected current `src/app/components/LogInBunker.svelte`: QR finalization uses `response.event.pubkey`; `NIP46_PERMS` remains only for explicit bunker URL `connect(connectSecret, NIP46_PERMS)`.
+  - Inspected current `src/app/util/repo-watch-notifications.ts`: `setupRepoWatchNotifications()` only updates notification UI config and no longer records baselines through `updateRepoWatchNotificationSeen(...)`.
+  - Inspected current `src/app/extensions/settings.ts` and `src/app/core/sync.ts`: startup extension settings hydration no longer installs autosync, and remote/default materialization no longer calls `syncExtensionSettingsNow()`.
+  - Focused marker search for `signer-nudge`, `setupSignerNudgeWatcher`, `Bunker warm-up`, `signer.getPubkey`, `setupRelayResumeRecovery`, `signWithTimeout`, `signWithNudge`, `startExtensionSettingsAutoSync`, and `repoWatchSeenBaselineUpdates`: no matches under `src`.
+  - Focused search for `NIP46_PERMS` in `src/app/util/nip46.ts`: no matches.
+  - Focused passive-path search showed signer/encrypt/publish calls only in explicit repo-watch and extension publish functions, while `setupRepoWatchNotifications()` still starts for UI reads.
+  - `pnpm exec vitest run src/app/util/nip46.test.ts src/app/extensions/settings.test.ts src/app/util/repo-watch-notifications.test.ts src/app/core/sync.test.ts`: passed, 25 tests.
+  - `pnpm check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
 
 ## Decisions
 
@@ -113,11 +129,11 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phase 4 code, tests, and checkpoint changes are verified and belong to the transition commit into Phase 5.
+- Workflow code and tests are complete on `dev`; only this final checkpoint update remains to commit and push.
 
 ## Next Action
 
-- Inspect the final diff and focused searches against the bunker reliability objective.
+- Final response after committing/pushing this checkpoint and rereading it.
 
 ## Verification
 
@@ -132,11 +148,14 @@
 - Inspected Phase 3 status, diff, and recent log before checkpoint update.
 - Ran Phase 4 focused tests, focused searches, `pnpm check`, and `git diff --check` successfully.
 - Inspected Phase 4 status, diff, and recent log before checkpoint update.
+- Ran Phase 5 focused tests, final searches, `pnpm check`, and `git diff --check` successfully.
+- Inspected cumulative diff, final file state, status, and recent log before final checkpoint update.
 
 ## Risks Or Blockers
 
 - No current blocker.
 - Residual risk: mobile browser/Amber behavior still requires device validation after code phases; local verification can only cover static checks and unit tests.
+- Final residual risk: Android/Amber behavior must still be validated on device after deployment.
 
 ## Files
 
