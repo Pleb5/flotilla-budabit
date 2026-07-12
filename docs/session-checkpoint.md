@@ -49,6 +49,8 @@
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
   - Inspected `git status --short --branch`, `git diff --stat`, and `git log --oneline -10` before checkpoint advancement.
+- Phase 1 was committed and pushed as `da8517cc perf: prioritize community relay auth`.
+- Post-push checkpoint reread confirmed `Current Phase: Phase 2: Permission And Moderator Readiness`; this repair updates stale Phase 1 transition text left in `Current State` and `Next Action`.
 
 ## Decisions
 
@@ -61,12 +63,13 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phase 1 is verified and checkpointed for commit/push.
+- Phase 1 is committed and pushed.
+- Worktree was clean after the Phase 1 push.
 - Phase 2 should add compact readiness/loading states around permission and moderator evidence while preserving cached content.
 
 ## Next Action
 
-- Commit and push Phase 1, reread this checkpoint, then start Phase 2 by inspecting permission/moderator readiness paths.
+- Start Phase 2 by inspecting permission/moderator readiness paths in `community-state.ts`, `CommunityMenu.svelte`, `PublishGate.svelte`, and community home.
 
 ## Verification
 
@@ -79,6 +82,10 @@
   - `pnpm exec vitest run src/app/core/community-state-loading.test.ts`: passed.
   - `pnpm run check`: passed.
   - `git diff --check`: passed.
+- Phase 1 transition:
+  - `git commit -m "perf: prioritize community relay auth"`: created `da8517cc`.
+  - `git push`: pushed `dev` to `origin/dev`.
+  - `git status --short --branch`: clean after push.
 
 ## Risks Or Blockers
 
