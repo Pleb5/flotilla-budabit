@@ -14,20 +14,19 @@
 
 ## Current Phase
 
-- Phase 2: Budabit Code Adaptation
+- Phase 3: Thorough Verification And Closeout
 
 ## Phase Exit Criteria
 
-- `SignerLogEntryStatus` imports/usages are removed.
-- Signer status UI and unresponsive-signer toast logic use Welshman `0.8.16` signer log entries: pending when `finished_at` is absent, success when `ok === true`, failure when `ok === false`, duration from timestamps.
-- NIP-46/Bunker/password login persists relay lists after Welshman's `switchRelays()` succeeds.
-- NIP-46 login tolerates signers that do not support or permit `switch_relays`, falling back to the original relay list instead of failing a completed login.
-- Budabit's NIP-46 permissions include `switch_relays` where explicit permissions are requested.
-- Focused NIP-46 tests cover the safe switch-relay fallback and unchanged QR permission behavior.
-- `pnpm exec vitest run src/app/util/nip46.test.ts` passes.
+- Focused NIP-46 tests pass after dependency and code upgrades.
 - `pnpm run check` passes.
+- `pnpm run test:main` passes, or any failure is proven unrelated and recorded as a blocker/risk.
+- `pnpm run e2e:check` passes, or any failure is proven unrelated and recorded as a blocker/risk.
+- `pnpm run build` passes, or any failure is proven environment-only/unrelated and recorded as a blocker/risk.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Final package inspection confirms no stale Welshman `0.7.1` override or patched dependency remains.
+- Checkpoint records `Current Phase: Complete` with final evidence.
+- Final closeout commit is pushed before final response if files changed.
 
 ## Completed With Evidence
 
@@ -58,6 +57,27 @@
   - `rg '@welshman.*0\.7\.1|@welshman__util@0\.7\.1|patchedDependencies|patch_hash' package.json pnpm-lock.yaml packages/nostr-git-ui/package.json`: no output.
   - `rg '@welshman/(app|content|editor|feeds|lib|net|router|signer|store|util)@0\.8\.16' pnpm-lock.yaml`: found all Welshman `0.8.16` lockfile package entries.
   - `git diff --check`: passed with no output.
+- Phase 2 changed `src/app/util/nip46.ts`:
+  - Added `makeBudabitNip46Broker`, which wraps Welshman's `switchRelays()` and falls back to the current relay list if the remote signer does not support or permit `switch_relays`.
+  - `Nip46Controller` now uses the wrapped broker for QR Nostr Connect login.
+- Phase 2 changed NIP-46 login flows:
+  - `src/app/components/LogInBunker.svelte` now persists `controller.broker.params.relays` or `broker.params.relays` after connect, so successful relay switches are stored in the NIP-46 session.
+  - `src/app/components/LogInPassword.svelte` now uses the wrapped broker and persists `broker.params.relays` in the session.
+  - `src/app/core/state.ts` now includes `switch_relays` in explicit NIP-46 permissions.
+- Phase 2 changed signer status handling:
+  - `src/app/components/SignerStatus.svelte` no longer imports `SignerLogEntryStatus` and computes pending/success/failure/duration from `finished_at`, `ok`, and `started_at`.
+  - `src/routes/+layout.svelte` no longer imports `SignerLogEntryStatus` or `spec` for signer logs and uses `ok` for unresponsive signer toast detection.
+- Phase 2 changed `src/app/components/SpaceEdit.svelte`:
+  - Replaced removed Welshman `fetchRelayDirectly` with `fetchRelay`, which refreshes relay metadata through the current exported API.
+- Phase 2 changed `src/app/util/nip46.test.ts`:
+  - Added coverage for safe `switch_relays` fallback.
+  - Preserved coverage that QR Nostr Connect URLs do not request explicit permissions.
+- Phase 2 verification:
+  - First `pnpm run check` failed on removed `fetchRelayDirectly` export and implicit signer-log callback types; both were fixed in this phase.
+  - `pnpm exec vitest run src/app/util/nip46.test.ts`: passed, 3 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `grep`/search inspection found no remaining `SignerLogEntryStatus` or `fetchRelayDirectly` usages in `src`.
+  - `git diff --check`: passed with no output.
 
 ## Decisions
 
@@ -70,12 +90,13 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phase 1 dependency migration is verified and being committed/pushed as the transition to Phase 2.
-- Phase 2 should adapt app code for Welshman `0.8.16` signer log and NIP-46 behavior.
+- Phase 1 dependency migration is committed and pushed as `f0faabe4 chore: upgrade welshman dependencies`.
+- Phase 2 code adaptation is verified and being committed/pushed as the transition to Phase 3.
+- Phase 3 should run thorough verification and close out the workflow.
 
 ## Next Action
 
-- Start Phase 2 by updating signer status logic, adding a safe NIP-46 broker wrapper, persisting switched relays, and running focused NIP-46 tests plus `pnpm run check`.
+- Start Phase 3 by rerunning focused NIP-46 tests, `pnpm run check`, `pnpm run test:main`, `pnpm run e2e:check`, `pnpm run build`, package inspections, and `git diff --check`.
 
 ## Verification
 
@@ -92,13 +113,17 @@
   - `rg '@welshman.*0\.7\.1|@welshman__util@0\.7\.1|patchedDependencies|patch_hash' package.json pnpm-lock.yaml packages/nostr-git-ui/package.json`: passed with no output.
   - `rg '@welshman/(app|content|editor|feeds|lib|net|router|signer|store|util)@0\.8\.16' pnpm-lock.yaml`: passed with expected entries.
   - `git diff --check`: passed with no output.
+- Phase 2 verification:
+  - `pnpm exec vitest run src/app/util/nip46.test.ts`: passed, 3 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - Search inspection found no `SignerLogEntryStatus` or `fetchRelayDirectly` usages in `src`.
+  - `git diff --check`: passed with no output.
 
 ## Risks Or Blockers
 
 - No blocker.
 - `pnpm install` reported an existing peer warning: `nostr-editor 1.1.2` expects `nostr-tools@~2.14.2` and the resolved app graph has `nostr-tools 2.23.3`.
 - `pnpm install` reported deprecated `@pomade/core@0.2.6`, but Welshman `0.8.16` peers accept `^0.2.1`.
-- Welshman `0.8.16` signer log API compile fixes are expected in Phase 2.
 - Broader test/build commands may reveal unrelated existing failures; record evidence if that happens.
 
 ## Files
@@ -114,5 +139,6 @@
 - `src/app/components/LogInBunker.svelte`
 - `src/app/components/LogInPassword.svelte`
 - `src/app/components/SignerStatus.svelte`
+- `src/app/components/SpaceEdit.svelte`
 - `src/app/core/state.ts`
 - `src/routes/+layout.svelte`

@@ -1,9 +1,25 @@
 import {writable} from "svelte/store"
-import type {Nip46ResponseWithResult} from "@welshman/signer"
+import type {Nip46BrokerParams, Nip46ResponseWithResult} from "@welshman/signer"
 import {Nip46Broker} from "@welshman/signer"
 import {makeSecret} from "@welshman/util"
 import {getAppMetadata, SIGNER_RELAYS} from "@app/core/state"
 import {pushToast} from "@app/util/toast"
+
+export const makeBudabitNip46Broker = (params: Nip46BrokerParams) => {
+  const broker = new Nip46Broker(params)
+  const switchRelays = broker.switchRelays.bind(broker)
+
+  broker.switchRelays = async () => {
+    try {
+      return await switchRelays()
+    } catch (error) {
+      console.warn("[nip46] Failed to switch relays; keeping current relay list", error)
+      return broker.params.relays
+    }
+  }
+
+  return broker
+}
 
 export class Nip46Controller {
   url = writable("")
@@ -11,7 +27,7 @@ export class Nip46Controller {
   loading = writable(false)
   clientSecret = makeSecret()
   abortController = new AbortController()
-  broker = new Nip46Broker({clientSecret: this.clientSecret, relays: SIGNER_RELAYS})
+  broker = makeBudabitNip46Broker({clientSecret: this.clientSecret, relays: SIGNER_RELAYS})
   onNostrConnect: (response: Nip46ResponseWithResult) => void | Promise<void>
 
   constructor({onNostrConnect}: {onNostrConnect: (response: Nip46ResponseWithResult) => void | Promise<void>}) {

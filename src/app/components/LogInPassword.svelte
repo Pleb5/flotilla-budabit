@@ -1,7 +1,6 @@
 <script lang="ts">
   import {onMount, onDestroy} from "svelte"
   import {postJson, stripProtocol} from "@welshman/lib"
-  import {Nip46Broker} from "@welshman/signer"
   import {normalizeRelayUrl, makeSecret} from "@welshman/util"
   import {addSession, makeNip46Session} from "@welshman/app"
   import {preventDefault} from "@lib/html"
@@ -20,6 +19,7 @@
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {APP_LOGO, APP_NAME, APP_URL, NIP46_PERMS, BURROW_URL} from "@app/core/state"
+  import {makeBudabitNip46Broker} from "@app/util/nip46"
 
   interface Props {
     email?: string
@@ -37,7 +37,7 @@
     ? [normalizeRelayUrl("ws://" + stripProtocol(BURROW_URL))]
     : [normalizeRelayUrl(BURROW_URL)]
 
-  const broker = new Nip46Broker({clientSecret, relays})
+  const broker = makeBudabitNip46Broker({clientSecret, relays})
 
   const back = () => history.back()
 
@@ -88,7 +88,12 @@
 
       try {
         const pubkey = response.event.pubkey
-        const session = makeNip46Session(pubkey, clientSecret, response.event.pubkey, relays)
+        const session = makeNip46Session(
+          pubkey,
+          clientSecret,
+          broker.params.signerPubkey || response.event.pubkey,
+          broker.params.relays,
+        )
 
         addSession({...session, email})
         broker.cleanup()

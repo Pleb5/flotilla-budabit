@@ -1,6 +1,6 @@
 <script lang="ts">
-  import {spec, prop, avg} from "@welshman/lib"
-  import {session, SessionMethod, signerLog, SignerLogEntryStatus} from "@welshman/app"
+  import {avg} from "@welshman/lib"
+  import {session, SessionMethod, signerLog} from "@welshman/app"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
@@ -10,15 +10,20 @@
   import LogOut from "@app/components/LogOut.svelte"
   import {pushModal} from "@app/util/modal"
 
-  const {Pending, Success, Failure} = SignerLogEntryStatus
-  const pending = $derived($signerLog.filter(spec({status: Pending})).length)
-  const success = $derived($signerLog.filter(spec({status: Success})).length)
-  const failure = $derived($signerLog.filter(spec({status: Failure})).length)
+  const isPending = (entry: {finished_at?: number}) => entry.finished_at === undefined
+  const isSuccess = (entry: {ok?: boolean}) => entry.ok === true
+  const isFailure = (entry: {ok?: boolean}) => entry.ok === false
+  const duration = (entry: {started_at: number; finished_at?: number}) =>
+    Math.max(0, (entry.finished_at ?? Date.now()) - entry.started_at)
+
+  const pending = $derived($signerLog.filter(isPending).length)
+  const success = $derived($signerLog.filter(isSuccess).length)
+  const failure = $derived($signerLog.filter(isFailure).length)
   const recent = $derived($signerLog.slice(-10))
-  const recentAvg = $derived(avg(recent.map(prop("duration"))))
-  const recentPending = $derived(recent.filter(spec({status: Pending})).length)
-  const recentSuccess = $derived(recent.filter(spec({status: Success})).length)
-  const recentFailure = $derived(recent.filter(spec({status: Failure})).length)
+  const recentAvg = $derived(avg(recent.map(duration)))
+  const recentPending = $derived(recent.filter(isPending).length)
+  const recentSuccess = $derived(recent.filter(isSuccess).length)
+  const recentFailure = $derived(recent.filter(isFailure).length)
   const isDisconnected = $derived(
     recent.length > 0 && recentFailure + recentPending === recent.length,
   )

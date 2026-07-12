@@ -10,7 +10,7 @@
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import {sync} from "@welshman/store"
-  import {call, spec} from "@welshman/lib"
+  import {call} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
   import {defaultSocketPolicies} from "@welshman/net"
   import {
@@ -18,7 +18,6 @@
     sessions,
     signerLog,
     shouldUnwrap,
-    SignerLogEntryStatus,
     userRelayList,
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
@@ -1031,8 +1030,8 @@
       signerLog.subscribe(
         throttle(10_000, $log => {
           const recent = $log.slice(-10)
-          const success = recent.filter(spec({status: SignerLogEntryStatus.Success}))
-          const failure = recent.filter(spec({status: SignerLogEntryStatus.Failure}))
+          const success = recent.filter((entry: {ok?: boolean}) => entry.ok === true)
+          const failure = recent.filter((entry: {ok?: boolean}) => entry.ok === false)
 
           if (!get(toast) && failure.length > 5 && success.length === 0) {
             pushToast({

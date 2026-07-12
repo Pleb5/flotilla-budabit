@@ -14,7 +14,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import BunkerConnect from "@app/components/BunkerConnect.svelte"
   import BunkerUrl from "@app/components/BunkerUrl.svelte"
-  import {Nip46Controller} from "@app/util/nip46"
+  import {Nip46Controller, makeBudabitNip46Broker} from "@app/util/nip46"
   import {clearModals} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
@@ -31,9 +31,9 @@
   const controller = new Nip46Controller({
     onNostrConnect: async (response: Nip46ResponseWithResult) => {
       const pubkey = await controller.broker.getPublicKey()
-      const signerPubkey = response.event.pubkey
+      const signerPubkey = controller.broker.params.signerPubkey || response.event.pubkey
 
-      loginWithNip46(pubkey, controller.clientSecret, signerPubkey, SIGNER_RELAYS)
+      loginWithNip46(pubkey, controller.clientSecret, signerPubkey, controller.broker.params.relays)
       setChecked("*")
       clearModals()
     },
@@ -64,7 +64,7 @@
       controller.loading.set(true)
 
       const {clientSecret} = controller
-      const broker = new Nip46Broker({relays, clientSecret, signerPubkey})
+      const broker = makeBudabitNip46Broker({relays, clientSecret, signerPubkey})
       const result = await broker.connect(connectSecret, NIP46_PERMS)
       const pubkey = await broker.getPublicKey()
 
@@ -73,7 +73,12 @@
         broker.cleanup()
         controller.stop()
 
-        loginWithNip46(pubkey, clientSecret, signerPubkey, relays)
+        loginWithNip46(
+          pubkey,
+          clientSecret,
+          broker.params.signerPubkey || signerPubkey,
+          broker.params.relays,
+        )
       } else {
         return pushToast({
           theme: "error",

@@ -1,8 +1,7 @@
 <script lang="ts">
-  import {ifLet} from "@welshman/lib"
   import type {RelayProfile} from "@welshman/util"
   import {displayRelayUrl, ManagementMethod} from "@welshman/util"
-  import {fetchRelayDirectly, manageRelay, notifyRelay, relaysByUrl} from "@welshman/app"
+  import {fetchRelay, manageRelay} from "@welshman/app"
   import StickerSmileSquare from "@assets/icons/sticker-smile-square.svg?dataurl"
   import SettingsMinimalistic from "@assets/icons/settings-minimalistic.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
@@ -74,16 +73,8 @@
       promptBlossomMirrorUpload(uploadId)
     }
 
-    // Force-reload the relay
-    ifLet(await fetchRelayDirectly(url), relay => {
-      relaysByUrl.update($relaysByUrl => {
-        $relaysByUrl.set(url, relay)
-
-        return new Map($relaysByUrl)
-      })
-
-      notifyRelay(relay)
-    })
+    // Force-reload the relay metadata after management changes.
+    await fetchRelay(url)
 
     pushToast({message: "Your changes have been saved!"})
     clearModals()

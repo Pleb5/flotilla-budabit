@@ -130,7 +130,7 @@ export const DEFAULT_PUBKEYS = import.meta.env.VITE_DEFAULT_PUBKEYS
 export const DUFFLEPUD_URL = "https://dufflepud.onrender.com"
 
 export const NIP46_PERMS =
-  "nip44_encrypt,nip44_decrypt," +
+  "nip44_encrypt,nip44_decrypt,switch_relays," +
   [CLIENT_AUTH, MESSAGE, THREAD, COMMENT, DM_KIND, REACTION, ZAP_REQUEST]
     .map(k => `sign_event:${k}`)
     .join(",")

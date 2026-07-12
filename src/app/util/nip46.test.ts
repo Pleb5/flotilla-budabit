@@ -1,7 +1,7 @@
 import {get} from "svelte/store"
 import {beforeEach, describe, expect, it, vi} from "vitest"
 import {pushToast} from "@app/util/toast"
-import {Nip46Controller} from "./nip46"
+import {Nip46Controller, makeBudabitNip46Broker} from "./nip46"
 
 vi.mock("@app/util/toast", () => ({pushToast: vi.fn()}))
 
@@ -33,6 +33,24 @@ describe("Nip46Controller", () => {
 
     controller.stop()
     await started
+  })
+
+  it("falls back to the current relay list when switch_relays fails", async () => {
+    const relays = ["wss://relay.example/"]
+    const broker = makeBudabitNip46Broker({clientSecret: "1".repeat(64), relays})
+    const error = new Error("switch_relays unsupported")
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    vi.spyOn(broker, "send").mockRejectedValue(error)
+
+    await expect(broker.switchRelays()).resolves.toBe(relays)
+    expect(broker.params.relays).toBe(relays)
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "[nip46] Failed to switch relays; keeping current relay list",
+      error,
+    )
+
+    consoleWarn.mockRestore()
   })
 
   it("reports async finalization failures and clears loading", async () => {
