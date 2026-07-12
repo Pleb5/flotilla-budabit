@@ -44,6 +44,7 @@
     activeCommunityReportState,
     activeCommunityRelays,
     loadCommunityEvents,
+    makeCommunityReportDeleteFilters,
     makeCommunityReportReviewFilters,
   } from "@app/core/community-state"
   import {
@@ -66,6 +67,7 @@
     type CommunityAdmissionFormDraftQuestion,
     type CommunityAdmissionQuestionType,
     getAdmissionReviewHistory,
+    getAdmissionReviewDisplayStatus,
     getAdmissionResponseDisplayValue,
     getAdmissionSubmissionState,
     makeAdmissionFormDraftFromForm,
@@ -95,6 +97,7 @@
 
   const FORM_PUBLISH_TIMEOUT = 10_000
   const FORM_PUBLISH_VERIFY_TIMEOUT = 5_000
+  const REVIEW_EVIDENCE_LOAD_TIMEOUT = 5_000
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
@@ -117,6 +120,12 @@
   let applicationGroupOpen = $state<Record<string, boolean>>({New: true})
   let drafts = $state<Record<string, CommunityAdmissionFormDraft>>({})
   let formBuilderElement = $state<HTMLFormElement | undefined>()
+  let applicationEvidenceKey = ""
+  let applicationEvidenceLoading = $state(false)
+  let applicationEvidenceLoaded = $state(false)
+  let reportEvidenceKey = ""
+  let reportEvidenceLoading = $state(false)
+  let reportEvidenceLoaded = $state(false)
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
@@ -209,6 +218,14 @@
           },
         ]
       : [],
+  )
+  const applicationEvidenceFilters = $derived([
+    ...deleteFilters,
+    ...reviewFilters,
+    ...reviewHistoryFilters,
+  ])
+  const applicationReviewEvidenceLoading = $derived(
+    Boolean(responseIds.length > 0 && (applicationEvidenceLoading || !applicationEvidenceLoaded)),
   )
   const deleteEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})),
@@ -306,32 +323,47 @@
   const contentReportGroups = $derived(getCommunityContentReportGroups(contentReports))
   const pendingContentReportGroups = $derived(contentReportGroups.filter(group => !group.reviewed))
   const reviewedContentReportGroups = $derived(contentReportGroups.filter(group => group.reviewed))
+  const reportDeleteFilters = $derived(makeCommunityReportDeleteFilters($activeCommunityReportEvents))
   const reportReviewFilters = $derived(
     communityBootstrapReady && $activeCommunityDefinition
       ? makeCommunityReportReviewFilters($activeCommunityDefinition, $activeCommunityReportEvents)
       : [],
   )
+  const reportEvidenceFilters = $derived([...reportDeleteFilters, ...reportReviewFilters])
+  const reportReviewEvidenceLoading = $derived(
+    Boolean(
+      $activeCommunityReportEvents.length > 0 && (reportEvidenceLoading || !reportEvidenceLoaded),
+    ),
+  )
+  const moderationPendingCount = $derived(
+    reportReviewEvidenceLoading
+      ? 0
+      : currentModerationActions.length + pendingContentReportGroups.length,
+  )
   const pageTabs = $derived([
     {
       mode: "queue" as const,
       label: "Review queue",
-      count: newApplications.length,
+      count: applicationReviewEvidenceLoading ? 0 : newApplications.length,
       disabled: grantableSections.length === 0,
-      warning: newApplications.length > 0,
+      loading: applicationReviewEvidenceLoading,
+      warning: !applicationReviewEvidenceLoading && newApplications.length > 0,
     },
     {
       mode: "forms" as const,
       label: "Application forms",
       count: missingFormSections.length,
       disabled: manageableFormSections.length === 0,
+      loading: false,
       warning: missingFormSections.length > 0,
     },
     {
       mode: "moderation" as const,
       label: "Moderation",
-      count: currentModerationActions.length + pendingContentReportGroups.length,
+      count: moderationPendingCount,
       disabled: false,
-      warning: pendingContentReportGroups.length > 0,
+      loading: reportReviewEvidenceLoading,
+      warning: !reportReviewEvidenceLoading && pendingContentReportGroups.length > 0,
     },
   ])
 
@@ -542,16 +574,28 @@
       response.value,
       response.metadata,
     )
-  const applicationStatusLabel = (status: ReviewApplication["state"]["status"]) =>
-    status === "pending" ? "new" : status
-  const applicationStatusBadgeClass = (status: ReviewApplication["state"]["status"]) =>
-    status === "pending"
+  const getApplicationDisplayStatus = (application: ReviewApplication) =>
+    getAdmissionReviewDisplayStatus(application.state, applicationReviewEvidenceLoading)
+  const applicationStatusLabel = (status: ReturnType<typeof getApplicationDisplayStatus>) =>
+    status === "review-loading" ? "checking" : status === "pending" ? "new" : status
+  const applicationStatusBadgeClass = (status: ReturnType<typeof getApplicationDisplayStatus>) =>
+    status === "review-loading"
+      ? "badge-neutral"
+      : status === "pending"
       ? "badge-warning"
       : status === "granted"
         ? "badge-success"
         : status === "rejected"
           ? "badge-error"
           : "badge-neutral"
+  const applicationGroupCountLabel = (label: string, count: number) =>
+    applicationReviewEvidenceLoading && label === "New" ? "checking" : String(count)
+  const applicationGroupBadgeClass = (label: string) =>
+    applicationReviewEvidenceLoading && label === "New"
+      ? "badge-neutral"
+      : label === "New"
+        ? "badge-warning"
+        : "badge-neutral"
   const getReviewActionLabel = (application: ReviewApplication, status: "granted" | "rejected") => {
     if (status === "granted") return "Grant"
 
@@ -862,15 +906,97 @@
   })
 
   $effect(() => {
+    const filters = applicationEvidenceFilters
+
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      responseIds.length === 0 ||
+      filters.length === 0
+    ) {
+      applicationEvidenceKey = ""
+      applicationEvidenceLoading = false
+      applicationEvidenceLoaded = responseIds.length === 0
+      return
+    }
+
+    const key = JSON.stringify({relays: $activeCommunityRelays, filters})
+    if (applicationEvidenceKey === key) return
+
+    applicationEvidenceKey = key
+    applicationEvidenceLoading = true
+    applicationEvidenceLoaded = false
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REVIEW_EVIDENCE_LOAD_TIMEOUT)
+
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-moderation] Failed to load application review evidence", error)
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (applicationEvidenceKey !== key) return
+        applicationEvidenceLoading = false
+        applicationEvidenceLoaded = true
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
+    const filters = reportEvidenceFilters
+
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      $activeCommunityReportEvents.length === 0 ||
+      filters.length === 0
+    ) {
+      reportEvidenceKey = ""
+      reportEvidenceLoading = false
+      reportEvidenceLoaded = $activeCommunityReportEvents.length === 0
+      return
+    }
+
+    const key = JSON.stringify({relays: $activeCommunityRelays, filters})
+    if (reportEvidenceKey === key) return
+
+    reportEvidenceKey = key
+    reportEvidenceLoading = true
+    reportEvidenceLoaded = false
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REVIEW_EVIDENCE_LOAD_TIMEOUT)
+
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-moderation] Failed to load report review evidence", error)
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (reportEvidenceKey !== key) return
+        reportEvidenceLoading = false
+        reportEvidenceLoaded = true
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
     if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
 
-    const filters = [
-      ...responseFilters,
-      ...deleteFilters,
-      ...reviewFilters,
-      ...reviewHistoryFilters,
-      ...reportReviewFilters,
-    ]
+    const filters = [...responseFilters]
     if (filters.length === 0) return
 
     const controller = new AbortController()
@@ -924,7 +1050,11 @@
           disabled={tab.disabled}
           onclick={() => selectPageMode(tab.mode, tab.disabled)}>
           <span class="min-w-0 truncate text-center leading-tight">{tab.label}</span>
-          {#if tab.count > 0}
+          {#if tab.loading}
+            <span
+              class={`badge shrink-0 ${pageMode === tab.mode ? "border-primary-content/40 bg-primary-content text-primary" : "badge-neutral"}`}
+              >checking</span>
+          {:else if tab.count > 0}
             <span
               class={`badge shrink-0 ${
                 pageMode === tab.mode
@@ -1259,24 +1389,30 @@
               Review content reports, active event censors, and person bans.
             </p>
           </div>
-          <span class="badge badge-neutral">
-            {currentModerationActions.length + pendingContentReportGroups.length}
-            {currentModerationActions.length + pendingContentReportGroups.length === 1
-              ? "item"
-              : "items"}
-          </span>
+          {#if reportReviewEvidenceLoading}
+            <span class="badge badge-neutral">checking evidence</span>
+          {:else}
+            <span class="badge badge-neutral">
+              {moderationPendingCount}
+              {moderationPendingCount === 1 ? "item" : "items"}
+            </span>
+          {/if}
         </div>
       </section>
 
       <div class="col-4 grid gap-4 lg:grid-cols-2">
         <div class="flex min-w-0 flex-col gap-4">
-          <details class="card2 bg-alt p-4 shadow-md" open={pendingContentReportGroups.length > 0}>
+          <details
+            class="card2 bg-alt p-4 shadow-md"
+            open={reportReviewEvidenceLoading || pendingContentReportGroups.length > 0}>
             <summary class="cursor-pointer list-none">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <h3 class="text-lg font-semibold">Content Reports</h3>
-                    {#if pendingContentReportGroups.length > 0}
+                    {#if reportReviewEvidenceLoading}
+                      <span class="badge badge-neutral">checking evidence</span>
+                    {:else if pendingContentReportGroups.length > 0}
                       <span class="badge badge-warning"
                         >{pendingContentReportGroups.length} pending</span>
                     {/if}
@@ -1293,20 +1429,26 @@
             <div class="mt-4 flex flex-col gap-4">
               <div class="flex flex-col gap-2">
                 <h4 class="font-semibold">Pending</h4>
-                {#each pendingContentReportGroups as group (group.key)}
-                  <CommunityContentReportCard {group} relays={communityProfileRelays} />
-                {:else}
+                {#if reportReviewEvidenceLoading}
                   <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
-                    No pending content reports.
+                    Loading report review and deletion evidence before marking reports pending.
                   </p>
-                {/each}
+                {:else}
+                  {#each pendingContentReportGroups as group (group.key)}
+                    <CommunityContentReportCard {group} relays={communityProfileRelays} />
+                  {:else}
+                    <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
+                      No pending content reports.
+                    </p>
+                  {/each}
+                {/if}
               </div>
 
               <details
                 class="rounded-box bg-base-200 p-3"
-                open={pendingContentReportGroups.length === 0}>
+                open={!reportReviewEvidenceLoading && pendingContentReportGroups.length === 0}>
                 <summary class="cursor-pointer font-semibold">
-                  Reviewed ({reviewedContentReportGroups.length})
+                  Reviewed ({reportReviewEvidenceLoading ? "checking" : reviewedContentReportGroups.length})
                 </summary>
                 <div class="mt-3 flex flex-col gap-2">
                   {#each reviewedContentReportGroups as group (group.key)}
@@ -1326,12 +1468,20 @@
               <div>
                 <h3 class="text-lg font-semibold">Event moderation</h3>
               </div>
-              <span class="badge badge-warning">{currentEventModerationActions.length}</span>
+              <span class="badge badge-warning">
+                {reportReviewEvidenceLoading ? "checking" : currentEventModerationActions.length}
+              </span>
             </div>
-            <ModerationReportList
-              reports={currentEventModerationActions}
-              relays={communityProfileRelays}
-              emptyMessage="No active event moderations from this key." />
+            {#if reportReviewEvidenceLoading}
+              <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
+                Loading moderation deletion evidence before showing active event moderations.
+              </p>
+            {:else}
+              <ModerationReportList
+                reports={currentEventModerationActions}
+                relays={communityProfileRelays}
+                emptyMessage="No active event moderations from this key." />
+            {/if}
           </section>
         </div>
 
@@ -1341,12 +1491,20 @@
               <h3 class="text-lg font-semibold">Person bans</h3>
               <p class="text-sm opacity-70">Community-wide person bans from this account.</p>
             </div>
-            <span class="badge badge-error">{currentPersonModerationActions.length}</span>
+            <span class="badge badge-error">
+              {reportReviewEvidenceLoading ? "checking" : currentPersonModerationActions.length}
+            </span>
           </div>
-          <ModerationReportList
-            reports={currentPersonModerationActions}
-            relays={communityProfileRelays}
-            emptyMessage="No active person bans from this key." />
+          {#if reportReviewEvidenceLoading}
+            <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
+              Loading moderation deletion evidence before showing active person bans.
+            </p>
+          {:else}
+            <ModerationReportList
+              reports={currentPersonModerationActions}
+              relays={communityProfileRelays}
+              emptyMessage="No active person bans from this key." />
+          {/if}
         </section>
       </div>
     {:else if manageableFormSections.length > 0}
@@ -1381,7 +1539,9 @@
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="text-xl font-semibold">Application reviews</h2>
-              {#if newApplications.length > 0}
+              {#if applicationReviewEvidenceLoading}
+                <span class="badge badge-neutral">checking reviews</span>
+              {:else if newApplications.length > 0}
                 <span class="badge badge-warning">{newApplications.length} new</span>
               {/if}
               <span class="badge badge-neutral">{applications.length} total</span>
@@ -1402,9 +1562,8 @@
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex flex-wrap items-center gap-2">
                     <h3 class="font-semibold">{group.label}</h3>
-                    <span
-                      class={`badge ${group.label === "New" ? "badge-warning" : "badge-neutral"}`}>
-                      {group.items.length}
+                    <span class={`badge ${applicationGroupBadgeClass(group.label)}`}>
+                      {applicationGroupCountLabel(group.label, group.items.length)}
                     </span>
                   </div>
                   <span class="badge badge-ghost">Expand</span>
@@ -1413,9 +1572,10 @@
 
               <div class="flex flex-col gap-3 p-3">
                 {#each group.items as application (application.response.event.id)}
+                  {@const displayStatus = getApplicationDisplayStatus(application)}
                   <article
                     class={`rounded-box border border-base-300 bg-base-100 p-4 shadow-sm ${
-                      application.state.status === "pending" ? "border-warning/60 bg-warning/5" : ""
+                      displayStatus === "pending" ? "border-warning/60 bg-warning/5" : ""
                     }`}>
                     <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div class="flex min-w-0 flex-col gap-3">
@@ -1435,10 +1595,16 @@
                         </div>
                       </div>
                       <span
-                        class={`badge shrink-0 px-3 ${applicationStatusBadgeClass(application.state.status)}`}>
-                        {applicationStatusLabel(application.state.status)}
+                        class={`badge shrink-0 px-3 ${applicationStatusBadgeClass(displayStatus)}`}>
+                        {applicationStatusLabel(displayStatus)}
                       </span>
                     </div>
+
+                    {#if applicationReviewEvidenceLoading && application.state.status === "pending"}
+                      <p class="mt-4 rounded-box bg-base-200 p-3 text-sm opacity-70">
+                        Checking review and deletion evidence before treating this as a new application.
+                      </p>
+                    {/if}
 
                     <details class="mt-4 rounded-box border border-base-300 bg-base-200/40">
                       <summary class="cursor-pointer px-3 py-2 text-sm font-semibold">
@@ -1509,20 +1675,22 @@
                     <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                       <Button
                         class="btn btn-error btn-sm"
-                        disabled={application.state.status === "rejected"}
+                        disabled={applicationReviewEvidenceLoading || application.state.status === "rejected"}
                         onclick={() => confirmReviewApplication(application, "rejected")}>
                         {application.state.status === "granted" ? "Revoke" : "Reject"}
                       </Button>
                       <Button
                         class="btn btn-success btn-sm"
-                        disabled={application.state.status === "granted"}
+                        disabled={applicationReviewEvidenceLoading || application.state.status === "granted"}
                         onclick={() => confirmReviewApplication(application, "granted")}
                         >Grant</Button>
                     </div>
                   </article>
                 {:else}
                   <p class="rounded-box bg-base-200 p-3 text-sm opacity-70">
-                    {#if !setupComplete && group.label === "New"}
+                    {#if applicationReviewEvidenceLoading && group.label === "New"}
+                      Loading review and deletion evidence before marking applications new.
+                    {:else if !setupComplete && group.label === "New"}
                       Create forms before users can apply to missing sections.
                     {:else}
                       No {group.label.toLowerCase()} applications.

@@ -5,6 +5,7 @@ import {
   COMMUNITY_FORM_REVIEW_KIND,
   getAdmissionReviewHistory,
   getAdmissionResponseDisplayValue,
+  getAdmissionReviewDisplayStatus,
   getAdmissionSubmissionState,
   makeAdmissionFormDraftFromForm,
   makeAdmissionFormFieldsFromDraft,
@@ -712,6 +713,13 @@ describe("community admission responses", () => {
     expect(history.latestPriorReview?.status).toBe("rejected")
     expect(history.grantedCount).toBe(1)
     expect(history.rejectedCount).toBe(1)
+  })
+
+  it("labels pending applications as review-loading while evidence is incomplete", () => {
+    expect(getAdmissionReviewDisplayStatus({status: "pending"}, true)).toBe("review-loading")
+    expect(getAdmissionReviewDisplayStatus({status: "pending"}, false)).toBe("pending")
+    expect(getAdmissionReviewDisplayStatus({status: "granted"}, true)).toBe("granted")
+    expect(getAdmissionReviewDisplayStatus({status: "rejected"}, true)).toBe("rejected")
   })
 
   it("builds delete and review event templates", () => {

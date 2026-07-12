@@ -103,6 +103,7 @@ export type CommunityFormReview = {
 }
 
 export type CommunitySubmissionStatus = "none" | "pending" | "granted" | "rejected"
+export type CommunityAdmissionReviewDisplayStatus = CommunitySubmissionStatus | "review-loading"
 
 export type CommunitySubmissionState = {
   status: CommunitySubmissionStatus
@@ -118,6 +119,12 @@ export type CommunityAdmissionReviewHistory = {
   grantedCount: number
   rejectedCount: number
 }
+
+export const getAdmissionReviewDisplayStatus = (
+  state: CommunitySubmissionState,
+  reviewEvidenceLoading = false,
+): CommunityAdmissionReviewDisplayStatus =>
+  reviewEvidenceLoading && state.status === "pending" ? "review-loading" : state.status
 
 const emptySettings = {} as Record<string, unknown>
 

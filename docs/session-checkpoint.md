@@ -13,18 +13,16 @@
 
 ## Current Phase
 
-- Phase 4: Moderation Evidence Ordering
+- Phase 5: Feed Empty-State Audit And Final Closeout
 
 ## Phase Exit Criteria
 
-- Moderation page and menu counts distinguish loading review/delete evidence from truly unreviewed/new applications or reports.
-- Application responses can render from cache, but warnings/counts for “new” are withheld or labeled loading until matching review/delete evidence has settled.
-- Report moderation counts do not show false pending states while report review/delete evidence is still loading.
-- Relevant copy says review/moderation evidence is loading instead of showing premature empty or unreviewed state.
-- Focused tests cover any extracted admission/moderation readiness helpers where practical.
-- `pnpm run check` passes.
+- Community home rooms, threads, calendar, goals, git/community routes, widgets, publish gates, moderation, and menu badges have been inspected for premature empty/CTA states against the new readiness behavior.
+- Any necessary copy adjustments are made so users see specific loading states rather than false empty states.
+- Final focused tests and `pnpm run check` pass.
 - `git diff --check` passes.
-- Phase 4 changes are committed, pushed, and the checkpoint is reread.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if files changed.
 
 ## Completed With Evidence
 
@@ -95,6 +93,24 @@
   - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
 - Phase 3 was committed and pushed as `f2713797 perf: make shared config loads readiness-aware`.
 - Post-push checkpoint reread confirmed `Current Phase: Phase 4: Moderation Evidence Ordering`; this repair updates stale Phase 3 transition text left in `Current State`, `Next Action`, and `Risks Or Blockers`.
+- Phase 4 changed `src/app/core/community-forms.ts`:
+  - Added `getAdmissionReviewDisplayStatus` so pending admission responses can render as review-loading while matching review/delete evidence is incomplete.
+- Phase 4 changed `src/routes/c/[community]/moderation/+page.svelte`:
+  - Split cached application response loading from application review/delete evidence loading.
+  - Added bounded review/delete evidence refreshes for application responses and report moderation evidence.
+  - Withholds or labels review queue counts, new application badges, content report pending counts, and active moderation counts as checking while evidence is incomplete.
+  - Keeps cached application cards visible but disables review actions and shows explicit review evidence loading copy until evidence settles.
+- Phase 4 changed `src/app/components/CommunityMenu.svelte`:
+  - Adds menu-local admission and report evidence readiness before showing moderation pending badges.
+  - Includes pending content report groups in the moderation menu badge only after report review/delete evidence has settled.
+  - Shows a neutral checking badge instead of false new/pending counts while evidence is loading.
+- Phase 4 changed `src/app/core/community-forms.test.ts`:
+  - Added focused coverage for pending admission display status while review evidence is incomplete.
+- Phase 4 verification:
+  - `pnpm exec vitest run src/app/core/community-forms.test.ts`: passed, 20 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
+  - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
 
 ## Decisions
 
@@ -110,11 +126,11 @@
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
 - Phase 3 is committed and pushed.
-- Phase 4 should inspect moderation application/report review and delete evidence loading before counts or new-state badges render.
+- Phase 4 verification is complete and this checkpoint advances to the final audit phase.
 
 ## Next Action
 
-- Start Phase 4 by inspecting `src/routes/c/[community]/moderation/+page.svelte`, `src/app/components/CommunityMenu.svelte`, and admission/report readiness helpers.
+- Start Phase 5 by auditing `/c/[community]` feed pages, widget surfaces, publish gates, moderation, and menu badges for any remaining premature empty or CTA states.
 
 ## Verification
 
@@ -143,11 +159,16 @@
   - `git commit -m "perf: make shared config loads readiness-aware"`: created `f2713797`.
   - `git push`: pushed `dev` to `origin/dev`.
   - `git status --short --branch`: clean after push before this checkpoint repair.
+- Phase 4 verification:
+  - `pnpm exec vitest run src/app/core/community-forms.test.ts`: passed, 20 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
 
 ## Risks Or Blockers
 
 - No blocker.
 - Residual UX risk requires browser/device validation beyond local checks.
+- Broader `pnpm exec vitest run src/app/core/community-forms.test.ts src/app/core/community-reports.test.ts` was attempted during Phase 4; `community-forms.test.ts` passed and `community-reports.test.ts` exposed an unrelated existing expectation mismatch in `getAllSectionModeratorPubkeys`.
 
 ## Files
 
@@ -158,6 +179,8 @@
 - `src/app/core/community-state-loading.test.ts`
 - `src/app/components/community/PublishGate.svelte`
 - `src/app/components/CommunityMenu.svelte`
+- `src/app/core/community-forms.ts`
+- `src/app/core/community-forms.test.ts`
 - `src/routes/c/[community]/+page.svelte`
 - `src/app/extensions/bridge.ts`
 - `src/app/extensions/bridge.test.ts`

@@ -30,11 +30,17 @@
     activeCommunityPermissionStatus,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
+    activeCommunityReportDeleteEvents,
+    activeCommunityReportEvents,
+    activeCommunityReportReviewEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    makeCommunityReportDeleteFilters,
+    makeCommunityReportReviewFilters,
   } from "@app/core/community-state"
   import {
     COMMUNITY_FORM_REVIEW_KIND,
+    getAdmissionReviewDisplayStatus,
     getAdmissionSubmissionState,
     parseAdmissionResponse,
   } from "@app/core/community-forms"
@@ -55,7 +61,12 @@
     getGrantCapability,
     getGrantCapableSectionModeratorPubkeys,
   } from "@app/core/community-permissions"
-  import {isCommunityPersonBanned} from "@app/core/community-reports"
+  import {
+    canReviewCommunityContentReport,
+    getCommunityContentReportGroups,
+    getCommunityContentReports,
+    isCommunityPersonBanned,
+  } from "@app/core/community-reports"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
@@ -75,6 +86,14 @@
   }
 
   const {community}: Props = $props()
+
+  const MENU_EVIDENCE_LOAD_TIMEOUT = 5_000
+  let admissionEvidenceKey = ""
+  let admissionEvidenceLoading = $state(false)
+  let admissionEvidenceLoaded = $state(false)
+  let reportEvidenceKey = ""
+  let reportEvidenceLoading = $state(false)
+  let reportEvidenceLoaded = $state(false)
 
   const shortCommunity = $derived(formatShortNpub(community) || "Community")
   const communityName = $derived(
@@ -235,9 +254,27 @@
   const admissionReviewEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: admissionReviewFilters})),
   )
+  const admissionEvidenceFilters = $derived([...admissionDeleteFilters, ...admissionReviewFilters])
+  const admissionReviewEvidenceLoading = $derived(
+    Boolean(
+      admissionResponseIds.length > 0 && (admissionEvidenceLoading || !admissionEvidenceLoaded),
+    ),
+  )
+  const reportDeleteFilters = $derived(makeCommunityReportDeleteFilters($activeCommunityReportEvents))
+  const reportReviewFilters = $derived(
+    $activeCommunityDefinition
+      ? makeCommunityReportReviewFilters($activeCommunityDefinition, $activeCommunityReportEvents)
+      : [],
+  )
+  const reportEvidenceFilters = $derived([...reportDeleteFilters, ...reportReviewFilters])
+  const reportReviewEvidenceLoading = $derived(
+    Boolean(
+      $activeCommunityReportEvents.length > 0 && (reportEvidenceLoading || !reportEvidenceLoaded),
+    ),
+  )
   const pendingModerationApplicationCount = $derived.by(() => {
     const definition = $activeCommunityDefinition
-    if (!definition) return 0
+    if (!definition || admissionReviewEvidenceLoading) return 0
 
     const sectionByForm = new Map(grantableAdmissionForms.map(item => [item.form.address, item]))
     let count = 0
@@ -263,11 +300,45 @@
         }),
       })
 
-      if (state.response?.event.id === response.event.id && state.status === "pending") count += 1
+      if (
+        state.response?.event.id === response.event.id &&
+        getAdmissionReviewDisplayStatus(state, admissionReviewEvidenceLoading) === "pending"
+      ) {
+        count += 1
+      }
     }
 
     return count
   })
+  const pendingContentReportGroupCount = $derived.by(() => {
+    const definition = $activeCommunityDefinition
+    if (!definition || !$pubkey || reportReviewEvidenceLoading) return 0
+
+    const reports = getCommunityContentReports({
+      definition,
+      reportEvents: $activeCommunityReportEvents,
+      reviewEvents: $activeCommunityReportReviewEvents,
+      deleteEvents: $activeCommunityReportDeleteEvents,
+      profileListEvents: $activeCommunityProfileListEvents,
+      reportState: $activeCommunityReportState,
+    }).filter(report =>
+      canReviewCommunityContentReport({
+        definition,
+        reviewerPubkey: $pubkey || "",
+        report,
+        profileListEvents: $activeCommunityProfileListEvents,
+        reportState: $activeCommunityReportState,
+      }),
+    )
+
+    return getCommunityContentReportGroups(reports).filter(group => !group.reviewed).length
+  })
+  const moderationEvidenceLoading = $derived(
+    Boolean(admissionReviewEvidenceLoading || reportReviewEvidenceLoading),
+  )
+  const pendingModerationReviewCount = $derived(
+    pendingModerationApplicationCount + pendingContentReportGroupCount,
+  )
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
@@ -326,6 +397,98 @@
   })
 
   $effect(() => {
+    const filters = admissionEvidenceFilters
+
+    if (!menuBackgroundHydrationReady) return
+
+    if (
+      !community ||
+      $activeCommunityRelays.length === 0 ||
+      admissionResponseIds.length === 0 ||
+      filters.length === 0
+    ) {
+      admissionEvidenceKey = ""
+      admissionEvidenceLoading = false
+      admissionEvidenceLoaded = admissionResponseIds.length === 0
+      return
+    }
+
+    const key = JSON.stringify({relays: $activeCommunityRelays, filters})
+    if (admissionEvidenceKey === key) return
+
+    admissionEvidenceKey = key
+    admissionEvidenceLoading = true
+    admissionEvidenceLoaded = false
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), MENU_EVIDENCE_LOAD_TIMEOUT)
+
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-menu] Failed to load application review evidence", error)
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (admissionEvidenceKey !== key) return
+        admissionEvidenceLoading = false
+        admissionEvidenceLoaded = true
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
+    const filters = reportEvidenceFilters
+
+    if (!menuBackgroundHydrationReady) return
+
+    if (
+      !community ||
+      $activeCommunityRelays.length === 0 ||
+      $activeCommunityReportEvents.length === 0 ||
+      filters.length === 0
+    ) {
+      reportEvidenceKey = ""
+      reportEvidenceLoading = false
+      reportEvidenceLoaded = $activeCommunityReportEvents.length === 0
+      return
+    }
+
+    const key = JSON.stringify({relays: $activeCommunityRelays, filters})
+    if (reportEvidenceKey === key) return
+
+    reportEvidenceKey = key
+    reportEvidenceLoading = true
+    reportEvidenceLoaded = false
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), MENU_EVIDENCE_LOAD_TIMEOUT)
+
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-menu] Failed to load report review evidence", error)
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (reportEvidenceKey !== key) return
+        reportEvidenceLoading = false
+        reportEvidenceLoaded = true
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
     if (!menuBackgroundHydrationReady) return
     if (!community || $activeCommunityRelays.length === 0) return
 
@@ -335,8 +498,6 @@
       ...badgeAwardDeleteFilters,
       ...profileBadgeFilters,
       ...admissionResponseFilters,
-      ...admissionDeleteFilters,
-      ...admissionReviewFilters,
     ]
     if (filters.length === 0) return
 
@@ -457,13 +618,15 @@
         <SecondaryNavItem
           {replaceState}
           href={moderationPath}
-          notification={pendingModerationApplicationCount > 0}>
+          notification={!moderationEvidenceLoading && pendingModerationReviewCount > 0}>
           <Icon icon={ShieldUser} />
           <span class="flex min-w-0 items-center gap-2">
             <span>Moderation</span>
-            {#if pendingModerationApplicationCount > 0}
+            {#if moderationEvidenceLoading}
+              <span class="badge badge-neutral badge-sm shrink-0">checking</span>
+            {:else if pendingModerationReviewCount > 0}
               <span class="badge badge-info badge-sm shrink-0">
-                {pendingModerationApplicationCount} new
+                {pendingModerationReviewCount} pending
               </span>
             {/if}
           </span>
