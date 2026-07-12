@@ -93,6 +93,8 @@
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
   - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
+- Phase 3 was committed and pushed as `f2713797 perf: make shared config loads readiness-aware`.
+- Post-push checkpoint reread confirmed `Current Phase: Phase 4: Moderation Evidence Ordering`; this repair updates stale Phase 3 transition text left in `Current State`, `Next Action`, and `Risks Or Blockers`.
 
 ## Decisions
 
@@ -107,12 +109,12 @@
 - Branch: `dev`, tracking `origin/dev`.
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
-- Phase 3 verification has passed and the phase is ready to commit and push.
+- Phase 3 is committed and pushed.
 - Phase 4 should inspect moderation application/report review and delete evidence loading before counts or new-state badges render.
 
 ## Next Action
 
-- Commit and push Phase 3, reread this checkpoint, then start Phase 4 by inspecting `src/routes/c/[community]/moderation/+page.svelte`, `src/app/components/CommunityMenu.svelte`, and admission/report readiness helpers.
+- Start Phase 4 by inspecting `src/routes/c/[community]/moderation/+page.svelte`, `src/app/components/CommunityMenu.svelte`, and admission/report readiness helpers.
 
 ## Verification
 
@@ -137,11 +139,14 @@
   - `pnpm exec vitest run src/app/extensions/bridge.test.ts`: passed, 25 tests.
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
+- Phase 3 transition:
+  - `git commit -m "perf: make shared config loads readiness-aware"`: created `f2713797`.
+  - `git push`: pushed `dev` to `origin/dev`.
+  - `git status --short --branch`: clean after push before this checkpoint repair.
 
 ## Risks Or Blockers
 
 - No blocker.
-- Need commit and push the verified Phase 3 changes, then reread this checkpoint.
 - Residual UX risk requires browser/device validation beyond local checks.
 
 ## Files
