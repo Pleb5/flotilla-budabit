@@ -40,6 +40,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
@@ -94,6 +95,15 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
   )
   const calendarSectionName = $derived(
     getCommunityCalendarWriteTargetSectionName(
@@ -681,6 +691,10 @@
             <p class="flex h-10 items-center justify-center py-20 text-center">
               <Spinner loading>Still looking for comments...</Spinner>
             </p>
+          {:else if communityPermissionsLoading}
+            <p class="flex h-10 items-center justify-center py-20 text-center">
+              <Spinner loading>Loading comment permissions...</Spinner>
+            </p>
           {:else}
             <p class="py-8 text-center opacity-70">No comments yet.</p>
           {/if}
@@ -721,7 +735,7 @@
             <Icon icon={Reply} />
             Comment
           </button>
-        {:else if communityBootstrapLoading}
+        {:else if communityBootstrapLoading || communityPermissionsLoading}
           <div class="flex items-center gap-2 text-sm opacity-70">
             <Spinner loading>Checking comment access...</Spinner>
           </div>
@@ -736,7 +750,7 @@
         {/if}
       </div>
     {/if}
-  {:else if communityBootstrapLoading || loadingEvent || eventSoftTimedOut || (event && (loadingTargeting || targetSoftTimedOut || !targetRequestDone)) || (!event && !eventRequestDone)}
+  {:else if communityBootstrapLoading || communityPermissionsLoading || loadingEvent || eventSoftTimedOut || (event && (loadingTargeting || targetSoftTimedOut || !targetRequestDone)) || (!event && !eventRequestDone)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading
         >{eventSoftTimedOut || targetSoftTimedOut

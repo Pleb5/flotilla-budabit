@@ -13,16 +13,13 @@
 
 ## Current Phase
 
-- Phase 5: Feed Empty-State Audit And Final Closeout
+- Complete
 
 ## Phase Exit Criteria
 
-- Community home rooms, threads, calendar, goals, git/community routes, widgets, publish gates, moderation, and menu badges have been inspected for premature empty/CTA states against the new readiness behavior.
-- Any necessary copy adjustments are made so users see specific loading states rather than false empty states.
-- Final focused tests and `pnpm run check` pass.
-- `git diff --check` passes.
-- Checkpoint records `Current Phase: Complete` and final evidence.
-- Final closeout commit is pushed before final response if files changed.
+- Checkpoint records `Current Phase: Complete` with final evidence.
+- All required workflow checks passed.
+- Final closeout changes are committed and pushed before final response.
 
 ## Completed With Evidence
 
@@ -111,6 +108,27 @@
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
   - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
+- Phase 4 was committed and pushed as `35cb6b49 perf: order moderation evidence loads`.
+- Post-push checkpoint reread confirmed `Current Phase: Phase 5: Feed Empty-State Audit And Final Closeout`.
+- Phase 5 audited community home rooms, threads, calendar, goals, git/community routes, widgets, publish gates, moderation, and menu badges for premature empty/CTA states against the new readiness behavior.
+- Phase 5 changed `src/app/components/community/PublishGate.svelte`:
+  - Shows disabled community-unavailable copy when bootstrap has errored instead of falling through to request-access/options CTAs.
+- Phase 5 changed `src/routes/c/[community]/moderation/+page.svelte`:
+  - Shows loading moderation access while permission/profile-list evidence is still loading before denying moderation access.
+- Phase 5 changed `src/routes/c/[community]/widgets/+page.svelte`:
+  - Uses active community permission readiness for widget publish warnings, target-community empty state, submit label, and widget empty state.
+- Phase 5 changed `src/routes/c/[community]/git/+page.svelte`:
+  - Keeps repository discovery in a loading state while permission/profile-list evidence needed for repository writers is incomplete.
+- Phase 5 changed detail feed surfaces:
+  - `src/routes/c/[community]/threads/[thread]/+page.svelte`
+  - `src/routes/c/[community]/goals/[goal]/+page.svelte`
+  - `src/routes/c/[community]/calendar/[event]/+page.svelte`
+  - `src/routes/c/[community]/rooms/[room]/+page.svelte`
+  - These now show specific permission-loading copy before false no-replies/no-comments/no-messages, not-found, or access-required states.
+- Phase 5 verification:
+  - `pnpm exec vitest run src/app/core/community-state-loading.test.ts src/app/core/community-forms.test.ts src/app/extensions/bridge.test.ts`: passed, 60 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
 
 ## Decisions
 
@@ -126,11 +144,12 @@
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
 - Phase 3 is committed and pushed.
-- Phase 4 verification is complete and this checkpoint advances to the final audit phase.
+- Phase 4 is committed and pushed.
+- Phase 5 verification is complete and this checkpoint is ready for final closeout commit/push.
 
 ## Next Action
 
-- Start Phase 5 by auditing `/c/[community]` feed pages, widget surfaces, publish gates, moderation, and menu badges for any remaining premature empty or CTA states.
+- Commit and push the final closeout, reread this checkpoint, then provide the final response.
 
 ## Verification
 
@@ -163,6 +182,14 @@
   - `pnpm exec vitest run src/app/core/community-forms.test.ts`: passed, 20 tests.
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
+- Phase 4 transition:
+  - `git commit -m "perf: order moderation evidence loads"`: created `35cb6b49`.
+  - `git push`: pushed `dev` to `origin/dev`.
+  - `git status --short --branch`: clean after push.
+- Phase 5 verification:
+  - `pnpm exec vitest run src/app/core/community-state-loading.test.ts src/app/core/community-forms.test.ts src/app/extensions/bridge.test.ts`: passed, 60 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
 
 ## Risks Or Blockers
 
@@ -182,6 +209,13 @@
 - `src/app/core/community-forms.ts`
 - `src/app/core/community-forms.test.ts`
 - `src/routes/c/[community]/+page.svelte`
+- `src/app/components/community/PublishGate.svelte`
+- `src/routes/c/[community]/git/+page.svelte`
+- `src/routes/c/[community]/widgets/+page.svelte`
+- `src/routes/c/[community]/threads/[thread]/+page.svelte`
+- `src/routes/c/[community]/goals/[goal]/+page.svelte`
+- `src/routes/c/[community]/calendar/[event]/+page.svelte`
+- `src/routes/c/[community]/rooms/[room]/+page.svelte`
 - `src/app/extensions/bridge.ts`
 - `src/app/extensions/bridge.test.ts`
 - `src/app/extensions/community-context.ts`

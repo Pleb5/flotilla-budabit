@@ -19,6 +19,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
@@ -59,6 +60,15 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
   )
   const repoAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -237,6 +247,7 @@
   let repoRequestDone = $state(false)
   const reposLoading = $derived(
     communityBootstrapLoading ||
+      communityPermissionsLoading ||
       loadingRepos ||
       (repoLoadFilters.length > 0 && !repoRequestDone && repos.length === 0),
   )

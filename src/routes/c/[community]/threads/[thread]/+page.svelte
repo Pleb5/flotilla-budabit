@@ -26,6 +26,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
@@ -81,6 +82,15 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
   )
   const threadSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -498,6 +508,10 @@
           <p class="flex h-10 items-center justify-center py-20 text-center">
             <Spinner loading>Still looking for replies...</Spinner>
           </p>
+        {:else if communityPermissionsLoading}
+          <p class="flex h-10 items-center justify-center py-20 text-center">
+            <Spinner loading>Loading reply permissions...</Spinner>
+          </p>
         {:else if replies.length === 0}
           <p class="py-8 text-center opacity-70">No replies yet.</p>
         {/if}
@@ -537,7 +551,7 @@
             <Icon icon={Reply} />
             Comment
           </button>
-        {:else if communityBootstrapLoading}
+        {:else if communityBootstrapLoading || communityPermissionsLoading}
           <div class="flex items-center gap-2 text-sm opacity-70">
             <Spinner loading>Checking reply access...</Spinner>
           </div>
@@ -552,7 +566,7 @@
         {/if}
       </div>
     {/if}
-  {:else if communityBootstrapLoading || loadingThread || (threadFilters.length > 0 && !threadRequestStarted) || (!thread && threadSoftTimedOut && !threadRequestDone)}
+  {:else if communityBootstrapLoading || communityPermissionsLoading || loadingThread || (threadFilters.length > 0 && !threadRequestStarted) || (!thread && threadSoftTimedOut && !threadRequestDone)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading
         >{threadSoftTimedOut ? "Still loading thread..." : "Loading thread..."}</Spinner>

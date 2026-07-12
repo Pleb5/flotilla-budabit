@@ -37,6 +37,7 @@
     activeCommunityAdmissionForms,
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportDeleteEvents,
     activeCommunityReportEvents,
@@ -115,6 +116,16 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      $pubkey &&
+        communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
   let pageMode = $state<PageMode>("queue")
   let selectedSectionName = $state("")
   let applicationGroupOpen = $state<Record<string, boolean>>({New: true})
@@ -176,6 +187,9 @@
 
     return isCommunityAdmin($activeCommunityDefinition, $pubkey)
   })
+  const moderationPermissionLoading = $derived(
+    Boolean(communityPermissionsLoading && !canAccessModerationPage),
+  )
   const currentModerationActions = $derived(
     getEffectiveCommunityModerationActionsByReporter($activeCommunityReportState, $pubkey || ""),
   )
@@ -1030,6 +1044,10 @@
   {:else if !$pubkey}
     <p class="py-8 text-center opacity-70">
       Log in with a moderator account to manage applications.
+    </p>
+  {:else if moderationPermissionLoading}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading moderation access...</Spinner>
     </p>
   {:else if !canAccessModerationPage}
     <p class="py-8 text-center opacity-70">

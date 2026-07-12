@@ -66,6 +66,9 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const communityBootstrapUnavailable = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
+  )
   const targets = $derived.by(() => {
     const selected: CommunityWriteTarget[] = []
 
@@ -236,6 +239,14 @@
 {#if communityBootstrapLoading}
   <Button type="button" class={className} disabled title="Loading community permissions...">
     {@render children?.()}
+  </Button>
+{:else if communityBootstrapUnavailable}
+  <Button
+    type="button"
+    class={className}
+    disabled
+    title={$activeCommunityBootstrapStatus.error || "Community unavailable."}>
+    {compact ? "Unavailable" : "Community unavailable"}
   </Button>
 {:else if gatePermissionsLoading}
   <Button type="button" class={className} disabled title={reason}>

@@ -21,6 +21,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
@@ -66,6 +67,15 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
   )
   const targetingFilters = $derived(
     communityBootstrapReady && communityPubkey
@@ -123,6 +133,9 @@
         reportState: $activeCommunityReportState,
       }),
     ),
+  )
+  const widgetAccessLoading = $derived(
+    Boolean($pubkey && communityPermissionsLoading && !canCreateWidget),
   )
 
   const getCommunityOptionLabel = (pubkey: string) => {
@@ -362,6 +375,7 @@
   let widgetRequestDone = $state(false)
   const widgetsLoading = $derived(
     communityBootstrapLoading ||
+      communityPermissionsLoading ||
       loadingTargets ||
       loadingWidgets ||
       !targetRequestDone ||
@@ -489,7 +503,11 @@
 <PageContent class="content col-4 p-4">
   <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createWidget)}>
     <strong>Create targeted widget</strong>
-    {#if !canCreateWidget}
+    {#if widgetAccessLoading}
+      <div class="alert alert-info text-sm">
+        Loading widget permissions before showing publish options.
+      </div>
+    {:else if !canCreateWidget}
       <div class="alert alert-warning text-sm">
         You need widget-write permission in this community to publish or target widgets.
       </div>
@@ -591,6 +609,8 @@
             </label>
           {/each}
         </div>
+      {:else if communityPermissionsLoading}
+        <p class="text-sm opacity-70">Loading widget-capable community grants...</p>
       {:else}
         <p class="text-sm opacity-70">
           No widget-capable community grants are available for this account.
@@ -602,7 +622,7 @@
         type="submit"
         class="btn btn-primary"
         disabled={!canSubmitWidget}>
-        {widgetUploading ? "Uploading..." : "Publish widget"}
+        {widgetUploading ? "Uploading..." : widgetAccessLoading ? "Loading access..." : "Publish widget"}
       </Button>
     </div>
   </form>

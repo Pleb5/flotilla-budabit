@@ -30,6 +30,7 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
@@ -127,6 +128,15 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
   )
   const roomRootSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -674,10 +684,12 @@
         </div>
       {/if}
     {/each}
-    {#if communityBootstrapLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents}
+    {#if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         {#if communityBootstrapLoading}
           <Spinner loading>Loading community...</Spinner>
+        {:else if communityPermissionsLoading}
+          <Spinner loading>Loading room permissions...</Spinner>
         {:else if waitingForRoom}
           <Spinner loading>Loading room...</Spinner>
         {:else if waitingForFeed}
@@ -724,7 +736,7 @@
           content={eventToEdit?.content}
           bind:this={compose} />
       {/key}
-    {:else if communityBootstrapLoading}
+    {:else if communityBootstrapLoading || communityPermissionsLoading}
       <div
         class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
         <div class="min-w-0">
