@@ -72,8 +72,11 @@
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunitySession,
+    authenticateCommunityRelays,
+    COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
     communityPreferencesLoading,
     ensureCommunityBootstrap,
+    getCommunityAuthWarmupRelays,
     getCommunityBootstrapKey,
     hydrateCommunityPreferences,
     hydratePreferredCommunities,
@@ -150,6 +153,7 @@
   let notificationStartupTimer: ReturnType<typeof setTimeout> | null = null
   let notificationBackgroundStarted = false
   let notificationBackgroundUnsubscribers: Array<() => void> = []
+  let communityAuthWarmupKey = ""
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -178,6 +182,28 @@
 
   // Keep unwrap enabled globally so wrapped relay traffic does not throw noisily.
   shouldUnwrap.set(true)
+
+  $effect(() => {
+    const user = $pubkey || ""
+    const relayHints = getCommunityAuthWarmupRelays($activeCommunitySession, $activeCommunityRelays)
+    const priorityRelays = $activeCommunityDefinition?.relays || []
+    const key = user ? `${user}:${relayHints.join(",")}` : ""
+
+    if (!browser || !user || relayHints.length === 0) {
+      communityAuthWarmupKey = ""
+      return
+    }
+
+    if (communityAuthWarmupKey === key) return
+
+    communityAuthWarmupKey = key
+    authenticateCommunityRelays(relayHints, {
+      priorityRelays,
+      timeout: COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
+    }).catch(error => {
+      console.warn("[community] Failed to warm community relay auth", error)
+    })
+  })
 
   const clearNotificationStartupTimer = () => {
     if (!notificationStartupTimer) return

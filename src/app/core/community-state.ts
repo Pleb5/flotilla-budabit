@@ -107,6 +107,11 @@ export type CommunityRelayLoadOptions = {
   settle?: CommunityRelayLoadSettle
 }
 
+export type CommunityRelayAuthOptions = {
+  timeout?: number
+  priorityRelays?: string[]
+}
+
 export type CommunityDefinitionLookupOptions = CommunityRelayLoadOptions & {
   relayHints?: string[]
   onOutboxDefinition?: (definition: CommunityDefinition) => void
@@ -461,6 +466,7 @@ export const getCommunityDefinitionRelayHints = (
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
 const COMMUNITY_AUTHORITY_LOAD_TIMEOUT = 3000
 const COMMUNITY_RELAY_AUTH_TIMEOUT = 2000
+export const COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT = 4500
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
 const COMMUNITY_PREFERENCE_FAST_LOAD_TIMEOUT = 800
@@ -494,21 +500,60 @@ const publishCommunityEvents = (events: TrustedEvent[]) => {
   }
 }
 
-export const authenticateCommunityRelays = async (relays: string[]) => {
+export const getDefaultCommunityRelayHints = () =>
+  parseCommunityInput(DEFAULT_COMMUNITY_INPUT)?.relays || []
+
+export const getCommunityAuthWarmupRelays = (
+  session?: CommunitySession,
+  activeRelays: string[] = [],
+) =>
+  normalizeRelays([
+    ...activeRelays,
+    ...(session?.communityRelayHints || []),
+    ...getDefaultCommunityRelayHints(),
+  ])
+
+export const orderCommunityAuthRelays = (relays: string[], priorityRelays: string[] = []) => {
+  const normalizedRelays = normalizeRelays(relays)
+  const prioritySet = new Set(normalizeRelays(priorityRelays))
+
+  if (prioritySet.size === 0) return normalizedRelays
+
+  return normalizeRelays([
+    ...normalizedRelays.filter(relay => prioritySet.has(relay)),
+    ...normalizedRelays.filter(relay => !prioritySet.has(relay)),
+  ])
+}
+
+const authenticateCommunityRelay = async (relay: string, timeout: number) => {
+  const auth = Pool.get().get(relay).auth
+
+  if ([AuthStatus.Ok, AuthStatus.Forbidden].includes(auth.status)) return
+
+  try {
+    await withTimeout(auth.attemptAuth(sign), timeout, undefined)
+  } catch {
+    // Public relays often never request auth; authenticated relays are retried by the request.
+  }
+}
+
+export const authenticateCommunityRelays = async (
+  relays: string[],
+  options: CommunityRelayAuthOptions = {},
+) => {
   if (!get(pubkey)) return
 
-  await Promise.all(
-    normalizeRelays(relays).map(async relay => {
-      const auth = Pool.get().get(relay).auth
-      if ([AuthStatus.Ok, AuthStatus.Forbidden].includes(auth.status)) return
+  const timeout = options.timeout ?? COMMUNITY_RELAY_AUTH_TIMEOUT
+  const orderedRelays = orderCommunityAuthRelays(relays, options.priorityRelays)
+  const prioritySet = new Set(normalizeRelays(options.priorityRelays || []))
+  const priorityRelays = orderedRelays.filter(relay => prioritySet.has(relay))
+  const fallbackRelays = orderedRelays.filter(relay => !prioritySet.has(relay))
 
-      try {
-        await withTimeout(auth.attemptAuth(sign), COMMUNITY_RELAY_AUTH_TIMEOUT, undefined)
-      } catch {
-        // Public relays often never request auth; authenticated relays are retried by the request.
-      }
-    }),
-  )
+  for (const relay of priorityRelays) {
+    await authenticateCommunityRelay(relay, timeout)
+  }
+
+  await Promise.all(fallbackRelays.map(relay => authenticateCommunityRelay(relay, timeout)))
 }
 
 export const loadCommunityEvents = async (
@@ -2102,10 +2147,9 @@ export const loadCommunityBootstrap = async (
   const relays = getCommunityBootstrapRelays(session.communityRelayHints)
   const definitionFilter = makeCommunityDefinitionFilter(session.communityPubkey)
 
-  // Do NOT block on relay auth before we even try to load the definition.
-  // Individual `loadCommunityEvents({authenticate: true})` calls below still
-  // authenticate for the requests that require it. Slow bunker signers no
-  // longer stall the entire bootstrap.
+  // Do not block on relay auth before we know the community definition. Once
+  // definition relays are known below, they get a bounded auth head start
+  // before route feeds are allowed to settle empty.
 
   // Cache-first: if the repository already has a definition (warm-start from
   // IndexedDB, a prior visit, or a parallel path), use it immediately and
@@ -2138,10 +2182,16 @@ export const loadCommunityBootstrap = async (
   let communityRelays = definition ? definition.relays : relays
 
   if (definition?.relays.length) {
-    // Fire-and-forget auth for community-declared relays; do not await here.
-    // The definition refresh below only requires public reads, and the
-    // socket-level auth policy will attempt auth when a challenge is issued.
-    void authenticateCommunityRelays(communityRelays).catch(() => {})
+    // Give community-declared relays a bounded auth head start before pages
+    // begin their own feeds. Without this, warm-cache boot can mark bootstrap
+    // complete and let feed requests settle empty while NIP-42 is still signing.
+    await authenticateCommunityRelays(communityRelays, {
+      priorityRelays: normalizeRelays([
+        ...session.communityRelayHints,
+        ...getDefaultCommunityRelayHints(),
+      ]),
+      timeout: COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
+    })
 
     if (cacheHit) {
       // We already have a valid definition. Refresh from the community's own

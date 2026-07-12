@@ -1,15 +1,18 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
 import {pubkey, repository} from "@welshman/app"
+import {AuthStatus} from "@welshman/net"
 import {type Filter, type TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
 
-const {attemptAuthMock, forceLoadRelayListMock, fromPubkeysMock, loadMock} = vi.hoisted(() => ({
-  attemptAuthMock: vi.fn(),
-  forceLoadRelayListMock: vi.fn(),
-  fromPubkeysMock: vi.fn(),
-  loadMock: vi.fn(),
-}))
+const {attemptAuthMock, authStatusByRelay, forceLoadRelayListMock, fromPubkeysMock, loadMock} =
+  vi.hoisted(() => ({
+    attemptAuthMock: vi.fn(),
+    authStatusByRelay: new Map<string, any>(),
+    forceLoadRelayListMock: vi.fn(),
+    fromPubkeysMock: vi.fn(),
+    loadMock: vi.fn(),
+  }))
 
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
@@ -28,7 +31,14 @@ vi.mock("@welshman/net", async importOriginal => {
     load: loadMock,
     Pool: {
       get: () => ({
-        get: () => ({auth: {status: actual.AuthStatus.Ok, attemptAuth: attemptAuthMock}}),
+        get: (url: string) => ({
+          auth: {
+            get status() {
+              return authStatusByRelay.get(url) ?? actual.AuthStatus.Ok
+            },
+            attemptAuth: (signer: unknown) => attemptAuthMock(url, signer),
+          },
+        }),
       }),
     },
   }
@@ -51,6 +61,7 @@ vi.mock("@welshman/router", async importOriginal => {
 import {
   activeCommunityDefinition,
   activePreferredCommunities,
+  authenticateCommunityRelays,
   clearActiveCommunity,
   hydrateCommunityPreferences,
   loadCommunityDefinitionWithOutboxFallback,
@@ -103,6 +114,17 @@ const profileListEvent = makeEvent({
   ],
 })
 
+const singleRelayDefinitionEvent = makeEvent({
+  id: "definition-single-relay",
+  kind: COMMUNITY_DEFINITION_KIND,
+  tags: [
+    ["r", relayA],
+    ["content", "General"],
+    ["k", "1111"],
+    ["a", `${PROFILE_LIST_KIND}:${listPubkey}:General`, relayA],
+  ],
+})
+
 const moderatorDefinitionEvent = makeEvent({
   id: "moderator-definition",
   kind: COMMUNITY_DEFINITION_KIND,
@@ -146,6 +168,7 @@ const hasProfileListFilter = (filters: Filter[], author: string, identifier: str
 const removeTestEvents = () => {
   for (const event of [
     definitionEvent,
+    singleRelayDefinitionEvent,
     profileListEvent,
     moderatorDefinitionEvent,
     moderatorProfileListEvent,
@@ -158,6 +181,8 @@ describe("community relay loading", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     attemptAuthMock.mockReset()
+    attemptAuthMock.mockResolvedValue(undefined)
+    authStatusByRelay.clear()
     forceLoadRelayListMock.mockReset()
     fromPubkeysMock.mockReset()
     loadMock.mockReset()
@@ -207,6 +232,33 @@ describe("community relay loading", () => {
     })
 
     expect(events).toEqual([])
+  })
+
+  it("authenticates priority community relays before fallback relays", async () => {
+    let releasePriorityAuth: () => void = () => {}
+    const priorityAuth = new Promise<void>(resolve => {
+      releasePriorityAuth = resolve
+    })
+    const calls: string[] = []
+
+    pubkey.set(memberPubkey)
+    authStatusByRelay.set(relayA, AuthStatus.Requested)
+    authStatusByRelay.set(relayB, AuthStatus.Requested)
+    attemptAuthMock.mockImplementation((relay: string) => {
+      calls.push(relay)
+
+      return relay === relayA ? priorityAuth : Promise.resolve()
+    })
+
+    const auth = authenticateCommunityRelays([relayB, relayA], {priorityRelays: [relayA]})
+
+    await Promise.resolve()
+    expect(calls).toEqual([relayA])
+
+    releasePriorityAuth()
+    await auth
+
+    expect(calls).toEqual([relayA, relayB])
   })
 
   it("falls back to hydrated community outbox relays when discovery misses", async () => {
@@ -348,6 +400,50 @@ describe("community relay loading", () => {
     expect(bootstrap.definition?.event.id).toBe(definitionEvent.id)
     expect(bootstrap.profileListEvents.map(event => event.id)).toEqual([profileListEvent.id])
     expect(get(activeCommunityDefinition)?.event.id).toBe(definitionEvent.id)
+  })
+
+  it("waits for community relay auth before loading bootstrap content", async () => {
+    let releaseAuth: () => void = () => {}
+    const authDone = new Promise<void>(resolve => {
+      releaseAuth = resolve
+    })
+
+    pubkey.set(memberPubkey)
+    authStatusByRelay.set(relayA, AuthStatus.Requested)
+    attemptAuthMock.mockImplementation((relay: string) =>
+      relay === relayA ? authDone : Promise.resolve(),
+    )
+    loadMock.mockImplementation(({filters}: {relays: string[]; filters: Filter[]}) => {
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([singleRelayDefinitionEvent])
+      }
+      if (hasKind(filters, PROFILE_LIST_KIND)) return Promise.resolve([profileListEvent])
+
+      return Promise.resolve([])
+    })
+
+    let settled = false
+    const bootstrapPromise = loadCommunityBootstrap({
+      communityPubkey,
+      communityRelayHints: [relayA],
+    }).then(bootstrap => {
+      settled = true
+
+      return bootstrap
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(settled).toBe(false)
+    expect(loadMock.mock.calls.some(([args]) => hasKind(args.filters, PROFILE_LIST_KIND))).toBe(
+      false,
+    )
+
+    releaseAuth()
+    const bootstrap = await bootstrapPromise
+
+    expect(bootstrap.profileListEvents.map(event => event.id)).toEqual([profileListEvent.id])
   })
 
   it("fails bootstrap when no community definition loads", async () => {
