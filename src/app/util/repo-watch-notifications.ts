@@ -40,7 +40,6 @@ import {GIT_RELAYS, getRepoMaintainers, getStatusRootId, repoAnnouncements} from
 import {
   defaultRepoWatchOptions,
   repoWatchNotificationSeen,
-  updateRepoWatchNotificationSeen,
   userRepoWatchValues,
   type RepoWatchOptions,
 } from "@app/core/repo-watch"
@@ -630,30 +629,6 @@ const watchedRepoRefs: Readable<WatchedRepoRef[]> = derived(userRepoWatchValues,
 
 const baseRelays = derived(pubkey, getBaseRelays)
 
-const repoWatchSeenBaselineUpdates = derived(
-  [pubkey, watchedRepoRefs, checked, repoWatchNotificationSeen],
-  ([$pubkey, $repos, $checked, $notificationSeen]) => {
-    const updates: Record<string, number> = {}
-    if (!$pubkey) return updates
-
-    const current = now()
-
-    for (const repo of $repos) {
-      for (const path of getRepoWatchPaths(repo)) {
-        if (normalizeChecked(Number($notificationSeen[path] || 0)) > 0) continue
-
-        const localSeen = Math.max(
-          normalizeChecked(Number($checked[path] || 0)),
-          normalizeChecked(Number($checked[`${path}:seen`] || 0)),
-        )
-        updates[path] = localSeen > 0 ? localSeen : current
-      }
-    }
-
-    return updates
-  },
-)
-
 const deriveLoadedEvents = <T extends TrustedEvent>({
   filters,
   relays,
@@ -1044,19 +1019,6 @@ const repoWatchNotificationPaths = derived(
 )
 
 export const setupRepoWatchNotifications = () => {
-  let baselineKey = ""
-  const unsubscribeBaseline = repoWatchSeenBaselineUpdates.subscribe(updates => {
-    const key = JSON.stringify(updates)
-    if (key === baselineKey) return
-    baselineKey = key
-
-    if (Object.keys(updates).length === 0) return
-
-    updateRepoWatchNotificationSeen(updates).catch(error => {
-      console.warn("[repo-watch-notifications] Failed to record notification baselines", error)
-    })
-  })
-
   const unsubscribe = repoWatchNotificationPaths.subscribe(repoPaths => {
     setNotificationsConfig({
       augmentPaths: paths => {
@@ -1071,7 +1033,6 @@ export const setupRepoWatchNotifications = () => {
   })
 
   return () => {
-    unsubscribeBaseline()
     unsubscribe()
     setNotificationsConfig({})
   }

@@ -45,7 +45,6 @@ import {
 } from "@app/core/git-requests"
 import {
   applyRemoteExtensionSettings,
-  startExtensionSettingsAutoSync,
 } from "@app/extensions/settings"
 import {loadNip85ProviderConfig} from "@app/core/nip85"
 import {loadRepoWatch} from "@app/core/repo-watch"
@@ -474,9 +473,6 @@ const syncUserGitData = () => {
       console.log("[syncUserGitData] Setting up extension settings sync...")
       const unsub = setupExtensionSettingsSync(pk, mergedRelays, applyRemoteExtensionSettings)
       if (unsub) unsubscribersByKey.set("extensions", unsub)
-      // Also start auto-sync to publish local changes
-      const autoSyncUnsub = startExtensionSettingsAutoSync()
-      unsubscribersByKey.set("extensions-autosync", autoSyncUnsub)
       console.log("[syncUserGitData] Extension settings sync setup complete")
     }
 

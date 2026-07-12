@@ -2,6 +2,7 @@
 
 import {afterEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
+import {postExtensionSettings} from "@app/core/git-commands"
 import type {SmartWidgetEvent} from "./types"
 import {
   applyRemoteExtensionSettings,
@@ -15,8 +16,29 @@ import {
 } from "./settings"
 import {getWidgetLineId} from "./widget-identity"
 
+const appMocks = vi.hoisted(() => {
+  const createReadable = <T>(value: T) => ({
+    subscribe(run: (value: T) => void) {
+      run(value)
+      return () => {}
+    },
+  })
+  const signerValue = {nip44: {encrypt: vi.fn(async () => "encrypted")}}
+
+  return {
+    encrypt: signerValue.nip44.encrypt,
+    pubkey: createReadable("a".repeat(64)),
+    signer: createReadable(signerValue),
+  }
+})
+
+vi.mock("@welshman/app", () => ({
+  pubkey: appMocks.pubkey,
+  signer: appMocks.signer,
+}))
+
 vi.mock("@app/core/git-commands", () => ({
-  postExtensionSettings: vi.fn(),
+  postExtensionSettings: vi.fn(() => ({complete: Promise.resolve()})),
 }))
 
 vi.mock("@app/core/git-requests", () => ({
@@ -55,6 +77,8 @@ describe("effective extension settings", () => {
     setDefaultExtensionWidgets([])
     extensionSettings.set(makeSettings())
     localStorage.clear()
+    appMocks.encrypt.mockClear()
+    vi.mocked(postExtensionSettings).mockClear()
   })
 
   it("shows default widgets as installed and enabled without persisting them", () => {
@@ -325,6 +349,24 @@ describe("effective extension settings", () => {
     expect(settings.disabledDefaultIds).toEqual([widgetId])
     expect(effective.installed.widget[widgetId]).toBe(widget)
     expect(effective.enabled).not.toContain(widgetId)
+  })
+
+  it("does not publish passive remote/default materialization", async () => {
+    const widget = {
+      ...makeWidget("default-widget", 20),
+      version: "0.2.0",
+      appUrl: "https://example.com/default-0.2.0.html",
+    }
+
+    applyRemoteExtensionSettings(makeSettings())
+    vi.mocked(postExtensionSettings).mockClear()
+    appMocks.encrypt.mockClear()
+
+    setDefaultExtensionWidgets([widget])
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(appMocks.encrypt).not.toHaveBeenCalled()
+    expect(postExtensionSettings).not.toHaveBeenCalled()
   })
 
   it("persists the default widget snapshot when enabling a default extension", () => {

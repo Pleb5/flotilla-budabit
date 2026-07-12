@@ -13,19 +13,17 @@
 
 ## Current Phase
 
-- Phase 4: Gate Passive Notification And Autosync Writes
+- Phase 5: Final Verification And Closeout
 
 ## Phase Exit Criteria
 
-- `setupRepoWatchNotifications()` no longer auto-publishes repo-watch notification baseline state during passive startup.
-- Notification services may subscribe/load relay data but do not call `nip44.encrypt`, `sign`, or `publishThunk` merely because the app started or notification stores initialized.
-- Extension settings autosync does not publish materialized/default settings during initial remote hydration or startup without a user action.
-- Explicit user actions that update repo-watch settings or extension settings still publish as before.
-- Focused searches identify no passive startup path from notification setup to signer encryption/signing/publish.
-- Relevant focused tests are updated or added where practical.
-- `pnpm check` passes.
+- Final diff shows QR login restored to known-good no-perms behavior.
+- Final diff shows no hidden startup NIP-46 warm-up or nudge watcher.
+- Final diff shows passive notifications/background services do not silently sign/encrypt/publish on startup.
+- `pnpm check` passes or a fresh successful result remains valid with no code changes after it.
 - `git diff --check` passes.
-- Phase 4 changes are committed, pushed, and the checkpoint is reread.
+- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final closeout commit is pushed before final response if files changed.
 
 ## Completed With Evidence
 
@@ -81,6 +79,27 @@
   - Re-run `pnpm check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
   - Inspected `git status --short --branch`, `git diff`, and `git log --oneline --decorate -12` before checkpoint update.
+- Phase 3 was committed and pushed as `e7c9b44f fix: remove bunker-hostile startup work`.
+- Phase 4 changed `src/app/util/repo-watch-notifications.ts`:
+  - Removed the `repoWatchSeenBaselineUpdates` derived store and startup subscription.
+  - `setupRepoWatchNotifications()` now only augments notification UI paths and clears config on teardown; it no longer calls `updateRepoWatchNotificationSeen(...)` during passive startup.
+- Phase 4 changed `src/app/extensions/settings.ts`:
+  - Removed `startExtensionSettingsAutoSync()`.
+  - Removed remote/default materialization calls to `syncExtensionSettingsNow()`.
+  - Kept `syncExtensionSettingsNow()` and `publishExtensionSettings()` for explicit callers.
+- Phase 4 changed `src/app/core/sync.ts`:
+  - Removed startup installation of extension settings autosync from `syncUserGitData()`.
+  - Extension settings relay hydration still subscribes/loads and applies remote settings.
+- Phase 4 changed tests:
+  - Removed obsolete `startExtensionSettingsAutoSync` test mock from `src/app/core/sync.test.ts`.
+  - Added `src/app/extensions/settings.test.ts` coverage that passive remote/default materialization does not encrypt or publish even when a signer is available.
+- Phase 4 verification:
+  - `pnpm exec vitest run src/app/extensions/settings.test.ts src/app/util/repo-watch-notifications.test.ts src/app/core/sync.test.ts`: passed, 23 tests.
+  - Focused search for `startExtensionSettingsAutoSync`: no matches under `src`.
+  - Focused passive-path search across `src/routes/+layout.svelte`, `src/app/core/sync.ts`, `src/app/extensions/settings.ts`, `src/app/util/repo-watch-notifications.ts`, and `src/app/core/repo-watch.ts` showed `setupRepoWatchNotifications()` still starts, but signer/encrypt/publish calls remain only in explicit repo-watch and extension publish functions.
+  - `pnpm check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
+  - Inspected `git status --short --branch`, `git diff`, and `git log --oneline --decorate -12` before checkpoint update.
 
 ## Decisions
 
@@ -94,11 +113,11 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phase 3 code and checkpoint changes are verified and belong to the transition commit into Phase 4.
+- Phase 4 code, tests, and checkpoint changes are verified and belong to the transition commit into Phase 5.
 
 ## Next Action
 
-- Inspect `src/app/util/repo-watch-notifications.ts`, `src/app/core/repo-watch.ts`, `src/app/extensions/settings.ts`, `src/app/core/sync.ts`, and notification setup in `src/routes/+layout.svelte` for Phase 4 passive signer writes.
+- Inspect the final diff and focused searches against the bunker reliability objective.
 
 ## Verification
 
@@ -111,6 +130,8 @@
 - Inspected Phase 2 status, diff, and recent log before checkpoint update.
 - Ran Phase 3 focused searches, `pnpm check`, and `git diff --check` successfully after fixing standard `sign` imports.
 - Inspected Phase 3 status, diff, and recent log before checkpoint update.
+- Ran Phase 4 focused tests, focused searches, `pnpm check`, and `git diff --check` successfully.
+- Inspected Phase 4 status, diff, and recent log before checkpoint update.
 
 ## Risks Or Blockers
 
@@ -129,3 +150,8 @@
 - `src/app/core/community-state.ts`
 - `src/app/core/commands.ts`
 - `src/app/util/signer-nudge.ts`
+- `src/app/util/repo-watch-notifications.ts`
+- `src/app/extensions/settings.ts`
+- `src/app/extensions/settings.test.ts`
+- `src/app/core/sync.ts`
+- `src/app/core/sync.test.ts`

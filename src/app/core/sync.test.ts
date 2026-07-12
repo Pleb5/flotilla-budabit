@@ -60,7 +60,6 @@ const mocks = vi.hoisted(() => {
     clearSyncedGitAuthTokens: vi.fn(),
     setupExtensionSettingsSync: vi.fn(() => () => {}),
     applyRemoteExtensionSettings: vi.fn(),
-    startExtensionSettingsAutoSync: vi.fn(() => () => {}),
     loadNip85ProviderConfig: vi.fn(),
     loadRepoWatch: vi.fn(),
     loadTrustGraphConfig: vi.fn(),
@@ -203,7 +202,6 @@ vi.mock("@app/core/git-requests", () => ({
 
 vi.mock("@app/extensions/settings", () => ({
   applyRemoteExtensionSettings: mocks.applyRemoteExtensionSettings,
-  startExtensionSettingsAutoSync: mocks.startExtensionSettingsAutoSync,
 }))
 
 vi.mock("@app/core/nip85", () => ({

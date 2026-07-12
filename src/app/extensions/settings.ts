@@ -12,7 +12,6 @@ export const EXTENSION_SETTINGS_KEY = "flotilla/extensions"
 
 // Track if we're currently applying remote settings to avoid publish loops
 let isApplyingRemoteSettings = false
-let hasAppliedRemoteExtensionSettings = false
 // Track the last published timestamp to avoid re-publishing the same data
 let lastPublishedAt = 0
 
@@ -208,14 +207,11 @@ export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void =>
 
   const defaultWidgets = Array.from(byId.values())
   defaultExtensionWidgets.set(defaultWidgets)
-  let shouldSync = false
   extensionSettings.update(s => {
     const result = normalizeExtensionSettingsWithDefaultSnapshots(s, defaultWidgets)
-    shouldSync = result.materialized
 
     return result.settings
   })
-  if (shouldSync && hasAppliedRemoteExtensionSettings) void syncExtensionSettingsNow()
 }
 
 export const getDefaultExtensionIds = (widgets = get(defaultExtensionWidgets)) =>
@@ -486,17 +482,13 @@ extensionSettings.update(s => normalizeExtensionSettings(s))
 // Apply settings loaded from relay
 export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSettings>) => {
   isApplyingRemoteSettings = true
-  let shouldSync = false
   try {
     const result = mergeRemoteExtensionSettings(remoteSettings)
-    shouldSync = result.materialized
     extensionSettings.set(result.settings)
-    hasAppliedRemoteExtensionSettings = true
     console.log("[applyRemoteExtensionSettings] Applied remote settings")
   } finally {
     isApplyingRemoteSettings = false
   }
-  if (shouldSync) void syncExtensionSettingsNow()
 }
 
 // Publish current settings to relay
@@ -545,18 +537,11 @@ export const publishExtensionSettings = async ({
   }
 }
 
-// Subscribe to local changes and publish to relay (with debounce)
-let publishDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let syncNowPromise: Promise<boolean> | undefined
 let syncNowRequested = false
 
 export const syncExtensionSettingsNow = (): Promise<boolean> => {
   syncNowRequested = true
-
-  if (publishDebounceTimer) {
-    clearTimeout(publishDebounceTimer)
-    publishDebounceTimer = null
-  }
 
   syncNowPromise ||= (async () => {
     let published = false
@@ -578,41 +563,4 @@ export const syncExtensionSettingsNow = (): Promise<boolean> => {
   })()
 
   return syncNowPromise
-}
-
-export const startExtensionSettingsAutoSync = () => {
-  let initialized = false
-  hasAppliedRemoteExtensionSettings = false
-
-  const unsubscribe = extensionSettings.subscribe(() => {
-    if (!initialized) {
-      initialized = true
-      return
-    }
-
-    // Don't publish if we're applying remote settings (would cause loop)
-    if (isApplyingRemoteSettings) return
-
-    // Don't publish if no user is logged in
-    if (!get(pubkey) || !get(signer)) return
-
-    // Avoid republishing stale localStorage snapshots before relay app-data has hydrated.
-    if (!hasAppliedRemoteExtensionSettings) return
-
-    // Debounce publishes
-    if (publishDebounceTimer) {
-      clearTimeout(publishDebounceTimer)
-    }
-    publishDebounceTimer = setTimeout(() => {
-      publishExtensionSettings()
-    }, 2000) // 2 second debounce
-  })
-
-  return () => {
-    unsubscribe()
-    if (publishDebounceTimer) {
-      clearTimeout(publishDebounceTimer)
-      publishDebounceTimer = null
-    }
-  }
 }
