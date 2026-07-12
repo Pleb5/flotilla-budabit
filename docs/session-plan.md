@@ -2,10 +2,10 @@
 
 ## Objective
 
-- Improve community boot and hard-reload behavior so community relay auth, permissions, moderator state, shared config, and moderation evidence load in priority order.
-- Preserve cached/warm-start rendering where it is safe; do not gate every page behind fresh relay data.
-- Prevent misleading UI states caused by incomplete high-priority data, including false moderator invite CTAs, premature empty feed states, empty shared config responses, and false unreviewed application/report counts.
-- Keep non-critical data progressive and cache-first, with copy such as "loading permissions" or "loading review evidence" when state is intentionally incomplete.
+- Upgrade Budabit's Welshman packages from `0.7.1` to `0.8.16` so the upstream NIP-46/Nostr Connect and relay connection fixes are available.
+- Remove the old pnpm Welshman store override and Welshman util patch instead of carrying version-specific `0.7.1` package-manager state forward.
+- Adapt Budabit code for Welshman `0.8.16` API changes, especially NIP-46 relay switching and signer log shape changes.
+- Verify behavior with focused NIP-46/signing checks, full Svelte/type checks, and broader test/build checks where feasible.
 
 ## Constraints
 
@@ -13,13 +13,12 @@
 - The checkpoint at `docs/session-checkpoint.md` is the compact resume source.
 - Branch `dev` tracks `origin/dev` and is the implementation target.
 - Stage only files intentionally changed for each phase.
-- Never revert unrelated user changes. If unrelated changes appear in files needed by a phase, stop and ask.
-- Do not use notifier relay config as community-relay authority; `VITE_NOTIFIER_HANDLER_RELAY` is alert/notifier config.
-- Use cached state where it is safe and useful. Prefer cache-first plus prioritized refresh over absolute fresh-relay gates.
-- Do not add broad additive relay subscription work unless directly required by the current phase.
-- Every phase must be verified, checkpointed, committed, pushed, and followed by rereading the checkpoint before continuing.
+- Never revert unrelated user or other-agent changes. If unrelated changes appear in files needed by a phase, stop and ask.
+- Use the existing `docs/session-plan.md` and `docs/session-checkpoint.md` durable workflow files.
+- Commit and push every verified phase before continuing.
+- After every phase push, reread the checkpoint and immediately start the next phase unless the checkpoint says `Current Phase: Complete` or a blocker stops the loop.
 
-## Phase 1: Priority Community Relay Auth
+## Phase 1: Dependency Migration
 
 ### Phase Startup
 
@@ -30,30 +29,33 @@
 
 ### Goal
 
-- Give community relays a bounded auth head start sourced only from community session/default community data.
+- Move the package graph to Welshman `0.8.16` without carrying stale `0.7.1` overrides or patches.
 
 ### Exit Criteria
 
-- `authenticateCommunityRelays` supports priority relay ordering and bounded timeouts.
-- Root boot warms active/default community relays using community config only, not notifier config.
-- Community bootstrap waits for a bounded auth head start on community definition relays before marking bootstrap ready.
-- Focused tests cover priority auth ordering and bootstrap waiting before content loads.
-- `pnpm exec vitest run src/app/core/community-state-loading.test.ts` passes.
-- `pnpm run check` passes.
+- Root `package.json` depends on all `@welshman/*` packages at `^0.8.16`.
+- Root `package.json` removes the `@welshman/store` `0.7.1` override.
+- Root `package.json` removes the `@welshman/util@0.7.1` patched dependency entry.
+- The old `patches/@welshman__util@0.7.1.patch` file is removed if no longer referenced.
+- Required Welshman `0.8.16` peers are represented in the root dependency graph, including `@pomade/core`, `@noble/curves`, and `@noble/hashes` versions compatible with Welshman.
+- Workspace package `packages/nostr-git-ui/package.json` no longer depends on `@welshman/store` `0.7.1`.
+- `pnpm install` succeeds and updates `pnpm-lock.yaml`.
+- Lockfile/package inspection shows no remaining direct `@welshman/*@0.7.1` resolution for Budabit's app graph.
 - `git diff --check` passes.
 - Phase 1 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Inspect current community relay/auth bootstrap code and existing worktree changes.
-- Centralize priority auth ordering in `src/app/core/community-state.ts`.
-- Wire warm-up in `src/routes/+layout.svelte` using active/default community relay hints.
-- Add focused tests in `src/app/core/community-state-loading.test.ts`.
+- Inspect package manifests and current pnpm lockfile for Welshman package references.
+- Update Welshman package versions and required peers in root/package workspace manifests.
+- Remove stale pnpm override and patched dependency configuration.
+- Delete the old Welshman util patch file if it is no longer referenced.
+- Run `pnpm install` and inspect resulting dependency graph.
 
 ### Verification
 
-- Run `pnpm exec vitest run src/app/core/community-state-loading.test.ts`.
-- Run `pnpm run check`.
+- Run `pnpm install`.
+- Run package/lockfile inspection commands proving Welshman `0.8.16` is installed and stale `0.7.1` references are gone from the app graph.
 - Run `git diff --check`.
 - Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10` before committing.
 
@@ -81,7 +83,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 2: Permission And Moderator Readiness
+## Phase 2: Budabit Code Adaptation
 
 ### Phase Startup
 
@@ -92,30 +94,32 @@
 
 ### Goal
 
-- Prioritize the permission graph and current-user moderator evidence while preserving cached UI when available.
+- Adapt Budabit to Welshman `0.8.16` API and NIP-46 behavior while preserving current login UX.
 
 ### Exit Criteria
 
-- Community profile-list/permission loads are explicitly prioritized after definition/auth and before low-priority feeds.
-- Current-user moderator invite evidence has a readiness/loading state and does not show an accept/decline CTA merely because profile-list evidence has not loaded yet.
-- Publish/access gates show loading copy while higher-priority permission/application state is incomplete instead of prematurely showing access CTAs or unavailable states.
-- Feed pages and community-home actions that depend on permissions respect the high-priority loading state without blocking already-cached content from rendering.
-- Focused tests cover moderator invite evidence readiness or permission gate readiness where practical.
+- `SignerLogEntryStatus` imports/usages are removed.
+- Signer status UI and unresponsive-signer toast logic use Welshman `0.8.16` signer log entries: pending when `finished_at` is absent, success when `ok === true`, failure when `ok === false`, duration from timestamps.
+- NIP-46/Bunker/password login persists relay lists after Welshman's `switchRelays()` succeeds.
+- NIP-46 login tolerates signers that do not support or permit `switch_relays`, falling back to the original relay list instead of failing a completed login.
+- Budabit's NIP-46 permissions include `switch_relays` where explicit permissions are requested.
+- Focused NIP-46 tests cover the safe switch-relay fallback and unchanged QR permission behavior.
+- `pnpm exec vitest run src/app/util/nip46.test.ts` passes.
 - `pnpm run check` passes.
 - `git diff --check` passes.
 - Phase 2 changes are committed, pushed, and the checkpoint is reread.
 
 ### Steps
 
-- Inspect `CommunityMenu.svelte`, `PublishGate.svelte`, community home, and relevant permission stores.
-- Add compact readiness state in `community-state.ts` only where needed to distinguish cached-known, loading, and settled-empty evidence.
-- Load active community profile lists and current-user moderator invite evidence before lower-priority home/feed empties.
-- Adjust copy/disabled states on community home and publish gates.
-- Add focused tests around newly extracted readiness helpers if UI-only behavior is otherwise hard to unit test.
+- Inspect NIP-46 login components, signer status components, and root signer toast code.
+- Add a minimal Budabit NIP-46 broker helper if needed to wrap `switchRelays()` safely.
+- Store `broker.params.relays` after NIP-46 connection instead of stale configured relays.
+- Update signer status calculations for the new signer log shape.
+- Add or update focused tests.
 
 ### Verification
 
-- Run focused tests for changed helpers/components where available.
+- Run `pnpm exec vitest run src/app/util/nip46.test.ts`.
 - Run `pnpm run check`.
 - Run `git diff --check`.
 - Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10` before committing.
@@ -144,7 +148,7 @@
 - Do not send a final response before starting the next phase.
 - Do not treat commit/push output as completion of the command.
 
-## Phase 3: Shared Config And Widget Loads
+## Phase 3: Thorough Verification And Closeout
 
 ### Phase Startup
 
@@ -155,153 +159,34 @@
 
 ### Goal
 
-- Prevent extension shared-config queries from returning successful empty state when required community data or auth is still loading.
+- Verify the upgraded Welshman package graph and Budabit login/relay adaptations broadly enough to catch integration regressions.
 
 ### Exit Criteria
 
-- `community:querySharedConfig` is cache-first from the local repository when possible.
-- Shared config bridge loads use prioritized community auth and do not silently convert auth/loading timeouts into successful empty config.
-- Widget community context changes when permission/profile-list/report readiness changes so widgets get a retry signal when high-priority data becomes available.
-- Calendar featured-event widget loads no longer wait for a stale-success empty config cycle when host data was not ready.
-- Focused bridge tests cover shared config loading/not-ready behavior.
-- `pnpm exec vitest run src/app/extensions/bridge.test.ts` passes.
+- Focused NIP-46 tests pass after dependency and code upgrades.
 - `pnpm run check` passes.
+- `pnpm run test:main` passes, or any failure is proven unrelated and recorded as a blocker/risk.
+- `pnpm run e2e:check` passes, or any failure is proven unrelated and recorded as a blocker/risk.
+- `pnpm run build` passes, or any failure is proven environment-only/unrelated and recorded as a blocker/risk.
 - `git diff --check` passes.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
-
-### Steps
-
-- Inspect `src/app/extensions/bridge.ts`, `WidgetFrame.svelte`, and community widget context producers.
-- Return a not-ready error for shared-config loads when prerequisite snapshot/profile-list auth work times out, while preserving true empty config when loads have settled.
-- Reuse cached repository events for `kind:30078` before network refresh.
-- Add tests for latest moderator-authored shared config and not-ready behavior.
-
-### Verification
-
-- Run `pnpm exec vitest run src/app/extensions/bridge.test.ts`.
-- Run `pnpm run check`.
-- Run `git diff --check`.
-- Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10` before committing.
-
-### Mandatory Closeout
-
-- Verify every exit criterion for this phase.
-- Update the checkpoint before committing:
-  - Move this phase into `Completed With Evidence`.
-  - Record verification commands and results.
-  - Record changed files.
-  - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
-  - Copy the next phase's exit criteria into `Phase Exit Criteria`.
-  - Set `Next Action` to the first concrete step of the next phase.
-  - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
-- Read the session checkpoint again to verify status and next action.
-- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
-- Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
-- Do not consider the whole plan complete unless the session checkpoint says so.
-
-### Continue
-
-- If the checkpoint says `Current Phase: Complete`, perform the final response.
-- If the checkpoint does not say `Current Phase: Complete`, immediately begin the next phase startup.
-- Do not send a final response before starting the next phase.
-- Do not treat commit/push output as completion of the command.
-
-## Phase 4: Moderation Evidence Ordering
-
-### Phase Startup
-
-- Read the session checkpoint.
-- Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
-- Inspect current repository state before trusting either file.
-- Restate this phase's goal and exit criteria briefly, then execute.
-
-### Goal
-
-- Load moderation responses and review/delete evidence in an order that avoids false unreviewed/new states.
-
-### Exit Criteria
-
-- Moderation page and menu counts distinguish loading review/delete evidence from truly unreviewed/new applications or reports.
-- Application responses can render from cache, but warnings/counts for “new” are withheld or labeled loading until matching review/delete evidence has settled.
-- Report moderation counts do not show false pending states while report review/delete evidence is still loading.
-- Relevant copy says review/moderation evidence is loading instead of showing premature empty or unreviewed state.
-- Focused tests cover any extracted admission/moderation readiness helpers where practical.
-- `pnpm run check` passes.
-- `git diff --check` passes.
-- Phase 4 changes are committed, pushed, and the checkpoint is reread.
-
-### Steps
-
-- Inspect `routes/c/[community]/moderation/+page.svelte`, `CommunityMenu.svelte`, and admission/report helper tests.
-- Split response loading from review/delete evidence loading where needed.
-- Gate warning badges/counts and unreviewed groups on evidence readiness, while still displaying cached data with loading copy.
-- Add focused tests if helper logic is extracted.
-
-### Verification
-
-- Run focused admission/report tests touched by helper changes.
-- Run `pnpm run check`.
-- Run `git diff --check`.
-- Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10` before committing.
-
-### Mandatory Closeout
-
-- Verify every exit criterion for this phase.
-- Update the checkpoint before committing:
-  - Move this phase into `Completed With Evidence`.
-  - Record verification commands and results.
-  - Record changed files.
-  - Set `Current Phase` to the next phase, or `Complete` if no phase remains.
-  - Copy the next phase's exit criteria into `Phase Exit Criteria`.
-  - Set `Next Action` to the first concrete step of the next phase.
-  - Record any remaining risks or blockers.
-- Commit and push the phase, including code changes and checkpoint/plan updates. This is a phase transition, not a stopping point.
-- Read the session checkpoint again to verify status and next action.
-- Do not leave the checkpoint saying `ready to commit/push` unless commit or push failed.
-- Do not consider the phase complete until checkpoint update, verification, commit, push, and reading the session checkpoint all succeeded.
-- Do not consider the whole plan complete unless the session checkpoint says so.
-
-### Continue
-
-- If the checkpoint says `Current Phase: Complete`, perform the final response.
-- If the checkpoint does not say `Current Phase: Complete`, immediately begin the next phase startup.
-- Do not send a final response before starting the next phase.
-- Do not treat commit/push output as completion of the command.
-
-## Phase 5: Feed Empty-State Audit And Final Closeout
-
-### Phase Startup
-
-- Read the session checkpoint.
-- Read the entire session plan, including global objective, constraints, all phases, and this phase's closeout rules.
-- Inspect current repository state before trusting either file.
-- Restate this phase's goal and exit criteria briefly, then execute.
-
-### Goal
-
-- Audit feed pages and final behavior so higher-priority loading states do not produce premature empty UI.
-
-### Exit Criteria
-
-- Community home rooms, threads, calendar, goals, git/community routes, widgets, publish gates, moderation, and menu badges have been inspected for premature empty/CTA states against the new readiness behavior.
-- Any necessary copy adjustments are made so users see specific loading states rather than false empty states.
-- Final focused tests and `pnpm run check` pass.
-- `git diff --check` passes.
-- Checkpoint records `Current Phase: Complete` and final evidence.
+- Final package inspection confirms no stale Welshman `0.7.1` override or patched dependency remains.
+- Checkpoint records `Current Phase: Complete` with final evidence.
 - Final closeout commit is pushed before final response if files changed.
 
 ### Steps
 
-- Inspect all `/c/[community]` feed pages and community menu/home widget locations.
-- Make minimal copy/readiness adjustments for any missed high-priority loading state.
-- Run final focused tests, Svelte/TS check, and diff check.
-- Update checkpoint to `Complete` with evidence and residual risks.
+- Rerun focused NIP-46 tests and full Svelte/type check.
+- Run broader unit, e2e type, and build verification.
+- Inspect package graph and lockfile for stale Welshman `0.7.1` app dependencies.
+- Update checkpoint to `Complete` with verification evidence and residual risks.
 
 ### Verification
 
-- Run focused tests changed during the workflow.
+- Run `pnpm exec vitest run src/app/util/nip46.test.ts`.
 - Run `pnpm run check`.
+- Run `pnpm run test:main`.
+- Run `pnpm run e2e:check`.
+- Run `pnpm run build`.
 - Run `git diff --check`.
 - Inspect `git status --short --branch`, `git diff`, and `git log --oneline -10` before committing.
 

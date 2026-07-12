@@ -7,12 +7,6 @@ settings:
 overrides:
   '@tiptap/core': 2.27.1
   '@tiptap/pm': 2.27.1
-  '@welshman/store': 0.7.1
-
-patchedDependencies:
-  '@welshman/util@0.7.1':
-    hash: 0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c
-    path: patches/@welshman__util@0.7.1.patch
 
 importers:
 
@@ -85,11 +79,11 @@ importers:
         specifier: ^0.482.0
         version: 0.482.0(svelte@5.39.12)
       '@noble/curves':
-        specifier: ^1.5.0
+        specifier: ^1.9.7
         version: 1.9.7
       '@noble/hashes':
-        specifier: ^1.4.0
-        version: 1.8.0
+        specifier: ^2.0.1
+        version: 2.0.1
       '@nostr-git/core':
         specifier: workspace:*
         version: link:packages/nostr-git-core
@@ -99,6 +93,9 @@ importers:
       '@octokit/auth-oauth-device':
         specifier: ^8.0.1
         version: 8.0.3
+      '@pomade/core':
+        specifier: ^0.2.1
+        version: 0.2.6(@frostr/bifrost@1.0.7(typescript@5.9.3))(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/signer@0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3)))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-tools@2.23.3(typescript@5.9.3))
       '@poppanator/sveltekit-svg':
         specifier: ^4.2.1
         version: 4.2.1(rollup@4.59.0)(svelte@5.39.12)(svgo@4.0.0)(vite@5.4.20(@types/node@22.19.13)(terser@5.46.0))
@@ -121,35 +118,35 @@ importers:
         specifier: ^0.2.6
         version: 0.2.6
       '@welshman/app':
-        specifier: ^0.7.1
-        version: 0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(0c487e7580b1fe7422e6beaa07ba6504)
       '@welshman/content':
-        specifier: ^0.7.1
-        version: 0.7.1(typescript@5.9.3)
+        specifier: ^0.8.16
+        version: 0.8.16(nostr-tools@2.23.3(typescript@5.9.3))
       '@welshman/editor':
-        specifier: ^0.7.1
-        version: 0.7.1(@tiptap/extension-image@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(@tiptap/extension-link@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1))(linkifyjs@4.3.2)(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(tiptap-markdown@0.8.10(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(typescript@5.9.3)
+        specifier: ^0.8.16
+        version: 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-editor@1.1.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/extension-image@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(@tiptap/extension-link@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1)(linkifyjs@4.3.2)(nostr-tools@2.23.3(typescript@5.9.3))(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(tiptap-markdown@0.8.10(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))))(nostr-tools@2.23.3(typescript@5.9.3))
       '@welshman/feeds':
-        specifier: ^0.7.1
-        version: 0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(576d4f31a3809f254d53047fea7e12d2)
       '@welshman/lib':
-        specifier: ^0.7.1
-        version: 0.7.1
+        specifier: ^0.8.16
+        version: 0.8.16
       '@welshman/net':
-        specifier: ^0.7.1
-        version: 0.7.1(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
       '@welshman/router':
-        specifier: ^0.7.1
-        version: 0.7.1(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))
       '@welshman/signer':
-        specifier: ^0.7.1
-        version: 0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3))
       '@welshman/store':
-        specifier: 0.7.1
-        version: 0.7.1(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(svelte@5.39.12)
       '@welshman/util':
-        specifier: ^0.7.1
-        version: 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+        specifier: ^0.8.16
+        version: 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
       comlink:
         specifier: ^4.4.2
         version: 4.4.2
@@ -564,8 +561,8 @@ importers:
         specifier: ^2.26.0
         version: 2.27.2
       '@welshman/store':
-        specifier: 0.7.1
-        version: 0.7.1(typescript@5.9.3)(ws@8.19.0)
+        specifier: ^0.8.16
+        version: 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(svelte@5.39.12)
       bits-ui:
         specifier: ^1.5.3
         version: 1.8.0(svelte@5.39.12)
@@ -773,6 +770,45 @@ packages:
     peerDependencies:
       '@cashu/coco-core': 1.0.0
       typescript: ^5
+
+  '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
+    resolution: {integrity: sha512-ZKZ/F8US7JR92J4DMct6cLW/Y66o2K576+zjlEN/MevH70bFIsB10wkZEQPLzl2oNh2SMGy55xpJ9JoBRl5DOA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@cbor-extract/cbor-extract-darwin-x64@2.2.2':
+    resolution: {integrity: sha512-32b1mgc+P61Js+KW9VZv/c+xRw5EfmOcPx990JbCBSkYJFY0l25VinvyyWfl+3KjibQmAcYwmyzKF9J4DyKP/Q==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@cbor-extract/cbor-extract-linux-arm64@2.2.2':
+    resolution: {integrity: sha512-wfqgzqCAy/Vn8i6WVIh7qZd0DdBFaWBjPdB6ma+Wihcjv0gHqD/mw3ouVv7kbbUNrab6dKEx/w3xQZEdeXIlzg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@cbor-extract/cbor-extract-linux-arm@2.2.2':
+    resolution: {integrity: sha512-tNg0za41TpQfkhWjptD+0gSD2fggMiDCSacuIeELyb2xZhr7PrhPe5h66Jc67B/5dmpIhI2QOUtv4SBsricyYQ==}
+    cpu: [arm]
+    os: [linux]
+
+  '@cbor-extract/cbor-extract-linux-x64@2.2.2':
+    resolution: {integrity: sha512-rpiLnVEsqtPJ+mXTdx1rfz4RtUGYIUg2rUAZgd1KjiC1SehYUSkJN7Yh+aVfSjvCGtVP0/bfkQkXpPXKbmSUaA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@cbor-extract/cbor-extract-win32-x64@2.2.2':
+    resolution: {integrity: sha512-dI+9P7cfWxkTQ+oE+7Aa6onEn92PHgfWXZivjNheCRmTBDBf2fx6RyTi0cmgpYLnD1KLZK9ZYrMxaPZ4oiXhGA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@cmdcode/buff@2.2.5':
+    resolution: {integrity: sha512-+nc3QDoJ+MU/fp+YkX6WuEjJrXLF6ME+eVX1sj5a+MfBKO9LWb4R9Y2zH6APBrySd7nFr48ozscAui7SKvLmXg==}
+
+  '@cmdcode/frost@1.1.4':
+    resolution: {integrity: sha512-GLbiFdpHKTR576vlComrWyrdexR7j2tezbJmJQTfFGOR18xb2yM7E6PEKJWirDGrh1C/pLv/uhwgoSp5HLLfdw==}
+
+  '@cmdcode/nostr-p2p@2.0.11':
+    resolution: {integrity: sha512-hZpWYqRPdvXoaG5LaP2/dR1ObloQxPUYHAA1japQveGdhPbXWiS5aKPxOyUXqgjHDShWeXQ3giOTg6SsCJwnYA==}
 
   '@codemirror/autocomplete@6.20.1':
     resolution: {integrity: sha512-1cvg3Vz1dSSToCNlJfRA2WSI4ht3K+WplO0UMOgmUYPivCyy2oueZY6Lx7M9wThm7SDUBViRmuT+OG/i8+ON9A==}
@@ -1213,6 +1249,9 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
+  '@frostr/bifrost@1.0.7':
+    resolution: {integrity: sha512-9PO8s8ra7Cf94HqsF0sArRkLLFYqDyGfRKUOflTWMGgaDvSWIksNA8PckcXvy5/G6u4RtAkTAqki47+ga+7yow==}
+
   '@getalby/lightning-tools@5.2.1':
     resolution: {integrity: sha512-dxOmJLJAh6qJ8rsbA5/Bwj7MSI9X3RkxxqmCedl5rfP+yKwNSdfu8i4EiCZN/tk2hNBJb8GHSCcPRNZfwfmEHg==}
     engines: {node: '>=14'}
@@ -1421,15 +1460,6 @@ packages:
   '@jsr/fiatjaf__git-natural-api@0.2.4':
     resolution: {integrity: sha512-Vg/bTWCj4cH21h0iWXLejmVxNd5UBM3+Y4S4ch1LNheodeJzqUG6F3vRl/ignQGintj5ATI/84PCJs0KYRFuwA==, tarball: https://npm.jsr.io/~/11/@jsr/fiatjaf__git-natural-api/0.2.4.tgz}
 
-  '@jsr/fiatjaf__promenade-trusted-dealer@0.4.1':
-    resolution: {integrity: sha512-K9WjpDkQGyLl5gUZBLr3Gb+b5b1r8miZmDOo4+ZlzGQgoXD2TaqT+dkBjL/yLj/pYwBcd1Bschv0xuNpguL2ZQ==, tarball: https://npm.jsr.io/~/11/@jsr/fiatjaf__promenade-trusted-dealer/0.4.1.tgz}
-
-  '@jsr/henrygd__semaphore@0.0.2':
-    resolution: {integrity: sha512-nrwZ8HaqU1Agb2ij8omIxaOCAsKkDHWcwS9hTRumPhZuptwh6/0BJExBd8+eClTYM7jBnZxK+cP4WJRTcHBvCA==, tarball: https://npm.jsr.io/~/11/@jsr/henrygd__semaphore/0.0.2.tgz}
-
-  '@jsr/nostr__tools@2.16.2':
-    resolution: {integrity: sha512-QK1XwHvAnqEwbimD+ywbLQ3T2iI+/qE/zrRgOhmtjoEGlCWgtbPTNJ6Y/MEunXr6H/MnuHV+s400i/Yk4suvGQ==, tarball: https://npm.jsr.io/~/11/@jsr/nostr__tools/2.16.2.tgz}
-
   '@lezer/common@1.5.1':
     resolution: {integrity: sha512-6YRVG9vBkaY7p1IVxL4s44n5nUnaNnGM2/AckNgYOnxTG2kWh1vR8BMxPseWPjRNpb5VtXnMpeYAEAADoRV1Iw==}
 
@@ -1493,6 +1523,10 @@ packages:
 
   '@noble/ciphers@0.5.3':
     resolution: {integrity: sha512-B0+6IIHiqEs3BPMT0hcRmHvEj2QHOLu+uwt+tqDDeVd0oyVzh7BPrDcPjRnV1PV/5LaknXJJQvOuRGR0zQJz+w==}
+
+  '@noble/ciphers@1.3.0':
+    resolution: {integrity: sha512-2I0gnIVPtfnMw9ee9h1dJG7tp81+8Ob3OJb3Mv37rx5L40/b0i7djjCVvGOVqc9AEIQyvyu1i6ypKdFw8R8gQw==}
+    engines: {node: ^14.21.3 || >=16}
 
   '@noble/ciphers@2.1.1':
     resolution: {integrity: sha512-bysYuiVfhxNJuldNXlFEitTVdNnYUc+XNJZd7Qm2a5j1vZHgY+fazadNFWFaMK/2vye0JVlxV3gHmC0WDfAOQw==}
@@ -1576,6 +1610,43 @@ packages:
   '@octokit/types@16.0.0':
     resolution: {integrity: sha512-sKq+9r1Mm4efXW1FCk7hFSeJo4QKreL/tTbR0rz/qx/r1Oa2VV83LTA/H/MuCOX7uCIJmQVRKBcbmWoySjAnSg==}
 
+  '@peculiar/asn1-cms@2.8.0':
+    resolution: {integrity: sha512-NgekZOrSJFSBFLFoLfwePguAWAx7z1+f2TEsWFUMyiqqfntZ4+S/S5hzqME3q4pCA0iOsFKdwiQ35dwY24eVqA==}
+
+  '@peculiar/asn1-csr@2.8.0':
+    resolution: {integrity: sha512-akbF8+uvleHs8sejNPQxwmVFuInAg6FMNHOwMILXfP518YfFJwdR3jr6oNUPOaEJfuEhn/vkNOCIT6ASUd4mbg==}
+
+  '@peculiar/asn1-ecc@2.8.0':
+    resolution: {integrity: sha512-ohwlk+u9Rv2NOAY1c6MfHj45ATVF8R1DUN/WCgABiRtLi2ZftlZWZX7KvpAbU8v9xPcmoILfELeEABj/rn18AQ==}
+
+  '@peculiar/asn1-pfx@2.8.0':
+    resolution: {integrity: sha512-5yof1ytoB++RQtaFbqSUJ8pxDJtZT6vbVqZ8XoJ61ph7UjNVvfFwAilnCodqkNsAodpy13gDhoxZXw00pghnyg==}
+
+  '@peculiar/asn1-pkcs8@2.8.0':
+    resolution: {integrity: sha512-qAKXtLpBEw9LqhKpjw3ajZSXlBur+ipW+y2ivVBQAG6F6qRx94yO+1ZR4mvw+YaCfKSaOzLeYEzsPaBp4SJELA==}
+
+  '@peculiar/asn1-pkcs9@2.8.0':
+    resolution: {integrity: sha512-b5nDWCnkV60+cQ141D6sVVwK9nz64R5n3zSVnklGd+ECdkW2Ol3U1a6yYFlalpSOaD557yuJB64A+q42jG7lUQ==}
+
+  '@peculiar/asn1-rsa@2.8.0':
+    resolution: {integrity: sha512-zHEUlCqB2mk7x2lxDwHHJy7hWZOPdGHVlsmITWKB5/PbQo61atbu9PJ/0r9dQNMwFzbKPXZ8uK8/91eUhRznSg==}
+
+  '@peculiar/asn1-schema@2.8.0':
+    resolution: {integrity: sha512-7YT0U/ze0tF2QOBbE15gKZwy5tvgGyLRiRHLzhlbOpf7BT032oBSd0haZqXn5W6l26WLlu3dyxzjM+2638/z2Q==}
+
+  '@peculiar/asn1-x509-attr@2.8.0':
+    resolution: {integrity: sha512-tHjkfS/qhMnmrlB2J9NhflQlQ7In3khO3CfmVrriOlpTeErY9ZIKOso1hQ5JQiyrJ7ShvqVPk7E5fQmbclkSKA==}
+
+  '@peculiar/asn1-x509@2.8.0':
+    resolution: {integrity: sha512-N0CMuhWUzsWEVq6F1q9X6+VKUnWzSW+cSVg+aPaGGwDdbFoFWTYgin5MHwXgpWd6y9COMBxnfy/Qc+Xc7F0Zwg==}
+
+  '@peculiar/utils@2.0.3':
+    resolution: {integrity: sha512-+oL3HPFRIZ1St2K50lWCXiioIgSoxzz7R1J3uF6neO2yl1sgmpgY6XXJH4BdpoDkMWznQTeYF6oWNDZLCdQ4eQ==}
+
+  '@peculiar/x509@1.14.3':
+    resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
+    engines: {node: '>=20.0.0'}
+
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
@@ -1587,6 +1658,19 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+
+  '@pomade/core@0.2.6':
+    resolution: {integrity: sha512-HJL1tw+ry3Pbh1qonKMJGFUlIjUCTtU/bzBZkkIk1hDjHOXZ77bUZLm6RFEeP4i68WhE9rwHhD56rXOMUYk53g==}
+    engines: {node: '>=12.0.0'}
+    deprecated: Client update should have been deferred to 0.3.0
+    peerDependencies:
+      '@frostr/bifrost': ^1.0.7
+      '@noble/hashes': ^2.0.1
+      '@welshman/lib': ^0.8.0-pre.1
+      '@welshman/net': ^0.8.0-pre.1
+      '@welshman/signer': ^0.8.0-pre.1
+      '@welshman/util': ^0.8.0-pre.1
+      nostr-tools: ^2.19.3
 
   '@poppanator/sveltekit-svg@4.2.1':
     resolution: {integrity: sha512-w7jl4EVOOF+X+uv2BEUiMDJwds+GfbczwGpcS0+rsjIsKYmqmwMi4ts3bVZR9ZvdFHWy5rS84U+pSBClz6cbBg==}
@@ -2164,6 +2248,9 @@ packages:
     resolution: {integrity: sha512-KiROIzYdEV85YygXw6BI/Dx4fnBlFQu6Mq4QE4MOH9fFnhohw6wX/OAvDY2/C+ut0I3RSPKenvZJIVYqJNkhEw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
+  '@vbyte/buff@1.1.0':
+    resolution: {integrity: sha512-uDGTsS37Vg9JghKpMEBYZLAwn2saY0y0swLlK3+OSnQ8xe17mHCo7/92gkzmgpBUvhhTW2/oSxDlYw193lwJIA==}
+
   '@vite-pwa/assets-generator@0.2.6':
     resolution: {integrity: sha512-kK44dXltvoubEo5B+6tCGjUrOWOE1+dA4DForbFpO1rKy2wSkAVGrs8tyfN6DzTig89/QKyV8XYodgmaKyrYng==}
     engines: {node: '>=16.14.0'}
@@ -2255,38 +2342,83 @@ packages:
   '@vitest/utils@3.2.4':
     resolution: {integrity: sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA==}
 
-  '@welshman/app@0.7.1':
-    resolution: {integrity: sha512-gHXuUVplKEtV2J7BDXxz9r6Gv9PwIfhXFEhjOraPW9/BEYS1zK0KneCe87jwZe5B/zmMk3dwMhkaUx4H3WphIA==}
+  '@welshman/app@0.8.16':
+    resolution: {integrity: sha512-TjF/9IkHKMTVR+1fZ6mJl07gz89X3g7NnTGxFathCP4jyeYxb6EYlUyKeO3qQH24rpP8ok4NvAjhehO757OxMw==}
+    peerDependencies:
+      '@pomade/core': ^0.2.1
+      '@welshman/feeds': 0.8.16
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16
+      '@welshman/router': 0.8.16
+      '@welshman/signer': 0.8.16
+      '@welshman/store': 0.8.16
+      '@welshman/util': 0.8.16
+      svelte: ^4.0.0 || ^5.0.0
 
-  '@welshman/content@0.7.1':
-    resolution: {integrity: sha512-AHSwpodzQ9zjgbKy7CRIoQg7Irni8PUNyqlvcj4RYbY19bgaGcSoozwjbDat0wY4ULBnVsX1y2DE3+rm5R0T2A==}
+  '@welshman/content@0.8.16':
+    resolution: {integrity: sha512-zf3dJUwEKCjO0v1FnitXro+tnHYN8jG7MXl+9lIQqVSjIxuCh1MlxKHXzSLPHKWwNUL+ZLsHoYc9GHGTp4mU2Q==}
+    peerDependencies:
+      nostr-tools: ^2.19.4
 
-  '@welshman/editor@0.7.1':
-    resolution: {integrity: sha512-fsCm+W8AQbygoN2+fm1LS6xkxdanB7v5FfhQKFsa8L1B9eYEYCAhwvrxy+nZsBEK/dt8zelk7qKQwq/CJ9sppQ==}
+  '@welshman/editor@0.8.16':
+    resolution: {integrity: sha512-ofoOhVxmAHEdvy0BVlZoO0vSX5QGp3k2C0A2wtSjm+3JtbCANpRI3cv/9HYZS1mVQE1mFWIBSa+xJ1r5PC5Rug==}
+    peerDependencies:
+      '@welshman/lib': 0.8.16
+      '@welshman/util': 0.8.16
+      nostr-editor: ^1.1.1
+      nostr-tools: ^2.19.4
 
-  '@welshman/feeds@0.7.1':
-    resolution: {integrity: sha512-i9SCE1jlVIBjM1pfPVW+5axQ0BSNBmOYeo9lKdFOjeTx1sHityb/Q3kK9lgie6IDgXhK/SshEH6bKdYSnOkVSg==}
+  '@welshman/feeds@0.8.16':
+    resolution: {integrity: sha512-cj6c9LUqzkWtES2iCTj9x3qgvg1xSe6s59w1B2osLKtm0X8RK+PWdE0qt7gT7APy1cFPbX9hxKoMjYTUiTW6tw==}
+    peerDependencies:
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16
+      '@welshman/router': 0.8.16
+      '@welshman/signer': 0.8.16
+      '@welshman/util': 0.8.16
 
-  '@welshman/lib@0.7.1':
-    resolution: {integrity: sha512-NQkxPwnAoUY4uSroQcfvR4YPG63j7Ke0R9YrLNXF9SQn2t2p6iAQ6A3GEOVu/koUQiVBseYn514lS7X1XkCP3A==}
+  '@welshman/lib@0.8.16':
+    resolution: {integrity: sha512-g9r6NgGFaxQGvPRJkw6ff2aiBgWwqUSNCYXG0QezJh6DOYBE/QyXJwqxdea9d3y7e6YiBQ1zNRJWhgJAm073JQ==}
     engines: {node: '>=12.0.0'}
 
-  '@welshman/net@0.7.1':
-    resolution: {integrity: sha512-S3dFH73Cy4phLy5I2KKEeefkRmNBYWB2qONK8txUVDhx1u7ezpALzZEMSPVqVIZk/vCQU3KJ0CyagvbuGF+F9Q==}
-
-  '@welshman/router@0.7.1':
-    resolution: {integrity: sha512-PZnbGHtbnVbsY+b+FqQHNlyY2+MrEAJ3arFiO3fouayb/sWHdBfSd9EL5UM1FQd1q0fjoZIncTmffRcvQfeBqQ==}
-
-  '@welshman/signer@0.7.1':
-    resolution: {integrity: sha512-/WNEgXZemQ36A07lmrEy78Yn7kEngBjySmXW+xYmHc3OLhQ9XEq3FBCTR+vxsmp1w/t+7IEScPTKn/wvAQ/cSw==}
+  '@welshman/net@0.8.16':
+    resolution: {integrity: sha512-yCA09pWjS/E1ovYZ887KlDDBcPPtjjjMBw4iYBg122q0HbRpGULGEbbuo5LrVW8Q5bqmbUGVmiVsUDEb5N1NWw==}
     peerDependencies:
-      nostr-signer-capacitor-plugin: ~0.0.4
+      '@welshman/lib': 0.8.16
+      '@welshman/util': 0.8.16
 
-  '@welshman/store@0.7.1':
-    resolution: {integrity: sha512-EE+vlMdUeVgQhzJqzhAkbLnnOL22gXW8afJzR377n+CvHABLV7/zY9aW0Hmgm1RnyI7fSfWF2YEa6l6VP8x4pw==}
+  '@welshman/router@0.8.16':
+    resolution: {integrity: sha512-/ybAllWVGUSCVXCcBa9VILzErhj0fsm+ZGWtBiW1nYSv6eQDHaD1fgNREiFLsmaVrK3nUwkAEd0FcvCMtTm0NQ==}
+    peerDependencies:
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16
+      '@welshman/util': 0.8.16
 
-  '@welshman/util@0.7.1':
-    resolution: {integrity: sha512-UGryq1jfwRHFS7mjGa4fmuqN851iwKeR+616LmUpTJQHAfhGU7ifer2+JLdDLYBU/neI5iKHdRDO5hg92U6k8Q==}
+  '@welshman/signer@0.8.16':
+    resolution: {integrity: sha512-iQMksWe/TIiXbHdnfnK+q3l4eLgBo2Wlw8rfDnb8hK4cC4VlbciOHEi+p1HIIxu/CftJZ4P15BnFueOEb90rsw==}
+    peerDependencies:
+      '@noble/curves': ^1.9.7
+      '@noble/hashes': ^2.0.1
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16
+      '@welshman/util': 0.8.16
+      nostr-signer-capacitor-plugin: '*'
+      nostr-tools: ^2.19.4
+
+  '@welshman/store@0.8.16':
+    resolution: {integrity: sha512-Xxq0hGLZczMEy3NNOjizJWphAuoWwSYdFlwjfTl/Ls3MopP5XE9G61AcXMuAokF4k6tykjluTuWu3E0bqlwU1w==}
+    peerDependencies:
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16
+      '@welshman/util': 0.8.16
+      svelte: ^4.0.0 || ^5.0.0
+
+  '@welshman/util@0.8.16':
+    resolution: {integrity: sha512-7c7lIWFgVKw+qaC9Gcbt21cwX9YrBZnDAVcCxjodlb4OgrbjEBsHorHevV+vQKWLO3dA5CisuD6E+0JjFX1F1w==}
+    peerDependencies:
+      '@noble/curves': ^1.9.7
+      '@welshman/lib': 0.8.16
+      nostr-tools: ^2.19.4
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -2348,6 +2480,10 @@ packages:
   aria-query@5.3.2:
     resolution: {integrity: sha512-COROpnaoap1E2F000S62r6A60uHZnmlvomhfyT2DlTcrY1OrBKn2UhH7qn5wTC9zMvD0AY7csdPSNwKP+7WiQw==}
     engines: {node: '>= 0.4'}
+
+  asn1js@3.0.10:
+    resolution: {integrity: sha512-S2s3aOytiKdFRdulw2qPE51MzjzVOisppcVv7jVFR+Kw0kxwvFrDcYA0h7Ndqbmj0HkMIXYWaoj7fli8kgx1eg==}
+    engines: {node: '>=12.0.0'}
 
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
@@ -2516,6 +2652,13 @@ packages:
   caniuse-lite@1.0.30001776:
     resolution: {integrity: sha512-sg01JDPzZ9jGshqKSckOQthXnYwOEP50jeVFhaSFbZcOy05TiuuaffDOfcwtCisJ9kNQuLBFibYywv2Bgm9osw==}
 
+  cbor-extract@2.2.2:
+    resolution: {integrity: sha512-hlSxxI9XO2yQfe9g6msd3g4xCfDqK5T5P0fRMLuaLHhxn4ViPrm+a+MUfhrvH2W962RGxcBwEGzLQyjbDG1gng==}
+    hasBin: true
+
+  cbor-x@1.6.4:
+    resolution: {integrity: sha512-UGKHjp6RHC6QuZ2yy5LCKm7MojM4716DwoSaqwQpaH4DvZvbBTGcoDNTiG9Y2lByXZYFEs9WRkS5tLl96IrF1Q==}
+
   chai@5.3.3:
     resolution: {integrity: sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==}
     engines: {node: '>=18'}
@@ -2555,9 +2698,6 @@ packages:
   clsx@2.1.1:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
-
-  code-red@1.0.4:
-    resolution: {integrity: sha512-7qJWqItLA8/VPVlKJlFXU+NBlo/qyfs39aJcuMT/2ere32ZqvF5OSxgdM5xOfJJ7O429gg2HM47y8v9P+9wrNw==}
 
   codemirror@6.0.2:
     resolution: {integrity: sha512-VhydHotNW5w1UGK0Qj96BwSk/Zqbp9WbnyK2W/eVMv4QyF41INRGpjUhFJY7/uDNuudSc33a/PKr4iDqRduvHw==}
@@ -2635,10 +2775,6 @@ packages:
   css-tree@2.2.1:
     resolution: {integrity: sha512-OA0mILzGc1kCOCSJerOeqDxDQ4HOh+G8NbOJFOTgOCzpw7fCBubk0fEyxp8AgOL/jvLgYA/uV0cMbe43ElF1JA==}
     engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0, npm: '>=7.0.0'}
-
-  css-tree@2.3.1:
-    resolution: {integrity: sha512-6Fv1DV/TYw//QF5IzQdqsNDjx/wc8TrMBZsqjL9eW01tWb7R7k/mq+/VXfJCl7SoD5emsJop9cOByJZfs8hYIw==}
-    engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
 
   css-tree@3.1.0:
     resolution: {integrity: sha512-0eW44TGN5SQXU1mWSkKwFstI/22X2bG1nYzZTYMAWjylYURhse752YgbE4Cx46AC+bAvI+/dYTPRk1LqSUnu6w==}
@@ -3163,6 +3299,9 @@ packages:
     resolution: {integrity: sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==}
     engines: {node: '>= 0.4'}
 
+  hash-wasm@4.12.0:
+    resolution: {integrity: sha512-+/2B2rYLb48I/evdOIhP+K/DD2ca2fgBjp6O+GBEnCDk2e4rpeXIK8GvIyRPjTezgmWn9gmKwkQjjx6BtqDHVQ==}
+
   hasown@2.0.2:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
@@ -3455,9 +3594,6 @@ packages:
   mdn-data@2.0.28:
     resolution: {integrity: sha512-aylIc7Z9y4yzHYAJNuESG3hfhC+0Ibp/MAMiaOZgNv4pmEdFyfZhhhny4MNiAfWdBQ1RQ2mfDWmM1x8SvGyp8g==}
 
-  mdn-data@2.0.30:
-    resolution: {integrity: sha512-GaqWWShW4kv/G9IEucWScBx9G1/vsFZZJUO+tD26M8J8z3Kw5RDQjaoZe03YAClgeS/SWPOcb4nkFBTEi5DUEA==}
-
   mdn-data@2.12.2:
     resolution: {integrity: sha512-IEn+pegP1aManZuckezWCO+XZQDplx1366JoVhTpMpBB1sPey/SbveZQUosKiKiGYjg1wH4pMlNgXbCiYgihQA==}
 
@@ -3543,6 +3679,10 @@ packages:
 
   node-addon-api@6.1.0:
     resolution: {integrity: sha512-+eawOlIgy680F0kBzPUNFhMZGtJ1YmqM6l4+Crf4IkImjYrO/mqPwRMh352g23uIaQKFItcQ64I7KMaJxHgAVA==}
+
+  node-gyp-build-optional-packages@5.1.1:
+    resolution: {integrity: sha512-+P72GAjVAbTxjjwUmwjVrqrdZROD4nf8KgpBoDxqXXTiYZZt/ud60dE5yvCSr9lRO8e8yv6kgJIC0K0PfZFVQw==}
+    hasBin: true
 
   node-releases@2.0.27:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
@@ -3690,9 +3830,6 @@ packages:
   pathval@2.0.1:
     resolution: {integrity: sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==}
     engines: {node: '>= 14.16'}
-
-  periscopic@3.1.0:
-    resolution: {integrity: sha512-vKiQ8RRtkl9P+r/+oefh25C3fhybptkHKCZSPlcXiJux2tJF55GnEj3BVn4A5gKfq9NWWXXrxkHBwVPUfH0opw==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -3975,6 +4112,13 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  pvtsutils@1.3.6:
+    resolution: {integrity: sha512-PLgQXQ6H2FWCaeRak8vvk1GW462lMxB5s3Jm673N82zI4vqtVUPuZdffdZbPDFRoU8kAhItWFtPCWiPpp4/EDg==}
+
+  pvutils@1.1.5:
+    resolution: {integrity: sha512-KTqnxsgGiQ6ZAzZCVlJH5eOjSnvlyEgx1m8bkRJfOhmGRqfo5KLvmAlACQkrjEtOQ4B7wF9TdSLIs9O90MX9xA==}
+    engines: {node: '>=16.0.0'}
+
   qr-scanner@1.4.2:
     resolution: {integrity: sha512-kV1yQUe2FENvn59tMZW6mOVfpq9mGxGf8l6+EGaXUOd4RBOLg7tRC83OrirM5AtDvZRpdjdlXURsHreAOSPOUw==}
 
@@ -4012,6 +4156,9 @@ packages:
   readdirp@5.0.0:
     resolution: {integrity: sha512-9u/XQ1pvrQtYyMpZe7DXKv2p5CNvyVwzUB6uhLAnQwHMSgKMBR62lc7AHljaeteeHXn11XTAaLLUVZYVZyuRBQ==}
     engines: {node: '>= 20.19.0'}
+
+  reflect-metadata@0.2.2:
+    resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
@@ -4268,10 +4415,6 @@ packages:
       svelte: ^3.55 || ^4.0.0-next.0 || ^4.0 || ^5.0.0-next.0
       typescript: ^4.9.4 || ^5.0.0
 
-  svelte@4.2.20:
-    resolution: {integrity: sha512-eeEgGc2DtiUil5ANdtd8vPwt9AgaMdnuUFnPft9F5oMvU/FHu5IHFic+p1dR/UOB7XU2mX2yHW+NcTch4DCh5Q==}
-    engines: {node: '>=16'}
-
   svelte@5.39.12:
     resolution: {integrity: sha512-CEzwxFuEycokU8K8CE/OuwVbmei+ivu2HvBGYIdASfMa1hCRSNr4RRkzNSvbAvu6h+BOig2CsZTAEY+WKvwZpA==}
     engines: {node: '>=18'}
@@ -4451,8 +4594,15 @@ packages:
       '@swc/wasm':
         optional: true
 
+  tslib@1.14.1:
+    resolution: {integrity: sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg==}
+
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
+
+  tsyringe@4.10.0:
+    resolution: {integrity: sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw==}
+    engines: {node: '>= 6.0.0'}
 
   tunnel-agent@0.6.0:
     resolution: {integrity: sha512-McnNiV1l8RYeY8tBgEpuodCC1mLUdbSN+CYBL7kJsJNInOP8UjDDEwdk6Mw60vdLLrr5NHKZhMAOSrR2NZuQ+w==}
@@ -4803,6 +4953,45 @@ snapshots:
       '@cashu/coco-core': 1.0.0(typescript@5.9.3)
       dexie: 4.3.0
       typescript: 5.9.3
+
+  '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
+    optional: true
+
+  '@cbor-extract/cbor-extract-darwin-x64@2.2.2':
+    optional: true
+
+  '@cbor-extract/cbor-extract-linux-arm64@2.2.2':
+    optional: true
+
+  '@cbor-extract/cbor-extract-linux-arm@2.2.2':
+    optional: true
+
+  '@cbor-extract/cbor-extract-linux-x64@2.2.2':
+    optional: true
+
+  '@cbor-extract/cbor-extract-win32-x64@2.2.2':
+    optional: true
+
+  '@cmdcode/buff@2.2.5':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      '@scure/base': 1.2.6
+
+  '@cmdcode/frost@1.1.4':
+    dependencies:
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+      '@vbyte/buff': 1.1.0
+
+  '@cmdcode/nostr-p2p@2.0.11(typescript@5.9.3)':
+    dependencies:
+      '@cmdcode/buff': 2.2.5
+      '@noble/ciphers': 1.3.0
+      '@noble/curves': 1.9.7
+      nostr-tools: 2.23.3(typescript@5.9.3)
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - typescript
 
   '@codemirror/autocomplete@6.20.1':
     dependencies:
@@ -5204,6 +5393,17 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
+  '@frostr/bifrost@1.0.7(typescript@5.9.3)':
+    dependencies:
+      '@cmdcode/buff': 2.2.5
+      '@cmdcode/frost': 1.1.4
+      '@cmdcode/nostr-p2p': 2.0.11(typescript@5.9.3)
+      '@noble/ciphers': 1.3.0
+      '@noble/curves': 1.9.7
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - typescript
+
   '@getalby/lightning-tools@5.2.1': {}
 
   '@getalby/lightning-tools@6.1.0': {}
@@ -5382,24 +5582,6 @@ snapshots:
       '@noble/hashes': 2.0.1
       fflate: 0.8.2
 
-  '@jsr/fiatjaf__promenade-trusted-dealer@0.4.1':
-    dependencies:
-      '@jsr/henrygd__semaphore': 0.0.2
-      '@jsr/nostr__tools': 2.16.2
-      '@noble/curves': 1.9.7
-
-  '@jsr/henrygd__semaphore@0.0.2': {}
-
-  '@jsr/nostr__tools@2.16.2':
-    dependencies:
-      '@noble/ciphers': 0.5.3
-      '@noble/curves': 1.2.0
-      '@noble/hashes': 1.3.1
-      '@scure/base': 1.1.1
-      '@scure/bip32': 1.3.1
-      '@scure/bip39': 1.2.1
-      nostr-wasm: 0.1.0
-
   '@lezer/common@1.5.1': {}
 
   '@lezer/cpp@1.1.5':
@@ -5499,6 +5681,8 @@ snapshots:
 
   '@noble/ciphers@0.5.3': {}
 
+  '@noble/ciphers@1.3.0': {}
+
   '@noble/ciphers@2.1.1': {}
 
   '@noble/curves@1.1.0':
@@ -5583,6 +5767,100 @@ snapshots:
     dependencies:
       '@octokit/openapi-types': 27.0.0
 
+  '@peculiar/asn1-cms@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      '@peculiar/asn1-x509-attr': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-csr@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-ecc@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-pfx@2.8.0':
+    dependencies:
+      '@peculiar/asn1-cms': 2.8.0
+      '@peculiar/asn1-pkcs8': 2.8.0
+      '@peculiar/asn1-rsa': 2.8.0
+      '@peculiar/asn1-schema': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-pkcs8@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-pkcs9@2.8.0':
+    dependencies:
+      '@peculiar/asn1-cms': 2.8.0
+      '@peculiar/asn1-pfx': 2.8.0
+      '@peculiar/asn1-pkcs8': 2.8.0
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      '@peculiar/asn1-x509-attr': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-rsa@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-schema@2.8.0':
+    dependencies:
+      '@peculiar/utils': 2.0.3
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-x509-attr@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/asn1-x509@2.8.0':
+    dependencies:
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/utils': 2.0.3
+      asn1js: 3.0.10
+      tslib: 2.8.1
+
+  '@peculiar/utils@2.0.3':
+    dependencies:
+      tslib: 2.8.1
+
+  '@peculiar/x509@1.14.3':
+    dependencies:
+      '@peculiar/asn1-cms': 2.8.0
+      '@peculiar/asn1-csr': 2.8.0
+      '@peculiar/asn1-ecc': 2.8.0
+      '@peculiar/asn1-pkcs9': 2.8.0
+      '@peculiar/asn1-rsa': 2.8.0
+      '@peculiar/asn1-schema': 2.8.0
+      '@peculiar/asn1-x509': 2.8.0
+      pvtsutils: 1.3.6
+      reflect-metadata: 0.2.2
+      tslib: 2.8.1
+      tsyringe: 4.10.0
+
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
@@ -5591,6 +5869,20 @@ snapshots:
       playwright: 1.58.2
 
   '@polka/url@1.0.0-next.29': {}
+
+  '@pomade/core@0.2.6(@frostr/bifrost@1.0.7(typescript@5.9.3))(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/signer@0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3)))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-tools@2.23.3(typescript@5.9.3))':
+    dependencies:
+      '@frostr/bifrost': 1.0.7(typescript@5.9.3)
+      '@noble/hashes': 2.0.1
+      '@peculiar/x509': 1.14.3
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/signer': 0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3))
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
+      cbor-x: 1.6.4
+      hash-wasm: 4.12.0
+      nostr-tools: 2.23.3(typescript@5.9.3)
+      zod: 4.3.6
 
   '@poppanator/sveltekit-svg@4.2.1(rollup@4.59.0)(svelte@5.39.12)(svgo@4.0.0)(vite@5.4.20(@types/node@22.19.13)(terser@5.46.0))':
     dependencies:
@@ -6221,6 +6513,8 @@ snapshots:
       '@typescript-eslint/types': 8.56.1
       eslint-visitor-keys: 5.0.1
 
+  '@vbyte/buff@1.1.0': {}
+
   '@vite-pwa/assets-generator@0.2.6':
     dependencies:
       cac: 6.7.14
@@ -6383,32 +6677,26 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@welshman/app@0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)':
+  '@welshman/app@0.8.16(0c487e7580b1fe7422e6beaa07ba6504)':
     dependencies:
-      '@types/throttle-debounce': 5.0.2
-      '@welshman/feeds': 0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/lib': 0.7.1
-      '@welshman/net': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/router': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/signer': 0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/store': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+      '@pomade/core': 0.2.6(@frostr/bifrost@1.0.7(typescript@5.9.3))(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/signer@0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3)))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-tools@2.23.3(typescript@5.9.3))
+      '@welshman/feeds': 0.8.16(576d4f31a3809f254d53047fea7e12d2)
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/router': 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))
+      '@welshman/signer': 0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3))
+      '@welshman/store': 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(svelte@5.39.12)
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
       fuse.js: 7.1.0
-      svelte: 4.2.20
+      svelte: 5.39.12
       throttle-debounce: 5.0.2
-    transitivePeerDependencies:
-      - nostr-signer-capacitor-plugin
-      - typescript
-      - ws
 
-  '@welshman/content@0.7.1(typescript@5.9.3)':
+  '@welshman/content@0.8.16(nostr-tools@2.23.3(typescript@5.9.3))':
     dependencies:
       '@braintree/sanitize-url': 7.1.2
       nostr-tools: 2.23.3(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
 
-  '@welshman/editor@0.7.1(@tiptap/extension-image@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(@tiptap/extension-link@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1))(linkifyjs@4.3.2)(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(tiptap-markdown@0.8.10(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(typescript@5.9.3)':
+  '@welshman/editor@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-editor@1.1.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/extension-image@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(@tiptap/extension-link@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1)(linkifyjs@4.3.2)(nostr-tools@2.23.3(typescript@5.9.3))(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(tiptap-markdown@0.8.10(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))))(nostr-tools@2.23.3(typescript@5.9.3))':
     dependencies:
       '@tiptap/core': 2.27.1(@tiptap/pm@2.27.1)
       '@tiptap/extension-code': 2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))
@@ -6423,94 +6711,67 @@ snapshots:
       '@tiptap/extension-text': 2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))
       '@tiptap/pm': 2.27.1
       '@tiptap/suggestion': 2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1)
-      '@welshman/lib': 0.7.1
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+      '@welshman/lib': 0.8.16
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
       nostr-editor: 1.1.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/extension-image@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(@tiptap/extension-link@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1)(linkifyjs@4.3.2)(nostr-tools@2.23.3(typescript@5.9.3))(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(tiptap-markdown@0.8.10(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))
       nostr-tools: 2.23.3(typescript@5.9.3)
       tippy.js: 6.3.7
-    transitivePeerDependencies:
-      - '@tiptap/extension-image'
-      - '@tiptap/extension-link'
-      - linkifyjs
-      - prosemirror-markdown
-      - prosemirror-model
-      - prosemirror-state
-      - prosemirror-view
-      - tiptap-markdown
-      - typescript
 
-  '@welshman/feeds@0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)':
+  '@welshman/feeds@0.8.16(576d4f31a3809f254d53047fea7e12d2)':
     dependencies:
-      '@welshman/lib': 0.7.1
-      '@welshman/net': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/router': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/signer': 0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/router': 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))
+      '@welshman/signer': 0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3))
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
       trava: 1.2.1
-    transitivePeerDependencies:
-      - nostr-signer-capacitor-plugin
-      - typescript
-      - ws
 
-  '@welshman/lib@0.7.1':
+  '@welshman/lib@0.8.16':
     dependencies:
       '@scure/base': 1.2.6
       '@types/events': 3.0.3
       events: 3.3.0
 
-  '@welshman/net@0.7.1(typescript@5.9.3)(ws@8.19.0)':
+  '@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)':
     dependencies:
-      '@welshman/lib': 0.7.1
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+      '@welshman/lib': 0.8.16
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
       events: 3.3.0
       isomorphic-ws: 5.0.0(ws@8.19.0)
     transitivePeerDependencies:
-      - typescript
       - ws
 
-  '@welshman/router@0.7.1(typescript@5.9.3)(ws@8.19.0)':
+  '@welshman/router@0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))':
     dependencies:
-      '@welshman/lib': 0.7.1
-      '@welshman/net': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
-      - ws
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
 
-  '@welshman/signer@0.7.1(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(typescript@5.9.3)(ws@8.19.0)':
+  '@welshman/signer@0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3))':
     dependencies:
-      '@jsr/fiatjaf__promenade-trusted-dealer': 0.4.1
       '@noble/curves': 1.9.7
       '@noble/hashes': 2.0.1
-      '@welshman/lib': 0.7.1
-      '@welshman/net': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
       nostr-signer-capacitor-plugin: 0.0.4(@capacitor/core@7.5.0)
       nostr-tools: 2.23.3(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
-      - ws
 
-  '@welshman/store@0.7.1(typescript@5.9.3)(ws@8.19.0)':
+  '@welshman/store@0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(svelte@5.39.12)':
     dependencies:
-      '@welshman/lib': 0.7.1
-      '@welshman/net': 0.7.1(typescript@5.9.3)(ws@8.19.0)
-      '@welshman/util': 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
-      svelte: 4.2.20
-    transitivePeerDependencies:
-      - typescript
-      - ws
+      '@welshman/lib': 0.8.16
+      '@welshman/net': 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
+      '@welshman/util': 0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))
+      svelte: 5.39.12
 
-  '@welshman/util@0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)':
+  '@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3))':
     dependencies:
       '@noble/curves': 1.9.7
       '@types/ws': 8.18.1
-      '@welshman/lib': 0.7.1
+      '@welshman/lib': 0.8.16
       js-base64: 3.7.8
       nostr-tools: 2.23.3(typescript@5.9.3)
       nostr-wasm: 0.1.0
-    transitivePeerDependencies:
-      - typescript
 
   abort-controller@3.0.0:
     dependencies:
@@ -6561,6 +6822,12 @@ snapshots:
   argparse@2.0.1: {}
 
   aria-query@5.3.2: {}
+
+  asn1js@3.0.10:
+    dependencies:
+      pvtsutils: 1.3.6
+      pvutils: 1.1.5
+      tslib: 2.8.1
 
   assertion-error@2.0.1: {}
 
@@ -6721,6 +6988,22 @@ snapshots:
 
   caniuse-lite@1.0.30001776: {}
 
+  cbor-extract@2.2.2:
+    dependencies:
+      node-gyp-build-optional-packages: 5.1.1
+    optionalDependencies:
+      '@cbor-extract/cbor-extract-darwin-arm64': 2.2.2
+      '@cbor-extract/cbor-extract-darwin-x64': 2.2.2
+      '@cbor-extract/cbor-extract-linux-arm': 2.2.2
+      '@cbor-extract/cbor-extract-linux-arm64': 2.2.2
+      '@cbor-extract/cbor-extract-linux-x64': 2.2.2
+      '@cbor-extract/cbor-extract-win32-x64': 2.2.2
+    optional: true
+
+  cbor-x@1.6.4:
+    optionalDependencies:
+      cbor-extract: 2.2.2
+
   chai@5.3.3:
     dependencies:
       assertion-error: 2.0.1
@@ -6769,14 +7052,6 @@ snapshots:
       wrap-ansi: 6.2.0
 
   clsx@2.1.1: {}
-
-  code-red@1.0.4:
-    dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
-      '@types/estree': 1.0.8
-      acorn: 8.16.0
-      estree-walker: 3.0.3
-      periscopic: 3.1.0
 
   codemirror@6.0.2:
     dependencies:
@@ -6859,11 +7134,6 @@ snapshots:
   css-tree@2.2.1:
     dependencies:
       mdn-data: 2.0.28
-      source-map-js: 1.2.1
-
-  css-tree@2.3.1:
-    dependencies:
-      mdn-data: 2.0.30
       source-map-js: 1.2.1
 
   css-tree@3.1.0:
@@ -7426,6 +7696,8 @@ snapshots:
     dependencies:
       has-symbols: 1.1.0
 
+  hash-wasm@4.12.0: {}
+
   hasown@2.0.2:
     dependencies:
       function-bind: 1.1.2
@@ -7707,8 +7979,6 @@ snapshots:
 
   mdn-data@2.0.28: {}
 
-  mdn-data@2.0.30: {}
-
   mdn-data@2.12.2: {}
 
   mdurl@2.0.0: {}
@@ -7775,6 +8045,11 @@ snapshots:
       semver: 7.7.4
 
   node-addon-api@6.1.0: {}
+
+  node-gyp-build-optional-packages@5.1.1:
+    dependencies:
+      detect-libc: 2.1.2
+    optional: true
 
   node-releases@2.0.27: {}
 
@@ -7921,12 +8196,6 @@ snapshots:
   pathe@2.0.3: {}
 
   pathval@2.0.1: {}
-
-  periscopic@3.1.0:
-    dependencies:
-      '@types/estree': 1.0.8
-      estree-walker: 3.0.3
-      is-reference: 3.0.3
 
   picocolors@1.1.1: {}
 
@@ -8167,6 +8436,12 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  pvtsutils@1.3.6:
+    dependencies:
+      tslib: 2.8.1
+
+  pvutils@1.1.5: {}
+
   qr-scanner@1.4.2:
     dependencies:
       '@types/offscreencanvas': 2019.7.3
@@ -8211,6 +8486,8 @@ snapshots:
   readdirp@4.1.2: {}
 
   readdirp@5.0.0: {}
+
+  reflect-metadata@0.2.2: {}
 
   require-directory@2.1.1: {}
 
@@ -8539,23 +8816,6 @@ snapshots:
       svelte: 5.39.12
       typescript: 5.9.3
 
-  svelte@4.2.20:
-    dependencies:
-      '@ampproject/remapping': 2.3.0
-      '@jridgewell/sourcemap-codec': 1.5.5
-      '@jridgewell/trace-mapping': 0.3.31
-      '@types/estree': 1.0.8
-      acorn: 8.16.0
-      aria-query: 5.3.2
-      axobject-query: 4.1.0
-      code-red: 1.0.4
-      css-tree: 2.3.1
-      estree-walker: 3.0.3
-      is-reference: 3.0.3
-      locate-character: 3.0.0
-      magic-string: 0.30.21
-      periscopic: 3.1.0
-
   svelte@5.39.12:
     dependencies:
       '@jridgewell/remapping': 2.3.5
@@ -8797,7 +9057,13 @@ snapshots:
       yn: 3.1.1
     optional: true
 
+  tslib@1.14.1: {}
+
   tslib@2.8.1: {}
+
+  tsyringe@4.10.0:
+    dependencies:
+      tslib: 1.14.1
 
   tunnel-agent@0.6.0:
     dependencies:
