@@ -70,7 +70,13 @@
   - `pnpm exec vitest run src/app/core/community-state-loading.test.ts`: passed, 15 tests.
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
+- Phase 2 transition:
+  - `git commit -m "perf: add community permission readiness"`: created `45c9a361`.
+  - `git push`: pushed `dev` to `origin/dev`.
+  - `git status --short --branch`: clean after push before this checkpoint repair.
   - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
+- Phase 2 was committed and pushed as `45c9a361 perf: add community permission readiness`.
+- Post-push checkpoint reread confirmed `Current Phase: Phase 3: Shared Config And Widget Loads`; this repair updates stale Phase 2 transition text left in `Current State`, `Next Action`, and `Risks Or Blockers`.
 
 ## Decisions
 
@@ -84,12 +90,12 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Phase 1 is committed and pushed.
-- Phase 2 verification has passed and the phase is ready to commit and push.
+- Phase 2 is committed and pushed.
 - Phase 3 should inspect extension shared-config loading and widget community context retry behavior.
 
 ## Next Action
 
-- Commit and push Phase 2, reread this checkpoint, then start Phase 3 by inspecting `src/app/extensions/bridge.ts`, widget frame/context producers, and the calendar widget config path.
+- Start Phase 3 by inspecting `src/app/extensions/bridge.ts`, widget frame/context producers, and the calendar widget config path.
 
 ## Verification
 
@@ -114,8 +120,7 @@
 ## Risks Or Blockers
 
 - No blocker.
-- Need commit and push the verified Phase 2 changes, then reread this checkpoint.
-- Residual UX risk requires browser/device validation beyond local checks.
+- Phase 3 needs focused bridge/widget tests plus browser/device validation beyond local checks.
 
 ## Files
 
