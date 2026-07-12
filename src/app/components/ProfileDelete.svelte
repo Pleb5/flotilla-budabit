@@ -9,7 +9,13 @@
     getAddress,
     RelayMode,
   } from "@welshman/util"
-  import {pubkey, publishThunk, repository, derivePubkeyRelays} from "@welshman/app"
+  import {
+    derivePubkeyRelays,
+    pubkey,
+    publishThunk,
+    repository,
+    waitForThunkCompletion,
+  } from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
@@ -55,12 +61,12 @@
     }
 
     // First, blank out their profile in case relays don't support deletion by address
-    await publishThunk({relays: profileRelays, event: profileEvent})
+    await waitForThunkCompletion(publishThunk({relays: profileRelays, event: profileEvent}))
 
     await incrementProgress()
 
     // Next, send a "right to vanish" event to all relays
-    await publishThunk({relays, event: vanishEvent})
+    await waitForThunkCompletion(publishThunk({relays, event: vanishEvent}))
 
     await incrementProgress()
 
@@ -76,7 +82,7 @@
         }
       }
 
-      await publishThunk({relays, event: makeEvent(DELETE, {tags})})
+      await waitForThunkCompletion(publishThunk({relays, event: makeEvent(DELETE, {tags})}))
 
       await incrementProgress()
     }

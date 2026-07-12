@@ -11,6 +11,7 @@ import {
   publishThunk,
   repository,
   signer,
+  waitForThunkCompletion,
 } from "@welshman/app"
 import {Router} from "@welshman/router"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
@@ -216,7 +217,9 @@ const publishRepoWatchState = async (next: RepoWatchState) => {
 
   const content = await $signer.nip44.encrypt($pubkey, JSON.stringify(next))
   const event = makeEvent(APP_DATA, {content, tags: [["d", REPO_WATCH_DTAG]]})
-  await publishThunk({event, relays: getUserDataPublishRelays(Router.get().FromUser().getUrls())})
+  await waitForThunkCompletion(
+    publishThunk({event, relays: getUserDataPublishRelays(Router.get().FromUser().getUrls())}),
+  )
 }
 
 export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOptions | null) => {

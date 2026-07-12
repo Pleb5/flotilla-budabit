@@ -11,6 +11,7 @@ import {
   publishThunk,
   repository,
   signer,
+  waitForThunkCompletion,
 } from "@welshman/app"
 import {Router} from "@welshman/router"
 import {getNip85CapabilityLabel, getNip85ProviderKey, type Nip85ConfiguredProvider} from "./nip85"
@@ -244,7 +245,7 @@ export const saveTrustGraphConfig = async (config: TrustGraphConfig) => {
   )
   const event = makeEvent(APP_DATA, {content, tags: [["d", TRUST_GRAPH_DTAG]]})
 
-  await publishThunk({event, relays: Router.get().FromUser().getUrls()})
+  await waitForThunkCompletion(publishThunk({event, relays: Router.get().FromUser().getUrls()}))
 }
 
 const findPresetProviderSource = (

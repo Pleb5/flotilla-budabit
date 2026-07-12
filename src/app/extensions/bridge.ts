@@ -552,7 +552,7 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
       }
     }
 
-    const thunk = publishThunk(event)
+    const thunk = publishThunk({event, relays: relays ?? []})
     await thunk.complete
     console.log(
       `[bridge] nostr:publish publishThunk completed (no relays), waiting for relay indexing`,

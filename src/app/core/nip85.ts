@@ -29,6 +29,7 @@ import {
   publishThunk,
   repository,
   signer,
+  waitForThunkCompletion,
 } from "@welshman/app"
 import {loadBudabitProfile} from "@app/core/profile-resolver"
 import {
@@ -476,7 +477,7 @@ export const saveUserNip85ProviderConfig = async (providers: Nip85ConfiguredProv
   const {publicTags, privateTags} = splitNip85ConfiguredProviders(nextProviders)
   const event = await updateList(current, {publicTags, privateTags}).reconcile(nip44EncryptToSelf)
 
-  await publishThunk({event, relays: Router.get().FromUser().getUrls()})
+  await waitForThunkCompletion(publishThunk({event, relays: Router.get().FromUser().getUrls()}))
 }
 
 let recommendationRun = 0
