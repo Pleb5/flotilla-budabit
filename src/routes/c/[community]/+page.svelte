@@ -30,6 +30,7 @@
     activeCommunitySession,
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -206,6 +207,19 @@
       }),
     ),
   )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      $pubkey &&
+        communityId &&
+        $activeCommunityPermissionStatus.communityPubkey === communityId &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const createRoomPermissionLoading = $derived(
+    Boolean(communityPermissionsLoading && !canCreateRoom),
+  )
   const pendingModeratorInvites = $derived.by(() => {
     return getPendingCommunityModeratorInvites({
       definition: $activeCommunityDefinition,
@@ -222,7 +236,17 @@
   let moderatorInviteEvidenceKey = ""
   let moderatorInviteEvidenceLoaded = $state(false)
   const showPendingModeratorInvites = $derived(
-    moderatorInviteEvidenceLoaded && pendingModeratorInvites.length > 0,
+    !communityPermissionsLoading &&
+      moderatorInviteEvidenceLoaded &&
+      pendingModeratorInvites.length > 0,
+  )
+  const showModeratorInviteLoading = $derived(
+    Boolean(
+      $pubkey &&
+        !showPendingModeratorInvites &&
+        pendingModeratorInvites.length > 0 &&
+        (communityPermissionsLoading || !moderatorInviteEvidenceLoaded),
+    ),
   )
   const MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS = 2_000
   const ROOM_ROOT_LOAD_TIMEOUT_MS = 8_000
@@ -244,7 +268,17 @@
   const roomsWaitingForRequest = $derived(
     Boolean(roomFilters.length > 0 && (roomRootsLoading || !roomRootsLoaded)),
   )
-  const roomsLoading = $derived(roomsWaitingForDefinition || roomsWaitingForRequest)
+  const roomsWaitingForPermissions = $derived(
+    Boolean(
+      communityPermissionsLoading &&
+        communityDefinitionReady &&
+        rooms.length === 0 &&
+        roomFilters.length === 0,
+    ),
+  )
+  const roomsLoading = $derived(
+    roomsWaitingForDefinition || roomsWaitingForRequest || roomsWaitingForPermissions,
+  )
   // Skeleton delay: suppress the loading card entirely for the first
   // ~800ms after entering a community so fast/warm cache paths never
   // flash a "Looking for rooms..." spinner.
@@ -570,7 +604,16 @@
     </section>
   {/if}
 
-  {#if showPendingModeratorInvites}
+  {#if showModeratorInviteLoading}
+    <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
+      <div class="flex flex-col gap-2">
+        <h2 class="text-lg font-semibold text-warning">Checking moderator invite evidence</h2>
+        <p class="text-sm opacity-75">
+          Loading permissions before showing accept or decline actions for this community.
+        </p>
+      </div>
+    </section>
+  {:else if showPendingModeratorInvites}
     <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
@@ -686,17 +729,23 @@
         <div>
           <h3 class="flex items-center gap-2 text-lg font-semibold">
             <Icon icon={Hashtag} />
-            {roomsLoading
+            {roomsWaitingForPermissions
+              ? "Loading room permissions..."
+              : roomsLoading
               ? "Looking for rooms..."
               : roomsUnavailable
                 ? "Rooms unavailable"
                 : "No rooms found"}
           </h3>
           <p class="text-sm opacity-70">
-            {roomsLoading
+            {roomsWaitingForPermissions
+              ? "Checking who can publish rooms before showing room actions."
+              : roomsLoading
               ? "Loading community rooms."
               : roomsUnavailable
                 ? "Community definition must load before rooms can be checked."
+              : createRoomPermissionLoading
+                ? "Loading permissions before showing room actions."
               : canCreateRoom && roomsSettledEmpty
                 ? "Create the first room for this community."
                 : "No rooms have been published yet."}

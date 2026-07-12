@@ -27,6 +27,7 @@
   import {
     activeCommunityDefinition,
     activeCommunityAdmissionForms,
+    activeCommunityPermissionStatus,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -178,6 +179,19 @@
         }).canGrant,
     )
   })
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      $pubkey &&
+        community &&
+        $activeCommunityPermissionStatus.communityPubkey === community &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const moderationPermissionLoading = $derived(
+    Boolean(communityPermissionsLoading && !canModerate),
+  )
   const grantableAdmissionForms = $derived.by(() => {
     const definition = $activeCommunityDefinition
     const userPubkey = $pubkey
@@ -268,6 +282,7 @@
       }),
     ),
   )
+  const roomPermissionLoading = $derived(Boolean(communityPermissionsLoading && !canCreateRoom))
 
   const goHome = () => goto(homePath, {replaceState})
   const login = () => pushModal(LogIn, {}, {replaceState})
@@ -392,7 +407,7 @@
         </SecondaryNavItem>
       {/if}
 
-      {#if rooms.length > 0 || canCreateRoom}
+      {#if rooms.length > 0 || canCreateRoom || roomPermissionLoading}
         <SecondaryNavHeader>Rooms</SecondaryNavHeader>
       {/if}
 
@@ -410,6 +425,10 @@
       {#if canCreateRoom}
         <SecondaryNavItem {replaceState} onclick={createRoom}>
           <Icon icon={AddCircle} /> Create room
+        </SecondaryNavItem>
+      {:else if roomPermissionLoading}
+        <SecondaryNavItem disabled title="Loading room permissions">
+          <Icon icon={AddCircle} /> Loading room permissions
         </SecondaryNavItem>
       {/if}
 
@@ -448,6 +467,10 @@
               </span>
             {/if}
           </span>
+        </SecondaryNavItem>
+      {:else if moderationPermissionLoading}
+        <SecondaryNavItem disabled title="Loading moderation permissions">
+          <Icon icon={ShieldUser} /> Loading moderation access
         </SecondaryNavItem>
       {/if}
 

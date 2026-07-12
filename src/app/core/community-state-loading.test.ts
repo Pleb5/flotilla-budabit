@@ -60,6 +60,7 @@ vi.mock("@welshman/router", async importOriginal => {
 
 import {
   activeCommunityDefinition,
+  activeCommunityPermissionStatus,
   activePreferredCommunities,
   authenticateCommunityRelays,
   clearActiveCommunity,
@@ -164,6 +165,10 @@ const hasProfileListFilter = (filters: Filter[], author: string, identifier: str
       dTags.includes(identifier)
     )
   })
+
+const flushPromises = async (count = 10) => {
+  for (let i = 0; i < count; i += 1) await Promise.resolve()
+}
 
 const removeTestEvents = () => {
   for (const event of [
@@ -400,6 +405,44 @@ describe("community relay loading", () => {
     expect(bootstrap.definition?.event.id).toBe(definitionEvent.id)
     expect(bootstrap.profileListEvents.map(event => event.id)).toEqual([profileListEvent.id])
     expect(get(activeCommunityDefinition)?.event.id).toBe(definitionEvent.id)
+  })
+
+  it("tracks permission readiness separately on cache-hit bootstrap", async () => {
+    let resolveProfileListLoad: (events: TrustedEvent[]) => void = () => {}
+    const profileListLoad = new Promise<TrustedEvent[]>(resolve => {
+      resolveProfileListLoad = resolve
+    })
+
+    repository.publish(singleRelayDefinitionEvent)
+    loadMock.mockImplementation(({filters}: {relays: string[]; filters: Filter[]}) => {
+      if (hasKind(filters, PROFILE_LIST_KIND)) return profileListLoad
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) return Promise.resolve([singleRelayDefinitionEvent])
+
+      return Promise.resolve([])
+    })
+
+    const bootstrap = await loadCommunityBootstrap({
+      communityPubkey,
+      communityRelayHints: [relayA],
+    })
+
+    expect(bootstrap.definition?.event.id).toBe(singleRelayDefinitionEvent.id)
+    expect(bootstrap.profileListEvents).toEqual([])
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({
+      communityPubkey,
+      loading: true,
+      loaded: false,
+      hasCachedEvents: false,
+    })
+
+    resolveProfileListLoad([profileListEvent])
+    await flushPromises()
+
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({
+      communityPubkey,
+      loading: false,
+      loaded: true,
+    })
   })
 
   it("waits for community relay auth before loading bootstrap content", async () => {

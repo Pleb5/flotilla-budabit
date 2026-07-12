@@ -10,6 +10,7 @@
     activeCommunityAdmissionForms,
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
@@ -175,20 +176,33 @@
   )
   const canWrite = $derived(gateState.status === "allowed")
   const hasForm = $derived(Boolean(form))
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      $pubkey &&
+        communityPubkey &&
+        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+        $activeCommunityPermissionStatus.loading &&
+        !$activeCommunityPermissionStatus.loaded &&
+        !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const gatePermissionsLoading = $derived(Boolean(communityPermissionsLoading && !canWrite))
   const reason = $derived(
     !$pubkey
       ? "Log in to request publishing access."
-      : gateState.status === "banned"
-        ? "You are banned from publishing in this community."
-        : gateState.status === "pending"
-          ? `Your ${gateState.sectionName} membership request is pending.`
-          : gateState.status === "rejected"
-            ? `Your ${gateState.sectionName} membership request was rejected. Delete it before resubmitting.`
-            : gateState.status === "granted"
-              ? `Your ${gateState.sectionName} request was granted. Waiting for community permission state to sync.`
-              : !hasForm
-                ? `You need ${gateState.sectionName} permission to ${action}, but no application form is available yet.`
-                : `You need ${gateState.sectionName} permission to ${action}.`,
+      : gatePermissionsLoading
+        ? `Loading ${gateState.sectionName} permission before you can ${action}.`
+        : gateState.status === "banned"
+          ? "You are banned from publishing in this community."
+          : gateState.status === "pending"
+            ? `Your ${gateState.sectionName} membership request is pending.`
+            : gateState.status === "rejected"
+              ? `Your ${gateState.sectionName} membership request was rejected. Delete it before resubmitting.`
+              : gateState.status === "granted"
+                ? `Your ${gateState.sectionName} request was granted. Waiting for community permission state to sync.`
+                : !hasForm
+                  ? `You need ${gateState.sectionName} permission to ${action}, but no application form is available yet.`
+                  : `You need ${gateState.sectionName} permission to ${action}.`,
   )
   const accessLabel = $derived(
     gateState.status === "pending"
@@ -222,6 +236,10 @@
 {#if communityBootstrapLoading}
   <Button type="button" class={className} disabled title="Loading community permissions...">
     {@render children?.()}
+  </Button>
+{:else if gatePermissionsLoading}
+  <Button type="button" class={className} disabled title={reason}>
+    {compact ? "Loading..." : "Loading access"}
   </Button>
 {:else if canWrite && href && !submit && !disabled}
   <Link {href} class={className}>

@@ -13,18 +13,19 @@
 
 ## Current Phase
 
-- Phase 2: Permission And Moderator Readiness
+- Phase 3: Shared Config And Widget Loads
 
 ## Phase Exit Criteria
 
-- Community profile-list/permission loads are explicitly prioritized after definition/auth and before low-priority feeds.
-- Current-user moderator invite evidence has a readiness/loading state and does not show an accept/decline CTA merely because profile-list evidence has not loaded yet.
-- Publish/access gates show loading copy while higher-priority permission/application state is incomplete instead of prematurely showing access CTAs or unavailable states.
-- Feed pages and community-home actions that depend on permissions respect the high-priority loading state without blocking already-cached content from rendering.
-- Focused tests cover moderator invite evidence readiness or permission gate readiness where practical.
+- `community:querySharedConfig` is cache-first from the local repository when possible.
+- Shared config bridge loads use prioritized community auth and do not silently convert auth/loading timeouts into successful empty config.
+- Widget community context changes when permission/profile-list/report readiness changes so widgets get a retry signal when high-priority data becomes available.
+- Calendar featured-event widget loads no longer wait for a stale-success empty config cycle when host data was not ready.
+- Focused bridge tests cover shared config loading/not-ready behavior.
+- `pnpm exec vitest run src/app/extensions/bridge.test.ts` passes.
 - `pnpm run check` passes.
 - `git diff --check` passes.
-- Phase 2 changes are committed, pushed, and the checkpoint is reread.
+- Phase 3 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -51,6 +52,25 @@
   - Inspected `git status --short --branch`, `git diff --stat`, and `git log --oneline -10` before checkpoint advancement.
 - Phase 1 was committed and pushed as `da8517cc perf: prioritize community relay auth`.
 - Post-push checkpoint reread confirmed `Current Phase: Phase 2: Permission And Moderator Readiness`; this repair updates stale Phase 1 transition text left in `Current State` and `Next Action`.
+- Phase 2 changed `src/app/core/community-state.ts`:
+  - Added `activeCommunityPermissionStatus` to expose whether active community profile-list/admission-form evidence is cached, loading, or settled.
+  - Cache-hit bootstrap still returns immediately, but background permission/admission refreshes update the readiness status when settled.
+  - Fresh bootstrap marks permission status loading before authority/admission loads and settled after they complete.
+- Phase 2 changed `src/app/components/community/PublishGate.svelte`:
+  - Shows disabled loading-access copy while permission/application evidence is incomplete.
+  - Preserves cached allowed writes by bypassing the loading copy when cached permission state already grants access.
+- Phase 2 changed `src/routes/c/[community]/+page.svelte`:
+  - Adds moderator-invite evidence loading copy before showing accept/decline actions.
+  - Adds room-permission loading copy so empty-room/create-room states do not appear while high-priority permission state is incomplete.
+- Phase 2 changed `src/app/components/CommunityMenu.svelte`:
+  - Shows disabled loading entries for room creation and moderation access instead of hiding them as false negatives while permissions load.
+- Phase 2 changed `src/app/core/community-state-loading.test.ts`:
+  - Added coverage that cache-hit bootstrap leaves permission readiness loading until background profile-list evidence settles.
+- Phase 2 verification:
+  - `pnpm exec vitest run src/app/core/community-state-loading.test.ts`: passed, 15 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
+  - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
 
 ## Decisions
 
@@ -64,12 +84,12 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Phase 1 is committed and pushed.
-- Worktree was clean after the Phase 1 push.
-- Phase 2 should add compact readiness/loading states around permission and moderator evidence while preserving cached content.
+- Phase 2 verification has passed and the phase is ready to commit and push.
+- Phase 3 should inspect extension shared-config loading and widget community context retry behavior.
 
 ## Next Action
 
-- Start Phase 2 by inspecting permission/moderator readiness paths in `community-state.ts`, `CommunityMenu.svelte`, `PublishGate.svelte`, and community home.
+- Commit and push Phase 2, reread this checkpoint, then start Phase 3 by inspecting `src/app/extensions/bridge.ts`, widget frame/context producers, and the calendar widget config path.
 
 ## Verification
 
@@ -86,11 +106,15 @@
   - `git commit -m "perf: prioritize community relay auth"`: created `da8517cc`.
   - `git push`: pushed `dev` to `origin/dev`.
   - `git status --short --branch`: clean after push.
+- Phase 2 verification:
+  - `pnpm exec vitest run src/app/core/community-state-loading.test.ts`: passed, 15 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
 
 ## Risks Or Blockers
 
 - No blocker.
-- Need avoid committing unrelated changes if new dirty files appear.
+- Need commit and push the verified Phase 2 changes, then reread this checkpoint.
 - Residual UX risk requires browser/device validation beyond local checks.
 
 ## Files
@@ -100,3 +124,9 @@
 - `src/app/core/community-state.ts`
 - `src/routes/+layout.svelte`
 - `src/app/core/community-state-loading.test.ts`
+- `src/app/components/community/PublishGate.svelte`
+- `src/app/components/CommunityMenu.svelte`
+- `src/routes/c/[community]/+page.svelte`
+- `src/app/extensions/bridge.ts`
+- `src/app/components/community/CommunityHomeWidgetSlot.svelte`
+- `~/Work/budabit-calendar-widget/src/App.svelte`
