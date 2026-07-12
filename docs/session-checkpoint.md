@@ -129,6 +129,7 @@
   - `pnpm exec vitest run src/app/core/community-state-loading.test.ts src/app/core/community-forms.test.ts src/app/extensions/bridge.test.ts`: passed, 60 tests.
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
+- Phase 5 was committed and pushed as `a63a7f86 fix: guard community empty states during loads`.
 
 ## Decisions
 
@@ -145,11 +146,12 @@
 - Phase 2 is committed and pushed.
 - Phase 3 is committed and pushed.
 - Phase 4 is committed and pushed.
-- Phase 5 verification is complete and this checkpoint is ready for final closeout commit/push.
+- Phase 5 is committed and pushed.
+- Final checkpoint repair records the pushed closeout state.
 
 ## Next Action
 
-- Commit and push the final closeout, reread this checkpoint, then provide the final response.
+- Final response.
 
 ## Verification
 
@@ -190,6 +192,10 @@
   - `pnpm exec vitest run src/app/core/community-state-loading.test.ts src/app/core/community-forms.test.ts src/app/extensions/bridge.test.ts`: passed, 60 tests.
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
+- Phase 5 transition:
+  - `git commit -m "fix: guard community empty states during loads"`: created `a63a7f86`.
+  - `git push`: pushed `dev` to `origin/dev`.
+  - `git status --short --branch`: clean after push.
 
 ## Risks Or Blockers
 
@@ -209,7 +215,6 @@
 - `src/app/core/community-forms.ts`
 - `src/app/core/community-forms.test.ts`
 - `src/routes/c/[community]/+page.svelte`
-- `src/app/components/community/PublishGate.svelte`
 - `src/routes/c/[community]/git/+page.svelte`
 - `src/routes/c/[community]/widgets/+page.svelte`
 - `src/routes/c/[community]/threads/[thread]/+page.svelte`
