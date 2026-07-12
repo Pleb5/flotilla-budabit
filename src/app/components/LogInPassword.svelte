@@ -86,13 +86,24 @@
     if (response) {
       loading = true
 
-      const pubkey = await broker.getPublicKey()
-      const session = makeNip46Session(pubkey, clientSecret, response.event.pubkey, relays)
+      try {
+        const pubkey = response.event.pubkey
+        const session = makeNip46Session(pubkey, clientSecret, response.event.pubkey, relays)
 
-      addSession({...session, email})
-      broker.cleanup()
-      setChecked("*")
-      clearModals()
+        addSession({...session, email})
+        broker.cleanup()
+        setChecked("*")
+        clearModals()
+      } catch (e) {
+        console.error(e)
+
+        pushToast({
+          theme: "error",
+          message: "Something went wrong, please try again!",
+        })
+      } finally {
+        loading = false
+      }
     }
   })
 
