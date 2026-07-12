@@ -20,6 +20,10 @@ import {
   makeTargetedPublicationOriginalFilters,
 } from "@app/core/community-feeds"
 import {
+  findCommunityProfileListEvent,
+  isActiveCommunityProfileListEvent,
+} from "@app/core/community-admin"
+import {
   canWriteCommunitySection,
   getCommunitySectionAuthorityPubkeys,
   getCommunitySectionWriterPubkeys,
@@ -55,6 +59,7 @@ export type CommunityDescriptorQueryPlan = {
 
 const COMMUNITY_TARGETABLE_KIND_SET = new Set<number>(COMMUNITY_TARGETABLE_KINDS as readonly number[])
 const COMMUNITY_CALENDAR_KIND_SET = new Set<number>([EVENT_DATE, EVENT_TIME])
+const COMMUNITY_DIRECT_QUERY_TARGETABLE_KIND_SET = COMMUNITY_CALENDAR_KIND_SET
 
 let runtimeCommunityPubkey = ""
 let runtimeFingerprint = ""
@@ -183,6 +188,33 @@ const getSectionPermissionDescriptor = (
 const getDescriptorLabel = (descriptor: CommunityEventDescriptor) =>
   descriptor.subtype ? `${descriptor.kind}/${descriptor.subtype}` : String(descriptor.kind)
 
+const getSectionAuthorityPubkeysWithPendingRefs = ({
+  definition,
+  section,
+  profileListEvents,
+  reportState,
+}: {
+  definition: CommunityDefinition
+  section: CommunitySection
+  profileListEvents: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
+}) => {
+  const ownerPubkey = normalizePubkey(definition.pubkey)
+  const pubkeys = new Set<string>([ownerPubkey])
+
+  for (const ref of section.profileLists) {
+    const event = findCommunityProfileListEvent(ref, profileListEvents)
+    if (event && !isActiveCommunityProfileListEvent(event)) continue
+
+    const pubkey = normalizePubkey(ref.pubkey)
+    if (pubkey) pubkeys.add(pubkey)
+  }
+
+  return Array.from(pubkeys).filter(
+    pubkey => pubkey === ownerPubkey || !isCommunityPersonBanned(reportState, pubkey),
+  )
+}
+
 export const eventMatchesCommunityEventDescriptor = (
   event: TrustedEvent,
   communityPubkey: string,
@@ -253,12 +285,20 @@ export const resolveCommunityEventDescriptors = ({
     const moderatorPubkeys = Array.from(
       new Set(
         sections.flatMap(section =>
-          getCommunitySectionAuthorityPubkeys({
-            definition,
-            profileListEvents,
-            sectionName: section.name,
-            reportState,
-          }).map(normalizePubkey),
+          [
+            ...getCommunitySectionAuthorityPubkeys({
+              definition,
+              profileListEvents,
+              sectionName: section.name,
+              reportState,
+            }),
+            ...getSectionAuthorityPubkeysWithPendingRefs({
+              definition,
+              section,
+              profileListEvents,
+              reportState,
+            }),
+          ].map(normalizePubkey),
         ),
       ),
     ).filter(Boolean)
@@ -279,10 +319,10 @@ export const resolveCommunityEventDescriptors = ({
       : []
     const moderatorSections = normalizedUser
       ? sections.filter(section =>
-          getCommunitySectionAuthorityPubkeys({
+          getSectionAuthorityPubkeysWithPendingRefs({
             definition,
+            section,
             profileListEvents,
-            sectionName: section.name,
             reportState,
           }).includes(normalizedUser),
         )
@@ -427,6 +467,13 @@ export const makeCommunityDescriptorQueryPlan = ({
     originalFilters.push(
       ...makeTargetedPublicationOriginalFilters(authorizedTargetingEvents, allowedAuthors),
     )
+  }
+
+  for (const info of targetableInfos) {
+    if (!COMMUNITY_DIRECT_QUERY_TARGETABLE_KIND_SET.has(info.descriptor.kind)) continue
+    if (info.moderatorPubkeys.length === 0) continue
+
+    originalFilters.push({kinds: [info.descriptor.kind], authors: info.moderatorPubkeys})
   }
 
   for (const info of directInfos) {

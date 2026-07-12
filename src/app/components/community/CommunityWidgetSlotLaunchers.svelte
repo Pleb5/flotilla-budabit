@@ -89,6 +89,25 @@
       relayHints,
     })
   })
+  const communityRuntimeContext = $derived.by(() => {
+    const definition = $activeCommunityDefinition
+    if (
+      !communityContext ||
+      !definition ||
+      normalizePubkey(definition.pubkey) !== normalizePubkey(communityPubkey)
+    ) {
+      return undefined
+    }
+
+    return {
+      definition,
+      profileListEvents: $activeCommunityProfileListEvents,
+      reportState: $activeCommunityReportState,
+      relays: $activeCommunityRelays.length ? $activeCommunityRelays : relayHints,
+      relayHints,
+      communityContext,
+    }
+  })
 
   const openWidget = (widget: SmartWidgetEvent) => {
     if (!widget.appUrl) return
@@ -100,6 +119,7 @@
         slot: {type: slotType, label: widget.slot?.label},
         community: {pubkey: communityPubkey, relays: relayHints},
         ...(communityContext ? {communityContext} : {}),
+        ...(communityRuntimeContext ? {communityRuntimeContext} : {}),
       },
     })
   }

@@ -427,6 +427,7 @@
       originOverride,
       initPosted,
       hasCommunityContext: Boolean(payload.communityContext),
+      hasCommunityRuntimeContext: Boolean(getCommunityRuntimeContext()),
       communityContextKey: lastCommunityContextKey,
     })
     postLegacyContext()

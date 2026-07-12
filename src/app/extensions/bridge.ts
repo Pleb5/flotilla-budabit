@@ -654,10 +654,31 @@ const normalizeCommunityDescriptorsPayload = (
   return {descriptors: normalizedDescriptors}
 }
 
+const HEX_EVENT_ID = /^[0-9a-f]{64}$/i
+
+const normalizeCommunityQueryRefs = (value: unknown) => {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error("Invalid refs: expected string[]")
+
+  return Array.from(
+    new Set(value.map(ref => (typeof ref === "string" ? ref.trim() : "")).filter(Boolean)),
+  ).slice(0, MAX_NOSTR_QUERY_LIMIT)
+}
+
+const getBridgeEventTagValue = (event: any, name: string) =>
+  Array.isArray(event?.tags) ? event.tags.find((tag: any) => tag?.[0] === name)?.[1] || "" : ""
+
+const getBridgeEventAddress = (event: any) => {
+  const identifier = getBridgeEventTagValue(event, "d")
+  const pubkey = normalizePubkey(event?.pubkey || "")
+
+  return identifier && pubkey ? `${event.kind}:${pubkey}:${identifier}` : ""
+}
+
 const normalizeCommunityQueryEventsPayload = (
   payload: unknown,
 ): Required<Pick<CommunityQueryEventsRequest, "descriptors">> &
-  Pick<CommunityQueryEventsRequest, "limit" | "since" | "until"> => {
+  Pick<CommunityQueryEventsRequest, "refs" | "limit" | "since" | "until"> => {
   const {descriptors} = normalizeCommunityDescriptorsPayload(payload)
 
   const limitRaw = (payload as any).limit
@@ -676,7 +697,7 @@ const normalizeCommunityQueryEventsPayload = (
       ? Math.floor(untilRaw)
       : undefined
 
-  return {descriptors, limit, since, until}
+  return {descriptors, refs: normalizeCommunityQueryRefs((payload as any).refs), limit, since, until}
 }
 
 const normalizeSharedConfigPart = (value: unknown, name: string) => {
@@ -794,6 +815,66 @@ const queryCachedCommunitySharedConfigEvents = ({
   }
 }
 
+const queryCachedBridgeEvents = (filters: Record<string, unknown>[]) => {
+  if (filters.length === 0) return []
+
+  try {
+    return repository.query(filters as any)
+  } catch (error) {
+    console.warn("[bridge] cached community event query failed", error)
+    return []
+  }
+}
+
+const makeExactCommunityEventRefFilters = ({
+  refs,
+  descriptors,
+  writerPubkeys,
+}: {
+  refs: string[]
+  descriptors: CommunityEventDescriptor[]
+  writerPubkeys: string[]
+}) => {
+  if (refs.length === 0 || writerPubkeys.length === 0) return []
+
+  const descriptorKinds = new Set(descriptors.map(descriptor => descriptor.kind))
+  const writerSet = new Set(writerPubkeys.map(normalizePubkey).filter(Boolean))
+  const ids: string[] = []
+  const filters: Record<string, unknown>[] = []
+
+  for (const ref of refs) {
+    if (HEX_EVENT_ID.test(ref)) {
+      ids.push(ref.toLowerCase())
+      continue
+    }
+
+    const [kindRaw, pubkeyRaw, ...identifierParts] = ref.split(":")
+    const kind = Number(kindRaw)
+    const pubkey = normalizePubkey(pubkeyRaw || "")
+    const identifier = identifierParts.join(":").trim()
+
+    if (!Number.isInteger(kind) || !descriptorKinds.has(kind) || !pubkey || !identifier) continue
+    if (!writerSet.has(pubkey)) continue
+
+    filters.push({kinds: [kind], authors: [pubkey], "#d": [identifier], limit: 1})
+  }
+
+  if (ids.length > 0) filters.push({ids: Array.from(new Set(ids)), limit: ids.length})
+
+  return filters
+}
+
+const filterExactCommunityRefEvents = <T extends {pubkey?: string}>(
+  events: T[],
+  writerPubkeys: string[],
+) => {
+  const writerSet = new Set(writerPubkeys.map(normalizePubkey).filter(Boolean))
+
+  return writerSet.size > 0
+    ? events.filter(event => writerSet.has(normalizePubkey(event.pubkey || "")))
+    : []
+}
+
 const isCommunityPermissionEvidenceLoading = (snapshot: ReturnType<typeof getCommunityRequestSnapshot>) => {
   const status = get(activeCommunityPermissionStatus)
 
@@ -801,8 +882,7 @@ const isCommunityPermissionEvidenceLoading = (snapshot: ReturnType<typeof getCom
     status.communityPubkey &&
       normalizePubkey(status.communityPubkey) === normalizePubkey(snapshot.definition.pubkey) &&
       status.loading &&
-      !status.loaded &&
-      !status.hasCachedEvents,
+      !status.loaded,
   )
 }
 
@@ -977,6 +1057,31 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
   try {
     const request = normalizeCommunityQueryEventsPayload(payload)
     const snapshot = await getHydratedCommunityRequestSnapshot(ext)
+    const descriptorInfos = resolveCommunityEventDescriptors({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      descriptors: request.descriptors,
+    })
+    const exactRefWriterPubkeys = Array.from(
+      new Set(descriptorInfos.flatMap(info => info.writerPubkeys).map(normalizePubkey).filter(Boolean)),
+    )
+    const exactRefFilters = makeExactCommunityEventRefFilters({
+      refs: request.refs || [],
+      descriptors: descriptorInfos.map(info => info.descriptor),
+      writerPubkeys: exactRefWriterPubkeys,
+    })
+    const cachedExactRefEvents = queryCachedBridgeEvents(exactRefFilters)
+    const loadedExactRefEvents = await loadBridgeEvents({
+      relays: snapshot.relays,
+      filters: exactRefFilters,
+      authenticate: true,
+      priorityAuthRelays: snapshot.relayHints,
+    })
+    const exactRefEvents = filterExactCommunityRefEvents(
+      dedupeEvents([...cachedExactRefEvents, ...loadedExactRefEvents]),
+      exactRefWriterPubkeys,
+    )
 
     const initialPlan = makeCommunityDescriptorQueryPlan({
       definition: snapshot.definition,
@@ -988,14 +1093,19 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       until: request.until,
     })
 
-    const targetingEvents = initialPlan.targetingFilter
+    const targetingFilters = initialPlan.targetingFilter
+      ? [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}]
+      : []
+    const cachedTargetingEvents = queryCachedBridgeEvents(targetingFilters)
+    const loadedTargetingEvents = targetingFilters.length
       ? await loadBridgeEvents({
           relays: snapshot.relays,
-          filters: [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}],
+          filters: targetingFilters,
           authenticate: true,
           priorityAuthRelays: snapshot.relayHints,
         })
       : []
+    const targetingEvents = dedupeEvents([...cachedTargetingEvents, ...loadedTargetingEvents])
     const plan = makeCommunityDescriptorQueryPlan({
       definition: snapshot.definition,
       profileListEvents: snapshot.profileListEvents,
@@ -1006,6 +1116,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       since: request.since,
       until: request.until,
     })
+    const cachedEvents = queryCachedBridgeEvents(plan.originalFilters)
     const loadedEvents = await loadBridgeEvents({
       relays: snapshot.relays,
       filters: plan.originalFilters,
@@ -1013,11 +1124,29 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       priorityAuthRelays: snapshot.relayHints,
     })
     const events = filterCommunityDescriptorEvents(
-      loadedEvents as any,
+      dedupeEvents([...exactRefEvents, ...cachedEvents, ...loadedEvents]) as any,
       snapshot.definition.pubkey,
       plan.descriptors,
     ).sort((a: any, b: any) => (b.created_at || 0) - (a.created_at || 0))
     const limitedEvents = events.slice(0, request.limit)
+
+    if (ext) {
+      console.log(`[bridge] community:queryEvents result from ${ext.id}`, {
+        refs: request.refs || [],
+        exactRefEventCount: exactRefEvents.length,
+        cachedEventCount: cachedEvents.length,
+        loadedEventCount: loadedEvents.length,
+        returnedEventCount: limitedEvents.length,
+        filterCount: plan.originalFilters.length,
+        returnedRefs: limitedEvents.slice(0, 10).map((event: any) => ({
+          id: event.id,
+          address: getBridgeEventAddress(event),
+          kind: event.kind,
+          pubkey: normalizePubkey(event.pubkey || ""),
+          title: getBridgeEventTagValue(event, "title") || getBridgeEventTagValue(event, "name"),
+        })),
+      })
+    }
 
     return {
       status: "ok",
@@ -1063,6 +1192,16 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
     const cachedSelected = selectCommunitySharedConfigEvent(cachedEvents, moderatorPubkeys)
 
     if (cachedSelected) {
+      if (ext) {
+        console.log(`[bridge] community:querySharedConfig result from ${ext.id}`, {
+          source: "cache",
+          hasConfig: true,
+          eventId: cachedSelected.id,
+          author: cachedSelected.pubkey,
+          moderatorPubkeyCount: moderatorPubkeys.size,
+        })
+      }
+
       return {
         status: "ok",
         event: cachedSelected,
@@ -1101,6 +1240,18 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
 
     if (!selected && isCommunityPermissionEvidenceLoading(hydratedSnapshot)) {
       throw makeCommunityContextNotReadyError("Community permissions are still loading")
+    }
+
+    if (ext) {
+      console.log(`[bridge] community:querySharedConfig result from ${ext.id}`, {
+        source: "relay",
+        hasConfig: Boolean(selected),
+        eventId: selected?.id,
+        author: selected?.pubkey,
+        cachedEventCount: cachedEvents.length,
+        loadedEventCount: loadedEvents.length,
+        moderatorPubkeyCount: hydratedModeratorPubkeys.size,
+      })
     }
 
     return {

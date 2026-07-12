@@ -1,9 +1,12 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 import type {CommunityCuratedExtensionsResult} from "./community-curation"
 import {
+  COMMUNITY_SHARED_CONFIG_KIND,
   COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS,
   clearCommunityWidgetSlotCache,
+  getEnabledCommunitySlotWidgetsWithSharedConfig,
   getEnabledCommunitySlotWidgets,
+  getEnabledInstalledCommunitySlotWidgets,
   loadCachedCommunityCuratedWidgets,
 } from "./community-widget-slots"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "./types"
@@ -23,6 +26,7 @@ const makeWidget = (
   label = identifier,
   pubkey = "a".repeat(64),
   created_at = 1,
+  overrides: Partial<SmartWidgetEvent> = {},
 ): SmartWidgetEvent => ({
   id: identifier,
   kind: 30033,
@@ -34,6 +38,7 @@ const makeWidget = (
   widgetType: "basic",
   buttons: [],
   slot: slotType ? {type: slotType, label} : undefined,
+  ...overrides,
 })
 
 const makeCuratedResult = (widgets: SmartWidgetEvent[] = []): CommunityCuratedExtensionsResult => ({
@@ -158,6 +163,69 @@ describe("community widget slots", () => {
     })
 
     expect(selected).toEqual([])
+  })
+
+  it("selects enabled installed community slot widgets before curation resolves", () => {
+    const slotWidget = makeWidget("featured-calendar-event", "community-home-after-quicklinks")
+    const otherSlotWidget = makeWidget("header-widget", "community-home-before-quicklinks")
+    const disabledSlotWidget = makeWidget("disabled-widget", "community-home-after-quicklinks")
+
+    const selected = getEnabledInstalledCommunitySlotWidgets({
+      installedWidgets: {
+        [getWidgetLineId(slotWidget)]: slotWidget,
+        [getWidgetLineId(otherSlotWidget)]: otherSlotWidget,
+        [getWidgetLineId(disabledSlotWidget)]: disabledSlotWidget,
+      },
+      enabledIds: new Set([getWidgetLineId(slotWidget), getWidgetLineId(otherSlotWidget)]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(selected.map(widget => widget.identifier)).toEqual(["featured-calendar-event"])
+  })
+
+  it("selects enabled installed slot widgets with cached shared config", () => {
+    const communityPubkey = "c".repeat(64)
+    const widget = makeWidget(
+      "featured-calendar-event",
+      "community-home-after-quicklinks",
+      undefined,
+      undefined,
+      undefined,
+      {permissions: ["community:querySharedConfig"]},
+    )
+    const unrelatedWidget = makeWidget(
+      "weather",
+      "community-home-after-quicklinks",
+      undefined,
+      undefined,
+      undefined,
+      {permissions: ["community:querySharedConfig"]},
+    )
+    const sharedConfigEvent = {
+      kind: COMMUNITY_SHARED_CONFIG_KIND,
+      tags: [
+        [
+          "d",
+          `budabit-community-config:${communityPubkey}:budabit-calendar-widget:featured-calendar-event`,
+        ],
+        ["p", communityPubkey],
+        ["namespace", "budabit-calendar-widget"],
+        ["key", "featured-calendar-event"],
+      ],
+    }
+
+    const selected = getEnabledCommunitySlotWidgetsWithSharedConfig({
+      communityPubkey,
+      sharedConfigEvents: [sharedConfigEvent],
+      installedWidgets: {
+        [getWidgetLineId(widget)]: widget,
+        [getWidgetLineId(unrelatedWidget)]: unrelatedWidget,
+      },
+      enabledIds: new Set([getWidgetLineId(widget), getWidgetLineId(unrelatedWidget)]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(selected.map(item => item.identifier)).toEqual(["featured-calendar-event"])
   })
 
   it("reuses cached curated widget loads while they are fresh", async () => {

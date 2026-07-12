@@ -240,6 +240,7 @@ describe("community widget context", () => {
     })
     expect(plan.originalFilters).toEqual([
       {kinds: [EVENT_TIME], authors: [calendarWriterPubkey], "#d": ["event-1"], limit: 5},
+      {kinds: [EVENT_TIME], authors: [communityPubkey, calendarWriterPubkey], limit: 5},
     ])
   })
 
@@ -266,6 +267,8 @@ describe("community widget context", () => {
     })
     expect(plan.originalFilters).toEqual([
       {kinds: [EVENT_TIME], authors: [calendarWriterPubkey], "#d": ["timed-event-1"], limit: 5},
+      {kinds: [EVENT_TIME], authors: [communityPubkey, calendarWriterPubkey], limit: 5},
+      {kinds: [EVENT_DATE], authors: [communityPubkey, calendarWriterPubkey], limit: 5},
     ])
   })
 

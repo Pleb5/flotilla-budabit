@@ -1,6 +1,6 @@
 <script lang="ts">
   import {getTagValue} from "@welshman/util"
-  import {pubkey} from "@welshman/app"
+  import {pubkey, repository} from "@welshman/app"
   import {onDestroy, onMount} from "svelte"
   import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import {normalizePubkey} from "@app/core/community"
@@ -11,10 +11,14 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
     activeCommunityReportState,
+    loadCommunityEvents,
   } from "@app/core/community-state"
   import {makeCommunityWidgetContext} from "@app/extensions/community-context"
   import {
+    COMMUNITY_SHARED_CONFIG_KIND,
+    getEnabledCommunitySlotWidgetsWithSharedConfig,
     getEnabledCommunitySlotWidgets,
+    getEnabledInstalledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
   } from "@app/extensions/community-widget-slots"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
@@ -32,15 +36,28 @@
   const {communityPubkey, relayHints = [], slotType}: Props = $props()
 
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
+  let curatedWidgetsLoading = $state(false)
   let loadKey = ""
   let loadRequestId = 0
   let loadRefreshNonce = $state(0)
   let forceNextLoad = false
   let lastForcedRefreshAt = 0
+  let curatedWidgetsBaseKey = ""
+  let lastLoadReadinessKey = ""
+  let loadedCommunitySharedConfigEvents = $state<any[]>([])
+  let sharedConfigLoadKey = ""
+  let sharedConfigLoadRequestId = 0
   const FORCED_REFRESH_DEBOUNCE_MS = 1_000
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
+  const installedSlotWidgets = $derived.by(() => {
+    return getEnabledInstalledCommunitySlotWidgets({
+      installedWidgets,
+      enabledIds: enabledWidgetIds,
+      slotType,
+    })
+  })
   const slotWidgets = $derived.by(() => {
     return getEnabledCommunitySlotWidgets({
       curatedWidgets,
@@ -67,7 +84,46 @@
           permissionLoaded: status.loaded,
           permissionHasCachedEvents: status.hasCachedEvents,
         })
-      : ""
+        : ""
+  })
+  const communityPermissionEvidenceLoading = $derived.by(() => {
+    const status = $activeCommunityPermissionStatus
+
+    return Boolean(
+      normalizePubkey(status.communityPubkey) === normalizePubkey(communityPubkey) &&
+        status.loading &&
+        !status.loaded,
+    )
+  })
+  const cachedCommunitySharedConfigEvents = $derived.by(() => {
+    communityReadinessKey
+    loadRefreshNonce
+
+    try {
+      return repository.query([{kinds: [COMMUNITY_SHARED_CONFIG_KIND], limit: 200}] as any)
+    } catch (error) {
+      console.warn("[community-home-widgets] Failed to query cached shared config", error)
+      return []
+    }
+  })
+  const communitySharedConfigEvents = $derived.by(() => {
+    const byId = new Map<string, any>()
+
+    for (const event of [...cachedCommunitySharedConfigEvents, ...loadedCommunitySharedConfigEvents]) {
+      const key = event?.id || JSON.stringify(event?.tags || [])
+      if (key && !byId.has(key)) byId.set(key, event)
+    }
+
+    return Array.from(byId.values())
+  })
+  const sharedConfigSlotWidgets = $derived.by(() => {
+    return getEnabledCommunitySlotWidgetsWithSharedConfig({
+      communityPubkey,
+      sharedConfigEvents: communitySharedConfigEvents,
+      installedWidgets,
+      enabledIds: enabledWidgetIds,
+      slotType,
+    })
   })
 
   const communityContext = $derived.by(() => {
@@ -89,11 +145,53 @@
       readinessKey: communityReadinessKey,
     })
   })
+  const communityRuntimeContext = $derived.by(() => {
+    const definition = $activeCommunityDefinition
+    if (
+      !communityContext ||
+      !definition ||
+      normalizePubkey(definition.pubkey) !== normalizePubkey(communityPubkey)
+    ) {
+      return undefined
+    }
+
+    return {
+      definition,
+      profileListEvents: $activeCommunityProfileListEvents,
+      reportState: $activeCommunityReportState,
+      relays: $activeCommunityRelays.length ? $activeCommunityRelays : relayHints,
+      relayHints,
+      communityContext,
+    }
+  })
+  const frameWidgets = $derived.by(() => {
+    if (slotWidgets.length > 0) return slotWidgets
+
+    return sharedConfigSlotWidgets
+  })
+  const loadingSlotWidgets = $derived.by(() => {
+    if (frameWidgets.length > 0) return []
+
+    const loadingCandidates = new Map<string, SmartWidgetEvent>()
+    const addWidget = (widget: SmartWidgetEvent) => {
+      const key = getWidgetLineId(widget) || widget.identifier
+      if (key && !loadingCandidates.has(key)) loadingCandidates.set(key, widget)
+    }
+
+    for (const widget of slotWidgets) addWidget(widget)
+    for (const widget of sharedConfigSlotWidgets) addWidget(widget)
+    if (curatedWidgetsLoading || communityPermissionEvidenceLoading || !communityContext) {
+      for (const widget of installedSlotWidgets) addWidget(widget)
+    }
+
+    return Array.from(loadingCandidates.values())
+  })
 
   const makeWidgetContext = (widget: SmartWidgetEvent) => ({
     slot: {type: slotType, label: widget.slot?.label},
     community: {pubkey: communityPubkey, relays: relayHints},
     ...(communityContext ? {communityContext} : {}),
+    ...(communityRuntimeContext ? {communityRuntimeContext} : {}),
   })
 
   const refreshWidgets = (force = false) => {
@@ -113,22 +211,78 @@
   }
 
   $effect(() => {
+    const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
+    const relays = $activeCommunityRelays.length ? $activeCommunityRelays : relayHints
+    const key = normalizedCommunityPubkey
+      ? `${normalizedCommunityPubkey}:${relays.join("|")}:${communityReadinessKey}`
+      : ""
+
+    if (!key || relays.length === 0) {
+      loadedCommunitySharedConfigEvents = []
+      sharedConfigLoadKey = ""
+      sharedConfigLoadRequestId += 1
+      return
+    }
+
+    if (key === sharedConfigLoadKey) return
+    sharedConfigLoadKey = key
+    const requestId = ++sharedConfigLoadRequestId
+
+    loadCommunityEvents(
+      relays,
+      [{kinds: [COMMUNITY_SHARED_CONFIG_KIND], "#p": [normalizedCommunityPubkey], limit: 200} as any],
+      {
+        authenticate: true,
+        priorityAuthRelays: relayHints,
+        settle: "first-non-empty",
+        timeout: 3_000,
+      },
+    )
+      .then(events => {
+        if (requestId === sharedConfigLoadRequestId && key === sharedConfigLoadKey) {
+          loadedCommunitySharedConfigEvents = events
+        }
+      })
+      .catch(error => {
+        if (requestId !== sharedConfigLoadRequestId || key !== sharedConfigLoadKey) return
+
+        console.warn("[community-home-widgets] Failed to load shared config hints", error)
+        loadedCommunitySharedConfigEvents = []
+      })
+  })
+
+  $effect(() => {
     loadRefreshNonce
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
-    const key = input ? `${slotType}:${input}` : ""
+    const baseKey = input ? `${slotType}:${input}` : ""
+    const readinessKey = communityReadinessKey
+    const key = baseKey ? `${baseKey}:${readinessKey}` : ""
 
     if (!key || !input) {
       curatedWidgets = []
+      curatedWidgetsLoading = false
+      curatedWidgetsBaseKey = ""
+      lastLoadReadinessKey = ""
       loadKey = ""
       loadRequestId += 1
       return
     }
 
+    if (baseKey !== curatedWidgetsBaseKey) {
+      curatedWidgets = []
+      curatedWidgetsLoading = false
+      curatedWidgetsBaseKey = baseKey
+      lastLoadReadinessKey = ""
+    }
+
     if (key === loadKey) return
     loadKey = key
-    const force = forceNextLoad
+    const readinessChanged = Boolean(lastLoadReadinessKey && lastLoadReadinessKey !== readinessKey)
+    lastLoadReadinessKey = readinessKey
+    const force = forceNextLoad || readinessChanged
     forceNextLoad = false
     const requestId = ++loadRequestId
+    curatedWidgetsLoading = true
 
     logCommunityWidgetDebug("home slot loading curated widgets", {
       slotType,
@@ -155,12 +309,22 @@
           return
         }
 
-        curatedWidgets = result?.status === "community" ? result.widgets : []
+        curatedWidgetsLoading = false
+        const nextCuratedWidgets = result?.status === "community" ? result.widgets : []
+        const preserveCurrentWidgets = Boolean(
+          nextCuratedWidgets.length === 0 &&
+            curatedWidgets.length > 0 &&
+            curatedWidgetsBaseKey === baseKey &&
+            communityPermissionEvidenceLoading,
+        )
+
+        if (!preserveCurrentWidgets) curatedWidgets = nextCuratedWidgets
         logCommunityWidgetDebug("home slot loaded curated widgets", {
           slotType,
           communityPubkey,
           key,
           status: result?.status,
+          preservedCurrentWidgets: preserveCurrentWidgets,
           widgets: curatedWidgets.map(widget => ({
             id: getWidgetLineId(widget),
             identifier: widget.identifier,
@@ -173,6 +337,7 @@
       .catch(error => {
         if (requestId !== loadRequestId || key !== loadKey) return
 
+        curatedWidgetsLoading = false
         console.warn("[community-home-widgets] Failed to load widgets", error)
         logCommunityWidgetDebug("home slot failed to load curated widgets", {
           slotType,
@@ -180,7 +345,7 @@
           key,
           error: error instanceof Error ? error.message : String(error),
         })
-        curatedWidgets = []
+        if (!(communityPermissionEvidenceLoading && curatedWidgets.length > 0)) curatedWidgets = []
         loadKey = ""
       })
   })
@@ -206,9 +371,9 @@
   })
 </script>
 
-{#if slotWidgets.length > 0}
+{#if frameWidgets.length > 0}
   <div class="flex flex-col gap-2">
-    {#each slotWidgets as widget (getWidgetLineId(widget))}
+    {#each frameWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
       {@const description = getWidgetDescription(widget)}
       <section
@@ -220,6 +385,21 @@
           context={makeWidgetContext(widget)}
           class="w-full"
           minHeight={220} />
+      </section>
+    {/each}
+  </div>
+{:else if loadingSlotWidgets.length > 0}
+  <div class="flex flex-col gap-2">
+    {#each loadingSlotWidgets as widget (getWidgetLineId(widget))}
+      {@const title = widget.slot?.label || getWidgetTitle(widget)}
+      <section class="overflow-visible" aria-label={title} aria-busy="true">
+        <div
+          class="flex min-h-[220px] items-center justify-center rounded-box bg-base-200 p-6 text-center text-sm text-base-content/70">
+          <div class="flex flex-col items-center gap-3">
+            <span class="loading loading-spinner loading-lg text-primary"></span>
+            <p>Loading {title}...</p>
+          </div>
+        </div>
       </section>
     {/each}
   </div>

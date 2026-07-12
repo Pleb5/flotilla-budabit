@@ -131,6 +131,7 @@ export type CommunityCheckWriteCapabilitiesResponse =
 
 export type CommunityQueryEventsRequest = {
   descriptors: CommunityEventDescriptor[]
+  refs?: string[]
   limit?: number
   since?: number
   until?: number

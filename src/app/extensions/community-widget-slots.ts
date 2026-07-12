@@ -2,12 +2,15 @@ import {
   loadCommunityCuratedWidgets,
   type CommunityCuratedExtensionsResult,
 } from "@app/extensions/community-curation"
+import {normalizePubkey} from "@app/core/community"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "@app/extensions/types"
 import {logCommunityWidgetDebug} from "./community-widget-debug"
 import {getWidgetLineId} from "./widget-identity"
 
 export const COMMUNITY_WIDGET_EMPTY_CACHE_TTL_MS = 30_000
 export const COMMUNITY_WIDGET_SUCCESS_CACHE_TTL_MS = 5 * 60_000
+export const COMMUNITY_SHARED_CONFIG_KIND = 30078
+export const COMMUNITY_SHARED_CONFIG_PREFIX = "budabit-community-config"
 
 type CuratedWidgetLoad = ReturnType<typeof loadCommunityCuratedWidgets>
 type CuratedWidgetCacheEntry = {
@@ -67,6 +70,17 @@ export const clearCommunityWidgetSlotCache = () => {
 type InstalledWidgetMatch = {
   key: string
   widget: SmartWidgetEvent
+}
+
+type CommunitySharedConfigEvent = {
+  kind?: number
+  tags?: string[][]
+}
+
+type CommunitySharedConfigRef = {
+  communityPubkey: string
+  namespace: string
+  key: string
 }
 
 const isNewerWidget = (candidate: SmartWidgetEvent, current: SmartWidgetEvent | undefined) =>
@@ -129,6 +143,139 @@ const isLegacyIdentifierEnabled = (
   if (!normalizedIdentifier || !enabledIds.has(normalizedIdentifier)) return false
 
   return Boolean(getUniqueIdentifierMatch(index.byIdentifier.get(normalizedIdentifier)))
+}
+
+const isInstalledWidgetEnabled = (
+  key: string,
+  widget: SmartWidgetEvent,
+  enabledIds: Set<string>,
+  index: ReturnType<typeof buildInstalledWidgetIndex>,
+) => {
+  const lineId = getWidgetLineId(widget)
+
+  return (
+    enabledIds.has(key) ||
+    enabledIds.has(lineId) ||
+    isLegacyIdentifierEnabled(widget.identifier, enabledIds, index)
+  )
+}
+
+const setPreferredWidget = (widgets: Map<string, SmartWidgetEvent>, widget: SmartWidgetEvent) => {
+  const key = getWidgetLineId(widget) || widget.identifier
+  const current = widgets.get(key)
+
+  if (isNewerWidget(widget, current)) widgets.set(key, widget)
+}
+
+const getTagValue = (tags: string[][] | undefined, tagName: string) =>
+  tags?.find(tag => tag[0] === tagName)?.[1] || ""
+
+const getTags = (tags: string[][] | undefined, tagName: string) =>
+  tags?.filter(tag => tag[0] === tagName) || []
+
+const normalizeSharedConfigMatchPart = (value: string | undefined) => value?.trim().toLowerCase() || ""
+
+const parseCommunitySharedConfigRef = (
+  event: CommunitySharedConfigEvent,
+): CommunitySharedConfigRef | undefined => {
+  if (!event || event.kind !== COMMUNITY_SHARED_CONFIG_KIND) return undefined
+
+  const d = getTagValue(event.tags, "d")
+  let communityPubkey = normalizePubkey(getTagValue(event.tags, "p"))
+  let namespace = getTagValue(event.tags, "namespace")
+  let key = getTagValue(event.tags, "key")
+  const prefix = `${COMMUNITY_SHARED_CONFIG_PREFIX}:`
+
+  if (d.startsWith(prefix)) {
+    const parts = d.slice(prefix.length).split(":")
+    communityPubkey ||= normalizePubkey(parts[0] || "")
+    namespace ||= parts[1] || ""
+    key ||= parts.slice(2).join(":")
+  }
+
+  if (!communityPubkey || !namespace || !key) return undefined
+
+  return {communityPubkey, namespace, key}
+}
+
+const widgetDeclaresSharedConfigRef = (
+  widget: SmartWidgetEvent,
+  ref: CommunitySharedConfigRef,
+) => {
+  const namespace = normalizeSharedConfigMatchPart(ref.namespace)
+  const key = normalizeSharedConfigMatchPart(ref.key)
+
+  return getTags(widget.tags, "shared-config").some(tag => {
+    const declaredNamespace = normalizeSharedConfigMatchPart(tag[1])
+    const declaredKey = normalizeSharedConfigMatchPart(tag[2])
+
+    return declaredNamespace === namespace && declaredKey === key
+  })
+}
+
+const widgetMatchesSharedConfigRef = (widget: SmartWidgetEvent, ref: CommunitySharedConfigRef) => {
+  if (widgetDeclaresSharedConfigRef(widget, ref)) return true
+
+  const names = new Set([
+    normalizeSharedConfigMatchPart(widget.identifier),
+    normalizeSharedConfigMatchPart(getWidgetLineId(widget)),
+  ])
+
+  return names.has(normalizeSharedConfigMatchPart(ref.key)) || names.has(normalizeSharedConfigMatchPart(ref.namespace))
+}
+
+export const getEnabledInstalledCommunitySlotWidgets = ({
+  installedWidgets,
+  enabledIds,
+  slotType,
+}: {
+  installedWidgets: Record<string, SmartWidgetEvent>
+  enabledIds: Set<string>
+  slotType: WidgetCommunitySlotType
+}) => {
+  const selected = new Map<string, SmartWidgetEvent>()
+  const installedIndex = buildInstalledWidgetIndex(installedWidgets)
+
+  for (const [key, widget] of Object.entries(installedWidgets)) {
+    if (widget.slot?.type !== slotType) continue
+    if (!isInstalledWidgetEnabled(key, widget, enabledIds, installedIndex)) continue
+
+    setPreferredWidget(selected, widget)
+  }
+
+  return Array.from(selected.values()).sort(
+    (a, b) => (b.created_at || 0) - (a.created_at || 0) || a.identifier.localeCompare(b.identifier),
+  )
+}
+
+export const getEnabledCommunitySlotWidgetsWithSharedConfig = ({
+  communityPubkey,
+  sharedConfigEvents,
+  installedWidgets,
+  enabledIds,
+  slotType,
+}: {
+  communityPubkey: string
+  sharedConfigEvents: CommunitySharedConfigEvent[]
+  installedWidgets: Record<string, SmartWidgetEvent>
+  enabledIds: Set<string>
+  slotType: WidgetCommunitySlotType
+}) => {
+  const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
+  const sharedConfigRefs = sharedConfigEvents
+    .map(parseCommunitySharedConfigRef)
+    .filter(
+      (ref): ref is CommunitySharedConfigRef =>
+        Boolean(ref && normalizePubkey(ref.communityPubkey) === normalizedCommunityPubkey),
+    )
+
+  if (sharedConfigRefs.length === 0) return []
+
+  return getEnabledInstalledCommunitySlotWidgets({installedWidgets, enabledIds, slotType}).filter(widget => {
+    if (!(widget.permissions || []).includes("community:querySharedConfig")) return false
+
+    return sharedConfigRefs.some(ref => widgetMatchesSharedConfigRef(widget, ref))
+  })
 }
 
 export const getEnabledCommunitySlotWidgets = ({

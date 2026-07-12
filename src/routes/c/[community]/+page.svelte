@@ -220,11 +220,18 @@
   const createRoomPermissionLoading = $derived(
     Boolean(communityPermissionsLoading && !canCreateRoom),
   )
+  let moderatorInviteEvidenceKey = ""
+  let moderatorInviteEvidenceLoaded = $state(false)
+  let moderatorInviteEvidenceEvents = $state<TrustedEvent[]>([])
+  const moderatorInviteProfileListEvents = $derived([
+    ...$activeCommunityProfileListEvents,
+    ...moderatorInviteEvidenceEvents,
+  ])
   const pendingModeratorInvites = $derived.by(() => {
     return getPendingCommunityModeratorInvites({
       definition: $activeCommunityDefinition,
       moderatorPubkey: $pubkey || undefined,
-      profileListEvents: $activeCommunityProfileListEvents,
+      profileListEvents: moderatorInviteProfileListEvents,
     })
   })
   const moderatorInviteProfileListRefs = $derived.by(() =>
@@ -233,20 +240,10 @@
       moderatorPubkey: $pubkey || undefined,
     }),
   )
-  let moderatorInviteEvidenceKey = ""
-  let moderatorInviteEvidenceLoaded = $state(false)
   const showPendingModeratorInvites = $derived(
     !communityPermissionsLoading &&
       moderatorInviteEvidenceLoaded &&
       pendingModeratorInvites.length > 0,
-  )
-  const showModeratorInviteLoading = $derived(
-    Boolean(
-      $pubkey &&
-        !showPendingModeratorInvites &&
-        pendingModeratorInvites.length > 0 &&
-        (communityPermissionsLoading || !moderatorInviteEvidenceLoaded),
-    ),
   )
   const MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS = 2_000
   const ROOM_ROOT_LOAD_TIMEOUT_MS = 8_000
@@ -382,6 +379,7 @@
     if (!key) {
       moderatorInviteEvidenceKey = ""
       moderatorInviteEvidenceLoaded = refs.length === 0
+      moderatorInviteEvidenceEvents = []
       return
     }
 
@@ -389,6 +387,7 @@
 
     moderatorInviteEvidenceKey = key
     moderatorInviteEvidenceLoaded = false
+    moderatorInviteEvidenceEvents = []
 
     const filters = refs.map(
       ref =>
@@ -404,6 +403,9 @@
       timeout: MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS,
       settle: "all",
     })
+      .then(events => {
+        if (moderatorInviteEvidenceKey === key) moderatorInviteEvidenceEvents = events
+      })
       .catch(error => {
         console.warn("[community-home] Failed to hydrate moderator invite evidence", error)
       })
@@ -604,16 +606,7 @@
     </section>
   {/if}
 
-  {#if showModeratorInviteLoading}
-    <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
-      <div class="flex flex-col gap-2">
-        <h2 class="text-lg font-semibold text-warning">Checking moderator invite evidence</h2>
-        <p class="text-sm opacity-75">
-          Loading permissions before showing accept or decline actions for this community.
-        </p>
-      </div>
-    </section>
-  {:else if showPendingModeratorInvites}
+  {#if showPendingModeratorInvites}
     <section class="card2 border-warning bg-warning/10 p-4 shadow-md">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
