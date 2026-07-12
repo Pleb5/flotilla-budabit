@@ -3,6 +3,6 @@
   import {goto} from "$app/navigation"
 
   onMount(() => {
-    goto("/home")
+    if (window.location.pathname === "/") goto("/home", {replaceState: true})
   })
 </script>

@@ -26,7 +26,8 @@
 
   const getResolverRelays = (type: string, data: any) => {
     const embeddedRelays = Array.isArray(data?.relays) ? data.relays : []
-    const repoRelays = type === "naddr" && data?.kind === 30617 ? getRepoAnnouncementRelays(embeddedRelays) : []
+    const repoRelays =
+      type === "naddr" && data?.kind === 30617 ? getRepoAnnouncementRelays(embeddedRelays) : []
 
     const relays = normalizeRelayHints(
       embeddedRelays,
@@ -40,15 +41,26 @@
 
   const {bech32} = $page.params as MakeNonOptional<typeof $page.params>
 
+  const fallbackPath = "/home"
+
+  const normalizePathname = (pathname: string) =>
+    pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname
+
+  const getCurrentBrowserPath = () =>
+    `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+  const isCurrentResolverPath = () =>
+    normalizePathname(window.location.pathname) === normalizePathname(`/${bech32}`)
+
   const attemptToNavigate = async () => {
     const {type, data} = nip19.decode(bech32) as any
 
     if (!["nevent", "naddr"].includes(type)) {
-      return goto("/", {replaceState: true})
+      return goto(fallbackPath, {replaceState: true})
     }
 
     const target = type === "nevent" ? data?.id : Address.fromNaddr(bech32).toString()
-    if (!target) return goto("/", {replaceState: true})
+    if (!target) return goto(fallbackPath, {replaceState: true})
 
     let found = false
 
@@ -61,17 +73,22 @@
       },
       onClose: () => {
         if (!found) {
-          goto("/", {replaceState: true})
+          goto(fallbackPath, {replaceState: true})
         }
       },
     })
   }
 
   onMount(async () => {
+    if (!isCurrentResolverPath()) {
+      goto(getCurrentBrowserPath(), {replaceState: true}).catch(() => undefined)
+      return
+    }
+
     try {
       await attemptToNavigate()
     } catch (e) {
-      goto("/", {replaceState: true})
+      goto(fallbackPath, {replaceState: true})
     }
   })
 </script>

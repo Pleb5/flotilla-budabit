@@ -1010,6 +1010,7 @@ describe("notification sources", () => {
 
   it("builds repo-watch rows with readable labels and seen paths", async () => {
     const {buildRepoWatchNotificationRows} = await import("./notification-sources")
+    const {getNotificationRowDisplay} = await import("./notification-display")
     const issue = makeEvent({
       id: "issue-id",
       kind: GIT_ISSUE,
@@ -1059,16 +1060,17 @@ describe("notification sources", () => {
       }),
     )
 
-    expect(
-      buildRepoWatchNotificationRows({
-        candidates: [{path, latestEvent: comment}],
-      })[0],
-    ).toEqual(
+    const commentRow = buildRepoWatchNotificationRows({
+      candidates: [{path, latestEvent: comment}],
+    })[0]!
+
+    expect(commentRow).toEqual(
       expect.objectContaining({
         title: "New git comment",
         path: `${path}/${issue.id}#comment-${comment.id}`,
       }),
     )
+    expect(getNotificationRowDisplay(commentRow).sections).toHaveLength(1)
 
     expect(
       buildRepoWatchNotificationRows({

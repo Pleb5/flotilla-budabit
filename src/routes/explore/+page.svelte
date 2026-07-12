@@ -96,12 +96,12 @@
   const USER_RELAY_LIST_LOAD_TIMEOUT_MS = 3_000
   const preferredListHydrationLoading = $derived(Boolean(preferredHydrationLoadingKey))
 
-  const loadUserRelayListWithTimeout = async (user: string) => {
+  const loadUserRelayListWithTimeout = async () => {
     let timeout: ReturnType<typeof setTimeout> | undefined
 
     try {
       await Promise.race([
-        loadUserRelayList(user),
+        loadUserRelayList(),
         new Promise<void>(resolve => {
           timeout = setTimeout(resolve, USER_RELAY_LIST_LOAD_TIMEOUT_MS)
         }),
@@ -538,9 +538,7 @@
     ),
   )
   const preferredCommunitiesLoading = $derived(
-    preferredListHydrationLoading ||
-      $communityStarsLoading ||
-      $communityPreferencesLoading,
+    preferredListHydrationLoading || $communityStarsLoading || $communityPreferencesLoading,
   )
   const showPreferredCommunities = $derived(
     selectorCommunities.length > 0 || preferredCommunitiesLoading,
@@ -601,7 +599,7 @@
     if (userRelayListHydrationKey === user || userRelayListHydrationLoadingKey === user) return
 
     userRelayListHydrationLoadingKey = user
-    loadUserRelayListWithTimeout(user)
+    loadUserRelayListWithTimeout()
       .catch(() => {})
       .finally(() => {
         if (userRelayListHydrationLoadingKey !== user) return

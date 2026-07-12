@@ -40,10 +40,13 @@ const mocks = vi.hoisted(() => {
     makeLoader: vi.fn(() => dmLoad),
     loadRelay: vi.fn(),
     loadProfile: vi.fn().mockResolvedValue(undefined),
+    loadRelayList: vi.fn().mockResolvedValue(undefined),
     loadUserRelayList: vi.fn().mockResolvedValue(undefined),
     forceLoadUserMessagingRelayList: vi.fn().mockResolvedValue(undefined),
     loadUserBlossomServerList: vi.fn().mockResolvedValue(undefined),
+    loadFollowList: vi.fn().mockResolvedValue(undefined),
     loadUserFollowList: vi.fn().mockResolvedValue(undefined),
+    loadMuteList: vi.fn().mockResolvedValue(undefined),
     loadUserMuteList: vi.fn().mockResolvedValue(undefined),
     loadSettings: vi.fn().mockResolvedValue(undefined),
     loadAlerts: vi.fn().mockResolvedValue(undefined),
@@ -145,10 +148,13 @@ vi.mock("@welshman/app", () => ({
   userRelayList: mocks.userRelayList,
   userFollowList: mocks.userFollowList,
   userMessagingRelayList: mocks.userMessagingRelayList,
+  loadRelayList: mocks.loadRelayList,
   loadUserRelayList: mocks.loadUserRelayList,
   forceLoadUserMessagingRelayList: mocks.forceLoadUserMessagingRelayList,
   loadUserBlossomServerList: mocks.loadUserBlossomServerList,
+  loadFollowList: mocks.loadFollowList,
   loadUserFollowList: mocks.loadUserFollowList,
+  loadMuteList: mocks.loadMuteList,
   loadUserMuteList: mocks.loadUserMuteList,
 }))
 
@@ -352,8 +358,30 @@ describe("syncApplicationData", () => {
 
     expect(mocks.loadSettings).toHaveBeenCalledWith("b".repeat(64))
     expect(mocks.loadRepoWatch).toHaveBeenCalledWith("b".repeat(64))
+    expect(mocks.loadUserBlossomServerList).toHaveBeenCalledWith()
+    expect(mocks.loadUserFollowList).toHaveBeenCalledWith()
+    expect(mocks.loadUserMuteList).toHaveBeenCalledWith()
     expect(mocks.loadNip85ProviderConfig).not.toHaveBeenCalled()
     expect(mocks.loadTrustGraphConfig).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it("uses pubkey-specific loaders for bootstrap pubkeys", async () => {
+    const bootstrapPubkey = "c".repeat(64)
+    mocks.bootstrapPubkeys.set([bootstrapPubkey])
+
+    const {syncApplicationData} = await import("./sync")
+    const cleanup = syncApplicationData()
+    await flush()
+    await flush()
+
+    expect(mocks.loadRelayList).toHaveBeenCalledWith(bootstrapPubkey)
+    expect(mocks.loadFollowList).toHaveBeenCalledWith(bootstrapPubkey)
+    expect(mocks.loadMuteList).toHaveBeenCalledWith(bootstrapPubkey)
+    expect(mocks.loadUserRelayList).not.toHaveBeenCalledWith(bootstrapPubkey)
+    expect(mocks.loadUserFollowList).not.toHaveBeenCalledWith(bootstrapPubkey)
+    expect(mocks.loadUserMuteList).not.toHaveBeenCalledWith(bootstrapPubkey)
 
     cleanup()
   })

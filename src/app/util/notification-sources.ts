@@ -1859,13 +1859,6 @@ export const buildRepoWatchNotificationRows = ({
             actionLabel: "Open git item",
             fallback: preview,
           }),
-          detail: makeEventDisplayTarget({
-            label: title,
-            event,
-            path,
-            actionLabel: "Open git item",
-            fallback: preview,
-          }),
           createdAt: event.created_at,
           searchText: buildNotificationSearchText(
             "git",

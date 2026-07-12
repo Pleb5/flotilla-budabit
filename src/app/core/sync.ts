@@ -23,10 +23,13 @@ import {
   userFollowList,
   userMessagingRelayList,
   loadUserRelayList,
+  loadRelayList,
   forceLoadUserMessagingRelayList,
   loadUserBlossomServerList,
   loadUserFollowList,
+  loadFollowList,
   loadUserMuteList,
+  loadMuteList,
 } from "@welshman/app"
 import {INDEXER_RELAYS, loadSettings, bootstrapPubkeys} from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
@@ -43,9 +46,7 @@ import {
   setupExtensionSettingsSync,
   clearSyncedGitAuthTokens,
 } from "@app/core/git-requests"
-import {
-  applyRemoteExtensionSettings,
-} from "@app/extensions/settings"
+import {applyRemoteExtensionSettings} from "@app/extensions/settings"
 import {loadNip85ProviderConfig} from "@app/core/nip85"
 import {loadRepoWatch} from "@app/core/repo-watch"
 import {loadTrustGraphConfig} from "@app/core/trust-graph-config"
@@ -208,9 +209,9 @@ const syncUserData = () => {
         loadAlerts($userRelayList.event.pubkey)
         loadAlertStatuses($userRelayList.event.pubkey)
       }
-      loadUserBlossomServerList($userRelayList.event.pubkey)
-      loadUserFollowList($userRelayList.event.pubkey)
-      loadUserMuteList($userRelayList.event.pubkey)
+      loadUserBlossomServerList()
+      loadUserFollowList()
+      loadUserMuteList()
       loadBudabitProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
       if (NIP85_ENABLED) {
@@ -228,10 +229,10 @@ const syncUserData = () => {
 
       await Promise.all(
         pubkeys.map(async pk => {
-          await loadUserRelayList(pk)
+          await loadRelayList(pk)
           await loadBudabitProfile(pk)
-          await loadUserFollowList(pk)
-          await loadUserMuteList(pk)
+          await loadFollowList(pk)
+          await loadMuteList(pk)
         }),
       )
     }
@@ -371,7 +372,7 @@ const syncDMs = () => {
     // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
     if ($pubkey) {
       const relayHints = getMessagingRelayHints()
-      loadUserRelayList($pubkey)
+      loadUserRelayList()
       forceLoadUserMessagingRelayList(relayHints)
     }
 
@@ -388,7 +389,7 @@ const syncDMs = () => {
         ) {
           hasRequestedChatRelayRefresh = true
           const relayHints = getMessagingRelayHints()
-          loadUserRelayList($pubkey)
+          loadUserRelayList()
           forceLoadUserMessagingRelayList(relayHints)
         }
 

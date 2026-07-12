@@ -10,6 +10,9 @@ export default {
     adapter: adapter({
       fallback: "index.html",
     }),
+    paths: {
+      relative: false,
+    },
     alias: {
       "@src": "src",
       "@app": "src/app",
