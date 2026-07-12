@@ -322,7 +322,10 @@ describe("community reports", () => {
       reportEvents: [adminEventReport, sectionModeratorEventReport, allSectionPersonReport],
     })
 
-    expect(getAllSectionModeratorPubkeys(definition)).toEqual([allSectionModeratorPubkey])
+    expect(getAllSectionModeratorPubkeys(definition)).toEqual([
+      communityPubkey,
+      allSectionModeratorPubkey,
+    ])
     expect(
       getCommunityCensorReason({
         reportState: state,

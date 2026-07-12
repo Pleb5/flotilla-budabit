@@ -44,10 +44,25 @@ vi.mock("@welshman/app", () => ({
       return () => undefined
     },
   },
+  userFollowList: {
+    subscribe: (run: (value: null) => void) => {
+      run(null)
+      return () => undefined
+    },
+  },
 }))
 
 vi.mock("@app/core/profile-resolver", () => ({
   loadBudabitProfile: mocks.loadProfile,
+}))
+
+vi.mock("@app/core/community-renunciations", () => ({
+  userRenouncedCommunityPubkeys: {
+    subscribe: (run: (value: Set<string>) => void) => {
+      run(new Set())
+      return () => undefined
+    },
+  },
 }))
 
 vi.mock("@welshman/net", async importOriginal => {

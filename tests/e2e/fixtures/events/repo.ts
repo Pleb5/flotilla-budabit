@@ -4,7 +4,7 @@
  * Kind 30618: Repository State
  */
 import { nip19, getPublicKey, getEventHash, finalizeEvent } from 'nostr-tools';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { hexToBytes } from '@noble/hashes/utils.js';
 
 // ============================================================================
 // Test Keypairs
@@ -392,13 +392,7 @@ export interface SignedEvent {
 export function signTestEvent(event: UnsignedEvent): SignedEvent {
   const pubkey = event.pubkey || TEST_PUBKEYS.alice;
 
-  // Get the corresponding private key
-  let privateKey = getPrivateKeyForPubkey(pubkey);
-  if (!privateKey) {
-    // If we don't have a matching private key, use alice's key
-    // and update the pubkey to match
-    privateKey = hexToBytes(TEST_PRIVATE_KEYS.alice);
-  }
+  const privateKey = getPrivateKeyForPubkey(pubkey) ?? hexToBytes(TEST_PRIVATE_KEYS.alice);
 
   // Create the event template
   const eventTemplate = {

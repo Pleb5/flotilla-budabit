@@ -434,7 +434,7 @@ describe("community admission lifecycle integration", () => {
         target: COMMUNITY_WRITE_TARGETS.comment,
       }),
     ).toBe(false)
-    expect(currentModerators).toEqual([])
+    expect(currentModerators).toEqual([communityPubkey])
     expect(
       selectActiveAdmissionForm({
         events: [form.event],

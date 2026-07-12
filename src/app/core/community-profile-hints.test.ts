@@ -88,7 +88,7 @@ describe("community profile relay hints", () => {
       '...(activeMode === "community" ? selectedCommunityProfileRelays : [])',
     )
     expect(gitPage).toContain("profileRelays={cardProfileRelays}")
-    expect(gitPage).toContain("openRepoCardProfile(g.owner, cardProfileRelays)")
+    expect(gitPage).toContain("openRepoCardProfile(pk, cardProfileRelays)")
     expect(gitPage).not.toContain("loadProfile(event.pubkey, [])")
     expect(gitPage).not.toContain("loadProfile(pubkey, [])")
     expect(gitPage).not.toContain('...(activeMode === "community" ? selectedCommunityRelays : [])')

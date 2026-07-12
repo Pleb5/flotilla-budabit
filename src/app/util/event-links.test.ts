@@ -24,6 +24,7 @@ vi.mock("@welshman/router", () => ({
 
 vi.mock("@welshman/util", () => ({
   BADGE_DEFINITION: 30009,
+  EVENT_DATE: 31922,
   EVENT_TIME: 31923,
   normalizeRelayUrl: (url: string) => (url.endsWith("/") ? url : `${url}/`),
   isRelayUrl: (url: string) => /^wss?:\/\//.test(url),

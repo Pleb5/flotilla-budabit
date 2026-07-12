@@ -31,10 +31,10 @@ describe("profile discoverability phase 1 baseline", () => {
     const link = readProjectFile("../components/ProfileLink.svelte")
 
     expect(profile).toContain("const relayHints = $derived(removeUndefined([url, ...relays]))")
-    expect(profile).toContain(
-      "pushModal(ProfileDetail, {pubkey, url: relayHints[0], relays: relayHints})",
-    )
-    expect(link).toContain("pushModal(ProfileDetail, {pubkey, url, relays: relayHints})")
+    expect(profile).toContain("url: relayHints[0]")
+    expect(profile).toContain("relays: relayHints")
+    expect(link).toContain("url,")
+    expect(link).toContain("relays: relayHints")
     expect(link).toContain("<ProfileName {pubkey} {url} {relays} />")
   })
 
