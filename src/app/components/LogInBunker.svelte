@@ -29,10 +29,11 @@
   }
 
   const controller = new Nip46Controller({
-    onNostrConnect: (response: Nip46ResponseWithResult) => {
-      const pubkey = response.event.pubkey
+    onNostrConnect: async (response: Nip46ResponseWithResult) => {
+      const pubkey = await controller.broker.getPublicKey()
+      const signerPubkey = response.event.pubkey
 
-      loginWithNip46(pubkey, controller.clientSecret, response.event.pubkey, SIGNER_RELAYS)
+      loginWithNip46(pubkey, controller.clientSecret, signerPubkey, SIGNER_RELAYS)
       setChecked("*")
       clearModals()
     },
