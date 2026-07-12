@@ -47,11 +47,19 @@ const mocks = vi.hoisted(() => {
     load,
     loadCommunityEvents,
     pushToast: vi.fn(),
-      signer: createStore(null),
-      pubkey: createStore(undefined as string | undefined),
-      goto: vi.fn(),
-      activeRepoClass: createStore(null),
+    repository: {query: vi.fn(() => [] as any[])},
+    signer: createStore(null),
+    pubkey: createStore(undefined as string | undefined),
+    goto: vi.fn(),
+    activeRepoClass: createStore(null),
     activeCommunityDefinition: createStore(undefined as any),
+    activeCommunityPermissionStatus: createStore({
+      communityPubkey: "",
+      key: "",
+      loading: false,
+      loaded: false,
+      hasCachedEvents: false,
+    }),
     activeCommunityProfileListEvents: createStore([] as any[]),
     activeCommunityRelayHints: createStore([] as string[]),
     activeCommunityRelays: createStore([] as string[]),
@@ -127,6 +135,7 @@ const calendarEvent = makeEvent({
 
 vi.mock("@welshman/app", () => ({
   publishThunk: mocks.publishThunk,
+  repository: mocks.repository,
   signer: mocks.signer,
   pubkey: mocks.pubkey,
 }))
@@ -141,6 +150,7 @@ vi.mock("@app/core/git-state", () => ({
 
 vi.mock("@app/core/community-state", () => ({
   activeCommunityDefinition: mocks.activeCommunityDefinition,
+  activeCommunityPermissionStatus: mocks.activeCommunityPermissionStatus,
   activeCommunityProfileListEvents: mocks.activeCommunityProfileListEvents,
   activeCommunityRelayHints: mocks.activeCommunityRelayHints,
   activeCommunityRelays: mocks.activeCommunityRelays,
@@ -242,10 +252,18 @@ beforeEach(() => {
   localStorage.clear()
   mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
   mocks.load.mockResolvedValue(undefined)
+  mocks.repository.query.mockReturnValue([])
   mocks.goto.mockResolvedValue(undefined)
   mocks.pubkey.set(undefined)
   mocks.activeRepoClass.set(null)
   mocks.activeCommunityDefinition.set(undefined)
+  mocks.activeCommunityPermissionStatus.set({
+    communityPubkey: "",
+    key: "",
+    loading: false,
+    loaded: false,
+    hasCachedEvents: false,
+  })
   mocks.activeCommunityProfileListEvents.set([])
   mocks.activeCommunityRelayHints.set([])
   mocks.activeCommunityRelays.set([])
@@ -758,6 +776,80 @@ describe("ExtensionBridge", () => {
       event: {id: "valid-config"},
       config: {header: "Featured", eventRef: "31923:event"},
     })
+  })
+
+  it("returns cached shared config before relay loads", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const cachedConfig = makeEvent({
+      id: "cached-config",
+      kind: 30078,
+      pubkey: calendarWriterPubkey,
+      created_at: 100,
+      content: JSON.stringify({header: "Cached", eventRefs: ["31923:event"]}),
+      tags: [["d", `budabit-community-config:${communityPubkey}:budabit-calendar-widget:featured-calendar-event`]],
+    })
+
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.repository.query.mockReturnValue([cachedConfig])
+    mocks.pubkey.set(calendarMemberPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:querySharedConfig"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:querySharedConfig", {
+        namespace: "budabit-calendar-widget",
+        key: "featured-calendar-event",
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      event: {id: "cached-config"},
+      config: {header: "Cached", eventRefs: ["31923:event"]},
+    })
+    expect(mocks.loadCommunityEvents).not.toHaveBeenCalled()
+  })
+
+  it("returns not-ready for shared config while permission evidence is loading", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.activeCommunityPermissionStatus.set({
+      communityPubkey,
+      key: "permission-load",
+      loading: true,
+      loaded: false,
+      hasCachedEvents: false,
+    })
+    mocks.pubkey.set(calendarMemberPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:querySharedConfig"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:querySharedConfig", {
+        namespace: "budabit-calendar-widget",
+        key: "featured-calendar-event",
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toEqual({
+      error: "Community permissions are still loading",
+      code: "COMMUNITY_CONTEXT_NOT_READY",
+    })
+    expect(mocks.loadCommunityEvents).not.toHaveBeenCalled()
   })
 
   it("only lets descriptor moderators publish shared config", async () => {

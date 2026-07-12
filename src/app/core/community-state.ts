@@ -113,6 +113,7 @@ export type CommunityRelayLoadSettle = "all" | "first" | "first-non-empty"
 export type CommunityRelayLoadOptions = {
   timeout?: number
   authenticate?: boolean
+  priorityAuthRelays?: string[]
   settle?: CommunityRelayLoadSettle
 }
 
@@ -636,7 +637,7 @@ export const loadCommunityEvents = async (
   if (normalizedRelays.length === 0 || filters.length === 0) return []
 
   if (options.authenticate) {
-    await authenticateCommunityRelays(normalizedRelays)
+    await authenticateCommunityRelays(normalizedRelays, {priorityRelays: options.priorityAuthRelays})
   }
 
   const loadRelay = async (relay: string) => {

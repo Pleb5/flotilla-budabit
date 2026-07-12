@@ -105,6 +105,7 @@ export const getCommunityContextRuntimeSnapshot = ({
   userPubkey = "",
   relays,
   relayHints = [],
+  readinessKey = "",
 }: {
   definition: CommunityDefinition
   profileListEvents: TrustedEvent[]
@@ -112,6 +113,7 @@ export const getCommunityContextRuntimeSnapshot = ({
   userPubkey?: string
   relays: string[]
   relayHints?: string[]
+  readinessKey?: string
 }): CommunityContextRuntimeSnapshot => {
   const communityPubkey = normalizePubkey(definition.pubkey)
   const fingerprint = JSON.stringify({
@@ -123,6 +125,7 @@ export const getCommunityContextRuntimeSnapshot = ({
     userPubkey: normalizePubkey(userPubkey),
     relays: [...relays].sort(),
     relayHints: [...relayHints].sort(),
+    readinessKey,
   })
 
   if (!runtimeSessionId || runtimeCommunityPubkey !== communityPubkey) {
@@ -311,6 +314,7 @@ export const makeCommunityWidgetContext = ({
   userPubkey = "",
   relays,
   relayHints = [],
+  readinessKey = "",
 }: {
   definition: CommunityDefinition
   profile?: CommunityProfile
@@ -319,6 +323,7 @@ export const makeCommunityWidgetContext = ({
   userPubkey?: string
   relays: string[]
   relayHints?: string[]
+  readinessKey?: string
 }): CommunityWidgetContext => {
   const normalizedUser = normalizePubkey(userPubkey)
   const normalizedCommunity = normalizePubkey(definition.pubkey)
@@ -329,6 +334,7 @@ export const makeCommunityWidgetContext = ({
     userPubkey,
     relays,
     relayHints,
+    readinessKey,
   })
 
   return {

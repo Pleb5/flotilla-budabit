@@ -13,19 +13,18 @@
 
 ## Current Phase
 
-- Phase 3: Shared Config And Widget Loads
+- Phase 4: Moderation Evidence Ordering
 
 ## Phase Exit Criteria
 
-- `community:querySharedConfig` is cache-first from the local repository when possible.
-- Shared config bridge loads use prioritized community auth and do not silently convert auth/loading timeouts into successful empty config.
-- Widget community context changes when permission/profile-list/report readiness changes so widgets get a retry signal when high-priority data becomes available.
-- Calendar featured-event widget loads no longer wait for a stale-success empty config cycle when host data was not ready.
-- Focused bridge tests cover shared config loading/not-ready behavior.
-- `pnpm exec vitest run src/app/extensions/bridge.test.ts` passes.
+- Moderation page and menu counts distinguish loading review/delete evidence from truly unreviewed/new applications or reports.
+- Application responses can render from cache, but warnings/counts for “new” are withheld or labeled loading until matching review/delete evidence has settled.
+- Report moderation counts do not show false pending states while report review/delete evidence is still loading.
+- Relevant copy says review/moderation evidence is loading instead of showing premature empty or unreviewed state.
+- Focused tests cover any extracted admission/moderation readiness helpers where practical.
 - `pnpm run check` passes.
 - `git diff --check` passes.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- Phase 4 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -77,6 +76,23 @@
   - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
 - Phase 2 was committed and pushed as `45c9a361 perf: add community permission readiness`.
 - Post-push checkpoint reread confirmed `Current Phase: Phase 3: Shared Config And Widget Loads`; this repair updates stale Phase 2 transition text left in `Current State`, `Next Action`, and `Risks Or Blockers`.
+- Phase 3 changed `src/app/core/community-state.ts`:
+  - Added optional priority auth relay hints to `loadCommunityEvents` so bridge loads can authenticate community relay hints first.
+- Phase 3 changed `src/app/extensions/bridge.ts`:
+  - `community:querySharedConfig` now checks cached local repository events before network hydration.
+  - Shared config queries return `COMMUNITY_CONTEXT_NOT_READY` while permission/profile-list evidence is still loading instead of successful empty config.
+  - Bridge community loads pass prioritized auth relay hints.
+- Phase 3 changed `src/app/extensions/community-context.ts` and `src/app/components/community/CommunityHomeWidgetSlot.svelte`:
+  - Added a permission-readiness key to community context fingerprinting so widgets receive `community:contextChanged` when permissions settle even if no profile-list events were found.
+- Phase 3 changed `src/app/extensions/bridge.test.ts`:
+  - Added coverage for cache-first shared config and not-ready shared config while permission evidence is loading.
+- Phase 3 inspected `~/Work/budabit-calendar-widget/src/App.svelte`:
+  - No widget code change was needed; the host now returns not-ready instead of stale empty success, and context changes trigger the widget's existing reload path.
+- Phase 3 verification:
+  - `pnpm exec vitest run src/app/extensions/bridge.test.ts`: passed, 25 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
+  - Inspected `git status --short --branch`, `git diff --stat`, `git diff`, and `git log --oneline -10` before checkpoint advancement.
 
 ## Decisions
 
@@ -91,11 +107,12 @@
 - Branch: `dev`, tracking `origin/dev`.
 - Phase 1 is committed and pushed.
 - Phase 2 is committed and pushed.
-- Phase 3 should inspect extension shared-config loading and widget community context retry behavior.
+- Phase 3 verification has passed and the phase is ready to commit and push.
+- Phase 4 should inspect moderation application/report review and delete evidence loading before counts or new-state badges render.
 
 ## Next Action
 
-- Start Phase 3 by inspecting `src/app/extensions/bridge.ts`, widget frame/context producers, and the calendar widget config path.
+- Commit and push Phase 3, reread this checkpoint, then start Phase 4 by inspecting `src/routes/c/[community]/moderation/+page.svelte`, `src/app/components/CommunityMenu.svelte`, and admission/report readiness helpers.
 
 ## Verification
 
@@ -116,11 +133,16 @@
   - `pnpm exec vitest run src/app/core/community-state-loading.test.ts`: passed, 15 tests.
   - `pnpm run check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
+- Phase 3 verification:
+  - `pnpm exec vitest run src/app/extensions/bridge.test.ts`: passed, 25 tests.
+  - `pnpm run check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
 
 ## Risks Or Blockers
 
 - No blocker.
-- Phase 3 needs focused bridge/widget tests plus browser/device validation beyond local checks.
+- Need commit and push the verified Phase 3 changes, then reread this checkpoint.
+- Residual UX risk requires browser/device validation beyond local checks.
 
 ## Files
 
@@ -133,5 +155,8 @@
 - `src/app/components/CommunityMenu.svelte`
 - `src/routes/c/[community]/+page.svelte`
 - `src/app/extensions/bridge.ts`
+- `src/app/extensions/bridge.test.ts`
+- `src/app/extensions/community-context.ts`
 - `src/app/components/community/CommunityHomeWidgetSlot.svelte`
 - `~/Work/budabit-calendar-widget/src/App.svelte`
+- `src/routes/c/[community]/moderation/+page.svelte`

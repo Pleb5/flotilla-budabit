@@ -6,6 +6,7 @@
   import {normalizePubkey} from "@app/core/community"
   import {
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -56,6 +57,19 @@
     getTagValue("description", widget.tags) ||
     (getTagValue("title", widget.tags) ? widget.content : "")
 
+  const communityReadinessKey = $derived.by(() => {
+    const status = $activeCommunityPermissionStatus
+
+    return normalizePubkey(status.communityPubkey) === normalizePubkey(communityPubkey)
+      ? JSON.stringify({
+          permissionKey: status.key,
+          permissionLoading: status.loading,
+          permissionLoaded: status.loaded,
+          permissionHasCachedEvents: status.hasCachedEvents,
+        })
+      : ""
+  })
+
   const communityContext = $derived.by(() => {
     if (
       !$activeCommunityDefinition ||
@@ -72,6 +86,7 @@
       userPubkey: $pubkey || "",
       relays: $activeCommunityRelays.length ? $activeCommunityRelays : relayHints,
       relayHints,
+      readinessKey: communityReadinessKey,
     })
   })
 

@@ -1,10 +1,11 @@
-import {pubkey as activeUserPubkey, publishThunk, signer} from "@welshman/app"
+import {pubkey as activeUserPubkey, publishThunk, repository, signer} from "@welshman/app"
 import {goto} from "$app/navigation"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
 import {
   activeCommunityDefinition,
+  activeCommunityPermissionStatus,
   activeCommunityProfileListEvents,
   activeCommunityRelayHints,
   activeCommunityRelays,
@@ -133,6 +134,7 @@ const MAX_NOSTR_QUERY_LIMIT = 500
 const COMMUNITY_SHARED_CONFIG_KIND = 30078
 const COMMUNITY_SHARED_CONFIG_PREFIX = "budabit-community-config"
 const COMMUNITY_BRIDGE_LOAD_TIMEOUT = 5000
+const COMMUNITY_CONTEXT_NOT_READY_CODE = "COMMUNITY_CONTEXT_NOT_READY"
 
 const normalizeRelayUrls = (relays: unknown): string[] => {
   if (!Array.isArray(relays)) {
@@ -754,6 +756,9 @@ const parseSharedConfigContent = (event: any) => {
   }
 }
 
+const makeCommunityContextNotReadyError = (message: string) =>
+  Object.assign(new Error(message), {code: COMMUNITY_CONTEXT_NOT_READY_CODE})
+
 const isPreferredEvent = (candidate: any, current: any | undefined) => {
   if (!current) return true
   if ((candidate.created_at || 0) !== (current.created_at || 0)) {
@@ -761,6 +766,44 @@ const isPreferredEvent = (candidate: any, current: any | undefined) => {
   }
 
   return String(candidate.id || "") < String(current.id || "")
+}
+
+const selectCommunitySharedConfigEvent = (events: any[], moderatorPubkeys: Set<string>) =>
+  events
+    .filter(event => moderatorPubkeys.has(normalizePubkey(event.pubkey || "")))
+    .reduce((current, event) => (isPreferredEvent(event, current) ? event : current), undefined as any)
+
+const queryCachedCommunitySharedConfigEvents = ({
+  identifier,
+  limit,
+}: {
+  identifier: string
+  limit?: number
+}) => {
+  try {
+    return repository.query([
+      {
+        kinds: [COMMUNITY_SHARED_CONFIG_KIND],
+        "#d": [identifier],
+        limit,
+      } as any,
+    ])
+  } catch (error) {
+    console.warn("[bridge] cached shared config query failed", error)
+    return []
+  }
+}
+
+const isCommunityPermissionEvidenceLoading = (snapshot: ReturnType<typeof getCommunityRequestSnapshot>) => {
+  const status = get(activeCommunityPermissionStatus)
+
+  return Boolean(
+    status.communityPubkey &&
+      normalizePubkey(status.communityPubkey) === normalizePubkey(snapshot.definition.pubkey) &&
+      status.loading &&
+      !status.loaded &&
+      !status.hasCachedEvents,
+  )
 }
 
 const getExtensionCommunityContext = (ext: LoadedExtension) => {
@@ -791,9 +834,7 @@ const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
       extensionRuntimeContext.communityContext?.viewer.pubkey || get(activeUserPubkey) || ""
 
     if (relays.length === 0) {
-      throw Object.assign(new Error("Community relays are not available"), {
-        code: "COMMUNITY_CONTEXT_NOT_READY",
-      })
+      throw makeCommunityContextNotReadyError("Community relays are not available")
     }
 
     const runtime = extensionRuntimeContext.communityContext
@@ -821,9 +862,7 @@ const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
   const userPubkey = get(activeUserPubkey) || ""
 
   if (!definition) {
-    throw Object.assign(new Error("Active community definition is not available"), {
-      code: "COMMUNITY_CONTEXT_NOT_READY",
-    })
+    throw makeCommunityContextNotReadyError("Active community definition is not available")
   }
 
   const extensionCommunityContext = getExtensionCommunityContext(ext)
@@ -842,9 +881,7 @@ const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
       : relayHints
 
   if (relays.length === 0) {
-    throw Object.assign(new Error("Active community relays are not available"), {
-      code: "COMMUNITY_CONTEXT_NOT_READY",
-    })
+    throw makeCommunityContextNotReadyError("Active community relays are not available")
   }
 
   const runtime = getCommunityContextRuntimeSnapshot({
@@ -864,11 +901,13 @@ const loadBridgeEvents = async ({
   filters,
   timeoutMs = COMMUNITY_BRIDGE_LOAD_TIMEOUT,
   authenticate = false,
+  priorityAuthRelays = [],
 }: {
   relays: string[]
   filters: Record<string, unknown>[]
   timeoutMs?: number
   authenticate?: boolean
+  priorityAuthRelays?: string[]
 }) => {
   if (relays.length === 0 || filters.length === 0) return []
 
@@ -876,6 +915,7 @@ const loadBridgeEvents = async ({
     return await loadCommunityEvents(relays, filters as any, {
       timeout: timeoutMs,
       authenticate,
+      priorityAuthRelays,
     })
   } catch (error: any) {
     console.warn("[bridge] community query load failed", error?.message || error)
@@ -892,6 +932,7 @@ const hydrateCommunityRequestSnapshot = async (snapshot: ReturnType<typeof getCo
     filters: profileListFilters,
     timeoutMs: 3500,
     authenticate: true,
+    priorityAuthRelays: snapshot.relayHints,
   })
 
   return {
@@ -952,6 +993,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
           relays: snapshot.relays,
           filters: [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}],
           authenticate: true,
+          priorityAuthRelays: snapshot.relayHints,
         })
       : []
     const plan = makeCommunityDescriptorQueryPlan({
@@ -968,6 +1010,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       relays: snapshot.relays,
       filters: plan.originalFilters,
       authenticate: true,
+      priorityAuthRelays: snapshot.relayHints,
     })
     const events = filterCommunityDescriptorEvents(
       loadedEvents as any,
@@ -994,7 +1037,7 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
   if (ext) console.log(`[bridge] community:querySharedConfig from ${ext.id}`, payload)
   try {
     const request = normalizeCommunitySharedConfigScope(payload)
-    const snapshot = await getHydratedCommunityRequestSnapshot(ext)
+    const snapshot = getCommunityRequestSnapshot(ext)
     const resolved = resolveCommunityEventDescriptors({
       definition: snapshot.definition,
       profileListEvents: snapshot.profileListEvents,
@@ -1008,27 +1051,64 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
       namespace: request.namespace,
       key: request.key,
     })
-    const events = await loadBridgeEvents({
-      relays: snapshot.relays,
-      filters: [
-        {
-          kinds: [COMMUNITY_SHARED_CONFIG_KIND],
-          "#d": [identifier],
-          limit: request.limit,
-        },
-      ],
-      authenticate: true,
+    const sharedConfigFilter = {
+      kinds: [COMMUNITY_SHARED_CONFIG_KIND],
+      "#d": [identifier],
+      limit: request.limit,
+    }
+    const cachedEvents = queryCachedCommunitySharedConfigEvents({
+      identifier,
+      limit: request.limit,
     })
-    const selected = events
-      .filter(event => moderatorPubkeys.has(normalizePubkey(event.pubkey || "")))
-      .reduce((current, event) => (isPreferredEvent(event, current) ? event : current), undefined as any)
+    const cachedSelected = selectCommunitySharedConfigEvent(cachedEvents, moderatorPubkeys)
+
+    if (cachedSelected) {
+      return {
+        status: "ok",
+        event: cachedSelected,
+        config: parseSharedConfigContent(cachedSelected),
+        relays: snapshot.relays,
+        contextSessionId: snapshot.contextSessionId,
+        contextVersion: snapshot.contextVersion,
+      }
+    }
+
+    if (isCommunityPermissionEvidenceLoading(snapshot)) {
+      throw makeCommunityContextNotReadyError("Community permissions are still loading")
+    }
+
+    const hydratedSnapshot = await hydrateCommunityRequestSnapshot(snapshot)
+    const hydratedResolved = resolveCommunityEventDescriptors({
+      definition: hydratedSnapshot.definition,
+      profileListEvents: hydratedSnapshot.profileListEvents,
+      reportState: hydratedSnapshot.reportState,
+      userPubkey: hydratedSnapshot.userPubkey,
+      descriptors: request.descriptors,
+    })
+    const hydratedModeratorPubkeys = new Set(
+      hydratedResolved.flatMap(info => info.moderatorPubkeys),
+    )
+    const loadedEvents = await loadBridgeEvents({
+      relays: hydratedSnapshot.relays,
+      filters: [sharedConfigFilter],
+      authenticate: true,
+      priorityAuthRelays: hydratedSnapshot.relayHints,
+    })
+    const selected = selectCommunitySharedConfigEvent(
+      dedupeEvents([...cachedEvents, ...loadedEvents]),
+      hydratedModeratorPubkeys,
+    )
+
+    if (!selected && isCommunityPermissionEvidenceLoading(hydratedSnapshot)) {
+      throw makeCommunityContextNotReadyError("Community permissions are still loading")
+    }
 
     return {
       status: "ok",
       ...(selected ? {event: selected, config: parseSharedConfigContent(selected)} : {}),
-      relays: snapshot.relays,
-      contextSessionId: snapshot.contextSessionId,
-      contextVersion: snapshot.contextVersion,
+      relays: hydratedSnapshot.relays,
+      contextSessionId: hydratedSnapshot.contextSessionId,
+      contextVersion: hydratedSnapshot.contextVersion,
     }
   } catch (err: any) {
     console.error("Error in community:querySharedConfig bridge handler:", err)
