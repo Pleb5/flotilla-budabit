@@ -1,7 +1,6 @@
 import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
-import {deriveProfile, forceLoadRelayList, pubkey, repository, tracker} from "@welshman/app"
-import {signWithTimeout as sign} from "@app/util/signer-nudge"
+import {deriveProfile, forceLoadRelayList, pubkey, repository, sign, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {normalizeUrl, sortBy} from "@welshman/lib"
 import {AuthStatus, load, Pool} from "@welshman/net"

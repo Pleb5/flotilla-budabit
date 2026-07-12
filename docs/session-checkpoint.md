@@ -13,20 +13,19 @@
 
 ## Current Phase
 
-- Phase 3: Remove Bunker-Hostile Startup And Resume Work
+- Phase 4: Gate Passive Notification And Autosync Writes
 
 ## Phase Exit Criteria
 
-- No eager restored-session `signer.getPubkey()` warm-up remains in `src/routes/+layout.svelte`.
-- No `setupSignerNudgeWatcher()` startup subscription remains.
-- `src/app/util/signer-nudge.ts` is removed if it has no remaining legitimate callers.
-- Community and command signing paths use the standard Welshman `sign` unless a bounded timeout is still explicitly justified and not harmful to bunker sessions.
-- The Android `3s` relay resume path is removed or restored to a non-invasive behavior that does not run during normal Amber approval app-switches.
-- `setupRelayResumeRecovery()` is not installed during startup unless it is proven safe for NIP-46 handshakes.
-- Focused searches show no leftover bunker warm-up/nudge imports or startup signer calls.
+- `setupRepoWatchNotifications()` no longer auto-publishes repo-watch notification baseline state during passive startup.
+- Notification services may subscribe/load relay data but do not call `nip44.encrypt`, `sign`, or `publishThunk` merely because the app started or notification stores initialized.
+- Extension settings autosync does not publish materialized/default settings during initial remote hydration or startup without a user action.
+- Explicit user actions that update repo-watch settings or extension settings still publish as before.
+- Focused searches identify no passive startup path from notification setup to signer encryption/signing/publish.
+- Relevant focused tests are updated or added where practical.
 - `pnpm check` passes.
 - `git diff --check` passes.
-- Phase 3 changes are committed, pushed, and the checkpoint is reread.
+- Phase 4 changes are committed, pushed, and the checkpoint is reread.
 
 ## Completed With Evidence
 
@@ -65,6 +64,23 @@
   - `pnpm check`: passed, 0 errors and 0 warnings.
   - `git diff --check`: passed with no output.
   - Inspected `git status --short --branch`, `git diff`, and `git log --oneline --decorate -12` before checkpoint update.
+- Phase 2 was committed and pushed as `208c15d1 fix: restore nip46 login handshake`.
+- Phase 3 changed `src/routes/+layout.svelte`:
+  - Removed the eager restored-session NIP-46 `activeSigner.getPubkey()` warm-up block.
+  - Removed startup installation of `setupSignerNudgeWatcher()`.
+  - Removed `setupRelayResumeRecovery()` and its Android `3s` visibility/focus/online relay refresh path.
+  - Removed now-unused relay resume imports, constants, state, and helpers.
+- Phase 3 changed `src/app/core/community-state.ts` and `src/app/core/commands.ts`:
+  - Replaced `signWithTimeout as sign` imports with standard Welshman `sign` imports from `@welshman/app`.
+- Phase 3 deleted `src/app/util/signer-nudge.ts` because no legitimate callers remained.
+- Phase 3 verification:
+  - Focused searches for `signer-nudge`, `setupSignerNudgeWatcher`, `Bunker warm-up`, `signer.getPubkey`, `setupRelayResumeRecovery`, `signWithTimeout`, and `signWithNudge`: no matches under `src`.
+  - Focused `+layout.svelte` search for relay resume markers including `relayResume`, `recoverRelayConnections`, `RELAY_RESUME`, `loadUserRelayList`, `hydratePreferredCommunityList`, and `clearCommunityBootstrapCache`: no matches.
+  - Broader `getPubkey()/getPublicKey()` search under `src`: only explicit login flows remain (`LogIn.svelte`, bunker URL login in `LogInBunker.svelte`).
+  - First `pnpm check` found missing standard `sign` imports after removing the helper; imports were fixed.
+  - Re-run `pnpm check`: passed, 0 errors and 0 warnings.
+  - `git diff --check`: passed with no output.
+  - Inspected `git status --short --branch`, `git diff`, and `git log --oneline --decorate -12` before checkpoint update.
 
 ## Decisions
 
@@ -78,11 +94,11 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phase 2 code and checkpoint changes are verified and belong to the transition commit into Phase 3.
+- Phase 3 code and checkpoint changes are verified and belong to the transition commit into Phase 4.
 
 ## Next Action
 
-- Inspect `src/routes/+layout.svelte`, `src/app/util/signer-nudge.ts`, `src/app/core/community-state.ts`, `src/app/core/commands.ts`, and `src/app/core/state.ts` for Phase 3 startup/resume signer work.
+- Inspect `src/app/util/repo-watch-notifications.ts`, `src/app/core/repo-watch.ts`, `src/app/extensions/settings.ts`, `src/app/core/sync.ts`, and notification setup in `src/routes/+layout.svelte` for Phase 4 passive signer writes.
 
 ## Verification
 
@@ -93,6 +109,8 @@
 - Inspected `git status -sb`, `git diff -- docs/session-plan.md docs/session-checkpoint.md`, and `git log --oneline --decorate -12` before Phase 1 commit.
 - Ran Phase 2 focused Vitest, `pnpm check`, and `git diff --check` successfully.
 - Inspected Phase 2 status, diff, and recent log before checkpoint update.
+- Ran Phase 3 focused searches, `pnpm check`, and `git diff --check` successfully after fixing standard `sign` imports.
+- Inspected Phase 3 status, diff, and recent log before checkpoint update.
 
 ## Risks Or Blockers
 
@@ -107,3 +125,7 @@
 - `src/app/util/nip46.test.ts`
 - `src/app/components/LogInBunker.svelte`
 - `src/app/components/LogInPassword.svelte`
+- `src/routes/+layout.svelte`
+- `src/app/core/community-state.ts`
+- `src/app/core/commands.ts`
+- `src/app/util/signer-nudge.ts`
