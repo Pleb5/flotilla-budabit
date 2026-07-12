@@ -129,11 +129,11 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Workflow code and tests are complete on `dev`; only this final checkpoint update remains to commit and push.
+- Workflow code, tests, and closeout checkpoint are complete on `dev`.
 
 ## Next Action
 
-- Final response after committing/pushing this checkpoint and rereading it.
+- Final response.
 
 ## Verification
 
