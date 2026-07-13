@@ -3,8 +3,8 @@
   "version": "1.6.2",
   "private": true,
   "scripts": {
-    "dev": "vite dev",
-    "dev:app": "vite dev",
+    "dev": "BUDABIT_SERVICE_WORKER=0 vite dev",
+    "dev:app": "BUDABIT_SERVICE_WORKER=0 vite dev",
     "dev:full": "node dev-full.mjs",
     "screenshots:landing": "node scripts/capture-landing-screenshots.mjs",
     "build": "./build.sh",

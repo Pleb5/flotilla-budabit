@@ -46,6 +46,8 @@ if [[ -z $VITE_BUILD_ID ]]; then
 	export VITE_BUILD_ID="${build_id_base}-$(date -u +%Y%m%d%H%M%S)"
 fi
 
+export BUDABIT_SERVICE_WORKER=1
+
 if [[ $VITE_PLATFORM_LOGO =~ ^https://* ]]; then
 	curl $VITE_PLATFORM_LOGO >static/logo.png
 	export VITE_PLATFORM_LOGO=static/logo.png
@@ -53,6 +55,7 @@ fi
 
 npx pwa-assets-generator
 npx vite build
+node scripts/check-built-service-worker.mjs
 
 # Replace HTML placeholders and keep web manifest branding in sync
 node - <<'NODE'
