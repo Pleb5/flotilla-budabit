@@ -75,6 +75,7 @@ Smart Widgets declare privileges with repeatable `permission` tags:
 ["permission", "nostr:publish"]
 ["permission", "storage:get"]
 ["permission", "community:queryEvents"]
+["permission", "community:queryLiveStreams"]
 ```
 
 Budabit enforces these rules:

@@ -66,6 +66,14 @@ VITE_SMART_WIDGET_RELAYS=wss://relay.yakihonne.com,wss://relay.sharegap.net,wss:
 
 If this is empty, Budabit uses built-in widget relay defaults for direct widget lookups. Default extensions are loaded from `VITE_DEFAULT_COMMUNITY`: the app validates that community's latest `kind:10222` definition and shows its curated `kind:30033` widgets as installed and enabled. Users can disable those defaults but cannot uninstall them. Additional direct `naddr` installs live under Settings > Extensions > Advanced.
 
+Optional trusted NIP-53 streaming providers:
+
+```env
+VITE_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS=cf45a6ba1363ad7ed213a078e710d24115ae721c9b47bd1ebf4458eaefb4c2a5
+```
+
+When unset, Budabit trusts the provider pubkeys used by zap.stream. Setting this value replaces that default list. A trusted provider stream is accepted only when its kind `30311` event names a current community section moderator in a `p` tag with role `host` and carries the current community tag.
+
 ## Community Definition Checklist
 
 Self-hosting Budabit does not create a community by itself. Before setting `VITE_DEFAULT_COMMUNITY`, make sure the community pubkey has public Nostr state that Budabit can resolve:

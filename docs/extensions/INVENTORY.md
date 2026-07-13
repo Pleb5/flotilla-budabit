@@ -159,6 +159,7 @@ type ExtensionMessage = {
 | `nostr:nip44Encrypt` | `nostr:nip44Encrypt` | Encrypt content with NIP-44. |
 | `community:checkWriteCapabilities` | Same action | Check active community write capabilities. |
 | `community:queryEvents` | Same action | Query active community events through descriptors. |
+| `community:queryLiveStreams` | Same action | Query moderator-authored or trusted-provider NIP-53 streams from community relays. |
 | `community:querySharedConfig` | Same action | Read community shared configuration. |
 | `community:publishSharedConfig` | Same action | Publish community shared configuration. |
 | `storage:get` | `storage:get` | Read scoped localStorage. |

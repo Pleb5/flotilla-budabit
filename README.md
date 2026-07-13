@@ -111,6 +111,7 @@ Community, relay, and discovery defaults:
 - `VITE_DEFAULT_PUBKEYS` - Comma-separated hex pubkeys for bootstrapping web of trust
 - `VITE_DEFAULT_BLOSSOM_SERVERS` - Fallback Blossom media servers for uploads
 - `VITE_SMART_WIDGET_RELAYS` - Optional widget discovery relays; app defaults are used when empty
+- `VITE_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS` - Optional comma-separated provider pubkeys allowed to identify community moderators as NIP-53 stream hosts; defaults to providers trusted by zap.stream
 
 Git and optional services:
 

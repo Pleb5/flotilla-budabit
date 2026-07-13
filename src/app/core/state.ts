@@ -35,6 +35,9 @@ import {
   COMMENT,
   DELETE,
   EVENT_TIME,
+  HTTP_AUTH,
+  LIVE_CHAT_MESSAGE,
+  LIVE_EVENT,
   MESSAGE,
   REACTION,
   REPORT,
@@ -131,7 +134,18 @@ export const DUFFLEPUD_URL = "https://dufflepud.onrender.com"
 
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt,switch_relays," +
-  [CLIENT_AUTH, MESSAGE, THREAD, COMMENT, DM_KIND, REACTION, ZAP_REQUEST]
+  [
+    CLIENT_AUTH,
+    HTTP_AUTH,
+    LIVE_CHAT_MESSAGE,
+    LIVE_EVENT,
+    MESSAGE,
+    THREAD,
+    COMMENT,
+    DM_KIND,
+    REACTION,
+    ZAP_REQUEST,
+  ]
     .map(k => `sign_event:${k}`)
     .join(",")
 

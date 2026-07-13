@@ -147,4 +147,13 @@ describe("state", () => {
     const {ROOM} = await import("./state")
     expect(ROOM).toBe("h")
   })
+
+  it("requests signer permissions for streaming and HTTP authentication", async () => {
+    const {NIP46_PERMS} = await import("./state")
+
+    expect(NIP46_PERMS).toContain("sign_event:1311")
+    expect(NIP46_PERMS).toContain("sign_event:22242")
+    expect(NIP46_PERMS).toContain("sign_event:27235")
+    expect(NIP46_PERMS).toContain("sign_event:30311")
+  })
 })

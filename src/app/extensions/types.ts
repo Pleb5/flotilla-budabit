@@ -148,6 +148,24 @@ export type CommunityQueryEventsResponse =
     }
   | {error: string; code?: string}
 
+export type CommunityQueryLiveStreamsRequest = {
+  descriptors: CommunityEventDescriptor[]
+  limit?: number
+  since?: number
+  until?: number
+}
+
+export type CommunityQueryLiveStreamsResponse =
+  | {
+      status: "ok"
+      events: unknown[]
+      relays: string[]
+      descriptors: CommunityEventDescriptor[]
+      contextSessionId: string
+      contextVersion: number
+    }
+  | {error: string; code?: string}
+
 export type SmartWidgetEvent = {
   id: string
   kind: 30033

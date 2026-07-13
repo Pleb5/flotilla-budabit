@@ -41,11 +41,13 @@ const mocks = vi.hoisted(() => {
 
     return events
   })
+  const authenticateCommunityRelays = vi.fn(async () => undefined)
 
   return {
     publishThunk: vi.fn(),
     load,
     loadCommunityEvents,
+    authenticateCommunityRelays,
     pushToast: vi.fn(),
     repository: {query: vi.fn(() => [] as any[])},
     signer: createStore(null),
@@ -70,6 +72,7 @@ const mocks = vi.hoisted(() => {
 const communityPubkey = "a".repeat(64)
 const calendarWriterPubkey = "b".repeat(64)
 const calendarMemberPubkey = "c".repeat(64)
+const zapStreamProviderPubkey = "cf45a6ba1363ad7ed213a078e710d24115ae721c9b47bd1ebf4458eaefb4c2a5"
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -156,6 +159,7 @@ vi.mock("@app/core/community-state", () => ({
   activeCommunityRelayHints: mocks.activeCommunityRelayHints,
   activeCommunityRelays: mocks.activeCommunityRelays,
   activeCommunityReportState: mocks.activeCommunityReportState,
+  authenticateCommunityRelays: mocks.authenticateCommunityRelays,
   loadCommunityEvents: mocks.loadCommunityEvents,
 }))
 
@@ -298,6 +302,36 @@ describe("ExtensionBridge", () => {
     )
   })
 
+  it("authenticates active community relays before publishing to them", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const communityRelay = "wss://community.example.com/"
+    const publicRelay = "wss://public.example.com/"
+    mocks.activeCommunityRelays.set([communityRelay])
+    mocks.activeCommunityRelayHints.set([communityRelay])
+    mocks.publishThunk.mockReturnValue({
+      complete: Promise.resolve(),
+      results: {
+        [communityRelay]: {status: "success"},
+        [publicRelay]: {status: "success"},
+      },
+    })
+
+    const extension = makeExtension({widget: {permissions: ["nostr:publish"]}})
+    const bridge = new ExtensionBridge(extension as any)
+    const response = await sendBridgeRequest(bridge, extension, "nostr:publish", {
+      event: makeEvent({kind: 30311}),
+      relays: [communityRelay, publicRelay],
+    })
+
+    expect(mocks.authenticateCommunityRelays).toHaveBeenCalledWith([communityRelay], {
+      priorityRelays: [communityRelay],
+    })
+    expect(mocks.authenticateCommunityRelays.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.publishThunk.mock.invocationCallOrder[0],
+    )
+    expect(response.result.successCount).toBe(2)
+  })
+
   it("rejects privileged actions when the extension does not have permission", async () => {
     const {ExtensionBridge} = await import("./bridge")
 
@@ -357,9 +391,9 @@ describe("ExtensionBridge", () => {
     const extension = makeExtension({onResizeRequest})
     const bridge = new ExtensionBridge(extension as any)
 
-    await expect(
-      sendBridgeRequest(bridge, extension, "ui:resize", {height: -1}),
-    ).resolves.toEqual({error: "Invalid resize height: expected positive finite number"})
+    await expect(sendBridgeRequest(bridge, extension, "ui:resize", {height: -1})).resolves.toEqual({
+      error: "Invalid resize height: expected positive finite number",
+    })
     await expect(sendBridgeRequest(bridge, extension, "ui:resize", {})).resolves.toEqual({
       error: "Invalid resize payload: expected positive finite height or width",
     })
@@ -812,7 +846,12 @@ describe("ExtensionBridge", () => {
       pubkey: calendarWriterPubkey,
       created_at: 100,
       content: JSON.stringify({header: "Cached", eventRefs: [calendarEventRef]}),
-      tags: [["d", `budabit-community-config:${communityPubkey}:budabit-calendar-widget:featured-calendar-event`]],
+      tags: [
+        [
+          "d",
+          `budabit-community-config:${communityPubkey}:budabit-calendar-widget:featured-calendar-event`,
+        ],
+      ],
     })
 
     mocks.activeCommunityDefinition.set(communityDefinition)
@@ -851,7 +890,12 @@ describe("ExtensionBridge", () => {
       pubkey: calendarWriterPubkey,
       created_at: 100,
       content: JSON.stringify({header: "Cached", eventRefs: [calendarEventRef]}),
-      tags: [["d", `budabit-community-config:${communityPubkey}:budabit-calendar-widget:featured-calendar-event`]],
+      tags: [
+        [
+          "d",
+          `budabit-community-config:${communityPubkey}:budabit-calendar-widget:featured-calendar-event`,
+        ],
+      ],
     })
 
     mocks.activeCommunityDefinition.set(communityDefinition)
@@ -938,7 +982,9 @@ describe("ExtensionBridge", () => {
         descriptors: [{kind: EVENT_TIME}],
         config: {header: "Featured", eventRefs: [calendarEventRef]},
       }),
-    ).resolves.toMatchObject({error: "Current user is not a moderator for the requested community descriptors"})
+    ).resolves.toMatchObject({
+      error: "Current user is not a moderator for the requested community descriptors",
+    })
 
     mocks.pubkey.set(calendarWriterPubkey)
     mocks.publishThunk.mockReturnValue({
@@ -1194,6 +1240,198 @@ describe("ExtensionBridge", () => {
       status: "ok",
       events: [calendarEvent],
     })
+  })
+
+  it("queries direct and trusted-provider live streams hosted by descriptor moderators", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const directOld = makeEvent({
+      id: "direct-old",
+      kind: 30311,
+      pubkey: calendarWriterPubkey,
+      created_at: 10,
+      tags: [
+        ["d", "direct-stream"],
+        ["h", communityPubkey],
+      ],
+    })
+    const directLive = makeEvent({
+      id: "direct-live",
+      kind: 30311,
+      pubkey: calendarWriterPubkey,
+      created_at: 20,
+      tags: [
+        ["d", "direct-stream"],
+        ["h", communityPubkey],
+        ["status", "live"],
+      ],
+    })
+    const delegatedLive = makeEvent({
+      id: "delegated-live",
+      kind: 30311,
+      pubkey: zapStreamProviderPubkey,
+      created_at: 30,
+      tags: [
+        ["d", "delegated-stream"],
+        ["t", `budabit-community:${communityPubkey}`],
+        ["p", calendarWriterPubkey, "", "host"],
+        ["status", "live"],
+      ],
+    })
+    const writerOnlyStream = makeEvent({
+      id: "writer-only",
+      kind: 30311,
+      pubkey: calendarMemberPubkey,
+      created_at: 40,
+      tags: [
+        ["d", "writer-stream"],
+        ["h", communityPubkey],
+      ],
+    })
+    const invalidDelegation = makeEvent({
+      id: "invalid-delegation",
+      kind: 30311,
+      pubkey: zapStreamProviderPubkey,
+      created_at: 40,
+      tags: [
+        ["d", "invalid-provider-stream"],
+        ["t", `budabit-community:${communityPubkey}`],
+        ["p", calendarMemberPubkey, "", "host"],
+      ],
+    })
+
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+      if (!filters?.some((filter: any) => filter.kinds?.includes(30311))) return
+      ;[directOld, directLive, delegatedLive, writerOnlyStream, invalidDelegation].forEach(onEvent)
+    })
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:queryLiveStreams"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryLiveStreams", {
+        descriptors: [{kind: EVENT_TIME}],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      events: [{id: "delegated-live"}, {id: "direct-live"}],
+      relays: ["wss://relay.example.com/"],
+      descriptors: [{kind: EVENT_TIME}],
+      contextSessionId: expect.any(String),
+      contextVersion: 0,
+    })
+    expect(mocks.loadCommunityEvents).toHaveBeenCalledWith(
+      ["wss://relay.example.com/"],
+      expect.arrayContaining([
+        expect.objectContaining({
+          kinds: [30311],
+          authors: expect.arrayContaining([calendarWriterPubkey]),
+        }),
+        expect.objectContaining({
+          kinds: [30311],
+          authors: expect.arrayContaining([zapStreamProviderPubkey]),
+        }),
+      ]),
+      expect.objectContaining({authenticate: true}),
+    )
+  })
+
+  it("uses the lower event id when live-stream replacements share a timestamp", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const lowerId = "1".repeat(64)
+    const higherId = "f".repeat(64)
+    const makeReplacement = (id: string) =>
+      makeEvent({
+        id,
+        kind: 30311,
+        pubkey: calendarWriterPubkey,
+        created_at: 20,
+        tags: [
+          ["d", "tie-stream"],
+          ["h", communityPubkey],
+          ["title", id === lowerId ? "Preferred" : "Discarded"],
+        ],
+      })
+
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+      if (!filters?.some((filter: any) => filter.kinds?.includes(30311))) return
+      onEvent?.(makeReplacement(higherId))
+      onEvent?.(makeReplacement(lowerId))
+    })
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:queryLiveStreams"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryLiveStreams", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({events: [{id: lowerId}]})
+  })
+
+  it("does not resurrect an older delegated stream after the provider changes its host", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const validOld = makeEvent({
+      id: "valid-old-provider-stream",
+      kind: 30311,
+      pubkey: zapStreamProviderPubkey,
+      created_at: 10,
+      tags: [
+        ["d", "reassigned-stream"],
+        ["t", `budabit-community:${communityPubkey}`],
+        ["p", calendarWriterPubkey, "", "host"],
+      ],
+    })
+    const invalidNew = makeEvent({
+      id: "invalid-new-provider-stream",
+      kind: 30311,
+      pubkey: zapStreamProviderPubkey,
+      created_at: 20,
+      tags: [
+        ["d", "reassigned-stream"],
+        ["t", `budabit-community:${communityPubkey}`],
+        ["p", calendarMemberPubkey, "", "host"],
+      ],
+    })
+
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+      if (!filters?.some((filter: any) => filter.kinds?.includes(30311))) return
+      onEvent?.(validOld)
+      onEvent?.(invalidNew)
+    })
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:queryLiveStreams"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryLiveStreams", {
+        descriptors: [{kind: EVENT_TIME}],
+      }),
+    ).resolves.toMatchObject({events: []})
   })
 
   it("validates nostr query payloads and deduplicates returned events", async () => {

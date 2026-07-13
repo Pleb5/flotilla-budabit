@@ -10,6 +10,7 @@ import {
   activeCommunityRelayHints,
   activeCommunityRelays,
   activeCommunityReportState,
+  authenticateCommunityRelays,
   loadCommunityEvents,
 } from "@app/core/community-state"
 import {PROFILE_LIST_KIND, normalizePubkey, type CommunityDefinition} from "@app/core/community"
@@ -24,6 +25,7 @@ import {get} from "svelte/store"
 import type {
   CommunityEventDescriptor,
   CommunityPublishSharedConfigRequest,
+  CommunityQueryLiveStreamsRequest,
   CommunityQuerySharedConfigRequest,
   CommunityQueryEventsRequest,
   CommunityWidgetContext,
@@ -135,6 +137,25 @@ const COMMUNITY_SHARED_CONFIG_KIND = 30078
 const COMMUNITY_SHARED_CONFIG_PREFIX = "budabit-community-config"
 const COMMUNITY_BRIDGE_LOAD_TIMEOUT = 5000
 const COMMUNITY_CONTEXT_NOT_READY_CODE = "COMMUNITY_CONTEXT_NOT_READY"
+const LIVE_STREAM_KIND = 30311
+const COMMUNITY_STREAM_TAG_PREFIX = "budabit-community:"
+const DEFAULT_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS = [
+  "cf45a6ba1363ad7ed213a078e710d24115ae721c9b47bd1ebf4458eaefb4c2a5",
+  "81ee947168db2f909895dbd4f71534f4040035575f58156e9a3802d1dd467e1d",
+  "f6a25b87f7e7bec9a691e37851b1b57a7b49fa00bb431280303002a3ebca4891",
+  "85df822a86599ffbe8143db1e1e1bf2d162fa60fc685c65515963e67cfd7499f",
+]
+const configuredTrustedLiveStreamProviderPubkeys = String(
+  import.meta.env.VITE_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS || "",
+)
+  .split(",")
+  .map(normalizePubkey)
+  .filter(Boolean)
+const TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS = new Set(
+  configuredTrustedLiveStreamProviderPubkeys.length > 0
+    ? configuredTrustedLiveStreamProviderPubkeys
+    : DEFAULT_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS,
+)
 
 const normalizeRelayUrls = (relays: unknown): string[] => {
   if (!Array.isArray(relays)) {
@@ -240,6 +261,17 @@ const parseNostrPublishPayload = (payload: any): {event: any; relays?: string[]}
   }
 
   return {event: payload}
+}
+
+const authenticatePublishCommunityRelays = async (relays: string[] = []) => {
+  const activeRelaySet = new Set(normalizeRelayUrls(get(activeCommunityRelays)))
+  const communityRelays = relays.filter(relay => activeRelaySet.has(relay))
+
+  if (communityRelays.length === 0) return
+
+  await authenticateCommunityRelays(communityRelays, {
+    priorityRelays: get(activeCommunityRelayHints),
+  })
 }
 
 const normalizeUiResizePayload = (payload: unknown): WidgetResizeRequest => {
@@ -386,7 +418,9 @@ export class ExtensionBridge {
 
   private isPrivileged(action: string): boolean {
     const privileged =
-      action.startsWith("nostr:") || action.startsWith("storage:") || action.startsWith("community:")
+      action.startsWith("nostr:") ||
+      action.startsWith("storage:") ||
+      action.startsWith("community:")
     return privileged
   }
 
@@ -478,6 +512,7 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:publish from ${ext.id}`, payload)
   try {
     const {event, relays} = parseNostrPublishPayload(payload)
+    await authenticatePublishCommunityRelays(relays)
     const hasIdAndSig =
       event &&
       typeof event === "object" &&
@@ -697,7 +732,39 @@ const normalizeCommunityQueryEventsPayload = (
       ? Math.floor(untilRaw)
       : undefined
 
-  return {descriptors, refs: normalizeCommunityQueryRefs((payload as any).refs), limit, since, until}
+  return {
+    descriptors,
+    refs: normalizeCommunityQueryRefs((payload as any).refs),
+    limit,
+    since,
+    until,
+  }
+}
+
+const normalizeCommunityQueryLiveStreamsPayload = (
+  payload: unknown,
+): Required<Pick<CommunityQueryLiveStreamsRequest, "descriptors">> &
+  Pick<CommunityQueryLiveStreamsRequest, "limit" | "since" | "until"> => {
+  const {descriptors} = normalizeCommunityDescriptorsPayload(payload)
+  const limitRaw = (payload as any).limit
+  const sinceRaw = (payload as any).since
+  const untilRaw = (payload as any).until
+
+  return {
+    descriptors,
+    limit:
+      typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.min(Math.floor(limitRaw), MAX_NOSTR_QUERY_LIMIT)
+        : 100,
+    since:
+      typeof sinceRaw === "number" && Number.isFinite(sinceRaw) && sinceRaw > 0
+        ? Math.floor(sinceRaw)
+        : undefined,
+    until:
+      typeof untilRaw === "number" && Number.isFinite(untilRaw) && untilRaw > 0
+        ? Math.floor(untilRaw)
+        : undefined,
+  }
 }
 
 const normalizeSharedConfigPart = (value: unknown, name: string) => {
@@ -789,10 +856,53 @@ const isPreferredEvent = (candidate: any, current: any | undefined) => {
   return String(candidate.id || "") < String(current.id || "")
 }
 
+const selectLiveStreamReplacements = (events: any[]) => {
+  const selected = new Map<string, any>()
+
+  for (const event of dedupeEvents(events)) {
+    if (event?.kind !== LIVE_STREAM_KIND) continue
+    const address = getBridgeEventAddress(event)
+    if (!address) continue
+    const current = selected.get(address)
+    if (isPreferredEvent(event, current)) selected.set(address, event)
+  }
+
+  return Array.from(selected.values())
+}
+
+const hasCommunityStreamTag = (event: any, communityPubkey: string) => {
+  const marker = `${COMMUNITY_STREAM_TAG_PREFIX}${communityPubkey}`
+
+  return Array.isArray(event?.tags)
+    ? event.tags.some((tag: any) => {
+        const name = String(tag?.[0] || "").toLowerCase()
+        const value = String(tag?.[1] || "")
+          .trim()
+          .toLowerCase()
+        return (
+          (name === "h" && normalizePubkey(value) === communityPubkey) ||
+          (name === "t" && (value === marker || value === communityPubkey))
+        )
+      })
+    : false
+}
+
+const hasModeratorHostTag = (event: any, moderatorPubkeys: Set<string>) =>
+  Array.isArray(event?.tags) &&
+  event.tags.some(
+    (tag: any) =>
+      tag?.[0] === "p" &&
+      moderatorPubkeys.has(normalizePubkey(String(tag?.[1] || ""))) &&
+      String(tag?.[3] || "").toLowerCase() === "host",
+  )
+
 const selectCommunitySharedConfigEvent = (events: any[], moderatorPubkeys: Set<string>) =>
   events
     .filter(event => moderatorPubkeys.has(normalizePubkey(event.pubkey || "")))
-    .reduce((current, event) => (isPreferredEvent(event, current) ? event : current), undefined as any)
+    .reduce(
+      (current, event) => (isPreferredEvent(event, current) ? event : current),
+      undefined as any,
+    )
 
 const queryCachedCommunitySharedConfigEvents = ({
   identifier,
@@ -875,14 +985,16 @@ const filterExactCommunityRefEvents = <T extends {pubkey?: string}>(
     : []
 }
 
-const isCommunityPermissionEvidenceLoading = (snapshot: ReturnType<typeof getCommunityRequestSnapshot>) => {
+const isCommunityPermissionEvidenceLoading = (
+  snapshot: ReturnType<typeof getCommunityRequestSnapshot>,
+) => {
   const status = get(activeCommunityPermissionStatus)
 
   return Boolean(
     status.communityPubkey &&
-      normalizePubkey(status.communityPubkey) === normalizePubkey(snapshot.definition.pubkey) &&
-      status.loading &&
-      !status.loaded,
+    normalizePubkey(status.communityPubkey) === normalizePubkey(snapshot.definition.pubkey) &&
+    status.loading &&
+    !status.loaded,
   )
 }
 
@@ -1003,7 +1115,9 @@ const loadBridgeEvents = async ({
   }
 }
 
-const hydrateCommunityRequestSnapshot = async (snapshot: ReturnType<typeof getCommunityRequestSnapshot>) => {
+const hydrateCommunityRequestSnapshot = async (
+  snapshot: ReturnType<typeof getCommunityRequestSnapshot>,
+) => {
   const profileListFilters = makeCommunityProfileListFilters(snapshot.definition)
   if (profileListFilters.length === 0) return snapshot
 
@@ -1064,7 +1178,12 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       descriptors: request.descriptors,
     })
     const exactRefWriterPubkeys = Array.from(
-      new Set(descriptorInfos.flatMap(info => info.writerPubkeys).map(normalizePubkey).filter(Boolean)),
+      new Set(
+        descriptorInfos
+          .flatMap(info => info.writerPubkeys)
+          .map(normalizePubkey)
+          .filter(Boolean),
+      ),
     )
     const exactRefFilters = makeExactCommunityEventRefFilters({
       refs: request.refs || [],
@@ -1158,6 +1277,91 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
     }
   } catch (err: any) {
     console.error("Error in community:queryEvents bridge handler:", err)
+    return {error: err.message, ...(err.code ? {code: err.code} : {})}
+  }
+})
+
+registerBridgeHandler("community:queryLiveStreams", async (payload, ext) => {
+  if (ext) console.log(`[bridge] community:queryLiveStreams from ${ext.id}`, payload)
+  try {
+    const request = normalizeCommunityQueryLiveStreamsPayload(payload)
+    const snapshot = await getHydratedCommunityRequestSnapshot(ext)
+    const descriptorInfos = resolveCommunityEventDescriptors({
+      definition: snapshot.definition,
+      profileListEvents: snapshot.profileListEvents,
+      reportState: snapshot.reportState,
+      descriptors: request.descriptors,
+    })
+    const moderatorPubkeys = new Set(
+      descriptorInfos
+        .flatMap(info => info.moderatorPubkeys)
+        .map(normalizePubkey)
+        .filter(Boolean),
+    )
+    const trustedProviderPubkeys = Array.from(TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS)
+    const queryWindow = {
+      ...(request.since ? {since: request.since} : {}),
+      ...(request.until ? {until: request.until} : {}),
+      limit: MAX_NOSTR_QUERY_LIMIT,
+    }
+    const filters: Record<string, unknown>[] = []
+
+    if (moderatorPubkeys.size > 0) {
+      filters.push({
+        kinds: [LIVE_STREAM_KIND],
+        authors: Array.from(moderatorPubkeys),
+        ...queryWindow,
+      })
+    }
+    if (trustedProviderPubkeys.length > 0 && moderatorPubkeys.size > 0) {
+      filters.push({
+        kinds: [LIVE_STREAM_KIND],
+        authors: trustedProviderPubkeys,
+        ...queryWindow,
+      })
+    }
+
+    const loadedEvents = await loadBridgeEvents({
+      relays: snapshot.relays,
+      filters,
+      authenticate: true,
+      priorityAuthRelays: snapshot.relayHints,
+    })
+    const communityPubkey = normalizePubkey(snapshot.definition.pubkey)
+    const events = selectLiveStreamReplacements(loadedEvents)
+      .filter(event => {
+        const author = normalizePubkey(event?.pubkey || "")
+        const createdAt = Number(event?.created_at || 0)
+        const direct = moderatorPubkeys.has(author)
+        const delegated =
+          TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS.has(author) &&
+          hasModeratorHostTag(event, moderatorPubkeys)
+
+        return (
+          Boolean(author) &&
+          hasCommunityStreamTag(event, communityPubkey) &&
+          (!request.since || createdAt >= request.since) &&
+          (!request.until || createdAt <= request.until) &&
+          (direct || delegated)
+        )
+      })
+      .sort(
+        (a, b) =>
+          (b.created_at || 0) - (a.created_at || 0) ||
+          String(a.id || "").localeCompare(String(b.id || "")),
+      )
+      .slice(0, request.limit)
+
+    return {
+      status: "ok",
+      events,
+      relays: snapshot.relays,
+      descriptors: descriptorInfos.map(info => info.descriptor),
+      contextSessionId: snapshot.contextSessionId,
+      contextVersion: snapshot.contextVersion,
+    }
+  } catch (err: any) {
+    console.error("Error in community:queryLiveStreams bridge handler:", err)
     return {error: err.message, ...(err.code ? {code: err.code} : {})}
   }
 })
