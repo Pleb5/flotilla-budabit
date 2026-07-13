@@ -67,6 +67,12 @@ export const clearCommunityWidgetSlotCache = () => {
   curatedWidgetLoads.clear()
 }
 
+export const shouldPreserveCuratedWidgetView = (
+  currentWidgets: SmartWidgetEvent[],
+  nextWidgets: SmartWidgetEvent[],
+  sameCommunity: boolean,
+) => sameCommunity && currentWidgets.length > 0 && nextWidgets.length === 0
+
 type InstalledWidgetMatch = {
   key: string
   widget: SmartWidgetEvent

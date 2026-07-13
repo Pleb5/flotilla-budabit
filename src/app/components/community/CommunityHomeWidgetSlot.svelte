@@ -20,6 +20,7 @@
     getEnabledCommunitySlotWidgets,
     getEnabledInstalledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
+    shouldPreserveCuratedWidgetView,
   } from "@app/extensions/community-widget-slots"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
@@ -311,11 +312,10 @@
 
         curatedWidgetsLoading = false
         const nextCuratedWidgets = result?.status === "community" ? result.widgets : []
-        const preserveCurrentWidgets = Boolean(
-          nextCuratedWidgets.length === 0 &&
-            curatedWidgets.length > 0 &&
-            curatedWidgetsBaseKey === baseKey &&
-            communityPermissionEvidenceLoading,
+        const preserveCurrentWidgets = shouldPreserveCuratedWidgetView(
+          curatedWidgets,
+          nextCuratedWidgets,
+          curatedWidgetsBaseKey === baseKey,
         )
 
         if (!preserveCurrentWidgets) curatedWidgets = nextCuratedWidgets
@@ -345,7 +345,6 @@
           key,
           error: error instanceof Error ? error.message : String(error),
         })
-        if (!(communityPermissionEvidenceLoading && curatedWidgets.length > 0)) curatedWidgets = []
         loadKey = ""
       })
   })

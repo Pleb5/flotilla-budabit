@@ -8,6 +8,7 @@ import {
   getEnabledCommunitySlotWidgets,
   getEnabledInstalledCommunitySlotWidgets,
   loadCachedCommunityCuratedWidgets,
+  shouldPreserveCuratedWidgetView,
 } from "./community-widget-slots"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "./types"
 import {getWidgetLineId} from "./widget-identity"
@@ -181,6 +182,14 @@ describe("community widget slots", () => {
     })
 
     expect(selected.map(widget => widget.identifier)).toEqual(["featured-calendar-event"])
+  })
+
+  it("keeps a validated widget view through empty same-community refreshes", () => {
+    const widget = makeWidget("community-stream", "community-home-before-quicklinks")
+
+    expect(shouldPreserveCuratedWidgetView([widget], [], true)).toBe(true)
+    expect(shouldPreserveCuratedWidgetView([widget], [], false)).toBe(false)
+    expect(shouldPreserveCuratedWidgetView([widget], [widget], true)).toBe(false)
   })
 
   it("selects enabled installed slot widgets with cached shared config", () => {
