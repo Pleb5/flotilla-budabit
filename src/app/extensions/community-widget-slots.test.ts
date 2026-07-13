@@ -7,6 +7,7 @@ import {
   getEnabledCommunitySlotWidgetsWithSharedConfig,
   getEnabledCommunitySlotWidgets,
   getEnabledInstalledCommunitySlotWidgets,
+  getLastValidatedCommunityCuratedWidgets,
   loadCachedCommunityCuratedWidgets,
   shouldPreserveCuratedWidgetView,
 } from "./community-widget-slots"
@@ -250,6 +251,19 @@ describe("community widget slots", () => {
       widgets: [widget],
     })
     expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(1)
+  })
+
+  it("retains the last validated widget snapshot across slot remounts", async () => {
+    const widget = makeWidget("community-stream", "community-home-before-quicklinks")
+    mocks.loadCommunityCuratedWidgets
+      .mockResolvedValueOnce(makeCuratedResult([widget]))
+      .mockResolvedValueOnce(makeCuratedResult())
+
+    await loadCachedCommunityCuratedWidgets("community-a")
+    expect(getLastValidatedCommunityCuratedWidgets("community-a")).toEqual([widget])
+
+    await loadCachedCommunityCuratedWidgets("community-a", {force: true})
+    expect(getLastValidatedCommunityCuratedWidgets("community-a")).toEqual([widget])
   })
 
   it("force refresh bypasses fresh curated widget cache entries", async () => {

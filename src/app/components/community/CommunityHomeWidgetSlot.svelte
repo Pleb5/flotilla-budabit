@@ -19,6 +19,7 @@
     getEnabledCommunitySlotWidgetsWithSharedConfig,
     getEnabledCommunitySlotWidgets,
     getEnabledInstalledCommunitySlotWidgets,
+    getLastValidatedCommunityCuratedWidgets,
     loadCachedCommunityCuratedWidgets,
     shouldPreserveCuratedWidgetView,
   } from "@app/extensions/community-widget-slots"
@@ -36,14 +37,17 @@
 
   const {communityPubkey, relayHints = [], slotType}: Props = $props()
 
-  let curatedWidgets = $state<SmartWidgetEvent[]>([])
+  const initialCurationInput = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
+  let curatedWidgets = $state<SmartWidgetEvent[]>(
+    getLastValidatedCommunityCuratedWidgets(initialCurationInput),
+  )
   let curatedWidgetsLoading = $state(false)
   let loadKey = ""
   let loadRequestId = 0
   let loadRefreshNonce = $state(0)
   let forceNextLoad = false
   let lastForcedRefreshAt = 0
-  let curatedWidgetsBaseKey = ""
+  let curatedWidgetsBaseKey = initialCurationInput ? `${slotType}:${initialCurationInput}` : ""
   let lastLoadReadinessKey = ""
   let loadedCommunitySharedConfigEvents = $state<any[]>([])
   let sharedConfigLoadKey = ""
@@ -270,7 +274,7 @@
     }
 
     if (baseKey !== curatedWidgetsBaseKey) {
-      curatedWidgets = []
+      curatedWidgets = getLastValidatedCommunityCuratedWidgets(input)
       curatedWidgetsLoading = false
       curatedWidgetsBaseKey = baseKey
       lastLoadReadinessKey = ""

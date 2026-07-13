@@ -25,6 +25,7 @@ type LoadCachedCommunityCuratedWidgetsOptions = {
 }
 
 const curatedWidgetLoads = new Map<string, CuratedWidgetCacheEntry>()
+const curatedWidgetSnapshots = new Map<string, SmartWidgetEvent[]>()
 
 const getCuratedWidgetResultTtl = (result: CommunityCuratedExtensionsResult | undefined) =>
   result?.status === "community" && result.widgets.length > 0
@@ -46,6 +47,9 @@ export const loadCachedCommunityCuratedWidgets = (
 
   const pending = loadCommunityCuratedWidgets(key)
     .then(result => {
+      if (result?.status === "community" && result.widgets.length > 0) {
+        curatedWidgetSnapshots.set(key, result.widgets)
+      }
       const entry = curatedWidgetLoads.get(key)
       if (entry?.promise === pending) {
         entry.settledAt = Date.now()
@@ -65,7 +69,12 @@ export const loadCachedCommunityCuratedWidgets = (
 
 export const clearCommunityWidgetSlotCache = () => {
   curatedWidgetLoads.clear()
+  curatedWidgetSnapshots.clear()
 }
+
+export const getLastValidatedCommunityCuratedWidgets = (input: string) => [
+  ...(curatedWidgetSnapshots.get(input.trim()) || []),
+]
 
 export const shouldPreserveCuratedWidgetView = (
   currentWidgets: SmartWidgetEvent[],
