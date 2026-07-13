@@ -131,6 +131,7 @@
   const APP_RELOAD_RECOVERY_ATTEMPT_KEY = "appReloadRecoveryAttempt"
   const APP_IMPORT_RECOVERY_KEY = "appImportRecoveryBuildId"
   const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
+  const DEV_SERVICE_WORKER_RESET_KEY = "devServiceWorkerReset"
   const EXPLORE_NOTIFICATION_STARTUP_DELAY_MS = 4_000
   let updateCheckInterval: number | null = null
   let updateCheckOnFocus: (() => void) | null = null
@@ -912,8 +913,46 @@
   // Cleanup on page close
   window.addEventListener("beforeunload", () => db.close())
 
+  const prepareDevNavigation = async () => {
+    if (!dev || !("serviceWorker" in navigator)) return
+
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      const cacheNames = "caches" in window ? await caches.keys() : []
+      const appCacheNames = cacheNames.filter(name => name.startsWith(APP_CACHE_PREFIX))
+      const hasController = Boolean(navigator.serviceWorker.controller)
+
+      if (!hasController && registrations.length === 0 && appCacheNames.length === 0) {
+        sessionStorage.removeItem(DEV_SERVICE_WORKER_RESET_KEY)
+        return
+      }
+
+      await Promise.all(registrations.map(registration => registration.unregister()))
+      await Promise.all(appCacheNames.map(name => caches.delete(name)))
+
+      if (!hasController) {
+        sessionStorage.removeItem(DEV_SERVICE_WORKER_RESET_KEY)
+        return
+      }
+
+      if (sessionStorage.getItem(DEV_SERVICE_WORKER_RESET_KEY)) {
+        sessionStorage.removeItem(DEV_SERVICE_WORKER_RESET_KEY)
+        console.warn("[service-worker] Development worker still controls the page after reset")
+        return
+      }
+
+      sessionStorage.setItem(DEV_SERVICE_WORKER_RESET_KEY, "1")
+      window.location.reload()
+      await new Promise<never>(() => {})
+    } catch (error) {
+      console.warn("[service-worker] Failed to reset development worker state", error)
+    }
+  }
+
   const unsubscribe = call(async () => {
     const unsubscribers: Unsubscriber[] = []
+
+    await prepareDevNavigation()
 
     // Sync stuff to localstorage
     await Promise.all([

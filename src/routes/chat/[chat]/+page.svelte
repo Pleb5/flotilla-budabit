@@ -1,21 +1,19 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
-  import type {MakeNonOptional} from "@welshman/lib"
   import {uniq} from "@welshman/lib"
   import {pubkey} from "@welshman/app"
   import Chat from "@app/components/Chat.svelte"
   import {notifications, setChecked} from "@app/util/notifications"
 
-  const {chat} = $page.params as MakeNonOptional<typeof $page.params>
-
+  const chat = $derived($page.params.chat || "")
   const recipient = $derived(chat.split(",")[0])
 
   // Derive pubkeys reactively - only valid when user is logged in
   const pubkeys = $derived($pubkey && recipient ? uniq([$pubkey, recipient]) : [])
 
   $effect(() => {
-    if (chat.includes(",")) {
+    if (chat && chat.includes(",")) {
       goto("/chat", {replaceState: true})
     }
   })
