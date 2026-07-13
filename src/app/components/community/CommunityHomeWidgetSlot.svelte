@@ -384,7 +384,8 @@
           {widget}
           context={makeWidgetContext(widget)}
           class="w-full"
-          minHeight={220} />
+          minHeight={220}
+          resizeMinHeight={0} />
       </section>
     {/each}
   </div>

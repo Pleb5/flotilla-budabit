@@ -21,6 +21,7 @@
     class?: string
     frameClass?: string
     minHeight?: number
+    resizeMinHeight?: number
   }
 
   const {
@@ -29,6 +30,7 @@
     class: className = "",
     frameClass = "absolute inset-0 h-full w-full border-0",
     minHeight = 280,
+    resizeMinHeight = minHeight,
   }: Props = $props()
 
   let iframeRef: HTMLIFrameElement | undefined = $state()
@@ -201,11 +203,12 @@
   const frameHeight = $derived.by(() => {
     if (requestedHeight === undefined) return undefined
 
-    return Math.min(maxRequestedHeight, Math.max(minHeight, 1, Math.ceil(requestedHeight)))
+    return Math.min(maxRequestedHeight, Math.max(resizeMinHeight, 1, Math.ceil(requestedHeight)))
   })
 
   const frameWrapperStyle = $derived.by(() => {
-    const styles = [`min-height: ${minHeight}px`]
+    const minimumHeight = requestedHeight === undefined ? minHeight : resizeMinHeight
+    const styles = [`min-height: ${minimumHeight}px`]
     if (frameHeight !== undefined) styles.push(`height: ${frameHeight}px`)
 
     return styles.join("; ")
