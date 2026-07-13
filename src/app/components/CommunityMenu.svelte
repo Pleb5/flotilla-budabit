@@ -69,7 +69,6 @@
   } from "@app/core/community-reports"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
-  import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {formatShortNpub} from "@app/util/pubkeys"
   import {makeCommunityInputValue} from "@app/util/community-stars"
   import {
@@ -538,10 +537,7 @@
         </SecondaryNavItem>
       {/if}
 
-      <SecondaryNavItem
-        {replaceState}
-        href={gitPath}
-        notification={hasGitNotification($notifications)}>
+      <SecondaryNavItem {replaceState} href={gitPath}>
         <Icon icon={Git} /> Git
       </SecondaryNavItem>
 

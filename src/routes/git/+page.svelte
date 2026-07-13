@@ -1170,10 +1170,6 @@
     }))
   })
 
-  const hasMyRepoNotifications = $derived.by(() =>
-    latestMyRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
-  )
-
   const hasStarredRepoNotifications = $derived.by(() =>
     loadedStarredRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
   )
@@ -3570,11 +3566,6 @@
                 <Icon icon={FolderWithFiles} size={4} class="sm:hidden" />
                 <Icon icon={FolderWithFiles} class="hidden sm:inline-block" />
                 <span class="min-w-0 truncate">Repos</span>
-                {#if hasMyRepoNotifications}
-                  <span
-                    class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2"
-                    aria-label="Unread updates"></span>
-                {/if}
               </span>
             </TabsTrigger>
             <TabsTrigger

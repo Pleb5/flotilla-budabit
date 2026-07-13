@@ -592,6 +592,12 @@
     }
   })
 
+  $effect(() => {
+    const checkedPath = roomPath
+
+    return () => setChecked(checkedPath)
+  })
+
   onMount(() => {
     const observer = new ResizeObserver(updateDynamicPadding)
 
@@ -607,13 +613,7 @@
   })
 
   onDestroy(() => {
-    const checkedPath = roomPath
-
     resetFeed()
-
-    setTimeout(() => {
-      setChecked(checkedPath)
-    }, 800)
   })
 </script>
 
