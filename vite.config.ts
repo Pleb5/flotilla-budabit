@@ -1,7 +1,7 @@
 import {config} from "dotenv"
 import path from "path"
 import {fileURLToPath} from "url"
-import {defineConfig} from "vite"
+import {defineConfig, type Plugin} from "vite"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -33,6 +33,22 @@ const devHmrProtocol = ["ws", "wss"].includes(process.env.VITE_DEV_HMR_PROTOCOL 
   ? process.env.VITE_DEV_HMR_PROTOCOL
   : undefined
 const devHmrEnabled = process.env.VITE_DEV_HMR_ENABLED === "1"
+
+const devServiceWorkerCleanup = {
+  name: "budabit-dev-service-worker-cleanup",
+  configureServer(server) {
+    server.middlewares.use((request, response, next) => {
+      if (request.url?.split("?", 1)[0] !== "/service-worker.js") {
+        next()
+        return
+      }
+
+      response.setHeader("Content-Type", "application/javascript")
+      response.setHeader("Cache-Control", "no-store")
+      response.end('importScripts("/sw.js")\n')
+    })
+  },
+} satisfies Plugin
 
 const devHmr =
   devHmrEnabled && (devHmrHost || devHmrPath || devHmrPort || devHmrClientPort || devHmrProtocol)
@@ -120,6 +136,7 @@ export default defineConfig({
   },
 
   plugins: [
+    devServiceWorkerCleanup,
     sveltekit(),
     svg({
       svgoOptions: {
