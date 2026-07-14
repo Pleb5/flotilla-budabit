@@ -28,6 +28,7 @@ import {
   NOTIFIER_RELAY,
 } from "@app/core/state"
 import {activeCommunityRelays} from "@app/core/community-state"
+import {graspServersStore} from "@nostr-git/ui"
 
 let guestRelaySigner: Nip01Signer | undefined
 
@@ -71,6 +72,9 @@ const isUserOwnedRelay = (url: string) => {
 
   const communityRelays = get(activeCommunityRelays)
   if (communityRelays.some(r => safeNormalizeUrl(r) === normalized)) return true
+
+  const graspRelays = get(graspServersStore)
+  if (graspRelays.some(r => safeNormalizeUrl(r) === normalized)) return true
 
   return false
 }
@@ -180,6 +184,9 @@ export const authPolicy = (socket: Socket) => {
       attemptAuth()
     }),
     activeCommunityRelays.subscribe(() => {
+      attemptAuth()
+    }),
+    graspServersStore.subscribe(() => {
       attemptAuth()
     }),
   ]

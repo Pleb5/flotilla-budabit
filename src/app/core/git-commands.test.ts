@@ -3,6 +3,9 @@ import {beforeEach, describe, expect, it, vi} from "vitest"
 const mockPublishThunk = vi.fn((_opts?: unknown) => ({complete: Promise.resolve()}))
 const mockPublishDelete = vi.fn((_opts?: unknown) => ({complete: Promise.resolve()}))
 const mockLoad = vi.fn().mockResolvedValue(undefined)
+const mockPublish = vi.fn()
+const mockRepositoryPublish = vi.fn()
+const mockSignerSign = vi.fn()
 
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
@@ -10,7 +13,16 @@ vi.mock("@welshman/app", async importOriginal => {
     ...actual,
     publishThunk: (opts?: unknown) => mockPublishThunk(opts),
     abortThunk: vi.fn(),
-    repository: {...actual.repository, query: vi.fn(() => [])},
+    pubkey: {...actual.pubkey, get: () => "a".repeat(64)},
+    signer: {
+      ...actual.signer,
+      get: () => ({sign: mockSignerSign}),
+    },
+    repository: {
+      ...actual.repository,
+      query: vi.fn(() => []),
+      publish: (event: unknown) => mockRepositoryPublish(event),
+    },
   }
 })
 
@@ -29,7 +41,11 @@ vi.mock("@welshman/router", async importOriginal => {
 
 vi.mock("@welshman/net", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/net")>()
-  return {...actual, load: (opts?: unknown) => mockLoad(opts)}
+  return {
+    ...actual,
+    load: (opts?: unknown) => mockLoad(opts),
+    publish: (opts?: unknown) => mockPublish(opts),
+  }
 })
 
 vi.mock("@app/core/commands", () => ({
@@ -55,6 +71,9 @@ describe("budabit commands", () => {
     mockPublishDelete.mockReturnValue({complete: Promise.resolve()})
     mockLoad.mockReset()
     mockLoad.mockResolvedValue(undefined)
+    mockPublish.mockReset()
+    mockRepositoryPublish.mockReset()
+    mockSignerSign.mockReset()
   })
 
   describe("publishEvent", () => {
@@ -78,6 +97,71 @@ describe("budabit commands", () => {
           relays: ["wss://custom.relay.com/"],
         }),
       )
+    })
+  })
+
+  describe("publishRepoEventWithRelayOutcomes", () => {
+    it("signs once before publishing and returns detailed relay outcomes", async () => {
+      const {GRASP_RELAY_ACK_TIMEOUT_MS, publishRepoEventWithRelayOutcomes} =
+        await import("./git-commands")
+      const unsignedEvent = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+      }
+      const relay = "wss://grasp.example.com/"
+      mockSignerSign.mockImplementation(async event => ({...(event as object), sig: "signature"}))
+      mockPublish.mockResolvedValue({
+        [relay]: {relay, status: "success", detail: "stored in purgatory"},
+      })
+
+      const result = await publishRepoEventWithRelayOutcomes(unsignedEvent as any, [
+        "wss://grasp.example.com",
+      ])
+      expect(result).toEqual({
+        event: expect.objectContaining({
+          kind: 30617,
+          pubkey: "a".repeat(64),
+          sig: "signature",
+        }),
+        relayOutcomes: [{relay, status: "success", detail: "stored in purgatory"}],
+        ackedRelays: [relay],
+        failedRelays: [],
+        successCount: 1,
+        hasRelayOutcomes: true,
+      })
+
+      expect(mockSignerSign).toHaveBeenCalledTimes(1)
+      expect(mockPublish).toHaveBeenCalledWith({
+        event: result.event,
+        relays: [relay],
+        timeout: GRASP_RELAY_ACK_TIMEOUT_MS,
+      })
+      expect(mockRepositoryPublish).toHaveBeenCalledWith(result.event)
+    })
+
+    it("replays an already-signed event without invoking the signer", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+      const event = {
+        kind: 30618,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      mockPublish.mockResolvedValue({
+        [relay]: {relay, status: "success", detail: "duplicate: in purgatory"},
+      })
+
+      const result = await publishRepoEventWithRelayOutcomes(event as any, [relay])
+
+      expect(result.event).toBe(event)
+      expect(mockSignerSign).not.toHaveBeenCalled()
+      expect(mockPublish).toHaveBeenCalledWith(expect.objectContaining({event}))
     })
   })
 

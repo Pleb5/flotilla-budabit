@@ -26,13 +26,15 @@
   import { commonHashtags } from "../../stores/hashtags";
   import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import type { NostrEvent } from "@nostr-git/core";
-  import type { RepoAnnouncementEvent, RepoStateEvent } from "@nostr-git/core/events";
   import type { Token } from "$lib/stores/tokens";
   import type { ForkResult, ForkConfig } from "../../hooks/useForkRepo.svelte";
   import { toast } from "../../stores/toast";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
   import type { RepoCommunityOption } from "./repo-community-options.js";
-  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
+  import {
+    findRepoCommunityOption,
+    getRepoCommunityOptionBinding,
+  } from "./repo-community-options.js";
   import {
     DEFAULT_BRANCH_COPY_FILTER_TOOLTIP,
     deriveBranchCopyFilterState,
@@ -49,6 +51,8 @@
   import {
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
+    type DeleteRepoEvent,
+    type PublishRepoEvent,
   } from "../../utils/grasp-pipeline.js";
   import {
     ACCESS_TOKEN_SETTINGS_PATH,
@@ -62,7 +66,8 @@
     branchCopyFilter?: BranchCopyFilterConfig;
     workerApi?: any;
     workerInstance?: Worker;
-    onPublishEvent: (event: RepoAnnouncementEvent | RepoStateEvent) => Promise<unknown>;
+    onPublishEvent: PublishRepoEvent;
+    onDeleteEvent?: DeleteRepoEvent;
     onFetchRelayEvents?: (params: {
       relays: string[];
       filters: import("@nostr-git/core").NostrFilter[];
@@ -71,6 +76,7 @@
     onRollbackPublishedRepoEvents?: (params: {
       repoName: string;
       relays: string[];
+      events?: NostrEvent[];
     }) => Promise<void>;
     graspServerUrls?: string[];
     useForkRepoImpl?: (
@@ -104,6 +110,7 @@
     workerApi,
     workerInstance,
     onPublishEvent,
+    onDeleteEvent,
     onFetchRelayEvents,
     onRollbackPublishedRepoEvents,
     graspServerUrls = [],
@@ -150,6 +157,7 @@
         });
       },
       onPublishEvent,
+      onDeleteEvent,
       onFetchRelayEvents,
     };
 
@@ -1013,7 +1021,11 @@
               <div class="text-sm font-medium text-white">
                 {#if Markdown && ownerIsNostr}
                   <div class="fork-owner-inline">
-                    <Markdown content={ownerDisplayOwner} relays={defaultRelays} variant="comment" />
+                    <Markdown
+                      content={ownerDisplayOwner}
+                      relays={defaultRelays}
+                      variant="comment"
+                    />
                     <span>/{ownerDisplayName}</span>
                   </div>
                 {:else}
@@ -1633,7 +1645,9 @@
             class="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-900/40"
           >
             <div class="flex items-start space-x-3">
-              <AlertCircle class="w-5 h-5 text-amber-600 dark:text-amber-300 mt-0.5 flex-shrink-0" />
+              <AlertCircle
+                class="w-5 h-5 text-amber-600 dark:text-amber-300 mt-0.5 flex-shrink-0"
+              />
               <div class="flex-1">
                 <h4 class="text-amber-800 dark:text-amber-200 font-medium mb-1">
                   Fork completed with warnings
@@ -1666,7 +1680,8 @@
                       href={ACCESS_TOKEN_SETTINGS_PATH}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="ml-1 underline underline-offset-2">
+                      class="ml-1 underline underline-offset-2"
+                    >
                       Open token settings
                     </a>
                   </p>
@@ -1728,7 +1743,9 @@
                           {target.webUrl || target.remoteUrl}
                         </div>
                       </div>
-                      <CheckCircle2 class="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                      <CheckCircle2
+                        class="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0"
+                      />
                     </div>
                   {/each}
                 </div>

@@ -34,6 +34,7 @@
     getAccessTokenManagementMessage,
     isAccessTokenManagementIssue,
     publishGraspRepoStateForPush,
+    verifyGraspEventAfterPush,
     prChangeToParseDiffFile,
     prChangeToReviewParseDiffFile,
     toast,
@@ -42,7 +43,7 @@
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {profilesByPubkey, pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {load, PublishStatus} from "@welshman/net"
+  import {load} from "@welshman/net"
   import {
     COMMENT,
     GIT_STATUS_CLOSED,
@@ -71,7 +72,12 @@
     isImportedEvent,
     resolveStatusState,
   } from "@nostr-git/core/events"
-  import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
+  import {
+    postComment,
+    postStatus,
+    publishEvent,
+    publishRepoEventWithRelayOutcomes,
+  } from "@app/core/git-commands"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {HIDDEN_ROOT_IDS_KEY, getRepoMaintainers} from "@app/core/git-state"
@@ -2786,38 +2792,30 @@
         timeoutMs: params.timeoutMs,
       })
 
-    const publishRepoState = async (event: any) => {
-      const thunk = publishEvent(event, [relayUrl])
-
-      if (thunk?.complete) {
-        await thunk.complete
-      }
-
-      const results = thunk?.results || {}
-      const ackedRelays = Object.entries(results)
-        .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
-        .map(([url]) => url)
-      const failedRelays = Object.entries(results)
-        .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
-        .map(([url]) => url)
-
-      return {
-        ackedRelays,
-        failedRelays,
-        successCount: ackedRelays.length,
-        hasRelayOutcomes: ackedRelays.length + failedRelays.length > 0,
-      }
+    const publishRepoState = async (event: any, context?: {relays: string[]}) => {
+      const publishRelays = context?.relays?.length ? context.relays : [relayUrl]
+      return publishRepoEventWithRelayOutcomes(event, publishRelays)
     }
 
-    await publishGraspRepoStateForPush({
+    const publishedState = await publishGraspRepoStateForPush({
       remoteUrl,
       branch,
       commitSha,
+      authorPubkey: repoOwnerPubkey,
       fallbackRepoName: repoClass.name || "repo",
-      authorPubkey: $pubkey || undefined,
       fetchRelayEvents,
       onPublishEvent: publishRepoState,
     })
+
+    return async () => {
+      await verifyGraspEventAfterPush({
+        relayUrl: publishedState.relayUrl,
+        event: publishedState.event,
+        onPublishEvent: publishRepoState,
+        publishRelays: publishedState.publishRelays,
+        fetchRelayEvents,
+      })
+    }
   }
 
   const openPrPushDialog = async () => {
@@ -2927,13 +2925,18 @@
     for (const remote of selected) {
       updatePushRemote(remote.url, {status: "pushing", summary: "Pushing...", error: undefined})
       try {
+        let verifyGraspPush: (() => Promise<void>) | undefined
         if (isGraspRemote(remote.url, remote.provider)) {
           updatePushRemote(remote.url, {
             status: "pushing",
             summary: "Publishing state...",
             error: undefined,
           })
-          await publishMergeStateToRelay(remote.url, prTargetBranch, mergeCommitOid)
+          verifyGraspPush = await publishMergeStateToRelay(
+            remote.url,
+            prTargetBranch,
+            mergeCommitOid,
+          )
           updatePushRemote(remote.url, {
             status: "pushing",
             summary: "Pushing...",
@@ -2949,6 +2952,20 @@
         })
         const entry = pushResult.results[0]
         if (entry?.success) {
+          try {
+            await verifyGraspPush?.()
+          } catch (verificationError) {
+            const detail =
+              verificationError instanceof Error
+                ? verificationError.message
+                : String(verificationError || "Metadata verification failed")
+            updatePushRemote(remote.url, {
+              status: "pushed",
+              summary: "Pushed (metadata unverified)",
+              error: detail,
+            })
+            continue
+          }
           updatePushRemote(remote.url, {status: "pushed", summary: "Pushed", error: undefined})
         } else {
           const classified = classifyPushFailure(entry?.error)

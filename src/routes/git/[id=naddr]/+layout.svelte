@@ -42,7 +42,11 @@
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
-  import {postRepoAnnouncement, postRepoStateEvent} from "@app/core/git-commands.js"
+  import {
+    postRepoAnnouncement,
+    postRepoStateEvent,
+    publishRepoEventWithRelayOutcomes,
+  } from "@app/core/git-commands.js"
   import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   import type {NostrFilter, NostrEvent} from "@nostr-git/core"
@@ -122,7 +126,7 @@
     type Filter,
     type TrustedEvent,
   } from "@welshman/util"
-  import {publishDelete} from "@src/app/core/commands"
+  import {makeExactEventDelete, publishDelete} from "@src/app/core/commands"
   import {setContext, onDestroy, onMount, tick} from "svelte"
   import {
     REPO_KEY,
@@ -559,7 +563,7 @@
   const repoHasCommunity = $derived.by(() =>
     Boolean(
       repoClass?.community?.pubkey ||
-        getTagValue("h", (((repoClass as any)?.repoEvent?.tags || []) as string[][])),
+      getTagValue("h", ((repoClass as any)?.repoEvent?.tags || []) as string[][]),
     ),
   )
 
@@ -1622,7 +1626,8 @@
     if (activeCommunityPubkey || !community?.pubkey) return
 
     const relayHints = [community.relay || ""].filter(Boolean)
-    const input = makeCommunityInputValue({pubkey: community.pubkey, relayHints}) || community.pubkey
+    const input =
+      makeCommunityInputValue({pubkey: community.pubkey, relayHints}) || community.pubkey
     const session = setActiveCommunityInput(input)
 
     if (session?.communityPubkey) autoAppliedRepoCommunityPubkey = session.communityPubkey
@@ -1696,10 +1701,7 @@
     getTagValue("a", pullRequest.tags) || ""
   const getPullRequestTargetBranch = (pullRequest: Pick<PullRequestEvent, "tags">) =>
     getTagValue("branch-name", pullRequest.tags) || ""
-  const getLatestMaintainerAppliedStatus = (
-    statuses: StatusEvent[],
-    maintainers: Set<string>,
-  ) =>
+  const getLatestMaintainerAppliedStatus = (statuses: StatusEvent[], maintainers: Set<string>) =>
     [...statuses]
       .filter(status => maintainers.has(status.pubkey))
       .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0]
@@ -1784,11 +1786,7 @@
   )
   const forkBranchCopyFilter = $derived.by(() => {
     const branchNames = Array.from(
-      new Set(
-        ($maintainerTargetBranchesStore || [])
-          .map(branch => branch.trim())
-          .filter(Boolean),
-      ),
+      new Set(($maintainerTargetBranchesStore || []).map(branch => branch.trim()).filter(Boolean)),
     ).sort((a, b) => a.localeCompare(b))
 
     return {
@@ -3076,15 +3074,13 @@
   $effect(() => {
     if (!graspServersEventStore) return
 
-    const graspServersUnsubscribe = graspServersEventStore.subscribe(
-      (events: TrustedEvent[]) => {
-        try {
-          graspServerUrls = getPreferredGraspServerUrls(events || [])
-        } catch {
-          graspServerUrls = []
-        }
-      },
-    )
+    const graspServersUnsubscribe = graspServersEventStore.subscribe((events: TrustedEvent[]) => {
+      try {
+        graspServerUrls = getPreferredGraspServerUrls(events || [])
+      } catch {
+        graspServerUrls = []
+      }
+    })
 
     return () => {
       graspServersUnsubscribe()
@@ -3368,8 +3364,13 @@
     options: {
       timeoutMs?: number
       label?: string
+      relays?: string[]
     } = {},
   ) {
+    if (options.relays?.length) {
+      return publishRepoEventWithRelayOutcomes(event, options.relays)
+    }
+
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: fallbackRelays,
@@ -3391,9 +3392,7 @@
               gitIndexerRelays: GIT_RELAYS,
             })
           : policy.repoRelays
-      const thunk = publishThunk({event, relays: publishRelays})
-      await awaitPublishThunk(thunk, options)
-      return thunk
+      return publishRepoEventWithRelayOutcomes(event, publishRelays)
     }
 
     if (event.kind !== GIT_REPO_ANNOUNCEMENT && policy.repoRelays.length === 0) {
@@ -3411,6 +3410,8 @@
   }
 
   const extractPublishedRelayAck = (thunk: any) => {
+    if (Array.isArray(thunk?.relayOutcomes)) return thunk
+
     const results = thunk?.results || {}
     const ackedRelays = Object.entries(results)
       .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
@@ -3424,6 +3425,24 @@
       failedRelays,
       successCount: ackedRelays.length,
       hasRelayOutcomes: ackedRelays.length + failedRelays.length > 0,
+      relayOutcomes: Object.values(results).map((result: any) => ({
+        relay: result?.relay || "",
+        status: String(result?.status || "unknown"),
+        detail: String(result?.detail || ""),
+      })),
+      event: thunk?.event,
+    }
+  }
+
+  const deleteExactRepoEvent = async (event: NostrEvent, relayUrls: string[]) => {
+    const relays = Array.from(new Set(relayUrls.map(safeNormalizeRelayUrl).filter(Boolean)))
+    if (relays.length === 0) throw new Error("Exact event deletion requires relay destinations")
+    const result = await publishRepoEventWithRelayOutcomes(
+      makeExactEventDelete({event: event as TrustedEvent}) as any,
+      relays,
+    )
+    if (result.successCount !== relays.length) {
+      throw new Error(`Exact event deletion failed on: ${result.failedRelays.join(", ")}`)
     }
   }
 
@@ -3467,6 +3486,7 @@
     const rollbackPublishedRepoEvents = async (params: {
       repoName: string
       relays: string[]
+      events?: NostrEvent[]
     }): Promise<void> => {
       if (!$pubkey) return
 
@@ -3474,6 +3494,17 @@
         new Set(params.relays.map(safeNormalizeRelayUrl).filter(Boolean)),
       )
       if (rollbackRelays.length === 0) return
+
+      if (params.events) {
+        const exactEvents = new Map(
+          params.events.filter(event => event?.id).map(event => [event.id, event]),
+        )
+        for (const event of exactEvents.values()) {
+          if (event.pubkey !== $pubkey) continue
+          await deleteExactRepoEvent(event, rollbackRelays)
+        }
+        return
+      }
 
       const filters = [
         {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey], "#d": [params.repoName]},
@@ -3494,14 +3525,7 @@
         if (!event.id || seen.has(event.id)) continue
         seen.add(event.id)
 
-        const thunk = publishDelete({
-          event,
-          relays: rollbackRelays,
-        })
-
-        if (thunk?.complete) {
-          await thunk.complete
-        }
+        await deleteExactRepoEvent(event, rollbackRelays)
       }
     }
 
@@ -3513,7 +3537,7 @@
         branchCopyFilter: forkBranchCopyFilter,
         workerApi,
         workerInstance,
-        onPublishEvent: async (event: any) => {
+        onPublishEvent: async (event: any, context?: {relays: string[]}) => {
           const taggedRelays = getEventRelayTargets(event)
           const thunk = await publishRepoEventWithRelayPolicy(
             event,
@@ -3524,10 +3548,14 @@
                 event.kind === GIT_REPO_STATE
                   ? "Fork repo state publish"
                   : "Fork repo announcement publish",
+              relays: context?.relays,
             },
           )
           if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
           return extractPublishedRelayAck(thunk)
+        },
+        onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
+          await deleteExactRepoEvent(event, relays)
         },
         onFetchRelayEvents: fetchRepoRelayEvents,
         onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
@@ -3698,7 +3726,7 @@
       cloneUrls: getStore(repoCloneUrlsStore),
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
-      onPublishEvent: async (event: any) => {
+      onPublishEvent: async (event: any, context?: {relays: string[]}) => {
         const taggedRelays = getEventRelayTargets(event)
         const relaysForPublish = taggedRelays.length > 0 ? taggedRelays : getRepoRelaysForModal()
         const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish, {
@@ -3707,6 +3735,7 @@
             event.kind === GIT_REPO_STATE
               ? "Remote backfill state publish"
               : "Remote backfill publish",
+          relays: context?.relays,
         })
         return extractPublishedRelayAck(thunk)
       },
@@ -4076,7 +4105,8 @@
         style="top: var(--repo-tabs-height, 0px);">
         <div class="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:gap-3">
           <div class="flex min-w-0 shrink-0 items-center gap-2">
-            <span class="hidden shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:inline">
+            <span
+              class="hidden shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:inline">
               Branch
             </span>
             <div class="min-w-0">

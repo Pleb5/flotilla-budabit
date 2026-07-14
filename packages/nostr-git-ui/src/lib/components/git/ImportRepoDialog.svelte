@@ -58,6 +58,8 @@
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
     getMandatoryGraspRelayUrls,
+    type DeleteRepoEvent,
+    type PublishRepoEvent,
   } from "../../utils/grasp-pipeline.js";
   import {
     ACCESS_TOKEN_SETTINGS_PATH,
@@ -66,7 +68,10 @@
   } from "../../utils/tokenManagement.js";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
   import type { RepoCommunityOption } from "./repo-community-options.js";
-  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
+  import {
+    findRepoCommunityOption,
+    getRepoCommunityOptionBinding,
+  } from "./repo-community-options.js";
 
   interface Props {
     pubkey: string;
@@ -80,10 +85,12 @@
       timeoutMs?: number;
     }) => Promise<NostrEvent[]>;
     onClose: () => void;
-    onPublishEvent?: (event: NostrEvent) => Promise<unknown>;
+    onPublishEvent?: PublishRepoEvent;
+    onDeleteEvent?: DeleteRepoEvent;
     onRollbackPublishedRepoEvents?: (params: {
       repoName: string;
       relays: string[];
+      events?: NostrEvent[];
     }) => Promise<void>;
     onImportComplete?: (result: ImportResult) => void;
     onNavigateToRepo?: (result: ImportResult) => void | Promise<void>; // Optional callback to navigate to the imported repo
@@ -103,6 +110,7 @@
     onFetchRelayEvents,
     onClose,
     onPublishEvent,
+    onDeleteEvent,
     onRollbackPublishedRepoEvents,
     onImportComplete,
     onNavigateToRepo,
@@ -142,6 +150,7 @@
       onImportComplete?.(result);
     },
     onPublishEvent,
+    onDeleteEvent,
     onRollbackPublishedRepoEvents,
   });
 
@@ -1384,13 +1393,17 @@
                     </span>
                   {:else if tokenValidationError}
                     <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400" />
-                    <span class="text-sm text-red-700 dark:text-red-400">{tokenValidationError}</span>
+                    <span class="text-sm text-red-700 dark:text-red-400"
+                      >{tokenValidationError}</span
+                    >
                   {:else if isValidatingToken}
                     <Loader2 class="w-5 h-5 text-gray-400 animate-spin" />
                     <span class="text-sm text-gray-400">Validating source access...</span>
                   {:else}
                     <AlertCircle class="w-5 h-5 text-yellow-700 dark:text-yellow-400" />
-                    <span class="text-sm text-yellow-700 dark:text-yellow-400">Validate source access to continue</span>
+                    <span class="text-sm text-yellow-700 dark:text-yellow-400"
+                      >Validate source access to continue</span
+                    >
                   {/if}
                 </div>
                 {#if tokenValidated && sourceAccessMode === "anonymous"}
@@ -1955,7 +1968,9 @@
                 class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50"
               >
                 <div class="flex items-start space-x-3">
-                  <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                  <AlertCircle
+                    class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0"
+                  />
                   <p class="text-sm text-red-700 dark:text-red-400">{validationError}</p>
                 </div>
               </div>
@@ -2086,10 +2101,16 @@
                   class="rounded-lg border border-red-300 bg-red-50 p-4 mb-4 dark:border-red-500 dark:bg-red-900/50"
                 >
                   <div class="flex items-start space-x-3">
-                    <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                    <AlertCircle
+                      class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0"
+                    />
                     <div class="flex-1">
-                      <p class="text-sm text-red-800 dark:text-red-400 font-medium">Import failed</p>
-                      <p class="text-sm text-red-700 dark:text-red-300 mt-1">{currentProgress.error}</p>
+                      <p class="text-sm text-red-800 dark:text-red-400 font-medium">
+                        Import failed
+                      </p>
+                      <p class="text-sm text-red-700 dark:text-red-300 mt-1">
+                        {currentProgress.error}
+                      </p>
                       {#if workflowScopeIssue}
                         <div class="mt-3 text-xs text-red-700/80 dark:text-red-200/80">
                           {getAccessTokenManagementMessage(currentProgress.error)}
@@ -2111,9 +2132,13 @@
                   class="rounded-lg border border-green-300 bg-green-50 p-4 mb-4 dark:border-green-500 dark:bg-green-900/50"
                 >
                   <div class="flex items-start space-x-3">
-                    <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2
+                      class="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0"
+                    />
                     <div class="flex-1">
-                      <p class="text-sm text-green-800 dark:text-green-400 font-medium">Import completed</p>
+                      <p class="text-sm text-green-800 dark:text-green-400 font-medium">
+                        Import completed
+                      </p>
                       <p class="text-sm text-green-700 dark:text-green-300 mt-1">
                         {completedResult.issuesImported} issues,
                         {completedResult.commentsImported} comments,

@@ -5,20 +5,21 @@ import {
   buildGraspRepoUrls,
   createGraspRefMap,
   createGraspAnnouncementAndState,
-  didRelayAckGraspEvents,
-  extractPublishRelayAck,
   fetchLatestGraspRepoStateEvent,
   getGraspRefFullName,
   getGraspStateHeadFromEvent,
   getGraspStateRefsFromEvent,
   mergeGraspRefs,
   normalizeGraspOrigins,
-  publishGraspRepoStateAndWait,
+  publishGraspEventWithRetry,
   resolveGraspStateHead,
   toNpubOrSelf,
+  verifyGraspEventAfterPush,
   waitForGraspProvisioning,
   type FetchRelayEvents,
   type GraspRef,
+  type PublishRepoEvent,
+  type RepoCreationProvisionalEvent,
 } from "./grasp-pipeline.js";
 import { trackLatestRepoMetadataCreatedAt } from "./import-repo-metadata.js";
 import {
@@ -46,6 +47,15 @@ export interface RemoteSyncTargetResult {
   pushedRefs?: string[];
   failedRefs?: Array<{ ref: string; error: string }>;
   warnings?: string[];
+  relayUrl?: string;
+  outcome?: "ok" | "failed" | "unknown";
+  cleanup?: {
+    attempted: boolean;
+    success: boolean;
+    error?: string;
+  };
+  provisionalAnnouncementEvent?: NostrEvent;
+  provisionalStateEvents?: NostrEvent[];
 }
 
 export interface SyncLocalRepoToTargetsOptions {
@@ -61,7 +71,7 @@ export interface SyncLocalRepoToTargetsOptions {
   webUrls?: string[];
   maintainers?: string[];
   community?: RepoCommunityBinding;
-  onPublishEvent?: (event: NostrEvent) => Promise<unknown>;
+  onPublishEvent?: PublishRepoEvent;
   onFetchRelayEvents?: FetchRelayEvents;
   updateProgress: (message: string) => void;
   runAbortable: <T>(operation: () => Promise<T>, label: string, timeoutMs: number) => Promise<T>;
@@ -71,6 +81,61 @@ export interface SyncLocalRepoToTargetsOptions {
   onLatestRepoMetadataCreatedAt?: (value: number) => void;
   requireNonGraspSuccessBeforeGrasp?: boolean;
   allowApiBranchFastPath?: boolean;
+}
+
+export function getRemoteSyncProvisionalEvents(
+  results: RemoteSyncTargetResult[]
+): RepoCreationProvisionalEvent[] {
+  const eventsById = new Map<string, RepoCreationProvisionalEvent>();
+
+  for (const result of results) {
+    if (!result.relayUrl) continue;
+    const events = [
+      result.provisionalAnnouncementEvent,
+      ...(result.provisionalStateEvents || []),
+    ].filter((event): event is NostrEvent => Boolean(event?.id));
+
+    for (const event of events) {
+      const existing = eventsById.get(event.id);
+      eventsById.set(event.id, {
+        event,
+        relayUrls: Array.from(new Set([...(existing?.relayUrls || []), result.relayUrl])),
+      });
+    }
+  }
+
+  return Array.from(eventsById.values());
+}
+
+export function applyReconciledGraspResults(
+  results: RemoteSyncTargetResult[],
+  retainedGraspCloneUrls: string[]
+): RemoteSyncTargetResult[] {
+  const retained = new Set(retainedGraspCloneUrls);
+
+  return results.map((result) => {
+    if (
+      result.provider !== "grasp" ||
+      !result.success ||
+      !result.remoteUrl ||
+      retained.has(result.remoteUrl)
+    ) {
+      return result;
+    }
+
+    return {
+      ...result,
+      success: false,
+      outcome: "failed",
+      error: "GRASP target was omitted because final repository metadata did not stabilize",
+      warnings: Array.from(
+        new Set([
+          ...(result.warnings || []),
+          "Git data was retained on the GRASP target for recovery",
+        ])
+      ),
+    };
+  });
 }
 
 interface WorkerCreateRemoteRepoResult {
@@ -138,11 +203,7 @@ function collectPushResultDetails(
     ? pushResult.details.pushedRefs.filter(Boolean)
     : [];
   const effectivePushedRefs =
-    pushedRefs.length > 0
-      ? pushedRefs
-      : pushResult?.success && fallbackRef
-        ? [fallbackRef]
-        : [];
+    pushedRefs.length > 0 ? pushedRefs : pushResult?.success && fallbackRef ? [fallbackRef] : [];
 
   pushedRefsForTarget.push(...effectivePushedRefs);
 
@@ -286,6 +347,58 @@ function sortRefs(refs: RemoteSyncRef[], defaultBranch: string): RemoteSyncRef[]
   });
 }
 
+async function resolveRequestedRefs(
+  workerApi: any,
+  localRepoId: string,
+  refs: RemoteSyncRef[]
+): Promise<RemoteSyncRef[]> {
+  return await Promise.all(
+    refs.map(async (ref) => {
+      if (ref.commit || !workerApi?.resolveRef) return ref;
+
+      try {
+        const commit = String(
+          (await workerApi.resolveRef({ repoId: localRepoId, ref: ref.ref })) || ""
+        ).trim();
+        return commit ? { ...ref, commit } : ref;
+      } catch {
+        return ref;
+      }
+    })
+  );
+}
+
+async function verifyRequestedRemoteRefs(params: {
+  workerApi: any;
+  remoteUrl: string;
+  refs: RemoteSyncRef[];
+}): Promise<string[]> {
+  if (!params.workerApi?.listServerRefs) {
+    throw new Error("Remote ref postflight verification is unavailable");
+  }
+
+  const advertisedRefs = (await params.workerApi.listServerRefs({
+    url: params.remoteUrl,
+    symrefs: true,
+  })) as Array<{ ref?: string; oid?: string }>;
+  const advertisedByRef = new Map(
+    (advertisedRefs || []).map((ref) => [String(ref.ref || ""), String(ref.oid || "")])
+  );
+  const mismatches = params.refs.filter((ref) => {
+    if (!ref.commit) return true;
+    if (advertisedByRef.get(ref.ref) === ref.commit) return false;
+    return ref.type !== "tags" || advertisedByRef.get(`${ref.ref}^{}`) !== ref.commit;
+  });
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Remote ref postflight verification failed: ${mismatches.map((ref) => ref.ref).join(", ")}`
+    );
+  }
+
+  return params.refs.map((ref) => ref.ref);
+}
+
 function updateLatestRepoMetadataCreatedAt(
   current: number,
   onUpdate: SyncLocalRepoToTargetsOptions["onLatestRepoMetadataCreatedAt"],
@@ -294,6 +407,68 @@ function updateLatestRepoMetadataCreatedAt(
   const next = trackLatestRepoMetadataCreatedAt(current, ...events);
   onUpdate?.(next);
   return next;
+}
+
+function isUnknownRemoteOutcome(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /abort|cancel|timed?\s*out|timeout|network|failed to fetch|connection.*(?:closed|reset)/i.test(
+    message
+  );
+}
+
+async function cleanupEmptyCreatedRemote(params: {
+  workerApi: any;
+  target: RemoteTargetSelection;
+  remoteUrl: string;
+  token?: string;
+}): Promise<RemoteSyncTargetResult["cleanup"]> {
+  if (!params.token || !params.workerApi?.listServerRefs || !params.workerApi?.deleteRemoteRepo) {
+    return { attempted: false, success: false, error: "Remote emptiness could not be verified" };
+  }
+
+  try {
+    const refs = (await params.workerApi.listServerRefs({
+      url: params.remoteUrl,
+      symrefs: true,
+    })) as Array<{ ref?: string; oid?: string }>;
+    const populatedRefs = (refs || []).filter(
+      (ref) =>
+        (String(ref?.ref || "").startsWith("refs/heads/") ||
+          String(ref?.ref || "").startsWith("refs/tags/")) &&
+        Boolean(ref?.oid)
+    );
+
+    if (populatedRefs.length > 0) {
+      return {
+        attempted: false,
+        success: false,
+        error: "Remote contains pushed refs and was retained for recovery",
+      };
+    }
+
+    const result = await params.workerApi.deleteRemoteRepo({
+      remoteUrl: params.remoteUrl,
+      token: params.token,
+      provider: params.target.provider,
+      baseUrl: getProviderBaseUrl(params.target.provider, params.target.host),
+    });
+
+    return result?.success
+      ? { attempted: true, success: true }
+      : {
+          attempted: true,
+          success: false,
+          error: result?.error || "Provider repository deletion failed",
+        };
+  } catch (error) {
+    return {
+      attempted: false,
+      success: false,
+      error: `Remote emptiness could not be verified: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
 }
 
 export async function syncLocalRepoToTargets(
@@ -335,7 +510,11 @@ export async function syncLocalRepoToTargets(
     }));
   }
 
-  const orderedRefs = sortRefs(options.refs, defaultBranch);
+  const orderedRefs = await resolveRequestedRefs(
+    workerApi,
+    localRepoId,
+    sortRefs(options.refs, defaultBranch)
+  );
   if (orderedRefs.length === 0) {
     return targets.map((target) => ({
       id: target.id,
@@ -343,6 +522,17 @@ export async function syncLocalRepoToTargets(
       provider: target.provider,
       success: false,
       error: "No git refs available for remote sync",
+    }));
+  }
+  const unresolvedRef = orderedRefs.find((ref) => !ref.commit);
+  if (unresolvedRef) {
+    return targets.map((target) => ({
+      id: target.id,
+      label: target.label,
+      provider: target.provider,
+      success: false,
+      outcome: "failed",
+      error: `Cannot verify ${unresolvedRef.ref} without a resolved commit`,
     }));
   }
 
@@ -359,14 +549,30 @@ export async function syncLocalRepoToTargets(
     ownerPubkey: userPubkey,
     repoName,
   }).cloneUrls;
+  const selectedGraspRelayUrls = orderedTargets
+    .filter((target) => target.provider === "grasp" && target.relayUrl)
+    .map((target) => normalizeGraspOrigins(target.relayUrl as string).wsOrigin);
+  const canonicalGraspRelays = Array.from(new Set([...selectedGraspRelayUrls, ...relays]));
+  const canonicalGraspEvents = selectedGraspRelayUrls[0]
+    ? createGraspAnnouncementAndState({
+        relayUrl: selectedGraspRelayUrls[0],
+        ownerPubkey: userPubkey,
+        repoName,
+        description: repoDescription,
+        relays: canonicalGraspRelays,
+        cloneUrls: selectedGraspCloneUrls,
+        webUrls: webUrls.length > 0 ? webUrls : undefined,
+        maintainers,
+        community,
+      })
+    : undefined;
+  let canonicalSignedAnnouncement: NostrEvent | undefined;
 
   const results: RemoteSyncTargetResult[] = [];
   let latestRepoMetadataCreatedAt = options.latestRepoMetadataCreatedAt || 0;
 
   for (let i = 0; i < orderedTargets.length; i++) {
     const target = orderedTargets[i];
-    throwIfAborted?.();
-    updateProgress(`Syncing target ${i + 1}/${orderedTargets.length}: ${target.label}`);
 
     let remoteUrl = target.existingRemoteUrl;
     let webUrl = target.existingWebUrl;
@@ -375,13 +581,22 @@ export async function syncLocalRepoToTargets(
     const failedRefsForTarget: Array<{ ref: string; error: string }> = [];
     const warningsForTarget: string[] = [];
     let activeRef: RemoteSyncRef | null = null;
+    let provisionToken = getTargetTokens(target)[0];
+    const provisionalStateEvents: NostrEvent[] = [];
 
     try {
+      throwIfAborted?.();
+      updateProgress(`Syncing target ${i + 1}/${orderedTargets.length}: ${target.label}`);
       if (target.provider === "grasp") {
         if (!target.relayUrl) {
           throw new Error("Missing relay URL");
         }
-
+        if (!onPublishEvent) {
+          throw new Error("Missing onPublishEvent callback required for GRASP sync");
+        }
+        if (!options.onFetchRelayEvents) {
+          throw new Error("Missing onFetchRelayEvents callback required for GRASP sync");
+        }
         const hasSuccessfulNonGraspPush = results.some(
           (result) => result.success && result.provider !== "grasp"
         );
@@ -397,50 +612,30 @@ export async function syncLocalRepoToTargets(
         }
 
         if (!remoteUrl) {
-          const createResult = (await runAbortable(
-            () =>
-              workerApi.createRemoteRepo({
-                provider: "grasp",
-                token: userPubkey,
-                name: repoName,
-                description: repoDescription,
-                isPrivate: false,
-                baseUrl: target.relayUrl,
-              }),
-            `Creating remote repository on ${target.label}`,
-            45000
-          )) as WorkerCreateRemoteRepoResult;
-
-          if (!createResult?.success || !createResult?.remoteUrl) {
-            throw new Error(createResult?.error || "Failed to create GRASP repository");
-          }
-
-          if (!onPublishEvent) {
-            throw new Error(
-              "Missing onPublishEvent callback required for GRASP target provisioning"
-            );
-          }
-
           createdRemote = true;
-          remoteUrl = createResult.remoteUrl;
-          webUrl = guessWebUrl(createResult.remoteUrl);
-          const graspRemoteUrl = createResult.remoteUrl;
-
-          const graspRelays = Array.from(
-            new Set([normalizeGraspOrigins(target.relayUrl).wsOrigin, ...relays])
-          );
-          const graspEvents = createGraspAnnouncementAndState({
-            relayUrl: target.relayUrl,
+          const targetUrls = buildGraspRepoUrls({
+            relayUrls: [target.relayUrl],
             ownerPubkey: userPubkey,
             repoName,
-            description: repoDescription,
-            relays: graspRelays,
-            cloneUrls:
-              selectedGraspCloneUrls.length > 0 ? selectedGraspCloneUrls : [graspRemoteUrl],
-            webUrls: webUrls.length > 0 ? webUrls : webUrl ? [webUrl] : undefined,
-            maintainers,
-            community,
           });
+          remoteUrl = targetUrls.cloneUrls[0];
+          webUrl = targetUrls.webUrls[0] || guessWebUrl(remoteUrl);
+          if (!remoteUrl) {
+            throw new Error(`Could not derive GRASP Smart HTTP URL for ${target.label}`);
+          }
+          const graspEvents =
+            canonicalGraspEvents ||
+            createGraspAnnouncementAndState({
+              relayUrl: target.relayUrl,
+              ownerPubkey: userPubkey,
+              repoName,
+              description: repoDescription,
+              relays: canonicalGraspRelays,
+              cloneUrls: [remoteUrl],
+              webUrls: webUrls.length > 0 ? webUrls : webUrl ? [webUrl] : undefined,
+              maintainers,
+              community,
+            });
 
           latestRepoMetadataCreatedAt = updateLatestRepoMetadataCreatedAt(
             latestRepoMetadataCreatedAt,
@@ -449,38 +644,28 @@ export async function syncLocalRepoToTargets(
             graspEvents.stateEvent
           );
 
-          const relayAck = extractPublishRelayAck(
-            await onPublishEvent(graspEvents.announcementEvent)
-          );
-          if (relayAck.hasRelayOutcomes && !didRelayAckGraspEvents(relayAck, target.relayUrl)) {
-            throw new Error(
-              "Selected GRASP relay did not ACK repository announcement; skipping push"
-            );
-          }
+          updateProgress(`Publishing repository announcement to ${target.label}...`);
+          const publishedAnnouncement = await publishGraspEventWithRetry({
+            relayUrl: target.relayUrl,
+            event: canonicalSignedAnnouncement || graspEvents.announcementEvent,
+            onPublishEvent,
+            publishRelays: [normalizeGraspOrigins(target.relayUrl).wsOrigin],
+          });
+          canonicalSignedAnnouncement = publishedAnnouncement.event;
 
-          try {
-            await runAbortable(
-              () =>
-                waitForGraspProvisioning({
-                  relayUrl: target.relayUrl!,
-                  userPubkey,
-                  owner: toNpubOrSelf(userPubkey),
-                  repoName,
-                  maxAttempts: 15,
-                  delayMs: 3000,
-                }),
-              `Waiting for GRASP provisioning on ${target.label}`,
-              0
-            );
-          } catch (provisionError) {
-            const message =
-              provisionError instanceof Error
-                ? provisionError.message
-                : String(provisionError || "Unknown provisioning error");
-            updateProgress(
-              `Provisioning check timed out (${message}). Continuing with push retries...`
-            );
-          }
+          await runAbortable(
+            () =>
+              waitForGraspProvisioning({
+                relayUrl: target.relayUrl!,
+                userPubkey,
+                owner: toNpubOrSelf(userPubkey),
+                repoName,
+                maxAttempts: 15,
+                delayMs: 3000,
+              }),
+            `Waiting for GRASP receive-pack on ${target.label}`,
+            0
+          );
         }
 
         if (!remoteUrl) {
@@ -498,19 +683,29 @@ export async function syncLocalRepoToTargets(
         );
         let stateRefsByFullRef = new Map<string, GraspRef>();
         let currentStateHead: string | undefined;
+        let latestStateCreatedAt = 0;
+        let announcementVerified = false;
 
-        if (onPublishEvent) {
-          try {
-            const existingStateEvent = await fetchLatestGraspRepoStateEvent({
-              relayUrl: target.relayUrl,
-              repoName,
-              fetchRelayEvents: options.onFetchRelayEvents,
-              authorPubkey: userPubkey,
-            });
-            stateRefsByFullRef = createGraspRefMap(getGraspStateRefsFromEvent(existingStateEvent));
-            currentStateHead = getGraspStateHeadFromEvent(existingStateEvent);
-          } catch (stateFetchError) {
-            console.warn("[GRASP] Failed to fetch existing repo state before sync:", stateFetchError);
+        try {
+          const existingStateEvent = await fetchLatestGraspRepoStateEvent({
+            relayUrl: target.relayUrl,
+            repoName,
+            fetchRelayEvents: options.onFetchRelayEvents,
+            authorPubkey: userPubkey,
+          });
+          if (!existingStateEvent && !createdRemote) {
+            throw new Error("Existing GRASP repository state is unavailable");
+          }
+          stateRefsByFullRef = createGraspRefMap(getGraspStateRefsFromEvent(existingStateEvent));
+          currentStateHead = getGraspStateHeadFromEvent(existingStateEvent);
+          latestStateCreatedAt = existingStateEvent?.created_at || 0;
+        } catch (stateFetchError) {
+          if (!createdRemote) throw stateFetchError;
+          if (createdRemote) {
+            console.warn(
+              "[GRASP] Failed to fetch existing repo state before sync:",
+              stateFetchError
+            );
           }
         }
 
@@ -518,8 +713,10 @@ export async function syncLocalRepoToTargets(
           const ref = orderedRefs[refIndex];
           activeRef = ref;
           throwIfAborted?.();
+          let publishedStateEvent: NostrEvent | undefined;
+          let nextStateHead = currentStateHead;
 
-          if (onPublishEvent && refDetailsByFullRef.size > 0) {
+          if (refDetailsByFullRef.size > 0) {
             const refDetail = refDetailsByFullRef.get(ref.ref);
             updateProgress(
               `Publishing GRASP state for ${ref.type === "heads" ? "branch" : "tag"} ${ref.name} (${refIndex + 1}/${orderedRefs.length})...`
@@ -560,28 +757,33 @@ export async function syncLocalRepoToTargets(
                 refs: stateRefs,
                 head: stateHead,
               });
+              const stateEvent =
+                graspState.stateEvent.created_at <= latestStateCreatedAt
+                  ? { ...graspState.stateEvent, created_at: latestStateCreatedAt + 1 }
+                  : graspState.stateEvent;
+              latestStateCreatedAt = stateEvent.created_at;
 
               latestRepoMetadataCreatedAt = updateLatestRepoMetadataCreatedAt(
                 latestRepoMetadataCreatedAt,
                 options.onLatestRepoMetadataCreatedAt,
                 graspState.announcementEvent,
-                graspState.stateEvent
+                stateEvent
               );
 
-              await runAbortable(
+              const publishedState = await runAbortable(
                 () =>
-                  publishGraspRepoStateAndWait({
+                  publishGraspEventWithRetry({
                     relayUrl: target.relayUrl!,
-                    stateEvent: graspState.stateEvent,
+                    event: stateEvent,
                     onPublishEvent,
-                    fetchRelayEvents: options.onFetchRelayEvents,
-                    authorPubkey: userPubkey,
+                    publishRelays: [normalizeGraspOrigins(target.relayUrl!).wsOrigin],
                   }),
-                `Waiting for GRASP state visibility for ${ref.name}`,
+                `Publishing GRASP state for ${ref.name}`,
                 0
               );
-
-              currentStateHead = stateHead;
+              publishedStateEvent = publishedState.event;
+              provisionalStateEvents.push(publishedState.event);
+              nextStateHead = stateHead;
             }
           }
 
@@ -618,13 +820,54 @@ export async function syncLocalRepoToTargets(
           );
 
           if (pushedRefs.includes(ref.ref)) {
+            if (!publishedStateEvent) {
+              throw new Error("GRASP push completed without post-push event verification support");
+            }
+
+            updateProgress(`Verifying GRASP metadata for ${ref.name} on ${target.label}...`);
+            if (!announcementVerified && canonicalSignedAnnouncement) {
+              await verifyGraspEventAfterPush({
+                relayUrl: target.relayUrl,
+                event: canonicalSignedAnnouncement,
+                onPublishEvent,
+                publishRelays: [normalizeGraspOrigins(target.relayUrl).wsOrigin],
+                fetchRelayEvents: options.onFetchRelayEvents,
+              });
+              announcementVerified = true;
+            }
+            await verifyGraspEventAfterPush({
+              relayUrl: target.relayUrl,
+              event: publishedStateEvent,
+              onPublishEvent,
+              publishRelays: [normalizeGraspOrigins(target.relayUrl).wsOrigin],
+              fetchRelayEvents: options.onFetchRelayEvents,
+            });
+
             const refDetail = refDetailsByFullRef.get(ref.ref);
             if (refDetail) {
               stateRefsByFullRef.set(getGraspRefFullName(refDetail), refDetail);
             }
+            currentStateHead = nextStateHead;
           }
         }
         activeRef = null;
+
+        const missingRefs = orderedRefs.filter((ref) => !pushedRefsForTarget.includes(ref.ref));
+        if (missingRefs.length > 0 || failedRefsForTarget.length > 0) {
+          throw new Error(
+            `GRASP target did not verify all requested refs: ${
+              missingRefs.map((ref) => ref.ref).join(", ") ||
+              failedRefsForTarget.map((ref) => ref.ref).join(", ")
+            }`
+          );
+        }
+
+        updateProgress(`Verifying remote refs on ${target.label}...`);
+        const verifiedRefs = await verifyRequestedRemoteRefs({
+          workerApi,
+          remoteUrl: graspRemoteUrl,
+          refs: orderedRefs,
+        });
 
         results.push({
           id: target.id,
@@ -634,10 +877,14 @@ export async function syncLocalRepoToTargets(
           remoteUrl,
           webUrl: webUrl || guessWebUrl(remoteUrl),
           createdRemote,
-          pushedRefs: Array.from(new Set(pushedRefsForTarget)),
+          pushedRefs: verifiedRefs,
           failedRefs: failedRefsForTarget.length > 0 ? failedRefsForTarget : undefined,
           warnings:
             warningsForTarget.length > 0 ? Array.from(new Set(warningsForTarget)) : undefined,
+          relayUrl: normalizeGraspOrigins(target.relayUrl).wsOrigin,
+          outcome: "ok",
+          provisionalAnnouncementEvent: canonicalSignedAnnouncement,
+          provisionalStateEvents,
         });
         continue;
       }
@@ -668,6 +915,7 @@ export async function syncLocalRepoToTargets(
               throw new Error(result?.error || "Failed to create remote repository");
             }
 
+            provisionToken = token;
             return result;
           }
         );
@@ -818,6 +1066,13 @@ export async function syncLocalRepoToTargets(
       }
       activeRef = null;
 
+      updateProgress(`Verifying remote refs on ${target.label}...`);
+      const verifiedRefs = await verifyRequestedRemoteRefs({
+        workerApi,
+        remoteUrl: targetRemoteUrl,
+        refs: orderedRefs,
+      });
+
       results.push({
         id: target.id,
         label: target.label,
@@ -826,9 +1081,10 @@ export async function syncLocalRepoToTargets(
         remoteUrl,
         webUrl: webUrl || guessWebUrl(remoteUrl),
         createdRemote,
-        pushedRefs: Array.from(new Set(pushedRefsForTarget)),
+        pushedRefs: verifiedRefs,
         failedRefs: failedRefsForTarget.length > 0 ? failedRefsForTarget : undefined,
         warnings: warningsForTarget.length > 0 ? Array.from(new Set(warningsForTarget)) : undefined,
+        outcome: "ok",
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -845,10 +1101,86 @@ export async function syncLocalRepoToTargets(
       } else if (activeRef) {
         addFailedRef(failedRefsForTarget, activeRef.ref, message);
       }
+      if (
+        remoteUrl &&
+        workerApi?.listServerRefs &&
+        orderedRefs.every((ref) => Boolean(ref.commit))
+      ) {
+        try {
+          const verifiedRefs = await verifyRequestedRemoteRefs({
+            workerApi,
+            remoteUrl,
+            refs: orderedRefs,
+          });
+          if (target.provider === "grasp") {
+            const latestStateEvent = provisionalStateEvents.at(-1);
+            if (
+              !target.relayUrl ||
+              !onPublishEvent ||
+              !options.onFetchRelayEvents ||
+              !canonicalSignedAnnouncement ||
+              !latestStateEvent
+            ) {
+              throw new Error("GRASP postflight metadata verification is unavailable");
+            }
+            const publishRelays = [normalizeGraspOrigins(target.relayUrl).wsOrigin];
+            await verifyGraspEventAfterPush({
+              relayUrl: target.relayUrl,
+              event: canonicalSignedAnnouncement,
+              onPublishEvent,
+              publishRelays,
+              fetchRelayEvents: options.onFetchRelayEvents,
+            });
+            await verifyGraspEventAfterPush({
+              relayUrl: target.relayUrl,
+              event: latestStateEvent,
+              onPublishEvent,
+              publishRelays,
+              fetchRelayEvents: options.onFetchRelayEvents,
+            });
+          }
+          results.push({
+            id: target.id,
+            label: target.label,
+            provider: target.provider,
+            success: true,
+            remoteUrl,
+            webUrl: webUrl || guessWebUrl(remoteUrl),
+            createdRemote,
+            pushedRefs: verifiedRefs,
+            warnings: [
+              ...warningsForTarget,
+              "Push reported failure but every requested remote ref was verified",
+            ],
+            outcome: "ok",
+            relayUrl: target.relayUrl ? normalizeGraspOrigins(target.relayUrl).wsOrigin : undefined,
+            provisionalAnnouncementEvent: canonicalSignedAnnouncement,
+            provisionalStateEvents:
+              provisionalStateEvents.length > 0 ? provisionalStateEvents : undefined,
+          });
+          continue;
+        } catch {
+          // Preserve the original outcome when postflight verification is unavailable.
+        }
+      }
       const partialSuffix =
         pushedRefsForTarget.length > 0
           ? ` (pushed ${Array.from(new Set(pushedRefsForTarget)).length}/${orderedRefs.length} refs before failure)`
           : "";
+      const outcome = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
+      const cleanup =
+        createdRemote &&
+        target.provider !== "grasp" &&
+        remoteUrl &&
+        pushedRefsForTarget.length === 0 &&
+        outcome === "failed"
+          ? await cleanupEmptyCreatedRemote({
+              workerApi,
+              target,
+              remoteUrl,
+              token: provisionToken,
+            })
+          : undefined;
 
       results.push({
         id: target.id,
@@ -866,6 +1198,12 @@ export async function syncLocalRepoToTargets(
             ? Array.from(new Map(failedRefsForTarget.map((item) => [item.ref, item])).values())
             : undefined,
         warnings: warningsForTarget.length > 0 ? Array.from(new Set(warningsForTarget)) : undefined,
+        relayUrl: target.relayUrl ? normalizeGraspOrigins(target.relayUrl).wsOrigin : undefined,
+        outcome,
+        cleanup,
+        provisionalAnnouncementEvent: canonicalSignedAnnouncement,
+        provisionalStateEvents:
+          provisionalStateEvents.length > 0 ? provisionalStateEvents : undefined,
       });
     }
   }

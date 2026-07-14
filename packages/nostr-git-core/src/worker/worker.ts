@@ -2085,6 +2085,15 @@ const api = {
             }
 
             if (!recovered) {
+              if (await isRemoteAlreadyAtLocalTip(targetRef)) {
+                recovered = true
+                warnings.push(
+                  `${targetRef}: push transport failed but the remote tip matches the intended OID`,
+                )
+              }
+            }
+
+            if (!recovered) {
               if (lastGraspHttpDiagnostics.length > 0) {
                 console.error("[GRASP] Push HTTP diagnostics:", lastGraspHttpDiagnostics)
               }

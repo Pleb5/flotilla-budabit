@@ -23,7 +23,7 @@
   } from "@welshman/app"
   import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import {Router} from "@welshman/router"
-  import {load, PublishStatus} from "@welshman/net"
+  import {load} from "@welshman/net"
   import {fly, staggeredFade} from "@lib/transition"
   import {fade} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
@@ -43,7 +43,8 @@
   import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {APP_URL} from "@app/core/state"
-  import {publishDelete} from "@app/core/commands"
+  import {makeExactEventDelete} from "@app/core/commands"
+  import {publishRepoEventWithRelayOutcomes} from "@app/core/git-commands"
   import {goto} from "$app/navigation"
   import {onMount, onDestroy, tick, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
@@ -69,9 +70,12 @@
     TabsList,
     TabsTrigger,
     EventRenderer,
+    getPendingRepoCreationTransactions,
     toast,
     NewRepoWizard,
     ImportRepoDialog,
+    retryPendingRepoCreationMetadata,
+    retryRepoCreationCompensations,
   } from "@nostr-git/ui"
   import type {ImportResult, NewRepoResult, RepoCommunityOption} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
@@ -2974,27 +2978,6 @@
 
   const defaultRepoRelays = $state<string[]>([...GIT_RELAYS])
 
-  const publishEventToRelays = async (event: any, relays: string[] = defaultRepoRelays) => {
-    try {
-      console.log("🔐 publishing event to relays", event, relays)
-      const thunk = publishThunk({event, relays})
-      // Wait for the thunk to complete - this ensures events are actually sent to relays
-      // before we proceed with the git push
-      if (thunk && thunk.complete) {
-        console.log("📡 Waiting for thunk.complete...")
-        await thunk.complete
-        console.log("📡 Published event to relays (completed):", thunk.event?.id)
-      } else {
-        console.log("📡 Published event to relays (no complete promise):", thunk)
-      }
-      return thunk
-    } catch (err) {
-      console.error("[git/+page] Failed to publish repo event", err)
-      pushToast({message: `Failed to publish repository event: ${String(err)}`, theme: "error"})
-      throw err
-    }
-  }
-
   const getUserOutboxRelays = (): string[] => {
     try {
       return Router.get().FromUser().getUrls() || []
@@ -3029,6 +3012,64 @@
 
     return policy.repoRelays
   }
+
+  const deleteExactRepoEvent = async (event: NostrEvent, relayUrls: string[]) => {
+    const relays = Array.from(new Set(relayUrls.map(relay => normalizeRelayUrl(relay))))
+    if (relays.length === 0) throw new Error("Exact event deletion requires relay destinations")
+    const result = await publishRepoEventWithRelayOutcomes(
+      makeExactEventDelete({event: event as any}) as any,
+      relays,
+    )
+    if (result.successCount !== relays.length) {
+      throw new Error(`Exact event deletion failed on: ${result.failedRelays.join(", ")}`)
+    }
+  }
+
+  let recoveredPendingCreationsFor = ""
+  $effect(() => {
+    const ownerPubkey = $pubkey || ""
+    if (!ownerPubkey || recoveredPendingCreationsFor === ownerPubkey) return
+    recoveredPendingCreationsFor = ownerPubkey
+
+    void (async () => {
+      let recoveredCount = 0
+      for (const record of getPendingRepoCreationTransactions().filter(
+        pending => pending.ownerPubkey === ownerPubkey,
+      )) {
+        try {
+          if (record.phase === "metadata-pending") {
+            await retryPendingRepoCreationMetadata(record, (event, context) =>
+              publishRepoEventWithRelayOutcomes(event, context?.relays || []),
+            )
+            if (record.pendingCompensations.length > 0) {
+              const next = await retryRepoCreationCompensations(
+                {...record, phase: "cleanup-pending"},
+                deleteExactRepoEvent,
+                (event, context) => publishRepoEventWithRelayOutcomes(event, context?.relays || []),
+              )
+              if (next.pendingCompensations.length === 0) recoveredCount += 1
+            } else {
+              recoveredCount += 1
+            }
+          } else if (record.phase === "cleanup-pending") {
+            const next = await retryRepoCreationCompensations(
+              record,
+              deleteExactRepoEvent,
+              (event, context) => publishRepoEventWithRelayOutcomes(event, context?.relays || []),
+            )
+            if (next.pendingCompensations.length === 0) recoveredCount += 1
+          }
+        } catch (error) {
+          console.warn(`[repo-creation] Recovery remains pending for ${record.repoName}:`, error)
+        }
+      }
+
+      if (recoveredCount > 0) {
+        loadRepoAnnouncements(repoAnnouncementRelays)
+        pushToast({message: `Recovered ${recoveredCount} pending repository operation(s).`})
+      }
+    })()
+  })
 
   const buildRepoNaddrFromAnnouncement = (
     event: any,
@@ -3094,23 +3135,6 @@
 
     event.preventDefault()
     navigateToRepoCard(announcement)
-  }
-
-  const extractRelayAck = (thunk: any) => {
-    const results = thunk?.results || {}
-    const ackedRelays = Object.entries(results)
-      .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
-      .map(([relay]) => relay)
-    const failedRelays = Object.entries(results)
-      .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
-      .map(([relay]) => relay)
-
-    return {
-      ackedRelays,
-      failedRelays,
-      successCount: ackedRelays.length,
-      event: thunk?.event,
-    }
   }
 
   const hydrateRepoEvents = (
@@ -3285,10 +3309,16 @@
           defaultAuthorName: authorName,
           defaultAuthorEmail: authorEmail,
           communityOptions: repoPublishCommunityOptions,
-          onPublishEvent: async (repoEvent: NostrEvent) => {
-            const targetRelays = resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
-            const thunk = await publishEventToRelays(repoEvent, targetRelays)
-            return extractRelayAck(thunk)
+          onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
+            const explicitRelays = context?.relays || []
+            const targetRelays =
+              explicitRelays.length > 0
+                ? explicitRelays
+                : resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
+            return publishRepoEventWithRelayOutcomes(repoEvent, targetRelays)
+          },
+          onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
+            await deleteExactRepoEvent(event, relays)
           },
           onFetchRelayEvents: fetchRelayEvents,
           getProfile: getProfileForWizard,
@@ -3367,6 +3397,7 @@
       const rollbackPublishedRepoEvents = async (params: {
         repoName: string
         relays: string[]
+        events?: NostrEvent[]
       }): Promise<void> => {
         if (!$pubkey) return
 
@@ -3375,6 +3406,17 @@
         )
 
         if (rollbackRelays.length === 0) return
+
+        if (params.events) {
+          const exactEvents = new Map(
+            params.events.filter(event => event?.id).map(event => [event.id, event]),
+          )
+          for (const event of exactEvents.values()) {
+            if (event.pubkey !== $pubkey) continue
+            await deleteExactRepoEvent(event, rollbackRelays)
+          }
+          return
+        }
 
         const filters = [
           {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey], "#d": [params.repoName]},
@@ -3395,13 +3437,7 @@
           if (!event.id || seen.has(event.id)) continue
           seen.add(event.id)
 
-          const thunk = publishDelete({
-            event,
-            relays: rollbackRelays,
-          })
-          if (thunk?.complete) {
-            await thunk.complete
-          }
+          await deleteExactRepoEvent(event, rollbackRelays)
         }
       }
 
@@ -3424,10 +3460,16 @@
           onClose: () => {
             clearModals()
           },
-          onPublishEvent: async (repoEvent: NostrEvent) => {
-            const targetRelays = resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
-            const thunk = await publishEventToRelays(repoEvent, targetRelays)
-            return extractRelayAck(thunk)
+          onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
+            const explicitRelays = context?.relays || []
+            const targetRelays =
+              explicitRelays.length > 0
+                ? explicitRelays
+                : resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
+            return publishRepoEventWithRelayOutcomes(repoEvent, targetRelays)
+          },
+          onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
+            await deleteExactRepoEvent(event, relays)
           },
           onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
           onImportComplete: (result: ImportResult) => {
@@ -3438,7 +3480,8 @@
               message: `Successfully imported repository! Imported ${result.issuesImported} issues, ${result.commentsImported} comments, ${result.prsImported} PRs, and created ${result.profilesCreated} profiles.`,
             })
           },
-          onNavigateToRepo: (result: ImportResult) => navigateToCreatedRepo(result, "imported repo"),
+          onNavigateToRepo: (result: ImportResult) =>
+            navigateToCreatedRepo(result, "imported repo"),
           onAbortImport: async () => {
             try {
               terminateGitWorker()
@@ -3756,7 +3799,7 @@
               in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
               {#if repoCardNavigating}
                 <span
-                  class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
+                  class="z-10 pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
                   Opening...
                 </span>
               {/if}
@@ -3900,7 +3943,7 @@
                 : undefined}>
               {#if repoCardNavigating}
                 <span
-                  class="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
+                  class="z-10 pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary shadow-sm backdrop-blur-sm">
                   Opening...
                 </span>
               {/if}

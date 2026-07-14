@@ -18,6 +18,7 @@
     classifyCloneUrlIssue,
     syncLocalRepoToTargets,
     type CloneUrlIssueKind,
+    type PublishRepoEvent,
     type Repo,
   } from "@nostr-git/ui"
   import {nip19} from "nostr-tools"
@@ -174,7 +175,7 @@
       remoteUrl: string
       headBranch?: string
     }) => Promise<void> | void
-    onPublishEvent?: (event: any) => Promise<unknown>
+    onPublishEvent?: PublishRepoEvent
     onFetchRelayEvents?: (params: {
       relays: string[]
       filters: any[]

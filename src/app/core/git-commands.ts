@@ -7,8 +7,8 @@ import type {
   UserGraspListEvent,
 } from "@nostr-git/core/events"
 import {buildRoleLabelEvent} from "@app/util/labels"
-import {abortThunk, publishThunk, repository} from "@welshman/app"
-import {load} from "@welshman/net"
+import {abortThunk, publishThunk, pubkey, repository, signer} from "@welshman/app"
+import {load, publish, PublishStatus} from "@welshman/net"
 import {GIT_RELAYS, getRepoAnnouncementPublishRelays} from "./git-state"
 import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
@@ -21,12 +21,16 @@ import {
   GIT_STATUS_CLOSED,
   GIT_STATUS_COMPLETE,
   isRelayUrl,
+  isSignedEvent,
   normalizeRelayUrl,
+  prep,
   type Filter,
   type TrustedEvent,
 } from "@welshman/util"
 import {GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
 import type {Event as NostrEvent} from "nostr-tools"
+
+export const GRASP_RELAY_ACK_TIMEOUT_MS = 30_000
 
 // Helper to safely get user relay URLs, filtering out invalid values
 const getUserRelayUrls = (): string[] => {
@@ -69,6 +73,64 @@ export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) 
     relays: getScopedRelayUrls(relays),
     event: event,
   })
+}
+
+export const publishRepoEventWithRelayOutcomes = async (
+  event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
+  relays: string[],
+) => {
+  const scopedRelays = getScopedRelayUrls(relays)
+  const activePubkey = pubkey.get()
+  const activeSigner = signer.get()
+  const signedEvent = isSignedEvent(event as TrustedEvent)
+    ? event
+    : activePubkey && activeSigner
+      ? await activeSigner.sign(prep(event, activePubkey), {
+          signal: AbortSignal.timeout(GRASP_RELAY_ACK_TIMEOUT_MS),
+        })
+      : undefined
+
+  if (!signedEvent || !isSignedEvent(signedEvent as TrustedEvent)) {
+    throw new Error("Repository event signing failed")
+  }
+
+  repository.publish(signedEvent as TrustedEvent)
+
+  let results: Awaited<ReturnType<typeof publish>> = {}
+  try {
+    results = await publish({
+      relays: scopedRelays,
+      event: signedEvent,
+      timeout: GRASP_RELAY_ACK_TIMEOUT_MS,
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error || "publish failed")
+    results = Object.fromEntries(
+      scopedRelays.map(relay => [relay, {relay, status: PublishStatus.Failure, detail}]),
+    )
+  }
+
+  const relayOutcomes = Object.values(results).map(result => ({
+    relay: result.relay,
+    status: result.status,
+    detail: result.detail,
+  }))
+
+  const ackedRelays = relayOutcomes.flatMap(outcome =>
+    outcome.status === PublishStatus.Success ? [outcome.relay] : [],
+  )
+  const failedRelays = relayOutcomes.flatMap(outcome =>
+    outcome.status === PublishStatus.Success ? [] : [outcome.relay],
+  )
+
+  return {
+    event: signedEvent as NostrEvent,
+    relayOutcomes,
+    ackedRelays,
+    failedRelays,
+    successCount: ackedRelays.length,
+    hasRelayOutcomes: relayOutcomes.length > 0,
+  }
 }
 
 export const postComment = (comment: CommentEvent, relays: string[]) => {

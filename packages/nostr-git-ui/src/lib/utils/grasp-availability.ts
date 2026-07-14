@@ -111,12 +111,14 @@ export async function checkGraspRepoExists({
 }: CheckGraspRepoExistsParams): Promise<GraspRepoExistsResult> {
   const ownerNpub = toNpub(owner);
   const httpBase = trimTrailingSlash(toHttpBase(relayUrl));
-  const url = `${httpBase}/${ownerNpub}/${repoName}.git/info/refs?service=git-upload-pack`;
+  const encodedRepoName = encodeURIComponent(repoName);
+  const url = `${httpBase}/${ownerNpub}/${encodedRepoName}.git/info/refs?service=git-upload-pack`;
 
   try {
     const response = await probeSmartHttp(url);
     if (!response) return { exists: false };
-    if (response.ok) return { exists: true, htmlUrl: `${httpBase}/${ownerNpub}/${repoName}` };
+    if (response.ok)
+      return { exists: true, htmlUrl: `${httpBase}/${ownerNpub}/${encodedRepoName}` };
     if (response.status === 404) return { exists: false };
 
     throw new Error(`Smart HTTP probe failed with status ${response.status}`);
@@ -135,13 +137,15 @@ export async function checkGraspReceivePackReady({
 }: Omit<CheckGraspRepoExistsParams, "userPubkey">): Promise<boolean> {
   const ownerNpub = toNpub(owner);
   const httpBase = trimTrailingSlash(toHttpBase(relayUrl));
-  const url = `${httpBase}/${ownerNpub}/${repoName}.git/info/refs?service=git-receive-pack`;
+  const encodedRepoName = encodeURIComponent(repoName);
+  const url = `${httpBase}/${ownerNpub}/${encodedRepoName}.git/info/refs?service=git-receive-pack`;
 
   try {
-    const response = await probeSmartHttp(url);
-    if (!response) return false;
+    // A proxy succeeding does not prove the browser can reach the endpoint used by the push.
+    const response = await fetchWithTimeout(url);
 
-    return response.ok;
+    const contentType = response.headers.get("content-type") || "";
+    return response.ok && contentType.includes("application/x-git-receive-pack-advertisement");
   } catch {
     return false;
   }

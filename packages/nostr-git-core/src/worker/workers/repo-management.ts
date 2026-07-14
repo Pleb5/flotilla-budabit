@@ -15,6 +15,7 @@ import {resolveBranchName as resolveRobustBranch} from "./branches.js"
 import {resolveDefaultCorsProxy} from "./git-config.js"
 import {withTimeout} from "./timeout.js"
 import {parseRepoId} from "../../utils/repo-id.js"
+import {parseRepoUrl} from "../../git/import-utils.js"
 import {listAdvertisedServerRefs} from "../../utils/advertised-refs.js"
 import {toNpub} from "../../utils/nostr-pubkey.js"
 import {isGraspRepoHttpUrl, resolveCorsProxyForUrl} from "../../utils/grasp-url.js"
@@ -2830,6 +2831,8 @@ export interface UpdateRemoteRepoMetadataResult {
 export interface DeleteRemoteRepoOptions {
   remoteUrl: string
   token: string
+  provider?: GitVendor
+  baseUrl?: string
 }
 
 export interface DeleteRemoteRepoResult {
@@ -2873,9 +2876,16 @@ export async function updateRemoteRepoMetadata(
 export async function deleteRemoteRepo(
   options: DeleteRemoteRepoOptions,
 ): Promise<DeleteRemoteRepoResult> {
-  const {remoteUrl, token} = options
+  const {remoteUrl, token, provider, baseUrl} = options
 
   try {
+    if (provider) {
+      const parsed = parseRepoUrl(remoteUrl)
+      const api = getGitServiceApi(provider, token, baseUrl)
+      await api.deleteRepo(parsed.owner, parsed.repo)
+      return {success: true}
+    }
+
     const parsed = parseRepoFromUrl(remoteUrl)
     if (!parsed) {
       throw new Error("Unable to parse repository URL")

@@ -11,6 +11,8 @@
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
     getMandatoryGraspRelayUrls,
+    type DeleteRepoEvent,
+    type PublishRepoEvent,
   } from "../../utils/grasp-pipeline.js";
   import {
     useNewRepo,
@@ -20,7 +22,10 @@
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { graspServersStore } from "../../stores/graspServers.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
-  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
+  import {
+    findRepoCommunityOption,
+    getRepoCommunityOptionBinding,
+  } from "./repo-community-options.js";
   const { Button } = useRegistry();
 
   function deriveOrigins(input: string): { wsOrigin: string; httpOrigin: string } {
@@ -53,9 +58,8 @@
     /** Called when user chooses to navigate to the newly created repo (app should goto repo URL) */
     onNavigateToRepo?: (repoData: NewRepoResult) => void | Promise<void>;
     onCancel?: () => void;
-    onPublishEvent?: (
-      event: Omit<NostrEvent, "id" | "sig" | "pubkey" | "created_at">
-    ) => Promise<unknown>;
+    onPublishEvent?: PublishRepoEvent;
+    onDeleteEvent?: DeleteRepoEvent;
     defaultRelays?: string[];
     platformRelays?: string[];
     platformUrl?: string;
@@ -95,6 +99,7 @@
     onNavigateToRepo,
     onCancel,
     onPublishEvent,
+    onDeleteEvent,
     defaultRelays = [],
     platformRelays = [],
     platformUrl = "",
@@ -133,6 +138,7 @@
       onRepoCreated?.(result);
     },
     onPublishEvent: onPublishEvent,
+    onDeleteEvent,
     onFetchRelayEvents,
     userPubkey, // Pass user pubkey for GRASP repos
   });
@@ -250,7 +256,8 @@
   function buildBudabitRepoUrl(name: string): string | undefined {
     if (!userPubkey || !makeRepoPath || typeof window === "undefined") return undefined;
     const configuredPlatformRelays = [...platformRelays];
-    const routeRelay = configuredPlatformRelays[0] || defaultRelays[0] || advancedSettings.relays[0];
+    const routeRelay =
+      configuredPlatformRelays[0] || defaultRelays[0] || advancedSettings.relays[0];
     if (!routeRelay) return undefined;
 
     const platformOrigin = (platformUrl || "").trim().replace(/\/$/, "") || window.location.origin;

@@ -1347,4 +1347,23 @@ describe("commands", () => {
       ]),
     )
   })
+
+  it("makeExactEventDelete targets repository metadata by event id without a coordinate", async () => {
+    const {makeExactEventDelete} = await import("./commands")
+    const event = {
+      id: "provisional-repo-event",
+      pubkey: "a".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      content: "",
+      tags: [["d", "repo"]],
+      sig: "",
+    } as any
+
+    const del = makeExactEventDelete({event})
+
+    expect(del.tags).toContainEqual(["e", event.id])
+    expect(del.tags.some((tag: string[]) => tag[0] === "a")).toBe(false)
+    expect(del.tags).toContainEqual(["repo", `30617:${event.pubkey}:repo`])
+  })
 })

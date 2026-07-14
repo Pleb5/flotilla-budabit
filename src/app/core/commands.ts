@@ -607,6 +607,24 @@ export const makeDelete = ({event, tags = []}: DeleteParams) => {
   return makeEvent(DELETE, {tags: uniqTags(thisTags)})
 }
 
+export const makeExactEventDelete = ({event, tags = []}: DeleteParams) => {
+  const thisTags = [
+    ["k", String(event.kind)],
+    ["e", event.id],
+    ...sanitizePublishTags(tags).filter(tag => tag[0] !== "a"),
+  ]
+  const repoAddress = getRepoAddressForDelete(event)
+  if (repoAddress) {
+    thisTags.push(["repo", repoAddress])
+  }
+  const groupTag = getTag("h", event.tags)
+  if (groupTag) {
+    thisTags.push(cloneTag(groupTag))
+  }
+
+  return makeEvent(DELETE, {tags: uniqTags(thisTags)})
+}
+
 const logDeleteDebug = ({
   deleteEvent,
   targetEvent,

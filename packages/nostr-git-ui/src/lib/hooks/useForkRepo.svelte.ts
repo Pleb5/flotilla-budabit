@@ -13,23 +13,34 @@ import { tokens as tokensStore } from "$lib/stores/tokens";
 
 import { getFinalRepoMetadataCreatedAt } from "../utils/import-repo-metadata.js";
 import {
+  applyReconciledGraspResults,
+  getRemoteSyncProvisionalEvents,
   guessWebUrl,
   syncLocalRepoToTargets,
   type RemoteSyncRef,
   type RemoteSyncTargetResult,
 } from "../utils/remote-sync.js";
 import {
+  getProviderBaseUrl,
   normalizeRelayUrl,
   normalizeTokenHostForTarget,
   type RemoteTargetSelection,
 } from "../utils/remote-targets.js";
 import { matchesHost } from "../utils/tokenMatcher.js";
 import {
+  getRepoCreationProvisionalEvents,
+  RepoCreationTransactionJournal,
+  trackRepoCreationPublisher,
+} from "../utils/repo-creation-transaction.js";
+import {
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
   getSuccessfulGraspRelayUrls,
   normalizeGraspOrigins,
+  reconcileRepoCreationEvents,
   toNpubOrSelf,
+  type DeleteRepoEvent,
+  type PublishRepoEvent,
 } from "../utils/grasp-pipeline.js";
 import { getForkRollbackPlan } from "./fork-rollback";
 
@@ -76,13 +87,18 @@ export interface UseForkRepoOptions {
   userPubkey?: string;
   onProgress?: (progress: ForkProgress[]) => void;
   onForkCompleted?: (result: ForkResult) => void;
-  onPublishEvent?: (event: RepoAnnouncementEvent | RepoStateEvent) => Promise<unknown>;
+  onPublishEvent?: PublishRepoEvent;
+  onDeleteEvent?: DeleteRepoEvent;
   onFetchRelayEvents?: (params: {
     relays: string[];
     filters: import("@nostr-git/core").NostrFilter[];
     timeoutMs?: number;
   }) => Promise<NostrEvent[]>;
-  onRollbackPublishedRepoEvents?: (params: { repoName: string; relays: string[] }) => Promise<void>;
+  onRollbackPublishedRepoEvents?: (params: {
+    repoName: string;
+    relays: string[];
+    events?: NostrEvent[];
+  }) => Promise<void>;
 }
 
 export interface PreparedSourceRefs {
@@ -231,9 +247,7 @@ function getSourceTokenForUrl(url: string, tokens: Token[]): string | undefined 
   return match?.token;
 }
 
-export function getRollbackRemoteRepoTokens(
-  target: RemoteTargetSelection | undefined
-): string[] {
+export function getRollbackRemoteRepoTokens(target: RemoteTargetSelection | undefined): string[] {
   if (!target) return [];
   if (target.provider === "grasp") return [];
 
@@ -539,6 +553,8 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
     let publishedRepoRollbackContext: { repoName: string; relays: string[] } | null = null;
     let remotePushResults: RemoteSyncTargetResult[] = [];
     let selectedTargets: RemoteTargetSelection[] = [];
+    let transactionJournal: RepoCreationTransactionJournal | undefined;
+    let transactionPublisher = onPublishEvent;
 
     try {
       throwIfAborted(abortSignal);
@@ -595,6 +611,15 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       }
 
       localRepoId = parseRepoId(`${userPubkey}:fork-${forkName}-${Date.now()}`);
+      transactionJournal = new RepoCreationTransactionJournal({
+        id: `fork:${userPubkey}:${forkName}:${Date.now()}`,
+        operation: "fork",
+        ownerPubkey: userPubkey,
+        repoName: forkName,
+        localRepoId,
+      });
+      transactionJournal.setTargets(selectedTargets);
+      transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
       const localCloneDir = `/repos/${localRepoId}`;
 
       updateProgress("fork", "Preparing local duplicate...", "running");
@@ -674,7 +699,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         relays: config.relays || [],
         maintainers: remoteMaintainers.length > 0 ? remoteMaintainers : undefined,
         community: config.community,
-        onPublishEvent: onPublishEvent as (event: NostrEvent) => Promise<unknown>,
+        onPublishEvent: transactionPublisher!,
         onFetchRelayEvents: options.onFetchRelayEvents,
         updateProgress: (message) => updateProgress("publish", message, "running"),
         runAbortable: (operation, _label, _timeoutMs) => runAbortable(abortSignal, operation),
@@ -686,6 +711,8 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         requireNonGraspSuccessBeforeGrasp: false,
         allowApiBranchFastPath: false,
       });
+      transactionJournal.setTargetResults(remotePushResults);
+      throwIfAborted(abortSignal);
 
       const successfulTargets = remotePushResults.filter((result) => result.success);
       const failedTargets = remotePushResults.filter((result) => !result.success);
@@ -725,7 +752,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
             .filter(Boolean) as string[]
         )
       );
-      const cloneUrls = sameLogicalRepo
+      let cloneUrls = sameLogicalRepo
         ? dedupeCloneUrls([...successfulRemoteUrls, ...(originalRepo.cloneUrls || [])])
         : dedupeCloneUrls(successfulRemoteUrls);
       const selectedGraspTargetRelays = selectedTargets
@@ -735,7 +762,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       const successfulGraspRelays = getSuccessfulGraspRelayUrls(
         successfulTargets.map((result) => result.remoteUrl || "")
       );
-      const relays = getEffectiveRepoRelayUrls(
+      let relays = getEffectiveRepoRelayUrls(
         getEditableRepoRelayUrls(config.relays || [], selectedGraspTargetRelays),
         successfulGraspRelays
       );
@@ -753,23 +780,6 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         latestRepoMetadataCreatedAt
       );
 
-      const announcementEvent = createRepoAnnouncementEvent({
-        repoId: finalRepoId,
-        name: forkName,
-        description:
-          originalRepo.description || `Fork of ${originalRepo.owner}/${originalRepo.name}`,
-        clone: cloneUrls,
-        web: successfulWebUrls,
-        ...(relays.length > 0 ? { relays } : {}),
-        ...(maintainers.length > 0 ? { maintainers } : {}),
-        ...(hashtags.length > 0 ? { hashtags } : {}),
-        ...(config.earliestUniqueCommit
-          ? { earliestUniqueCommit: config.earliestUniqueCommit }
-          : {}),
-        community: config.community,
-        created_at: finalCreatedAt,
-      });
-
       const stateEvent = createRepoStateEvent({
         repoId: finalRepoId,
         refs:
@@ -783,11 +793,82 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       updateProgress("events", "Final Nostr events created", "completed");
 
       updateProgress("publish-announcement", "Publishing final repo metadata...", "running");
-      await onPublishEvent(announcementEvent);
-      await onPublishEvent(stateEvent);
+      transactionJournal.setPhase("metadata-pending");
+      const successfulGraspTargets = successfulTargets
+        .filter((result) => result.provider === "grasp" && result.relayUrl && result.remoteUrl)
+        .map((result) => ({
+          relayUrl: result.relayUrl as string,
+          cloneUrl: result.remoteUrl as string,
+        }));
+      const successfulGraspCloneUrls = new Set(
+        successfulGraspTargets.map((target) => target.cloneUrl)
+      );
+      const fixedCloneUrls = cloneUrls.filter(
+        (cloneUrl) => !successfulGraspCloneUrls.has(cloneUrl)
+      );
+      const candidateCloneOrder = [...cloneUrls];
+      const graspWebUrlByCloneUrl = new Map(
+        successfulTargets
+          .filter((result) => result.provider === "grasp" && result.remoteUrl)
+          .map((result) => [
+            result.remoteUrl as string,
+            result.webUrl || guessWebUrl(result.remoteUrl),
+          ])
+      );
+      const graspWebUrls = new Set(Array.from(graspWebUrlByCloneUrl.values()).filter(Boolean));
+      const fixedWebUrls = successfulWebUrls.filter((webUrl) => !graspWebUrls.has(webUrl));
+      const reconciled = await reconcileRepoCreationEvents({
+        relayUrls: relays,
+        provisionalRelayUrls: selectedGraspTargetRelays,
+        graspTargets: successfulGraspTargets,
+        stateEvent,
+        onPublishEvent: transactionPublisher!,
+        fetchRelayEvents: options.onFetchRelayEvents,
+        provisionalEvents: getRepoCreationProvisionalEvents(transactionJournal.record),
+        onDeleteEvent: options.onDeleteEvent,
+        minCreatedAt: latestRepoMetadataCreatedAt,
+        buildAnnouncement: ({ relays: nextRelays, graspCloneUrls, createdAt }) => {
+          const retainedCloneUrls = new Set([...fixedCloneUrls, ...graspCloneUrls]);
+          return createRepoAnnouncementEvent({
+            repoId: finalRepoId,
+            name: forkName,
+            description:
+              originalRepo.description || `Fork of ${originalRepo.owner}/${originalRepo.name}`,
+            clone: candidateCloneOrder.filter((cloneUrl) => retainedCloneUrls.has(cloneUrl)),
+            web: Array.from(
+              new Set(
+                [
+                  ...fixedWebUrls,
+                  ...graspCloneUrls.map((cloneUrl) => graspWebUrlByCloneUrl.get(cloneUrl)),
+                ].filter((value): value is string => Boolean(value))
+              )
+            ),
+            relays: nextRelays,
+            ...(maintainers.length > 0 ? { maintainers } : {}),
+            ...(hashtags.length > 0 ? { hashtags } : {}),
+            ...(config.earliestUniqueCommit
+              ? { earliestUniqueCommit: config.earliestUniqueCommit }
+              : {}),
+            community: config.community,
+            created_at: createdAt,
+          });
+        },
+      });
+      const announcementEvent = reconciled.announcementEvent as RepoAnnouncementEvent;
+      const publishedStateEvent = reconciled.stateEvent as RepoStateEvent;
+      remotePushResults = applyReconciledGraspResults(remotePushResults, reconciled.graspCloneUrls);
+      transactionJournal.setTargetResults(remotePushResults);
+      transactionJournal.setPendingCompensations(reconciled.cleanupFailures);
+      const retainedCloneUrls = new Set([...fixedCloneUrls, ...reconciled.graspCloneUrls]);
+      cloneUrls = candidateCloneOrder.filter((cloneUrl) => retainedCloneUrls.has(cloneUrl));
+      relays = reconciled.relays;
       updateProgress("publish-announcement", "Published final repo metadata", "completed");
 
-      const primaryTarget = successfulTargets[0];
+      const committedCloneUrls = new Set(cloneUrls);
+      const committedTargets = successfulTargets.filter(
+        (target) => target.provider !== "grasp" || committedCloneUrls.has(target.remoteUrl || "")
+      );
+      const primaryTarget = committedTargets[0];
       const result: ForkResult = {
         repoId: finalRepoId,
         forkUrl: primaryTarget?.remoteUrl || "",
@@ -796,17 +877,23 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         branches: preparedSource.branches,
         tags: preparedSource.tags,
         announcementEvent,
-        stateEvent,
+        stateEvent: publishedStateEvent,
         remotePushResults,
       };
 
       isComplete = true;
       onForkCompleted?.(result);
+      transactionJournal.complete();
       return result;
     } catch (err) {
       const successfulTargetCount = remotePushResults.filter((result) => result.success).length;
       const remoteRollbackTargets = remotePushResults.filter(
-        (result) => result.createdRemote && result.remoteUrl && result.provider !== "grasp"
+        (result) =>
+          result.createdRemote &&
+          result.remoteUrl &&
+          result.provider !== "grasp" &&
+          result.cleanup?.attempted &&
+          !result.cleanup.success
       );
       const rollbackPlan = getForkRollbackPlan({
         successfulTargetCount,
@@ -823,9 +910,23 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       }
 
       if (rollbackPlan.rollbackPublishedEvents && publishedRepoRollbackContext) {
+        const provisionalEvents = transactionJournal
+          ? getRepoCreationProvisionalEvents(transactionJournal.record)
+          : getRemoteSyncProvisionalEvents(remotePushResults);
         try {
-          await onRollbackPublishedRepoEvents?.(publishedRepoRollbackContext);
+          await onRollbackPublishedRepoEvents?.({
+            ...publishedRepoRollbackContext,
+            events: provisionalEvents.map((item) => item.event),
+          });
         } catch (rollbackError) {
+          transactionJournal?.setPendingCompensations(
+            provisionalEvents.map((item) => ({
+              action: "delete" as const,
+              eventId: item.event.id,
+              relayUrls: item.relayUrls,
+              error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+            }))
+          );
           rollbackFailures.push(
             `repo events: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
           );
@@ -851,6 +952,8 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
               const rollbackResult = await gitWorkerApi.deleteRemoteRepo({
                 remoteUrl: result.remoteUrl,
                 token: rollbackToken,
+                provider: result.provider,
+                baseUrl: getProviderBaseUrl(result.provider, target?.host),
               });
               if (!rollbackResult?.success) {
                 throw new Error(rollbackResult?.error || `Failed to delete ${result.label}`);
@@ -889,6 +992,15 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         } else {
           updateProgress("rollback", "Rolled back incomplete fork resources", "completed");
         }
+      }
+
+      transactionJournal?.setTargetResults(remotePushResults);
+      if (transactionJournal?.record.phase === "metadata-pending") {
+        transactionJournal?.setPhase("metadata-pending", err);
+      } else if (rollbackPlan.hasAnyRollback && rollbackFailures.length === 0) {
+        transactionJournal?.complete();
+      } else {
+        transactionJournal?.setPhase("failed", err);
       }
 
       const errorMessage =

@@ -48,16 +48,39 @@ export {
 export {
   publishGraspRepoStateAndWait,
   publishGraspRepoStateForPush,
+  reconcileRepoCreationEvents,
+  verifyGraspEventAfterPush,
   createGraspAnnouncementAndState,
-  waitForGraspRepoStateVisibility,
   type FetchRelayEvents,
   type FetchRelayEventsParams,
+  type DeleteRepoEvent,
+  type PublishRepoEvent,
+  type PublishRepoEventContext,
+  type PublishRepoEventResult,
+  type ReconciledRepoCreationEvents,
+  type ReconcileRepoCreationEventsParams,
+  type RepoCreationGraspTarget,
+  type RepoCreationProvisionalEvent,
 } from "./utils/grasp-pipeline";
 export {
+  applyReconciledGraspResults,
+  getRemoteSyncProvisionalEvents,
   syncLocalRepoToTargets,
   type RemoteSyncRef,
   type RemoteSyncTargetResult,
 } from "./utils/remote-sync";
+export {
+  getPendingRepoCreationTransactions,
+  getRepoCreationProvisionalEvents,
+  RepoCreationTransactionJournal,
+  retryPendingRepoCreationMetadata,
+  retryRepoCreationCompensations,
+  trackRepoCreationPublisher,
+  type RepoCreationOperation,
+  type RepoCreationPhase,
+  type RepoCreationPublishedEvent,
+  type RepoCreationRecoveryRecord,
+} from "./utils/repo-creation-transaction";
 export {
   classifyCloneUrlIssue,
   getCloneUrlBannerTitle,

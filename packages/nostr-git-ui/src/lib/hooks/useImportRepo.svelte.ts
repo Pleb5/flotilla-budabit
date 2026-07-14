@@ -39,6 +39,9 @@ import {
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
   getSuccessfulGraspRelayUrls,
+  reconcileRepoCreationEvents,
+  type DeleteRepoEvent,
+  type PublishRepoEvent,
 } from "../utils/grasp-pipeline.js";
 import {
   buildImportedRepoMetadata,
@@ -46,11 +49,18 @@ import {
   getImportedRepoName,
 } from "../utils/import-repo-metadata.js";
 import {
+  applyReconciledGraspResults,
+  getRemoteSyncProvisionalEvents,
   syncLocalRepoToTargets,
   type RemoteSyncRef,
   type RemoteSyncTargetResult,
 } from "../utils/remote-sync.js";
 import type { RemoteTargetSelection } from "../utils/remote-targets.js";
+import {
+  getRepoCreationProvisionalEvents,
+  RepoCreationTransactionJournal,
+  trackRepoCreationPublisher,
+} from "../utils/repo-creation-transaction.js";
 import {
   getEffectiveImportConfig,
   shouldFetchBranchActivity,
@@ -189,6 +199,7 @@ export type ImportRemotePushResult = RemoteSyncTargetResult;
 export interface ImportRepoRollbackParams {
   repoName: string;
   relays: string[];
+  events?: NostrEvent[];
 }
 
 /**
@@ -228,7 +239,10 @@ export interface UseImportRepoOptions {
   /**
    * Function to publish events (required if eventIO not provided)
    */
-  onPublishEvent?: (event: NostrEvent) => Promise<unknown>;
+  onPublishEvent?: PublishRepoEvent;
+
+  /** Delete an exact transaction-owned provisional event through NIP-09. */
+  onDeleteEvent?: DeleteRepoEvent;
 
   /**
    * Roll back already-published repository announcement/state events.
@@ -311,7 +325,8 @@ interface ImportContext {
 
   // Event publishing
   onSignEvent?: (event: Omit<NostrEvent, "id" | "sig" | "pubkey">) => Promise<NostrEvent>;
-  onPublishEvent?: (event: NostrEvent) => Promise<unknown>;
+  onPublishEvent?: PublishRepoEvent;
+  onDeleteEvent?: DeleteRepoEvent;
   eventIO?: EventIO;
   onFetchEvents?: (filters: NostrFilter[]) => Promise<NostrEvent[]>;
   onFetchRelayEvents?: (params: {
@@ -327,6 +342,7 @@ interface ImportContext {
   remotePushResults: ImportRemotePushResult[];
   remoteTargets: ImportRemoteTarget[];
   selectedBranchRefs?: ImportBranchPushRef[];
+  creationJournal?: RepoCreationTransactionJournal;
 }
 
 // ===== Batch Publishing Functions =====
@@ -526,7 +542,8 @@ async function initializeImportContext(
   abortController: ImportAbortController,
   withRateLimit: ImportContext["withRateLimit"],
   onSignEvent?: (event: Omit<NostrEvent, "id" | "sig" | "pubkey">) => Promise<NostrEvent>,
-  onPublishEvent?: (event: NostrEvent) => Promise<unknown>,
+  onPublishEvent?: PublishRepoEvent,
+  onDeleteEvent?: DeleteRepoEvent,
   workerApi?: any,
   eventIO?: EventIO,
   onFetchEvents?: (filters: NostrFilter[]) => Promise<NostrEvent[]>,
@@ -562,6 +579,7 @@ async function initializeImportContext(
     eventQueue: [],
     onSignEvent,
     onPublishEvent,
+    onDeleteEvent,
     workerApi,
     eventIO,
     onFetchEvents,
@@ -1830,7 +1848,7 @@ async function syncRepositoryToRemotes(
     targets,
     userPubkey: context.userPubkey,
     relays: context.config.relays || [],
-    onPublishEvent: context.onPublishEvent as ((event: NostrEvent) => Promise<unknown>) | undefined,
+    onPublishEvent: context.onPublishEvent,
     onFetchRelayEvents: context.onFetchRelayEvents,
     updateProgress: (message) => context.updateProgress(message),
     runAbortable: (operation, label, timeoutMs) =>
@@ -1842,7 +1860,7 @@ async function syncRepositoryToRemotes(
       context.latestRepoMetadataCreatedAt = value;
     },
     community: context.config.community,
-    requireNonGraspSuccessBeforeGrasp: true,
+    requireNonGraspSuccessBeforeGrasp: false,
   });
 }
 
@@ -1913,42 +1931,99 @@ async function publishRepoEvents(
     announcement: Omit<NostrEvent, "id" | "sig" | "pubkey">;
     state: Omit<NostrEvent, "id" | "sig" | "pubkey">;
   }
-): Promise<{ announcement: NostrEvent; state: NostrEvent }> {
+): Promise<{
+  announcement: NostrEvent;
+  state: NostrEvent;
+  cleanupFailures: Array<{
+    action: "delete" | "republish";
+    eventId: string;
+    relayUrls: string[];
+    error: string;
+  }>;
+}> {
   context.updateProgress("Publishing repository events...");
   context.abortController.throwIfAborted();
 
-  let signedRepoAnnouncement: NostrEvent;
-  let signedRepoState: NostrEvent;
-
-  // Sign repo announcement event using available signer method
-  // Note: We need the signed event to get its ID, so we can't use EventIO directly
-  if (context.onSignEvent) {
-    signedRepoAnnouncement = await context.onSignEvent(repoEvents.announcement);
-    signedRepoState = await context.onSignEvent(repoEvents.state);
-  } else if (context.eventIO) {
-    // EventIO signs internally but doesn't return the signed event
-    // We need the event ID, so we can't use EventIO for events that need IDs
-    throw new Error(
-      "EventIO cannot be used for repo events that need IDs. Please provide onSignEvent callback."
-    );
-  } else {
-    throw new Error("onSignEvent callback is required to sign repo events");
+  if (!context.onPublishEvent) {
+    throw new Error("onPublishEvent callback is required to publish repository events");
   }
 
-  // Publish signed repo events
-  if (context.onPublishEvent) {
-    await context.onPublishEvent(signedRepoAnnouncement);
-    await context.onPublishEvent(signedRepoState);
-  } else if (context.eventIO) {
-    // EventIO doesn't accept already-signed events, so we need onPublishEvent
-    throw new Error("onPublishEvent callback is required to publish signed events");
-  } else {
-    throw new Error("Either onPublishEvent callback must be provided to publish events");
-  }
+  const announcementTemplate = repoEvents.announcement as RepoAnnouncementEvent;
+  const stateTemplate = repoEvents.state as RepoStateEvent;
+  const getTagValues = (name: string) =>
+    announcementTemplate.tags.find((tag) => tag[0] === name)?.slice(1) || [];
+  const candidateRelays = getTagValues("relays");
+  const candidateCloneUrls = getTagValues("clone");
+  const candidateWebUrls = getTagValues("web");
+  const successfulGraspResults = context.remotePushResults.filter(
+    (result) => result.success && result.provider === "grasp" && result.relayUrl && result.remoteUrl
+  );
+  const successfulGraspCloneUrls = new Set(
+    successfulGraspResults.map((result) => result.remoteUrl as string)
+  );
+  const fixedCloneUrls = candidateCloneUrls.filter(
+    (cloneUrl) => !successfulGraspCloneUrls.has(cloneUrl)
+  );
+  const graspWebUrlByCloneUrl = new Map(
+    successfulGraspResults.map((result) => [result.remoteUrl as string, result.webUrl])
+  );
+  const graspWebUrls = new Set(Array.from(graspWebUrlByCloneUrl.values()).filter(Boolean));
+  const fixedWebUrls = candidateWebUrls.filter((webUrl) => !graspWebUrls.has(webUrl));
+  const preservedTags = announcementTemplate.tags.filter(
+    (tag) => !["clone", "web", "relays"].includes(tag[0])
+  );
+  const provisionalRelayUrls = context.remoteTargets
+    .filter((target) => target.provider === "grasp" && target.relayUrl)
+    .map((target) => target.relayUrl as string);
+  const reconciled = await reconcileRepoCreationEvents({
+    relayUrls: candidateRelays,
+    provisionalRelayUrls,
+    graspTargets: successfulGraspResults.map((result) => ({
+      relayUrl: result.relayUrl as string,
+      cloneUrl: result.remoteUrl as string,
+    })),
+    stateEvent: stateTemplate,
+    onPublishEvent: context.onPublishEvent,
+    fetchRelayEvents: context.onFetchRelayEvents,
+    provisionalEvents: context.creationJournal
+      ? getRepoCreationProvisionalEvents(context.creationJournal.record)
+      : getRemoteSyncProvisionalEvents(context.remotePushResults),
+    onDeleteEvent: context.onDeleteEvent,
+    minCreatedAt: context.latestRepoMetadataCreatedAt,
+    buildAnnouncement: ({ relays, graspCloneUrls, createdAt }) => {
+      const retainedCloneUrls = new Set([...fixedCloneUrls, ...graspCloneUrls]);
+      const cloneUrls = candidateCloneUrls.filter((cloneUrl) => retainedCloneUrls.has(cloneUrl));
+      const webUrls = Array.from(
+        new Set(
+          [
+            ...fixedWebUrls,
+            ...graspCloneUrls.map((cloneUrl) => graspWebUrlByCloneUrl.get(cloneUrl)),
+          ].filter((value): value is string => Boolean(value))
+        )
+      );
+
+      return {
+        ...announcementTemplate,
+        created_at: createdAt,
+        tags: [
+          ...preservedTags.map((tag) => [...tag]),
+          ...(webUrls.length > 0 ? [["web", ...webUrls]] : []),
+          ...(cloneUrls.length > 0 ? [["clone", ...cloneUrls]] : []),
+          ["relays", ...relays],
+        ],
+      } as RepoAnnouncementEvent;
+    },
+  });
+
+  context.remotePushResults = applyReconciledGraspResults(
+    context.remotePushResults,
+    reconciled.graspCloneUrls
+  );
 
   return {
-    announcement: signedRepoAnnouncement,
-    state: signedRepoState,
+    announcement: reconciled.announcementEvent,
+    state: reconciled.stateEvent,
+    cleanupFailures: reconciled.cleanupFailures,
   };
 }
 
@@ -1987,6 +2062,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
     onFetchRelayEvents,
     onSignEvent,
     onPublishEvent,
+    onDeleteEvent,
     onRollbackPublishedRepoEvents,
   } = options;
 
@@ -2055,6 +2131,8 @@ export function useImportRepo(options: UseImportRepoOptions) {
     const normalizedToken = token?.trim() || "";
     const sourceAccessMode: SourceAccessMode = normalizedToken ? "token" : "anonymous";
     const effectiveConfig = getEffectiveImportConfig(config, sourceAccessMode);
+    let transactionJournal: RepoCreationTransactionJournal | undefined;
+    let transactionContext: ImportContext | undefined;
 
     try {
       // Initialize context
@@ -2071,6 +2149,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
         withRateLimitFn,
         onSignEvent,
         onPublishEvent,
+        onDeleteEvent,
         workerApi,
         eventIO,
         onFetchEvents,
@@ -2102,6 +2181,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
         remoteTargets,
         selectedBranchRefs: [],
       } as ImportContext;
+      transactionContext = context;
 
       // Validation & Repository Setup
       const { repo: ownershipRepo, isOwner } = await validateTokenAndOwnership(context);
@@ -2144,6 +2224,21 @@ export function useImportRepo(options: UseImportRepoOptions) {
       context.repoAddr = `30617:${userPubkey}:${repoName}`;
       context.startTimestamp = context.importTimestamp - 3600; // Start from 1 hour ago
       context.currentTimestamp = context.startTimestamp;
+      transactionJournal = new RepoCreationTransactionJournal({
+        id: `import:${context.repoAddr}:${context.importTimestamp}`,
+        operation: "import",
+        ownerPubkey: userPubkey,
+        repoName,
+        localRepoId: parseRepoId(
+          `${context.userPubkey}:import-${repoName}-${context.importTimestamp}`
+        ),
+      });
+      transactionJournal.setTargets(remoteTargets);
+      context.creationJournal = transactionJournal;
+      context.onPublishEvent = trackRepoCreationPublisher(
+        transactionJournal,
+        context.onPublishEvent
+      );
 
       // Sync git data to selected remote targets (continue on individual failures)
       if (remoteTargets.length > 0) {
@@ -2155,6 +2250,8 @@ export function useImportRepo(options: UseImportRepoOptions) {
           normalizedToken,
           remoteTargets
         );
+        transactionJournal.setTargetResults(context.remotePushResults);
+        context.abortController.throwIfAborted();
 
         const successfulTargets = context.remotePushResults.filter((result) => result.success);
         if (successfulTargets.length === 0) {
@@ -2178,13 +2275,24 @@ export function useImportRepo(options: UseImportRepoOptions) {
               )
             );
 
+            const provisionalEvents = getRepoCreationProvisionalEvents(transactionJournal.record);
             try {
               await onRollbackPublishedRepoEvents({
                 repoName,
                 relays: rollbackRelays,
+                events: provisionalEvents.map((item) => item.event),
               });
             } catch (rollbackError) {
               rollbackWarning = `; rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`;
+              transactionJournal.setPendingCompensations(
+                provisionalEvents.map((item) => ({
+                  action: "delete" as const,
+                  eventId: item.event.id,
+                  relayUrls: item.relayUrls,
+                  error:
+                    rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+                }))
+              );
             }
           }
 
@@ -2234,7 +2342,10 @@ export function useImportRepo(options: UseImportRepoOptions) {
       // Publish repo announcement/state at the end (after remote sync and mirror data)
       currentPhaseRef.current = "repository";
       const repoEvents = convertRepoEvents(context);
+      transactionJournal.setPhase("metadata-pending");
       const publishedRepoEvents = await publishRepoEvents(context, repoEvents);
+      transactionJournal.setTargetResults(context.remotePushResults);
+      transactionJournal.setPendingCompensations(publishedRepoEvents.cleanupFailures);
       signedRepoAnnouncement = publishedRepoEvents.announcement;
       signedRepoState = publishedRepoEvents.state;
 
@@ -2262,9 +2373,17 @@ export function useImportRepo(options: UseImportRepoOptions) {
       };
 
       onImportCompleted?.(result);
+      transactionJournal.complete();
 
       return result;
     } catch (err: unknown) {
+      if (transactionContext) {
+        transactionJournal?.setTargetResults(transactionContext.remotePushResults);
+      }
+      transactionJournal?.setPhase(
+        transactionJournal?.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
+        err
+      );
       const errorMessage =
         err instanceof ImportAbortedError
           ? err.message
