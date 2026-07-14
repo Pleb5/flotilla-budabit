@@ -80,8 +80,6 @@
     searchRelays?: (query: string) => Promise<string[]>;
     communityOptions?: RepoCommunityOption[];
     defaultCommunityPubkey?: string;
-    /** Callback to create NIP-98 auth header for GRASP push (must be called on main thread) */
-    createAuthHeader?: (url: string, method?: string) => Promise<string | null>;
     /** Fetch events from specific relays for GRASP state visibility checks */
     onFetchRelayEvents?: (params: {
       relays: string[];
@@ -109,7 +107,6 @@
     searchRelays,
     communityOptions = [],
     defaultCommunityPubkey = "",
-    createAuthHeader,
     onFetchRelayEvents,
   }: Props = $props();
 
@@ -121,7 +118,6 @@
   const { createRepository, isCreating, progress, error, reset } = useNewRepo({
     workerApi, // Pass the worker API from props
     workerInstance, // Pass the worker instance from props
-    createAuthHeader, // Pass the NIP-98 auth header callback for GRASP push
     onProgress: (steps) => {
       // Transform status to completed boolean for RepoProgressStep
       progressSteps = steps.map((step) => ({

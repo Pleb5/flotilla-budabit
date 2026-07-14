@@ -11,7 +11,6 @@ import type {EventIO} from "../../types/index.js"
 import type {NostrEvent} from "nostr-tools"
 import {loadConfig} from "../../git/config.js"
 import {createGitProvider} from "../../git/factory.js"
-import {createNip98HttpClient} from "../../git/nip98-http-client.js"
 import httpWeb from "isomorphic-git/http/web"
 import {isGraspRepoHttpUrl} from "../../utils/grasp-url.js"
 
@@ -84,12 +83,9 @@ export function createNostrGitProvider(options: NostrGitFactoryOptions): NostrGi
     graspApi = new GraspApi(graspConfig)
   }
 
-  // Create NIP-98 aware HTTP client for GRASP authentication
-  const nip98Http = createNip98HttpClient(httpWeb, eventIO)
-
-  // Create a GitProvider with NIP-98 HTTP client (skip singleton to get isolated instance)
+  // GRASP-01 Smart HTTP is unauthenticated; signed repository state authorizes pushes.
   const gitProvider = createGitProvider({
-    http: nip98Http,
+    http: httpWeb,
     skipSingleton: true,
     defaultCorsProxy: corsProxy ?? null, // Disable CORS proxy for GRASP URLs
   })
@@ -104,7 +100,7 @@ export function createNostrGitProvider(options: NostrGitFactoryOptions): NostrGi
     publishRepoState,
     publishRepoAnnouncements,
     httpOverrides: corsProxy ? {corsProxy} : undefined,
-    gitProvider, // Use the NIP-98 aware GitProvider
+    gitProvider,
   }
 
   return new NostrGitProvider(config)

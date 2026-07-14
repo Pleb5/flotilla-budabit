@@ -1,4 +1,6 @@
 import {getTagValue, type Filter} from "@welshman/util"
+import {nip19} from "nostr-tools"
+import {normalizeWsOrigin} from "@nostr-git/core/api"
 import {
   GIT_CONFLICT_METADATA,
   GIT_ISSUE,
@@ -13,6 +15,40 @@ import {
   GIT_STATUS_DRAFT,
   GIT_STATUS_OPEN,
 } from "@nostr-git/core/events"
+import {parseGraspRepoHttpUrl} from "@nostr-git/core/utils"
+
+export type GraspRepoDeleteTarget = {
+  relay: string
+  ownerNpub: string
+  identifier: string
+}
+
+export const getGraspRepoDeleteTarget = ({
+  cloneUrl,
+  ownerPubkey,
+  identifier,
+}: {
+  cloneUrl: string
+  ownerPubkey: string
+  identifier: string
+}): GraspRepoDeleteTarget | null => {
+  const parsed = parseGraspRepoHttpUrl(cloneUrl)
+  if (!parsed || !ownerPubkey || !identifier) return null
+
+  let ownerNpub = ""
+  try {
+    ownerNpub = nip19.npubEncode(ownerPubkey)
+  } catch {
+    return null
+  }
+
+  if (parsed.ownerNpub !== ownerNpub || parsed.identifier !== identifier) return null
+
+  const relay = normalizeWsOrigin(cloneUrl)
+  if (!relay.startsWith("ws://") && !relay.startsWith("wss://")) return null
+
+  return {relay, ownerNpub, identifier}
+}
 
 export const getRepoDeleteAddresses = (
   repoAddresses: Iterable<string> = [],

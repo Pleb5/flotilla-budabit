@@ -3,7 +3,6 @@ import {
   fetchPackfile as fetchGitNaturalPackfile,
   getInfoRefs as getGitNaturalInfoRefs,
   loadTree as loadGitNaturalTree,
-  parseCommit as parseGitNaturalApiCommit,
   parseTree as parseGitNaturalApiTree,
   type Commit as GitNaturalApiCommit,
   type InfoRefsUploadPackResponse,
@@ -16,6 +15,7 @@ import {
   GitNaturalReadError,
   buildInfoRefsUrl,
   buildUploadPackUrl,
+  resolveNaturalReadFallbackTransport,
   resolveNaturalReadTransport,
   type FetchInfoRefsResult,
   type FetchLike,
@@ -30,7 +30,12 @@ export interface GitNaturalApiAdapterConfig {
   now?: () => number
 }
 
-export type {GitNaturalApiCommit, GitNaturalApiTree, GitNaturalApiTreeEntry, ParsedObject as GitNaturalApiParsedObject}
+export type {
+  GitNaturalApiCommit,
+  GitNaturalApiTree,
+  GitNaturalApiTreeEntry,
+  ParsedObject as GitNaturalApiParsedObject,
+}
 
 export interface GitNaturalApiPackfileResult {
   version: number
@@ -60,7 +65,9 @@ export const gitNaturalApiNecessaryCapabilities = ["multi_ack_detailed", "side-b
 export const gitNaturalApiRequiredCapabilities = ["shallow", "object-format=sha1"] as const
 
 export function createGitNaturalApiWantRequest(params: GitNaturalApiWantRequestParams): string {
-  const objectHash = String(params.objectHash || "").trim().toLowerCase()
+  const objectHash = String(params.objectHash || "")
+    .trim()
+    .toLowerCase()
   if (!/^[a-f0-9]{40}$/.test(objectHash)) {
     throw new GitNaturalReadError(
       "ref-not-found",
@@ -176,24 +183,28 @@ export class GitNaturalApiAdapter {
       }
 
       try {
-        const infoRefs = toGitNaturalInfoRefs(
-          await this.runWithFetch(() => getGitNaturalInfoRefs(transport.effectiveUrl)),
-        )
-        if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
-          throw new GitNaturalReadError(
-            "protocol-error",
-            `No git advertised refs returned from ${remoteUrl}`,
-            {remoteUrl, effectiveUrl},
+        const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, async candidate => {
+          const infoRefs = toGitNaturalInfoRefs(
+            await this.runWithFetch(() => getGitNaturalInfoRefs(candidate.effectiveUrl)),
           )
-        }
+          if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
+            throw new GitNaturalReadError(
+              "protocol-error",
+              `No git advertised refs returned from ${remoteUrl}`,
+              {remoteUrl, effectiveUrl: buildInfoRefsUrl(candidate.effectiveUrl)},
+            )
+          }
+          return infoRefs
+        })
+        const infoRefs = fetched.value
         throwIfAborted(params.signal)
         this.cache.putInfoRefs(remoteUrl, infoRefs)
 
         return {
           infoRefs,
           remoteUrl,
-          effectiveUrl,
-          usesProxy: transport.usesProxy,
+          effectiveUrl: buildInfoRefsUrl(fetched.transport.effectiveUrl),
+          usesProxy: fetched.transport.usesProxy,
           elapsedMs: Math.max(0, this.now() - startedAt),
         }
       } catch (error) {
@@ -290,7 +301,7 @@ export class GitNaturalApiAdapter {
   }
 
   parseCommit(data: Uint8Array, hash: string): GitNaturalApiCommit {
-    return parseGitNaturalApiCommit(data, hash)
+    return parseGitNaturalCommit(data, hash)
   }
 
   parseTree(data: Uint8Array): GitNaturalApiTreeEntry[] {
@@ -309,10 +320,8 @@ export class GitNaturalApiAdapter {
   }): Promise<GitNaturalApiPackResult> {
     const startedAt = this.now()
     const remoteUrl = trimTrailingSlashes(params.url)
-    const transport = resolveNaturalReadTransport(
-      remoteUrl,
-      resolveCorsProxyOverride(params.corsProxy, this.corsProxy),
-    )
+    const corsProxy = resolveCorsProxyOverride(params.corsProxy, this.corsProxy)
+    const transport = resolveNaturalReadTransport(remoteUrl, corsProxy)
     const effectiveUrl = buildUploadPackUrl(transport.effectiveUrl)
     const capabilities = selectGitNaturalApiCapabilities(params.serverCapabilities, {
       requireFilter: params.requireFilter,
@@ -326,12 +335,14 @@ export class GitNaturalApiAdapter {
 
     try {
       throwIfAborted(params.signal)
-      const pack = await this.runWithFetch(() => fetchGitNaturalPackfile(transport.effectiveUrl, want))
+      const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, candidate =>
+        this.runWithFetch(() => fetchGitNaturalPackfile(candidate.effectiveUrl, want)),
+      )
       throwIfAborted(params.signal)
       return {
-        ...transport,
-        effectiveUrl,
-        pack,
+        ...fetched.transport,
+        effectiveUrl: buildUploadPackUrl(fetched.transport.effectiveUrl),
+        pack: fetched.value,
         elapsedMs: Math.max(0, this.now() - startedAt),
       }
     } catch (error) {
@@ -370,14 +381,34 @@ export class GitNaturalApiAdapter {
   }
 
   private runWithFetch<T>(operation: () => Promise<T>): Promise<T> {
-    if (!this.fetcher) return operation()
-    return withTemporaryGlobalFetch(createFetchOverride(this.fetcher), operation)
+    const fetcher = this.fetcher
+      ? createFetchOverride(this.fetcher)
+      : createResponseBytesFetch(globalThis.fetch.bind(globalThis))
+    return withTemporaryGlobalFetch(fetcher, operation)
+  }
+
+  private async runWithCorsFallback<T>(
+    remoteUrl: string,
+    corsProxy: string | null | undefined,
+    operation: (transport: GitNaturalTransport) => Promise<T>,
+  ): Promise<{value: T; transport: GitNaturalTransport}> {
+    const primary = resolveNaturalReadTransport(remoteUrl, corsProxy)
+    try {
+      return {value: await operation(primary), transport: primary}
+    } catch (error) {
+      const fallback = resolveNaturalReadFallbackTransport(remoteUrl, corsProxy, primary)
+      if (!fallback || !isLikelyCorsOrNetworkFailure(error)) throw error
+      return {value: await operation(fallback), transport: fallback}
+    }
   }
 }
 
 let temporaryFetchLock: Promise<void> = Promise.resolve()
 
-async function withTemporaryGlobalFetch<T>(fetcher: typeof fetch, operation: () => Promise<T>): Promise<T> {
+async function withTemporaryGlobalFetch<T>(
+  fetcher: typeof fetch,
+  operation: () => Promise<T>,
+): Promise<T> {
   const previousLock = temporaryFetchLock
   let releaseLock: () => void = () => {}
   temporaryFetchLock = new Promise(resolve => {
@@ -409,6 +440,66 @@ function createFetchOverride(fetcher: FetchLike): typeof fetch {
       bytes: responseWithBytes.bytes ?? (async () => new Uint8Array(await response.arrayBuffer())),
     } as Response
   }) as typeof fetch
+}
+
+function createResponseBytesFetch(fetcher: typeof fetch): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const response = init === undefined ? await fetcher(input) : await fetcher(input, init)
+    const compatible = response as Response & {bytes?: () => Promise<Uint8Array>}
+    if (!compatible.bytes) {
+      compatible.bytes = async () => new Uint8Array(await response.arrayBuffer())
+    }
+    return compatible
+  }) as typeof fetch
+}
+
+function parseGitNaturalCommit(data: Uint8Array, hash: string): GitNaturalApiCommit {
+  const content = textDecoder.decode(data)
+  const headerEndIndex = content.indexOf("\n\n")
+  if (headerEndIndex === -1) {
+    throw new Error(`Invalid commit format for ${hash}: no message separator found`)
+  }
+
+  const result: Partial<GitNaturalApiCommit> = {
+    hash,
+    parents: [],
+    message: content.slice(headerEndIndex + 2),
+  }
+  for (const line of content.slice(0, headerEndIndex).split("\n")) {
+    if (line.startsWith("tree ")) result.tree = line.slice(5)
+    else if (line.startsWith("parent ")) result.parents?.push(line.slice(7))
+    else if (line.startsWith("author ")) result.author = parseGitIdentity(line.slice(7))
+    else if (line.startsWith("committer ")) result.committer = parseGitIdentity(line.slice(10))
+  }
+
+  if (!result.tree || !result.author || !result.committer) {
+    throw new Error(`Invalid commit format for ${hash}: missing required identity or tree`)
+  }
+  return result as GitNaturalApiCommit
+}
+
+function parseGitIdentity(value: string): GitNaturalApiCommit["author"] {
+  const mailOpen = value.indexOf("<")
+  if (mailOpen === -1) {
+    return {name: value.trim(), email: "", timestamp: Number.NaN, timezone: ""}
+  }
+
+  const mailClose = value.lastIndexOf(">")
+  const tail = value.slice(mailClose + 1).trimStart()
+  const timestampAndZone = tail.match(/^(\d+)\s+([+-]\d+)$/)
+  return {
+    name: value.slice(0, mailOpen).trimEnd(),
+    email: value.slice(mailOpen + 1, mailClose),
+    timestamp: timestampAndZone ? Number.parseInt(timestampAndZone[1], 10) : Number.NaN,
+    timezone: timestampAndZone?.[2] || "",
+  }
+}
+
+function isLikelyCorsOrNetworkFailure(error: unknown): boolean {
+  if (error instanceof GitNaturalReadError) return false
+  if (error instanceof TypeError) return true
+  const message = error instanceof Error ? error.message : String(error || "")
+  return /failed to fetch|network|cors|access-control|cross-origin|load failed/i.test(message)
 }
 
 const textDecoder = new TextDecoder("utf-8")
@@ -458,7 +549,11 @@ function formatPackFailureDiagnostics(params: {
   depth?: number
   parserFailureClass?: string
 }): string {
-  if (params.filter === undefined && params.depth === undefined && params.parserFailureClass === undefined) {
+  if (
+    params.filter === undefined &&
+    params.depth === undefined &&
+    params.parserFailureClass === undefined
+  ) {
     return ""
   }
 
@@ -479,13 +574,21 @@ function classifyPackParserFailure(error: unknown): string {
 
   while (current && !seen.has(current)) {
     seen.add(current)
-    const asAny = current as {name?: string; message?: string; cause?: unknown; constructor?: {name?: string}}
+    const asAny = current as {
+      name?: string
+      message?: string
+      cause?: unknown
+      constructor?: {name?: string}
+    }
     const name = asAny.name || asAny.constructor?.name || ""
     const message = current instanceof Error ? current.message : String(current)
     const text = `${name} ${message}`
 
     if (name && fallbackName === "unknown") fallbackName = name
-    if (name === "BigBatchError" || /decompress too much data|too much data at the same time/i.test(text)) {
+    if (
+      name === "BigBatchError" ||
+      /decompress too much data|too much data at the same time/i.test(text)
+    ) {
       return "big-batch"
     }
     if (/pkt-line|packet line|side-?band/i.test(text)) return "pkt-line"
@@ -520,7 +623,9 @@ function isAbortError(error: unknown): boolean {
 }
 
 function trimTrailingSlashes(value: string): string {
-  return String(value || "").trim().replace(/\/+$/, "")
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "")
 }
 
 function resolveCorsProxyOverride(

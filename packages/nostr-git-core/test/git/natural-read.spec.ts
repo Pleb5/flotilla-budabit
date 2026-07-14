@@ -17,7 +17,10 @@ import {
   selectGitNaturalApiCapabilities,
 } from "../../src/git/natural-read-api-adapter.js"
 import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
-import {GitNaturalReadError, resolveNaturalReadTransport} from "../../src/git/natural-read-transport.js"
+import {
+  GitNaturalReadError,
+  resolveNaturalReadTransport,
+} from "../../src/git/natural-read-transport.js"
 import type {GitNaturalCommit} from "../../src/git/natural-read-types.js"
 
 const encoder = new TextEncoder()
@@ -71,7 +74,12 @@ const concatBytes = (...chunks: Uint8Array[]): Uint8Array => {
 }
 
 const uint32 = (value: number): Uint8Array =>
-  Uint8Array.from([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff])
+  Uint8Array.from([
+    (value >>> 24) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 8) & 0xff,
+    value & 0xff,
+  ])
 
 const hexBytes = (hash: string): Uint8Array =>
   Uint8Array.from(hash.match(/../g)?.map(byte => Number.parseInt(byte, 16)) ?? [])
@@ -107,7 +115,11 @@ const buildBlobPack = (content: string): {hash: string; data: Uint8Array; packfi
 }
 
 const buildTreeData = (entries: Array<{mode: string; name: string; hash: string}>): Uint8Array =>
-  concatBytes(...entries.map(entry => concatBytes(encoder.encode(`${entry.mode} ${entry.name}\0`), hexBytes(entry.hash))))
+  concatBytes(
+    ...entries.map(entry =>
+      concatBytes(encoder.encode(`${entry.mode} ${entry.name}\0`), hexBytes(entry.hash)),
+    ),
+  )
 
 const sideBandPacket = (channel: number, payload: string | Uint8Array): Uint8Array => {
   const payloadBytes = typeof payload === "string" ? encoder.encode(payload) : payload
@@ -145,39 +157,41 @@ function makeFakeNaturalAdapter(
   } = {},
 ) {
   const byHash = new Map(commits.map((commit, index) => [commit.hash, {commit, index}]))
-  const fetchTreeZeroObjects = vi.fn(async (params: {url: string; commitHash: string; maxCommits?: number}) => {
-    const error = opts.throwOnce?.({
-      commitHash: params.commitHash,
-      maxCommits: params.maxCommits ?? 1,
-    })
-    if (error) throw error
+  const fetchTreeZeroObjects = vi.fn(
+    async (params: {url: string; commitHash: string; maxCommits?: number}) => {
+      const error = opts.throwOnce?.({
+        commitHash: params.commitHash,
+        maxCommits: params.maxCommits ?? 1,
+      })
+      if (error) throw error
 
-    const start = byHash.get(params.commitHash)?.index ?? commits.length
-    const selected = commits.slice(start, start + (params.maxCommits ?? 1))
-    const objects = new Map(
-      selected.map(commit => {
-        const data = encoder.encode(JSON.stringify(commit))
-        return [
-          commit.hash,
-          {
-            type: 1,
-            size: data.length,
-            data,
-            offset: 0,
-            hash: commit.hash,
-          },
-        ]
-      }),
-    )
+      const start = byHash.get(params.commitHash)?.index ?? commits.length
+      const selected = commits.slice(start, start + (params.maxCommits ?? 1))
+      const objects = new Map(
+        selected.map(commit => {
+          const data = encoder.encode(JSON.stringify(commit))
+          return [
+            commit.hash,
+            {
+              type: 1,
+              size: data.length,
+              data,
+              offset: 0,
+              hash: commit.hash,
+            },
+          ]
+        }),
+      )
 
-    return {
-      remoteUrl: params.url,
-      effectiveUrl: params.url,
-      usesProxy: false,
-      pack: {version: 2, count: objects.size, objects},
-      elapsedMs: 1,
-    }
-  })
+      return {
+        remoteUrl: params.url,
+        effectiveUrl: params.url,
+        usesProxy: false,
+        pack: {version: 2, count: objects.size, objects},
+        elapsedMs: 1,
+      }
+    },
+  )
 
   const adapter = {
     fetchInfoRefs: vi.fn(async (params: {url: string}) => ({
@@ -240,7 +254,12 @@ describe("GitNaturalObjectCache", () => {
     const treeHash = "b".repeat(40)
     const blobHash = "c".repeat(40)
     const blobData = Uint8Array.from([0, 1, 2, 255])
-    const commit = {hash: commitHash, tree: treeHash, parents: [], data: encoder.encode("commit data")}
+    const commit = {
+      hash: commitHash,
+      tree: treeHash,
+      parents: [],
+      data: encoder.encode("commit data"),
+    }
     const tree = {
       hash: treeHash,
       data: encoder.encode("tree data"),
@@ -278,7 +297,10 @@ describe("GitNaturalObjectCache", () => {
     })
     const nextCache = new GitNaturalObjectCache({asyncStore: nextStore})
 
-    expect(await nextCache.getCommitAsync(commitHash)).toMatchObject({hash: commitHash, tree: treeHash})
+    expect(await nextCache.getCommitAsync(commitHash)).toMatchObject({
+      hash: commitHash,
+      tree: treeHash,
+    })
     expect(await nextCache.getTreeAsync(treeHash)).toMatchObject({hash: treeHash})
     expect(Array.from((await nextCache.getBlobAsync(blobHash))?.data ?? [])).toEqual([0, 1, 2, 255])
     const raw = await nextCache.getRawObjectBatchAsync(commitHash, "blob:none")
@@ -359,7 +381,10 @@ describe("natural read transport", () => {
     })
 
     expect(
-      resolveNaturalReadTransport("https://github.com/Pleb5/flotilla-budabit.git", "https://cors.example"),
+      resolveNaturalReadTransport(
+        "https://github.com/Pleb5/flotilla-budabit.git",
+        "https://cors.example",
+      ),
     ).toEqual({
       remoteUrl: "https://github.com/Pleb5/flotilla-budabit.git",
       effectiveUrl: "https://cors.example/github.com/Pleb5/flotilla-budabit.git",
@@ -386,13 +411,35 @@ describe("natural read API adapter", () => {
 
     expect(first.infoRefs.headRef).toBe("refs/heads/main")
     expect(second.infoRefs.headCommit).toBe("1".repeat(40))
-    expect(selectGitNaturalApiCapabilities(first.infoRefs.capabilities, {requireFilter: true})).toEqual([
-      "multi_ack_detailed",
-      "side-band-64k",
-      "filter",
-    ])
+    expect(
+      selectGitNaturalApiCapabilities(first.infoRefs.capabilities, {requireFilter: true}),
+    ).toEqual(["multi_ack_detailed", "side-band-64k", "filter"])
     expect(fetcher).toHaveBeenCalledTimes(1)
-    expect(fetcher).toHaveBeenCalledWith("https://example.com/repo.git/info/refs?service=git-upload-pack")
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://example.com/repo.git/info/refs?service=git-upload-pack",
+    )
+  })
+
+  it("retries direct GRASP infoRefs through the configured proxy after a network failure", async () => {
+    const advertisement = buildAdvertisement()
+    const fetcher = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({
+        status: 200,
+        text: async () => advertisement,
+        arrayBuffer: async () => arrayBuffer(encoder.encode(advertisement)),
+      })
+    vi.stubGlobal("fetch", fetcher)
+    const adapter = new GitNaturalApiAdapter({corsProxy: "https://cors.example"})
+
+    const result = await adapter.fetchInfoRefs({url: GRASP_URL})
+
+    expect(result.usesProxy).toBe(true)
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      `${GRASP_URL}/info/refs?service=git-upload-pack`,
+      `https://cors.example/${GRASP_URL.replace("https://", "")}/info/refs?service=git-upload-pack`,
+    ])
   })
 
   it("parses library packfiles that include shallow, unshallow, and side-band progress packets", async () => {
@@ -423,12 +470,42 @@ describe("natural read API adapter", () => {
     expect(url).toBe("https://example.com/repo.git/git-upload-pack")
     expect(init.method).toBe("POST")
     expect(String(init.body)).toContain(`want ${blob.hash}`)
-    expect(fetcher.mock.calls.some(([calledUrl]) => String(calledUrl).includes("/info/refs"))).toBe(false)
+    expect(fetcher.mock.calls.some(([calledUrl]) => String(calledUrl).includes("/info/refs"))).toBe(
+      false,
+    )
+  })
+
+  it("polyfills Response.bytes with arrayBuffer for older browsers", async () => {
+    const blob = buildBlobPack("older browser response\n")
+    const response = concatBytes(
+      pktBytes("NAK\n"),
+      sideBandPacket(1, blob.packfile),
+      encoder.encode("0000"),
+    )
+    const fetcher = vi.fn(async () => ({
+      status: 200,
+      text: async () => decoder.decode(response),
+      arrayBuffer: async () => arrayBuffer(response),
+    }))
+    vi.stubGlobal("fetch", fetcher)
+    const adapter = new GitNaturalApiAdapter()
+
+    const result = await adapter.fetchObjectByHash({
+      url: "https://example.com/repo.git",
+      objectHash: blob.hash,
+      serverCapabilities: CAPABILITIES,
+    })
+
+    expect(decoder.decode(result.object.data)).toBe("older browser response\n")
   })
 
   it("builds blob:none and tree:0 requests from supplied cached capabilities", async () => {
     const blob = buildBlobPack("filtered response\n")
-    const response = concatBytes(pktBytes("NAK\n"), sideBandPacket(1, blob.packfile), encoder.encode("0000"))
+    const response = concatBytes(
+      pktBytes("NAK\n"),
+      sideBandPacket(1, blob.packfile),
+      encoder.encode("0000"),
+    )
     const fetcher = uploadPackResponseFetch(response)
     vi.stubGlobal("fetch", fetcher)
     const adapter = new GitNaturalApiAdapter()
@@ -457,7 +534,10 @@ describe("natural read API adapter", () => {
   it("reports missing and invalid library pack responses as protocol errors", async () => {
     const adapter = new GitNaturalApiAdapter()
 
-    vi.stubGlobal("fetch", uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), encoder.encode("0000"))))
+    vi.stubGlobal(
+      "fetch",
+      uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), encoder.encode("0000"))),
+    )
     await expect(
       adapter.fetchBlobNoneObjects({
         url: "https://example.com/repo.git",
@@ -468,7 +548,9 @@ describe("natural read API adapter", () => {
 
     vi.stubGlobal(
       "fetch",
-      uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), sideBandPacket(1, "NOPE"), encoder.encode("0000"))),
+      uploadPackResponseFetch(
+        concatBytes(pktBytes("NAK\n"), sideBandPacket(1, "NOPE"), encoder.encode("0000")),
+      ),
     )
     await expect(
       adapter.fetchBlobNoneObjects({
@@ -486,7 +568,9 @@ describe("natural read API adapter", () => {
 
     vi.stubGlobal(
       "fetch",
-      uploadPackResponseFetch(concatBytes(pktBytes("NAK\n"), sideBandPacket(1, "NOPE"), encoder.encode("0000"))),
+      uploadPackResponseFetch(
+        concatBytes(pktBytes("NAK\n"), sideBandPacket(1, "NOPE"), encoder.encode("0000")),
+      ),
     )
     await expect(
       adapter.fetchTreeZeroObjects({
@@ -512,7 +596,14 @@ describe("natural read API adapter", () => {
     const treeHash = gitObjectHash("tree", treeData)
     const treeObject = {type: 2, size: treeData.length, data: treeData, offset: 0, hash: treeHash}
     const blobObject = {type: 3, size: blobData.length, data: blobData, offset: 0, hash: blobHash}
-    const tree = adapter.loadTree(treeObject, new Map([[treeHash, treeObject], [blobHash, blobObject]]), 1)
+    const tree = adapter.loadTree(
+      treeObject,
+      new Map([
+        [treeHash, treeObject],
+        [blobHash, blobObject],
+      ]),
+      1,
+    )
 
     expect(tree.files[0]).toMatchObject({name: "README.md", hash: blobHash})
     expect(decoder.decode(tree.files[0]?.content ?? new Uint8Array())).toBe("readme\n")
@@ -526,6 +617,20 @@ describe("natural read API adapter", () => {
     expect(commit.tree).toBe(treeHash)
     expect(commit.parents).toEqual(["a".repeat(40)])
     expect(commit.message).toBe("Initial commit\n")
+
+    const multiWord = adapter.parseCommit(
+      encoder.encode(
+        `tree ${treeHash}\nauthor Ada Lovelace <ada@example.com> 10 +0100\ncommitter Grace Hopper <grace@example.com> 20 -0500\n\nNames\n`,
+      ),
+      "c".repeat(40),
+    )
+    expect(multiWord.author).toEqual({
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      timestamp: 10,
+      timezone: "+0100",
+    })
+    expect(multiWord.committer.name).toBe("Grace Hopper")
   })
 })
 
@@ -549,9 +654,15 @@ describe("GitNaturalReadProvider commit history batching", () => {
       commits[0].hash,
       commits[15].hash,
     ])
-    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 15))?.commits).toHaveLength(15)
-    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[15].hash, 5))?.commits).toHaveLength(5)
-    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 20))?.commits).toHaveLength(20)
+    expect(
+      (await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 15))?.commits,
+    ).toHaveLength(15)
+    expect(
+      (await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[15].hash, 5))?.commits,
+    ).toHaveLength(5)
+    expect(
+      (await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 20))?.commits,
+    ).toHaveLength(20)
   })
 
   it("retries smaller tree:0 batches on wrapped BigBatch parser errors", async () => {
@@ -584,6 +695,8 @@ describe("GitNaturalReadProvider commit history batching", () => {
       commits[0].hash,
       commits[5].hash,
     ])
-    expect((await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 10))?.commits).toHaveLength(10)
+    expect(
+      (await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 10))?.commits,
+    ).toHaveLength(10)
   })
 })

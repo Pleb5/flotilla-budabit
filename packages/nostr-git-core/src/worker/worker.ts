@@ -163,7 +163,6 @@ import {
   setGitConfig as setWorkerGitConfig,
   resolveDefaultCorsProxy,
 } from "./workers/git-config.js"
-import {createNip98HttpClient} from "../git/nip98-http-client.js"
 import {
   GitNaturalReadProvider,
   type GitNaturalDiffBetweenResult,
@@ -275,9 +274,10 @@ async function tryGitNaturalDiffBetween(params: {
   corsProxy?: string | null
 }): Promise<(GitNaturalDiffBetweenResult & {usedUrl?: string}) | null> {
   if (params.enabled !== true) return null
-  const urls = reorderUrlsByPreference(filterValidCloneUrls(params.cloneUrls || []), params.key).filter(
-    isHttpCloneUrl,
-  )
+  const urls = reorderUrlsByPreference(
+    filterValidCloneUrls(params.cloneUrls || []),
+    params.key,
+  ).filter(isHttpCloneUrl)
   if (urls.length === 0) return null
 
   const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
@@ -378,7 +378,9 @@ async function tryGitNaturalPRPreview(params: {
     tipCommit: review.headOid,
     commits: review.commits,
     commitOids: review.commitOids,
-    filesChanged: Array.from(new Set((review.changes || []).map(change => change.path).filter(Boolean))),
+    filesChanged: Array.from(
+      new Set((review.changes || []).map(change => change.path).filter(Boolean)),
+    ),
     source: "git-natural",
     readSource: review.readSource,
     usedCloneUrl: review.usedCloneUrl,
@@ -404,15 +406,23 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
       const refs = await provider.listRefs({url, prefix: "refs/heads/", symrefs: false, corsProxy})
       const branchHeads = refs.refs
         .map(ref => ({ref: ref.ref || "", oid: normalizeFullOid(ref.oid)}))
-        .filter((ref): ref is {ref: string; oid: string} => Boolean(ref.ref && ref.oid && ref.oid !== tipOid))
+        .filter((ref): ref is {ref: string; oid: string} =>
+          Boolean(ref.ref && ref.oid && ref.oid !== tipOid),
+        )
         .slice(0, 50)
       const candidates: Array<{commits: GitNaturalCommit[]; branch: string}> = []
 
       for (const branch of branchHeads) {
         try {
-          const history = await provider.listCommits({url, commitHash: branch.oid, depth: 100, corsProxy})
+          const history = await provider.listCommits({
+            url,
+            commitHash: branch.oid,
+            depth: 100,
+            corsProxy,
+          })
           const tipIndex = history.commits.findIndex(commit => commit.hash === tipOid)
-          if (tipIndex > 0) candidates.push({branch: branch.ref, commits: history.commits.slice(0, tipIndex)})
+          if (tipIndex > 0)
+            candidates.push({branch: branch.ref, commits: history.commits.slice(0, tipIndex)})
         } catch {
           // Try the next branch head.
         }
@@ -475,7 +485,10 @@ async function tryGitNaturalMergeBaseBetween(params: {
   })
   if (!headHistory || !targetHistory) return null
 
-  const mergeBase = firstCommonNaturalCommit(headHistory.result.commits, targetHistory.result.commits)
+  const mergeBase = firstCommonNaturalCommit(
+    headHistory.result.commits,
+    targetHistory.result.commits,
+  )
   if (!mergeBase) return null
   console.info(`[getMergeBaseBetween] Git natural merge base resolved for ${headOid}`)
   return {
@@ -611,7 +624,9 @@ function gitNaturalHttpUrls(urls: string[], repoId: string): string[] {
 }
 
 function normalizeFullOid(value?: string): string | undefined {
-  const normalized = String(value || "").trim().toLowerCase()
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
   return /^[0-9a-f]{40}$/.test(normalized) ? normalized : undefined
 }
 
@@ -638,12 +653,17 @@ function naturalCommitToReviewCommit(commit: GitNaturalCommit) {
   }
 }
 
-function firstCommonNaturalCommit(sourceCommits: GitNaturalCommit[], targetCommits: GitNaturalCommit[]) {
+function firstCommonNaturalCommit(
+  sourceCommits: GitNaturalCommit[],
+  targetCommits: GitNaturalCommit[],
+) {
   const targetHashes = new Set(targetCommits.map(commit => commit.hash))
   return sourceCommits.find(commit => targetHashes.has(commit.hash))?.hash
 }
 
-function statsFromNaturalChanges(changes: Array<{diffHunks?: Array<{patches?: Array<{type?: string}>}>}>) {
+function statsFromNaturalChanges(
+  changes: Array<{diffHunks?: Array<{patches?: Array<{type?: string}>}>}>,
+) {
   let additions = 0
   let deletions = 0
   for (const change of changes || []) {
@@ -914,7 +934,9 @@ async function fetchRefsUntilOidsAvailable(opts: {
 
         const missingOids = await getMissingOids()
         if (missingOids.length > 0) {
-          throw new Error(`Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`)
+          throw new Error(
+            `Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`,
+          )
         }
 
         return true
@@ -1526,6 +1548,11 @@ const api = {
     return toPlain(result)
   },
 
+  async gitNaturalInvalidateInfoRefs(opts: {urls: string[]}) {
+    const provider = getGitNaturalReadProvider(resolveDefaultCorsProxy())
+    for (const url of opts.urls) provider.invalidateInfoRefs(url)
+  },
+
   async mergePRAndPush(opts: MergePRAndPushOptions) {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "merge-progress")
@@ -1606,23 +1633,8 @@ const api = {
     token?: string
     provider?: string
     blossomMirror?: boolean
-    /** Pre-signed NIP-98 Authorization headers for GRASP authentication (keyed by URL) */
-    authHeaders?: Record<string, string>
-    /** @deprecated Use authHeaders instead */
-    authHeader?: string
   }) {
-    const {
-      repoId,
-      remoteUrl,
-      branch,
-      ref,
-      refs,
-      token,
-      provider,
-      blossomMirror,
-      authHeaders,
-      authHeader,
-    } = opts
+    const {repoId, remoteUrl, branch, ref, refs, token, provider, blossomMirror} = opts
     const {key, dir} = repoKeyAndDir(repoId)
     const targetBranch = branch || "main"
 
@@ -1688,32 +1700,6 @@ const api = {
           return /could not find\s+head/i.test(message)
         }
 
-        const normalizeUrlForAuthMatch = (value: string): string => {
-          try {
-            const parsed = new URL(value)
-            return `${parsed.protocol}//${parsed.host}${parsed.pathname}${parsed.search}`.replace(
-              /\/+$/,
-              "",
-            )
-          } catch {
-            return String(value || "").replace(/\/+$/, "")
-          }
-        }
-
-        const providedAuthHeaders = authHeaders
-          ? Object.fromEntries(
-              Object.entries(authHeaders)
-                .filter(([url, header]) => Boolean(url && header))
-                .map(([url, header]) => [normalizeUrlForAuthMatch(url), header]),
-            )
-          : authHeader
-            ? {[normalizeUrlForAuthMatch(pushUrl)]: authHeader}
-            : null
-
-        const hasProvidedAuthHeaders = Boolean(
-          providedAuthHeaders && Object.keys(providedAuthHeaders).length > 0,
-        )
-
         let lastGraspHttpDiagnostics: Array<{
           url: string
           statusCode?: number
@@ -1758,23 +1744,7 @@ const api = {
           return ` [HTTP trace: ${compact}]`
         }
 
-        const baseGraspHttpClient: any = hasProvidedAuthHeaders
-          ? {
-              async request(request: any): Promise<any> {
-                const reqUrl = normalizeUrlForAuthMatch(String(request?.url || ""))
-                const auth = providedAuthHeaders?.[reqUrl]
-                if (auth) {
-                  request.headers = {
-                    ...(request.headers || {}),
-                    Authorization: auth,
-                  }
-                }
-                return httpWeb.request(request)
-              },
-            }
-          : eventIO
-            ? createNip98HttpClient(httpWeb as any, eventIO)
-            : httpWeb
+        const baseGraspHttpClient: any = httpWeb
 
         const graspHttpClient = {
           async request(request: any): Promise<any> {
@@ -1844,9 +1814,6 @@ const api = {
             http: graspHttpClient,
             force: false,
             corsProxy: null,
-            headers: {
-              "User-Agent": "git/isomorphic-git",
-            },
           })
         }
 
@@ -1984,13 +1951,12 @@ const api = {
           return localTip === remoteTip
         }
 
-        // IMPORTANT: Must set User-Agent starting with "git/" for GRASP servers to accept the request
         console.log("[GRASP] Push params:", {
           dir,
           url: pushUrl,
           refs: refsToPush,
           remote: "origin",
-          authMode: hasProvidedAuthHeaders ? "pre-signed" : eventIO ? "eventio" : "none",
+          authMode: "grasp-state",
         })
 
         const retryDelaysMs = [1200, 3500, 7000]
@@ -2600,7 +2566,9 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
-    const naturalSourceUrls = isForkPR ? filterValidCloneUrls(opts.sourceCloneUrls || []) : targetUrls
+    const naturalSourceUrls = isForkPR
+      ? filterValidCloneUrls(opts.sourceCloneUrls || [])
+      : targetUrls
     let sourceRemote: string | undefined
 
     try {
@@ -2788,7 +2756,11 @@ const api = {
     const initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
     type PRReviewErrorPhase = "source" | "target" | "review"
     let loadingPhase: PRReviewErrorPhase = targetUrls.length > 0 ? "target" : "source"
-    const failure = (error: string, errorPhase: PRReviewErrorPhase, extra: Record<string, any> = {}) =>
+    const failure = (
+      error: string,
+      errorPhase: PRReviewErrorPhase,
+      extra: Record<string, any> = {},
+    ) =>
       toPlain({
         ...extra,
         success: false,
@@ -2843,7 +2815,9 @@ const api = {
       )
 
       const corsProxy = resolveDefaultCorsProxy()
-      let targetCommit: string | undefined = hasProvidedTargetCommit ? opts.targetCommitOid : undefined
+      let targetCommit: string | undefined = hasProvidedTargetCommit
+        ? opts.targetCommitOid
+        : undefined
       let targetFetchError = ""
       let usedTargetCloneUrl: string | undefined
 
@@ -3062,7 +3036,9 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
-    const naturalSourceUrls = isForkPR ? filterValidCloneUrls(opts.sourceCloneUrls || []) : targetUrls
+    const naturalSourceUrls = isForkPR
+      ? filterValidCloneUrls(opts.sourceCloneUrls || [])
+      : targetUrls
     let sourceRemote: string | undefined
 
     try {

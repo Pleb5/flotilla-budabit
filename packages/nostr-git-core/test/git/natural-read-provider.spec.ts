@@ -30,7 +30,10 @@ function encodePktLine(payload: string): string {
   return (payload.length + 4).toString(16).padStart(4, "0") + payload
 }
 
-function computeGitNaturalObjectHash(type: "blob" | "commit" | "tag" | "tree", data: Uint8Array): string {
+function computeGitNaturalObjectHash(
+  type: "blob" | "commit" | "tag" | "tree",
+  data: Uint8Array,
+): string {
   return createHash("sha1").update(`${type} ${data.length}\0`).update(data).digest("hex")
 }
 
@@ -64,7 +67,9 @@ describe("GitNaturalReadProvider", () => {
       resolvedRef: "refs/heads/main",
       commitHash: fixture.tipHash,
     })
-    await expect(provider.resolveRef({url: REMOTE_URL, ref: "refs/heads/main"})).resolves.toMatchObject({
+    await expect(
+      provider.resolveRef({url: REMOTE_URL, ref: "refs/heads/main"}),
+    ).resolves.toMatchObject({
       commitHash: fixture.tipHash,
     })
     await expect(provider.resolveRef({url: REMOTE_URL, ref: "v1.0.0"})).resolves.toMatchObject({
@@ -73,12 +78,27 @@ describe("GitNaturalReadProvider", () => {
       objectHash: fixture.tagHash,
       peeled: true,
     })
-    await expect(provider.resolveRef({url: REMOTE_URL, ref: fixture.tipHash})).resolves.toMatchObject({
+    await expect(
+      provider.resolveRef({url: REMOTE_URL, ref: fixture.tipHash}),
+    ).resolves.toMatchObject({
       commitHash: fixture.tipHash,
     })
     await expect(provider.resolveRef({url: REMOTE_URL, ref: "missing"})).rejects.toMatchObject({
       code: "ref-not-found",
     })
+  })
+
+  it("invalidates mutable advertised refs without clearing immutable objects", async () => {
+    const fixture = createGitFixture()
+    const fetcher = createFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    await provider.listRefs({url: REMOTE_URL})
+    await provider.listRefs({url: REMOTE_URL})
+    provider.invalidateInfoRefs(REMOTE_URL)
+    await provider.listRefs({url: REMOTE_URL})
+
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "GET")).toHaveLength(2)
   })
 
   it("lists directories with blob:none and fetches file content by object hash", async () => {
@@ -134,7 +154,11 @@ describe("GitNaturalReadProvider", () => {
       }),
     })
     const firstFetcher = createFixtureFetcher(fixture)
-    const firstProvider = new GitNaturalReadProvider({enabled: true, fetcher: firstFetcher, cache: firstCache})
+    const firstProvider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher: firstFetcher,
+      cache: firstCache,
+    })
 
     await firstProvider.listDirectory({url: REMOTE_URL, ref: "main"})
     await firstProvider.getFileContent({url: REMOTE_URL, ref: "main", path: "README.md"})
@@ -148,10 +172,18 @@ describe("GitNaturalReadProvider", () => {
       }),
     })
     const secondFetcher = createFixtureFetcher(fixture)
-    const secondProvider = new GitNaturalReadProvider({enabled: true, fetcher: secondFetcher, cache: secondCache})
+    const secondProvider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher: secondFetcher,
+      cache: secondCache,
+    })
 
     const root = await secondProvider.listDirectory({url: REMOTE_URL, ref: "main"})
-    const file = await secondProvider.getFileContent({url: REMOTE_URL, ref: "main", path: "README.md"})
+    const file = await secondProvider.getFileContent({
+      url: REMOTE_URL,
+      ref: "main",
+      path: "README.md",
+    })
 
     expect(root.entries.map(entry => entry.path)).toEqual(["README.md", "src"])
     expect(file.content).toBe("SGVsbG8gbmF0dXJhbAo=")
@@ -218,7 +250,10 @@ describe("GitNaturalReadProvider", () => {
     const provider = new GitNaturalReadProvider({enabled: true, fetcher})
 
     const history = await provider.listCommits({url: REMOTE_URL, ref: "main", depth: 2})
-    expect(history.commits.map(commit => commit.hash)).toEqual([fixture.tipHash, fixture.parentHash])
+    expect(history.commits.map(commit => commit.hash)).toEqual([
+      fixture.tipHash,
+      fixture.parentHash,
+    ])
     expect(history.commits[0].message).toBe("tip commit\n")
     expect(history.source.capability).toBe("filter=tree:0")
 
@@ -321,7 +356,11 @@ function createGitFixture(options: {capabilities?: string[]} = {}) {
     {mode: "40000", name: "src", hash: srcTreeHash},
   ])
   const rootTreeHash = computeGitNaturalObjectHash("tree", rootTreeData)
-  const parentCommitData = commitData({tree: rootTreeHash, message: "parent commit", timestamp: 1_700_000_000})
+  const parentCommitData = commitData({
+    tree: rootTreeHash,
+    message: "parent commit",
+    timestamp: 1_700_000_000,
+  })
   const parentHash = computeGitNaturalObjectHash("commit", parentCommitData)
   const tipCommitData = commitData({
     tree: rootTreeHash,
@@ -331,7 +370,15 @@ function createGitFixture(options: {capabilities?: string[]} = {}) {
   })
   const tipHash = computeGitNaturalObjectHash("commit", tipCommitData)
   const tagData = encoder.encode(
-    [`object ${tipHash}`, "type commit", "tag v1.0.0", "tagger T <t@example.com> 1700000100 +0000", "", "release", ""].join("\n"),
+    [
+      `object ${tipHash}`,
+      "type commit",
+      "tag v1.0.0",
+      "tagger T <t@example.com> 1700000100 +0000",
+      "",
+      "release",
+      "",
+    ].join("\n"),
   )
   const tagHash = computeGitNaturalObjectHash("tag", tagData)
 
@@ -397,7 +444,11 @@ function createDiffFixture() {
     {mode: "40000", name: "src", hash: srcTreeHash},
   ])
   const headRootTreeHash = computeGitNaturalObjectHash("tree", headRootTreeData)
-  const baseCommitData = commitData({tree: baseRootTreeHash, message: "base commit", timestamp: 1_700_000_000})
+  const baseCommitData = commitData({
+    tree: baseRootTreeHash,
+    message: "base commit",
+    timestamp: 1_700_000_000,
+  })
   const baseHash = computeGitNaturalObjectHash("commit", baseCommitData)
   const headCommitData = commitData({
     tree: headRootTreeHash,
@@ -407,7 +458,15 @@ function createDiffFixture() {
   })
   const headHash = computeGitNaturalObjectHash("commit", headCommitData)
   const tagData = encoder.encode(
-    [`object ${headHash}`, "type commit", "tag v1.0.0", "tagger T <t@example.com> 1700000100 +0000", "", "release", ""].join("\n"),
+    [
+      `object ${headHash}`,
+      "type commit",
+      "tag v1.0.0",
+      "tagger T <t@example.com> 1700000100 +0000",
+      "",
+      "release",
+      "",
+    ].join("\n"),
   )
   const tagHash = computeGitNaturalObjectHash("tag", tagData)
 
@@ -462,7 +521,11 @@ function createBinaryDiffFixture() {
   const headRootTreeData = treeData([{mode: "100644", name: "logo.png", hash: newImageHash}])
   const baseRootTreeHash = computeGitNaturalObjectHash("tree", baseRootTreeData)
   const headRootTreeHash = computeGitNaturalObjectHash("tree", headRootTreeData)
-  const baseCommitData = commitData({tree: baseRootTreeHash, message: "base commit", timestamp: 1_700_000_000})
+  const baseCommitData = commitData({
+    tree: baseRootTreeHash,
+    message: "base commit",
+    timestamp: 1_700_000_000,
+  })
   const baseHash = computeGitNaturalObjectHash("commit", baseCommitData)
   const headCommitData = commitData({
     tree: headRootTreeHash,
@@ -472,7 +535,15 @@ function createBinaryDiffFixture() {
   })
   const headHash = computeGitNaturalObjectHash("commit", headCommitData)
   const tagData = encoder.encode(
-    [`object ${headHash}`, "type commit", "tag v1.0.0", "tagger T <t@example.com> 1700000100 +0000", "", "release", ""].join("\n"),
+    [
+      `object ${headHash}`,
+      "type commit",
+      "tag v1.0.0",
+      "tagger T <t@example.com> 1700000100 +0000",
+      "",
+      "release",
+      "",
+    ].join("\n"),
   )
   const tagHash = computeGitNaturalObjectHash("tag", tagData)
 
@@ -571,7 +642,11 @@ function buildAdvertisement(params: {
   tagHash: string
   capabilities: string[]
 }): string {
-  const capabilities = [...params.capabilities, "symref=HEAD:refs/heads/main", "agent=git/2.0"].join(" ")
+  const capabilities = [
+    ...params.capabilities,
+    "symref=HEAD:refs/heads/main",
+    "agent=git/2.0",
+  ].join(" ")
   return [
     encodePktLine("# service=git-upload-pack\n"),
     "0000",
@@ -614,7 +689,9 @@ function treeData(entries: Array<{mode: string; name: string; hash: string}>): U
   )
 }
 
-function packfile(objects: Array<{type: "commit" | "tree" | "blob" | "tag"; data: Uint8Array}>): Uint8Array {
+function packfile(
+  objects: Array<{type: "commit" | "tree" | "blob" | "tag"; data: Uint8Array}>,
+): Uint8Array {
   return concatBytes(
     encoder.encode("PACK"),
     uint32(2),
@@ -652,7 +729,11 @@ function typeCode(type: "commit" | "tree" | "blob" | "tag"): number {
 }
 
 function uploadPackResponse(pack: Uint8Array): Uint8Array {
-  return concatBytes(pktBytes("NAK\n"), pktBytes(concatBytes(new Uint8Array([1]), pack)), encoder.encode("0000"))
+  return concatBytes(
+    pktBytes("NAK\n"),
+    pktBytes(concatBytes(new Uint8Array([1]), pack)),
+    encoder.encode("0000"),
+  )
 }
 
 function pktBytes(payload: string | Uint8Array): Uint8Array {

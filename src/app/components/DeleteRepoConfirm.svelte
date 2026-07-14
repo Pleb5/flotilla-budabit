@@ -9,7 +9,7 @@
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import {chunk} from "@welshman/lib"
-  import {load} from "@welshman/net"
+  import {load, PublishStatus} from "@welshman/net"
   import {repository, pubkey, publishThunk} from "@welshman/app"
   import {
     Address,
@@ -38,6 +38,7 @@
     parseRepoAnnouncementEvent,
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
+  import {fetchRelayInfo} from "@nostr-git/core/api"
   import {detectVendorFromUrl, getGitServiceApiFromUrl, type GitVendor} from "@nostr-git/core/git"
   import {
     tokens as tokensStore,
@@ -46,7 +47,12 @@
     type Token,
   } from "@nostr-git/ui"
   import {getRepoAnnouncementRelays} from "@app/core/git-state"
-  import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses} from "@app/util/repo-delete"
+  import {
+    buildRepoOwnedDeleteFilters,
+    getGraspRepoDeleteTarget,
+    getRepoDeleteAddresses,
+  } from "@app/util/repo-delete"
+  import {publishDelete} from "@app/core/commands"
   import type {Repo} from "@nostr-git/ui"
 
   type Props = {
@@ -80,6 +86,7 @@
     repoPath: string
     supported: boolean
     hasToken: boolean
+    graspRelay?: string
   }
 
   type RemoteDeleteResult = {
@@ -120,7 +127,7 @@
     gitea: "Gitea",
     bitbucket: "Bitbucket",
     grasp: "GRASP",
-    "grasp-rest": "GRASP (REST)",
+    "grasp-rest": "GRASP",
     generic: "Generic",
   }
 
@@ -233,12 +240,22 @@
         }
         continue
       }
-      const supported = !["generic", "grasp"].includes(parsed.vendor)
+      const isGrasp = parsed.vendor === "grasp" || parsed.vendor === "grasp-rest"
+      const graspTarget = isGrasp
+        ? getGraspRepoDeleteTarget({
+            cloneUrl: parsed.url,
+            ownerPubkey: repoEvent.pubkey,
+            identifier: repoName,
+          })
+        : null
+      const supported = isGrasp ? Boolean(graspTarget) : parsed.vendor !== "generic"
       const matchingTokens = getTokensForHost(tokenList, parsed.host)
-      const hasToken = matchingTokens.length > 0
+      const hasToken = !isGrasp && matchingTokens.length > 0
       const vendorLabel = vendorLabels[parsed.vendor] || "Remote"
       const repoPath = `${parsed.owner}/${parsed.repo}`
-      const id = `${parsed.vendor}:${parsed.host}:${repoPath}`
+      const id = graspTarget
+        ? `grasp:${graspTarget.relay}:${repoPath}`
+        : `${parsed.vendor}:${parsed.host}:${repoPath}`
       if (map.has(id)) continue
       map.set(id, {
         id,
@@ -251,6 +268,7 @@
         repoPath,
         supported,
         hasToken,
+        ...(graspTarget ? {graspRelay: graspTarget.relay} : {}),
       })
     }
     return Array.from(map.values())
@@ -258,10 +276,10 @@
 
   const remoteTargets = $derived.by(() => buildRemoteTargets(cloneUrls, tokens))
 
-  const accessLabel = (access: AccessCheck) => {
+  const accessLabel = (access: AccessCheck, target: RemoteTarget) => {
     switch (access.status) {
       case "ready":
-        return "Admin access"
+        return target.graspRelay ? "NIP-09 ready" : "Admin access"
       case "read-only":
         return "Read-only"
       case "no-token":
@@ -299,12 +317,13 @@
     const access = accessChecks[target.id]
     if (access) return access
     if (!tokensLoaded) return {status: "checking"}
+    if (target.graspRelay) return {status: "checking"}
     if (!target.supported) {
       return {
         status: "manual",
         detail:
-          target.vendor === "grasp"
-            ? "Manual deletion only (GRASP)"
+          target.vendor === "grasp" || target.vendor === "grasp-rest"
+            ? "GRASP URL does not match this repository"
             : "Remote deletion unsupported",
       }
     }
@@ -424,6 +443,16 @@
   }
 
   const checkRemoteAccess = async (target: RemoteTarget): Promise<AccessCheck> => {
+    if (target.graspRelay) {
+      const relayInfo = await fetchRelayInfo(target.graspRelay)
+      if (Array.isArray(relayInfo.supported_nips)) {
+        return relayInfo.supported_nips.includes(9)
+          ? {status: "ready", detail: "Repository deletion is advertised", role: "nip09"}
+          : {status: "read-only", detail: "Server does not advertise NIP-09"}
+      }
+      return {status: "unknown", detail: "NIP-09 support could not be verified"}
+    }
+
     const tokensForHost = getTokensForHost(tokens, target.host)
     if (!tokensForHost.length) {
       return {status: "no-token", detail: "No token for this host"}
@@ -489,12 +518,14 @@
     const initial: Record<string, AccessCheck> = {}
 
     for (const target of targets) {
-      if (!target.supported) {
+      if (target.graspRelay) {
+        initial[target.id] = {status: "checking"}
+      } else if (!target.supported) {
         initial[target.id] = {
           status: "manual",
           detail:
-            target.vendor === "grasp"
-              ? "Manual deletion only (GRASP)"
+            target.vendor === "grasp" || target.vendor === "grasp-rest"
+              ? "GRASP URL does not match this repository"
               : "Remote deletion unsupported",
         }
       } else if (!target.hasToken) {
@@ -506,7 +537,9 @@
 
     accessChecks = initial
 
-    const toCheck = targets.filter(target => target.supported && target.hasToken)
+    const toCheck = targets.filter(
+      target => Boolean(target.graspRelay) || (target.supported && target.hasToken),
+    )
 
     await Promise.all(
       toCheck.map(async target => {
@@ -700,17 +733,36 @@
           continue
         }
         try {
-          await tryTokensForHost(tokens, target.host, async token => {
-            const workerManager: any = repoClass.workerManager as any
-            const result = await workerManager.deleteRemoteRepo({
-              remoteUrl: target.url,
-              token,
-            })
-            if (!result?.success) {
-              throw new Error(result?.error || "Remote deletion failed")
+          if (target.graspRelay) {
+            const thunk = publishDelete({
+              event: repoEvent as TrustedEvent,
+              relays: [target.graspRelay],
+            }) as any
+            if (thunk?.complete) await thunk.complete
+            const results = Object.values(thunk?.results || {}) as any[]
+            if (!results.some(result => result?.status === PublishStatus.Success)) {
+              const detail = results
+                .map(result => result?.detail || result?.status)
+                .filter(Boolean)
+                .join("; ")
+              throw new Error(detail || "GRASP relay did not accept the deletion request")
             }
-            return result
-          })
+            await repoClass.workerManager
+              .gitNaturalInvalidateInfoRefs({urls: [target.url]})
+              .catch(() => {})
+          } else {
+            await tryTokensForHost(tokens, target.host, async token => {
+              const workerManager: any = repoClass.workerManager as any
+              const result = await workerManager.deleteRemoteRepo({
+                remoteUrl: target.url,
+                token,
+              })
+              if (!result?.success) {
+                throw new Error(result?.error || "Remote deletion failed")
+              }
+              return result
+            })
+          }
           remoteResults.push({
             id: target.id,
             label: target.label,
@@ -881,8 +933,8 @@
           </div>
         {:else}
           <div class="text-xs text-gray-400">
-            Admin/owner access is required to delete a remote repository. Access checks run before
-            you can confirm deletion.
+            Owner signatures are used for GRASP hosts; admin access is required for traditional Git
+            hosts. Access checks run before you can confirm deletion.
           </div>
           <div class="mt-2 grid gap-2">
             {#each remoteTargets as target}
@@ -898,7 +950,7 @@
                   <div class="flex min-w-0 items-center justify-between gap-3">
                     <span class="min-w-0 truncate" title={target.label}>{target.label}</span>
                     <span class={`${accessTone(access)} shrink-0 whitespace-nowrap`}
-                      >{accessLabel(access)}</span>
+                      >{accessLabel(access, target)}</span>
                   </div>
                   <div class="truncate text-xs text-gray-400" title={target.repoPath}>
                     {target.repoPath}

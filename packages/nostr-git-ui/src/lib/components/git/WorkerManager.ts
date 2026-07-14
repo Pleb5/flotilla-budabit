@@ -542,6 +542,11 @@ export class WorkerManager {
     return this.execute("gitNaturalListRefs", params);
   }
 
+  async gitNaturalInvalidateInfoRefs(params: { urls: string[] }): Promise<void> {
+    await this.initialize();
+    await this.execute("gitNaturalInvalidateInfoRefs", params);
+  }
+
   async gitNaturalResolveRef(params: {
     url: string;
     ref: string;

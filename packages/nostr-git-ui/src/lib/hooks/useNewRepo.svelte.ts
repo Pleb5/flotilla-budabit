@@ -523,8 +523,6 @@ export interface UseNewRepoOptions {
     event: Omit<NostrEvent, "id" | "sig" | "pubkey" | "created_at">
   ) => Promise<unknown>;
   userPubkey?: string; // User's nostr pubkey (required for GRASP repos)
-  /** Callback to create NIP-98 auth header for GRASP push (must be called on main thread) */
-  createAuthHeader?: (url: string, method?: string) => Promise<string | null>;
   /** Fetch events from specific relays for GRASP state visibility checks */
   onFetchRelayEvents?: FetchRelayEvents;
 }
@@ -1239,92 +1237,13 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       // For GRASP, use direct push since we just created the local repo
       console.log("[NEW REPO] Using direct pushToRemote for GRASP");
 
-      const requiresNip98Retry = (result: any): boolean => {
-        const summary = [
-          result?.error,
-          result?.details,
-          result?.code,
-          result?.message,
-          result?.stack,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        return (
-          summary.includes("401") ||
-          summary.includes("403") ||
-          summary.includes("unauthorized") ||
-          summary.includes("forbidden") ||
-          summary.includes("authentication") ||
-          summary.includes("auth required")
-        );
-      };
-
-      const createNip98AuthHeaders = async (): Promise<Record<string, string> | null> => {
-        if (!options.createAuthHeader) return null;
-
-        console.log("[NEW REPO] Creating NIP-98 auth headers for GRASP auth retry");
-
-        // Build the smart HTTP URL (same logic as worker)
-        let smartUrl = pushUrl;
-        try {
-          const u = new URL(pushUrl);
-          let p = u.pathname.startsWith("/git/") ? u.pathname.slice(4) : u.pathname;
-          if (!p.endsWith(".git")) p = p.endsWith("/") ? `${p.slice(0, -1)}.git` : `${p}.git`;
-          smartUrl = `${u.protocol}//${u.host}${p}`;
-        } catch {
-          // pass
-        }
-
-        const infoRefsUrl = `${smartUrl}/info/refs?service=git-receive-pack`;
-        const receivePackUrl = `${smartUrl}/git-receive-pack`;
-
-        console.log("[NEW REPO] Signing auth headers for URLs:", { infoRefsUrl, receivePackUrl });
-
-        const [infoRefsAuth, receivePackAuth] = await Promise.all([
-          options.createAuthHeader(infoRefsUrl, "GET"),
-          options.createAuthHeader(receivePackUrl, "POST"),
-        ]);
-
-        if (!infoRefsAuth || !receivePackAuth) {
-          console.warn("[NEW REPO] Failed to create NIP-98 auth headers", {
-            infoRefsAuth: !!infoRefsAuth,
-            receivePackAuth: !!receivePackAuth,
-          });
-          return null;
-        }
-
-        console.log("[NEW REPO] NIP-98 auth headers created successfully for both URLs");
-        return {
-          [infoRefsUrl]: infoRefsAuth,
-          [receivePackUrl]: receivePackAuth,
-        };
-      };
-
-      // Unauthenticated first (GRASP-01 smart-http), then fallback to NIP-98 only when needed.
-      let directPushResult = await api.pushToRemote({
+      const directPushResult = await api.pushToRemote({
         repoId: canonicalKey || config.name,
         remoteUrl: pushUrl,
         branch: config.defaultBranch,
         token: providerToken,
         provider: config.provider as any,
       });
-
-      if (!directPushResult?.success && requiresNip98Retry(directPushResult)) {
-        const authHeaders = await createNip98AuthHeaders();
-        if (authHeaders) {
-          console.log("[NEW REPO] Retrying GRASP push with NIP-98 headers");
-          directPushResult = await api.pushToRemote({
-            repoId: canonicalKey || config.name,
-            remoteUrl: pushUrl,
-            branch: config.defaultBranch,
-            token: providerToken,
-            provider: config.provider as any,
-            authHeaders,
-          });
-        }
-      }
 
       const pushResult = {
         success: directPushResult?.success || false,

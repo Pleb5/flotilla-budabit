@@ -1323,4 +1323,28 @@ describe("commands", () => {
     expect(del.tags).toEqual(expect.arrayContaining([["k", "1"]]))
     expect(del.tags.some((t: string[]) => t[0] === "e" && t[1] === event.id)).toBe(true)
   })
+
+  it("makeDelete targets a repository announcement by event and coordinate", async () => {
+    const {makeDelete} = await import("./commands")
+    const event = {
+      id: "repo-event",
+      pubkey: "a".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      content: "",
+      tags: [["d", "repo"]],
+      sig: "",
+    } as any
+
+    const del = makeDelete({event})
+
+    expect(del.tags).toEqual(
+      expect.arrayContaining([
+        ["k", "30617"],
+        expect.arrayContaining(["e", event.id]),
+        expect.arrayContaining(["a", `30617:${event.pubkey}:repo`]),
+        ["repo", `30617:${event.pubkey}:repo`],
+      ]),
+    )
+  })
 })

@@ -23,39 +23,6 @@ vi.mock("@welshman/router", () => ({
 }))
 
 describe("event-io", () => {
-  describe("createNip98AuthHeader", () => {
-    it("returns null when no signer available", async () => {
-      signerStore.set(null)
-
-      const {createNip98AuthHeader} = await import("./event-io")
-      const result = await createNip98AuthHeader("https://example.com", "POST")
-
-      expect(result).toBeNull()
-    })
-
-    it("returns Nostr auth header when signer available", async () => {
-      const signedEvent = {
-        id: "evt123",
-        kind: 27235,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [
-          ["u", "https://example.com"],
-          ["method", "POST"],
-        ],
-        content: "",
-        pubkey: "a".repeat(64),
-        sig: "sig",
-      }
-      signerStore.set({sign: vi.fn().mockResolvedValue(signedEvent)})
-
-      const {createNip98AuthHeader} = await import("./event-io")
-      const result = await createNip98AuthHeader("https://example.com", "POST")
-
-      expect(result).toMatch(/^Nostr /)
-      expect(result).toBeTruthy()
-    })
-  })
-
   describe("createEventIO", () => {
     it("getCurrentPubkey returns null when no pubkey", async () => {
       pubkeyStore.set(null)

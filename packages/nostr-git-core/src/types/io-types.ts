@@ -52,7 +52,7 @@ export interface EventIO {
 
   /**
    * Sign an event without publishing it.
-   * Used for NIP-98 HTTP Auth where we need the signed event for the Authorization header.
+   * Used by consumers that need a signed event before choosing how to publish it.
    */
   signEvent?: (event: Omit<NostrEvent, "id" | "pubkey" | "sig">) => Promise<NostrEvent>;
 }

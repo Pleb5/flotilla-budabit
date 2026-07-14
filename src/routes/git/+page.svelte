@@ -120,7 +120,6 @@
   } from "@app/core/community-feeds"
   import {getPublicationTargetingId} from "@app/core/community-targeting"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
-  import {createNip98AuthHeader} from "@app/core/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Star from "@assets/icons/star.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
@@ -3295,7 +3294,6 @@
           getProfile: getProfileForWizard,
           searchProfiles: searchProfilesForWizard,
           searchRelays: searchRelaysForWizard,
-          createAuthHeader: createNip98AuthHeader, // For GRASP NIP-98 authentication
         },
         {fullscreen: true, noEscape: true},
       )

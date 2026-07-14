@@ -11,41 +11,6 @@ import type {EventIO} from "@nostr-git/core/types"
 import {get} from "svelte/store"
 
 /**
- * Create a NIP-98 Authorization header for GRASP authentication.
- * This must be called on the main thread where the signer lives.
- */
-export async function createNip98AuthHeader(
-  url: string,
-  method: string = "POST",
-): Promise<string | null> {
-  try {
-    const currentSigner = get(signer)
-    if (!currentSigner) {
-      console.warn("[NIP-98] No signer available")
-      return null
-    }
-
-    const created_at = Math.floor(Date.now() / 1000)
-    const unsignedEvent = {
-      kind: 27235, // NIP-98 HTTP Auth
-      created_at,
-      tags: [
-        ["u", url],
-        ["method", method.toUpperCase()],
-      ],
-      content: "",
-    }
-
-    const signedEvent = await currentSigner.sign(unsignedEvent)
-    const b64 = btoa(JSON.stringify(signedEvent))
-    return `Nostr ${b64}`
-  } catch (error) {
-    console.error("[NIP-98] Error creating auth header:", error)
-    return null
-  }
-}
-
-/**
  * Create an EventIO instance using Flotilla's Nostr infrastructure.
  *
  * This bridges the gap between @nostr-git/core's EventIO interface

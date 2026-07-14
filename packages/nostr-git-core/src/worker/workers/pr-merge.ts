@@ -27,8 +27,6 @@ export interface MergePRAndPushOptions {
   onProgress?: (step: string, progress: number) => void
   /** Current user's pubkey (hex or npub) - required for GRASP push, not from token store (matches useNewRepo) */
   userPubkey?: string
-  /** Pre-created NIP-98 auth headers for GRASP (keyed by URL). Created on main thread before RPC. */
-  authHeaders?: Record<string, string>
   /**
    * When true, perform the merge but skip the push phase. Returns the merge commit OID so the
    * caller (main thread) can publish the Nostr state event with the new SHA before pushing.
@@ -48,14 +46,13 @@ export interface MergePRAndPushResult {
   pushErrors?: Array<{remote: string; url: string; error: string; code: string; stack: string}>
 }
 
-/** Push to remote via worker's pushToRemote - for GRASP (direct push with authHeaders) */
+/** Push to a GRASP remote after its signed state event has been published. */
 export type PushToRemoteFn = (opts: {
   repoId: string
   remoteUrl: string
   branch: string
   token?: string
   provider?: string
-  authHeaders?: Record<string, string>
 }) => Promise<{success?: boolean; error?: string}>
 
 /** Safe push with preflight checks - for GitHub/GitLab/etc (mirrors useNewRepo) */
@@ -107,7 +104,7 @@ export async function mergePRAndPushUtil(
     }) => Promise<any>
     getAuthCallback: (url: string) => any
     getConfiguredAuthHosts?: () => string[]
-    /** Direct push (for GRASP with authHeaders) - mirrors useNewRepo */
+    /** Direct GRASP push authorized by the previously published state event. */
     pushToRemote: PushToRemoteFn
     /** Safe push with preflight (for GitHub/GitLab/etc) - mirrors useNewRepo */
     safePushToRemote: SafePushToRemoteFn
@@ -358,15 +355,11 @@ export async function mergePRAndPushUtil(
         const provider = inferProviderFromUrl(remote.url)
         const pushUrl = remote.url
 
-        // GRASP: direct push with NIP-98 auth headers (mirrors useNewRepo)
+        // GRASP: direct push after the signed state event authorizes the ref update.
         if (provider === "grasp") {
           if (!userPubkey) {
             throw new Error("GRASP push requires userPubkey (current user's pubkey)")
           }
-
-          // Use pre-created auth headers (from main thread) for GRASP NIP-98
-          // Git push requires auth headers for TWO URLs: info/refs and git-receive-pack
-          const authHeaders = opts.authHeaders
 
           const pushRes = await pushToRemote({
             repoId,
@@ -374,7 +367,6 @@ export async function mergePRAndPushUtil(
             branch: effectiveTargetBranch,
             token: userPubkey,
             provider,
-            authHeaders: authHeaders ?? undefined,
           })
           if (!pushRes?.success) {
             throw new Error(pushRes?.error || "Push to GRASP remote failed")

@@ -10,7 +10,7 @@ import LightningFS from "@isomorphic-git/lightning-fs"
 let singleton: GitProvider | null = null
 
 export interface CreateGitProviderOptions extends Partial<GitConfig> {
-  /** Custom HTTP client (for NIP-98 auth injection) */
+  /** Custom isomorphic-git HTTP client */
   http?: any
   /** Skip singleton caching (for creating isolated providers) */
   skipSingleton?: boolean

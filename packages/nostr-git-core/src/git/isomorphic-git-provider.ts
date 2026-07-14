@@ -1,5 +1,6 @@
 import * as isogit from "isomorphic-git"
 import {GitFetchResult, GitMergeResult, GitProvider} from "./provider.js"
+import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
 
 export class IsomorphicGitProvider implements GitProvider {
   fs: any
@@ -67,7 +68,7 @@ export class IsomorphicGitProvider implements GitProvider {
     // Allow caller to override corsProxy (e.g., set to null for GRASP to disable proxy)
     // Check if corsProxy is explicitly provided in options (even if null/undefined)
     const corsProxy = "corsProxy" in options ? options.corsProxy : this.corsProxy
-    // Allow caller to override http client (e.g., for NIP-98 auth injection)
+    // Allow callers to override the HTTP client for a specific push.
     const http = options.http || this.http
     return isogit.push({...this.withDir(options), fs: this.fs, http, corsProxy})
   }
@@ -176,6 +177,9 @@ export class IsomorphicGitProvider implements GitProvider {
     const corsProxy = this.pickCorsProxy(options)
     return (isogit as any).getRemoteInfo2({
       ...options,
+      ...(isGraspRepoHttpUrl(options.url) && options.protocolVersion === undefined
+        ? {protocolVersion: 1}
+        : {}),
       fs: this.fs,
       http: this.http,
       corsProxy,
@@ -188,6 +192,9 @@ export class IsomorphicGitProvider implements GitProvider {
     const corsProxy = this.pickCorsProxy(options)
     return (isogit as any).listServerRefs({
       ...options,
+      ...(isGraspRepoHttpUrl(options.url) && options.protocolVersion === undefined
+        ? {protocolVersion: 1}
+        : {}),
       fs: this.fs,
       http: this.http,
       corsProxy,

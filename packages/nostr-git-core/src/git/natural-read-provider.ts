@@ -193,9 +193,18 @@ export class GitNaturalReadProvider {
       })
     this.adapter =
       config.adapter ??
-      new GitNaturalApiAdapter({cache: this.cache, fetcher: config.fetcher, corsProxy: config.corsProxy, now: config.now})
+      new GitNaturalApiAdapter({
+        cache: this.cache,
+        fetcher: config.fetcher,
+        corsProxy: config.corsProxy,
+        now: config.now,
+      })
     this.corsProxy = config.corsProxy
     this.now = config.now ?? (() => Date.now())
+  }
+
+  invalidateInfoRefs(url: string): void {
+    this.cache.invalidateInfoRefs(url)
   }
 
   async listRefs(params: {
@@ -270,7 +279,9 @@ export class GitNaturalReadProvider {
     const normalizedPath = normalizePath(params.path)
     const treeHash = this.resolveTreeHashAtPath(batch.objects, rootTreeHash, normalizedPath)
     const tree = this.getObject(batch.objects, treeHash, "tree")
-    const entries = this.parseTreeEntries(tree.data).map(entry => directoryEntryFromTreeEntry(entry, normalizedPath))
+    const entries = this.parseTreeEntries(tree.data).map(entry =>
+      directoryEntryFromTreeEntry(entry, normalizedPath),
+    )
 
     return {
       path: normalizedPath,
@@ -362,7 +373,10 @@ export class GitNaturalReadProvider {
       ? directCommitResolution(params.commitHash, params.ref ?? params.commitHash)
       : this.resolveRefFromInfo(info.infoRefs, params.ref ?? DEFAULT_REF)
 
-    const cached = await this.cache.getHistoryBatchAsync<GitNaturalCommit>(resolved.commitHash, depth)
+    const cached = await this.cache.getHistoryBatchAsync<GitNaturalCommit>(
+      resolved.commitHash,
+      depth,
+    )
     if (cached?.commits?.length) {
       return {
         ref: resolved.resolvedRef,
@@ -381,7 +395,12 @@ export class GitNaturalReadProvider {
       }
     }
 
-    const commits = await this.fetchCommitHistoryBatched(params, info.infoRefs, resolved.commitHash, depth)
+    const commits = await this.fetchCommitHistoryBatched(
+      params,
+      info.infoRefs,
+      resolved.commitHash,
+      depth,
+    )
     if (commits.length === 0) {
       throw new GitNaturalReadError(
         "object-not-found",
@@ -408,7 +427,8 @@ export class GitNaturalReadProvider {
         commitHash: resolved.commitHash,
         capability: "filter=tree:0",
         defaultBranch: getDefaultBranch(info.infoRefs),
-        details: "Commit history was fetched with Git Smart HTTP tree:0 filtering in bounded batches.",
+        details:
+          "Commit history was fetched with Git Smart HTTP tree:0 filtering in bounded batches.",
       }),
     }
   }
@@ -582,7 +602,10 @@ export class GitNaturalReadProvider {
     }
   }
 
-  private resolveRefFromInfo(infoRefs: GitNaturalInfoRefs, requestedRef: string): RefResolutionCore {
+  private resolveRefFromInfo(
+    infoRefs: GitNaturalInfoRefs,
+    requestedRef: string,
+  ): RefResolutionCore {
     const requested = String(requestedRef || DEFAULT_REF).trim() || DEFAULT_REF
     if (/^[a-f0-9]{40}$/i.test(requested)) {
       return {
@@ -594,7 +617,8 @@ export class GitNaturalReadProvider {
 
     if (requested === "HEAD") {
       const headRef = infoRefs.symrefs.HEAD || infoRefs.headRef
-      const headHash = (headRef && infoRefs.refs[headRef]) || infoRefs.refs.HEAD || infoRefs.headCommit
+      const headHash =
+        (headRef && infoRefs.refs[headRef]) || infoRefs.refs.HEAD || infoRefs.headCommit
       if (headHash) {
         return {
           requestedRef: requested,
@@ -738,7 +762,10 @@ export class GitNaturalReadProvider {
     return [batch, batch]
   }
 
-  private getRootTreeHash(objects: Map<string, GitNaturalParsedObject>, commitHash: string): string {
+  private getRootTreeHash(
+    objects: Map<string, GitNaturalParsedObject>,
+    commitHash: string,
+  ): string {
     const commitObject = this.getObject(objects, commitHash, "commit")
     return this.adapter.parseCommit(commitObject.data, commitHash).tree
   }
@@ -873,11 +900,20 @@ export class GitNaturalReadProvider {
     for (const object of objects.values()) {
       if (object.type === "blob") this.cache.putBlob({hash: object.hash, data: object.data})
       else if (object.type === "tree") {
-        this.cache.putTree({hash: object.hash, data: object.data, entries: this.parseTreeEntries(object.data)})
+        this.cache.putTree({
+          hash: object.hash,
+          data: object.data,
+          entries: this.parseTreeEntries(object.data),
+        })
       } else if (object.type === "commit") {
         try {
           const commit = this.adapter.parseCommit(object.data, object.hash)
-          this.cache.putCommit({hash: commit.hash, tree: commit.tree, parents: commit.parents, data: object.data})
+          this.cache.putCommit({
+            hash: commit.hash,
+            tree: commit.tree,
+            parents: commit.parents,
+            data: object.data,
+          })
         } catch {
           this.cache.putCommit({hash: object.hash, data: object.data})
         }
@@ -888,7 +924,9 @@ export class GitNaturalReadProvider {
       this.cache.putRawObjectBatch({
         commitHash,
         filter,
-        objects: new Map(Array.from(objects, ([hash, object]) => [hash, rawObjectFromParsed(object)])),
+        objects: new Map(
+          Array.from(objects, ([hash, object]) => [hash, rawObjectFromParsed(object)]),
+        ),
         fetchedAt: this.now(),
       })
     }
@@ -961,7 +999,10 @@ export class GitNaturalReadProvider {
 }
 
 function infoRefsToServerRefs(infoRefs: GitNaturalInfoRefs): GitNaturalServerRef[] {
-  const refs: GitNaturalServerRef[] = Object.entries(infoRefs.refs).map(([ref, oid]) => ({ref, oid}))
+  const refs: GitNaturalServerRef[] = Object.entries(infoRefs.refs).map(([ref, oid]) => ({
+    ref,
+    oid,
+  }))
   const headRef = infoRefs.symrefs.HEAD || infoRefs.headRef
   if (headRef) {
     const existing = refs.find(ref => ref.ref === "HEAD")
@@ -1071,7 +1112,12 @@ function isGitNaturalBigBatchError(error: unknown): boolean {
 
   while (current && !seen.has(current)) {
     seen.add(current)
-    const asAny = current as {name?: string; message?: string; cause?: unknown; constructor?: {name?: string}}
+    const asAny = current as {
+      name?: string
+      message?: string
+      cause?: unknown
+      constructor?: {name?: string}
+    }
     const name = asAny.name || asAny.constructor?.name || ""
     const message = current instanceof Error ? current.message : String(current)
 
@@ -1096,7 +1142,9 @@ function rawObjectFromParsed(object: GitNaturalParsedObject): GitNaturalRawObjec
   }
 }
 
-function parsedObjectsFromRawObjects(rawObjects: Map<string, GitNaturalRawObject>): Map<string, GitNaturalParsedObject> {
+function parsedObjectsFromRawObjects(
+  rawObjects: Map<string, GitNaturalRawObject>,
+): Map<string, GitNaturalParsedObject> {
   return new Map(
     Array.from(rawObjects, ([hash, object]) => [
       hash,
@@ -1144,7 +1192,9 @@ function objectTypeFromApiTypeCode(typeCode: number): GitNaturalParsedObjectType
 }
 
 function normalizePath(path?: string): string {
-  return String(path || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")
+  return String(path || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
 }
 
 function joinPath(parent: string, name: string): string {
@@ -1157,7 +1207,12 @@ function rawObjectBatchInFlightKey(
   commitHash: string,
   filter: string,
 ): string {
-  return [trimTrailingSlashes(url), corsProxyModeKey(corsProxy), normalizeObjectHash(commitHash), filter].join("\0")
+  return [
+    trimTrailingSlashes(url),
+    corsProxyModeKey(corsProxy),
+    normalizeObjectHash(commitHash),
+    filter,
+  ].join("\0")
 }
 
 function corsProxyModeKey(corsProxy: string | null | undefined): string {
@@ -1166,7 +1221,9 @@ function corsProxyModeKey(corsProxy: string | null | undefined): string {
 }
 
 function trimTrailingSlashes(value: string): string {
-  return String(value || "").trim().replace(/\/+$/, "")
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "")
 }
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -1211,12 +1268,18 @@ function buildDeletedFileDiffHunks(text: string): GitNaturalDiffHunk[] {
   ]
 }
 
-function diffHunksForAddedFile(path: string, data: Uint8Array): {binary?: boolean; diffHunks: GitNaturalDiffHunk[]} {
+function diffHunksForAddedFile(
+  path: string,
+  data: Uint8Array,
+): {binary?: boolean; diffHunks: GitNaturalDiffHunk[]} {
   if (isBinaryFile(path, data)) return {binary: true, diffHunks: []}
   return {diffHunks: buildAddedFileDiffHunks(utf8Decoder.decode(data))}
 }
 
-function diffHunksForDeletedFile(path: string, data: Uint8Array): {binary?: boolean; diffHunks: GitNaturalDiffHunk[]} {
+function diffHunksForDeletedFile(
+  path: string,
+  data: Uint8Array,
+): {binary?: boolean; diffHunks: GitNaturalDiffHunk[]} {
   if (isBinaryFile(path, data)) return {binary: true, diffHunks: []}
   return {diffHunks: buildDeletedFileDiffHunks(utf8Decoder.decode(data))}
 }
@@ -1229,7 +1292,9 @@ function diffHunksForModifiedFile(
   if (isBinaryFile(path, oldData) || isBinaryFile(path, newData)) {
     return {binary: true, diffHunks: []}
   }
-  return {diffHunks: buildModifiedFileDiffHunks(utf8Decoder.decode(oldData), utf8Decoder.decode(newData))}
+  return {
+    diffHunks: buildModifiedFileDiffHunks(utf8Decoder.decode(oldData), utf8Decoder.decode(newData)),
+  }
 }
 
 function isBinaryFile(path: string, data: Uint8Array): boolean {

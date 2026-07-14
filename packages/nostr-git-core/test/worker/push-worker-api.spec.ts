@@ -325,7 +325,7 @@ describe("worker.pushToRemote API", () => {
     expect(pushMock.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
-  it("injects matching pre-signed auth header for GRASP HTTP requests", async () => {
+  it("uses unauthenticated Smart HTTP for GRASP pushes", async () => {
     const infoRefsUrl = `${GRASP_REMOTE_URL}/info/refs?service=git-receive-pack`
     const receivePackUrl = `${GRASP_REMOTE_URL}/git-receive-pack`
 
@@ -346,14 +346,14 @@ describe("worker.pushToRemote API", () => {
       text: async () => "003faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n0000",
     }
 
-    const seenAuth: string[] = []
+    const seenAuth: Array<string | undefined> = []
     pushMock.mockImplementationOnce(async (opts: any) => {
       const firstReq = {url: infoRefsUrl, headers: {} as Record<string, string>}
       const secondReq = {url: receivePackUrl, headers: {} as Record<string, string>}
       await opts.http.request(firstReq)
       await opts.http.request(secondReq)
-      seenAuth.push(firstReq.headers.Authorization || "")
-      seenAuth.push(secondReq.headers.Authorization || "")
+      seenAuth.push(firstReq.headers.Authorization)
+      seenAuth.push(secondReq.headers.Authorization)
       return undefined
     })
 
@@ -369,13 +369,9 @@ describe("worker.pushToRemote API", () => {
       branch: "main",
       token: "deadbeef",
       provider: "grasp",
-      authHeaders: {
-        [infoRefsUrl]: "Nostr info-refs",
-        [receivePackUrl]: "Nostr receive-pack",
-      },
     })
 
     expect(res.success).toBe(true)
-    expect(seenAuth).toEqual(["Nostr info-refs", "Nostr receive-pack"])
+    expect(seenAuth).toEqual([undefined, undefined])
   })
 })

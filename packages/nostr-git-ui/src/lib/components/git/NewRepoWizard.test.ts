@@ -23,7 +23,6 @@ describe('NewRepoWizard Author Props', () => {
     getProfile?: (pubkey: string) => Promise<any>;
     searchProfiles?: (query: string) => Promise<any[]>;
     searchRelays?: (query: string) => Promise<string[]>;
-    createAuthHeader?: (url: string, method?: string) => Promise<string | null>;
   }
 
   // Test the advanced settings state structure

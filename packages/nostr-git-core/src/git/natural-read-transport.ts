@@ -54,7 +54,10 @@ export class GitNaturalReadError extends Error {
   }
 }
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<{
+export type FetchLike = (
+  input: string,
+  init?: RequestInit,
+) => Promise<{
   ok: boolean
   status: number
   statusText?: string
@@ -106,6 +109,24 @@ export function resolveNaturalReadTransport(
   }
 }
 
+export function resolveNaturalReadFallbackTransport(
+  remoteUrl: string,
+  corsProxy: string | null | undefined,
+  primary: GitNaturalTransport,
+): GitNaturalTransport | undefined {
+  if (primary.usesProxy || !corsProxy) return undefined
+
+  const proxy = corsProxy.replace(/\/+$/, "")
+  return {
+    remoteUrl,
+    effectiveUrl: `${proxy}/${remoteUrl.replace(/^https?:\/\//i, "")}`,
+    usesProxy: true,
+    corsProxy: proxy,
+  }
+}
+
 function trimTrailingSlashes(value: string): string {
-  return String(value || "").trim().replace(/\/+$/, "")
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "")
 }

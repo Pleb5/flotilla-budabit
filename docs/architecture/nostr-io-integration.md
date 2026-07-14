@@ -28,7 +28,6 @@ Wraps Budabit's Welshman infrastructure to provide the `EventIO` interface:
 
 ```typescript
 export function createEventIO(): EventIO
-export async function createNip98AuthHeader(url: string, method?: string): Promise<string | null>
 ```
 
 The adapter delegates to:
@@ -38,6 +37,8 @@ The adapter delegates to:
 - `Router` from `@welshman/router` for relay selection
 
 It does not create a separate long-lived Nostr pool. App-level components should continue to use Welshman-owned relay infrastructure.
+
+GRASP Smart HTTP requests are intentionally unauthenticated. Repository state events authorize pushes, so Budabit does not create NIP-98 headers or pass signer-derived credentials into the Git worker.
 
 ### 3. Git Worker Wiring
 
