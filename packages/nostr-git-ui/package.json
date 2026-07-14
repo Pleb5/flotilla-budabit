@@ -90,6 +90,7 @@
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.38.5",
     "@lucide/svelte": "^0.562.0",
+    "@noble/curves": "1.9.7",
     "@nostr-git/core": "workspace:*",
     "@replit/codemirror-lang-svelte": "^6.0.0",
     "@tiptap/core": "^2.26.0",

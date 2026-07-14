@@ -3,6 +3,7 @@ import {describe, expect, it} from "vitest"
 import {
   isGraspRelayUrl,
   isGraspRepoHttpUrl,
+  parseGraspRepoHttpUrl,
   resolveCorsProxyForUrl,
 } from "../../src/utils/grasp-url.js"
 
@@ -14,6 +15,29 @@ describe("grasp-url utilities", () => {
       ),
     ).toBe(true)
     expect(isGraspRepoHttpUrl("https://relay.ngit.dev/owner/repo.git")).toBe(false)
+    expect(isGraspRepoHttpUrl("https://relay.ngit.dev/%E0%A4%A/repo.git")).toBe(false)
+    expect(
+      isGraspRepoHttpUrl(
+        "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git?tenant=a",
+      ),
+    ).toBe(false)
+    expect(
+      isGraspRepoHttpUrl(
+        "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/group%2Frepo.git",
+      ),
+    ).toBe(false)
+  })
+
+  it("decodes identifiers while preserving the canonical GRASP base path", () => {
+    expect(
+      parseGraspRepoHttpUrl(
+        "https://relay.ngit.dev/git/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/my%20repo.git",
+      ),
+    ).toEqual({
+      ownerNpub: "npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw",
+      identifier: "my repo",
+      httpBase: "https://relay.ngit.dev/git",
+    })
   })
 
   it("matches bare GRASP relay origins without treating repo paths as relays", () => {

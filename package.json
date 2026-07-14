@@ -141,6 +141,9 @@
     "tippy.js": "^6.3.7"
   },
   "pnpm": {
+    "patchedDependencies": {
+      "@welshman/net@0.8.16": "patches/@welshman__net@0.8.16.patch"
+    },
     "overrides": {
       "@tiptap/core": "2.27.1",
       "@tiptap/pm": "2.27.1"

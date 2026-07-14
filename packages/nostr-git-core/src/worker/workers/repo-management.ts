@@ -2876,12 +2876,12 @@ export async function updateRemoteRepoMetadata(
 export async function deleteRemoteRepo(
   options: DeleteRemoteRepoOptions,
 ): Promise<DeleteRemoteRepoResult> {
-  const {remoteUrl, token, provider, baseUrl} = options
+  const {remoteUrl, token, provider: providerKind, baseUrl} = options
 
   try {
-    if (provider) {
+    if (providerKind) {
       const parsed = parseRepoUrl(remoteUrl)
-      const api = getGitServiceApi(provider, token, baseUrl)
+      const api = getGitServiceApi(providerKind, token, baseUrl)
       await api.deleteRepo(parsed.owner, parsed.repo)
       return {success: true}
     }
@@ -2890,8 +2890,8 @@ export async function deleteRemoteRepo(
     if (!parsed) {
       throw new Error("Unable to parse repository URL")
     }
-    const {provider, owner, repo} = parsed
-    await provider.deleteRepo(owner, repo, token)
+    const {provider: vendorProvider, owner, repo} = parsed
+    await vendorProvider.deleteRepo(owner, repo, token)
     return {success: true}
   } catch (error: any) {
     return {

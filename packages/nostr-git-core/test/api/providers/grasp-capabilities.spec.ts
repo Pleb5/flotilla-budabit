@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   normalizeWsOrigin,
   normalizeHttpOrigin,
+  normalizeHttpEndpoint,
   deriveHttpOrigins,
   graspCapabilities,
   fetchRelayInfo,
+  fetchRelayInfoResult,
   type RelayInfo
 } from '../../../src/api/providers/grasp-capabilities.js';
 
@@ -28,6 +30,13 @@ describe('grasp-capabilities helpers', () => {
     expect(normalizeHttpOrigin('ws://relay.example.com/anything')).toBe('http://relay.example.com');
     expect(normalizeHttpOrigin('wss://relay.example.com/path')).toBe('https://relay.example.com');
     expect(normalizeHttpOrigin('https://relay.example.com/foo')).toBe('https://relay.example.com');
+  });
+
+  it('normalizeHttpEndpoint preserves the relay path for NIP-11', () => {
+    expect(normalizeHttpEndpoint('wss://relay.example.com/tenant/')).toBe(
+      'https://relay.example.com/tenant'
+    );
+    expect(normalizeHttpEndpoint('ws://relay.example.com/')).toBe('http://relay.example.com');
   });
 
   it('deriveHttpOrigins includes primary origin and /git heuristic without duplicates', () => {
@@ -66,6 +75,16 @@ describe('grasp-capabilities helpers', () => {
     expect(caps.nostrRelays[0]).toBe('wss://relay.example.com');
   });
 
+  it('does not infer GRASP-05 when it is not advertised', () => {
+    expect(graspCapabilities({}, 'wss://relay.example.com').grasp05).toBe(false);
+    expect(
+      graspCapabilities({supported_grasps: ['GRASP-02']}, 'wss://relay.example.com').grasp05
+    ).toBe(false);
+    expect(
+      graspCapabilities({supported_grasps: ['GRASP-05']}, 'wss://relay.example.com').grasp05
+    ).toBe(true);
+  });
+
   it('fetchRelayInfo returns empty object on fetch error and parses on success', async () => {
     globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error('boom')) as any;
     const empty = await fetchRelayInfo('wss://relay.example.com');
@@ -74,5 +93,18 @@ describe('grasp-capabilities helpers', () => {
     globalThis.fetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ name: 'relay', supported_grasps: ['GRASP-01'] }) }) as any;
     const ok = await fetchRelayInfo('wss://relay.example.com');
     expect(ok.name).toBe('relay');
+  });
+
+  it('fetchRelayInfoResult distinguishes transport failure from a capability document', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({ok: false, status: 503}) as any;
+    await expect(fetchRelayInfoResult('wss://relay.example.com/tenant')).resolves.toEqual({
+      ok: false,
+      info: {},
+      error: 'NIP-11 returned HTTP 503'
+    });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://relay.example.com/tenant',
+      expect.objectContaining({headers: {Accept: 'application/nostr+json'}})
+    );
   });
 });

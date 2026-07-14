@@ -24,6 +24,10 @@ export interface RelayInfo {
   smart_http?: string | string[];
 }
 
+export type RelayInfoResult =
+  | { ok: true; info: RelayInfo }
+  | { ok: false; info: RelayInfo; error: string };
+
 export interface GraspCapabilities {
   grasp01: boolean;   // Full GRASP-01 support (state + Smart HTTP)
   grasp05: boolean;   // Archive-only GRASP-05 fallback support
@@ -74,6 +78,20 @@ export function normalizeHttpOrigin(relayUrl: string): string {
   }
 }
 
+export function normalizeHttpEndpoint(relayUrl: string): string {
+  try {
+    const url = new URL(relayUrl);
+    if (url.protocol === "ws:") url.protocol = "http:";
+    else if (url.protocol === "wss:") url.protocol = "https:";
+    url.search = "";
+    url.hash = "";
+    const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+    return `${url.protocol}//${url.host}${path}`;
+  } catch {
+    return normalizeHttpOrigin(relayUrl);
+  }
+}
+
 /**
  * Derive preferred HTTP origins list from NIP-11 relay info or fallback
  * to derived http(s) origin from ws(s) base.
@@ -119,19 +137,29 @@ export function deriveHttpOrigins(relayWsUrl: string, info?: RelayInfo): string[
  * - Provides graceful fallback for non-GRASP relays
  */
 export async function fetchRelayInfo(relayWsUrl: string): Promise<RelayInfo> {
-  const httpUrl = normalizeHttpOrigin(relayWsUrl);
+  return (await fetchRelayInfoResult(relayWsUrl)).info;
+}
+
+export async function fetchRelayInfoResult(relayWsUrl: string): Promise<RelayInfoResult> {
+  const httpUrl = normalizeHttpEndpoint(relayWsUrl);
   try {
     const res = await fetch(httpUrl, {
       headers: { Accept: "application/nostr+json" },
+      signal: AbortSignal.timeout(8_000),
     });
     if (res.ok) {
       const info = (await res.json()) as RelayInfo;
-      return info;
+      return { ok: true, info };
     }
+    return { ok: false, info: {}, error: `NIP-11 returned HTTP ${res.status}` };
   } catch (e) {
     console.warn("fetchRelayInfo: failed to fetch or parse NIP-11", e);
+    return {
+      ok: false,
+      info: {},
+      error: e instanceof Error ? e.message : "NIP-11 request failed",
+    };
   }
-  return {};
 }
 
 /**
@@ -147,8 +175,8 @@ export function graspCapabilities(info: RelayInfo, relayWsUrl: string): GraspCap
     ? info.supported_grasps.includes("GRASP-01")
     : false;
   const grasp05 = Array.isArray(info.supported_grasps)
-    ? info.supported_grasps.includes("GRASP-05") || !grasp01
-    : !grasp01;
+    ? info.supported_grasps.includes("GRASP-05")
+    : false;
   const httpOrigins = deriveHttpOrigins(relayWsUrl, info);
   const nostrRelays = [normalizeWsOrigin(relayWsUrl)];
 

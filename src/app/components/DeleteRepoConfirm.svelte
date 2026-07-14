@@ -1,5 +1,6 @@
 <script lang="ts">
   import {onMount, onDestroy} from "svelte"
+  import {get} from "svelte/store"
   import {preventDefault} from "@lib/html"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
@@ -9,16 +10,9 @@
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import {chunk} from "@welshman/lib"
-  import {load, PublishStatus} from "@welshman/net"
-  import {repository, pubkey, publishThunk} from "@welshman/app"
-  import {
-    Address,
-    DELETE,
-    getAddress,
-    makeEvent,
-    isReplaceable,
-    type TrustedEvent,
-  } from "@welshman/util"
+  import {load, publish, PublishStatus} from "@welshman/net"
+  import {repository, pubkey, signer} from "@welshman/app"
+  import {Address, DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
   import {pushToast} from "@app/util/toast"
   import {clearModals} from "@app/util/modal"
   import {goto} from "$app/navigation"
@@ -38,7 +32,7 @@
     parseRepoAnnouncementEvent,
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
-  import {fetchRelayInfo} from "@nostr-git/core/api"
+  import {fetchRelayInfoResult} from "@nostr-git/core/api"
   import {detectVendorFromUrl, getGitServiceApiFromUrl, type GitVendor} from "@nostr-git/core/git"
   import {
     tokens as tokensStore,
@@ -48,11 +42,14 @@
   } from "@nostr-git/ui"
   import {getRepoAnnouncementRelays} from "@app/core/git-state"
   import {
+    buildGraspRepoDeleteRequest,
+    buildRepoDeleteTags,
     buildRepoOwnedDeleteFilters,
+    canDeleteLocalRepoAfterRemoteResults,
+    getMetadataDeleteRelays,
     getGraspRepoDeleteTarget,
     getRepoDeleteAddresses,
   } from "@app/util/repo-delete"
-  import {publishDelete} from "@app/core/commands"
   import type {Repo} from "@nostr-git/ui"
 
   type Props = {
@@ -93,7 +90,7 @@
     id: string
     label: string
     repoPath: string
-    status: "deleted" | "failed" | "skipped"
+    status: "accepted" | "deleted" | "failed" | "skipped"
     detail?: string
   }
 
@@ -111,9 +108,10 @@
   }
 
   type DeleteSummary = {
-    deleteRequests: number
+    metadataDeliveriesAttempted: number
+    metadataDeliveriesAccepted: number
+    metadataFailures: string[]
     deletedEvents: number
-    tombstonesSent: number
     relays: string[]
     kinds: Array<{label: string; count: number}>
     remotes: RemoteDeleteResult[]
@@ -246,6 +244,7 @@
             cloneUrl: parsed.url,
             ownerPubkey: repoEvent.pubkey,
             identifier: repoName,
+            relayHints: repoRelays,
           })
         : null
       const supported = isGrasp ? Boolean(graspTarget) : parsed.vendor !== "generic"
@@ -281,7 +280,7 @@
       case "ready":
         return target.graspRelay ? "NIP-09 ready" : "Admin access"
       case "read-only":
-        return "Read-only"
+        return target.graspRelay ? "Deletion unavailable" : "Read-only"
       case "no-token":
         return "No token"
       case "manual":
@@ -444,13 +443,20 @@
 
   const checkRemoteAccess = async (target: RemoteTarget): Promise<AccessCheck> => {
     if (target.graspRelay) {
-      const relayInfo = await fetchRelayInfo(target.graspRelay)
-      if (Array.isArray(relayInfo.supported_nips)) {
-        return relayInfo.supported_nips.includes(9)
-          ? {status: "ready", detail: "Repository deletion is advertised", role: "nip09"}
-          : {status: "read-only", detail: "Server does not advertise NIP-09"}
+      const result = await fetchRelayInfoResult(target.graspRelay)
+      if (!result.ok) return {status: "unknown", detail: result.error}
+      const relayInfo = result.info
+      const supportsGrasp01 =
+        Array.isArray(relayInfo.supported_grasps) && relayInfo.supported_grasps.includes("GRASP-01")
+      const supportsNip09 =
+        Array.isArray(relayInfo.supported_nips) && relayInfo.supported_nips.includes(9)
+      if (!supportsGrasp01) {
+        return {status: "read-only", detail: "Server does not advertise GRASP-01"}
       }
-      return {status: "unknown", detail: "NIP-09 support could not be verified"}
+      if (!supportsNip09) {
+        return {status: "read-only", detail: "Server does not advertise NIP-09"}
+      }
+      return {status: "ready", detail: "GRASP-01 repository deletion is advertised", role: "nip09"}
     }
 
     const tokensForHost = getTokensForHost(tokens, target.host)
@@ -599,22 +605,18 @@
   })
 
   const publishDeleteEvent = async (event: any, relays: string[]) => {
-    const thunk = publishThunk({event, relays})
-    if (thunk?.complete) {
-      await thunk.complete
+    const currentSigner = get(signer)
+    if (!currentSigner) throw new Error("No signer available")
+    const signedEvent = await currentSigner.sign(event, {signal: AbortSignal.timeout(30_000)})
+    const results = Object.values(
+      await publish({event: signedEvent, relays, timeout: 10_000}),
+    ) as any[]
+    const accepted = results.filter(result => result?.status === PublishStatus.Success)
+    if (accepted.length > 0) repository.publish(signedEvent)
+    return {
+      accepted,
+      results,
     }
-    return thunk
-  }
-
-  const buildDeleteTags = (events: TrustedEvent[]) => {
-    const tags: string[][] = []
-    for (const event of events) {
-      tags.push(["e", event.id])
-      if (isReplaceable(event)) {
-        tags.push(["a", getAddress(event)])
-      }
-    }
-    return tags
   }
 
   const deleteRepo = async () => {
@@ -626,6 +628,16 @@
       pushToast({theme: "error", message: "Please type the repository name to confirm."})
       return
     }
+    if (preflightPending) {
+      pushToast({theme: "error", message: "Wait for remote access checks to finish."})
+      return
+    }
+
+    const ownerPubkey = $pubkey!
+    const operationTargets = remoteTargets.map(target => ({...target}))
+    const operationSelected = new Set(selectedRemoteIds)
+    const operationAccess = {...accessChecks}
+    const operationTokens = [...tokens]
 
     isDeleting = true
     progress = null
@@ -635,74 +647,69 @@
       const repoAddress = Address.fromEvent(repoEvent).toString()
       const deleteRepoAddresses = getRepoDeleteAddresses(repoAddresses, repoAddress)
       const relays = getRepoAnnouncementRelays(repoRelays)
+      const metadataRelays = getMetadataDeleteRelays({relays, remoteTargets: operationTargets})
       const filters = buildRepoOwnedDeleteFilters({
-        pubkey: $pubkey!,
+        pubkey: ownerPubkey,
         repoName,
         repoAddresses: deleteRepoAddresses,
       })
 
+      let inventoryError = ""
       if (relays.length > 0) {
-        await load({relays, filters}).catch(() => {})
+        await load({relays, filters}).catch(error => {
+          inventoryError = error instanceof Error ? error.message : String(error)
+        })
       }
 
       const events = repository.query(filters, {shouldSort: false}) as TrustedEvent[]
       const byId = new Map<string, TrustedEvent>()
       for (const event of events) {
-        if (event.pubkey !== $pubkey) continue
+        if (event.pubkey !== ownerPubkey) continue
         byId.set(event.id, event)
       }
 
       const eventsToDelete = Array.from(byId.values())
-      const deleteChunks = chunk(300, eventsToDelete)
-      const totalSteps = deleteChunks.length + 2
+      const deleteChunks = metadataRelays.length > 0 ? chunk(300, eventsToDelete) : []
+      const totalSteps = Math.max(deleteChunks.length, 1)
       let completed = 0
 
       progress = {completed, total: totalSteps, label: "Sending delete requests..."}
 
-      let deleteRequests = 0
+      let metadataDeliveriesAttempted = 0
+      let metadataDeliveriesAccepted = 0
+      const metadataFailures: string[] = []
+      if (inventoryError) metadataFailures.push(`Metadata discovery: ${inventoryError}`)
       for (const group of deleteChunks) {
-        const tags = buildDeleteTags(group)
+        const tags = buildRepoDeleteTags(group)
         if (tags.length > 0) {
-          await publishDeleteEvent(makeEvent(DELETE, {tags}), relays)
-          deleteRequests += 1
+          const createdAt = Math.max(
+            Math.floor(Date.now() / 1000),
+            ...group.map(event => event.created_at),
+          )
+          const outcome = await publishDeleteEvent(
+            makeEvent(DELETE, {tags, created_at: createdAt}),
+            metadataRelays,
+          )
+          metadataDeliveriesAttempted += metadataRelays.length
+          metadataDeliveriesAccepted += outcome.accepted.length
+          for (const result of outcome.results) {
+            if (result?.status !== PublishStatus.Success) {
+              metadataFailures.push(
+                `${result?.relay || "unknown relay"}: ${result?.detail || result?.status || "failed"}`,
+              )
+            }
+          }
         }
         completed += 1
         progress = {completed, total: totalSteps, label: "Sending delete requests..."}
       }
 
-      progress = {completed, total: totalSteps, label: "Publishing tombstones..."}
-
-      const tombstoneTags = [
-        ["d", repoName],
-        ["name", repoName],
-        ["deleted", "true"],
-      ]
-      await publishDeleteEvent(
-        makeEvent(GIT_REPO_ANNOUNCEMENT, {tags: tombstoneTags, content: ""}),
-        relays,
-      )
-      completed += 1
-      progress = {completed, total: totalSteps, label: "Publishing tombstones..."}
-
-      await publishDeleteEvent(
-        makeEvent(GIT_REPO_STATE, {
-          tags: [
-            ["d", repoName],
-            ["deleted", "true"],
-          ],
-          content: "",
-        }),
-        relays,
-      )
-      completed += 1
-
       progress = {completed, total: totalSteps, label: "Deleting remote repositories..."}
 
       const remoteResults: RemoteDeleteResult[] = []
-      const selected = new Set(selectedRemoteIds)
-      for (const target of remoteTargets) {
-        const access = getAccessForTarget(target)
-        if (!selected.has(target.id)) {
+      for (const target of operationTargets) {
+        const access = operationAccess[target.id] || {status: "unknown"}
+        if (!operationSelected.has(target.id)) {
           remoteResults.push({
             id: target.id,
             label: target.label,
@@ -733,25 +740,34 @@
           continue
         }
         try {
+          let successStatus: RemoteDeleteResult["status"] = "deleted"
+          let successDetail: string | undefined
           if (target.graspRelay) {
-            const thunk = publishDelete({
-              event: repoEvent as TrustedEvent,
-              relays: [target.graspRelay],
-            }) as any
-            if (thunk?.complete) await thunk.complete
-            const results = Object.values(thunk?.results || {}) as any[]
-            if (!results.some(result => result?.status === PublishStatus.Success)) {
-              const detail = results
+            const request = buildGraspRepoDeleteRequest({
+              event: repoEvent,
+              ownerPubkey,
+            })
+            const outcome = await publishDeleteEvent(
+              makeEvent(DELETE, {tags: request.tags, created_at: request.createdAt}),
+              [target.graspRelay],
+            )
+            const accepted = outcome.accepted[0]
+            if (!accepted) {
+              const detail = outcome.results
                 .map(result => result?.detail || result?.status)
                 .filter(Boolean)
                 .join("; ")
               throw new Error(detail || "GRASP relay did not accept the deletion request")
             }
+            successStatus = "accepted"
+            successDetail = accepted.detail
+              ? `Relay accepted deletion request: ${accepted.detail}`
+              : "Relay accepted deletion request; physical removal was not independently verified"
             await repoClass.workerManager
               .gitNaturalInvalidateInfoRefs({urls: [target.url]})
               .catch(() => {})
           } else {
-            await tryTokensForHost(tokens, target.host, async token => {
+            await tryTokensForHost(operationTokens, target.host, async token => {
               const workerManager: any = repoClass.workerManager as any
               const result = await workerManager.deleteRemoteRepo({
                 remoteUrl: target.url,
@@ -767,7 +783,8 @@
             id: target.id,
             label: target.label,
             repoPath: target.repoPath,
-            status: "deleted",
+            status: successStatus,
+            detail: successDetail,
           })
         } catch (error) {
           remoteResults.push({
@@ -784,18 +801,29 @@
 
       let localDeleted = false
       let localError: string | undefined
-      try {
-        if (repoClass.key) {
-          const localResult = await repoClass.workerManager.deleteRepo({repoId: repoClass.key})
-          localDeleted = !!localResult?.success
-          if (!localDeleted && localResult?.error) {
-            localError = localResult.error
+      const canDeleteLocalRepo = canDeleteLocalRepoAfterRemoteResults({
+        inventoryError,
+        metadataDeliveriesAttempted,
+        metadataDeliveriesAccepted,
+        selectedRemoteIds: operationSelected,
+        remoteResults,
+      })
+      if (!canDeleteLocalRepo) {
+        localError = "Local clone preserved because one or more deletion operations did not succeed"
+      } else {
+        try {
+          if (repoClass.key) {
+            const localResult = await repoClass.workerManager.deleteRepo({repoId: repoClass.key})
+            localDeleted = !!localResult?.success
+            if (!localDeleted && localResult?.error) {
+              localError = localResult.error
+            }
+          } else {
+            localError = "Missing repository id for local cleanup"
           }
-        } else {
-          localError = "Missing repository id for local cleanup"
+        } catch (error) {
+          localError = error instanceof Error ? error.message : String(error)
         }
-      } catch (error) {
-        localError = error instanceof Error ? error.message : String(error)
       }
 
       try {
@@ -822,10 +850,11 @@
         .sort((a, b) => b.count - a.count)
 
       summary = {
-        deleteRequests,
+        metadataDeliveriesAttempted,
+        metadataDeliveriesAccepted,
+        metadataFailures,
         deletedEvents: eventsToDelete.length,
-        tombstonesSent: 2,
-        relays,
+        relays: metadataRelays,
         kinds,
         remotes: remoteResults,
         localDeleted,
@@ -862,10 +891,19 @@
       <div>
         <div class="font-medium">Nostr deletions</div>
         <div class="text-gray-400">
-          {summary.deletedEvents} events targeted, {summary.deleteRequests} delete requests sent
+          {summary.deletedEvents} events targeted, {summary.metadataDeliveriesAccepted} of
+          {summary.metadataDeliveriesAttempted} relay deliveries accepted
         </div>
-        <div class="text-gray-400">Tombstones published: {summary.tombstonesSent}</div>
-        <div class="text-gray-400">Relays: {summary.relays.join(", ") || "none"}</div>
+        <div class="text-gray-400">
+          Metadata relays: {summary.relays.join(", ") || "none"}
+        </div>
+        {#if summary.metadataFailures.length > 0}
+          <div class="mt-1 grid gap-1 text-xs text-red-400">
+            {#each summary.metadataFailures as failure}
+              <div class="truncate" title={failure}>{failure}</div>
+            {/each}
+          </div>
+        {/if}
         {#if summary.kinds.length > 0}
           <div class="mt-2 grid gap-1">
             {#each summary.kinds as item}
@@ -890,6 +928,8 @@
                   >{remote.label} · {remote.repoPath}</span>
                 {#if remote.status === "deleted"}
                   <span class="shrink-0 whitespace-nowrap text-green-400">Deleted</span>
+                {:else if remote.status === "accepted"}
+                  <span class="shrink-0 whitespace-nowrap text-green-400">Request accepted</span>
                 {:else if remote.status === "failed"}
                   <span class="shrink-0 whitespace-nowrap text-red-400">Failed</span>
                 {:else}
@@ -920,8 +960,9 @@
     </div>
   {:else}
     <p class="text-sm text-gray-300">
-      This will delete the repository announcement, state, and related NIP-34 events that you
-      created. It will not delete comments or other second-order events.
+      This removes your repository announcement and related metadata. On selected GRASP hosts, the
+      server may also remove orphaned issues, pull requests, patches, statuses, comments, and other
+      descendants. Events still anchored to another maintainer's announcement may remain.
     </p>
 
     <div class="space-y-3">

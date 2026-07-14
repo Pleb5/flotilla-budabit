@@ -3,6 +3,7 @@ import {nip19} from "nostr-tools"
 export interface ParsedGraspRepoHttpUrl {
   ownerNpub: string
   identifier: string
+  httpBase: string
 }
 
 function parseUrl(rawUrl: string): URL | null {
@@ -31,11 +32,9 @@ export function parseGraspRepoHttpUrl(rawUrl: string): ParsedGraspRepoHttpUrl | 
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return null
   }
+  if (url.search || url.hash) return null
 
-  const segments = url.pathname
-    .split("/")
-    .filter(Boolean)
-    .map(part => decodeURIComponent(part))
+  const segments = url.pathname.split("/").filter(Boolean)
   if (segments.length < 2) return null
 
   const repoSegment = segments[segments.length - 1]
@@ -43,14 +42,32 @@ export function parseGraspRepoHttpUrl(rawUrl: string): ParsedGraspRepoHttpUrl | 
 
   if (!repoSegment.endsWith(".git")) return null
 
-  const identifier = repoSegment.slice(0, -4)
-  if (!identifier) return null
-
   if (!isValidNpub(ownerSegment)) return null
+
+  let identifier: string
+  try {
+    identifier = decodeURIComponent(repoSegment.slice(0, -4))
+  } catch {
+    return null
+  }
+  if (
+    !identifier ||
+    identifier === "." ||
+    identifier === ".." ||
+    identifier.includes("/") ||
+    identifier.includes("\\") ||
+    identifier.includes("\0")
+  ) {
+    return null
+  }
+
+  const prefix = segments.slice(0, -2).join("/")
+  const httpBase = `${url.origin}${prefix ? `/${prefix}` : ""}`
 
   return {
     ownerNpub: ownerSegment,
     identifier,
+    httpBase,
   }
 }
 

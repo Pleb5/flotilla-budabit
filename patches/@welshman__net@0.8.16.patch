@@ -1,0 +1,69 @@
+diff --git a/dist/net/src/message.d.ts b/dist/net/src/message.d.ts
+--- a/dist/net/src/message.d.ts
++++ b/dist/net/src/message.d.ts
+@@ -48,7 +48,7 @@ export type ClientClosePayload = [string];
+ export type ClientEventPayload = [SignedEvent];
+ export type ClientNegClosePayload = [string];
+ export type ClientNegOpenPayload = [string, Filter, string];
+-export type ClientReqPayload = [string, Filter];
++export type ClientReqPayload = [string, ...Filter[]];
+ export type ClientAuth = [ClientMessageType.Auth, ...ClientAuthPayload];
+ export type ClientClose = [ClientMessageType.Close, ...ClientClosePayload];
+ export type ClientEvent = [ClientMessageType.Event, ...ClientEventPayload];
+diff --git a/dist/net/src/request.d.ts b/dist/net/src/request.d.ts
+--- a/dist/net/src/request.d.ts
++++ b/dist/net/src/request.d.ts
+@@ -3,5 +3,6 @@ import { AdapterContext } from "./adapter.js";
+ import { Tracker } from "./tracker.js";
+ export type BaseRequestOptions = {
++    maxFiltersPerSubscription?: number;
+     signal?: AbortSignal;
+     tracker?: Tracker;
+     context?: AdapterContext;
+@@ -31,6 +32,7 @@ export type RequestOptions = BaseRequestOptions & {
+ };
+ export declare const request: (options: RequestOptions) => Promise<TrustedEvent[]>;
+ export type LoaderOptions = {
++    maxFiltersPerSubscription?: number;
+     delay: number;
+     timeout?: number;
+     threshold?: number;
+diff --git a/dist/net/src/request.js b/dist/net/src/request.js
+--- a/dist/net/src/request.js
++++ b/dist/net/src/request.js
+@@ -96,10 +96,18 @@ export const requestOne = (options) => {
+     if (options.autoClose && !options.signal) {
+         setTimeout(close, 30_000);
+     }
+-    for (const filter of options.filters) {
++    const maxFilters = options.maxFiltersPerSubscription ?? 1;
++    if (!Number.isSafeInteger(maxFilters) || maxFilters < 1) {
++        throw new Error("maxFiltersPerSubscription must be a positive safe integer");
++    }
++    if (options.filters.length === 0) {
++        close();
++        return deferred;
++    }
++    for (let index = 0; index < options.filters.length; index += maxFilters) {
+         const id = `REQ-${randomId().slice(0, 8)}`;
+         ids.add(id);
+-        adapter.send([ClientMessageType.Req, id, filter]);
++        adapter.send([ClientMessageType.Req, id, ...options.filters.slice(index, index + maxFilters)]);
+     }
+     return deferred;
+ };
+@@ -196,6 +204,7 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+             tracker,
+             autoClose: true,
+             signal: signalsByRelay.get(relay),
++            maxFiltersPerSubscription: options.maxFiltersPerSubscription,
+             context: options.context,
+             isEventValid: options.isEventValid,
+             isEventDeleted: options.isEventDeleted,
+@@ -221,5 +230,5 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+     });
+     return allRequests.map(r => resultsByRequest.get(r) || []);
+ });
+-export const load = makeLoader({ delay: 200, timeout: 3000, threshold: 0.5 });
++export const load = makeLoader({ delay: 200, timeout: 3000, threshold: 0.5, maxFiltersPerSubscription: 100 });
+ //# sourceMappingURL=request.js.map
