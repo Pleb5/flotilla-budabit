@@ -103,6 +103,23 @@ describe("community publish verification", () => {
     expect(loadEvents).toHaveBeenCalledTimes(2)
   })
 
+  it("uses exact relay readback when the replacement query returns empty", async () => {
+    const event = makeSignedEvent({
+      id: "b".repeat(64),
+      kind: PROFILE_LIST_KIND,
+      created_at: 5,
+      tags: [["d", "General"]],
+    })
+    const loadEvents = makeLoader((_relays, filters) =>
+      filters[0].ids?.includes(event.id) ? [event as TrustedEvent] : [],
+    )
+
+    await expect(
+      verifyCommunityEventReadback({event, relays: [relay], label: "member list", loadEvents}),
+    ).resolves.toEqual(event)
+    expect(loadEvents).toHaveBeenCalledTimes(2)
+  })
+
   it("rejects a readback when the relay still serves a newer replacement", async () => {
     const event = makeSignedEvent({
       id: "b".repeat(64),

@@ -142,7 +142,7 @@ export const verifyCommunityEventReadback = async ({
     const replacementMatches = await loadEvents([relay], [currentFilter], loadOptions).catch(
       () => [] as TrustedEvent[],
     )
-    const current = selectCurrentReplacementEvent(event, replacementMatches)
+    const current = selectCurrentReplacementEvent(event, [exactMatch, ...replacementMatches])
 
     if (current?.id === event.id) return exactMatch
 
