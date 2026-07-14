@@ -1538,7 +1538,7 @@ registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
 })
 
 registerBridgeHandler("ui:toast", (payload, ext) => {
-  if (ext) console.log(`[bridge] ui:toast from ${ext.id}`, payload)
+  // if (ext) console.log(`[bridge] ui:toast from ${ext.id}`, payload)
   try {
     const {message, type = "info"} = payload || {}
     if (message) pushToast({theme: type, message})
@@ -1550,7 +1550,7 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
 })
 
 registerBridgeHandler("ui:navigate", async (payload, ext) => {
-  if (ext) console.log(`[bridge] ui:navigate from ${ext.id}`, payload)
+  // if (ext) console.log(`[bridge] ui:navigate from ${ext.id}`, payload)
   try {
     const path = typeof payload?.path === "string" ? payload.path.trim() : ""
     if (!path || !path.startsWith("/") || path.startsWith("//")) {
@@ -1566,7 +1566,7 @@ registerBridgeHandler("ui:navigate", async (payload, ext) => {
 })
 
 registerBridgeHandler("ui:resize", (payload, ext) => {
-  if (ext) console.log(`[bridge] ui:resize from ${ext.id}`, payload)
+  // if (ext) console.log(`[bridge] ui:resize from ${ext.id}`, payload)
   try {
     const resize = normalizeUiResizePayload(payload)
     if (ext.type === "widget") ext.onResizeRequest?.(resize)
