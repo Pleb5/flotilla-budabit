@@ -60,6 +60,7 @@
     getCommunityFiniteFollowUpRelays,
     getCommunityLiveSubscriptionKey,
     normalizeCommunityLiveValues,
+    registerCommunityLiveOwnership,
   } from "@app/core/community-live"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 
@@ -109,7 +110,10 @@
   let communityLiveFiltersKey = ""
   let communityLiveRetryVersion = $state(0)
   let communityLiveRetryTimer: ReturnType<typeof setTimeout> | null = null
-  const communityLiveSubscriptionsByRelay = new Map<string, AbortController>()
+  const communityLiveSubscriptionsByRelay = new Map<
+    string,
+    {controller: AbortController; releaseOwnership: () => void}
+  >()
   let communityHistoryLoadKey = ""
   let communityHistoryLoadController: AbortController | null = null
   let communityHistoryRetryVersion = $state(0)
@@ -185,8 +189,9 @@
   const stopCommunityLiveSubscription = () => {
     if (communityLiveRetryTimer) clearTimeout(communityLiveRetryTimer)
     communityLiveRetryTimer = null
-    for (const controller of communityLiveSubscriptionsByRelay.values()) {
-      controller.abort()
+    for (const subscription of communityLiveSubscriptionsByRelay.values()) {
+      subscription.controller.abort()
+      subscription.releaseOwnership()
     }
     communityLiveSubscriptionsByRelay.clear()
     communityLiveFiltersKey = ""
@@ -504,9 +509,10 @@
 
     const targetRelays = new Set(relays)
 
-    for (const [url, controller] of communityLiveSubscriptionsByRelay) {
+    for (const [url, subscription] of communityLiveSubscriptionsByRelay) {
       if (!targetRelays.has(url)) {
-        controller.abort()
+        subscription.controller.abort()
+        subscription.releaseOwnership()
         communityLiveSubscriptionsByRelay.delete(url)
       }
     }
@@ -514,8 +520,10 @@
     for (const url of targetRelays) {
       if (communityLiveSubscriptionsByRelay.has(url)) continue
       const controller = new AbortController()
+      const releaseOwnership = registerCommunityLiveOwnership(definition.pubkey, url)
       let failed = false
-      communityLiveSubscriptionsByRelay.set(url, controller)
+      const subscription = {controller, releaseOwnership}
+      communityLiveSubscriptionsByRelay.set(url, subscription)
       request({
         relays: [url],
         filters,
@@ -541,8 +549,9 @@
         })
         .finally(() => {
           if (controller.signal.aborted && !failed) return
-          if (communityLiveSubscriptionsByRelay.get(url) !== controller) return
+          if (communityLiveSubscriptionsByRelay.get(url) !== subscription) return
           communityLiveSubscriptionsByRelay.delete(url)
+          releaseOwnership()
           if (communityLiveRetryTimer) clearTimeout(communityLiveRetryTimer)
           communityLiveRetryTimer = setTimeout(() => {
             communityLiveRetryTimer = null

@@ -25,10 +25,10 @@ const metadataRelay = "wss://metadata.example/"
 const unknownRelay = "wss://unknown.example/"
 
 const defaultRequestPolicy = {
-  maxSubscriptions: 9,
-  maxFiltersPerSubscription: 5,
-  maxLiveSubscriptions: 7,
-  maxBackgroundLiveSubscriptions: 5,
+  maxSubscriptions: 16,
+  maxFiltersPerSubscription: 10,
+  maxLiveSubscriptions: 12,
+  maxBackgroundLiveSubscriptions: 8,
   criticalLivePriority: 200,
   maxMessageBytes: 128 * 1024,
 }
@@ -48,8 +48,17 @@ describe("relay policy", () => {
     expect(getRelayPolicy(publicRelay)).toEqual({
       auth: "none",
       ...defaultRequestPolicy,
+      maxSubscriptions: 28,
+      maxLiveSubscriptions: 24,
+      maxBackgroundLiveSubscriptions: 18,
+      maxLimit: 200,
     })
-    expect(getRelayRequestPolicy(publicRelay)).toEqual(defaultRequestPolicy)
+    expect(getRelayRequestPolicy(publicRelay)).toEqual({
+      ...defaultRequestPolicy,
+      maxSubscriptions: 28,
+      maxLiveSubscriptions: 24,
+      maxBackgroundLiveSubscriptions: 18,
+    })
   })
 
   it("uses the direct Budabit limits for unknown relays", () => {
@@ -103,6 +112,8 @@ describe("relay policy", () => {
     expect(getRelayPolicy(metadataRelay)).toEqual({
       auth: "required",
       ...defaultRequestPolicy,
+      maxSubscriptions: 12,
+      maxLiveSubscriptions: 10,
       maxMessageBytes: 64 * 1024,
       maxLimit: 500,
     })

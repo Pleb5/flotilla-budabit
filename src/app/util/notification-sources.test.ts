@@ -598,6 +598,63 @@ describe("notification sources", () => {
     )
   })
 
+  it("partitions community filters by relay and suppresses only foreground live coverage", async () => {
+    const {groupCommunityNotificationFiltersByRelay} = await import("./notification-sources")
+    const firstCommunity = "3".repeat(64)
+    const secondCommunity = "4".repeat(64)
+    const firstFilter = {kinds: [MESSAGE], "#h": [firstCommunity]}
+    const secondFilter = {kinds: [COMMENT], "#h": [secondCommunity]}
+    const sharedRelay = "wss://shared.example/"
+    const ownership = new Set([`${firstCommunity}\n${sharedRelay}`])
+
+    const groups = groupCommunityNotificationFiltersByRelay(
+      [
+        {
+          communityPubkey: firstCommunity,
+          relays: ["wss://first.example", sharedRelay],
+          filters: [firstFilter],
+        },
+        {
+          communityPubkey: secondCommunity,
+          relays: ["wss://second.example", sharedRelay],
+          filters: [secondFilter],
+        },
+      ],
+      ownership,
+    )
+
+    expect(groups).toEqual([
+      {
+        relay: "wss://first.example/",
+        filters: [firstFilter],
+        liveFilters: [firstFilter],
+      },
+      {
+        relay: "wss://second.example/",
+        filters: [secondFilter],
+        liveFilters: [secondFilter],
+      },
+      {
+        relay: sharedRelay,
+        filters: [firstFilter, secondFilter],
+        liveFilters: [secondFilter],
+      },
+    ])
+
+    expect(
+      groupCommunityNotificationFiltersByRelay(
+        [
+          {
+            communityPubkey: firstCommunity,
+            relays: [sharedRelay],
+            filters: [firstFilter],
+          },
+        ],
+        new Set(),
+      )[0].liveFilters,
+    ).toEqual([firstFilter])
+  })
+
   it("keeps user-specific community access and suppresses generic community rows", async () => {
     const {buildCommunityNotificationRows} = await import("./notification-sources")
     const ref = makeCommunityRef()

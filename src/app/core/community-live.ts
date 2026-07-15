@@ -2,6 +2,8 @@ import {
   DELETE,
   EVENT_DATE,
   EVENT_TIME,
+  isRelayUrl,
+  normalizeRelayUrl,
   THREAD,
   ZAP_GOAL,
   type Filter,
@@ -32,6 +34,7 @@ import {
   makeCommunityReportFilters,
   makeCommunityReportReviewFilters,
 } from "@app/core/community-state"
+import {writable, type Readable} from "svelte/store"
 
 type CommunityLiveFilterInput = {
   definition: CommunityDefinition
@@ -49,6 +52,53 @@ type CommunityFiniteFollowUpFilterInput = {
 
 const COMMUNITY_LIVE_TAG_CHUNK_SIZE = 100
 export const COMMUNITY_HISTORICAL_TARGET_KINDS = [EVENT_DATE, EVENT_TIME, ZAP_GOAL] as const
+
+export type CommunityLiveOwnership = ReadonlySet<string>
+
+const normalizeCommunityLiveRelay = (relay: string) => {
+  try {
+    const normalized = normalizeRelayUrl(relay)
+    return isRelayUrl(normalized) ? normalized : ""
+  } catch {
+    return ""
+  }
+}
+
+export const getCommunityLiveOwnershipKey = (communityPubkey: string, relay: string) => {
+  const normalizedRelay = normalizeCommunityLiveRelay(relay)
+  return communityPubkey && normalizedRelay ? `${communityPubkey}\n${normalizedRelay}` : ""
+}
+
+const communityLiveOwnershipCounts = new Map<string, number>()
+const communityLiveOwnershipState = writable<CommunityLiveOwnership>(new Set())
+
+export const communityLiveOwnership: Readable<CommunityLiveOwnership> = {
+  subscribe: communityLiveOwnershipState.subscribe,
+}
+
+export const isCommunityLiveOwned = (
+  ownership: CommunityLiveOwnership,
+  communityPubkey: string,
+  relay: string,
+) => ownership.has(getCommunityLiveOwnershipKey(communityPubkey, relay))
+
+export const registerCommunityLiveOwnership = (communityPubkey: string, relay: string) => {
+  const key = getCommunityLiveOwnershipKey(communityPubkey, relay)
+  if (!key) return () => undefined
+  communityLiveOwnershipCounts.set(key, (communityLiveOwnershipCounts.get(key) || 0) + 1)
+  communityLiveOwnershipState.set(new Set(communityLiveOwnershipCounts.keys()))
+  let released = false
+
+  return () => {
+    if (released) return
+    released = true
+
+    const count = communityLiveOwnershipCounts.get(key) || 0
+    if (count <= 1) communityLiveOwnershipCounts.delete(key)
+    else communityLiveOwnershipCounts.set(key, count - 1)
+    communityLiveOwnershipState.set(new Set(communityLiveOwnershipCounts.keys()))
+  }
+}
 
 export const normalizeCommunityLiveValues = (values: string[]) =>
   Array.from(new Set(values.filter(Boolean))).sort()

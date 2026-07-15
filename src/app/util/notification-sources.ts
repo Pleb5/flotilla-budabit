@@ -7,8 +7,9 @@ import {
   getValidZap,
   pubkey,
   repository,
+  tracker,
 } from "@welshman/app"
-import {load, request} from "@welshman/net"
+import {request} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {
   Address,
@@ -28,7 +29,9 @@ import {
   getPubkeyTagValues,
   getReplyTags,
   getTagValue,
+  isRelayUrl,
   isReplaceable,
+  normalizeRelayUrl,
   type Filter,
   type TrustedEvent,
 } from "@welshman/util"
@@ -132,6 +135,16 @@ import {
   type NotificationRowType,
 } from "@app/util/notification-display"
 import {ROLE_NS} from "@app/util/labels"
+import {
+  catchUpThenSetBackgroundLive,
+  createBackgroundLiveCoordinator,
+} from "@app/core/background-live"
+import {
+  communityLiveOwnership,
+  isCommunityLiveOwned,
+  type CommunityLiveOwnership,
+} from "@app/core/community-live"
+import {notificationBackgroundEnabled} from "@app/util/notification-background"
 
 export type BuildChatNotificationRowsOptions = {
   chats: Iterable<Chat>
@@ -203,6 +216,18 @@ export type BuildGlobalCommunityNotificationFiltersOptions = {
   limit: number
 }
 
+export type CommunityNotificationFilterSource = {
+  communityPubkey: string
+  relays: string[]
+  filters: Filter[]
+}
+
+export type NotificationRelayFilterGroup = {
+  relay: string
+  filters: Filter[]
+  liveFilters: Filter[]
+}
+
 const COMMUNITY_NOTIFICATION_LOAD_LIMIT = 200
 const ENGAGEMENT_NOTIFICATION_LOAD_LIMIT = 200
 const GIT_STATUS_KINDS = [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_APPLIED, GIT_STATUS_CLOSED]
@@ -231,6 +256,52 @@ const ENGAGEMENT_TARGET_KINDS = new Set([
 ])
 const NOSTR_EVENT_ENTITY_RE = /\b(?:nostr:)?(?:nevent1|naddr1)[0-9a-z]+\b/gi
 const NOSTR_PROFILE_ENTITY_RE = /\b(?:nostr:)?(?:nprofile1|npub1)[0-9a-z]+\b/gi
+
+const normalizeNotificationRelay = (relay: string) => {
+  try {
+    const normalized = normalizeRelayUrl(relay)
+    return isRelayUrl(normalized) ? normalized : ""
+  } catch {
+    return ""
+  }
+}
+
+const getNotificationFilterKey = (filter: Filter) =>
+  JSON.stringify(Object.fromEntries(Object.entries(filter).sort(([a], [b]) => a.localeCompare(b))))
+
+const dedupeNotificationFilters = (filters: Filter[]) =>
+  Array.from(new Map(filters.map(filter => [getNotificationFilterKey(filter), filter])).values())
+
+const getCommunityNotificationRelays = (ref: ActiveUserCommunityRef) =>
+  Array.from(
+    new Set(
+      [...ref.relayHints, ...ref.definition.relays].map(normalizeNotificationRelay).filter(Boolean),
+    ),
+  ).sort()
+
+export const groupCommunityNotificationFiltersByRelay = (
+  sources: CommunityNotificationFilterSource[],
+  foregroundOwnership: CommunityLiveOwnership = new Set(),
+): NotificationRelayFilterGroup[] => {
+  const groupsByRelay = new Map<string, {filters: Filter[]; liveFilters: Filter[]}>()
+
+  for (const source of sources) {
+    for (const relay of source.relays.map(normalizeNotificationRelay).filter(Boolean)) {
+      const group = groupsByRelay.get(relay) || {filters: [], liveFilters: []}
+      group.filters.push(...source.filters)
+      if (!isCommunityLiveOwned(foregroundOwnership, source.communityPubkey, relay)) {
+        group.liveFilters.push(...source.filters)
+      }
+      groupsByRelay.set(relay, group)
+    }
+  }
+
+  return Array.from(groupsByRelay, ([relay, group]) => ({
+    relay,
+    filters: dedupeNotificationFilters(group.filters),
+    liveFilters: dedupeNotificationFilters(group.liveFilters),
+  })).sort((a, b) => a.relay.localeCompare(b.relay))
+}
 
 const getEventPreview = (event: TrustedEvent, plaintext: string | undefined) => {
   if (plaintext?.trim()) return plaintext.trim()
@@ -869,35 +940,49 @@ const getImportantCommunityRootRow = ({
   }
 }
 
-const deriveLoadedNotificationEvents = ({
-  filters,
-  relays,
+const receiveNotificationEvent = (event: TrustedEvent, relay: string) => {
+  if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
+  repository.publish(event)
+}
+
+const notificationLiveCoordinator = createBackgroundLiveCoordinator({
+  request,
+  onEvent: receiveNotificationEvent,
+  onError: (relay, error) => {
+    console.warn(`[notification-sources] Failed to subscribe on ${relay}`, error)
+  },
+})
+
+const deriveLoadedNotificationEventGroups = ({
+  groups,
   label,
 }: {
-  filters: Readable<Filter[]>
-  relays: Readable<string[]>
+  groups: Readable<NotificationRelayFilterGroup[]>
   label: string
 }) =>
   readable<TrustedEvent[]>([], set => {
     let filtersKey = ""
+    let networkKey = ""
     const controllersByRelay = new Map<string, AbortController>()
     let unsubscribeEvents: (() => void) | undefined
+    const liveSource = {}
 
     const stopRelaySubscriptions = () => {
       for (const controller of controllersByRelay.values()) {
         controller.abort()
       }
       controllersByRelay.clear()
+      notificationLiveCoordinator.clear(liveSource)
     }
 
-    const unsubscribe = derived([filters, relays], ([$filters, $relays]) => ({
-      filters: $filters,
-      relays: Array.from(new Set($relays.filter(Boolean))).sort(),
-    })).subscribe(({filters, relays}) => {
-      const nextFiltersKey = JSON.stringify(filters)
+    const unsubscribe = derived([groups, notificationBackgroundEnabled], ([$groups, $enabled]) => ({
+      groups: $groups,
+      enabled: $enabled,
+    })).subscribe(({groups, enabled}) => {
+      const filters = dedupeNotificationFilters(groups.flatMap(group => group.filters))
+      const nextFiltersKey = filters.map(getNotificationFilterKey).sort().join("|")
 
       if (nextFiltersKey !== filtersKey) {
-        stopRelaySubscriptions()
         unsubscribeEvents?.()
         unsubscribeEvents = undefined
         filtersKey = nextFiltersKey
@@ -909,40 +994,37 @@ const deriveLoadedNotificationEvents = ({
         }
       }
 
+      const nextNetworkKey = JSON.stringify({enabled, groups})
+      if (nextNetworkKey === networkKey) return
+      networkKey = nextNetworkKey
+      stopRelaySubscriptions()
+
       if (filters.length === 0) {
-        stopRelaySubscriptions()
         set([])
         return
       }
 
-      const targetRelays = new Set(relays)
+      if (!enabled) return
 
-      for (const [url, controller] of controllersByRelay) {
-        if (!targetRelays.has(url)) {
-          controller.abort()
-          controllersByRelay.delete(url)
-        }
-      }
-
-      const liveFilters = filters.map(filter => ({...filter, limit: 0}))
-      for (const url of targetRelays) {
-        if (controllersByRelay.has(url)) continue
-
+      for (const group of groups) {
+        const url = normalizeNotificationRelay(group.relay)
+        if (!url || group.filters.length === 0) continue
         const controller = new AbortController()
         controllersByRelay.set(url, controller)
-        load({relays: [url], filters, signal: controller.signal}).catch(error => {
-          if (!controller.signal.aborted) {
-            console.warn(`[notification-sources] Failed to load ${label}`, error)
-          }
-        })
-        request({
-          relays: [url],
+        void catchUpThenSetBackgroundLive({
+          request,
+          coordinator: notificationLiveCoordinator,
+          source: liveSource,
+          relay: url,
+          filters: group.filters,
+          liveFilters: group.liveFilters,
           signal: controller.signal,
-          filters: liveFilters,
-        }).catch(error => {
-          if (!controller.signal.aborted) {
-            console.warn(`[notification-sources] Failed to subscribe to ${label}`, error)
-          }
+          onEvent: receiveNotificationEvent,
+          onError: error => {
+            if (!controller.signal.aborted) {
+              console.warn(`[notification-sources] Failed to load ${label}`, error)
+            }
+          },
         })
       }
     })
@@ -952,6 +1034,26 @@ const deriveLoadedNotificationEvents = ({
       unsubscribeEvents?.()
       unsubscribe()
     }
+  })
+
+const deriveLoadedNotificationEvents = ({
+  filters,
+  relays,
+  label,
+}: {
+  filters: Readable<Filter[]>
+  relays: Readable<string[]>
+  label: string
+}) =>
+  deriveLoadedNotificationEventGroups({
+    groups: derived([filters, relays], ([$filters, $relays]) =>
+      Array.from(new Set($relays.map(normalizeNotificationRelay).filter(Boolean))).map(relay => ({
+        relay,
+        filters: $filters,
+        liveFilters: $filters,
+      })),
+    ),
+    label,
   })
 
 export const buildChatNotificationRows = ({
@@ -2521,7 +2623,7 @@ export const buildGlobalCommunityNotificationFilters = ({
   return filters
 }
 
-const globalCommunityNotificationFilters = derived(
+const globalCommunityNotificationSources = derived(
   [
     pubkey,
     activeUserCommunityRefs,
@@ -2542,86 +2644,133 @@ const globalCommunityNotificationFilters = derived(
   ]) => {
     const profileListEvents = [...$memberProfileListEvents, ...$moderatorProfileListEvents]
 
-    return buildGlobalCommunityNotificationFilters({
-      refs: $refs,
-      profileListEvents,
-      currentPubkey: $pubkey || undefined,
-      reportStates: $reportStates,
-      since: $notificationHistorySince,
-      limit: $notificationHistoryFilterLimit,
-    })
+    return $refs.map(ref => ({
+      communityPubkey: ref.communityPubkey,
+      relays: getCommunityNotificationRelays(ref),
+      filters: buildGlobalCommunityNotificationFilters({
+        refs: [ref],
+        profileListEvents,
+        currentPubkey: $pubkey || undefined,
+        reportStates: $reportStates,
+        since: $notificationHistorySince,
+        limit: $notificationHistoryFilterLimit,
+      }),
+    }))
   },
 )
 
-const globalCommunityNotificationRelays = derived(activeUserCommunityRefs, $refs =>
-  Array.from(
-    new Set($refs.flatMap(ref => [...ref.relayHints, ...ref.definition.relays]).filter(Boolean)),
-  ),
+const makeCommunityNotificationGroups = (sources: Readable<CommunityNotificationFilterSource[]>) =>
+  derived([sources, communityLiveOwnership], ([$sources, $ownership]) =>
+    groupCommunityNotificationFiltersByRelay($sources, $ownership),
+  )
+
+const globalCommunityNotificationGroups = makeCommunityNotificationGroups(
+  globalCommunityNotificationSources,
 )
 
-const globalCommunityNotificationEvents = deriveLoadedNotificationEvents({
-  filters: globalCommunityNotificationFilters,
-  relays: globalCommunityNotificationRelays,
+const globalCommunityNotificationEvents = deriveLoadedNotificationEventGroups({
+  groups: globalCommunityNotificationGroups,
   label: "global community notifications",
 })
 
-const globalCommunityAdmissionFormFilters = derived(activeUserCommunityRefs, $refs =>
-  $refs.flatMap(ref => makeCommunityAdmissionFormFilters(ref.definition)),
+const globalCommunityAdmissionFormSources = derived(activeUserCommunityRefs, $refs =>
+  $refs.map(ref => ({
+    communityPubkey: ref.communityPubkey,
+    relays: getCommunityNotificationRelays(ref),
+    filters: makeCommunityAdmissionFormFilters(ref.definition),
+  })),
 )
 
-const globalCommunityAdmissionFormEvents = deriveLoadedNotificationEvents({
-  filters: globalCommunityAdmissionFormFilters,
-  relays: globalCommunityNotificationRelays,
+const globalCommunityAdmissionFormEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityAdmissionFormSources),
   label: "global community admission forms",
 })
 
-const globalCommunityAdmissionResponseFilters = derived(
-  [globalCommunityAdmissionFormEvents, notificationHistorySince, notificationHistoryFilterLimit],
-  ([$events, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
-    const addresses = uniqueStrings($events.map(event => parseAdmissionForm(event)?.address || ""))
-    if (addresses.length === 0) return []
+const globalCommunityAdmissionResponseSources = derived(
+  [
+    activeUserCommunityRefs,
+    globalCommunityAdmissionFormEvents,
+    notificationHistorySince,
+    notificationHistoryFilterLimit,
+  ],
+  ([$refs, $events, $notificationHistorySince, $notificationHistoryFilterLimit]) =>
+    $refs.map(ref => {
+      const addresses = uniqueStrings(
+        $events
+          .map(event => parseAdmissionForm(event))
+          .filter(form => form?.communityPubkey === ref.communityPubkey)
+          .map(form => form?.address || ""),
+      )
 
-    return [
-      {
-        kinds: [FORM_RESPONSE_KIND],
-        "#a": addresses,
-        since: $notificationHistorySince,
-        limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
-      },
-    ]
-  },
+      return {
+        communityPubkey: ref.communityPubkey,
+        relays: getCommunityNotificationRelays(ref),
+        filters: addresses.length
+          ? [
+              {
+                kinds: [FORM_RESPONSE_KIND],
+                "#a": addresses,
+                since: $notificationHistorySince,
+                limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
+              },
+            ]
+          : [],
+      }
+    }),
 )
 
-const globalCommunityAdmissionResponseEvents = deriveLoadedNotificationEvents({
-  filters: globalCommunityAdmissionResponseFilters,
-  relays: globalCommunityNotificationRelays,
+const globalCommunityAdmissionResponseEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityAdmissionResponseSources),
   label: "global community admission responses",
 })
 
-const globalCommunityAdmissionDecisionFilters = derived(
+const globalCommunityAdmissionDecisionSources = derived(
   [
+    activeUserCommunityRefs,
+    globalCommunityAdmissionFormEvents,
     globalCommunityAdmissionResponseEvents,
     notificationHistorySince,
     notificationHistoryFilterLimit,
   ],
-  ([$events, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
-    const responseIds = uniqueStrings($events.map(event => event.id))
-    if (responseIds.length === 0) return []
+  ([$refs, $forms, $events, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
+    const communityByFormAddress = new Map(
+      $forms.flatMap(event => {
+        const form = parseAdmissionForm(event)
+        return form?.communityPubkey ? [[form.address, form.communityPubkey] as const] : []
+      }),
+    )
 
-    return [
-      {
-        kinds: [DELETE, COMMUNITY_FORM_REVIEW_KIND],
-        "#e": responseIds,
-        since: $notificationHistorySince,
-        limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
-      },
-    ]
+    return $refs.map(ref => {
+      const responseIds = uniqueStrings(
+        $events
+          .filter(
+            event =>
+              communityByFormAddress.get(parseAdmissionResponse(event)?.formAddress || "") ===
+              ref.communityPubkey,
+          )
+          .map(event => event.id),
+      )
+
+      return {
+        communityPubkey: ref.communityPubkey,
+        relays: getCommunityNotificationRelays(ref),
+        filters: responseIds.length
+          ? [
+              {
+                kinds: [DELETE, COMMUNITY_FORM_REVIEW_KIND],
+                "#e": responseIds,
+                since: $notificationHistorySince,
+                limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
+              },
+            ]
+          : [],
+      }
+    })
   },
 )
 
-const globalCommunityAdmissionDecisionEvents = deriveLoadedNotificationEvents({
-  filters: globalCommunityAdmissionDecisionFilters,
-  relays: globalCommunityNotificationRelays,
+const globalCommunityAdmissionDecisionEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityAdmissionDecisionSources),
   label: "global community admission decisions",
 })
 
@@ -2651,15 +2800,21 @@ const communityApplicationOutcomeEvents = deriveLoadedNotificationEvents({
   label: "community application outcomes",
 })
 
-const globalCommunityReportReviewFilters = derived(
+const globalCommunityReportReviewSources = derived(
   [activeUserCommunityRefs, communityMemberReportEvents],
   ([$refs, $reportEvents]) =>
-    $refs.flatMap(ref => makeCommunityReportReviewFilters(ref.definition, $reportEvents)),
+    $refs.map(ref => ({
+      communityPubkey: ref.communityPubkey,
+      relays: getCommunityNotificationRelays(ref),
+      filters: makeCommunityReportReviewFilters(
+        ref.definition,
+        $reportEvents.filter(event => eventTargetsCommunity(event, ref.communityPubkey)),
+      ),
+    })),
 )
 
-const globalCommunityReportReviewEvents = deriveLoadedNotificationEvents({
-  filters: globalCommunityReportReviewFilters,
-  relays: globalCommunityNotificationRelays,
+const globalCommunityReportReviewEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityReportReviewSources),
   label: "global community report reviews",
 })
 
@@ -2686,20 +2841,27 @@ const getCommunityNotificationTargetRefs = (event: TrustedEvent) => {
   return []
 }
 
-const globalCommunityNotificationTargetFilters = derived(
-  [globalCommunityNotificationEvents, notificationHistoryFilterLimit],
-  ([$events, $notificationHistoryFilterLimit]) =>
-    getIdFilters(uniqueStrings($events.flatMap(getCommunityNotificationTargetRefs))).map(
-      filter => ({
+const globalCommunityNotificationTargetSources = derived(
+  [activeUserCommunityRefs, globalCommunityNotificationEvents, notificationHistoryFilterLimit],
+  ([$refs, $events, $notificationHistoryFilterLimit]) =>
+    $refs.map(ref => ({
+      communityPubkey: ref.communityPubkey,
+      relays: getCommunityNotificationRelays(ref),
+      filters: getIdFilters(
+        uniqueStrings(
+          $events
+            .filter(event => eventTargetsCommunity(event, ref.communityPubkey))
+            .flatMap(getCommunityNotificationTargetRefs),
+        ),
+      ).map(filter => ({
         ...filter,
         limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, $notificationHistoryFilterLimit),
-      }),
-    ),
+      })),
+    })),
 )
 
-const globalCommunityNotificationTargetEvents = deriveLoadedNotificationEvents({
-  filters: globalCommunityNotificationTargetFilters,
-  relays: globalCommunityNotificationRelays,
+const globalCommunityNotificationTargetEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityNotificationTargetSources),
   label: "global community notification targets",
 })
 

@@ -14,8 +14,9 @@
 - `docs/session-checkpoint.md` is the compact authoritative resume source.
 - Branch `dev` tracks `origin/dev`; each verified phase must be committed and pushed there.
 - Preserve the unrelated modified files under `packages/nostr-git-core/`; never stage or alter them.
-- The public relay hard limit is 10 active IDs, 5 filters per REQ, and 128 KiB per message.
-- Budabit may manage at most 9 IDs on the public relay until diagnostics justify a server/client change.
+- The public relay advertises 30 active IDs, 200 results per filter, and 128 KiB messages; deployment configuration permits 10 filters per REQ.
+- Budabit manages at most 28 IDs on the public relay, including at most 24 live and 18 background-live IDs, leaving recovery and finite capacity.
+- Unknown relays use a more generous 16-ID/10-filter baseline with 12 live and 8 background-live IDs, subject to stricter metadata and runtime evidence.
 - A timeout is incomplete evidence, never authoritative absence.
 - Persistent live work must never consume all finite capacity.
 - Do not partially install a logical live request.
@@ -38,8 +39,8 @@
 ### Exit Criteria
 
 - Scheduler distinguishes finite, critical-live, and background-live work.
-- Public policy directly manages 9 IDs, permits 5 filters per ID, caps all live work at 7 IDs, caps background live at 5 IDs, and leaves at least 2 IDs available to finite work.
-- Unknown-relay defaults no longer use 19 IDs and 1 filter per ID; they start at the direct 9/5 baseline subject to stricter metadata/runtime evidence.
+- Public policy uses direct managed limits and lifetime caps rather than priority reservations.
+- Unknown-relay defaults no longer use 19 IDs and 1 filter per ID; they use bounded multi-filter defaults subject to stricter metadata/runtime evidence.
 - Finite requests may use all free capacity and continue in waves.
 - A live request that exceeds its class budget fails before sending a partial first wave.
 - Existing callers are safely classified from `autoClose`, with explicit lifetime available for migrations.
@@ -337,12 +338,12 @@
 ### Exit Criteria
 
 - Stress coverage proves cold community rooms, threads, calendar events, and goals load while maximum permitted live traffic is active.
-- Public-relay requests remain at or below 9 managed IDs, 7 live IDs, 5 background-live IDs, 5 filters per ID, and 128 KiB.
+- Public-relay requests remain at or below 28 managed IDs, 24 live IDs, 18 background-live IDs, 10 filters per ID, and 128 KiB.
 - Timeout never produces authoritative absence in covered routes.
 - Public relay sends no AUTH; required reads wait for terminal successful authentication.
 - Full main tests, Svelte/type check, e2e type check, build, and whitespace checks pass, or a real blocker is recorded.
 - Live public-relay probe passes when network access is available; otherwise the exact unrun verification is recorded.
-- Architecture documentation records telemetry thresholds and recommends retaining server limit 10 until representative diagnostics justify 15.
+- Architecture documentation records telemetry thresholds for the 30-ID server limit and the 28/24/18 client budget.
 - Generic Welshman changes and Budabit-specific policy boundaries are documented for upstream/fork extraction.
 - Checkpoint says `Current Phase: Complete` with final evidence and residual risks.
 - Final closeout commit is pushed and checkpoint is reread before final response.

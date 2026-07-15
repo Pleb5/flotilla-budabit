@@ -8,6 +8,7 @@ import type {SmartWidgetEvent} from "./types"
 import {
   buildInstalledWidgetUpdateTargets,
   buildInstalledWidgetUpdates,
+  groupInstalledWidgetUpdateTargetsByRelay,
 } from "./widget-update-notifications"
 import {getWidgetLineId} from "./widget-identity"
 
@@ -18,7 +19,8 @@ vi.mock("@welshman/net", () => ({
 
 vi.mock("@welshman/app", () => ({
   pubkey: readable(undefined),
-  repository: {},
+  repository: {publish: vi.fn()},
+  tracker: {hasRelay: vi.fn(() => false), addRelay: vi.fn()},
   signer: readable(undefined),
 }))
 
@@ -128,5 +130,43 @@ describe("widget update notifications", () => {
         }),
       }),
     ])
+  })
+
+  it("groups compatible widget targets by their actual source relay", () => {
+    const first = makeWidget()
+    const second = makeWidget({
+      id: "weather-2",
+      identifier: "forecast",
+      tags: [["d", "forecast"]],
+    })
+    const settings = makeSettings({
+      [getWidgetLineId(first)]: first,
+      [getWidgetLineId(second)]: second,
+    })
+    settings.widgetInstallSources = {
+      [getWidgetLineId(first)]: {relays: ["wss://first.example"]},
+      [getWidgetLineId(second)]: {relays: ["wss://second.example"]},
+    }
+    const targets = buildInstalledWidgetUpdateTargets({
+      settings,
+      fallbackRelays: ["wss://fallback.example"],
+    })
+    const groups = groupInstalledWidgetUpdateTargetsByRelay(targets)
+
+    expect(groups.map(group => group.relay)).toEqual([
+      "wss://fallback.example/",
+      "wss://first.example/",
+      "wss://second.example/",
+    ])
+    expect(groups[0].filters).toEqual([
+      {
+        kinds: [30033],
+        authors: [widgetPubkey],
+        "#d": ["forecast", "weather"],
+        limit: 2,
+      },
+    ])
+    expect(groups[1].filters[0]["#d"]).toEqual(["weather"])
+    expect(groups[2].filters[0]["#d"]).toEqual(["forecast"])
   })
 })

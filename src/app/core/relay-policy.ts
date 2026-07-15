@@ -32,10 +32,10 @@ type RelayProfileWithLimits = RelayProfile & {
 
 const DEFAULT_RELAY_POLICY: RelayPolicy = {
   auth: "optional",
-  maxSubscriptions: 9,
-  maxFiltersPerSubscription: 5,
-  maxLiveSubscriptions: 7,
-  maxBackgroundLiveSubscriptions: 5,
+  maxSubscriptions: 16,
+  maxFiltersPerSubscription: 10,
+  maxLiveSubscriptions: 12,
+  maxBackgroundLiveSubscriptions: 8,
   criticalLivePriority: 200,
   maxMessageBytes: 128 * 1024,
 }
@@ -60,12 +60,15 @@ const RELAY_POLICY_OVERRIDES = new Map<string, Partial<RelayPolicy>>([
     BUDABIT_PUBLIC_RELAY,
     {
       auth: "none",
-      maxSubscriptions: 9,
-      maxFiltersPerSubscription: 5,
-      maxLiveSubscriptions: 7,
-      maxBackgroundLiveSubscriptions: 5,
+      // The relay advertises 30 IDs. Keep two outside Budabit's managed
+      // budget for recovery, diagnostics, and transient reconnect overlap.
+      maxSubscriptions: 28,
+      maxFiltersPerSubscription: 10,
+      maxLiveSubscriptions: 24,
+      maxBackgroundLiveSubscriptions: 18,
       criticalLivePriority: 200,
       maxMessageBytes: 128 * 1024,
+      maxLimit: 200,
     },
   ],
   [BUDABIT_AUTH_RELAY, {auth: "required"}],
@@ -139,7 +142,9 @@ const readRelayPolicy = (url: string): RelayPolicy => {
     ),
     ...(optionalPositiveInteger(profile?.limitation?.max_limit) !== undefined
       ? {maxLimit: optionalPositiveInteger(profile?.limitation?.max_limit)}
-      : {}),
+      : optionalPositiveInteger(override?.maxLimit) !== undefined
+        ? {maxLimit: optionalPositiveInteger(override?.maxLimit)}
+        : {}),
   }
 }
 

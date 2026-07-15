@@ -28,6 +28,7 @@ vi.mock("@welshman/app", () => ({
     getEvent: vi.fn(),
     publish: vi.fn(),
   },
+  tracker: {hasRelay: vi.fn(() => false), addRelay: vi.fn()},
   userRelayList: readable(undefined),
   makeUserData: vi.fn(() => readable(undefined)),
   makeUserLoader: vi.fn(() => vi.fn()),
@@ -450,5 +451,63 @@ describe("repo watch notifications", () => {
     expect(hasGitNotification(new Set([`${repoPath}/issues`]))).toBe(true)
     expect(hasGitNotification(new Set(["/git"]))).toBe(false)
     expect(hasGitNotification(new Set(["/chat/example"]))).toBe(false)
+  })
+
+  it("partitions watcher activity by actual repo relay and foreground ownership", async () => {
+    const {buildRepoWatchActivityRelayGroups} = await import("./repo-watch-notifications")
+    const {getRepoLiveOwnershipKey} = await import("@app/core/repo-live-ownership")
+    const secondAddress = `30617:${maintainer}:second-repo`
+    const sharedRelay = "wss://shared.example/"
+    const targets = [
+      {
+        address: repoAddress,
+        relays: ["wss://first.example", sharedRelay],
+        since: 10,
+        limit: 200,
+      },
+      {
+        address: secondAddress,
+        relays: ["wss://second.example", sharedRelay],
+        since: 10,
+        limit: 200,
+      },
+    ]
+    const groups = buildRepoWatchActivityRelayGroups(
+      targets,
+      new Set([getRepoLiveOwnershipKey(repoAddress, sharedRelay)]),
+    )
+
+    expect(groups.map(group => group.relay)).toEqual([
+      "wss://first.example/",
+      "wss://second.example/",
+      sharedRelay,
+    ])
+    expect(groups[0].filters[0]["#a"]).toEqual([repoAddress])
+    expect(groups[1].filters[0]["#a"]).toEqual([secondAddress])
+    expect(groups[2].filters[0]["#a"]).toEqual([repoAddress, secondAddress])
+    expect(groups[2].liveFilters[0]["#a"]).toEqual([secondAddress])
+
+    const restored = buildRepoWatchActivityRelayGroups(targets)
+    expect(restored[2].liveFilters[0]["#a"]).toEqual([repoAddress, secondAddress])
+  })
+
+  it("chunks root-scoped watcher filters into one bounded relay group", async () => {
+    const {buildRepoWatchRootRelayGroups} = await import("./repo-watch-notifications")
+    const rootIds = Array.from({length: 201}, (_, index) => `root-${index}`)
+    const [group] = buildRepoWatchRootRelayGroups([
+      {
+        address: repoAddress,
+        relays: ["wss://repo.example"],
+        since: 10,
+        limit: 200,
+        rootIds,
+      },
+    ])
+
+    expect(group.relay).toBe("wss://repo.example/")
+    expect(group.filters).toHaveLength(15)
+    expect(
+      group.filters.filter(filter => filter["#E"]).map(filter => filter["#E"]?.length),
+    ).toEqual([100, 100, 1])
   })
 })

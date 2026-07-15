@@ -1,9 +1,14 @@
 import {derived, readable, type Readable} from "svelte/store"
-import {load, request} from "@welshman/net"
-import {repository} from "@welshman/app"
+import {request} from "@welshman/net"
+import {repository, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-import type {Filter, TrustedEvent} from "@welshman/util"
+import {isRelayUrl, normalizeRelayUrl, type Filter, type TrustedEvent} from "@welshman/util"
 import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
+import {
+  catchUpThenSetBackgroundLive,
+  createBackgroundLiveCoordinator,
+} from "@app/core/background-live"
+import {notificationBackgroundEnabled} from "@app/util/notification-background"
 import {parseSmartWidget} from "./registry"
 import {
   defaultExtensionWidgets,
@@ -30,7 +35,13 @@ export type InstalledWidgetUpdate = WidgetUpdate & {
   id: string
 }
 
+export type WidgetUpdateRelayGroup = {
+  relay: string
+  filters: Filter[]
+}
+
 const fallbackWidgetUpdateRelays = Array.from(new Set([...SMART_WIDGET_RELAYS, ...INDEXER_RELAYS]))
+const WIDGET_UPDATE_FILTER_CHUNK_SIZE = 100
 
 const getCacheFilter = (filter: Filter): Filter => {
   const {limit: _limit, ...rest} = filter
@@ -47,6 +58,80 @@ const getTargetKey = (targets: InstalledWidgetUpdateTarget[]) =>
       relays: target.relays,
     })),
   )
+
+const normalizeWidgetUpdateRelay = (relay: string) => {
+  try {
+    const normalized = normalizeRelayUrl(relay)
+    return isRelayUrl(normalized) ? normalized : ""
+  } catch {
+    return ""
+  }
+}
+
+const chunkBySize = <T>(items: T[], size: number) => {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size)
+    chunks.push(items.slice(index, index + size))
+  return chunks
+}
+
+const getCompatibleWidgetFilterKey = (filter: Filter) => {
+  const {authors: _authors, "#d": _identifiers, limit: _limit, ...compatible} = filter
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(compatible).sort(([a], [b]) => a.localeCompare(b))),
+  )
+}
+
+const groupCompatibleWidgetFilters = (filters: Filter[]) => {
+  const filtersByCompatibility = new Map<string, Filter[]>()
+  const standalone: Filter[] = []
+
+  for (const filter of filters) {
+    if (!filter.authors?.length || !filter["#d"]?.length) {
+      standalone.push(filter)
+      continue
+    }
+
+    const key = getCompatibleWidgetFilterKey(filter)
+    const compatible = filtersByCompatibility.get(key) || []
+    compatible.push(filter)
+    filtersByCompatibility.set(key, compatible)
+  }
+
+  const grouped = [...standalone]
+  for (const filters of filtersByCompatibility.values()) {
+    for (const chunk of chunkBySize(filters, WIDGET_UPDATE_FILTER_CHUNK_SIZE)) {
+      const {authors: _authors, "#d": _identifiers, limit: _limit, ...base} = chunk[0]
+      grouped.push({
+        ...base,
+        authors: Array.from(new Set(chunk.flatMap(filter => filter.authors || []))).sort(),
+        "#d": Array.from(new Set(chunk.flatMap(filter => filter["#d"] || []))).sort(),
+        limit: chunk.length,
+      })
+    }
+  }
+
+  return grouped
+}
+
+export const groupInstalledWidgetUpdateTargetsByRelay = (
+  targets: InstalledWidgetUpdateTarget[],
+): WidgetUpdateRelayGroup[] => {
+  const filtersByRelay = new Map<string, Filter[]>()
+
+  for (const target of targets) {
+    for (const relay of target.relays.map(normalizeWidgetUpdateRelay).filter(Boolean)) {
+      const filters = filtersByRelay.get(relay) || []
+      filters.push(target.filter)
+      filtersByRelay.set(relay, filters)
+    }
+  }
+
+  return Array.from(filtersByRelay, ([relay, filters]) => ({
+    relay,
+    filters: groupCompatibleWidgetFilters(filters),
+  })).sort((a, b) => a.relay.localeCompare(b.relay))
+}
 
 export const buildInstalledWidgetUpdateTargets = ({
   settings,
@@ -112,57 +197,84 @@ export const installedWidgetUpdateTargets = derived(
     }),
 )
 
+const receiveWidgetUpdateEvent = (event: TrustedEvent, relay: string) => {
+  if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
+  repository.publish(event)
+}
+
+const widgetUpdateLiveCoordinator = createBackgroundLiveCoordinator({
+  request,
+  onEvent: receiveWidgetUpdateEvent,
+  onError: (relay, error) => {
+    console.warn(`[widget-update-notifications] Failed to subscribe on ${relay}`, error)
+  },
+})
+
 const widgetUpdateEvents: Readable<TrustedEvent[]> = readable<TrustedEvent[]>([], set => {
-  let previousKey = ""
-  let controller: AbortController | undefined
+  let previousTargetsKey = ""
+  let previousNetworkKey = ""
+  const controllersByRelay = new Map<string, AbortController>()
   let unsubscribeEvents: (() => void) | undefined
+  const liveSource = {}
 
-  const unsubscribeTargets = installedWidgetUpdateTargets.subscribe(targets => {
-    const key = getTargetKey(targets)
-    if (key === previousKey) return
-    previousKey = key
+  const stopNetwork = () => {
+    for (const controller of controllersByRelay.values()) controller.abort()
+    controllersByRelay.clear()
+    widgetUpdateLiveCoordinator.clear(liveSource)
+  }
 
-    controller?.abort()
-    unsubscribeEvents?.()
-    controller = undefined
-    unsubscribeEvents = undefined
+  const unsubscribeTargets = derived(
+    [installedWidgetUpdateTargets, notificationBackgroundEnabled],
+    ([$targets, $enabled]) => ({targets: $targets, enabled: $enabled}),
+  ).subscribe(({targets, enabled}) => {
+    const targetsKey = getTargetKey(targets)
+    if (targetsKey !== previousTargetsKey) {
+      previousTargetsKey = targetsKey
+      unsubscribeEvents?.()
+      unsubscribeEvents = undefined
 
-    if (targets.length === 0) {
-      set([])
-      return
+      const cacheFilters = targets.map(target => getCacheFilter(target.filter))
+      if (cacheFilters.length > 0) {
+        unsubscribeEvents = deriveEventsAsc(
+          deriveEventsById({repository, filters: cacheFilters}),
+        ).subscribe(events => set(events as TrustedEvent[]))
+      } else {
+        set([])
+      }
     }
 
-    const relays = Array.from(new Set(targets.flatMap(target => target.relays).filter(Boolean)))
-    const filters = targets.map(target => target.filter)
-    const cacheFilters = filters.map(getCacheFilter)
+    const groups = groupInstalledWidgetUpdateTargetsByRelay(targets)
+    const networkKey = JSON.stringify({enabled, groups})
+    if (networkKey === previousNetworkKey) return
+    previousNetworkKey = networkKey
+    stopNetwork()
 
-    unsubscribeEvents = deriveEventsAsc(
-      deriveEventsById({repository, filters: cacheFilters}),
-    ).subscribe(events => set(events as TrustedEvent[]))
+    if (!enabled) return
 
-    if (relays.length === 0) return
+    for (const group of groups) {
+      const controller = new AbortController()
+      controllersByRelay.set(group.relay, controller)
 
-    const nextController = new AbortController()
-    controller = nextController
-
-    load({relays, filters, signal: nextController.signal}).catch(error => {
-      if (!nextController.signal.aborted) {
-        console.warn("[widget-update-notifications] Failed to load widget updates", error)
-      }
-    })
-    request({
-      relays,
-      filters: filters.map(filter => ({...filter, limit: 0})),
-      signal: nextController.signal,
-    }).catch(error => {
-      if (!nextController.signal.aborted) {
-        console.warn("[widget-update-notifications] Failed to subscribe to widget updates", error)
-      }
-    })
+      void catchUpThenSetBackgroundLive({
+        request,
+        coordinator: widgetUpdateLiveCoordinator,
+        source: liveSource,
+        relay: group.relay,
+        filters: group.filters,
+        liveFilters: group.filters,
+        signal: controller.signal,
+        onEvent: receiveWidgetUpdateEvent,
+        onError: error => {
+          if (!controller.signal.aborted) {
+            console.warn("[widget-update-notifications] Failed to load widget updates", error)
+          }
+        },
+      })
+    }
   })
 
   return () => {
-    controller?.abort()
+    stopNetwork()
     unsubscribeEvents?.()
     unsubscribeTargets()
   }

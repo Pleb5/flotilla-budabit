@@ -66,6 +66,7 @@
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
   import {setupWidgetUpdateNotifications} from "@app/extensions/widget-update-notifications"
+  import {setNotificationBackgroundEnabled} from "@app/util/notification-background"
   import {initializeCashuWallet} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
   import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
@@ -222,6 +223,7 @@
 
     clearNotificationStartupTimer()
     notificationBackgroundStarted = true
+    setNotificationBackgroundEnabled(true)
     notificationBackgroundUnsubscribers = [
       setupBudabitNotifications(),
       setupRepoWatchNotifications(),
@@ -232,6 +234,7 @@
 
   const stopNotificationBackground = () => {
     clearNotificationStartupTimer()
+    setNotificationBackgroundEnabled(false)
     notificationBackgroundUnsubscribers.forEach(call)
     notificationBackgroundUnsubscribers = []
     notificationBackgroundStarted = false

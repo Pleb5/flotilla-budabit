@@ -97,6 +97,7 @@
   import {derived, get as getStore, readable, writable, type Readable} from "svelte/store"
   import {
     repository,
+    tracker,
     pubkey,
     profilesByPubkey,
     profileSearch,
@@ -193,6 +194,8 @@
   } from "@app/util/repo-stars"
   import {randomId} from "@welshman/lib"
   import {makeCommunityInputValue} from "@app/util/community-stars"
+  import {registerRepoLiveOwnership} from "@app/core/repo-live-ownership"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
 
   const {id} = $page.params
@@ -2179,12 +2182,16 @@
   // `repoLiveSubscriptionFiltersKey` still forces a full restart when the
   // filters themselves change (addresses/root ids/viewer differ).
   let repoLiveSubscriptionFiltersKey = ""
-  const repoLiveSubscriptionsByRelay = new Map<string, AbortController>()
+  const repoLiveSubscriptionsByRelay = new Map<
+    string,
+    {controller: AbortController; releaseOwnership: () => void}
+  >()
   let viewerScopedLoadKey = ""
 
   const stopRepoLiveSubscription = () => {
-    for (const controller of repoLiveSubscriptionsByRelay.values()) {
-      controller.abort()
+    for (const subscription of repoLiveSubscriptionsByRelay.values()) {
+      subscription.controller.abort()
+      subscription.releaseOwnership()
     }
     repoLiveSubscriptionsByRelay.clear()
     repoLiveSubscriptionFiltersKey = ""
@@ -2672,9 +2679,10 @@
     const targetRelays = new Set(relays)
 
     // Remove relays that dropped off the target list.
-    for (const [url, controller] of repoLiveSubscriptionsByRelay) {
+    for (const [url, subscription] of repoLiveSubscriptionsByRelay) {
       if (!targetRelays.has(url)) {
-        controller.abort()
+        subscription.controller.abort()
+        subscription.releaseOwnership()
         repoLiveSubscriptionsByRelay.delete(url)
       }
     }
@@ -2683,16 +2691,35 @@
     for (const url of targetRelays) {
       if (repoLiveSubscriptionsByRelay.has(url)) continue
       const controller = new AbortController()
-      repoLiveSubscriptionsByRelay.set(url, controller)
-      request({
+      const releases = addresses.map(address => registerRepoLiveOwnership(address, url))
+      const releaseOwnership = () => releases.forEach(release => release())
+      const subscription = {controller, releaseOwnership}
+      repoLiveSubscriptionsByRelay.set(url, subscription)
+      void request({
         relays: [url],
         signal: controller.signal,
         filters,
-      }).catch(error => {
-        if (!controller.signal.aborted) {
-          console.warn("[repo-live] Failed to subscribe to repo activity", error)
-        }
+        lifetime: "live",
+        priority: RELAY_REQUEST_PRIORITY.live,
+        onEvent: (event, relay) => {
+          repository.publish(event)
+          if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
+        },
+        onDuplicate: (event, relay) => {
+          repository.publish(event)
+          if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
+        },
       })
+        .catch(error => {
+          if (!controller.signal.aborted) {
+            console.warn("[repo-live] Failed to subscribe to repo activity", error)
+          }
+        })
+        .finally(() => {
+          if (repoLiveSubscriptionsByRelay.get(url) !== subscription) return
+          repoLiveSubscriptionsByRelay.delete(url)
+          releaseOwnership()
+        })
     }
   })
 

@@ -1,6 +1,6 @@
 import {derived, readable, type Readable} from "svelte/store"
-import {request, load} from "@welshman/net"
-import {pubkey, repository} from "@welshman/app"
+import {request} from "@welshman/net"
+import {pubkey, repository, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {now} from "@welshman/lib"
 import {
@@ -57,6 +57,16 @@ import {
 } from "@app/util/notification-history"
 import {makeGitPath} from "@app/util/routes"
 import {ROLE_NS} from "@app/util/labels"
+import {
+  catchUpThenSetBackgroundLive,
+  createBackgroundLiveCoordinator,
+} from "@app/core/background-live"
+import {
+  isRepoLiveOwned,
+  repoLiveOwnership,
+  type RepoLiveOwnership,
+} from "@app/core/repo-live-ownership"
+import {notificationBackgroundEnabled} from "@app/util/notification-background"
 
 type RepoWatchAddressRef = {
   address: string
@@ -91,6 +101,20 @@ export type RepoWatchNotificationInput = {
   comments?: TrustedEvent[]
   labels?: TrustedEvent[]
   currentPubkey?: string
+}
+
+export type RepoWatchActivityRelayTarget = {
+  address: string
+  relays: string[]
+  since: number
+  limit: number
+  rootIds?: string[]
+}
+
+export type RepoWatchRelayFilterGroup = {
+  relay: string
+  filters: Filter[]
+  liveFilters: Filter[]
 }
 
 type RepoWatchCandidateSection = "issues" | "prs"
@@ -222,6 +246,119 @@ const getFilterKey = (filters: Filter[]) =>
     .map(filter => JSON.stringify(filter))
     .sort()
     .join("|")
+
+const dedupeFilters = (filters: Filter[]) =>
+  Array.from(new Map(filters.map(filter => [getFilterKey([filter]), filter] as const)).values())
+
+const getRepoEventRelays = (repo: RepoWatchNotificationRepo) => {
+  if (!repo.repoEvent) return []
+
+  try {
+    return normalizeRelays(
+      parseRepoAnnouncementEvent(repo.repoEvent as RepoAnnouncementEvent).relays || [],
+    )
+  } catch {
+    return []
+  }
+}
+
+const buildAddressFilters = (targets: RepoWatchActivityRelayTarget[]) => {
+  const filters: Filter[] = []
+  const addressesByBoundary = new Map<string, {since: number; limit: number; addresses: string[]}>()
+
+  for (const target of targets) {
+    const key = `${target.since}:${target.limit}`
+    const boundary = addressesByBoundary.get(key) || {
+      since: target.since,
+      limit: target.limit,
+      addresses: [],
+    }
+    boundary.addresses.push(target.address)
+    addressesByBoundary.set(key, boundary)
+  }
+
+  for (const boundary of addressesByBoundary.values()) {
+    const addresses = Array.from(new Set(boundary.addresses.filter(Boolean))).sort()
+    for (const addressChunk of chunkBySize(addresses, REPO_ACTIVITY_FILTER_CHUNK_SIZE)) {
+      filters.push({
+        kinds: repoActivityKinds,
+        "#a": addressChunk,
+        since: boundary.since,
+        limit: boundary.limit,
+      })
+    }
+  }
+
+  return filters
+}
+
+const buildRootFilters = (targets: RepoWatchActivityRelayTarget[]) => {
+  const filters: Filter[] = []
+  const rootIdsByBoundary = new Map<string, {since: number; limit: number; rootIds: string[]}>()
+
+  for (const target of targets) {
+    if (!target.rootIds?.length) continue
+    const key = `${target.since}:${target.limit}`
+    const boundary = rootIdsByBoundary.get(key) || {
+      since: target.since,
+      limit: target.limit,
+      rootIds: [],
+    }
+    boundary.rootIds.push(...target.rootIds)
+    rootIdsByBoundary.set(key, boundary)
+  }
+
+  for (const boundary of rootIdsByBoundary.values()) {
+    const rootIds = Array.from(new Set(boundary.rootIds.filter(Boolean))).sort()
+    for (const rootChunk of chunkBySize(rootIds, REPO_ACTIVITY_FILTER_CHUNK_SIZE)) {
+      filters.push(
+        {kinds: [GIT_COMMENT], "#E": rootChunk, since: boundary.since, limit: boundary.limit},
+        {kinds: [GIT_COMMENT], "#e": rootChunk, since: boundary.since, limit: boundary.limit},
+        {kinds: [GIT_LABEL], "#e": rootChunk, since: boundary.since, limit: boundary.limit},
+        {kinds: statusKinds, "#e": rootChunk, since: boundary.since, limit: boundary.limit},
+        {kinds: [GIT_ISSUE, GIT_PULL_REQUEST], ids: rootChunk, limit: boundary.limit},
+      )
+    }
+  }
+
+  return filters
+}
+
+const buildRepoWatchRelayGroups = (
+  targets: RepoWatchActivityRelayTarget[],
+  ownership: RepoLiveOwnership,
+  buildFilters: (targets: RepoWatchActivityRelayTarget[]) => Filter[],
+): RepoWatchRelayFilterGroup[] => {
+  const targetsByRelay = new Map<string, RepoWatchActivityRelayTarget[]>()
+
+  for (const target of targets) {
+    for (const relay of normalizeRelays(target.relays)) {
+      const relayTargets = targetsByRelay.get(relay) || []
+      relayTargets.push(target)
+      targetsByRelay.set(relay, relayTargets)
+    }
+  }
+
+  return Array.from(targetsByRelay, ([relay, relayTargets]) => ({
+    relay,
+    filters: dedupeFilters(buildFilters(relayTargets)),
+    liveFilters: dedupeFilters(
+      buildFilters(
+        relayTargets.filter(target => !isRepoLiveOwned(ownership, target.address, relay)),
+      ),
+    ),
+  })).sort((a, b) => a.relay.localeCompare(b.relay))
+}
+
+export const buildRepoWatchActivityRelayGroups = (
+  targets: RepoWatchActivityRelayTarget[],
+  ownership: RepoLiveOwnership = new Set(),
+) => buildRepoWatchRelayGroups(targets, ownership, buildAddressFilters)
+
+export const buildRepoWatchRootRelayGroups = (
+  targets: RepoWatchActivityRelayTarget[],
+  ownership: RepoLiveOwnership = new Set(),
+) => buildRepoWatchRelayGroups(targets, ownership, buildRootFilters)
 
 const parseWatchedRepoAddress = (address: string): RepoWatchAddressRef | undefined => {
   try {
@@ -629,35 +766,49 @@ const watchedRepoRefs: Readable<WatchedRepoRef[]> = derived(userRepoWatchValues,
 
 const baseRelays = derived(pubkey, getBaseRelays)
 
-const deriveLoadedEvents = <T extends TrustedEvent>({
-  filters,
-  relays,
+const receiveRepoWatchEvent = (event: TrustedEvent, relay: string) => {
+  if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
+  repository.publish(event)
+}
+
+const repoWatchLiveCoordinator = createBackgroundLiveCoordinator({
+  request,
+  onEvent: receiveRepoWatchEvent,
+  onError: (relay, error) => {
+    console.warn(`[repo-watch-notifications] Failed to subscribe on ${relay}`, error)
+  },
+})
+
+const deriveLoadedEventGroups = <T extends TrustedEvent>({
+  groups,
   label,
 }: {
-  filters: Readable<Filter[]>
-  relays: Readable<string[]>
+  groups: Readable<RepoWatchRelayFilterGroup[]>
   label: string
 }): Readable<T[]> =>
   readable<T[]>([], set => {
     let filtersKey = ""
+    let networkKey = ""
     const controllersByRelay = new Map<string, AbortController>()
     let unsubscribeEvents: (() => void) | undefined
+    const liveSource = {}
 
     const stopRelaySubscriptions = () => {
       for (const controller of controllersByRelay.values()) {
         controller.abort()
       }
       controllersByRelay.clear()
+      repoWatchLiveCoordinator.clear(liveSource)
     }
 
-    const unsubscribe = derived([filters, relays], ([$filters, $relays]) => ({
-      filters: $filters,
-      relays: normalizeRelays($relays).sort(),
-    })).subscribe(({filters, relays}) => {
+    const unsubscribe = derived([groups, notificationBackgroundEnabled], ([$groups, $enabled]) => ({
+      groups: $groups,
+      enabled: $enabled,
+    })).subscribe(({groups, enabled}) => {
+      const filters = dedupeFilters(groups.flatMap(group => group.filters))
       const nextFiltersKey = getFilterKey(filters)
 
       if (nextFiltersKey !== filtersKey) {
-        stopRelaySubscriptions()
         unsubscribeEvents?.()
         unsubscribeEvents = undefined
         filtersKey = nextFiltersKey
@@ -669,40 +820,37 @@ const deriveLoadedEvents = <T extends TrustedEvent>({
         }
       }
 
+      const nextNetworkKey = JSON.stringify({enabled, groups})
+      if (nextNetworkKey === networkKey) return
+      networkKey = nextNetworkKey
+      stopRelaySubscriptions()
+
       if (filters.length === 0) {
-        stopRelaySubscriptions()
         set([])
         return
       }
 
-      const targetRelays = new Set(relays)
+      if (!enabled) return
 
-      for (const [url, controller] of controllersByRelay) {
-        if (!targetRelays.has(url)) {
-          controller.abort()
-          controllersByRelay.delete(url)
-        }
-      }
-
-      const liveFilters = filters.map(filter => ({...filter, limit: 0}))
-      for (const url of targetRelays) {
-        if (controllersByRelay.has(url)) continue
-
+      for (const group of groups) {
+        const url = normalizeRelay(group.relay)
+        if (!url || group.filters.length === 0) continue
         const controller = new AbortController()
         controllersByRelay.set(url, controller)
-        load({relays: [url], filters, signal: controller.signal}).catch(error => {
-          if (!controller.signal.aborted) {
-            console.warn(`[repo-watch-notifications] Failed to load ${label}`, error)
-          }
-        })
-        request({
-          relays: [url],
+        void catchUpThenSetBackgroundLive({
+          request,
+          coordinator: repoWatchLiveCoordinator,
+          source: liveSource,
+          relay: url,
+          filters: group.filters,
+          liveFilters: group.liveFilters,
           signal: controller.signal,
-          filters: liveFilters,
-        }).catch(error => {
-          if (!controller.signal.aborted) {
-            console.warn(`[repo-watch-notifications] Failed to subscribe to ${label}`, error)
-          }
+          onEvent: receiveRepoWatchEvent,
+          onError: error => {
+            if (!controller.signal.aborted) {
+              console.warn(`[repo-watch-notifications] Failed to load ${label}`, error)
+            }
+          },
         })
       }
     })
@@ -712,6 +860,24 @@ const deriveLoadedEvents = <T extends TrustedEvent>({
       unsubscribeEvents?.()
       unsubscribe()
     }
+  })
+
+const deriveLoadedEvents = <T extends TrustedEvent>({
+  filters,
+  relays,
+  label,
+}: {
+  filters: Readable<Filter[]>
+  relays: Readable<string[]>
+  label: string
+}): Readable<T[]> =>
+  deriveLoadedEventGroups({
+    groups: derived([filters, relays], ([$filters, $relays]) =>
+      normalizeRelays($relays)
+        .sort()
+        .map(relay => ({relay, filters: $filters, liveFilters: $filters})),
+    ),
+    label,
   })
 
 const watchedRepoAnnouncementFilters = derived(watchedRepoRefs, $repos =>
@@ -783,7 +949,7 @@ const watchedRepoActivityRelays = derived(knownRepoAnnouncementEvents, $events =
   return normalizeRelays(repoRelays)
 })
 
-const watchedRepoActivityFilters = derived(
+const watchedRepoActivityTargets = derived(
   [
     notificationReposWithAnnouncements,
     checked,
@@ -798,45 +964,31 @@ const watchedRepoActivityFilters = derived(
     $notificationHistorySince,
     $notificationHistoryFilterLimit,
   ]) => {
-    const filters: Filter[] = []
-    const addressesBySince = new Map<number, string[]>()
-
-    for (const repo of $repos) {
-      const since = getHistoryBoundedSince(
+    return $repos.map(repo => ({
+      address: repo.address,
+      relays: getRepoEventRelays(repo),
+      since: getHistoryBoundedSince(
         getRepoWatchSeenAt(repo, $checked, $notificationSeen),
         $notificationHistorySince,
-      )
-      const addresses = addressesBySince.get(since) || []
-      addresses.push(repo.address)
-      addressesBySince.set(since, addresses)
-    }
-
-    for (const [since, addresses] of addressesBySince.entries()) {
-      for (const addressChunk of chunkBySize(addresses, REPO_ACTIVITY_FILTER_CHUNK_SIZE)) {
-        filters.push({
-          kinds: repoActivityKinds,
-          "#a": addressChunk,
-          since,
-          limit: Math.max(REPO_WATCH_LOAD_LIMIT, $notificationHistoryFilterLimit),
-        })
-      }
-    }
-
-    return filters
+      ),
+      limit: Math.max(REPO_WATCH_LOAD_LIMIT, $notificationHistoryFilterLimit),
+    }))
   },
 )
 
-const watchedRepoActivityEvents = deriveLoadedEvents<TrustedEvent>({
-  filters: watchedRepoActivityFilters,
-  relays: watchedRepoActivityRelays,
+const watchedRepoActivityGroups = derived(
+  [watchedRepoActivityTargets, repoLiveOwnership],
+  ([$targets, $ownership]) => buildRepoWatchActivityRelayGroups($targets, $ownership),
+)
+
+const watchedRepoActivityEvents = deriveLoadedEventGroups<TrustedEvent>({
+  groups: watchedRepoActivityGroups,
   label: "repo activity",
 })
 
-const watchedRepoRootIds = derived(watchedRepoActivityEvents, getRepoWatchRootIdsForEvents)
-
-const watchedRepoRootScopedFilters = derived(
+const watchedRepoRootScopedTargets = derived(
   [
-    watchedRepoRootIds,
+    watchedRepoActivityEvents,
     notificationReposWithAnnouncements,
     checked,
     repoWatchNotificationSeen,
@@ -844,37 +996,44 @@ const watchedRepoRootScopedFilters = derived(
     notificationHistoryFilterLimit,
   ],
   ([
-    $rootIds,
+    $events,
     $repos,
     $checked,
     $notificationSeen,
     $notificationHistorySince,
     $notificationHistoryFilterLimit,
   ]) => {
-    const filters: Filter[] = []
-    const sinceValues = $repos.map(repo =>
-      getHistoryBoundedSince(getRepoWatchSeenAt(repo, $checked, $notificationSeen), $notificationHistorySince),
-    )
-    const since = sinceValues.length > 0 ? Math.min(...sinceValues) : $notificationHistorySince
     const limit = Math.max(REPO_WATCH_LOAD_LIMIT, $notificationHistoryFilterLimit)
+    const rootIdsByAddress = new Map<string, string[]>()
 
-    for (const rootChunk of chunkBySize($rootIds, REPO_ACTIVITY_FILTER_CHUNK_SIZE)) {
-      filters.push(
-        {kinds: [GIT_COMMENT], "#E": rootChunk, since, limit},
-        {kinds: [GIT_COMMENT], "#e": rootChunk, since, limit},
-        {kinds: [GIT_LABEL], "#e": rootChunk, since, limit},
-        {kinds: statusKinds, "#e": rootChunk, since, limit},
-        {kinds: [GIT_ISSUE, GIT_PULL_REQUEST], ids: rootChunk, limit},
-      )
+    for (const event of $events) {
+      const address = getRepoAddress(event)
+      if (!address) continue
+      const rootIds = rootIdsByAddress.get(address) || []
+      rootIds.push(...getRepoWatchRootIdsForEvent(event))
+      rootIdsByAddress.set(address, rootIds)
     }
 
-    return filters
+    return $repos.map(repo => ({
+      address: repo.address,
+      relays: getRepoEventRelays(repo),
+      since: getHistoryBoundedSince(
+        getRepoWatchSeenAt(repo, $checked, $notificationSeen),
+        $notificationHistorySince,
+      ),
+      limit,
+      rootIds: Array.from(new Set(rootIdsByAddress.get(repo.address) || [])).sort(),
+    }))
   },
 )
 
-const watchedRepoRootScopedEvents = deriveLoadedEvents<TrustedEvent>({
-  filters: watchedRepoRootScopedFilters,
-  relays: watchedRepoActivityRelays,
+const watchedRepoRootScopedGroups = derived(
+  [watchedRepoRootScopedTargets, repoLiveOwnership],
+  ([$targets, $ownership]) => buildRepoWatchRootRelayGroups($targets, $ownership),
+)
+
+const watchedRepoRootScopedEvents = deriveLoadedEventGroups<TrustedEvent>({
+  groups: watchedRepoRootScopedGroups,
   label: "repo root activity",
 })
 
