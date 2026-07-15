@@ -1,4 +1,5 @@
 diff --git a/dist/net/src/message.d.ts b/dist/net/src/message.d.ts
+index c576ec4d024572f4afbdb84116145ff5c5da88ba..5335520c399ef7e04ca39c4bea57a248f72553c5 100644
 --- a/dist/net/src/message.d.ts
 +++ b/dist/net/src/message.d.ts
 @@ -48,7 +48,7 @@ export type ClientClosePayload = [string];
@@ -10,60 +11,533 @@ diff --git a/dist/net/src/message.d.ts b/dist/net/src/message.d.ts
  export type ClientAuth = [ClientMessageType.Auth, ...ClientAuthPayload];
  export type ClientClose = [ClientMessageType.Close, ...ClientClosePayload];
  export type ClientEvent = [ClientMessageType.Event, ...ClientEventPayload];
+diff --git a/dist/net/src/policy.js b/dist/net/src/policy.js
+index 3d18230505eb95ca00d015234410e89392a7cd21..b90b989d936f8dd337d3afaf4223dbefa0b052e5 100644
+--- a/dist/net/src/policy.js
++++ b/dist/net/src/policy.js
+@@ -134,6 +134,8 @@ export const socketPolicyCloseInactive = (socket) => {
+                 const since = now();
+                 const delay = Math.max(0, ms(5 - (now() - lastOpen)));
+                 sleep(delay).then(() => {
++                    if (pending.size === 0)
++                        return;
+                     socket.attemptToOpen();
+                     for (const message of pending.values()) {
+                         // Add since to avoid re-downloading stuff on reconnect. If limit=0, remove it to catch up
+@@ -166,6 +168,13 @@ export const socketPolicyCloseInactive = (socket) => {
+                 pending.delete(message[1]);
+             }
+         }),
++        // A CLOSE queued while disconnected must cancel reconnect replay before
++        // the send queue starts again.
++        on(socket, SocketEvent.Sending, (message) => {
++            if (isClientClose(message) || isClientNegClose(message)) {
++                pending.delete(message[1]);
++            }
++        }),
+         on(socket, SocketEvent.Receive, (message) => {
+             lastActivity = now();
+             if (isRelayClosed(message) || isRelayOk(message)) {
 diff --git a/dist/net/src/request.d.ts b/dist/net/src/request.d.ts
+index 9a38116507622ad55ec99c61de364ed31b6d626b..4af3870d55e8611a237aa5f8a2ca6bf309c32c62 100644
 --- a/dist/net/src/request.d.ts
 +++ b/dist/net/src/request.d.ts
-@@ -3,5 +3,6 @@ import { AdapterContext } from "./adapter.js";
+@@ -2,7 +2,21 @@ import { Deferred } from "@welshman/lib";
+ import { Filter, TrustedEvent } from "@welshman/util";
+ import { AdapterContext } from "./adapter.js";
  import { Tracker } from "./tracker.js";
++export type RelayRequestPolicy = {
++    maxFiltersPerSubscription?: number;
++    maxSubscriptions?: number;
++    maxMessageBytes?: number;
++    priority?: number;
++    reservedSubscriptions?: number;
++    reservedPriority?: number;
++};
++export type RequestPolicyResolver = (relay: string) => RelayRequestPolicy;
++export declare const setRequestPolicy: (resolver: RequestPolicyResolver) => () => void;
  export type BaseRequestOptions = {
 +    maxFiltersPerSubscription?: number;
++    maxSubscriptions?: number;
++    maxMessageBytes?: number;
++    priority?: number;
      signal?: AbortSignal;
      tracker?: Tracker;
      context?: AdapterContext;
-@@ -31,6 +32,7 @@ export type RequestOptions = BaseRequestOptions & {
+@@ -31,6 +45,10 @@ export type RequestOptions = BaseRequestOptions & {
  };
  export declare const request: (options: RequestOptions) => Promise<TrustedEvent[]>;
  export type LoaderOptions = {
 +    maxFiltersPerSubscription?: number;
++    maxSubscriptions?: number;
++    maxMessageBytes?: number;
++    priority?: number;
      delay: number;
      timeout?: number;
      threshold?: number;
+@@ -42,9 +60,11 @@ export type LoadOptions = {
+     relays: string[];
+     filters: Filter[];
+     signal?: AbortSignal;
++    priority?: number;
+     onEvent?: (event: TrustedEvent, url: string) => void;
+     onDisconnect?: (url: string) => void;
+     onEose?: (url: string) => void;
++    onClosed?: (message: string, url: string) => void;
+     onClose?: () => void;
+ };
+ export type Loader = (options: LoadOptions) => Promise<TrustedEvent[]>;
 diff --git a/dist/net/src/request.js b/dist/net/src/request.js
+index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfbd3b2d935 100644
 --- a/dist/net/src/request.js
 +++ b/dist/net/src/request.js
-@@ -96,10 +96,18 @@ export const requestOne = (options) => {
-     if (options.autoClose && !options.signal) {
-         setTimeout(close, 30_000);
-     }
--    for (const filter of options.filters) {
-+    const maxFilters = options.maxFiltersPerSubscription ?? 1;
-+    if (!Number.isSafeInteger(maxFilters) || maxFilters < 1) {
-+        throw new Error("maxFiltersPerSubscription must be a positive safe integer");
+@@ -1,37 +1,214 @@
+ import { on, uniq, flatten, addToMapKey, defer, call, randomId, pushToMapKey, batcher, } from "@welshman/lib";
+ import { unionFilters, matchFilters, deduplicateEvents, getFilterResultCardinality, } from "@welshman/util";
+-import { ClientMessageType, isRelayEvent, isRelayEose, isRelayClosed, } from "./message.js";
++import { ClientMessageType, isRelayEvent, isRelayEose, isRelayClosed, isRelayNotice, } from "./message.js";
+ import { getAdapter, AdapterEvent } from "./adapter.js";
+ import { SocketEvent, SocketStatus } from "./socket.js";
+ import { netContext } from "./context.js";
+ import { Tracker } from "./tracker.js";
++const requestPolicyResolvers = [];
++const resolveRequestPolicy = relay => requestPolicyResolvers.at(-1)?.resolver(relay) || {};
++export const setRequestPolicy = (resolver) => {
++    const registration = { resolver };
++    requestPolicyResolvers.push(registration);
++    return () => {
++        const index = requestPolicyResolvers.indexOf(registration);
++        if (index >= 0) {
++            requestPolicyResolvers.splice(index, 1);
++        }
++    };
++};
++const subscriptionSchedulers = new WeakMap();
++let subscriptionSequence = 0;
++const drainScheduler = (scheduler) => {
++    if (scheduler.pausedUntil > Date.now()) {
++        if (!scheduler.resumeTimer) {
++            scheduler.resumeTimer = setTimeout(() => {
++                scheduler.resumeTimer = undefined;
++                drainScheduler(scheduler);
++            }, scheduler.pausedUntil - Date.now());
++        }
++        return;
 +    }
-+    if (options.filters.length === 0) {
++    scheduler.queue.sort((a, b) => b.priority - a.priority || a.sequence - b.sequence);
++    while (scheduler.queue.length > 0) {
++        const next = scheduler.queue[0];
++        const maxActive = next.priority >= scheduler.reservedPriority
++            ? scheduler.maxSubscriptions
++            : Math.max(1, scheduler.maxSubscriptions - scheduler.reservedSubscriptions);
++        if (scheduler.active >= maxActive)
++            break;
++        const job = scheduler.queue.shift();
++        if (job.cancelled)
++            continue;
++        job.started = true;
++        scheduler.active += 1;
++        job.start();
++    }
++};
++const getSubscriptionScheduler = (socket, maxSubscriptions, reservedSubscriptions, reservedPriority) => {
++    let scheduler = subscriptionSchedulers.get(socket);
++    if (!scheduler) {
++        scheduler = {
++            active: 0,
++            configuredMaxSubscriptions: maxSubscriptions,
++            learnedMaxSubscriptions: Infinity,
++            maxSubscriptions,
++            pausedUntil: 0,
++            queue: [],
++            reservedPriority,
++            reservedSubscriptions,
++        };
++        subscriptionSchedulers.set(socket, scheduler);
++        on(socket, SocketEvent.Receive, message => {
++            if (isRelayNotice(message) && /too many concurrent reqs/i.test(message[1] || "")) {
++                scheduler.learnedMaxSubscriptions = Math.max(1, Math.min(scheduler.learnedMaxSubscriptions, scheduler.active - 1));
++                scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
++                scheduler.pausedUntil = Date.now() + 250;
++                drainScheduler(scheduler);
++            }
++        });
++    }
++    else {
++        scheduler.configuredMaxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, maxSubscriptions);
++        scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
++        scheduler.reservedPriority = Math.min(scheduler.reservedPriority, reservedPriority);
++        scheduler.reservedSubscriptions = Math.max(scheduler.reservedSubscriptions, reservedSubscriptions);
++    }
++    return scheduler;
++};
++const scheduleSubscription = (socket, maxSubscriptions, reservedSubscriptions, reservedPriority, priority, start) => {
++    if (!socket || !Number.isFinite(maxSubscriptions)) {
++        return { release: () => { }, start };
++    }
++    const scheduler = getSubscriptionScheduler(socket, maxSubscriptions, reservedSubscriptions, reservedPriority);
++    const job = {
++        cancelled: false,
++        priority,
++        sequence: subscriptionSequence++,
++        start,
++        started: false,
++    };
++    let released = false;
++    scheduler.queue.push(job);
++    const release = () => {
++        if (released)
++            return;
++        released = true;
++        job.cancelled = true;
++        if (job.started) {
++            scheduler.active = Math.max(0, scheduler.active - 1);
++        }
++        drainScheduler(scheduler);
++    };
++    return { release, start: () => drainScheduler(scheduler) };
++};
++const validateLimit = (name, value) => {
++    if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) {
++        throw new Error(`${name} must be a positive safe integer`);
++    }
++};
++const getLimit = (fallback, ...values) => {
++    const defined = values.filter(value => value !== undefined);
++    return defined.length > 0 ? Math.min(...defined) : fallback;
++};
++const messageEncoder = new TextEncoder();
++const getMessageBytes = (message) => messageEncoder.encode(JSON.stringify(message)).byteLength;
++const chunkFilters = (filters, maxFilters, maxMessageBytes) => {
++    const chunks = [];
++    let chunk = [];
++    for (const filter of filters) {
++        if (chunk.length >= maxFilters ||
++            (chunk.length > 0 &&
++                getMessageBytes([ClientMessageType.Req, "REQ-00000000", ...chunk, filter]) >
++                    maxMessageBytes)) {
++            chunks.push(chunk);
++            chunk = [];
++        }
++        chunk.push(filter);
++        if (getMessageBytes([ClientMessageType.Req, "REQ-00000000", ...chunk]) > maxMessageBytes) {
++            throw new Error("REQ exceeds maxMessageBytes");
++        }
++    }
++    if (chunk.length > 0) {
++        chunks.push(chunk);
++    }
++    return chunks;
++};
+ export const requestOne = (options) => {
++    const relayPolicy = resolveRequestPolicy(options.relay) || {};
++    validateLimit("maxFiltersPerSubscription", options.maxFiltersPerSubscription);
++    validateLimit("maxFiltersPerSubscription", relayPolicy.maxFiltersPerSubscription);
++    validateLimit("maxSubscriptions", options.maxSubscriptions);
++    validateLimit("maxSubscriptions", relayPolicy.maxSubscriptions);
++    validateLimit("maxMessageBytes", options.maxMessageBytes);
++    validateLimit("maxMessageBytes", relayPolicy.maxMessageBytes);
++    if (!Number.isSafeInteger(relayPolicy.reservedSubscriptions ?? 0) || (relayPolicy.reservedSubscriptions ?? 0) < 0) {
++        throw new Error("reservedSubscriptions must be a non-negative safe integer");
++    }
++    const maxFilters = getLimit(1, options.maxFiltersPerSubscription, relayPolicy.maxFiltersPerSubscription);
++    const maxSubscriptions = getLimit(Infinity, options.maxSubscriptions, relayPolicy.maxSubscriptions);
++    const maxMessageBytes = getLimit(Infinity, options.maxMessageBytes, relayPolicy.maxMessageBytes);
++    const reservedSubscriptions = Math.min(relayPolicy.reservedSubscriptions ?? 0, Math.max(0, maxSubscriptions - 1));
++    const reservedPriority = relayPolicy.reservedPriority ?? Infinity;
++    const priority = options.priority ?? relayPolicy.priority ?? 0;
++    if (!Number.isFinite(priority) || (reservedPriority !== Infinity && !Number.isFinite(reservedPriority))) {
++        throw new Error("request priorities must be finite");
++    }
++    const filterChunks = chunkFilters(options.filters, maxFilters, maxMessageBytes);
+     const ids = new Set();
+     const eose = new Set();
++    const completed = new Set();
+     const events = [];
+     const deferred = defer();
+     const tracker = options.tracker || new Tracker();
+     const adapter = getAdapter(options.relay, options.context);
+     const isEventValid = options.isEventValid || netContext.isEventValid;
+     const isEventDeleted = options.isEventDeleted || netContext.isEventDeleted;
++    const tasks = filterChunks.map(filters => ({
++        done: false,
++        filters,
++        id: `REQ-${randomId().slice(0, 8)}`,
++        release: () => { },
++        sent: false,
++    }));
++    tasks.forEach(task => ids.add(task.id));
+     let closed = false;
++    let closeTimer;
++    let unsubscribers = [];
++    const finishTask = (task, sendClose) => {
++        if (task.done)
++            return;
++        task.done = true;
++        completed.add(task.id);
++        if (sendClose && task.sent) {
++            adapter.send([ClientMessageType.Close, task.id]);
++        }
++        task.release();
++    };
+     const close = () => {
+         if (closed)
+             return;
+         closed = true;
+-        for (const id of ids) {
+-            adapter.send(["CLOSE", id]);
++        if (closeTimer) {
++            clearTimeout(closeTimer);
++        }
++        for (const task of tasks) {
++            finishTask(task, true);
+         }
+         options.onClose?.();
+         adapter.cleanup();
+         unsubscribers.map(call);
+         deferred.resolve(deduplicateEvents(events));
+     };
+-    const unsubscribers = [
++    if (filterChunks.length === 0) {
 +        close();
 +        return deferred;
 +    }
-+    for (let index = 0; index < options.filters.length; index += maxFilters) {
-         const id = `REQ-${randomId().slice(0, 8)}`;
-         ids.add(id);
--        adapter.send([ClientMessageType.Req, id, filter]);
-+        adapter.send([ClientMessageType.Req, id, ...options.filters.slice(index, index + maxFilters)]);
++    unsubscribers = [
+         on(adapter, AdapterEvent.Receive, (message, url) => {
+             if (isRelayEvent(message)) {
+                 const [_, id, event] = message;
+-                if (ids.has(id)) {
++                if (ids.has(id) && !completed.has(id)) {
+                     if (tracker.track(event.id, url)) {
+                         options.onDuplicate?.(event, url);
+                     }
+@@ -52,22 +229,27 @@ export const requestOne = (options) => {
+             }
+             if (isRelayEose(message)) {
+                 const [_, id] = message;
+-                if (ids.has(id)) {
++                const task = tasks.find(candidate => candidate.id === id);
++                if (task && !task.done) {
+                     eose.add(id);
+-                    if (eose.size === ids.size) {
++                    if (options.autoClose) {
++                        finishTask(task, true);
++                    }
++                    if (eose.size === tasks.length) {
+                         options.onEose?.(url);
+-                        if (options.autoClose) {
+-                            close();
+-                        }
++                    }
++                    if (options.autoClose && completed.size === tasks.length) {
++                        close();
+                     }
+                 }
+             }
+             if (isRelayClosed(message)) {
+                 const [_, id, reason] = message;
+-                if (ids.has(id)) {
+-                    ids.delete(id);
++                const task = tasks.find(candidate => candidate.id === id);
++                if (task && !task.done) {
++                    finishTask(task, false);
+                     options.onClosed?.(reason, url);
+-                    if (ids.size === 0) {
++                    if (completed.size === tasks.length) {
+                         close();
+                     }
+                 }
+@@ -79,9 +261,7 @@ export const requestOne = (options) => {
+         unsubscribers.push(on(socket, SocketEvent.Status, (status) => {
+             if (![SocketStatus.Open, SocketStatus.Opening].includes(status)) {
+                 options.onDisconnect?.(socket.url);
+-                if (options.autoClose) {
+-                    close();
+-                }
++                close();
+             }
+         }));
      }
+@@ -94,17 +274,29 @@ export const requestOne = (options) => {
+     // If we're auto-closing, make sure it happens even if the relay doesn't send an eose
+     // and the caller doesn't provide a signal, in order to avoid memory leaks
+     if (options.autoClose && !options.signal) {
+-        setTimeout(close, 30_000);
++        closeTimer = setTimeout(close, 30_000);
+     }
+-    for (const filter of options.filters) {
+-        const id = `REQ-${randomId().slice(0, 8)}`;
+-        ids.add(id);
+-        adapter.send([ClientMessageType.Req, id, filter]);
++    if (options.signal?.aborted) {
++        close();
++        return deferred;
+     }
++    const socket = adapter.sockets.length === 1 ? adapter.sockets[0] : undefined;
++    const scheduledTasks = tasks.map(task => {
++        const scheduled = scheduleSubscription(socket, maxSubscriptions, reservedSubscriptions, reservedPriority, priority, () => {
++            if (closed)
++                return;
++            task.sent = true;
++            adapter.send([ClientMessageType.Req, task.id, ...task.filters]);
++        });
++        task.release = scheduled.release;
++        return scheduled;
++    });
++    scheduledTasks.forEach(scheduled => scheduled.start());
      return deferred;
  };
-@@ -196,6 +204,7 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
-             tracker,
-             autoClose: true,
-             signal: signalsByRelay.get(relay),
-+            maxFiltersPerSubscription: options.maxFiltersPerSubscription,
-             context: options.context,
-             isEventValid: options.isEventValid,
-             isEventDeleted: options.isEventDeleted,
-@@ -221,5 +230,5 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+ export const request = async (options) => {
+-    const closed = new Set();
++    const successful = new Set();
++    const failed = new Set();
+     const ctrl = new AbortController();
+     const relays = new Set(options.relays);
+     const tracker = options.tracker || new Tracker();
+@@ -118,9 +310,20 @@ export const request = async (options) => {
+         tracker,
+         signal,
+         relay,
++        onEose: url => {
++            successful.add(relay);
++            options.onEose?.(url);
++        },
++        onClosed: (reason, url) => {
++            failed.add(relay);
++            options.onClosed?.(reason, url);
++        },
++        onDisconnect: url => {
++            failed.add(relay);
++            options.onDisconnect?.(url);
++        },
+         onClose: () => {
+-            closed.add(relay);
+-            if (closed.size >= relays.size * threshold) {
++            if (successful.has(relay) && !failed.has(relay) && successful.size >= relays.size * threshold) {
+                 options.onClose?.();
+                 ctrl.abort();
+             }
+@@ -146,11 +349,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+     const threshold = options.threshold || 1;
+     const tracker = new Tracker();
+     const abortHandlersByRequest = new Map();
++    const resolvedRequests = new Set();
+     const close = (relay, request) => {
+         addToMapKey(closedRequestsByRelay, relay, request);
+         addToMapKey(closedRelaysByRequest, request, relay);
+         const closedRelays = closedRelaysByRequest.get(request)?.size || 0;
+-        if (closedRelays >= uniq(request.relays).length * threshold) {
++        if (!resolvedRequests.has(request) && closedRelays >= uniq(request.relays).length * threshold) {
++            resolvedRequests.add(request);
+             const events = deduplicateEvents(eventsByRequest.get(request) || []);
+             request.onClose?.();
+             resultsByRequest.get(request)?.resolve(events);
+@@ -166,15 +371,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+         }
+     };
+     for (const request of allRequests) {
+-        for (const relay of uniq(request.relays)) {
++        const requestRelays = uniq(request.relays);
++        resultsByRequest.set(request, defer());
++        if (request.signal?.aborted || requestRelays.length === 0) {
++            request.onClose?.();
++            resolvedRequests.add(request);
++            resultsByRequest.get(request)?.resolve([]);
++            continue;
++        }
++        for (const relay of requestRelays) {
+             pushToMapKey(requestsByRelay, relay, request);
+-            resultsByRequest.set(request, defer());
+-            // Propagate abort when all requests have been closed for a given relay
+-            if (request.signal) {
+-                const abortHandler = () => close(relay, request);
+-                abortHandlersByRequest.set(request, abortHandler);
+-                request.signal.addEventListener("abort", abortHandler);
+-            }
++        }
++        // Propagate one abort listener across all relays for this logical request.
++        if (request.signal) {
++            const abortHandler = () => requestRelays.forEach(relay => close(relay, request));
++            abortHandlersByRequest.set(request, abortHandler);
++            request.signal.addEventListener("abort", abortHandler);
+         }
+     }
+     // Create an abort controller for each relay
+@@ -192,34 +404,53 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+         const filters = unionFilters(requests.flatMap(r => r.filters));
+         // Propagate events to caller, but only for requests that have not been aborted
+         const getOpenRequests = () => requests.filter(request => !closedRequestsByRelay.get(relay)?.has(request));
+-        requestOne({
+-            relay,
+-            filters,
+-            tracker,
+-            autoClose: true,
+-            signal: signalsByRelay.get(relay),
+-            context: options.context,
+-            isEventValid: options.isEventValid,
+-            isEventDeleted: options.isEventDeleted,
+-            onEvent: (event, url) => {
+-                for (const request of getOpenRequests()) {
+-                    if (matchFilters(request.filters, event)) {
+-                        pushToMapKey(eventsByRequest, request, event);
+-                        request.onEvent?.(event, url);
+-                        // Calculate cardinality for unioned filters so that we can return early
+-                        if (request.filters.length === 1) {
+-                            const cardinality = getFilterResultCardinality(request.filters[0]);
+-                            if (eventsByRequest.get(request)?.length === cardinality) {
+-                                close(relay, request);
++        try {
++            requestOne({
++                relay,
++                filters,
++                tracker,
++                autoClose: true,
++                signal: signalsByRelay.get(relay),
++                maxFiltersPerSubscription: options.maxFiltersPerSubscription,
++                maxSubscriptions: options.maxSubscriptions,
++                maxMessageBytes: options.maxMessageBytes,
++                priority: Math.max(options.priority ?? 0, ...requests.map(request => request.priority ?? 0)),
++                context: options.context,
++                isEventValid: options.isEventValid,
++                isEventDeleted: options.isEventDeleted,
++                onEvent: (event, url) => {
++                    for (const request of getOpenRequests()) {
++                        if (matchFilters(request.filters, event)) {
++                            pushToMapKey(eventsByRequest, request, event);
++                            request.onEvent?.(event, url);
++                            // Calculate cardinality for unioned filters so that we can return early
++                            if (request.filters.length === 1) {
++                                const cardinality = getFilterResultCardinality(request.filters[0]);
++                                if (eventsByRequest.get(request)?.length === cardinality) {
++                                    close(relay, request);
++                                }
+                             }
+                         }
+                     }
++                },
++                onDisconnect: (url) => getOpenRequests().forEach(request => request.onDisconnect?.(url)),
++                onEose: (url) => getOpenRequests().forEach(request => request.onEose?.(url)),
++                onClosed: (reason, url) => getOpenRequests().forEach(request => request.onClosed?.(reason, url)),
++                onClose: () => requests.forEach(request => close(relay, request)),
++            });
++        }
++        catch (error) {
++            controllersByRelay.get(relay)?.abort();
++            for (const request of requests) {
++                resolvedRequests.add(request);
++                const abortHandler = abortHandlersByRequest.get(request);
++                if (abortHandler) {
++                    request.signal?.removeEventListener("abort", abortHandler);
++                    abortHandlersByRequest.delete(request);
+                 }
+-            },
+-            onDisconnect: (url) => getOpenRequests().forEach(request => request.onDisconnect?.(url)),
+-            onEose: (url) => getOpenRequests().forEach(request => request.onEose?.(url)),
+-            onClose: () => requests.forEach(request => close(relay, request)),
+-        });
++                resultsByRequest.get(request)?.reject(error);
++            }
++        }
      });
      return allRequests.map(r => resultsByRequest.get(r) || []);
  });
--export const load = makeLoader({ delay: 200, timeout: 3000, threshold: 0.5 });
-+export const load = makeLoader({ delay: 200, timeout: 3000, threshold: 0.5, maxFiltersPerSubscription: 100 });
- //# sourceMappingURL=request.js.map
