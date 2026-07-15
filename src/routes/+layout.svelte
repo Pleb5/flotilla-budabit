@@ -12,6 +12,7 @@
   import {sync} from "@welshman/store"
   import {call} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
+  import {installRelayRequestPolicy} from "@app/core/relay-policy"
   import {defaultSocketPolicies} from "@welshman/net"
   import {
     pubkey,
@@ -100,6 +101,7 @@
   })
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
+  const uninstallRelayRequestPolicy = installRelayRequestPolicy()
   let socketPoliciesInstalled = false
 
   const installSocketPolicies = () => {
@@ -1046,7 +1048,7 @@
     unsubscribers.push(() => db.close())
 
     // Remove policies when we're done
-    unsubscribers.push(uninstallSocketPolicies)
+    unsubscribers.push(uninstallSocketPolicies, uninstallRelayRequestPolicy)
 
     // History, navigation, and application data
     unsubscribers.push(
@@ -1105,6 +1107,7 @@
   import.meta.hot?.dispose(() => {
     unsubscribe.then(call)
     uninstallSocketPolicies()
+    uninstallRelayRequestPolicy()
 
     if (updateCheckInterval) {
       clearInterval(updateCheckInterval)

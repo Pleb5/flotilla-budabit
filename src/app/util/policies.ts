@@ -28,6 +28,7 @@ import {
   NOTIFIER_RELAY,
 } from "@app/core/state"
 import {activeCommunityRelays} from "@app/core/community-state"
+import {getRelayPolicy} from "@app/core/relay-policy"
 import {graspServersStore} from "@nostr-git/ui"
 
 let guestRelaySigner: Nip01Signer | undefined
@@ -126,6 +127,7 @@ export const authPolicy = (socket: Socket) => {
 
   const attemptAuth = async () => {
     if (inFlight) return
+    if (getRelayPolicy(socket.url).auth === "none") return
     const activeSigner = signer.get()
     const activePubkey = pubkey.get() || ""
     const hasCompletedAuth = [

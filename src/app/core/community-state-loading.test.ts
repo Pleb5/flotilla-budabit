@@ -5,14 +5,23 @@ import {AuthStatus} from "@welshman/net"
 import {type Filter, type TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
 
-const {attemptAuthMock, authStatusByRelay, forceLoadRelayListMock, fromPubkeysMock, loadMock} =
-  vi.hoisted(() => ({
-    attemptAuthMock: vi.fn(),
-    authStatusByRelay: new Map<string, any>(),
-    forceLoadRelayListMock: vi.fn(),
-    fromPubkeysMock: vi.fn(),
-    loadMock: vi.fn(),
-  }))
+const {
+  attemptAuthMock,
+  authStatusByRelay,
+  forceLoadRelayListMock,
+  fromPubkeysMock,
+  loadMock,
+  makeLoaderMock,
+  socketByRelay,
+} = vi.hoisted(() => ({
+  attemptAuthMock: vi.fn(),
+  authStatusByRelay: new Map<string, any>(),
+  forceLoadRelayListMock: vi.fn(),
+  fromPubkeysMock: vi.fn(),
+  loadMock: vi.fn(),
+  makeLoaderMock: vi.fn(),
+  socketByRelay: new Map<string, any>(),
+}))
 
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
@@ -29,16 +38,31 @@ vi.mock("@welshman/net", async importOriginal => {
   return {
     ...actual,
     load: loadMock,
+    makeLoader: (options: unknown) => {
+      makeLoaderMock(options)
+      return loadMock
+    },
     Pool: {
       get: () => ({
-        get: (url: string) => ({
-          auth: {
-            get status() {
-              return authStatusByRelay.get(url) ?? actual.AuthStatus.Ok
-            },
-            attemptAuth: (signer: unknown) => attemptAuthMock(url, signer),
-          },
-        }),
+        get: (url: string) => {
+          let socket = socketByRelay.get(url)
+
+          if (!socket) {
+            socket = {
+              auth: {
+                get status() {
+                  return authStatusByRelay.get(url) ?? actual.AuthStatus.Ok
+                },
+                attemptAuth: (signer: unknown) => attemptAuthMock(url, signer),
+                on: vi.fn(),
+                off: vi.fn(),
+              },
+            }
+            socketByRelay.set(url, socket)
+          }
+
+          return socket
+        },
       }),
     },
   }
@@ -68,6 +92,7 @@ import {
   loadCommunityDefinitionWithOutboxFallback,
   loadCommunityBootstrap,
   loadCommunityEvents,
+  loadCommunityEventsWithStatus,
 } from "./community-state"
 
 const communityPubkey = "a".repeat(64)
@@ -77,6 +102,8 @@ const moderatorCommunityPubkey = "d".repeat(64)
 const moderatorPubkey = "e".repeat(64)
 const relayA = "wss://community-a.example.com/"
 const relayB = "wss://community-b.example.com/"
+const requiredRelay = "wss://budabit.nostr1.com/"
+const publicRelay = "wss://relay.budabit.club/"
 const discoveryRelay = "wss://discovery.example.com/"
 const moderatorCommunityRelay = "wss://moderator-community.example.com/"
 const moderatorListIdentifier = "moderator-list"
@@ -188,6 +215,7 @@ describe("community relay loading", () => {
     attemptAuthMock.mockReset()
     attemptAuthMock.mockResolvedValue(undefined)
     authStatusByRelay.clear()
+    socketByRelay.clear()
     forceLoadRelayListMock.mockReset()
     fromPubkeysMock.mockReset()
     loadMock.mockReset()
@@ -196,6 +224,13 @@ describe("community relay loading", () => {
     removeTestEvents()
     clearActiveCommunity()
     pubkey.set(undefined)
+  })
+
+  it("uses a dedicated priority loader for community state", () => {
+    expect(makeLoaderMock).toHaveBeenCalledWith({
+      delay: 50,
+      priority: 300,
+    })
   })
 
   afterEach(async () => {
@@ -239,6 +274,79 @@ describe("community relay loading", () => {
     expect(events).toEqual([])
   })
 
+  it("marks first-settled multi-relay results incomplete", async () => {
+    loadMock.mockImplementation(({relays}: {relays: string[]}) => {
+      if (relays[0] === relayB) return new Promise(() => undefined)
+
+      return Promise.resolve([profileListEvent])
+    })
+
+    const result = await loadCommunityEventsWithStatus(
+      [relayA, relayB],
+      [{kinds: [PROFILE_LIST_KIND]}],
+      {settle: "first-non-empty"},
+    )
+
+    expect(result.events.map(event => event.id)).toEqual([profileListEvent.id])
+    expect(result.complete).toBe(false)
+  })
+
+  it("distinguishes complete empty loads from timeouts", async () => {
+    loadMock.mockResolvedValueOnce([])
+
+    await expect(
+      loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}]),
+    ).resolves.toEqual({events: [], complete: true, timedOutRelays: [], failedRelays: []})
+
+    loadMock.mockReturnValueOnce(new Promise(() => undefined))
+    const pending = loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}], {
+      timeout: 100,
+    })
+    await vi.advanceTimersByTimeAsync(100)
+
+    await expect(pending).resolves.toEqual({
+      events: [],
+      complete: false,
+      timedOutRelays: [relayA],
+      failedRelays: [],
+    })
+  })
+
+  it("treats relay CLOSED responses as incomplete failures", async () => {
+    loadMock.mockImplementationOnce(({onClosed}: any) => {
+      onClosed("restricted: denied", relayA)
+      return Promise.resolve([])
+    })
+
+    await expect(
+      loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}]),
+    ).resolves.toEqual({
+      events: [],
+      complete: false,
+      timedOutRelays: [],
+      failedRelays: [relayA],
+    })
+  })
+
+  it("retains and publishes events received before a timeout", async () => {
+    loadMock.mockImplementationOnce(({onEvent}: any) => {
+      onEvent(profileListEvent, relayA)
+      return new Promise(() => undefined)
+    })
+
+    const pending = loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}], {
+      timeout: 100,
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const result = await pending
+
+    expect(result.complete).toBe(false)
+    expect(result.events.map(event => event.id)).toEqual([profileListEvent.id])
+    expect(repository.query([{ids: [profileListEvent.id]}]).map(event => event.id)).toEqual([
+      profileListEvent.id,
+    ])
+  })
+
   it("authenticates priority community relays before fallback relays", async () => {
     let releasePriorityAuth: () => void = () => {}
     const priorityAuth = new Promise<void>(resolve => {
@@ -247,23 +355,74 @@ describe("community relay loading", () => {
     const calls: string[] = []
 
     pubkey.set(memberPubkey)
-    authStatusByRelay.set(relayA, AuthStatus.Requested)
-    authStatusByRelay.set(relayB, AuthStatus.Requested)
+    authStatusByRelay.set(requiredRelay, AuthStatus.Requested)
     attemptAuthMock.mockImplementation((relay: string) => {
       calls.push(relay)
 
-      return relay === relayA ? priorityAuth : Promise.resolve()
+      return relay === requiredRelay ? priorityAuth : Promise.resolve()
     })
 
-    const auth = authenticateCommunityRelays([relayB, relayA], {priorityRelays: [relayA]})
+    const auth = authenticateCommunityRelays([relayB, requiredRelay], {
+      priorityRelays: [requiredRelay],
+    })
 
     await Promise.resolve()
-    expect(calls).toEqual([relayA])
+    expect(calls).toEqual([requiredRelay])
 
+    authStatusByRelay.set(requiredRelay, AuthStatus.Ok)
     releasePriorityAuth()
     await auth
 
-    expect(calls).toEqual([relayA, relayB])
+    expect(calls).toEqual([requiredRelay])
+  })
+
+  it("skips pre-authentication for the public replacement relay", async () => {
+    pubkey.set(memberPubkey)
+    authStatusByRelay.set(publicRelay, AuthStatus.None)
+
+    await authenticateCommunityRelays([publicRelay])
+
+    expect(attemptAuthMock).not.toHaveBeenCalled()
+  })
+
+  it("shares one in-flight authentication attempt per relay socket", async () => {
+    let releaseAuth: () => void = () => {}
+    const pendingAuth = new Promise<void>(resolve => {
+      releaseAuth = resolve
+    })
+
+    pubkey.set(memberPubkey)
+    authStatusByRelay.set(requiredRelay, AuthStatus.Requested)
+    attemptAuthMock.mockReturnValue(pendingAuth)
+
+    const first = authenticateCommunityRelays([requiredRelay])
+    const second = authenticateCommunityRelays([requiredRelay])
+
+    await Promise.resolve()
+    expect(attemptAuthMock).toHaveBeenCalledTimes(1)
+
+    authStatusByRelay.set(requiredRelay, AuthStatus.Ok)
+    releaseAuth()
+    await Promise.all([first, second])
+  })
+
+  it("continues healthy public reads when a required relay rejects authentication", async () => {
+    pubkey.set(memberPubkey)
+    authStatusByRelay.set(requiredRelay, AuthStatus.Forbidden)
+    loadMock.mockImplementation(({relays}: {relays: string[]}) =>
+      Promise.resolve(relays[0] === publicRelay ? [profileListEvent] : []),
+    )
+
+    const result = await loadCommunityEventsWithStatus(
+      [requiredRelay, publicRelay],
+      [{kinds: [PROFILE_LIST_KIND]}],
+      {authenticate: true},
+    )
+
+    expect(result.events.map(event => event.id)).toEqual([profileListEvent.id])
+    expect(result.complete).toBe(false)
+    expect(result.failedRelays).toEqual([requiredRelay])
+    expect(loadMock.mock.calls.map(([options]) => options.relays[0])).toEqual([publicRelay])
   })
 
   it("falls back to hydrated community outbox relays when discovery misses", async () => {
@@ -416,7 +575,8 @@ describe("community relay loading", () => {
     repository.publish(singleRelayDefinitionEvent)
     loadMock.mockImplementation(({filters}: {relays: string[]; filters: Filter[]}) => {
       if (hasKind(filters, PROFILE_LIST_KIND)) return profileListLoad
-      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) return Promise.resolve([singleRelayDefinitionEvent])
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND))
+        return Promise.resolve([singleRelayDefinitionEvent])
 
       return Promise.resolve([])
     })

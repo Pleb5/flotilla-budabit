@@ -52,6 +52,7 @@ import {
   verifyEvent,
 } from "@welshman/util"
 import type {TrustedEvent, Filter} from "@welshman/util"
+import {getRelayPolicy} from "@app/core/relay-policy"
 import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
@@ -652,7 +653,7 @@ export const deriveRelayAuthError = (url: string) => {
   // Kick off the auth process, but only once per url per session. Every
   // subscription to this store previously re-fired attemptAuth which for a
   // Nip46 signer means a fresh bunker roundtrip.
-  if (!authAttemptStartedFor.has(url)) {
+  if (getRelayPolicy(url).auth !== "none" && !authAttemptStartedFor.has(url)) {
     authAttemptStartedFor.add(url)
     Pool.get()
       .get(url)
