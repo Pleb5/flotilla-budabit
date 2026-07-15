@@ -1,6 +1,7 @@
 import {request} from "@welshman/net"
 import {repository} from "@welshman/app"
 import {DELETE, type TrustedEvent} from "@welshman/util"
+import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 
 export const COMMUNITY_DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
 export const COMMUNITY_DELETE_SINCE_BUFFER_SECONDS = 60
@@ -36,6 +37,7 @@ export const hydrateCommunityDeleteEvents = async ({
     autoClose: true,
     threshold: 0.5,
     signal,
+    priority: RELAY_REQUEST_PRIORITY.community,
     filters: [{kinds: [DELETE], "#k": kinds.map(String), since}],
     onEvent: event => {
       if (!repository.getEvent(event.id)) {

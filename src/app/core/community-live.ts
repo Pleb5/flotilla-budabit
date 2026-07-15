@@ -1,6 +1,10 @@
 import {DELETE, type Filter, type TrustedEvent} from "@welshman/util"
 import type {CommunityDefinition} from "@app/core/community"
-import {FORM_RESPONSE_KIND, TARGETED_PUBLICATION_KINDS} from "@app/core/community"
+import {
+  FORM_RESPONSE_KIND,
+  PROFILE_LIST_KIND,
+  TARGETED_PUBLICATION_KINDS,
+} from "@app/core/community"
 import {
   COMMUNITY_EXCLUSIVE_KINDS,
   makeCommunityTargetingFilter,
@@ -22,8 +26,12 @@ import {
 
 type CommunityLiveFilterInput = {
   definition: CommunityDefinition
-  targetingEvents: TrustedEvent[]
   admissionFormAddresses: string[]
+}
+
+type CommunityFiniteFollowUpFilterInput = {
+  definition: CommunityDefinition
+  targetingEvents: TrustedEvent[]
   admissionResponseIds: string[]
   reportEvents: TrustedEvent[]
   moderatorRequests: ModeratorPromotionRequest[]
@@ -45,9 +53,9 @@ const chunkValues = <T>(values: T[], size: number) => {
   return chunks
 }
 
-const normalizeFilter = (filter: Filter): Filter =>
+const normalizeFilter = (filter: Filter, live: boolean): Filter =>
   Object.fromEntries(
-    Object.entries({...filter, limit: 0}).map(([key, value]) => [
+    Object.entries({...filter, ...(live ? {limit: 0} : {})}).map(([key, value]) => [
       key,
       Array.isArray(value) ? [...value].sort() : value,
     ]),
@@ -56,10 +64,10 @@ const normalizeFilter = (filter: Filter): Filter =>
 const getFilterKey = (filter: Filter) =>
   JSON.stringify(Object.fromEntries(Object.entries(filter).sort(([a], [b]) => a.localeCompare(b))))
 
-const dedupeLiveFilters = (filters: Filter[]) => {
+const dedupeFilters = (filters: Filter[], live: boolean) => {
   const deduped = new Map<string, Filter>()
 
-  for (const filter of filters.map(normalizeFilter)) {
+  for (const filter of filters.map(filter => normalizeFilter(filter, live))) {
     deduped.set(getFilterKey(filter), filter)
   }
 
@@ -75,34 +83,74 @@ const pushTagChunkFilters = (filters: Filter[], kinds: number[], tag: string, va
   }
 }
 
+const chunkFiltersByTag = (filters: Filter[], tag: string) =>
+  filters.flatMap(filter => {
+    const values = ((filter as Record<string, unknown>)[tag] || []) as string[]
+
+    return values.length > COMMUNITY_LIVE_TAG_CHUNK_SIZE
+      ? chunkValues(values, COMMUNITY_LIVE_TAG_CHUNK_SIZE).map(chunk => ({...filter, [tag]: chunk}))
+      : [filter]
+  })
+
 export const buildCommunityLiveFilters = ({
   definition,
-  targetingEvents,
   admissionFormAddresses,
-  admissionResponseIds,
-  reportEvents,
-  moderatorRequests,
-  moderatorRequestReactionEvents,
 }: CommunityLiveFilterInput) => {
+  const profileListFilters = makeCommunityProfileListFilters(definition)
+  const profileListAuthors = normalizeCommunityLiveValues(
+    profileListFilters.flatMap(filter => filter.authors || []),
+  )
+  const profileListIdentifiers = normalizeCommunityLiveValues(
+    profileListFilters.flatMap(filter => filter["#d"] || []),
+  )
   const filters: Filter[] = [
     makeCommunityDefinitionFilter(definition.pubkey),
     {kinds: COMMUNITY_EXCLUSIVE_KINDS, "#h": [definition.pubkey]},
     makeCommunityTargetingFilter(definition.pubkey, TARGETED_PUBLICATION_KINDS),
-    ...makeCommunityProfileListFilters(definition),
+    ...(profileListAuthors.length && profileListIdentifiers.length
+      ? [
+          {
+            kinds: [PROFILE_LIST_KIND],
+            authors: profileListAuthors,
+            "#d": profileListIdentifiers,
+          } as Filter,
+        ]
+      : []),
     ...makeCommunityAdmissionFormFilters(definition),
     ...makeCommunityModeratorRequestFilters(definition),
-    ...makeCommunityModeratorRequestReactionFilters(definition, moderatorRequests),
-    ...makeCommunityModeratorRequestDeleteFilters(definition, moderatorRequestReactionEvents),
     ...makeCommunityReportFilters(definition),
-    ...makeCommunityReportDeleteFilters(reportEvents),
-    ...makeCommunityReportReviewFilters(definition, reportEvents),
-    ...makeTargetedPublicationOriginalFilters(targetingEvents),
   ]
 
   pushTagChunkFilters(filters, [FORM_RESPONSE_KIND], "#a", admissionFormAddresses)
+
+  return dedupeFilters(filters, true)
+}
+
+export const buildCommunityFiniteFollowUpFilters = ({
+  definition,
+  targetingEvents,
+  admissionResponseIds,
+  reportEvents,
+  moderatorRequests,
+  moderatorRequestReactionEvents,
+}: CommunityFiniteFollowUpFilterInput) => {
+  const filters: Filter[] = [
+    ...makeTargetedPublicationOriginalFilters(targetingEvents),
+    ...chunkFiltersByTag(
+      makeCommunityModeratorRequestReactionFilters(definition, moderatorRequests),
+      "#e",
+    ),
+    ...chunkFiltersByTag(
+      makeCommunityModeratorRequestDeleteFilters(definition, moderatorRequestReactionEvents),
+      "#e",
+    ),
+    ...chunkFiltersByTag(makeCommunityReportDeleteFilters(reportEvents), "#e"),
+    ...chunkFiltersByTag(makeCommunityReportReviewFilters(definition, reportEvents), "#e"),
+  ]
+
   pushTagChunkFilters(filters, [DELETE, COMMUNITY_FORM_REVIEW_KIND], "#e", admissionResponseIds)
 
-  return dedupeLiveFilters(filters)
+  return dedupeFilters(filters, false)
 }
 
 export const getCommunityLiveSubscriptionKey = ({
@@ -117,5 +165,5 @@ export const getCommunityLiveSubscriptionKey = ({
   JSON.stringify({
     communityPubkey,
     relays: normalizeCommunityLiveValues(relays),
-    filters: filters.map(filter => getFilterKey(normalizeFilter(filter))).sort(),
+    filters: filters.map(filter => getFilterKey(normalizeFilter(filter, false))).sort(),
   })

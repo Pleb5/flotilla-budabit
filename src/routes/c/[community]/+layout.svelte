@@ -10,7 +10,7 @@
   import {onDestroy, onMount, tick, type Snippet} from "svelte"
   import {page} from "$app/stores"
   import {ago, MONTH} from "@welshman/lib"
-  import {pubkey, repository} from "@welshman/app"
+  import {pubkey, repository, tracker} from "@welshman/app"
   import {request} from "@welshman/net"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {DELETE, displayRelayUrl, MESSAGE} from "@welshman/util"
@@ -30,14 +30,16 @@
     activeCommunityDefinition,
     activeCommunityModeratorRequestReactionEvents,
     activeCommunityModeratorRequests,
+    activeCommunityProfileListEvents,
     activeCommunityRelays,
-    activeCommunityReportEvents,
+    activeCommunityReportState,
     ensureCommunityBootstrap,
     getCommunityBootstrapKey,
     makeCommunitySession,
     setActiveCommunityInput,
   } from "@app/core/community-state"
-  import {FORM_RESPONSE_KIND} from "@app/core/community"
+  import {FORM_RESPONSE_KIND, parseTargetedPublication} from "@app/core/community"
+  import {canWriteCommunityTarget} from "@app/core/community-permissions"
   import {
     COMMUNITY_EXCLUSIVE_KINDS,
     COMMUNITY_TARGETABLE_KINDS,
@@ -50,10 +52,12 @@
     normalizeDeleteCheckpoint,
   } from "@app/core/community-deletes"
   import {
+    buildCommunityFiniteFollowUpFilters,
     buildCommunityLiveFilters,
     getCommunityLiveSubscriptionKey,
     normalizeCommunityLiveValues,
   } from "@app/core/community-live"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 
   type Props = {
     children?: Snippet
@@ -99,12 +103,18 @@
   // Per-relay subscriptions so the community live stream expands additively
   // when new relays are discovered instead of tearing down existing streams.
   let communityLiveFiltersKey = ""
+  let communityLiveRetryVersion = $state(0)
+  let communityLiveRetryTimer: ReturnType<typeof setTimeout> | null = null
   const communityLiveSubscriptionsByRelay = new Map<string, AbortController>()
   let communityHistoryLoadKey = ""
   let communityHistoryLoadController: AbortController | null = null
   let communityDeleteLoadKey = ""
   let communityDeleteLoadController: AbortController | null = null
   let latestCommunityDeleteSeen = 0
+  let communityFollowUpLoadKey = ""
+  let communityFollowUpLoadController: AbortController | null = null
+  let communityFollowUpRetryVersion = $state(0)
+  let communityFollowUpRetryTimer: ReturnType<typeof setTimeout> | null = null
   let communityBackgroundHydrationReady = $state(false)
   const COMMUNITY_HISTORY_LOAD_TIMEOUT_MS = 5_000
   const communityDeleteKinds = Array.from(
@@ -120,6 +130,28 @@
   )
   const communityTargetingEventsStore = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: communityTargetingFilters})),
+  )
+  const authorizedCommunityTargetingEvents = $derived(
+    $communityTargetingEventsStore.filter(event => {
+      const targeting = parseTargetedPublication(event)
+
+      return Boolean(
+        targeting &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: event.pubkey,
+          target: {sectionName: "", kind: targeting.kind},
+          reportState: $activeCommunityReportState,
+        }),
+      )
+    }),
+  )
+  const effectiveCommunityReportEvents = $derived(
+    [...$activeCommunityReportState.eventReports, ...$activeCommunityReportState.personReports].map(
+      report => report.event,
+    ),
   )
   const admissionFormAddresses = $derived(
     normalizeCommunityLiveValues(
@@ -145,6 +177,8 @@
   )
 
   const stopCommunityLiveSubscription = () => {
+    if (communityLiveRetryTimer) clearTimeout(communityLiveRetryTimer)
+    communityLiveRetryTimer = null
     for (const controller of communityLiveSubscriptionsByRelay.values()) {
       controller.abort()
     }
@@ -162,6 +196,14 @@
     communityDeleteLoadController?.abort()
     communityDeleteLoadController = null
     communityDeleteLoadKey = ""
+  }
+
+  const stopCommunityFollowUpLoad = () => {
+    if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)
+    communityFollowUpRetryTimer = null
+    communityFollowUpLoadController?.abort()
+    communityFollowUpLoadController = null
+    communityFollowUpLoadKey = ""
   }
 
   const openCommunityMenu = () => {
@@ -282,6 +324,7 @@
       autoClose: true,
       signal: controller.signal,
       filters: [{kinds: [MESSAGE], "#h": [definition.pubkey], since: ago(MONTH)}],
+      priority: RELAY_REQUEST_PRIORITY.interactive,
     })
       .catch(error => {
         if (!controller.signal.aborted) {
@@ -293,6 +336,95 @@
         if (communityHistoryLoadController === controller) {
           communityHistoryLoadController = null
         }
+      })
+  })
+
+  $effect(() => {
+    void communityFollowUpRetryVersion
+
+    if (!communityBackgroundHydrationReady) {
+      stopCommunityFollowUpLoad()
+      return
+    }
+
+    const definition = $activeCommunityDefinition
+    const relays = normalizeCommunityLiveValues($activeCommunityRelays)
+    const followUpRelays = normalizeCommunityLiveValues([
+      ...relays,
+      ...authorizedCommunityTargetingEvents.flatMap(event => {
+        const relay = parseTargetedPublication(event)?.ref?.relay
+
+        return relay ? [relay] : []
+      }),
+    ])
+
+    if (!definition || relays.length === 0) {
+      stopCommunityFollowUpLoad()
+      return
+    }
+
+    const filters = buildCommunityFiniteFollowUpFilters({
+      definition,
+      targetingEvents: authorizedCommunityTargetingEvents,
+      admissionResponseIds,
+      reportEvents: effectiveCommunityReportEvents,
+      moderatorRequests: $activeCommunityModeratorRequests,
+      moderatorRequestReactionEvents: $activeCommunityModeratorRequestReactionEvents,
+    })
+
+    if (filters.length === 0) {
+      stopCommunityFollowUpLoad()
+      return
+    }
+
+    const key = getCommunityLiveSubscriptionKey({
+      communityPubkey: definition.pubkey,
+      relays: followUpRelays,
+      filters,
+    })
+    if (communityFollowUpLoadKey === key) return
+
+    communityFollowUpLoadController?.abort()
+    communityFollowUpLoadKey = key
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), COMMUNITY_HISTORY_LOAD_TIMEOUT_MS)
+    communityFollowUpLoadController = controller
+    const successfulRelays = new Set<string>()
+    let completed = false
+
+    request({
+      relays: followUpRelays,
+      filters,
+      autoClose: true,
+      threshold: 0.5,
+      signal: controller.signal,
+      priority: RELAY_REQUEST_PRIORITY.community,
+      onEose: url => {
+        successfulRelays.add(url)
+        completed = successfulRelays.size >= followUpRelays.length * 0.5
+      },
+      onEvent: (event, url) => {
+        tracker.addRelay(event.id, url)
+        repository.publish(event)
+      },
+    })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-follow-up] Failed to hydrate referenced community events", error)
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (communityFollowUpLoadController !== controller) return
+        communityFollowUpLoadController = null
+        if (completed) return
+
+        communityFollowUpLoadKey = ""
+        if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)
+        communityFollowUpRetryTimer = setTimeout(() => {
+          communityFollowUpRetryTimer = null
+          communityFollowUpRetryVersion += 1
+        }, 5000)
       })
   })
 
@@ -332,6 +464,8 @@
   })
 
   $effect(() => {
+    void communityLiveRetryVersion
+
     if (!communityBackgroundHydrationReady) {
       stopCommunityLiveSubscription()
       return
@@ -347,12 +481,7 @@
 
     const filters = buildCommunityLiveFilters({
       definition,
-      targetingEvents: $communityTargetingEventsStore,
       admissionFormAddresses,
-      admissionResponseIds,
-      reportEvents: $activeCommunityReportEvents,
-      moderatorRequests: $activeCommunityModeratorRequests,
-      moderatorRequestReactionEvents: $activeCommunityModeratorRequestReactionEvents,
     })
 
     if (filters.length === 0) {
@@ -384,18 +513,47 @@
     for (const url of targetRelays) {
       if (communityLiveSubscriptionsByRelay.has(url)) continue
       const controller = new AbortController()
+      let failed = false
       communityLiveSubscriptionsByRelay.set(url, controller)
-      request({relays: [url], filters, signal: controller.signal}).catch(error => {
-        if (!controller.signal.aborted) {
-          console.warn("[community-live] Failed to subscribe to community activity", error)
-        }
+      request({
+        relays: [url],
+        filters,
+        signal: controller.signal,
+        priority: RELAY_REQUEST_PRIORITY.live,
+        onClosed: () => {
+          failed = true
+          controller.abort()
+        },
+        onDisconnect: () => {
+          failed = true
+        },
+        onEvent: (event, relay) => {
+          tracker.addRelay(event.id, relay)
+          repository.publish(event)
+        },
       })
+        .catch(error => {
+          if (!controller.signal.aborted) {
+            console.warn("[community-live] Failed to subscribe to community activity", error)
+          }
+        })
+        .finally(() => {
+          if (controller.signal.aborted && !failed) return
+          if (communityLiveSubscriptionsByRelay.get(url) !== controller) return
+          communityLiveSubscriptionsByRelay.delete(url)
+          if (communityLiveRetryTimer) clearTimeout(communityLiveRetryTimer)
+          communityLiveRetryTimer = setTimeout(() => {
+            communityLiveRetryTimer = null
+            communityLiveRetryVersion += 1
+          }, 5500)
+        })
     }
   })
 
   onDestroy(() => {
     stopCommunityHistoryLoad()
     stopCommunityDeleteLoad()
+    stopCommunityFollowUpLoad()
     stopCommunityLiveSubscription()
     if (communityDeleteSeenKey) {
       setCheckedAt(
