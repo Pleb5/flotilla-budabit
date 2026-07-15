@@ -1,10 +1,11 @@
 <script lang="ts">
   import {max, formatTimestampRelative} from "@welshman/lib"
   import {COMMENT, getAddress, isReplaceable} from "@welshman/util"
-  import {request} from "@welshman/net"
   import {deriveArray, deriveEventsById} from "@welshman/store"
   import type {Filter, TrustedEvent} from "@welshman/util"
   import {repository} from "@welshman/app"
+  import {page} from "$app/stores"
+  import {registerEventActivity} from "@app/core/event-activity-io"
   import {notifications} from "@app/util/notifications"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -16,6 +17,7 @@
     relays = [],
     scopeH = "",
     allowedAuthors = undefined,
+    coreCommunityLiveCovered = false,
   }: {
     url: string
     path: string
@@ -23,6 +25,7 @@
     relays?: string[]
     scopeH?: string
     allowedAuthors?: string[]
+    coreCommunityLiveCovered?: boolean
   } = $props()
 
   const loadRelays = $derived.by(() =>
@@ -49,14 +52,18 @@
   })
   const replies = $derived(deriveArray(deriveEventsById({repository, filters})))
   const lastActive = $derived(max([...$replies, event].map(e => e.created_at)))
+  const routeScope = $derived(`${$page.route.id || "unknown"}:${$page.url.pathname}`)
 
   $effect(() => {
     if (loadRelays.length === 0 || filters.length === 0) return
 
-    const controller = new AbortController()
-    request({relays: loadRelays, filters, signal: controller.signal})
-
-    return () => controller.abort()
+    return registerEventActivity({
+      routeScope,
+      relays: loadRelays,
+      scopeH,
+      filters,
+      coreCommunityLiveCovered,
+    })
   })
 </script>
 

@@ -20,6 +20,7 @@
     communitySectionName?: string
     readOnly?: boolean
     allowedAuthors?: string[]
+    activityLiveCovered?: boolean
   }
 
   const {
@@ -32,6 +33,7 @@
     communitySectionName = "",
     readOnly = false,
     allowedAuthors = undefined,
+    activityLiveCovered = false,
   }: Props = $props()
 
   const path = makeGoalPath(url, event.id)
@@ -67,7 +69,14 @@
     reactionClass="tooltip-left" />
   <ThunkStatusOrDeleted {event} />
   {#if showActivity}
-    <EventActivity {url} {path} {event} {relays} {scopeH} {allowedAuthors} />
+    <EventActivity
+      {url}
+      {path}
+      {event}
+      {relays}
+      {scopeH}
+      {allowedAuthors}
+      coreCommunityLiveCovered={activityLiveCovered} />
   {/if}
   <EventActions
     {url}

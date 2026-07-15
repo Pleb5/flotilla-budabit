@@ -22,6 +22,7 @@
     communitySectionName?: string
     readOnly?: boolean
     allowedAuthors?: string[]
+    activityLiveCovered?: boolean
   }
 
   const {
@@ -32,6 +33,7 @@
     communitySectionName = "",
     readOnly = false,
     allowedAuthors = undefined,
+    activityLiveCovered = false,
   }: Props = $props()
 
   const title = getTagValue("title", event.tags)
@@ -74,6 +76,7 @@
         {communitySectionName}
         {readOnly}
         {allowedAuthors}
+        {activityLiveCovered}
         {event} />
     </div>
   {/if}

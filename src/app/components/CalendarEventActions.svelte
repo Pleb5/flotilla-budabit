@@ -27,6 +27,7 @@
     readOnly?: boolean
     allowedAuthors?: string[]
     redirectOnEdit?: boolean
+    activityLiveCovered?: boolean
   }
 
   const {
@@ -40,6 +41,7 @@
     readOnly = false,
     allowedAuthors = undefined,
     redirectOnEdit = false,
+    activityLiveCovered = false,
   }: Props = $props()
 
   const h = getTagValue("h", event.tags)
@@ -84,7 +86,14 @@
     reactionClass="tooltip-left" />
   <ThunkStatusOrDeleted {event} />
   {#if showActivity}
-    <EventActivity {url} {path} {event} {relays} {scopeH} {allowedAuthors} />
+    <EventActivity
+      {url}
+      {path}
+      {event}
+      {relays}
+      {scopeH}
+      {allowedAuthors}
+      coreCommunityLiveCovered={activityLiveCovered} />
   {/if}
   <EventActions
     {url}

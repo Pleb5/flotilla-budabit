@@ -402,16 +402,6 @@
   })
 
   $effect(() => {
-    if (!community || $activeCommunityRelays.length === 0) return
-    if (roomFilters.length === 0) return
-
-    const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: roomFilters, signal: controller.signal})
-
-    return () => controller.abort()
-  })
-
-  $effect(() => {
     const filters = admissionEvidenceFilters
 
     if (!menuBackgroundHydrationReady) return

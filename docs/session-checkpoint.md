@@ -12,16 +12,16 @@
 
 ## Current Phase
 
-- Phase 4: Activity Coordinator And Immediate Duplicates
+- Phase 5: Background Stream Consolidation
 
 ## Phase Exit Criteria
 
-- `EventActivity` is repository-driven with one route-scoped coordinator for finite history and grouped live references.
-- Core community `COMMENT #h` coverage suppresses duplicate activity live IDs.
-- Group replacement uses fixed route `since`, overlap, cleanup, and make-before-break behavior.
-- `CommunityMenu` opens no room-root live request and Git issue-label prefetch is finite.
-- One hundred covered components add zero persistent IDs; uncovered compatible components remain bounded.
-- Focused activity/menu/issue tests, `pnpm check`, and `git diff --check` pass.
+- Notification catch-up precedes grouped live monitoring and community filters are partitioned by relay.
+- Foreground community coverage suppresses duplicate background community traffic and restores on exit.
+- Repo foreground/watchers use one owner per canonical repo/relay and bounded persistent filters.
+- Widget updates are explicitly grouped background-live traffic.
+- Primary navigation respects intended background startup gating.
+- Focused notification/repo/widget tests, `pnpm check`, and `git diff --check` pass.
 - Phase changes and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -65,6 +65,17 @@
   - Focused community state/live/feed/room/thread/calendar tests passed: 6 files, 48 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 4 added a route-scoped activity coordinator:
+  - Exact activity history is finite, background-priority, and bounded by a fixed route boundary.
+  - Live `#E`, `#A`, and `#a` references are grouped in chunks of 100 with make-before-break replacement.
+  - Community routes covered by core `COMMENT #h` issue no additional activity live request.
+  - Registration reference counts close the coordinator after the last consumer.
+- Phase 4 converted `EventActivity` to repository derivation plus coordinator registration and threaded explicit community coverage through thread/calendar/goal cards.
+- Phase 4 removed CommunityMenu room-root network ownership and made Git issue-label prefetch finite/background with repository publication.
+- Phase 4 verification passed:
+  - Focused activity/scheduler/live/feed tests passed: 4 files, 46 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -79,11 +90,11 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Unrelated worktree changes exist only under `packages/nostr-git-core/`.
-- Phases 1 through 3 are verified; the checkpoint has advanced to Phase 4.
+- Phases 1 through 4 are verified; the checkpoint has advanced to Phase 5.
 
 ## Next Action
 
-- Implement the route-scoped activity coordinator, convert `EventActivity` to repository consumption, then remove menu live ownership and make issue-label prefetch finite.
+- Inventory current notification/repo/widget helper ownership after Phases 1-4, then consolidate finite catch-up and relay-scoped background live streams.
 
 ## Verification
 
@@ -99,11 +110,14 @@
 - Phase 3: focused Vitest passed, 6 files and 48 tests.
 - Phase 3: `pnpm check` passed with no diagnostics.
 - Phase 3: `git diff --check` passed.
+- Phase 4: focused Vitest passed, 4 files and 46 tests.
+- Phase 4: `pnpm check` passed with no diagnostics.
+- Phase 4: `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
-- `EventActivity` still creates one or three persistent requests per mounted item until Phase 4 replaces ownership.
+- Notification and repo-watch helpers still start persistent live requests alongside delayed finite loaders and may broadcast filters across unrelated relays.
 - Existing unrelated `nostr-git-core` changes must remain unstaged.
 
 ## Files
@@ -130,3 +144,8 @@
 - `src/app/components/EventActivity.svelte`
 - `src/app/components/CommunityMenu.svelte`
 - `src/routes/git/[id=naddr]/issues/+page.svelte`
+- `src/app/util/notification-sources.ts`
+- `src/app/util/repo-watch-notifications.ts`
+- `src/app/extensions/widget-update-notifications.ts`
+- `src/app/core/repo-live-ownership.ts`
+- `src/routes/git/[id=naddr]/+layout.svelte`

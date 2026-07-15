@@ -501,6 +501,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
+        activityLiveCovered
         communitySectionName={getCalendarEventSectionName(event.kind)}
         allowedAuthors={interactionAuthorPubkeys}
         readOnly={!canReact}

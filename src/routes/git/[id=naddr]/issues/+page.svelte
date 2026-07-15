@@ -72,6 +72,7 @@
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -701,6 +702,9 @@
 
       request({
         relays: relayList,
+        autoClose: true,
+        lifetime: "finite",
+        priority: RELAY_REQUEST_PRIORITY.background,
         signal: controller.signal,
         filters,
         onEvent: event => {

@@ -398,6 +398,7 @@
       url={communityPubkey}
       relays={$activeCommunityRelays}
       scopeH={communityPubkey}
+      activityLiveCovered
       communitySectionName={goalSectionName}
       allowedAuthors={interactionAuthorPubkeys}
       readOnly={!canReact}

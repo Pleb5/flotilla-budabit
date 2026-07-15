@@ -313,6 +313,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
+        activityLiveCovered
         communitySectionName={threadSectionName}
         allowedAuthors={replyAuthorPubkeys}
         readOnly={!canReact}
