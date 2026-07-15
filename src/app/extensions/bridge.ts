@@ -11,9 +11,18 @@ import {
   activeCommunityRelays,
   activeCommunityReportState,
   authenticateCommunityRelays,
+  getCommunityBootstrapRelays,
+  getPubkeyOutboxRelays,
   loadCommunityEvents,
+  loadCommunityEventsWithStatus,
+  type CommunityRelayLoadResult,
 } from "@app/core/community-state"
-import {PROFILE_LIST_KIND, normalizePubkey, type CommunityDefinition} from "@app/core/community"
+import {
+  PROFILE_LIST_KIND,
+  normalizePubkey,
+  normalizeRelays,
+  type CommunityDefinition,
+} from "@app/core/community"
 import {
   filterCommunityDescriptorEvents,
   getCommunityContextRuntimeSnapshot,
@@ -137,6 +146,7 @@ const COMMUNITY_SHARED_CONFIG_KIND = 30078
 const COMMUNITY_SHARED_CONFIG_PREFIX = "budabit-community-config"
 const COMMUNITY_BRIDGE_LOAD_TIMEOUT = 5000
 const COMMUNITY_CONTEXT_NOT_READY_CODE = "COMMUNITY_CONTEXT_NOT_READY"
+const COMMUNITY_QUERY_TIMEOUT_CODE = "COMMUNITY_QUERY_TIMEOUT"
 const LIVE_STREAM_KIND = 30311
 const COMMUNITY_STREAM_TAG_PREFIX = "budabit-community:"
 const DEFAULT_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS = [
@@ -847,6 +857,14 @@ const parseSharedConfigContent = (event: any) => {
 const makeCommunityContextNotReadyError = (message: string) =>
   Object.assign(new Error(message), {code: COMMUNITY_CONTEXT_NOT_READY_CODE})
 
+const makeCommunityQueryTimeoutError = () =>
+  Object.assign(new Error("Community relay query is still loading"), {
+    code: COMMUNITY_QUERY_TIMEOUT_CODE,
+  })
+
+const isCommunityLoadingError = (error: any) =>
+  error?.code === COMMUNITY_CONTEXT_NOT_READY_CODE || error?.code === COMMUNITY_QUERY_TIMEOUT_CODE
+
 const isPreferredEvent = (candidate: any, current: any | undefined) => {
   if (!current) return true
   if ((candidate.created_at || 0) !== (current.created_at || 0)) {
@@ -895,6 +913,45 @@ const hasModeratorHostTag = (event: any, moderatorPubkeys: Set<string>) =>
       moderatorPubkeys.has(normalizePubkey(String(tag?.[1] || ""))) &&
       String(tag?.[3] || "").toLowerCase() === "host",
   )
+
+const selectAuthorizedLiveStreams = ({
+  events,
+  moderatorPubkeys,
+  communityPubkey,
+  since,
+  until,
+  limit,
+}: {
+  events: any[]
+  moderatorPubkeys: Set<string>
+  communityPubkey: string
+  since?: number
+  until?: number
+  limit: number
+}) =>
+  selectLiveStreamReplacements(events)
+    .filter(event => {
+      const author = normalizePubkey(event?.pubkey || "")
+      const createdAt = Number(event?.created_at || 0)
+      const direct = moderatorPubkeys.has(author)
+      const delegated =
+        TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS.has(author) &&
+        hasModeratorHostTag(event, moderatorPubkeys)
+
+      return (
+        Boolean(author) &&
+        hasCommunityStreamTag(event, communityPubkey) &&
+        (!since || createdAt >= since) &&
+        (!until || createdAt <= until) &&
+        (direct || delegated)
+      )
+    })
+    .sort(
+      (a, b) =>
+        (b.created_at || 0) - (a.created_at || 0) ||
+        String(a.id || "").localeCompare(String(b.id || "")),
+    )
+    .slice(0, limit)
 
 const selectCommunitySharedConfigEvent = (events: any[], moderatorPubkeys: Set<string>) =>
   events
@@ -984,6 +1041,16 @@ const filterExactCommunityRefEvents = <T extends {pubkey?: string}>(
     ? events.filter(event => writerSet.has(normalizePubkey(event.pubkey || "")))
     : []
 }
+
+const exactCommunityRefsCovered = (refs: string[], events: any[]) =>
+  refs.length > 0 &&
+  refs.every(ref =>
+    events.some(event => {
+      if (HEX_EVENT_ID.test(ref)) return String(event?.id || "").toLowerCase() === ref.toLowerCase()
+
+      return getBridgeEventAddress(event).toLowerCase() === ref.toLowerCase()
+    }),
+  )
 
 const isCommunityPermissionEvidenceLoading = (
   snapshot: ReturnType<typeof getCommunityRequestSnapshot>,
@@ -1094,12 +1161,14 @@ const loadBridgeEvents = async ({
   timeoutMs = COMMUNITY_BRIDGE_LOAD_TIMEOUT,
   authenticate = false,
   priorityAuthRelays = [],
+  settle = "all",
 }: {
   relays: string[]
   filters: Record<string, unknown>[]
   timeoutMs?: number
   authenticate?: boolean
   priorityAuthRelays?: string[]
+  settle?: "all" | "first" | "first-non-empty"
 }) => {
   if (relays.length === 0 || filters.length === 0) return []
 
@@ -1108,6 +1177,7 @@ const loadBridgeEvents = async ({
       timeout: timeoutMs,
       authenticate,
       priorityAuthRelays,
+      settle,
     })
   } catch (error: any) {
     console.warn("[bridge] community query load failed", error?.message || error)
@@ -1115,24 +1185,94 @@ const loadBridgeEvents = async ({
   }
 }
 
+const loadBridgeEventsWithStatus = async ({
+  relays,
+  filters,
+  timeoutMs = COMMUNITY_BRIDGE_LOAD_TIMEOUT,
+  authenticate = false,
+  priorityAuthRelays = [],
+  settle = "all",
+}: {
+  relays: string[]
+  filters: Record<string, unknown>[]
+  timeoutMs?: number
+  authenticate?: boolean
+  priorityAuthRelays?: string[]
+  settle?: "all" | "first" | "first-non-empty"
+}): Promise<CommunityRelayLoadResult> => {
+  if (relays.length === 0 || filters.length === 0) {
+    return {events: [], complete: true, timedOutRelays: [], failedRelays: []}
+  }
+
+  try {
+    return await loadCommunityEventsWithStatus(relays, filters as any, {
+      timeout: timeoutMs,
+      authenticate,
+      priorityAuthRelays,
+      settle,
+    })
+  } catch (error: any) {
+    console.warn("[bridge] community query load failed", error?.message || error)
+    return {events: [], complete: false, timedOutRelays: [], failedRelays: relays}
+  }
+}
+
+const profileListHydrationPromises = new Map<string, Promise<any[]>>()
+
+const profileListFiltersCovered = (filters: Record<string, unknown>[], events: any[]) =>
+  filters.every(filter =>
+    events.some(event => {
+      const authors = Array.isArray(filter.authors) ? filter.authors : []
+      const identifiers = Array.isArray(filter["#d"]) ? filter["#d"] : []
+      const identifier = event?.tags?.find((tag: any) => tag?.[0] === "d")?.[1]
+
+      return (
+        event?.kind === PROFILE_LIST_KIND &&
+        authors.includes(event?.pubkey) &&
+        identifiers.includes(identifier)
+      )
+    }),
+  )
+
 const hydrateCommunityRequestSnapshot = async (
   snapshot: ReturnType<typeof getCommunityRequestSnapshot>,
 ) => {
   const profileListFilters = makeCommunityProfileListFilters(snapshot.definition)
   if (profileListFilters.length === 0) return snapshot
 
-  const loadedProfileListEvents = await loadBridgeEvents({
-    relays: snapshot.relays,
+  const cachedProfileListEvents = dedupeEvents([
+    ...snapshot.profileListEvents,
+    ...queryCachedBridgeEvents(profileListFilters),
+  ]).filter(event => event.kind === PROFILE_LIST_KIND)
+  if (profileListFiltersCovered(profileListFilters, cachedProfileListEvents)) {
+    return {...snapshot, profileListEvents: cachedProfileListEvents}
+  }
+  if (isCommunityPermissionEvidenceLoading(snapshot)) {
+    throw makeCommunityContextNotReadyError("Community permissions are still loading")
+  }
+
+  const hydrationKey = JSON.stringify({
+    definition: snapshot.definition.event.id,
+    relays: normalizeRelays(snapshot.relays),
     filters: profileListFilters,
-    timeoutMs: 3500,
-    authenticate: true,
-    priorityAuthRelays: snapshot.relayHints,
   })
+  let hydration = profileListHydrationPromises.get(hydrationKey)
+  if (!hydration) {
+    hydration = loadBridgeEvents({
+      relays: snapshot.relays,
+      filters: profileListFilters,
+      timeoutMs: 3500,
+      authenticate: true,
+      priorityAuthRelays: snapshot.relayHints,
+    }).finally(() => profileListHydrationPromises.delete(hydrationKey))
+    profileListHydrationPromises.set(hydrationKey, hydration)
+  }
+  const loadedProfileListEvents = await hydration
 
   return {
     ...snapshot,
     profileListEvents: dedupeEvents([
-      ...snapshot.profileListEvents,
+      ...cachedProfileListEvents,
       ...loadedProfileListEvents.filter(event => event.kind === PROFILE_LIST_KIND),
     ]),
   }
@@ -1191,16 +1331,100 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       writerPubkeys: exactRefWriterPubkeys,
     })
     const cachedExactRefEvents = queryCachedBridgeEvents(exactRefFilters)
-    const loadedExactRefEvents = await loadBridgeEvents({
-      relays: snapshot.relays,
+    const exactRefAuthorPubkeys = Array.from(
+      new Set(
+        exactRefFilters
+          .flatMap(filter => (Array.isArray(filter.authors) ? filter.authors : []))
+          .map(author => normalizePubkey(String(author || "")))
+          .filter(Boolean),
+      ),
+    )
+    const exactRefOutboxPubkeys = exactRefAuthorPubkeys.length
+      ? exactRefAuthorPubkeys
+      : exactRefWriterPubkeys
+    const exactRefWriterOutboxRelays = exactRefOutboxPubkeys.flatMap(pubkey =>
+      getPubkeyOutboxRelays([pubkey]),
+    )
+    const exactRefRelays = normalizeRelays([
+      ...snapshot.relays,
+      ...getCommunityBootstrapRelays(exactRefWriterOutboxRelays),
+    ])
+    const authorizedCachedExactRefEvents = filterExactCommunityRefEvents(
+      cachedExactRefEvents,
+      exactRefWriterPubkeys,
+    )
+
+    if (
+      request.refs?.length &&
+      exactCommunityRefsCovered(request.refs, authorizedCachedExactRefEvents)
+    ) {
+      void loadBridgeEventsWithStatus({
+        relays: exactRefRelays,
+        filters: exactRefFilters,
+        authenticate: true,
+        priorityAuthRelays: snapshot.relayHints,
+        settle: "all",
+      })
+      const events = filterCommunityDescriptorEvents(
+        authorizedCachedExactRefEvents as any,
+        snapshot.definition.pubkey,
+        descriptorInfos.map(info => info.descriptor),
+      )
+        .sort((a: any, b: any) => (b.created_at || 0) - (a.created_at || 0))
+        .slice(0, request.limit)
+
+      return {
+        status: "ok",
+        events,
+        relays: snapshot.relays,
+        descriptors: descriptorInfos.map(info => info.descriptor),
+        contextSessionId: snapshot.contextSessionId,
+        contextVersion: snapshot.contextVersion,
+      }
+    }
+
+    const loadedExactRefResult = await loadBridgeEventsWithStatus({
+      relays: exactRefRelays,
       filters: exactRefFilters,
       authenticate: true,
       priorityAuthRelays: snapshot.relayHints,
+      settle: "all",
     })
     const exactRefEvents = filterExactCommunityRefEvents(
-      dedupeEvents([...cachedExactRefEvents, ...loadedExactRefEvents]),
+      dedupeEvents([...cachedExactRefEvents, ...loadedExactRefResult.events]),
       exactRefWriterPubkeys,
     )
+
+    if (request.refs?.length) {
+      const events = filterCommunityDescriptorEvents(
+        exactRefEvents as any,
+        snapshot.definition.pubkey,
+        descriptorInfos.map(info => info.descriptor),
+      )
+        .sort((a: any, b: any) => (b.created_at || 0) - (a.created_at || 0))
+        .slice(0, request.limit)
+
+      if (!exactCommunityRefsCovered(request.refs, events) && !loadedExactRefResult.complete) {
+        throw makeCommunityQueryTimeoutError()
+      }
+
+      if (ext) {
+        console.log(`[bridge] community:queryEvents exact result from ${ext.id}`, {
+          refs: request.refs,
+          returnedEventCount: events.length,
+          returnedRefs: events.map((event: any) => getBridgeEventAddress(event)),
+        })
+      }
+
+      return {
+        status: "ok",
+        events,
+        relays: snapshot.relays,
+        descriptors: descriptorInfos.map(info => info.descriptor),
+        contextSessionId: snapshot.contextSessionId,
+        contextVersion: snapshot.contextVersion,
+      }
+    }
 
     const initialPlan = makeCommunityDescriptorQueryPlan({
       definition: snapshot.definition,
@@ -1216,15 +1440,18 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       ? [{...initialPlan.targetingFilter, limit: Math.max(request.limit || 100, 100)}]
       : []
     const cachedTargetingEvents = queryCachedBridgeEvents(targetingFilters)
-    const loadedTargetingEvents = targetingFilters.length
-      ? await loadBridgeEvents({
+    const loadedTargetingResult = targetingFilters.length
+      ? await loadBridgeEventsWithStatus({
           relays: snapshot.relays,
           filters: targetingFilters,
           authenticate: true,
           priorityAuthRelays: snapshot.relayHints,
         })
-      : []
-    const targetingEvents = dedupeEvents([...cachedTargetingEvents, ...loadedTargetingEvents])
+      : {events: [], complete: true, timedOutRelays: [], failedRelays: []}
+    const targetingEvents = dedupeEvents([
+      ...cachedTargetingEvents,
+      ...loadedTargetingResult.events,
+    ])
     const plan = makeCommunityDescriptorQueryPlan({
       definition: snapshot.definition,
       profileListEvents: snapshot.profileListEvents,
@@ -1236,25 +1463,29 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       until: request.until,
     })
     const cachedEvents = queryCachedBridgeEvents(plan.originalFilters)
-    const loadedEvents = await loadBridgeEvents({
+    const loadedResult = await loadBridgeEventsWithStatus({
       relays: snapshot.relays,
       filters: plan.originalFilters,
       authenticate: true,
       priorityAuthRelays: snapshot.relayHints,
     })
     const events = filterCommunityDescriptorEvents(
-      dedupeEvents([...exactRefEvents, ...cachedEvents, ...loadedEvents]) as any,
+      dedupeEvents([...exactRefEvents, ...cachedEvents, ...loadedResult.events]) as any,
       snapshot.definition.pubkey,
       plan.descriptors,
     ).sort((a: any, b: any) => (b.created_at || 0) - (a.created_at || 0))
     const limitedEvents = events.slice(0, request.limit)
+
+    if (limitedEvents.length === 0 && (!loadedTargetingResult.complete || !loadedResult.complete)) {
+      throw makeCommunityQueryTimeoutError()
+    }
 
     if (ext) {
       console.log(`[bridge] community:queryEvents result from ${ext.id}`, {
         refs: request.refs || [],
         exactRefEventCount: exactRefEvents.length,
         cachedEventCount: cachedEvents.length,
-        loadedEventCount: loadedEvents.length,
+        loadedEventCount: loadedResult.events.length,
         returnedEventCount: limitedEvents.length,
         filterCount: plan.originalFilters.length,
         returnedRefs: limitedEvents.slice(0, 10).map((event: any) => ({
@@ -1276,7 +1507,9 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       contextVersion: snapshot.contextVersion,
     }
   } catch (err: any) {
-    console.error("Error in community:queryEvents bridge handler:", err)
+    if (!isCommunityLoadingError(err)) {
+      console.error("Error in community:queryEvents bridge handler:", err)
+    }
     return {error: err.message, ...(err.code ? {code: err.code} : {})}
   }
 })
@@ -1321,36 +1554,46 @@ registerBridgeHandler("community:queryLiveStreams", async (payload, ext) => {
       })
     }
 
-    const loadedEvents = await loadBridgeEvents({
+    const communityPubkey = normalizePubkey(snapshot.definition.pubkey)
+    const selectEvents = (events: any[]) =>
+      selectAuthorizedLiveStreams({
+        events,
+        moderatorPubkeys,
+        communityPubkey,
+        since: request.since,
+        until: request.until,
+        limit: request.limit || 100,
+      })
+    const cachedEvents = queryCachedBridgeEvents(filters)
+    const cachedStreams = selectEvents(cachedEvents)
+
+    if (cachedStreams.length > 0) {
+      void loadBridgeEventsWithStatus({
+        relays: snapshot.relays,
+        filters,
+        authenticate: true,
+        priorityAuthRelays: snapshot.relayHints,
+      })
+
+      return {
+        status: "ok",
+        events: cachedStreams,
+        relays: snapshot.relays,
+        descriptors: descriptorInfos.map(info => info.descriptor),
+        contextSessionId: snapshot.contextSessionId,
+        contextVersion: snapshot.contextVersion,
+      }
+    }
+
+    const loadedResult = await loadBridgeEventsWithStatus({
       relays: snapshot.relays,
       filters,
       authenticate: true,
       priorityAuthRelays: snapshot.relayHints,
     })
-    const communityPubkey = normalizePubkey(snapshot.definition.pubkey)
-    const events = selectLiveStreamReplacements(loadedEvents)
-      .filter(event => {
-        const author = normalizePubkey(event?.pubkey || "")
-        const createdAt = Number(event?.created_at || 0)
-        const direct = moderatorPubkeys.has(author)
-        const delegated =
-          TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS.has(author) &&
-          hasModeratorHostTag(event, moderatorPubkeys)
+    const events = selectEvents([...cachedEvents, ...loadedResult.events])
 
-        return (
-          Boolean(author) &&
-          hasCommunityStreamTag(event, communityPubkey) &&
-          (!request.since || createdAt >= request.since) &&
-          (!request.until || createdAt <= request.until) &&
-          (direct || delegated)
-        )
-      })
-      .sort(
-        (a, b) =>
-          (b.created_at || 0) - (a.created_at || 0) ||
-          String(a.id || "").localeCompare(String(b.id || "")),
-      )
-      .slice(0, request.limit)
+    if (events.length === 0 && !loadedResult.complete) throw makeCommunityQueryTimeoutError()
 
     return {
       status: "ok",
@@ -1361,7 +1604,9 @@ registerBridgeHandler("community:queryLiveStreams", async (payload, ext) => {
       contextVersion: snapshot.contextVersion,
     }
   } catch (err: any) {
-    console.error("Error in community:queryLiveStreams bridge handler:", err)
+    if (!isCommunityLoadingError(err)) {
+      console.error("Error in community:queryLiveStreams bridge handler:", err)
+    }
     return {error: err.message, ...(err.code ? {code: err.code} : {})}
   }
 })
@@ -1431,20 +1676,21 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
     const hydratedModeratorPubkeys = new Set(
       hydratedResolved.flatMap(info => info.moderatorPubkeys),
     )
-    const loadedEvents = await loadBridgeEvents({
+    const loadedResult = await loadBridgeEventsWithStatus({
       relays: hydratedSnapshot.relays,
       filters: [sharedConfigFilter],
       authenticate: true,
       priorityAuthRelays: hydratedSnapshot.relayHints,
     })
     const selected = selectCommunitySharedConfigEvent(
-      dedupeEvents([...cachedEvents, ...loadedEvents]),
+      dedupeEvents([...cachedEvents, ...loadedResult.events]),
       hydratedModeratorPubkeys,
     )
 
     if (!selected && isCommunityPermissionEvidenceLoading(hydratedSnapshot)) {
       throw makeCommunityContextNotReadyError("Community permissions are still loading")
     }
+    if (!selected && !loadedResult.complete) throw makeCommunityQueryTimeoutError()
 
     if (ext) {
       console.log(`[bridge] community:querySharedConfig result from ${ext.id}`, {
@@ -1453,7 +1699,7 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
         eventId: selected?.id,
         author: selected?.pubkey,
         cachedEventCount: cachedEvents.length,
-        loadedEventCount: loadedEvents.length,
+        loadedEventCount: loadedResult.events.length,
         moderatorPubkeyCount: hydratedModeratorPubkeys.size,
       })
     }
@@ -1466,7 +1712,9 @@ registerBridgeHandler("community:querySharedConfig", async (payload, ext) => {
       contextVersion: hydratedSnapshot.contextVersion,
     }
   } catch (err: any) {
-    console.error("Error in community:querySharedConfig bridge handler:", err)
+    if (!isCommunityLoadingError(err)) {
+      console.error("Error in community:querySharedConfig bridge handler:", err)
+    }
     return {error: err.message, ...(err.code ? {code: err.code} : {})}
   }
 })
@@ -1521,13 +1769,21 @@ registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
         ),
       ],
     }
+    await authenticatePublishCommunityRelays(snapshot.relays)
     const thunk = (publishThunk as any)({event, relays: snapshot.relays})
     await thunk.complete
+    const successCount = Object.values(thunk.results || {}).filter(
+      (result: any) => result?.status === PublishStatus.Success,
+    ).length
+    if (successCount === 0) {
+      throw new Error("Shared community config was not accepted by any relay")
+    }
 
     return {
       status: "ok",
       eventId: thunk.event?.id,
       relays: snapshot.relays,
+      successCount,
       contextSessionId: snapshot.contextSessionId,
       contextVersion: snapshot.contextVersion,
     }

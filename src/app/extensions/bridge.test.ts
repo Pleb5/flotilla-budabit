@@ -41,13 +41,24 @@ const mocks = vi.hoisted(() => {
 
     return events
   })
+  const loadCommunityEventsWithStatus = vi.fn(
+    async (relays: string[], filters: any[], options?: any) => ({
+      events: await loadCommunityEvents(relays, filters, options),
+      complete: true,
+      timedOutRelays: [],
+      failedRelays: [],
+    }),
+  )
   const authenticateCommunityRelays = vi.fn(async () => undefined)
+  const getPubkeyOutboxRelays = vi.fn(() => [] as string[])
 
   return {
     publishThunk: vi.fn(),
     load,
     loadCommunityEvents,
+    loadCommunityEventsWithStatus,
     authenticateCommunityRelays,
+    getPubkeyOutboxRelays,
     pushToast: vi.fn(),
     repository: {query: vi.fn(() => [] as any[])},
     signer: createStore(null),
@@ -160,7 +171,10 @@ vi.mock("@app/core/community-state", () => ({
   activeCommunityRelays: mocks.activeCommunityRelays,
   activeCommunityReportState: mocks.activeCommunityReportState,
   authenticateCommunityRelays: mocks.authenticateCommunityRelays,
+  getCommunityBootstrapRelays: vi.fn((relays: string[] = []) => relays),
+  getPubkeyOutboxRelays: mocks.getPubkeyOutboxRelays,
   loadCommunityEvents: mocks.loadCommunityEvents,
+  loadCommunityEventsWithStatus: mocks.loadCommunityEventsWithStatus,
 }))
 
 vi.mock("@welshman/net", () => ({
@@ -258,6 +272,7 @@ beforeEach(() => {
   mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
   mocks.load.mockResolvedValue(undefined)
   mocks.repository.query.mockReturnValue([])
+  mocks.getPubkeyOutboxRelays.mockReturnValue([])
   mocks.goto.mockResolvedValue(undefined)
   mocks.pubkey.set(undefined)
   mocks.activeRepoClass.set(null)
@@ -676,11 +691,7 @@ describe("ExtensionBridge", () => {
         },
       ],
     })
-    expect(mocks.loadCommunityEvents).toHaveBeenCalledWith(
-      ["wss://preview.example.com/"],
-      expect.any(Array),
-      expect.objectContaining({authenticate: true}),
-    )
+    expect(mocks.loadCommunityEvents).not.toHaveBeenCalled()
   })
 
   it("recognizes descriptor writers without treating them as section moderators", async () => {
@@ -989,7 +1000,7 @@ describe("ExtensionBridge", () => {
     mocks.pubkey.set(calendarWriterPubkey)
     mocks.publishThunk.mockReturnValue({
       complete: Promise.resolve(),
-      results: {},
+      results: {"wss://relay.example.com/": {status: "success"}},
       event: {id: "published-config"},
     })
 
@@ -1001,6 +1012,10 @@ describe("ExtensionBridge", () => {
         config: {header: "Featured", eventRefs: [calendarEventRef]},
       }),
     ).resolves.toMatchObject({status: "ok", eventId: "published-config"})
+    expect(mocks.authenticateCommunityRelays).toHaveBeenCalledWith(
+      ["wss://relay.example.com/"],
+      expect.any(Object),
+    )
     expect(mocks.publishThunk).toHaveBeenCalledWith(
       expect.objectContaining({
         relays: ["wss://relay.example.com/"],
@@ -1205,15 +1220,17 @@ describe("ExtensionBridge", () => {
     })
   })
 
-  it("returns exact referenced community events without targeting events", async () => {
+  it("returns exact referenced community events from writer outboxes without targeting events", async () => {
     const {ExtensionBridge} = await import("./bridge")
     mocks.activeCommunityDefinition.set(communityDefinition)
     mocks.activeCommunityProfileListEvents.set([calendarProfileList])
     mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
-    mocks.load.mockImplementation(async ({filters, onEvent}: any) => {
+    mocks.getPubkeyOutboxRelays.mockReturnValue(["wss://writer-outbox.example.com/"])
+    mocks.load.mockImplementation(async ({relays, filters, onEvent}: any) => {
       const filter = filters?.[0] || {}
 
       if (
+        relays.includes("wss://writer-outbox.example.com/") &&
         filter.kinds?.[0] === EVENT_TIME &&
         filter.authors?.[0] === calendarWriterPubkey &&
         filter["#d"]?.[0] === "event-1"
@@ -1240,6 +1257,38 @@ describe("ExtensionBridge", () => {
       status: "ok",
       events: [calendarEvent],
     })
+    expect(mocks.getPubkeyOutboxRelays).toHaveBeenCalledWith([calendarWriterPubkey])
+    expect(mocks.loadCommunityEvents).toHaveBeenCalledTimes(1)
+    expect(mocks.loadCommunityEvents.mock.calls[0][2]).toMatchObject({
+      settle: "all",
+    })
+  })
+
+  it("returns fully cached exact refs without waiting for relay refresh", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.repository.query.mockImplementation(((filters: any[]) =>
+      filters?.[0]?.kinds?.includes(EVENT_TIME) ? [calendarEvent] : []) as any)
+    mocks.loadCommunityEventsWithStatus.mockReturnValueOnce(new Promise(() => undefined))
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:queryEvents"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [calendarEventRef],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({status: "ok", events: [calendarEvent]})
+    expect(mocks.loadCommunityEventsWithStatus).toHaveBeenCalledTimes(1)
   })
 
   it("queries direct and trusted-provider live streams hosted by descriptor moderators", async () => {
@@ -1342,6 +1391,43 @@ describe("ExtensionBridge", () => {
       ]),
       expect.objectContaining({authenticate: true}),
     )
+  })
+
+  it("returns authorized cached live streams without waiting for relay refresh", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const cachedStream = makeEvent({
+      id: "cached-live",
+      kind: 30311,
+      pubkey: calendarWriterPubkey,
+      created_at: 20,
+      tags: [
+        ["d", "cached-stream"],
+        ["h", communityPubkey],
+        ["status", "live"],
+      ],
+    })
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.repository.query.mockImplementation(((filters: any[]) =>
+      filters?.[0]?.kinds?.includes(30311) ? [cachedStream] : []) as any)
+    mocks.loadCommunityEventsWithStatus.mockReturnValueOnce(new Promise(() => undefined))
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:queryLiveStreams"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryLiveStreams", {
+        descriptors: [{kind: EVENT_TIME}],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({status: "ok", events: [cachedStream]})
+    expect(mocks.loadCommunityEventsWithStatus).toHaveBeenCalledTimes(1)
   })
 
   it("uses the lower event id when live-stream replacements share a timestamp", async () => {
