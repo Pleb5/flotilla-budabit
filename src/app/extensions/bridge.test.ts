@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => {
   }
 
   const load = vi.fn()
+  const request = vi.fn()
   const loadCommunityEvents = vi.fn(async (relays: string[], filters: any[], options?: any) => {
     const events: any[] = []
     await load({
@@ -55,6 +56,7 @@ const mocks = vi.hoisted(() => {
   return {
     publishThunk: vi.fn(),
     load,
+    request,
     loadCommunityEvents,
     loadCommunityEventsWithStatus,
     authenticateCommunityRelays,
@@ -180,6 +182,7 @@ vi.mock("@app/core/community-state", () => ({
 vi.mock("@welshman/net", () => ({
   PublishStatus: {Success: "success"},
   load: mocks.load,
+  request: mocks.request,
 }))
 
 vi.mock("@app/util/toast", () => ({
@@ -271,6 +274,12 @@ beforeEach(() => {
   localStorage.clear()
   mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
   mocks.load.mockResolvedValue(undefined)
+  mocks.request.mockImplementation((options: any) => {
+    options.onStart?.(options.relays[0])
+    return new Promise(resolve => {
+      options.signal?.addEventListener("abort", () => resolve([]), {once: true})
+    })
+  })
   mocks.repository.query.mockReturnValue([])
   mocks.getPubkeyOutboxRelays.mockReturnValue([])
   mocks.goto.mockResolvedValue(undefined)
@@ -369,6 +378,51 @@ describe("ExtensionBridge", () => {
       },
       extension.origin,
     )
+  })
+
+  it("returns host subscription IDs, forwards matched events, and cleans up on detach", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension({
+      widget: {permissions: ["nostr:subscribe", "nostr:unsubscribe"]},
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    const response = await sendBridgeRequest(bridge, extension, "nostr:subscribe", {
+      subscriptionId: "client-selected-id",
+      relays: ["wss://relay.example"],
+      filter: {kinds: [30301], "#d": ["board"], limit: 20},
+    })
+
+    expect(response).toMatchObject({status: "ok", subscriptionId: expect.stringMatching(/^sub-/)})
+    expect(response.subscriptionId).not.toBe("client-selected-id")
+    expect(mocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relays: ["wss://relay.example/"],
+        lifetime: "live",
+        priority: -100,
+        owner: "extension:test-extension",
+      }),
+    )
+
+    const options = mocks.request.mock.calls[0][0]
+    options.onEvent(
+      makeEvent({kind: 30301, tags: [["d", "board"]]}),
+      "wss://relay.example/",
+    )
+    expect(extension.iframeWindow.postMessage).toHaveBeenCalledWith(
+      {
+        type: "event",
+        action: "nostr:subscription:event",
+        payload: {
+          subscriptionId: response.subscriptionId,
+          event: expect.objectContaining({kind: 30301}),
+        },
+      },
+      extension.origin,
+    )
+
+    bridge.detach()
+    expect(options.signal.aborted).toBe(true)
   })
 
   it("navigates the host app through ui:navigate", async () => {

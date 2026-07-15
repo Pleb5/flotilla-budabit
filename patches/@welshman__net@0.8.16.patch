@@ -39,15 +39,47 @@ index 3d18230505eb95ca00d015234410e89392a7cd21..b4a08178c64fde937807ccf6faffc089
              lastActivity = now();
              if (isRelayClosed(message) || isRelayOk(message)) {
 diff --git a/dist/net/src/request.d.ts b/dist/net/src/request.d.ts
-index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76d453b3ee 100644
+index 9a38116507622ad55ec99c61de364ed31b6d626b..607011138d638b742e63dc74a576e431d17aedcc 100644
 --- a/dist/net/src/request.d.ts
 +++ b/dist/net/src/request.d.ts
-@@ -2,7 +2,34 @@ import { Deferred } from "@welshman/lib";
+@@ -2,7 +2,67 @@ import { Deferred } from "@welshman/lib";
  import { Filter, TrustedEvent } from "@welshman/util";
  import { AdapterContext } from "./adapter.js";
  import { Tracker } from "./tracker.js";
 +export type RequestLifetime = "finite" | "live";
 +export type RequestClass = "finite" | "critical-live" | "background-live";
++export type RequestClassCounts = {
++    total: number;
++    finite: number;
++    live: number;
++    criticalLive: number;
++    backgroundLive: number;
++};
++export type RequestSchedulerOwnerSnapshot = {
++    owner: string;
++    activeSubscriptions: number;
++    activeFilters: number;
++    queuedSubscriptions: number;
++    queuedFilters: number;
++};
++export type RequestSchedulerSnapshot = {
++    relay: string;
++    configuredMaxSubscriptions: number;
++    configuredMaxLiveSubscriptions: number;
++    configuredMaxBackgroundLiveSubscriptions: number;
++    learnedMaxSubscriptions: number | null;
++    effectiveMaxSubscriptions: number;
++    active: RequestClassCounts;
++    queued: RequestClassCounts;
++    oldestQueuedAgeMs: number;
++    oldestQueuedAgeMsByClass: Record<RequestClass, number>;
++    owners: RequestSchedulerOwnerSnapshot[];
++    noticeCount: number;
++    lastQueueStartDelayMs: number;
++    maxQueueStartDelayMs: number;
++};
++export declare const getRequestSchedulerSnapshots: () => RequestSchedulerSnapshot[];
++export declare const subscribeRequestScheduler: (listener: (snapshots: RequestSchedulerSnapshot[]) => void) => () => void;
 +export type RelayRequestPolicy = {
 +    maxFiltersPerSubscription?: number;
 +    maxSubscriptions?: number;
@@ -74,10 +106,11 @@ index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76
 +    criticalLivePriority?: number;
 +    priority?: number;
 +    lifetime?: RequestLifetime;
++    owner?: string;
      signal?: AbortSignal;
      tracker?: Tracker;
      context?: AdapterContext;
-@@ -14,6 +41,7 @@ export type BaseRequestOptions = {
+@@ -14,6 +74,7 @@ export type BaseRequestOptions = {
      onInvalid?: (event: unknown, url: string) => void;
      onFiltered?: (event: TrustedEvent, url: string) => void;
      onDuplicate?: (event: TrustedEvent, url: string) => void;
@@ -85,7 +118,7 @@ index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76
      onDisconnect?: (url: string) => void;
      onEose?: (url: string) => void;
      onClosed?: (message: string, url: string) => void;
-@@ -31,6 +59,13 @@ export type RequestOptions = BaseRequestOptions & {
+@@ -31,6 +92,14 @@ export type RequestOptions = BaseRequestOptions & {
  };
  export declare const request: (options: RequestOptions) => Promise<TrustedEvent[]>;
  export type LoaderOptions = {
@@ -96,14 +129,16 @@ index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76
 +    maxMessageBytes?: number;
 +    criticalLivePriority?: number;
 +    priority?: number;
++    owner?: string;
      delay: number;
      timeout?: number;
      threshold?: number;
-@@ -42,9 +77,12 @@ export type LoadOptions = {
+@@ -42,9 +111,13 @@ export type LoadOptions = {
      relays: string[];
      filters: Filter[];
      signal?: AbortSignal;
 +    priority?: number;
++    owner?: string;
 +    onStart?: (url: string) => void;
      onEvent?: (event: TrustedEvent, url: string) => void;
      onDisconnect?: (url: string) => void;
@@ -113,10 +148,10 @@ index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76
  };
  export type Loader = (options: LoadOptions) => Promise<TrustedEvent[]>;
 diff --git a/dist/net/src/request.js b/dist/net/src/request.js
-index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04194d5fc3 100644
+index db2a00be88e169a196f969af189ea8e91b1aea22..904be9ff54d5d9b370251b990ff0ad19e2553d0f 100644
 --- a/dist/net/src/request.js
 +++ b/dist/net/src/request.js
-@@ -1,11 +1,271 @@
+@@ -1,11 +1,407 @@
  import { on, uniq, flatten, addToMapKey, defer, call, randomId, pushToMapKey, batcher, } from "@welshman/lib";
  import { unionFilters, matchFilters, deduplicateEvents, getFilterResultCardinality, } from "@welshman/util";
 -import { ClientMessageType, isRelayEvent, isRelayEose, isRelayClosed, } from "./message.js";
@@ -138,6 +173,8 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +    };
 +};
 +const subscriptionSchedulers = new WeakMap();
++const trackedSubscriptionSchedulers = new Set();
++const schedulerSubscribers = new Set();
 +let subscriptionSequence = 0;
 +const finiteAgeInterval = 1000;
 +const finiteMaxAgeBoost = 1000;
@@ -145,6 +182,103 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +    (job.requestClass === "finite"
 +        ? Math.min(finiteMaxAgeBoost, Math.floor((timestamp - job.queuedAt) / finiteAgeInterval))
 +        : 0);
++const getClassCounts = (jobs) => {
++    const counts = { total: 0, finite: 0, live: 0, criticalLive: 0, backgroundLive: 0 };
++    for (const job of jobs) {
++        const weight = job.remainingWeight;
++        counts.total += weight;
++        if (job.requestClass === "finite")
++            counts.finite += weight;
++        else
++            counts.live += weight;
++        if (job.requestClass === "critical-live")
++            counts.criticalLive += weight;
++        if (job.requestClass === "background-live")
++            counts.backgroundLive += weight;
++    }
++    return counts;
++};
++const getOwnerSnapshots = (scheduler) => {
++    const owners = new Map();
++    const add = (job, active) => {
++        const owner = job.owner || "unowned";
++        const snapshot = owners.get(owner) || {
++            owner,
++            activeSubscriptions: 0,
++            activeFilters: 0,
++            queuedSubscriptions: 0,
++            queuedFilters: 0,
++        };
++        if (active) {
++            snapshot.activeSubscriptions += job.remainingWeight;
++            snapshot.activeFilters += job.remainingFilterCount;
++        }
++        else {
++            snapshot.queuedSubscriptions += job.remainingWeight;
++            snapshot.queuedFilters += job.remainingFilterCount;
++        }
++        owners.set(owner, snapshot);
++    };
++    scheduler.activeJobs.forEach(job => add(job, true));
++    scheduler.queue.filter(job => !job.cancelled).forEach(job => add(job, false));
++    return Array.from(owners.values()).sort((a, b) => a.owner.localeCompare(b.owner));
++};
++const getSchedulerSnapshot = (scheduler, timestamp) => {
++    const queuedJobs = scheduler.queue.filter(job => !job.cancelled);
++    const getOldestAge = requestClass => {
++        const queuedAt = queuedJobs
++            .filter(job => job.requestClass === requestClass)
++            .reduce((oldest, job) => Math.min(oldest, job.queuedAt), Infinity);
++        return Number.isFinite(queuedAt) ? Math.max(0, timestamp - queuedAt) : 0;
++    };
++    return {
++        relay: scheduler.relay,
++        configuredMaxSubscriptions: scheduler.configuredMaxSubscriptions,
++        configuredMaxLiveSubscriptions: scheduler.configuredMaxLiveSubscriptions,
++        configuredMaxBackgroundLiveSubscriptions: scheduler.configuredMaxBackgroundLiveSubscriptions,
++        learnedMaxSubscriptions: Number.isFinite(scheduler.learnedMaxSubscriptions)
++            ? scheduler.learnedMaxSubscriptions
++            : null,
++        effectiveMaxSubscriptions: scheduler.maxSubscriptions,
++        active: getClassCounts(scheduler.activeJobs),
++        queued: getClassCounts(queuedJobs),
++        oldestQueuedAgeMs: queuedJobs.length > 0
++            ? Math.max(0, timestamp - Math.min(...queuedJobs.map(job => job.queuedAt)))
++            : 0,
++        oldestQueuedAgeMsByClass: {
++            finite: getOldestAge("finite"),
++            "critical-live": getOldestAge("critical-live"),
++            "background-live": getOldestAge("background-live"),
++        },
++        owners: getOwnerSnapshots(scheduler),
++        noticeCount: scheduler.noticeCount,
++        lastQueueStartDelayMs: scheduler.lastQueueStartDelayMs,
++        maxQueueStartDelayMs: scheduler.maxQueueStartDelayMs,
++    };
++};
++export const getRequestSchedulerSnapshots = () => {
++    const timestamp = Date.now();
++    return Array.from(trackedSubscriptionSchedulers, scheduler => getSchedulerSnapshot(scheduler, timestamp))
++        .sort((a, b) => a.relay.localeCompare(b.relay));
++};
++const emitSchedulerState = () => {
++    if (schedulerSubscribers.size === 0)
++        return;
++    const snapshots = getRequestSchedulerSnapshots();
++    schedulerSubscribers.forEach(listener => {
++        try {
++            listener(snapshots);
++        }
++        catch {
++            // Diagnostics must not interfere with request scheduling.
++        }
++    });
++};
++export const subscribeRequestScheduler = listener => {
++    schedulerSubscribers.add(listener);
++    listener(getRequestSchedulerSnapshots());
++    return () => schedulerSubscribers.delete(listener);
++};
 +const canStartJob = (scheduler, job) => {
 +    if (scheduler.active.total + job.weight > Math.min(scheduler.maxSubscriptions, job.maxSubscriptions))
 +        return false;
@@ -155,6 +289,14 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +    return (job.requestClass !== "background-live" ||
 +        scheduler.active.backgroundLive + job.weight <=
 +            Math.min(scheduler.maxBackgroundLiveSubscriptions, job.maxBackgroundLiveSubscriptions));
++};
++const updateTrackedScheduler = scheduler => {
++    if (scheduler.active.total > 0 || scheduler.queue.some(job => !job.cancelled)) {
++        trackedSubscriptionSchedulers.add(scheduler);
++    }
++    else {
++        trackedSubscriptionSchedulers.delete(scheduler);
++    }
 +};
 +const applyLatestSchedulerPolicy = (scheduler, allowRelaxation) => {
 +    const select = (current, latest) => allowRelaxation ? latest : Math.min(current, latest);
@@ -173,6 +315,8 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +                drainScheduler(scheduler);
 +            }, scheduler.pausedUntil - Date.now());
 +        }
++        updateTrackedScheduler(scheduler);
++        emitSchedulerState();
 +        return;
 +    }
 +    scheduler.queue = scheduler.queue.filter(job => !job.cancelled);
@@ -185,6 +329,10 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +            break;
 +        const [job] = scheduler.queue.splice(index, 1);
 +        job.started = true;
++        const queueDelay = Math.max(0, timestamp - job.queuedAt);
++        scheduler.lastQueueStartDelayMs = queueDelay;
++        scheduler.maxQueueStartDelayMs = Math.max(scheduler.maxQueueStartDelayMs, queueDelay);
++        scheduler.activeJobs.add(job);
 +        scheduler.active.total += job.weight;
 +        if (job.requestClass !== "finite") {
 +            scheduler.active.live += job.weight;
@@ -194,11 +342,14 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +        }
 +        job.start();
 +    }
++    updateTrackedScheduler(scheduler);
++    emitSchedulerState();
 +};
 +const getSubscriptionScheduler = (socket, policy) => {
 +    let scheduler = subscriptionSchedulers.get(socket);
 +    if (!scheduler) {
 +        scheduler = {
++            activeJobs: new Set(),
 +            active: {
 +                backgroundLive: 0,
 +                live: 0,
@@ -207,6 +358,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +            configuredMaxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
 +            configuredMaxLiveSubscriptions: policy.maxLiveSubscriptions,
 +            configuredMaxSubscriptions: policy.maxSubscriptions,
++            lastQueueStartDelayMs: 0,
 +            learnedMaxSubscriptions: Infinity,
 +            latestMaxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
 +            latestMaxLiveSubscriptions: policy.maxLiveSubscriptions,
@@ -214,11 +366,18 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +            maxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
 +            maxLiveSubscriptions: policy.maxLiveSubscriptions,
 +            maxSubscriptions: policy.maxSubscriptions,
++            maxQueueStartDelayMs: 0,
++            noticeCount: 0,
 +            pausedUntil: 0,
 +            queue: [],
++            relay: socket.url,
 +        };
 +        subscriptionSchedulers.set(socket, scheduler);
 +        on(socket, SocketEvent.Receive, message => {
++            if (isRelayNotice(message)) {
++                scheduler.noticeCount += 1;
++                emitSchedulerState();
++            }
 +            if (isRelayNotice(message) && /too many concurrent reqs/i.test(message[1] || "")) {
 +                scheduler.learnedMaxSubscriptions = Math.max(1, Math.min(scheduler.learnedMaxSubscriptions, scheduler.active.total - 1));
 +                scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
@@ -239,10 +398,12 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +        scheduler.latestMaxLiveSubscriptions = policy.maxLiveSubscriptions;
 +        scheduler.latestMaxSubscriptions = policy.maxSubscriptions;
 +        applyLatestSchedulerPolicy(scheduler, scheduler.active.total === 0);
++        emitSchedulerState();
 +    }
 +    return scheduler;
 +};
-+const scheduleSubscription = (socket, policy, limits, requestClass, priority, weight, start) => {
++const scheduleSubscription = (socket, policy, limits, requestClass, priority, owner, filterCounts, start) => {
++    const weight = filterCounts.length;
 +    if (!socket) {
 +        return { releases: Array.from({ length: weight }, () => () => { }), start };
 +    }
@@ -252,8 +413,11 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +        maxBackgroundLiveSubscriptions: limits.maxBackgroundLiveSubscriptions,
 +        maxLiveSubscriptions: limits.maxLiveSubscriptions,
 +        maxSubscriptions: limits.maxSubscriptions,
++        owner,
 +        priority,
 +        queuedAt: Date.now(),
++        remainingFilterCount: filterCounts.reduce((sum, count) => sum + count, 0),
++        remainingWeight: weight,
 +        requestClass,
 +        sequence: subscriptionSequence++,
 +        start,
@@ -261,7 +425,9 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +        weight,
 +    };
 +    scheduler.queue.push(job);
-+    const releases = Array.from({ length: weight }, () => {
++    updateTrackedScheduler(scheduler);
++    emitSchedulerState();
++    const releases = Array.from({ length: weight }, (_, index) => {
 +        let released = false;
 +        return () => {
 +            if (released)
@@ -271,6 +437,11 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +                job.cancelled = true;
 +            }
 +            else {
++                job.remainingWeight = Math.max(0, job.remainingWeight - 1);
++                job.remainingFilterCount = Math.max(0, job.remainingFilterCount - filterCounts[index]);
++                if (job.remainingWeight === 0) {
++                    scheduler.activeJobs.delete(job);
++                }
 +                scheduler.active.total = Math.max(0, scheduler.active.total - 1);
 +                if (job.requestClass !== "finite") {
 +                    scheduler.active.live = Math.max(0, scheduler.active.live - 1);
@@ -389,7 +560,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
      const ids = new Set();
      const eose = new Set();
      const events = [];
-@@ -14,24 +274,87 @@ export const requestOne = (options) => {
+@@ -14,24 +410,87 @@ export const requestOne = (options) => {
      const adapter = getAdapter(options.relay, options.context);
      const isEventValid = options.isEventValid || netContext.isEventValid;
      const isEventDeleted = options.isEventDeleted || netContext.isEventDeleted;
@@ -425,7 +596,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +    };
 +    const scheduleFiniteTasks = candidateTasks => {
 +        const scheduledTasks = candidateTasks.map(task => ({
-+            scheduled: scheduleSubscription(socket, schedulerPolicy, requestLimits, requestClass, priority, 1, () => sendTask(task)),
++            scheduled: scheduleSubscription(socket, schedulerPolicy, requestLimits, requestClass, priority, options.owner, [task.filters.length], () => sendTask(task)),
 +            task,
 +        }));
 +        scheduledTasks.forEach(({ scheduled, task }) => {
@@ -481,7 +652,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
                      if (tracker.track(event.id, url)) {
                          options.onDuplicate?.(event, url);
                      }
-@@ -52,22 +375,33 @@ export const requestOne = (options) => {
+@@ -52,22 +511,33 @@ export const requestOne = (options) => {
              }
              if (isRelayEose(message)) {
                  const [_, id] = message;
@@ -523,7 +694,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
                          close();
                      }
                  }
-@@ -79,9 +413,7 @@ export const requestOne = (options) => {
+@@ -79,9 +549,7 @@ export const requestOne = (options) => {
          unsubscribers.push(on(socket, SocketEvent.Status, (status) => {
              if (![SocketStatus.Open, SocketStatus.Opening].includes(status)) {
                  options.onDisconnect?.(socket.url);
@@ -534,7 +705,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
              }
          }));
      }
-@@ -94,17 +426,27 @@ export const requestOne = (options) => {
+@@ -94,17 +562,27 @@ export const requestOne = (options) => {
      // If we're auto-closing, make sure it happens even if the relay doesn't send an eose
      // and the caller doesn't provide a signal, in order to avoid memory leaks
      if (options.autoClose && !options.signal) {
@@ -544,16 +715,16 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +    if (options.signal?.aborted) {
 +        close();
 +        return deferred;
-+    }
-+    if (requestClass === "finite") {
-+        scheduleFiniteTasks(tasks);
      }
 -    for (const filter of options.filters) {
 -        const id = `REQ-${randomId().slice(0, 8)}`;
 -        ids.add(id);
 -        adapter.send([ClientMessageType.Req, id, filter]);
++    if (requestClass === "finite") {
++        scheduleFiniteTasks(tasks);
++    }
 +    else {
-+        const scheduled = scheduleSubscription(socket, schedulerPolicy, requestLimits, requestClass, priority, tasks.length, () => tasks.forEach(sendTask));
++        const scheduled = scheduleSubscription(socket, schedulerPolicy, requestLimits, requestClass, priority, options.owner, tasks.map(task => task.filters.length), () => tasks.forEach(sendTask));
 +        tasks.forEach((task, index) => {
 +            task.release = scheduled.releases[index];
 +        });
@@ -568,7 +739,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
      const ctrl = new AbortController();
      const relays = new Set(options.relays);
      const tracker = options.tracker || new Tracker();
-@@ -118,9 +460,20 @@ export const request = async (options) => {
+@@ -118,9 +596,20 @@ export const request = async (options) => {
          tracker,
          signal,
          relay,
@@ -591,7 +762,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
                  options.onClose?.();
                  ctrl.abort();
              }
-@@ -146,11 +499,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -146,11 +635,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
      const threshold = options.threshold || 1;
      const tracker = new Tracker();
      const abortHandlersByRequest = new Map();
@@ -606,7 +777,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
              const events = deduplicateEvents(eventsByRequest.get(request) || []);
              request.onClose?.();
              resultsByRequest.get(request)?.resolve(events);
-@@ -166,15 +521,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -166,15 +657,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
          }
      };
      for (const request of allRequests) {
@@ -637,7 +808,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
          }
      }
      // Create an abort controller for each relay
-@@ -192,34 +554,57 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -192,34 +690,58 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
          const filters = unionFilters(requests.flatMap(r => r.filters));
          // Propagate events to caller, but only for requests that have not been aborted
          const getOpenRequests = () => requests.filter(request => !closedRequestsByRelay.get(relay)?.has(request));
@@ -674,6 +845,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04
 +                maxMessageBytes: options.maxMessageBytes,
 +                criticalLivePriority: options.criticalLivePriority,
 +                priority: Math.max(options.priority ?? 0, ...requests.map(request => request.priority ?? 0)),
++                owner: Array.from(new Set([options.owner, ...requests.map(request => request.owner)].filter(Boolean))).sort().join(",") || undefined,
 +                context: options.context,
 +                isEventValid: options.isEventValid,
 +                isEventDeleted: options.isEventDeleted,

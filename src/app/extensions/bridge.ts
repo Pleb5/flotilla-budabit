@@ -43,6 +43,7 @@ import type {
   WidgetResizeRequest,
 } from "./types"
 import {getRepoAddress} from "./types"
+import {extensionSubscriptionRegistry} from "./extension-subscriptions"
 
 export type ExtensionMessage = {
   id?: string
@@ -422,6 +423,7 @@ export class ExtensionBridge {
 
   detach(): void {
     if (this.listener) window.removeEventListener("message", this.listener)
+    cleanupExtensionSubscriptions(this.extension.id)
     this.pending.clear()
     this.targetWindow = null
   }
@@ -2117,15 +2119,6 @@ registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
 
 // ── Nostr Subscriptions ─────────────────────────────────────────────
 // Persistent subscriptions that stream events back to extensions via bridge events.
-// Uses nostr-tools SimplePool since welshman/net only exposes one-shot load().
-
-import {SimplePool} from "nostr-tools"
-
-const MAX_SUBSCRIPTIONS_PER_EXT = 10
-let subscriptionCounter = 0
-
-// Track active subscriptions: extId → Map<subId, cleanup>
-const extensionSubscriptions = new Map<string, Map<string, () => void>>()
 
 /**
  * Post an event to an extension's iframe.
@@ -2136,7 +2129,7 @@ function postEventToExtension(ext: LoadedExtension, action: string, payload: any
   if (!targetWindow) return
   const isSandboxed = ext.origin === "null"
   const targetOrigin = isSandboxed ? "*" : ext.origin
-  targetWindow.postMessage({type: "event", action, payload}, targetOrigin)
+  safePostMessage(targetWindow, {type: "event", action, payload}, targetOrigin)
 }
 
 /**
@@ -2144,14 +2137,7 @@ function postEventToExtension(ext: LoadedExtension, action: string, payload: any
  * Called when the extension is unloaded.
  */
 export function cleanupExtensionSubscriptions(extId: string): void {
-  const subs = extensionSubscriptions.get(extId)
-  if (!subs) return
-  for (const [subId, cleanup] of Array.from(subs)) {
-    console.log(`[bridge] cleaning up subscription ${subId} for ${extId}`)
-    cleanup()
-  }
-  subs.clear()
-  extensionSubscriptions.delete(extId)
+  extensionSubscriptionRegistry.cleanupExtension(extId)
 }
 
 registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
@@ -2159,46 +2145,17 @@ registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
   try {
     const {relays, filter} = parseNostrQueryPayload(payload)
 
-    // Enforce per-extension subscription limit
-    if (!extensionSubscriptions.has(ext.id)) {
-      extensionSubscriptions.set(ext.id, new Map())
-    }
-    const extSubs = extensionSubscriptions.get(ext.id)!
-    if (extSubs.size >= MAX_SUBSCRIPTIONS_PER_EXT) {
-      throw new Error(`Subscription limit reached (max ${MAX_SUBSCRIPTIONS_PER_EXT})`)
-    }
-
-    const subId = `sub-${ext.id.slice(0, 8)}-${++subscriptionCounter}`
-    const pool = new SimplePool()
-
-    console.log(
-      `[bridge] opening subscription ${subId} on ${relays.length} relays, filter:`,
-      JSON.stringify(filter),
-    )
-
-    const sub = pool.subscribeMany(relays, [filter] as any, {
-      onevent(event: any) {
-        // Stream each event to the extension
+    const subId = extensionSubscriptionRegistry.subscribe({
+      extensionId: ext.id,
+      relays,
+      filters: [filter as any],
+      onEvent(subscriptionId, event) {
         postEventToExtension(ext, "nostr:subscription:event", {
-          subscriptionId: subId,
+          subscriptionId,
           event,
         })
       },
-      oneose() {
-        console.log(`[bridge] subscription ${subId} EOSE`)
-      },
     })
-
-    const cleanup = () => {
-      try {
-        sub.close()
-        pool.close(relays)
-      } catch {
-        // ignore cleanup errors
-      }
-    }
-
-    extSubs.set(subId, cleanup)
 
     return {status: "ok", subscriptionId: subId}
   } catch (err: any) {
@@ -2215,11 +2172,7 @@ registerBridgeHandler("nostr:unsubscribe", async (payload, ext) => {
       throw new Error("Invalid subscriptionId")
     }
 
-    const extSubs = extensionSubscriptions.get(ext.id)
-    const cleanup = extSubs?.get(subscriptionId)
-    if (cleanup) {
-      cleanup()
-      extSubs!.delete(subscriptionId)
+    if (extensionSubscriptionRegistry.unsubscribe(ext.id, subscriptionId)) {
       console.log(`[bridge] closed subscription ${subscriptionId}`)
     }
 

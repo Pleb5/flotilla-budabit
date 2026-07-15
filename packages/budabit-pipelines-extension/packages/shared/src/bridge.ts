@@ -266,13 +266,18 @@ export class WidgetBridge {
       throw new Error('Subscription failed with unknown error');
     }
     
-    this.subscriptions.add(payload.subscriptionId);
+    const subscriptionId = (res as { subscriptionId?: unknown }).subscriptionId;
+    if (typeof subscriptionId !== 'string' || !subscriptionId) {
+      throw new Error('Invalid subscription ID from nostr:subscribe');
+    }
+
+    this.subscriptions.add(subscriptionId);
     
     return {
-      subscriptionId: payload.subscriptionId,
+      subscriptionId,
       unsubscribe: async () => {
-        this.subscriptions.delete(payload.subscriptionId);
-        return this.request('nostr:unsubscribe', { subscriptionId: payload.subscriptionId });
+        this.subscriptions.delete(subscriptionId);
+        return this.request('nostr:unsubscribe', { subscriptionId });
       },
     };
   }

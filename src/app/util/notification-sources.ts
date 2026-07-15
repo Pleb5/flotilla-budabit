@@ -947,6 +947,7 @@ const receiveNotificationEvent = (event: TrustedEvent, relay: string) => {
 
 const notificationLiveCoordinator = createBackgroundLiveCoordinator({
   request,
+  owner: "notification-background",
   onEvent: receiveNotificationEvent,
   onError: (relay, error) => {
     console.warn(`[notification-sources] Failed to subscribe on ${relay}`, error)

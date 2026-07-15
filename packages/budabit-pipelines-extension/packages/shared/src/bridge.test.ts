@@ -132,6 +132,83 @@ describe('WidgetBridge', () => {
     });
   });
 
+  describe('subscribe()', () => {
+    it('uses the host-returned subscription ID for unsubscribe and destroy', async () => {
+      const pending = bridge.subscribe({
+        subscriptionId: 'client-id',
+        relays: ['wss://relay.example'],
+        filter: { kinds: [1] },
+      });
+      const subscribeMessage = targetWindow.postMessage.mock.calls[0][0] as TestWireMessage;
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'response',
+            id: subscribeMessage.id,
+            action: 'nostr:subscribe',
+            payload: { status: 'ok', subscriptionId: 'host-id' },
+          },
+          source: targetWindow,
+          origin: window.location.origin,
+        })
+      );
+
+      const subscription = await pending;
+      expect(subscription.subscriptionId).toBe('host-id');
+
+      const unsubscribe = subscription.unsubscribe();
+      const unsubscribeMessage = targetWindow.postMessage.mock.calls.at(-1)?.[0] as TestWireMessage;
+      expect(unsubscribeMessage).toMatchObject({
+        action: 'nostr:unsubscribe',
+        payload: { subscriptionId: 'host-id' },
+      });
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'response',
+            id: unsubscribeMessage.id,
+            action: 'nostr:unsubscribe',
+            payload: { status: 'ok' },
+          },
+          source: targetWindow,
+          origin: window.location.origin,
+        })
+      );
+      await unsubscribe;
+
+      const secondPending = bridge.subscribe({
+        subscriptionId: 'second-client-id',
+        relays: ['wss://relay.example'],
+        filter: { kinds: [2] },
+      });
+      const secondMessage = targetWindow.postMessage.mock.calls.at(-1)?.[0] as TestWireMessage;
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'response',
+            id: secondMessage.id,
+            action: 'nostr:subscribe',
+            payload: { status: 'ok', subscriptionId: 'second-host-id' },
+          },
+          source: targetWindow,
+          origin: window.location.origin,
+        })
+      );
+      await secondPending;
+
+      targetWindow.postMessage.mockClear();
+      bridge.destroy();
+      expect(targetWindow.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'nostr:unsubscribe',
+          payload: { subscriptionId: 'second-host-id' },
+        }),
+        '*'
+      );
+    });
+  });
+
   describe('onRequest()', () => {
     it('should respond to host request with handler result', async () => {
       const handler = vi.fn().mockResolvedValue({ data: 'result' });

@@ -773,6 +773,7 @@ const receiveRepoWatchEvent = (event: TrustedEvent, relay: string) => {
 
 const repoWatchLiveCoordinator = createBackgroundLiveCoordinator({
   request,
+  owner: "repo-watcher",
   onEvent: receiveRepoWatchEvent,
   onError: (relay, error) => {
     console.warn(`[repo-watch-notifications] Failed to subscribe on ${relay}`, error)

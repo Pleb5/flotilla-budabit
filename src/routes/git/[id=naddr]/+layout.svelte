@@ -2701,6 +2701,7 @@
         filters,
         lifetime: "live",
         priority: RELAY_REQUEST_PRIORITY.live,
+        owner: "repo-foreground",
         onEvent: (event, relay) => {
           repository.publish(event)
           if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)

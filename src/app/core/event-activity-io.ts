@@ -19,6 +19,7 @@ export type EventActivityRequestOptions = {
   autoClose?: boolean
   lifetime: "finite" | "live"
   priority: number
+  owner?: string
   signal: AbortSignal
   onEvent: (event: TrustedEvent, relay: string) => void
   onDuplicate?: (event: TrustedEvent, relay: string) => void
@@ -227,6 +228,7 @@ class ActivityCoordinator {
         autoClose: true,
         lifetime: "finite",
         priority: ACTIVITY_PRIORITY,
+        owner: "event-activity",
         signal: controller.signal,
         onEvent: (event, relay) => this.receiveEvent(event, relay),
         onDuplicate: (event, relay) => this.receiveEvent(event, relay),
@@ -314,6 +316,7 @@ class ActivityCoordinator {
         filters,
         lifetime: "live",
         priority: ACTIVITY_PRIORITY,
+        owner: "event-activity",
         signal: candidate.controller.signal,
         onEvent: (event, relay) => this.receiveEvent(event, relay),
         onDuplicate: (event, relay) => this.receiveEvent(event, relay),

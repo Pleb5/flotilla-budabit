@@ -6,6 +6,7 @@ type Request = (options: RequestOptions) => Promise<TrustedEvent[]>
 
 type BackgroundLiveCoordinatorOptions = {
   request: Request
+  owner?: string
   onEvent: (event: TrustedEvent, relay: string) => void
   onError: (relay: string, error: unknown) => void
 }
@@ -46,6 +47,7 @@ const getLiveFilters = (sources: Iterable<Filter[]>) => {
 
 export const createBackgroundLiveCoordinator = ({
   request,
+  owner = "background-live",
   onEvent,
   onError,
 }: BackgroundLiveCoordinatorOptions) => {
@@ -78,6 +80,7 @@ export const createBackgroundLiveCoordinator = ({
       filters,
       lifetime: "live",
       priority: RELAY_REQUEST_PRIORITY.background,
+      owner,
       signal: controller.signal,
       onEvent,
       onDuplicate: onEvent,
@@ -115,7 +118,7 @@ export const createBackgroundLiveCoordinator = ({
     activeByRelay.clear()
   }
 
-  return {set, clear, close}
+  return {owner, set, clear, close}
 }
 
 export type BackgroundLiveCoordinator = ReturnType<typeof createBackgroundLiveCoordinator>
@@ -141,6 +144,7 @@ export const catchUpThenSetBackgroundLive = async ({
       autoClose: true,
       lifetime: "finite",
       priority: RELAY_REQUEST_PRIORITY.background,
+      owner: coordinator.owner,
       signal: catchUpSignal,
       onEvent,
       onDuplicate: onEvent,

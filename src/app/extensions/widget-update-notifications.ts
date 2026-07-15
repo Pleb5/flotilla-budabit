@@ -204,6 +204,7 @@ const receiveWidgetUpdateEvent = (event: TrustedEvent, relay: string) => {
 
 const widgetUpdateLiveCoordinator = createBackgroundLiveCoordinator({
   request,
+  owner: "widget-update",
   onEvent: receiveWidgetUpdateEvent,
   onError: (relay, error) => {
     console.warn(`[widget-update-notifications] Failed to subscribe on ${relay}`, error)

@@ -530,6 +530,7 @@
         lifetime: "live",
         signal: controller.signal,
         priority: RELAY_REQUEST_PRIORITY.live,
+        owner: "community-core",
         onClosed: () => {
           failed = true
           controller.abort()

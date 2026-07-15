@@ -16,6 +16,7 @@
     installRelayRequestPolicy,
     relayPolicyRefreshPolicy,
   } from "@app/core/relay-policy"
+  import {installRelayDiagnostics} from "@app/core/relay-diagnostics"
   import {defaultSocketPolicies} from "@welshman/net"
   import {
     pubkey,
@@ -106,6 +107,7 @@
 
   const policies = [relayPolicyRefreshPolicy, authPolicy, trustPolicy, mostlyRestrictedPolicy]
   const uninstallRelayRequestPolicy = installRelayRequestPolicy()
+  const uninstallRelayDiagnostics = installRelayDiagnostics({enabled: browser && dev})
   let socketPoliciesInstalled = false
 
   const installSocketPolicies = () => {
@@ -1054,7 +1056,11 @@
     unsubscribers.push(() => db.close())
 
     // Remove policies when we're done
-    unsubscribers.push(uninstallSocketPolicies, uninstallRelayRequestPolicy)
+    unsubscribers.push(
+      uninstallSocketPolicies,
+      uninstallRelayRequestPolicy,
+      uninstallRelayDiagnostics,
+    )
 
     // History, navigation, and application data
     unsubscribers.push(
@@ -1114,6 +1120,7 @@
     unsubscribe.then(call)
     uninstallSocketPolicies()
     uninstallRelayRequestPolicy()
+    uninstallRelayDiagnostics()
 
     if (updateCheckInterval) {
       clearInterval(updateCheckInterval)

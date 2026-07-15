@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from "vitest"
 import {
   ClientMessageType,
+  getRequestSchedulerSnapshots,
   MockAdapter,
   RelayMessageType,
   RequestAdmissionError,
@@ -13,6 +14,7 @@ import {
   requestOne,
   setRequestPolicy,
   socketPolicyCloseInactive,
+  subscribeRequestScheduler,
   type ClientMessage,
 } from "@welshman/net"
 import type {Filter} from "@welshman/util"
@@ -654,6 +656,107 @@ describe("Welshman request patch", () => {
     const finiteReq = getReqs(send)[1]
     socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, finiteReq[1]], relay)
     await finite
+  })
+
+  it("reports active scheduler diagnostics and drops idle schedulers until reused", async () => {
+    vi.useFakeTimers()
+    setPolicy({
+      maxFiltersPerSubscription: 2,
+      maxSubscriptions: 1,
+      maxLiveSubscriptions: 1,
+      maxBackgroundLiveSubscriptions: 1,
+      criticalLivePriority: 200,
+    })
+    const diagnosticRelay = "wss://diagnostics.example/"
+    const socket = new Socket(diagnosticRelay, [])
+    const send = vi.fn<(message: ClientMessage) => void>()
+    socket.send = send
+    const context = {getAdapter: () => new SocketAdapter(socket)}
+    const snapshots = vi.fn()
+    const unsubscribeSnapshots = subscribeRequestScheduler(snapshots)
+    const liveController = new AbortController()
+    const live = requestOne({
+      relay: diagnosticRelay,
+      filters: [{kinds: [1]}, {kinds: [2]}],
+      signal: liveController.signal,
+      owner: "extension:test",
+      context,
+    })
+    const finite = requestOne({
+      relay: diagnosticRelay,
+      filters: [{kinds: [3]}],
+      autoClose: true,
+      owner: "interactive-loader",
+      context,
+    })
+
+    await vi.advanceTimersByTimeAsync(1_500)
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Notice, "relay busy"], diagnosticRelay)
+    const queued = getRequestSchedulerSnapshots().find(item => item.relay === diagnosticRelay)
+
+    expect(queued).toMatchObject({
+      relay: diagnosticRelay,
+      configuredMaxSubscriptions: 1,
+      configuredMaxLiveSubscriptions: 1,
+      configuredMaxBackgroundLiveSubscriptions: 1,
+      learnedMaxSubscriptions: null,
+      effectiveMaxSubscriptions: 1,
+      active: {total: 1, finite: 0, live: 1, criticalLive: 0, backgroundLive: 1},
+      queued: {total: 1, finite: 1, live: 0, criticalLive: 0, backgroundLive: 0},
+      oldestQueuedAgeMs: 1_500,
+      oldestQueuedAgeMsByClass: {finite: 1_500},
+      noticeCount: 1,
+      owners: [
+        {
+          owner: "extension:test",
+          activeSubscriptions: 1,
+          activeFilters: 2,
+          queuedSubscriptions: 0,
+          queuedFilters: 0,
+        },
+        {
+          owner: "interactive-loader",
+          activeSubscriptions: 0,
+          activeFilters: 0,
+          queuedSubscriptions: 1,
+          queuedFilters: 1,
+        },
+      ],
+    })
+
+    liveController.abort()
+    await live
+    const started = getRequestSchedulerSnapshots().find(item => item.relay === diagnosticRelay)
+    expect(started?.lastQueueStartDelayMs).toBe(1_500)
+    expect(started?.maxQueueStartDelayMs).toBe(1_500)
+    expect(started?.active).toMatchObject({total: 1, finite: 1, live: 0})
+    expect(snapshots).toHaveBeenCalled()
+
+    const finiteReq = getReqs(send).at(-1)!
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, finiteReq[1]], diagnosticRelay)
+    await finite
+    expect(getRequestSchedulerSnapshots().some(item => item.relay === diagnosticRelay)).toBe(false)
+
+    const nextController = new AbortController()
+    const next = requestOne({
+      relay: diagnosticRelay,
+      filters: [{kinds: [4]}],
+      signal: nextController.signal,
+      owner: "extension:next",
+      context,
+    })
+    expect(getRequestSchedulerSnapshots()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relay: diagnosticRelay,
+          active: expect.objectContaining({total: 1}),
+        }),
+      ]),
+    )
+    nextController.abort()
+    await next
+    expect(getRequestSchedulerSnapshots().some(item => item.relay === diagnosticRelay)).toBe(false)
+    unsubscribeSnapshots()
   })
 
   it("retains a live slot after EOSE and releases it on abort", async () => {

@@ -12,17 +12,16 @@
 
 ## Current Phase
 
-- Phase 6: Extension Scheduling And Diagnostics
+- Phase 7: End-To-End Validation And Upstream Preparation
 
 ## Phase Exit Criteria
 
-- Extension `nostr:subscribe` uses shared Welshman scheduling rather than per-subscription `SimplePool` sockets.
-- Logical IDs, exact filter matching, relay quotas, and detach/unload cleanup are correct.
-- Extension traffic is grouped background live and respects shared relay limits/auth.
-- Diagnostics expose active/queued finite, critical-live, and background-live work by owner, age, filters, notices, and delay.
-- Bounded development warnings identify saturation and stale queued/live work.
-- Focused extension/diagnostic tests, `pnpm check`, and `git diff --check` pass.
-- Phase changes and checkpoint advancement are committed and pushed.
+- Integrated stress coverage proves community discovery progresses under maximum permitted live traffic.
+- Public traffic stays within 28 managed, 24 live, 18 background-live, 10 filters, and 128 KiB.
+- Timeout/absence and auth invariants remain covered.
+- Full tests, `pnpm check`, e2e typecheck, build, and whitespace checks pass or a real blocker is recorded.
+- Live public-relay probe is run when available and architecture docs record telemetry/upstream boundaries.
+- Checkpoint says Complete and final closeout commit is pushed and reread.
 
 ## Completed With Evidence
 
@@ -86,6 +85,19 @@
   - Focused background/community/repo/widget/policy tests passed: 6 files, 58 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 6 replaced extension `nostr:subscribe` `SimplePool` usage with a Welshman logical registry grouped by normalized relay and extension failure domain.
+- Phase 6 enforces 10 logical subscriptions per extension, 8 relays per subscription, and 20 logical subscriptions per relay; exact original filters gate event delivery.
+- Phase 6 replacement is make-before-break at EOSE with bounded overlap deduplication, and extension detach/unload closes all registrations.
+- Phase 6 SDKs use host-returned subscription IDs for unsubscribe/destroy in Kanban and Pipelines shared bridges.
+- Phase 6 scheduler diagnostics expose configured/learned limits, active/queued classes, owners/filter counts, notices, queue ages, and start delay; idle schedulers are removed from strong diagnostic tracking.
+- Phase 6 installs bounded development-only saturation, stale-priority, and live-growth warnings and labels major persistent request owners.
+- Phase 6 verification passed:
+  - Frozen-lockfile install succeeded.
+  - Root focused tests passed: 9 files, 132 tests.
+  - Kanban and Pipelines shared bridge tests passed: 10 tests each.
+  - Both shared SDK typechecks passed.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - Root/nested whitespace checks passed.
 
 ## Decisions
 
@@ -102,12 +114,12 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Unrelated worktree changes exist only under `packages/nostr-git-core/`.
-- Phases 1 through 5 are verified; the checkpoint has advanced to Phase 6.
+- Phases 1 through 6 are verified; the checkpoint has advanced to Phase 7.
 - The public relay server limit is now 30 IDs and 10 filters per REQ; client policy uses the 28/24/18/10 budget.
 
 ## Next Action
 
-- Replace extension `SimplePool` subscriptions with a shared Welshman logical registry, correct extension lifecycle IDs/cleanup, and expose scheduler diagnostics.
+- Commit/push the Kanban SDK submodule update, then run integrated stress, full test/type/build verification, live relay probe, and architecture/upstream closeout.
 
 ## Verification
 
@@ -129,11 +141,16 @@
 - Phase 5: focused Vitest passed, 6 files and 58 tests.
 - Phase 5: `pnpm check` passed with no diagnostics.
 - Phase 5: `git diff --check` passed.
+- Phase 6: frozen install passed.
+- Phase 6: root focused Vitest passed, 9 files and 132 tests; SDK bridge tests passed, 20 tests total.
+- Phase 6: root and both SDK typechecks passed.
+- Phase 6: `git diff --check` passed for root and nested changes.
 
 ## Risks Or Blockers
 
 - No current blocker.
-- Extension `nostr:subscribe` still bypasses Welshman and extension detach does not yet own complete subscription cleanup.
+- The Kanban SDK is a nested Git repository and must be committed/pushed before the root phase commit records its new pointer.
+- Live relay validation still depends on external network availability.
 - Existing unrelated `nostr-git-core` changes must remain unstaged.
 
 ## Files
@@ -170,3 +187,7 @@
 - `src/app/extensions/extension-subscriptions.ts`
 - `src/app/core/relay-diagnostics.ts`
 - `src/app/core/relay-diagnostics.test.ts`
+- `packages/budabit-kanban-extension/packages/shared/src/bridge.ts`
+- `packages/budabit-kanban-extension/packages/shared/src/bridge.test.ts`
+- `packages/budabit-pipelines-extension/packages/shared/src/bridge.ts`
+- `packages/budabit-pipelines-extension/packages/shared/src/bridge.test.ts`
