@@ -263,9 +263,8 @@
       element = element.parentElement
     }
 
-    let color: RgbaColor = appTheme === "dark"
-      ? {r: 21, g: 28, b: 35, a: 1}
-      : {r: 255, g: 255, b: 255, a: 1}
+    let color: RgbaColor =
+      appTheme === "dark" ? {r: 21, g: 28, b: 35, a: 1} : {r: 255, g: 255, b: 255, a: 1}
 
     for (const ancestor of elements.reverse()) {
       const background = parseCssColor(getComputedStyle(ancestor).backgroundColor)
@@ -311,8 +310,8 @@
 
     return Boolean(
       origin === expectedOrigin ||
-        (origin === "null" && iframeRef?.contentWindow && source === iframeRef.contentWindow) ||
-        (expectedOrigin.includes("blossom.primal.net") && origin.includes("primal.net")),
+      (origin === "null" && iframeRef?.contentWindow && source === iframeRef.contentWindow) ||
+      (expectedOrigin.includes("blossom.primal.net") && origin.includes("primal.net")),
     )
   }
 
@@ -447,7 +446,8 @@
     detachBridge()
 
     if (iframeRef?.contentWindow && appUrl) {
-      const origin = readyOrigin && isAllowedWidgetOrigin(readyOrigin) ? readyOrigin : getAppOrigin()
+      const origin =
+        readyOrigin && isAllowedWidgetOrigin(readyOrigin) ? readyOrigin : getAppOrigin()
       const ext: LoadedWidgetExtension = {
         type: "widget" as const,
         id: widgetLineId,
@@ -600,11 +600,14 @@
   class={`relative overflow-hidden bg-transparent ${className}`}
   style={frameWrapperStyle}>
   {#if !loaded}
-    <div class="absolute inset-0 z-10 flex items-center justify-center bg-base-200">
+    <div class="z-10 absolute inset-0 flex items-center justify-center bg-base-200">
       {#if loadFailed}
         <div class="flex max-w-sm flex-col items-center gap-3 p-4 text-center text-sm">
           <p class="opacity-75">This widget is taking too long to load.</p>
-          <button type="button" class="btn btn-primary btn-sm" onclick={() => retryIframeLoad(true)}>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            onclick={() => retryIframeLoad(true)}>
             Retry widget
           </button>
         </div>

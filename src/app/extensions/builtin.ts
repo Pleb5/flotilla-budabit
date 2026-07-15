@@ -1,6 +1,6 @@
 import {DEFAULT_COMMUNITY_INPUT} from "@app/core/community-state"
 import {selectDefaultCommunityWidgets} from "@app/extensions/builtin-filter"
-import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+import {loadCachedCommunityCuratedWidgets} from "@app/extensions/community-widget-slots"
 import {setDefaultExtensionWidgets} from "@app/extensions/settings"
 
 let builtinLoadPromise: Promise<void> | undefined
@@ -15,9 +15,9 @@ export const installBuiltinExtensions = () => {
     }
 
     try {
-      const result = await loadCommunityCuratedWidgets(DEFAULT_COMMUNITY_INPUT)
+      const result = await loadCachedCommunityCuratedWidgets(DEFAULT_COMMUNITY_INPUT)
       setDefaultExtensionWidgets(
-        result.status === "community"
+        result?.status === "community"
           ? selectDefaultCommunityWidgets(result.widgets, result.communityPubkey)
           : [],
       )

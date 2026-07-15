@@ -1,4 +1,5 @@
 import {DELETE, type Filter, type TrustedEvent} from "@welshman/util"
+import {repository} from "@welshman/app"
 import {
   normalizeRelays,
   normalizePubkey,
@@ -8,10 +9,12 @@ import {
 } from "@app/core/community"
 import {
   getCommunityBootstrapRelays,
-  loadCommunityEvents,
+  loadCommunityEventsWithStatus,
   makeCommunityDefinitionFilter,
   makeCommunityProfileListFilters,
   selectLatestCommunityDefinition,
+  type CommunityRelayLoadOptions,
+  type CommunityRelayLoadResult,
 } from "@app/core/community-state"
 import {
   SMART_WIDGET_KIND,
@@ -34,10 +37,44 @@ export type CommunityCuratedExtensionsStatus = "invalid-input" | "not-community"
 
 export type CommunityCuratedExtensionsResult = {
   status: CommunityCuratedExtensionsStatus
+  complete: boolean
   communityPubkey?: string
   relayHints: string[]
   trustedWidgetAuthorPubkeys: string[]
   widgets: SmartWidgetEvent[]
+}
+
+const dedupeEvents = (events: TrustedEvent[]) =>
+  Array.from(new Map(events.filter(event => event.id).map(event => [event.id, event])).values())
+
+const queryCachedEvents = (filters: Filter[]) => {
+  try {
+    return filters.length ? repository.query(filters) : []
+  } catch {
+    return []
+  }
+}
+
+const filtersCoveredByCache = (filters: Filter[]) =>
+  filters.length > 0 && filters.every(filter => queryCachedEvents([filter]).length > 0)
+
+const loadCurationEvents = async (
+  relays: string[],
+  filters: Filter[],
+  options: CommunityRelayLoadOptions,
+  cachedIsSufficient: (events: TrustedEvent[]) => boolean = events => events.length > 0,
+): Promise<CommunityRelayLoadResult> => {
+  const cachedEvents = queryCachedEvents(filters)
+
+  if (cachedIsSufficient(cachedEvents)) {
+    void loadCommunityEventsWithStatus(relays, filters, options)
+
+    return {events: cachedEvents, complete: true, timedOutRelays: [], failedRelays: []}
+  }
+
+  const loaded = await loadCommunityEventsWithStatus(relays, filters, options)
+
+  return {...loaded, events: dedupeEvents([...cachedEvents, ...loaded.events])}
 }
 
 const getTargetingRelayHints = (events: TrustedEvent[]) =>
@@ -49,7 +86,9 @@ const getTargetingRelayHints = (events: TrustedEvent[]) =>
 
 const getWidgetTargetingEvents = (widget: SmartWidgetEvent, targetingEvents: TrustedEvent[]) => {
   const widgetPubkey = normalizePubkey(widget.pubkey || "")
-  const widgetAddress = widgetPubkey ? `${SMART_WIDGET_KIND}:${widgetPubkey}:${widget.identifier}` : ""
+  const widgetAddress = widgetPubkey
+    ? `${SMART_WIDGET_KIND}:${widgetPubkey}:${widget.identifier}`
+    : ""
 
   return targetingEvents.filter(event => {
     const target = parseTargetedPublication(event)
@@ -139,14 +178,21 @@ export const loadCommunityCuratedWidgets = async (
 
   if (!parsed) {
     logCommunityWidgetDebug("invalid community input", {input})
-    return {status: "invalid-input", relayHints: [], trustedWidgetAuthorPubkeys: [], widgets: []}
+    return {
+      status: "invalid-input",
+      complete: true,
+      relayHints: [],
+      trustedWidgetAuthorPubkeys: [],
+      widgets: [],
+    }
   }
 
-  const definitionEvents = await loadCommunityEvents(
+  const definitionResult = await loadCurationEvents(
     getCommunityBootstrapRelays(parsed.relays),
     [makeCommunityDefinitionFilter(parsed.pubkey)],
     {authenticate: true},
   )
+  const definitionEvents = definitionResult.events
   const definition = selectLatestCommunityDefinition(definitionEvents, parsed.pubkey)
 
   if (!definition) {
@@ -158,6 +204,7 @@ export const loadCommunityCuratedWidgets = async (
 
     return {
       status: "not-community",
+      complete: definitionResult.complete,
       communityPubkey: parsed.pubkey,
       relayHints: parsed.relays,
       trustedWidgetAuthorPubkeys: [],
@@ -176,6 +223,7 @@ export const loadCommunityCuratedWidgets = async (
 
     return {
       status: "community",
+      complete: definitionResult.complete,
       communityPubkey: definition.pubkey,
       relayHints: communityRelays,
       trustedWidgetAuthorPubkeys: [],
@@ -183,16 +231,23 @@ export const loadCommunityCuratedWidgets = async (
     }
   }
 
-  const [profileListEvents, targetingEvents] = await Promise.all([
-    loadCommunityEvents(communityRelays, makeWidgetProfileListFilters(definition), {
-      authenticate: true,
-    }),
-    loadCommunityEvents(
-      communityRelays,
-      [makeCommunityTargetingFilter(definition.pubkey, [SMART_WIDGET_KIND])],
-      {authenticate: true},
-    ),
+  const profileListFilters = makeWidgetProfileListFilters(definition)
+  const targetingFilters = [makeCommunityTargetingFilter(definition.pubkey, [SMART_WIDGET_KIND])]
+  const profileListPromise = loadCurationEvents(
+    communityRelays,
+    profileListFilters,
+    {authenticate: true},
+    () => filtersCoveredByCache(profileListFilters),
+  )
+  const targetingPromise = loadCurationEvents(communityRelays, targetingFilters, {
+    authenticate: true,
+  })
+  const [profileListResult, targetingResult] = await Promise.all([
+    profileListPromise,
+    targetingPromise,
   ])
+  const profileListEvents = profileListResult.events
+  const targetingEvents = targetingResult.events
   logCommunityWidgetDebug("loaded curation sources", {
     communityPubkey: definition.pubkey,
     communityRelays,
@@ -201,9 +256,10 @@ export const loadCommunityCuratedWidgets = async (
   })
 
   const deleteFilters = makeTargetDeleteFilters(targetingEvents)
-  const targetDeleteEvents = deleteFilters.length
-    ? await loadCommunityEvents(communityRelays, deleteFilters, {authenticate: true})
-    : []
+  const deleteResult = deleteFilters.length
+    ? await loadCurationEvents(communityRelays, deleteFilters, {authenticate: true}, () => false)
+    : {events: [], complete: true, timedOutRelays: [], failedRelays: []}
+  const targetDeleteEvents = deleteResult.events
   const deletedTargetIds = getDeletedTargetEventIds(targetingEvents, targetDeleteEvents)
   const fallbackAuthorityPubkeys = profileListEvents.length
     ? []
@@ -257,6 +313,11 @@ export const loadCommunityCuratedWidgets = async (
 
     return {
       status: "community",
+      complete:
+        definitionResult.complete &&
+        profileListResult.complete &&
+        targetingResult.complete &&
+        deleteResult.complete,
       communityPubkey: definition.pubkey,
       relayHints: communityRelays,
       trustedWidgetAuthorPubkeys,
@@ -264,11 +325,17 @@ export const loadCommunityCuratedWidgets = async (
     }
   }
 
-  const widgetEvents = await loadCommunityEvents(
-    normalizeRelays([...communityRelays, ...getTargetingRelayHints(eligibleTargetingEvents)]),
+  const widgetRelays = normalizeRelays([
+    ...communityRelays,
+    ...getTargetingRelayHints(eligibleTargetingEvents),
+  ])
+  const widgetResult = await loadCurationEvents(
+    widgetRelays,
     widgetFilters,
-    {authenticate: true},
+    {authenticate: true, settle: "first-non-empty"},
+    () => filtersCoveredByCache(widgetFilters),
   )
+  const widgetEvents = widgetResult.events
   const widgets: SmartWidgetEvent[] = []
 
   for (const event of widgetEvents) {
@@ -318,6 +385,12 @@ export const loadCommunityCuratedWidgets = async (
 
   return {
     status: "community",
+    complete:
+      definitionResult.complete &&
+      profileListResult.complete &&
+      targetingResult.complete &&
+      deleteResult.complete &&
+      widgetResult.complete,
     communityPubkey: definition.pubkey,
     relayHints: communityRelays,
     trustedWidgetAuthorPubkeys,

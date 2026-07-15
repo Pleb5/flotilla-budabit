@@ -1,8 +1,6 @@
 const COMMUNITY_WIDGET_DEBUG_KEY = "budabit:debug:community-widgets"
 
 export const isCommunityWidgetDebugEnabled = () => {
-  if (import.meta.env.DEV && import.meta.env.MODE !== "test") return true
-
   try {
     return (
       typeof localStorage !== "undefined" &&

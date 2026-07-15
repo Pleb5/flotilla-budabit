@@ -11,7 +11,7 @@
     ensureCommunityExtensionPromptLogin,
     isCommunityExtensionPromptDismissed,
   } from "@app/extensions/community-extension-prompt"
-  import {loadCommunityCuratedWidgets} from "@app/extensions/community-curation"
+  import {loadCachedCommunityCuratedWidgets} from "@app/extensions/community-widget-slots"
   import {getTrustedCommunityWidgets} from "@app/extensions/community-widget-trust"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
@@ -91,8 +91,9 @@
     loadKey = key
     const requestId = ++loadRequestId
 
-    loadCommunityCuratedWidgets(input)
+    loadCachedCommunityCuratedWidgets(input)
       .then(result => {
+        if (!result) return
         if (requestId !== loadRequestId || key !== loadKey) {
           logCommunityWidgetDebug("extensions prompt discarded stale curated widgets result", {
             communityPubkey,

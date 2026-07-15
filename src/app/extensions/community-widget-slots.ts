@@ -2,7 +2,7 @@ import {
   loadCommunityCuratedWidgets,
   type CommunityCuratedExtensionsResult,
 } from "@app/extensions/community-curation"
-import {normalizePubkey} from "@app/core/community"
+import {normalizePubkey, normalizeRelays, parseCommunityInput} from "@app/core/community"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "@app/extensions/types"
 import {logCommunityWidgetDebug} from "./community-widget-debug"
 import {getWidgetLineId} from "./widget-identity"
@@ -27,6 +27,22 @@ type LoadCachedCommunityCuratedWidgetsOptions = {
 const curatedWidgetLoads = new Map<string, CuratedWidgetCacheEntry>()
 const curatedWidgetSnapshots = new Map<string, SmartWidgetEvent[]>()
 
+const getCurationCacheKey = (input: string) => {
+  const trimmed = input.trim()
+  const parsed = parseCommunityInput(trimmed)
+
+  return parsed
+    ? `${normalizePubkey(parsed.pubkey)}:${normalizeRelays(parsed.relays).join(",")}`
+    : trimmed
+}
+
+const getCurationSnapshotKey = (input: string) => {
+  const trimmed = input.trim()
+  const parsed = parseCommunityInput(trimmed)
+
+  return parsed ? normalizePubkey(parsed.pubkey) : trimmed
+}
+
 const getCuratedWidgetResultTtl = (result: CommunityCuratedExtensionsResult | undefined) =>
   result?.status === "community" && result.widgets.length > 0
     ? COMMUNITY_WIDGET_SUCCESS_CACHE_TTL_MS
@@ -39,19 +55,28 @@ export const loadCachedCommunityCuratedWidgets = (
   input: string,
   {force = false, now = Date.now()}: LoadCachedCommunityCuratedWidgetsOptions = {},
 ) => {
-  const key = input.trim()
+  const key = getCurationCacheKey(input)
   if (!key) return Promise.resolve(undefined)
 
   const existing = curatedWidgetLoads.get(key)
+  if (existing && existing.settledAt === undefined) return existing.promise
   if (!force && existing && isFreshCacheEntry(existing, now)) return existing.promise
 
-  const pending = loadCommunityCuratedWidgets(key)
+  const pending = loadCommunityCuratedWidgets(input.trim())
     .then(result => {
-      if (result?.status === "community" && result.widgets.length > 0) {
-        curatedWidgetSnapshots.set(key, result.widgets)
-      }
       const entry = curatedWidgetLoads.get(key)
       if (entry?.promise === pending) {
+        if (result?.status === "community" && result.widgets.length > 0) {
+          curatedWidgetSnapshots.set(getCurationSnapshotKey(input), result.widgets)
+        } else if (result?.complete) {
+          curatedWidgetSnapshots.delete(getCurationSnapshotKey(input))
+        }
+
+        if (!result?.complete) {
+          curatedWidgetLoads.delete(key)
+          return result
+        }
+
         entry.settledAt = Date.now()
         entry.ttlMs = getCuratedWidgetResultTtl(result)
       }
@@ -73,14 +98,15 @@ export const clearCommunityWidgetSlotCache = () => {
 }
 
 export const getLastValidatedCommunityCuratedWidgets = (input: string) => [
-  ...(curatedWidgetSnapshots.get(input.trim()) || []),
+  ...(curatedWidgetSnapshots.get(getCurationSnapshotKey(input)) || []),
 ]
 
 export const shouldPreserveCuratedWidgetView = (
   currentWidgets: SmartWidgetEvent[],
   nextWidgets: SmartWidgetEvent[],
   sameCommunity: boolean,
-) => sameCommunity && currentWidgets.length > 0 && nextWidgets.length === 0
+  complete = true,
+) => !complete && sameCommunity && currentWidgets.length > 0 && nextWidgets.length === 0
 
 type InstalledWidgetMatch = {
   key: string
@@ -188,7 +214,8 @@ const getTagValue = (tags: string[][] | undefined, tagName: string) =>
 const getTags = (tags: string[][] | undefined, tagName: string) =>
   tags?.filter(tag => tag[0] === tagName) || []
 
-const normalizeSharedConfigMatchPart = (value: string | undefined) => value?.trim().toLowerCase() || ""
+const normalizeSharedConfigMatchPart = (value: string | undefined) =>
+  value?.trim().toLowerCase() || ""
 
 const parseCommunitySharedConfigRef = (
   event: CommunitySharedConfigEvent,
@@ -213,10 +240,7 @@ const parseCommunitySharedConfigRef = (
   return {communityPubkey, namespace, key}
 }
 
-const widgetDeclaresSharedConfigRef = (
-  widget: SmartWidgetEvent,
-  ref: CommunitySharedConfigRef,
-) => {
+const widgetDeclaresSharedConfigRef = (widget: SmartWidgetEvent, ref: CommunitySharedConfigRef) => {
   const namespace = normalizeSharedConfigMatchPart(ref.namespace)
   const key = normalizeSharedConfigMatchPart(ref.key)
 
@@ -236,7 +260,10 @@ const widgetMatchesSharedConfigRef = (widget: SmartWidgetEvent, ref: CommunitySh
     normalizeSharedConfigMatchPart(getWidgetLineId(widget)),
   ])
 
-  return names.has(normalizeSharedConfigMatchPart(ref.key)) || names.has(normalizeSharedConfigMatchPart(ref.namespace))
+  return (
+    names.has(normalizeSharedConfigMatchPart(ref.key)) ||
+    names.has(normalizeSharedConfigMatchPart(ref.namespace))
+  )
 }
 
 export const getEnabledInstalledCommunitySlotWidgets = ({
@@ -279,18 +306,19 @@ export const getEnabledCommunitySlotWidgetsWithSharedConfig = ({
   const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
   const sharedConfigRefs = sharedConfigEvents
     .map(parseCommunitySharedConfigRef)
-    .filter(
-      (ref): ref is CommunitySharedConfigRef =>
-        Boolean(ref && normalizePubkey(ref.communityPubkey) === normalizedCommunityPubkey),
+    .filter((ref): ref is CommunitySharedConfigRef =>
+      Boolean(ref && normalizePubkey(ref.communityPubkey) === normalizedCommunityPubkey),
     )
 
   if (sharedConfigRefs.length === 0) return []
 
-  return getEnabledInstalledCommunitySlotWidgets({installedWidgets, enabledIds, slotType}).filter(widget => {
-    if (!(widget.permissions || []).includes("community:querySharedConfig")) return false
+  return getEnabledInstalledCommunitySlotWidgets({installedWidgets, enabledIds, slotType}).filter(
+    widget => {
+      if (!(widget.permissions || []).includes("community:querySharedConfig")) return false
 
-    return sharedConfigRefs.some(ref => widgetMatchesSharedConfigRef(widget, ref))
-  })
+      return sharedConfigRefs.some(ref => widgetMatchesSharedConfigRef(widget, ref))
+    },
+  )
 }
 
 export const getEnabledCommunitySlotWidgets = ({

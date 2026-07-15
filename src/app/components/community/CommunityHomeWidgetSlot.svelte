@@ -47,12 +47,17 @@
   let loadRefreshNonce = $state(0)
   let forceNextLoad = false
   let lastForcedRefreshAt = 0
-  let curatedWidgetsBaseKey = initialCurationInput ? `${slotType}:${initialCurationInput}` : ""
+  let curatedWidgetsBaseKey = initialCurationInput
+    ? `${slotType}:${normalizePubkey(communityPubkey)}`
+    : ""
   let lastLoadReadinessKey = ""
+  let curationRetryTimer: ReturnType<typeof setTimeout> | undefined
+  let curationRetryDelay = 1_000
   let loadedCommunitySharedConfigEvents = $state<any[]>([])
   let sharedConfigLoadKey = ""
   let sharedConfigLoadRequestId = 0
   const FORCED_REFRESH_DEBOUNCE_MS = 1_000
+  const MAX_CURATION_RETRY_DELAY_MS = 15_000
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
@@ -89,15 +94,15 @@
           permissionLoaded: status.loaded,
           permissionHasCachedEvents: status.hasCachedEvents,
         })
-        : ""
+      : ""
   })
   const communityPermissionEvidenceLoading = $derived.by(() => {
     const status = $activeCommunityPermissionStatus
 
     return Boolean(
       normalizePubkey(status.communityPubkey) === normalizePubkey(communityPubkey) &&
-        status.loading &&
-        !status.loaded,
+      status.loading &&
+      !status.loaded,
     )
   })
   const cachedCommunitySharedConfigEvents = $derived.by(() => {
@@ -114,7 +119,10 @@
   const communitySharedConfigEvents = $derived.by(() => {
     const byId = new Map<string, any>()
 
-    for (const event of [...cachedCommunitySharedConfigEvents, ...loadedCommunitySharedConfigEvents]) {
+    for (const event of [
+      ...cachedCommunitySharedConfigEvents,
+      ...loadedCommunitySharedConfigEvents,
+    ]) {
       const key = event?.id || JSON.stringify(event?.tags || [])
       if (key && !byId.has(key)) byId.set(key, event)
     }
@@ -215,6 +223,20 @@
     if (document.visibilityState === "visible") refreshWidgets(true)
   }
 
+  const clearCurationRetry = () => {
+    if (curationRetryTimer) clearTimeout(curationRetryTimer)
+    curationRetryTimer = undefined
+  }
+
+  const scheduleCurationRetry = () => {
+    if (curationRetryTimer) return
+    curationRetryTimer = setTimeout(() => {
+      curationRetryTimer = undefined
+      if (document.visibilityState === "visible") refreshWidgets(true)
+    }, curationRetryDelay)
+    curationRetryDelay = Math.min(curationRetryDelay * 2, MAX_CURATION_RETRY_DELAY_MS)
+  }
+
   $effect(() => {
     const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
     const relays = $activeCommunityRelays.length ? $activeCommunityRelays : relayHints
@@ -235,7 +257,13 @@
 
     loadCommunityEvents(
       relays,
-      [{kinds: [COMMUNITY_SHARED_CONFIG_KIND], "#p": [normalizedCommunityPubkey], limit: 200} as any],
+      [
+        {
+          kinds: [COMMUNITY_SHARED_CONFIG_KIND],
+          "#p": [normalizedCommunityPubkey],
+          limit: 200,
+        } as any,
+      ],
       {
         authenticate: true,
         priorityAuthRelays: relayHints,
@@ -259,11 +287,14 @@
   $effect(() => {
     loadRefreshNonce
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
-    const baseKey = input ? `${slotType}:${input}` : ""
+    const baseKey = input
+      ? `${slotType}:${normalizePubkey(communityPubkey)}:${relayHints.slice().sort().join(",")}`
+      : ""
     const readinessKey = communityReadinessKey
     const key = baseKey ? `${baseKey}:${readinessKey}` : ""
 
     if (!key || !input) {
+      clearCurationRetry()
       curatedWidgets = []
       curatedWidgetsLoading = false
       curatedWidgetsBaseKey = ""
@@ -274,6 +305,8 @@
     }
 
     if (baseKey !== curatedWidgetsBaseKey) {
+      clearCurationRetry()
+      curationRetryDelay = 1_000
       curatedWidgets = getLastValidatedCommunityCuratedWidgets(input)
       curatedWidgetsLoading = false
       curatedWidgetsBaseKey = baseKey
@@ -314,15 +347,23 @@
           return
         }
 
-        curatedWidgetsLoading = false
         const nextCuratedWidgets = result?.status === "community" ? result.widgets : []
+        const complete = result?.complete ?? true
         const preserveCurrentWidgets = shouldPreserveCuratedWidgetView(
           curatedWidgets,
           nextCuratedWidgets,
           curatedWidgetsBaseKey === baseKey,
+          complete,
         )
 
         if (!preserveCurrentWidgets) curatedWidgets = nextCuratedWidgets
+        curatedWidgetsLoading = !complete && curatedWidgets.length === 0
+        if (complete) {
+          clearCurationRetry()
+          curationRetryDelay = 1_000
+        } else {
+          scheduleCurationRetry()
+        }
         logCommunityWidgetDebug("home slot loaded curated widgets", {
           slotType,
           communityPubkey,
@@ -341,7 +382,8 @@
       .catch(error => {
         if (requestId !== loadRequestId || key !== loadKey) return
 
-        curatedWidgetsLoading = false
+        curatedWidgetsLoading = curatedWidgets.length === 0
+        scheduleCurationRetry()
         console.warn("[community-home-widgets] Failed to load widgets", error)
         logCommunityWidgetDebug("home slot failed to load curated widgets", {
           slotType,
@@ -371,6 +413,7 @@
 
   onDestroy(() => {
     loadRequestId += 1
+    clearCurationRetry()
   })
 </script>
 
@@ -388,7 +431,7 @@
           context={makeWidgetContext(widget)}
           class="w-full"
           minHeight={220}
-          resizeMinHeight={0} />
+          resizeMinHeight={72} />
       </section>
     {/each}
   </div>
