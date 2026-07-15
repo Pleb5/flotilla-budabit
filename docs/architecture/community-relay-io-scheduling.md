@@ -9,12 +9,16 @@ The first target is `wss://relay.budabit.club/`, which currently exposes:
 | Constraint | Value |
 | --- | ---: |
 | NIP-42 authentication | Disabled |
-| Active subscription IDs per connection | 10 |
-| Filters per `REQ` | 5 |
+| Active subscription IDs per connection | 30 |
+| Filters per `REQ` | 10 |
+| Maximum events per filter | 200 |
 | Maximum WebSocket message | 131,072 bytes |
-| Maximum per-filter result limit | 200 |
+| Maximum event | 65,536 bytes |
+| Maximum tags per event | 2,000 |
+| Ordinary event retention | One year |
+| Write rate | Limited |
 
-The five-filter limit is deployment configuration and is not advertised by the relay's NIP-11 document. It therefore requires an explicit local policy or adaptive fallback.
+The ten-filter limit, event-size limit, tag limit, retention period, and write-rate policy are deployment configuration described in human-readable relay metadata rather than structured NIP-11 limitation fields. They therefore require explicit local policy where applicable. The relay advertises the subscription, result, and message limits through NIP-11.
 
 ## Protocol Model
 
@@ -55,7 +59,11 @@ type RelayPolicy = {
   auth: "none" | "optional" | "required"
   maxSubscriptions: number
   maxFiltersPerSubscription: number
+  maxLiveSubscriptions: number
+  maxBackgroundLiveSubscriptions: number
+  criticalLivePriority: number
   maxMessageBytes: number
+  maxLimit?: number
 }
 ```
 
@@ -66,7 +74,9 @@ Policy sources are applied in this order:
 3. Runtime evidence from AUTH challenges, `CLOSED`, and `NOTICE`.
 4. Conservative defaults.
 
-`wss://relay.budabit.club/` uses `auth: "none"`, 10 subscriptions, 5 filters per subscription, and a 128 KiB message limit.
+`wss://relay.budabit.club/` uses `auth: "none"`, 28 client-managed subscriptions, 10 filters per subscription, at most 24 live subscriptions, at most 18 background-live subscriptions, a 128 KiB message limit, and a result limit of 200. The two IDs outside the client-managed budget remain available for recovery, diagnostics, and reconnect overlap.
+
+Unknown relays start with a bounded 16-subscription, 10-filter baseline, including at most 12 live and 8 background-live subscriptions. Stricter structured NIP-11 limits and runtime evidence reduce either policy.
 
 ## Authentication
 
@@ -88,19 +98,19 @@ Finite requests use independent Welshman loader instances so unrelated feature t
 | Widget curation and exact bridge references | 50 ms | High |
 | Interactive route data | 100 ms | Medium |
 | General feed and profile hydration | 200 ms | Low |
-| Live subscriptions | Persistent | Reserved |
+| Live subscriptions | Persistent | Lifetime-capped |
 
-For the small relay, the intended ten-ID budget is:
+For the public relay, the 30-ID server budget is divided by class:
 
-| Use | IDs |
+| Budget | IDs |
 | --- | ---: |
-| Consolidated community live state | 2 |
-| Priority finite community requests | 2 |
-| Interactive and general finite requests | 3 |
-| Background finite requests | 2 |
-| Recovery reserve | 1 |
+| Budabit-managed total | 28 |
+| Maximum live | 24 |
+| Maximum background-live | 18 |
+| Capacity left for finite work at maximum live | 4 |
+| Outside managed budget for recovery and overlap | 2 |
 
-Unused lower-priority capacity may be borrowed by higher-priority work. Background work may not consume reserved priority or recovery capacity.
+Finite work may use all managed capacity not occupied by live work. Lifetime caps, rather than priority reservations, prevent persistent traffic from consuming finite capacity. Background-live traffic has the strictest cap; critical live traffic can borrow its headroom without exceeding the overall live cap.
 
 ## Finite Query Lifecycle
 
@@ -141,9 +151,9 @@ Growing per-ID filters for deletes, reports, and form responses should use the s
 ## Rollout
 
 1. Add relay policy and skip auth for the public replacement relay.
-2. Make filter grouping policy-driven and cap replacement-relay groups at five.
+2. Make filter grouping policy-driven and cap public-relay groups at ten.
 3. Add connection-wide prioritized subscription scheduling in the Welshman patch.
-4. Reserve live and priority capacity.
+4. Add lifetime caps that preserve finite capacity under sustained live traffic.
 5. Reduce community live filters to the core stable set.
 6. Route unrelated traffic away from the community relay.
 7. Add adaptive array-size fallback and bounded diagnostics for unknown deployments.
@@ -152,8 +162,8 @@ Growing per-ID filters for deletes, reports, and form responses should use the s
 
 ## Acceptance Criteria
 
-- No REQ to `relay.budabit.club` contains more than five filters.
-- Normal operation deliberately uses no more than nine active IDs.
+- No REQ to `relay.budabit.club` contains more than ten filters or exceeds 128 KiB.
+- Normal operation deliberately uses no more than 28 managed IDs, 24 live IDs, or 18 background-live IDs.
 - Public replacement-relay reads make no NIP-42 attempt.
 - Required-auth relays share one auth attempt and wait for its terminal result.
 - Community state is not batched with general feed traffic.
@@ -167,6 +177,18 @@ Growing per-ID filters for deletes, reports, and form responses should use the s
 
 Unit tests cover filter chunking, byte bounds, scheduler limits, priority ordering, EOSE/CLOSE lifecycle, live slot retention, timeout cleanup, auth policy, and runtime limit adaptation.
 
-Manual live verification against `wss://relay.budabit.club/` covers five-filter chunking, finite waves beyond ten logical chunks, absence of AUTH, explicit CLOSE, and absence of overflow NOTICE. This should become an opt-in integration test.
+The opt-in `pnpm probe:public-relay` check validates structured NIP-11 values, ten-filter REQs, a 28-ID active ceiling, a second finite wave after explicit CLOSE, absence of AUTH, and absence of overflow NOTICE or CLOSED responses. It performs no writes.
 
 Authenticated unit tests use controlled mocks to cover single-flight and forbidden authentication. A controlled challenge-relay integration test should additionally cover reconnection and one-time idempotent read replay.
+
+## Telemetry And Tuning
+
+Scheduler diagnostics report configured and learned limits, active and queued work by lifetime class, owner, filter count, queue age, physical start delay, and relay notices. Development warnings are bounded and identify total saturation, stale priority work, and unexpected live growth.
+
+The public policy should only move closer to the 30-ID server ceiling after observing production telemetry across startup, route transitions, reconnects, and extension activity. Keep at least two IDs outside Budabit's managed budget and at least four managed slots available to finite work at maximum live load. Lower the 28/24/18 client limits if relay notices, prolonged finite queueing, or reconnect churn appear; do not raise them merely because a short probe succeeds.
+
+## Upstream Boundary
+
+Generic Welshman candidates are lifetime-aware scheduling, atomic persistent admission, finite wave scheduling and aging, request start callbacks, reversible NIP-11/runtime limit learning, one-time finite array-size repartitioning, scheduler snapshots, and reconnect reset behavior. These belong in `@welshman/net` without Budabit relay URLs, priorities, or product ownership labels.
+
+Budabit-specific policy remains in the application: known-relay overrides, the 28/24/18/10 public budget, the 16/12/8/10 unknown baseline, request priorities, community authentication choices, background ownership coordination, extension quotas, warning thresholds, and UI completeness semantics. Until the generic changes are accepted upstream or maintained in a source fork, `patches/@welshman__net@0.8.16.patch` is the extraction boundary.

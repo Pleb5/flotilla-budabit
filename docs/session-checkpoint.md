@@ -12,16 +12,12 @@
 
 ## Current Phase
 
-- Phase 7: End-To-End Validation And Upstream Preparation
+- Complete
 
 ## Phase Exit Criteria
 
-- Integrated stress coverage proves community discovery progresses under maximum permitted live traffic.
-- Public traffic stays within 28 managed, 24 live, 18 background-live, 10 filters, and 128 KiB.
-- Timeout/absence and auth invariants remain covered.
-- Full tests, `pnpm check`, e2e typecheck, build, and whitespace checks pass or a real blocker is recorded.
-- Live public-relay probe is run when available and architecture docs record telemetry/upstream boundaries.
-- Checkpoint says Complete and final closeout commit is pushed and reread.
+- All seven phases are implemented and verified.
+- The final closeout commit must be pushed and this checkpoint reread before the final response.
 
 ## Completed With Evidence
 
@@ -98,6 +94,21 @@
   - Both shared SDK typechecks passed.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - Root/nested whitespace checks passed.
+- Phase 7 added integrated public-budget stress coverage:
+  - The test holds 18 background-live and 6 critical-live IDs while cold community discovery starts.
+  - Room, thread, calendar, and goal finite reads progress in waves without exceeding 28 total, 24 live, 18 background-live, 10 filters per REQ, or 128 KiB.
+  - The scenario verifies received events, explicit finite CLOSE, queue progress, and absence of client AUTH.
+- Phase 7 added a read-only opt-in public relay probe and ran it successfully:
+  - NIP-11 reported 30 subscriptions, a 200 result limit, and 131,072-byte messages.
+  - The probe completed 32 requests in two waves with 10 filters per REQ and at most 28 active IDs.
+  - The relay sent no AUTH, NOTICE, or CLOSED response.
+- Phase 7 updated architecture documentation with the deployed limits, human-readable event/tag/retention/write constraints, telemetry tuning gates, and the Welshman upstream boundary.
+- Phase 7 broad verification passed:
+  - Full Vitest: 281 files passed, 1 skipped; 2,302 tests passed, 2 skipped, and 1 todo.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `pnpm run e2e:check` passed.
+  - `pnpm run build` passed with only the existing large-chunk warning.
+  - Root whitespace and new-file formatting checks passed.
 
 ## Decisions
 
@@ -114,12 +125,12 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Unrelated worktree changes exist only under `packages/nostr-git-core/`.
-- Phases 1 through 6 are verified; the checkpoint has advanced to Phase 7.
+- Phases 1 through 7 are verified; the checkpoint is Complete.
 - The public relay server limit is now 30 IDs and 10 filters per REQ; client policy uses the 28/24/18/10 budget.
 
 ## Next Action
 
-- Commit/push the Kanban SDK submodule update, then run integrated stress, full test/type/build verification, live relay probe, and architecture/upstream closeout.
+- Commit and push the final Phase 7 closeout, reread this checkpoint, and provide the final response.
 
 ## Verification
 
@@ -145,12 +156,18 @@
 - Phase 6: root focused Vitest passed, 9 files and 132 tests; SDK bridge tests passed, 20 tests total.
 - Phase 6: root and both SDK typechecks passed.
 - Phase 6: `git diff --check` passed for root and nested changes.
+- Phase 7: focused public policy/stress Vitest passed, 2 files and 9 tests.
+- Phase 7: read-only `pnpm probe:public-relay` passed with 32 requests, 28 maximum active IDs, 10 filters per REQ, and no AUTH/NOTICE/CLOSED.
+- Phase 7: full Vitest passed, 281 files and 2,302 tests; 1 file and 2 tests skipped, with 1 todo.
+- Phase 7: `pnpm check`, `pnpm run e2e:check`, and `pnpm run build` passed.
+- Phase 7: `git diff --check`, new-file Prettier checks, and Node syntax check passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
-- The Kanban SDK is a nested Git repository and must be committed/pushed before the root phase commit records its new pointer.
-- Live relay validation still depends on external network availability.
+- The production build retains its existing large JavaScript chunk warning.
+- The 10-filter, 64 KiB event, 2,000-tag, one-year retention, and write-rate constraints are human-readable server policy and must remain explicit where client behavior depends on them.
+- Generic Welshman changes remain in a pnpm patch until upstreamed or moved to a maintained source fork.
 - Existing unrelated `nostr-git-core` changes must remain unstaged.
 
 ## Files
@@ -187,6 +204,10 @@
 - `src/app/extensions/extension-subscriptions.ts`
 - `src/app/core/relay-diagnostics.ts`
 - `src/app/core/relay-diagnostics.test.ts`
+- `src/app/core/community-relay-stress.test.ts`
+- `scripts/probe-public-relay.mjs`
+- `package.json`
+- `docs/architecture/community-relay-io-scheduling.md`
 - `packages/budabit-kanban-extension/packages/shared/src/bridge.ts`
 - `packages/budabit-kanban-extension/packages/shared/src/bridge.test.ts`
 - `packages/budabit-pipelines-extension/packages/shared/src/bridge.ts`
