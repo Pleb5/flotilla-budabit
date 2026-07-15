@@ -4,7 +4,7 @@ import type { NostrEvent, RepoContextNormalized } from './types';
 import { queryEvents, eventTagValue } from './workflows';
 import { buildReleaseEvents, eventStore } from './nostr';
 
-const FALLBACK_RELAYS = ['wss://relay.sharegap.net', 'wss://nos.lol'];
+const FALLBACK_RELAYS = ['wss://relay.budabit.club', 'wss://nos.lol'];
 
 function dedupe(values: string[]): string[] {
   return Array.from(

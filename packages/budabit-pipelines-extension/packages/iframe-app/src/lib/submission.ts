@@ -41,7 +41,7 @@ export function canGenerateSuggestedToken(args: {
 export function createNewRunDraft(repo: RepoContextNormalized): RerunDraft | null {
   if (!repo.repoAddress) return null
 
-  const publishRelays = Array.from(new Set([...repo.repoRelays, 'wss://relay.sharegap.net', 'wss://nos.lol']))
+  const publishRelays = Array.from(new Set([...repo.repoRelays, 'wss://relay.budabit.club', 'wss://nos.lol']))
 
   return {
     repoAddress: repo.repoAddress,

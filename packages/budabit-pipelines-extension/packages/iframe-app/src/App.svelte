@@ -197,7 +197,7 @@
   let detailSeq = 0
 
   const ACTIVE_RUN_STATUSES = ['pending', 'queued', 'running', 'in_progress'] as const
-  const FALLBACK_RELAYS = ['wss://relay.sharegap.net', 'wss://nos.lol']
+  const FALLBACK_RELAYS = ['wss://relay.budabit.club', 'wss://nos.lol']
 
   let liveDurationSeconds = $state<number | null>(null)
 

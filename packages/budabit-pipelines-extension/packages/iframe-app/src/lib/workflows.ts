@@ -18,7 +18,7 @@ import {
   type Observable,
 } from 'rxjs';
 
-const FALLBACK_RELAYS = ['wss://relay.sharegap.net', 'wss://nos.lol'];
+const FALLBACK_RELAYS = ['wss://relay.budabit.club', 'wss://nos.lol'];
 
 /** Hive CI event kinds. */
 export const KIND_WORKFLOW_RUN = 5401;

@@ -61,7 +61,7 @@ Community-specific Blossom servers should live in the community `kind:10222` def
 Optional widget discovery:
 
 ```env
-VITE_SMART_WIDGET_RELAYS=wss://relay.yakihonne.com,wss://relay.sharegap.net,wss://nos.lol
+VITE_SMART_WIDGET_RELAYS=wss://relay.budabit.club,wss://nos.lol
 ```
 
 If this is empty, Budabit uses built-in widget relay defaults for direct widget lookups. Default extensions are loaded from `VITE_DEFAULT_COMMUNITY`: the app validates that community's latest `kind:10222` definition and shows its curated `kind:30033` widgets as installed and enabled. Users can disable those defaults but cannot uninstall them. Additional direct `naddr` installs live under Settings > Extensions > Advanced.

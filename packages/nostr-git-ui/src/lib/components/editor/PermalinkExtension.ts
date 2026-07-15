@@ -20,7 +20,7 @@ export const PermalinkExtension = Extension.create<PermalinkExtensionOptions>({
       signer: () => {
         throw new Error("nostr.signEvent is not available");
       },
-      relays: ["wss://relay.sharegap.net"],
+      relays: ["wss://relay.budabit.club"],
       spinnerComponent: Spinner,
     };
   },

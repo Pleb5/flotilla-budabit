@@ -22,7 +22,7 @@
 
     const feed = makeFeed({
       element: document.body,
-      relays: ["wss://relay.sharegap.net"],
+      relays: ["wss://relay.budabit.club"],
       feedFilters: [workflowFilter],
       subscriptionFilters: [workflowFilter],
       initialEvents: getEventsForUrl(url, [workflowFilter]),
@@ -70,7 +70,7 @@
   <div class="mb-6 rounded-lg border border-border bg-card p-4">
     <h2 class="mb-2 font-semibold">Relay</h2>
     <code class="block break-all rounded bg-background p-3 text-sm text-foreground">
-      wss://relay.sharegap.net
+      wss://relay.budabit.club
     </code>
   </div>
 

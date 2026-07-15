@@ -72,7 +72,7 @@
       return repo.relays[0];
     }
     // Fallback to a default relay if no relays available
-    return "wss://relay.sharegap.net/";
+    return "wss://relay.budabit.club/";
   });
 
   const commentRelays = $derived.by(() => {

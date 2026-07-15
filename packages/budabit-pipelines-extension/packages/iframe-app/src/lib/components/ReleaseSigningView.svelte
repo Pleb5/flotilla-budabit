@@ -53,7 +53,7 @@
 
   let showSankey = $state(false);
 
-  const FALLBACK_RELAYS = ['wss://relay.sharegap.net', 'wss://nos.lol'];
+  const FALLBACK_RELAYS = ['wss://relay.budabit.club', 'wss://nos.lol'];
 
   // ── Derived ──────────────────────────────────────────────────────
   const groups = $derived(groupArtifacts(artifacts, groupByTags));

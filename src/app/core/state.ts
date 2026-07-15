@@ -125,7 +125,7 @@ const envSmartWidgetRelays = fromCsv(import.meta.env.VITE_SMART_WIDGET_RELAYS)
 export const SMART_WIDGET_RELAYS =
   envSmartWidgetRelays.length > 0
     ? envSmartWidgetRelays
-    : ["wss://relay.yakihonne.com", "wss://relay.sharegap.net", "wss://nos.lol"]
+    : ["wss://relay.budabit.club", "wss://nos.lol"]
 
 export const BURROW_URL = import.meta.env.VITE_BURROW_URL
 

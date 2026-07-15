@@ -134,7 +134,7 @@
     const userRelays = router.FromUser().getUrls()
     if (userRelays.length > 0) return [...userRelays]
     // Last resort: default git relays
-    return ["wss://relay.sharegap.net/", "wss://nos.lol/"]
+    return ["wss://relay.budabit.club/", "wss://nos.lol/"]
   })
 
   // Iframe state

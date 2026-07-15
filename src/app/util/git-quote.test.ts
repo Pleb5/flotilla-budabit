@@ -149,7 +149,7 @@ describe("getQuoteRelayHints", () => {
       "wss://relay.damus.io/",
       "wss://nos.lol/",
       "wss://relay.nostr.band/",
-      "wss://relay.sharegap.net/",
+      "wss://relay.budabit.club/",
     ]
     const routerRelays = neventRelays.slice(0, 3)
 
