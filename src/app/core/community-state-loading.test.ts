@@ -89,6 +89,8 @@ import {
   activePreferredCommunities,
   authenticateCommunityRelays,
   clearActiveCommunity,
+  hasCommunityHydrationCompleted,
+  hydrateCommunityEventsWithStatus,
   hydrateCommunityPreferences,
   loadCommunityDefinitionWithOutboxFallback,
   loadCommunityBootstrap,
@@ -354,6 +356,28 @@ describe("community relay loading", () => {
       timedOutRelays: [relayA],
       failedRelays: [],
     })
+  })
+
+  it("keeps timed-out route hydration incomplete and retryable", async () => {
+    const statuses: string[] = []
+    const hydrationKey = "test:route-timeout"
+    loadMock.mockImplementationOnce(({onStart, relays}: any) => {
+      onStart?.(relays[0])
+      return new Promise(() => undefined)
+    })
+
+    const pending = hydrateCommunityEventsWithStatus({
+      key: hydrationKey,
+      relays: [relayA],
+      filters: [{kinds: [PROFILE_LIST_KIND]}],
+      timeout: 100,
+      onStatus: status => statuses.push(status),
+    })
+    await vi.advanceTimersByTimeAsync(100)
+
+    await expect(pending).resolves.toMatchObject({complete: false, timedOutRelays: [relayA]})
+    expect(statuses).toEqual(["queued", "loading", "incomplete"])
+    expect(hasCommunityHydrationCompleted(hydrationKey)).toBe(false)
   })
 
   it("treats relay CLOSED responses as incomplete failures", async () => {
@@ -664,6 +688,10 @@ describe("community relay loading", () => {
     expect(bootstrap.definition?.event.id).toBe(definitionEvent.id)
     expect(bootstrap.profileListEvents.map(event => event.id)).toEqual([profileListEvent.id])
     expect(get(activeCommunityDefinition)?.event.id).toBe(definitionEvent.id)
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({
+      loaded: true,
+      complete: false,
+    })
   })
 
   it("tracks permission readiness separately on cache-hit bootstrap", async () => {
@@ -702,6 +730,7 @@ describe("community relay loading", () => {
       communityPubkey,
       loading: false,
       loaded: true,
+      complete: true,
     })
   })
 
@@ -752,7 +781,9 @@ describe("community relay loading", () => {
     await flushPromises()
 
     expect(bootstrap.definition?.event.id).toBe(requiredRelayDefinitionEvent.id)
-    expect(loadMock.mock.calls.some(([args]) => hasKind(args.filters, PROFILE_LIST_KIND))).toBe(true)
+    expect(loadMock.mock.calls.some(([args]) => hasKind(args.filters, PROFILE_LIST_KIND))).toBe(
+      true,
+    )
   })
 
   it("fails bootstrap when no community definition loads", async () => {

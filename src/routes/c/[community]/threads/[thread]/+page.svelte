@@ -1,7 +1,6 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
-  import {request} from "@welshman/net"
   import {repository, publishThunk, pubkey} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {COMMENT, makeEvent, type EventContent, type TrustedEvent} from "@welshman/util"
@@ -30,6 +29,8 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    hydrateCommunityEventsWithStatus,
+    type CommunityHydrationStatus,
   } from "@app/core/community-state"
   import {
     makeCommunityThreadRepliesFilter,
@@ -59,8 +60,8 @@
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 
-  const REQUEST_SOFT_TIMEOUT_MS = 3_000
   const REQUEST_HARD_TIMEOUT_MS = 10_000
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -86,11 +87,23 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
+  )
+  const communityPermissionEvidenceIncomplete = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.complete &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityBootstrapFailed = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
   )
   const threadSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -305,10 +318,8 @@
 
   let loadingThread = $state(false)
   let loadingReplies = $state(false)
-  let threadRequestStarted = $state(false)
-  let threadRequestDone = $state(false)
-  let threadSoftTimedOut = $state(false)
-  let repliesSoftTimedOut = $state(false)
+  let threadLoadStatus = $state<CommunityHydrationStatus>("idle")
+  let historicalLoadRetryVersion = $state(0)
   let showReply = $state(false)
   let parent: TrustedEvent | undefined = $state()
   let eventToEdit: TrustedEvent | undefined = $state()
@@ -318,6 +329,8 @@
   let initialScrollThreadId = ""
 
   $effect(() => {
+    void historicalLoadRetryVersion
+
     if (
       !communityBootstrapReady ||
       !communityPubkey ||
@@ -326,10 +339,7 @@
     ) {
       loadingThread = false
       loadingReplies = false
-      threadRequestStarted = false
-      threadRequestDone = false
-      threadSoftTimedOut = false
-      repliesSoftTimedOut = false
+      threadLoadStatus = "idle"
       return
     }
 
@@ -337,64 +347,39 @@
     if (filters.length === 0) {
       loadingThread = false
       loadingReplies = false
-      threadRequestStarted = false
-      threadRequestDone = false
-      threadSoftTimedOut = false
-      repliesSoftTimedOut = false
+      threadLoadStatus = "idle"
       return
     }
 
     const controller = new AbortController()
-    const softTimeout = setTimeout(() => {
-      loadingThread = false
-      loadingReplies = false
-      threadSoftTimedOut = true
-      repliesSoftTimedOut = true
-    }, REQUEST_SOFT_TIMEOUT_MS)
-    const hardTimeout = setTimeout(() => {
-      loadingThread = false
-      loadingReplies = false
-      threadRequestDone = true
-      threadSoftTimedOut = false
-      repliesSoftTimedOut = false
-      controller.abort()
-    }, REQUEST_HARD_TIMEOUT_MS)
 
-    threadRequestStarted = true
-    threadRequestDone = false
-    threadSoftTimedOut = false
-    repliesSoftTimedOut = false
+    threadLoadStatus = "queued"
     loadingThread = true
     loadingReplies = true
-    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
-      .catch(() => undefined)
-      .finally(() => {
-        clearTimeout(softTimeout)
-        clearTimeout(hardTimeout)
-        if (controller.signal.aborted) return
+    void hydrateCommunityEventsWithStatus({
+      key: `thread:${threadPath}:${historicalLoadRetryVersion}:${JSON.stringify(filters)}`,
+      relays: $activeCommunityRelays,
+      filters,
+      authenticate: true,
+      timeout: REQUEST_HARD_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
+      signal: controller.signal,
+      onStatus: status => {
+        threadLoadStatus = status
+        loadingThread = status === "queued" || status === "loading"
+        loadingReplies = status === "queued" || status === "loading"
+      },
+    })
 
-        loadingThread = false
-        loadingReplies = false
-        threadRequestDone = true
-        threadSoftTimedOut = false
-        repliesSoftTimedOut = false
-      })
-
-    return () => {
-      clearTimeout(softTimeout)
-      clearTimeout(hardTimeout)
-      controller.abort()
-    }
+    return () => controller.abort()
   })
 
   $effect(() => {
     if (thread) {
       loadingThread = false
-      threadSoftTimedOut = false
     }
     if (replies.length > 0) {
       loadingReplies = false
-      repliesSoftTimedOut = false
     }
   })
 
@@ -404,6 +389,15 @@
       initialScrollThreadId = threadId
     }
   })
+
+  const retryHistoricalLoad = () => {
+    if (communityBootstrapFailed || communityPermissionEvidenceIncomplete) {
+      window.location.reload()
+      return
+    }
+
+    historicalLoadRetryVersion += 1
+  }
 
   $effect(() => {
     if (!element || !latestReplyId || initialScrollDone) return
@@ -504,10 +498,12 @@
           <p class="flex h-10 items-center justify-center py-20 text-center">
             <Spinner loading={loadingReplies}>Looking for replies...</Spinner>
           </p>
-        {:else if repliesSoftTimedOut && !threadRequestDone && replies.length === 0}
-          <p class="flex h-10 items-center justify-center py-20 text-center">
-            <Spinner loading>Still looking for replies...</Spinner>
-          </p>
+        {:else if replies.length === 0 && (threadLoadStatus === "incomplete" || threadLoadStatus === "failed")}
+          <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
+            <p>Reply history is incomplete or temporarily unavailable.</p>
+            <button class="btn btn-neutral btn-sm" type="button" onclick={retryHistoricalLoad}
+              >Retry</button>
+          </div>
         {:else if communityPermissionsLoading}
           <p class="flex h-10 items-center justify-center py-20 text-center">
             <Spinner loading>Loading reply permissions...</Spinner>
@@ -566,11 +562,16 @@
         {/if}
       </div>
     {/if}
-  {:else if communityBootstrapLoading || communityPermissionsLoading || loadingThread || (threadFilters.length > 0 && !threadRequestStarted) || (!thread && threadSoftTimedOut && !threadRequestDone)}
+  {:else if communityBootstrapLoading || communityPermissionsLoading || loadingThread || (threadFilters.length > 0 && threadLoadStatus === "idle") || threadLoadStatus === "queued" || threadLoadStatus === "loading"}
     <p class="flex h-10 items-center justify-center py-20 text-center">
-      <Spinner loading
-        >{threadSoftTimedOut ? "Still loading thread..." : "Loading thread..."}</Spinner>
+      <Spinner loading>Loading thread...</Spinner>
     </p>
+  {:else if communityBootstrapFailed || communityPermissionEvidenceIncomplete || threadLoadStatus === "incomplete" || threadLoadStatus === "failed"}
+    <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
+      <p>Thread lookup is incomplete or temporarily unavailable.</p>
+      <button class="btn btn-neutral btn-sm" type="button" onclick={retryHistoricalLoad}
+        >Retry</button>
+    </div>
   {:else}
     <p class="py-8 text-center opacity-70">Thread not found or not approved for this community.</p>
   {/if}

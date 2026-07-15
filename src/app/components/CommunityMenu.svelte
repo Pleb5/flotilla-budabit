@@ -60,6 +60,7 @@
     canWriteCommunityTarget,
     getGrantCapability,
     getGrantCapableSectionModeratorPubkeys,
+    getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {
     canReviewCommunityContentReport,
@@ -114,14 +115,29 @@
   const moderationPath = $derived(makeCommunityPath(community, "moderation"))
   const gitCommunityInput = $derived(
     community
-      ? makeCommunityInputValue({pubkey: community, relayHints: $activeCommunityRelays}) || community
+      ? makeCommunityInputValue({pubkey: community, relayHints: $activeCommunityRelays}) ||
+          community
       : "",
   )
   const gitPath = $derived(makeGitCommunityPath(gitCommunityInput))
   const canViewAdmin = $derived(
     Boolean($pubkey && normalizePubkey($pubkey) === normalizePubkey(community)),
   )
-  const roomFilters = $derived(community ? [makeCommunityRoomRootsFilter(community)] : [])
+  const roomAuthorPubkeys = $derived(
+    $activeCommunityDefinition?.pubkey === community
+      ? getCommunityTargetWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          target: COMMUNITY_WRITE_TARGETS.roomRoot,
+          reportState: $activeCommunityReportState,
+        })
+      : [],
+  )
+  const roomFilters = $derived(
+    community && roomAuthorPubkeys.length
+      ? [makeCommunityRoomRootsFilter(community, {authors: roomAuthorPubkeys})]
+      : [],
+  )
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
   const rooms = $derived(
     readCommunityRoomRoots($roomEvents, community).filter(
@@ -200,16 +216,14 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       $pubkey &&
-        community &&
-        $activeCommunityPermissionStatus.communityPubkey === community &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      community &&
+      $activeCommunityPermissionStatus.communityPubkey === community &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
   )
-  const moderationPermissionLoading = $derived(
-    Boolean(communityPermissionsLoading && !canModerate),
-  )
+  const moderationPermissionLoading = $derived(Boolean(communityPermissionsLoading && !canModerate))
   const grantableAdmissionForms = $derived.by(() => {
     const definition = $activeCommunityDefinition
     const userPubkey = $pubkey
@@ -259,7 +273,9 @@
       admissionResponseIds.length > 0 && (admissionEvidenceLoading || !admissionEvidenceLoaded),
     ),
   )
-  const reportDeleteFilters = $derived(makeCommunityReportDeleteFilters($activeCommunityReportEvents))
+  const reportDeleteFilters = $derived(
+    makeCommunityReportDeleteFilters($activeCommunityReportEvents),
+  )
   const reportReviewFilters = $derived(
     $activeCommunityDefinition
       ? makeCommunityReportReviewFilters($activeCommunityDefinition, $activeCommunityReportEvents)

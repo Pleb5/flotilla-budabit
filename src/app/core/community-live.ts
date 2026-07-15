@@ -1,9 +1,18 @@
-import {DELETE, type Filter, type TrustedEvent} from "@welshman/util"
+import {
+  DELETE,
+  EVENT_DATE,
+  EVENT_TIME,
+  THREAD,
+  ZAP_GOAL,
+  type Filter,
+  type TrustedEvent,
+} from "@welshman/util"
 import type {CommunityDefinition} from "@app/core/community"
 import {
   FORM_RESPONSE_KIND,
   PROFILE_LIST_KIND,
   TARGETED_PUBLICATION_KINDS,
+  parseTargetedPublication,
 } from "@app/core/community"
 import {
   COMMUNITY_EXCLUSIVE_KINDS,
@@ -39,9 +48,28 @@ type CommunityFiniteFollowUpFilterInput = {
 }
 
 const COMMUNITY_LIVE_TAG_CHUNK_SIZE = 100
+export const COMMUNITY_HISTORICAL_TARGET_KINDS = [EVENT_DATE, EVENT_TIME, ZAP_GOAL] as const
 
 export const normalizeCommunityLiveValues = (values: string[]) =>
   Array.from(new Set(values.filter(Boolean))).sort()
+
+export const buildCommunityHistoricalDiscoveryFilters = (communityPubkey: string): Filter[] => [
+  {kinds: [THREAD], "#h": [communityPubkey]},
+  makeCommunityTargetingFilter(communityPubkey, COMMUNITY_HISTORICAL_TARGET_KINDS),
+]
+
+export const getCommunityFiniteFollowUpRelays = (
+  relays: string[],
+  targetingEvents: TrustedEvent[],
+) =>
+  normalizeCommunityLiveValues([
+    ...relays,
+    ...targetingEvents.flatMap(event => {
+      const relay = parseTargetedPublication(event)?.ref?.relay
+
+      return relay ? [relay] : []
+    }),
+  ])
 
 const chunkValues = <T>(values: T[], size: number) => {
   const chunks: T[][] = []

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {EVENT_DATE, EVENT_TIME, THREAD, ZAP_GOAL, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
@@ -7,7 +7,12 @@ import {
   buildTargetedPublication,
   parseCommunityDefinition,
 } from "./community"
-import {buildCommunityFiniteFollowUpFilters, buildCommunityLiveFilters} from "./community-live"
+import {
+  buildCommunityFiniteFollowUpFilters,
+  buildCommunityHistoricalDiscoveryFilters,
+  buildCommunityLiveFilters,
+  getCommunityFiniteFollowUpRelays,
+} from "./community-live"
 
 const communityPubkey = "a".repeat(64)
 const listPubkey = "b".repeat(64)
@@ -55,7 +60,35 @@ const targetingEvent = makeEvent({
   }).tags,
 })
 
+const goalTargetingEvent = makeEvent({
+  id: "goal-targeting-event",
+  kind: TARGETED_PUBLICATION_KIND,
+  tags: buildTargetedPublication({
+    id: "goal-target",
+    kind: ZAP_GOAL,
+    ref: {
+      type: "e",
+      value: "goal-event-id",
+      relay: "wss://goal-hint.example.com/",
+    },
+    communities: [{pubkey: communityPubkey}],
+  }).tags,
+})
+
 describe("community live filters", () => {
+  it("discovers historical roots and calendar/goal targeting wrappers", () => {
+    const filters = buildCommunityHistoricalDiscoveryFilters(communityPubkey)
+
+    expect(filters).toEqual([
+      {kinds: [THREAD], "#h": [communityPubkey]},
+      {
+        kinds: [TARGETED_PUBLICATION_KIND],
+        "#p": [communityPubkey],
+        "#k": [String(EVENT_DATE), String(EVENT_TIME), String(ZAP_GOAL)],
+      },
+    ])
+  })
+
   it("keeps the permanent subscription small and stable", () => {
     const filters = buildCommunityLiveFilters({
       definition,
@@ -95,6 +128,22 @@ describe("community live filters", () => {
     })
     expect(filters.some(filter => filter["#e"]?.includes("response-id"))).toBe(true)
     expect(filters.every(filter => filter.limit !== 0)).toBe(true)
+  })
+
+  it("uses wrapper relay hints and exact event ids for finite follow-up", () => {
+    const filters = buildCommunityFiniteFollowUpFilters({
+      definition,
+      targetingEvents: [goalTargetingEvent],
+      admissionResponseIds: [],
+      reportEvents: [],
+      moderatorRequests: [],
+      moderatorRequestReactionEvents: [],
+    })
+
+    expect(filters).toContainEqual({kinds: [ZAP_GOAL], ids: ["goal-event-id"]})
+    expect(
+      getCommunityFiniteFollowUpRelays(["wss://relay.budabit.club/"], [goalTargetingEvent]),
+    ).toEqual(["wss://goal-hint.example.com/", "wss://relay.budabit.club/"])
   })
 
   it("chunks growing response ids into bounded finite filters", () => {

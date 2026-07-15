@@ -1,7 +1,6 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
-  import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {sortBy} from "@welshman/lib"
@@ -39,6 +38,8 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    hydrateCommunityEventsWithStatus,
+    type CommunityHydrationStatus,
   } from "@app/core/community-state"
   import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
@@ -61,20 +62,18 @@
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {makeCommunityGoalPath, parseCommunityRouteParam} from "@app/util/routes"
 
-  const REQUEST_SOFT_TIMEOUT_MS = 3_000
   const REQUEST_HARD_TIMEOUT_MS = 10_000
 
   let loadingGoal = $state(false)
-  let goalSoftTimedOut = $state(false)
-  let goalRequestDone = $state(false)
+  let goalLoadStatus = $state<CommunityHydrationStatus>("idle")
   let loadingTargeting = $state(false)
-  let targetSoftTimedOut = $state(false)
-  let targetRequestDone = $state(false)
+  let targetLoadStatus = $state<CommunityHydrationStatus>("idle")
   let loadingReplies = $state(false)
-  let repliesSoftTimedOut = $state(false)
-  let replyRequestDone = $state(false)
+  let replyLoadStatus = $state<CommunityHydrationStatus>("idle")
+  let historicalLoadRetryVersion = $state(0)
   let showReply = $state(false)
   let showAllReplies = $state(false)
   let eventToEdit: TrustedEvent | undefined = $state()
@@ -104,11 +103,23 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
+  )
+  const communityPermissionEvidenceIncomplete = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.complete &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityBootstrapFailed = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
   )
   const goalSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -311,172 +322,127 @@
   const canEditReply = (event: TrustedEvent) => canEditReplyEvent(event, $pubkey, canReply)
 
   $effect(() => {
+    void historicalLoadRetryVersion
+
     if (
       !communityBootstrapReady ||
       $activeCommunityRelays.length === 0 ||
       goalFilters.length === 0
     ) {
       loadingGoal = false
-      goalSoftTimedOut = false
-      goalRequestDone = false
+      goalLoadStatus = "idle"
       return
     }
 
     const controller = new AbortController()
-    const softTimeout = setTimeout(() => {
-      loadingGoal = false
-      goalSoftTimedOut = true
-    }, REQUEST_SOFT_TIMEOUT_MS)
-    const hardTimeout = setTimeout(() => {
-      loadingGoal = false
-      goalSoftTimedOut = false
-      goalRequestDone = true
-      controller.abort()
-    }, REQUEST_HARD_TIMEOUT_MS)
 
     loadingGoal = true
-    goalSoftTimedOut = false
-    goalRequestDone = false
-    request({
+    goalLoadStatus = "queued"
+    void hydrateCommunityEventsWithStatus({
+      key: `goal:${goalPath}:${historicalLoadRetryVersion}:${JSON.stringify(goalFilters)}`,
       relays: $activeCommunityRelays,
-      autoClose: true,
       filters: goalFilters,
+      authenticate: true,
+      timeout: REQUEST_HARD_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
       signal: controller.signal,
+      onStatus: status => {
+        goalLoadStatus = status
+        loadingGoal = status === "queued" || status === "loading"
+      },
     })
-      .catch(() => undefined)
-      .finally(() => {
-        clearTimeout(softTimeout)
-        clearTimeout(hardTimeout)
-        if (controller.signal.aborted) return
 
-        loadingGoal = false
-        goalSoftTimedOut = false
-        goalRequestDone = true
-      })
-
-    return () => {
-      clearTimeout(softTimeout)
-      clearTimeout(hardTimeout)
-      controller.abort()
-    }
+    return () => controller.abort()
   })
 
   $effect(() => {
+    void historicalLoadRetryVersion
+
     if (
       !communityBootstrapReady ||
       $activeCommunityRelays.length === 0 ||
       targetingFilters.length === 0
     ) {
       loadingTargeting = false
-      targetSoftTimedOut = false
-      targetRequestDone = false
+      targetLoadStatus = "idle"
       return
     }
 
     const controller = new AbortController()
-    const softTimeout = setTimeout(() => {
-      loadingTargeting = false
-      targetSoftTimedOut = true
-    }, REQUEST_SOFT_TIMEOUT_MS)
-    const hardTimeout = setTimeout(() => {
-      loadingTargeting = false
-      targetSoftTimedOut = false
-      targetRequestDone = true
-      controller.abort()
-    }, REQUEST_HARD_TIMEOUT_MS)
 
     loadingTargeting = true
-    targetSoftTimedOut = false
-    targetRequestDone = false
-    request({
+    targetLoadStatus = "queued"
+    void hydrateCommunityEventsWithStatus({
+      key: `goal-target:${goalPath}:${historicalLoadRetryVersion}:${JSON.stringify(targetingFilters)}`,
       relays: $activeCommunityRelays,
-      autoClose: true,
       filters: targetingFilters,
+      authenticate: true,
+      timeout: REQUEST_HARD_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
       signal: controller.signal,
+      onStatus: status => {
+        targetLoadStatus = status
+        loadingTargeting = status === "queued" || status === "loading"
+      },
     })
-      .catch(() => undefined)
-      .finally(() => {
-        clearTimeout(softTimeout)
-        clearTimeout(hardTimeout)
-        if (controller.signal.aborted) return
 
-        loadingTargeting = false
-        targetSoftTimedOut = false
-        targetRequestDone = true
-      })
-
-    return () => {
-      clearTimeout(softTimeout)
-      clearTimeout(hardTimeout)
-      controller.abort()
-    }
+    return () => controller.abort()
   })
 
   $effect(() => {
+    void historicalLoadRetryVersion
+
     if (
       !communityBootstrapReady ||
       $activeCommunityRelays.length === 0 ||
       replyFilters.length === 0
     ) {
       loadingReplies = false
-      repliesSoftTimedOut = false
-      replyRequestDone = false
+      replyLoadStatus = "idle"
       return
     }
 
     const controller = new AbortController()
-    const softTimeout = setTimeout(() => {
-      loadingReplies = false
-      repliesSoftTimedOut = true
-    }, REQUEST_SOFT_TIMEOUT_MS)
-    const hardTimeout = setTimeout(() => {
-      loadingReplies = false
-      repliesSoftTimedOut = false
-      replyRequestDone = true
-      controller.abort()
-    }, REQUEST_HARD_TIMEOUT_MS)
 
     loadingReplies = true
-    repliesSoftTimedOut = false
-    replyRequestDone = false
-    request({
+    replyLoadStatus = "queued"
+    void hydrateCommunityEventsWithStatus({
+      key: `goal-replies:${goalPath}:${historicalLoadRetryVersion}:${JSON.stringify(replyFilters)}`,
       relays: $activeCommunityRelays,
-      autoClose: true,
       filters: replyFilters,
+      authenticate: true,
+      timeout: REQUEST_HARD_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
       signal: controller.signal,
+      onStatus: status => {
+        replyLoadStatus = status
+        loadingReplies = status === "queued" || status === "loading"
+      },
     })
-      .catch(() => undefined)
-      .finally(() => {
-        clearTimeout(softTimeout)
-        clearTimeout(hardTimeout)
-        if (controller.signal.aborted) return
 
-        loadingReplies = false
-        repliesSoftTimedOut = false
-        replyRequestDone = true
-      })
-
-    return () => {
-      clearTimeout(softTimeout)
-      clearTimeout(hardTimeout)
-      controller.abort()
-    }
+    return () => controller.abort()
   })
 
   $effect(() => {
     if (goal) {
       loadingGoal = false
-      goalSoftTimedOut = false
     }
     if (approvedGoal) {
       loadingTargeting = false
-      targetSoftTimedOut = false
     }
     if (replies.length > 0) {
       loadingReplies = false
-      repliesSoftTimedOut = false
     }
   })
+
+  const retryHistoricalLoad = () => {
+    if (communityBootstrapFailed || communityPermissionEvidenceIncomplete) {
+      window.location.reload()
+      return
+    }
+
+    historicalLoadRetryVersion += 1
+  }
 
   onDestroy(() => {
     setChecked(goalPath)
@@ -580,10 +546,12 @@
             <p class="flex h-10 items-center justify-center py-20 text-center">
               <Spinner loading>Looking for comments...</Spinner>
             </p>
-          {:else if repliesSoftTimedOut && !replyRequestDone}
-            <p class="flex h-10 items-center justify-center py-20 text-center">
-              <Spinner loading>Still looking for comments...</Spinner>
-            </p>
+          {:else if replyLoadStatus === "incomplete" || replyLoadStatus === "failed"}
+            <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
+              <p>Comment history is incomplete or temporarily unavailable.</p>
+              <button class="btn btn-neutral btn-sm" type="button" onclick={retryHistoricalLoad}
+                >Retry</button>
+            </div>
           {:else if communityPermissionsLoading}
             <p class="flex h-10 items-center justify-center py-20 text-center">
               <Spinner loading>Loading comment permissions...</Spinner>
@@ -638,13 +606,16 @@
         {/if}
       </div>
     {/if}
-  {:else if communityBootstrapLoading || communityPermissionsLoading || loadingGoal || goalSoftTimedOut || (goal && (loadingTargeting || targetSoftTimedOut || !targetRequestDone)) || (!goal && !goalRequestDone)}
+  {:else if communityBootstrapLoading || communityPermissionsLoading || loadingGoal || goalLoadStatus === "queued" || goalLoadStatus === "loading" || (goal && (loadingTargeting || targetLoadStatus === "idle" || targetLoadStatus === "queued" || targetLoadStatus === "loading")) || (!goal && goalFilters.length > 0 && goalLoadStatus === "idle")}
     <p class="flex h-10 items-center justify-center py-20 text-center">
-      <Spinner loading
-        >{goalSoftTimedOut || targetSoftTimedOut
-          ? "Still loading funding goal..."
-          : "Loading funding goal..."}</Spinner>
+      <Spinner loading>Loading funding goal...</Spinner>
     </p>
+  {:else if communityBootstrapFailed || communityPermissionEvidenceIncomplete || (!goal && (goalLoadStatus === "incomplete" || goalLoadStatus === "failed")) || (goal && !approvedGoal && (targetLoadStatus === "incomplete" || targetLoadStatus === "failed"))}
+    <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
+      <p>Goal lookup is incomplete or temporarily unavailable.</p>
+      <button class="btn btn-neutral btn-sm" type="button" onclick={retryHistoricalLoad}
+        >Retry</button>
+    </div>
   {:else}
     <p class="py-8 text-center opacity-70">Goal not found or not approved for this community.</p>
   {/if}

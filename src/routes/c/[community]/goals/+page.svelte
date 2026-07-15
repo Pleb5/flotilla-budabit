@@ -2,7 +2,6 @@
   import {onDestroy} from "svelte"
   import {readable, type Readable} from "svelte/store"
   import {page} from "$app/stores"
-  import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {max, partition, pushToMapKey, sortBy, spec} from "@welshman/lib"
@@ -18,11 +17,14 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
+    hydrateCommunityEventsWithStatus,
     markCommunityHydrationCompleted,
+    type CommunityHydrationStatus,
   } from "@app/core/community-state"
   import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {
@@ -37,17 +39,16 @@
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityGoalPath, parseCommunityRouteParam} from "@app/util/routes"
 
-  const REQUEST_SOFT_TIMEOUT_MS = 3_000
   const REQUEST_HARD_TIMEOUT_MS = 10_000
 
   let loadingTargets = $state(false)
-  let targetSoftTimedOut = $state(false)
-  let targetRequestDone = $state(false)
+  let targetLoadStatus = $state<CommunityHydrationStatus>("idle")
   let loadingEvents = $state(false)
-  let feedSoftTimedOut = $state(false)
+  let feedLoadStatus = $state<CommunityHydrationStatus>("idle")
   let emptyStateSettled = $state(false)
   let exhaustedEvents = $state(false)
   let element: HTMLElement | undefined = $state()
@@ -56,6 +57,7 @@
   let feedInitialized = $state(false)
   let emptyStateSettleTimer: ReturnType<typeof setTimeout> | undefined
   let lastFeedKey = ""
+  let historicalLoadRetryVersion = $state(0)
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
@@ -75,6 +77,26 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityPermissionEvidenceIncomplete = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.complete &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityBootstrapFailed = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
   )
   const goalSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -215,7 +237,7 @@
     feedCleanup = undefined
     events = readable([])
     loadingEvents = false
-    feedSoftTimedOut = false
+    feedLoadStatus = "idle"
     emptyStateSettled = false
     exhaustedEvents = false
     feedInitialized = false
@@ -229,7 +251,7 @@
     const hydrationKey = `goals:feed:${key}`
 
     loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
-    feedSoftTimedOut = false
+    feedLoadStatus = "loading"
     startEmptyStateSettleTimer()
     exhaustedEvents = false
     lastFeedKey = key
@@ -240,15 +262,15 @@
       relays: $activeCommunityRelays,
       feedFilters: goalFeedFilters,
       subscriptionFilters: goalFeedFilters,
-      onInitialLoad: ({timedOut}) => {
-        if (!timedOut) markCommunityHydrationCompleted(hydrationKey)
+      onInitialLoad: ({complete, timedOut}) => {
+        if (complete) markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
-        feedSoftTimedOut = timedOut
+        feedLoadStatus = complete ? "complete" : timedOut ? "incomplete" : "failed"
       },
       onExhausted: () => {
         markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
-        feedSoftTimedOut = false
+        feedLoadStatus = "complete"
         emptyStateSettled = true
         clearEmptyStateSettleTimer()
         exhaustedEvents = true
@@ -260,6 +282,8 @@
   }
 
   $effect(() => {
+    void historicalLoadRetryVersion
+
     if (
       !communityBootstrapReady ||
       !communityPubkey ||
@@ -267,8 +291,7 @@
       targetingFilters.length === 0
     ) {
       loadingTargets = false
-      targetSoftTimedOut = false
-      targetRequestDone = false
+      targetLoadStatus = "idle"
       emptyStateSettled = false
       clearEmptyStateSettleTimer()
       return
@@ -283,51 +306,28 @@
 
     if (hasCommunityHydrationCompleted(key)) {
       loadingTargets = false
-      targetSoftTimedOut = false
-      targetRequestDone = true
+      targetLoadStatus = "complete"
       return
     }
 
-    const softTimeout = setTimeout(() => {
-      targetSoftTimedOut = true
-    }, REQUEST_SOFT_TIMEOUT_MS)
-    const hardTimeout = setTimeout(() => {
-      markCommunityHydrationCompleted(key)
-      loadingTargets = false
-      targetSoftTimedOut = false
-      targetRequestDone = true
-      emptyStateSettled = true
-      clearEmptyStateSettleTimer()
-      controller.abort()
-    }, REQUEST_HARD_TIMEOUT_MS)
-
     loadingTargets = true
-    targetSoftTimedOut = false
-    targetRequestDone = false
+    targetLoadStatus = "queued"
     startEmptyStateSettleTimer()
-    request({
+    void hydrateCommunityEventsWithStatus({
+      key,
       relays: $activeCommunityRelays,
-      autoClose: true,
       filters: targetingFilters,
+      authenticate: true,
+      timeout: REQUEST_HARD_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
       signal: controller.signal,
+      onStatus: status => {
+        targetLoadStatus = status
+        loadingTargets = status === "queued" || status === "loading"
+      },
     })
-      .catch(() => undefined)
-      .finally(() => {
-        clearTimeout(softTimeout)
-        clearTimeout(hardTimeout)
-        if (controller.signal.aborted) return
 
-        markCommunityHydrationCompleted(key)
-        loadingTargets = false
-        targetSoftTimedOut = false
-        targetRequestDone = true
-      })
-
-    return () => {
-      clearTimeout(softTimeout)
-      clearTimeout(hardTimeout)
-      controller.abort()
-    }
+    return () => controller.abort()
   })
 
   $effect(() => {
@@ -344,10 +344,19 @@
     }
   })
 
+  const retryHistoricalLoad = () => {
+    if (communityBootstrapFailed || communityPermissionEvidenceIncomplete) {
+      window.location.reload()
+      return
+    }
+
+    historicalLoadRetryVersion += 1
+    resetFeed()
+  }
+
   $effect(() => {
     if (items.length === 0) return
 
-    feedSoftTimedOut = false
     emptyStateSettled = true
     clearEmptyStateSettleTimer()
   })
@@ -394,19 +403,29 @@
       readOnly={!canReact}
       event={$state.snapshot(event)} />
   {/each}
-  {#if communityBootstrapLoading}
+  {#if communityBootstrapLoading || communityPermissionsLoading}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading community permissions...</Spinner>
     </p>
-  {:else if loadingTargets || targetSoftTimedOut || waitingForFeed || loadingEvents || (!emptyStateSettled && items.length === 0) || (!targetRequestDone && items.length === 0)}
+  {:else if items.length === 0 && (communityBootstrapFailed || communityPermissionEvidenceIncomplete)}
+    <div class="flex flex-col items-center gap-3 py-20 text-center">
+      <p>Community permissions are incomplete or temporarily unavailable.</p>
+      <button class="btn btn-neutral btn-sm" type="button" onclick={retryHistoricalLoad}
+        >Retry</button>
+    </div>
+  {:else if loadingTargets || waitingForFeed || loadingEvents || (!emptyStateSettled && items.length === 0 && targetLoadStatus !== "incomplete" && targetLoadStatus !== "failed" && feedLoadStatus !== "incomplete" && feedLoadStatus !== "failed") || (targetLoadStatus === "idle" && items.length === 0)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading
-        >{targetSoftTimedOut ||
-        feedSoftTimedOut ||
-        (!emptyStateSettled && !loadingTargets && !waitingForFeed && !loadingEvents)
+        >{!emptyStateSettled && !loadingTargets && !waitingForFeed && !loadingEvents
           ? "Still looking for goals..."
           : "Looking for goals..."}</Spinner>
     </p>
+  {:else if items.length === 0 && (targetLoadStatus === "incomplete" || targetLoadStatus === "failed" || feedLoadStatus === "incomplete" || feedLoadStatus === "failed")}
+    <div class="flex flex-col items-center gap-3 py-20 text-center">
+      <p>Goal history is incomplete or temporarily unavailable.</p>
+      <button class="btn btn-neutral btn-sm" type="button" onclick={retryHistoricalLoad}
+        >Retry</button>
+    </div>
   {:else if items.length === 0}
     <p class="flex h-10 items-center justify-center py-20 text-center">No goals found.</p>
   {:else if exhaustedEvents}

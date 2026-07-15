@@ -30,11 +30,13 @@
     activeCommunityDefinition,
     activeCommunityModeratorRequestReactionEvents,
     activeCommunityModeratorRequests,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
     activeCommunityReportState,
     ensureCommunityBootstrap,
     getCommunityBootstrapKey,
+    hydrateCommunityEventsWithStatus,
     makeCommunitySession,
     setActiveCommunityInput,
   } from "@app/core/community-state"
@@ -52,8 +54,10 @@
     normalizeDeleteCheckpoint,
   } from "@app/core/community-deletes"
   import {
+    buildCommunityHistoricalDiscoveryFilters,
     buildCommunityFiniteFollowUpFilters,
     buildCommunityLiveFilters,
+    getCommunityFiniteFollowUpRelays,
     getCommunityLiveSubscriptionKey,
     normalizeCommunityLiveValues,
   } from "@app/core/community-live"
@@ -108,6 +112,8 @@
   const communityLiveSubscriptionsByRelay = new Map<string, AbortController>()
   let communityHistoryLoadKey = ""
   let communityHistoryLoadController: AbortController | null = null
+  let communityHistoryRetryVersion = $state(0)
+  let communityHistoryRetryTimer: ReturnType<typeof setTimeout> | null = null
   let communityDeleteLoadKey = ""
   let communityDeleteLoadController: AbortController | null = null
   let latestCommunityDeleteSeen = 0
@@ -187,6 +193,8 @@
   }
 
   const stopCommunityHistoryLoad = () => {
+    if (communityHistoryRetryTimer) clearTimeout(communityHistoryRetryTimer)
+    communityHistoryRetryTimer = null
     communityHistoryLoadController?.abort()
     communityHistoryLoadController = null
     communityHistoryLoadKey = ""
@@ -296,6 +304,8 @@
   })
 
   $effect(() => {
+    void communityHistoryRetryVersion
+
     if (!communityBackgroundHydrationReady) {
       stopCommunityHistoryLoad()
       return
@@ -303,8 +313,15 @@
 
     const definition = $activeCommunityDefinition
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
+    const authorityReady = Boolean(
+      definition &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading &&
+      $activeCommunityPermissionStatus.communityPubkey === definition.pubkey &&
+      ($activeCommunityPermissionStatus.loaded || $activeCommunityPermissionStatus.hasCachedEvents),
+    )
 
-    if (!definition || relays.length === 0) {
+    if (!definition || !authorityReady || relays.length === 0) {
       stopCommunityHistoryLoad()
       return
     }
@@ -315,28 +332,33 @@
     communityHistoryLoadController?.abort()
     communityHistoryLoadKey = key
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), COMMUNITY_HISTORY_LOAD_TIMEOUT_MS)
     communityHistoryLoadController = controller
 
-    request({
+    void hydrateCommunityEventsWithStatus({
+      key: `community-discovery:${key}`,
       relays,
-      threshold: 0.5,
-      autoClose: true,
+      filters: [
+        {kinds: [MESSAGE], "#h": [definition.pubkey], since: ago(MONTH)},
+        ...buildCommunityHistoricalDiscoveryFilters(definition.pubkey),
+      ],
+      authenticate: true,
+      timeout: COMMUNITY_HISTORY_LOAD_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.community,
       signal: controller.signal,
-      filters: [{kinds: [MESSAGE], "#h": [definition.pubkey], since: ago(MONTH)}],
-      priority: RELAY_REQUEST_PRIORITY.interactive,
+    }).then(result => {
+      if (communityHistoryLoadController !== controller) return
+      communityHistoryLoadController = null
+
+      if (!result.complete && !controller.signal.aborted) {
+        console.warn("[community-history] Community historical discovery is incomplete", result)
+        communityHistoryLoadKey = ""
+        if (communityHistoryRetryTimer) clearTimeout(communityHistoryRetryTimer)
+        communityHistoryRetryTimer = setTimeout(() => {
+          communityHistoryRetryTimer = null
+          communityHistoryRetryVersion += 1
+        }, 5000)
+      }
     })
-      .catch(error => {
-        if (!controller.signal.aborted) {
-          console.warn("[community-history] Failed to preload community message history", error)
-        }
-      })
-      .finally(() => {
-        clearTimeout(timeout)
-        if (communityHistoryLoadController === controller) {
-          communityHistoryLoadController = null
-        }
-      })
   })
 
   $effect(() => {
@@ -349,14 +371,10 @@
 
     const definition = $activeCommunityDefinition
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
-    const followUpRelays = normalizeCommunityLiveValues([
-      ...relays,
-      ...authorizedCommunityTargetingEvents.flatMap(event => {
-        const relay = parseTargetedPublication(event)?.ref?.relay
-
-        return relay ? [relay] : []
-      }),
-    ])
+    const followUpRelays = getCommunityFiniteFollowUpRelays(
+      relays,
+      authorizedCommunityTargetingEvents,
+    )
 
     if (!definition || relays.length === 0) {
       stopCommunityFollowUpLoad()
@@ -387,45 +405,28 @@
     communityFollowUpLoadController?.abort()
     communityFollowUpLoadKey = key
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), COMMUNITY_HISTORY_LOAD_TIMEOUT_MS)
     communityFollowUpLoadController = controller
-    const successfulRelays = new Set<string>()
-    let completed = false
 
-    request({
+    void hydrateCommunityEventsWithStatus({
+      key: `community-follow-up:${key}`,
       relays: followUpRelays,
       filters,
-      autoClose: true,
-      threshold: 0.5,
+      authenticate: true,
+      timeout: COMMUNITY_HISTORY_LOAD_TIMEOUT_MS,
       signal: controller.signal,
       priority: RELAY_REQUEST_PRIORITY.community,
-      onEose: url => {
-        successfulRelays.add(url)
-        completed = successfulRelays.size >= followUpRelays.length * 0.5
-      },
-      onEvent: (event, url) => {
-        tracker.addRelay(event.id, url)
-        repository.publish(event)
-      },
-    })
-      .catch(error => {
-        if (!controller.signal.aborted) {
-          console.warn("[community-follow-up] Failed to hydrate referenced community events", error)
-        }
-      })
-      .finally(() => {
-        clearTimeout(timeout)
-        if (communityFollowUpLoadController !== controller) return
-        communityFollowUpLoadController = null
-        if (completed) return
+    }).then(result => {
+      if (communityFollowUpLoadController !== controller) return
+      communityFollowUpLoadController = null
+      if (result.complete) return
 
-        communityFollowUpLoadKey = ""
-        if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)
-        communityFollowUpRetryTimer = setTimeout(() => {
-          communityFollowUpRetryTimer = null
-          communityFollowUpRetryVersion += 1
-        }, 5000)
-      })
+      communityFollowUpLoadKey = ""
+      if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)
+      communityFollowUpRetryTimer = setTimeout(() => {
+        communityFollowUpRetryTimer = null
+        communityFollowUpRetryVersion += 1
+      }, 5000)
+    })
   })
 
   $effect(() => {
@@ -518,6 +519,7 @@
       request({
         relays: [url],
         filters,
+        lifetime: "live",
         signal: controller.signal,
         priority: RELAY_REQUEST_PRIORITY.live,
         onClosed: () => {

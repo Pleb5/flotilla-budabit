@@ -15,11 +15,13 @@
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
+    activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
     markCommunityHydrationCompleted,
+    type CommunityHydrationStatus,
   } from "@app/core/community-state"
   import {
     makeCommunityThreadRepliesFilter,
@@ -78,6 +80,26 @@
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
+  const communityPermissionsLoading = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityPermissionEvidenceIncomplete = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.complete &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityBootstrapFailed = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
+  )
   const threadSectionName = $derived(
     getCommunityWriteTargetSectionName(
       communityBootstrapReady ? $activeCommunityDefinition : undefined,
@@ -109,7 +131,7 @@
       : "",
   )
   let loadingEvents = $state(false)
-  let feedSoftTimedOut = $state(false)
+  let feedLoadStatus = $state<CommunityHydrationStatus>("idle")
   let feedEmptySettled = $state(false)
   let exhaustedEvents = $state(false)
   let element: HTMLElement | undefined = $state()
@@ -181,7 +203,7 @@
     clearFeedEmptySettleTimer()
     events = readable([])
     loadingEvents = false
-    feedSoftTimedOut = false
+    feedLoadStatus = "idle"
     feedEmptySettled = false
     exhaustedEvents = false
     feedInitialized = false
@@ -194,7 +216,7 @@
     const hydrationKey = `threads:feed:${key}`
 
     loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
-    feedSoftTimedOut = false
+    feedLoadStatus = "loading"
     startFeedEmptySettleTimer()
     exhaustedEvents = false
     lastFeedKey = key
@@ -205,15 +227,15 @@
       relays: $activeCommunityRelays,
       feedFilters,
       subscriptionFilters: feedFilters,
-      onInitialLoad: ({timedOut}) => {
-        if (!timedOut) markCommunityHydrationCompleted(hydrationKey)
+      onInitialLoad: ({complete, timedOut}) => {
+        if (complete) markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
-        feedSoftTimedOut = timedOut
+        feedLoadStatus = complete ? "complete" : timedOut ? "incomplete" : "failed"
       },
       onExhausted: () => {
         markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
-        feedSoftTimedOut = false
+        feedLoadStatus = "complete"
         feedEmptySettled = true
         clearFeedEmptySettleTimer()
         exhaustedEvents = true
@@ -238,10 +260,18 @@
     }
   })
 
+  const retryFeed = () => {
+    if (communityBootstrapFailed || communityPermissionEvidenceIncomplete) {
+      window.location.reload()
+      return
+    }
+
+    resetFeed()
+  }
+
   $effect(() => {
     if (threads.length === 0) return
 
-    feedSoftTimedOut = false
     feedEmptySettled = true
     clearFeedEmptySettleTimer()
   })
@@ -288,17 +318,27 @@
         readOnly={!canReact}
         event={thread.event} />
     {/each}
-    {#if communityBootstrapLoading}
+    {#if communityBootstrapLoading || communityPermissionsLoading}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         <Spinner loading>Loading community permissions...</Spinner>
       </p>
-    {:else if waitingForFeed || loadingEvents || (!feedEmptySettled && threads.length === 0)}
+    {:else if threads.length === 0 && (communityBootstrapFailed || communityPermissionEvidenceIncomplete)}
+      <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
+        <p>Community permissions are incomplete or temporarily unavailable.</p>
+        <button class="btn btn-neutral btn-sm" type="button" onclick={retryFeed}>Retry</button>
+      </div>
+    {:else if waitingForFeed || loadingEvents || (!feedEmptySettled && threads.length === 0 && feedLoadStatus !== "incomplete" && feedLoadStatus !== "failed")}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         <Spinner loading
           >{!waitingForFeed && !loadingEvents
             ? "Still looking for threads..."
             : "Looking for threads..."}</Spinner>
       </p>
+    {:else if threads.length === 0 && (feedLoadStatus === "incomplete" || feedLoadStatus === "failed")}
+      <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
+        <p>Thread history is incomplete or temporarily unavailable.</p>
+        <button class="btn btn-neutral btn-sm" type="button" onclick={retryFeed}>Retry</button>
+      </div>
     {:else if threads.length === 0}
       <p class="py-8 text-center opacity-70">No threads found.</p>
     {:else if exhaustedEvents}

@@ -2,7 +2,6 @@
   import {readable, type Readable} from "svelte/store"
   import {onDestroy, onMount, tick} from "svelte"
   import {page} from "$app/stores"
-  import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {formatTimestampAsDate, int, MINUTE, now} from "@welshman/lib"
@@ -34,6 +33,8 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    hydrateCommunityEventsWithStatus,
+    type CommunityHydrationStatus,
   } from "@app/core/community-state"
   import {
     makeCommunityExclusiveFilter,
@@ -69,6 +70,7 @@
   } from "@app/util/notifications"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {
     makeCommunityPath,
     makeCommunityRoomPath,
@@ -132,11 +134,23 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
+  )
+  const communityPermissionEvidenceIncomplete = $derived(
+    Boolean(
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.complete &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
+    ),
+  )
+  const communityBootstrapFailed = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
   )
   const roomRootSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -381,7 +395,7 @@
     clearFeedEmptySettleTimer()
     events = readable([])
     loadingEvents = false
-    feedSoftTimedOut = false
+    feedLoadStatus = "idle"
     feedEmptySettled = false
     exhaustedEvents = false
     feedInitialized = false
@@ -393,7 +407,7 @@
       return
 
     loadingEvents = true
-    feedSoftTimedOut = false
+    feedLoadStatus = "loading"
     startFeedEmptySettleTimer()
     exhaustedEvents = false
     newMessagesSeen = false
@@ -406,13 +420,13 @@
       relays: $activeCommunityRelays,
       feedFilters: messageFilters,
       subscriptionFilters: messageFilters,
-      onInitialLoad: ({timedOut}) => {
+      onInitialLoad: ({complete, timedOut}) => {
         loadingEvents = false
-        feedSoftTimedOut = timedOut
+        feedLoadStatus = complete ? "complete" : timedOut ? "incomplete" : "failed"
       },
       onExhausted: () => {
         loadingEvents = false
-        feedSoftTimedOut = false
+        feedLoadStatus = "complete"
         feedEmptySettled = true
         clearFeedEmptySettleTimer()
         exhaustedEvents = true
@@ -448,9 +462,10 @@
   }
 
   let loadingRoom = $state(false)
-  let roomRequestDone = $state(false)
+  let roomLoadStatus = $state<CommunityHydrationStatus>("idle")
+  let roomLoadRetryVersion = $state(0)
   let loadingEvents = $state(false)
-  let feedSoftTimedOut = $state(false)
+  let feedLoadStatus = $state<CommunityHydrationStatus>("idle")
   let feedEmptySettled = $state(false)
   let exhaustedEvents = $state(false)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
@@ -475,7 +490,10 @@
       !room &&
       roomFilters.length > 0 &&
       $activeCommunityRelays.length > 0 &&
-      (loadingRoom || !roomRequestDone),
+      (loadingRoom ||
+        roomLoadStatus === "idle" ||
+        roomLoadStatus === "queued" ||
+        roomLoadStatus === "loading"),
     ),
   )
   const waitingForFeed = $derived(Boolean(room && feedKey && !feedInitialized))
@@ -542,30 +560,36 @@
   })
 
   $effect(() => {
+    void roomLoadRetryVersion
+
     const relays = $activeCommunityRelays
     if (!communityPubkey || !roomId || relays.length === 0 || roomFilters.length === 0) {
       loadingRoom = false
-      roomRequestDone = false
+      roomLoadStatus = "idle"
       return
     }
 
     if (room) {
       loadingRoom = false
-      roomRequestDone = true
       return
     }
 
     const controller = new AbortController()
     loadingRoom = true
-    roomRequestDone = false
-    request({relays, autoClose: true, filters: roomFilters, signal: controller.signal})
-      .catch(() => undefined)
-      .finally(() => {
-        if (controller.signal.aborted) return
-
-        loadingRoom = false
-        roomRequestDone = true
-      })
+    roomLoadStatus = "queued"
+    void hydrateCommunityEventsWithStatus({
+      key: `room:${roomPath}:${roomLoadRetryVersion}:${JSON.stringify(roomFilters)}`,
+      relays,
+      filters: roomFilters,
+      authenticate: true,
+      timeout: FEED_EMPTY_SETTLE_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
+      signal: controller.signal,
+      onStatus: status => {
+        roomLoadStatus = status
+        loadingRoom = status === "queued" || status === "loading"
+      },
+    })
 
     return () => controller.abort()
   })
@@ -573,10 +597,19 @@
   $effect(() => {
     if (elements.length === 0) return
 
-    feedSoftTimedOut = false
     feedEmptySettled = true
     clearFeedEmptySettleTimer()
   })
+
+  const retryRoomLoad = () => {
+    if (communityBootstrapFailed || communityPermissionEvidenceIncomplete) {
+      window.location.reload()
+      return
+    }
+
+    roomLoadRetryVersion += 1
+    resetFeed()
+  }
 
   $effect(() => {
     const key = feedKey
@@ -692,14 +725,22 @@
           <Spinner loading>Loading room permissions...</Spinner>
         {:else if waitingForRoom}
           <Spinner loading>Loading room...</Spinner>
+        {:else if communityBootstrapFailed || communityPermissionEvidenceIncomplete || roomLoadStatus === "incomplete" || roomLoadStatus === "failed"}
+          <span>Room lookup is incomplete or temporarily unavailable.</span>
+          <button class="btn btn-neutral btn-sm" type="button" onclick={retryRoomLoad}
+            >Retry</button>
         {:else if waitingForFeed}
           <Spinner loading>Looking for messages...</Spinner>
         {:else if loadingEvents}
           <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-        {:else if !feedEmptySettled && elements.length === 0}
+        {:else if !feedEmptySettled && elements.length === 0 && feedLoadStatus !== "incomplete" && feedLoadStatus !== "failed"}
           <Spinner loading>Still looking for messages...</Spinner>
         {:else if !room}
           <span>Room not found or not approved for this community.</span>
+        {:else if feedLoadStatus === "incomplete" || feedLoadStatus === "failed"}
+          <span>Message history is incomplete or temporarily unavailable.</span>
+          <button class="btn btn-neutral btn-sm" type="button" onclick={retryRoomLoad}
+            >Retry</button>
         {:else if elements.length === 0}
           <span>No messages yet.</span>
         {:else}
@@ -736,13 +777,32 @@
           content={eventToEdit?.content}
           bind:this={compose} />
       {/key}
-    {:else if communityBootstrapLoading || communityPermissionsLoading}
+    {:else if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom}
       <div
         class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
         <div class="min-w-0">
           <strong class="block text-sm">Checking room access</strong>
           <p class="text-xs opacity-70">Loading community permissions...</p>
         </div>
+      </div>
+    {:else if !room}
+      <div
+        class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
+        <div class="min-w-0">
+          <strong class="block text-sm">Room unavailable</strong>
+          <p class="text-xs opacity-70">
+            {communityBootstrapFailed ||
+            communityPermissionEvidenceIncomplete ||
+            roomLoadStatus === "incomplete" ||
+            roomLoadStatus === "failed"
+              ? "Room lookup is incomplete. Retry when relay access is available."
+              : "This room was not found or is not approved for this community."}
+          </p>
+        </div>
+        {#if communityBootstrapFailed || communityPermissionEvidenceIncomplete || roomLoadStatus === "incomplete" || roomLoadStatus === "failed"}
+          <button class="btn btn-neutral btn-sm" type="button" onclick={retryRoomLoad}
+            >Retry</button>
+        {/if}
       </div>
     {:else}
       <div

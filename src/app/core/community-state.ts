@@ -117,6 +117,7 @@ export type CommunityPermissionStatus = {
   key: string
   loading: boolean
   loaded: boolean
+  complete: boolean
   hasCachedEvents: boolean
   error?: string
 }
@@ -128,6 +129,9 @@ export type CommunityRelayLoadOptions = {
   authenticate?: boolean
   priorityAuthRelays?: string[]
   settle?: CommunityRelayLoadSettle
+  priority?: number
+  signal?: AbortSignal
+  onStart?: (relay: string) => void
 }
 
 export type CommunityRelayLoadResult = {
@@ -136,6 +140,14 @@ export type CommunityRelayLoadResult = {
   timedOutRelays: string[]
   failedRelays: string[]
 }
+
+export type CommunityHydrationStatus =
+  | "idle"
+  | "queued"
+  | "loading"
+  | "complete"
+  | "incomplete"
+  | "failed"
 
 export type CommunityRelayAuthOptions = {
   timeout?: number
@@ -215,6 +227,7 @@ export const activeCommunityPermissionStatus = writable<CommunityPermissionStatu
   key: "",
   loading: false,
   loaded: false,
+  complete: false,
   hasCachedEvents: false,
 })
 
@@ -231,6 +244,15 @@ export const hasCommunityHydrationCompleted = (key: string) =>
 
 export const markCommunityHydrationCompleted = (key: string) => {
   if (key) completedCommunityHydrationKeys.add(key)
+}
+
+export const getCommunityHydrationResultStatus = (
+  result: CommunityRelayLoadResult,
+): CommunityHydrationStatus => {
+  if (result.complete) return "complete"
+  if (result.failedRelays.length > 0) return "failed"
+
+  return "incomplete"
 }
 
 export const clearCommunityBootstrapCache = (communityPubkey?: string) => {
@@ -298,6 +320,7 @@ export const clearActiveCommunity = () => {
     key: "",
     loading: false,
     loaded: false,
+    complete: false,
     hasCachedEvents: false,
   })
 }
@@ -550,6 +573,21 @@ const publishCommunityEvents = (events: TrustedEvent[]) => {
   }
 }
 
+const makeCompleteEmptyCommunityLoadResult = (): CommunityRelayLoadResult => ({
+  events: [],
+  complete: true,
+  timedOutRelays: [],
+  failedRelays: [],
+})
+
+const getCommunityLoadFailure = (results: CommunityRelayLoadResult[]) => {
+  const failedRelays = Array.from(new Set(results.flatMap(result => result.failedRelays)))
+
+  return failedRelays.length > 0
+    ? new Error(`Community relay reads failed: ${failedRelays.join(", ")}`)
+    : undefined
+}
+
 const hasCachedCommunityEventsForFilters = (filters: Filter[]) =>
   filters.length === 0 || filters.every(filter => repository.query([filter]).length > 0)
 
@@ -574,13 +612,17 @@ const startCommunityPermissionLoadStatus = ({
     key,
     loading: hasFilters,
     loaded: !hasFilters,
+    complete: !hasFilters,
     hasCachedEvents,
   })
 
   return key
 }
 
-const finishCommunityPermissionLoadStatus = (key: string, error?: unknown) => {
+const finishCommunityPermissionLoadStatus = (
+  key: string,
+  {complete, error}: {complete: boolean; error?: unknown},
+) => {
   if (!key) return
 
   activeCommunityPermissionStatus.update(current =>
@@ -589,6 +631,7 @@ const finishCommunityPermissionLoadStatus = (key: string, error?: unknown) => {
           ...current,
           loading: false,
           loaded: true,
+          complete,
           ...(error ? {error: error instanceof Error ? error.message : String(error)} : {}),
         }
       : current,
@@ -809,14 +852,32 @@ export const loadCommunityEventsWithStatus = async (
     const receivedEvents: TrustedEvent[] = []
     let disconnected = false
     let rejected = false
+    let aborted = false
     let timeout: ReturnType<typeof setTimeout> | undefined
+    const handleAbort = () => {
+      aborted = true
+      controller.abort()
+    }
 
     try {
+      if (options.signal?.aborted) {
+        return {
+          relay,
+          events: [],
+          complete: false,
+          timedOut: false,
+          failed: false,
+        }
+      }
+
+      options.signal?.addEventListener("abort", handleAbort, {once: true})
       const outcome = await Promise.race([
         communityStateLoad({
           relays: [relay],
           filters,
           signal: controller.signal,
+          priority: options.priority,
+          onStart: url => options.onStart?.(url),
           onEvent: (event, url) => {
             tracker.addRelay(event.id, url)
             receivedEvents.push(event)
@@ -844,9 +905,9 @@ export const loadCommunityEventsWithStatus = async (
       return {
         relay,
         events,
-        complete: outcome.status === "complete" && !disconnected && !rejected,
+        complete: outcome.status === "complete" && !disconnected && !rejected && !aborted,
         timedOut: outcome.status === "timeout",
-        failed: outcome.status === "failed" || disconnected || rejected,
+        failed: !aborted && (outcome.status === "failed" || disconnected || rejected),
       }
     } catch {
       return {
@@ -858,6 +919,7 @@ export const loadCommunityEventsWithStatus = async (
       }
     } finally {
       if (timeout) clearTimeout(timeout)
+      options.signal?.removeEventListener("abort", handleAbort)
     }
   }
 
@@ -923,6 +985,59 @@ export const loadCommunityEvents = async (
   filters: Filter[],
   options: CommunityRelayLoadOptions = {},
 ): Promise<TrustedEvent[]> => (await loadCommunityEventsWithStatus(relays, filters, options)).events
+
+export const hydrateCommunityEventsWithStatus = async ({
+  key,
+  relays,
+  filters,
+  onStatus,
+  ...options
+}: CommunityRelayLoadOptions & {
+  key: string
+  relays: string[]
+  filters: Filter[]
+  onStatus?: (status: CommunityHydrationStatus) => void
+}): Promise<CommunityRelayLoadResult> => {
+  if (hasCommunityHydrationCompleted(key)) {
+    const result = {
+      events: filters.length > 0 ? repository.query(filters) : [],
+      complete: true,
+      timedOutRelays: [],
+      failedRelays: [],
+    }
+
+    onStatus?.("complete")
+    return result
+  }
+
+  onStatus?.("queued")
+
+  try {
+    const result = await loadCommunityEventsWithStatus(relays, filters, {
+      ...options,
+      onStart: relay => {
+        options.onStart?.(relay)
+        if (!options.signal?.aborted) onStatus?.("loading")
+      },
+    })
+    const status = getCommunityHydrationResultStatus(result)
+
+    if (status === "complete") markCommunityHydrationCompleted(key)
+    if (!options.signal?.aborted) onStatus?.(status)
+
+    return result
+  } catch {
+    const result = {
+      events: [] as TrustedEvent[],
+      complete: false,
+      timedOutRelays: [],
+      failedRelays: normalizeRelays(relays),
+    }
+
+    if (!options.signal?.aborted) onStatus?.("failed")
+    return result
+  }
+}
 
 export const loadCommunityDefinitionFromRelays = async (
   communityPubkey: string,
@@ -2528,31 +2643,37 @@ export const loadCommunityBootstrap = async (
     authorityEvents = readFromRepository(authorityFilters)
     admissionFormEvents = readFromRepository(admissionFormFilters)
     reportEvents = readFromRepository(reportFilters)
-    const permissionRefreshPromises: Promise<unknown>[] = []
+    const permissionRefreshPromises: Promise<CommunityRelayLoadResult>[] = []
 
     // Background refresh - non-awaited, results land in the repository and
     // the reactive stores emit updates naturally.
     if (authorityFilters.length > 0) {
-      const authorityLoad = loadCommunityEvents(communityRelays, authorityFilters, {
+      const authorityLoad = loadCommunityEventsWithStatus(communityRelays, authorityFilters, {
         timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
         settle: "first-non-empty",
+        authenticate: true,
       })
       permissionRefreshPromises.push(authorityLoad)
       void authorityLoad.catch(() => undefined)
     }
     if (admissionFormFilters.length > 0) {
-      const admissionFormLoad = loadCommunityEvents(communityRelays, admissionFormFilters, {
-        settle: "first",
-      })
+      const admissionFormLoad = loadCommunityEventsWithStatus(
+        communityRelays,
+        admissionFormFilters,
+        {
+          authenticate: true,
+          settle: "first",
+        },
+      )
       permissionRefreshPromises.push(admissionFormLoad)
       void admissionFormLoad.catch(() => undefined)
     }
     if (permissionRefreshPromises.length > 0) {
-      void Promise.allSettled(permissionRefreshPromises).then(results => {
-        const rejected = results.find(
-          (result): result is PromiseRejectedResult => result.status === "rejected",
-        )
-        finishCommunityPermissionLoadStatus(permissionStatusKey, rejected?.reason)
+      void Promise.all(permissionRefreshPromises).then(results => {
+        finishCommunityPermissionLoadStatus(permissionStatusKey, {
+          complete: results.every(result => result.complete),
+          error: getCommunityLoadFailure(results),
+        })
       })
     }
     if (reportFilters.length > 0) {
@@ -2570,16 +2691,20 @@ export const loadCommunityBootstrap = async (
     }
   } else {
     try {
-      ;[authorityEvents, admissionFormEvents, reportEvents] = await Promise.all([
+      const [authorityResult, admissionFormResult, loadedReportEvents] = await Promise.all([
         authorityFilters.length > 0
-          ? loadCommunityEvents(communityRelays, authorityFilters, {
+          ? loadCommunityEventsWithStatus(communityRelays, authorityFilters, {
               timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
               settle: "first-non-empty",
+              authenticate: true,
             })
-          : [],
+          : makeCompleteEmptyCommunityLoadResult(),
         admissionFormFilters.length > 0
-          ? loadCommunityEvents(communityRelays, admissionFormFilters, {settle: "first"})
-          : [],
+          ? loadCommunityEventsWithStatus(communityRelays, admissionFormFilters, {
+              authenticate: true,
+              settle: "first",
+            })
+          : makeCompleteEmptyCommunityLoadResult(),
         reportFilters.length > 0
           ? loadCommunityEvents(communityRelays, reportFilters, {
               authenticate: true,
@@ -2587,9 +2712,17 @@ export const loadCommunityBootstrap = async (
             })
           : [],
       ])
-      finishCommunityPermissionLoadStatus(permissionStatusKey)
+      authorityEvents = authorityResult.events
+      admissionFormEvents = admissionFormResult.events
+      reportEvents = loadedReportEvents
+      const permissionResults = [authorityResult, admissionFormResult]
+
+      finishCommunityPermissionLoadStatus(permissionStatusKey, {
+        complete: permissionResults.every(result => result.complete),
+        error: getCommunityLoadFailure(permissionResults),
+      })
     } catch (error) {
-      finishCommunityPermissionLoadStatus(permissionStatusKey, error)
+      finishCommunityPermissionLoadStatus(permissionStatusKey, {complete: false, error})
       throw error
     }
 

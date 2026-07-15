@@ -12,16 +12,16 @@
 
 ## Current Phase
 
-- Phase 3: Community Discovery And Completeness
+- Phase 4: Activity Coordinator And Immediate Duplicates
 
 ## Phase Exit Criteria
 
-- Community startup finitely discovers historical room/thread roots and targeting wrappers after authority bootstrap.
-- Existing calendar/goal wrappers trigger exact finite original hydration.
-- Feature loaders and route states distinguish complete, incomplete, failed, queued, and loading evidence where absence decisions depend on it.
-- Calendar/goal timeout does not mark hydration complete; details do not claim not-found after incomplete reads.
-- Failed auth relays remain isolated and room authorization rules agree.
-- Focused community/feature tests, `pnpm check`, and `git diff --check` pass.
+- `EventActivity` is repository-driven with one route-scoped coordinator for finite history and grouped live references.
+- Core community `COMMENT #h` coverage suppresses duplicate activity live IDs.
+- Group replacement uses fixed route `since`, overlap, cleanup, and make-before-break behavior.
+- `CommunityMenu` opens no room-root live request and Git issue-label prefetch is finite.
+- One hundred covered components add zero persistent IDs; uncovered compatible components remain bounded.
+- Focused activity/menu/issue tests, `pnpm check`, and `git diff --check` pass.
 - Phase changes and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -56,6 +56,15 @@
   - Focused auth/policy/transport tests passed: 3 files, 62 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
   - `git diff --check` passed.
+- Phase 3 added finite post-bootstrap discovery for `THREAD #h`, recent messages, and calendar/goal targeting wrappers; incomplete discovery retries with bounded delay.
+- Phase 3 added status-aware hydration states and completion-only hydration caching, preserving partial events and distinguishing queued/loading/incomplete/failed reads.
+- Phase 3 exact wrapper follow-up includes referenced relay hints and publishes through the shared repository.
+- Phase 3 corrected calendar/feed timeout completion and updated room/thread/calendar/goal list/detail empty states so incomplete reads are retryable rather than authoritative absence.
+- Phase 3 aligned CommunityMenu room filtering with approved room authors and made historical route requests explicitly finite/interactive.
+- Phase 3 verification passed:
+  - Focused community state/live/feed/room/thread/calendar tests passed: 6 files, 48 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -70,11 +79,11 @@
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
 - Unrelated worktree changes exist only under `packages/nostr-git-core/`.
-- Phases 1 and 2 are verified; the checkpoint has advanced to Phase 3.
+- Phases 1 through 3 are verified; the checkpoint has advanced to Phase 4.
 
 ## Next Action
 
-- Add finite community root/targeting-wrapper discovery and trace complete/incomplete state through calendar, goal, thread, and room empty-state decisions.
+- Implement the route-scoped activity coordinator, convert `EventActivity` to repository consumption, then remove menu live ownership and make issue-label prefetch finite.
 
 ## Verification
 
@@ -87,11 +96,14 @@
 - Phase 2: focused Vitest passed, 3 files and 62 tests.
 - Phase 2: `pnpm check` passed with no diagnostics.
 - Phase 2: `git diff --check` passed.
+- Phase 3: focused Vitest passed, 6 files and 48 tests.
+- Phase 3: `pnpm check` passed with no diagnostics.
+- Phase 3: `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
-- Route feature loaders currently conflate timeout/abort with complete empty results; Phase 3 must avoid broad UI rewrites while correcting authoritative absence decisions.
+- `EventActivity` still creates one or three persistent requests per mounted item until Phase 4 replaces ownership.
 - Existing unrelated `nostr-git-core` changes must remain unstaged.
 
 ## Files
@@ -113,3 +125,8 @@
 - `src/routes/c/[community]/goals/[goal]/+page.svelte`
 - `src/routes/c/[community]/threads/[thread]/+page.svelte`
 - `src/routes/c/[community]/rooms/[room]/+page.svelte`
+- `src/app/core/event-activity-io.ts`
+- `src/app/core/event-activity-io.test.ts`
+- `src/app/components/EventActivity.svelte`
+- `src/app/components/CommunityMenu.svelte`
+- `src/routes/git/[id=naddr]/issues/+page.svelte`

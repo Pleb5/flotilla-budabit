@@ -1,7 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {pubkey, publishThunk, repository, tracker} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, type Filter, type TrustedEvent} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
@@ -57,6 +57,7 @@
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {notifications} from "@app/util/notifications"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {pushModal} from "@app/util/modal"
@@ -177,9 +178,9 @@
   const showCommunityUnavailable = $derived(
     Boolean(
       communityBootstrapError &&
-        !$activeCommunityBootstrapStatus.loading &&
-        !routeCommunityDefinition &&
-        communityUnavailableSettleReady,
+      !$activeCommunityBootstrapStatus.loading &&
+      !routeCommunityDefinition &&
+      communityUnavailableSettleReady,
     ),
   )
   const roomFilters = $derived(
@@ -210,11 +211,11 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       $pubkey &&
-        communityId &&
-        $activeCommunityPermissionStatus.communityPubkey === communityId &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      communityId &&
+      $activeCommunityPermissionStatus.communityPubkey === communityId &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
   )
   const createRoomPermissionLoading = $derived(
@@ -251,6 +252,8 @@
   const ROOM_ROOT_EMPTY_RETRY_LIMIT = 2
   let roomRootsLoading = $state(false)
   let roomRootsLoaded = $state(false)
+  let roomRootsComplete = $state(false)
+  let roomRootsIncomplete = $state(false)
   let roomLoadKey = ""
   let roomLoadHydrationKey = ""
   let roomLoadRetryNonce = $state(0)
@@ -268,9 +271,9 @@
   const roomsWaitingForPermissions = $derived(
     Boolean(
       communityPermissionsLoading &&
-        communityDefinitionReady &&
-        rooms.length === 0 &&
-        roomFilters.length === 0,
+      communityDefinitionReady &&
+      rooms.length === 0 &&
+      roomFilters.length === 0,
     ),
   )
   const roomsLoading = $derived(
@@ -293,12 +296,13 @@
   const roomsSettledEmpty = $derived(
     Boolean(
       communityId &&
-        rooms.length === 0 &&
-        roomFilters.length > 0 &&
-        roomRootsLoaded &&
-        !roomRootsLoading &&
-        !roomsWaitingForDefinition &&
-        !roomsUnavailable,
+      rooms.length === 0 &&
+      roomFilters.length > 0 &&
+      roomRootsLoaded &&
+      roomRootsComplete &&
+      !roomRootsLoading &&
+      !roomsWaitingForDefinition &&
+      !roomsUnavailable,
     ),
   )
 
@@ -424,13 +428,15 @@
       roomFilters.length === 0
     ) {
       roomRootsLoading = false
+      roomRootsComplete = false
+      roomRootsIncomplete = false
       roomLoadKey = ""
       roomLoadHydrationKey = ""
       roomLoadEmptyRetries = 0
       roomRootsLoaded = Boolean(
         communityDefinitionReady &&
-          communityId &&
-          ($activeCommunityRelays.length === 0 || roomFilters.length === 0),
+        communityId &&
+        ($activeCommunityRelays.length === 0 || roomFilters.length === 0),
       )
       clearRoomLoadRetry()
       return
@@ -451,6 +457,8 @@
       roomLoadKey = requestKey
       roomRootsLoading = false
       roomRootsLoaded = true
+      roomRootsComplete = true
+      roomRootsIncomplete = false
       clearRoomLoadRetry()
       return
     }
@@ -467,6 +475,7 @@
     roomLoadKey = requestKey
     roomRootsLoading = true
     roomRootsLoaded = false
+    roomRootsIncomplete = false
 
     const finishRoomLoad = (events: TrustedEvent[] = []) => {
       if (disposed || roomLoadKey !== requestKey) return
@@ -477,7 +486,9 @@
       const hasLoadedRooms = loadedRooms.length > 0 || rooms.length > 0
 
       if (hasLoadedRooms) {
-        markCommunityHydrationCompleted(key)
+        roomRootsComplete = !interrupted && !timedOut
+        roomRootsIncomplete = !roomRootsComplete
+        if (roomRootsComplete) markCommunityHydrationCompleted(key)
         clearRoomLoadRetry()
         roomRootsLoading = false
         roomRootsLoaded = true
@@ -487,7 +498,9 @@
       const shouldRetryEmpty = roomLoadEmptyRetries === 0 || interrupted || timedOut
       if (shouldRetryEmpty && scheduleRoomLoadRetry()) return
 
-      if (!interrupted && !timedOut) markCommunityHydrationCompleted(key)
+      roomRootsComplete = !interrupted && !timedOut
+      roomRootsIncomplete = !roomRootsComplete
+      if (roomRootsComplete) markCommunityHydrationCompleted(key)
       roomRootsLoading = false
       roomRootsLoaded = true
     }
@@ -495,10 +508,19 @@
     request({
       relays: $activeCommunityRelays,
       autoClose: true,
+      lifetime: "finite",
+      priority: RELAY_REQUEST_PRIORITY.interactive,
       filters: roomFilters,
       signal: controller.signal,
       onDisconnect: () => {
         interrupted = true
+      },
+      onClosed: () => {
+        interrupted = true
+      },
+      onEvent: (event, relay) => {
+        tracker.addRelay(event.id, relay)
+        repository.publish(event)
       },
     })
       .then(finishRoomLoad)
@@ -725,23 +747,23 @@
             {roomsWaitingForPermissions
               ? "Loading room permissions..."
               : roomsLoading
-              ? "Looking for rooms..."
-              : roomsUnavailable
-                ? "Rooms unavailable"
-                : "No rooms found"}
+                ? "Looking for rooms..."
+                : roomsUnavailable || roomRootsIncomplete
+                  ? "Rooms unavailable"
+                  : "No rooms found"}
           </h3>
           <p class="text-sm opacity-70">
             {roomsWaitingForPermissions
               ? "Checking who can publish rooms before showing room actions."
               : roomsLoading
-              ? "Loading community rooms."
-              : roomsUnavailable
-                ? "Community definition must load before rooms can be checked."
-              : createRoomPermissionLoading
-                ? "Loading permissions before showing room actions."
-              : canCreateRoom && roomsSettledEmpty
-                ? "Create the first room for this community."
-                : "No rooms have been published yet."}
+                ? "Loading community rooms."
+                : roomsUnavailable || roomRootsIncomplete
+                  ? "Room history could not be checked completely. Reload to retry."
+                  : createRoomPermissionLoading
+                    ? "Loading permissions before showing room actions."
+                    : canCreateRoom && roomsSettledEmpty
+                      ? "Create the first room for this community."
+                      : "No rooms have been published yet."}
           </p>
         </div>
         {#if canCreateRoom && roomsSettledEmpty}
