@@ -113,10 +113,10 @@ index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76
  };
  export type Loader = (options: LoadOptions) => Promise<TrustedEvent[]>;
 diff --git a/dist/net/src/request.js b/dist/net/src/request.js
-index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b2c7a2c7a 100644
+index db2a00be88e169a196f969af189ea8e91b1aea22..a707595e71bb717cb93bc9f0a7342b04194d5fc3 100644
 --- a/dist/net/src/request.js
 +++ b/dist/net/src/request.js
-@@ -1,37 +1,288 @@
+@@ -1,11 +1,271 @@
  import { on, uniq, flatten, addToMapKey, defer, call, randomId, pushToMapKey, batcher, } from "@welshman/lib";
  import { unionFilters, matchFilters, deduplicateEvents, getFilterResultCardinality, } from "@welshman/util";
 -import { ClientMessageType, isRelayEvent, isRelayEose, isRelayClosed, } from "./message.js";
@@ -146,14 +146,24 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +        ? Math.min(finiteMaxAgeBoost, Math.floor((timestamp - job.queuedAt) / finiteAgeInterval))
 +        : 0);
 +const canStartJob = (scheduler, job) => {
-+    if (scheduler.active.total + job.weight > scheduler.maxSubscriptions)
++    if (scheduler.active.total + job.weight > Math.min(scheduler.maxSubscriptions, job.maxSubscriptions))
 +        return false;
 +    if (job.requestClass === "finite")
 +        return true;
-+    if (scheduler.active.live + job.weight > scheduler.maxLiveSubscriptions)
++    if (scheduler.active.live + job.weight > Math.min(scheduler.maxLiveSubscriptions, job.maxLiveSubscriptions))
 +        return false;
 +    return (job.requestClass !== "background-live" ||
-+        scheduler.active.backgroundLive + job.weight <= scheduler.maxBackgroundLiveSubscriptions);
++        scheduler.active.backgroundLive + job.weight <=
++            Math.min(scheduler.maxBackgroundLiveSubscriptions, job.maxBackgroundLiveSubscriptions));
++};
++const applyLatestSchedulerPolicy = (scheduler, allowRelaxation) => {
++    const select = (current, latest) => allowRelaxation ? latest : Math.min(current, latest);
++    scheduler.configuredMaxBackgroundLiveSubscriptions = select(scheduler.configuredMaxBackgroundLiveSubscriptions, scheduler.latestMaxBackgroundLiveSubscriptions);
++    scheduler.configuredMaxLiveSubscriptions = select(scheduler.configuredMaxLiveSubscriptions, scheduler.latestMaxLiveSubscriptions);
++    scheduler.configuredMaxSubscriptions = select(scheduler.configuredMaxSubscriptions, scheduler.latestMaxSubscriptions);
++    scheduler.maxBackgroundLiveSubscriptions = scheduler.configuredMaxBackgroundLiveSubscriptions;
++    scheduler.maxLiveSubscriptions = scheduler.configuredMaxLiveSubscriptions;
++    scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
 +};
 +const drainScheduler = (scheduler) => {
 +    if (scheduler.pausedUntil > Date.now()) {
@@ -185,7 +195,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +        job.start();
 +    }
 +};
-+const getSubscriptionScheduler = (socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions) => {
++const getSubscriptionScheduler = (socket, policy) => {
 +    let scheduler = subscriptionSchedulers.get(socket);
 +    if (!scheduler) {
 +        scheduler = {
@@ -194,13 +204,16 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +                live: 0,
 +                total: 0,
 +            },
-+            configuredMaxBackgroundLiveSubscriptions: maxBackgroundLiveSubscriptions,
-+            configuredMaxLiveSubscriptions: maxLiveSubscriptions,
-+            configuredMaxSubscriptions: maxSubscriptions,
++            configuredMaxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
++            configuredMaxLiveSubscriptions: policy.maxLiveSubscriptions,
++            configuredMaxSubscriptions: policy.maxSubscriptions,
 +            learnedMaxSubscriptions: Infinity,
-+            maxBackgroundLiveSubscriptions,
-+            maxLiveSubscriptions,
-+            maxSubscriptions,
++            latestMaxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
++            latestMaxLiveSubscriptions: policy.maxLiveSubscriptions,
++            latestMaxSubscriptions: policy.maxSubscriptions,
++            maxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
++            maxLiveSubscriptions: policy.maxLiveSubscriptions,
++            maxSubscriptions: policy.maxSubscriptions,
 +            pausedUntil: 0,
 +            queue: [],
 +        };
@@ -213,24 +226,32 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +                drainScheduler(scheduler);
 +            }
 +        });
++        on(socket, SocketEvent.Status, status => {
++            if (status === SocketStatus.Open) {
++                scheduler.learnedMaxSubscriptions = Infinity;
++                applyLatestSchedulerPolicy(scheduler, true);
++                drainScheduler(scheduler);
++            }
++        });
 +    }
 +    else {
-+        scheduler.configuredMaxBackgroundLiveSubscriptions = Math.min(scheduler.configuredMaxBackgroundLiveSubscriptions, maxBackgroundLiveSubscriptions);
-+        scheduler.configuredMaxLiveSubscriptions = Math.min(scheduler.configuredMaxLiveSubscriptions, maxLiveSubscriptions);
-+        scheduler.configuredMaxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, maxSubscriptions);
-+        scheduler.maxBackgroundLiveSubscriptions = scheduler.configuredMaxBackgroundLiveSubscriptions;
-+        scheduler.maxLiveSubscriptions = scheduler.configuredMaxLiveSubscriptions;
-+        scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
++        scheduler.latestMaxBackgroundLiveSubscriptions = policy.maxBackgroundLiveSubscriptions;
++        scheduler.latestMaxLiveSubscriptions = policy.maxLiveSubscriptions;
++        scheduler.latestMaxSubscriptions = policy.maxSubscriptions;
++        applyLatestSchedulerPolicy(scheduler, scheduler.active.total === 0);
 +    }
 +    return scheduler;
 +};
-+const scheduleSubscription = (socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions, requestClass, priority, weight, start) => {
++const scheduleSubscription = (socket, policy, limits, requestClass, priority, weight, start) => {
 +    if (!socket) {
 +        return { releases: Array.from({ length: weight }, () => () => { }), start };
 +    }
-+    const scheduler = getSubscriptionScheduler(socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions);
++    const scheduler = getSubscriptionScheduler(socket, policy);
 +    const job = {
 +        cancelled: false,
++        maxBackgroundLiveSubscriptions: limits.maxBackgroundLiveSubscriptions,
++        maxLiveSubscriptions: limits.maxLiveSubscriptions,
++        maxSubscriptions: limits.maxSubscriptions,
 +        priority,
 +        queuedAt: Date.now(),
 +        requestClass,
@@ -256,6 +277,9 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +                }
 +                if (job.requestClass === "background-live") {
 +                    scheduler.active.backgroundLive = Math.max(0, scheduler.active.backgroundLive - 1);
++                }
++                if (scheduler.active.total === 0) {
++                    applyLatestSchedulerPolicy(scheduler, true);
 +                }
 +            }
 +            drainScheduler(scheduler);
@@ -317,9 +341,22 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +    validateLimit("maxMessageBytes", options.maxMessageBytes);
 +    validateLimit("maxMessageBytes", relayPolicy.maxMessageBytes);
 +    const maxFilters = getLimit(1, options.maxFiltersPerSubscription, relayPolicy.maxFiltersPerSubscription);
-+    const maxSubscriptions = getLimit(Infinity, options.maxSubscriptions, relayPolicy.maxSubscriptions);
-+    const maxLiveSubscriptions = Math.min(maxSubscriptions, getLimit(maxSubscriptions, options.maxLiveSubscriptions, relayPolicy.maxLiveSubscriptions));
-+    const maxBackgroundLiveSubscriptions = Math.min(maxLiveSubscriptions, getLimit(maxLiveSubscriptions, options.maxBackgroundLiveSubscriptions, relayPolicy.maxBackgroundLiveSubscriptions));
++    const policyMaxSubscriptions = getLimit(Infinity, relayPolicy.maxSubscriptions);
++    const policyMaxLiveSubscriptions = Math.min(policyMaxSubscriptions, getLimit(policyMaxSubscriptions, relayPolicy.maxLiveSubscriptions));
++    const policyMaxBackgroundLiveSubscriptions = Math.min(policyMaxLiveSubscriptions, getLimit(policyMaxLiveSubscriptions, relayPolicy.maxBackgroundLiveSubscriptions));
++    const maxSubscriptions = getLimit(policyMaxSubscriptions, options.maxSubscriptions);
++    const maxLiveSubscriptions = Math.min(maxSubscriptions, getLimit(policyMaxLiveSubscriptions, options.maxLiveSubscriptions));
++    const maxBackgroundLiveSubscriptions = Math.min(maxLiveSubscriptions, getLimit(policyMaxBackgroundLiveSubscriptions, options.maxBackgroundLiveSubscriptions));
++    const schedulerPolicy = {
++        maxBackgroundLiveSubscriptions: policyMaxBackgroundLiveSubscriptions,
++        maxLiveSubscriptions: policyMaxLiveSubscriptions,
++        maxSubscriptions: policyMaxSubscriptions,
++    };
++    const requestLimits = {
++        maxBackgroundLiveSubscriptions,
++        maxLiveSubscriptions,
++        maxSubscriptions,
++    };
 +    const maxMessageBytes = getLimit(Infinity, options.maxMessageBytes, relayPolicy.maxMessageBytes);
 +    const criticalLivePriorities = [
 +        options.criticalLivePriority,
@@ -351,20 +388,20 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +    }
      const ids = new Set();
      const eose = new Set();
-+    const completed = new Set();
      const events = [];
-     const deferred = defer();
-     const tracker = options.tracker || new Tracker();
+@@ -14,24 +274,87 @@ export const requestOne = (options) => {
      const adapter = getAdapter(options.relay, options.context);
      const isEventValid = options.isEventValid || netContext.isEventValid;
      const isEventDeleted = options.isEventDeleted || netContext.isEventDeleted;
-+    const tasks = filterChunks.map(filters => ({
++    const makeTask = (filters, canRetryArray = true) => ({
++        canRetryArray,
 +        done: false,
 +        filters,
 +        id: `REQ-${randomId().slice(0, 8)}`,
 +        release: () => { },
 +        sent: false,
-+    }));
++    });
++    const tasks = filterChunks.map(filters => makeTask(filters));
 +    tasks.forEach(task => ids.add(task.id));
      let closed = false;
 +    let closeTimer;
@@ -373,11 +410,45 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +        if (task.done)
 +            return;
 +        task.done = true;
-+        completed.add(task.id);
 +        if (sendClose && task.sent) {
 +            adapter.send([ClientMessageType.Close, task.id]);
 +        }
 +        task.release();
++    };
++    const socket = adapter.sockets.length === 1 ? adapter.sockets[0] : undefined;
++    const sendTask = (task) => {
++        if (closed)
++            return;
++        options.onStart?.(options.relay);
++        task.sent = true;
++        adapter.send([ClientMessageType.Req, task.id, ...task.filters]);
++    };
++    const scheduleFiniteTasks = candidateTasks => {
++        const scheduledTasks = candidateTasks.map(task => ({
++            scheduled: scheduleSubscription(socket, schedulerPolicy, requestLimits, requestClass, priority, 1, () => sendTask(task)),
++            task,
++        }));
++        scheduledTasks.forEach(({ scheduled, task }) => {
++            task.release = scheduled.releases[0];
++        });
++        scheduledTasks.forEach(({ scheduled }) => scheduled.start());
++    };
++    const isArrayTooBigReason = reason => /(?:bad req|arr(?:ay)? too big)/i.test(reason || "");
++    const retryFiniteTask = (task, reason) => {
++        if (requestClass !== "finite" ||
++            !task.canRetryArray ||
++            task.filters.length <= 1 ||
++            !isArrayTooBigReason(reason)) {
++            return false;
++        }
++        finishTask(task, false);
++        const maxRetryFilters = Math.max(1, Math.floor(task.filters.length / 2));
++        const replacements = chunkFilters(task.filters, maxRetryFilters, maxMessageBytes).map(filters => makeTask(filters, false));
++        tasks.splice(tasks.indexOf(task), 1, ...replacements);
++        ids.delete(task.id);
++        replacements.forEach(replacement => ids.add(replacement.id));
++        scheduleFiniteTasks(replacements);
++        return true;
 +    };
      const close = () => {
          if (closed)
@@ -406,11 +477,11 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
              if (isRelayEvent(message)) {
                  const [_, id, event] = message;
 -                if (ids.has(id)) {
-+                if (ids.has(id) && !completed.has(id)) {
++                if (ids.has(id) && tasks.some(task => task.id === id && !task.done)) {
                      if (tracker.track(event.id, url)) {
                          options.onDuplicate?.(event, url);
                      }
-@@ -52,22 +303,27 @@ export const requestOne = (options) => {
+@@ -52,22 +375,33 @@ export const requestOne = (options) => {
              }
              if (isRelayEose(message)) {
                  const [_, id] = message;
@@ -422,13 +493,13 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 +                    if (options.autoClose) {
 +                        finishTask(task, true);
 +                    }
-+                    if (eose.size === tasks.length) {
++                    if (tasks.every(candidate => eose.has(candidate.id))) {
                          options.onEose?.(url);
 -                        if (options.autoClose) {
 -                            close();
 -                        }
 +                    }
-+                    if (options.autoClose && completed.size === tasks.length) {
++                    if (options.autoClose && tasks.every(candidate => candidate.done)) {
 +                        close();
                      }
                  }
@@ -439,14 +510,20 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
 -                    ids.delete(id);
 +                const task = tasks.find(candidate => candidate.id === id);
 +                if (task && !task.done) {
++                    if (retryFiniteTask(task, reason))
++                        return;
 +                    finishTask(task, false);
                      options.onClosed?.(reason, url);
 -                    if (ids.size === 0) {
-+                    if (completed.size === tasks.length) {
++                    if (requestClass !== "finite" && isArrayTooBigReason(reason)) {
++                        close();
++                        return;
++                    }
++                    if (tasks.every(candidate => candidate.done)) {
                          close();
                      }
                  }
-@@ -79,9 +335,7 @@ export const requestOne = (options) => {
+@@ -79,9 +413,7 @@ export const requestOne = (options) => {
          unsubscribers.push(on(socket, SocketEvent.Status, (status) => {
              if (![SocketStatus.Open, SocketStatus.Opening].includes(status)) {
                  options.onDisconnect?.(socket.url);
@@ -457,40 +534,26 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
              }
          }));
      }
-@@ -94,17 +348,41 @@ export const requestOne = (options) => {
+@@ -94,17 +426,27 @@ export const requestOne = (options) => {
      // If we're auto-closing, make sure it happens even if the relay doesn't send an eose
      // and the caller doesn't provide a signal, in order to avoid memory leaks
      if (options.autoClose && !options.signal) {
 -        setTimeout(close, 30_000);
 +        closeTimer = setTimeout(close, 30_000);
++    }
++    if (options.signal?.aborted) {
++        close();
++        return deferred;
++    }
++    if (requestClass === "finite") {
++        scheduleFiniteTasks(tasks);
      }
 -    for (const filter of options.filters) {
 -        const id = `REQ-${randomId().slice(0, 8)}`;
 -        ids.add(id);
 -        adapter.send([ClientMessageType.Req, id, filter]);
-+    if (options.signal?.aborted) {
-+        close();
-+        return deferred;
-+    }
-+    const socket = adapter.sockets.length === 1 ? adapter.sockets[0] : undefined;
-+    const scheduleTasks = (scheduledTasks) => {
-+        scheduledTasks.forEach((scheduled, index) => {
-+            tasks[index].release = scheduled.releases[0];
-+        });
-+        scheduledTasks.forEach(scheduled => scheduled.start());
-+    };
-+    const sendTask = (task) => {
-+        if (closed)
-+            return;
-+        options.onStart?.(options.relay);
-+        task.sent = true;
-+        adapter.send([ClientMessageType.Req, task.id, ...task.filters]);
-+    };
-+    if (requestClass === "finite") {
-+        scheduleTasks(tasks.map(task => scheduleSubscription(socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions, requestClass, priority, 1, () => sendTask(task))));
-+    }
 +    else {
-+        const scheduled = scheduleSubscription(socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions, requestClass, priority, tasks.length, () => tasks.forEach(sendTask));
++        const scheduled = scheduleSubscription(socket, schedulerPolicy, requestLimits, requestClass, priority, tasks.length, () => tasks.forEach(sendTask));
 +        tasks.forEach((task, index) => {
 +            task.release = scheduled.releases[index];
 +        });
@@ -505,7 +568,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
      const ctrl = new AbortController();
      const relays = new Set(options.relays);
      const tracker = options.tracker || new Tracker();
-@@ -118,9 +396,20 @@ export const request = async (options) => {
+@@ -118,9 +460,20 @@ export const request = async (options) => {
          tracker,
          signal,
          relay,
@@ -528,7 +591,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
                  options.onClose?.();
                  ctrl.abort();
              }
-@@ -146,11 +435,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -146,11 +499,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
      const threshold = options.threshold || 1;
      const tracker = new Tracker();
      const abortHandlersByRequest = new Map();
@@ -543,7 +606,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
              const events = deduplicateEvents(eventsByRequest.get(request) || []);
              request.onClose?.();
              resultsByRequest.get(request)?.resolve(events);
-@@ -166,15 +457,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -166,15 +521,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
          }
      };
      for (const request of allRequests) {
@@ -574,7 +637,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b
          }
      }
      // Create an abort controller for each relay
-@@ -192,34 +490,57 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -192,34 +554,57 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
          const filters = unionFilters(requests.flatMap(r => r.filters));
          // Propagate events to caller, but only for requests that have not been aborted
          const getOpenRequests = () => requests.filter(request => !closedRequestsByRelay.get(relay)?.has(request));

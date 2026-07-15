@@ -1,25 +1,32 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
 import {pubkey, repository} from "@welshman/app"
-import {AuthStatus} from "@welshman/net"
+import {
+  AuthStatus,
+  Pool,
+  RelayMessageType,
+  SocketEvent,
+  SocketStatus,
+  type Socket,
+} from "@welshman/net"
 import {type Filter, type TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
 
 const {
-  attemptAuthMock,
-  authStatusByRelay,
+  forceLoadRelayMock,
   forceLoadRelayListMock,
   fromPubkeysMock,
   loadMock,
   makeLoaderMock,
+  signMock,
   socketByRelay,
 } = vi.hoisted(() => ({
-  attemptAuthMock: vi.fn(),
-  authStatusByRelay: new Map<string, any>(),
+  forceLoadRelayMock: vi.fn(),
   forceLoadRelayListMock: vi.fn(),
   fromPubkeysMock: vi.fn(),
   loadMock: vi.fn(),
   makeLoaderMock: vi.fn(),
+  signMock: vi.fn(),
   socketByRelay: new Map<string, any>(),
 }))
 
@@ -28,7 +35,9 @@ vi.mock("@welshman/app", async importOriginal => {
 
   return {
     ...actual,
+    forceLoadRelay: forceLoadRelayMock,
     forceLoadRelayList: forceLoadRelayListMock,
+    sign: signMock,
   }
 })
 
@@ -48,16 +57,8 @@ vi.mock("@welshman/net", async importOriginal => {
           let socket = socketByRelay.get(url)
 
           if (!socket) {
-            socket = {
-              auth: {
-                get status() {
-                  return authStatusByRelay.get(url) ?? actual.AuthStatus.Ok
-                },
-                attemptAuth: (signer: unknown) => attemptAuthMock(url, signer),
-                on: vi.fn(),
-                off: vi.fn(),
-              },
-            }
+            socket = new actual.Socket(url, [])
+            socket.attemptToOpen = vi.fn()
             socketByRelay.set(url, socket)
           }
 
@@ -93,6 +94,8 @@ import {
   loadCommunityBootstrap,
   loadCommunityEvents,
   loadCommunityEventsWithStatus,
+  RelayAuthenticationTimeoutError,
+  waitForCommunityRelayAuth,
 } from "./community-state"
 
 const communityPubkey = "a".repeat(64)
@@ -153,6 +156,17 @@ const singleRelayDefinitionEvent = makeEvent({
   ],
 })
 
+const requiredRelayDefinitionEvent = makeEvent({
+  id: "definition-required-relay",
+  kind: COMMUNITY_DEFINITION_KIND,
+  tags: [
+    ["r", requiredRelay],
+    ["content", "General"],
+    ["k", "1111"],
+    ["a", `${PROFILE_LIST_KIND}:${listPubkey}:General`, requiredRelay],
+  ],
+})
+
 const moderatorDefinitionEvent = makeEvent({
   id: "moderator-definition",
   kind: COMMUNITY_DEFINITION_KIND,
@@ -197,10 +211,33 @@ const flushPromises = async (count = 10) => {
   for (let i = 0; i < count; i += 1) await Promise.resolve()
 }
 
+const getRelaySocket = (relay: string) => Pool.get().get(relay) as Socket
+
+const makeAuthEvent = (event: Record<string, unknown>) => ({
+  ...event,
+  id: "auth-event",
+  pubkey: memberPubkey,
+  sig: "auth-signature",
+})
+
+const sendAuthChallenge = (socket: Socket, challenge = "challenge") => {
+  socket.emit(SocketEvent.Receive, [RelayMessageType.Auth, challenge], socket.url)
+}
+
+const acceptAuth = (socket: Socket) => {
+  expect(socket.auth.request).toBeTruthy()
+  socket.emit(
+    SocketEvent.Receive,
+    [RelayMessageType.Ok, socket.auth.request, true, "authenticated"],
+    socket.url,
+  )
+}
+
 const removeTestEvents = () => {
   for (const event of [
     definitionEvent,
     singleRelayDefinitionEvent,
+    requiredRelayDefinitionEvent,
     profileListEvent,
     moderatorDefinitionEvent,
     moderatorProfileListEvent,
@@ -212,15 +249,21 @@ const removeTestEvents = () => {
 describe("community relay loading", () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    attemptAuthMock.mockReset()
-    attemptAuthMock.mockResolvedValue(undefined)
-    authStatusByRelay.clear()
+    forceLoadRelayMock.mockReset()
+    forceLoadRelayMock.mockResolvedValue(undefined)
     socketByRelay.clear()
     forceLoadRelayListMock.mockReset()
     fromPubkeysMock.mockReset()
     loadMock.mockReset()
     forceLoadRelayListMock.mockResolvedValue(undefined)
     fromPubkeysMock.mockReturnValue({getUrls: () => []})
+    signMock.mockReset()
+    signMock.mockImplementation(async event => ({
+      ...event,
+      id: "auth-event",
+      pubkey: memberPubkey,
+      sig: "auth-signature",
+    }))
     removeTestEvents()
     clearActiveCommunity()
     pubkey.set(undefined)
@@ -235,6 +278,7 @@ describe("community relay loading", () => {
 
   afterEach(async () => {
     await vi.runOnlyPendingTimersAsync()
+    for (const socket of socketByRelay.values()) socket.cleanup()
     vi.useRealTimers()
     removeTestEvents()
     clearActiveCommunity()
@@ -347,68 +391,124 @@ describe("community relay loading", () => {
     ])
   })
 
-  it("authenticates priority community relays before fallback relays", async () => {
-    let releasePriorityAuth: () => void = () => {}
-    const priorityAuth = new Promise<void>(resolve => {
-      releasePriorityAuth = resolve
-    })
-    const calls: string[] = []
-
+  it("waits through nonterminal auth transitions until the relay accepts", async () => {
+    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    const socket = getRelaySocket(requiredRelay)
+    signMock.mockImplementation(
+      event =>
+        new Promise(resolve => {
+          releaseSignature = resolve
+        }),
+    )
+    sendAuthChallenge(socket)
     pubkey.set(memberPubkey)
-    authStatusByRelay.set(requiredRelay, AuthStatus.Requested)
-    attemptAuthMock.mockImplementation((relay: string) => {
-      calls.push(relay)
 
-      return relay === requiredRelay ? priorityAuth : Promise.resolve()
+    let settled = false
+    const authentication = authenticateCommunityRelays([requiredRelay]).then(result => {
+      settled = true
+      return result
     })
 
-    const auth = authenticateCommunityRelays([relayB, requiredRelay], {
-      priorityRelays: [requiredRelay],
-    })
+    await flushPromises()
+    expect(socket.auth.status).toBe(AuthStatus.PendingSignature)
+    expect(settled).toBe(false)
 
-    await Promise.resolve()
-    expect(calls).toEqual([requiredRelay])
+    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    await flushPromises()
+    expect(socket.auth.status).toBe(AuthStatus.PendingResponse)
+    expect(settled).toBe(false)
 
-    authStatusByRelay.set(requiredRelay, AuthStatus.Ok)
-    releasePriorityAuth()
-    await auth
+    acceptAuth(socket)
+    await expect(authentication).resolves.toEqual([])
+  })
 
-    expect(calls).toEqual([requiredRelay])
+  it("rejects auth waits with a typed timeout", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    sendAuthChallenge(socket)
+    const pending = waitForCommunityRelayAuth(socket.auth, 100)
+    const rejected = expect(pending).rejects.toBeInstanceOf(RelayAuthenticationTimeoutError)
+
+    socket.auth.setStatus(AuthStatus.PendingSignature)
+    socket.auth.setStatus(AuthStatus.PendingResponse)
+    await vi.advanceTimersByTimeAsync(100)
+
+    await rejected
+  })
+
+  it("fails auth waits when the socket disconnects", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    sendAuthChallenge(socket)
+    const pending = waitForCommunityRelayAuth(socket.auth, 1000)
+
+    socket.emit(SocketEvent.Status, SocketStatus.Error, socket.url)
+
+    await expect(pending).rejects.toThrow("Authentication failed")
   })
 
   it("skips pre-authentication for the public replacement relay", async () => {
     pubkey.set(memberPubkey)
-    authStatusByRelay.set(publicRelay, AuthStatus.None)
 
     await authenticateCommunityRelays([publicRelay])
 
-    expect(attemptAuthMock).not.toHaveBeenCalled()
+    expect(signMock).not.toHaveBeenCalled()
+    expect(socketByRelay.has(publicRelay)).toBe(false)
   })
 
   it("shares one in-flight authentication attempt per relay socket", async () => {
-    let releaseAuth: () => void = () => {}
-    const pendingAuth = new Promise<void>(resolve => {
-      releaseAuth = resolve
-    })
+    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    const socket = getRelaySocket(requiredRelay)
+    signMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releaseSignature = resolve
+        }),
+    )
 
     pubkey.set(memberPubkey)
-    authStatusByRelay.set(requiredRelay, AuthStatus.Requested)
-    attemptAuthMock.mockReturnValue(pendingAuth)
+    sendAuthChallenge(socket)
 
     const first = authenticateCommunityRelays([requiredRelay])
     const second = authenticateCommunityRelays([requiredRelay])
 
-    await Promise.resolve()
-    expect(attemptAuthMock).toHaveBeenCalledTimes(1)
+    await flushPromises()
+    expect(signMock).toHaveBeenCalledTimes(1)
 
-    authStatusByRelay.set(requiredRelay, AuthStatus.Ok)
-    releaseAuth()
+    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    await flushPromises()
+    acceptAuth(socket)
     await Promise.all([first, second])
+  })
+
+  it("turns signer rejection into a terminal auth failure", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    pubkey.set(memberPubkey)
+    signMock.mockRejectedValue(new Error("User rejected signing"))
+    sendAuthChallenge(socket)
+
+    await expect(authenticateCommunityRelays([requiredRelay])).resolves.toEqual([requiredRelay])
+    expect(socket.auth.status).toBe(AuthStatus.DeniedSignature)
+  })
+
+  it("can retry authentication after a new challenge", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    pubkey.set(memberPubkey)
+    signMock.mockRejectedValueOnce(new Error("User rejected signing"))
+    sendAuthChallenge(socket, "first-challenge")
+    await expect(authenticateCommunityRelays([requiredRelay])).resolves.toEqual([requiredRelay])
+
+    signMock.mockImplementation(async event => makeAuthEvent(event))
+    sendAuthChallenge(socket, "second-challenge")
+    const retried = authenticateCommunityRelays([requiredRelay])
+    await flushPromises()
+    acceptAuth(socket)
+
+    await expect(retried).resolves.toEqual([])
+    expect(signMock).toHaveBeenCalledTimes(2)
   })
 
   it("continues healthy public reads when a required relay rejects authentication", async () => {
     pubkey.set(memberPubkey)
-    authStatusByRelay.set(requiredRelay, AuthStatus.Forbidden)
+    getRelaySocket(requiredRelay).auth.setStatus(AuthStatus.Forbidden)
     loadMock.mockImplementation(({relays}: {relays: string[]}) =>
       Promise.resolve(relays[0] === publicRelay ? [profileListEvent] : []),
     )
@@ -606,19 +706,21 @@ describe("community relay loading", () => {
   })
 
   it("waits for community relay auth before loading bootstrap content", async () => {
-    let releaseAuth: () => void = () => {}
-    const authDone = new Promise<void>(resolve => {
-      releaseAuth = resolve
-    })
+    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    const socket = getRelaySocket(requiredRelay)
+    signMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releaseSignature = resolve
+        }),
+    )
 
     pubkey.set(memberPubkey)
-    authStatusByRelay.set(relayA, AuthStatus.Requested)
-    attemptAuthMock.mockImplementation((relay: string) =>
-      relay === relayA ? authDone : Promise.resolve(),
-    )
+    sendAuthChallenge(socket)
+    repository.publish(requiredRelayDefinitionEvent)
     loadMock.mockImplementation(({filters}: {relays: string[]; filters: Filter[]}) => {
       if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
-        return Promise.resolve([singleRelayDefinitionEvent])
+        return Promise.resolve([requiredRelayDefinitionEvent])
       }
       if (hasKind(filters, PROFILE_LIST_KIND)) return Promise.resolve([profileListEvent])
 
@@ -628,25 +730,29 @@ describe("community relay loading", () => {
     let settled = false
     const bootstrapPromise = loadCommunityBootstrap({
       communityPubkey,
-      communityRelayHints: [relayA],
+      communityRelayHints: [requiredRelay],
     }).then(bootstrap => {
       settled = true
 
       return bootstrap
     })
 
-    await Promise.resolve()
-    await Promise.resolve()
+    await flushPromises()
 
     expect(settled).toBe(false)
+    expect(socket.auth.status).toBe(AuthStatus.PendingSignature)
     expect(loadMock.mock.calls.some(([args]) => hasKind(args.filters, PROFILE_LIST_KIND))).toBe(
       false,
     )
 
-    releaseAuth()
+    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    await flushPromises()
+    acceptAuth(socket)
     const bootstrap = await bootstrapPromise
+    await flushPromises()
 
-    expect(bootstrap.profileListEvents.map(event => event.id)).toEqual([profileListEvent.id])
+    expect(bootstrap.definition?.event.id).toBe(requiredRelayDefinitionEvent.id)
+    expect(loadMock.mock.calls.some(([args]) => hasKind(args.filters, PROFILE_LIST_KIND))).toBe(true)
   })
 
   it("fails bootstrap when no community definition loads", async () => {

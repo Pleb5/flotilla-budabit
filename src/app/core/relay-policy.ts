@@ -1,5 +1,12 @@
-import {getRelay, loadRelay} from "@welshman/app"
-import {setRequestPolicy, type RelayRequestPolicy} from "@welshman/net"
+import {forceLoadRelay, getRelay} from "@welshman/app"
+import {on} from "@welshman/lib"
+import {
+  setRequestPolicy,
+  SocketEvent,
+  SocketStatus,
+  type RelayRequestPolicy,
+  type Socket,
+} from "@welshman/net"
 import {normalizeRelayUrl, type RelayProfile} from "@welshman/util"
 
 export type RelayAuthPolicy = "none" | "optional" | "required"
@@ -12,12 +19,14 @@ export type RelayPolicy = {
   maxBackgroundLiveSubscriptions: number
   criticalLivePriority: number
   maxMessageBytes: number
+  maxLimit?: number
 }
 
 type RelayProfileWithLimits = RelayProfile & {
   limitation?: RelayProfile["limitation"] & {
     max_subscriptions?: number
     max_message_length?: number
+    max_limit?: number
   }
 }
 
@@ -41,6 +50,10 @@ const normalizePolicyRelay = (url: string) => {
 
 export const BUDABIT_PUBLIC_RELAY = normalizePolicyRelay("wss://relay.budabit.club/")
 export const BUDABIT_AUTH_RELAY = normalizePolicyRelay("wss://budabit.nostr1.com/")
+export const RELAY_POLICY_REFRESH_INTERVAL = 60 * 60 * 1000
+
+const relayPolicyRefreshes = new Map<string, Promise<RelayPolicy>>()
+const relayPolicyRefreshedAt = new Map<string, number>()
 
 const RELAY_POLICY_OVERRIDES = new Map<string, Partial<RelayPolicy>>([
   [
@@ -77,7 +90,10 @@ const getProfileAuthPolicy = (profile?: RelayProfileWithLimits): RelayAuthPolicy
 const positiveInteger = (value: unknown, fallback: number) =>
   Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : fallback
 
-export const getRelayPolicy = (url: string): RelayPolicy => {
+const optionalPositiveInteger = (value: unknown) =>
+  Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : undefined
+
+const readRelayPolicy = (url: string): RelayPolicy => {
   const normalized = normalizePolicyRelay(url)
   const profile = (getRelay(normalized) || getRelay(url)) as RelayProfileWithLimits | undefined
   const override = RELAY_POLICY_OVERRIDES.get(normalized)
@@ -121,16 +137,55 @@ export const getRelayPolicy = (url: string): RelayPolicy => {
       configuredMaxMessageBytes,
       positiveInteger(profile?.limitation?.max_message_length, configuredMaxMessageBytes),
     ),
+    ...(optionalPositiveInteger(profile?.limitation?.max_limit) !== undefined
+      ? {maxLimit: optionalPositiveInteger(profile?.limitation?.max_limit)}
+      : {}),
   }
 }
 
-export const loadRelayPolicy = async (url: string) => {
+export const refreshRelayPolicy = (url: string, force = false): Promise<RelayPolicy> => {
+  const normalized = normalizePolicyRelay(url)
+  const pending = relayPolicyRefreshes.get(normalized)
+  const refreshedAt = relayPolicyRefreshedAt.get(normalized)
+
+  if (pending) return pending
+  if (
+    !force &&
+    refreshedAt !== undefined &&
+    Date.now() - refreshedAt < RELAY_POLICY_REFRESH_INTERVAL
+  ) {
+    return Promise.resolve(readRelayPolicy(normalized))
+  }
+
+  relayPolicyRefreshedAt.set(normalized, Date.now())
+  const promise = forceLoadRelay(normalized)
+    .catch(() => undefined)
+    .then(() => readRelayPolicy(normalized))
+    .finally(() => {
+      if (relayPolicyRefreshes.get(normalized) === promise) {
+        relayPolicyRefreshes.delete(normalized)
+      }
+    })
+
+  relayPolicyRefreshes.set(normalized, promise)
+
+  return promise
+}
+
+export const getRelayPolicy = (url: string): RelayPolicy => {
   const normalized = normalizePolicyRelay(url)
 
-  await loadRelay(normalized).catch(() => undefined)
+  void refreshRelayPolicy(normalized)
 
-  return getRelayPolicy(normalized)
+  return readRelayPolicy(normalized)
 }
+
+export const loadRelayPolicy = (url: string) => refreshRelayPolicy(url, true)
+
+export const relayPolicyRefreshPolicy = (socket: Socket) =>
+  on(socket, SocketEvent.Status, status => {
+    if (status === SocketStatus.Open) void refreshRelayPolicy(socket.url, true)
+  })
 
 export const getRelayRequestPolicy = (url: string): RelayRequestPolicy => {
   const policy = getRelayPolicy(url)

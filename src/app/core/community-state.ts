@@ -3,7 +3,15 @@ import {derived, get, writable, type Readable} from "svelte/store"
 import {deriveProfile, forceLoadRelayList, pubkey, repository, sign, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {normalizeUrl, sortBy} from "@welshman/lib"
-import {AuthStateEvent, AuthStatus, makeLoader, Pool, type AuthState} from "@welshman/net"
+import {
+  AuthStateEvent,
+  AuthStatus,
+  makeLoader,
+  Pool,
+  SocketEvent,
+  SocketStatus,
+  type AuthState,
+} from "@welshman/net"
 import {Router} from "@welshman/router"
 import {DELETE, PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
@@ -619,23 +627,57 @@ const COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES = [
   AuthStatus.DeniedSignature,
 ]
 
-const waitForCommunityRelayAuth = (
-  auth: AuthState,
-  timeout: number,
-) => {
+export class RelayAuthenticationTimeoutError extends Error {
+  readonly name = "RelayAuthenticationTimeoutError"
+
+  constructor(
+    readonly relay: string,
+    readonly timeout: number,
+  ) {
+    super(`Authentication timed out for ${relay} after ${timeout}ms`)
+  }
+}
+
+export const waitForCommunityRelayAuth = (auth: AuthState, timeout: number) => {
   if (COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(auth.status)) {
     return Promise.resolve(auth.status)
   }
 
-  return new Promise<AuthStatus>(resolve => {
+  return new Promise<AuthStatus>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cleanup = () => {
+      if (timer) clearTimeout(timer)
+      auth.off(AuthStateEvent.Status, handleAuthStatus)
+      auth.socket.off(SocketEvent.Status, handleSocketStatus)
+      auth.socket.off(SocketEvent.Error, handleSocketError)
+    }
     const finish = (status: AuthStatus) => {
-      clearTimeout(timer)
-      auth.off(AuthStateEvent.Status, finish)
+      cleanup()
       resolve(status)
     }
-    const timer = setTimeout(() => finish(auth.status), timeout)
+    const fail = (error: Error) => {
+      cleanup()
+      reject(error)
+    }
+    const handleAuthStatus = (status: AuthStatus) => {
+      if (COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(status)) finish(status)
+    }
+    const handleSocketStatus = (status: SocketStatus) => {
+      if ([SocketStatus.Closed, SocketStatus.Error].includes(status)) {
+        fail(new RelayAuthenticationError(auth.socket.url, status))
+      }
+    }
+    const handleSocketError = (error: string) => {
+      fail(new RelayAuthenticationError(auth.socket.url, error || SocketStatus.Error))
+    }
 
-    auth.on(AuthStateEvent.Status, finish)
+    auth.on(AuthStateEvent.Status, handleAuthStatus)
+    auth.socket.on(SocketEvent.Status, handleSocketStatus)
+    auth.socket.on(SocketEvent.Error, handleSocketError)
+    timer = setTimeout(
+      () => fail(new RelayAuthenticationTimeoutError(auth.socket.url, timeout)),
+      timeout,
+    )
   })
 }
 
@@ -655,15 +697,36 @@ const authenticateCommunityRelay = async (relay: string, timeout: number) => {
 
   const promise = (async () => {
     const terminalStatus = waitForCommunityRelayAuth(auth, timeout)
-    const attemptedStatus = auth
-      .attemptAuth(sign)
-      .then(() =>
-        COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(auth.status)
-          ? auth.status
-          : terminalStatus,
-      )
-      .catch(() => terminalStatus)
-    const status = await Promise.race([terminalStatus, attemptedStatus])
+    const attemptAuth = async () => {
+      let attemptedChallenge = auth.challenge
+
+      do {
+        await auth.attemptAuth(async event => {
+          try {
+            return await sign(event)
+          } catch (error) {
+            if (auth.status === AuthStatus.PendingSignature) {
+              auth.setStatus(AuthStatus.DeniedSignature)
+            }
+
+            throw error
+          }
+        })
+
+        if (COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(auth.status)) return
+        if (auth.status !== AuthStatus.Requested || auth.challenge === attemptedChallenge) return
+
+        attemptedChallenge = auth.challenge
+      } while (auth.status === AuthStatus.Requested)
+    }
+
+    void attemptAuth().catch(() => {
+      if (auth.status === AuthStatus.PendingSignature) {
+        auth.setStatus(AuthStatus.DeniedSignature)
+      }
+    })
+
+    const status = await terminalStatus
 
     if (status !== AuthStatus.Ok) {
       throw new RelayAuthenticationError(relay, status)

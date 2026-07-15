@@ -12,7 +12,10 @@
   import {sync} from "@welshman/store"
   import {call} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
-  import {installRelayRequestPolicy} from "@app/core/relay-policy"
+  import {
+    installRelayRequestPolicy,
+    relayPolicyRefreshPolicy,
+  } from "@app/core/relay-policy"
   import {defaultSocketPolicies} from "@welshman/net"
   import {
     pubkey,
@@ -100,7 +103,7 @@
     },
   })
 
-  const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
+  const policies = [relayPolicyRefreshPolicy, authPolicy, trustPolicy, mostlyRestrictedPolicy]
   const uninstallRelayRequestPolicy = installRelayRequestPolicy()
   let socketPoliciesInstalled = false
 

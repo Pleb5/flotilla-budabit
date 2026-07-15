@@ -78,6 +78,98 @@ describe("Welshman request patch", () => {
     await result
   })
 
+  it("does not let a caller limit permanently lower socket policy", async () => {
+    setPolicy({maxFiltersPerSubscription: 1, maxSubscriptions: 3})
+    const {context, send, socket} = makeSocketContext()
+    const limitedController = new AbortController()
+    const limited = requestOne({
+      relay,
+      filters: [{kinds: [1]}],
+      maxSubscriptions: 1,
+      signal: limitedController.signal,
+      context,
+    })
+
+    limitedController.abort()
+    await limited
+
+    const finite = requestOne({
+      relay,
+      filters: [{kinds: [2]}, {kinds: [3]}, {kinds: [4]}],
+      autoClose: true,
+      context,
+    })
+    const finiteReqs = getReqs(send).slice(1)
+
+    expect(finiteReqs).toHaveLength(3)
+    finiteReqs.forEach(message =>
+      socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, message[1]], relay),
+    )
+    await finite
+  })
+
+  it("relaxes updated resolver policy only after the scheduler is idle", async () => {
+    let maxSubscriptions = 1
+    restorePolicies.push(
+      setRequestPolicy(() => ({
+        maxFiltersPerSubscription: 1,
+        maxSubscriptions,
+      })),
+    )
+    const {context, send, socket} = makeSocketContext()
+    const blockerController = new AbortController()
+    const blocker = requestOne({
+      relay,
+      filters: [{kinds: [1]}],
+      signal: blockerController.signal,
+      context,
+    })
+
+    maxSubscriptions = 2
+    const first = requestOne({relay, filters: [{kinds: [2]}], autoClose: true, context})
+    const second = requestOne({relay, filters: [{kinds: [3]}], autoClose: true, context})
+
+    expect(getReqs(send)).toHaveLength(1)
+    blockerController.abort()
+    await blocker
+
+    const admitted = getReqs(send).slice(1)
+    expect(admitted).toHaveLength(2)
+    admitted.forEach(message =>
+      socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, message[1]], relay),
+    )
+    await Promise.all([first, second])
+  })
+
+  it("applies resolver policy tightening to new admissions", async () => {
+    let maxSubscriptions = 2
+    restorePolicies.push(
+      setRequestPolicy(() => ({
+        maxFiltersPerSubscription: 1,
+        maxSubscriptions,
+      })),
+    )
+    const {context, send, socket} = makeSocketContext()
+    const blockerController = new AbortController()
+    const blocker = requestOne({
+      relay,
+      filters: [{kinds: [1]}],
+      signal: blockerController.signal,
+      context,
+    })
+
+    maxSubscriptions = 1
+    const finite = requestOne({relay, filters: [{kinds: [2]}], autoClose: true, context})
+    expect(getReqs(send)).toHaveLength(1)
+
+    blockerController.abort()
+    await blocker
+    const admitted = getReqs(send)[1]
+    expect(admitted).toBeDefined()
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, admitted[1]], relay)
+    await finite
+  })
+
   it("bounds serialized REQ bytes", async () => {
     setPolicy({maxFiltersPerSubscription: 5, maxMessageBytes: 90})
     const send = vi.fn()
@@ -163,6 +255,98 @@ describe("Welshman request patch", () => {
     )
 
     await result
+  })
+
+  it("retries a finite array rejection once with smaller filter groups", async () => {
+    setPolicy({maxFiltersPerSubscription: 4, maxSubscriptions: 2})
+    const {context, send, socket} = makeSocketContext()
+    const onClosed = vi.fn()
+    const onEose = vi.fn()
+    const onStart = vi.fn()
+    const result = requestOne({
+      relay,
+      filters: [{kinds: [1]}, {kinds: [2]}, {kinds: [3]}, {kinds: [4]}],
+      autoClose: true,
+      onClosed,
+      onEose,
+      onStart,
+      context,
+    })
+    const initial = getReqs(send)[0]
+
+    socket.emit(
+      SocketEvent.Receive,
+      [RelayMessageType.Closed, initial[1], "bad req: array too big"],
+      relay,
+    )
+
+    const retries = getReqs(send).slice(1)
+    expect(getReqs(send).map(message => message.slice(2).length)).toEqual([4, 2, 2])
+    retries.forEach(message =>
+      socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, message[1]], relay),
+    )
+
+    await result
+    expect(onStart).toHaveBeenCalledTimes(3)
+    expect(onClosed).not.toHaveBeenCalled()
+    expect(onEose).toHaveBeenCalledOnce()
+  })
+
+  it("does not retry an array fallback more than once", async () => {
+    setPolicy({maxFiltersPerSubscription: 2, maxSubscriptions: 2})
+    const {context, send, socket} = makeSocketContext()
+    const onClosed = vi.fn()
+    const result = requestOne({
+      relay,
+      filters: [{kinds: [1]}, {kinds: [2]}],
+      autoClose: true,
+      onClosed,
+      context,
+    })
+    const initial = getReqs(send)[0]
+
+    socket.emit(
+      SocketEvent.Receive,
+      [RelayMessageType.Closed, initial[1], "bad req: arr too big"],
+      relay,
+    )
+    const retries = getReqs(send).slice(1)
+    socket.emit(
+      SocketEvent.Receive,
+      [RelayMessageType.Closed, retries[0][1], "bad req: arr too big"],
+      relay,
+    )
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, retries[1][1]], relay)
+
+    await result
+    expect(getReqs(send)).toHaveLength(3)
+    expect(onClosed).toHaveBeenCalledOnce()
+  })
+
+  it("does not repartition live requests after array rejection", async () => {
+    setPolicy({maxFiltersPerSubscription: 2, maxSubscriptions: 4})
+    const {context, send, socket} = makeSocketContext()
+    const onClosed = vi.fn()
+    const result = requestOne({
+      relay,
+      filters: [{kinds: [1]}, {kinds: [2]}, {kinds: [3]}, {kinds: [4]}],
+      onClosed,
+      context,
+    })
+    const initial = getReqs(send)[0]
+
+    socket.emit(
+      SocketEvent.Receive,
+      [RelayMessageType.Closed, initial[1], "bad req: array too big"],
+      relay,
+    )
+
+    await result
+    expect(getReqs(send)).toHaveLength(2)
+    expect(
+      getMessages(send).filter(message => message[0] === ClientMessageType.Close),
+    ).toHaveLength(1)
+    expect(onClosed).toHaveBeenCalledOnce()
   })
 
   it("does not leak a slot when socket failure is emitted synchronously", async () => {
@@ -527,6 +711,47 @@ describe("Welshman request patch", () => {
     controllers[2].abort()
     controllers[3].abort()
     await Promise.all(requests)
+  })
+
+  it("resets session-learned overflow limits when the socket reconnects", async () => {
+    vi.useFakeTimers()
+    setPolicy({maxFiltersPerSubscription: 1, maxSubscriptions: 3})
+    const {context, send, socket} = makeSocketContext()
+    const firstControllers = Array.from({length: 3}, () => new AbortController())
+    const first = firstControllers.map((controller, index) =>
+      requestOne({
+        relay,
+        filters: [{kinds: [index + 1]}],
+        signal: controller.signal,
+        context,
+      }),
+    )
+
+    socket.emit(
+      SocketEvent.Receive,
+      [RelayMessageType.Notice, "ERROR: too many concurrent REQs"],
+      relay,
+    )
+    firstControllers.forEach(controller => controller.abort())
+    await Promise.all(first)
+    await vi.advanceTimersByTimeAsync(250)
+
+    const secondControllers = Array.from({length: 3}, () => new AbortController())
+    const second = secondControllers.map((controller, index) =>
+      requestOne({
+        relay,
+        filters: [{kinds: [index + 10]}],
+        signal: controller.signal,
+        context,
+      }),
+    )
+
+    expect(getReqs(send)).toHaveLength(5)
+    socket.emit(SocketEvent.Status, SocketStatus.Open, relay)
+    expect(getReqs(send)).toHaveLength(6)
+
+    secondControllers.forEach(controller => controller.abort())
+    await Promise.all(second)
   })
 
   it("does not send loader work aborted before the batch flush", async () => {
