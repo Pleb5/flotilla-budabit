@@ -12,7 +12,7 @@ index c576ec4d024572f4afbdb84116145ff5c5da88ba..5335520c399ef7e04ca39c4bea57a248
  export type ClientClose = [ClientMessageType.Close, ...ClientClosePayload];
  export type ClientEvent = [ClientMessageType.Event, ...ClientEventPayload];
 diff --git a/dist/net/src/policy.js b/dist/net/src/policy.js
-index 3d18230505eb95ca00d015234410e89392a7cd21..b90b989d936f8dd337d3afaf4223dbefa0b052e5 100644
+index 3d18230505eb95ca00d015234410e89392a7cd21..b4a08178c64fde937807ccf6faffc089e4fd20fa 100644
 --- a/dist/net/src/policy.js
 +++ b/dist/net/src/policy.js
 @@ -134,6 +134,8 @@ export const socketPolicyCloseInactive = (socket) => {
@@ -39,47 +39,72 @@ index 3d18230505eb95ca00d015234410e89392a7cd21..b90b989d936f8dd337d3afaf4223dbef
              lastActivity = now();
              if (isRelayClosed(message) || isRelayOk(message)) {
 diff --git a/dist/net/src/request.d.ts b/dist/net/src/request.d.ts
-index 9a38116507622ad55ec99c61de364ed31b6d626b..4af3870d55e8611a237aa5f8a2ca6bf309c32c62 100644
+index 9a38116507622ad55ec99c61de364ed31b6d626b..84738fab48774a24a8b79c58c9534c76d453b3ee 100644
 --- a/dist/net/src/request.d.ts
 +++ b/dist/net/src/request.d.ts
-@@ -2,7 +2,21 @@ import { Deferred } from "@welshman/lib";
+@@ -2,7 +2,34 @@ import { Deferred } from "@welshman/lib";
  import { Filter, TrustedEvent } from "@welshman/util";
  import { AdapterContext } from "./adapter.js";
  import { Tracker } from "./tracker.js";
++export type RequestLifetime = "finite" | "live";
++export type RequestClass = "finite" | "critical-live" | "background-live";
 +export type RelayRequestPolicy = {
 +    maxFiltersPerSubscription?: number;
 +    maxSubscriptions?: number;
++    maxLiveSubscriptions?: number;
++    maxBackgroundLiveSubscriptions?: number;
 +    maxMessageBytes?: number;
++    criticalLivePriority?: number;
 +    priority?: number;
-+    reservedSubscriptions?: number;
-+    reservedPriority?: number;
 +};
 +export type RequestPolicyResolver = (relay: string) => RelayRequestPolicy;
 +export declare const setRequestPolicy: (resolver: RequestPolicyResolver) => () => void;
++export declare class RequestAdmissionError extends Error {
++    readonly requestClass: RequestClass;
++    readonly requiredSubscriptions: number;
++    readonly maxSubscriptions: number;
++    constructor(requestClass: RequestClass, requiredSubscriptions: number, maxSubscriptions: number);
++}
  export type BaseRequestOptions = {
 +    maxFiltersPerSubscription?: number;
 +    maxSubscriptions?: number;
++    maxLiveSubscriptions?: number;
++    maxBackgroundLiveSubscriptions?: number;
 +    maxMessageBytes?: number;
++    criticalLivePriority?: number;
 +    priority?: number;
++    lifetime?: RequestLifetime;
      signal?: AbortSignal;
      tracker?: Tracker;
      context?: AdapterContext;
-@@ -31,6 +45,10 @@ export type RequestOptions = BaseRequestOptions & {
+@@ -14,6 +41,7 @@ export type BaseRequestOptions = {
+     onInvalid?: (event: unknown, url: string) => void;
+     onFiltered?: (event: TrustedEvent, url: string) => void;
+     onDuplicate?: (event: TrustedEvent, url: string) => void;
++    onStart?: (url: string) => void;
+     onDisconnect?: (url: string) => void;
+     onEose?: (url: string) => void;
+     onClosed?: (message: string, url: string) => void;
+@@ -31,6 +59,13 @@ export type RequestOptions = BaseRequestOptions & {
  };
  export declare const request: (options: RequestOptions) => Promise<TrustedEvent[]>;
  export type LoaderOptions = {
 +    maxFiltersPerSubscription?: number;
 +    maxSubscriptions?: number;
++    maxLiveSubscriptions?: number;
++    maxBackgroundLiveSubscriptions?: number;
 +    maxMessageBytes?: number;
++    criticalLivePriority?: number;
 +    priority?: number;
      delay: number;
      timeout?: number;
      threshold?: number;
-@@ -42,9 +60,11 @@ export type LoadOptions = {
+@@ -42,9 +77,12 @@ export type LoadOptions = {
      relays: string[];
      filters: Filter[];
      signal?: AbortSignal;
 +    priority?: number;
++    onStart?: (url: string) => void;
      onEvent?: (event: TrustedEvent, url: string) => void;
      onDisconnect?: (url: string) => void;
      onEose?: (url: string) => void;
@@ -88,10 +113,10 @@ index 9a38116507622ad55ec99c61de364ed31b6d626b..4af3870d55e8611a237aa5f8a2ca6bf3
  };
  export type Loader = (options: LoadOptions) => Promise<TrustedEvent[]>;
 diff --git a/dist/net/src/request.js b/dist/net/src/request.js
-index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfbd3b2d935 100644
+index db2a00be88e169a196f969af189ea8e91b1aea22..ceacacea316fd6191f65015e08a09e1b2c7a2c7a 100644
 --- a/dist/net/src/request.js
 +++ b/dist/net/src/request.js
-@@ -1,37 +1,214 @@
+@@ -1,37 +1,288 @@
  import { on, uniq, flatten, addToMapKey, defer, call, randomId, pushToMapKey, batcher, } from "@welshman/lib";
  import { unionFilters, matchFilters, deduplicateEvents, getFilterResultCardinality, } from "@welshman/util";
 -import { ClientMessageType, isRelayEvent, isRelayEose, isRelayClosed, } from "./message.js";
@@ -114,6 +139,22 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
 +};
 +const subscriptionSchedulers = new WeakMap();
 +let subscriptionSequence = 0;
++const finiteAgeInterval = 1000;
++const finiteMaxAgeBoost = 1000;
++const getEffectivePriority = (job, timestamp) => job.priority +
++    (job.requestClass === "finite"
++        ? Math.min(finiteMaxAgeBoost, Math.floor((timestamp - job.queuedAt) / finiteAgeInterval))
++        : 0);
++const canStartJob = (scheduler, job) => {
++    if (scheduler.active.total + job.weight > scheduler.maxSubscriptions)
++        return false;
++    if (job.requestClass === "finite")
++        return true;
++    if (scheduler.active.live + job.weight > scheduler.maxLiveSubscriptions)
++        return false;
++    return (job.requestClass !== "background-live" ||
++        scheduler.active.backgroundLive + job.weight <= scheduler.maxBackgroundLiveSubscriptions);
++};
 +const drainScheduler = (scheduler) => {
 +    if (scheduler.pausedUntil > Date.now()) {
 +        if (!scheduler.resumeTimer) {
@@ -124,39 +165,49 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
 +        }
 +        return;
 +    }
-+    scheduler.queue.sort((a, b) => b.priority - a.priority || a.sequence - b.sequence);
++    scheduler.queue = scheduler.queue.filter(job => !job.cancelled);
++    const timestamp = Date.now();
++    scheduler.queue.sort((a, b) => getEffectivePriority(b, timestamp) - getEffectivePriority(a, timestamp) ||
++        a.sequence - b.sequence);
 +    while (scheduler.queue.length > 0) {
-+        const next = scheduler.queue[0];
-+        const maxActive = next.priority >= scheduler.reservedPriority
-+            ? scheduler.maxSubscriptions
-+            : Math.max(1, scheduler.maxSubscriptions - scheduler.reservedSubscriptions);
-+        if (scheduler.active >= maxActive)
++        const index = scheduler.queue.findIndex(job => canStartJob(scheduler, job));
++        if (index < 0)
 +            break;
-+        const job = scheduler.queue.shift();
-+        if (job.cancelled)
-+            continue;
++        const [job] = scheduler.queue.splice(index, 1);
 +        job.started = true;
-+        scheduler.active += 1;
++        scheduler.active.total += job.weight;
++        if (job.requestClass !== "finite") {
++            scheduler.active.live += job.weight;
++        }
++        if (job.requestClass === "background-live") {
++            scheduler.active.backgroundLive += job.weight;
++        }
 +        job.start();
 +    }
 +};
-+const getSubscriptionScheduler = (socket, maxSubscriptions, reservedSubscriptions, reservedPriority) => {
++const getSubscriptionScheduler = (socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions) => {
 +    let scheduler = subscriptionSchedulers.get(socket);
 +    if (!scheduler) {
 +        scheduler = {
-+            active: 0,
++            active: {
++                backgroundLive: 0,
++                live: 0,
++                total: 0,
++            },
++            configuredMaxBackgroundLiveSubscriptions: maxBackgroundLiveSubscriptions,
++            configuredMaxLiveSubscriptions: maxLiveSubscriptions,
 +            configuredMaxSubscriptions: maxSubscriptions,
 +            learnedMaxSubscriptions: Infinity,
++            maxBackgroundLiveSubscriptions,
++            maxLiveSubscriptions,
 +            maxSubscriptions,
 +            pausedUntil: 0,
 +            queue: [],
-+            reservedPriority,
-+            reservedSubscriptions,
 +        };
 +        subscriptionSchedulers.set(socket, scheduler);
 +        on(socket, SocketEvent.Receive, message => {
 +            if (isRelayNotice(message) && /too many concurrent reqs/i.test(message[1] || "")) {
-+                scheduler.learnedMaxSubscriptions = Math.max(1, Math.min(scheduler.learnedMaxSubscriptions, scheduler.active - 1));
++                scheduler.learnedMaxSubscriptions = Math.max(1, Math.min(scheduler.learnedMaxSubscriptions, scheduler.active.total - 1));
 +                scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
 +                scheduler.pausedUntil = Date.now() + 250;
 +                drainScheduler(scheduler);
@@ -164,39 +215,63 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
 +        });
 +    }
 +    else {
++        scheduler.configuredMaxBackgroundLiveSubscriptions = Math.min(scheduler.configuredMaxBackgroundLiveSubscriptions, maxBackgroundLiveSubscriptions);
++        scheduler.configuredMaxLiveSubscriptions = Math.min(scheduler.configuredMaxLiveSubscriptions, maxLiveSubscriptions);
 +        scheduler.configuredMaxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, maxSubscriptions);
++        scheduler.maxBackgroundLiveSubscriptions = scheduler.configuredMaxBackgroundLiveSubscriptions;
++        scheduler.maxLiveSubscriptions = scheduler.configuredMaxLiveSubscriptions;
 +        scheduler.maxSubscriptions = Math.min(scheduler.configuredMaxSubscriptions, scheduler.learnedMaxSubscriptions);
-+        scheduler.reservedPriority = Math.min(scheduler.reservedPriority, reservedPriority);
-+        scheduler.reservedSubscriptions = Math.max(scheduler.reservedSubscriptions, reservedSubscriptions);
 +    }
 +    return scheduler;
 +};
-+const scheduleSubscription = (socket, maxSubscriptions, reservedSubscriptions, reservedPriority, priority, start) => {
-+    if (!socket || !Number.isFinite(maxSubscriptions)) {
-+        return { release: () => { }, start };
++const scheduleSubscription = (socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions, requestClass, priority, weight, start) => {
++    if (!socket) {
++        return { releases: Array.from({ length: weight }, () => () => { }), start };
 +    }
-+    const scheduler = getSubscriptionScheduler(socket, maxSubscriptions, reservedSubscriptions, reservedPriority);
++    const scheduler = getSubscriptionScheduler(socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions);
 +    const job = {
 +        cancelled: false,
 +        priority,
++        queuedAt: Date.now(),
++        requestClass,
 +        sequence: subscriptionSequence++,
 +        start,
 +        started: false,
++        weight,
 +    };
-+    let released = false;
 +    scheduler.queue.push(job);
-+    const release = () => {
-+        if (released)
-+            return;
-+        released = true;
-+        job.cancelled = true;
-+        if (job.started) {
-+            scheduler.active = Math.max(0, scheduler.active - 1);
-+        }
-+        drainScheduler(scheduler);
-+    };
-+    return { release, start: () => drainScheduler(scheduler) };
++    const releases = Array.from({ length: weight }, () => {
++        let released = false;
++        return () => {
++            if (released)
++                return;
++            released = true;
++            if (!job.started) {
++                job.cancelled = true;
++            }
++            else {
++                scheduler.active.total = Math.max(0, scheduler.active.total - 1);
++                if (job.requestClass !== "finite") {
++                    scheduler.active.live = Math.max(0, scheduler.active.live - 1);
++                }
++                if (job.requestClass === "background-live") {
++                    scheduler.active.backgroundLive = Math.max(0, scheduler.active.backgroundLive - 1);
++                }
++            }
++            drainScheduler(scheduler);
++        };
++    });
++    return { releases, start: () => drainScheduler(scheduler) };
 +};
++export class RequestAdmissionError extends Error {
++    constructor(requestClass, requiredSubscriptions, maxSubscriptions) {
++        super(`${requestClass} request requires ${requiredSubscriptions} subscriptions but its cap is ${maxSubscriptions}`);
++        this.requestClass = requestClass;
++        this.requiredSubscriptions = requiredSubscriptions;
++        this.maxSubscriptions = maxSubscriptions;
++        this.name = "RequestAdmissionError";
++    }
++}
 +const validateLimit = (name, value) => {
 +    if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) {
 +        throw new Error(`${name} must be a positive safe integer`);
@@ -235,21 +310,45 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
 +    validateLimit("maxFiltersPerSubscription", relayPolicy.maxFiltersPerSubscription);
 +    validateLimit("maxSubscriptions", options.maxSubscriptions);
 +    validateLimit("maxSubscriptions", relayPolicy.maxSubscriptions);
++    validateLimit("maxLiveSubscriptions", options.maxLiveSubscriptions);
++    validateLimit("maxLiveSubscriptions", relayPolicy.maxLiveSubscriptions);
++    validateLimit("maxBackgroundLiveSubscriptions", options.maxBackgroundLiveSubscriptions);
++    validateLimit("maxBackgroundLiveSubscriptions", relayPolicy.maxBackgroundLiveSubscriptions);
 +    validateLimit("maxMessageBytes", options.maxMessageBytes);
 +    validateLimit("maxMessageBytes", relayPolicy.maxMessageBytes);
-+    if (!Number.isSafeInteger(relayPolicy.reservedSubscriptions ?? 0) || (relayPolicy.reservedSubscriptions ?? 0) < 0) {
-+        throw new Error("reservedSubscriptions must be a non-negative safe integer");
-+    }
 +    const maxFilters = getLimit(1, options.maxFiltersPerSubscription, relayPolicy.maxFiltersPerSubscription);
 +    const maxSubscriptions = getLimit(Infinity, options.maxSubscriptions, relayPolicy.maxSubscriptions);
++    const maxLiveSubscriptions = Math.min(maxSubscriptions, getLimit(maxSubscriptions, options.maxLiveSubscriptions, relayPolicy.maxLiveSubscriptions));
++    const maxBackgroundLiveSubscriptions = Math.min(maxLiveSubscriptions, getLimit(maxLiveSubscriptions, options.maxBackgroundLiveSubscriptions, relayPolicy.maxBackgroundLiveSubscriptions));
 +    const maxMessageBytes = getLimit(Infinity, options.maxMessageBytes, relayPolicy.maxMessageBytes);
-+    const reservedSubscriptions = Math.min(relayPolicy.reservedSubscriptions ?? 0, Math.max(0, maxSubscriptions - 1));
-+    const reservedPriority = relayPolicy.reservedPriority ?? Infinity;
++    const criticalLivePriorities = [
++        options.criticalLivePriority,
++        relayPolicy.criticalLivePriority,
++    ].filter(value => value !== undefined);
++    const criticalLivePriority = criticalLivePriorities.length > 0
++        ? Math.max(...criticalLivePriorities)
++        : Infinity;
 +    const priority = options.priority ?? relayPolicy.priority ?? 0;
-+    if (!Number.isFinite(priority) || (reservedPriority !== Infinity && !Number.isFinite(reservedPriority))) {
++    if (!Number.isFinite(priority) ||
++        (criticalLivePriority !== Infinity && !Number.isFinite(criticalLivePriority))) {
 +        throw new Error("request priorities must be finite");
 +    }
++    const lifetime = options.lifetime ?? (options.autoClose ? "finite" : "live");
++    if (lifetime !== "finite" && lifetime !== "live") {
++        throw new Error('request lifetime must be "finite" or "live"');
++    }
++    const requestClass = lifetime === "finite"
++        ? "finite"
++        : priority >= criticalLivePriority
++            ? "critical-live"
++            : "background-live";
 +    const filterChunks = chunkFilters(options.filters, maxFilters, maxMessageBytes);
++    const classCap = requestClass === "background-live"
++        ? maxBackgroundLiveSubscriptions
++        : maxLiveSubscriptions;
++    if (requestClass !== "finite" && filterChunks.length > classCap) {
++        throw new RequestAdmissionError(requestClass, filterChunks.length, classCap);
++    }
      const ids = new Set();
      const eose = new Set();
 +    const completed = new Set();
@@ -311,7 +410,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
                      if (tracker.track(event.id, url)) {
                          options.onDuplicate?.(event, url);
                      }
-@@ -52,22 +229,27 @@ export const requestOne = (options) => {
+@@ -52,22 +303,27 @@ export const requestOne = (options) => {
              }
              if (isRelayEose(message)) {
                  const [_, id] = message;
@@ -347,7 +446,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
                          close();
                      }
                  }
-@@ -79,9 +261,7 @@ export const requestOne = (options) => {
+@@ -79,9 +335,7 @@ export const requestOne = (options) => {
          unsubscribers.push(on(socket, SocketEvent.Status, (status) => {
              if (![SocketStatus.Open, SocketStatus.Opening].includes(status)) {
                  options.onDisconnect?.(socket.url);
@@ -358,7 +457,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
              }
          }));
      }
-@@ -94,17 +274,29 @@ export const requestOne = (options) => {
+@@ -94,17 +348,41 @@ export const requestOne = (options) => {
      // If we're auto-closing, make sure it happens even if the relay doesn't send an eose
      // and the caller doesn't provide a signal, in order to avoid memory leaks
      if (options.autoClose && !options.signal) {
@@ -372,19 +471,31 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
 +    if (options.signal?.aborted) {
 +        close();
 +        return deferred;
-     }
++    }
 +    const socket = adapter.sockets.length === 1 ? adapter.sockets[0] : undefined;
-+    const scheduledTasks = tasks.map(task => {
-+        const scheduled = scheduleSubscription(socket, maxSubscriptions, reservedSubscriptions, reservedPriority, priority, () => {
-+            if (closed)
-+                return;
-+            task.sent = true;
-+            adapter.send([ClientMessageType.Req, task.id, ...task.filters]);
++    const scheduleTasks = (scheduledTasks) => {
++        scheduledTasks.forEach((scheduled, index) => {
++            tasks[index].release = scheduled.releases[0];
 +        });
-+        task.release = scheduled.release;
-+        return scheduled;
-+    });
-+    scheduledTasks.forEach(scheduled => scheduled.start());
++        scheduledTasks.forEach(scheduled => scheduled.start());
++    };
++    const sendTask = (task) => {
++        if (closed)
++            return;
++        options.onStart?.(options.relay);
++        task.sent = true;
++        adapter.send([ClientMessageType.Req, task.id, ...task.filters]);
++    };
++    if (requestClass === "finite") {
++        scheduleTasks(tasks.map(task => scheduleSubscription(socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions, requestClass, priority, 1, () => sendTask(task))));
++    }
++    else {
++        const scheduled = scheduleSubscription(socket, maxSubscriptions, maxLiveSubscriptions, maxBackgroundLiveSubscriptions, requestClass, priority, tasks.length, () => tasks.forEach(sendTask));
++        tasks.forEach((task, index) => {
++            task.release = scheduled.releases[index];
++        });
++        scheduled.start();
+     }
      return deferred;
  };
  export const request = async (options) => {
@@ -394,7 +505,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
      const ctrl = new AbortController();
      const relays = new Set(options.relays);
      const tracker = options.tracker || new Tracker();
-@@ -118,9 +310,20 @@ export const request = async (options) => {
+@@ -118,9 +396,20 @@ export const request = async (options) => {
          tracker,
          signal,
          relay,
@@ -417,7 +528,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
                  options.onClose?.();
                  ctrl.abort();
              }
-@@ -146,11 +349,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -146,11 +435,13 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
      const threshold = options.threshold || 1;
      const tracker = new Tracker();
      const abortHandlersByRequest = new Map();
@@ -432,7 +543,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
              const events = deduplicateEvents(eventsByRequest.get(request) || []);
              request.onClose?.();
              resultsByRequest.get(request)?.resolve(events);
-@@ -166,15 +371,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -166,15 +457,22 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
          }
      };
      for (const request of allRequests) {
@@ -463,7 +574,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
          }
      }
      // Create an abort controller for each relay
-@@ -192,34 +404,53 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
+@@ -192,34 +490,57 @@ export const makeLoader = (options) => batcher(options.delay, (allRequests) => {
          const filters = unionFilters(requests.flatMap(r => r.filters));
          // Propagate events to caller, but only for requests that have not been aborted
          const getOpenRequests = () => requests.filter(request => !closedRequestsByRelay.get(relay)?.has(request));
@@ -495,7 +606,10 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
 +                signal: signalsByRelay.get(relay),
 +                maxFiltersPerSubscription: options.maxFiltersPerSubscription,
 +                maxSubscriptions: options.maxSubscriptions,
++                maxLiveSubscriptions: options.maxLiveSubscriptions,
++                maxBackgroundLiveSubscriptions: options.maxBackgroundLiveSubscriptions,
 +                maxMessageBytes: options.maxMessageBytes,
++                criticalLivePriority: options.criticalLivePriority,
 +                priority: Math.max(options.priority ?? 0, ...requests.map(request => request.priority ?? 0)),
 +                context: options.context,
 +                isEventValid: options.isEventValid,
@@ -515,6 +629,7 @@ index db2a00be88e169a196f969af189ea8e91b1aea22..bcc2901722222b842d5168091471dbfb
                          }
                      }
 +                },
++                onStart: (url) => getOpenRequests().forEach(request => request.onStart?.(url)),
 +                onDisconnect: (url) => getOpenRequests().forEach(request => request.onDisconnect?.(url)),
 +                onEose: (url) => getOpenRequests().forEach(request => request.onEose?.(url)),
 +                onClosed: (reason, url) => getOpenRequests().forEach(request => request.onClosed?.(reason, url)),

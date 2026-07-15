@@ -4,6 +4,16 @@ import {getRelayPolicy, getRelayRequestPolicy} from "./relay-policy"
 
 const publicRelay = "wss://relay.budabit.club/"
 const metadataRelay = "wss://metadata.example/"
+const unknownRelay = "wss://unknown.example/"
+
+const defaultRequestPolicy = {
+  maxSubscriptions: 9,
+  maxFiltersPerSubscription: 5,
+  maxLiveSubscriptions: 7,
+  maxBackgroundLiveSubscriptions: 5,
+  criticalLivePriority: 200,
+  maxMessageBytes: 128 * 1024,
+}
 
 afterEach(() => {
   relaysByUrl.set(new Map())
@@ -13,16 +23,37 @@ describe("relay policy", () => {
   it("applies the explicit public Budabit relay limits", () => {
     expect(getRelayPolicy(publicRelay)).toEqual({
       auth: "none",
-      maxSubscriptions: 10,
-      maxFiltersPerSubscription: 5,
-      maxMessageBytes: 128 * 1024,
+      ...defaultRequestPolicy,
     })
-    expect(getRelayRequestPolicy(publicRelay)).toEqual({
-      maxSubscriptions: 9,
-      maxFiltersPerSubscription: 5,
-      maxMessageBytes: 128 * 1024,
-      reservedSubscriptions: 3,
-      reservedPriority: 200,
+    expect(getRelayRequestPolicy(publicRelay)).toEqual(defaultRequestPolicy)
+  })
+
+  it("uses the direct Budabit limits for unknown relays", () => {
+    expect(getRelayPolicy(unknownRelay)).toEqual({
+      auth: "optional",
+      ...defaultRequestPolicy,
+    })
+    expect(getRelayRequestPolicy(unknownRelay)).toEqual(defaultRequestPolicy)
+  })
+
+  it("lets stricter NIP-11 subscription limits win", () => {
+    relaysByUrl.set(
+      new Map([
+        [
+          metadataRelay,
+          {
+            url: metadataRelay,
+            limitation: {max_subscriptions: 4},
+          } as any,
+        ],
+      ]),
+    )
+
+    expect(getRelayRequestPolicy(metadataRelay)).toEqual({
+      ...defaultRequestPolicy,
+      maxSubscriptions: 4,
+      maxLiveSubscriptions: 2,
+      maxBackgroundLiveSubscriptions: 2,
     })
   })
 
@@ -46,8 +77,7 @@ describe("relay policy", () => {
 
     expect(getRelayPolicy(metadataRelay)).toEqual({
       auth: "required",
-      maxSubscriptions: 12,
-      maxFiltersPerSubscription: 1,
+      ...defaultRequestPolicy,
       maxMessageBytes: 64 * 1024,
     })
   })

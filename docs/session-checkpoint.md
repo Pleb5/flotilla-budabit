@@ -12,14 +12,15 @@
 
 ## Current Phase
 
-- Phase 1: Starvation-Free Scheduler And Baseline
+- Phase 2: Authentication And Adaptive Policy
 
 ## Phase Exit Criteria
 
-- Scheduler distinguishes finite, critical-live, and background-live work.
-- Public and unknown defaults use a direct 9-ID/5-filter baseline; public live/background-live caps are 7/5.
-- Finite work always retains progress capacity; oversized live requests fail before partial installation.
-- Focused scheduler/policy tests, `pnpm check`, and `git diff --check` pass.
+- Required-auth waiters resolve only on terminal auth state, disconnect, or typed timeout and remain single-flight per socket session.
+- Public relays never pre-authenticate.
+- NIP-11 refreshes on first use/reconnect/periodic active use; policy tightening and controlled relaxation work.
+- `max_limit` is represented and finite `arr too big` rejection retries once with a smaller group.
+- Focused auth/policy/transport tests, `pnpm check`, and `git diff --check` pass.
 - Phase changes and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -28,6 +29,17 @@
 - Existing relay scheduling/community loading work is committed through `45f97bd0`.
 - Full verification before this workflow passed: 275 test files, 2,246 tests, and `pnpm check` with no diagnostics.
 - Investigation traced the missing-content failure to non-preemptive persistent live slots plus timeout-as-empty route behavior.
+- Phase 1 implemented lifetime-aware scheduling in the Welshman patch:
+  - Finite, critical-live, and background-live accounting is separate.
+  - Persistent logical requests are admitted atomically; oversized groups throw `RequestAdmissionError` before any REQ.
+  - Finite chunks retain wave scheduling and receive bounded queue-age priority boosts.
+  - `onStart` reports physical request admission.
+- Phase 1 changed public and unknown defaults to direct 9 IDs, 5 filters, 7 live IDs, 5 background-live IDs, critical threshold 200, and 128 KiB; stricter NIP-11 limits win.
+- Phase 1 verification passed:
+  - Frozen-lockfile install succeeded.
+  - Focused scheduler/policy tests passed: 2 files, 25 tests.
+  - `pnpm check` passed with 0 errors and 0 warnings.
+  - `git diff --check` passed.
 
 ## Decisions
 
@@ -40,23 +52,27 @@
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
-- Branch: `dev`, tracking `origin/dev` and initially ahead by 10 commits.
+- Branch: `dev`, tracking `origin/dev`.
 - Unrelated worktree changes exist only under `packages/nostr-git-core/`.
-- The current Welshman patch has priority scheduling and live slot retention but no lifetime class caps or atomic live admission.
+- Phase 1 is verified and the checkpoint has advanced to Phase 2.
 
 ## Next Action
 
-- Read the current Welshman request patch/installed implementation and implement lifetime-aware scheduler accounting plus starvation regression tests.
+- Correct `waitForCommunityRelayAuth`, add realistic AuthState transition coverage, then implement refreshable/adaptive relay policy semantics.
 
 ## Verification
 
 - Startup inspected checkpoint, full previous plan, status, branch/upstream, remotes, and recent commits.
-- No implementation verification has run for Phase 1 yet.
+- Phase 1: `pnpm install --frozen-lockfile --ignore-scripts` passed.
+- Phase 1: focused Vitest passed, 2 files and 25 tests.
+- Phase 1: `pnpm check` passed with no diagnostics.
+- Phase 1: `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
-- The pnpm patch targets compiled Welshman `dist`; patch hash/application must be refreshed carefully.
+- Socket policy values still tighten monotonically during a session; Phase 2 must make controlled relaxation/reset explicit.
+- Auth transition mocks currently do not prove nonterminal statuses are ignored.
 - Existing unrelated `nostr-git-core` changes must remain unstaged.
 
 ## Files
@@ -68,3 +84,5 @@
 - `src/app/core/welshman-request-patch.test.ts`
 - `src/app/core/relay-policy.ts`
 - `src/app/core/relay-policy.test.ts`
+- `src/app/core/community-state.ts`
+- `src/app/core/community-state-loading.test.ts`

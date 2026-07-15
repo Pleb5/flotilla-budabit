@@ -3,6 +3,7 @@ import {
   ClientMessageType,
   MockAdapter,
   RelayMessageType,
+  RequestAdmissionError,
   Socket,
   SocketAdapter,
   SocketEvent,
@@ -22,9 +23,10 @@ const restorePolicies: Array<() => void> = []
 const setPolicy = (policy: {
   maxFiltersPerSubscription?: number
   maxSubscriptions?: number
+  maxLiveSubscriptions?: number
+  maxBackgroundLiveSubscriptions?: number
   maxMessageBytes?: number
-  reservedSubscriptions?: number
-  reservedPriority?: number
+  criticalLivePriority?: number
 }) => {
   restorePolicies.push(setRequestPolicy(() => policy))
 }
@@ -239,16 +241,100 @@ describe("Welshman request patch", () => {
     await Promise.all([low, high])
   })
 
-  it("keeps reserved capacity available for priority work", async () => {
+  it("ages queued finite work past continuously newer priorities", async () => {
+    vi.useFakeTimers()
+    setPolicy({maxFiltersPerSubscription: 1, maxSubscriptions: 1})
+    const {context, send, socket} = makeSocketContext()
+    const blockerController = new AbortController()
+    const blocker = requestOne({
+      relay,
+      filters: [{kinds: [1]}],
+      signal: blockerController.signal,
+      context,
+    })
+    const lowController = new AbortController()
+    const low = requestOne({
+      relay,
+      filters: [{kinds: [2]}],
+      autoClose: true,
+      signal: lowController.signal,
+      priority: 0,
+      context,
+    })
+
+    await vi.advanceTimersByTimeAsync(101_000)
+
+    const highController = new AbortController()
+    const high = requestOne({
+      relay,
+      filters: [{kinds: [3]}],
+      autoClose: true,
+      signal: highController.signal,
+      priority: 100,
+      context,
+    })
+    blockerController.abort()
+    await blocker
+
+    const agedReq = getReqs(send)[1]
+    expect((agedReq[2] as Filter).kinds).toEqual([2])
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, agedReq[1]], relay)
+
+    const highReq = getReqs(send)[2]
+    expect((highReq[2] as Filter).kinds).toEqual([3])
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, highReq[1]], relay)
+
+    await Promise.all([low, high])
+  })
+
+  it("starts finite work while seven live subscriptions are active", async () => {
     setPolicy({
       maxFiltersPerSubscription: 1,
-      maxSubscriptions: 3,
-      reservedSubscriptions: 2,
-      reservedPriority: 100,
+      maxSubscriptions: 9,
+      maxLiveSubscriptions: 7,
+      maxBackgroundLiveSubscriptions: 5,
+      criticalLivePriority: 200,
+    })
+    const {context, send, socket} = makeSocketContext()
+    const liveControllers = Array.from({length: 7}, () => new AbortController())
+    const live = liveControllers.map((controller, index) =>
+      requestOne({
+        relay,
+        filters: [{kinds: [index + 1]}],
+        signal: controller.signal,
+        priority: 200,
+        context,
+      }),
+    )
+
+    expect(getReqs(send)).toHaveLength(7)
+    const finite = requestOne({
+      relay,
+      filters: [{kinds: [999]}],
+      autoClose: true,
+      context,
+    })
+
+    expect(getReqs(send)).toHaveLength(8)
+    const finiteReq = getReqs(send)[7]
+    expect((finiteReq[2] as Filter).kinds).toEqual([999])
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, finiteReq[1]], relay)
+
+    liveControllers.forEach(controller => controller.abort())
+    await Promise.all([...live, finite])
+  })
+
+  it("starts critical live work while five background live subscriptions are active", async () => {
+    setPolicy({
+      maxFiltersPerSubscription: 1,
+      maxSubscriptions: 9,
+      maxLiveSubscriptions: 7,
+      maxBackgroundLiveSubscriptions: 5,
+      criticalLivePriority: 200,
     })
     const {context, send} = makeSocketContext()
-    const lowControllers = [new AbortController(), new AbortController()]
-    const low = lowControllers.map((controller, index) =>
+    const backgroundControllers = Array.from({length: 5}, () => new AbortController())
+    const background = backgroundControllers.map((controller, index) =>
       requestOne({
         relay,
         filters: [{kinds: [index + 1]}],
@@ -258,22 +344,132 @@ describe("Welshman request patch", () => {
       }),
     )
 
-    expect(getReqs(send)).toHaveLength(1)
-    const highController = new AbortController()
-    const high = requestOne({
+    expect(getReqs(send)).toHaveLength(5)
+    const criticalController = new AbortController()
+    const critical = requestOne({
       relay,
       filters: [{kinds: [999]}],
-      signal: highController.signal,
-      priority: 100,
+      signal: criticalController.signal,
+      priority: 200,
       context,
     })
 
-    expect(getReqs(send)).toHaveLength(2)
-    expect((getReqs(send)[1][2] as Filter).kinds).toEqual([999])
+    expect(getReqs(send)).toHaveLength(6)
+    expect((getReqs(send)[5][2] as Filter).kinds).toEqual([999])
 
-    lowControllers.forEach(controller => controller.abort())
-    highController.abort()
-    await Promise.all([...low, high])
+    backgroundControllers.forEach(controller => controller.abort())
+    criticalController.abort()
+    await Promise.all([...background, critical])
+  })
+
+  it("rejects oversized live groups before sending any REQ", () => {
+    setPolicy({
+      maxFiltersPerSubscription: 1,
+      maxSubscriptions: 9,
+      maxLiveSubscriptions: 7,
+      maxBackgroundLiveSubscriptions: 5,
+      criticalLivePriority: 200,
+    })
+    const {context, send} = makeSocketContext()
+    const filters = Array.from({length: 6}, (_, index) => ({kinds: [index + 1]}))
+
+    expect(() =>
+      requestOne({
+        relay,
+        filters,
+        autoClose: true,
+        lifetime: "live",
+        priority: 0,
+        context,
+      }),
+    ).toThrow(RequestAdmissionError)
+    expect(() =>
+      requestOne({
+        relay,
+        filters,
+        autoClose: true,
+        lifetime: "live",
+        priority: 0,
+        context,
+      }),
+    ).toThrow("background-live request requires 6 subscriptions but its cap is 5")
+    expect(getReqs(send)).toHaveLength(0)
+  })
+
+  it("queues a live group until all of its slots fit", async () => {
+    setPolicy({
+      maxFiltersPerSubscription: 1,
+      maxSubscriptions: 9,
+      maxLiveSubscriptions: 7,
+      maxBackgroundLiveSubscriptions: 5,
+      criticalLivePriority: 200,
+    })
+    const {context, send} = makeSocketContext()
+    const activeControllers = Array.from({length: 6}, () => new AbortController())
+    const active = activeControllers.map((controller, index) =>
+      requestOne({
+        relay,
+        filters: [{kinds: [index + 1]}],
+        signal: controller.signal,
+        priority: 200,
+        context,
+      }),
+    )
+    const groupController = new AbortController()
+    const group = requestOne({
+      relay,
+      filters: [{kinds: [100]}, {kinds: [101]}],
+      signal: groupController.signal,
+      priority: 200,
+      context,
+    })
+
+    expect(getReqs(send)).toHaveLength(6)
+    activeControllers[0].abort()
+    expect(getReqs(send)).toHaveLength(8)
+    expect(getReqs(send).slice(6).map(message => (message[2] as Filter).kinds)).toEqual([
+      [100],
+      [101],
+    ])
+
+    activeControllers.slice(1).forEach(controller => controller.abort())
+    groupController.abort()
+    await Promise.all([...active, group])
+  })
+
+  it("fires onStart only when queued physical work starts", async () => {
+    setPolicy({
+      maxFiltersPerSubscription: 1,
+      maxSubscriptions: 1,
+      maxLiveSubscriptions: 1,
+      maxBackgroundLiveSubscriptions: 1,
+    })
+    const {context, send, socket} = makeSocketContext()
+    const liveController = new AbortController()
+    const live = requestOne({
+      relay,
+      filters: [{kinds: [1]}],
+      signal: liveController.signal,
+      context,
+    })
+    const onStart = vi.fn()
+    const finite = requestOne({
+      relay,
+      filters: [{kinds: [2]}],
+      autoClose: true,
+      onStart,
+      context,
+    })
+
+    expect(onStart).not.toHaveBeenCalled()
+    liveController.abort()
+    await live
+
+    expect(onStart).toHaveBeenCalledOnce()
+    expect(onStart).toHaveBeenCalledWith(relay)
+    const finiteReq = getReqs(send)[1]
+    socket.emit(SocketEvent.Receive, [RelayMessageType.Eose, finiteReq[1]], relay)
+    await finite
   })
 
   it("retains a live slot after EOSE and releases it on abort", async () => {

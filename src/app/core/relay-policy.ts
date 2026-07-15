@@ -8,6 +8,9 @@ export type RelayPolicy = {
   auth: RelayAuthPolicy
   maxSubscriptions: number
   maxFiltersPerSubscription: number
+  maxLiveSubscriptions: number
+  maxBackgroundLiveSubscriptions: number
+  criticalLivePriority: number
   maxMessageBytes: number
 }
 
@@ -20,8 +23,11 @@ type RelayProfileWithLimits = RelayProfile & {
 
 const DEFAULT_RELAY_POLICY: RelayPolicy = {
   auth: "optional",
-  maxSubscriptions: 20,
-  maxFiltersPerSubscription: 1,
+  maxSubscriptions: 9,
+  maxFiltersPerSubscription: 5,
+  maxLiveSubscriptions: 7,
+  maxBackgroundLiveSubscriptions: 5,
+  criticalLivePriority: 200,
   maxMessageBytes: 128 * 1024,
 }
 
@@ -41,8 +47,11 @@ const RELAY_POLICY_OVERRIDES = new Map<string, Partial<RelayPolicy>>([
     BUDABIT_PUBLIC_RELAY,
     {
       auth: "none",
-      maxSubscriptions: 10,
+      maxSubscriptions: 9,
       maxFiltersPerSubscription: 5,
+      maxLiveSubscriptions: 7,
+      maxBackgroundLiveSubscriptions: 5,
+      criticalLivePriority: 200,
       maxMessageBytes: 128 * 1024,
     },
   ],
@@ -72,20 +81,45 @@ export const getRelayPolicy = (url: string): RelayPolicy => {
   const normalized = normalizePolicyRelay(url)
   const profile = (getRelay(normalized) || getRelay(url)) as RelayProfileWithLimits | undefined
   const override = RELAY_POLICY_OVERRIDES.get(normalized)
+  const configuredMaxSubscriptions = positiveInteger(
+    override?.maxSubscriptions,
+    DEFAULT_RELAY_POLICY.maxSubscriptions,
+  )
+  const maxSubscriptions = Math.min(
+    configuredMaxSubscriptions,
+    positiveInteger(profile?.limitation?.max_subscriptions, configuredMaxSubscriptions),
+  )
+  const maxLiveSubscriptions = Math.min(
+    positiveInteger(override?.maxLiveSubscriptions, DEFAULT_RELAY_POLICY.maxLiveSubscriptions),
+    Math.max(1, maxSubscriptions - 2),
+  )
+  const configuredMaxMessageBytes = positiveInteger(
+    override?.maxMessageBytes,
+    DEFAULT_RELAY_POLICY.maxMessageBytes,
+  )
 
   return {
     auth: override?.auth ?? getProfileAuthPolicy(profile),
-    maxSubscriptions: positiveInteger(
-      override?.maxSubscriptions ?? profile?.limitation?.max_subscriptions,
-      DEFAULT_RELAY_POLICY.maxSubscriptions,
-    ),
+    maxSubscriptions,
     maxFiltersPerSubscription: positiveInteger(
       override?.maxFiltersPerSubscription,
       DEFAULT_RELAY_POLICY.maxFiltersPerSubscription,
     ),
-    maxMessageBytes: positiveInteger(
-      override?.maxMessageBytes ?? profile?.limitation?.max_message_length,
-      DEFAULT_RELAY_POLICY.maxMessageBytes,
+    maxLiveSubscriptions,
+    maxBackgroundLiveSubscriptions: Math.min(
+      positiveInteger(
+        override?.maxBackgroundLiveSubscriptions,
+        DEFAULT_RELAY_POLICY.maxBackgroundLiveSubscriptions,
+      ),
+      maxLiveSubscriptions,
+    ),
+    criticalLivePriority: positiveInteger(
+      override?.criticalLivePriority,
+      DEFAULT_RELAY_POLICY.criticalLivePriority,
+    ),
+    maxMessageBytes: Math.min(
+      configuredMaxMessageBytes,
+      positiveInteger(profile?.limitation?.max_message_length, configuredMaxMessageBytes),
     ),
   }
 }
@@ -102,12 +136,12 @@ export const getRelayRequestPolicy = (url: string): RelayRequestPolicy => {
   const policy = getRelayPolicy(url)
 
   return {
-    // Keep one relay subscription available for recovery and diagnostics.
-    maxSubscriptions: Math.max(1, policy.maxSubscriptions - 1),
+    maxSubscriptions: policy.maxSubscriptions,
     maxFiltersPerSubscription: policy.maxFiltersPerSubscription,
+    maxLiveSubscriptions: policy.maxLiveSubscriptions,
+    maxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
+    criticalLivePriority: policy.criticalLivePriority,
     maxMessageBytes: policy.maxMessageBytes,
-    reservedSubscriptions: Math.min(3, Math.max(0, policy.maxSubscriptions - 2)),
-    reservedPriority: RELAY_REQUEST_PRIORITY.live,
   }
 }
 
