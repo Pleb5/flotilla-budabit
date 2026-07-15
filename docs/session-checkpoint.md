@@ -76,7 +76,7 @@
 - Phase 5 partitions repo watcher activity by actual repo relays and suppresses foreground-owned canonical repo/relay pairs through a reference-counted registry.
 - Phase 5 groups widget update filters per source relay and compatible author/identifier targets, with repository derivation remaining active while networking is gated.
 - Phase 5 gates notification/repo/widget background networking behind the root delayed startup signal, preventing eager navigation UI subscriptions from starting remote traffic.
-- The public relay configuration changed during Phase 5; policy now uses 28 managed IDs, 10 filters, 24 live, 18 background-live, 128 KiB, and limit 200. Unknown defaults are 16/10/12/8.
+- The public relay configuration changed during Phase 5; policy uses 28 managed IDs, 10 filters, 24 live, 18 background-live, 128 KiB, and limit 200.
 - Phase 5 verification passed after correcting one stricter-NIP-11 test expectation:
   - Focused background/community/repo/widget/policy tests passed: 6 files, 58 tests.
   - `pnpm check` passed with 0 errors and 0 warnings.
@@ -109,12 +109,13 @@
   - `pnpm run e2e:check` passed.
   - `pnpm run build` passed with only the existing large-chunk warning.
   - Root whitespace and new-file formatting checks passed.
+- After Phase 7, the unknown-relay fallback was aligned with the public 28/24/18/10 capacity and result limit 200; stricter NIP-11 metadata and runtime evidence still reduce it.
 
 ## Decisions
 
 - The relay now advertises 30 IDs, 200 results per filter, and 128 KiB messages; deployment configuration permits 10 filters per REQ.
 - Use 28 managed IDs, 10 filters per ID, at most 24 live IDs, and at most 18 background-live IDs for the public relay.
-- Use a bounded but more generous 16/10 unknown-relay baseline with 12 live and 8 background-live IDs, subject to stricter metadata/runtime evidence.
+- Use the same 28/24/18/10 capacity and result limit 200 for unknown relays, subject to stricter metadata/runtime evidence and relay-specific authentication discovery.
 - Separate lifetime from priority; priority alone cannot prevent starvation.
 - Keep finite historical activity exact and background-priority because UI counts depend on full history.
 - Preserve unrelated modified files under `packages/nostr-git-core/`.
@@ -127,6 +128,7 @@
 - Unrelated worktree changes exist only under `packages/nostr-git-core/`.
 - Phases 1 through 7 are verified; the checkpoint is Complete.
 - The public relay server limit is now 30 IDs and 10 filters per REQ; client policy uses the 28/24/18/10 budget.
+- Unknown relays use the same 28/24/18/10 fallback budget and limit 200.
 
 ## Next Action
 
@@ -161,6 +163,7 @@
 - Phase 7: full Vitest passed, 281 files and 2,302 tests; 1 file and 2 tests skipped, with 1 todo.
 - Phase 7: `pnpm check`, `pnpm run e2e:check`, and `pnpm run build` passed.
 - Phase 7: `git diff --check`, new-file Prettier checks, and Node syntax check passed.
+- Unknown-baseline alignment: focused policy/stress Vitest passed, 2 files and 9 tests; `pnpm check`, Prettier, and `git diff --check` passed.
 
 ## Risks Or Blockers
 

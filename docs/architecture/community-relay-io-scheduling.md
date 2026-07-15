@@ -76,7 +76,7 @@ Policy sources are applied in this order:
 
 `wss://relay.budabit.club/` uses `auth: "none"`, 28 client-managed subscriptions, 10 filters per subscription, at most 24 live subscriptions, at most 18 background-live subscriptions, a 128 KiB message limit, and a result limit of 200. The two IDs outside the client-managed budget remain available for recovery, diagnostics, and reconnect overlap.
 
-Unknown relays start with a bounded 16-subscription, 10-filter baseline, including at most 12 live and 8 background-live subscriptions. Stricter structured NIP-11 limits and runtime evidence reduce either policy.
+Unknown relays start with the same 28-subscription, 10-filter baseline, including at most 24 live and 18 background-live subscriptions and a result limit of 200. Stricter structured NIP-11 limits and runtime evidence reduce either policy; authentication remains optional until relay metadata or runtime behavior resolves it.
 
 ## Authentication
 
@@ -191,4 +191,4 @@ The public policy should only move closer to the 30-ID server ceiling after obse
 
 Generic Welshman candidates are lifetime-aware scheduling, atomic persistent admission, finite wave scheduling and aging, request start callbacks, reversible NIP-11/runtime limit learning, one-time finite array-size repartitioning, scheduler snapshots, and reconnect reset behavior. These belong in `@welshman/net` without Budabit relay URLs, priorities, or product ownership labels.
 
-Budabit-specific policy remains in the application: known-relay overrides, the 28/24/18/10 public budget, the 16/12/8/10 unknown baseline, request priorities, community authentication choices, background ownership coordination, extension quotas, warning thresholds, and UI completeness semantics. Until the generic changes are accepted upstream or maintained in a source fork, `patches/@welshman__net@0.8.16.patch` is the extraction boundary.
+Budabit-specific policy remains in the application: known-relay overrides, the shared 28/24/18/10 public and unknown-relay budget, request priorities, community authentication choices, background ownership coordination, extension quotas, warning thresholds, and UI completeness semantics. Until the generic changes are accepted upstream or maintained in a source fork, `patches/@welshman__net@0.8.16.patch` is the extraction boundary.

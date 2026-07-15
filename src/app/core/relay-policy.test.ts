@@ -25,13 +25,14 @@ const metadataRelay = "wss://metadata.example/"
 const unknownRelay = "wss://unknown.example/"
 
 const defaultRequestPolicy = {
-  maxSubscriptions: 16,
+  maxSubscriptions: 28,
   maxFiltersPerSubscription: 10,
-  maxLiveSubscriptions: 12,
-  maxBackgroundLiveSubscriptions: 8,
+  maxLiveSubscriptions: 24,
+  maxBackgroundLiveSubscriptions: 18,
   criticalLivePriority: 200,
   maxMessageBytes: 128 * 1024,
 }
+const defaultRelayPolicy = {...defaultRequestPolicy, maxLimit: 200}
 
 beforeEach(() => {
   forceLoadRelayMock.mockResolvedValue(undefined)
@@ -47,24 +48,15 @@ describe("relay policy", () => {
   it("applies the explicit public Budabit relay limits", () => {
     expect(getRelayPolicy(publicRelay)).toEqual({
       auth: "none",
-      ...defaultRequestPolicy,
-      maxSubscriptions: 28,
-      maxLiveSubscriptions: 24,
-      maxBackgroundLiveSubscriptions: 18,
-      maxLimit: 200,
+      ...defaultRelayPolicy,
     })
-    expect(getRelayRequestPolicy(publicRelay)).toEqual({
-      ...defaultRequestPolicy,
-      maxSubscriptions: 28,
-      maxLiveSubscriptions: 24,
-      maxBackgroundLiveSubscriptions: 18,
-    })
+    expect(getRelayRequestPolicy(publicRelay)).toEqual(defaultRequestPolicy)
   })
 
   it("uses the direct Budabit limits for unknown relays", () => {
     expect(getRelayPolicy(unknownRelay)).toEqual({
       auth: "optional",
-      ...defaultRequestPolicy,
+      ...defaultRelayPolicy,
     })
     expect(getRelayRequestPolicy(unknownRelay)).toEqual(defaultRequestPolicy)
   })
@@ -111,18 +103,16 @@ describe("relay policy", () => {
 
     expect(getRelayPolicy(metadataRelay)).toEqual({
       auth: "required",
-      ...defaultRequestPolicy,
+      ...defaultRelayPolicy,
       maxSubscriptions: 12,
       maxLiveSubscriptions: 10,
+      maxBackgroundLiveSubscriptions: 10,
       maxMessageBytes: 64 * 1024,
-      maxLimit: 500,
     })
   })
 
   it("does not authenticate relays that advertise no NIP-42 support", () => {
-    relaysByUrl.set(
-      new Map([[metadataRelay, {url: metadataRelay, supported_nips: ["1", "11"]}]]),
-    )
+    relaysByUrl.set(new Map([[metadataRelay, {url: metadataRelay, supported_nips: ["1", "11"]}]]))
 
     expect(getRelayPolicy(metadataRelay).auth).toBe("none")
   })

@@ -16,7 +16,7 @@
 - Preserve the unrelated modified files under `packages/nostr-git-core/`; never stage or alter them.
 - The public relay advertises 30 active IDs, 200 results per filter, and 128 KiB messages; deployment configuration permits 10 filters per REQ.
 - Budabit manages at most 28 IDs on the public relay, including at most 24 live and 18 background-live IDs, leaving recovery and finite capacity.
-- Unknown relays use a more generous 16-ID/10-filter baseline with 12 live and 8 background-live IDs, subject to stricter metadata and runtime evidence.
+- Unknown relays use the same 28-ID/10-filter baseline as the public relay, with 24 live and 18 background-live IDs, subject to stricter metadata and runtime evidence.
 - A timeout is incomplete evidence, never authoritative absence.
 - Persistent live work must never consume all finite capacity.
 - Do not partially install a logical live request.

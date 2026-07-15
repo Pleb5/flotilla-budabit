@@ -30,14 +30,17 @@ type RelayProfileWithLimits = RelayProfile & {
   }
 }
 
+const DEFAULT_MAX_LIMIT = 200
+
 const DEFAULT_RELAY_POLICY: RelayPolicy = {
   auth: "optional",
-  maxSubscriptions: 16,
+  maxSubscriptions: 28,
   maxFiltersPerSubscription: 10,
-  maxLiveSubscriptions: 12,
-  maxBackgroundLiveSubscriptions: 8,
+  maxLiveSubscriptions: 24,
+  maxBackgroundLiveSubscriptions: 18,
   criticalLivePriority: 200,
   maxMessageBytes: 128 * 1024,
+  maxLimit: DEFAULT_MAX_LIMIT,
 }
 
 const normalizePolicyRelay = (url: string) => {
@@ -93,9 +96,6 @@ const getProfileAuthPolicy = (profile?: RelayProfileWithLimits): RelayAuthPolicy
 const positiveInteger = (value: unknown, fallback: number) =>
   Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : fallback
 
-const optionalPositiveInteger = (value: unknown) =>
-  Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : undefined
-
 const readRelayPolicy = (url: string): RelayPolicy => {
   const normalized = normalizePolicyRelay(url)
   const profile = (getRelay(normalized) || getRelay(url)) as RelayProfileWithLimits | undefined
@@ -116,6 +116,7 @@ const readRelayPolicy = (url: string): RelayPolicy => {
     override?.maxMessageBytes,
     DEFAULT_RELAY_POLICY.maxMessageBytes,
   )
+  const configuredMaxLimit = positiveInteger(override?.maxLimit, DEFAULT_MAX_LIMIT)
 
   return {
     auth: override?.auth ?? getProfileAuthPolicy(profile),
@@ -140,11 +141,10 @@ const readRelayPolicy = (url: string): RelayPolicy => {
       configuredMaxMessageBytes,
       positiveInteger(profile?.limitation?.max_message_length, configuredMaxMessageBytes),
     ),
-    ...(optionalPositiveInteger(profile?.limitation?.max_limit) !== undefined
-      ? {maxLimit: optionalPositiveInteger(profile?.limitation?.max_limit)}
-      : optionalPositiveInteger(override?.maxLimit) !== undefined
-        ? {maxLimit: optionalPositiveInteger(override?.maxLimit)}
-        : {}),
+    maxLimit: Math.min(
+      configuredMaxLimit,
+      positiveInteger(profile?.limitation?.max_limit, configuredMaxLimit),
+    ),
   }
 }
 
