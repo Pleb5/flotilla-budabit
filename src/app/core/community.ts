@@ -2,6 +2,7 @@ import * as nip19 from "nostr-tools/nip19"
 import type {EventContent, TrustedEvent} from "@welshman/util"
 import {BADGE_DEFINITION, EVENT_DATE, EVENT_TIME, isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {randomId} from "@welshman/lib"
+import {normalizeUserGraspServerUrls} from "@nostr-git/core/events"
 
 export const COMMUNITY_DEFINITION_KIND = 10222
 export const TARGETED_PUBLICATION_KIND = 30222
@@ -116,6 +117,7 @@ export type CommunityDefinition = {
   pubkey: string
   relays: string[]
   blossomServers: string[]
+  graspServers: string[]
   mints: CommunityMint[]
   sections: CommunitySection[]
   tos?: CommunityTos
@@ -179,6 +181,7 @@ export type BuildCommunityDefinitionParams = {
   sections: CommunityDefinitionSectionInput[]
   description?: string
   blossomServers?: string[]
+  graspServers?: string[]
   mints?: CommunityMint[]
   tos?: CommunityTos
   location?: string
@@ -407,6 +410,7 @@ export const buildCommunityDefinition = ({
   sections,
   description,
   blossomServers = [],
+  graspServers = [],
   mints = [],
   tos,
   location,
@@ -427,6 +431,9 @@ export const buildCommunityDefinition = ({
   for (const relay of normalizeRelays(relays)) tags.push(["r", relay])
   for (const server of blossomServers.map(server => server.trim()).filter(Boolean)) {
     tags.push(["blossom", server])
+  }
+  for (const server of normalizeUserGraspServerUrls(graspServers)) {
+    tags.push(["grasp", server])
   }
   for (const mint of mints.filter(mint => mint.url.trim())) {
     tags.push(appendDefined(["mint", mint.url.trim()], mint.type?.trim()))
@@ -561,6 +568,7 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
 
   const relays: string[] = []
   const blossomServers: string[] = []
+  const graspServers: string[] = []
   const mints: CommunityMint[] = []
   const sections: CommunitySection[] = []
   let currentSection: CommunitySection | undefined
@@ -605,6 +613,11 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
       continue
     }
 
+    if (tag[0] === "grasp" && tag[1]) {
+      graspServers.push(tag[1])
+      continue
+    }
+
     if (tag[0] === "mint" && tag[1]) {
       mints.push({url: tag[1], type: tag[2] || undefined})
       continue
@@ -635,6 +648,7 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
     pubkey,
     relays: normalizeRelays(relays),
     blossomServers: Array.from(new Set(blossomServers.filter(Boolean))),
+    graspServers: normalizeUserGraspServerUrls(graspServers),
     mints,
     sections,
     tos,

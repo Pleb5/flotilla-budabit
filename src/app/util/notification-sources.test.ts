@@ -100,6 +100,7 @@ const makeCommunityRef = (): ActiveUserCommunityRef => ({
     pubkey: communityPubkey,
     relays: [],
     blossomServers: [],
+    graspServers: [],
     mints: [],
     sections: [
       {

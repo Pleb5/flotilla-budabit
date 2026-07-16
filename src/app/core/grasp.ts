@@ -1,7 +1,7 @@
 import {get, writable} from "svelte/store"
 import {chunk} from "@welshman/lib"
 import {makeLoader} from "@welshman/net"
-import {getFollows, getMutes, pubkey, repository} from "@welshman/app"
+import {getFollows, getMutes, pubkey, repository, userFollowList, userMuteList} from "@welshman/app"
 import {Router} from "@welshman/router"
 import {
   GIT_USER_GRASP_LIST,
@@ -12,14 +12,16 @@ import type {TrustedEvent} from "@welshman/util"
 import {
   DEFAULT_COMMUNITY_INPUT,
   activeCommunityStars,
+  activeUserCommunityProfileListEvents,
   activeUserCommunityRefs,
-  communityMemberProfileListEvents,
   communityMemberReportStates,
-  communityModeratorProfileListEvents,
   getCommunityBootstrapRelays,
+  hydratePubkeyOutboxRelays,
   loadCommunityDefinitionFromRelays,
 } from "@app/core/community-state"
 import {INDEXER_RELAYS} from "@app/core/state"
+import {GIT_RELAYS} from "@app/core/git-config"
+import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
 import {
   getProfileListPubkeys,
   normalizePubkey,
@@ -35,6 +37,7 @@ import {isCommunityPersonBanned} from "@app/core/community-reports"
 
 export type GraspServerRecommendationSourceKind =
   | "own_grasp"
+  | "community_definition_grasp"
   | "community_grasp"
   | "moderator_grasp"
   | "member_grasp"
@@ -105,6 +108,7 @@ export type BuildGraspServerRecommendationsInput = {
   userGraspListEvents?: TrustedEvent[]
   starredCommunityPubkeys?: string[]
   defaultCommunityPubkey?: string
+  excludedCommunityPubkeys?: string[]
   extraSources?: GraspServerRecommendationSource[]
 }
 
@@ -115,6 +119,7 @@ export type LoadGraspServerRecommendationsInput = Omit<
 
 const GRASP_SOURCE_SCORES: Record<GraspServerRecommendationSourceKind, number> = {
   own_grasp: 90,
+  community_definition_grasp: 100,
   community_grasp: 80,
   default_community_fallback: 36,
   starred_community_grasp: 40,
@@ -126,6 +131,7 @@ const GRASP_SOURCE_SCORES: Record<GraspServerRecommendationSourceKind, number> =
 const GRASP_AUTHOR_LIMIT = 500
 const GRASP_DIRECT_FOLLOW_AUTHOR_LIMIT = 250
 const GRASP_AUTHOR_BATCH_SIZE = 80
+const GRASP_OUTBOX_HYDRATION_AUTHOR_LIMIT = 80
 const GRASP_RECOMMENDATION_LOAD_TIMEOUT = 6000
 const DEFAULT_COMMUNITY_GRASP_LOOKUP_TIMEOUT = 3000
 
@@ -142,7 +148,6 @@ export const graspServerRecommendations = writable<GraspServerRecommendation[]>(
 export const graspServerRecommendationState = writable<GraspServerRecommendationState>(
   defaultGraspServerRecommendationState,
 )
-export const graspServerFallbackUrls = writable<string[]>([])
 
 const makeEmptyCounts = (): GraspServerRecommendationCounts => ({
   sources: 0,
@@ -269,7 +274,10 @@ const hasEvidence = (
 ) => recommendation.evidence.some(existing => getEvidenceKey(existing) === getEvidenceKey(evidence))
 
 const getRecommendationPriority = (recommendation: GraspServerRecommendation) => {
-  if (recommendation.evidence.some(evidence => evidence.source === "own_grasp")) return 4
+  if (recommendation.evidence.some(evidence => evidence.source === "own_grasp")) return 5
+  if (recommendation.evidence.some(evidence => evidence.source === "community_definition_grasp")) {
+    return 4
+  }
   if (
     recommendation.evidence.some(evidence =>
       ["community_grasp", "moderator_grasp", "member_grasp"].includes(evidence.source),
@@ -399,8 +407,10 @@ export const getGraspServerRecommendationSourceLabel = (
   switch (source) {
     case "own_grasp":
       return "your GRASP list"
+    case "community_definition_grasp":
+      return "community GRASP infrastructure"
     case "community_grasp":
-      return "community GRASP list"
+      return "community pubkey GRASP list"
     case "moderator_grasp":
       return "moderator GRASP list"
     case "member_grasp":
@@ -471,9 +481,9 @@ export const getGraspServerRecommendationAuthors = ({
       ...communityAuthors,
       defaultCommunity,
       ...moderatorAuthors,
+      ...memberAuthors,
       ...starredCommunityPubkeys,
       ...directFollows,
-      ...memberAuthors,
     ]
       .map(normalizePubkey)
       .filter(Boolean),
@@ -491,16 +501,43 @@ export const buildGraspServerRecommendations = ({
   userGraspListEvents = [],
   starredCommunityPubkeys = [],
   defaultCommunityPubkey,
+  excludedCommunityPubkeys = [],
   extraSources = [],
 }: BuildGraspServerRecommendationsInput) => {
   const viewer = normalizePubkey(viewerPubkey || "")
   const followed = new Set(follows.map(normalizePubkey).filter(Boolean))
   const muted = new Set(mutes.map(normalizePubkey).filter(Boolean))
-  const starred = new Set(starredCommunityPubkeys.map(normalizePubkey).filter(Boolean))
-  const defaultCommunity = normalizePubkey(defaultCommunityPubkey || "")
+  const excludedCommunities = new Set(excludedCommunityPubkeys.map(normalizePubkey).filter(Boolean))
+  const starred = new Set(
+    starredCommunityPubkeys
+      .map(normalizePubkey)
+      .filter(communityPubkey => communityPubkey && !excludedCommunities.has(communityPubkey)),
+  )
+  const normalizedDefaultCommunity = normalizePubkey(defaultCommunityPubkey || "")
+  const defaultCommunity = excludedCommunities.has(normalizedDefaultCommunity)
+    ? ""
+    : normalizedDefaultCommunity
   const profileListsByAddress = getLatestProfileListEventsByAddress(profileListEvents)
-  const definitions = getDefinitionsFromRefs(communityRefs)
+  const definitions = getDefinitionsFromRefs(communityRefs).filter(
+    definition => !excludedCommunities.has(definition.pubkey),
+  )
   const sources: GraspServerRecommendationSource[] = [...extraSources]
+  const directUrlsByCommunity = new Map<string, Set<string>>()
+
+  for (const definition of definitions) {
+    const urls = normalizeUserGraspServerUrls(definition.graspServers)
+    if (urls.length === 0) continue
+
+    directUrlsByCommunity.set(definition.pubkey, new Set(urls))
+    sources.push({
+      source: "community_definition_grasp",
+      pubkey: definition.pubkey,
+      communityPubkey: definition.pubkey,
+      urls,
+      createdAt: definition.event.created_at,
+      isAdmin: true,
+    })
+  }
 
   for (const event of getLatestUserGraspListEventsByPubkey(userGraspListEvents)) {
     const recommender = normalizePubkey(event.pubkey || "")
@@ -513,6 +550,7 @@ export const buildGraspServerRecommendations = ({
       sources.push({source: "own_grasp", pubkey: recommender, urls, createdAt: event.created_at})
       continue
     }
+    if (excludedCommunities.has(recommender)) continue
 
     const communitySources: GraspServerRecommendationSource[] = []
 
@@ -526,11 +564,17 @@ export const buildGraspServerRecommendations = ({
 
       if (!sourceKind) continue
 
+      const sourceUrls =
+        sourceKind === "community_grasp"
+          ? urls.filter(url => !directUrlsByCommunity.get(definition.pubkey)?.has(url))
+          : urls
+      if (sourceUrls.length === 0) continue
+
       communitySources.push({
         source: sourceKind,
         pubkey: recommender,
         communityPubkey: definition.pubkey,
-        urls,
+        urls: sourceUrls,
         createdAt: event.created_at,
         isModerator: sourceKind === "moderator_grasp",
         isAdmin: sourceKind === "community_grasp",
@@ -600,23 +644,24 @@ const getGraspServerRecommendationRelays = (
     ...userRelays,
     ...indexRelays,
     ...extraRelays,
+    ...GIT_RELAYS,
     ...INDEXER_RELAYS,
   ])
 }
 
 const loadUserGraspListEvents = async (authors: string[], relays: string[]) => {
-  const loaded: TrustedEvent[] = []
+  const results = await Promise.allSettled(
+    chunk(GRASP_AUTHOR_BATCH_SIZE, authors).map(batch =>
+      graspRecommendationLoad({
+        filters: [{kinds: [GIT_USER_GRASP_LIST], authors: batch}],
+        relays,
+      }),
+    ),
+  )
 
-  for (const batch of chunk(GRASP_AUTHOR_BATCH_SIZE, authors)) {
-    const events = await graspRecommendationLoad({
-      filters: [{kinds: [GIT_USER_GRASP_LIST], authors: batch}],
-      relays,
-    })
-
-    loaded.push(...(events as TrustedEvent[]))
-  }
-
-  return loaded
+  return results.flatMap(result =>
+    result.status === "fulfilled" ? (result.value as TrustedEvent[]) : [],
+  )
 }
 
 export const resolveDefaultCommunityGraspServerFallback = async ({
@@ -647,6 +692,11 @@ export const resolveDefaultCommunityGraspServerFallback = async ({
     ...(definition?.relays || []),
     ...indexerRelays,
   ])
+  const definitionUrls = normalizeUserGraspServerUrls(definition?.graspServers || [])
+
+  if (definitionUrls.length > 0) {
+    return {pubkey: parsed.pubkey, relays, urls: definitionUrls}
+  }
 
   if (relays.length > 0) {
     await loadEvents([parsed.pubkey], relays).catch(() => [])
@@ -664,6 +714,8 @@ export const resolveDefaultCommunityGraspServerFallback = async ({
   }
 }
 
+let graspRecommendationLoadGeneration = 0
+
 export const loadGraspServerRecommendations = async ({
   currentServers = [],
   communityRefs = [],
@@ -672,34 +724,73 @@ export const loadGraspServerRecommendations = async ({
   extraSources = [],
   starredCommunityPubkeys = [],
   defaultCommunityPubkey,
+  excludedCommunityPubkeys = [],
 }: LoadGraspServerRecommendationsInput = {}) => {
+  const generation = ++graspRecommendationLoadGeneration
   const viewer = pubkey.get() || ""
   const follows = viewer ? getFollows(viewer) : []
   const mutes = viewer ? getMutes(viewer) : []
-  const defaultCommunity = normalizePubkey(
+  const excludedCommunities = new Set(excludedCommunityPubkeys.map(normalizePubkey).filter(Boolean))
+  const resolvedDefaultCommunity = normalizePubkey(
     defaultCommunityPubkey || parseCommunityInput(DEFAULT_COMMUNITY_INPUT)?.pubkey || "",
+  )
+  const defaultCommunity = excludedCommunities.has(resolvedDefaultCommunity)
+    ? ""
+    : resolvedDefaultCommunity
+  const visibleStars = starredCommunityPubkeys.filter(
+    communityPubkey => !excludedCommunities.has(normalizePubkey(communityPubkey)),
   )
   const authors = getGraspServerRecommendationAuthors({
     viewerPubkey: viewer,
     follows,
     communityRefs,
     profileListEvents,
-    starredCommunityPubkeys,
+    starredCommunityPubkeys: visibleStars,
     defaultCommunityPubkey: defaultCommunity,
   })
-  const relays = getGraspServerRecommendationRelays(
-    authors,
-    communityRefs,
-    getCommunityBootstrapRelays(),
+  const cachedUserGraspListEvents =
+    authors.length > 0
+      ? (repository.query([{kinds: [GIT_USER_GRASP_LIST], authors}]) as TrustedEvent[])
+      : []
+  const initialRecommendations = selectEffectiveGraspServerRecommendations(
+    buildGraspServerRecommendations({
+      viewerPubkey: viewer,
+      currentServers,
+      communityRefs,
+      profileListEvents,
+      reportStates,
+      follows,
+      mutes,
+      userGraspListEvents: cachedUserGraspListEvents,
+      starredCommunityPubkeys: visibleStars,
+      defaultCommunityPubkey: defaultCommunity,
+      excludedCommunityPubkeys,
+      extraSources,
+    }),
   )
+
+  graspServerRecommendations.set(initialRecommendations)
 
   graspServerRecommendationState.set({
     ...defaultGraspServerRecommendationState,
     status: "loading",
     authorCount: authors.length,
+    eventCount: cachedUserGraspListEvents.length,
+    recommendationCount: initialRecommendations.length,
   })
 
   try {
+    await Promise.allSettled(
+      authors
+        .slice(0, GRASP_OUTBOX_HYDRATION_AUTHOR_LIMIT)
+        .map(author => hydratePubkeyOutboxRelays(author)),
+    )
+    const relays = getGraspServerRecommendationRelays(
+      authors,
+      communityRefs,
+      getCommunityBootstrapRelays(),
+    )
+
     if (authors.length > 0 && relays.length > 0) {
       await loadUserGraspListEvents(authors, relays)
     }
@@ -717,14 +808,17 @@ export const loadGraspServerRecommendations = async ({
       follows,
       mutes,
       userGraspListEvents,
-      starredCommunityPubkeys,
+      starredCommunityPubkeys: visibleStars,
       defaultCommunityPubkey: defaultCommunity,
+      excludedCommunityPubkeys,
       extraSources,
     })
     let effectiveRecommendations = selectEffectiveGraspServerRecommendations(recommendations)
 
     if (effectiveRecommendations.length === 0 && defaultCommunity) {
-      const fallback = await resolveDefaultCommunityGraspServerFallback()
+      const fallback = await resolveDefaultCommunityGraspServerFallback({
+        communityInput: defaultCommunity,
+      })
       effectiveRecommendations = getGraspServerRecommendations(
         fallback.urls.length > 0
           ? [
@@ -740,10 +834,9 @@ export const loadGraspServerRecommendations = async ({
       )
     }
 
-    const fallbackUrls = effectiveRecommendations.map(recommendation => recommendation.url)
+    if (generation !== graspRecommendationLoadGeneration) return effectiveRecommendations
 
     graspServerRecommendations.set(effectiveRecommendations)
-    graspServerFallbackUrls.set(fallbackUrls)
     graspServerRecommendationState.set({
       status: "ready",
       authorCount: authors.length,
@@ -753,13 +846,14 @@ export const loadGraspServerRecommendations = async ({
 
     return effectiveRecommendations
   } catch (error) {
-    graspServerRecommendations.set([])
-    graspServerFallbackUrls.set([])
+    if (generation !== graspRecommendationLoadGeneration) return []
+
+    graspServerRecommendations.set(initialRecommendations)
     graspServerRecommendationState.set({
       status: "error",
       authorCount: authors.length,
-      eventCount: 0,
-      recommendationCount: 0,
+      eventCount: cachedUserGraspListEvents.length,
+      recommendationCount: initialRecommendations.length,
       error: error instanceof Error ? error.message : "Failed to load GRASP recommendations.",
     })
 
@@ -773,22 +867,29 @@ export const startGraspServerRecommendationsSync = () => {
     const viewer = pubkey.get() || ""
     if (!viewer) {
       graspServerRecommendations.set([])
-      graspServerFallbackUrls.set([])
       graspServerRecommendationState.set(defaultGraspServerRecommendationState)
       return
     }
 
     const communityRefs = get(activeUserCommunityRefs)
-    const profileListEvents = [
-      ...get(communityMemberProfileListEvents),
-      ...get(communityModeratorProfileListEvents),
-    ]
+    const profileListEvents = get(activeUserCommunityProfileListEvents)
     const stars = get(activeCommunityStars)
+    const reportStates = get(communityMemberReportStates)
+    const excludedCommunityPubkeys = get(userRenouncedCommunityPubkeys)
+    const follows = getFollows(viewer)
+    const mutes = getMutes(viewer)
     const key = JSON.stringify({
       viewer,
       communities: communityRefs.map(ref => `${ref.communityPubkey}:${ref.definition.event.id}`),
       profileLists: profileListEvents.map(event => `${event.id}:${event.created_at}`),
       stars: stars.map(star => `${star.communityPubkey}:${star.reaction.created_at}`),
+      excludedCommunityPubkeys,
+      follows,
+      mutes,
+      reports: Array.from(reportStates.entries()).map(([communityPubkey, state]) => [
+        communityPubkey,
+        ...(state?.personReports || []).map(report => report.event.id),
+      ]),
     })
 
     if (key === loadKey) return
@@ -797,17 +898,20 @@ export const startGraspServerRecommendationsSync = () => {
     loadGraspServerRecommendations({
       communityRefs,
       profileListEvents,
-      reportStates: get(communityMemberReportStates),
+      reportStates,
       starredCommunityPubkeys: stars.map(star => star.communityPubkey),
+      excludedCommunityPubkeys,
     }).catch(() => undefined)
   }
   const unsubscribers = [
     pubkey.subscribe(run),
     activeUserCommunityRefs.subscribe(run),
-    communityMemberProfileListEvents.subscribe(run),
-    communityModeratorProfileListEvents.subscribe(run),
+    activeUserCommunityProfileListEvents.subscribe(run),
     communityMemberReportStates.subscribe(run),
     activeCommunityStars.subscribe(run),
+    userRenouncedCommunityPubkeys.subscribe(run),
+    userFollowList.subscribe(run),
+    userMuteList.subscribe(run),
   ]
 
   return () => unsubscribers.forEach(unsubscribe => unsubscribe())

@@ -7,7 +7,7 @@ export function normalizeGraspServerUrl(url: string): string {
 export function isValidGraspServerUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    if (!["ws:", "wss:", "http:", "https:"].includes(parsed.protocol)) return false;
+    if (!["ws:", "wss:"].includes(parsed.protocol)) return false;
 
     const host = parsed.hostname.toLowerCase();
     const pathSegments = parsed.pathname.split("/").filter(Boolean);

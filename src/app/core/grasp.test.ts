@@ -25,10 +25,12 @@ const makeCommunityRef = ({
   communityPubkey,
   moderatorPubkey,
   relay = "wss://community.relay.example",
+  graspServers = [],
 }: {
   communityPubkey: string
   moderatorPubkey: string
   relay?: string
+  graspServers?: string[]
 }): ActiveUserCommunityRef => {
   const listAddress = `${PROFILE_LIST_KIND}:${moderatorPubkey}:Repositories`
 
@@ -40,15 +42,29 @@ const makeCommunityRef = ({
     definition: {
       pubkey: communityPubkey,
       relays: [relay],
+      blossomServers: [],
+      graspServers,
+      mints: [],
       sections: [
         {
           name: "Repositories",
-          profileLists: [{address: listAddress, pubkey: moderatorPubkey, relay}],
+          kinds: [],
+          profileLists: [
+            {
+              kind: PROFILE_LIST_KIND,
+              identifier: "Repositories",
+              address: listAddress,
+              pubkey: moderatorPubkey,
+              relay,
+            },
+          ],
+          badges: [],
+          retention: [],
         },
       ],
       event: makeEvent({pubkey: communityPubkey, created_at: 1}),
     },
-  } as ActiveUserCommunityRef
+  }
 }
 
 const makeProfileList = ({pubkey, members = []}: {pubkey: string; members?: string[]}) =>
@@ -97,7 +113,7 @@ describe("grasp recommendations", () => {
         starredCommunityPubkeys: [starred],
         defaultCommunityPubkey: defaultCommunity,
       }).slice(0, 7),
-    ).toEqual([viewer, community, defaultCommunity, moderator, starred, follow, member])
+    ).toEqual([viewer, community, defaultCommunity, moderator, member, starred, follow])
   })
 
   it("builds community-first GRASP server recommendations from kind 10317 lists", () => {
@@ -141,6 +157,84 @@ describe("grasp recommendations", () => {
       "starred_community_grasp",
       "follow_grasp",
     ])
+  })
+
+  it("prioritizes community definition servers without double-counting the root list", () => {
+    const viewer = "1".repeat(64)
+    const community = "2".repeat(64)
+    const moderator = "3".repeat(64)
+    const communityRef = makeCommunityRef({
+      communityPubkey: community,
+      moderatorPubkey: moderator,
+      graspServers: ["wss://declared.grasp.example/"],
+    })
+    const profileList = makeProfileList({pubkey: moderator, members: [viewer]})
+    const recommendations = buildGraspServerRecommendations({
+      viewerPubkey: viewer,
+      communityRefs: [communityRef],
+      profileListEvents: [profileList],
+      userGraspListEvents: [
+        makeGraspList({
+          pubkey: community,
+          urls: ["wss://declared.grasp.example", "wss://root-list-only.example"],
+        }),
+      ],
+    })
+
+    expect(recommendations.map(recommendation => recommendation.url)).toEqual([
+      "wss://declared.grasp.example",
+      "wss://root-list-only.example",
+    ])
+    expect(recommendations[0].evidence.map(evidence => evidence.source)).toEqual([
+      "community_definition_grasp",
+    ])
+    expect(recommendations[1].evidence[0].source).toBe("community_grasp")
+  })
+
+  it("excludes renounced community GRASP evidence", () => {
+    const viewer = "1".repeat(64)
+    const community = "2".repeat(64)
+    const moderator = "3".repeat(64)
+    const communityRef = makeCommunityRef({
+      communityPubkey: community,
+      moderatorPubkey: moderator,
+      graspServers: ["wss://declared.grasp.example"],
+    })
+
+    expect(
+      buildGraspServerRecommendations({
+        viewerPubkey: viewer,
+        communityRefs: [communityRef],
+        starredCommunityPubkeys: [community],
+        defaultCommunityPubkey: community,
+        follows: [community],
+        excludedCommunityPubkeys: [community],
+        userGraspListEvents: [
+          makeGraspList({pubkey: community, urls: ["wss://community-list.example"]}),
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  it("keeps community recommendations visible when the personal GRASP list is empty", () => {
+    const viewer = "1".repeat(64)
+    const community = "2".repeat(64)
+    const moderator = "3".repeat(64)
+    const communityRef = makeCommunityRef({
+      communityPubkey: community,
+      moderatorPubkey: moderator,
+      graspServers: ["wss://declared.grasp.example"],
+    })
+    const recommendations = buildGraspServerRecommendations({
+      viewerPubkey: viewer,
+      communityRefs: [communityRef],
+      userGraspListEvents: [makeGraspList({pubkey: viewer, urls: []})],
+    })
+
+    expect(recommendations.map(recommendation => recommendation.url)).toEqual([
+      "wss://declared.grasp.example",
+    ])
+    expect(recommendations[0].evidence[0].source).toBe("community_definition_grasp")
   })
 
   it("uses default community fallback only when no normal recommendation exists", () => {
@@ -190,5 +284,29 @@ describe("grasp recommendations", () => {
     expect(loaded[0].relays).toEqual(
       expect.arrayContaining(["wss://index.example/", "wss://community.example/"]),
     )
+  })
+
+  it("uses a default community definition before its personal GRASP list", async () => {
+    const defaultCommunity = "b".repeat(64)
+    let listLoads = 0
+    const result = await resolveDefaultCommunityGraspServerFallback({
+      communityInput: defaultCommunity,
+      indexerRelays: ["wss://index.example"],
+      loadDefinition: async () =>
+        ({
+          relays: ["wss://community.example"],
+          graspServers: ["wss://declared.grasp.example/"],
+        }) as any,
+      loadEvents: async () => {
+        listLoads += 1
+        return []
+      },
+      queryEvents: () => [
+        makeGraspList({pubkey: defaultCommunity, urls: ["wss://personal.example"]}),
+      ],
+    })
+
+    expect(result.urls).toEqual(["wss://declared.grasp.example"])
+    expect(listLoads).toBe(0)
   })
 })

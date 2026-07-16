@@ -48,6 +48,7 @@ const makeDefinition = () => {
     sections: [setup],
     description: "A community",
     blossomServers: ["https://blossom.example.com"],
+    graspServers: ["wss://grasp.example.com"],
     mints: [{url: "https://mint.example.com", type: "cashu"}],
     tos: {ref: "tos-document", relay: "wss://relay.example.com"},
     location: "Online",
@@ -179,6 +180,7 @@ describe("community moderator promotion requests", () => {
 
     expect(updated.description).toBe("A community")
     expect(updated.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(updated.graspServers).toEqual(["wss://grasp.example.com"])
     expect(updated.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(updated.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
     expect(updated.location).toBe("Online")
@@ -322,6 +324,7 @@ describe("community moderator promotion requests", () => {
           sections: [general, rooms],
           description: "A community",
           blossomServers: ["https://blossom.example.com"],
+          graspServers: ["wss://grasp.example.com"],
           mints: [{url: "https://mint.example.com", type: "cashu"}],
           tos: {ref: "tos-document", relay: "wss://relay.example.com"},
           location: "Online",
@@ -359,6 +362,7 @@ describe("community moderator promotion requests", () => {
 
     expect(revoked.description).toBe("A community")
     expect(revoked.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(revoked.graspServers).toEqual(["wss://grasp.example.com"])
     expect(revoked.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(revoked.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
     expect(revoked.location).toBe("Online")
@@ -397,6 +401,7 @@ describe("community moderator promotion requests", () => {
           sections: [general, rooms, goals],
           description: "A community",
           blossomServers: ["https://blossom.example.com"],
+          graspServers: ["wss://grasp.example.com"],
           mints: [{url: "https://mint.example.com", type: "cashu"}],
           tos: {ref: "tos-document", relay: "wss://relay.example.com"},
           location: "Online",
@@ -441,6 +446,7 @@ describe("community moderator promotion requests", () => {
 
     expect(edited.description).toBe("A community")
     expect(edited.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(edited.graspServers).toEqual(["wss://grasp.example.com"])
     expect(edited.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(edited.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
     expect(edited.location).toBe("Online")

@@ -3,7 +3,8 @@
   import InlinePopover from "@lib/components/InlinePopover.svelte"
   import {graspServersStore, normalizeGraspServerUrl} from "@nostr-git/ui"
   import {CirclePlus, Trash} from "@lucide/svelte"
-  import {pubkey, relaySearch} from "@welshman/app"
+  import {pubkey, relaySearch, waitForThunkCompletion} from "@welshman/app"
+  import {PublishStatus} from "@welshman/net"
   import {displayRelayUrl, isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
   import {createUserGraspListEvent, normalizeUserGraspServerUrls} from "@nostr-git/core/events"
   import {postGraspServersList} from "@app/core/git-commands"
@@ -19,6 +20,7 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import {pushModal} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
 
   type RecommendationEvidenceGroupKind = "own" | "community" | "moderator" | "member" | "follow"
 
@@ -34,6 +36,7 @@
   let openRecommendationEvidenceKey = $state("")
 
   const communityEvidenceSources = new Set<GraspServerRecommendationSourceKind>([
+    "community_definition_grasp",
     "community_grasp",
     "starred_community_grasp",
     "default_community_fallback",
@@ -75,48 +78,63 @@
     return results
   })
 
-  async function publishGraspServersList() {
+  async function publishGraspServersList(nextUrls: string[], previousUrls: string[]) {
     isSaving = true
 
     try {
       const graspServersList = {
-        ...createUserGraspListEvent({services: normalizeUserGraspServerUrls(activeRelayUrls)}),
+        ...createUserGraspListEvent({services: normalizeUserGraspServerUrls(nextUrls)}),
         pubkey: $pubkey!,
       }
+      const thunk = postGraspServersList(graspServersList)
 
-      await postGraspServersList(graspServersList)
+      await waitForThunkCompletion(thunk)
+      if (!Object.values(thunk.results).some(result => result.status === PublishStatus.Success)) {
+        throw new Error("No relay accepted the GRASP server list.")
+      }
+
+      graspServersStore.set(nextUrls)
     } catch (error) {
+      graspServersStore.set(previousUrls)
       console.error("Failed to publish GRASP servers list:", error)
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to save GRASP servers.",
+      })
     } finally {
       isSaving = false
     }
   }
 
   async function addUrl() {
-    const normalized = normalizeGraspServerUrl(newUrl)
+    const normalized = normalizeUserGraspServerUrls([newUrl])[0] || ""
     if (!normalized) return
 
-    graspServersStore.push(normalized)
+    const previousUrls = [...activeRelayUrls]
+    const nextUrls = normalizeUserGraspServerUrls([...previousUrls, normalized])
     newUrl = ""
     showRelayAutocomplete = false
-    await publishGraspServersList()
+    await publishGraspServersList(nextUrls, previousUrls)
   }
 
   async function addSuggestedUrl(url: string) {
-    graspServersStore.push(url)
+    const previousUrls = [...activeRelayUrls]
+    const nextUrls = normalizeUserGraspServerUrls([...previousUrls, url])
     newUrl = ""
     showRelayAutocomplete = false
-    await publishGraspServersList()
+    await publishGraspServersList(nextUrls, previousUrls)
   }
 
   async function addRecommendedUrl(url: string) {
-    graspServersStore.push(url)
-    await publishGraspServersList()
+    const previousUrls = [...activeRelayUrls]
+    const nextUrls = normalizeUserGraspServerUrls([...previousUrls, url])
+    await publishGraspServersList(nextUrls, previousUrls)
   }
 
   async function removeUrl(url: string) {
-    graspServersStore.remove(url)
-    await publishGraspServersList()
+    const previousUrls = [...activeRelayUrls]
+    const nextUrls = previousUrls.filter(existingUrl => existingUrl !== url)
+    await publishGraspServersList(nextUrls, previousUrls)
   }
 
   const openProfile = (profilePubkey: string) => {
@@ -315,7 +333,7 @@
                       <span class="badge badge-success badge-sm">Configured</span>
                     {/if}
                   </div>
-                  <p class="mt-1 text-xs opacity-70">Community and GRASP-list signals</p>
+                  <p class="mt-1 text-xs opacity-70">Community declarations and GRASP-list signals</p>
                 </div>
 
                 {#if configured}
@@ -459,7 +477,7 @@
         <Button
           class="btn btn-primary btn-sm w-full justify-center sm:w-auto"
           onclick={addUrl}
-          disabled={isSaving || !newUrl.trim()}>
+          disabled={isSaving || !normalizedNewRelayUrl}>
           <CirclePlus />Add
         </Button>
       </div>

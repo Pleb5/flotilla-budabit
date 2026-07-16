@@ -17,7 +17,7 @@ This proposal aims to simplify community management by utilizing existing Nostr 
 
 ## Community Creation Event (kind:10222)
 
-A community is created when a key pair publishes a [[kind-10222]] event. The pubkey of this key pair becomes the unique identifier for that community. One key pair can only represent one community.
+A community is created when a key pair publishes a [[kind-10222]] event. The pubkey of this key pair becomes the unique identifier for that community. One key pair can only represent one community. The latest valid event is authoritative for community infrastructure.
 
 The community's name, picture, and description are derived from the pubkey's [[kind-0]] metadata event.
 
@@ -33,6 +33,10 @@ The community's name, picture, and description are derived from the pubkey's [[k
 
     // one or more blossom servers
     ["blossom", "<blossom-url>"],
+
+    // ordered GRASP servers endorsed or offered to members
+    ["grasp", "wss://preferred-grasp.example"],
+    ["grasp", "wss://backup-grasp.example"],
 
     // one or more ecash mints
     ["mint", "<mint-url>", "cashu"],
@@ -66,7 +70,7 @@ The community's name, picture, and description are derived from the pubkey's [[k
     // Optional terms of service, points to another event
     ["tos", "<event-id-or-address>", "<relay-url>"],
 
-    // Optional location
+    // Optional location; g is a geohash, not a GRASP server
     ["location", "<location>"],
     ["g", "<geo-hash>"],
 
@@ -84,6 +88,7 @@ The community's name, picture, and description are derived from the pubkey's [[k
 |-----|-------------|
 | `r` | URLs of relays where community content should be published. First one is considered main relay. |
 | `blossom` | (optional) URLs of blossom servers for additional community features. |
+| `grasp` | (optional) Ordered WebSocket URLs of GRASP servers the community endorses or offers to members. Earlier tags are preferred. |
 | `mint` | (optional) URL of community mint for token/payment features. |
 | `content` | Name of Content Type section that the Communikey works with. |
 | `k` | Event kind, within a content type section. |
@@ -92,8 +97,14 @@ The community's name, picture, and description are derived from the pubkey's [[k
 | `retention` | (optional) Retention policy in format [kind, value, type] where type is either "time" (seconds) or "count" (number of events). |
 | `tos` | (optional) Reference to the community's posting policy. |
 | `location` | (optional) Location of the community. |
-| `g` | (optional) Geo hash of the community. |
+| `g` | (optional) Geohash of the community. It is not a GRASP server tag. |
 | `description` | (optional) Description of the community. |
+
+### Infrastructure authority and recommendations
+
+The latest valid `kind:10222` definition is the source of truth for infrastructure declared by the community. A user's `kind:10063` Blossom list describes where that user hosts blobs, and `kind:10317` describes that user's preferred GRASP servers. NIP-61 `kind:10019` is Nutzap receiving configuration, including receiving mints and a P2PK pubkey; Budabit may use its mint tags as person-level recommendation evidence, but it is not a generic community mint list. None of these events overrides the community definition.
+
+Budabit does not automatically dual-publish community declarations and those personal list events. Infrastructure from an eligible, non-renounced community may be shown as a viable recommendation, but it is not configured until the user explicitly selects **Add**.
 
 ### Section kind uniqueness
 

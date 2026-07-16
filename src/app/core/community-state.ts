@@ -2003,6 +2003,23 @@ const makeAddressRefFilter = ({
 export const makeCommunityProfileListFilters = (definition: CommunityDefinition): Filter[] =>
   getProfileListRefs(definition).map(ref => makeAddressRefFilter(ref))
 
+export const activeUserCommunityProfileListEvents: Readable<TrustedEvent[]> = derived(
+  activeUserCommunityRefs,
+  ($activeUserCommunityRefs, set) => {
+    const filters = $activeUserCommunityRefs.flatMap(ref =>
+      makeCommunityProfileListFilters(ref.definition),
+    )
+
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
 export const getAdmissionFormModeratorPubkeys = (definition: CommunityDefinition) =>
   Array.from(
     new Set(

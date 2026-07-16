@@ -8,7 +8,7 @@ Budabit should treat this as a clean redesign of the community foundation. Legac
 
 Budabit communities are identified by a pubkey.
 
-The community pubkey publishes a `kind:10222` Communikey definition event. That event defines the community's relays, blossom servers, supported content sections, profile lists used for write permissions, and optional badge references for engagement.
+The community pubkey publishes a `kind:10222` Communikey definition event. That event is authoritative for the community's relays and other infrastructure, including Blossom, ordered GRASP, and Cashu mint declarations, as well as supported content sections, profile lists used for write permissions, and optional badge references for engagement.
 
 Relays are infrastructure. They are not identity.
 
@@ -90,6 +90,10 @@ Example target shape:
     ["r", "wss://main.community.relay"],
     ["r", "wss://backup.community.relay"],
     ["blossom", "https://blossom.community.example"],
+    ["grasp", "wss://preferred.grasp.example"],
+    ["grasp", "wss://backup.grasp.example"],
+    ["mint", "https://mint.community.example", "cashu"],
+    ["g", "u4pruydqqvj"],
 
     ["content", "General"],
     ["k", "1111"],
@@ -133,6 +137,10 @@ Example target shape:
   "content": ""
 }
 ```
+
+Repeated `["grasp", "wss://..."]` tags are ordered: they declare, in preference order, GRASP servers that the community endorses or offers to members. The `g` tag remains the community geohash and must not be interpreted as a GRASP server.
+
+A user's `kind:10063` Blossom list describes that user's blob hosts, while `kind:10317` describes that user's preferred GRASP servers. NIP-61 `kind:10019` is Nutzap receiving configuration rather than a generic mint list; Budabit may use its mint tags as person-level recommendation evidence. These events are not community infrastructure authority, and Budabit does not automatically dual-publish them from `kind:10222`. A declaration from an eligible, non-renounced community is viable recommendation evidence, but applying a recommendation always requires an explicit **Add** action.
 
 The third value in a `k` tag is a Budabit subtype convention. It is needed when one event kind supports more than one community section.
 
@@ -248,7 +256,9 @@ If a future standard defines explicit badge revocation, Budabit can support it f
 | Relay list                |               `10002` | No                         | User relay configuration.                                                                          |
 | Messaging relay list      | `10050` or equivalent | No                         | User DM relay configuration.                                                                       |
 | Mute list                 |               `10000` | No                         | User preference.                                                                                   |
-| Blossom server list       | `10063` or equivalent | No                         | User preference.                                                                                   |
+| Blossom server list       |               `10063` | No                         | User blob-hosting configuration and recommendation evidence.                                       |
+| GRASP server list         |               `10317` | No                         | User preference and recommendation evidence.                                                       |
+| Nutzap information        |               `10019` | No                         | Nutzap receiving configuration; mint tags may provide person-level recommendation evidence.        |
 | App settings and Git auth |               `30078` | No                         | User-private app data.                                                                             |
 | DMs                       |                `4444` | No                         | Private messaging.                                                                                 |
 | Badge definition          |               `30009` | No                         | Access-control infrastructure.                                                                     |

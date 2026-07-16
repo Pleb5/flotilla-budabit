@@ -112,6 +112,8 @@ describe("community protocol helpers", () => {
         ["r", "wss://relay.example.com"],
         ["r", "not-a-relay"],
         ["blossom", "https://blossom.example.com"],
+        ["grasp", "wss://grasp.example.com/"],
+        ["grasp", "https://not-a-grasp-websocket.example.com"],
         ["mint", "https://mint.example.com", "cashu"],
         ["content", COMMUNITY_SECTION_GENERAL],
         ["k", "1111"],
@@ -138,6 +140,7 @@ describe("community protocol helpers", () => {
     expect(definition.relays).toEqual(["wss://relay.example.com/"])
     expect(getCommunityMainRelay(definition)).toBe("wss://relay.example.com/")
     expect(definition.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(definition.graspServers).toEqual(["wss://grasp.example.com"])
     expect(definition.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(definition.tos).toEqual({ref: "policy-id", relay: "wss://relay.example.com/"})
     expect(definition.location).toBe("Internet")
@@ -196,6 +199,7 @@ describe("community protocol helpers", () => {
       sections: setup.sections,
       description: "A builder community",
       blossomServers: ["https://blossom.example.com"],
+      graspServers: ["wss://grasp.example.com/", "https://not-websocket.example.com"],
       mints: [{url: "https://mint.example.com", type: "cashu"}],
       geohash: "geo:U4PRUY",
     })
@@ -211,9 +215,11 @@ describe("community protocol helpers", () => {
     expect(definition.description).toBe("A builder community")
     expect(definition.relays).toEqual(["wss://relay.example.com/"])
     expect(definition.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(definition.graspServers).toEqual(["wss://grasp.example.com"])
     expect(definition.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(definition.geohash).toBe("u4pruy")
     expect(template.tags).toContainEqual(["g", "u4pruy"])
+    expect(template.tags).toContainEqual(["grasp", "wss://grasp.example.com"])
     expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_THREADS])
     expect(template.tags).toContainEqual(["k", "11", COMMUNITY_SUBTYPE_THREADS])
     expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_CALENDAR])

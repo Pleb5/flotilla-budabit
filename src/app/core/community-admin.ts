@@ -181,6 +181,7 @@ export const getOwnerMembershipGrantProfileList = ({
       sections,
       description: definition.description,
       blossomServers: definition.blossomServers,
+      graspServers: definition.graspServers,
       mints: definition.mints,
       tos: definition.tos,
       location: definition.location,

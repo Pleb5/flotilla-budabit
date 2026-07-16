@@ -18,6 +18,7 @@
     type TrustedEvent,
   } from "@welshman/util"
   import type {ISigner} from "@welshman/signer"
+  import {normalizeUserGraspServerUrls} from "@nostr-git/core/events"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -129,6 +130,7 @@
     | "primaryRelay"
     | "extraRelays"
     | "blossomServers"
+    | "graspServers"
     | "mints"
     | "tosRef"
     | "tosRelay"
@@ -164,6 +166,7 @@
     primaryRelay: string
     extraRelays: string[]
     blossomServers: string[]
+    graspServers: string[]
     mints: CommunityMint[]
     tos?: {ref: string; relay?: string}
     location: string
@@ -181,6 +184,7 @@
     primaryRelay: string
     extraRelays: string
     blossomServers: string
+    graspServers: string
     mints: string
     tosRef: string
     tosRelay: string
@@ -318,6 +322,7 @@
     primaryRelay: communityDefinition.relays[0] || "",
     extraRelays: communityDefinition.relays.slice(1).join("\n"),
     blossomServers: communityDefinition.blossomServers.join("\n"),
+    graspServers: communityDefinition.graspServers.join("\n"),
     mints: communityDefinition.mints
       .map(mint => [mint.url, mint.type].filter(Boolean).join(" "))
       .join("\n"),
@@ -808,6 +813,22 @@
         }
         break
       }
+      case "graspServers": {
+        const normalized = splitLines(graspServers)
+          .map((server, index) => {
+            const url = normalizeUserGraspServerUrls([server])[0] || ""
+            if (!url) {
+              setFieldError(field, `Line ${index + 1} must be a valid ws:// or wss:// URL.`)
+            }
+            return url
+          })
+          .filter(Boolean)
+        if (normalized.length === splitLines(graspServers).length) {
+          graspServers = normalized.join("\n")
+          setFieldError(field)
+        }
+        break
+      }
       case "mints": {
         const nextErrors: FieldErrors = {}
         const normalized = validateMints(nextErrors)
@@ -1023,6 +1044,15 @@
         return url
       })
       .filter(Boolean)
+    const normalizedGraspServers = splitLines(graspServers)
+      .map((server, index) => {
+        const url = normalizeUserGraspServerUrls([server])[0] || ""
+        if (!url) {
+          nextErrors.graspServers = `Line ${index + 1} must be a valid ws:// or wss:// URL.`
+        }
+        return url
+      })
+      .filter(Boolean)
     const normalizedMints = validateMints(nextErrors)
     const trimmedTosRef = tosRef.trim()
     const normalizedTosRelay = normalizeRelay(tosRelay)
@@ -1075,6 +1105,7 @@
       primaryRelay: normalizedPrimaryRelay,
       extraRelays: normalizedExtraRelays,
       blossomServers: normalizedBlossomServers,
+      graspServers: normalizedGraspServers,
       mints: normalizedMints,
       tos: trimmedTosRef ? {ref: trimmedTosRef, relay: normalizedTosRelay || undefined} : undefined,
       location: location.trim(),
@@ -1425,6 +1456,7 @@
           sections: migration.sections,
           description: validated.description,
           blossomServers: validated.blossomServers,
+          graspServers: validated.graspServers,
           mints: validated.mints,
           tos: validated.tos,
           location: validated.location,
@@ -1574,6 +1606,7 @@
     primaryRelay = originalDraftState.primaryRelay
     extraRelays = originalDraftState.extraRelays
     blossomServers = originalDraftState.blossomServers
+    graspServers = originalDraftState.graspServers
     mints = originalDraftState.mints
     tosRef = originalDraftState.tosRef
     tosRelay = originalDraftState.tosRelay
@@ -1792,6 +1825,7 @@
     primaryRelay = validated.primaryRelay
     extraRelays = validated.extraRelays.join("\n")
     blossomServers = validated.blossomServers.join("\n")
+    graspServers = validated.graspServers.join("\n")
     mints = validated.mints.map(mint => [mint.url, mint.type].filter(Boolean).join(" ")).join("\n")
     tosRef = validated.tos?.ref || ""
     tosRelay = validated.tos?.relay || ""
@@ -2120,6 +2154,7 @@
   let primaryRelay = $state("")
   let extraRelays = $state("")
   let blossomServers = $state("")
+  let graspServers = $state("")
   let mints = $state("")
   let tosRef = $state("")
   let tosRelay = $state("")
@@ -2233,6 +2268,7 @@
     primaryRelay = ""
     extraRelays = ""
     blossomServers = ""
+    graspServers = ""
     mints = ""
     tosRef = ""
     tosRelay = ""
@@ -2744,6 +2780,18 @@
                   onblur={() => validateField("mints")}
                   rows="2"
                   placeholder="https://mint.example.com cashu"></textarea>
+                >{/snippet}
+            </Field>
+            <Field error={errors.graspServers}>
+              {#snippet label()}<p>
+                  GRASP servers <span class="opacity-60">(optional)</span>
+                </p>{/snippet}
+              {#snippet input()}<textarea
+                  bind:value={graspServers}
+                  class="textarea textarea-bordered {errors.graspServers ? 'textarea-error' : ''}"
+                  onblur={() => validateField("graspServers")}
+                  rows="2"
+                  placeholder="wss://grasp.example.com"></textarea>
                 >{/snippet}
             </Field>
           </div>

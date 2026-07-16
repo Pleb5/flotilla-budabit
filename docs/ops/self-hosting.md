@@ -4,7 +4,7 @@ This is the no-BS path for running your own Budabit.
 
 Budabit is a static SPA/PWA. You do not need to run your own email service, Anchor stack, or other backend just to get the app online.
 
-The current architecture is community-first. A deployment can point at a default Communikey community, but the deployment itself is not the community identity. Community identity comes from a community pubkey and its latest `kind:10222` definition event. That definition provides community relays, Blossom servers, sections, and write-permission list references.
+The current architecture is community-first. A deployment can point at a default Communikey community, but the deployment itself is not the community identity. Community identity comes from a community pubkey and its latest valid `kind:10222` definition event. That definition is authoritative for community relays, Blossom servers, ordered GRASP servers, Cashu mints, sections, and write-permission list references.
 
 ## Fast Path
 
@@ -83,6 +83,11 @@ Self-hosting Budabit does not create a community by itself. Before setting `VITE
 - `r` relay tags in the definition for community reads and writes
 - `content`, `k`, and `a` tags for the sections you want to expose and their `kind:30000` profile-list write permissions
 - Optional `blossom` tags for community-owned media storage
+- Optional ordered `["grasp", "wss://..."]` tags for GRASP servers the community endorses or offers to members
+- Optional `mint` tags for community Cashu mints
+- Optional `g` tag for the community geohash; do not use `g` for GRASP servers
+
+Community declarations do not automatically create or update user `kind:10063` Blossom lists, user `kind:10317` GRASP lists, or NIP-61 `kind:10019` Nutzap receiving configuration, and those events do not rewrite `kind:10222`. Budabit may recommend infrastructure declared by eligible, non-renounced communities, but the user must explicitly select **Add** before it becomes configured.
 
 Relays are infrastructure, not identity. Do not configure a deployment as if one relay URL is the community. The app routes community state through `/c/<community>`, where `<community>` is parsed as a hex pubkey, `npub`, or `ncommunity` value.
 

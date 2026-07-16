@@ -139,6 +139,7 @@ describe("community admin helpers", () => {
       created_at: 1,
       tags: [
         ["r", "wss://relay.example.com"],
+        ["grasp", "wss://grasp.example.com"],
         ["content", "Threads"],
         ["k", "11", "threads"],
         ["a", moderatorRef.address, moderatorRef.relay || ""],
@@ -158,6 +159,7 @@ describe("community admin helpers", () => {
       result.profileList!.address,
       "wss://relay.example.com/",
     ])
+    expect(result.definitionUpdate?.tags).toContainEqual(["grasp", "wss://grasp.example.com"])
   })
 
   it("reuses an existing owner member grant list ref", () => {

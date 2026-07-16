@@ -11,6 +11,9 @@ Social Nostr signals remain useful because users may carry valuable context from
 | Policy | Decision |
 | --- | --- |
 | Primary trust source | Communikey communities defined by kind `10222` and their referenced kind `30000` profile lists. |
+| Community infrastructure | The latest valid kind `10222` definition is authoritative for infrastructure declared by that community. |
+| Person-level infrastructure evidence | Kinds `10063` and `10317` describe user server choices; `10019` is Nutzap receiving configuration whose mint tags may provide recommendation evidence. |
+| Infrastructure recommendations | An eligible, non-renounced community declaration is viable evidence, but configuration requires an explicit **Add**. |
 | Social graph depth | Direct only. Do not calculate a 2-hop follows-of-follows graph for BudaBit trust. |
 | Direct follows | Small positive discovery/order signal. |
 | Direct mutes | Small negative discovery/order signal, not a hard veto. |
@@ -49,6 +52,12 @@ Direct follows are useful because the viewer intentionally expressed interest in
 | Direct mute | Viewer kind `10000` list | Viewer personal | Small negative discovery/order signal. |
 | Community report | Effective report from current admin/moderator | Community | Negative contextual moderation evidence. |
 | Community ban | Effective person report/ban in a community | Community | Suppresses community-bound content and strongly degrades context-specific trust. |
+
+## Infrastructure Recommendation Policy
+
+Community infrastructure discovery uses a direct authority rule rather than the compound person-trust score. The latest valid `kind:10222` definition is authoritative for its community's infrastructure. Ordered `["grasp", "wss://..."]` tags declare GRASP servers the community endorses or offers to members; `g` remains a geohash.
+
+A user's `kind:10063` Blossom and `kind:10317` GRASP lists remain person-level evidence and do not override community declarations. NIP-61 `kind:10019` remains Nutzap receiving configuration; only its mint tags may contribute person-level recommendation evidence. Budabit does not automatically dual-publish these events from community declarations or publish matching community declarations from them. Infrastructure declared by an eligible, non-renounced community remains a viable recommendation, but a recommendation never changes configuration until the user explicitly chooses **Add**.
 
 ## Trust Layers
 

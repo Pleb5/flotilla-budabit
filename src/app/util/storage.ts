@@ -29,6 +29,7 @@ import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
 import type {Handle, RelayStats} from "@welshman/app"
 import type {RepositoryUpdate} from "@welshman/net"
 import {DM_KIND} from "@app/core/state"
+import {GIT_USER_GRASP_LIST} from "@nostr-git/core/events"
 import {COMMUNITY_DEFINITION_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND} from "@app/core/community"
 import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
 import {PROFILE_BADGES_KIND} from "@app/core/community-badges"
@@ -54,7 +55,16 @@ import {
 } from "@app/util/storage-events"
 
 const kinds = {
-  meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA],
+  meta: [
+    PROFILE,
+    FOLLOWS,
+    MUTES,
+    RELAYS,
+    BLOSSOM_SERVERS,
+    MESSAGING_RELAYS,
+    GIT_USER_GRASP_LIST,
+    APP_DATA,
+  ],
   alert: [ALERT_STATUS, ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID],
   content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DM_KIND],
   community: [

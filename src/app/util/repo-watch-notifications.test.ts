@@ -375,6 +375,7 @@ describe("repo watch notifications", () => {
       pubkey: communityPubkey,
       relays: [],
       blossomServers: [],
+      graspServers: [],
       mints: [],
       sections: [
         {

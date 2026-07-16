@@ -19,7 +19,8 @@ import {
 import {RepoCore} from "@nostr-git/core/git"
 import {deriveEventsAsc, deriveEventsById, withGetter} from "@welshman/store"
 import {repository, pubkey, userRelayList} from "@welshman/app"
-import {deriveEvent, fromCsv} from "@app/core/state"
+import {deriveEvent} from "@app/core/state"
+import {GIT_RELAYS} from "@app/core/git-config"
 import {Router} from "@welshman/router"
 import {
   isRelayUrl,
@@ -113,7 +114,7 @@ export type RepoSettingsActions = {
   readonly canDelete: boolean
 }
 
-export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
+export {GIT_RELAYS}
 
 const safeNormalizeRelayUrl = (url: string) => {
   try {
