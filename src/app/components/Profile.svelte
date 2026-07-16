@@ -26,6 +26,7 @@
     showPubkey?: boolean
     avatarSize?: number
     hideDetails?: boolean
+    roleLabel?: string
     verifiedMaintainerForRepo?: VerifiedMaintainerForRepo | false
   }
 
@@ -36,6 +37,7 @@
     showPubkey,
     avatarSize = 10,
     hideDetails = false,
+    roleLabel,
     verifiedMaintainerForRepo,
   }: Props = $props()
 
@@ -85,6 +87,12 @@
           class="text-bold overflow-hidden text-ellipsis whitespace-nowrap">
           {$profileDisplay}
         </Button>
+        {#if roleLabel}
+          <span
+            class="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            {roleLabel}
+          </span>
+        {/if}
         {#if activeVerifiedMaintainerForRepo}
           <span
             class="rounded-full border border-emerald-300/60 bg-emerald-50/80 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:border-emerald-500/35 dark:bg-emerald-950/30 dark:text-emerald-200"

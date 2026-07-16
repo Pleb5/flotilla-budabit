@@ -14,6 +14,7 @@
     repoName?: string
     previewCount?: number
     showLabel?: boolean
+    label?: string
     class?: string
   }
 
@@ -24,6 +25,7 @@
     repoName = "",
     previewCount = 3,
     showLabel = true,
+    label = "Maintainers",
     class: className = "",
   }: Props = $props()
 
@@ -49,7 +51,7 @@
 {#if maintainers.length > 0}
   <div class={`flex min-w-0 items-center gap-2 ${className}`}>
     {#if showLabel}
-      <span class="shrink-0 text-xs opacity-60">Maintainers</span>
+      <span class="shrink-0 text-xs opacity-60">{label}</span>
     {/if}
     <div class="flex min-w-0 flex-wrap items-center gap-1.5">
       {#each visibleMaintainers as maintainer (maintainer)}
@@ -65,12 +67,12 @@
           onclick={stopPropagation(preventDefault(() => openProfile(maintainer)))}>
           <ProfileCircle
             pubkey={maintainer}
-            relays={relays}
+            {relays}
             size={5}
             class="border border-border"
             verifiedMaintainerForRepo={isVerifiedMaintainer} />
           <span class="min-w-0 max-w-[6rem] truncate hover:underline">
-            <ProfileName pubkey={maintainer} relays={relays} />
+            <ProfileName pubkey={maintainer} {relays} />
           </span>
           {#if isVerifiedMaintainer}
             <span
@@ -86,8 +88,8 @@
           <Button
             class="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/15"
             aria-expanded={popoverOpen}
-            aria-label="Show all maintainers"
-            title="Show all maintainers"
+            aria-label={`Show all ${label.toLowerCase()}`}
+            title={`Show all ${label.toLowerCase()}`}
             onclick={stopPropagation(preventDefault(() => (popoverOpen = !popoverOpen)))}>
             +{hiddenMaintainerCount} more
           </Button>
@@ -95,9 +97,9 @@
             <InlinePopover onClose={() => (popoverOpen = false)} align="right" widthClass="w-72">
               <div class="space-y-3">
                 <div>
-                  <div class="text-sm font-semibold">Maintainers</div>
+                  <div class="text-sm font-semibold">{label}</div>
                   <div class="mt-1 text-xs text-muted-foreground">
-                    {maintainers.length} people can maintain this repo.
+                    {maintainers.length} people have maintainer access to this repo.
                   </div>
                 </div>
                 <div class="space-y-1">
@@ -114,12 +116,12 @@
                       onclick={stopPropagation(preventDefault(() => openProfile(maintainer)))}>
                       <ProfileCircle
                         pubkey={maintainer}
-                        relays={relays}
+                        {relays}
                         size={6}
                         class="border border-border"
                         verifiedMaintainerForRepo={isVerifiedMaintainer} />
                       <span class="min-w-0 truncate font-medium hover:underline">
-                        <ProfileName pubkey={maintainer} relays={relays} />
+                        <ProfileName pubkey={maintainer} {relays} />
                       </span>
                       {#if isVerifiedMaintainer}
                         <span

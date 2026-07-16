@@ -18,6 +18,7 @@
     hideDate = false,
     url,
     relays = [],
+    profileRole,
     ...restProps
   }: {
     event: TrustedEvent
@@ -27,6 +28,7 @@
     hideDate?: boolean
     url?: string
     relays?: string[]
+    profileRole?: string
     class?: string
   } = $props()
 
@@ -62,7 +64,7 @@
           {#if minimal}
             @<ProfileName pubkey={event.pubkey} {url} {relays} />
           {:else}
-            <Profile pubkey={event.pubkey} {url} {relays} />
+            <Profile pubkey={event.pubkey} {url} {relays} roleLabel={profileRole} />
           {/if}
         </div>
       {/if}

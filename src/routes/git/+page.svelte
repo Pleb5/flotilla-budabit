@@ -3823,7 +3823,8 @@
                     maintainers={repoCardMaintainers}
                     relays={cardProfileRelays}
                     verifiedMaintainers={repoCardVerifiedMaintainers}
-                    repoName={g.title || ""} />
+                    repoName={g.title || ""}
+                    label="Co-maintainers" />
                 </div>
                 {#if g.first}
                   {@const date = new Date(g.first.created_at * 1000)}
@@ -3971,7 +3972,8 @@
                     maintainers={repoCardMaintainers}
                     relays={cardProfileRelays}
                     verifiedMaintainers={repoCardVerifiedMaintainers}
-                    repoName={g.title || ""} />
+                    repoName={g.title || ""}
+                    label="Co-maintainers" />
                   {#if communityStargazers.length > 0}
                     <div class="flex min-w-0 items-center gap-2">
                       <div class="flex shrink-0 -space-x-2">

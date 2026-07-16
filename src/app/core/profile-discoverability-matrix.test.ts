@@ -73,6 +73,17 @@ describe("profile discoverability test matrix", () => {
     expect(repoLayout).not.toContain("repoRelays.length>0?repoRelays:GIT_RELAYS")
   })
 
+  it("distinguishes repo owners from co-maintainers on repo cards", () => {
+    const gitItem = dense(readProjectFile("../components/GitItem.svelte"))
+    const gitPage = dense(readProjectFile("../../routes/git/+page.svelte"))
+    const maintainerList = compact(readProjectFile("../components/RepoMaintainerList.svelte"))
+
+    expect(gitItem).toContain('profileRole="Owner"')
+    expect(gitPage.match(/label="Co-maintainers"/g)).toHaveLength(2)
+    expect(gitPage).toContain("getRepoDeclaredMaintainers(event)")
+    expect(maintainerList).toContain('label = "Maintainers"')
+  })
+
   it("covers missing and slow profile rendering fallbacks", () => {
     const emptyImageTests = readProjectFile("./empty-image-sources.test.ts")
     const resolverTests = readProjectFile("./profile-resolver.test.ts")

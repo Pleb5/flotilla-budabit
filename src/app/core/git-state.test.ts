@@ -36,6 +36,7 @@ vi.mock("@app/core/state", () => ({
 import {
   getRepoAnnouncementPublishRelays,
   getRepoAnnouncementRelays,
+  getRepoDeclaredMaintainers,
   getRepoMaintainers,
   getRepoScopedRelays,
   getVerifiedRepoMaintainers,
@@ -305,6 +306,19 @@ describe("budabit state", () => {
       })
 
       expect(getRepoMaintainers(event)).toEqual([root, mutual])
+    })
+  })
+
+  describe("getRepoDeclaredMaintainers", () => {
+    it("excludes the owner and deduplicates co-maintainers", () => {
+      const owner = "a".repeat(64)
+      const coMaintainer = "b".repeat(64)
+      const event = makeRepoAnnouncement({
+        pubkey: owner,
+        maintainers: [owner, coMaintainer, coMaintainer],
+      })
+
+      expect(getRepoDeclaredMaintainers(event)).toEqual([coMaintainer])
     })
   })
 
