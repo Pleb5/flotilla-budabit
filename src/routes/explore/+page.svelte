@@ -36,8 +36,8 @@
     communityPreferencesLoading,
     communityStarsLoading,
     getCommunityDefinitionRelayHints,
+    hydrateCommunityPreferences,
     hydratePreferredCommunityList,
-    hydratePreferredCommunities,
     loadCommunityDefinitionWithOutboxFallback,
     selectLatestCommunityDefinition,
     setActiveCommunityDefinition,
@@ -134,15 +134,7 @@
       preferredFullHydrationTimer = undefined
       if (preferredHydrationKey !== key) return
 
-      // Only run the slow full hydration when the fast path failed to
-      // populate anything. The fast path already fetches admin, moderator,
-      // and member lists plus their definitions in one round; the slow
-      // path adds authenticated report/delete/review fetches that stall
-      // on slow bunker signers. Running it defensively caused unnecessary
-      // relay churn and hid the fast-path win behind a spinner.
-      if (selectorCommunities.length > 0) return
-
-      hydratePreferredCommunities({relayHints}).catch(() => {})
+      hydrateCommunityPreferences({relayHints}).catch(() => {})
     }, PREFERRED_FULL_HYDRATION_DELAY_MS)
   }
 

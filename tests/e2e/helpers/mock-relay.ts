@@ -82,6 +82,8 @@ export interface NostrFilter {
 export interface MockRelayOptions {
   /** Events to return when app queries (will be filtered by subscription filters) */
   seedEvents?: NostrEvent[]
+  /** Additional events available only from an exact relay URL */
+  seedEventsByRelay?: Record<string, NostrEvent[]>
   /** Callback when app publishes an event */
   onPublish?: (event: NostrEvent) => void
   /** Callback when app creates a subscription */
@@ -102,6 +104,7 @@ export interface MockRelayOptions {
  */
 export class MockRelay {
   private seedEventsList: NostrEvent[] = []
+  private seedEventsByRelay: Record<string, NostrEvent[]> = {}
   private publishedEvents: NostrEvent[] = []
   private onPublishCallback?: (event: NostrEvent) => void
   private onSubscribeCallback?: (subId: string, filters: NostrFilter[]) => void
@@ -118,6 +121,9 @@ export class MockRelay {
   constructor(options?: MockRelayOptions) {
     if (options?.seedEvents) {
       this.seedEventsList = [...options.seedEvents]
+    }
+    if (options?.seedEventsByRelay) {
+      this.seedEventsByRelay = {...options.seedEventsByRelay}
     }
     if (options?.onPublish) {
       this.onPublishCallback = options.onPublish
@@ -146,6 +152,9 @@ export class MockRelay {
     // Merge options if provided
     if (options?.seedEvents) {
       this.seedEventsList = [...this.seedEventsList, ...options.seedEvents]
+    }
+    if (options?.seedEventsByRelay) {
+      this.seedEventsByRelay = {...this.seedEventsByRelay, ...options.seedEventsByRelay}
     }
     if (options?.onPublish) {
       this.onPublishCallback = options.onPublish
@@ -185,7 +194,7 @@ export class MockRelay {
 
     // Inject the mock WebSocket before any scripts run
     await page.addInitScript(
-      ({seedEvents, debug, interceptUrls, latency}) => {
+      ({seedEvents, seedEventsByRelay, debug, interceptUrls, latency}) => {
         // Store original WebSocket
         const OriginalWebSocket = window.WebSocket
 
@@ -322,7 +331,8 @@ export class MockRelay {
 
             // Send matching events from seed data
             setTimeout(() => {
-              const matchingEvents = seedEvents.filter((event: NostrEvent) =>
+              const availableEvents = [...seedEvents, ...(seedEventsByRelay[this.url] || [])]
+              const matchingEvents = availableEvents.filter((event: NostrEvent) =>
                 this.eventMatchesFilters(event, filters),
               )
 
@@ -491,6 +501,7 @@ export class MockRelay {
       },
       {
         seedEvents: this.seedEventsList,
+        seedEventsByRelay: this.seedEventsByRelay,
         debug: this.debug,
         interceptUrls: this.interceptUrls,
         latency: this.latency,

@@ -209,6 +209,24 @@ const hasProfileListFilter = (filters: Filter[], author: string, identifier: str
     )
   })
 
+const hasMemberProfileListFilter = (
+  filters: Filter[],
+  author: string,
+  identifier: string,
+  member: string,
+) =>
+  filters.some(filter => {
+    const dTags = (filter as Filter & {"#d"?: string[]})["#d"] || []
+    const pTags = (filter as Filter & {"#p"?: string[]})["#p"] || []
+
+    return (
+      filter.kinds?.includes(PROFILE_LIST_KIND) &&
+      filter.authors?.includes(author) &&
+      dTags.includes(identifier) &&
+      pTags.includes(member)
+    )
+  })
+
 const flushPromises = async (count = 10) => {
   for (let i = 0; i < count; i += 1) await Promise.resolve()
 }
@@ -823,6 +841,39 @@ describe("community relay loading", () => {
         isModerator: true,
       }),
     )
+  })
+
+  it("discovers member communities from profile lists on their scoped relays", async () => {
+    pubkey.set(memberPubkey)
+    loadMock.mockImplementation(({relays, filters}: {relays: string[]; filters: Filter[]}) => {
+      if (relays[0] === discoveryRelay && hasBroadCommunityDefinitionFilter(filters)) {
+        return Promise.resolve([singleRelayDefinitionEvent])
+      }
+
+      if (relays[0] === relayA && hasProfileListFilter(filters, listPubkey, "General")) {
+        return Promise.resolve([profileListEvent])
+      }
+
+      return Promise.resolve([])
+    })
+
+    await hydrateCommunityPreferences({relayHints: [discoveryRelay], force: true})
+    await Promise.resolve()
+
+    expect(get(activePreferredCommunities)).toContainEqual(
+      expect.objectContaining({
+        communityPubkey,
+        isMember: true,
+      }),
+    )
+
+    const memberDiscoveryRelays = loadMock.mock.calls.flatMap(call => {
+      const {relays, filters} = call[0] as {relays: string[]; filters: Filter[]}
+
+      return hasMemberProfileListFilter(filters, listPubkey, "General", memberPubkey) ? relays : []
+    })
+
+    expect(memberDiscoveryRelays).toEqual([relayA])
   })
 
   it("retries preference hydration after an empty early load", async () => {
