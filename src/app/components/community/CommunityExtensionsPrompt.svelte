@@ -132,9 +132,9 @@
       <div class="min-w-0">
         <strong>Trusted community extensions are available</strong>
         <p class="text-sm opacity-75">
-          This community has {trustedWidgets.length} extension{trustedWidgets.length === 1
+          This community has {trustedWidgets.length} trusted extension{trustedWidgets.length === 1
             ? ""
-            : "s"} from its owner or widget moderators. Install them only if you want to use them.
+            : "s"}. Install them to enhance your experience.
         </p>
       </div>
       <div class="flex shrink-0 flex-wrap gap-2">

@@ -1326,7 +1326,7 @@
                       </p>
                     </div>
                     <span class={`badge ${statusClass(item.state.status)}`}
-                      >{item.state.status}</span>
+                      >{item.state.status === "none" ? "No access" : item.state.status}</span>
                   </div>
 
                   {#if item.state.status !== "granted" && item.history?.latestPriorReview}
