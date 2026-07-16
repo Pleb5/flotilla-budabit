@@ -8,7 +8,6 @@ import {
   getActiveUserCommunityRelays,
   getPubkeyOutboxRelays,
 } from "@app/core/community-relays"
-import {logProfileLoadSummary, type ProfileLoadReason} from "@app/core/diagnostics"
 
 export type ProfileResolutionOptions = {
   url?: string
@@ -17,7 +16,6 @@ export type ProfileResolutionOptions = {
   includeActiveCommunityRelays?: boolean
 }
 
-const attemptedRelaySetsByPubkey = new Map<string, Set<string>>()
 const attemptedRelaysByPubkey = new Map<string, Set<string>>()
 const profileLoadPromisesByKey = new Map<string, Promise<PublishedProfile | undefined>>()
 const completedProfileLoadTimesByKey = new Map<string, number>()
@@ -51,24 +49,15 @@ const getBudabitProfileLoadRelays = (
   ])
 
 const rememberProfileLoadAttempt = (pubkey: string, relays: string[]) => {
-  const relayKey = relays.join("\n")
-  const relaySets = attemptedRelaySetsByPubkey.get(pubkey) || new Set<string>()
+  const hasPreviousAttempt = attemptedRelaysByPubkey.has(pubkey)
   const attemptedRelays = attemptedRelaysByPubkey.get(pubkey) || new Set<string>()
-  const hasPreviousAttempt = relaySets.size > 0
   const hasNewRelays = relays.some(relay => !attemptedRelays.has(relay))
-  const reason: ProfileLoadReason = !hasPreviousAttempt
-    ? "first-load"
-    : hasNewRelays
-      ? "improved-hints"
-      : "same-relays"
 
-  relaySets.add(relayKey)
   for (const relay of relays) attemptedRelays.add(relay)
 
-  attemptedRelaySetsByPubkey.set(pubkey, relaySets)
   attemptedRelaysByPubkey.set(pubkey, attemptedRelays)
 
-  return {reason, shouldForceLoad: hasPreviousAttempt && hasNewRelays}
+  return {shouldForceLoad: hasPreviousAttempt && hasNewRelays}
 }
 
 export const loadBudabitProfile = async (
@@ -85,12 +74,6 @@ export const loadBudabitProfile = async (
 
   const attempt = rememberProfileLoadAttempt(normalizedPubkey, relays)
   const loadKey = `${normalizedPubkey}\n${relays.join("\n")}`
-  logProfileLoadSummary({
-    pubkey: normalizedPubkey,
-    relays,
-    reason: attempt.reason,
-    force: attempt.shouldForceLoad,
-  })
   const loader = attempt.shouldForceLoad ? forceLoadProfile : loadProfile
 
   if (!attempt.shouldForceLoad) {

@@ -198,15 +198,11 @@ describe("community profile relay hints", () => {
     expect(chatMessage).toContain("deriveBudabitProfileDisplay")
   })
 
-  it("keeps development diagnostics wired to profile and publish relay helpers", () => {
-    const profileResolver = readProjectFile("./profile-resolver.ts")
+  it("keeps development diagnostics wired to publish relay helpers", () => {
     const communityRelays = readProjectFile("./community-relays.ts")
     const gitState = readProjectFile("./git-state.ts")
     const gitCommands = readProjectFile("./git-commands.ts")
 
-    expect(profileResolver).toContain("logProfileLoadSummary")
-    expect(profileResolver).toContain('"first-load"')
-    expect(profileResolver).toContain('"improved-hints"')
     expect(communityRelays).toContain('category: "personal-user-data"')
     expect(gitState).toContain('category: "repo-announcement"')
     expect(gitCommands).toContain('category: "repo-scoped"')

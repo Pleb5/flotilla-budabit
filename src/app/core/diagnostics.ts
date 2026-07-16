@@ -1,14 +1,5 @@
 import {dev} from "$app/environment"
 
-export type ProfileLoadReason = "first-load" | "same-relays" | "improved-hints"
-
-type ProfileLoadSummary = {
-  pubkey: string
-  relays: string[]
-  reason: ProfileLoadReason
-  force: boolean
-}
-
 type PublishRelaySummary = {
   category: string
   relays: string[]
@@ -23,22 +14,6 @@ const warnedEmptyImageSources = new Set<string>()
 
 const unique = (values: string[] = []) => Array.from(new Set(values.filter(Boolean)))
 const canLogDiagnostics = () => dev && typeof window !== "undefined"
-
-const summarizePubkey = (pubkey: string) =>
-  pubkey.length > 16 ? `${pubkey.slice(0, 8)}...${pubkey.slice(-8)}` : pubkey
-
-export const logProfileLoadSummary = ({pubkey, relays, reason, force}: ProfileLoadSummary) => {
-  if (!canLogDiagnostics()) return
-
-  const relaySet = unique(relays)
-  console.debug("[budabit:profile] load", {
-    pubkey: summarizePubkey(pubkey),
-    reason,
-    force,
-    relayCount: relaySet.length,
-    relays: relaySet,
-  })
-}
 
 export const logPublishRelaySummary = ({
   category,

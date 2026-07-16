@@ -4,12 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
 vi.mock("$app/environment", () => ({dev: true}))
 
-import {
-  logProfileLoadSummary,
-  logPublishRelaySummary,
-  resetDiagnosticsForTest,
-  warnEmptyImageSource,
-} from "./diagnostics"
+import {logPublishRelaySummary, resetDiagnosticsForTest, warnEmptyImageSource} from "./diagnostics"
 
 describe("diagnostics", () => {
   beforeEach(() => {
@@ -20,26 +15,6 @@ describe("diagnostics", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
-  })
-
-  it("logs profile load summaries without event contents", () => {
-    logProfileLoadSummary({
-      pubkey: "a".repeat(64),
-      relays: ["wss://relay.example", "wss://relay.example", "wss://community.example"],
-      reason: "improved-hints",
-      force: true,
-    })
-
-    expect(console.debug).toHaveBeenCalledWith(
-      "[budabit:profile] load",
-      expect.objectContaining({
-        pubkey: "aaaaaaaa...aaaaaaaa",
-        reason: "improved-hints",
-        force: true,
-        relayCount: 2,
-        relays: ["wss://relay.example", "wss://community.example"],
-      }),
-    )
   })
 
   it("logs publish relay counts by category", () => {
