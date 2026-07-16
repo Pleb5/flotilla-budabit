@@ -101,7 +101,9 @@
     communityShareRelays.length > 0 ? communityShareRelays : $activeCommunityRelays,
   )
   const homeWidgetRelayHints = $derived(
-    $activeCommunityRelays.length > 0 ? $activeCommunityRelays : communityShareRelays,
+    $activeCommunityDefinition?.pubkey === communityId && $activeCommunityRelays.length > 0
+      ? $activeCommunityRelays
+      : communityShareRelays,
   )
   const threadsPath = $derived(communityId ? makeCommunityThreadPath(communityId) : "")
   const calendarPath = $derived(communityId ? makeCommunityCalendarPath(communityId) : "")
@@ -662,12 +664,14 @@
   {/if}
 
   {#if communityId}
-    <CommunityExtensionsPrompt communityPubkey={communityId} relayHints={homeWidgetRelayHints} />
+    {#key communityId}
+      <CommunityExtensionsPrompt communityPubkey={communityId} relayHints={homeWidgetRelayHints} />
 
-    <CommunityHomeWidgetSlot
-      communityPubkey={communityId}
-      relayHints={homeWidgetRelayHints}
-      slotType="community-home-before-quicklinks" />
+      <CommunityHomeWidgetSlot
+        communityPubkey={communityId}
+        relayHints={homeWidgetRelayHints}
+        slotType="community-home-before-quicklinks" />
+    {/key}
   {/if}
 
   <div class="grid gap-2 max-sm:grid-cols-2 sm:grid-cols-3">
@@ -774,9 +778,11 @@
   </div>
 
   {#if communityId}
-    <CommunityHomeWidgetSlot
-      communityPubkey={communityId}
-      relayHints={homeWidgetRelayHints}
-      slotType="community-home-after-quicklinks" />
+    {#key communityId}
+      <CommunityHomeWidgetSlot
+        communityPubkey={communityId}
+        relayHints={homeWidgetRelayHints}
+        slotType="community-home-after-quicklinks" />
+    {/key}
   {/if}
 </PageContent>

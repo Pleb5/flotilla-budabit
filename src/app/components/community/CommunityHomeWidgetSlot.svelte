@@ -18,7 +18,6 @@
     COMMUNITY_SHARED_CONFIG_KIND,
     getEnabledCommunitySlotWidgetsWithSharedConfig,
     getEnabledCommunitySlotWidgets,
-    getEnabledInstalledCommunitySlotWidgets,
     getLastValidatedCommunityCuratedWidgets,
     loadCachedCommunityCuratedWidgets,
     shouldPreserveCuratedWidgetView,
@@ -41,7 +40,6 @@
   let curatedWidgets = $state<SmartWidgetEvent[]>(
     getLastValidatedCommunityCuratedWidgets(initialCurationInput),
   )
-  let curatedWidgetsLoading = $state(false)
   let loadKey = ""
   let loadRequestId = 0
   let loadRefreshNonce = $state(0)
@@ -61,13 +59,6 @@
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
-  const installedSlotWidgets = $derived.by(() => {
-    return getEnabledInstalledCommunitySlotWidgets({
-      installedWidgets,
-      enabledIds: enabledWidgetIds,
-      slotType,
-    })
-  })
   const slotWidgets = $derived.by(() => {
     return getEnabledCommunitySlotWidgets({
       curatedWidgets,
@@ -95,15 +86,6 @@
           permissionHasCachedEvents: status.hasCachedEvents,
         })
       : ""
-  })
-  const communityPermissionEvidenceLoading = $derived.by(() => {
-    const status = $activeCommunityPermissionStatus
-
-    return Boolean(
-      normalizePubkey(status.communityPubkey) === normalizePubkey(communityPubkey) &&
-      status.loading &&
-      !status.loaded,
-    )
   })
   const cachedCommunitySharedConfigEvents = $derived.by(() => {
     communityReadinessKey
@@ -181,23 +163,6 @@
     if (slotWidgets.length > 0) return slotWidgets
 
     return sharedConfigSlotWidgets
-  })
-  const loadingSlotWidgets = $derived.by(() => {
-    if (frameWidgets.length > 0) return []
-
-    const loadingCandidates = new Map<string, SmartWidgetEvent>()
-    const addWidget = (widget: SmartWidgetEvent) => {
-      const key = getWidgetLineId(widget) || widget.identifier
-      if (key && !loadingCandidates.has(key)) loadingCandidates.set(key, widget)
-    }
-
-    for (const widget of slotWidgets) addWidget(widget)
-    for (const widget of sharedConfigSlotWidgets) addWidget(widget)
-    if (curatedWidgetsLoading || communityPermissionEvidenceLoading || !communityContext) {
-      for (const widget of installedSlotWidgets) addWidget(widget)
-    }
-
-    return Array.from(loadingCandidates.values())
   })
 
   const makeWidgetContext = (widget: SmartWidgetEvent) => ({
@@ -296,7 +261,6 @@
     if (!key || !input) {
       clearCurationRetry()
       curatedWidgets = []
-      curatedWidgetsLoading = false
       curatedWidgetsBaseKey = ""
       lastLoadReadinessKey = ""
       loadKey = ""
@@ -308,7 +272,6 @@
       clearCurationRetry()
       curationRetryDelay = 1_000
       curatedWidgets = getLastValidatedCommunityCuratedWidgets(input)
-      curatedWidgetsLoading = false
       curatedWidgetsBaseKey = baseKey
       lastLoadReadinessKey = ""
     }
@@ -320,7 +283,6 @@
     const force = forceNextLoad || readinessChanged
     forceNextLoad = false
     const requestId = ++loadRequestId
-    curatedWidgetsLoading = true
 
     logCommunityWidgetDebug("home slot loading curated widgets", {
       slotType,
@@ -357,7 +319,6 @@
         )
 
         if (!preserveCurrentWidgets) curatedWidgets = nextCuratedWidgets
-        curatedWidgetsLoading = !complete && curatedWidgets.length === 0
         if (complete) {
           clearCurationRetry()
           curationRetryDelay = 1_000
@@ -382,7 +343,6 @@
       .catch(error => {
         if (requestId !== loadRequestId || key !== loadKey) return
 
-        curatedWidgetsLoading = curatedWidgets.length === 0
         scheduleCurationRetry()
         console.warn("[community-home-widgets] Failed to load widgets", error)
         logCommunityWidgetDebug("home slot failed to load curated widgets", {
@@ -432,21 +392,6 @@
           class="w-full"
           minHeight={220}
           resizeMinHeight={72} />
-      </section>
-    {/each}
-  </div>
-{:else if loadingSlotWidgets.length > 0}
-  <div class="flex flex-col gap-2">
-    {#each loadingSlotWidgets as widget (getWidgetLineId(widget))}
-      {@const title = widget.slot?.label || getWidgetTitle(widget)}
-      <section class="overflow-visible" aria-label={title} aria-busy="true">
-        <div
-          class="flex min-h-[220px] items-center justify-center rounded-box bg-base-200 p-6 text-center text-sm text-base-content/70">
-          <div class="flex flex-col items-center gap-3">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-            <p>Loading {title}...</p>
-          </div>
-        </div>
       </section>
     {/each}
   </div>

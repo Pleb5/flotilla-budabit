@@ -187,7 +187,21 @@ describe("community widget slots", () => {
     expect(selected).toEqual([])
   })
 
-  it("selects enabled installed community slot widgets before curation resolves", () => {
+  it("does not select an installed widget without community curation", () => {
+    const widget = makeWidget("featured-calendar-event", "community-home-after-quicklinks")
+    const widgetId = getWidgetLineId(widget)
+
+    const selected = getEnabledCommunitySlotWidgets({
+      curatedWidgets: [],
+      installedWidgets: {[widgetId]: widget},
+      enabledIds: new Set([widgetId]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(selected).toEqual([])
+  })
+
+  it("selects enabled installed community slot widget candidates", () => {
     const slotWidget = makeWidget("featured-calendar-event", "community-home-after-quicklinks")
     const otherSlotWidget = makeWidget("header-widget", "community-home-before-quicklinks")
     const disabledSlotWidget = makeWidget("disabled-widget", "community-home-after-quicklinks")
@@ -257,6 +271,19 @@ describe("community widget slots", () => {
     })
 
     expect(selected.map(item => item.identifier)).toEqual(["featured-calendar-event"])
+
+    const unrelatedCommunity = getEnabledCommunitySlotWidgetsWithSharedConfig({
+      communityPubkey: "d".repeat(64),
+      sharedConfigEvents: [sharedConfigEvent],
+      installedWidgets: {
+        [getWidgetLineId(widget)]: widget,
+        [getWidgetLineId(unrelatedWidget)]: unrelatedWidget,
+      },
+      enabledIds: new Set([getWidgetLineId(widget), getWidgetLineId(unrelatedWidget)]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(unrelatedCommunity).toEqual([])
   })
 
   it("reuses cached curated widget loads while they are fresh", async () => {
@@ -301,6 +328,18 @@ describe("community widget slots", () => {
 
     await loadCachedCommunityCuratedWidgets("community-a", {force: true})
     expect(getLastValidatedCommunityCuratedWidgets("community-a")).toEqual([widget])
+  })
+
+  it("keeps validated widget snapshots isolated by community", async () => {
+    const firstCommunity = "a".repeat(64)
+    const secondCommunity = "b".repeat(64)
+    const widget = makeWidget("community-stream", "community-home-before-quicklinks")
+    mocks.loadCommunityCuratedWidgets.mockResolvedValueOnce(makeCuratedResult([widget]))
+
+    await loadCachedCommunityCuratedWidgets(firstCommunity)
+
+    expect(getLastValidatedCommunityCuratedWidgets(firstCommunity)).toEqual([widget])
+    expect(getLastValidatedCommunityCuratedWidgets(secondCommunity)).toEqual([])
   })
 
   it("deduplicates a forced refresh while a load is pending", async () => {
