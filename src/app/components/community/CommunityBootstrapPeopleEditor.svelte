@@ -4,7 +4,7 @@
   import * as nip19 from "nostr-tools/nip19"
   import type {TrustedEvent} from "@welshman/util"
   import type {Instance} from "tippy.js"
-  import {profileSearch} from "@welshman/app"
+  import {profileSearch, profilesByPubkey} from "@welshman/app"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -14,6 +14,7 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
+  import {getPeopleSearchTextScore} from "@app/util/people-search"
   import {pushToast} from "@app/util/toast"
   import {activeCommunityReportState, hydratePubkeyProfiles} from "@app/core/community-state"
   import {
@@ -47,6 +48,7 @@
     disabled?: boolean
   }
 
+  const MEMBER_PAGE_SIZE = 10
   const memberLabelButtonClass = "h-auto min-h-7 rounded-full px-3 py-1 text-xs font-medium"
   const memberLabelBadgeClass = "h-auto min-h-6 rounded-full px-2.5 py-1 text-xs font-medium"
   const memberLabelToneClasses = {
@@ -81,10 +83,24 @@
   let addPersonButton: HTMLButtonElement | undefined = $state()
   let peoplePopover: Instance | undefined = $state()
   let peopleSuggestions: any = $state()
+  let memberSearch = $state("")
+  let visibleMemberCount = $state(MEMBER_PAGE_SIZE)
   const peopleSearchStore = writable("")
   const normalizedSelectedPubkey = $derived(normalizePubkey(selectedPubkey))
   const sectionNames = $derived(sections.map(section => section.name))
   const sectionsByName = $derived(new Map(sections.map(section => [section.name, section])))
+  const getMemberSearchText = (member: CommunityMemberListItem) =>
+    [
+      member.pubkey,
+      member.isOwner ? "owner admin" : "",
+      member.isModerator ? "moderator" : "",
+      member.isPendingModerator ? "pending moderator" : "",
+      ...member.moderatorSections.map(section => section.displayName),
+      ...member.pendingModeratorSections.map(section => section.displayName),
+      ...member.sectionGrants.map(section => section.displayName),
+    ]
+      .join(" ")
+      .toLocaleLowerCase()
   const memberItems = $derived(
     selectCommunityMemberList({
       definition,
@@ -92,6 +108,37 @@
       reportState: $activeCommunityReportState,
     }),
   )
+  const normalizedMemberSearch = $derived(memberSearch.trim())
+  const memberProfileMatches = $derived.by(
+    () =>
+      new Set(
+        normalizedMemberSearch
+          ? ($profileSearch.searchValues(normalizedMemberSearch) as string[])
+          : [],
+      ),
+  )
+  const filteredMemberItems = $derived.by(() => {
+    if (!normalizedMemberSearch) return memberItems
+
+    const query = normalizedMemberSearch.toLocaleLowerCase()
+
+    return memberItems.filter(member => {
+      if (memberProfileMatches.has(member.pubkey)) return true
+      if (
+        getPeopleSearchTextScore({
+          pubkey: member.pubkey,
+          profile: $profilesByPubkey.get(member.pubkey),
+          query: normalizedMemberSearch,
+        }) > 0
+      ) {
+        return true
+      }
+
+      return getMemberSearchText(member).includes(query)
+    })
+  })
+  const visibleMemberItems = $derived(filteredMemberItems.slice(0, visibleMemberCount))
+  const hasMoreMembers = $derived(visibleMemberItems.length < filteredMemberItems.length)
   const moderatorCount = $derived(memberItems.filter(member => member.isModerator).length)
   const pendingModeratorCount = $derived(
     memberItems.filter(member => member.isPendingModerator).length,
@@ -99,6 +146,7 @@
   const draftPubkeys = $derived(Array.from(new Set(draftGrants.map(grant => grant.pubkey))))
   const existingGroupPubkeys = $derived(memberItems.map(member => member.pubkey))
   let profileHydrationKey = ""
+  let memberPageKey = ""
 
   const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
     `${count} ${count === 1 ? singular : plural}`
@@ -319,6 +367,10 @@
     )
   }
 
+  const showMoreMembers = () => {
+    visibleMemberCount = Math.min(visibleMemberCount + MEMBER_PAGE_SIZE, filteredMemberItems.length)
+  }
+
   const clearSelectedPerson = () => {
     selectedPubkey = ""
     peopleSearchTerm = ""
@@ -326,6 +378,17 @@
     grantPickerOpen = false
     grantPickerSelection = []
   }
+
+  $effect(() => {
+    const key = `${normalizedMemberSearch}:${filteredMemberItems
+      .map(member => member.pubkey)
+      .join(",")}`
+    if (key === memberPageKey) return
+
+    memberPageKey = key
+    visibleMemberCount = MEMBER_PAGE_SIZE
+    openPopover = null
+  })
 
   $effect(() => {
     const pubkeys = Array.from(
@@ -602,155 +665,186 @@
     {/each}
 
     {#if memberItems.length > 0}
-      {#each memberItems as member (member.pubkey)}
-        {@const grantsKey = getMemberPopoverKey(member, "grants")}
-        <article class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4">
-          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div class="flex min-w-0 items-start gap-3">
-              <ProfileCircle pubkey={member.pubkey} {relays} size={9} />
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <strong class="min-w-0"><ProfileLink pubkey={member.pubkey} {relays} /></strong>
-                  {#if member.isOwner}
-                    <span class="badge badge-primary">owner</span>
-                    <span class="badge badge-success">admin</span>
-                  {/if}
-                  {#if member.isModerator}
-                    <span class="badge badge-info">moderator</span>
-                  {/if}
-                  {#if member.isPendingModerator}
-                    <span class="badge badge-warning">pending moderator</span>
-                  {/if}
-                  {#if member.grantCount > 0 && !member.isAdmin && !member.isModerator && !member.isPendingModerator}
-                    <span class="badge badge-neutral">member</span>
-                  {/if}
+      <label class="input input-bordered flex items-center gap-2">
+        <Icon icon={Magnifier} />
+        <input
+          bind:value={memberSearch}
+          class="grow"
+          type="search"
+          placeholder="Search members..." />
+      </label>
+
+      {#if filteredMemberItems.length > 0}
+        {#each visibleMemberItems as member (member.pubkey)}
+          {@const grantsKey = getMemberPopoverKey(member, "grants")}
+          <article class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4">
+            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <div class="flex min-w-0 items-start gap-3">
+                <ProfileCircle pubkey={member.pubkey} {relays} size={9} />
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <strong class="min-w-0"><ProfileLink pubkey={member.pubkey} {relays} /></strong>
+                    {#if member.isOwner}
+                      <span class="badge badge-primary">owner</span>
+                      <span class="badge badge-success">admin</span>
+                    {/if}
+                    {#if member.isModerator}
+                      <span class="badge badge-info">moderator</span>
+                    {/if}
+                    {#if member.isPendingModerator}
+                      <span class="badge badge-warning">pending moderator</span>
+                    {/if}
+                    {#if member.grantCount > 0 && !member.isAdmin && !member.isModerator && !member.isPendingModerator}
+                      <span class="badge badge-neutral">member</span>
+                    {/if}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div class="flex flex-wrap items-center gap-2 sm:justify-end">
-              {#if member.isOwner}
-                <span
-                  class={`badge badge-sm ${memberLabelBadgeClass} ${memberLabelToneClasses.primary}`}
-                  >all admin sections</span>
-              {/if}
-
-              {#if member.isModerator}
-                {@const moderatorKey = getMemberPopoverKey(member, "moderators")}
-                <div class="relative">
-                  <Button
-                    class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.info}`}
-                    aria-expanded={openPopover === moderatorKey}
-                    onclick={() => showPopover(moderatorKey)}>
-                    {pluralize(member.moderatorSectionCount, "moderator section")}
-                  </Button>
-                  {#if openPopover === moderatorKey}
-                    <InlinePopover
-                      align="right"
-                      widthClass="w-80 sm:w-96"
-                      onClose={() => (openPopover = null)}>
-                      <div class="flex flex-col gap-3 text-sm">
-                        <div>
-                          <h3 class="font-semibold">Moderator sections</h3>
-                          <p class="text-xs opacity-70">
-                            Sections where this pubkey manages grants.
-                          </p>
-                        </div>
-                        {#each member.moderatorSections as section}
-                          <div class="rounded-box bg-base-200 p-3">
-                            <strong>{section.displayName}</strong>
-                            <div class="mt-2 flex flex-col gap-1">
-                              {#each section.profileListAddresses as address}
-                                <p class="break-all font-mono text-[11px] opacity-70">{address}</p>
-                              {/each}
-                            </div>
-                          </div>
-                        {/each}
-                      </div>
-                    </InlinePopover>
-                  {/if}
-                </div>
-              {/if}
-
-              {#if member.isPendingModerator}
-                {@const pendingModeratorKey = getMemberPopoverKey(member, "pending-moderators")}
-                <div class="relative">
-                  <Button
-                    class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.warning}`}
-                    aria-expanded={openPopover === pendingModeratorKey}
-                    onclick={() => showPopover(pendingModeratorKey)}>
-                    Pending {pluralize(member.pendingModeratorSectionCount, "moderator section")}
-                  </Button>
-                  {#if openPopover === pendingModeratorKey}
-                    <InlinePopover
-                      align="right"
-                      widthClass="w-80 sm:w-96"
-                      onClose={() => (openPopover = null)}>
-                      <div class="flex flex-col gap-3 text-sm">
-                        <div>
-                          <h3 class="font-semibold">Pending moderator sections</h3>
-                          <p class="text-xs opacity-70">
-                            Sections where this pubkey was invited to moderate but has not published
-                            its profile list yet.
-                          </p>
-                        </div>
-                        {#each member.pendingModeratorSections as section}
-                          <div class="rounded-box bg-base-200 p-3">
-                            <strong>{section.displayName}</strong>
-                            <div class="mt-2 flex flex-col gap-1">
-                              {#each section.profileListAddresses as address}
-                                <p class="break-all font-mono text-[11px] opacity-70">{address}</p>
-                              {/each}
-                            </div>
-                          </div>
-                        {/each}
-                      </div>
-                    </InlinePopover>
-                  {/if}
-                </div>
-              {/if}
-
-              <div class="relative">
-                <Button
-                  class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.neutral}`}
-                  aria-expanded={openPopover === grantsKey}
-                  onclick={() => showPopover(grantsKey)}>
-                  {pluralize(member.grantCount, "grant")}
-                </Button>
-                {#if openPopover === grantsKey}
-                  <InlinePopover
-                    align="right"
-                    widthClass="w-80 sm:w-96"
-                    onClose={() => (openPopover = null)}>
-                    <div class="flex flex-col gap-3 text-sm">
-                      <div>
-                        <h3 class="font-semibold">Membership grants</h3>
-                        <p class="text-xs opacity-70">
-                          Sections where this pubkey can publish as a member.
-                        </p>
-                      </div>
-                      {#if member.sectionGrants.length > 0}
-                        {#each member.sectionGrants as section}
-                          <div class="rounded-box bg-base-200 p-3">
-                            <strong>{section.displayName}</strong>
-                            <div class="mt-2 flex flex-col gap-1">
-                              {#each section.profileListAddresses as address}
-                                <p class="break-all font-mono text-[11px] opacity-70">{address}</p>
-                              {/each}
-                            </div>
-                          </div>
-                        {/each}
-                      {:else}
-                        <p class="rounded-box bg-base-200 p-3 opacity-70">No membership grants.</p>
-                      {/if}
-                    </div>
-                  </InlinePopover>
+              <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+                {#if member.isOwner}
+                  <span
+                    class={`badge badge-sm ${memberLabelBadgeClass} ${memberLabelToneClasses.primary}`}
+                    >all admin sections</span>
                 {/if}
+
+                {#if member.isModerator}
+                  {@const moderatorKey = getMemberPopoverKey(member, "moderators")}
+                  <div class="relative">
+                    <Button
+                      class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.info}`}
+                      aria-expanded={openPopover === moderatorKey}
+                      onclick={() => showPopover(moderatorKey)}>
+                      {pluralize(member.moderatorSectionCount, "moderator section")}
+                    </Button>
+                    {#if openPopover === moderatorKey}
+                      <InlinePopover
+                        align="right"
+                        widthClass="w-80 sm:w-96"
+                        onClose={() => (openPopover = null)}>
+                        <div class="flex flex-col gap-3 text-sm">
+                          <div>
+                            <h3 class="font-semibold">Moderator sections</h3>
+                            <p class="text-xs opacity-70">
+                              Sections where this pubkey manages grants.
+                            </p>
+                          </div>
+                          {#each member.moderatorSections as section}
+                            <div class="rounded-box bg-base-200 p-3">
+                              <strong>{section.displayName}</strong>
+                              <div class="mt-2 flex flex-col gap-1">
+                                {#each section.profileListAddresses as address}
+                                  <p class="break-all font-mono text-[11px] opacity-70">
+                                    {address}
+                                  </p>
+                                {/each}
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      </InlinePopover>
+                    {/if}
+                  </div>
+                {/if}
+
+                {#if member.isPendingModerator}
+                  {@const pendingModeratorKey = getMemberPopoverKey(member, "pending-moderators")}
+                  <div class="relative">
+                    <Button
+                      class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.warning}`}
+                      aria-expanded={openPopover === pendingModeratorKey}
+                      onclick={() => showPopover(pendingModeratorKey)}>
+                      Pending {pluralize(member.pendingModeratorSectionCount, "moderator section")}
+                    </Button>
+                    {#if openPopover === pendingModeratorKey}
+                      <InlinePopover
+                        align="right"
+                        widthClass="w-80 sm:w-96"
+                        onClose={() => (openPopover = null)}>
+                        <div class="flex flex-col gap-3 text-sm">
+                          <div>
+                            <h3 class="font-semibold">Pending moderator sections</h3>
+                            <p class="text-xs opacity-70">
+                              Sections where this pubkey was invited to moderate but has not
+                              published its profile list yet.
+                            </p>
+                          </div>
+                          {#each member.pendingModeratorSections as section}
+                            <div class="rounded-box bg-base-200 p-3">
+                              <strong>{section.displayName}</strong>
+                              <div class="mt-2 flex flex-col gap-1">
+                                {#each section.profileListAddresses as address}
+                                  <p class="break-all font-mono text-[11px] opacity-70">
+                                    {address}
+                                  </p>
+                                {/each}
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      </InlinePopover>
+                    {/if}
+                  </div>
+                {/if}
+
+                <div class="relative">
+                  <Button
+                    class={`btn btn-xs ${memberLabelButtonClass} ${memberLabelToneClasses.neutral}`}
+                    aria-expanded={openPopover === grantsKey}
+                    onclick={() => showPopover(grantsKey)}>
+                    {pluralize(member.grantCount, "grant")}
+                  </Button>
+                  {#if openPopover === grantsKey}
+                    <InlinePopover
+                      align="right"
+                      widthClass="w-80 sm:w-96"
+                      onClose={() => (openPopover = null)}>
+                      <div class="flex flex-col gap-3 text-sm">
+                        <div>
+                          <h3 class="font-semibold">Membership grants</h3>
+                          <p class="text-xs opacity-70">
+                            Sections where this pubkey can publish as a member.
+                          </p>
+                        </div>
+                        {#if member.sectionGrants.length > 0}
+                          {#each member.sectionGrants as section}
+                            <div class="rounded-box bg-base-200 p-3">
+                              <strong>{section.displayName}</strong>
+                              <div class="mt-2 flex flex-col gap-1">
+                                {#each section.profileListAddresses as address}
+                                  <p class="break-all font-mono text-[11px] opacity-70">
+                                    {address}
+                                  </p>
+                                {/each}
+                              </div>
+                            </div>
+                          {/each}
+                        {:else}
+                          <p class="rounded-box bg-base-200 p-3 opacity-70">
+                            No membership grants.
+                          </p>
+                        {/if}
+                      </div>
+                    </InlinePopover>
+                  {/if}
+                </div>
               </div>
             </div>
+          </article>
+        {/each}
+        {#if hasMoreMembers}
+          <div class="mt-2 flex flex-col items-center gap-2 pb-1">
+            <Button class="btn btn-outline btn-sm" onclick={showMoreMembers}>Show more</Button>
+            <p class="text-xs opacity-60">
+              Showing {visibleMemberItems.length} of {filteredMemberItems.length} members
+            </p>
           </div>
-        </article>
-      {/each}
+        {/if}
+      {:else}
+        <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-70">
+          No members match your search.
+        </p>
+      {/if}
     {:else if draftGrants.length === 0}
       <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-70">
         No current members are indexed for this community yet.
