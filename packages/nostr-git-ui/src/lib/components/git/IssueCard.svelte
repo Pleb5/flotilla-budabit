@@ -40,6 +40,7 @@
     profileRelays?: string[]; // Relay hints for author/assignee profiles
     onDeleteReaction?: (event: any) => void | Promise<void>;
     onCreateReaction?: (template: { content: string; tags?: string[][] }) => void | Promise<void>;
+    getShareRelays?: (event: CommentEvent) => string[];
   }
   // Accept event and optional author (Profile store)
   const {
@@ -61,6 +62,7 @@
     profileRelays = [],
     onDeleteReaction,
     onCreateReaction,
+    getShareRelays,
   }: Props = $props();
 
   // Get relay URL from relays prop or repo relays or use a default
@@ -334,6 +336,7 @@
       rootEvent={event}
       repoRefs={repoAddress ? [repoAddress] : []}
       relayHint={commentRelays[0]}
+      {getShareRelays}
       ownerPubkey={repoOwnerPubkey}
     />
   </Card>

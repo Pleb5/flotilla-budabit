@@ -106,14 +106,27 @@ describe("event link utilities", () => {
     ])
   })
 
-  it("falls back to tag and author relays when primary relays are absent", async () => {
+  it("returns only observed relays for tracker-only sharing", async () => {
+    relayMocks.trackerRelays = new Set(["wss://seen.example.com"])
+    const {getSeenEventRelayHints} = await import("./event-links")
+
+    expect(getSeenEventRelayHints("1".repeat(64))).toEqual(["wss://seen.example.com/"])
+  })
+
+  it("falls back to author relays without treating reference relays as event relays", async () => {
     relayMocks.authorRelays = ["wss://author.example.com"]
     const {getEventRelayHints} = await import("./event-links")
     const event = makeEvent({tags: [["E", "root", "wss://tag.example.com", "pubkey"]]})
 
-    expect(getEventRelayHints(event as any)).toEqual([
+    expect(getEventRelayHints(event as any)).toEqual(["wss://author.example.com/"])
+  })
+
+  it("can include relay-bearing tags when explicitly requested", async () => {
+    const {getEventRelayHints} = await import("./event-links")
+    const event = makeEvent({tags: [["E", "root", "wss://tag.example.com", "pubkey"]]})
+
+    expect(getEventRelayHints(event as any, {includeTagRelays: true})).toEqual([
       "wss://tag.example.com/",
-      "wss://author.example.com/",
     ])
   })
 
@@ -180,6 +193,32 @@ describe("event link utilities", () => {
       kind: event.kind,
       author: event.pubkey,
       relays: ["wss://relay.example.com/"],
+    })
+  })
+
+  it("encodes targeted community relays in permalink share links", async () => {
+    relayMocks.repositoryQuery.mockReturnValue([
+      makeEvent({
+        kind: 30222,
+        tags: [
+          ["d", "permalink-target"],
+          ["k", "1623"],
+          ["p", "a".repeat(64)],
+          ["r", "wss://community.example.com"],
+        ],
+      }),
+    ])
+    const event = makeEvent({kind: 1623, tags: [["h", "permalink-target"]]})
+    const {makeEventShareEntity} = await import("./event-links")
+
+    const decoded = nip19.decode(makeEventShareEntity(event as any))
+
+    expect(decoded.type).toBe("nevent")
+    expect(decoded.data).toMatchObject({
+      id: event.id,
+      kind: event.kind,
+      author: event.pubkey,
+      relays: ["wss://community.example.com/"],
     })
   })
 })

@@ -21,9 +21,12 @@
     useFeedStyle?: boolean; // Toggle between old and new style
     compact?: boolean; // Skip FeedItem wrapper (for when already in a container)
     relay?: string;
+    relays?: string[];
   }
 
-  let { event, useFeedStyle = true, compact = false, relay }: Props = $props();
+  let { event, useFeedStyle = true, compact = false, relay, relays = [] }: Props = $props();
+
+  const shareRelays = $derived([...(relay ? [relay] : []), ...relays]);
 
   let componentType = $state<string>("unknown");
   let isKnownEvent = $state(false);
@@ -84,11 +87,11 @@
 {#if useFeedStyle}
   <!-- New unified feed style components -->
   {#if componentType === "git-issue"}
-    <GitIssueComponent event={event} relay={relay} />
+    <GitIssueComponent event={event} relay={shareRelays[0]} />
   {:else if componentType === "git-comment"}
-    <GitCommentFeed event={event} />
+    <GitCommentFeed event={event} relays={shareRelays} />
   {:else if componentType === "git-permalink"}
-    <GitPermalinkComponent event={event} relay={relay} />
+    <GitPermalinkComponent event={event} relays={shareRelays} />
   {:else if componentType === "git-status"}
     {#if isStatusEvent(event as unknown as Nip34Event)}
       <GitStatusFeed event={event as StatusEvent} />
@@ -111,13 +114,13 @@
   {:else if componentType === "git-repo-state"}
     <GitRepoStateComponent event={event} />
   {:else if componentType === "git-issue"}
-    <GitIssueComponent event={event} relay={relay} />
+    <GitIssueComponent event={event} relay={shareRelays[0]} />
   {:else if componentType === "git-comment"}
-    <GitCommentComponent event={event} />
+    <GitCommentComponent event={event} relays={shareRelays} />
   {:else if componentType === "git-permalink"}
-    <GitPermalinkComponent event={event} relay={relay} />
+    <GitPermalinkComponent event={event} relays={shareRelays} />
   {:else if componentType === "git-status"}
-    <GitStatusComponent event={event} />
+    <GitStatusComponent event={event} relays={shareRelays} />
   {:else if isKnownEvent}
     <UnknownEventComponent event={event} />
   {:else}

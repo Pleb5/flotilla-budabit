@@ -1,13 +1,11 @@
 <script lang="ts">
   import * as nip19 from "nostr-tools/nip19"
-  import {Router} from "@welshman/router"
   import {LOCALE, secondsToDate} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
   import {displayRelayUrl, getTagValue} from "@welshman/util"
   import {tracker, forceLoadMessagingRelayList, messagingRelayListsByPubkey} from "@welshman/app"
   import {DM_KIND, getDmRelayUrls, getMessagingRelayHints} from "@app/core/dm"
-  import {GIT_RELAYS} from "@app/core/git-state"
-  import {getEventRelayHints, getUserRelayHints, makeEventShareEntity} from "@app/util/event-links"
+  import {getEventRelayHints, makeEventShareEntity} from "@app/util/event-links"
   import FileText from "@assets/icons/file-text.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
@@ -33,7 +31,7 @@
   const relays = $derived.by(() => {
     if (url) return [url]
     if (event.kind === DM_KIND) return dmRelays
-    return Router.get().Event(event).getUrls()
+    return []
   })
   const seenOn = $derived.by(() => {
     if (event.kind === DM_KIND && dmRelays.length > 0) {
@@ -46,8 +44,6 @@
   const nostrURI = $derived(
     makeEventShareEntity(event, {
       relays: relayHints,
-      userOutboxRelays: getUserRelayHints(),
-      gitRelays: GIT_RELAYS,
     }),
   )
   const npub1 = nip19.npubEncode(event.pubkey)

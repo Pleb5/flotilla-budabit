@@ -100,6 +100,7 @@
   import {pushToast} from "@app/util/toast"
   import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
   import {makeEventNevent} from "@app/util/event-links"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {
     Button as GitButton,
     highlightCodeLines,
@@ -127,9 +128,12 @@
   const {id, identifier, kind, pubkey, relays = []} = value
   const idOrAddress = id || new Address(kind, pubkey, identifier).toString()
   const authorRelays = pubkey ? Router.get().FromPubkey(pubkey).getUrls() : []
-  const mergedRelays = getQuoteRelayHints(
+  const referenceRelays = getQuoteRelayHints(
     relays,
     getQuoteTagRelayHints(event, idOrAddress),
+  )
+  const mergedRelays = getQuoteRelayHints(
+    referenceRelays,
     Router.get().Quote(event, idOrAddress, relays).getUrls(),
     authorRelays,
     url ? [url] : undefined,
@@ -147,9 +151,12 @@
       sectionName: communitySectionName,
     })
   })
-  const entity = id
-    ? makeEventNevent({id, kind, pubkey}, {relays: mergedRelays})
-    : new Address(kind, pubkey, identifier, mergedRelays).toNaddr()
+  const fallbackEntity = id
+    ? makeEventNevent({id, kind, pubkey}, {relays: referenceRelays})
+    : new Address(kind, pubkey, identifier, referenceRelays).toNaddr()
+  const entity = $derived.by(() =>
+    $quote ? makeEventShareEntityForEvent($quote) : fallbackEntity,
+  )
 
   const onclick = () => {
     if ($quote) {

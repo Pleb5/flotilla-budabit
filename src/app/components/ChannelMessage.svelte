@@ -31,6 +31,7 @@
   import {pushModal} from "@app/util/modal"
   import CommunityWidgetSlotLaunchers from "@app/components/community/CommunityWidgetSlotLaunchers.svelte"
   import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
+  import {getEventShareRelayHints} from "@app/util/event-share"
 
   interface Props {
     url: string
@@ -253,7 +254,9 @@
                 e.preventDefault()
               }
             }}>
-            <EventRenderer event={displayEvent as any} relay={url} />
+            <EventRenderer
+              event={displayEvent as any}
+              relays={getEventShareRelayHints(displayEvent, {url, relays: relayTargets})} />
           </div>
         {:else if isKnownUnknown(displayEvent.kind)}
           <div class="unknown-kind">

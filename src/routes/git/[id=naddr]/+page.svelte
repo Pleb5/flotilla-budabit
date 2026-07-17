@@ -53,6 +53,7 @@
   import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
   import {makeCommunityPath} from "@app/util/routes"
   import {normalizeRelays} from "@app/core/community"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
 
   import {getContext} from "svelte"
   import {readable, type Readable} from "svelte/store"
@@ -374,7 +375,13 @@
     })
   })
 
-  const naddr = $derived($page.params.id)
+  const naddr = $derived.by(() =>
+    repoClass.repoEvent
+      ? makeEventShareEntityForEvent(repoClass.repoEvent as any, {
+          relays: [...repoClass.relays, ...((($page.data as any)?.naddrRelays || []) as string[])],
+        }) || $page.params.id
+      : $page.params.id,
+  )
 
   // Simple provider detection from URL
   function detectProviderFromUrl(url: string | undefined): string | undefined {

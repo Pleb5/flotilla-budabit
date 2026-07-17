@@ -1,7 +1,7 @@
 <script lang="ts">
   import TimeAgo from "../../TimeAgo.svelte";
   import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
-  import { nip19, type NostrEvent } from "nostr-tools";
+  import { type NostrEvent } from "nostr-tools";
   import { createGitCommentEvent, parseCommentEvent } from "@nostr-git/core/events";
   import type { CommentEvent, CommentTag, Profile } from "@nostr-git/core/events";
   import type {
@@ -14,6 +14,7 @@
   import { slide } from "svelte/transition";
   import RichText from "../RichText.svelte";
   import { toast } from "../../stores/toast";
+  import { getEventRelayHints, makeEventNevent } from "../../utils/eventLink";
   const {
     Button,
     Textarea,
@@ -54,6 +55,7 @@
     deleteReaction?: (event: NostrEvent) => void | Promise<void>;
     createReaction?: (comment: CommentEvent, template: ReactionTemplate) => void | Promise<void>;
     onInlineCommentOpen?: (comment: CommentEvent) => void;
+    getShareRelays?: (event: CommentEvent) => string[];
   }
 
   const {
@@ -76,6 +78,7 @@
     deleteReaction,
     createReaction,
     onInlineCommentOpen,
+    getShareRelays,
   }: Props = $props();
 
   let newComment = $state("");
@@ -131,11 +134,9 @@
   const isRelayHint = (value: string | undefined) => Boolean(value?.match(/^wss?:\/\//));
 
   const getCommentRelayHints = (event: CommentEvent) => {
-    const hints = new Set<string>();
-    for (const relay of [...relays, relayHint].filter(isRelayHint)) {
-      hints.add(relay as string);
-    }
-    return Array.from(hints);
+    const eventRelays = getShareRelays?.(event) || [];
+    const fallbackRelays = [...relays, relayHint].filter(isRelayHint) as string[];
+    return getEventRelayHints(event, eventRelays.length > 0 ? eventRelays : fallbackRelays);
   };
 
   const getProfileRelayHints = () => (profileRelays.length > 0 ? profileRelays : relays);
@@ -203,18 +204,7 @@
   });
 
   const getEventLink = (event: CommentEvent) => {
-    try {
-      const relayHints = getCommentRelayHints(event);
-      return nip19.neventEncode({
-        id: event.id,
-        relays: relayHints,
-        author: event.pubkey,
-        kind: event.kind,
-      });
-    } catch (error) {
-      console.warn("Failed to encode event link:", error);
-      return "";
-    }
+    return makeEventNevent(event, getCommentRelayHints(event));
   };
 
   const copyEventLink = async (event: CommentEvent) => {

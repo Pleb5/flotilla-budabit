@@ -14,7 +14,7 @@
   interface Props {
     author: Profile;
     createdAt: string;
-    eventId?: string;
+    eventLink?: string;
     children?: import("svelte").Snippet;
     actions?: import("svelte").Snippet;
     showQuickActions?: boolean;
@@ -28,7 +28,7 @@
   const {
     author,
     createdAt,
-    eventId,
+    eventLink,
     children,
     actions,
     showQuickActions = true,
@@ -47,11 +47,7 @@
   );
 
   const handleCopyLink = () => {
-    if (eventId) {
-      // Copy event link to clipboard
-      const link = `nostr:${eventId}`;
-      navigator.clipboard.writeText(link);
-    }
+    if (eventLink) navigator.clipboard.writeText(eventLink);
   };
 </script>
 
@@ -119,7 +115,7 @@
           </button>
         {/if}
 
-        {#if eventId}
+        {#if eventLink}
           <button
             onclick={handleCopyLink}
             class="p-1.5 hover:bg-muted rounded transition-colors"

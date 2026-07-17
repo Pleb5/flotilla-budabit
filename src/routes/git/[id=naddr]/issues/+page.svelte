@@ -73,6 +73,7 @@
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
+  import {getSeenEventRelayHints} from "@app/util/event-links"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -114,6 +115,7 @@
 
     return normalizeRelays([repoClass.community?.relay || ""])
   })
+  const getCommentShareRelays = (event: TrustedEvent) => getSeenEventRelayHints(event.id)
   const reactionRelays = $derived.by(() => {
     const scoped = [...repoBoundRelays].filter(Boolean)
 
@@ -1294,6 +1296,7 @@
               assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
               assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
               relays={repoRelays}
+              getShareRelays={getCommentShareRelays}
               profileRelays={repoCommunityProfileRelays}
               onDeleteReaction={deleteReaction}
               onCreateReaction={template =>

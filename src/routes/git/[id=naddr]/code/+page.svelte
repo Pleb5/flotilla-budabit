@@ -12,7 +12,7 @@
   import {filterValidCloneUrls} from "@nostr-git/core/utils"
   import {pushToast} from "@src/app/util/toast"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
-  import {makeEventNevent} from "@app/util/event-links"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {createSearch, profilesByPubkey, pubkey} from "@welshman/app"
   import {getContext, hasContext} from "svelte"
   import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@app/core/git-state"
@@ -81,7 +81,15 @@
   // that was causing effect_update_depth_exceeded errors.
   const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
   const repoEventId = $derived.by(() => repoClass.repoEvent?.id || "")
-  const repoLinkBasePath = $derived.by(() => `/git/${$page.params.id}`)
+  const repoLinkBasePath = $derived.by(() => {
+    const repoNaddr = repoClass.repoEvent
+      ? makeEventShareEntityForEvent(repoClass.repoEvent as any, {
+          relays: [...repoClass.relays, ...((($page.data as any)?.naddrRelays || []) as string[])],
+        })
+      : ""
+
+    return `/git/${repoNaddr || $page.params.id}`
+  })
   const supportedCloneUrls = $derived.by(() =>
     filterValidCloneUrls(
       ($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || [],
@@ -661,7 +669,7 @@
         },
         onCollect: async (selection: PublicationDestinationSelection) => {
           try {
-            const event = publishPermalinkToDestinations({
+            const published = publishPermalinkToDestinations({
               permalink,
               relays: repoClass.relays,
               communityOptions: permalinkCommunityOptions,
@@ -669,13 +677,15 @@
             })
             clearModals()
 
-            if (!event) {
+            if (!published) {
               pushToast({message: "No permalink was published", theme: "warning"})
               resolve(false)
               return
             }
 
-            const nevent = makeEventNevent(event as any, {relays: repoClass.relays})
+            const nevent = makeEventShareEntityForEvent(published.event, {
+              relays: published.relays,
+            })
             await navigator.clipboard.writeText(nevent)
             pushToast({message: "Permalink copied to clipboard"})
             resolve(true)

@@ -44,7 +44,7 @@
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
-  import {makeEventNevent} from "@app/util/event-links"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import type {CommitChange} from "./+page"
   import {profilesByPubkey, pubkey} from "@welshman/app"
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
@@ -327,7 +327,7 @@
         onCollect: async (selection: PublicationDestinationSelection) => {
           try {
             const relays = repoClass.relays || []
-            const event = publishPermalinkToDestinations({
+            const published = publishPermalinkToDestinations({
               permalink,
               relays,
               communityOptions: permalinkCommunityOptions,
@@ -335,13 +335,15 @@
             })
             clearModals()
 
-            if (!event) {
+            if (!published) {
               toast.push({message: "No permalink was published", timeout: 2000})
               resolve(false)
               return
             }
 
-            const nevent = makeEventNevent(event as any, {relays})
+            const nevent = makeEventShareEntityForEvent(published.event, {
+              relays: published.relays,
+            })
             await navigator.clipboard.writeText(nevent)
             toast.push({message: "Permalink copied to clipboard", timeout: 2000})
             resolve(true)

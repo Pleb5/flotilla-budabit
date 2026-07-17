@@ -133,6 +133,7 @@
   import Code from "@assets/icons/code.svg?dataurl"
   import {GIT_COMMUNITY_PARAM, makeGitPath} from "@app/util/routes"
   import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
+  import {getEventShareRelayHints} from "@app/util/event-share"
   import {
     getInitialGitMode,
     getInitialGitTab,
@@ -1391,6 +1392,13 @@
       return haystack.includes(snippetQuery)
     })
   })
+
+  const getSnippetShareRelays = (event: NostrEvent) => {
+    const eventRelays = getEventShareRelayHints(event as any)
+    if (eventRelays.length > 0) return eventRelays
+
+    return activeMode === "community" ? selectedCommunityRelays : bookmarkRelays
+  }
 
   let communityTargetLoadKey = ""
   let communityTargetLoadRequestId = 0
@@ -3738,7 +3746,9 @@
       {:else}
         <div class="flex min-w-0 flex-col gap-3">
           {#each filteredSnippets as snippet (snippet.id)}
-            <EventRenderer event={snippet as any} />
+            <EventRenderer
+              event={snippet as any}
+              relays={getSnippetShareRelays(snippet)} />
           {/each}
         </div>
       {/if}

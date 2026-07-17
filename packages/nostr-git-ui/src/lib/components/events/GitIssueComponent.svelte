@@ -14,6 +14,10 @@
     BookmarkCheck,
   } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
+  import {
+    getReferenceRelayHints,
+    makeNaddrFromAddress,
+  } from "../../utils/eventLink";
 
   const { Card, Button, ProfileLink, Badge } = useRegistry();
 
@@ -69,24 +73,13 @@
     return match ? match[1] : "";
   };
 
-  const repoRelayHints = $derived.by(() =>
-    relay?.match(/^wss?:\/\//) ? [relay] : []
-  );
+  const repoRelayHints = $derived.by(() => {
+    return getReferenceRelayHints(event, "a", repoAddress);
+  });
 
   const repoNaddr = $derived.by(() => {
     if (!repoAddress) return "";
-    const parsed = parseRepoAddress(repoAddress);
-    if (!parsed) return "";
-    try {
-      return nip19.naddrEncode({
-        kind: parsed.kind,
-        pubkey: parsed.pubkey,
-        identifier: parsed.identifier,
-        relays: repoRelayHints,
-      });
-    } catch {
-      return "";
-    }
+    return makeNaddrFromAddress(repoAddress, repoRelayHints);
   });
 
   const basePath = $derived.by(() => {
@@ -267,7 +260,7 @@
               variant="ghost"
               size="sm"
               class="h-6 px-1 text-xs"
-              onclick={() => copyToClipboard(repoAddress)}
+              onclick={() => copyToClipboard(repoNaddr || repoAddress)}
               title="Copy repository address"
             >
               <Copy class="h-3 w-3" />

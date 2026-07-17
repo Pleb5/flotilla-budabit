@@ -15,6 +15,11 @@ export type PublicationDestinationSelection = {
   communityPubkeys: string[]
 }
 
+export type PublishedPermalink = {
+  event: TrustedEvent
+  relays: string[]
+}
+
 const normalizeRelay = (relay?: string) => {
   if (!relay) return ""
 
@@ -67,9 +72,9 @@ export const publishPermalinkToDestinations = ({
   communityOptions: RepoCommunityOption[]
   selection: PublicationDestinationSelection
   createdAt?: number
-}): TrustedEvent | undefined => {
+}): PublishedPermalink | undefined => {
   const baseRelays = normalizeRelays(relays)
-  let firstPublishedEvent: TrustedEvent | undefined
+  let firstPublished: PublishedPermalink | undefined
 
   if (selection.personal) {
     const personalThunk = publishThunk({
@@ -79,7 +84,7 @@ export const publishPermalinkToDestinations = ({
     if (personalThunk?.event) {
       const event = personalThunk.event as TrustedEvent
       repository.publish(event)
-      firstPublishedEvent ||= event
+      firstPublished ||= {event, relays: baseRelays}
     }
   }
 
@@ -98,7 +103,7 @@ export const publishPermalinkToDestinations = ({
     const publishedPermalink = permalinkThunk?.event as TrustedEvent | undefined
     if (publishedPermalink) {
       repository.publish(publishedPermalink)
-      firstPublishedEvent ||= publishedPermalink
+      firstPublished ||= {event: publishedPermalink, relays: communityRelays}
     }
 
     const targetingEvent = makeEvent(TARGETED_PUBLICATION_KIND, {
@@ -121,5 +126,5 @@ export const publishPermalinkToDestinations = ({
     if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
   }
 
-  return firstPublishedEvent
+  return firstPublished
 }

@@ -3,14 +3,16 @@
   import { onMount } from "svelte";
   import { Activity, Copy } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
+  import { getReferenceRelayHints, makeNaddrFromAddress } from "../../utils/eventLink";
 
   const { Card, Button, ProfileLink, Badge } = useRegistry();
 
   interface Props {
     event: NostrEvent;
+    relays?: string[];
   }
 
-  let { event }: Props = $props();
+  let { event, relays = [] }: Props = $props();
 
   let statusMessage = $state("");
   let authorNpub = $state("");
@@ -21,6 +23,10 @@
 
   const displayMessage = $derived(statusMessage || event.content || "Status change");
   const createdDate = $derived(new Date(event.created_at * 1000));
+  const repoNaddr = $derived.by(() => {
+    const referenceRelays = getReferenceRelayHints(event, "a", repoAddress);
+    return makeNaddrFromAddress(repoAddress, referenceRelays);
+  });
 
   const statusTypeInfo = $derived.by(() => {
     switch (event.kind) {
@@ -161,7 +167,7 @@
               variant="ghost"
               size="sm"
               class="h-6 px-1"
-              onclick={() => copyToClipboard(repoAddress)}
+              onclick={() => copyToClipboard(repoNaddr || repoAddress)}
               title="Copy repository address"
             >
               <Copy class="h-3 w-3" />

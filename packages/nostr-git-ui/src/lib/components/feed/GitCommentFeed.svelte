@@ -4,6 +4,7 @@
   import RichText from "../RichText.svelte";
   import { useRegistry } from "../../useRegistry";
   import type { Profile } from "@nostr-git/core/events";
+  import { makeEventNevent } from "../../utils/eventLink";
 
   interface Props {
     event: NostrEvent;
@@ -12,13 +13,26 @@
     onReact?: () => void;
     onBookmark?: () => void;
     isReply?: boolean;
+    relays?: string[];
   }
 
-  const { event, author, onReply, onReact, onBookmark, isReply = false }: Props = $props();
+  const {
+    event,
+    author,
+    onReply,
+    onReact,
+    onBookmark,
+    isReply = false,
+    relays = [],
+  }: Props = $props();
   const { Markdown } = useRegistry();
 
   const commentContent = $derived(event.content || "");
   const createdDate = $derived(new Date(event.created_at * 1000).toISOString());
+  const eventLink = $derived.by(() => {
+    const entity = makeEventNevent(event, relays);
+    return entity ? `nostr:${entity}` : "";
+  });
 
   // Check if this is a reply to something
   let replyToTitle = $state("");
@@ -37,7 +51,7 @@
 <FeedItem
   author={author || { name: "Unknown", picture: "", pubkey: "" }}
   createdAt={createdDate}
-  eventId={event.id}
+  {eventLink}
   onReply={onReply}
   onReact={onReact}
   onBookmark={onBookmark}

@@ -1,10 +1,15 @@
 <script lang="ts">
   import type { NostrEvent } from "nostr-tools";
-  import { nip19 } from "nostr-tools";
   import { ArrowUpRight, FileCode, GitCommit } from "@lucide/svelte";
   import { githubPermalinkDiffId } from "@nostr-git/core/git";
   import { useRegistry } from "../../useRegistry";
   import { toast } from "../../stores/toast";
+  import {
+    getEventRelayHints,
+    getReferenceRelayHints,
+    makeEventNevent,
+    makeNaddrFromAddress,
+  } from "../../utils/eventLink";
   import {
     getHighlightLanguageForPath,
     highlightCodeLines,
@@ -16,9 +21,10 @@
   interface Props {
     event: NostrEvent;
     relay?: string;
+    relays?: string[];
   }
 
-  let { event, relay }: Props = $props();
+  let { event, relay, relays = [] }: Props = $props();
 
   let diffHash = $state("");
   const maxPreviewChars = 1200;
@@ -56,28 +62,11 @@
   });
 
   const relayHints = $derived.by(() =>
-    Array.from(
-      new Set(
-        [relay, ...tags.flatMap((tag) => tag.slice(1))].filter(
-          (value): value is string => Boolean(value?.match(/^wss?:\/\//))
-        )
-      )
-    )
+    getEventRelayHints(event, [...(relay ? [relay] : []), ...relays])
   );
+  const repoRelayHints = $derived.by(() => getReferenceRelayHints(event, "a", repoAddress));
 
-  const shareLink = $derived.by(() => {
-    if (!event?.id) return "";
-    try {
-      return nip19.neventEncode({
-        id: event.id,
-        relays: relayHints,
-        author: event.pubkey,
-        kind: event.kind,
-      });
-    } catch {
-      return "";
-    }
-  });
+  const shareLink = $derived.by(() => makeEventNevent(event, relayHints));
 
   const shareTitle = $derived(
     shareState === "copied" ? "Copied" : shareState === "error" ? "Copy failed" : "Share"
@@ -102,16 +91,6 @@
       : ""
   );
   const commitShort = $derived(commit ? commit.slice(0, 8) : "");
-
-  const parseRepoAddress = (address: string) => {
-    const parts = address.split(":");
-    if (parts.length < 3) return null;
-    const [kindStr, pubkey, ...identifierParts] = parts;
-    const kind = Number.parseInt(kindStr, 10);
-    const identifier = identifierParts.join(":");
-    if (!kind || !pubkey || !identifier) return null;
-    return { kind, pubkey, identifier };
-  };
 
   const deriveCommunityFromLocation = () => {
     if (typeof window === "undefined") return null;
@@ -140,18 +119,7 @@
 
   const repoNaddr = $derived.by(() => {
     if (!repoAddress) return "";
-    const parsed = parseRepoAddress(repoAddress);
-    if (!parsed) return "";
-    try {
-      return nip19.naddrEncode({
-        kind: parsed.kind,
-        pubkey: parsed.pubkey,
-        identifier: parsed.identifier,
-        relays: relayHints,
-      });
-    } catch {
-      return "";
-    }
+    return makeNaddrFromAddress(repoAddress, repoRelayHints);
   });
 
   const basePath = $derived.by(() => {

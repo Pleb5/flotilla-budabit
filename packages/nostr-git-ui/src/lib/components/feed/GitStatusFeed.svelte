@@ -121,7 +121,6 @@
 <FeedItem
   author={author || { name: "Unknown", picture: "", pubkey: "" }}
   createdAt={createdDate}
-  eventId={event.id}
   showQuickActions={false}
 >
   <!-- Status Update - Timeline Style with Connected Card -->

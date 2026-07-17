@@ -4,6 +4,7 @@
   import { MessageCircle, Copy, Reply } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
   import RichText from "../RichText.svelte";
+  import { getReferenceRelayHints, makeNaddrFromAddress } from "../../utils/eventLink";
 
   const { Card, Button, ProfileLink, Markdown } = useRegistry();
 
@@ -27,6 +28,10 @@
   const createdDate = $derived(new Date(event.created_at * 1000));
   const isReply = $derived(!!replyToEventId);
   const shortReplyId = $derived(replyToEventId ? replyToEventId.slice(0, 8) : "");
+  const repoNaddr = $derived.by(() => {
+    const referenceRelays = getReferenceRelayHints(event, "a", repoAddress);
+    return makeNaddrFromAddress(repoAddress, referenceRelays);
+  });
 
   // Parse event tags to extract comment information
   const parseEventData = () => {
@@ -148,7 +153,7 @@
             variant="ghost"
             size="sm"
             class="h-6 px-1"
-            onclick={() => copyToClipboard(repoAddress)}
+            onclick={() => copyToClipboard(repoNaddr || repoAddress)}
             title="Copy repository address"
           >
             <Copy class="h-3 w-3" />

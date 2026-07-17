@@ -107,6 +107,7 @@
   } from "@nostr-git/ui"
   import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
+  import {getSeenEventRelayHints} from "@app/util/event-links"
 
   type PrChange = {
     path: string
@@ -235,6 +236,8 @@
     const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     return relays[0] || undefined
   })
+  const getCommentShareRelays = (event: TrustedEvent) =>
+    getSeenEventRelayHints(event.id)
   const prRepoAddress = $derived.by(
     () =>
       (prEvent?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
@@ -4378,6 +4381,7 @@
             rootEvent={prEvent}
             repoRefs={commentRepoRefs}
             relayHint={commentRelayHint}
+            getShareRelays={getCommentShareRelays}
             deleteReaction={deleteCommentReaction}
             createReaction={createCommentReaction}
             ownerPubkey={repoOwnerPubkey}

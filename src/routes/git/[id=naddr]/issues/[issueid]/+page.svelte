@@ -74,6 +74,7 @@
   import {HIDDEN_ROOT_IDS_KEY, REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
+  import {getSeenEventRelayHints} from "@app/util/event-links"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
@@ -235,6 +236,8 @@
         : [],
   )
   const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
+  const getCommentShareRelays = (event: TrustedEvent) =>
+    getSeenEventRelayHints(event.id)
   const issueDescriptionContext = $derived.by(
     (): RichComposerContext => ({
       url: issueCommentRelayHint || "",
@@ -1054,6 +1057,7 @@
         rootEvent={issueEvent as any}
         repoRefs={issueCommentRepoRefs}
         relayHint={issueCommentRelayHint}
+        getShareRelays={getCommentShareRelays}
         deleteReaction={deleteCommentReaction}
         createReaction={createCommentReaction}
         ownerPubkey={currentRepoOwner}

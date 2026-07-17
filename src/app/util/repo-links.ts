@@ -1,6 +1,5 @@
 import {Address, type TrustedEvent} from "@welshman/util"
 import {
-  getUserRelayHints,
   makeRepoEventNaddr,
   normalizeRelayHints,
   type EventShareEntityOptions,
@@ -17,10 +16,7 @@ export const makeRepoNaddrFromEvent = (
 ) => {
   try {
     return (
-      makeRepoEventNaddr(event, {
-        ...options,
-        userOutboxRelays: normalizeRelayHints(getUserRelayHints(), options.userOutboxRelays),
-      }) || Address.fromEvent(event).toNaddr()
+      makeRepoEventNaddr(event, options) || Address.fromEvent(event).toNaddr()
     )
   } catch {
     return ""
@@ -28,7 +24,10 @@ export const makeRepoNaddrFromEvent = (
 }
 
 export const makeRepoHrefFromEvent = (event: TrustedEvent, options: RepoLinkOptions = {}) => {
-  const naddr = makeRepoNaddrFromEvent(event, options)
+  const naddr = makeRepoNaddrFromEvent(event, {
+    ...options,
+    fallbackRelays: normalizeRelayHints(options.url, options.fallbackRelays),
+  })
 
   return naddr ? makeGitPath(options.url, naddr) : ""
 }

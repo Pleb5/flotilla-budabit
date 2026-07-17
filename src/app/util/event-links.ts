@@ -107,6 +107,9 @@ export const getUserRelayHints = () => {
   }
 }
 
+export const getSeenEventRelayHints = (eventId?: string) =>
+  eventId ? normalizeRelayHints(tracker.getRelays(eventId)) : []
+
 const normalizeKind = (kind: number | string | undefined) => {
   if (typeof kind === "number" && Number.isFinite(kind)) return kind
   if (typeof kind !== "string") return undefined
@@ -151,7 +154,7 @@ export const getEventRelayHints = (
   {
     relays,
     fallbackRelays,
-    includeTagRelays = true,
+    includeTagRelays = false,
     includeAuthorRelays = true,
     includeTargetedPublicationRelays = true,
   }: EventRelayHintOptions = {},
@@ -159,7 +162,7 @@ export const getEventRelayHints = (
   const targetedRelays = includeTargetedPublicationRelays
     ? getTargetedPublicationRelayHints(event)
     : []
-  const primaryRelays = normalizeRelayHints(relays, tracker.getRelays(event.id), targetedRelays)
+  const primaryRelays = normalizeRelayHints(relays, getSeenEventRelayHints(event.id), targetedRelays)
   if (primaryRelays.length > 0) return primaryRelays
 
   return normalizeRelayHints(

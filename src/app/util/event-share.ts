@@ -1,6 +1,5 @@
 import type {TrustedEvent} from "@welshman/util"
-import {GIT_RELAYS} from "@app/core/git-state"
-import {getEventRelayHints, getUserRelayHints, makeEventShareEntity} from "@app/util/event-links"
+import {getEventRelayHints, makeEventShareEntity} from "@app/util/event-links"
 
 export type EventShareOptions = {
   url?: string
@@ -20,8 +19,6 @@ export const makeEventShareEntityForEvent = (
 
   return makeEventShareEntity(event, {
     relays: relayHints,
-    userOutboxRelays: getUserRelayHints(),
-    gitRelays: GIT_RELAYS,
   })
 }
 

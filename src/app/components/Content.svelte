@@ -39,6 +39,7 @@
   import {replaceCashuTokens} from "@app/util/cashu-token"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
   import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
+  import {getEventShareRelayHints} from "@app/util/event-share"
 
   interface Props {
     event: any
@@ -169,7 +170,7 @@
             e.preventDefault()
           }
         }}>
-        <EventRenderer {event} relay={url} />
+        <EventRenderer {event} relays={getEventShareRelayHints(event, {url})} />
       </div>
     {:else if isKnownUnknown(event.kind)}
       <div class="unknown-kind">

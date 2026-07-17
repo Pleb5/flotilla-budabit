@@ -865,7 +865,9 @@
     if (!repo) return null;
 
     const tags: string[][] = [];
-    if (repo.address) tags.push(["a", repo.address]);
+    if (repo.address) {
+      tags.push(["a", repo.address, ...(repo.relays[0] ? [repo.relays[0]] : [])]);
+    }
     const repoUrl = (repo.web && repo.web[0]) || (repo.clone && repo.clone[0]) || "";
     if (repoUrl) tags.push(["repo", repoUrl]);
 
