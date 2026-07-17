@@ -2,7 +2,11 @@
   import TimeAgo from "../../TimeAgo.svelte";
   import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
   import { type NostrEvent } from "nostr-tools";
-  import { createGitCommentEvent, parseCommentEvent } from "@nostr-git/core/events";
+  import {
+    createCommentEvent,
+    createGitCommentEvent,
+    parseCommentEvent,
+  } from "@nostr-git/core/events";
   import type { CommentEvent, CommentTag, Profile } from "@nostr-git/core/events";
   import type {
     RichComposerContext,
@@ -33,9 +37,16 @@
     tags: string[][];
   };
 
+  type ExternalCommentRoot = {
+    type: "I";
+    value: string;
+    kind: string;
+  };
+
   interface Props {
     issueId: string;
-    issueKind: "1621" | "1618";
+    issueKind: string;
+    externalRoot?: ExternalCommentRoot;
     currentCommenter: string;
     currentCommenterProfile?: Profile;
     comments?: CommentEvent[] | undefined;
@@ -61,6 +72,7 @@
   const {
     issueId,
     issueKind = "1621",
+    externalRoot,
     comments = [],
     currentCommenter,
     onCommentCreated,
@@ -86,7 +98,13 @@
   let replyParent = $state<CommentEvent | null>(null);
   let editingComment = $state<CommentEvent | null>(null);
 
+  const threadRootId = $derived(externalRoot?.value || issueId);
+
   const getCommentRootId = (comment: CommentEvent) => {
+    if (externalRoot) {
+      return comment.tags.find((tag) => tag[0] === externalRoot.type)?.[1] || "";
+    }
+
     const rootTag = (comment.tags || []).find(
       (tag) => tag[0] === "E" || (tag[0] === "e" && tag[3] === "root")
     );
@@ -100,7 +118,9 @@
   };
 
   const getCommentParentId = (comment: CommentEvent) => {
-    const parentTag = (comment.tags || []).find((tag) => tag[0] === "e");
+    const parentTag = (comment.tags || []).find(
+      (tag) => tag[0] === "e" || (externalRoot && tag[0] === "i")
+    );
     return parentTag?.[1] || "";
   };
 
@@ -160,8 +180,8 @@
       repoAddress,
       relayHint,
       rootEvent: rootEvent || {
-        id: issueId,
-        kind: issueKind,
+        id: threadRootId,
+        kind: externalRoot?.kind || issueKind,
         pubkey: ownerPubkey || undefined,
       },
     })
@@ -197,7 +217,7 @@
     };
 
     return comments
-      .filter((c) => getCommentRootId(c) === issueId)
+      .filter((c) => getCommentRootId(c) === threadRootId)
       .slice()
       .sort((a, b) => getCommentTimestamp(a) - getCommentTimestamp(b))
       .map((c) => parseCommentEvent(c));
@@ -288,31 +308,57 @@
 
     if (!onCommentCreated) return;
 
-    const commentEvent = createGitCommentEvent({
-      content: trimmedContent,
-      root: {
-        id: rootEvent?.id || issueId,
-        kind: rootEvent?.kind || issueKind,
-        pubkey: rootEvent?.pubkey,
-        relay: relayHint,
-      },
-      parent: replyParent
-        ? {
-            id: replyParent.id,
-            kind: replyParent.kind,
-            pubkey: replyParent.pubkey,
-            relay: relayHint,
-          }
-        : {
+    const commentRepoRefs = repoRefs.length ? repoRefs : repoAddress ? [repoAddress] : [];
+    const commentEvent = externalRoot
+      ? createCommentEvent({
+          content: trimmedContent,
+          root: externalRoot,
+          parent: replyParent
+            ? {
+                type: "e",
+                value: replyParent.id,
+                kind: String(replyParent.kind),
+                pubkey: replyParent.pubkey,
+                relay: relayHint,
+              }
+            : {
+                type: "i",
+                value: externalRoot.value,
+                kind: externalRoot.kind,
+                relay: relayHint,
+              },
+          extraTags: [
+            ...commentRepoRefs.map(
+              (repoRef) => ["q", repoRef, ...(relayHint ? [relayHint] : [])] as CommentTag
+            ),
+            ...(tags as CommentTag[]),
+          ],
+        })
+      : createGitCommentEvent({
+          content: trimmedContent,
+          root: {
             id: rootEvent?.id || issueId,
             kind: rootEvent?.kind || issueKind,
             pubkey: rootEvent?.pubkey,
             relay: relayHint,
           },
-      repoRefs: repoRefs.length ? repoRefs : repoAddress ? [repoAddress] : [],
-      relayHint,
-      extraTags: tags as CommentTag[],
-    });
+          parent: replyParent
+            ? {
+                id: replyParent.id,
+                kind: replyParent.kind,
+                pubkey: replyParent.pubkey,
+                relay: relayHint,
+              }
+            : {
+                id: rootEvent?.id || issueId,
+                kind: rootEvent?.kind || issueKind,
+                pubkey: rootEvent?.pubkey,
+                relay: relayHint,
+              },
+          repoRefs: commentRepoRefs,
+          relayHint,
+          extraTags: tags as CommentTag[],
+        });
 
     try {
       isSubmitting = true;
@@ -361,10 +407,10 @@
           : c.createdAt}
         {@const parentId = getCommentParentId(c.raw)}
         {@const parentComment =
-          parentId && parentId !== issueId ? getParsedCommentById(parentId) : undefined}
+          parentId && parentId !== threadRootId ? getParsedCommentById(parentId) : undefined}
         {@const inlineLocation = getInlineCommentLocation(c.raw)}
         {@const inlineLocationLabel = getInlineLocationLabel(inlineLocation)}
-        {@const isReply = Boolean(parentId && parentId !== issueId)}
+        {@const isReply = Boolean(parentId && parentId !== threadRootId)}
         {@const eventActionUrl = relays[0] || relayHint || ""}
         {@const commentRelayHints = getCommentRelayHints(c.raw)}
         {@const commentProfileRelays = getProfileRelayHints()}
@@ -414,7 +460,7 @@
                 <span class="min-w-0 truncate font-mono">{inlineLocationLabel}</span>
               </button>
             {/if}
-            {#if enableReplies && parentId && parentId !== issueId}
+            {#if enableReplies && parentId && parentId !== threadRootId}
               <button
                 type="button"
                 class="w-fit rounded border border-border bg-muted/40 px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground"

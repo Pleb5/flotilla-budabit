@@ -7,7 +7,6 @@
     SelectContent,
     SelectTrigger,
     SelectItem,
-    Separator,
     CommitCard,
     context,
   } from "@nostr-git/ui"
@@ -19,8 +18,6 @@
   import {getContext, onMount} from "svelte"
   import {REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
-  import {createCommentEvent, type CommentEvent} from "@nostr-git/core/events"
-  import {postComment} from "@app/core/git-commands"
 
   const repoClass = getContext<Repo>(REPO_KEY)
 
@@ -346,31 +343,6 @@
     return []
   })
 
-  const handleReact = (commitId: string, type: "heart") => {
-    // TODO: Implement reactions for commits (NIP-25)
-  }
-
-  const handleComment = (commitId: string, comment: string) => {
-    if (!comment.trim()) return
-
-    // Create a NIP-22 comment event referencing the commit by its OID
-    // Using "I" (external identifier) tag since commits are git objects, not Nostr events
-    const repoAddr = repoClass.address // e.g., "30617:pubkey:repo-name"
-    const relays = repoClass.relays || []
-    const commentEvent = createCommentEvent({
-      content: comment,
-      root: {
-        type: "I",
-        value: `git:commit:${commitId}`, // External identifier for git commit
-        kind: "commit", // Descriptive kind for the external resource
-      },
-      extraTags: repoAddr ? [["q", repoAddr, relays[0]].filter(Boolean) as any] : undefined,
-    })
-
-    // Publish the comment to repo relays
-    postComment(commentEvent as CommentEvent, relays)
-  }
-
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
@@ -380,7 +352,7 @@
   <title>{repoClass.name} - Commits</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6" bind:this={pageContainerRef}>
+<div class="flex min-w-0 flex-col gap-6" bind:this={pageContainerRef}>
   <div class="mt-2 flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row">
     <div class="flex-1">
       <div class="relative">
@@ -456,15 +428,14 @@
   {:else}
     <div data-testid="commits-list">
       <div class="space-y-4">
-        <Separator />
-
         {#if commits}
-          <div class="space-y-4" transition:slide>
+          <div
+            class="min-w-0 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card"
+            role="list"
+            transition:slide>
             {#each filteredCommits as commit (commit.oid)}
               <CommitCard
                 {commit}
-                onReact={handleReact}
-                onComment={handleComment}
                 href={getCommitUrl(commit.oid)}
                 getParentHref={getCommitUrl}
                 disablePrefetch={true}
@@ -510,10 +481,13 @@
         {/if}
 
         {#if commitsError}
-          <div class="rounded-md border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50">
+          <div
+            class="rounded-md border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50">
             <div class="flex">
               <div class="ml-3">
-                <h3 class="text-sm font-medium text-red-800 dark:text-red-400">Error loading commits</h3>
+                <h3 class="text-sm font-medium text-red-800 dark:text-red-400">
+                  Error loading commits
+                </h3>
                 <div class="mt-2 text-sm text-red-700 dark:text-red-300">
                   <p>{commitsError}</p>
                 </div>

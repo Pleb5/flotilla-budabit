@@ -82,6 +82,42 @@ describe('NIP-22: comments (create + parse)', () => {
     }
   });
 
+  it('creates a top-level commit comment with external root and parent tags', () => {
+    const root = 'git:commit:abcdef0123456789';
+    const evt = createCommentEvent({
+      content: 'Commit note',
+      root: { type: 'I', value: root, kind: 'commit' },
+      parent: { type: 'i', value: root, kind: 'commit' },
+      extraTags: [['q', '30617:owner:repo', 'wss://relay.example']]
+    });
+
+    expect(evt.tags).toContainEqual(['I', root]);
+    expect(evt.tags).toContainEqual(['K', 'commit']);
+    expect(evt.tags).toContainEqual(['i', root]);
+    expect(evt.tags).toContainEqual(['k', 'commit']);
+    expect(evt.tags).toContainEqual(['q', '30617:owner:repo', 'wss://relay.example']);
+  });
+
+  it('keeps the commit root while replying to an immediate comment parent', () => {
+    const root = 'git:commit:abcdef0123456789';
+    const evt = createCommentEvent({
+      content: 'Commit reply',
+      root: { type: 'I', value: root, kind: 'commit' },
+      parent: {
+        type: 'e',
+        value: 'parent-comment-id',
+        kind: '1111',
+        pubkey: 'parent-author'
+      }
+    });
+
+    expect(evt.tags).toContainEqual(['I', root]);
+    expect(evt.tags).toContainEqual(['K', 'commit']);
+    expect(evt.tags).toContainEqual(['e', 'parent-comment-id']);
+    expect(evt.tags).toContainEqual(['k', '1111']);
+    expect(evt.tags).toContainEqual(['p', 'parent-author']);
+  });
+
   it('parses a comment event into developer-friendly Comment object', () => {
     const evt = createCommentEvent({
       content: 'Parse me',

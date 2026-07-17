@@ -23,10 +23,12 @@
     FileMinus,
     FileX,
     FileCode,
+    MessageSquare,
   } from "@lucide/svelte"
   import {
     CommitHeader,
     DiffViewer,
+    IssueThread,
     Tabs,
     TabsContent,
     TabsList,
@@ -39,16 +41,26 @@
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
   import {getContext, hasContext, onMount, tick} from "svelte"
-  import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@app/core/git-state"
+  import {
+    REPO_CLONE_URLS_KEY,
+    REPO_KEY,
+    REPO_PROFILE_RELAYS_KEY,
+    REPO_RELAYS_KEY,
+  } from "@app/core/git-state"
   import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
+  import type {CommentEvent} from "@nostr-git/core/events"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import type {CommitChange} from "./+page"
-  import {profilesByPubkey, pubkey} from "@welshman/app"
+  import {profilesByPubkey, pubkey, repository} from "@welshman/app"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {load, request} from "@welshman/net"
+  import {DELETE, normalizeRelayUrl, type EventContent, type TrustedEvent} from "@welshman/util"
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import {clearModals, pushModal} from "@app/util/modal"
+  import LogIn from "@app/components/LogIn.svelte"
   import {activeUserCommunityRefs} from "@app/core/community-state"
   import {
     COMMUNITY_WRITE_TARGETS,
@@ -58,6 +70,21 @@
     publishPermalinkToDestinations,
     type PublicationDestinationSelection,
   } from "@app/util/permalink-publishing"
+  import {postComment} from "@app/core/git-commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
+  import {
+    canEditReplyEvent,
+    editedTargetIds,
+    filterVisibleAfterDeletesAndEdits,
+  } from "@app/core/event-edits"
+  import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {loadBudabitProfile} from "@app/core/profile-resolver"
+  import {
+    COMMIT_COMMENT_KIND,
+    getCommitCommentFilters,
+    getCommitCommentRoot,
+    isCommitCommentForRepo,
+  } from "@app/core/commit-comments"
 
   const {data}: {data: PageData} = $props()
 
@@ -66,6 +93,12 @@
   const repoCloneUrlsStore = hasContext(REPO_CLONE_URLS_KEY)
     ? getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
     : readable<string[]>([])
+  const repoRelaysStore = hasContext(REPO_RELAYS_KEY)
+    ? getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+    : readable<string[]>([])
+  const getRepoProfileRelays = hasContext(REPO_PROFILE_RELAYS_KEY)
+    ? getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
+    : () => []
 
   // Create navigation helper for parent commits
   const getParentHref = (commitId: string) => {
@@ -91,6 +124,9 @@
   let commitWarning = $state<string | undefined>(data?.warning)
   let loadError = $state<string | undefined>(undefined)
   let loadAttempted = $state(false)
+  let commentsLoading = $state(Boolean(data?.commitMeta?.sha))
+  let commentsError = $state<string | undefined>(undefined)
+  let commentsReloadToken = $state(0)
 
   // Load commit details after ensuring repo is cloned
   async function loadCommitDetails() {
@@ -367,6 +403,183 @@
       }
     }
   })
+
+  const normalizeCommentRelays = (relays: string[]) =>
+    Array.from(
+      new Set(
+        relays
+          .map(relay => {
+            try {
+              return normalizeRelayUrl(relay)
+            } catch {
+              return ""
+            }
+          })
+          .filter(Boolean),
+      ),
+    )
+
+  const commitCommentOid = $derived(commitMeta?.sha || "")
+  const commitCommentRoot = $derived(commitCommentOid ? getCommitCommentRoot(commitCommentOid) : "")
+  const commitCommentRepoAddress = $derived(repoClass.address || "")
+  const commentRelays = $derived.by(() =>
+    normalizeCommentRelays([...($repoRelaysStore || []), ...(repoClass.relays || [])]),
+  )
+  const commentProfileRelays = $derived.by(() => {
+    const profileRelays = normalizeCommentRelays(getRepoProfileRelays?.() || [])
+    return profileRelays.length > 0 ? profileRelays : commentRelays
+  })
+  const commitCommentFilters = $derived.by(() =>
+    commitCommentOid
+      ? getCommitCommentFilters({
+          oid: commitCommentOid,
+          repoAddress: commitCommentRepoAddress,
+        })
+      : [],
+  )
+  const commitCommentsStore = $derived.by(() =>
+    commitCommentFilters.length > 0
+      ? deriveEventsAsc(
+          deriveEventsById({
+            repository,
+            filters: commitCommentFilters,
+          }),
+        )
+      : undefined,
+  )
+  const commitComments = $derived.by(() =>
+    filterVisibleAfterDeletesAndEdits(
+      commitCommentsStore ? (($commitCommentsStore || []) as CommentEvent[]) : [],
+      $editedTargetIds,
+    ).filter(comment =>
+      isCommitCommentForRepo(comment as unknown as TrustedEvent, {
+        oid: commitCommentOid,
+        repoAddress: commitCommentRepoAddress,
+      }),
+    ),
+  )
+  const repoOwnerPubkey = $derived(
+    (repoClass as any).repoEvent?.pubkey || (repoClass as any).owner || "",
+  )
+
+  $effect(() => {
+    void commentsReloadToken
+    const oid = commitCommentOid
+    const relays = commentRelays
+    const filters = commitCommentFilters
+
+    if (!oid || filters.length === 0) {
+      commentsLoading = false
+      commentsError = undefined
+      return
+    }
+    if (relays.length === 0) {
+      commentsLoading = false
+      commentsError = "No repository relays are available for this discussion."
+      return
+    }
+
+    const controller = new AbortController()
+    const loadKey = `${oid}:${commitCommentRepoAddress}:${commentsReloadToken}`
+    let active = true
+    commentsLoading = true
+    commentsError = undefined
+
+    void load({relays, filters})
+      .then(() => {
+        if (active) commentsLoading = false
+      })
+      .catch(error => {
+        if (!active) return
+        commentsLoading = false
+        commentsError = error instanceof Error ? error.message : "Failed to load discussion."
+      })
+
+    void request({
+      relays,
+      filters,
+      signal: controller.signal,
+      lifetime: "live",
+      onEvent: event => repository.publish(event),
+      onDuplicate: event => repository.publish(event),
+    }).catch(error => {
+      if (!controller.signal.aborted) {
+        console.warn(`[commit-comments] Live subscription failed for ${loadKey}`, error)
+      }
+    })
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  })
+
+  let commentDeleteLoadKey = ""
+  $effect(() => {
+    const ids = commitComments.map(comment => comment.id).filter(Boolean)
+    const relays = commentRelays
+    const key = `${relays.join("|")}:${ids.join("|")}`
+    if (ids.length === 0 || relays.length === 0 || key === commentDeleteLoadKey) return
+
+    commentDeleteLoadKey = key
+    void load({relays, filters: [{kinds: [DELETE], "#e": ids}]}).catch(() => undefined)
+  })
+
+  let commentProfileLoadKey = ""
+  $effect(() => {
+    const pubkeys = Array.from(new Set(commitComments.map(comment => comment.pubkey))).filter(
+      Boolean,
+    )
+    const relays = commentProfileRelays
+    const key = `${relays.join("|")}:${pubkeys.join("|")}`
+    if (pubkeys.length === 0 || key === commentProfileLoadKey) return
+
+    commentProfileLoadKey = key
+    for (const commentPubkey of pubkeys) {
+      if ($profilesByPubkey.get(commentPubkey)) continue
+      void loadBudabitProfile(commentPubkey, {communityRelays: relays}).catch(() => undefined)
+    }
+  })
+
+  const getCommentPublishRelays = () => commentRelays
+
+  const onCommentCreated = async (comment: CommentEvent) => {
+    const relays = getCommentPublishRelays()
+    if (relays.length === 0) throw new Error("No repository relays are available")
+    await postComment(comment, relays)
+  }
+
+  const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
+
+  const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
+    const relays = getCommentPublishRelays()
+    if (relays.length === 0) throw new Error("No repository relays are available")
+    await publishEditedReply({
+      event: comment as unknown as TrustedEvent,
+      content,
+      tags,
+      relays,
+      url: relays[0],
+    })
+  }
+
+  const deleteCommentReaction = async (event: TrustedEvent) => {
+    const relays = getCommentPublishRelays()
+    if (relays.length === 0) return
+    publishDelete({event, relays})
+  }
+
+  const createCommentReaction = async (comment: CommentEvent, template: EventContent) => {
+    const relays = getCommentPublishRelays()
+    if (relays.length === 0) return
+    publishReaction({
+      ...template,
+      event: comment as unknown as TrustedEvent,
+      relays,
+    })
+  }
+
+  const requireLogin = () => pushModal(LogIn)
 
   // Handle missing data gracefully - show loading or error state instead of throwing
   const hasData = $derived(!!commitMeta && !!changes)
@@ -961,5 +1174,54 @@
         {/if}
       </TabsContent>
     </Tabs>
+
+    <section class="mt-2 space-y-4 border-t border-border px-2 pt-6 sm:px-0">
+      <h2 class="flex items-center gap-2 text-lg font-medium">
+        <MessageSquare class="h-5 w-5" />
+        Discussion ({commitComments.length})
+      </h2>
+
+      {#if commentsError}
+        <div
+          class="flex flex-col gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          <span>{commentsError}</span>
+          <button
+            type="button"
+            class="self-start rounded-md border border-current px-3 py-1.5 font-medium hover:bg-amber-100 sm:self-auto dark:hover:bg-amber-900/40"
+            onclick={() => commentsReloadToken++}>Retry</button>
+        </div>
+      {/if}
+
+      {#if commentsLoading && commitComments.length === 0}
+        <div
+          class="rounded-md border border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+          Loading discussion...
+        </div>
+      {:else if commitCommentRoot}
+        <IssueThread
+          issueId={commitCommentRoot}
+          issueKind={COMMIT_COMMENT_KIND}
+          externalRoot={{
+            type: "I",
+            value: commitCommentRoot,
+            kind: COMMIT_COMMENT_KIND,
+          }}
+          comments={commitComments}
+          currentCommenter={$pubkey || ""}
+          onCommentCreated={$pubkey ? onCommentCreated : undefined}
+          {canEditComment}
+          onCommentEdited={$pubkey ? onCommentEdited : undefined}
+          onLoginRequired={requireLogin}
+          relays={commentRelays}
+          profileRelays={commentProfileRelays}
+          repoAddress={commitCommentRepoAddress}
+          repoRefs={commitCommentRepoAddress ? [commitCommentRepoAddress] : []}
+          relayHint={commentRelays[0]}
+          deleteReaction={deleteCommentReaction}
+          createReaction={createCommentReaction}
+          ownerPubkey={repoOwnerPubkey}
+          enableReplies />
+      {/if}
+    </section>
   </div>
 {/if}

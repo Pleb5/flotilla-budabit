@@ -1,10 +1,7 @@
 <script lang="ts">
   import { formatDistanceToNow } from "date-fns";
-  import { MessageSquare, Heart, Copy, Check, User } from "@lucide/svelte";
-  import { useRegistry } from "../../useRegistry";
+  import { Copy, Check } from "@lucide/svelte";
   import NostrAvatar from "./NostrAvatar.svelte";
-  const { Button, Card, CardContent, Textarea } = useRegistry();
-  import BaseItemCard from "../BaseItemCard.svelte";
 
   // Real git commit data structure
   interface GitCommitData {
@@ -27,9 +24,6 @@
 
   interface CommitCardProps {
     commit: GitCommitData;
-    onReact?: (commitId: string, type: "heart") => void;
-    onComment?: (commitId: string, comment: string) => void;
-    onNavigate?: (commitId: string) => void;
     href?: string; // Optional direct href for navigation
     getParentHref?: (commitId: string) => string; // Function to generate parent commit href
     disablePrefetch?: boolean; // Disable SvelteKit link prefetching
@@ -43,9 +37,6 @@
 
   let {
     commit,
-    onReact,
-    onComment,
-    onNavigate,
     href,
     getParentHref,
     disablePrefetch = false,
@@ -56,12 +47,14 @@
     nip39,
   }: CommitCardProps = $props();
 
-  let showComments = $state(false);
-  let newComment = $state("");
   let copied = $state(false);
 
   function truncateHash(hash: string): string {
     return hash.substring(0, 7);
+  }
+
+  function getCommitSubject(message: string): string {
+    return message.split(/\r?\n/, 1)[0]?.trim() || message;
   }
 
   function getCommitTimestamp(commit: GitCommitData): number | undefined {
@@ -91,164 +84,97 @@
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
-
-  function handleReact() {
-    onReact?.(commit.oid, "heart");
-  }
-
-  function handleComment() {
-    if (newComment.trim()) {
-      onComment?.(commit.oid, newComment.trim());
-      newComment = "";
-      showComments = false;
-    }
-  }
-
-  // Get initials for avatar fallback
-  function getInitials(name: string): string {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .substring(0, 2);
-  }
-
-  // Build href fallback
-  const computedHref = $derived(href || undefined);
 </script>
 
-<BaseItemCard
-  clickable={true}
-  href={computedHref}
-  variant="commit"
-  disablePrefetch={disablePrefetch}
+<article
+  class="min-w-0 bg-card px-3 py-2.5 transition-colors hover:bg-muted/20 sm:px-4"
+  role="listitem"
 >
-  <!-- title -->
-  {#snippet slotTitle()}
-    {commit.commit.message}
-  {/snippet}
+  <div class="flex min-w-0 items-start gap-2.5">
+    <NostrAvatar
+      pubkey={pubkey}
+      avatarUrl={avatarUrl}
+      nip05={nip05}
+      nip39={nip39}
+      email={getAuthorEmail(commit)}
+      displayName={displayName || getAuthorName(commit)}
+      size={24}
+      class="h-6 w-6 shrink-0"
+      title={displayName || getAuthorName(commit)}
+    />
 
-  <!-- body content (empty for commits) -->
-  {#snippet children()}{/snippet}
-
-  <!-- meta row: author + time + commit hash -->
-  {#snippet slotMeta()}
-    <div class="flex items-center flex-wrap gap-2">
-      <NostrAvatar
-        pubkey={pubkey}
-        avatarUrl={avatarUrl}
-        nip05={nip05}
-        nip39={nip39}
-        email={getAuthorEmail(commit)}
-        displayName={displayName || getAuthorName(commit)}
-        size={40}
-        class="h-10 w-10"
-        title={displayName || getAuthorName(commit)}
-        responsive={true}
-      />
-      <span class="font-semibold text-sm truncate">{displayName || getAuthorName(commit)}</span>
-      {#if getAuthorEmail(commit)}
-        <span class="truncate text-xs text-muted-foreground" title={getAuthorEmail(commit)}>
-          {getAuthorEmail(commit)}
-        </span>
-      {/if}
-      <span class="text-xs text-muted-foreground whitespace-nowrap">
-        • {formatDate(getCommitTimestamp(commit))}
-      </span>
-      <button
-        onclick={copyHash}
-        class="font-mono text-xs bg-muted px-2 py-1 rounded hover:bg-muted/80 transition-colors flex items-center gap-1"
-        aria-label="Copy commit hash"
-        title={commit.oid}
-      >
-        {truncateHash(commit.oid)}
-        {#if copied}
-          <Check class="h-3 w-3 text-green-500" />
-        {:else}
-          <Copy class="h-3 w-3" />
-        {/if}
-      </button>
-    </div>
-  {/snippet}
-
-  <!-- footer actions: react/comment and parent -->
-  {#snippet slotFooter()}
-    <div
-      class="flex w-full flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between"
-    >
-      <div class="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onclick={handleReact}
-          class="h-8 px-2 text-muted-foreground hover:text-red-500 transition-colors"
-        >
-          <Heart class="h-4 w-4 mr-1" />
-          <span class="text-xs">0</span>
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onclick={() => (showComments = !showComments)}
-          class="h-8 px-2 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <MessageSquare class="h-4 w-4 mr-1" />
-          <span class="text-xs">Comment</span>
-        </Button>
-      </div>
-
-      {#if commit.commit.parent.length > 0}
-        {#if getParentHref}
-          <a
-            href={getParentHref(commit.commit.parent[0])}
-            class="text-xs text-muted-foreground whitespace-nowrap hover:text-foreground hover:underline transition-colors self-end sm:self-auto"
-          >
-            Parent: {truncateHash(commit.commit.parent[0])}
-          </a>
-        {:else}
-          <div class="text-xs text-muted-foreground whitespace-nowrap self-end sm:self-auto">
-            Parent: {truncateHash(commit.commit.parent[0])}
-          </div>
-        {/if}
-      {/if}
-    </div>
-  {/snippet}
-</BaseItemCard>
-
-{#if showComments}
-  <Card class="git-card transition-colors mt-2">
-    <CardContent class="p-4">
-      <div class="space-y-3">
-        <div class="flex gap-2">
-          <div
-            class="w-6 h-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0 mt-1"
-          >
-            <User class="h-3 w-3 text-muted-foreground" />
-          </div>
-          <div class="flex-1 space-y-2">
-            <Textarea
-              bind:value={newComment}
-              placeholder="Add a comment about this commit..."
-              class="min-h-[60px] resize-none text-sm"
-            />
-            <div class="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onclick={() => (showComments = false)}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onclick={handleComment}
-                disabled={!newComment.trim()}
-                class="bg-git hover:bg-git-hover"
-              >
-                Comment
-              </Button>
+    <div class="min-w-0 flex-1">
+      <div class="flex min-w-0 items-start gap-2">
+        <div class="min-w-0 flex-1">
+          {#if href}
+            <a
+              href={href}
+              class="block truncate text-sm font-semibold leading-5 text-foreground hover:underline"
+              data-sveltekit-preload-data={disablePrefetch ? "off" : undefined}
+              title={commit.commit.message}
+            >
+              {getCommitSubject(commit.commit.message)}
+            </a>
+          {:else}
+            <div class="truncate text-sm font-semibold leading-5" title={commit.commit.message}>
+              {getCommitSubject(commit.commit.message)}
             </div>
-          </div>
+          {/if}
+        </div>
+
+        <div class="flex shrink-0 items-center gap-1">
+          {#if commit.commit.parent.length > 0}
+            {#if getParentHref}
+              <a
+                href={getParentHref(commit.commit.parent[0])}
+                class="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                data-sveltekit-preload-data={disablePrefetch ? "off" : undefined}
+                title={`View first parent ${commit.commit.parent[0]}`}
+              >
+                <span class="hidden sm:inline">Parent </span>{truncateHash(commit.commit.parent[0])}
+              </a>
+            {:else}
+              <span
+                class="whitespace-nowrap px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                title={commit.commit.parent[0]}
+              >
+                <span class="hidden sm:inline">Parent </span>{truncateHash(commit.commit.parent[0])}
+              </span>
+            {/if}
+          {/if}
+
+          <button
+            type="button"
+            onclick={copyHash}
+            class="flex items-center gap-1 whitespace-nowrap rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+            aria-label={copied ? "Commit hash copied" : "Copy commit hash"}
+            title={commit.oid}
+          >
+            {truncateHash(commit.oid)}
+            {#if copied}
+              <Check class="h-3 w-3 text-green-500" />
+            {:else}
+              <Copy class="h-3 w-3" />
+            {/if}
+          </button>
         </div>
       </div>
-    </CardContent>
-  </Card>
-{/if}
+
+      <div
+        class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs leading-4 text-muted-foreground"
+      >
+        <span class="max-w-full truncate font-medium text-foreground/80">
+          {displayName || getAuthorName(commit)}
+        </span>
+        {#if getAuthorEmail(commit)}
+          <span aria-hidden="true">&middot;</span>
+          <span class="min-w-0 max-w-full truncate" title={getAuthorEmail(commit)}>
+            {getAuthorEmail(commit)}
+          </span>
+        {/if}
+        <span aria-hidden="true">&middot;</span>
+        <span class="whitespace-nowrap">{formatDate(getCommitTimestamp(commit))}</span>
+      </div>
+    </div>
+  </div>
+</article>
