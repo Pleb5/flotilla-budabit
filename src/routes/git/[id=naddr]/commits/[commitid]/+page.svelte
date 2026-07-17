@@ -85,6 +85,10 @@
     getCommitCommentRoot,
     isCommitCommentForRepo,
   } from "@app/core/commit-comments"
+  import Button from "@lib/components/Button.svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
+  import {fade} from "svelte/transition"
 
   const {data}: {data: PageData} = $props()
 
@@ -127,6 +131,10 @@
   let commentsLoading = $state(Boolean(data?.commitMeta?.sha))
   let commentsError = $state<string | undefined>(undefined)
   let commentsReloadToken = $state(0)
+  const SCROLL_TO_TOP_THRESHOLD = 300
+  let showScrollButton = $state(false)
+  let pageContainerRef: HTMLElement | undefined = $state()
+  let scrollParent: HTMLElement | null = $state(null)
 
   // Load commit details after ensuring repo is cloned
   async function loadCommitDetails() {
@@ -403,6 +411,27 @@
       }
     }
   })
+
+  $effect(() => {
+    const container = pageContainerRef
+    if (!container) return
+    scrollParent = container.closest(".scroll-container") as HTMLElement | null
+  })
+
+  $effect(() => {
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+    const syncScrollState = () => {
+      showScrollButton = scrollEl.scrollTop > SCROLL_TO_TOP_THRESHOLD
+    }
+    syncScrollState()
+    scrollEl.addEventListener("scroll", syncScrollState, {passive: true})
+    return () => scrollEl.removeEventListener("scroll", syncScrollState)
+  })
+
+  const scrollToTop = () => {
+    scrollParent?.scrollTo({top: 0, behavior: "smooth"})
+  }
 
   const normalizeCommentRelays = (relays: string[]) =>
     Array.from(
@@ -843,7 +872,9 @@
 </svelte:head>
 
 {#if loadError}
-  <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
+  <div
+    class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background"
+    bind:this={pageContainerRef}>
     <div class="text-center text-muted-foreground">
       <p class="text-lg text-rose-700 dark:text-rose-300">Failed to load commit</p>
       <p class="text-sm">{loadError}</p>
@@ -855,13 +886,15 @@
     </div>
   </div>
 {:else if !hasData}
-  <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
+  <div
+    class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background"
+    bind:this={pageContainerRef}>
     <div class="text-center text-muted-foreground">
       <p class="text-lg">Loading commit...</p>
     </div>
   </div>
 {:else}
-  <div class="flex min-h-screen flex-col gap-4 bg-background">
+  <div class="flex min-h-screen flex-col gap-4 bg-background" bind:this={pageContainerRef}>
     <!-- Commit Header -->
     <CommitHeader
       sha={commitMeta!.sha}
@@ -1223,5 +1256,13 @@
           enableReplies />
       {/if}
     </section>
+  </div>
+{/if}
+
+{#if showScrollButton}
+  <div in:fade class="chat__scroll-down !z-[20]">
+    <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
+      <Icon icon={AltArrowUp} />
+    </Button>
   </div>
 {/if}
