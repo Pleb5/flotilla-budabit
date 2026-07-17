@@ -138,9 +138,11 @@
     }, PREFERRED_FULL_HYDRATION_DELAY_MS)
   }
 
+  const login = () => pushModal(LogIn)
+
   const createCommunity = () => {
     if ($pubkey) goto("/explore/create-community")
-    else pushModal(LogIn)
+    else login()
   }
 
   const editOwnCommunity = () => {
@@ -751,6 +753,9 @@
       <h1 class="mb-3 text-center text-3xl font-bold leading-tight sm:mb-4 sm:text-5xl">
         Explore Communities
       </h1>
+      {#if !$pubkey}
+        <Button onclick={login} class="btn btn-primary self-center">Log in</Button>
+      {/if}
       <div
         class="grid min-w-0 gap-4 lg:items-start {showPreferredCommunities
           ? 'lg:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)]'
