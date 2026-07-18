@@ -74,6 +74,10 @@ import {
   type GitOperationActivity,
   type SubscribeGitProgress,
 } from "../utils/git-operation-progress.js";
+import {
+  WorkerOperationSession,
+  hasUnknownWorkerOperation,
+} from "../utils/worker-operation-session.js";
 
 /**
  * Import phase identifiers for structured progress reporting.
@@ -364,6 +368,7 @@ interface ImportContext {
   preprovisionedGraspRelayUrls?: string[];
   operationId: string;
   onOperationProgress: (event: import("@nostr-git/core").GitOperationProgressEvent) => void;
+  operationSession: WorkerOperationSession;
 }
 
 // ===== Batch Publishing Functions =====
@@ -1183,14 +1188,16 @@ async function pushImportedPullRequestRefs(
     const pushResult = await runAbortableOperation<any>(
       context.abortController,
       () =>
-        context.workerApi.pushToRemote({
-          repoId: context.localRepoId,
-          remoteUrl: target.remoteUrl,
-          refs,
-          token: context.userPubkey,
-          provider: "grasp",
-          operationId: context.operationId,
-        }),
+        context.operationSession.runOperation("pushToRemote", (operationId) =>
+          context.workerApi.pushToRemote({
+            repoId: context.localRepoId,
+            remoteUrl: target.remoteUrl,
+            refs,
+            token: context.userPubkey,
+            provider: "grasp",
+            operationId,
+          })
+        ),
       `Pushing imported pull request refs to ${target.label}`,
       0
     );
@@ -1931,12 +1938,14 @@ async function syncRepositoryToRemotes(
       await runAbortableOperation(
         context.abortController,
         () =>
-          context.workerApi.cloneRemoteRepo({
-            url: candidateUrl,
-            dir: localCloneDir,
-            token: sourceToken,
-            operationId: context.operationId,
-          }),
+          context.operationSession.runOperation("cloneRemoteRepo", (operationId) =>
+            context.workerApi.cloneRemoteRepo({
+              url: candidateUrl,
+              dir: localCloneDir,
+              token: sourceToken,
+              operationId,
+            })
+          ),
         "Cloning source repository",
         90000
       );
@@ -1945,6 +1954,9 @@ async function syncRepositoryToRemotes(
       break;
     } catch (error) {
       cloneFailure = error instanceof Error ? error.message : String(error);
+      const terminalStatuses = await context.operationSession.waitForTrackedOperations();
+      if (hasUnknownWorkerOperation(terminalStatuses)) throw error;
+      context.abortController.throwIfAborted();
     }
   }
 
@@ -2011,6 +2023,13 @@ async function syncRepositoryToRemotes(
     graspFirst: true,
     operationId: context.operationId,
     onOperationProgress: context.onOperationProgress,
+    createWorkerOperationId: (operation) => context.operationSession.createOperationId(operation),
+    onWorkerOperationStart: (operationId, operation) =>
+      context.operationSession.registerOperation(operationId, operation),
+    onWorkerOperationSettled: (operationId) =>
+      context.operationSession.unregisterOperation(operationId),
+    waitForWorkerOperationTerminal: (operationId) =>
+      context.operationSession.waitForOperationTerminal(operationId),
     prepublishedAnnouncement: context.prepublishedAnnouncement,
     prepublishedAnnouncementByGraspRelay: context.prepublishedAnnouncementByGraspRelay,
     preprovisionedGraspRelayUrls: context.preprovisionedGraspRelayUrls,
@@ -2225,6 +2244,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
   let error = $state<string | null>(null);
   let operationActivity = $state<GitOperationActivity | undefined>();
   let abortController: ImportAbortController | null = null;
+  let activeOperationSession: WorkerOperationSession | null = null;
 
   /** Current phase; updated before each phase so context.updateProgress(step, current, total) uses it */
   const currentPhaseRef = { current: "connecting" as ImportPhase };
@@ -2287,6 +2307,10 @@ export function useImportRepo(options: UseImportRepoOptions) {
     let provisionalRollbackAttempted = false;
     let provisionalRollbackSucceeded = false;
     const operationId = createGitOperationId("import");
+    const operationSession = new WorkerOperationSession(workerApi, operationId, 5000, (status) =>
+      transactionJournal?.recordWorkerOperationStatus(status)
+    );
+    activeOperationSession = operationSession;
     operationActivity = undefined;
     const onOperationProgress = createGitOperationProgressObserver(
       operationId,
@@ -2390,6 +2414,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
         selectedBranchRefs: [],
         operationId,
         onOperationProgress,
+        operationSession,
       } as ImportContext;
       transactionContext = context;
 
@@ -2493,10 +2518,18 @@ export function useImportRepo(options: UseImportRepoOptions) {
         operationActivity = undefined;
         transactionJournal.setTargetResults(context.remotePushResults);
         context.abortController.throwIfAborted();
+        if (context.remotePushResults.some((result) => result.outcome === "unknown")) {
+          throw new Error("Remote synchronization has an unknown outcome; recovery is required");
+        }
 
         const successfulTargets = context.remotePushResults.filter((result) => result.success);
         if (successfulTargets.length === 0) {
-          const rollbackWarning = await rollbackProvisionalEvents(context);
+          const terminalStatuses = await context.operationSession.waitForTrackedOperations();
+          const rollbackWarning =
+            hasUnknownWorkerOperation(terminalStatuses) ||
+            context.remotePushResults.some((result) => result.outcome === "unknown")
+              ? "; worker outcome unknown; provisional resources were retained for recovery"
+              : await rollbackProvisionalEvents(context);
 
           const failedSummary = context.remotePushResults
             .map((result) => `${result.label}: ${result.error || "push failed"}`)
@@ -2576,15 +2609,33 @@ export function useImportRepo(options: UseImportRepoOptions) {
       };
 
       if (context.localRepoId && context.workerApi?.deleteRepo) {
-        transactionJournal.setLocalResourceStatus("cleanup-pending");
-        const localCleanup = await context.workerApi.deleteRepo({ repoId: context.localRepoId });
-        if (localCleanup?.success === false) {
+        const localRepoId = context.localRepoId;
+        const terminalStatuses = await context.operationSession.waitForTrackedOperations();
+        if (hasUnknownWorkerOperation(terminalStatuses)) {
           transactionJournal.setLocalResourceStatus(
-            "cleanup-pending",
-            localCleanup.error || "Failed to delete temporary import mirror"
+            "unknown",
+            "Worker operation status is unknown; temporary import mirror was retained"
           );
         } else {
-          transactionJournal.setLocalResourceStatus("cleaned");
+          transactionJournal.setLocalResourceStatus("cleanup-pending");
+          const localCleanup = await context.operationSession.runOperation<any>(
+            "deleteRepo",
+            (operationId) => context.workerApi.deleteRepo({ repoId: localRepoId, operationId })
+          );
+          const cleanupStatuses = await context.operationSession.waitForTrackedOperations();
+          if (hasUnknownWorkerOperation(cleanupStatuses)) {
+            transactionJournal.setLocalResourceStatus(
+              "unknown",
+              "Temporary import mirror deletion outcome is unknown"
+            );
+          } else if (localCleanup?.success === false) {
+            transactionJournal.setLocalResourceStatus(
+              "cleanup-pending",
+              localCleanup.error || "Failed to delete temporary import mirror"
+            );
+          } else {
+            transactionJournal.setLocalResourceStatus("cleaned");
+          }
         }
       } else if (context.localRepoId) {
         transactionJournal.setLocalResourceStatus(
@@ -2598,21 +2649,38 @@ export function useImportRepo(options: UseImportRepoOptions) {
 
       return result;
     } catch (err: unknown) {
+      const terminalStatuses = await operationSession.waitForTrackedOperations();
+      const workerOutcomeUnknown =
+        hasUnknownWorkerOperation(terminalStatuses) ||
+        Boolean(
+          transactionContext?.remotePushResults.some((result) => result.outcome === "unknown")
+        );
       if (transactionContext) {
         transactionJournal?.setTargetResults(transactionContext.remotePushResults);
         if (
+          !workerOutcomeUnknown &&
           transactionJournal?.record.phase === "syncing" &&
           !transactionContext.remotePushResults.some((result) => result.success)
         ) {
           await rollbackProvisionalEvents(transactionContext);
         }
-        if (transactionJournal?.record.localResource.stage === "created") {
+        if (
+          workerOutcomeUnknown &&
+          transactionJournal &&
+          transactionJournal.record.localResource.stage !== "planned"
+        ) {
+          transactionJournal.setLocalResourceStatus(
+            "unknown",
+            "Worker operation did not reach a known terminal state; automatic cleanup was skipped"
+          );
+        } else if (transactionJournal?.record.localResource.stage === "created") {
           transactionJournal.setLocalResourceStatus("cleanup-pending", err);
         } else if (transactionJournal?.record.localResource.stage === "creating") {
           transactionJournal.setLocalResourceStatus("unknown", err);
         }
       }
       if (
+        !workerOutcomeUnknown &&
         (repoMetadataPublished || provisionalRollbackSucceeded) &&
         transactionJournal?.record.pendingCompensations.length === 0
       ) {
@@ -2645,6 +2713,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
       unsubscribeGitProgress?.();
       isImporting = false;
       abortController = null;
+      if (activeOperationSession === operationSession) activeOperationSession = null;
     }
   }
 
@@ -2653,6 +2722,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
    */
   function abortImport(reason?: string): void {
     if (abortController) {
+      void activeOperationSession?.requestCancellation(reason || "Import cancelled");
       abortController.abort(reason);
     }
   }

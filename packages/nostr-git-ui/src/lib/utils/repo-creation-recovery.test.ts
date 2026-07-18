@@ -204,4 +204,37 @@ describe("repository creation recovery", () => {
     expect(result.status).toBe("pending");
     expect(result.record?.localResource).toMatchObject({ stage: "cleanup-pending", error: "busy" });
   });
+
+  it("does not clean up a persisted unknown worker outcome after reload", async () => {
+    const deleteRepo = vi.fn();
+    const onDeleteEvent = vi.fn();
+    const result = await recoverRepoCreationRecord(
+      record({
+        phase: "cleanup-pending",
+        workerOperations: [
+          {
+            operationId: "import:push:1",
+            operation: "pushToRemote",
+            stage: "Outcome unknown",
+            state: "unknown",
+            sideEffectMayHaveOccurred: true,
+            startedAt: 1,
+            updatedAt: 2,
+            completedAt: 2,
+          },
+        ],
+      }),
+      {
+        workerApi: { deleteRepo },
+        publisher: vi.fn(),
+        fetchRelayEvents: vi.fn(),
+        onDeleteEvent,
+      }
+    );
+
+    expect(result.status).toBe("pending");
+    expect(result.reason).toContain("unknown outcome");
+    expect(deleteRepo).not.toHaveBeenCalled();
+    expect(onDeleteEvent).not.toHaveBeenCalled();
+  });
 });

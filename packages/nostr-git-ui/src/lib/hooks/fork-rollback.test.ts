@@ -11,6 +11,7 @@ describe("fork rollback policy", () => {
       createdRemoteRepoCount: 2,
       hasGitWorkerApi: true,
       hasRollbackLocalRepoId: true,
+      workerOutcomeUnknown: false,
     });
 
     expect(plan).toEqual({
@@ -29,6 +30,7 @@ describe("fork rollback policy", () => {
       createdRemoteRepoCount: 0,
       hasGitWorkerApi: true,
       hasRollbackLocalRepoId: true,
+      workerOutcomeUnknown: false,
     });
 
     expect(plan).toEqual({
@@ -47,9 +49,29 @@ describe("fork rollback policy", () => {
       createdRemoteRepoCount: 3,
       hasGitWorkerApi: true,
       hasRollbackLocalRepoId: true,
+      workerOutcomeUnknown: false,
     });
 
     expect(plan).toEqual({
+      rollbackPublishedEvents: false,
+      rollbackRemoteRepos: false,
+      rollbackLocalRepo: false,
+      hasAnyRollback: false,
+    });
+  });
+
+  it("retains all resources when a worker mutation outcome is unknown", () => {
+    expect(
+      getForkRollbackPlan({
+        successfulTargetCount: 0,
+        hasPublishedRepoRollbackContext: true,
+        hasRollbackPublishedRepoEvents: true,
+        createdRemoteRepoCount: 2,
+        hasGitWorkerApi: true,
+        hasRollbackLocalRepoId: true,
+        workerOutcomeUnknown: true,
+      })
+    ).toEqual({
       rollbackPublishedEvents: false,
       rollbackRemoteRepos: false,
       rollbackLocalRepo: false,

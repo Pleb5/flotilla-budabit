@@ -17,6 +17,7 @@ import type {
   RemoteSyncTargetResult,
 } from "./remote-sync.js";
 import type { RemoteTargetSelection } from "./remote-targets.js";
+import type { OperationStatus } from "@nostr-git/core";
 
 export type RepoCreationOperation = "new" | "import" | "fork";
 export type RepoCreationPhase = "syncing" | "metadata-pending" | "cleanup-pending" | "failed";
@@ -122,6 +123,7 @@ export interface RepoCreationRecoveryRecord {
   >;
   publishedEvents: RepoCreationPublishedEvent[];
   eventAcks: RepoCreationEventAckEvidence[];
+  workerOperations?: OperationStatus[];
   pendingCompensations: Array<{
     action: "delete" | "republish";
     eventId: string;
@@ -220,6 +222,28 @@ function sanitizeUrl(value: string | undefined, secrets: Iterable<string>): stri
   } catch {
     return redacted;
   }
+}
+
+function sanitizePersistedValue(value: unknown, secrets: Iterable<string>, key = ""): unknown {
+  if (/token|password|secret|authorization|api[-_]?key/i.test(key)) return "[REDACTED]";
+  if (typeof value === "string") {
+    const redacted = redactSecrets(value, secrets) || "";
+    return /^(?:https?|wss?):\/\//i.test(redacted)
+      ? sanitizeUrl(redacted, secrets) || redacted
+      : redacted;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePersistedValue(item, secrets));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([entryKey, item]) => [
+        entryKey,
+        sanitizePersistedValue(item, secrets, entryKey),
+      ])
+    );
+  }
+  return value;
 }
 
 function sanitizeCleanup(
@@ -399,6 +423,7 @@ export class RepoCreationTransactionJournal {
       targetResults: [],
       publishedEvents: [],
       eventAcks: [],
+      workerOperations: [],
       pendingCompensations: [],
       cleanup: { stage: "not-needed", manualAttention: false },
       manualAttention: { required: false },
@@ -655,6 +680,18 @@ export class RepoCreationTransactionJournal {
         : this.#record.phase === "failed"
           ? {}
           : { manualAttention: { required: false } }),
+    });
+  }
+
+  recordWorkerOperationStatus(status: OperationStatus): void {
+    const sanitized = sanitizePersistedValue(status, this.#secrets) as OperationStatus;
+    this.#update({
+      workerOperations: [
+        ...(this.#record.workerOperations || []).filter(
+          (operation) => operation.operationId !== sanitized.operationId
+        ),
+        sanitized,
+      ].slice(-100),
     });
   }
 
@@ -1234,6 +1271,7 @@ function migrateLegacyRecord(value: any): RepoCreationRecoveryRecord | undefined
       recordedAt: now,
       migrated: true,
     })),
+    workerOperations: [],
     pendingCompensations,
     cleanup:
       pendingCompensations.length > 0

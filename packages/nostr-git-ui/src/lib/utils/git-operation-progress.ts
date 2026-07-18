@@ -51,8 +51,10 @@ export function createGitOperationProgressObserver(
 ): GitProgressListener {
   let previous: GitOperationActivity | undefined;
   return (event) => {
-    if (event.operationId !== operationId) return;
-    previous = toGitOperationActivity(event, previous);
+    if (event.operationId !== operationId && !event.operationId.startsWith(`${operationId}:`)) {
+      return;
+    }
+    previous = toGitOperationActivity({ ...event, operationId }, previous);
     onActivity(previous);
   };
 }

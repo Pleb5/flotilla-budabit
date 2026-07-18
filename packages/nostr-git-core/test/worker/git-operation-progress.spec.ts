@@ -1,9 +1,13 @@
 import {webcrypto} from "node:crypto"
 import {beforeEach, describe, expect, it, vi} from "vitest"
 import type {GitOperationProgressEvent} from "../../src/worker/progress.js"
+import type {GitOperationStatusEvent} from "../../src/worker/operations.js"
 
 const postMessageMock = vi.fn()
 const pushMock = vi.fn(async (_opts?: any) => undefined)
+const listServerRefsMock = vi.fn(async (_opts?: any) => [
+  {ref: "refs/heads/main", oid: "a".repeat(40)},
+])
 const cloneMock = vi.fn(async (opts: any) => {
   opts.onProgress?.({phase: "Counting objects", loaded: 17, total: 31})
   opts.onProgress?.({phase: "Receiving objects", loaded: 1009, total: 4093})
@@ -25,7 +29,7 @@ vi.mock("../../src/git/factory-browser.js", () => ({
   createGitProvider: () => ({
     clone: cloneMock,
     push: pushMock,
-    listServerRefs: vi.fn(async () => [{ref: "refs/heads/main", oid: "a".repeat(40)}]),
+    listServerRefs: listServerRefsMock,
     checkout: vi.fn(async () => undefined),
     resolveRef: vi.fn(async () => "a".repeat(40)),
     listBranches: vi.fn(async () => ["main"]),
@@ -62,9 +66,16 @@ function progressEvents(): GitOperationProgressEvent[] {
     .filter((event): event is GitOperationProgressEvent => event?.type === "git-progress")
 }
 
+function statusEvents(): GitOperationStatusEvent[] {
+  return postMessageMock.mock.calls
+    .map(([event]) => event)
+    .filter((event): event is GitOperationStatusEvent => event?.type === "git-operation-status")
+}
+
 describe("operation-scoped Git worker progress", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    listServerRefsMock.mockResolvedValue([{ref: "refs/heads/main", oid: "a".repeat(40)}])
     pushMock.mockResolvedValue(undefined)
   })
 
@@ -112,6 +123,11 @@ describe("operation-scoped Git worker progress", () => {
       ]),
     )
     expect(events.every(event => !("progress" in event))).toBe(true)
+    const signal = cloneMock.mock.calls[0][0].signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(listServerRefsMock.mock.calls[0][0].signal).toBeInstanceOf(AbortSignal)
+    expect(listServerRefsMock.mock.calls[0][0].signal.aborted).toBe(false)
+    expect(statusEvents().at(-1)).toMatchObject({operationId, state: "completed"})
   })
 
   it("emits indeterminate push boundaries and only real ref counts", async () => {
@@ -146,6 +162,71 @@ describe("operation-scoped Git worker progress", () => {
     ])
     expect(events.every(event => event.unit === "refs")).toBe(true)
     expect(events.every(event => !("progress" in event))).toBe(true)
+    expect(pushMock.mock.calls.every(([options]) => options.signal instanceof AbortSignal)).toBe(
+      true,
+    )
+  })
+
+  it("cancels clone ref discovery cleanly before local side effects", async () => {
+    let discoverySignal: AbortSignal | undefined
+    listServerRefsMock.mockImplementationOnce(
+      async (options: any) =>
+        await new Promise((_resolve, reject) => {
+          discoverySignal = options.signal
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("cancelled", "AbortError")),
+            {once: true},
+          )
+        }),
+    )
+
+    const cloning = exposed.cloneRemoteRepo({
+      url: "https://example.com/owner/repo.git",
+      dir: "/repos/owner/repo",
+      operationId: "cancel-ref-discovery",
+    })
+    await vi.waitFor(() => expect(discoverySignal).toBeInstanceOf(AbortSignal))
+
+    const cancellation = exposed.cancelOperation({operationId: "cancel-ref-discovery"})
+    expect(cancellation).toMatchObject({state: "running", sideEffectMayHaveOccurred: false})
+    await expect(cloning).rejects.toThrow(/clone failed.*cancelled/i)
+
+    await expect(
+      exposed.waitForOperationTerminal({operationId: "cancel-ref-discovery"}),
+    ).resolves.toMatchObject({state: "cancelled", sideEffectMayHaveOccurred: false})
+    expect(discoverySignal?.aborted).toBe(true)
+    expect(cloneMock).not.toHaveBeenCalled()
+  })
+
+  it("passes push signals and reports unknown after the remote boundary", async () => {
+    let pushSignal: AbortSignal | undefined
+    pushMock.mockImplementationOnce(
+      async (options: any) =>
+        await new Promise((_resolve, reject) => {
+          pushSignal = options.signal
+          options.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("cancelled", "AbortError")),
+            {once: true},
+          )
+        }),
+    )
+
+    const pushing = exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: "https://example.com/owner/repo.git",
+      branch: "main",
+      operationId: "cancel-push-request",
+    })
+    await vi.waitFor(() => expect(pushSignal).toBeInstanceOf(AbortSignal))
+
+    exposed.cancelOperation({operationId: "cancel-push-request"})
+    await expect(pushing).resolves.toMatchObject({success: false})
+    await expect(
+      exposed.waitForOperationTerminal({operationId: "cancel-push-request"}),
+    ).resolves.toMatchObject({state: "unknown", sideEffectMayHaveOccurred: true})
+    expect(pushSignal?.aborted).toBe(true)
   })
 
   it("keeps clone and push defaults silent when operationId is omitted", async () => {

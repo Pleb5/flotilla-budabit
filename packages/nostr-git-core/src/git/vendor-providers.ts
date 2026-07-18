@@ -49,7 +49,12 @@ export interface VendorProvider {
     options: UpdateRepoOptions,
     token: string,
   ): Promise<RepoMetadata>
-  deleteRepo(owner: string, repo: string, token: string): Promise<void>
+  deleteRepo(
+    owner: string,
+    repo: string,
+    token: string,
+    options?: {signal?: AbortSignal},
+  ): Promise<void>
   forkRepo(owner: string, repo: string, forkName: string, token: string): Promise<RepoMetadata>
 
   // URL transformations

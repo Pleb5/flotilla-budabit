@@ -5,6 +5,7 @@ export interface ForkRollbackPlanInput {
   createdRemoteRepoCount: number;
   hasGitWorkerApi: boolean;
   hasRollbackLocalRepoId: boolean;
+  workerOutcomeUnknown: boolean;
 }
 
 export interface ForkRollbackPlan {
@@ -15,7 +16,7 @@ export interface ForkRollbackPlan {
 }
 
 export function getForkRollbackPlan(input: ForkRollbackPlanInput): ForkRollbackPlan {
-  const isTotalFailure = input.successfulTargetCount === 0;
+  const isTotalFailure = input.successfulTargetCount === 0 && !input.workerOutcomeUnknown;
 
   const rollbackPublishedEvents =
     isTotalFailure && input.hasPublishedRepoRollbackContext && input.hasRollbackPublishedRepoEvents;

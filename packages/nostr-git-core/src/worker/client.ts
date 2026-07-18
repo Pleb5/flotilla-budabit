@@ -1,8 +1,10 @@
 import {proxy, wrap} from "comlink"
 import type {EventIO} from "../types/index.js"
 import type {GitOperationProgressEvent} from "./progress.js"
+import type {GitOperationStatusEvent} from "./operations.js"
 
 export type {GitOperationProgressEvent} from "./progress.js"
+export type {GitOperationStatusEvent, OperationStatus} from "./operations.js"
 
 export interface CloneProgressEvent {
   type: "clone-progress"
@@ -18,8 +20,10 @@ export interface GitWorkerInit {
   workerUrl?: string | URL
   /** Custom worker factory function */
   workerFactory?: () => Worker
-  /** Progress callback for clone, push, and merge events */
-  onProgress?: (event: MessageEvent | CloneProgressEvent | GitOperationProgressEvent) => void
+  /** Progress and lifecycle callback for clone, push, merge, and tracked mutation events */
+  onProgress?: (
+    event: MessageEvent | CloneProgressEvent | GitOperationProgressEvent | GitOperationStatusEvent,
+  ) => void
   /** Error callback for worker load failures */
   onError?: (ev: ErrorEvent | MessageEvent) => void
 }
@@ -33,7 +37,13 @@ export interface GitWorkerInit {
 export function getGitWorker(
   init?:
     | GitWorkerInit
-    | ((event: MessageEvent | CloneProgressEvent | GitOperationProgressEvent) => void),
+    | ((
+        event:
+          | MessageEvent
+          | CloneProgressEvent
+          | GitOperationProgressEvent
+          | GitOperationStatusEvent,
+      ) => void),
 ) {
   // Support legacy signature: getGitWorker(onProgress)
   const config: GitWorkerInit = typeof init === "function" ? {onProgress: init} : (init ?? {})
@@ -61,7 +71,8 @@ export function getGitWorker(
       if (
         data.type === "clone-progress" ||
         data.type === "merge-progress" ||
-        data.type === "git-progress"
+        data.type === "git-progress" ||
+        data.type === "git-operation-status"
       ) {
         config.onProgress!(event)
       }

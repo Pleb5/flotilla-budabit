@@ -20,6 +20,8 @@ The flow is implemented primarily in:
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`;
 - `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`;
 - `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.ts`;
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-recovery.ts`;
+- `packages/nostr-git-ui/src/lib/utils/worker-operation-session.ts`;
 - `src/app/core/git-commands.ts`;
 - `src/app/util/fetch-relay-events.ts`.
 
@@ -114,7 +116,7 @@ On ngit-grasp, a newly accepted announcement is normally acknowledged with a `pu
 
 ### 5. Clone the source
 
-Only after metadata admission and GRASP readiness does the worker clone the source repository. Progress is streamed to the UI. The journal stores the local repository ID, but it does not checkpoint clone existence or automatically remove the temporary mirror during recovery.
+Only after metadata admission and GRASP readiness does the worker clone the source repository. Progress is streamed to the UI. The journal records whether the transaction-owned local mirror is planned, being created, created, awaiting cleanup, cleaned, failed, or unknown. Successful imports remove the temporary mirror after every worker mutation has reached a terminal or explicitly unknown state.
 
 Source cloning may discover more concrete repository information, such as the default branch and refs, but it must not broaden the selected repository relay set.
 
@@ -220,21 +222,21 @@ Rollback uses transaction evidence rather than the original target list. Only re
 
 The import hook performs this provisional-event rollback when synchronization fails without any successful target. The shared synchronization helper can also delete a transaction-created hosted repository immediately when it can prove that the destination is empty. It deliberately retains unknown or partially populated remotes to avoid data loss.
 
-Rollback does not delete GRASP Git data, and the import hook does not remove its temporary local mirror. A partial target success suppresses provisional-event rollback so final metadata can describe the surviving target set.
+Rollback does not delete GRASP Git data. A partial target success suppresses provisional-event rollback so final metadata can describe the surviving target set. Temporary local deletion runs only after tracked worker operations settle; failed or unavailable deletion remains a retryable journal state.
 
 ### Recovery
 
-The transaction journal records phases, completed target results, ACK evidence, signed events, and pending Nostr compensations. Target results are checkpointed after the multi-target synchronization call returns, not after each target settles.
+The versioned transaction journal records local ownership, each target and ref stage, remote receipts, event-specific ACK evidence, signed events, worker terminal receipts, cleanup state, manual-attention reasons, and pending Nostr compensations. It persists immediately around create, publish, push, verify, cleanup, and target-settlement boundaries. Initial persistence and later pre-side-effect checkpoints fail closed. Credentials are removed or rejected, and unresolved records are retained without a time-to-live.
 
 For a `metadata-pending` record that contains the exact signed final announcement and state, recovery republishes the pair, intersects their ACKed relay sets, verifies retained GRASP events, and signs newer reconciled metadata when the usable relay set shrinks. Existing successful GRASP URLs are preserved. Recovery never restores a failed destination merely because it appeared in the original provisional event.
 
-Pending Nostr deletion or republish compensations remain journaled so a later recovery can retry them. Current startup recovery does not resume `syncing` or `failed` transactions, reconstruct a missing final event pair, retry Git operations, delete hosted remotes, or remove the temporary local mirror. A hard interruption during synchronization can therefore leave side effects that were not checkpointed.
+Startup recovery also classifies `syncing`, `failed`, and `cleanup-pending` records. It probes checkpointed commit IDs through advertised refs and checks exact GRASP announcement/state visibility. It never automatically repeats an ambiguous hosted create or push. Verified survivors produce newer reconciled final metadata; known failures compensate only exact provisional ACK scopes; inconclusive probes remain visible for manual attention. Pending event and local cleanup remains journaled for retry.
 
 ### Cancellation
 
-Cancellation stops the orchestration path and enters the same evidence-based compensation model. The hook races worker operations against its abort signal; it does not pass physical cancellation into clone, hosted creation, or push. The production dialog restarts its Git worker after cancellation, but a late operation may still settle before that restart and before its result is checkpointed.
+Every mutating worker call receives a unique operation ID. The worker exposes cancellation, status, and terminal-wait RPCs; propagates abort signals into clone, push, provider fetch, and supported provider requests; and records when a side-effect boundary may have been crossed. The hook requests cancellation before aborting its UI wait, then waits for every tracked child operation to become `completed`, `failed`, `cancelled`, or `unknown` before compensation or local cleanup.
 
-An aborted UI operation is therefore not proof that a worker-side operation did not start. Recovery is limited to the durable evidence already present in the journal.
+`cancelled` means cancellation settled before any side-effect boundary. If cancellation follows a local mutation or a request that a remote server may have accepted, the terminal state is `unknown`. An unknown terminal receipt is persisted and suppresses automatic event, remote, and local deletion. Cancellation cannot recall an HTTP request already accepted by a provider, so recovery remains evidence-based rather than assuming exactly-once behavior.
 
 ## Relay Publication Semantics
 
@@ -265,7 +267,7 @@ These diagnostics distinguish an event waiting in a client queue from an event w
 
 ## Progress Reporting
 
-The UI reports structured import phases and detailed step messages. The `remotes` phase contains announcement admission, GRASP provisioning, source mirror preparation, target creation, state publication, pushes, verification, and reconciliation.
+The UI reports structured import phases and detailed step messages. Clone forwards real object, delta, and worktree counts; target synchronization forwards real target/ref counts. Packing and upload stay indeterminate when the Git implementation provides no truthful denominator. Child worker operation IDs are correlated to the parent import operation so unrelated concurrent progress is ignored. The `remotes` phase contains announcement admission, GRASP provisioning, source mirror preparation, target creation, state publication, pushes, verification, and reconciliation.
 
 | Phase               | Meaning                                             |
 | ------------------- | --------------------------------------------------- |

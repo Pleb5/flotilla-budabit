@@ -108,9 +108,10 @@ export class BitbucketApi implements GitServiceApi {
     description?: string
     private?: boolean
     autoInit?: boolean
+    signal?: AbortSignal
   }): Promise<RepoMetadata> {
     // Get current user to determine workspace
-    const currentUser = await this.getCurrentUser()
+    const currentUser = await this.getCurrentUser(options.signal)
 
     const data = await this.request<any>(`/repositories/${currentUser.login}/${options.name}`, {
       method: "POST",
@@ -122,6 +123,7 @@ export class BitbucketApi implements GitServiceApi {
         has_wiki: false,
         has_issues: true,
       }),
+      signal: options.signal,
     })
 
     return {
@@ -171,8 +173,11 @@ export class BitbucketApi implements GitServiceApi {
     }
   }
 
-  async deleteRepo(owner: string, repo: string): Promise<void> {
-    await this.request<void>(`/repositories/${owner}/${repo}`, {method: "DELETE"})
+  async deleteRepo(owner: string, repo: string, options?: {signal?: AbortSignal}): Promise<void> {
+    await this.request<void>(`/repositories/${owner}/${repo}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    })
   }
 
   async forkRepo(owner: string, repo: string, options?: GitForkOptions): Promise<RepoMetadata> {
@@ -813,8 +818,8 @@ export class BitbucketApi implements GitServiceApi {
   /**
    * User Operations
    */
-  async getCurrentUser(): Promise<User> {
-    const data = await this.request<any>("/user")
+  async getCurrentUser(signal?: AbortSignal): Promise<User> {
+    const data = await this.request<any>("/user", {signal})
 
     return {
       login: data.username,

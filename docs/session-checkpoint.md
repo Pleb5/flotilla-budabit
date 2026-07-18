@@ -12,18 +12,13 @@
 
 ## Current Phase
 
-- Phase 6: Operation Cancellation And Final Validation
+- Complete
 
 ## Phase Exit Criteria
 
-- Mutating worker RPCs accept operation IDs and expose terminal status including whether side effects may have occurred.
-- Clone, provider operations, and push observe cancellation where supported; accepted or ambiguous requests end as unknown.
-- Import/new/fork request cancellation, wait for terminal/unknown status, checkpoint it, then clean up.
-- New local creation atomically enforces `mustNotExist` inside the worker.
-- Concurrent operations isolate progress, cancellation, and status.
-- Architecture documentation and broad tests/build/checks cover the final behavior and residual limits.
-- Checkpoint is advanced to `Current Phase: Complete`, committed, pushed, and reread.
-- Phase files and checkpoint advancement are committed and pushed.
+- All six phases are implemented and verified.
+- This complete checkpoint and Phase 6 files are committed and pushed to `origin/dev`.
+- The pushed checkpoint is reread and still says `Current Phase: Complete`.
 
 ## Completed With Evidence
 
@@ -62,6 +57,16 @@
 - Phase 5 extracted conservative recovery for metadata-pending, cleanup-pending, syncing, and failed records; it probes exact refs/GRASP metadata, never replays ambiguous create/push, reconciles verified survivors, and compensates known failures.
 - Phase 5 cleans successful import/fork mirrors and failed transaction-owned new locals when safe; unavailable, aborted, or failed cleanup stays retryable in the journal.
 - Phase 5 verification passed: focused journal/recovery/sync/hooks 5 files/44 tests, repository surface 13 files/56 tests, core delete API 1 file/2 tests, core/UI/root checks with 0 diagnostics, Prettier, and `git diff --check`.
+- Phase 6 added a worker operation registry with isolated operation IDs, status events/RPCs, cancellation, terminal waits, side-effect boundaries, structured receipts, and `completed`/`failed`/`cancelled`/`unknown` semantics.
+- Phase 6 propagates cancellation into clone/ref discovery, push/fetch/retry, Nostr-provider push, and supported provider HTTP requests; clone timeout aborts and settles its attempt before fallback.
+- Phase 6 gives every clone, local create, hosted create, push, and cleanup mutation a unique child ID while preserving parent-scoped progress; hooks request cancellation, abort orchestration, wait for terminal/unknown, persist sanitized receipts, and suppress cleanup on ambiguity.
+- Phase 6 removed the untracked hosted branch API mutation fast path so every ref push uses the cancellable worker contract.
+- Phase 6 new-repository creation uses `mustNotExist` with recursive parent creation, an exclusive filesystem reservation, and a worker-local lock before `git.init`.
+- Phase 6 recovery retains persisted unknown worker outcomes for manual attention and never cleans them automatically.
+- Phase 6 updated the import architecture and added a complete repository manipulation architecture covering all flows, progress, mobile UI, recovery, cancellation, and residual limits.
+- Final code review found no remaining high or medium issues; the residual cross-tab filesystem guarantee is mock-tested rather than browser multi-worker tested.
+- Phase 6 verification passed: core 125 files/966 tests with 1 file and 2 tests skipped plus 1 todo; UI 36 files/265 tests; repository surface 14 files/59 tests; main 127 files/1114 tests.
+- Phase 6 core/UI typechecks, root `pnpm check`, `pnpm run e2e:check`, production build/service-worker contract, Prettier, and `git diff --check` passed.
 
 ## Decisions
 
@@ -76,12 +81,12 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phases 1 through 5 are verified; Phase 6 begins after the Phase 5 closeout transition.
+- Phases 1 through 6 are verified.
 - Generated coverage and unrelated HiveTalk documents, including the new deployment checkpoint, must remain unstaged.
 
 ## Next Action
 
-- Reread the full plan, then implement operation-scoped cancellation/status and atomic local creation, update architecture documentation, and run broad final verification.
+- Commit and push the Phase 6 closeout, then reread this checkpoint and confirm it remains Complete.
 
 ## Verification
 
@@ -111,28 +116,66 @@
 - Phase 5: core worker delete API tests passed, 1 file and 2 tests.
 - Phase 5: core/UI typechecks and root `pnpm check` passed with 0 diagnostics.
 - Phase 5: changed-file Prettier and `git diff --check` passed.
+- Phase 6: focused operation/cancellation/local-creation/recovery tests passed during implementation and review.
+- Phase 6: full core suite passed, 125 files and 966 tests; 1 file/2 tests skipped and 1 todo.
+- Phase 6: full UI suite passed, 36 files and 265 tests.
+- Phase 6: repository surface suite passed, 14 files and 59 tests.
+- Phase 6: full main suite passed, 127 files and 1114 tests.
+- Phase 6: core/UI typechecks, root check, and E2E TypeScript check passed.
+- Phase 6: production build and service-worker contract passed; only existing large-chunk warnings were emitted.
+- Phase 6: intentional-file Prettier, `git diff --check`, and final code review passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
 - The worktree contains generated coverage and unrelated untracked HiveTalk documents that must remain unstaged.
-- Concurrent repository-card alignment changes in `src/routes/git/+page.svelte` are unrelated and must remain unstaged while Phase 5 recovery wiring from the same file is committed selectively.
-- Operation-scoped physical cancellation requires worker/provider API expansion in Phase 6.
+- Concurrent repository-card alignment changes in `src/routes/git/+page.svelte` remain unrelated and unstaged.
 - Remote creation cannot be exactly-once without provider idempotency support; ambiguous outcomes must remain visible.
+- Abort cannot recall a provider request or push already accepted by a server; those receipts remain `unknown`.
+- Cross-tab filesystem reservation is covered by mocked concurrent tests, not a browser multi-worker integration test.
+- Production build reports existing chunks above Vite's 500 kB warning threshold.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
+- `docs/architecture/import-repo-architecture.md`
+- `docs/architecture/repository-manipulation-architecture.md`
+- `packages/nostr-git-core/src/api/api.ts`
+- `packages/nostr-git-core/src/api/providers/bitbucket.ts`
+- `packages/nostr-git-core/src/api/providers/gitea.ts`
+- `packages/nostr-git-core/src/api/providers/github.ts`
+- `packages/nostr-git-core/src/api/providers/gitlab.ts`
+- `packages/nostr-git-core/src/api/providers/grasp-rest.ts`
+- `packages/nostr-git-core/src/api/providers/grasp.ts`
+- `packages/nostr-git-core/src/git/vendor-provider-factory.ts`
+- `packages/nostr-git-core/src/git/vendor-providers.ts`
+- `packages/nostr-git-core/src/index.ts`
+- `packages/nostr-git-core/src/worker/client.ts`
+- `packages/nostr-git-core/src/worker/index.ts`
+- `packages/nostr-git-core/src/worker/operations.ts`
+- `packages/nostr-git-core/src/worker/worker.ts`
+- `packages/nostr-git-core/src/worker/workers/repo-management.ts`
+- `packages/nostr-git-core/src/worker/workers/repos.ts`
+- `packages/nostr-git-core/test/worker/git-operation-progress.spec.ts`
+- `packages/nostr-git-core/test/worker/operations.spec.ts`
+- `packages/nostr-git-core/test/workers/create-local-repo.spec.ts`
+- `packages/nostr-git-core/test/workers/repos-grasp-transport.spec.ts`
+- `packages/nostr-git-ui/src/lib/components/git/NewRepoWizard.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/WorkerManager.ts`
+- `packages/nostr-git-ui/src/lib/hooks/fork-rollback.test.ts`
+- `packages/nostr-git-ui/src/lib/hooks/fork-rollback.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useForkRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useNewRepo.svelte.ts`
-- `packages/nostr-git-ui/src/lib/index.ts`
+- `packages/nostr-git-ui/src/lib/utils/git-operation-progress.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/git-operation-progress.ts`
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.test.ts`
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`
 - `packages/nostr-git-ui/src/lib/utils/repo-creation-recovery.test.ts`
 - `packages/nostr-git-ui/src/lib/utils/repo-creation-recovery.ts`
 - `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.test.ts`
 - `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.ts`
-- `packages/nostr-git-ui/tests/repoRecoverySurface.test.ts`
-- `src/routes/git/+page.svelte`
+- `packages/nostr-git-ui/src/lib/utils/worker-operation-session.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/worker-operation-session.ts`
+- `packages/nostr-git-ui/tests/repoWorkerOperationSurface.test.ts`

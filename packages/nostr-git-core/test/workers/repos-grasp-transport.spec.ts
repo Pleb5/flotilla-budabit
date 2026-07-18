@@ -1,4 +1,4 @@
-import {describe, it, expect, vi} from "vitest"
+import {afterEach, describe, it, expect, vi} from "vitest"
 
 import {cloneRemoteRepoUtil} from "../../src/worker/workers/repos.js"
 import type {GitProvider} from "../../src/git/provider.js"
@@ -26,6 +26,8 @@ function makeCacheMock() {
 const GRASP_URL =
   "https://relay.ngit.dev/npub15qydau2hjma6ngxkl2cyar74wzyjshvl65za5k5rl69264ar2exs5cyejr/gitworkshop.git"
 
+afterEach(() => vi.useRealTimers())
+
 describe("cloneRemoteRepoUtil GRASP transport selection", () => {
   it("uses direct transport first for GRASP clone URLs", async () => {
     const listServerRefs = vi.fn(async () => [{ref: "refs/heads/main", oid: "abcd"}])
@@ -45,22 +47,28 @@ describe("cloneRemoteRepoUtil GRASP transport selection", () => {
   })
 
   it("falls back to proxy transport after direct timeout", async () => {
+    vi.useFakeTimers()
     const listServerRefs = vi.fn(async () => [{ref: "refs/heads/main", oid: "abcd"}])
     const clone = vi
       .fn()
-      .mockImplementationOnce(async () => {
-        throw new Error("Timeout: clone operation took longer than 90s")
+      .mockImplementationOnce(async ({signal}: {signal: AbortSignal}) => {
+        await new Promise<void>((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {once: true})
+        })
       })
       .mockImplementationOnce(async () => undefined)
     const git = makeGitMock({listServerRefs, clone})
     const cache = makeCacheMock()
 
-    await cloneRemoteRepoUtil(git as any, cache as any, {
+    const cloning = cloneRemoteRepoUtil(git as any, cache as any, {
       url: GRASP_URL,
       dir: "/tmp/root/grasp-proxy-fallback",
     })
+    await vi.advanceTimersByTimeAsync(90_000)
+    await cloning
 
     expect(clone).toHaveBeenCalledTimes(2)
+    expect((clone as any).mock.calls[0][0].signal.aborted).toBe(true)
     expect((clone as any).mock.calls[0][0].corsProxy).toBeNull()
     expect((clone as any).mock.calls[1][0].corsProxy).not.toBeNull()
   })

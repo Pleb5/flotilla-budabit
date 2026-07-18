@@ -77,10 +77,10 @@ export class GitLabApi implements GitServiceApi {
   /**
    * Get project ID from owner/repo (GitLab uses project IDs for most operations)
    */
-  private async getProjectId(owner: string, repo: string): Promise<number> {
+  private async getProjectId(owner: string, repo: string, signal?: AbortSignal): Promise<number> {
     const projectPath = `${owner}/${repo}`
     const encodedPath = encodeURIComponent(projectPath)
-    const project = await this.request<any>(`/projects/${encodedPath}`)
+    const project = await this.request<any>(`/projects/${encodedPath}`, {signal})
     return project.id
   }
 
@@ -136,6 +136,7 @@ export class GitLabApi implements GitServiceApi {
     description?: string
     private?: boolean
     autoInit?: boolean
+    signal?: AbortSignal
   }): Promise<RepoMetadata> {
     const data = await this.request<any>("/projects", {
       method: "POST",
@@ -146,6 +147,7 @@ export class GitLabApi implements GitServiceApi {
         visibility: options.private ? "private" : "public",
         initialize_with_readme: options.autoInit || false,
       }),
+      signal: options.signal,
     })
 
     return {
@@ -164,9 +166,12 @@ export class GitLabApi implements GitServiceApi {
     }
   }
 
-  async deleteRepo(owner: string, repo: string): Promise<void> {
-    const projectId = await this.getProjectId(owner, repo)
-    await this.request<void>(`/projects/${projectId}`, {method: "DELETE"})
+  async deleteRepo(owner: string, repo: string, options?: {signal?: AbortSignal}): Promise<void> {
+    const projectId = await this.getProjectId(owner, repo, options?.signal)
+    await this.request<void>(`/projects/${projectId}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    })
   }
 
   async updateRepo(

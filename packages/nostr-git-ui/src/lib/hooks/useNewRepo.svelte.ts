@@ -48,6 +48,10 @@ import {
   assertRepoCoordinateAvailable,
   assertRepoCreationPrerequisites,
 } from "../utils/repo-creation-preflight.js";
+import {
+  WorkerOperationSession,
+  hasUnknownWorkerOperation,
+} from "../utils/worker-operation-session.js";
 
 export function getPublishedEventFromPublishResult(result: unknown): NostrEvent | undefined {
   const event = (result as { event?: NostrEvent } | undefined)?.event;
@@ -585,6 +589,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
   let progress = $state<NewRepoProgress[]>([]);
   let error = $state<string | null>(null);
   let operationActivity = $state<GitOperationActivity | undefined>();
+  let activeAbortController: AbortController | null = null;
+  let activeOperationSession: WorkerOperationSession | null = null;
 
   let tokens = $state<Token[]>([]);
 
@@ -657,7 +663,51 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     let transactionJournal: RepoCreationTransactionJournal | undefined;
     let transactionPublisher = onPublishEvent;
     let transactionWorkerApi = options.workerApi;
+    let operationSession: WorkerOperationSession | undefined;
     const operationId = createGitOperationId("new");
+    const sessionAbortController = new AbortController();
+    activeAbortController = sessionAbortController;
+    const runCreationAbortable = async <T>(
+      operation: () => Promise<T>,
+      label: string,
+      timeoutMs = 0
+    ): Promise<T> => {
+      if (sessionAbortController.signal.aborted) {
+        throw new Error(
+          String(sessionAbortController.signal.reason || "Repository creation cancelled")
+        );
+      }
+
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
+      const abortPromise = new Promise<T>((_, reject) => {
+        onAbort = () =>
+          reject(
+            new Error(
+              String(sessionAbortController.signal.reason || "Repository creation cancelled")
+            )
+          );
+        sessionAbortController.signal.addEventListener("abort", onAbort, { once: true });
+      });
+      const promises = [operation(), abortPromise];
+      if (timeoutMs > 0) {
+        promises.push(
+          new Promise<T>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+              timeoutMs
+            );
+          })
+        );
+      }
+
+      try {
+        return await Promise.race(promises);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        if (onAbort) sessionAbortController.signal.removeEventListener("abort", onAbort);
+      }
+    };
     operationActivity = undefined;
     const onOperationProgress = createGitOperationProgressObserver(
       operationId,
@@ -760,6 +810,10 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         ? options.workerApi
         : (await (await import("@nostr-git/core")).getGitWorker()).api;
       transactionWorkerApi = workerApi;
+      operationSession = new WorkerOperationSession(workerApi, operationId, 5000, (status) =>
+        transactionJournal?.recordWorkerOperationStatus(status)
+      );
+      activeOperationSession = operationSession;
       const effectiveRelayUrls = getEffectiveRepoRelayUrls(
         editableRelays,
         selectedGraspTargetRelays
@@ -805,7 +859,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         onPublishEvent: transactionPublisher!,
         onFetchRelayEvents: options.onFetchRelayEvents,
         updateProgress: (message) => updateProgress("remotes", message, "running"),
-        runAbortable: async (operation) => await operation(),
+        runAbortable: runCreationAbortable,
       });
       latestRepoMetadataCreatedAt = Math.max(
         latestRepoMetadataCreatedAt,
@@ -815,7 +869,12 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       // Create only after all metadata and destination checks complete.
       transactionJournal.setLocalResourceStatus("creating");
       updateProgress("local", "Creating local repository...", "running");
-      const localRepo = await createLocalRepo({ ...config }, canonicalKey);
+      const localRepo = await createLocalRepo(
+        { ...config },
+        canonicalKey,
+        operationSession,
+        runCreationAbortable
+      );
       transactionJournal.setLocalResourceStatus("created");
       updateProgress("local", "Local repository created successfully", "completed");
 
@@ -857,7 +916,14 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         onPublishEvent: transactionPublisher,
         onFetchRelayEvents: options.onFetchRelayEvents,
         updateProgress: (message) => updateProgress("remotes", message, "running"),
-        runAbortable: async (operation) => await operation(),
+        runAbortable: runCreationAbortable,
+        throwIfAborted: () => {
+          if (sessionAbortController.signal.aborted) {
+            throw new Error(
+              String(sessionAbortController.signal.reason || "Repository creation cancelled")
+            );
+          }
+        },
         latestRepoMetadataCreatedAt,
         onLatestRepoMetadataCreatedAt: (value) => {
           latestRepoMetadataCreatedAt = value;
@@ -866,6 +932,13 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         graspFirst: true,
         operationId,
         onOperationProgress,
+        createWorkerOperationId: (operation) => operationSession!.createOperationId(operation),
+        onWorkerOperationStart: (childOperationId, operation) =>
+          operationSession!.registerOperation(childOperationId, operation),
+        onWorkerOperationSettled: (childOperationId) =>
+          operationSession!.unregisterOperation(childOperationId),
+        waitForWorkerOperationTerminal: (childOperationId) =>
+          operationSession!.waitForOperationTerminal(childOperationId),
         prepublishedAnnouncement: announcementAdmission.announcementEvent,
         prepublishedAnnouncementByGraspRelay: announcementAdmission.announcementByGraspRelay,
         preprovisionedGraspRelayUrls: announcementAdmission.graspRelayUrls,
@@ -875,6 +948,9 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       operationActivity = undefined;
       const remoteResults = transactionRemoteResults;
       transactionJournal.setTargetResults(remoteResults);
+      if (remoteResults.some((result) => result.outcome === "unknown")) {
+        throw new Error("Remote synchronization has an unknown outcome; recovery is required");
+      }
 
       for (const result of remoteResults) {
         if (result.success && result.remoteUrl) {
@@ -1106,15 +1182,29 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         stateEvent,
       };
 
+      const terminalStatuses = await operationSession.waitForTrackedOperations();
+      if (hasUnknownWorkerOperation(terminalStatuses)) {
+        throw new Error("A worker mutation ended with an unknown outcome");
+      }
       onRepoCreated?.(result);
       transactionJournal.complete();
       return result;
     } catch (err) {
+      const terminalStatuses = operationSession
+        ? await operationSession.waitForTrackedOperations()
+        : [];
+      const workerOutcomeUnknown =
+        hasUnknownWorkerOperation(terminalStatuses) ||
+        transactionRemoteResults.some((result) => result.outcome === "unknown");
+      const localCreateStatus = terminalStatuses.find(
+        (status) => status.operation === "createLocalRepo"
+      );
       const provisionalEvents = transactionJournal
         ? getRepoCreationProvisionalEvents(transactionJournal.record)
         : getRemoteSyncProvisionalEvents(transactionRemoteResults);
       const compensableEvents = provisionalEvents.filter((item) => item.relayUrls.length > 0);
       if (
+        !workerOutcomeUnknown &&
         options.onDeleteEvent &&
         compensableEvents.length > 0 &&
         transactionRemoteResults.every((result) => !result.success)
@@ -1146,24 +1236,55 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       const hasSuccessfulTarget = transactionRemoteResults.some((result) => result.success);
       if (
         !hasSuccessfulTarget &&
+        !workerOutcomeUnknown &&
         transactionJournal?.record.localResource.ownedByTransaction &&
         transactionJournal.record.localResource.stage === "created" &&
         transactionWorkerApi?.deleteRepo
       ) {
         try {
           transactionJournal.setLocalResourceStatus("cleanup-pending");
-          const cleanup = await transactionWorkerApi.deleteRepo({
-            repoId: transactionJournal.record.localRepoId,
-          });
-          if (cleanup?.success === false) {
+          const cleanup = await operationSession!.runOperation<any>(
+            "deleteRepo",
+            (childOperationId) =>
+              transactionWorkerApi.deleteRepo({
+                repoId: transactionJournal!.record.localRepoId,
+                operationId: childOperationId,
+              })
+          );
+          const cleanupStatuses = await operationSession!.waitForTrackedOperations();
+          if (hasUnknownWorkerOperation(cleanupStatuses)) {
+            transactionJournal.setLocalResourceStatus(
+              "unknown",
+              "Local repository deletion outcome is unknown"
+            );
+          } else if (cleanup?.success === false) {
             throw new Error(cleanup.error || "Failed to delete transaction-owned local repository");
+          } else {
+            transactionJournal.setLocalResourceStatus("cleaned");
           }
-          transactionJournal.setLocalResourceStatus("cleaned");
         } catch (cleanupError) {
           transactionJournal.setLocalResourceStatus("cleanup-pending", cleanupError);
         }
+      } else if (
+        workerOutcomeUnknown &&
+        transactionJournal &&
+        transactionJournal.record.localResource.stage !== "planned"
+      ) {
+        transactionJournal.setLocalResourceStatus(
+          "unknown",
+          "Worker operation did not reach a known terminal state; automatic cleanup was skipped"
+        );
       } else if (transactionJournal?.record.localResource.stage === "creating") {
-        transactionJournal.setLocalResourceStatus("unknown", err);
+        const targetAlreadyExisted =
+          localCreateStatus?.state === "failed" &&
+          /already exists|residue/i.test(localCreateStatus.error?.message || "");
+        transactionJournal.setLocalResourceStatus(
+          targetAlreadyExisted ||
+            (localCreateStatus && !localCreateStatus.sideEffectMayHaveOccurred)
+            ? "planned"
+            : "unknown",
+          localCreateStatus?.sideEffectMayHaveOccurred && !targetAlreadyExisted ? err : undefined
+        );
       }
       transactionJournal?.setPhase(
         transactionJournal.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
@@ -1183,10 +1304,17 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     } finally {
       unsubscribeGitProgress?.();
       isCreating = false;
+      if (activeAbortController === sessionAbortController) activeAbortController = null;
+      if (activeOperationSession === operationSession) activeOperationSession = null;
     }
   }
 
-  async function createLocalRepo(config: NewRepoConfig, canonicalKey?: string) {
+  async function createLocalRepo(
+    config: NewRepoConfig,
+    canonicalKey: string | undefined,
+    operationSession: WorkerOperationSession,
+    runAbortable: <T>(operation: () => Promise<T>, label: string, timeoutMs?: number) => Promise<T>
+  ) {
     console.log("🏗️ Starting createLocalRepo function...");
     console.log("🏗️ createLocalRepo canonicalKey:", canonicalKey);
     console.log("🏗️ createLocalRepo config:", config);
@@ -1211,10 +1339,18 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       licenseTemplate: config.licenseTemplate,
       authorName: config.authorName,
       authorEmail: config.authorEmail,
+      mustNotExist: true,
     };
     console.log("🏗️ createLocalRepo params:", createLocalRepoParams);
 
-    const result = await api.createLocalRepo(createLocalRepoParams);
+    const result = await runAbortable<any>(
+      () =>
+        operationSession.runOperation("createLocalRepo", (operationId) =>
+          api.createLocalRepo({ ...createLocalRepoParams, operationId })
+        ),
+      "Creating local repository",
+      90000
+    );
     console.log("🏗️ createLocalRepo result:", result);
 
     if (!result.success) {
@@ -1328,14 +1464,19 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           };
         }
 
-        const result = await api.createRemoteRepo({
-          provider: config.provider as any,
-          token,
-          name: config.name,
-          description: config.description || "",
-          isPrivate: false,
-          baseUrl: wsOrigin, // Use normalized WebSocket origin for GRASP API
-        });
+        const result = await activeOperationSession!.runOperation<any>(
+          "createRemoteRepo",
+          (operationId) =>
+            api.createRemoteRepo({
+              provider: config.provider as any,
+              token,
+              name: config.name,
+              description: config.description || "",
+              isPrivate: false,
+              baseUrl: wsOrigin, // Use normalized WebSocket origin for GRASP API
+              operationId,
+            })
+        );
 
         console.log("🚀 API call completed, result:", result);
         if (!result.success) {
@@ -1384,13 +1525,18 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           throw new Error(availability.reason || "Repository name is not available");
         }
 
-        const repoResult = await api.createRemoteRepo({
-          provider: config.provider as any,
-          token,
-          name: config.name,
-          description: config.description,
-          isPrivate: false, // Default to public for now
-        });
+        const repoResult = await activeOperationSession!.runOperation<any>(
+          "createRemoteRepo",
+          (operationId) =>
+            api.createRemoteRepo({
+              provider: config.provider as any,
+              token,
+              name: config.name,
+              description: config.description,
+              isPrivate: false, // Default to public for now
+              operationId,
+            })
+        );
 
         if (!repoResult.success) {
           console.error("Remote repository creation failed:", repoResult.error);
@@ -1474,13 +1620,18 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       // For GRASP, use direct push since we just created the local repo
       console.log("[NEW REPO] Using direct pushToRemote for GRASP");
 
-      const directPushResult = await api.pushToRemote({
-        repoId: canonicalKey || config.name,
-        remoteUrl: pushUrl,
-        branch: config.defaultBranch,
-        token: providerToken,
-        provider: config.provider as any,
-      });
+      const directPushResult = await activeOperationSession!.runOperation<any>(
+        "pushToRemote",
+        (operationId) =>
+          api.pushToRemote({
+            repoId: canonicalKey || config.name,
+            remoteUrl: pushUrl,
+            branch: config.defaultBranch,
+            token: providerToken,
+            provider: config.provider as any,
+            operationId,
+          })
+      );
 
       const pushResult = {
         success: directPushResult?.success || false,
@@ -1547,8 +1698,15 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     }
   }
 
+  function abortCreation(reason = "Repository creation cancelled"): void {
+    void activeOperationSession?.requestCancellation(reason);
+    activeAbortController?.abort(reason);
+  }
+
   function reset() {
-    isCreating = false;
+    const wasCreating = isCreating;
+    abortCreation("Repository creation reset");
+    if (wasCreating) return;
     progress = [];
     error = null;
   }
@@ -1570,6 +1728,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
 
     // Actions
     createRepository,
+    abortCreation,
     reset,
     retry,
   };

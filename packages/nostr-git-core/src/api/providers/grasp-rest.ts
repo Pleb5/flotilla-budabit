@@ -277,7 +277,9 @@ export class GraspRestApiProvider implements GitServiceApi {
     description?: string
     private?: boolean
     autoInit?: boolean
+    signal?: AbortSignal
   }): Promise<RepoMetadata> {
+    options.signal?.throwIfAborted()
     throw createInvalidInputError(
       "GRASP REST API does not support creating repositories. Use the event-based GRASP API instead.",
       this.buildContext({operation: "createRepo"}),
@@ -295,7 +297,8 @@ export class GraspRestApiProvider implements GitServiceApi {
     )
   }
 
-  async deleteRepo(owner: string, repo: string): Promise<void> {
+  async deleteRepo(owner: string, repo: string, options?: {signal?: AbortSignal}): Promise<void> {
+    options?.signal?.throwIfAborted()
     throw createInvalidInputError(
       "GRASP REST API does not support deleting repositories. Use the event-based GRASP API instead.",
       this.buildContext({operation: "deleteRepo"}),

@@ -111,6 +111,7 @@ export class GiteaApi implements GitServiceApi {
     description?: string
     private?: boolean
     autoInit?: boolean
+    signal?: AbortSignal
   }): Promise<RepoMetadata> {
     const data = await this.request<any>("/user/repos", {
       method: "POST",
@@ -121,6 +122,7 @@ export class GiteaApi implements GitServiceApi {
         private: options.private || false,
         auto_init: options.autoInit || false,
       }),
+      signal: options.signal,
     })
 
     return {
@@ -170,8 +172,11 @@ export class GiteaApi implements GitServiceApi {
     }
   }
 
-  async deleteRepo(owner: string, repo: string): Promise<void> {
-    await this.request<void>(`/repos/${owner}/${repo}`, {method: "DELETE"})
+  async deleteRepo(owner: string, repo: string, options?: {signal?: AbortSignal}): Promise<void> {
+    await this.request<void>(`/repos/${owner}/${repo}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    })
   }
 
   async forkRepo(owner: string, repo: string, options?: GitForkOptions): Promise<RepoMetadata> {

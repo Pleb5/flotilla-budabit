@@ -279,13 +279,14 @@ export interface GitServiceApi {
     description?: string
     private?: boolean
     autoInit?: boolean
+    signal?: AbortSignal
   }): Promise<RepoMetadata>
   updateRepo(
     owner: string,
     repo: string,
     updates: {name?: string; description?: string; private?: boolean},
   ): Promise<RepoMetadata>
-  deleteRepo(owner: string, repo: string): Promise<void>
+  deleteRepo(owner: string, repo: string, options?: {signal?: AbortSignal}): Promise<void>
   forkRepo(owner: string, repo: string, options?: GitForkOptions): Promise<RepoMetadata>
 
   /**

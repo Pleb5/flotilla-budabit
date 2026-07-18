@@ -86,8 +86,8 @@ describe("git operation progress", () => {
     expect(createGitOperationId("import")).toMatch(/^import:/);
   });
 
-  it("filters unrelated operations and keeps observer state", () => {
-    vi.spyOn(Date, "now").mockReturnValueOnce(10).mockReturnValueOnce(20);
+  it("filters unrelated operations and correlates child mutation progress to the base operation", () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(10).mockReturnValueOnce(20).mockReturnValueOnce(30);
     const onActivity = vi.fn();
     const observe = createGitOperationProgressObserver("import:1", onActivity);
 
@@ -102,7 +102,7 @@ describe("git operation progress", () => {
     });
     observe({
       type: "git-progress",
-      operationId: "import:1",
+      operationId: "import:1:session:cloneRemoteRepo:1",
       repoId: "owner/repo",
       operation: "clone",
       phase: "Receiving objects",
@@ -120,6 +120,10 @@ describe("git operation progress", () => {
     });
 
     expect(onActivity).toHaveBeenCalledTimes(2);
+    expect(onActivity.mock.calls[0][0]).toMatchObject({
+      operationId: "import:1",
+      startedAt: 10,
+    });
     expect(onActivity.mock.calls[1][0]).toMatchObject({ startedAt: 10, updatedAt: 20 });
   });
 });

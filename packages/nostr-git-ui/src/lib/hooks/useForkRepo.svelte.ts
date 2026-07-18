@@ -55,6 +55,10 @@ import {
   assertRepoCoordinateAvailable,
   assertRepoCreationPrerequisites,
 } from "../utils/repo-creation-preflight.js";
+import {
+  WorkerOperationSession,
+  hasUnknownWorkerOperation,
+} from "../utils/worker-operation-session.js";
 
 export interface ForkConfig {
   forkName: string;
@@ -474,6 +478,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
   let warning = $state<string | null>(null);
   let abortController = $state<AbortController | null>(null);
   let operationActivity = $state<GitOperationActivity | undefined>();
+  let activeOperationSession: WorkerOperationSession | null = null;
   let progressActivityId = 0;
 
   let tokens = $state<Token[]>([]);
@@ -577,6 +582,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
     let selectedTargets: RemoteTargetSelection[] = [];
     let transactionJournal: RepoCreationTransactionJournal | undefined;
     let transactionPublisher = onPublishEvent;
+    let operationSession: WorkerOperationSession | undefined;
 
     try {
       throwIfAborted(abortSignal);
@@ -682,6 +688,10 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         temporaryWorkerClient = getGitWorker();
         gitWorkerApi = temporaryWorkerClient.api;
       }
+      operationSession = new WorkerOperationSession(gitWorkerApi, operationId, 5000, (status) =>
+        transactionJournal?.recordWorkerOperationStatus(status)
+      );
+      activeOperationSession = operationSession;
 
       const localCloneDir = `/repos/${localRepoId}`;
 
@@ -701,12 +711,14 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           );
 
           await runAbortable(abortSignal, () =>
-            gitWorkerApi.cloneRemoteRepo({
-              url: sourceUrl,
-              dir: localCloneDir,
-              operationId,
-              ...(sourceToken ? { token: sourceToken } : {}),
-            })
+            operationSession!.runOperation("cloneRemoteRepo", (childOperationId) =>
+              gitWorkerApi.cloneRemoteRepo({
+                url: sourceUrl,
+                dir: localCloneDir,
+                operationId: childOperationId,
+                ...(sourceToken ? { token: sourceToken } : {}),
+              })
+            )
           );
 
           clonedFrom = sourceUrl;
@@ -714,12 +726,30 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           break;
         } catch (cloneError) {
           cloneFailure = cloneError instanceof Error ? cloneError.message : String(cloneError);
+          const cloneStatuses = await operationSession.waitForTrackedOperations();
+          if (hasUnknownWorkerOperation(cloneStatuses)) {
+            transactionJournal.setLocalResourceStatus("unknown", cloneError);
+            throw cloneError;
+          }
           try {
-            const cleanup = await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
+            const cleanup = await operationSession.runOperation<any>(
+              "deleteRepo",
+              (childOperationId) =>
+                gitWorkerApi.deleteRepo?.({ repoId: localRepoId, operationId: childOperationId })
+            );
+            const cleanupStatuses = await operationSession.waitForTrackedOperations();
+            if (hasUnknownWorkerOperation(cleanupStatuses)) {
+              transactionJournal.setLocalResourceStatus(
+                "unknown",
+                "Local fork mirror reset outcome is unknown"
+              );
+              throw cloneError;
+            }
             if (cleanup?.success === false) {
               throw new Error(cleanup.error || "Failed to reset local fork mirror");
             }
             transactionJournal.setLocalResourceStatus("planned");
+            throwIfAborted(abortSignal);
           } catch (cleanupError) {
             transactionJournal.setLocalResourceStatus("cleanup-pending", cleanupError);
             throw cloneError;
@@ -783,6 +813,13 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         graspFirst: true,
         operationId,
         onOperationProgress,
+        createWorkerOperationId: (operation) => operationSession!.createOperationId(operation),
+        onWorkerOperationStart: (childOperationId, operation) =>
+          operationSession!.registerOperation(childOperationId, operation),
+        onWorkerOperationSettled: (childOperationId) =>
+          operationSession!.unregisterOperation(childOperationId),
+        waitForWorkerOperationTerminal: (childOperationId) =>
+          operationSession!.waitForOperationTerminal(childOperationId),
         prepublishedAnnouncement: announcementAdmission.announcementEvent,
         prepublishedAnnouncementByGraspRelay: announcementAdmission.announcementByGraspRelay,
         preprovisionedGraspRelayUrls: announcementAdmission.graspRelayUrls,
@@ -792,6 +829,9 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       operationActivity = undefined;
       transactionJournal.setTargetResults(remotePushResults);
       throwIfAborted(abortSignal);
+      if (remotePushResults.some((result) => result.outcome === "unknown")) {
+        throw new Error("Remote synchronization has an unknown outcome; recovery is required");
+      }
 
       const successfulTargets = remotePushResults.filter((result) => result.success);
       const failedTargets = remotePushResults.filter((result) => !result.success);
@@ -960,21 +1000,45 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         remotePushResults,
       };
 
-      transactionJournal.setLocalResourceStatus("cleanup-pending");
-      const localCleanup = await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
-      if (localCleanup?.success === false) {
+      const terminalStatuses = await operationSession.waitForTrackedOperations();
+      if (hasUnknownWorkerOperation(terminalStatuses)) {
         transactionJournal.setLocalResourceStatus(
-          "cleanup-pending",
-          localCleanup.error || "Failed to delete temporary fork mirror"
+          "unknown",
+          "Worker operation status is unknown; temporary fork mirror was retained"
         );
       } else {
-        transactionJournal.setLocalResourceStatus("cleaned");
+        transactionJournal.setLocalResourceStatus("cleanup-pending");
+        const localCleanup = await operationSession.runOperation<any>(
+          "deleteRepo",
+          (childOperationId) =>
+            gitWorkerApi.deleteRepo?.({ repoId: localRepoId, operationId: childOperationId })
+        );
+        const cleanupStatuses = await operationSession.waitForTrackedOperations();
+        if (hasUnknownWorkerOperation(cleanupStatuses)) {
+          transactionJournal.setLocalResourceStatus(
+            "unknown",
+            "Temporary fork mirror deletion outcome is unknown"
+          );
+        } else if (localCleanup?.success === false) {
+          transactionJournal.setLocalResourceStatus(
+            "cleanup-pending",
+            localCleanup.error || "Failed to delete temporary fork mirror"
+          );
+        } else {
+          transactionJournal.setLocalResourceStatus("cleaned");
+        }
       }
       isComplete = true;
       onForkCompleted?.(result);
       transactionJournal.complete();
       return result;
     } catch (err) {
+      const terminalStatuses = operationSession
+        ? await operationSession.waitForTrackedOperations()
+        : [];
+      const workerOutcomeUnknown =
+        hasUnknownWorkerOperation(terminalStatuses) ||
+        remotePushResults.some((result) => result.outcome === "unknown");
       const successfulTargetCount = remotePushResults.filter((result) => result.success).length;
       const remoteRollbackTargets = remotePushResults.filter(
         (result) =>
@@ -991,10 +1055,12 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           options.onDeleteEvent || onRollbackPublishedRepoEvents
         ),
         createdRemoteRepoCount: remoteRollbackTargets.length,
-        hasGitWorkerApi: Boolean(gitWorkerApi) && !(err instanceof ForkAbortedError),
+        hasGitWorkerApi: Boolean(gitWorkerApi),
         hasRollbackLocalRepoId: Boolean(localRepoId),
+        workerOutcomeUnknown,
       });
       const rollbackFailures: string[] = [];
+      let rollbackWorkerOutcomeUnknown = false;
 
       if (rollbackPlan.hasAnyRollback) {
         updateProgress("rollback", "Rolling back incomplete fork resources...", "running");
@@ -1052,12 +1118,22 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           for (const rollbackToken of rollbackTokens) {
             try {
               updateProgress("rollback", `Deleting created remote ${result.label}...`, "running");
-              const rollbackResult = await gitWorkerApi.deleteRemoteRepo({
-                remoteUrl: result.remoteUrl,
-                token: rollbackToken,
-                provider: result.provider,
-                baseUrl: getProviderBaseUrl(result.provider, target?.host),
-              });
+              const rollbackResult = await operationSession!.runOperation<any>(
+                "deleteRemoteRepo",
+                (childOperationId) =>
+                  gitWorkerApi.deleteRemoteRepo({
+                    remoteUrl: result.remoteUrl,
+                    token: rollbackToken,
+                    provider: result.provider,
+                    baseUrl: getProviderBaseUrl(result.provider, target?.host),
+                    operationId: childOperationId,
+                  })
+              );
+              const rollbackStatuses = await operationSession!.waitForTrackedOperations();
+              if (hasUnknownWorkerOperation(rollbackStatuses)) {
+                rollbackWorkerOutcomeUnknown = true;
+                throw new Error(`Deletion outcome is unknown for ${result.label}`);
+              }
               if (!rollbackResult?.success) {
                 throw new Error(rollbackResult?.error || `Failed to delete ${result.label}`);
               }
@@ -1066,6 +1142,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
             } catch (rollbackError) {
               lastRollbackError =
                 rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+              if (rollbackWorkerOutcomeUnknown) break;
             }
           }
 
@@ -1074,25 +1151,40 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
               `${result.label}: ${lastRollbackError || `Failed to delete ${result.label}`}`
             );
           }
+          if (rollbackWorkerOutcomeUnknown) break;
         }
       }
 
-      if (rollbackPlan.rollbackLocalRepo && localRepoId) {
+      if (rollbackPlan.rollbackLocalRepo && localRepoId && !rollbackWorkerOutcomeUnknown) {
         try {
           transactionJournal?.setLocalResourceStatus("cleanup-pending");
-          const cleanup = await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
-          if (cleanup?.success === false) {
+          const cleanup = await operationSession!.runOperation<any>(
+            "deleteRepo",
+            (childOperationId) =>
+              gitWorkerApi.deleteRepo?.({ repoId: localRepoId, operationId: childOperationId })
+          );
+          const cleanupStatuses = await operationSession!.waitForTrackedOperations();
+          if (hasUnknownWorkerOperation(cleanupStatuses)) {
+            transactionJournal?.setLocalResourceStatus(
+              "unknown",
+              "Local fork mirror deletion outcome is unknown"
+            );
+          } else if (cleanup?.success === false) {
             throw new Error(cleanup.error || "Failed to delete local fork mirror");
+          } else {
+            transactionJournal?.setLocalResourceStatus("cleaned");
           }
-          transactionJournal?.setLocalResourceStatus("cleaned");
         } catch (rollbackError) {
           transactionJournal?.setLocalResourceStatus("cleanup-pending", rollbackError);
           rollbackFailures.push(
             `local mirror: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
           );
         }
-      } else if (err instanceof ForkAbortedError && transactionJournal) {
-        transactionJournal.setLocalResourceStatus("cleanup-pending", err);
+      } else if ((err instanceof ForkAbortedError || workerOutcomeUnknown) && transactionJournal) {
+        transactionJournal.setLocalResourceStatus(
+          workerOutcomeUnknown ? "unknown" : "cleanup-pending",
+          err
+        );
       }
 
       if (rollbackPlan.hasAnyRollback) {
@@ -1138,12 +1230,15 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       if (abortController === sessionAbortController) {
         abortController = null;
       }
+      if (activeOperationSession === operationSession) activeOperationSession = null;
     }
   }
 
   function abortFork(reason?: string): void {
     if (!abortController || abortController.signal.aborted) return;
-    abortController.abort(reason || "Fork cancelled by user");
+    const message = reason || "Fork cancelled by user";
+    void activeOperationSession?.requestCancellation(message);
+    abortController.abort(message);
   }
 
   function reset(): void {

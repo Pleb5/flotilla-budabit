@@ -124,29 +124,30 @@
   let createdResult = $state<NewRepoResult | null>(null);
 
   // Initialize the useNewRepo hook
-  const { createRepository, isCreating, progress, error, reset, operationActivity } = useNewRepo({
-    workerApi, // Pass the worker API from props
-    workerInstance, // Pass the worker instance from props
-    onProgress: (steps) => {
-      // Transform status to completed boolean for RepoProgressStep
-      progressSteps = steps.map((step) => ({
-        step: step.step,
-        message: step.message,
-        description: step.message,
-        completed: step.status === "completed",
-        status: step.status,
-      }));
-    },
-    onRepoCreated: (result) => {
-      createdRepoResult = result;
-      onRepoCreated?.(result);
-    },
-    onPublishEvent: onPublishEvent,
-    onDeleteEvent,
-    onFetchRelayEvents,
-    subscribeGitProgress,
-    userPubkey, // Pass user pubkey for GRASP repos
-  });
+  const { createRepository, isCreating, progress, error, reset, abortCreation, operationActivity } =
+    useNewRepo({
+      workerApi, // Pass the worker API from props
+      workerInstance, // Pass the worker instance from props
+      onProgress: (steps) => {
+        // Transform status to completed boolean for RepoProgressStep
+        progressSteps = steps.map((step) => ({
+          step: step.step,
+          message: step.message,
+          description: step.message,
+          completed: step.status === "completed",
+          status: step.status,
+        }));
+      },
+      onRepoCreated: (result) => {
+        createdRepoResult = result;
+        onRepoCreated?.(result);
+      },
+      onPublishEvent: onPublishEvent,
+      onDeleteEvent,
+      onFetchRelayEvents,
+      subscribeGitProgress,
+      userPubkey, // Pass user pubkey for GRASP repos
+    });
 
   // Store result when repo is created so we can offer "Navigate to repo"
   let createdRepoResult = $state<NewRepoResult | null>(null);
@@ -692,6 +693,7 @@
   }
 
   function handleClose() {
+    if (isCreating()) abortCreation("User cancelled repository creation");
     if (onCancel) {
       onCancel();
     }

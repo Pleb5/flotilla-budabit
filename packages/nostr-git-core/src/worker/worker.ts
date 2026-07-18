@@ -216,6 +216,17 @@ import {
   type PushToRemoteOptions,
 } from "./progress.js"
 import {
+  OperationRegistry,
+  raceWithOperationSignal,
+  type CancelOperationOptions,
+  type DeleteRepoOptions,
+  type GetOperationStatusOptions,
+  type OperationHandle,
+  type OperationStatus,
+  type WaitForOperationTerminalOptions,
+  type WorkerMutationOperation,
+} from "./operations.js"
+import {
   discoverRemoteBackfillUtil,
   executeRemoteBackfillUtil,
   prepareRemoteBackfillUtil,
@@ -816,8 +827,10 @@ function makeGitOperationProgress(opts: {
   repoId: string
   operation: GitOperation
   target?: string
+  onStage?: (stage: string) => void
 }) {
   return (update: GitProgressUpdate) => {
+    opts.onStage?.(update.phase)
     const unit = update.unit || getGitProgressUnit(update.phase)
     const payload: GitOperationProgressEvent = {
       type: "git-progress",
@@ -838,6 +851,22 @@ function makeGitOperationProgress(opts: {
       // Some hosts do not expose a worker message channel.
     }
   }
+}
+
+function postOperationStatus(status: OperationStatus): void {
+  try {
+    ;(self as any).postMessage({type: "git-operation-status", ...status})
+  } catch {
+    // Some hosts do not expose a worker message channel.
+  }
+}
+
+function operationResultError(result: unknown): Error | null {
+  if (!result || typeof result !== "object" || (result as {success?: unknown}).success !== false) {
+    return null
+  }
+  const message = (result as {error?: unknown}).error
+  return new Error(typeof message === "string" ? message : "Operation reported failure")
 }
 
 function repoKeyAndDir(repoId: string): {key: string; dir: string} {
@@ -879,8 +908,55 @@ applyGitConfigToProvider(git)
 const cacheManager: RepoCacheManager = new (RepoCacheManager as any)()
 const clonedRepos = new Set<string>()
 const repoDataLevels = new Map<string, DataLevel>()
+const operationRegistry = new OperationRegistry(postOperationStatus)
 let eventIO: EventIO | null = null
 const WORKER_BUILD_ID = new Date().toISOString()
+
+function beginTrackedOperation(
+  operationId: string | undefined,
+  operation: WorkerMutationOperation,
+  stage: string,
+): OperationHandle | undefined {
+  if (!operationId) return undefined
+  const handle = operationRegistry.start({operationId, operation, stage})
+  handle.throwIfCancellationRequested()
+  return handle
+}
+
+function finishTrackedOperation<T>(handle: OperationHandle | undefined, result: T): T {
+  if (!handle) return result
+  if (handle.cancellationRequested) {
+    const resultError = operationResultError(result)
+    handle.finishCancellation(
+      resultError ?? undefined,
+      resultError || result === undefined ? undefined : [toPlain(result)],
+    )
+  } else {
+    const resultError = operationResultError(result)
+    if (resultError) handle.fail(resultError)
+    else handle.complete(result === undefined ? undefined : [toPlain(result)])
+  }
+  return result
+}
+
+async function runTrackedOperation<T>(
+  operationId: string | undefined,
+  operation: WorkerMutationOperation,
+  initialStage: string,
+  work: (handle?: OperationHandle) => Promise<T>,
+): Promise<T> {
+  if (!operationId) return await work()
+
+  const handle = beginTrackedOperation(operationId, operation, initialStage)!
+  try {
+    const result = await work(handle)
+    return finishTrackedOperation(handle, result)
+  } catch (error) {
+    if (handle.cancellationRequested) handle.finishCancellation(error)
+    else handle.fail(error)
+    throw error
+  }
+}
 
 async function hasCommitObject(dir: string, oid: string): Promise<boolean> {
   if (!oid) return false
@@ -1024,7 +1100,19 @@ async function fetchRefsUntilOidsAvailable(opts: {
 const api = {
   // Health check / handshake
   async ping(): Promise<{ok: true; ts: number; apiVersion: string; buildId: string}> {
-    return {ok: true, ts: Date.now(), apiVersion: "2026-03-16", buildId: WORKER_BUILD_ID}
+    return {ok: true, ts: Date.now(), apiVersion: "2026-07-18", buildId: WORKER_BUILD_ID}
+  },
+
+  cancelOperation(opts: CancelOperationOptions): OperationStatus | null {
+    return operationRegistry.cancel(opts.operationId, opts.reason)
+  },
+
+  getOperationStatus(opts: GetOperationStatusOptions): OperationStatus | null {
+    return operationRegistry.getStatus(opts.operationId)
+  },
+
+  async waitForOperationTerminal(opts: WaitForOperationTerminalOptions): Promise<OperationStatus> {
+    return await operationRegistry.waitForTerminal(opts.operationId, opts.timeoutMs)
   },
 
   // Configuration
@@ -1156,19 +1244,27 @@ const api = {
   },
 
   async cloneRemoteRepo(options: CloneRemoteRepoOptions): Promise<void> {
-    // This util handles cleanup and cache writes internally
-    const repoId = options.dir.startsWith(`${rootDir}/`)
-      ? options.dir.slice(rootDir.length + 1)
-      : options.dir
-    const sendProgress = options.operationId
-      ? makeGitOperationProgress({
-          operationId: options.operationId,
-          repoId,
-          operation: "clone",
-          target: options.url,
-        })
-      : undefined
-    await cloneRemoteRepoUtil(git, cacheManager, options, sendProgress)
+    return await runTrackedOperation(
+      options.operationId,
+      "cloneRemoteRepo",
+      "Starting clone",
+      async operation => {
+        // This util handles cleanup and cache writes internally.
+        const repoId = options.dir.startsWith(`${rootDir}/`)
+          ? options.dir.slice(rootDir.length + 1)
+          : options.dir
+        const sendProgress = options.operationId
+          ? makeGitOperationProgress({
+              operationId: options.operationId,
+              repoId,
+              operation: "clone",
+              target: options.url,
+              onStage: stage => operation?.setStage(stage),
+            })
+          : undefined
+        await cloneRemoteRepoUtil(git, cacheManager, options, sendProgress, operation)
+      },
+    )
   },
 
   // Legacy clone function - uses smart initialization strategy
@@ -1691,8 +1787,15 @@ const api = {
           : [normalizePushRef(targetBranch)],
       ),
     )
+    const operation = beginTrackedOperation(operationId, "pushToRemote", "Preparing push")
     const sendPushProgress = operationId
-      ? makeGitOperationProgress({operationId, repoId, operation: "push", target: remoteUrl})
+      ? makeGitOperationProgress({
+          operationId,
+          repoId,
+          operation: "push",
+          target: remoteUrl,
+          onStage: stage => operation?.setStage(stage),
+        })
       : undefined
     let processedPushRefs = 0
     let activePushRef: string | undefined
@@ -1873,6 +1976,8 @@ const api = {
             }
           }
 
+          operation?.throwIfCancellationRequested()
+          operation?.markSideEffectBoundary(`Pushing ${targetRef}`)
           await git.push({
             dir,
             url: pushUrl,
@@ -1882,6 +1987,7 @@ const api = {
             http: graspHttpClient,
             force: false,
             corsProxy: null,
+            ...(operation ? {signal: operation.signal} : {}),
           })
         }
 
@@ -1953,7 +2059,10 @@ const api = {
           const probeUrl = `${pushUrl}/info/refs?service=${service}`
 
           try {
-            const response = await fetch(probeUrl, {method: "GET"})
+            const response = await fetch(probeUrl, {
+              method: "GET",
+              ...(operation ? {signal: operation.signal} : {}),
+            })
             appendGraspHttpDiagnostic({
               url: probeUrl,
               statusCode: response.status,
@@ -1974,7 +2083,10 @@ const api = {
 
           try {
             const proxiedUrl = toCorsProxyRequestUrl(probeUrl, corsProxy)
-            const response = await fetch(proxiedUrl, {method: "GET"})
+            const response = await fetch(proxiedUrl, {
+              method: "GET",
+              ...(operation ? {signal: operation.signal} : {}),
+            })
             appendGraspHttpDiagnostic({
               url: proxiedUrl,
               statusCode: response.status,
@@ -2054,7 +2166,10 @@ const api = {
                 )
 
                 try {
-                  await new Promise(resolve => setTimeout(resolve, delay))
+                  await raceWithOperationSignal(
+                    new Promise(resolve => setTimeout(resolve, delay)),
+                    operation?.signal,
+                  )
                   await pushOnce(targetRef)
                   recovered = true
                   break
@@ -2109,6 +2224,7 @@ const api = {
                       singleBranch: true,
                       tags: false,
                       depth: undefined,
+                      ...(operation ? {signal: operation.signal} : {}),
                       ...(corsProxy !== null ? {corsProxy} : {}),
                     })
                   } else if (specificTag) {
@@ -2120,6 +2236,7 @@ const api = {
                       singleBranch: true,
                       tags: false,
                       depth: undefined,
+                      ...(operation ? {signal: operation.signal} : {}),
                       ...(corsProxy !== null ? {corsProxy} : {}),
                     })
                   } else {
@@ -2128,6 +2245,7 @@ const api = {
                       dir,
                       remote: "origin",
                       tags: true,
+                      ...(operation ? {signal: operation.signal} : {}),
                       ...(corsProxy !== null ? {corsProxy} : {}),
                     })
                   }
@@ -2197,7 +2315,10 @@ const api = {
             continue
           }
 
-          failedRefs.push({ref: targetRef, error: "could not resolve local tip for verification"})
+          failedRefs.push({
+            ref: targetRef,
+            error: "could not resolve local tip for verification",
+          })
           finishPushRef(targetRef, "Ref failed")
         }
 
@@ -2208,14 +2329,17 @@ const api = {
             total: refsToPush.length,
             unit: "refs",
           })
-          return toPlain({
-            success: false,
-            repoId,
-            remoteUrl,
-            branch: targetBranch,
-            error: `Failed to push refs: ${failedRefs.map(item => `${item.ref} (${item.error})`).join("; ")}`,
-            details: {pushedRefs, failedRefs, warnings},
-          })
+          return finishTrackedOperation(
+            operation,
+            toPlain({
+              success: false,
+              repoId,
+              remoteUrl,
+              branch: targetBranch,
+              error: `Failed to push refs: ${failedRefs.map(item => `${item.ref} (${item.error})`).join("; ")}`,
+              details: {pushedRefs, failedRefs, warnings},
+            }),
+          )
         }
 
         const partialSuccess = failedRefs.length > 0
@@ -2225,17 +2349,20 @@ const api = {
           total: refsToPush.length,
           unit: "refs",
         })
-        return toPlain({
-          success: true,
-          repoId,
-          remoteUrl,
-          branch: targetBranch,
-          partialSuccess,
-          details: {pushedRefs, failedRefs, warnings},
-          message: partialSuccess
-            ? `Pushed ${pushedRefs.length}/${refsToPush.length} refs`
-            : `Pushed ${pushedRefs.length} refs successfully`,
-        })
+        return finishTrackedOperation(
+          operation,
+          toPlain({
+            success: true,
+            repoId,
+            remoteUrl,
+            branch: targetBranch,
+            partialSuccess,
+            details: {pushedRefs, failedRefs, warnings},
+            message: partialSuccess
+              ? `Pushed ${pushedRefs.length}/${refsToPush.length} refs`
+              : `Pushed ${pushedRefs.length} refs successfully`,
+          }),
+        )
       }
 
       // Standard providers or NostrGitProvider
@@ -2285,6 +2412,8 @@ const api = {
         for (const targetRef of refsToPush) {
           startPushRef(targetRef)
           const sourceRef = await materializeSourceRef(targetRef)
+          operation?.throwIfCancellationRequested()
+          operation?.markSideEffectBoundary(`Pushing ${targetRef}`)
           const result = await nostrProvider.push({
             dir,
             fs: getProviderFs(git),
@@ -2293,6 +2422,7 @@ const api = {
             url: remoteUrl,
             onAuth,
             blossomMirror: blossomMirror ?? Boolean(provider === "blossom"),
+            ...(operation ? {signal: operation.signal} : {}),
           })
           if (!blossomSummary && result?.blossomSummary) {
             blossomSummary = result.blossomSummary
@@ -2307,13 +2437,16 @@ const api = {
           total: refsToPush.length,
           unit: "refs",
         })
-        return toPlain({
-          success: true,
-          branch: targetBranch,
-          remoteUrl,
-          blossomSummary,
-          details: {pushedRefs, failedRefs: [], warnings: []},
-        })
+        return finishTrackedOperation(
+          operation,
+          toPlain({
+            success: true,
+            branch: targetBranch,
+            remoteUrl,
+            blossomSummary,
+            details: {pushedRefs, failedRefs: [], warnings: []},
+          }),
+        )
       }
 
       const corsProxy = resolveDefaultCorsProxy()
@@ -2322,6 +2455,8 @@ const api = {
       for (const targetRef of refsToPush) {
         startPushRef(targetRef)
         const sourceRef = await materializeSourceRef(targetRef)
+        operation?.throwIfCancellationRequested()
+        operation?.markSideEffectBoundary(`Pushing ${targetRef}`)
         await (git as any).push({
           dir,
           url: remoteUrl,
@@ -2329,6 +2464,7 @@ const api = {
           remoteRef: targetRef,
           ...(corsProxy !== null ? {corsProxy} : {}),
           onAuth,
+          ...(operation ? {signal: operation.signal} : {}),
         })
         pushedRefs.push(targetRef)
         finishPushRef(targetRef, "Ref pushed")
@@ -2340,12 +2476,15 @@ const api = {
         total: refsToPush.length,
         unit: "refs",
       })
-      return toPlain({
-        success: true,
-        branch: targetBranch,
-        remoteUrl,
-        details: {pushedRefs, failedRefs: [], warnings: []},
-      })
+      return finishTrackedOperation(
+        operation,
+        toPlain({
+          success: true,
+          branch: targetBranch,
+          remoteUrl,
+          details: {pushedRefs, failedRefs: [], warnings: []},
+        }),
+      )
     } catch (error) {
       sendPushProgress?.({
         phase: "Push failed",
@@ -2370,23 +2509,30 @@ const api = {
       const message = workflowFailureReason
         ? buildGithubWorkflowPushFailureMessage(originalMessage)
         : originalMessage
-      const formatted = formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"})
-
-      return toPlain({
-        success: false,
-        repoId,
-        remoteUrl,
-        ...formatted,
-        ...(workflowFailureReason ? {reason: workflowFailureReason} : {}),
-        error: message,
-        details: {
-          pushedRefs: [],
-          failedRefs: requestedRefs.map(ref => ({ref, error: message})),
-          warnings: workflowFailureReason
-            ? ["Source contains .github/workflows files; GitHub tokens need Workflow permission."]
-            : [],
-        },
+      const formatted = formatError(error, {
+        naddr: repoId,
+        remote: remoteUrl,
+        operation: "push",
       })
+
+      return finishTrackedOperation(
+        operation,
+        toPlain({
+          success: false,
+          repoId,
+          remoteUrl,
+          ...formatted,
+          ...(workflowFailureReason ? {reason: workflowFailureReason} : {}),
+          error: message,
+          details: {
+            pushedRefs: [],
+            failedRefs: requestedRefs.map(ref => ({ref, error: message})),
+            warnings: workflowFailureReason
+              ? ["Source contains .github/workflows files; GitHub tokens need Workflow permission."]
+              : [],
+          },
+        }),
+      )
     }
   },
 
@@ -3505,8 +3651,15 @@ const api = {
   },
 
   // Delete repository and clear cache
-  async deleteRepo(opts: {repoId: string}) {
+  async deleteRepo(opts: DeleteRepoOptions) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const operation = beginTrackedOperation(
+      opts.operationId,
+      "deleteRepo",
+      "Preparing local repository deletion",
+    )
+    operation?.throwIfCancellationRequested()
+    operation?.markSideEffectBoundary("Deleting local repository")
     clonedRepos.delete(key)
     repoDataLevels.delete(key)
 
@@ -3601,14 +3754,17 @@ const api = {
 
     try {
       await removeDirRecursive(dir)
-      return toPlain({success: true, repoId: opts.repoId})
+      return finishTrackedOperation(operation, toPlain({success: true, repoId: opts.repoId}))
     } catch (error) {
       console.error(`Failed to delete repo directory ${dir}:`, error)
-      return toPlain({
-        success: false,
-        repoId: opts.repoId,
-        ...formatError(error, {naddr: opts.repoId, operation: "deleteRepo"}),
-      })
+      return finishTrackedOperation(
+        operation,
+        toPlain({
+          success: false,
+          repoId: opts.repoId,
+          ...formatError(error, {naddr: opts.repoId, operation: "deleteRepo"}),
+        }),
+      )
     }
   },
 
@@ -4523,14 +4679,32 @@ const api = {
 
   // Create a new local git repository with initial files
   async createLocalRepo(opts: CreateLocalRepoOptions) {
-    const result = await createLocalRepo(git, rootDir, clonedRepos, repoDataLevels, opts)
-    return toPlain(result)
+    return await runTrackedOperation(
+      opts.operationId,
+      "createLocalRepo",
+      "Preparing local repository creation",
+      async operation => {
+        const result = await createLocalRepo(
+          git,
+          rootDir,
+          clonedRepos,
+          repoDataLevels,
+          opts,
+          operation,
+        )
+        return toPlain(result)
+      },
+    )
   },
 
   // Create a remote repository on GitHub/GitLab/Gitea/GRASP
   async createRemoteRepo(opts: CreateRemoteRepoOptions) {
-    const result = await createRemoteRepo(opts)
-    return toPlain(result)
+    return await runTrackedOperation(
+      opts.operationId,
+      "createRemoteRepo",
+      "Preparing remote repository creation",
+      async operation => toPlain(await createRemoteRepo(opts, operation)),
+    )
   },
 
   // Fork and clone a repository
@@ -4552,8 +4726,12 @@ const api = {
 
   // Delete a remote repository
   async deleteRemoteRepo(opts: DeleteRemoteRepoOptions) {
-    const result = await deleteRemoteRepo(opts)
-    return toPlain(result)
+    return await runTrackedOperation(
+      opts.operationId,
+      "deleteRemoteRepo",
+      "Preparing remote repository deletion",
+      async operation => toPlain(await deleteRemoteRepo(opts, operation)),
+    )
   },
 
   // Update remote repository metadata

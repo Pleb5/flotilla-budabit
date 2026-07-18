@@ -15,6 +15,27 @@ function signedEvent(event: any) {
   };
 }
 
+function workerTerminalStatus(operationId: string, state: "failed" | "unknown" = "failed") {
+  const operation = [
+    "cloneRemoteRepo",
+    "createLocalRepo",
+    "createRemoteRepo",
+    "pushToRemote",
+    "deleteRepo",
+    "deleteRemoteRepo",
+  ].find((candidate) => operationId.includes(`:${candidate}:`));
+  return {
+    operationId,
+    operation: operation || "pushToRemote",
+    stage: state,
+    state,
+    sideEffectMayHaveOccurred: state === "unknown",
+    startedAt: 1,
+    updatedAt: 2,
+    completedAt: 2,
+  };
+}
+
 describe("assertCompleteRemoteRefPush", () => {
   it("rejects worker partial success when any requested ref failed", () => {
     expect(() =>
@@ -206,6 +227,7 @@ describe("syncLocalRepoToTargets", () => {
       userPubkey: "f".repeat(64),
       updateProgress: vi.fn(),
       runAbortable: async (operation) => await operation(),
+      operationId: "new:remote-sync",
       onCheckpoint: (checkpoint) => {
         checkpoints.push(checkpoint);
         operations.push(
@@ -233,6 +255,11 @@ describe("syncLocalRepoToTargets", () => {
       "settled:git:github.com:ok",
     ]);
     expect(JSON.stringify(checkpoints)).not.toContain("ghp_callback_secret");
+    const createOperationId = workerApi.createRemoteRepo.mock.calls[0][0].operationId;
+    const pushOperationId = workerApi.pushToRemote.mock.calls[0][0].operationId;
+    expect(createOperationId).toMatch(/^new:remote-sync:.+:createRemoteRepo:1$/);
+    expect(pushOperationId).toMatch(/^new:remote-sync:.+:pushToRemote:2$/);
+    expect(createOperationId).not.toBe(pushOperationId);
     expect(checkpoints).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -366,7 +393,9 @@ describe("syncLocalRepoToTargets", () => {
       false
     );
     expect(workerApi.pushToRemote).toHaveBeenCalledWith(
-      expect.objectContaining({ operationId: "import:progress" })
+      expect.objectContaining({
+        operationId: expect.stringMatching(/^import:progress:.+:pushToRemote:\d+$/),
+      })
     );
     expect(onOperationProgress.mock.calls.map(([event]) => event.phase)).toEqual(
       expect.arrayContaining([
@@ -469,9 +498,17 @@ describe("syncLocalRepoToTargets", () => {
         }
         return await operation();
       },
+      operationId: "fork:remote-sync",
     });
 
     expect(results).toEqual([expect.objectContaining({ success: true })]);
+    const pushOperationIds = workerApi.pushToRemote.mock.calls.map(
+      ([options]) => options.operationId
+    );
+    expect(new Set(pushOperationIds)).toHaveLength(2);
+    expect(
+      pushOperationIds.every((childOperationId) => childOperationId.startsWith("fork:remote-sync:"))
+    ).toBe(true);
     expect(workerApi.createRemoteRepo).not.toHaveBeenCalled();
     expect(publishedAnnouncement.tags).toEqual(
       expect.arrayContaining([
@@ -611,6 +648,7 @@ describe("syncLocalRepoToTargets", () => {
           warnings: ["branch rule rejected refs/heads/main"],
         },
       })),
+      getOperationStatus: vi.fn(({ operationId }) => workerTerminalStatus(operationId)),
     };
 
     const results = await syncLocalRepoToTargets({
@@ -664,6 +702,7 @@ describe("syncLocalRepoToTargets", () => {
       })),
       listServerRefs: vi.fn(async () => []),
       deleteRemoteRepo: vi.fn(async () => ({ success: true })),
+      getOperationStatus: vi.fn(({ operationId }) => workerTerminalStatus(operationId)),
     };
 
     const results = await syncLocalRepoToTargets({
@@ -694,12 +733,15 @@ describe("syncLocalRepoToTargets", () => {
         cleanup: { attempted: true, success: true },
       })
     );
-    expect(workerApi.deleteRemoteRepo).toHaveBeenCalledWith({
-      remoteUrl: "https://github.com/alice/repo.git",
-      token: "ghp_test",
-      provider: "github",
-      baseUrl: undefined,
-    });
+    expect(workerApi.deleteRemoteRepo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        remoteUrl: "https://github.com/alice/repo.git",
+        token: "ghp_test",
+        provider: "github",
+        baseUrl: undefined,
+        operationId: expect.stringMatching(/:deleteRemoteRepo:\d+$/),
+      })
+    );
   });
 
   it("does not delete a created platform repository after an ambiguous timeout", async () => {
@@ -742,6 +784,45 @@ describe("syncLocalRepoToTargets", () => {
         outcome: "unknown",
         cleanup: undefined,
       })
+    );
+    expect(workerApi.deleteRemoteRepo).not.toHaveBeenCalled();
+  });
+
+  it("treats a false worker result with terminal unknown status as unknown and retains cleanup", async () => {
+    const workerApi = {
+      createRemoteRepo: vi.fn(async () => ({
+        success: true,
+        remoteUrl: "https://github.com/alice/repo.git",
+      })),
+      pushToRemote: vi.fn(async () => ({ success: false, error: "push did not complete" })),
+      getOperationStatus: vi.fn(({ operationId }) => workerTerminalStatus(operationId, "unknown")),
+      listServerRefs: vi.fn(async () => []),
+      deleteRemoteRepo: vi.fn(async () => ({ success: true })),
+    };
+
+    const results = await syncLocalRepoToTargets({
+      workerApi,
+      localRepoId: "local/repo",
+      repoName: "repo",
+      repoDescription: "",
+      defaultBranch: "main",
+      refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit: "a".repeat(40) }],
+      targets: [
+        {
+          id: "git:github.com",
+          label: "GitHub (github.com)",
+          provider: "github",
+          host: "github.com",
+          token: "ghp_test",
+        },
+      ],
+      userPubkey: "f".repeat(64),
+      updateProgress: vi.fn(),
+      runAbortable: async (operation) => await operation(),
+    });
+
+    expect(results[0]).toEqual(
+      expect.objectContaining({ success: false, outcome: "unknown", cleanup: undefined })
     );
     expect(workerApi.deleteRemoteRepo).not.toHaveBeenCalled();
   });
@@ -899,6 +980,7 @@ describe("syncLocalRepoToTargets", () => {
         url.includes("relay.ngit.dev") ? [{ ref: "refs/heads/main", oid: commit }] : []
       ),
       deleteRemoteRepo: vi.fn(async () => ({ success: true })),
+      getOperationStatus: vi.fn(({ operationId }) => workerTerminalStatus(operationId)),
     };
     const onPublishEvent = vi.fn(async (event) => {
       const signed = signedEvent(event);

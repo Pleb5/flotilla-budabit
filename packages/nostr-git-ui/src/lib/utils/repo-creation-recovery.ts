@@ -305,6 +305,20 @@ export async function recoverRepoCreationRecord(
   record: RepoCreationRecoveryRecord,
   deps: RepoCreationRecoveryDependencies
 ): Promise<RepoCreationRecoveryResult> {
+  const unknownWorkerOperation = record.workerOperations?.find(
+    (operation) => operation.state === "unknown"
+  );
+  if (unknownWorkerOperation) {
+    const pending = persistRepoCreationRecoveryRecord({
+      ...record,
+      manualAttention: {
+        required: true,
+        reason: `Worker operation ${unknownWorkerOperation.operationId} has an unknown outcome`,
+      },
+    });
+    return { status: "pending", record: pending, reason: pending.manualAttention.reason };
+  }
+
   if (record.phase === "metadata-pending") {
     await retryPendingRepoCreationMetadata(record, deps.publisher, deps.fetchRelayEvents);
     const persisted =

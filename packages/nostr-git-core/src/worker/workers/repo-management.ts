@@ -20,6 +20,62 @@ import {listAdvertisedServerRefs} from "../../utils/advertised-refs.js"
 import {toNpub} from "../../utils/nostr-pubkey.js"
 import {isGraspRepoHttpUrl, resolveCorsProxyForUrl} from "../../utils/grasp-url.js"
 import {filterValidCloneUrls, reorderUrlsByPreference} from "../../utils/clone-url-fallback.js"
+import type {OperationControl} from "../operations.js"
+
+const localRepoCreationLocks = new Map<string, Promise<void>>()
+
+async function withLocalRepoCreationLock<T>(dir: string, work: () => Promise<T>): Promise<T> {
+  const previous = localRepoCreationLocks.get(dir) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => {
+    release = resolve
+  })
+  localRepoCreationLocks.set(dir, current)
+
+  await previous
+  try {
+    return await work()
+  } finally {
+    release()
+    if (localRepoCreationLocks.get(dir) === current) localRepoCreationLocks.delete(dir)
+  }
+}
+
+function isExistingPathError(error: unknown): boolean {
+  const value = error as {code?: unknown; message?: unknown}
+  return value?.code === "EEXIST" || String(value?.message || "").includes("EEXIST")
+}
+
+async function reserveLocalRepoTarget(fs: any, dir: string): Promise<void> {
+  if (typeof fs?.promises?.mkdir !== "function") {
+    throw new Error("Filesystem cannot atomically enforce mustNotExist")
+  }
+
+  try {
+    // An exclusive directory creation is the cross-worker claim; stat-then-init is racy.
+    await fs.promises.mkdir(dir)
+  } catch (error) {
+    if (isExistingPathError(error)) {
+      throw new Error(
+        `Target path already exists; refusing to overwrite repository or residue: ${dir}`,
+      )
+    }
+    throw error
+  }
+}
+
+async function ensureParentDirectoryChain(fs: any, dir: string): Promise<void> {
+  const parts = dir.split("/").filter(Boolean)
+  let current = ""
+  for (const part of parts) {
+    current += `/${part}`
+    try {
+      await fs.promises.mkdir(current)
+    } catch (error) {
+      if (!isExistingPathError(error)) throw error
+    }
+  }
+}
 
 // Helper to generate canonical repo key from repoId
 function canonicalRepoKey(repoId: string): string {
@@ -288,6 +344,8 @@ export interface CreateLocalRepoOptions {
   licenseTemplate?: string
   authorName: string
   authorEmail: string
+  mustNotExist?: boolean
+  operationId?: string
 }
 
 export interface CreateLocalRepoResult {
@@ -307,6 +365,7 @@ export async function createLocalRepo(
   clonedRepos: Set<string>,
   repoDataLevels: Map<string, string>,
   options: CreateLocalRepoOptions,
+  operation?: OperationControl,
 ): Promise<CreateLocalRepoResult> {
   const {
     repoId,
@@ -318,94 +377,97 @@ export async function createLocalRepo(
     licenseTemplate = "none",
     authorName,
     authorEmail,
+    mustNotExist = false,
   } = options
 
   const key = canonicalRepoKey(repoId)
   const dir = `${rootDir}/${key}`
 
-  try {
-    console.log(`Creating local repository: ${name}`)
+  return await withLocalRepoCreationLock(dir, async () => {
+    try {
+      console.log(`Creating local repository: ${name}`)
 
-    // Initialize git repository
-    await git.init({dir, defaultBranch})
+      const fs = getProviderFs(git)
+      if (!fs?.promises) throw new Error("File system provider is not available")
 
-    // Create initial files based on options
-    const files: Array<{path: string; content: string}> = []
-
-    // README.md
-    if (initializeWithReadme) {
-      const readmeContent = `# ${name}\n\n${description || "A new repository created with Flotilla-Budabit"}\n`
-      files.push({path: "README.md", content: readmeContent})
-    }
-
-    // .gitignore
-    if (gitignoreTemplate !== "none") {
-      const gitignoreContent = await getGitignoreTemplate(gitignoreTemplate)
-      if (gitignoreContent) {
-        files.push({path: ".gitignore", content: gitignoreContent})
+      operation?.setStage("Checking local repository target")
+      operation?.throwIfCancellationRequested()
+      if (mustNotExist) {
+        const parentDir = dir.slice(0, dir.lastIndexOf("/")) || "/"
+        await ensureParentDirectoryChain(fs, parentDir)
+        operation?.throwIfCancellationRequested()
+        // Mark before the asynchronous exclusive claim: cancellation may race a successful mkdir.
+        operation?.markSideEffectBoundary("Reserving local repository target")
+        await reserveLocalRepoTarget(fs, dir)
       }
-    }
 
-    // LICENSE
-    if (licenseTemplate !== "none") {
-      const licenseContent = await getLicenseTemplate(licenseTemplate, authorName)
-      if (licenseContent) {
-        files.push({path: "LICENSE", content: licenseContent})
+      // The keyed lock prevents another worker call from interleaving this check and init.
+      operation?.throwIfCancellationRequested()
+      operation?.setStage("Initializing local repository")
+      await git.init({dir, defaultBranch})
+      operation?.throwIfCancellationRequested()
+
+      const files: Array<{path: string; content: string}> = []
+      if (initializeWithReadme) {
+        const readmeContent = `# ${name}\n\n${description || "A new repository created with Flotilla-Budabit"}\n`
+        files.push({path: "README.md", content: readmeContent})
       }
-    }
 
-    // Write files to repository
-    const fs = getProviderFs(git)
-    if (!fs || !fs.promises) {
-      throw new Error("File system provider is not available")
-    }
+      if (gitignoreTemplate !== "none") {
+        const gitignoreContent = await getGitignoreTemplate(gitignoreTemplate)
+        if (gitignoreContent) files.push({path: ".gitignore", content: gitignoreContent})
+      }
 
-    for (const file of files) {
-      const filePath = `${dir}/${file.path}`
+      if (licenseTemplate !== "none") {
+        const licenseContent = await getLicenseTemplate(licenseTemplate, authorName)
+        if (licenseContent) files.push({path: "LICENSE", content: licenseContent})
+      }
 
-      // Ensure directory exists for nested files
-      const pathParts = file.path.split("/")
-      if (pathParts.length > 1) {
-        const dirPath = pathParts.slice(0, -1).join("/")
-        const fullDirPath = `${dir}/${dirPath}`
-        try {
-          await ensureDir(fs, fullDirPath)
-        } catch {
-          // Directory might already exist
+      operation?.setStage("Writing initial repository files")
+      for (const file of files) {
+        operation?.throwIfCancellationRequested()
+        const filePath = `${dir}/${file.path}`
+        const pathParts = file.path.split("/")
+        if (pathParts.length > 1) {
+          const fullDirPath = `${dir}/${pathParts.slice(0, -1).join("/")}`
+          try {
+            await ensureDir(fs, fullDirPath)
+          } catch {
+            // Directory might already exist.
+          }
         }
+
+        await fs.promises.writeFile(filePath, file.content, "utf8")
+        await git.add({dir, filepath: file.path})
       }
 
-      await fs.promises.writeFile(filePath, file.content, "utf8")
-      await git.add({dir, filepath: file.path})
+      operation?.throwIfCancellationRequested()
+      operation?.setStage("Creating initial commit")
+      const commitSha = await git.commit({
+        dir,
+        message: "Initial commit",
+        author: {name: authorName, email: authorEmail},
+      })
+
+      clonedRepos.add(key)
+      repoDataLevels.set(key, "full")
+      console.log(`Local repository created successfully: ${commitSha}`)
+
+      return {
+        success: true,
+        repoId,
+        commitSha,
+        files: files.map(f => f.path),
+      }
+    } catch (error) {
+      console.error(`Error creating local repository ${repoId}:`, error)
+      return {
+        success: false,
+        repoId,
+        error: error instanceof Error ? error.message : String(error),
+      }
     }
-
-    // Create initial commit
-    const commitSha = await git.commit({
-      dir,
-      message: "Initial commit",
-      author: {name: authorName, email: authorEmail},
-    })
-
-    // Update tracking
-    clonedRepos.add(key)
-    repoDataLevels.set(key, "full")
-
-    console.log(`Local repository created successfully: ${commitSha}`)
-
-    return {
-      success: true,
-      repoId,
-      commitSha,
-      files: files.map(f => f.path),
-    }
-  } catch (error) {
-    console.error(`Error creating local repository ${repoId}:`, error)
-    return {
-      success: false,
-      repoId,
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
+  })
 }
 
 // ============================================================================
@@ -419,6 +481,7 @@ export interface CreateRemoteRepoOptions {
   description?: string
   isPrivate?: boolean
   baseUrl?: string
+  operationId?: string
 }
 
 export interface CreateRemoteRepoResult {
@@ -433,6 +496,7 @@ export interface CreateRemoteRepoResult {
  */
 export async function createRemoteRepo(
   options: CreateRemoteRepoOptions,
+  operation?: OperationControl,
 ): Promise<CreateRemoteRepoResult> {
   const {provider, token, name, description, isPrivate = false, baseUrl} = options
 
@@ -446,12 +510,16 @@ export async function createRemoteRepo(
     // Use GitServiceApi abstraction
     const api = getGitServiceApi(provider, token, baseUrl)
 
+    operation?.throwIfCancellationRequested()
+    operation?.markSideEffectBoundary("Requesting remote repository creation")
+
     // Create repository using unified API
     const repoMetadata = await api.createRepo({
       name,
       description,
       private: isPrivate,
       autoInit: false,
+      ...(operation ? {signal: operation.signal} : {}),
     })
 
     let remoteUrl = repoMetadata.cloneUrl
@@ -2833,6 +2901,7 @@ export interface DeleteRemoteRepoOptions {
   token: string
   provider?: GitVendor
   baseUrl?: string
+  operationId?: string
 }
 
 export interface DeleteRemoteRepoResult {
@@ -2875,6 +2944,7 @@ export async function updateRemoteRepoMetadata(
  */
 export async function deleteRemoteRepo(
   options: DeleteRemoteRepoOptions,
+  operation?: OperationControl,
 ): Promise<DeleteRemoteRepoResult> {
   const {remoteUrl, token, provider: providerKind, baseUrl} = options
 
@@ -2882,7 +2952,10 @@ export async function deleteRemoteRepo(
     if (providerKind) {
       const parsed = parseRepoUrl(remoteUrl)
       const api = getGitServiceApi(providerKind, token, baseUrl)
-      await api.deleteRepo(parsed.owner, parsed.repo)
+      operation?.throwIfCancellationRequested()
+      operation?.markSideEffectBoundary("Requesting remote repository deletion")
+      if (operation) await api.deleteRepo(parsed.owner, parsed.repo, {signal: operation.signal})
+      else await api.deleteRepo(parsed.owner, parsed.repo)
       return {success: true}
     }
 
@@ -2891,7 +2964,10 @@ export async function deleteRemoteRepo(
       throw new Error("Unable to parse repository URL")
     }
     const {provider: vendorProvider, owner, repo} = parsed
-    await vendorProvider.deleteRepo(owner, repo, token)
+    operation?.throwIfCancellationRequested()
+    operation?.markSideEffectBoundary("Requesting remote repository deletion")
+    if (operation) await vendorProvider.deleteRepo(owner, repo, token, {signal: operation.signal})
+    else await vendorProvider.deleteRepo(owner, repo, token)
     return {success: true}
   } catch (error: any) {
     return {

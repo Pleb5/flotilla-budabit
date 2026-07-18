@@ -1324,7 +1324,7 @@ export class WorkerManager {
     this.progressCallback = callback;
   }
 
-  private handleWorkerProgress = (event: WorkerProgressEvent | MessageEvent): void => {
+  private handleWorkerProgress = (event: unknown): void => {
     const payload = event instanceof MessageEvent ? event.data : event;
     if (!payload || typeof payload !== "object") {
       return;

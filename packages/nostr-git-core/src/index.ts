@@ -24,7 +24,24 @@ export type {
   GitProgressUnit,
   PushToRemoteOptions,
 } from "./worker/progress.js"
+export type {
+  CancelOperationOptions,
+  DeleteRepoOptions,
+  GetOperationStatusOptions,
+  GitOperationStatusEvent,
+  OperationError,
+  OperationState,
+  OperationStatus,
+  OperationTerminalState,
+  WaitForOperationTerminalOptions,
+  WorkerMutationOperation,
+} from "./worker/operations.js"
 export type {CloneRemoteRepoOptions} from "./worker/workers/repos.js"
+export type {
+  CreateLocalRepoOptions,
+  CreateRemoteRepoOptions,
+  DeleteRemoteRepoOptions,
+} from "./worker/workers/repo-management.js"
 export * from "./utils/sanitize-relays.js"
 export * from "./utils/clone-url-fallback.js"
 export * from "./utils/repo-relay-policy.js"

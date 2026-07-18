@@ -3,6 +3,8 @@ import {
   parseRepoUrl,
   type GitOperationProgressEvent,
   type NostrEvent,
+  type OperationStatus,
+  type WorkerMutationOperation,
 } from "@nostr-git/core";
 import { createRepoAnnouncementEvent, type RepoCommunityBinding } from "@nostr-git/core/events";
 import { sanitizeRelays } from "@nostr-git/core/utils";
@@ -34,6 +36,10 @@ import {
   type RemoteTargetProvider,
   type RemoteTargetSelection,
 } from "./remote-targets.js";
+import {
+  createWorkerOperationIdFactory,
+  waitForWorkerOperationTerminal,
+} from "./worker-operation-session.js";
 
 export interface RemoteSyncRef {
   type: "heads" | "tags";
@@ -82,6 +88,7 @@ export interface RemoteSyncTargetResult {
   cleanup?: {
     attempted: boolean;
     success: boolean;
+    unknown?: boolean;
     error?: string;
   };
   provisionalAnnouncementEvent?: NostrEvent;
@@ -107,6 +114,10 @@ export type RemoteSyncCheckpointCallback = (
 ) => Promise<void> | void;
 export type RemoteSyncTargetSettledCallback = (
   result: RemoteSyncTargetResult
+) => Promise<void> | void;
+export type RemoteSyncWorkerOperationCallback = (
+  operationId: string,
+  operation: WorkerMutationOperation
 ) => Promise<void> | void;
 
 export interface SyncLocalRepoToTargetsOptions {
@@ -138,6 +149,13 @@ export interface SyncLocalRepoToTargetsOptions {
   preprovisionedGraspRelayUrls?: string[];
   operationId?: string;
   onOperationProgress?: (event: GitOperationProgressEvent) => void;
+  createWorkerOperationId?: (operation: WorkerMutationOperation) => string;
+  onWorkerOperationStart?: RemoteSyncWorkerOperationCallback;
+  onWorkerOperationSettled?: RemoteSyncWorkerOperationCallback;
+  waitForWorkerOperationTerminal?: (
+    operationId: string,
+    operation: WorkerMutationOperation
+  ) => Promise<OperationStatus>;
   onCheckpoint?: RemoteSyncCheckpointCallback;
   onTargetSettled?: RemoteSyncTargetSettledCallback;
 }
@@ -448,6 +466,17 @@ class RemotePushResultError extends Error {
   }
 }
 
+class RemoteWorkerMutationError extends Error {
+  constructor(
+    error: unknown,
+    readonly operationId: string,
+    readonly operationStatus: OperationStatus
+  ) {
+    super(error instanceof Error ? error.message : String(error), { cause: error });
+    this.name = "RemoteWorkerMutationError";
+  }
+}
+
 function getPushResultFromError(error: unknown): WorkerPushToRemoteResult | undefined {
   if (error instanceof RemotePushResultError) return error.result;
 
@@ -527,6 +556,7 @@ async function tryTargetTokens<T>(
       return await operation(token);
     } catch (error) {
       if (error instanceof RemoteSyncCheckpointInterruption) throw error;
+      if (isUnknownRemoteOutcome(error)) throw error;
       failureErrors.push(error);
       failures.push(error instanceof Error ? error.message : String(error));
     }
@@ -694,6 +724,9 @@ function updateLatestRepoMetadataCreatedAt(
 }
 
 function isUnknownRemoteOutcome(error: unknown): boolean {
+  if (error instanceof RemoteWorkerMutationError && error.operationStatus.state === "unknown") {
+    return true;
+  }
   const message = error instanceof Error ? error.message : String(error || "");
   return /abort|cancel|timed?\s*out|timeout|network|failed to fetch|connection.*(?:closed|reset)/i.test(
     message
@@ -760,6 +793,16 @@ async function cleanupEmptyCreatedRemote(params: {
   token?: string;
   beforeDelete?: () => Promise<void>;
   afterDelete?: (cleanup: NonNullable<RemoteSyncTargetResult["cleanup"]>) => Promise<void>;
+  runWorkerMutation: <T>(
+    operation: WorkerMutationOperation,
+    callback: (operationId: string) => Promise<T>,
+    label: string,
+    timeoutMs: number
+  ) => Promise<{ result: T; operationId: string }>;
+  waitForMutationTerminal: (
+    operationId: string,
+    operation: WorkerMutationOperation
+  ) => Promise<OperationStatus>;
 }): Promise<RemoteSyncTargetResult["cleanup"]> {
   if (!params.token || !params.workerApi?.listServerRefs || !params.workerApi?.deleteRemoteRepo) {
     return { attempted: false, success: false, error: "Remote emptiness could not be verified" };
@@ -788,27 +831,41 @@ async function cleanupEmptyCreatedRemote(params: {
 
     await params.beforeDelete?.();
     deleteStarted = true;
-    const result = await params.workerApi.deleteRemoteRepo({
-      remoteUrl: params.remoteUrl,
-      token: params.token,
-      provider: params.target.provider,
-      baseUrl: getProviderBaseUrl(params.target.provider, params.target.host),
-    });
+    const mutation = await params.runWorkerMutation<any>(
+      "deleteRemoteRepo",
+      (operationId) =>
+        params.workerApi.deleteRemoteRepo({
+          remoteUrl: params.remoteUrl,
+          token: params.token,
+          provider: params.target.provider,
+          baseUrl: getProviderBaseUrl(params.target.provider, params.target.host),
+          operationId,
+        }),
+      `Deleting empty remote repository on ${params.target.label}`,
+      45000
+    );
+    const result = mutation.result;
+    const terminalStatus = !result?.success
+      ? await params.waitForMutationTerminal(mutation.operationId, "deleteRemoteRepo")
+      : undefined;
 
     const cleanup = result?.success
       ? { attempted: true, success: true }
       : {
           attempted: true,
           success: false,
+          ...(terminalStatus?.state === "unknown" ? { unknown: true } : {}),
           error: result?.error || "Provider repository deletion failed",
         };
     await params.afterDelete?.(cleanup);
     return cleanup;
   } catch (error) {
     if (error instanceof RemoteSyncCheckpointInterruption) throw error;
+    const unknown = isUnknownRemoteOutcome(error);
     const cleanup = {
-      attempted: false,
+      attempted: deleteStarted,
       success: false,
+      ...(unknown ? { unknown: true } : {}),
       error: `Remote emptiness could not be verified: ${
         error instanceof Error ? error.message : String(error)
       }`,
@@ -839,16 +896,54 @@ export async function syncLocalRepoToTargets(
     throwIfAborted,
     withRateLimit: rateLimiter,
     requireNonGraspSuccessBeforeGrasp = false,
-    allowApiBranchFastPath = true,
     graspFirst = true,
     prepublishedAnnouncement,
     prepublishedAnnouncementByGraspRelay = {},
     preprovisionedGraspRelayUrls = [],
     operationId,
     onOperationProgress,
+    onWorkerOperationStart,
+    onWorkerOperationSettled,
     onCheckpoint,
     onTargetSettled,
   } = options;
+  const fallbackWorkerOperationId = createWorkerOperationIdFactory(
+    operationId || `remote-sync:${Date.now()}`
+  );
+  const createWorkerOperationId = options.createWorkerOperationId || fallbackWorkerOperationId;
+  const waitForMutationTerminal = async (
+    mutationOperationId: string,
+    operation: WorkerMutationOperation
+  ): Promise<OperationStatus> =>
+    options.waitForWorkerOperationTerminal
+      ? await options.waitForWorkerOperationTerminal(mutationOperationId, operation)
+      : await waitForWorkerOperationTerminal(workerApi, mutationOperationId, operation);
+  const runWorkerMutation = async <T>(
+    operation: WorkerMutationOperation,
+    callback: (mutationOperationId: string) => Promise<T>,
+    label: string,
+    timeoutMs: number
+  ): Promise<{ result: T; operationId: string }> => {
+    const mutationOperationId = createWorkerOperationId(operation);
+    try {
+      const result = await runAbortable(
+        async () => {
+          await onWorkerOperationStart?.(mutationOperationId, operation);
+          try {
+            return await callback(mutationOperationId);
+          } finally {
+            await onWorkerOperationSettled?.(mutationOperationId, operation);
+          }
+        },
+        label,
+        timeoutMs
+      );
+      return { result, operationId: mutationOperationId };
+    } catch (error) {
+      const status = await waitForMutationTerminal(mutationOperationId, operation);
+      throw new RemoteWorkerMutationError(error, mutationOperationId, status);
+    }
+  };
   const webUrls = Array.from(
     new Set(configuredWebUrls.map((url) => String(url || "").trim()).filter(Boolean))
   );
@@ -1437,8 +1532,9 @@ export async function syncLocalRepoToTargets(
           });
           let pushResult: WorkerPushToRemoteResult;
           try {
-            pushResult = (await runAbortable(
-              () =>
+            const mutation = await runWorkerMutation<WorkerPushToRemoteResult>(
+              "pushToRemote",
+              (mutationOperationId) =>
                 workerApi.pushToRemote({
                   repoId: localRepoId,
                   remoteUrl: graspRemoteUrl,
@@ -1446,11 +1542,22 @@ export async function syncLocalRepoToTargets(
                   ref: ref.ref,
                   token: userPubkey,
                   provider: "grasp",
-                  operationId,
+                  operationId: mutationOperationId,
                 }),
               `Pushing ${ref.name} to ${target.label}`,
               0
-            )) as WorkerPushToRemoteResult;
+            );
+            pushResult = mutation.result;
+            if (!pushResult?.success) {
+              const status = await waitForMutationTerminal(mutation.operationId, "pushToRemote");
+              if (status.state === "unknown") {
+                throw new RemoteWorkerMutationError(
+                  pushResult?.error || `Failed to push ${ref.name} to GRASP target`,
+                  mutation.operationId,
+                  status
+                );
+              }
+            }
           } catch (error) {
             const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
             await emitCheckpoint(onCheckpoint, {
@@ -1593,8 +1700,9 @@ export async function syncLocalRepoToTargets(
             });
             let result: WorkerCreateRemoteRepoResult;
             try {
-              result = (await runAbortable(
-                () =>
+              const mutation = await runWorkerMutation<WorkerCreateRemoteRepoResult>(
+                "createRemoteRepo",
+                (mutationOperationId) =>
                   workerApi.createRemoteRepo({
                     provider: target.provider,
                     token,
@@ -1602,10 +1710,25 @@ export async function syncLocalRepoToTargets(
                     description: repoDescription,
                     isPrivate: false,
                     baseUrl: getProviderBaseUrl(target.provider, target.host),
+                    operationId: mutationOperationId,
                   }),
                 `Creating remote repository on ${target.label}`,
                 45000
-              )) as WorkerCreateRemoteRepoResult;
+              );
+              result = mutation.result;
+              if (!result?.success || !result?.remoteUrl) {
+                const status = await waitForMutationTerminal(
+                  mutation.operationId,
+                  "createRemoteRepo"
+                );
+                if (status.state === "unknown") {
+                  throw new RemoteWorkerMutationError(
+                    result?.error || "Failed to create remote repository",
+                    mutation.operationId,
+                    status
+                  );
+                }
+              }
             } catch (error) {
               await emitCheckpoint(onCheckpoint, {
                 action: "create",
@@ -1655,105 +1778,10 @@ export async function syncLocalRepoToTargets(
       }
       const targetRemoteUrl = remoteUrl;
 
-      let targetOwner = "";
-      let targetRepo = "";
-      try {
-        const parsedTarget = parseRepoUrl(targetRemoteUrl);
-        targetOwner = parsedTarget.owner;
-        targetRepo = parsedTarget.repo;
-      } catch {
-        targetOwner = "";
-        targetRepo = "";
-      }
-
       for (let refIndex = 0; refIndex < orderedRefs.length; refIndex++) {
         const ref = orderedRefs[refIndex];
         activeRef = ref;
         throwIfAborted?.();
-
-        const isDefaultBranchRef = ref.type === "heads" && ref.name === defaultBranch;
-        const canUseApiFastPath =
-          allowApiBranchFastPath &&
-          ref.type === "heads" &&
-          !isDefaultBranchRef &&
-          Boolean(ref.commit) &&
-          Boolean(targetOwner && targetRepo);
-
-        if (canUseApiFastPath && targetOwner && targetRepo) {
-          updateProgress(
-            `Syncing branch ${ref.name} via ${target.label} API (${refIndex + 1}/${orderedRefs.length})...`
-          );
-
-          try {
-            await tryTargetTokens(target, async (token) => {
-              const targetApi = getGitServiceApiFromUrl(targetRemoteUrl, token);
-              if (!targetApi.upsertBranchRef) {
-                throw new Error(`Branch sync API unavailable for ${target.label}`);
-              }
-
-              await emitCheckpoint(onCheckpoint, {
-                action: "push",
-                position: "before",
-                target: getCheckpointTarget(target),
-                stage: "pushing",
-                remoteUrl: targetRemoteUrl,
-                createdRemote,
-                ref: {
-                  ref: ref.ref,
-                  ...(ref.commit ? { commit: ref.commit } : {}),
-                  stage: "pushing",
-                },
-              });
-              try {
-                await withRateLimit(rateLimiter, target.provider, "upsertBranchRef", () =>
-                  targetApi.upsertBranchRef!(
-                    targetOwner,
-                    targetRepo,
-                    ref.name,
-                    ref.commit as string
-                  )
-                );
-              } catch (error) {
-                const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
-                await emitCheckpoint(onCheckpoint, {
-                  action: "push",
-                  position: "after",
-                  target: getCheckpointTarget(target),
-                  stage,
-                  remoteUrl: targetRemoteUrl,
-                  createdRemote,
-                  error: sanitizeCheckpointError(error, target),
-                  ref: {
-                    ref: ref.ref,
-                    ...(ref.commit ? { commit: ref.commit } : {}),
-                    stage,
-                    error: sanitizeCheckpointError(error, target),
-                  },
-                });
-                throw error;
-              }
-              await emitCheckpoint(onCheckpoint, {
-                action: "push",
-                position: "after",
-                target: getCheckpointTarget(target),
-                stage: "pushing",
-                remoteUrl: targetRemoteUrl,
-                createdRemote,
-                ref: {
-                  ref: ref.ref,
-                  ...(ref.commit ? { commit: ref.commit } : {}),
-                  stage: "pushed",
-                },
-              });
-            });
-
-            pushedRefsForTarget.push(ref.ref);
-            continue;
-          } catch (error) {
-            if (error instanceof RemoteSyncCheckpointInterruption) throw error;
-            // fall back to git push below
-          }
-        }
 
         updateProgress(
           `Pushing ${ref.type === "heads" ? "branch" : "tag"} ${ref.name} to ${target.label} (${refIndex + 1}/${orderedRefs.length})...`
@@ -1796,8 +1824,9 @@ export async function syncLocalRepoToTargets(
                     stage: "pushing",
                   },
                 });
-                const result = (await runAbortable(
-                  () =>
+                const mutation = await runWorkerMutation<WorkerPushToRemoteResult>(
+                  "pushToRemote",
+                  (mutationOperationId) =>
                     workerApi.pushToRemote({
                       repoId: localRepoId,
                       remoteUrl: targetRemoteUrl,
@@ -1805,14 +1834,22 @@ export async function syncLocalRepoToTargets(
                       ref: ref.ref,
                       token,
                       provider: target.provider,
-                      operationId,
+                      operationId: mutationOperationId,
                     }),
                   `Pushing ${ref.name} to ${target.label}`,
                   0
-                )) as WorkerPushToRemoteResult;
+                );
+                const result = mutation.result;
 
                 if (!result?.success) {
                   const message = result?.error || `Failed to push ${ref.name} to ${target.label}`;
+                  const status = await waitForMutationTerminal(
+                    mutation.operationId,
+                    "pushToRemote"
+                  );
+                  if (status.state === "unknown") {
+                    throw new RemoteWorkerMutationError(message, mutation.operationId, status);
+                  }
                   throw new RemotePushResultError(message, result);
                 }
 
@@ -1850,6 +1887,7 @@ export async function syncLocalRepoToTargets(
                     error: sanitizeCheckpointError(error, target),
                   },
                 });
+                if (stage === "unknown") throw error;
                 const isRetryableGitLabError =
                   /404|not found|repository .* empty|project .* not found|could not read from remote/i.test(
                     message
@@ -2010,7 +2048,11 @@ export async function syncLocalRepoToTargets(
                   action: "cleanup",
                   position: "after",
                   target: getCheckpointTarget(target),
-                  stage: cleanupResult.success || cleanupResult.attempted ? "failed" : "unknown",
+                  stage: cleanupResult.unknown
+                    ? "unknown"
+                    : cleanupResult.success || cleanupResult.attempted
+                      ? "failed"
+                      : "unknown",
                   remoteUrl,
                   createdRemote,
                   cleanup: cleanupResult,
@@ -2018,6 +2060,8 @@ export async function syncLocalRepoToTargets(
                     ? { error: sanitizeCheckpointError(cleanupResult.error, target) }
                     : {}),
                 }),
+              runWorkerMutation,
+              waitForMutationTerminal,
             })
           : undefined;
 

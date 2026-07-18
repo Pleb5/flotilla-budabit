@@ -18,6 +18,7 @@ import {
   discoverAdvertisedRefs,
 } from "../../utils/advertised-refs.js"
 import type {GitProgressUpdate} from "../progress.js"
+import type {OperationControl} from "../operations.js"
 
 // Import toPlain from worker (it's defined in the same directory)
 function toPlain<T>(val: T): T {
@@ -1047,10 +1048,13 @@ export async function cloneRemoteRepoUtil(
   cacheManager: RepoCacheManager,
   options: CloneRemoteRepoOptions,
   onGitProgress?: (progress: GitProgressUpdate) => void,
+  operation?: OperationControl,
 ): Promise<void> {
   const {url, depth, dir, token, onProgress} = options
+  let localCloneStarted = false
 
   try {
+    operation?.throwIfCancellationRequested()
     onGitProgress?.({phase: "Validating repository URL"})
     onProgress?.("Validating repository URL...", 0)
 
@@ -1059,26 +1063,6 @@ export async function cloneRemoteRepoUtil(
       repoUrl = new URL(url)
     } catch {
       throw new Error(`Invalid repository URL: ${url}`)
-    }
-
-    // Ensure the parent directory exists before cloning
-    // isomorphic-git requires the parent directory to exist
-    try {
-      const fs = getProviderFs(git)
-      if (fs?.promises) {
-        // Get parent directory (everything except the last component)
-        const pathParts = dir.split("/").filter(Boolean)
-        if (pathParts.length > 1) {
-          const parentDir = "/" + pathParts.slice(0, -1).join("/")
-          await ensureDir(fs, parentDir)
-        } else {
-          // If dir is at root level, ensure root exists
-          await ensureDir(fs, "/")
-        }
-      }
-    } catch (dirError) {
-      // Log but don't fail - some FS implementations handle this automatically
-      console.warn("[cloneRemoteRepoUtil] Could not ensure parent directory exists:", dirError)
     }
 
     if (token) {
@@ -1106,6 +1090,34 @@ export async function cloneRemoteRepoUtil(
     const describeTransport = (transport: CloneTransport): string =>
       transport.name === "direct" ? "direct connection" : "configured CORS proxy"
 
+    const withTimeoutAndSignal = async <T>(
+      operationFactory: (signal: AbortSignal) => Promise<T>,
+      timeoutMs: number,
+      label: string,
+    ): Promise<T> => {
+      const attemptController = new AbortController()
+      const onOperationAbort = () => attemptController.abort(operation?.signal.reason)
+      operation?.signal.addEventListener("abort", onOperationAbort, {once: true})
+      let timedOut = false
+      const timeout = setTimeout(() => {
+        timedOut = true
+        attemptController.abort(`Timeout: ${label} took longer than ${timeoutMs / 1000}s`)
+      }, timeoutMs)
+      try {
+        const result = await operationFactory(attemptController.signal)
+        if (timedOut) throw new Error(`Timeout: ${label} took longer than ${timeoutMs / 1000}s`)
+        return result
+      } catch (error) {
+        if (timedOut) {
+          throw new Error(`Timeout: ${label} took longer than ${timeoutMs / 1000}s`, {cause: error})
+        }
+        throw error
+      } finally {
+        clearTimeout(timeout)
+        operation?.signal.removeEventListener("abort", onOperationAbort)
+      }
+    }
+
     const isLikelyCorsOrNetworkError = (error: unknown): boolean => {
       const message = error instanceof Error ? error.message : String(error || "")
       const lower = message.toLowerCase()
@@ -1125,20 +1137,17 @@ export async function cloneRemoteRepoUtil(
 
     // Add timeout to prevent hanging on slow/unresponsive servers
     const listRefsWithTimeout = async (transport: CloneTransport, timeoutMs: number = 30000) => {
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error(`Timeout: listServerRefs took longer than ${timeoutMs / 1000}s`)),
-          timeoutMs,
-        )
-      })
-      return Promise.race([
-        git.listServerRefs({
-          url,
-          corsProxy: transport.corsProxy,
-          onAuth: getAuthCallback(url),
-        }),
-        timeoutPromise,
-      ])
+      return await withTimeoutAndSignal(
+        signal =>
+          git.listServerRefs({
+            url,
+            corsProxy: transport.corsProxy,
+            onAuth: getAuthCallback(url),
+            signal,
+          }),
+        timeoutMs,
+        "listServerRefs",
+      )
     }
 
     onGitProgress?.({phase: "Discovering remote references"})
@@ -1149,6 +1158,7 @@ export async function cloneRemoteRepoUtil(
     let discoveryError: unknown = null
 
     for (let i = 0; i < cloneTransports.length; i++) {
+      operation?.throwIfCancellationRequested()
       const transport = cloneTransports[i]
       try {
         if (isGraspHttpRemote) {
@@ -1192,8 +1202,25 @@ export async function cloneRemoteRepoUtil(
     onGitProgress?.({phase: "Cloning repository"})
     onProgress?.("Cloning repository...", 20)
 
+    operation?.throwIfCancellationRequested()
+    localCloneStarted = true
+    operation?.markSideEffectBoundary("Preparing local clone target")
+
+    // isomorphic-git requires the parent directory to exist.
+    try {
+      const fs = getProviderFs(git)
+      if (fs?.promises) {
+        const pathParts = dir.split("/").filter(Boolean)
+        const parentDir = pathParts.length > 1 ? "/" + pathParts.slice(0, -1).join("/") : "/"
+        await ensureDir(fs, parentDir)
+      }
+    } catch (dirError) {
+      console.warn("[cloneRemoteRepoUtil] Could not ensure parent directory exists:", dirError)
+    }
+
     let cloneError: unknown = null
     for (let i = 0; i < cloneTransportsToTry.length; i++) {
+      operation?.throwIfCancellationRequested()
       const transport = cloneTransportsToTry[i]
 
       const cloneOptions: any = {
@@ -1203,6 +1230,7 @@ export async function cloneRemoteRepoUtil(
         onAuth: getAuthCallback(url),
         singleBranch: false,
         noCheckout: false,
+        ...(operation ? {signal: operation.signal} : {}),
         onProgress: (progress: any) => {
           onGitProgress?.({
             phase: progress.phase,
@@ -1222,14 +1250,11 @@ export async function cloneRemoteRepoUtil(
 
       // Add timeout to prevent clone from hanging indefinitely (90 seconds per URL attempt)
       const cloneWithTimeout = async (timeoutMs: number = 90000) => {
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(
-            () =>
-              reject(new Error(`Timeout: clone operation took longer than ${timeoutMs / 1000}s`)),
-            timeoutMs,
-          )
-        })
-        return Promise.race([git.clone(cloneOptions), timeoutPromise])
+        return await withTimeoutAndSignal(
+          signal => git.clone({...cloneOptions, signal}),
+          timeoutMs,
+          "clone operation",
+        )
       }
 
       try {
@@ -1265,6 +1290,7 @@ export async function cloneRemoteRepoUtil(
     }
 
     if (cloneError) throw cloneError
+    operation?.throwIfCancellationRequested()
 
     // Ensure origin remote is properly configured with fetch refspec
     // isomorphic-git's clone may not create the full config in all cases
@@ -1274,6 +1300,7 @@ export async function cloneRemoteRepoUtil(
     onProgress?.("Setting up local branches...", 95)
 
     const defaultBranch = await resolveBranchName(git, dir)
+    operation?.throwIfCancellationRequested()
     await git.checkout({dir, ref: defaultBranch})
 
     const headCommit = await git.resolveRef({dir, ref: "HEAD"})
@@ -1295,11 +1322,13 @@ export async function cloneRemoteRepoUtil(
     onProgress?.("Clone completed successfully!", 100)
   } catch (error) {
     onGitProgress?.({phase: "Clone failed"})
-    // Clean up on failure using provider fs, but ignore errors
-    try {
-      const fs: any = getProviderFs(git)
-      await safeRmrf(fs, dir)
-    } catch {}
+    // Do not touch a pre-existing target when validation/ref discovery failed.
+    if (localCloneStarted) {
+      try {
+        const fs: any = getProviderFs(git)
+        await safeRmrf(fs, dir)
+      } catch {}
+    }
 
     throw new Error(`Clone failed: ${error instanceof Error ? error.message : String(error)}`)
   }

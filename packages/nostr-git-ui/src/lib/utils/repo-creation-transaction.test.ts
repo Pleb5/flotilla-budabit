@@ -416,6 +416,59 @@ describe("RepoCreationTransactionJournal", () => {
     });
   });
 
+  it("persists sanitized worker terminal receipts", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const secret = "worker-secret";
+    const journal = new RepoCreationTransactionJournal({
+      id: "new:owner:repo:worker-status",
+      operation: "new",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    journal.setTargets([
+      {
+        id: "git:github.com",
+        label: "GitHub",
+        provider: "github",
+        token: secret,
+      },
+    ]);
+
+    journal.recordWorkerOperationStatus({
+      operationId: "new:child",
+      operation: "createRemoteRepo",
+      stage: "Outcome unknown",
+      state: "unknown",
+      sideEffectMayHaveOccurred: true,
+      startedAt: 1,
+      updatedAt: 2,
+      completedAt: 2,
+      error: { name: "AbortError", message: `Request using ${secret} was cancelled` },
+      receipts: [
+        {
+          remoteUrl: "https://user:pass@example.com/owner/repo.git?access_token=unregistered",
+          authorization: "Bearer unregistered",
+        },
+      ],
+    });
+
+    expect(journal.record.workerOperations?.[0]).toMatchObject({
+      operationId: "new:child",
+      state: "unknown",
+      error: { message: "Request using [REDACTED] was cancelled" },
+    });
+    expect((journal.record.workerOperations?.[0].receipts?.[0] as any).remoteUrl).toBe(
+      "https://example.com/owner/repo.git"
+    );
+    expect((journal.record.workerOperations?.[0].receipts?.[0] as any).authorization).toBe(
+      "[REDACTED]"
+    );
+    expect(JSON.stringify(journal.record)).not.toContain(secret);
+  });
+
   it("retries the latest exact signed metadata without recreating targets", async () => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,

@@ -230,7 +230,11 @@ export class GraspApiProvider implements GitServiceApi {
       const name = String(t?.[0] || "")
       const commit = String(t?.[1] || "").trim()
       if (name === "HEAD" && commit) head = commit
-      if ((name.startsWith("refs/heads/") || name.startsWith("refs/tags/")) && !name.endsWith("^{}") && commit) {
+      if (
+        (name.startsWith("refs/heads/") || name.startsWith("refs/tags/")) &&
+        !name.endsWith("^{}") &&
+        commit
+      ) {
         refs[name] = peeledRefs.get(name) ?? commit
       }
     }
@@ -253,7 +257,7 @@ export class GraspApiProvider implements GitServiceApi {
         .filter(event =>
           Array.isArray(event.tags)
             ? event.tags.some(tag => tag?.[0] === "d" && String(tag?.[1] || "") === repo)
-            : false
+            : false,
         )
         .sort((a, b) => {
           const createdAtDiff = (a.created_at || 0) - (b.created_at || 0)
@@ -268,7 +272,10 @@ export class GraspApiProvider implements GitServiceApi {
     }
   }
 
-  private resolveHeadBranch(resolvedHead: string | undefined, refs: Record<string, string>): string | undefined {
+  private resolveHeadBranch(
+    resolvedHead: string | undefined,
+    refs: Record<string, string>,
+  ): string | undefined {
     const value = String(resolvedHead || "").trim()
     if (!value || value === "HEAD") return undefined
 
@@ -280,9 +287,11 @@ export class GraspApiProvider implements GitServiceApi {
     const matchingBranches = Object.entries(refs)
       .filter(([name, commit]) => name.startsWith("refs/heads/") && commit === ref)
       .map(([name]) => name.slice("refs/heads/".length))
-    return matchingBranches.find(name => name === "main") ??
+    return (
+      matchingBranches.find(name => name === "main") ??
       matchingBranches.find(name => name === "master") ??
       matchingBranches[0]
+    )
   }
 
   private toRepoStateRef(
@@ -419,16 +428,19 @@ export class GraspApiProvider implements GitServiceApi {
     description?: string
     private?: boolean
     autoInit?: boolean
+    signal?: AbortSignal
   }): Promise<RepoMetadata> {
     // NOTE: Event publishing moved to UI layer (useNewRepo.svelte.ts).
     // This method now only constructs metadata and Smart HTTP URLs.
     // The UI layer must publish RepoAnnouncementEvent and RepoStateEvent before calling this.
 
+    options.signal?.throwIfAborted()
     console.log("[GraspApiProvider] createRepo - pubkey:", this.pubkey)
     console.log("[GraspApiProvider] createRepo - pubkey length:", this.pubkey.length)
     console.log("[GraspApiProvider] createRepo - pubkey type:", typeof this.pubkey)
 
     await this.ensureCapabilities()
+    options.signal?.throwIfAborted()
     const npub = toNpub(this.pubkey)
     console.log("[GraspApiProvider] createRepo - npub:", npub)
 
@@ -483,7 +495,8 @@ export class GraspApiProvider implements GitServiceApi {
     )
   }
 
-  async deleteRepo(owner: string, repo: string): Promise<void> {
+  async deleteRepo(owner: string, repo: string, options?: {signal?: AbortSignal}): Promise<void> {
+    options?.signal?.throwIfAborted()
     throw new Error("GRASP deleteRepo() not supported. Delete repo events via Nostr.")
   }
 
@@ -785,7 +798,9 @@ export class GraspApiProvider implements GitServiceApi {
     repo: string,
     options?: ListPullRequestsOptions,
   ): Promise<PullRequest[]> {
-    throw new Error("GRASP listPullRequests() is not supported by REST endpoints. Query Nostr pull request events via the UI layer.")
+    throw new Error(
+      "GRASP listPullRequests() is not supported by REST endpoints. Query Nostr pull request events via the UI layer.",
+    )
   }
 
   async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequest> {
@@ -800,7 +815,9 @@ export class GraspApiProvider implements GitServiceApi {
   }
 
   async createPullRequest(owner: string, repo: string, pr: NewPullRequest): Promise<PullRequest> {
-    throw new Error("GRASP createPullRequest not implemented - publish a Nostr pull request event instead")
+    throw new Error(
+      "GRASP createPullRequest not implemented - publish a Nostr pull request event instead",
+    )
   }
 
   async updatePullRequest(
@@ -809,7 +826,9 @@ export class GraspApiProvider implements GitServiceApi {
     prNumber: number,
     updates: Partial<NewPullRequest>,
   ): Promise<PullRequest> {
-    throw new Error("GRASP updatePullRequest not implemented - publish a Nostr pull request update event instead")
+    throw new Error(
+      "GRASP updatePullRequest not implemented - publish a Nostr pull request update event instead",
+    )
   }
 
   async mergePullRequest(
@@ -822,7 +841,9 @@ export class GraspApiProvider implements GitServiceApi {
       mergeMethod?: "merge" | "squash" | "rebase"
     },
   ): Promise<PullRequest> {
-    throw new Error("GRASP mergePullRequest not implemented - publish a Nostr merged status event instead")
+    throw new Error(
+      "GRASP mergePullRequest not implemented - publish a Nostr merged status event instead",
+    )
   }
 
   /**

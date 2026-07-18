@@ -80,9 +80,14 @@ class RestVendorProvider implements VendorProvider {
     })
   }
 
-  deleteRepo(owner: string, repo: string, token: string): Promise<void> {
+  deleteRepo(
+    owner: string,
+    repo: string,
+    token: string,
+    options?: {signal?: AbortSignal},
+  ): Promise<void> {
     const api = this.createApi(token)
-    return api.deleteRepo(owner, repo)
+    return api.deleteRepo(owner, repo, options)
   }
 
   forkRepo(owner: string, repo: string, forkName: string, token: string): Promise<RepoMetadata> {
