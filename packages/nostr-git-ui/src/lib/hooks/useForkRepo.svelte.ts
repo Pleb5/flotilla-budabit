@@ -24,6 +24,7 @@ import {
   getProviderBaseUrl,
   normalizeRelayUrl,
   normalizeTokenHostForTarget,
+  preflightNewRemoteTargets,
   type RemoteTargetSelection,
 } from "../utils/remote-targets.js";
 import { matchesHost } from "../utils/tokenMatcher.js";
@@ -49,6 +50,10 @@ import {
   type GitOperationActivity,
   type SubscribeGitProgress,
 } from "../utils/git-operation-progress.js";
+import {
+  assertRepoCoordinateAvailable,
+  assertRepoCreationPrerequisites,
+} from "../utils/repo-creation-preflight.js";
 
 export interface ForkConfig {
   forkName: string;
@@ -99,6 +104,7 @@ export interface UseForkRepoOptions {
     relays: string[];
     filters: import("@nostr-git/core").NostrFilter[];
     timeoutMs?: number;
+    throwOnTimeout?: boolean;
   }) => Promise<NostrEvent[]>;
   onRollbackPublishedRepoEvents?: (params: {
     repoName: string;
@@ -597,16 +603,35 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         throw new Error("Select at least one writable fork target");
       }
 
-      const rollbackRelays = Array.from(
-        new Set(
-          [
-            ...(config.relays || []).map(normalizeRelayUrl),
-            ...selectedTargets
-              .filter((target) => target.provider === "grasp" && target.relayUrl)
-              .map((target) => normalizeGraspOrigins(target.relayUrl as string).wsOrigin),
-          ].filter(Boolean)
-        )
-      );
+      const selectedGraspRelays = selectedTargets
+        .filter((target) => target.provider === "grasp" && target.relayUrl)
+        .map((target) => normalizeGraspOrigins(target.relayUrl as string).wsOrigin);
+      const verifiedRelayUrls = assertRepoCreationPrerequisites({
+        ownerPubkey: userPubkey,
+        repoName: forkName,
+        targets: selectedTargets,
+        relayUrls: getEffectiveRepoRelayUrls(config.relays || [], selectedGraspRelays),
+        onPublishEvent,
+        onFetchRelayEvents: options.onFetchRelayEvents,
+        onDeleteEvent: options.onDeleteEvent,
+        hasRollbackCallback: Boolean(options.onRollbackPublishedRepoEvents),
+      });
+      await assertRepoCoordinateAvailable({
+        ownerPubkey: userPubkey,
+        repoName: forkName,
+        relayUrls: verifiedRelayUrls,
+        onFetchRelayEvents: options.onFetchRelayEvents!,
+      });
+      const availableTokens = await tokensStore.waitForInitialization();
+      selectedTargets = await preflightNewRemoteTargets({
+        targets: selectedTargets,
+        tokenList: availableTokens,
+        userPubkey,
+        repoName: forkName,
+        existingRepoMessage: "Destination already exists. Fork requires unused targets.",
+      });
+
+      const rollbackRelays = verifiedRelayUrls;
       publishedRepoRollbackContext = {
         repoName: forkName,
         relays: rollbackRelays,

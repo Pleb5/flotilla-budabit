@@ -15,7 +15,11 @@ import {
   syncLocalRepoToTargets,
   type RemoteSyncTargetResult,
 } from "../utils/remote-sync.js";
-import type { RemoteTargetProvider, RemoteTargetSelection } from "../utils/remote-targets.js";
+import {
+  preflightNewRemoteTargets,
+  type RemoteTargetProvider,
+  type RemoteTargetSelection,
+} from "../utils/remote-targets.js";
 import {
   getRepoCreationProvisionalEvents,
   RepoCreationTransactionJournal,
@@ -39,6 +43,10 @@ import {
   type GitOperationActivity,
   type SubscribeGitProgress,
 } from "../utils/git-operation-progress.js";
+import {
+  assertRepoCoordinateAvailable,
+  assertRepoCreationPrerequisites,
+} from "../utils/repo-creation-preflight.js";
 
 export function getPublishedEventFromPublishResult(result: unknown): NostrEvent | undefined {
   const event = (result as { event?: NostrEvent } | undefined)?.event;
@@ -239,19 +247,19 @@ export async function checkProviderRepoAvailability(
   const matchingTokens = getTokensForHost(tokens, defaultHost);
 
   if (matchingTokens.length === 0) {
-    // No token: we cannot query provider API, treat as unknown but do not block
+    // No token means destination availability cannot be proven.
     return {
       results: [
         {
           provider,
           host: "unknown",
-          available: true,
-          reason: "No token configured; unable to check. Assuming available.",
+          available: false,
+          reason: "No token configured; destination availability is unknown.",
         },
       ],
-      hasConflicts: false,
-      availableProviders: [provider],
-      conflictProviders: [],
+      hasConflicts: true,
+      availableProviders: [],
+      conflictProviders: [provider],
     };
   }
 
@@ -328,39 +336,39 @@ export async function checkProviderRepoAvailability(
               conflictProviders: [],
             };
           }
-          // Unknown error: return soft-OK to avoid blocking
+          // Unknown provider evidence must block creation.
           return {
             results: [
               {
                 provider,
                 host: host,
-                available: true,
+                available: false,
                 error: String(error?.message || error),
                 username,
               },
             ],
-            hasConflicts: false,
-            availableProviders: [provider],
-            conflictProviders: [],
+            hasConflicts: true,
+            availableProviders: [],
+            conflictProviders: [provider],
           };
         }
       }
     );
     return result;
   } catch (e: any) {
-    // Network or API error; soft-OK
+    // Network or API errors leave destination availability unknown.
     return {
       results: [
         {
           provider,
           host: "unknown",
-          available: true,
+          available: false,
           error: String(e?.message || e),
         },
       ],
-      hasConflicts: false,
-      availableProviders: [provider],
-      conflictProviders: [],
+      hasConflicts: true,
+      availableProviders: [],
+      conflictProviders: [provider],
     };
   }
 }
@@ -682,28 +690,6 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       );
       const configuredWebUrls = selectNewRepoWebUrls(config.webUrls || []);
 
-      // Step 1: Create local repository
-      updateProgress("local", "Creating local repository...", "running");
-      const localRepo = await createLocalRepo({ ...config }, canonicalKey);
-      updateProgress("local", "Local repository created successfully", "completed");
-
-      const defaultBranch = config.defaultBranch || "master";
-      const refs = localRepo?.initialCommit
-        ? [
-            {
-              type: "heads" as const,
-              name: defaultBranch,
-              commit: localRepo.initialCommit,
-            },
-          ]
-        : undefined;
-      const remoteSyncRefs = refs
-        ? refs.map((ref) => ({
-            ...ref,
-            ref: `refs/heads/${ref.name}`,
-          }))
-        : [];
-
       let announcementEvent: any = undefined;
       let stateEvent: any = undefined;
       let latestRepoMetadataCreatedAt = 0;
@@ -742,7 +728,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         gitea: "gitea.com",
         bitbucket: "bitbucket.org",
       };
-      const targets = selectedProviders.flatMap<RemoteTargetSelection>((provider) => {
+      let targets = selectedProviders.flatMap<RemoteTargetSelection>((provider) => {
         if (provider === "grasp") {
           return selectedGraspTargetRelays.map((relayUrl) => ({
             id: `grasp:${relayUrl}`,
@@ -770,6 +756,59 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       const workerApi = options.workerApi
         ? options.workerApi
         : (await (await import("@nostr-git/core")).getGitWorker()).api;
+      const effectiveRelayUrls = getEffectiveRepoRelayUrls(
+        editableRelays,
+        selectedGraspTargetRelays
+      );
+      const verifiedRelayUrls = assertRepoCreationPrerequisites({
+        ownerPubkey: creationPubkey,
+        repoName: config.name,
+        targets,
+        relayUrls: effectiveRelayUrls,
+        onPublishEvent,
+        onFetchRelayEvents: options.onFetchRelayEvents,
+        onDeleteEvent: options.onDeleteEvent,
+      });
+      await assertRepoCoordinateAvailable({
+        ownerPubkey: creationPubkey,
+        repoName: config.name,
+        relayUrls: verifiedRelayUrls,
+        onFetchRelayEvents: options.onFetchRelayEvents!,
+      });
+      if (workerApi.isRepoCloned && (await workerApi.isRepoCloned({ repoId: canonicalKey }))) {
+        throw new Error("A local repository already exists for this owner and name");
+      }
+      targets = await preflightNewRemoteTargets({
+        targets,
+        tokenList: availableTokens,
+        userPubkey: creationPubkey,
+        repoName: config.name,
+        existingRepoMessage:
+          "Destination already exists. New repository creation requires unused targets.",
+      });
+      transactionJournal.setTargets(targets);
+
+      // Create only after all metadata and destination checks complete.
+      updateProgress("local", "Creating local repository...", "running");
+      const localRepo = await createLocalRepo({ ...config }, canonicalKey);
+      updateProgress("local", "Local repository created successfully", "completed");
+
+      const defaultBranch = config.defaultBranch || "master";
+      const refs = localRepo?.initialCommit
+        ? [
+            {
+              type: "heads" as const,
+              name: defaultBranch,
+              commit: localRepo.initialCommit,
+            },
+          ]
+        : undefined;
+      const remoteSyncRefs = refs
+        ? refs.map((ref) => ({
+            ...ref,
+            ref: `refs/heads/${ref.name}`,
+          }))
+        : [];
       updateProgress(
         "remotes",
         `Creating and verifying ${targets.length} remote target${targets.length === 1 ? "" : "s"}...`,
@@ -784,7 +823,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         refs: remoteSyncRefs,
         targets,
         userPubkey: creationPubkey,
-        relays: getEffectiveRepoRelayUrls(editableRelays, selectedGraspTargetRelays),
+        relays: verifiedRelayUrls,
         webUrls: configuredWebUrls,
         maintainers:
           config.maintainers && config.maintainers.length > 0 ? config.maintainers : undefined,

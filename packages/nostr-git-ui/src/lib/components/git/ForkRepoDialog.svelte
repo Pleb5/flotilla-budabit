@@ -75,6 +75,7 @@
       relays: string[];
       filters: import("@nostr-git/core").NostrFilter[];
       timeoutMs?: number;
+      throwOnTimeout?: boolean;
     }) => Promise<NostrEvent[]>;
     onRollbackPublishedRepoEvents?: (params: {
       repoName: string;

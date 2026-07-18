@@ -91,6 +91,7 @@
       relays: string[];
       filters: import("@nostr-git/core").NostrFilter[];
       timeoutMs?: number;
+      throwOnTimeout?: boolean;
     }) => Promise<NostrEvent[]>;
   }
 
@@ -429,23 +430,21 @@
   let validationErrors = $state<ValidationErrors>({});
 
   // Check repository name availability across all providers
-  async function checkNameAvailability(name: string) {
+  async function checkNameAvailability(name: string): Promise<typeof nameAvailabilityResults> {
     if (!name.trim() || selectedProviders.length === 0) {
       nameAvailabilityResults = null;
-      return;
+      return null;
     }
 
     isCheckingAvailability = true;
     try {
       const checks = await Promise.all(
-        selectedProviders.map((provider) =>
-          checkProviderRepoAvailability(
-            provider,
-            name,
-            tokens,
-            provider === "grasp" ? graspRelayUrls[0] : undefined,
-            userPubkey
-          )
+        selectedProviders.flatMap((provider) =>
+          provider === "grasp"
+            ? graspRelayUrls.map((relayUrl) =>
+                checkProviderRepoAvailability(provider, name, tokens, relayUrl, userPubkey)
+              )
+            : [checkProviderRepoAvailability(provider, name, tokens, undefined, userPubkey)]
         )
       );
 
@@ -457,9 +456,22 @@
       };
 
       nameAvailabilityResults = merged;
+      return merged;
     } catch (error) {
       console.error("Error checking name availability:", error);
-      nameAvailabilityResults = null;
+      const unavailable = {
+        results: selectedProviders.map((provider) => ({
+          provider,
+          host: providerHost(provider) || "unknown",
+          available: false,
+          error: error instanceof Error ? error.message : String(error),
+        })),
+        hasConflicts: true,
+        availableProviders: [] as string[],
+        conflictProviders: [...selectedProviders],
+      };
+      nameAvailabilityResults = unavailable;
+      return unavailable;
     } finally {
       isCheckingAvailability = false;
     }
@@ -525,13 +537,23 @@
   }
 
   // Navigation
-  function nextStep() {
+  function availabilityBlocksCreation(result: typeof nameAvailabilityResults): boolean {
+    return (
+      !result ||
+      result.hasConflicts ||
+      result.results.some((item) => !item.available || Boolean(item.error))
+    );
+  }
+
+  async function nextStep() {
     if (currentStep === 1) {
       // Require provider selection (and valid GRASP relay when applicable)
       if (selectedProviders.length > 0 && isValidGraspConfig()) {
         currentStep = 2;
       }
     } else if (currentStep === 2 && validateStep1()) {
+      const availability = await checkNameAvailability(repoDetails.name);
+      if (availabilityBlocksCreation(availability)) return;
       currentStep = 3;
     } else if (currentStep === 3) {
       currentStep = 4; // Go to creation progress
@@ -618,6 +640,9 @@
     if (!validateStep1()) return;
 
     if (selectedProviders.length === 0) return;
+
+    const availability = await checkNameAvailability(repoDetails.name);
+    if (availabilityBlocksCreation(availability)) return;
 
     const relayCount = getEffectiveRepoRelays().length;
     if (relayCount === 0) return;
@@ -970,8 +995,14 @@
             disabled={(currentStep === 1 &&
               (selectedProviders.length === 0 ||
                 (selectedProviders.includes("grasp") && !isValidGraspConfig()))) ||
-              (currentStep === 2 && !validateStep1()) ||
-              (currentStep === 3 && getEffectiveRepoRelays().length === 0)}
+              (currentStep === 2 &&
+                (!validateStep1() ||
+                  isCheckingAvailability ||
+                  availabilityBlocksCreation(nameAvailabilityResults))) ||
+              (currentStep === 3 &&
+                (getEffectiveRepoRelays().length === 0 ||
+                  isCheckingAvailability ||
+                  availabilityBlocksCreation(nameAvailabilityResults)))}
             variant="git"
             class="w-full sm:w-auto"
           >

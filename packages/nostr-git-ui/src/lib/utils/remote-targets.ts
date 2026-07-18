@@ -417,6 +417,45 @@ export async function preflightRemoteTargets(params: {
   );
 }
 
+export async function preflightNewRemoteTargets(params: {
+  targets: RemoteTargetSelection[];
+  tokenList: Token[];
+  userPubkey: string;
+  repoName: string;
+  existingRepoMessage?: string;
+}): Promise<RemoteTargetSelection[]> {
+  const checked = await preflightRemoteTargets({
+    targets: params.targets.map((target) => ({
+      id: target.id,
+      label: target.label,
+      provider: target.provider,
+      host: target.host,
+      relayUrl: target.relayUrl,
+      status: "checking" as const,
+      validatedToken: target.token,
+      candidateTokens: target.tokens,
+    })),
+    tokenList: params.tokenList,
+    userPubkey: params.userPubkey,
+    repoName: params.repoName,
+    options: {
+      allowExistingRepoReuse: false,
+      existingRepoMessage:
+        params.existingRepoMessage ||
+        "Destination already exists. Create and fork require a new destination; use import to reuse an existing repository.",
+    },
+  });
+  const blocked = checked.filter((target) => target.status !== "ready");
+  if (blocked.length > 0) {
+    throw new Error(
+      `Repository target preflight failed: ${blocked
+        .map((target) => `${target.label}: ${target.detail || target.status}`)
+        .join("; ")}`
+    );
+  }
+  return checked.map(toRemoteTargetSelection);
+}
+
 export function getDefaultSelectedRemoteTargetIds(targets: RemoteTargetOption[]): string[] {
   const readyTargets = targets.filter((target) => target.status === "ready");
   const readyGitTargets = readyTargets

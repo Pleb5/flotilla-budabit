@@ -12,15 +12,15 @@
 
 ## Current Phase
 
-- Phase 3: Fail-Closed Preconditions And Coordinates
+- Phase 4: Admission-First New And Fork
 
 ## Phase Exit Criteria
 
-- Shared prerequisites reject missing owner, targets, metadata relays, publication evidence, GRASP reads, or compensation capability before mutation.
-- New blocks existing hosted, GRASP, Nostr, and local coordinates through authoritative hook-level checks across every selected target.
-- Wizard pending/conflict/unknown states cannot bypass hook revalidation.
-- Fork validates metadata relays and destination absence before cloning.
-- Focused tests prove failed validation invokes no worker mutation; typechecks, formatting, and whitespace checks pass.
+- New admits provisional metadata and waits for all GRASP endpoints before local creation.
+- Fork admits provisional metadata and waits for all GRASP endpoints before source clone.
+- New/fork reuse exact admitted events, process GRASP before hosted targets, and reconcile only successful destinations.
+- Admission-only rollback uses event-specific ACKed relay scopes even when no target ran.
+- Pure GRASP, pure hosted, and hybrid ordering/partial-failure tests, typechecks, formatting, and whitespace checks pass.
 - Phase files and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -45,6 +45,11 @@
 - Phase 2 made Import, New, and Fork responsive with `dvh` shells, fixed modal chrome, one scrollable body, stacked mobile actions, safe wrapping, bounded dropdowns, and 40px touch targets.
 - Phase 2 focused verification passed: core progress/push 2 files/13 tests, UI hook/progress/remote sync 5 files/34 tests, main singleton 1 file/6 tests, and repository surface 10 files/47 tests.
 - Phase 2 core/UI/root typechecks passed with 0 diagnostics; changed-file Prettier and `git diff --check` passed.
+- Phase 3 added shared fail-closed prerequisites for owner, target plan, metadata relay set, publisher, exact relay reads, and compensation capability.
+- Phase 3 new-repository checks every selected hosted/GRASP destination, each exact Nostr coordinate relay, and local repository existence before local initialization; existing destination reuse is disabled.
+- Phase 3 fork performs authoritative remote and exact-coordinate checks before worker initialization and source clone, including hosted-only metadata relay validation.
+- Phase 3 wizard checks every GRASP relay and blocks pending, conflict, missing-token, timeout, and unknown provider evidence; creation revalidates immediately.
+- Phase 3 verification passed: focused utilities/hooks 4 files/16 tests, repository surface 11 files/50 tests, UI/root checks with 0 diagnostics, Prettier, and `git diff --check`.
 
 ## Decisions
 
@@ -59,12 +64,12 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phases 1 and 2 are verified; Phase 3 begins after the Phase 2 closeout transition.
+- Phases 1 through 3 are verified; Phase 4 begins after the Phase 3 closeout transition.
 - Generated coverage and unrelated HiveTalk documents must remain unstaged.
 
 ## Next Action
 
-- Reread the full plan, then implement shared fail-closed creation prerequisites and authoritative new/fork coordinate preflight before any Git mutation.
+- Reread the full plan, then move new/fork provisional admission and GRASP readiness before local creation/source clone and preserve exact ACK rollback scope.
 
 ## Verification
 
@@ -81,6 +86,10 @@
 - Phase 2: main worker-singleton tests passed, 1 file and 6 tests.
 - Phase 2: core typecheck, UI typecheck, and root `pnpm check` passed with 0 diagnostics.
 - Phase 2: changed-file Prettier checks and `git diff --check` passed.
+- Phase 3: focused prerequisite, remote-target, new-hook, and fork-hook tests passed, 4 files and 16 tests.
+- Phase 3: repository preflight/surface tests passed, 11 files and 50 tests.
+- Phase 3: UI typecheck and root `pnpm check` passed with 0 diagnostics.
+- Phase 3: changed-file Prettier and `git diff --check` passed.
 
 ## Risks Or Blockers
 
@@ -93,31 +102,12 @@
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `packages/nostr-git-core/src/index.ts`
-- `packages/nostr-git-core/src/worker/client.ts`
-- `packages/nostr-git-core/src/worker/index.ts`
-- `packages/nostr-git-core/src/worker/progress.ts`
-- `packages/nostr-git-core/src/worker/worker.ts`
-- `packages/nostr-git-core/src/worker/workers/repos.ts`
-- `packages/nostr-git-core/test/worker/git-operation-progress.spec.ts`
-- `packages/nostr-git-ui/src/lib/components/git/AdvancedSettingsStep.svelte`
 - `packages/nostr-git-ui/src/lib/components/git/ForkRepoDialog.svelte`
-- `packages/nostr-git-ui/src/lib/components/git/GitOperationActivity.svelte`
-- `packages/nostr-git-ui/src/lib/components/git/ImportRepoDialog.svelte`
 - `packages/nostr-git-ui/src/lib/components/git/NewRepoWizard.svelte`
-- `packages/nostr-git-ui/src/lib/components/git/ProviderSelectionStep.svelte`
-- `packages/nostr-git-ui/src/lib/components/git/RepoProgressStep.svelte`
-- `packages/nostr-git-ui/src/lib/components/people/PeoplePicker.svelte`
 - `packages/nostr-git-ui/src/lib/hooks/useForkRepo.svelte.ts`
-- `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useNewRepo.svelte.ts`
-- `packages/nostr-git-ui/src/lib/utils/git-operation-progress.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/git-operation-progress.ts`
-- `packages/nostr-git-ui/src/lib/utils/remote-sync.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`
-- `packages/nostr-git-ui/tests/newRepoWizardSurface.test.ts`
-- `packages/nostr-git-ui/tests/repoOperationProgressSurface.test.ts`
-- `src/app/core/worker-singleton.test.ts`
-- `src/app/core/worker-singleton.ts`
-- `src/routes/git/+page.svelte`
-- `src/routes/git/[id=naddr]/+layout.svelte`
+- `packages/nostr-git-ui/src/lib/utils/remote-targets-preflight.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/remote-targets.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-preflight.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-preflight.ts`
+- `packages/nostr-git-ui/tests/repoCreationPreflightSurface.test.ts`

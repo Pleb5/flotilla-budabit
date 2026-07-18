@@ -17,7 +17,7 @@ vi.mock("./grasp-availability.js", () => ({
   checkGraspRepoExists,
 }));
 
-import { preflightRemoteTargets } from "./remote-targets";
+import { preflightNewRemoteTargets, preflightRemoteTargets } from "./remote-targets";
 
 describe("remote target preflight", () => {
   beforeEach(() => {
@@ -112,5 +112,55 @@ describe("remote target preflight", () => {
     expect(result.status).toBe("failed");
     expect(result.existsAlready).toBe(true);
     expect(result.detail).toContain("Fork only creates new destinations");
+  });
+
+  it("fails the authoritative new-target preflight when any destination exists", async () => {
+    checkGraspRepoExists.mockResolvedValue({
+      exists: true,
+      htmlUrl: "https://relay.example/npub1test/repo",
+    });
+
+    await expect(
+      preflightNewRemoteTargets({
+        targets: [
+          {
+            id: "grasp:wss://relay.example",
+            label: "GRASP (relay.example)",
+            provider: "grasp",
+            relayUrl: "wss://relay.example",
+          },
+        ],
+        tokenList: [],
+        userPubkey: "pubkey",
+        repoName: "repo",
+      })
+    ).rejects.toThrow("Repository target preflight failed");
+  });
+
+  it("checks every selected GRASP target", async () => {
+    checkGraspRepoExists.mockResolvedValue({ exists: false });
+
+    const targets = await preflightNewRemoteTargets({
+      targets: [
+        {
+          id: "grasp:wss://one.example",
+          label: "GRASP one",
+          provider: "grasp",
+          relayUrl: "wss://one.example",
+        },
+        {
+          id: "grasp:wss://two.example",
+          label: "GRASP two",
+          provider: "grasp",
+          relayUrl: "wss://two.example",
+        },
+      ],
+      tokenList: [],
+      userPubkey: "pubkey",
+      repoName: "repo",
+    });
+
+    expect(targets).toHaveLength(2);
+    expect(checkGraspRepoExists).toHaveBeenCalledTimes(2);
   });
 });
