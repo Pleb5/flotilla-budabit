@@ -9,12 +9,7 @@ const trustSurfaceFiles = [
   {name: "PR detail", path: "../components/PRView.svelte"},
   {name: "profile collaboration", path: "../components/ProfileCodeTrustAnalysis.svelte"},
   {name: "profile trust badges", path: "../components/ProfileTrustBadges.svelte"},
-  {name: "profile NIP-85 metrics", path: "../components/ProfileNip85Metrics.svelte"},
   {name: "trust model", path: "../../routes/trust-model/+page.svelte"},
-  {
-    name: "provider recommendations",
-    path: "../../routes/settings/trust/ProviderRecommendationRow.svelte",
-  },
 ]
 
 const repoTrustSurfaceFiles = trustSurfaceFiles.filter(file =>
@@ -84,17 +79,11 @@ describe("trust UI labels", () => {
     expect(readUiFile("../../routes/trust-model/+page.svelte")).toContain("Community-first")
   })
 
-  it("moves trust explanation out of settings", () => {
+  it("keeps trust model documentation links", () => {
     const trustModel = readUiFile("../../routes/trust-model/+page.svelte")
 
-    expect(trustModel).not.toContain("NIP-85")
     expect(trustModel).toContain(trustModelDocHref)
     expect(trustModel).toContain(trustModelEventHref)
-    expect(readUiFile("../../routes/settings/trust/+page.ts")).toContain(
-      'throw redirect(307, "/trust-model")',
-    )
-    expect(readUiFile("../components/MenuSettings.svelte")).not.toContain("/settings/trust")
-    expect(readUiFile("../../routes/settings/+layout.svelte")).not.toContain("/settings/trust")
   })
 
   it("keeps deeper profile trust analysis behind explicit actions", () => {

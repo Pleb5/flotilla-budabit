@@ -34,7 +34,6 @@ VITE_DEFAULT_COMMUNITY=npub1...
 VITE_INDEXER_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
 VITE_SIGNER_RELAYS=wss://relay.damus.io,wss://nos.lol
 VITE_GIT_RELAYS=wss://relay.ngit.dev,wss://gitnostr.com
-VITE_DEFAULT_PUBKEYS=hexpubkey1,hexpubkey2
 ```
 
 Notes:
@@ -42,7 +41,6 @@ Notes:
 - `VITE_APP_URL` should be the final public URL of the app.
 - `VITE_APP_NAME`, `VITE_APP_URL`, and `VITE_APP_LOGO` provide runtime app metadata. `VITE_APP_LOGO` is also used as the source for generated PWA assets.
 - `VITE_APP_ACCENT`, `VITE_APP_ACCENT_CONTENT`, `VITE_APP_SECONDARY`, and `VITE_APP_SECONDARY_CONTENT` control the DaisyUI theme colors.
-- `VITE_DEFAULT_PUBKEYS` is worth setting even if `.env.example` makes it look optional.
 - `VITE_DEFAULT_COMMUNITY` should be a community hex pubkey, `npub`, or `ncommunity` value. `ncommunity` relay hints are used first.
 - `VITE_INDEXER_RELAYS` should include relays that can resolve the default community profile and `kind:10222` definition before the app knows that community's own relays.
 - `VITE_SIGNER_RELAYS` are used for NIP-46 signer discovery.

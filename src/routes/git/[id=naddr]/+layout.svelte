@@ -1963,7 +1963,7 @@
         const currentRepoEvent = getStore(repoEventStore)
         const currentRepoStateEvent = getStore(repoStateEventStore)
         if (currentRepoEvent && currentRepoStateEvent) return
-        const announcementRelaysRetry = getRepoAnnouncementRelays(naddrRelays)
+        const announcementRelaysRetry = getRepoAnnouncementRelays(fallbackRelays)
         const relaysRetry = getStore(repoRelaysStore)
         if (announcementRelaysRetry.length === 0 || relaysRetry.length === 0) return
         const ownersRetry = getStore(repoOwnerStore)
@@ -2262,7 +2262,7 @@
     ]
 
     const relayListFromUrl = getStore(repoRelaysStore)
-    const announcementRelays = getRepoAnnouncementRelays(naddrRelays)
+    const announcementRelays = getRepoAnnouncementRelays(fallbackRelays)
     const repoLoadPromise = load({relays: announcementRelays, filters: repoFilters})
 
     const allReposFilter = {

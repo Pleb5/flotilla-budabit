@@ -1,7 +1,7 @@
 import twColors from "tailwindcss/colors"
 import {get, derived, readable, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
-import {on, call, uniq, shuffle, parseJson, identity, always, tryCatch} from "@welshman/lib"
+import {on, call, uniq, parseJson, identity, always, tryCatch} from "@welshman/lib"
 import {
   Pool,
   load,
@@ -45,7 +45,6 @@ import {
   ZAP_GOAL,
   ZAP_REQUEST,
   ZAP_RESPONSE,
-  getListTags,
   getPubkeyTagValues,
   getTagValue,
   normalizeRelayUrl,
@@ -68,7 +67,6 @@ import {
   sign,
   makeUserLoader,
   makeUserData,
-  userFollowList,
 } from "@welshman/app"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
@@ -129,8 +127,6 @@ export const SMART_WIDGET_RELAYS =
 
 export const BURROW_URL = import.meta.env.VITE_BURROW_URL
 
-export const DEFAULT_PUBKEYS = import.meta.env.VITE_DEFAULT_PUBKEYS
-
 export const DUFFLEPUD_URL = "https://dufflepud.onrender.com"
 
 export const NIP46_PERMS =
@@ -177,17 +173,6 @@ export const entityLink = (entity: string) => `https://coracle.social/${entity}`
 
 export const pubkeyLink = (pubkey: string, relays = Router.get().FromPubkeys([pubkey]).getUrls()) =>
   entityLink(nip19.nprofileEncode({pubkey, relays}))
-
-export const bootstrapPubkeys = derived(userFollowList, $userFollowList => {
-  const appPubkeys = DEFAULT_PUBKEYS.split(",")
-  const userPubkeys = shuffle(getPubkeyTagValues(getListTags($userFollowList)))
-
-  return userPubkeys.length > 5 ? userPubkeys : [...userPubkeys, ...appPubkeys]
-})
-
-export const defaultPubkeys = derived([pubkey, bootstrapPubkeys], ([$pubkey, $bootstrapPubkeys]) =>
-  uniq([$pubkey, ...$bootstrapPubkeys].filter(identity)),
-)
 
 export const deriveEvent = makeDeriveEvent({
   repository,

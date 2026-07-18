@@ -1,4 +1,4 @@
-import {forceLoadRelay, getRelay} from "@welshman/app"
+import {forceLoadRelay, getRelay, loadRelay} from "@welshman/app"
 import {on} from "@welshman/lib"
 import {
   setRequestPolicy,
@@ -163,7 +163,7 @@ export const refreshRelayPolicy = (url: string, force = false): Promise<RelayPol
   }
 
   relayPolicyRefreshedAt.set(normalized, Date.now())
-  const promise = forceLoadRelay(normalized)
+  const promise = (force ? forceLoadRelay : loadRelay)(normalized)
     .catch(() => undefined)
     .then(() => readRelayPolicy(normalized))
     .finally(() => {
@@ -189,7 +189,7 @@ export const loadRelayPolicy = (url: string) => refreshRelayPolicy(url, true)
 
 export const relayPolicyRefreshPolicy = (socket: Socket) =>
   on(socket, SocketEvent.Status, status => {
-    if (status === SocketStatus.Open) void refreshRelayPolicy(socket.url, true)
+    if (status === SocketStatus.Open) void refreshRelayPolicy(socket.url)
   })
 
 export const getRelayRequestPolicy = (url: string): RelayRequestPolicy => {

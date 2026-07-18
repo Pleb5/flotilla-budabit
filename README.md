@@ -108,7 +108,6 @@ Community, relay, and discovery defaults:
 - `VITE_DEFAULT_COMMUNITY` - Optional recommended starting community as a hex pubkey, `npub`, or `ncommunity`
 - `VITE_INDEXER_RELAYS` - Optional comma-separated relay URLs used for discovery and community bootstrap
 - `VITE_SIGNER_RELAYS` - Comma-separated relays used for NIP-46 signer discovery
-- `VITE_DEFAULT_PUBKEYS` - Comma-separated hex pubkeys for bootstrapping web of trust
 - `VITE_DEFAULT_BLOSSOM_SERVERS` - Fallback Blossom media servers for uploads
 - `VITE_SMART_WIDGET_RELAYS` - Optional widget discovery relays; app defaults are used when empty
 - `VITE_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS` - Optional comma-separated provider pubkeys allowed to identify community moderators as NIP-53 stream hosts; defaults to providers trusted by zap.stream
@@ -126,7 +125,6 @@ Build-time feature flags:
 - `FEATURE_GRASP` - Enables GRASP and Nostr Git paths unless set to `0`
 - `FEATURE_CICD` - Enables experimental CI/CD hooks only when set to `1`
 - `FEATURE_ALERTS` - Enables external email and web push alert setup only when set to `1`; in-app badges do not require this
-- `FEATURE_NIP85` - Enables legacy NIP-85 provider discovery and provider-based trust graph adjustments only when set to `1`; stored provider settings remain preserved but inert by default
 
 Development-only helpers:
 

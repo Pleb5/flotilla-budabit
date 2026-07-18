@@ -22,7 +22,6 @@ Social Nostr signals remain useful because users may carry valuable context from
 | Community bans | Conspicuous and contextual. Suppress community-bound content in that community, but do not create global distrust. |
 | Overlay cap | Direct follows, mutes, and report penalties must not outweigh even the weakest valid community-based score. |
 | UI output | Show semantic connections and counts, never raw compound trust scores. |
-| NIP-85 | Currently unused and gated. |
 
 ## Why Direct Social Signals Are Enough
 

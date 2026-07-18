@@ -32,7 +32,6 @@ const mocks = vi.hoisted(() => {
     userRelayList: createStore<any>(null),
     userFollowList: createStore<any>(null),
     userMessagingRelayList: createStore<any>(null),
-    bootstrapPubkeys: createStore<string[]>([]),
     request: vi.fn().mockResolvedValue([]),
     load: vi.fn().mockResolvedValue([]),
     pull: vi.fn().mockResolvedValue([]),
@@ -63,9 +62,7 @@ const mocks = vi.hoisted(() => {
     clearSyncedGitAuthTokens: vi.fn(),
     setupExtensionSettingsSync: vi.fn(() => () => {}),
     applyRemoteExtensionSettings: vi.fn(),
-    loadNip85ProviderConfig: vi.fn(),
     loadRepoWatch: vi.fn(),
-    loadTrustGraphConfig: vi.fn(),
     startGraspServerRecommendationsSync: vi.fn(() => () => {}),
   }
 })
@@ -170,7 +167,6 @@ vi.mock("@welshman/router", () => ({
 vi.mock("@app/core/state", () => ({
   INDEXER_RELAYS: [],
   loadSettings: mocks.loadSettings,
-  bootstrapPubkeys: mocks.bootstrapPubkeys,
 }))
 
 vi.mock("@app/core/profile-resolver", () => ({
@@ -210,16 +206,8 @@ vi.mock("@app/extensions/settings", () => ({
   applyRemoteExtensionSettings: mocks.applyRemoteExtensionSettings,
 }))
 
-vi.mock("@app/core/nip85", () => ({
-  loadNip85ProviderConfig: mocks.loadNip85ProviderConfig,
-}))
-
 vi.mock("@app/core/repo-watch", () => ({
   loadRepoWatch: mocks.loadRepoWatch,
-}))
-
-vi.mock("@app/core/trust-graph-config", () => ({
-  loadTrustGraphConfig: mocks.loadTrustGraphConfig,
 }))
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -233,7 +221,6 @@ describe("syncApplicationData", () => {
     mocks.userRelayList.set(null)
     mocks.userFollowList.set(null)
     mocks.userMessagingRelayList.set(null)
-    mocks.bootstrapPubkeys.set([])
     mocks.repositoryQuery.mockReturnValue([])
     mocks.trackerGetRelays.mockReturnValue(new Set<string>())
   })
@@ -349,7 +336,7 @@ describe("syncApplicationData", () => {
     cleanup()
   })
 
-  it("keeps legacy NIP-85 provider sync inert by default", async () => {
+  it("loads current-user metadata when the user relay list is available", async () => {
     mocks.userRelayList.set({event: {pubkey: "b".repeat(64)}})
 
     const {syncApplicationData} = await import("./sync")
@@ -361,27 +348,39 @@ describe("syncApplicationData", () => {
     expect(mocks.loadUserBlossomServerList).toHaveBeenCalledWith()
     expect(mocks.loadUserFollowList).toHaveBeenCalledWith()
     expect(mocks.loadUserMuteList).toHaveBeenCalledWith()
-    expect(mocks.loadNip85ProviderConfig).not.toHaveBeenCalled()
-    expect(mocks.loadTrustGraphConfig).not.toHaveBeenCalled()
+    expect(mocks.loadProfile).toHaveBeenCalledWith("b".repeat(64))
 
     cleanup()
   })
 
-  it("uses pubkey-specific loaders for bootstrap pubkeys", async () => {
+  it("does not preload metadata for followed users", async () => {
     const bootstrapPubkey = "c".repeat(64)
-    mocks.bootstrapPubkeys.set([bootstrapPubkey])
+    mocks.userFollowList.set({event: {pubkey: "b".repeat(64)}, tags: [["p", bootstrapPubkey]]})
 
     const {syncApplicationData} = await import("./sync")
     const cleanup = syncApplicationData()
     await flush()
     await flush()
 
-    expect(mocks.loadRelayList).toHaveBeenCalledWith(bootstrapPubkey)
-    expect(mocks.loadFollowList).toHaveBeenCalledWith(bootstrapPubkey)
-    expect(mocks.loadMuteList).toHaveBeenCalledWith(bootstrapPubkey)
+    expect(mocks.loadRelayList).not.toHaveBeenCalled()
+    expect(mocks.loadProfile).not.toHaveBeenCalled()
+    expect(mocks.loadFollowList).not.toHaveBeenCalled()
+    expect(mocks.loadMuteList).not.toHaveBeenCalled()
     expect(mocks.loadUserRelayList).not.toHaveBeenCalledWith(bootstrapPubkey)
     expect(mocks.loadUserFollowList).not.toHaveBeenCalledWith(bootstrapPubkey)
     expect(mocks.loadUserMuteList).not.toHaveBeenCalledWith(bootstrapPubkey)
+
+    cleanup()
+  })
+
+  it("does not start GRASP recommendations from global Git sync", async () => {
+    mocks.pubkey.set("d".repeat(64))
+
+    const {syncGitData} = await import("./sync")
+    const cleanup = syncGitData()
+    await flush()
+
+    expect(mocks.startGraspServerRecommendationsSync).not.toHaveBeenCalled()
 
     cleanup()
   })

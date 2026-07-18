@@ -473,19 +473,21 @@ export const hydratePubkeyOutboxRelays = async (
   const cachedRelays = normalizeRelays(getPubkeyOutboxRelays([normalizedPubkey]))
   const pending = pubkeyOutboxRelayPromises.get(normalizedPubkey)
   if (cachedRelays.length > 0) {
-    if (!pending) {
-      const refreshPromise = loadPubkeyOutboxRelays(normalizedPubkey, relayHints).finally(() => {
-        if (pubkeyOutboxRelayPromises.get(normalizedPubkey) === refreshPromise) {
-          pubkeyOutboxRelayPromises.delete(normalizedPubkey)
-        }
-      })
-
-      pubkeyOutboxRelayPromises.set(normalizedPubkey, refreshPromise)
-    }
+    if (!pending) void refreshPubkeyOutboxRelays(normalizedPubkey, relayHints)
 
     return cachedRelays
   }
 
+  if (pending) return pending
+
+  return refreshPubkeyOutboxRelays(normalizedPubkey, relayHints)
+}
+
+export const refreshPubkeyOutboxRelays = async (pubkey: string, relayHints: string[] = []) => {
+  const normalizedPubkey = normalizePubkey(pubkey)
+  if (!normalizedPubkey) return []
+
+  const pending = pubkeyOutboxRelayPromises.get(normalizedPubkey)
   if (pending) return pending
 
   const promise = loadPubkeyOutboxRelays(normalizedPubkey, relayHints).finally(() => {

@@ -102,6 +102,7 @@
     makeCommunityProfileListFilters,
     makeCommunityReportDeleteFilters,
     makeCommunityReportFilters,
+    refreshPubkeyOutboxRelays,
     selectLatestCommunityDefinition,
     setActiveCommunityInput,
   } from "@app/core/community-state"
@@ -1827,16 +1828,21 @@
     if (!pubkey) return
 
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]} as any
-    const relaysToQuery = getAccountSearchRelays(pubkey, relayHints)
-    const loadKey = `${pubkey}|${relaysToQuery.slice().sort().join(",")}`
+    const initialRelays = getAccountSearchRelays(pubkey, relayHints)
+    const loadKey = `${pubkey}|${initialRelays.slice().sort().join(",")}`
 
     if (attemptedAccountSearchLoads.has(loadKey)) return
 
     attemptedAccountSearchLoads.add(loadKey)
 
-    if (relaysToQuery.length > 0) {
-      load({relays: relaysToQuery, filters: [filter]})
-    }
+    void refreshPubkeyOutboxRelays(pubkey, initialRelays)
+      .then(outboxRelays => {
+        const relaysToQuery = getAccountSearchRelays(pubkey, [...relayHints, ...outboxRelays])
+        if (relaysToQuery.length > 0) {
+          return load({relays: relaysToQuery, filters: [filter]})
+        }
+      })
+      .catch(() => undefined)
   })
 
   const accountSearchReposStore = $derived.by(() => {

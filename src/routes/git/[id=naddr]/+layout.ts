@@ -7,6 +7,7 @@ export const load: LayoutLoad = async ({params}) => {
   const {id} = params
   // Dynamic imports to avoid SSR issues
   const {getRepoAnnouncementRelays} = await import("@app/core/git-state")
+  const {refreshPubkeyOutboxRelays} = await import("@app/core/community-state")
   const {sanitizeRelays} = await import("@nostr-git/core/utils")
   const {parseRepoId} = await import("@nostr-git/core/utils")
 
@@ -26,11 +27,16 @@ export const load: LayoutLoad = async ({params}) => {
 
   // Extract relays from naddr if present
   const naddrRelays =
-    (decoded.relays?.length ?? 0) > 0
-      ? sanitizeRelays(decoded.relays as string[])
-      : []
+    (decoded.relays?.length ?? 0) > 0 ? sanitizeRelays(decoded.relays as string[]) : []
 
-  const fallbackRelays = getRepoAnnouncementRelays(naddrRelays)
+  const configuredFallbackRelays = getRepoAnnouncementRelays(naddrRelays)
+  const targetOutboxRelays =
+    naddrRelays.length === 0
+      ? await refreshPubkeyOutboxRelays(repoPubkey, configuredFallbackRelays)
+      : []
+  const fallbackRelays = Array.from(
+    new Set([...naddrRelays, ...targetOutboxRelays, ...configuredFallbackRelays]),
+  )
   const url = naddrRelays[0] || fallbackRelays[0] || ""
 
   return {

@@ -98,7 +98,9 @@ describe("community profile relay hints", () => {
     expect(gitItem).toContain("relays={profileRelays}")
     expect(gitItem).not.toContain("profilesByPubkey")
     expect(noteCard).toContain("relays?: string[]")
-    expect(noteCard).toContain("<Profile pubkey={event.pubkey} {url} {relays} />")
+    expect(noteCard).toContain(
+      "<Profile pubkey={event.pubkey} {url} {relays} roleLabel={profileRole} />",
+    )
   })
 
   it("passes repo community profile relays through the repo layout owner profile", () => {
@@ -146,9 +148,6 @@ describe("community profile relay hints", () => {
     for (const path of [
       "../../routes/people/[profile]/+page.svelte",
       "../components/ProfileCodeTrustAnalysis.svelte",
-      "../../routes/settings/trust/+page.svelte",
-      "../../routes/settings/trust/ProviderRecommendationRow.svelte",
-      "../../routes/settings/trust/MetricSourcePicker.svelte",
     ]) {
       const source = readProjectFile(path)
 

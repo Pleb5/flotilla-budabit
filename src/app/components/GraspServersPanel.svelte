@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {onMount} from "svelte"
   import Button from "@lib/components/Button.svelte"
   import InlinePopover from "@lib/components/InlinePopover.svelte"
   import {graspServersStore, normalizeGraspServerUrl} from "@nostr-git/ui"
@@ -12,6 +13,7 @@
     getGraspServerRecommendationSourceLabel,
     graspServerRecommendationState,
     graspServerRecommendations,
+    startGraspServerRecommendationsSync,
     type GraspServerRecommendation,
     type GraspServerRecommendationEvidence,
     type GraspServerRecommendationSourceKind,
@@ -34,6 +36,8 @@
   let isSaving = $state(false)
   let showRelayAutocomplete = $state(false)
   let openRecommendationEvidenceKey = $state("")
+
+  onMount(startGraspServerRecommendationsSync)
 
   const communityEvidenceSources = new Set<GraspServerRecommendationSourceKind>([
     "community_definition_grasp",
@@ -224,7 +228,9 @@
       ? evidence.communityPubkey || evidence.pubkey || ""
       : evidence.pubkey || evidence.communityPubkey || ""
 
-  const getRecommendationEvidenceCommunityPubkey = (evidence: GraspServerRecommendationEvidence) => {
+  const getRecommendationEvidenceCommunityPubkey = (
+    evidence: GraspServerRecommendationEvidence,
+  ) => {
     const profilePubkey = getRecommendationEvidenceProfilePubkey(evidence)
 
     return evidence.communityPubkey && evidence.communityPubkey !== profilePubkey
@@ -256,8 +262,8 @@
     <div class="min-w-0 space-y-1">
       <h3 class="text-lg font-semibold">GRASP Servers</h3>
       <p class="text-sm opacity-75">
-        Choose the GRASP relays you want to use for NIP-34 Git activity. You can remove every
-        relay and leave this empty if you want.
+        Choose the GRASP relays you want to use for NIP-34 Git activity. You can remove every relay
+        and leave this empty if you want.
       </p>
     </div>
     {#if isSaving}
@@ -298,7 +304,9 @@
     <div class="rounded-box bg-base-200/40 p-4">
       <div class="mb-3 flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-xs font-semibold uppercase tracking-wide opacity-60">Recommended GRASP relays</p>
+          <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+            Recommended GRASP relays
+          </p>
         </div>
         {#if $graspServerRecommendationState.status === "loading"}
           <span class="loading loading-spinner loading-xs shrink-0 opacity-60"></span>
@@ -333,7 +341,9 @@
                       <span class="badge badge-success badge-sm">Configured</span>
                     {/if}
                   </div>
-                  <p class="mt-1 text-xs opacity-70">Community declarations and GRASP-list signals</p>
+                  <p class="mt-1 text-xs opacity-70">
+                    Community declarations and GRASP-list signals
+                  </p>
                 </div>
 
                 {#if configured}
@@ -381,10 +391,14 @@
 
                           <div class="flex flex-col gap-2">
                             {#each group.evidence as source (getRecommendationEvidenceKey(source))}
-                              {@const profilePubkey = getRecommendationEvidenceProfilePubkey(source)}
-                              {@const communityPubkey = getRecommendationEvidenceCommunityPubkey(source)}
+                              {@const profilePubkey =
+                                getRecommendationEvidenceProfilePubkey(source)}
+                              {@const communityPubkey =
+                                getRecommendationEvidenceCommunityPubkey(source)}
                               {@const roleLabel = getRecommendationEvidenceRoleLabel(source)}
-                              {@const sourceLabel = getGraspServerRecommendationSourceLabel(source.source)}
+                              {@const sourceLabel = getGraspServerRecommendationSourceLabel(
+                                source.source,
+                              )}
                               <div class="rounded-box bg-base-200/60 p-3">
                                 <div class="flex min-w-0 items-center gap-2">
                                   {#if profilePubkey}

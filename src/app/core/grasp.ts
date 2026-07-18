@@ -135,7 +135,11 @@ const GRASP_OUTBOX_HYDRATION_AUTHOR_LIMIT = 80
 const GRASP_RECOMMENDATION_LOAD_TIMEOUT = 6000
 const DEFAULT_COMMUNITY_GRASP_LOOKUP_TIMEOUT = 3000
 
-const graspRecommendationLoad = makeLoader({delay: 200, timeout: GRASP_RECOMMENDATION_LOAD_TIMEOUT, threshold: 0.5})
+const graspRecommendationLoad = makeLoader({
+  delay: 200,
+  timeout: GRASP_RECOMMENDATION_LOAD_TIMEOUT,
+  threshold: 0.5,
+})
 
 const defaultGraspServerRecommendationState: GraspServerRecommendationState = {
   status: "idle",
@@ -241,7 +245,8 @@ const getCommunityGraspSourceKind = ({
   if (!normalizedPubkey) return
 
   if (definition.pubkey === normalizedPubkey) return "community_grasp"
-  if (isCommunityPersonBanned(getReportState(reportStates, definition.pubkey), normalizedPubkey)) return
+  if (isCommunityPersonBanned(getReportState(reportStates, definition.pubkey), normalizedPubkey))
+    return
 
   let isModerator = false
   let isMember = false
@@ -396,7 +401,9 @@ const isFallbackOnlyRecommendation = (recommendation: GraspServerRecommendation)
 export const selectEffectiveGraspServerRecommendations = (
   recommendations: GraspServerRecommendation[],
 ) => {
-  const nonFallback = recommendations.filter(recommendation => !isFallbackOnlyRecommendation(recommendation))
+  const nonFallback = recommendations.filter(
+    recommendation => !isFallbackOnlyRecommendation(recommendation),
+  )
 
   return nonFallback.length > 0 ? nonFallback : recommendations
 }
@@ -710,7 +717,9 @@ export const resolveDefaultCommunityGraspServerFallback = async ({
   return {
     pubkey: parsed.pubkey,
     relays,
-    urls: selectEffectiveGraspServerRecommendations(recommendations).map(recommendation => recommendation.url),
+    urls: selectEffectiveGraspServerRecommendations(recommendations).map(
+      recommendation => recommendation.url,
+    ),
   }
 }
 
@@ -914,5 +923,10 @@ export const startGraspServerRecommendationsSync = () => {
     userMuteList.subscribe(run),
   ]
 
-  return () => unsubscribers.forEach(unsubscribe => unsubscribe())
+  return () => {
+    graspRecommendationLoadGeneration += 1
+    unsubscribers.forEach(unsubscribe => unsubscribe())
+    graspServerRecommendations.set([])
+    graspServerRecommendationState.set(defaultGraspServerRecommendationState)
+  }
 }

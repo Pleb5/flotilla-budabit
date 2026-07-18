@@ -1,7 +1,7 @@
 import {page} from "$app/stores"
 import type {Unsubscriber} from "svelte/store"
-import {derived, get} from "svelte/store"
-import {partition, call, sortBy, assoc, chunk, sleep, identity, WEEK, ago} from "@welshman/lib"
+import {derived} from "svelte/store"
+import {partition, call, sortBy, assoc, sleep, identity, WEEK, ago} from "@welshman/lib"
 import {
   getListTags,
   getRelayTagValues,
@@ -20,21 +20,16 @@ import {
   repository,
   hasNegentropy,
   userRelayList,
-  userFollowList,
   userMessagingRelayList,
   loadUserRelayList,
-  loadRelayList,
   forceLoadUserMessagingRelayList,
   loadUserBlossomServerList,
   loadUserFollowList,
-  loadFollowList,
   loadUserMuteList,
-  loadMuteList,
 } from "@welshman/app"
-import {INDEXER_RELAYS, loadSettings, bootstrapPubkeys} from "@app/core/state"
+import {INDEXER_RELAYS, loadSettings} from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
-import {startGraspServerRecommendationsSync} from "@app/core/grasp"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 import {
   loadGraspServers,
@@ -47,9 +42,7 @@ import {
   clearSyncedGitAuthTokens,
 } from "@app/core/git-requests"
 import {applyRemoteExtensionSettings} from "@app/extensions/settings"
-import {loadNip85ProviderConfig} from "@app/core/nip85"
 import {loadRepoWatch} from "@app/core/repo-watch"
-import {loadTrustGraphConfig} from "@app/core/trust-graph-config"
 import {loadBudabitProfile} from "@app/core/profile-resolver"
 
 // Utils
@@ -89,7 +82,6 @@ const DM_RECENT_BACKFILL_LIMIT = 100
 const DM_BOOTSTRAP_BACKFILL_LIMIT = 200
 
 const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
-const NIP85_ENABLED = typeof __NIP85__ !== "undefined" && __NIP85__
 
 const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
   const [smart, dumb] = partition(hasNegentropy, relays)
@@ -214,34 +206,11 @@ const syncUserData = () => {
       loadUserMuteList()
       loadBudabitProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
-      if (NIP85_ENABLED) {
-        loadNip85ProviderConfig($userRelayList.event.pubkey)
-        loadTrustGraphConfig($userRelayList.event.pubkey)
-      }
       loadRepoWatch($userRelayList.event.pubkey)
     }
   })
 
-  const unsubscribeFollows = userFollowList.subscribe(async (_$userFollowList: any) => {
-    for (const pubkeys of chunk(10, get(bootstrapPubkeys))) {
-      // This isn't urgent, avoid clogging other stuff up
-      await sleep(1000)
-
-      await Promise.all(
-        pubkeys.map(async pk => {
-          await loadRelayList(pk)
-          await loadBudabitProfile(pk)
-          await loadFollowList(pk)
-          await loadMuteList(pk)
-        }),
-      )
-    }
-  })
-
-  return () => {
-    unsubscribeRelayList()
-    unsubscribeFollows()
-  }
+  return unsubscribeRelayList
 }
 
 // DMs
@@ -456,11 +425,6 @@ const syncUserGitData = () => {
     if (!unsubscribersByKey.has("grasp")) {
       const unsub = setupGraspServersSync(pk, mergedRelays)
       if (unsub) unsubscribersByKey.set("grasp", unsub)
-    }
-
-    if (!unsubscribersByKey.has("grasp-recommendations")) {
-      const unsub = startGraspServerRecommendationsSync()
-      if (unsub) unsubscribersByKey.set("grasp-recommendations", unsub)
     }
 
     if (!unsubscribersByKey.has("tokens")) {

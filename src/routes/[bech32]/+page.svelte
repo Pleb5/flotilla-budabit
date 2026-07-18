@@ -12,6 +12,7 @@
   import {goToEvent} from "@app/util/routes"
   import {INDEXER_RELAYS} from "@app/core/state"
   import {getRepoAnnouncementRelays} from "@app/core/git-state"
+  import {refreshPubkeyOutboxRelays} from "@app/core/community-state"
   import {normalizeRelayHints} from "@app/util/event-links"
 
   const getAuthorRelays = (author?: string) => {
@@ -24,13 +25,14 @@
     }
   }
 
-  const getResolverRelays = (type: string, data: any) => {
+  const getResolverRelays = (type: string, data: any, additionalRelays: string[] = []) => {
     const embeddedRelays = Array.isArray(data?.relays) ? data.relays : []
     const repoRelays =
       type === "naddr" && data?.kind === 30617 ? getRepoAnnouncementRelays(embeddedRelays) : []
 
     const relays = normalizeRelayHints(
       embeddedRelays,
+      additionalRelays,
       getAuthorRelays(data?.author || data?.pubkey),
       repoRelays,
       INDEXER_RELAYS,
@@ -42,6 +44,8 @@
   const {bech32} = $page.params as MakeNonOptional<typeof $page.params>
 
   const fallbackPath = "/home"
+  let destroyed = false
+  let resolverController: AbortController | undefined
 
   const normalizePathname = (pathname: string) =>
     pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname
@@ -63,32 +67,51 @@
     if (!target) return goto(fallbackPath, {replaceState: true})
 
     let found = false
+    const embeddedRelays = Array.isArray(data?.relays) ? data.relays : []
+    const targetOutboxRelays =
+      type === "naddr" && data?.kind === 30617 && embeddedRelays.length === 0
+        ? await refreshPubkeyOutboxRelays(data.pubkey, getRepoAnnouncementRelays())
+        : []
+    if (destroyed) return
+
+    const controller = new AbortController()
+    resolverController = controller
 
     load({
-      relays: getResolverRelays(type, data),
+      relays: getResolverRelays(type, data, targetOutboxRelays),
       filters: getIdFilters([target]),
+      signal: controller.signal,
       onEvent: (event: TrustedEvent) => {
+        if (destroyed) return
         found = true
         goToEvent(event, {replaceState: true})
       },
       onClose: () => {
-        if (!found) {
+        if (!destroyed && !found) {
           goto(fallbackPath, {replaceState: true})
         }
       },
     })
   }
 
-  onMount(async () => {
-    if (!isCurrentResolverPath()) {
-      goto(getCurrentBrowserPath(), {replaceState: true}).catch(() => undefined)
-      return
-    }
+  onMount(() => {
+    destroyed = false
+    void (async () => {
+      if (!isCurrentResolverPath()) {
+        await goto(getCurrentBrowserPath(), {replaceState: true})
+        return
+      }
 
-    try {
-      await attemptToNavigate()
-    } catch (e) {
-      goto(fallbackPath, {replaceState: true})
+      try {
+        await attemptToNavigate()
+      } catch (e) {
+        if (!destroyed) await goto(fallbackPath, {replaceState: true})
+      }
+    })()
+
+    return () => {
+      destroyed = true
+      resolverController?.abort()
     }
   })
 </script>

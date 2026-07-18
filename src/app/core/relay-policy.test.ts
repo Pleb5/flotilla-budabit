@@ -1,13 +1,14 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-const {forceLoadRelayMock} = vi.hoisted(() => ({
+const {forceLoadRelayMock, loadRelayMock} = vi.hoisted(() => ({
   forceLoadRelayMock: vi.fn(),
+  loadRelayMock: vi.fn(),
 }))
 
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
 
-  return {...actual, forceLoadRelay: forceLoadRelayMock}
+  return {...actual, forceLoadRelay: forceLoadRelayMock, loadRelay: loadRelayMock}
 })
 
 import {relaysByUrl} from "@welshman/app"
@@ -15,6 +16,7 @@ import {Socket, SocketEvent, SocketStatus} from "@welshman/net"
 import {
   getRelayPolicy,
   getRelayRequestPolicy,
+  loadRelayPolicy,
   relayPolicyRefreshPolicy,
   RELAY_POLICY_REFRESH_INTERVAL,
   refreshRelayPolicy,
@@ -36,11 +38,13 @@ const defaultRelayPolicy = {...defaultRequestPolicy, maxLimit: 200}
 
 beforeEach(() => {
   forceLoadRelayMock.mockResolvedValue(undefined)
+  loadRelayMock.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
   relaysByUrl.set(new Map())
   forceLoadRelayMock.mockReset()
+  loadRelayMock.mockReset()
   vi.useRealTimers()
 })
 
@@ -119,11 +123,12 @@ describe("relay policy", () => {
 
   it("refreshes NIP-11 metadata without blocking first policy use", () => {
     const relay = "wss://first-use.example/"
-    forceLoadRelayMock.mockReturnValue(new Promise(() => undefined))
+    loadRelayMock.mockReturnValue(new Promise(() => undefined))
 
     expect(getRelayRequestPolicy(relay)).toEqual(defaultRequestPolicy)
-    expect(forceLoadRelayMock).toHaveBeenCalledOnce()
-    expect(forceLoadRelayMock).toHaveBeenCalledWith(relay)
+    expect(loadRelayMock).toHaveBeenCalledOnce()
+    expect(loadRelayMock).toHaveBeenCalledWith(relay)
+    expect(forceLoadRelayMock).not.toHaveBeenCalled()
   })
 
   it("refreshes metadata about hourly while policy remains active", async () => {
@@ -131,31 +136,58 @@ describe("relay policy", () => {
     const startedAt = new Date("2026-07-15T00:00:00Z")
     vi.useFakeTimers()
     vi.setSystemTime(startedAt)
-    forceLoadRelayMock.mockResolvedValue(undefined)
+    loadRelayMock.mockResolvedValue(undefined)
 
     getRelayPolicy(relay)
     await refreshRelayPolicy(relay)
 
     vi.setSystemTime(startedAt.getTime() + RELAY_POLICY_REFRESH_INTERVAL - 1)
     getRelayPolicy(relay)
-    expect(forceLoadRelayMock).toHaveBeenCalledTimes(1)
+    expect(loadRelayMock).toHaveBeenCalledTimes(1)
 
     vi.setSystemTime(startedAt.getTime() + RELAY_POLICY_REFRESH_INTERVAL)
     getRelayPolicy(relay)
-    expect(forceLoadRelayMock).toHaveBeenCalledTimes(2)
+    expect(loadRelayMock).toHaveBeenCalledTimes(2)
+    expect(forceLoadRelayMock).not.toHaveBeenCalled()
   })
 
-  it("forces a metadata refresh when a socket reconnects", () => {
+  it("checks cached metadata when a socket reconnects", () => {
     const relay = "wss://reconnected-policy.example/"
     const socket = new Socket(relay, [])
     const unsubscribe = relayPolicyRefreshPolicy(socket)
-    forceLoadRelayMock.mockResolvedValue(undefined)
+    loadRelayMock.mockResolvedValue(undefined)
 
     socket.emit(SocketEvent.Status, SocketStatus.Open, relay)
 
-    expect(forceLoadRelayMock).toHaveBeenCalledOnce()
-    expect(forceLoadRelayMock).toHaveBeenCalledWith(relay)
+    expect(loadRelayMock).toHaveBeenCalledOnce()
+    expect(loadRelayMock).toHaveBeenCalledWith(relay)
+    expect(forceLoadRelayMock).not.toHaveBeenCalled()
     unsubscribe()
     socket.cleanup()
+  })
+
+  it("coalesces first use with socket open", () => {
+    const relay = "wss://coalesced-policy.example/"
+    const socket = new Socket(relay, [])
+    const unsubscribe = relayPolicyRefreshPolicy(socket)
+    loadRelayMock.mockReturnValue(new Promise(() => undefined))
+
+    getRelayPolicy(relay)
+    socket.emit(SocketEvent.Status, SocketStatus.Open, relay)
+
+    expect(loadRelayMock).toHaveBeenCalledOnce()
+    expect(forceLoadRelayMock).not.toHaveBeenCalled()
+    unsubscribe()
+    socket.cleanup()
+  })
+
+  it("uses the uncached loader only for explicit policy loads", async () => {
+    const relay = "wss://forced-policy.example/"
+
+    await loadRelayPolicy(relay)
+
+    expect(forceLoadRelayMock).toHaveBeenCalledOnce()
+    expect(forceLoadRelayMock).toHaveBeenCalledWith(relay)
+    expect(loadRelayMock).not.toHaveBeenCalled()
   })
 })
