@@ -178,7 +178,7 @@
   }
 </script>
 
-<div class="space-y-6">
+<div class="min-w-0 max-w-full space-y-6 [overflow-wrap:anywhere]">
   <div class="space-y-2">
     <h3 class="text-lg font-semibold text-foreground">Choose Git Service</h3>
     <p class="text-sm text-muted-foreground">
@@ -190,7 +190,7 @@
   <div class="grid gap-4">
     {#each availableProviders as provider (provider.id)}
       <Card
-        class="cursor-pointer transition-all duration-200 hover:shadow-md {selectedProviders.includes(
+        class="min-w-0 max-w-full overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-md {selectedProviders.includes(
           provider.id
         )
           ? 'ring-2 ring-accent border-accent'
@@ -198,11 +198,15 @@
         onclick={() => provider.hasToken && handleProviderToggle(provider.id)}
       >
         <CardContent class="p-4">
-          <div class="flex items-center space-x-4">
-            <div class="text-2xl">{provider.icon}</div>
-            <div class="flex-1">
-              <div class="flex items-center space-x-2">
-                <h4 class="font-medium text-foreground">{provider.name}</h4>
+          <div class="flex min-w-0 items-start gap-3 sm:items-center sm:gap-4">
+            <div
+              class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-2xl"
+            >
+              {provider.icon}
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <h4 class="break-words font-medium text-foreground">{provider.name}</h4>
                 {#if selectedProviders.includes(provider.id)}
                   <div class="w-2 h-2 bg-accent rounded-full"></div>
                 {/if}
@@ -217,7 +221,7 @@
                   >
                 {/if}
               </div>
-              <p class="text-sm text-muted-foreground mt-1">{provider.description}</p>
+              <p class="mt-1 break-words text-sm text-muted-foreground">{provider.description}</p>
               {#if provider.hasToken && provider.id !== "grasp"}
                 <p class="text-xs text-muted-foreground mt-1">
                   Token configured for {provider.host}
@@ -244,21 +248,21 @@
                   onclick={(e) => e.stopPropagation()}
                   onkeydown={(e) => e.stopPropagation()}
                 >
-                  <div class="flex flex-wrap items-center gap-1.5">
+                  <div class="flex min-w-0 flex-wrap items-center gap-1.5">
                     {#each graspRelayUrls as url, idx (idx)}
                       <span
-                        class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-accent/15 text-accent border border-accent/40 dark:bg-accent/20 {!isValidRelayUrl(
+                        class="inline-flex min-w-0 max-w-full items-center gap-1 py-0.5 pl-2 text-xs rounded-full bg-accent/15 text-accent border border-accent/40 dark:bg-accent/20 {!isValidRelayUrl(
                           url
                         )
                           ? 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-300'
                           : ''}"
                       >
-                        <span class="max-w-[180px] truncate" title={url}
+                        <span class="min-w-0 break-all" title={url}
                           >{url.replace(/^wss?:\/\//, "")}</span
                         >
                         <button
                           type="button"
-                          class="ml-0.5 hover:text-destructive focus:outline-none"
+                          class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full hover:text-destructive focus:outline-none"
                           onclick={(e) => {
                             e.stopPropagation();
                             removeRelayUrl(idx);
@@ -271,10 +275,10 @@
                     {/each}
 
                     <!-- Inline add input -->
-                    <div class="inline-flex items-center">
+                    <div class="flex w-full min-w-0 items-center sm:w-auto">
                       <input
                         type="text"
-                        class="w-36 px-2 py-0.5 text-xs bg-background border border-input rounded-l-full text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+                        class="min-w-0 flex-1 rounded-l-full border border-input bg-background px-2 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent sm:w-36"
                         placeholder="wss://relay..."
                         bind:value={newGraspRelayUrl}
                         onkeydown={(e) => {
@@ -287,7 +291,7 @@
                       />
                       <button
                         type="button"
-                        class="px-2 py-0.5 text-xs bg-accent text-accent-foreground rounded-r-full hover:bg-accent/80"
+                        class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-r-full bg-accent px-2 text-xs text-accent-foreground hover:bg-accent/80"
                         onclick={(e) => {
                           e.stopPropagation();
                           commitNewRelayUrl();
@@ -305,7 +309,7 @@
                               .replace(/\/$/, ""))) as opt}
                         <button
                           type="button"
-                          class="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-xs text-muted-foreground hover:border-border hover:text-foreground"
+                          class="max-w-full break-all rounded-full border border-dashed border-muted-foreground/50 px-2 py-1 text-left text-xs text-muted-foreground hover:border-border hover:text-foreground"
                           onclick={(e) => {
                             e.stopPropagation();
                             const trimmed = (opt || "").trim().replace(/\/$/, "");
@@ -331,7 +335,7 @@
                 </fieldset>
               {/if}
             </div>
-            <div class="flex items-center">
+            <div class="flex min-h-10 min-w-10 shrink-0 items-center justify-center">
               {#if selectedProviders.includes(provider.id)}
                 <div class="w-4 h-4 bg-accent rounded-full flex items-center justify-center">
                   <div class="w-2 h-2 bg-accent-foreground rounded-full"></div>
@@ -371,9 +375,9 @@
     </div>
   {:else if selectedProviders.includes("grasp") && selectedProviders.length === 1}
     <div class="bg-muted/50 rounded-lg p-4">
-      <div class="flex items-center space-x-2">
+      <div class="flex min-w-0 items-start gap-2">
         <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-        <p class="text-sm text-foreground">
+        <p class="min-w-0 break-words text-sm text-foreground">
           Ready to create repository on <strong>GRASP Server</strong>
           {#if graspRelayUrls.length > 0}
             <span class="text-muted-foreground"
@@ -385,9 +389,9 @@
     </div>
   {:else}
     <div class="bg-muted/50 rounded-lg p-4">
-      <div class="flex items-center space-x-2">
+      <div class="flex min-w-0 items-start gap-2">
         <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-        <p class="text-sm text-foreground">
+        <p class="min-w-0 break-words text-sm text-foreground">
           Ready to create repository on
           <strong
             >{selectedProviders

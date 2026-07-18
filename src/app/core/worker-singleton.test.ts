@@ -99,4 +99,30 @@ describe("worker-singleton", () => {
       }),
     )
   })
+
+  it("fans out operation progress and supports unsubscribe", async () => {
+    const {getInitializedGitWorker, subscribeGitWorkerProgress} = await import("./worker-singleton")
+    const listener = vi.fn()
+    const unsubscribe = subscribeGitWorkerProgress(listener)
+
+    await getInitializedGitWorker()
+    const init = mockGetGitWorker.mock.calls.at(-1)?.[0]
+    const event = {
+      type: "git-progress",
+      operationId: "import:1",
+      repoId: "owner/repo",
+      operation: "clone",
+      phase: "Receiving objects",
+      loaded: 2,
+      total: 4,
+      unit: "objects",
+    }
+
+    init.onProgress(event)
+    expect(listener).toHaveBeenCalledWith(event)
+
+    unsubscribe()
+    init.onProgress({...event, loaded: 3})
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
 })

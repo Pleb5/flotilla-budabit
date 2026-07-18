@@ -12,14 +12,15 @@
 
 ## Current Phase
 
-- Phase 2: Truthful Progress And Mobile Surfaces
+- Phase 3: Fail-Closed Preconditions And Coordinates
 
 ## Phase Exit Criteria
 
-- Long operations emit operation-scoped, truthful phase/count activity and never synthesize determinate percentages.
-- Import, new, and fork consume isolated progress and show active elapsed/last-activity feedback.
-- Repository dialogs use dynamic viewport sizing, mobile-stacked actions, safe wrapping, scrollable content, and accessible touch targets.
-- Focused progress/mobile tests, typechecks, formatting, and whitespace checks pass.
+- Shared prerequisites reject missing owner, targets, metadata relays, publication evidence, GRASP reads, or compensation capability before mutation.
+- New blocks existing hosted, GRASP, Nostr, and local coordinates through authoritative hook-level checks across every selected target.
+- Wizard pending/conflict/unknown states cannot bypass hook revalidation.
+- Fork validates metadata relays and destination absence before cloning.
+- Focused tests prove failed validation invokes no worker mutation; typechecks, formatting, and whitespace checks pass.
 - Phase files and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -36,6 +37,14 @@
   - recovery reconciles retained targets and publication diagnostics expose transport evidence.
 - Phase 1 focused verification passed: UI 5 files/67 tests, core 2 files/11 tests, main 1 file/3 tests.
 - Phase 1 core/UI/root typechecks passed with 0 diagnostics; Prettier and `git diff --check` passed.
+- Phase 2 added operation-scoped, truthful repository activity:
+  - clone forwards exact counting, receiving, delta-resolution, and worktree counts;
+  - push exposes ref boundaries and real ref totals without fake object/byte percentages;
+  - remote sync exposes target/ref counts, and the shared worker fans events out by operation ID;
+  - import/new/fork filter unrelated events, unsubscribe on settlement, and show determinate bars only for real totals plus elapsed/last-activity feedback otherwise.
+- Phase 2 made Import, New, and Fork responsive with `dvh` shells, fixed modal chrome, one scrollable body, stacked mobile actions, safe wrapping, bounded dropdowns, and 40px touch targets.
+- Phase 2 focused verification passed: core progress/push 2 files/13 tests, UI hook/progress/remote sync 5 files/34 tests, main singleton 1 file/6 tests, and repository surface 10 files/47 tests.
+- Phase 2 core/UI/root typechecks passed with 0 diagnostics; changed-file Prettier and `git diff --check` passed.
 
 ## Decisions
 
@@ -50,12 +59,12 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phase 1 is verified; Phase 2 begins after its closeout transition.
+- Phases 1 and 2 are verified; Phase 3 begins after the Phase 2 closeout transition.
 - Generated coverage and unrelated HiveTalk documents must remain unstaged.
 
 ## Next Action
 
-- Reread the full plan, inspect the worker progress channel and repository dialog surfaces, then implement the Phase 2 progress contract and responsive layouts.
+- Reread the full plan, then implement shared fail-closed creation prerequisites and authoritative new/fork coordinate preflight before any Git mutation.
 
 ## Verification
 
@@ -66,6 +75,12 @@
 - Phase 1: main `fetch-relay-events` tests passed, 1 file and 3 tests.
 - Phase 1: core typecheck, UI typecheck, and root `pnpm check` passed.
 - Phase 1: intentional-file Prettier check and repository `git diff --check` passed.
+- Phase 2: core worker progress/push tests passed, 2 files and 13 tests; the implementation agent also ran its broader 5-file/57-test core suite.
+- Phase 2: UI hook/progress/remote-sync tests passed, 5 files and 34 tests.
+- Phase 2: repository surface tests passed, 10 files and 47 tests.
+- Phase 2: main worker-singleton tests passed, 1 file and 6 tests.
+- Phase 2: core typecheck, UI typecheck, and root `pnpm check` passed with 0 diagnostics.
+- Phase 2: changed-file Prettier checks and `git diff --check` passed.
 
 ## Risks Or Blockers
 
@@ -78,28 +93,31 @@
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `docs/architecture/import-repo-architecture.md`
-- `packages/nostr-git-core/src/git/platform-to-nostr.ts`
+- `packages/nostr-git-core/src/index.ts`
+- `packages/nostr-git-core/src/worker/client.ts`
+- `packages/nostr-git-core/src/worker/index.ts`
+- `packages/nostr-git-core/src/worker/progress.ts`
 - `packages/nostr-git-core/src/worker/worker.ts`
-- `packages/nostr-git-core/test/git/platform-to-nostr.spec.ts`
-- `packages/nostr-git-core/test/worker/push-worker-api.spec.ts`
+- `packages/nostr-git-core/src/worker/workers/repos.ts`
+- `packages/nostr-git-core/test/worker/git-operation-progress.spec.ts`
+- `packages/nostr-git-ui/src/lib/components/git/AdvancedSettingsStep.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/ForkRepoDialog.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/GitOperationActivity.svelte`
 - `packages/nostr-git-ui/src/lib/components/git/ImportRepoDialog.svelte`
-- `packages/nostr-git-ui/src/lib/components/git/WorkerManager.ts`
+- `packages/nostr-git-ui/src/lib/components/git/NewRepoWizard.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/ProviderSelectionStep.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/RepoProgressStep.svelte`
+- `packages/nostr-git-ui/src/lib/components/people/PeoplePicker.svelte`
+- `packages/nostr-git-ui/src/lib/hooks/useForkRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`
-- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`
-- `packages/nostr-git-ui/src/lib/utils/import-dialog-state.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/import-dialog-state.ts`
-- `packages/nostr-git-ui/src/lib/utils/import-repo-metadata.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/import-repo-metadata.ts`
+- `packages/nostr-git-ui/src/lib/hooks/useNewRepo.svelte.ts`
+- `packages/nostr-git-ui/src/lib/utils/git-operation-progress.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/git-operation-progress.ts`
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.test.ts`
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`
-- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.ts`
-- `src/app/components/PRView.svelte`
-- `src/app/core/diagnostics.ts`
-- `src/app/core/git-commands.ts`
-- `src/app/util/fetch-relay-events.test.ts`
-- `src/app/util/fetch-relay-events.ts`
+- `packages/nostr-git-ui/tests/newRepoWizardSurface.test.ts`
+- `packages/nostr-git-ui/tests/repoOperationProgressSurface.test.ts`
+- `src/app/core/worker-singleton.test.ts`
+- `src/app/core/worker-singleton.ts`
 - `src/routes/git/+page.svelte`
 - `src/routes/git/[id=naddr]/+layout.svelte`

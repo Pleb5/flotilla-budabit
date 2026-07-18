@@ -68,6 +68,12 @@ import {
   sortImportBranches,
   type SourceAccessMode,
 } from "../utils/import-source-access.js";
+import {
+  createGitOperationId,
+  createGitOperationProgressObserver,
+  type GitOperationActivity,
+  type SubscribeGitProgress,
+} from "../utils/git-operation-progress.js";
 
 /**
  * Import phase identifiers for structured progress reporting.
@@ -214,6 +220,9 @@ export interface UseImportRepoOptions {
    */
   workerApi?: any;
 
+  /** Subscribe to structured progress from the shared Git worker. */
+  subscribeGitProgress?: SubscribeGitProgress;
+
   /**
    * EventIO instance for publishing events
    */
@@ -353,6 +362,8 @@ interface ImportContext {
   prepublishedAnnouncement?: NostrEvent;
   prepublishedAnnouncementByGraspRelay?: Record<string, NostrEvent>;
   preprovisionedGraspRelayUrls?: string[];
+  operationId: string;
+  onOperationProgress: (event: import("@nostr-git/core").GitOperationProgressEvent) => void;
 }
 
 // ===== Batch Publishing Functions =====
@@ -1178,6 +1189,7 @@ async function pushImportedPullRequestRefs(
           refs,
           token: context.userPubkey,
           provider: "grasp",
+          operationId: context.operationId,
         }),
       `Pushing imported pull request refs to ${target.label}`,
       0
@@ -1922,6 +1934,7 @@ async function syncRepositoryToRemotes(
             url: candidateUrl,
             dir: localCloneDir,
             token: sourceToken,
+            operationId: context.operationId,
           }),
         "Cloning source repository",
         90000
@@ -1994,6 +2007,8 @@ async function syncRepositoryToRemotes(
     community: context.config.community,
     requireNonGraspSuccessBeforeGrasp: false,
     graspFirst: true,
+    operationId: context.operationId,
+    onOperationProgress: context.onOperationProgress,
     prepublishedAnnouncement: context.prepublishedAnnouncement,
     prepublishedAnnouncementByGraspRelay: context.prepublishedAnnouncementByGraspRelay,
     preprovisionedGraspRelayUrls: context.preprovisionedGraspRelayUrls,
@@ -2193,6 +2208,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
     onPublishEvent,
     onDeleteEvent,
     onRollbackPublishedRepoEvents,
+    subscribeGitProgress,
   } = options;
 
   // Validate that we have a way to sign user events (repo events, status events)
@@ -2203,6 +2219,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
   let isImporting = $state(false);
   let progress = $state<ImportProgress | undefined>();
   let error = $state<string | null>(null);
+  let operationActivity = $state<GitOperationActivity | undefined>();
   let abortController: ImportAbortController | null = null;
 
   /** Current phase; updated before each phase so context.updateProgress(step, current, total) uses it */
@@ -2265,6 +2282,13 @@ export function useImportRepo(options: UseImportRepoOptions) {
     let repoMetadataPublished = false;
     let provisionalRollbackAttempted = false;
     let provisionalRollbackSucceeded = false;
+    const operationId = createGitOperationId("import");
+    operationActivity = undefined;
+    const onOperationProgress = createGitOperationProgressObserver(
+      operationId,
+      (activity) => (operationActivity = activity)
+    );
+    const unsubscribeGitProgress = subscribeGitProgress?.(onOperationProgress);
 
     const rollbackProvisionalEvents = async (context: ImportContext): Promise<string> => {
       if (provisionalRollbackAttempted || !transactionJournal) return "";
@@ -2362,6 +2386,8 @@ export function useImportRepo(options: UseImportRepoOptions) {
         remotePushResults: [],
         remoteTargets,
         selectedBranchRefs: [],
+        operationId,
+        onOperationProgress,
       } as ImportContext;
       transactionContext = context;
 
@@ -2461,6 +2487,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
           normalizedToken,
           remoteTargets
         );
+        operationActivity = undefined;
         transactionJournal.setTargetResults(context.remotePushResults);
         context.abortController.throwIfAborted();
 
@@ -2589,6 +2616,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
       }
       throw new Error(errorMessage);
     } finally {
+      unsubscribeGitProgress?.();
       isImporting = false;
       abortController = null;
     }
@@ -2614,6 +2642,9 @@ export function useImportRepo(options: UseImportRepoOptions) {
     },
     get error() {
       return error;
+    },
+    get operationActivity() {
+      return operationActivity;
     },
   };
 }

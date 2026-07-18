@@ -1,4 +1,9 @@
-import { getGitServiceApiFromUrl, parseRepoUrl, type NostrEvent } from "@nostr-git/core";
+import {
+  getGitServiceApiFromUrl,
+  parseRepoUrl,
+  type GitOperationProgressEvent,
+  type NostrEvent,
+} from "@nostr-git/core";
 import { createRepoAnnouncementEvent, type RepoCommunityBinding } from "@nostr-git/core/events";
 import { sanitizeRelays } from "@nostr-git/core/utils";
 
@@ -87,6 +92,8 @@ export interface SyncLocalRepoToTargetsOptions {
   prepublishedAnnouncement?: NostrEvent;
   prepublishedAnnouncementByGraspRelay?: Record<string, NostrEvent>;
   preprovisionedGraspRelayUrls?: string[];
+  operationId?: string;
+  onOperationProgress?: (event: GitOperationProgressEvent) => void;
 }
 
 export interface PublishRepoSyncAnnouncementOptions {
@@ -727,6 +734,8 @@ export async function syncLocalRepoToTargets(
     prepublishedAnnouncement,
     prepublishedAnnouncementByGraspRelay = {},
     preprovisionedGraspRelayUrls = [],
+    operationId,
+    onOperationProgress,
   } = options;
   const webUrls = Array.from(
     new Set(configuredWebUrls.map((url) => String(url || "").trim()).filter(Boolean))
@@ -810,9 +819,37 @@ export async function syncLocalRepoToTargets(
 
   const results: RemoteSyncTargetResult[] = [];
   let latestRepoMetadataCreatedAt = options.latestRepoMetadataCreatedAt || 0;
+  const emitOperationProgress = (
+    phase: string,
+    progress: Partial<
+      Pick<GitOperationProgressEvent, "loaded" | "total" | "unit" | "target" | "ref">
+    > = {}
+  ) => {
+    if (!operationId || !onOperationProgress) return;
+    onOperationProgress({
+      type: "git-progress",
+      operationId,
+      repoId: localRepoId,
+      operation: "remote-sync",
+      phase,
+      ...progress,
+    });
+  };
+
+  emitOperationProgress("Preparing remote synchronization", {
+    loaded: 0,
+    total: orderedTargets.length,
+    unit: "targets",
+  });
 
   for (let i = 0; i < orderedTargets.length; i++) {
     const target = orderedTargets[i];
+    emitOperationProgress("Syncing target", {
+      loaded: i,
+      total: orderedTargets.length,
+      unit: "targets",
+      target: target.label,
+    });
 
     let remoteUrl = target.existingRemoteUrl;
     let webUrl = target.existingWebUrl;
@@ -1042,6 +1079,13 @@ export async function syncLocalRepoToTargets(
           updateProgress(
             `Pushing ${ref.type === "heads" ? "branch" : "tag"} ${ref.name} to ${target.label} (${refIndex + 1}/${orderedRefs.length})...`
           );
+          emitOperationProgress("Preparing ref push", {
+            loaded: refIndex,
+            total: orderedRefs.length,
+            unit: "refs",
+            target: target.label,
+            ref: ref.ref,
+          });
 
           const pushResult = (await runAbortable(
             () =>
@@ -1052,6 +1096,7 @@ export async function syncLocalRepoToTargets(
                 ref: ref.ref,
                 token: userPubkey,
                 provider: "grasp",
+                operationId,
               }),
             `Pushing ${ref.name} to ${target.label}`,
             0
@@ -1229,6 +1274,13 @@ export async function syncLocalRepoToTargets(
         updateProgress(
           `Pushing ${ref.type === "heads" ? "branch" : "tag"} ${ref.name} to ${target.label} (${refIndex + 1}/${orderedRefs.length})...`
         );
+        emitOperationProgress("Preparing ref push", {
+          loaded: refIndex,
+          total: orderedRefs.length,
+          unit: "refs",
+          target: target.label,
+          ref: ref.ref,
+        });
 
         const pushResult = await tryTargetTokens<WorkerPushToRemoteResult>(
           target,
@@ -1256,6 +1308,7 @@ export async function syncLocalRepoToTargets(
                       ref: ref.ref,
                       token,
                       provider: target.provider,
+                      operationId,
                     }),
                   `Pushing ${ref.name} to ${target.label}`,
                   0
@@ -1448,8 +1501,20 @@ export async function syncLocalRepoToTargets(
         provisionalStateEvents:
           provisionalStateEvents.length > 0 ? provisionalStateEvents : undefined,
       });
+    } finally {
+      emitOperationProgress("Target settled", {
+        loaded: i + 1,
+        total: orderedTargets.length,
+        unit: "targets",
+        target: target.label,
+      });
     }
   }
 
+  emitOperationProgress("Remote synchronization complete", {
+    loaded: orderedTargets.length,
+    total: orderedTargets.length,
+    unit: "targets",
+  });
   return results;
 }

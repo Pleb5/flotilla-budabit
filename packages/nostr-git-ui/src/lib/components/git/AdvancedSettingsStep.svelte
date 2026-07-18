@@ -272,9 +272,31 @@
     [next[index], next[target]] = [next[target], next[index]];
     onCloneUrlsChange(next);
   }
+
+  function getRelayDropdownStyle(): string {
+    const rect = relayInputElement?.getBoundingClientRect();
+    if (!rect || typeof window === "undefined") {
+      return "left: 1rem; right: 1rem; top: 1rem; max-height: calc(100dvh - 2rem);";
+    }
+
+    const viewportInset = 16;
+    const width = Math.min(rect.width, window.innerWidth - viewportInset * 2);
+    const left = Math.max(
+      viewportInset,
+      Math.min(rect.left, window.innerWidth - width - viewportInset)
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - viewportInset;
+    const spaceAbove = rect.top - viewportInset;
+    const openAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(0, Math.min(240, openAbove ? spaceAbove : spaceBelow));
+
+    return openAbove
+      ? `width: ${width}px; left: ${left}px; bottom: ${window.innerHeight - rect.top + 4}px; max-height: ${maxHeight}px;`
+      : `width: ${width}px; left: ${left}px; top: ${rect.bottom + 4}px; max-height: ${maxHeight}px;`;
+  }
 </script>
 
-<div class="space-y-6">
+<div class="min-w-0 max-w-full space-y-6 [overflow-wrap:anywhere]">
   <div class="space-y-4">
     <h2 class="text-xl font-semibold text-gray-100">Advanced Settings</h2>
     <p class="text-sm text-gray-300">Configure additional options for your repository.</p>
@@ -328,7 +350,7 @@
           <legend class="block text-sm font-medium text-gray-300 mb-2"> Web URLs </legend>
           <div class="space-y-2">
             {#each webUrls as url, index}
-              <div class="flex items-center space-x-2">
+              <div class="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                 <input
                   type="url"
                   value={webUrls[index]}
@@ -340,11 +362,11 @@
                       onWebUrlsChange
                     )}
                   placeholder="https://github.com/user/repo"
-                  class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                  class="min-w-0 w-full flex-1 rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                 />
                 <button
                   type="button"
-                  class="p-2 text-red-400 hover:text-red-300"
+                  class="min-h-10 w-full px-3 py-2 text-red-400 hover:text-red-300 sm:w-auto"
                   aria-label="Remove web URL"
                   onclick={() => removeItem(webUrls, index, onWebUrlsChange)}
                 >
@@ -373,10 +395,10 @@
               </p>
             {/if}
             {#each cloneUrls as url, index}
-              <div class="flex items-center gap-2">
+              <div class="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
                 <button
                   type="button"
-                  class="p-1 text-gray-400 hover:text-gray-200 disabled:opacity-40"
+                  class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 hover:text-gray-200 disabled:opacity-40"
                   aria-label="Move clone URL up"
                   disabled={index === 0}
                   onclick={() => moveCloneUrl(index, -1)}
@@ -385,7 +407,7 @@
                 </button>
                 <button
                   type="button"
-                  class="p-1 text-gray-400 hover:text-gray-200 disabled:opacity-40"
+                  class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 hover:text-gray-200 disabled:opacity-40"
                   aria-label="Move clone URL down"
                   disabled={index === cloneUrls.length - 1}
                   onclick={() => moveCloneUrl(index, 1)}
@@ -396,7 +418,7 @@
                   type="text"
                   value={cloneUrls[index]}
                   readonly
-                  class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-800/60 text-gray-100"
+                  class="min-w-0 flex-1 basis-[calc(100%_-_6rem)] rounded-md border border-gray-300 bg-gray-800/60 px-3 py-2 text-gray-100 shadow-sm dark:border-gray-600 sm:basis-auto"
                 />
                 {#if index === 0}
                   <span
@@ -423,12 +445,14 @@
           {#if tags.length > 0}
             <div class="flex flex-wrap gap-2 mb-2">
               {#each tags as tag}
-                <div class="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-2 text-sm">
+                <div
+                  class="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-gray-700 py-2 pl-3 text-sm"
+                >
                   <Hash class="w-3 h-3 text-gray-400" />
-                  <span class="text-white text-sm">{tag}</span>
+                  <span class="min-w-0 break-all text-sm text-white">{tag}</span>
                   <button
                     onclick={() => onTagsChange(tags.filter((t) => t !== tag))}
-                    class="text-gray-400 hover:text-gray-200 transition-colors"
+                    class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200"
                     aria-label="Remove tag"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -473,7 +497,7 @@
                 id="hashtag-suggestions-listbox"
                 role="listbox"
                 aria-label="Hashtag suggestions"
-                class="absolute z-[50] w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                class="absolute z-[50] mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
               >
                 {#each hashtagSearchResults as tag, index}
                   {@const isAlreadyAdded = tagExists(tag)}
@@ -498,7 +522,7 @@
                            {isAlreadyAdded ? 'opacity-50 cursor-not-allowed' : ''}"
                   >
                     <Hash class="w-3 h-3 text-gray-400" />
-                    <span class="flex-1">{tag}</span>
+                    <span class="min-w-0 flex-1 break-all">{tag}</span>
                     {#if isAlreadyAdded}
                       <span class="text-xs text-gray-400">(already added)</span>
                     {/if}
@@ -524,7 +548,8 @@
                       : 'hover:bg-gray-700'}"
                   >
                     <Plus class="w-3 h-3 text-blue-400" />
-                    <span class="text-blue-400 font-medium">Create tag: {getNormalizedQuery()}</span
+                    <span class="min-w-0 break-words font-medium text-blue-400"
+                      >Create tag: {getNormalizedQuery()}</span
                     >
                   </button>
                 {/if}
@@ -569,16 +594,16 @@
           </legend>
           <div class="space-y-2">
             {#each mandatoryRelays as relayUrl}
-              <div class="flex items-center space-x-2">
+              <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   type="text"
                   value={relayUrl}
                   readonly
                   aria-label="GRASP target relay"
-                  class="flex-1 px-3 py-2 border border-blue-500/40 rounded-md shadow-sm bg-gray-800/60 text-gray-100 focus:outline-none"
+                  class="min-w-0 w-full flex-1 rounded-md border border-blue-500/40 bg-gray-800/60 px-3 py-2 text-gray-100 shadow-sm focus:outline-none"
                 />
                 <span
-                  class="px-2 py-1 text-xs rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 whitespace-nowrap"
+                  class="self-start whitespace-nowrap rounded border border-blue-500/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-300 sm:self-auto"
                 >
                   GRASP target
                 </span>
@@ -586,18 +611,18 @@
             {/each}
 
             {#each relays as r, index}
-              <div class="flex items-center space-x-2">
+              <div class="flex min-w-0 items-center gap-2">
                 <input
                   type="text"
                   value={relays[index]}
                   oninput={(e) =>
                     updateItem(relays, index, (e.target as HTMLInputElement).value, onRelaysChange)}
                   placeholder="wss://relay.example.com"
-                  class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                  class="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                 />
                 <button
                   type="button"
-                  class="p-2 text-red-400 hover:text-red-300"
+                  class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-red-400 hover:text-red-300"
                   aria-label="Remove relay"
                   onclick={() => removeItem(relays, index, onRelaysChange)}
                 >
@@ -632,10 +657,8 @@
                 {#if showRelayAutocomplete && relaySearchResults.length > 0}
                   <div
                     id="relay-suggestions-listbox"
-                    class="fixed z-50 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
-                    style="width: {relayInputElement?.getBoundingClientRect().width ||
-                      '100%'}px; left: {relayInputElement?.getBoundingClientRect().left ||
-                      0}px; top: {(relayInputElement?.getBoundingClientRect().bottom || 0) + 4}px;"
+                    class="fixed z-50 max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
+                    style={getRelayDropdownStyle()}
                   >
                     {#each relaySearchResults as relayUrl}
                       <button
@@ -651,7 +674,7 @@
                           relaySearchQuery = "";
                           showRelayAutocomplete = false;
                         }}
-                        class="w-full text-left px-3 py-2 hover:bg-gray-700 text-sm font-mono"
+                        class="w-full break-all px-3 py-2 text-left font-mono text-sm hover:bg-gray-700"
                       >
                         {relayUrl}
                       </button>
@@ -662,7 +685,7 @@
             {:else}
               <button
                 type="button"
-                class="px-3 py-2 text-blue-400 hover:text-blue-300"
+                class="min-h-10 px-3 py-2 text-blue-400 hover:text-blue-300"
                 onclick={() => addItem(relays, onRelaysChange)}
               >
                 <Plus class="w-4 h-4 inline mr-1" />

@@ -193,6 +193,7 @@ describe("syncLocalRepoToTargets", () => {
       };
     });
     const runAbortable = vi.fn(async (operation) => await operation());
+    const onOperationProgress = vi.fn();
     const workerApi = {
       pushToRemote: vi.fn(async () => ({ success: true })),
       listServerRefs: vi.fn(async () => [{ ref: "refs/heads/main", oid: commit }]),
@@ -223,6 +224,8 @@ describe("syncLocalRepoToTargets", () => {
       runAbortable,
       prepublishedAnnouncement: announcement,
       preprovisionedGraspRelayUrls: ["wss://relay.ngit.dev"],
+      operationId: "import:progress",
+      onOperationProgress,
     });
 
     expect(results).toEqual([expect.objectContaining({ success: true })]);
@@ -230,6 +233,27 @@ describe("syncLocalRepoToTargets", () => {
     expect(onPublishEvent.mock.calls[0][0].kind).toBe(30618);
     expect(runAbortable.mock.calls.some((call) => String(call[1]).includes("receive-pack"))).toBe(
       false
+    );
+    expect(workerApi.pushToRemote).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: "import:progress" })
+    );
+    expect(onOperationProgress.mock.calls.map(([event]) => event.phase)).toEqual(
+      expect.arrayContaining([
+        "Preparing remote synchronization",
+        "Syncing target",
+        "Preparing ref push",
+        "Target settled",
+        "Remote synchronization complete",
+      ])
+    );
+    expect(onOperationProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        operationId: "import:progress",
+        operation: "remote-sync",
+        loaded: 1,
+        total: 1,
+        unit: "targets",
+      })
     );
   });
 

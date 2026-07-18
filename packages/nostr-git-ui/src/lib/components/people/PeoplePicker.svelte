@@ -278,20 +278,22 @@
   });
 </script>
 
-<div class="space-y-2">
+<div class="min-w-0 max-w-full space-y-2 [overflow-wrap:anywhere]">
   <!-- Selected people -->
   {#if selected?.length || 0}
     <div class="flex flex-wrap gap-2">
       {#each selected as evt}
         {@const pubkey = getEventPubkey(evt)}
-        <div class="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-2 text-sm">
+        <div
+          class="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-gray-700 py-2 pl-3 text-sm"
+        >
           {#if showAvatars}
             <UserAvatar pubkey={pubkey} profile={profileCache.get(pubkey || "")} size="sm" />
           {:else}
             <span class="text-gray-300">{pubkey?.slice(0, 8)}...</span>
           {/if}
           <div class="flex-1 min-w-0">
-            <div class="text-white text-sm truncate">
+            <div class="break-words text-sm text-white">
               {(() => {
                 const profile = pubkey ? profileCache.get(pubkey) : undefined;
                 return (
@@ -307,7 +309,7 @@
             <button
               type="button"
               onclick={() => removeSelection(evt)}
-              class="text-gray-400 hover:text-gray-200 transition-colors"
+              class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200"
               aria-label="Remove"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -327,7 +329,7 @@
 
   <!-- Search input -->
   {#if (selected?.length || 0) < maxSelections}
-    <div class="relative">
+    <div class="relative min-w-0 max-w-full">
       <input
         bind:this={inputEl}
         bind:value={inputValue}
@@ -347,7 +349,7 @@
         }}
         placeholder={placeholder}
         disabled={disabled}
-        class="w-full px-3 pr-12 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        class="min-w-0 w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 pr-14 text-white placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
         aria-expanded={open}
         aria-controls="suggestions-listbox"
         aria-haspopup="listbox"
@@ -363,7 +365,7 @@
           {#if showMobileAdd}
             <button
               type="button"
-              class="sm:hidden inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-600 bg-gray-800 text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+              class="inline-flex min-h-10 min-w-10 items-center justify-center rounded-md border border-gray-600 bg-gray-800 text-gray-200 hover:bg-gray-700 disabled:opacity-50 sm:hidden"
               aria-label="Add person"
               onclick={() => void addFromInput()}
               disabled={isAddDisabled}
@@ -377,7 +379,7 @@
       <!-- Suggestions dropdown -->
       {#if open && suggestions.length > 0}
         <div
-          class="absolute z-[50] w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+          class="absolute z-[50] mt-1 max-h-[min(15rem,50dvh)] w-full max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
         >
           <ul id="suggestions-listbox" role="listbox" aria-label="Search suggestions">
             {#each suggestions as suggestion, index}
@@ -398,7 +400,7 @@
                     highlighted = -1;
                   }}
                 >
-                  <div class="flex items-center gap-3">
+                  <div class="flex min-w-0 items-center gap-3">
                     {#if showAvatars}
                       <UserAvatar
                         pubkey={suggestion.pubkey}
@@ -409,14 +411,14 @@
                       <span class="text-gray-300">{suggestion.pubkey.slice(0, 8)}...</span>
                     {/if}
                     <div class="flex-1 min-w-0">
-                      <div class="text-white text-sm truncate">
+                      <div class="break-words text-sm text-white">
                         {suggestion.display_name ||
                           suggestion.name ||
                           suggestion.nip05 ||
                           suggestion.pubkey.slice(0, 16) + "..."}
                       </div>
                       {#if suggestion.nip05 && suggestion.nip05 !== suggestion.display_name && suggestion.nip05 !== suggestion.name}
-                        <div class="text-gray-400 text-xs truncate">{suggestion.nip05}</div>
+                        <div class="break-all text-xs text-gray-400">{suggestion.nip05}</div>
                       {/if}
                     </div>
                   </div>

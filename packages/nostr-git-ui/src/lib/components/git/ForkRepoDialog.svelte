@@ -30,6 +30,8 @@
   import type { ForkResult, ForkConfig } from "../../hooks/useForkRepo.svelte";
   import { toast } from "../../stores/toast";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
+  import GitOperationActivity from "./GitOperationActivity.svelte";
+  import type { SubscribeGitProgress } from "../../utils/git-operation-progress.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
   import {
     findRepoCommunityOption,
@@ -66,6 +68,7 @@
     branchCopyFilter?: BranchCopyFilterConfig;
     workerApi?: any;
     workerInstance?: Worker;
+    subscribeGitProgress?: SubscribeGitProgress;
     onPublishEvent: PublishRepoEvent;
     onDeleteEvent?: DeleteRepoEvent;
     onFetchRelayEvents?: (params: {
@@ -109,6 +112,7 @@
     branchCopyFilter,
     workerApi,
     workerInstance,
+    subscribeGitProgress,
     onPublishEvent,
     onDeleteEvent,
     onFetchRelayEvents,
@@ -159,6 +163,7 @@
       onPublishEvent,
       onDeleteEvent,
       onFetchRelayEvents,
+      subscribeGitProgress,
     };
 
     if (onRollbackPublishedRepoEvents) {
@@ -982,7 +987,7 @@
 
 {#if isOpen}
   <div
-    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 isolate"
+    class="fixed inset-0 z-50 isolate flex items-center justify-center bg-black/50 p-2 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none sm:p-4"
     role="dialog"
     aria-modal="true"
     aria-labelledby="fork-dialog-title"
@@ -994,18 +999,20 @@
     <div
       bind:this={dialogEl}
       role="document"
-      class="ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden border border-gray-700 relative z-[60] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 transform-gpu"
+      class="ng-themed-modal relative z-[60] flex h-[calc(100dvh-1rem)] w-full max-w-2xl transform-gpu flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none sm:h-auto sm:max-h-[90dvh]"
     >
-      <div class="flex items-center justify-between p-6 border-b border-gray-700">
-        <div class="flex items-center space-x-3">
+      <div class="flex shrink-0 items-center justify-between border-b border-gray-700 p-4 sm:p-6">
+        <div class="flex min-w-0 items-center space-x-3">
           <GitFork class="w-6 h-6 text-blue-600 dark:text-blue-400" />
-          <h2 id="fork-dialog-title" class="text-xl font-semibold text-white">Fork Repository</h2>
+          <h2 id="fork-dialog-title" class="min-w-0 break-words text-xl font-semibold text-white">
+            Fork Repository
+          </h2>
         </div>
         {#if !isForking && !isNavigatingToRepo}
           <button
             type="button"
             onclick={handleClose}
-            class="text-gray-400 hover:text-gray-200 transition-colors"
+            class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200"
             aria-label="Close dialog"
           >
             <X class="w-5 h-5" />
@@ -1013,12 +1020,14 @@
         {/if}
       </div>
 
-      <div class="p-6 space-y-6">
+      <div
+        class="min-h-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto p-4 [overflow-wrap:anywhere] sm:p-6"
+      >
         <div class="bg-gray-800 rounded-lg p-4 border border-gray-600">
           <div class="flex flex-col gap-1">
-            <div class="flex items-center space-x-3">
+            <div class="flex min-w-0 items-center space-x-3">
               <GitFork class="w-5 h-5 text-gray-400" />
-              <div class="text-sm font-medium text-white">
+              <div class="min-w-0 break-words text-sm font-medium text-white">
                 {#if Markdown && ownerIsNostr}
                   <div class="fork-owner-inline">
                     <Markdown
@@ -1113,20 +1122,20 @@
                 <div class="space-y-2">
                   {#if graspTargetRelayUrls.length > 0}
                     {#each graspTargetRelayUrls as relayUrl, index}
-                      <div class="flex items-center gap-2">
+                      <div class="flex min-w-0 items-center gap-2">
                         <input
                           id={index === 0 ? "relay-url" : undefined}
                           type="text"
                           value={graspTargetRelayUrls[index]}
                           oninput={(event) =>
                             updateGraspRelay(index, (event.target as HTMLInputElement).value)}
-                          class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          class="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="wss://relay.example.com"
                         />
                         <button
                           type="button"
                           onclick={() => removeGraspRelay(index)}
-                          class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                          class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                           aria-label="Remove GRASP relay"
                         >
                           <Trash2 class="w-4 h-4" />
@@ -1135,11 +1144,11 @@
                     {/each}
                   {/if}
 
-                  <div class="flex items-center gap-2">
+                  <div class="flex min-w-0 items-center gap-2">
                     <input
                       type="text"
                       bind:value={newGraspRelayUrl}
-                      class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      class="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Add another GRASP relay target"
                       onkeydown={(event) => {
                         if (event.key === "Enter") {
@@ -1151,7 +1160,7 @@
                     <button
                       type="button"
                       onclick={commitNewGraspRelay}
-                      class="px-3 py-2 border border-gray-600 rounded-lg text-gray-300 hover:text-white hover:border-gray-500"
+                      class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-lg border border-gray-600 px-3 py-2 text-gray-300 hover:border-gray-500 hover:text-white"
                     >
                       <Plus class="w-4 h-4" />
                     </button>
@@ -1162,7 +1171,7 @@
                       {#each knownGraspServers as relayUrl}
                         <button
                           type="button"
-                          class="px-2.5 py-1 text-xs rounded border border-gray-600 text-gray-300 hover:border-gray-500"
+                          class="max-w-full break-all rounded border border-gray-600 px-2.5 py-1 text-left text-xs text-gray-300 hover:border-gray-500"
                           onclick={() => upsertGraspRelay(relayUrl)}
                         >
                           {relayUrl}
@@ -1196,14 +1205,16 @@
                         class="mt-1 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
                       />
                       <div class="flex-1 min-w-0">
-                        <div class="flex items-center justify-between gap-2">
-                          <span class="text-sm text-white truncate">{target.label}</span>
-                          <span class={`text-xs ${targetStatusTone(target)}`}
+                        <div
+                          class="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+                        >
+                          <span class="min-w-0 break-words text-sm text-white">{target.label}</span>
+                          <span class={`shrink-0 text-xs ${targetStatusTone(target)}`}
                             >{targetStatusLabel(target)}</span
                           >
                         </div>
                         {#if target.detail}
-                          <p class="text-xs text-gray-400 mt-0.5">{target.detail}</p>
+                          <p class="mt-0.5 break-words text-xs text-gray-400">{target.detail}</p>
                         {/if}
                       </div>
                     </label>
@@ -1228,7 +1239,7 @@
                       type="button"
                       title={branchCopyFilterTooltip}
                       aria-label="About branch filtering"
-                      class="text-gray-400 hover:text-gray-300 cursor-help"
+                      class="inline-flex min-h-10 min-w-10 items-center justify-center text-gray-400 hover:text-gray-300 sm:-m-3"
                     >
                       <Info class="w-4 h-4" />
                     </button>
@@ -1304,7 +1315,7 @@
                 />
                 {#if commitInputFocused && loadingCommits}
                   <div
-                    class="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg p-4"
+                    class="absolute z-10 mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-lg"
                   >
                     <div class="flex items-center space-x-2 text-sm text-gray-300">
                       <Loader2 class="w-4 h-4 animate-spin" />
@@ -1313,7 +1324,7 @@
                   </div>
                 {:else if showCommitDropdown && filteredCommits.length > 0}
                   <div
-                    class="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-96 overflow-y-auto"
+                    class="absolute z-10 mt-1 max-h-[min(24rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
                   >
                     {#each filteredCommits as commit}
                       <button
@@ -1331,7 +1342,7 @@
                             <div class="text-xs font-mono text-blue-700 dark:text-blue-400">
                               {commit.oid?.slice(0, 7) || "unknown"}
                             </div>
-                            <div class="text-sm text-white truncate">
+                            <div class="break-words text-sm text-white">
                               {commit.message?.split("\n")[0] ||
                                 commit.commit?.message?.split("\n")[0] ||
                                 "No message"}
@@ -1350,13 +1361,13 @@
               </div>
               {#if earliestUniqueCommit}
                 <div
-                  class="mt-2 p-2 bg-gray-800/50 rounded text-xs font-mono text-gray-300 flex items-center justify-between"
+                  class="mt-2 flex min-w-0 items-center justify-between rounded bg-gray-800/50 p-2 font-mono text-xs text-gray-300"
                 >
-                  <span class="truncate">{earliestUniqueCommit}</span>
+                  <span class="min-w-0 break-all">{earliestUniqueCommit}</span>
                   <button
                     type="button"
                     onclick={() => (earliestUniqueCommit = "")}
-                    class="ml-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 flex-shrink-0"
+                    class="ml-2 inline-flex min-h-10 min-w-10 flex-shrink-0 items-center justify-center text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                     aria-label="Clear commit"
                   >
                     <X class="w-4 h-4" />
@@ -1391,13 +1402,15 @@
                 {#if tags.length > 0}
                   <div class="flex flex-wrap gap-2 mb-2">
                     {#each tags as tag}
-                      <div class="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 text-sm">
+                      <div
+                        class="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-gray-800 py-2 pl-3 text-sm"
+                      >
                         <Hash class="w-3 h-3 text-gray-400" />
-                        <span class="text-white text-sm">{tag}</span>
+                        <span class="min-w-0 break-all text-sm text-white">{tag}</span>
                         <button
                           type="button"
                           onclick={() => (tags = tags.filter((value) => value !== tag))}
-                          class="text-gray-400 hover:text-gray-200 transition-colors"
+                          class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200"
                           aria-label="Remove tag"
                         >
                           <X class="w-4 h-4" />
@@ -1433,7 +1446,7 @@
                     <div
                       role="listbox"
                       aria-label="Hashtag suggestions"
-                      class="absolute z-[50] w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                      class="absolute z-[50] mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
                     >
                       {#each hashtagSearchResults as tag, index}
                         {@const isAlreadyAdded = tagExists(tag)}
@@ -1457,7 +1470,7 @@
                             : ''}"
                         >
                           <Hash class="w-3 h-3 text-gray-400" />
-                          <span class="flex-1">{tag}</span>
+                          <span class="min-w-0 flex-1 break-all">{tag}</span>
                           {#if isAlreadyAdded}
                             <span class="text-xs text-gray-400">(already added)</span>
                           {/if}
@@ -1479,7 +1492,8 @@
                             : 'hover:bg-gray-700'}"
                         >
                           <Plus class="w-3 h-3 text-blue-700 dark:text-blue-400" />
-                          <span class="text-blue-700 dark:text-blue-400 font-medium"
+                          <span
+                            class="min-w-0 break-words font-medium text-blue-700 dark:text-blue-400"
                             >Create tag: {getNormalizedQuery()}</span
                           >
                         </button>
@@ -1522,16 +1536,16 @@
                 <div class="space-y-2">
                   {#if selectedGraspRelayUrls.length > 0}
                     {#each selectedGraspRelayUrls as relayUrl}
-                      <div class="flex items-center space-x-2">
+                      <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                         <input
                           type="text"
                           value={relayUrl}
                           readonly
                           aria-label="Selected GRASP relay"
-                          class="flex-1 px-3 py-2 bg-gray-800 border border-blue-500/40 rounded-lg text-white focus:outline-none"
+                          class="min-w-0 w-full flex-1 rounded-lg border border-blue-500/40 bg-gray-800 px-3 py-2 text-white focus:outline-none"
                         />
                         <span
-                          class="px-2.5 py-2 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-lg whitespace-nowrap"
+                          class="self-start whitespace-nowrap rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 py-2 text-xs font-medium text-blue-700 dark:text-blue-300 sm:self-auto"
                         >
                           Target relay
                         </span>
@@ -1540,7 +1554,7 @@
                   {/if}
 
                   {#each preferredRelays as relay, index}
-                    <div class="flex items-center space-x-2">
+                    <div class="flex min-w-0 items-center gap-2">
                       <input
                         type="text"
                         value={preferredRelays[index]}
@@ -1551,11 +1565,11 @@
                             (event.target as HTMLInputElement).value
                           ))}
                         placeholder="wss://relay.example.com"
-                        class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        class="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
                         type="button"
-                        class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                        class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                         aria-label="Remove relay"
                         onclick={() => (preferredRelays = removeItem(preferredRelays, index))}
                       >
@@ -1590,7 +1604,7 @@
                       {#if showRelayAutocomplete && relaySearchResults.length > 0}
                         <div
                           id="fork-relay-suggestions"
-                          class="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                          class="absolute z-50 mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
                         >
                           {#each relaySearchResults as relayUrl}
                             <button
@@ -1603,7 +1617,7 @@
                                 relaySearchQuery = "";
                                 showRelayAutocomplete = false;
                               }}
-                              class="w-full text-left px-3 py-2 hover:bg-gray-700 text-sm font-mono"
+                              class="w-full break-all px-3 py-2 text-left font-mono text-sm hover:bg-gray-700"
                             >
                               {relayUrl}
                             </button>
@@ -1614,7 +1628,7 @@
                   {:else}
                     <button
                       type="button"
-                      class="px-3 py-2 text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                      class="min-h-10 px-3 py-2 text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                       onclick={() => (preferredRelays = addItem(preferredRelays))}
                     >
                       <Plus class="w-4 h-4 inline mr-1" />
@@ -1710,12 +1724,14 @@
             {#if primaryForkUrl}
               <div class="bg-gray-800 rounded-lg p-4 border border-gray-600">
                 <p class="text-sm text-gray-300">Primary repository URL:</p>
-                <div class="mt-2 flex items-center justify-between gap-3">
+                <div
+                  class="mt-2 flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <a
                     href={primaryForkUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    class="text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 break-all inline-flex items-center gap-1"
+                    class="inline-flex min-w-0 items-start gap-1 break-all text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                   >
                     <span>{primaryForkUrl}</span>
                     <ExternalLink class="w-3 h-3" />
@@ -1723,7 +1739,7 @@
                   <button
                     type="button"
                     onclick={copyForkUrl}
-                    class="px-2 py-1 text-xs border border-gray-600 rounded text-gray-300 hover:text-white hover:border-gray-500"
+                    class="min-h-10 w-full rounded border border-gray-600 px-2 py-1 text-xs text-gray-300 hover:border-gray-500 hover:text-white sm:w-auto"
                   >
                     Copy URL
                   </button>
@@ -1736,7 +1752,9 @@
                 <p class="text-sm text-gray-300 mb-2">Successful targets</p>
                 <div class="space-y-2">
                   {#each completedSuccessfulTargets as target}
-                    <div class="flex items-start justify-between gap-3 text-sm">
+                    <div
+                      class="flex min-w-0 flex-col items-start gap-2 text-sm sm:flex-row sm:justify-between sm:gap-3"
+                    >
                       <div class="min-w-0">
                         <div class="text-white">{target.label}</div>
                         <div class="text-gray-400 break-all">
@@ -1789,12 +1807,14 @@
                 class="mt-2 rounded-md border border-gray-700 bg-gray-900 p-3 text-xs text-gray-300 space-y-2"
               >
                 {#if completedResult?.forkUrl}
-                  <div class="flex items-center justify-between">
+                  <div
+                    class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
                     <span>Clone with Git</span>
                     <button
                       type="button"
                       onclick={copyCloneCommand}
-                      class="px-2 py-1 border border-gray-700 rounded hover:border-gray-600"
+                      class="min-h-10 w-full rounded border border-gray-700 px-2 py-1 hover:border-gray-600 sm:w-auto"
                     >
                       Copy
                     </button>
@@ -1803,7 +1823,7 @@
                     >git clone {completedResult?.forkUrl}</code
                   >
                 {/if}
-                <div class="flex items-center gap-1">
+                <div class="flex min-w-0 flex-wrap items-center gap-1">
                   <span class="text-gray-400">Repository:</span>
                   {#if Markdown && forkOwnerIsNostr}
                     <div class="fork-owner-inline">
@@ -1848,6 +1868,8 @@
                 This may take a few minutes. Don't close this window while the fork is running.
               </p>
             </div>
+
+            <GitOperationActivity activity={forkState.operationActivity} />
 
             <div class="space-y-0">
               {#each progressPhases as phase, i}
@@ -1894,7 +1916,7 @@
                       {phase.label}
                     </p>
                     {#if phase.status !== "pending" && phase.detail}
-                      <p class="text-sm text-gray-400 mt-0.5 truncate" title={phase.detail}>
+                      <p class="mt-0.5 break-words text-sm text-gray-400">
                         {phase.detail}
                       </p>
                     {/if}
@@ -1907,12 +1929,14 @@
       </div>
 
       {#if !isProgressComplete}
-        <div class="flex items-center justify-end space-x-3 p-6 border-t border-gray-700">
+        <div
+          class="flex shrink-0 flex-col-reverse gap-3 border-t border-gray-700 bg-gray-900 p-4 sm:flex-row sm:items-center sm:justify-end sm:p-6"
+        >
           <button
             type="button"
             onclick={isForking ? handleAbort : handleClose}
             disabled={isCancelingFork}
-            class="px-4 py-2 text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            class="min-h-10 w-full px-4 py-2 text-gray-300 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {#if isForking}
               {isCancelingFork ? "Canceling..." : "Cancel fork"}
@@ -1927,7 +1951,7 @@
               targetPreflightPending ||
               !!validationError ||
               selectedForkTargets.length === 0}
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            class="flex min-h-10 w-full items-center justify-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {#if isForking}
               <Loader2 class="w-4 h-4 animate-spin" />
@@ -1939,12 +1963,14 @@
           </button>
         </div>
       {:else}
-        <div class="flex items-center justify-end space-x-3 p-6 border-t border-gray-700">
+        <div
+          class="flex shrink-0 flex-col-reverse gap-3 border-t border-gray-700 bg-gray-900 p-4 sm:flex-row sm:items-center sm:justify-end sm:p-6"
+        >
           <button
             type="button"
             onclick={handleClose}
             disabled={isNavigatingToRepo}
-            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 !text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-gray-700 px-4 py-2 !text-white transition-colors hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             <CheckCircle2 class="w-4 h-4" />
             <span>Done</span>
@@ -1954,7 +1980,7 @@
               type="button"
               onclick={handleNavigateToForkedRepo}
               disabled={isNavigatingToRepo}
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+              class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 !text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {#if isNavigatingToRepo}
                 <Loader2 class="w-4 h-4 animate-spin" />
@@ -1972,6 +1998,11 @@
 {/if}
 
 <style>
+  .fork-owner-inline {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .fork-owner-inline :global(.markdown) {
     display: inline;
   }

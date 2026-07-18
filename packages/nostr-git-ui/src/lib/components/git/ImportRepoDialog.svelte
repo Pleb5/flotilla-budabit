@@ -70,6 +70,8 @@
     isWorkflowScopeIssue,
   } from "../../utils/tokenManagement.js";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
+  import GitOperationActivity from "./GitOperationActivity.svelte";
+  import type { SubscribeGitProgress } from "../../utils/git-operation-progress.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
   import {
     findRepoCommunityOption,
@@ -79,6 +81,7 @@
   interface Props {
     pubkey: string;
     workerApi?: any;
+    subscribeGitProgress?: SubscribeGitProgress;
     onSignEvent?: (event: Omit<NostrEvent, "id" | "sig" | "pubkey">) => Promise<NostrEvent>; // Optional - works with all signers
     eventIO?: EventIO;
     onFetchEvents?: (filters: import("@nostr-git/core").NostrFilter[]) => Promise<NostrEvent[]>;
@@ -107,6 +110,7 @@
   const {
     pubkey,
     workerApi,
+    subscribeGitProgress,
     onSignEvent,
     eventIO,
     onFetchEvents,
@@ -155,6 +159,7 @@
     onPublishEvent,
     onDeleteEvent,
     onRollbackPublishedRepoEvents,
+    subscribeGitProgress,
   });
 
   // Step management (1: URL + Token + Date, 2: Preview + Config, 3: Progress)
@@ -1321,7 +1326,7 @@
 
 <!-- Import Repository Dialog -->
 <div
-  class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 isolate"
+  class="fixed inset-0 z-50 isolate flex items-center justify-center bg-black/50 p-2 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none sm:p-4"
   role="dialog"
   aria-modal="true"
   aria-labelledby="import-dialog-title"
@@ -1331,19 +1336,21 @@
   onkeydown={handleBackdropKeydown}
 >
   <div
-    class="ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl border border-gray-700 overflow-hidden max-h-[90vh] flex flex-col"
+    class="ng-themed-modal flex h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl sm:h-auto sm:max-h-[90dvh]"
   >
     <!-- Header -->
-    <div class="flex items-center justify-between p-6 border-b border-gray-700">
-      <div class="flex items-center space-x-3">
+    <div class="flex shrink-0 items-center justify-between border-b border-gray-700 p-4 sm:p-6">
+      <div class="flex min-w-0 items-center space-x-3">
         <Download class="w-6 h-6 text-blue-600 dark:text-blue-400" />
-        <h2 id="import-dialog-title" class="text-xl font-semibold text-white">Import Repository</h2>
+        <h2 id="import-dialog-title" class="min-w-0 break-words text-xl font-semibold text-white">
+          Import Repository
+        </h2>
       </div>
       {#if !importState.isImporting && !isNavigatingToRepo}
         <button
           type="button"
           onclick={handleClose}
-          class="text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Close dialog"
           title={"Close"}
         >
@@ -1353,7 +1360,9 @@
     </div>
 
     <!-- Content -->
-    <div class="flex-1 overflow-y-auto p-6 space-y-6">
+    <div
+      class="min-h-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto p-4 [overflow-wrap:anywhere] sm:p-6"
+    >
       <!-- Step 1: URL + Token + Date -->
       {#if currentStep === 1}
         <div class="space-y-4">
@@ -1455,23 +1464,6 @@
                 Only import issues, comments, and PRs created after this date
               </p>
             </div>
-
-            <!-- Next Button -->
-            <div class="flex justify-end">
-              <button
-                type="button"
-                onclick={handleStep1Next}
-                disabled={!canProceedStep1 || isCheckingOwnership}
-                class="px-4 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {#if isCheckingOwnership}
-                  <Loader2 class="w-4 h-4 animate-spin" />
-                  Checking repository...
-                {:else}
-                  Next: Review & Configure
-                {/if}
-              </button>
-            </div>
           </div>
         </div>
 
@@ -1486,7 +1478,7 @@
               <div class="flex items-start space-x-3">
                 <GitBranch class="w-5 h-5 text-gray-400 mt-0.5" />
                 <div class="flex-1 min-w-0">
-                  <h4 class="text-sm font-medium text-white">
+                  <h4 class="break-words text-sm font-medium text-white">
                     {repoMetadata.owner}/{repoMetadata.name}
                   </h4>
                   {#if repoMetadata.description}
@@ -1542,7 +1534,9 @@
               </p>
 
               <div class="space-y-2 bg-gray-800 rounded-lg p-4 border border-gray-600">
-                <div class="flex items-center justify-between gap-2">
+                <div
+                  class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div class="text-xs text-gray-400">
                     {#if isLoadingImportBranches}
                       Loading branch metadata...
@@ -1589,8 +1583,10 @@
                   {:else}
                     <div class="divide-y divide-gray-700">
                       {#each importBranchOptions as branch (branch.name)}
-                        <label class="flex items-center justify-between gap-2 px-3 py-2">
-                          <span class="flex items-center gap-2 min-w-0">
+                        <label
+                          class="flex min-w-0 flex-col items-start gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <span class="flex min-w-0 max-w-full items-center gap-2">
                             <input
                               type="checkbox"
                               checked={branch.isDefault ||
@@ -1612,9 +1608,7 @@
                               }}
                               class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
-                            <span class="text-sm text-white truncate" title={branch.name}
-                              >{branch.name}</span
-                            >
+                            <span class="min-w-0 break-all text-sm text-white">{branch.name}</span>
                             {#if branch.isDefault}
                               <span
                                 class="px-1.5 py-0.5 text-[10px] rounded bg-blue-500/20 text-blue-200 border border-blue-500/30"
@@ -1622,7 +1616,7 @@
                               >
                             {/if}
                           </span>
-                          <span class="text-[11px] text-gray-400 whitespace-nowrap">
+                          <span class="text-[11px] text-gray-400 sm:whitespace-nowrap">
                             {#if branch.commitDate}
                               {new Date(branch.commitDate).toLocaleString()}
                             {:else}
@@ -1650,14 +1644,12 @@
                 <div class="flex flex-wrap gap-2">
                   {#each graspRelayUrls as relayUrl, idx (relayUrl + idx)}
                     <span
-                      class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-500/20 text-blue-200 border border-blue-500/30"
+                      class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/20 py-1 pl-2 text-xs text-blue-200"
                     >
-                      <span class="max-w-[220px] truncate" title={relayUrl}
-                        >{relayUrl.replace(/^wss?:\/\//, "")}</span
-                      >
+                      <span class="min-w-0 break-all">{relayUrl.replace(/^wss?:\/\//, "")}</span>
                       <button
                         type="button"
-                        class="hover:text-red-300"
+                        class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full hover:text-red-300"
                         onclick={() => removeGraspRelay(idx)}
                         title="Remove GRASP relay"
                       >
@@ -1665,12 +1657,12 @@
                       </button>
                     </span>
                   {/each}
-                  <div class="inline-flex items-center">
+                  <div class="flex w-full min-w-0 items-center sm:w-auto">
                     <input
                       type="text"
                       bind:value={newGraspRelayUrl}
                       placeholder="wss://relay.example.com"
-                      class="w-48 px-2 py-1 text-xs bg-gray-900 border border-gray-600 rounded-l-full text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      class="min-w-0 flex-1 rounded-l-full border border-gray-600 bg-gray-900 px-2 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:w-48"
                       onkeydown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
@@ -1680,7 +1672,7 @@
                     />
                     <button
                       type="button"
-                      class="px-2 py-1 text-xs bg-blue-600 !text-white rounded-r-full hover:bg-blue-700"
+                      class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center px-2 text-xs bg-blue-600 !text-white rounded-r-full hover:bg-blue-700"
                       onclick={commitNewGraspRelay}
                     >
                       +
@@ -1692,7 +1684,7 @@
                     {#each recommendedGraspServerOptions.filter((opt) => !graspRelayUrls.includes(normalizeRelayUrl(opt))) as opt}
                       <button
                         type="button"
-                        class="px-2 py-1 text-xs rounded-full border border-dashed border-gray-500 text-gray-300 hover:border-blue-400 hover:text-blue-300"
+                        class="max-w-full break-all rounded-full border border-dashed border-gray-500 px-2 py-1 text-left text-xs text-gray-300 hover:border-blue-400 hover:text-blue-300"
                         onclick={() => upsertGraspRelay(opt)}
                       >
                         + {opt.replace(/^wss?:\/\//, "")}
@@ -1720,14 +1712,16 @@
                         class="mt-1 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
                       />
                       <div class="flex-1 min-w-0">
-                        <div class="flex items-center justify-between gap-2">
-                          <span class="text-sm text-white truncate">{target.label}</span>
-                          <span class={`text-xs ${targetStatusTone(target)}`}
+                        <div
+                          class="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+                        >
+                          <span class="min-w-0 break-words text-sm text-white">{target.label}</span>
+                          <span class={`shrink-0 text-xs ${targetStatusTone(target)}`}
                             >{targetStatusLabel(target)}</span
                           >
                         </div>
                         {#if target.detail}
-                          <p class="text-xs text-gray-400 mt-0.5">{target.detail}</p>
+                          <p class="mt-0.5 break-words text-xs text-gray-400">{target.detail}</p>
                         {/if}
                       </div>
                     </label>
@@ -1755,16 +1749,16 @@
               </div>
               <div class="space-y-2">
                 {#each mandatoryGraspRelays as relayUrl}
-                  <div class="flex items-center space-x-2">
+                  <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                     <input
                       type="text"
                       value={relayUrl}
                       readonly
                       aria-label="Selected GRASP relay"
-                      class="flex-1 px-3 py-2 bg-gray-800 border border-blue-500/40 rounded-lg text-white focus:outline-none"
+                      class="min-w-0 w-full flex-1 rounded-lg border border-blue-500/40 bg-gray-800 px-3 py-2 text-white focus:outline-none"
                     />
                     <span
-                      class="px-2.5 py-2 text-xs font-medium text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-lg whitespace-nowrap"
+                      class="self-start whitespace-nowrap rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 py-2 text-xs font-medium text-blue-300 sm:self-auto"
                     >
                       GRASP target
                     </span>
@@ -1772,18 +1766,18 @@
                 {/each}
 
                 {#each selectedRelays as relay, index}
-                  <div class="flex items-center space-x-2">
+                  <div class="flex min-w-0 items-center gap-2">
                     <input
                       type="text"
                       bind:value={selectedRelays[index]}
-                      class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      class="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="wss://relay.example.com"
                     />
                     <button
                       type="button"
                       onclick={() => removeRelay(index)}
                       disabled={selectedRelays.length === 1 && mandatoryGraspRelays.length === 0}
-                      class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-red-700 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:text-red-300"
                       aria-label="Remove relay"
                     >
                       <Trash2 class="w-4 h-4" />
@@ -1793,7 +1787,7 @@
 
                 {#if searchRelays}
                   <div class="relative">
-                    <div class="flex items-center gap-2">
+                    <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                       <input
                         bind:this={relayInputElement}
                         type="text"
@@ -1822,13 +1816,13 @@
                           }
                         }}
                         autocomplete="off"
-                        class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        class="min-w-0 w-full flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Search or enter relay URL"
                       />
                       <button
                         type="button"
                         onclick={addRelay}
-                        class="flex items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                        class="flex min-h-10 w-full items-center justify-center gap-2 px-3 py-2 text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 sm:w-auto"
                       >
                         <Plus class="w-4 h-4" />
                         Add Relay
@@ -1838,7 +1832,7 @@
                     {#if showRelayAutocomplete && relaySearchResults.length > 0}
                       <div
                         id="import-relay-suggestions-listbox"
-                        class="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                        class="absolute z-50 mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
                       >
                         {#each relaySearchResults as relayUrl}
                           <button
@@ -1847,7 +1841,7 @@
                               event.preventDefault();
                             }}
                             onclick={() => appendRelay(relayUrl)}
-                            class="w-full text-left px-3 py-2 hover:bg-gray-700 text-sm font-mono"
+                            class="w-full break-all px-3 py-2 text-left font-mono text-sm hover:bg-gray-700"
                           >
                             {relayUrl}
                           </button>
@@ -1859,7 +1853,7 @@
                   <button
                     type="button"
                     onclick={addRelay}
-                    class="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    class="flex min-h-10 items-center gap-2 text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                   >
                     <Plus class="w-4 h-4" />
                     Add Relay
@@ -1991,26 +1985,6 @@
                 </div>
               </div>
             {/if}
-
-            <!-- Action Buttons -->
-            <div class="flex justify-between">
-              <button
-                type="button"
-                onclick={() => (currentStep = 1)}
-                disabled={importState.isImporting}
-                class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onclick={handleStep2Next}
-                disabled={!canProceedStep2 || importState.isImporting}
-                class="px-6 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                SET THIS REPO FREE
-              </button>
-            </div>
           </div>
         </div>
 
@@ -2028,6 +2002,10 @@
                 This may take a few minutes. Don’t close this window.
               {/if}
             </p>
+
+            <div class="mb-4">
+              <GitOperationActivity activity={importState.operationActivity} />
+            </div>
 
             <!-- Phased stepper -->
             {#if currentProgress}
@@ -2085,7 +2063,7 @@
                         </p>
                       {/if}
                       {#if phase.status === "active" && phase.detail}
-                        <p class="text-sm text-gray-400 mt-0.5 truncate" title={phase.detail}>
+                        <p class="mt-0.5 break-words text-sm text-gray-400">
                           {phase.detail}
                         </p>
                         {#if phase.current != null && phase.total != null && phase.total > 0}
@@ -2186,58 +2164,85 @@
                 </div>
               {/if}
             {/if}
-
-            <!-- Abort Button -->
-            {#if currentStep === 3 && currentProgress && !currentProgress.isComplete}
-              <div class="flex justify-center pt-2">
-                <button
-                  type="button"
-                  onclick={handleAbort}
-                  disabled={isCancelingImport}
-                  class="px-4 py-2 bg-red-600 !text-white rounded-lg hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {#if isCancelingImport}
-                    <Loader2 class="w-4 h-4 animate-spin" />
-                    Canceling...
-                  {:else}
-                    Cancel import
-                  {/if}
-                </button>
-              </div>
-            {/if}
-
-            <!-- Action Buttons (when complete) -->
-            {#if isProgressComplete}
-              <div class="flex justify-between pt-2 border-t border-gray-700">
-                <button
-                  type="button"
-                  onclick={handleClose}
-                  disabled={isNavigatingToRepo}
-                  class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Close
-                </button>
-                {#if onNavigateToRepo && completedResult}
-                  <button
-                    type="button"
-                    onclick={handleNavigateToRepo}
-                    disabled={isNavigatingToRepo}
-                    class="px-4 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {#if isNavigatingToRepo}
-                      <Loader2 class="w-4 h-4 animate-spin" />
-                      <span>Opening repository...</span>
-                    {:else}
-                      <ExternalLink class="w-4 h-4" />
-                      <span>View repository</span>
-                    {/if}
-                  </button>
-                {/if}
-              </div>
-            {/if}
           </div>
         </div>
       {/if}
+    </div>
+
+    <div class="shrink-0 border-t border-gray-700 bg-gray-900 p-4 sm:p-6">
+      <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {#if currentStep === 1}
+          <button
+            type="button"
+            onclick={handleStep1Next}
+            disabled={!canProceedStep1 || isCheckingOwnership}
+            class="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 !text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:ml-auto sm:w-auto"
+          >
+            {#if isCheckingOwnership}
+              <Loader2 class="w-4 h-4 animate-spin" />
+              Checking repository...
+            {:else}
+              Next: Review & Configure
+            {/if}
+          </button>
+        {:else if currentStep === 2}
+          <button
+            type="button"
+            onclick={() => (currentStep = 1)}
+            disabled={importState.isImporting}
+            class="min-h-10 w-full rounded-lg bg-gray-700 px-4 py-2 text-white hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onclick={handleStep2Next}
+            disabled={!canProceedStep2 || importState.isImporting}
+            class="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2 !text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          >
+            SET THIS REPO FREE
+          </button>
+        {:else if currentStep === 3 && currentProgress && !currentProgress.isComplete}
+          <button
+            type="button"
+            onclick={handleAbort}
+            disabled={isCancelingImport}
+            class="flex min-h-10 w-full items-center justify-center gap-2 px-4 py-2 bg-red-600 !text-white rounded-lg hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 sm:ml-auto sm:w-auto"
+          >
+            {#if isCancelingImport}
+              <Loader2 class="w-4 h-4 animate-spin" />
+              Canceling...
+            {:else}
+              Cancel import
+            {/if}
+          </button>
+        {:else if isProgressComplete}
+          <button
+            type="button"
+            onclick={handleClose}
+            disabled={isNavigatingToRepo}
+            class="min-h-10 w-full rounded-lg bg-gray-700 px-4 py-2 text-white hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            Close
+          </button>
+          {#if onNavigateToRepo && completedResult}
+            <button
+              type="button"
+              onclick={handleNavigateToRepo}
+              disabled={isNavigatingToRepo}
+              class="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 !text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {#if isNavigatingToRepo}
+                <Loader2 class="w-4 h-4 animate-spin" />
+                <span>Opening repository...</span>
+              {:else}
+                <ExternalLink class="w-4 h-4" />
+                <span>View repository</span>
+              {/if}
+            </button>
+          {/if}
+        {/if}
+      </div>
     </div>
   </div>
 </div>

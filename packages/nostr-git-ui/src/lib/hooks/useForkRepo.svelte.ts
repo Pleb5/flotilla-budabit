@@ -43,6 +43,12 @@ import {
   type PublishRepoEvent,
 } from "../utils/grasp-pipeline.js";
 import { getForkRollbackPlan } from "./fork-rollback";
+import {
+  createGitOperationId,
+  createGitOperationProgressObserver,
+  type GitOperationActivity,
+  type SubscribeGitProgress,
+} from "../utils/git-operation-progress.js";
 
 export interface ForkConfig {
   forkName: string;
@@ -99,6 +105,7 @@ export interface UseForkRepoOptions {
     relays: string[];
     events?: NostrEvent[];
   }) => Promise<void>;
+  subscribeGitProgress?: SubscribeGitProgress;
 }
 
 export interface PreparedSourceRefs {
@@ -459,6 +466,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
   let error = $state<string | null>(null);
   let warning = $state<string | null>(null);
   let abortController = $state<AbortController | null>(null);
+  let operationActivity = $state<GitOperationActivity | undefined>();
   let progressActivityId = 0;
 
   let tokens = $state<Token[]>([]);
@@ -546,6 +554,13 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
     const sessionAbortController = new AbortController();
     abortController = sessionAbortController;
     const abortSignal = sessionAbortController.signal;
+    const operationId = createGitOperationId("fork");
+    operationActivity = undefined;
+    const onOperationProgress = createGitOperationProgressObserver(
+      operationId,
+      (activity) => (operationActivity = activity)
+    );
+    const unsubscribeGitProgress = options.subscribeGitProgress?.(onOperationProgress);
 
     let gitWorkerApi: any = options.workerApi || null;
     let temporaryWorkerClient: { api: any; terminate?: () => void } | null = null;
@@ -640,6 +655,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
             gitWorkerApi.cloneRemoteRepo({
               url: sourceUrl,
               dir: localCloneDir,
+              operationId,
               ...(sourceToken ? { token: sourceToken } : {}),
             })
           );
@@ -710,7 +726,10 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         },
         requireNonGraspSuccessBeforeGrasp: false,
         allowApiBranchFastPath: false,
+        operationId,
+        onOperationProgress,
       });
+      operationActivity = undefined;
       transactionJournal.setTargetResults(remotePushResults);
       throwIfAborted(abortSignal);
 
@@ -1021,6 +1040,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
 
       return null;
     } finally {
+      unsubscribeGitProgress?.();
       temporaryWorkerClient?.terminate?.();
       isForking = false;
       if (abortController === sessionAbortController) {
@@ -1063,6 +1083,9 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
     },
     get isForking() {
       return isForking;
+    },
+    get operationActivity() {
+      return operationActivity;
     },
     forkRepository,
     abortFork,

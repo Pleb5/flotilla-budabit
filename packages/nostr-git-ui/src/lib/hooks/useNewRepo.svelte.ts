@@ -33,6 +33,12 @@ import {
   type FetchRelayEvents,
   type PublishRepoEvent,
 } from "../utils/grasp-pipeline.js";
+import {
+  createGitOperationId,
+  createGitOperationProgressObserver,
+  type GitOperationActivity,
+  type SubscribeGitProgress,
+} from "../utils/git-operation-progress.js";
 
 export function getPublishedEventFromPublishResult(result: unknown): NostrEvent | undefined {
   const event = (result as { event?: NostrEvent } | undefined)?.event;
@@ -540,6 +546,7 @@ export interface UseNewRepoOptions {
   userPubkey?: string; // User's nostr pubkey (required for GRASP repos)
   /** Fetch events from specific relays for GRASP state visibility checks */
   onFetchRelayEvents?: FetchRelayEvents;
+  subscribeGitProgress?: SubscribeGitProgress;
 }
 
 /**
@@ -568,6 +575,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
   let isCreating = $state(false);
   let progress = $state<NewRepoProgress[]>([]);
   let error = $state<string | null>(null);
+  let operationActivity = $state<GitOperationActivity | undefined>();
 
   let tokens = $state<Token[]>([]);
 
@@ -639,6 +647,13 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     let transactionRemoteResults: RemoteSyncTargetResult[] = [];
     let transactionJournal: RepoCreationTransactionJournal | undefined;
     let transactionPublisher = onPublishEvent;
+    const operationId = createGitOperationId("new");
+    operationActivity = undefined;
+    const onOperationProgress = createGitOperationProgressObserver(
+      operationId,
+      (activity) => (operationActivity = activity)
+    );
+    const unsubscribeGitProgress = options.subscribeGitProgress?.(onOperationProgress);
 
     try {
       isCreating = true;
@@ -783,7 +798,10 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           latestRepoMetadataCreatedAt = value;
         },
         requireNonGraspSuccessBeforeGrasp: false,
+        operationId,
+        onOperationProgress,
       });
+      operationActivity = undefined;
       const remoteResults = transactionRemoteResults;
       transactionJournal.setTargetResults(remoteResults);
 
@@ -1069,6 +1087,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       console.error("Repository creation failed:", err);
       return null;
     } finally {
+      unsubscribeGitProgress?.();
       isCreating = false;
     }
   }
@@ -1453,6 +1472,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     isCreating: () => isCreating,
     progress: () => progress,
     error: () => error,
+    operationActivity: () => operationActivity,
 
     // Actions
     createRepository,

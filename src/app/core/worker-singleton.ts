@@ -8,7 +8,11 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-import {getGitWorker, configureWorkerEventIO} from "@nostr-git/core/worker"
+import {
+  getGitWorker,
+  configureWorkerEventIO,
+  type GitOperationProgressEvent,
+} from "@nostr-git/core/worker"
 // @ts-ignore - Vite ?url import for correct worker URL resolution
 import gitWorkerUrl from "@nostr-git/core/worker/worker.js?url"
 import {createEventIO} from "@app/core/event-io"
@@ -63,6 +67,14 @@ const resolveStoredCorsProxy = (): string => {
 let workerInstance: GitWorkerInstance | null = null
 let initPromise: Promise<GitWorkerInstance> | null = null
 let pendingGitConfig: GitWorkerConfig | null = {defaultCorsProxy: resolveStoredCorsProxy()}
+const progressListeners = new Set<(event: GitOperationProgressEvent) => void>()
+
+export function subscribeGitWorkerProgress(
+  listener: (event: GitOperationProgressEvent) => void,
+): () => void {
+  progressListeners.add(listener)
+  return () => progressListeners.delete(listener)
+}
 
 export function setGitWorkerConfig(config: GitWorkerConfig): void {
   pendingGitConfig = {...pendingGitConfig, ...config}
@@ -109,6 +121,11 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
       // Use injected worker URL to ensure Vite resolves it correctly
       const {api, worker} = getGitWorker({
         workerUrl: gitWorkerUrl,
+        onProgress: event => {
+          const data = event instanceof MessageEvent ? event.data : event
+          if (data?.type !== "git-progress") return
+          for (const listener of progressListeners) listener(data)
+        },
         onError: (ev: ErrorEvent | MessageEvent) => {
           console.error("[GitWorker] Worker load error:", ev)
         },

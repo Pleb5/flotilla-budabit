@@ -3,6 +3,7 @@
   import AdvancedSettingsStep from "./AdvancedSettingsStep.svelte";
   import RepoProgressStep from "./RepoProgressStep.svelte";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
+  import type { SubscribeGitProgress } from "../../utils/git-operation-progress.js";
   import StepChooseService from "./steps/StepChooseService.svelte";
   import { nip19, type Event as NostrEvent } from "nostr-tools";
   import { useRegistry } from "../../useRegistry";
@@ -54,6 +55,7 @@
   interface Props {
     workerApi?: any; // Git worker API instance (optional for backward compatibility)
     workerInstance?: Worker; // Worker instance for event signing
+    subscribeGitProgress?: SubscribeGitProgress;
     onRepoCreated?: (repoData: NewRepoResult) => void;
     /** Called when user chooses to navigate to the newly created repo (app should goto repo URL) */
     onNavigateToRepo?: (repoData: NewRepoResult) => void | Promise<void>;
@@ -95,6 +97,7 @@
   const {
     workerApi,
     workerInstance,
+    subscribeGitProgress,
     onRepoCreated,
     onNavigateToRepo,
     onCancel,
@@ -120,7 +123,7 @@
   let createdResult = $state<NewRepoResult | null>(null);
 
   // Initialize the useNewRepo hook
-  const { createRepository, isCreating, progress, error, reset } = useNewRepo({
+  const { createRepository, isCreating, progress, error, reset, operationActivity } = useNewRepo({
     workerApi, // Pass the worker API from props
     workerInstance, // Pass the worker instance from props
     onProgress: (steps) => {
@@ -140,6 +143,7 @@
     onPublishEvent: onPublishEvent,
     onDeleteEvent,
     onFetchRelayEvents,
+    subscribeGitProgress,
     userPubkey, // Pass user pubkey for GRASP repos
   });
 
@@ -370,7 +374,7 @@
 
   // Step management (1: Choose Service, 2: Repo Details, 3: Advanced, 4: Create)
   let currentStep = $state(1);
-  let stepContentContainer: HTMLDivElement | undefined = undefined;
+  let stepContentContainer = $state<HTMLDivElement | undefined>();
 
   // Repository details (Step 1)
   let repoDetails = $state({
@@ -772,18 +776,24 @@
 </script>
 
 <div
-  class="ng-themed-modal bg-card text-card-foreground rounded-lg border border-border shadow w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden"
+  class="ng-themed-modal bg-card text-card-foreground mx-auto flex h-[calc(100dvh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border shadow sm:h-auto sm:max-h-[calc(100dvh-4rem)] lg:max-w-5xl xl:max-w-6xl"
 >
-  <div class="px-6 pt-6 pb-4 border-b border-border space-y-4">
+  <div class="shrink-0 space-y-4 border-b border-border px-4 pb-4 pt-4 sm:px-6 sm:pt-6">
     <!-- Header -->
     <div class="text-center space-y-2">
-      <h1 class="text-3xl font-bold tracking-tight text-foreground">Create a New Repository</h1>
-      <p class="text-muted-foreground">Set up a new git repository with Nostr integration</p>
+      <h1 class="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+        Create a New Repository
+      </h1>
+      <p class="break-words text-sm text-muted-foreground sm:text-base">
+        Set up a new git repository with Nostr integration
+      </p>
     </div>
 
     <!-- Progress Indicator -->
-    <div class="grid grid-cols-2 gap-4 md:flex md:items-center md:justify-center md:space-x-4">
-      <div class="flex items-center space-x-2">
+    <div
+      class="grid grid-cols-2 gap-2 sm:gap-4 md:flex md:items-center md:justify-center md:space-x-4"
+    >
+      <div class="flex min-w-0 items-center gap-2">
         <div
           class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
           class:bg-accent={currentStep >= 1}
@@ -793,12 +803,14 @@
         >
           {currentStep > 1 ? "✓" : "1"}
         </div>
-        <span class="text-sm font-medium text-foreground">Choose Service</span>
+        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
+          >Choose Service</span
+        >
       </div>
 
       <div class="hidden md:block w-12 h-px bg-border"></div>
 
-      <div class="flex items-center space-x-2">
+      <div class="flex min-w-0 items-center gap-2">
         <div
           class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
           class:bg-accent={currentStep >= 2}
@@ -808,12 +820,14 @@
         >
           {currentStep > 2 ? "✓" : "2"}
         </div>
-        <span class="text-sm font-medium text-foreground">Repository Details</span>
+        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
+          >Repository Details</span
+        >
       </div>
 
       <div class="hidden md:block w-12 h-px bg-border"></div>
 
-      <div class="flex items-center space-x-2">
+      <div class="flex min-w-0 items-center gap-2">
         <div
           class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
           class:bg-accent={currentStep >= 3}
@@ -823,12 +837,14 @@
         >
           {currentStep > 3 ? "✓" : "3"}
         </div>
-        <span class="text-sm font-medium text-foreground">Advanced Settings</span>
+        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
+          >Advanced Settings</span
+        >
       </div>
 
       <div class="hidden md:block w-12 h-px bg-border"></div>
 
-      <div class="flex items-center space-x-2">
+      <div class="flex min-w-0 items-center gap-2">
         <div
           class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
           class:bg-accent={currentStep >= 4}
@@ -838,106 +854,113 @@
         >
           {currentStep > 4 ? "✓" : "4"}
         </div>
-        <span class="text-sm font-medium text-foreground">Create Repository</span>
+        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
+          >Create Repository</span
+        >
       </div>
     </div>
   </div>
 
-  <!-- Step Content -->
-  <div bind:this={stepContentContainer} class="flex-1 min-h-0 overflow-y-auto">
-    <div class="px-6 pt-6 pb-16">
-      {#if currentStep === 1}
-        <StepChooseService
-          selectedProviders={selectedProviders}
-          onProvidersChange={handleProvidersChange as any}
-          disabledProviders={nameAvailabilityResults?.conflictProviders || []}
-          relayUrls={graspRelayUrls}
-          onRelayUrlsChange={handleRelayUrlsChange}
-          graspServerOptions={graspServerOptions}
-        />
-      {:else if currentStep === 2}
-        <RepoDetailsStep
-          repoName={repoDetails.name}
-          description={repoDetails.description}
-          initializeWithReadme={repoDetails.initializeWithReadme}
-          defaultBranch={advancedSettings.defaultBranch}
-          gitignoreTemplate={advancedSettings.gitignoreTemplate}
-          licenseTemplate={advancedSettings.licenseTemplate}
-          onRepoNameChange={handleRepoNameChange}
-          onDescriptionChange={handleDescriptionChange}
-          onReadmeChange={handleReadmeChange}
-          onDefaultBranchChange={handleDefaultBranchChange}
-          onGitignoreChange={handleGitignoreChange}
-          onLicenseChange={handleLicenseChange}
-          validationErrors={validationErrors}
-          nameAvailabilityResults={nameAvailabilityResults}
-          isCheckingAvailability={isCheckingAvailability}
-        />
-      {:else if currentStep === 3}
-        <AdvancedSettingsStep
-          gitignoreTemplate={advancedSettings.gitignoreTemplate}
-          licenseTemplate={advancedSettings.licenseTemplate}
-          defaultBranch={advancedSettings.defaultBranch}
-          authorName={advancedSettings.authorName}
-          authorEmail={advancedSettings.authorEmail}
-          maintainers={advancedSettings.maintainers}
-          relays={advancedSettings.relays}
-          mandatoryRelays={mandatoryGraspRelays}
-          tags={advancedSettings.tags}
-          webUrls={advancedSettings.webUrls}
-          cloneUrls={advancedSettings.cloneUrls}
-          onGitignoreChange={handleGitignoreChange}
-          onLicenseChange={handleLicenseChange}
-          onDefaultBranchChange={handleDefaultBranchChange}
-          onAuthorNameChange={handleAuthorNameChange}
-          onAuthorEmailChange={handleAuthorEmailChange}
-          onMaintainersChange={handleMaintainersChange}
-          onRelaysChange={handleRelaysChange}
-          onTagsChange={handleTagsChange}
-          onWebUrlsChange={handleWebUrlsChange}
-          getProfile={getProfile}
-          searchProfiles={searchProfiles}
-          searchRelays={searchRelays}
-          onCloneUrlsChange={handleCloneUrlsChange}
-        />
-        <div class="mt-6">
-          <RepoCommunitySelect
-            options={communityOptions}
-            bind:value={selectedCommunityPubkey}
-            label="Repository community"
-            description="Optionally bind this repository to one community as part of its identity."
+  {#if currentStep === 4}
+    <RepoProgressStep
+      isCreating={isCreating()}
+      progress={progressSteps}
+      onRetry={handleRetry}
+      onClose={handleClose}
+      createdRepoResult={createdRepoResult}
+      onNavigateToRepo={onNavigateToRepo}
+      operationActivity={operationActivity()}
+      modalLayout={true}
+    />
+  {:else}
+    <!-- Step Content -->
+    <div
+      bind:this={stepContentContainer}
+      class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere]"
+    >
+      <div class="px-4 pb-12 pt-5 sm:px-6 sm:pb-16 sm:pt-6">
+        {#if currentStep === 1}
+          <StepChooseService
+            selectedProviders={selectedProviders}
+            onProvidersChange={handleProvidersChange as any}
+            disabledProviders={nameAvailabilityResults?.conflictProviders || []}
+            relayUrls={graspRelayUrls}
+            onRelayUrlsChange={handleRelayUrlsChange}
+            graspServerOptions={graspServerOptions}
           />
-        </div>
-      {:else if currentStep === 4}
-        <RepoProgressStep
-          isCreating={isCreating()}
-          progress={progressSteps}
-          onRetry={handleRetry}
-          onClose={handleClose}
-          createdRepoResult={createdRepoResult}
-          onNavigateToRepo={onNavigateToRepo}
-        />
-      {/if}
+        {:else if currentStep === 2}
+          <RepoDetailsStep
+            repoName={repoDetails.name}
+            description={repoDetails.description}
+            initializeWithReadme={repoDetails.initializeWithReadme}
+            defaultBranch={advancedSettings.defaultBranch}
+            gitignoreTemplate={advancedSettings.gitignoreTemplate}
+            licenseTemplate={advancedSettings.licenseTemplate}
+            onRepoNameChange={handleRepoNameChange}
+            onDescriptionChange={handleDescriptionChange}
+            onReadmeChange={handleReadmeChange}
+            onDefaultBranchChange={handleDefaultBranchChange}
+            onGitignoreChange={handleGitignoreChange}
+            onLicenseChange={handleLicenseChange}
+            validationErrors={validationErrors}
+            nameAvailabilityResults={nameAvailabilityResults}
+            isCheckingAvailability={isCheckingAvailability}
+          />
+        {:else if currentStep === 3}
+          <AdvancedSettingsStep
+            gitignoreTemplate={advancedSettings.gitignoreTemplate}
+            licenseTemplate={advancedSettings.licenseTemplate}
+            defaultBranch={advancedSettings.defaultBranch}
+            authorName={advancedSettings.authorName}
+            authorEmail={advancedSettings.authorEmail}
+            maintainers={advancedSettings.maintainers}
+            relays={advancedSettings.relays}
+            mandatoryRelays={mandatoryGraspRelays}
+            tags={advancedSettings.tags}
+            webUrls={advancedSettings.webUrls}
+            cloneUrls={advancedSettings.cloneUrls}
+            onGitignoreChange={handleGitignoreChange}
+            onLicenseChange={handleLicenseChange}
+            onDefaultBranchChange={handleDefaultBranchChange}
+            onAuthorNameChange={handleAuthorNameChange}
+            onAuthorEmailChange={handleAuthorEmailChange}
+            onMaintainersChange={handleMaintainersChange}
+            onRelaysChange={handleRelaysChange}
+            onTagsChange={handleTagsChange}
+            onWebUrlsChange={handleWebUrlsChange}
+            getProfile={getProfile}
+            searchProfiles={searchProfiles}
+            searchRelays={searchRelays}
+            onCloneUrlsChange={handleCloneUrlsChange}
+          />
+          <div class="mt-6">
+            <RepoCommunitySelect
+              options={communityOptions}
+              bind:value={selectedCommunityPubkey}
+              label="Repository community"
+              description="Optionally bind this repository to one community as part of its identity."
+            />
+          </div>
+        {/if}
+      </div>
     </div>
-  </div>
 
-  <!-- Navigation Buttons -->
-  {#if currentStep < 4}
-    <div class="px-6 py-4 border-t border-border bg-card">
-      <div class="flex justify-between">
+    <!-- Navigation Buttons -->
+    <div class="shrink-0 border-t border-border bg-card px-4 py-4 sm:px-6">
+      <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Button
           onclick={onCancel}
           variant="outline"
-          class="border-border bg-card text-foreground hover:bg-muted hover:text-foreground"
+          class="w-full border-border bg-card text-foreground hover:bg-muted hover:text-foreground sm:w-auto"
           >Cancel</Button
         >
 
-        <div class="flex space-x-3">
+        <div class="flex flex-col-reverse gap-3 sm:flex-row">
           {#if currentStep > 1}
             <Button
               onclick={prevStep}
               variant="outline"
-              class="border-border bg-card text-foreground hover:bg-muted hover:text-foreground"
+              class="w-full border-border bg-card text-foreground hover:bg-muted hover:text-foreground sm:w-auto"
               >Previous</Button
             >
           {/if}
@@ -950,6 +973,7 @@
               (currentStep === 2 && !validateStep1()) ||
               (currentStep === 3 && getEffectiveRepoRelays().length === 0)}
             variant="git"
+            class="w-full sm:w-auto"
           >
             {currentStep === 3 ? "Create Repository" : "Next"}
           </Button>

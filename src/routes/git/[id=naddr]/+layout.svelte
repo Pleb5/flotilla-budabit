@@ -160,7 +160,7 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import {getGitParentTarget, makeCommunityPath, makeGitPath} from "@app/util/routes"
   import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
-  import {getInitializedGitWorker} from "@app/core/worker-singleton"
+  import {getInitializedGitWorker, subscribeGitWorkerProgress} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {
     diffBranchHeads,
@@ -3567,6 +3567,7 @@
         branchCopyFilter: forkBranchCopyFilter,
         workerApi,
         workerInstance,
+        subscribeGitProgress: subscribeGitWorkerProgress,
         onPublishEvent: async (event: any, context?: {relays: string[]}) => {
           const taggedRelays = getEventRelayTargets(event)
           const thunk = await publishRepoEventWithRelayPolicy(
@@ -3599,7 +3600,7 @@
         searchProfiles: searchRepoProfiles,
         searchRelays: searchRepoRelays,
       },
-      {noEscape: true},
+      {fullscreen: true, noEscape: true},
     )
   }
 

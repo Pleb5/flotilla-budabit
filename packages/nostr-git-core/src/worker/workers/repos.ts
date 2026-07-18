@@ -17,6 +17,7 @@ import {
   buildAdvertisedBranchCandidates,
   discoverAdvertisedRefs,
 } from "../../utils/advertised-refs.js"
+import type {GitProgressUpdate} from "../progress.js"
 
 // Import toPlain from worker (it's defined in the same directory)
 function toPlain<T>(val: T): T {
@@ -33,6 +34,7 @@ export interface CloneRemoteRepoOptions {
   dir: string
   token?: string
   onProgress?: (stage: string, pct?: number) => void
+  operationId?: string
 }
 
 /**
@@ -1044,10 +1046,12 @@ export async function cloneRemoteRepoUtil(
   git: GitProvider,
   cacheManager: RepoCacheManager,
   options: CloneRemoteRepoOptions,
+  onGitProgress?: (progress: GitProgressUpdate) => void,
 ): Promise<void> {
   const {url, depth, dir, token, onProgress} = options
 
   try {
+    onGitProgress?.({phase: "Validating repository URL"})
     onProgress?.("Validating repository URL...", 0)
 
     let repoUrl: URL
@@ -1137,6 +1141,7 @@ export async function cloneRemoteRepoUtil(
       ])
     }
 
+    onGitProgress?.({phase: "Discovering remote references"})
     onProgress?.("Discovering remote references...", 10)
 
     let refs: Array<any> | null = null
@@ -1184,6 +1189,7 @@ export async function cloneRemoteRepoUtil(
       ? cloneTransports
       : [selectedTransport, ...cloneTransports.filter(transport => transport !== selectedTransport)]
 
+    onGitProgress?.({phase: "Cloning repository"})
     onProgress?.("Cloning repository...", 20)
 
     let cloneError: unknown = null
@@ -1198,6 +1204,11 @@ export async function cloneRemoteRepoUtil(
         singleBranch: false,
         noCheckout: false,
         onProgress: (progress: any) => {
+          onGitProgress?.({
+            phase: progress.phase,
+            ...(typeof progress.loaded === "number" ? {loaded: progress.loaded} : {}),
+            ...(typeof progress.total === "number" ? {total: progress.total} : {}),
+          })
           if (progress.phase === "Receiving objects") {
             const pct = 20 + (progress.loaded / progress.total) * 60
             onProgress?.(`Downloading objects (${progress.loaded}/${progress.total})...`, pct)
@@ -1259,6 +1270,7 @@ export async function cloneRemoteRepoUtil(
     // isomorphic-git's clone may not create the full config in all cases
     await ensureOriginRemoteConfig(git, dir, url)
 
+    onGitProgress?.({phase: "Setting up local branches"})
     onProgress?.("Setting up local branches...", 95)
 
     const defaultBranch = await resolveBranchName(git, dir)
@@ -1279,8 +1291,10 @@ export async function cloneRemoteRepoUtil(
     await cacheManager.init()
     await cacheManager.setRepoCache(cache)
 
+    onGitProgress?.({phase: "Clone complete"})
     onProgress?.("Clone completed successfully!", 100)
   } catch (error) {
+    onGitProgress?.({phase: "Clone failed"})
     // Clean up on failure using provider fs, but ignore errors
     try {
       const fs: any = getProviderFs(git)

@@ -89,7 +89,11 @@
     repoAnnouncementRelaysStore,
     repoAnnouncements,
   } from "@app/core/git-state"
-  import {getInitializedGitWorker, terminateGitWorker} from "@app/core/worker-singleton"
+  import {
+    getInitializedGitWorker,
+    subscribeGitWorkerProgress,
+    terminateGitWorker,
+  } from "@app/core/worker-singleton"
   import {
     activeCommunityDefinition,
     activeCommunitySession,
@@ -3314,6 +3318,7 @@
         {
           workerApi, // Pass initialized worker API
           workerInstance, // Pass worker instance for event signing
+          subscribeGitProgress: subscribeGitWorkerProgress,
           onRepoCreated: (result: NewRepoResult) => {
             setTimeout(() => hydrateRepoEvents(result), 0)
           },
@@ -3464,6 +3469,7 @@
         {
           pubkey: $pubkey!,
           workerApi,
+          subscribeGitProgress: subscribeGitWorkerProgress,
           onSignEvent: onSignEvent, // Primary signing method (works with all signers)
           onFetchEvents: async (filters: NostrFilter[]) => {
             const events: NostrEvent[] = []

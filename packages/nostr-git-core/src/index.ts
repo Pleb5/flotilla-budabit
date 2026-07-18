@@ -18,6 +18,13 @@ export {createRepoStateEvent, createRepoAnnouncementEvent} from "./events/index.
 export {getGitProvider} from "./api/git-provider.js"
 export {initializeNostrGitProvider} from "./api/git-provider.js"
 export {getGitWorker, configureWorkerEventIO} from "./worker/client.js"
+export type {
+  GitOperation,
+  GitOperationProgressEvent,
+  GitProgressUnit,
+  PushToRemoteOptions,
+} from "./worker/progress.js"
+export type {CloneRemoteRepoOptions} from "./worker/workers/repos.js"
 export * from "./utils/sanitize-relays.js"
 export * from "./utils/clone-url-fallback.js"
 export * from "./utils/repo-relay-policy.js"

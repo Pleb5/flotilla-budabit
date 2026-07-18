@@ -209,6 +209,13 @@ import {analyzePRMergeUtil, mergePRAndPushUtil} from "./workers/pr-merge.js"
 import type {SafePushOptions} from "./workers/push.js"
 import {safePushToRemoteUtil} from "./workers/push.js"
 import {
+  getGitProgressUnit,
+  type GitOperation,
+  type GitOperationProgressEvent,
+  type GitProgressUpdate,
+  type PushToRemoteOptions,
+} from "./progress.js"
+import {
   discoverRemoteBackfillUtil,
   executeRemoteBackfillUtil,
   prepareRemoteBackfillUtil,
@@ -804,6 +811,35 @@ function makeProgress(repoId: string, type: "clone-progress" | "merge-progress")
   }
 }
 
+function makeGitOperationProgress(opts: {
+  operationId: string
+  repoId: string
+  operation: GitOperation
+  target?: string
+}) {
+  return (update: GitProgressUpdate) => {
+    const unit = update.unit || getGitProgressUnit(update.phase)
+    const payload: GitOperationProgressEvent = {
+      type: "git-progress",
+      operationId: opts.operationId,
+      repoId: opts.repoId,
+      operation: opts.operation,
+      phase: update.phase,
+      ...(typeof update.loaded === "number" ? {loaded: update.loaded} : {}),
+      ...(typeof update.total === "number" ? {total: update.total} : {}),
+      ...(unit ? {unit} : {}),
+      ...(opts.target ? {target: opts.target} : {}),
+      ...(update.ref ? {ref: update.ref} : {}),
+    }
+
+    try {
+      ;(self as any).postMessage(payload)
+    } catch {
+      // Some hosts do not expose a worker message channel.
+    }
+  }
+}
+
 function repoKeyAndDir(repoId: string): {key: string; dir: string} {
   const key = parseRepoId(repoId)
   return {key, dir: `${rootDir}/${key}`}
@@ -1121,7 +1157,18 @@ const api = {
 
   async cloneRemoteRepo(options: CloneRemoteRepoOptions): Promise<void> {
     // This util handles cleanup and cache writes internally
-    await cloneRemoteRepoUtil(git, cacheManager, options)
+    const repoId = options.dir.startsWith(`${rootDir}/`)
+      ? options.dir.slice(rootDir.length + 1)
+      : options.dir
+    const sendProgress = options.operationId
+      ? makeGitOperationProgress({
+          operationId: options.operationId,
+          repoId,
+          operation: "clone",
+          target: options.url,
+        })
+      : undefined
+    await cloneRemoteRepoUtil(git, cacheManager, options, sendProgress)
   },
 
   // Legacy clone function - uses smart initialization strategy
@@ -1624,17 +1671,8 @@ const api = {
     return toPlain(result)
   },
 
-  async pushToRemote(opts: {
-    repoId: string
-    remoteUrl: string
-    branch?: string
-    ref?: string
-    refs?: string[]
-    token?: string
-    provider?: string
-    blossomMirror?: boolean
-  }) {
-    const {repoId, remoteUrl, branch, ref, refs, token, provider, blossomMirror} = opts
+  async pushToRemote(opts: PushToRemoteOptions) {
+    const {repoId, remoteUrl, branch, ref, refs, token, provider, blossomMirror, operationId} = opts
     const {key, dir} = repoKeyAndDir(repoId)
     const targetBranch = branch || "main"
 
@@ -1646,6 +1684,41 @@ const api = {
 
     const normalizedRequestedRef = normalizePushRef(ref || "")
     const normalizedRequestedRefs = (refs || []).map(normalizePushRef).filter(Boolean)
+    const refsToPush = Array.from(
+      new Set(
+        [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean).length > 0
+          ? [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean)
+          : [normalizePushRef(targetBranch)],
+      ),
+    )
+    const sendPushProgress = operationId
+      ? makeGitOperationProgress({operationId, repoId, operation: "push", target: remoteUrl})
+      : undefined
+    let processedPushRefs = 0
+    let activePushRef: string | undefined
+
+    sendPushProgress?.({phase: "Preparing push", total: refsToPush.length, unit: "refs"})
+
+    const startPushRef = (targetRef: string) => {
+      activePushRef = targetRef
+      sendPushProgress?.({
+        phase: "Pushing ref",
+        total: refsToPush.length,
+        unit: "refs",
+        ref: targetRef,
+      })
+    }
+    const finishPushRef = (targetRef: string, phase: "Ref pushed" | "Ref failed") => {
+      processedPushRefs += 1
+      activePushRef = undefined
+      sendPushProgress?.({
+        phase,
+        loaded: processedPushRefs,
+        total: refsToPush.length,
+        unit: "refs",
+        ref: targetRef,
+      })
+    }
 
     try {
       console.log(`Pushing repository ${repoId} to remote: ${remoteUrl} (provider=${provider})`)
@@ -1674,11 +1747,6 @@ const api = {
             throw err
           }
         }
-
-        const explicitRefs = [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean)
-        const refsToPush = Array.from(
-          new Set(explicitRefs.length > 0 ? explicitRefs : [`refs/heads/${targetBranch}`]),
-        )
 
         console.log(`[GRASP] Pushing to ${pushUrl} (refs=${refsToPush.join(", ")})`)
 
@@ -1965,10 +2033,12 @@ const api = {
         const warnings: string[] = []
 
         for (const targetRef of refsToPush) {
+          startPushRef(targetRef)
           try {
             if (await isRemoteAlreadyAtLocalTip(targetRef)) {
               console.log(`[GRASP] ${targetRef} already matches remote tip; skipping push`)
               pushedRefs.push(targetRef)
+              finishPushRef(targetRef, "Ref pushed")
               continue
             }
 
@@ -2108,6 +2178,7 @@ const api = {
 
           if (localTip && remoteTip && localTip === remoteTip) {
             pushedRefs.push(targetRef)
+            finishPushRef(targetRef, "Ref pushed")
             continue
           }
 
@@ -2116,18 +2187,27 @@ const api = {
               ref: targetRef,
               error: `remote tip mismatch (local=${localTip.slice(0, 8)} remote=${remoteTip.slice(0, 8)})`,
             })
+            finishPushRef(targetRef, "Ref failed")
             continue
           }
 
           if (!remoteTip) {
             failedRefs.push({ref: targetRef, error: "remote tip could not be verified"})
+            finishPushRef(targetRef, "Ref failed")
             continue
           }
 
           failedRefs.push({ref: targetRef, error: "could not resolve local tip for verification"})
+          finishPushRef(targetRef, "Ref failed")
         }
 
         if (pushedRefs.length === 0) {
+          sendPushProgress?.({
+            phase: "Push failed",
+            loaded: processedPushRefs,
+            total: refsToPush.length,
+            unit: "refs",
+          })
           return toPlain({
             success: false,
             repoId,
@@ -2139,6 +2219,12 @@ const api = {
         }
 
         const partialSuccess = failedRefs.length > 0
+        sendPushProgress?.({
+          phase: "Push complete",
+          loaded: processedPushRefs,
+          total: refsToPush.length,
+          unit: "refs",
+        })
         return toPlain({
           success: true,
           repoId,
@@ -2157,14 +2243,6 @@ const api = {
         token != null
           ? () => ({username: provider === "gitlab" ? "oauth2" : "token", password: token})
           : getAuthCallback(remoteUrl)
-
-      const refsToPush = Array.from(
-        new Set(
-          [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean).length > 0
-            ? [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean)
-            : [normalizePushRef(targetBranch)],
-        ),
-      )
 
       const materializeSourceRef = async (targetRef: string): Promise<string> => {
         if (!targetRef.startsWith("refs/heads/")) {
@@ -2205,6 +2283,7 @@ const api = {
         const pushedRefs: string[] = []
 
         for (const targetRef of refsToPush) {
+          startPushRef(targetRef)
           const sourceRef = await materializeSourceRef(targetRef)
           const result = await nostrProvider.push({
             dir,
@@ -2219,8 +2298,15 @@ const api = {
             blossomSummary = result.blossomSummary
           }
           pushedRefs.push(targetRef)
+          finishPushRef(targetRef, "Ref pushed")
         }
 
+        sendPushProgress?.({
+          phase: "Push complete",
+          loaded: processedPushRefs,
+          total: refsToPush.length,
+          unit: "refs",
+        })
         return toPlain({
           success: true,
           branch: targetBranch,
@@ -2234,6 +2320,7 @@ const api = {
       const pushedRefs: string[] = []
 
       for (const targetRef of refsToPush) {
+        startPushRef(targetRef)
         const sourceRef = await materializeSourceRef(targetRef)
         await (git as any).push({
           dir,
@@ -2244,8 +2331,15 @@ const api = {
           onAuth,
         })
         pushedRefs.push(targetRef)
+        finishPushRef(targetRef, "Ref pushed")
       }
 
+      sendPushProgress?.({
+        phase: "Push complete",
+        loaded: processedPushRefs,
+        total: refsToPush.length,
+        unit: "refs",
+      })
       return toPlain({
         success: true,
         branch: targetBranch,
@@ -2253,6 +2347,13 @@ const api = {
         details: {pushedRefs, failedRefs: [], warnings: []},
       })
     } catch (error) {
+      sendPushProgress?.({
+        phase: "Push failed",
+        loaded: processedPushRefs,
+        total: refsToPush.length,
+        unit: "refs",
+        ...(activePushRef ? {ref: activePushRef} : {}),
+      })
       console.error(`Error pushing to remote:`, error)
       const originalMessage = getErrorMessageWithDetails(error)
       const requestedRefs = Array.from(
