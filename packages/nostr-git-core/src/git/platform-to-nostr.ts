@@ -357,8 +357,16 @@ export function convertPullRequestsToNostrEvents(
   importTimestamp: number,
   startTimestamp: number,
   prCommits?: Map<number, string[]>,
-): Array<{event: Omit<NostrEvent, "id" | "sig" | "pubkey">; privkey: string}> {
-  const result: Array<{event: Omit<NostrEvent, "id" | "sig" | "pubkey">; privkey: string}> = []
+): Array<{
+  event: Omit<NostrEvent, "id" | "sig" | "pubkey">
+  privkey: string
+  platformPullRequestNumber: number
+}> {
+  const result: Array<{
+    event: Omit<NostrEvent, "id" | "sig" | "pubkey">
+    privkey: string
+    platformPullRequestNumber: number
+  }> = []
   let currentTimestamp = startTimestamp
 
   for (const pr of prs) {
@@ -403,6 +411,7 @@ export function convertPullRequestsToNostrEvents(
     result.push({
       event: prEvent,
       privkey: profile.privkey,
+      platformPullRequestNumber: pr.number,
     })
   }
 

@@ -53,7 +53,10 @@
     sortImportBranches,
     type SourceAccessMode,
   } from "../../utils/import-source-access.js";
-  import { canProceedImportStep2 } from "../../utils/import-dialog-state.js";
+  import {
+    canProceedImportStep2,
+    getUnbackedGraspRelayUrls,
+  } from "../../utils/import-dialog-state.js";
   import {
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
@@ -563,6 +566,13 @@
   const effectiveSelectedRelays = $derived.by(() =>
     getEffectiveRepoRelayUrls(selectedRelays || [], mandatoryGraspRelays)
   );
+  const unbackedGraspRelayUrls = $derived.by(() =>
+    getUnbackedGraspRelayUrls({
+      repoRelayUrls: effectiveSelectedRelays,
+      selectedImportTargetIds,
+      importTargets,
+    })
+  );
 
   function commitNewGraspRelay() {
     if (!newGraspRelayUrl.trim()) return;
@@ -1036,6 +1046,11 @@
       return;
     }
 
+    if (unbackedGraspRelayUrls.length > 0) {
+      validationError = `${unbackedGraspRelayUrls.join(", ")} can only be used as a repository relay when its matching GRASP import target is selected.`;
+      return;
+    }
+
     const selectedTargets: ImportRemoteTarget[] = importTargets
       .filter((target) => selectedImportTargetIds.includes(target.id) && target.status === "ready")
       .map((target) => toRemoteTargetSelection(target));
@@ -1238,6 +1253,7 @@
       isOwner: Boolean(repoMetadata?.isOwner),
       selectedImportTargetIds,
       importTargets,
+      unbackedGraspRelayCount: unbackedGraspRelayUrls.length,
     })
   );
   const targetPreflightPending = $derived(

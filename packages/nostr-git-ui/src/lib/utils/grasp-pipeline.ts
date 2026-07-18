@@ -107,6 +107,7 @@ export interface FetchRelayEventsParams {
   relays: string[];
   filters: NostrFilter[];
   timeoutMs?: number;
+  throwOnTimeout?: boolean;
 }
 
 export type FetchRelayEvents = (params: FetchRelayEventsParams) => Promise<NostrEvent[]>;
@@ -114,8 +115,6 @@ export type FetchRelayEvents = (params: FetchRelayEventsParams) => Promise<Nostr
 export interface VerifyGraspEventAfterPushParams {
   relayUrl: string;
   event: NostrEvent;
-  onPublishEvent: PublishRepoEvent;
-  publishRelays: string[];
   fetchRelayEvents: FetchRelayEvents;
   visibilityTimeoutMs?: number;
   pollIntervalMs?: number;
@@ -235,6 +234,17 @@ function sameRelaySet(a: string[], b: string[]): boolean {
 
 function filterAckedRelays(relays: string[], ack: GraspPublishRelayAck): string[] {
   return relays.filter((relay) => didRelayAckGraspEvents(ack, relay));
+}
+
+function describeRelayFailures(ack: GraspPublishRelayAck): string {
+  if (ack.relayOutcomes?.length) {
+    return ack.relayOutcomes
+      .filter((outcome) => outcome.status !== "success")
+      .map((outcome) => `${outcome.relay}: ${outcome.detail || outcome.status}`)
+      .join("; ");
+  }
+
+  return ack.failedRelays.join(", ");
 }
 
 function normalizeRelayOrigin(relayUrl: string): string {
@@ -567,7 +577,23 @@ export async function reconcileRepoCreationEvents({
     const announcementAck = extractPublishRelayAck(announcementResult);
     const announcementRelays = filterAckedRelays(activeRelays, announcementAck);
     if (announcementRelays.length === 0) {
-      throw new Error("No candidate relay ACKed the final repository announcement");
+      // Persist a signed state as well so exact-pair recovery remains possible.
+      if (!signedStateEvent) {
+        try {
+          const signedStateResult = await onPublishEvent(stateEvent, {
+            relays: [],
+            stage: "final",
+          });
+          signedStateEvent = getPublishedEvent(signedStateResult);
+        } catch {
+          // Preserve the announcement failure as the actionable error.
+        }
+      }
+
+      const details = describeRelayFailures(announcementAck);
+      throw new Error(
+        `No candidate relay ACKed the final repository announcement${details ? ` (${details})` : ""}`
+      );
     }
 
     const stateResult = await onPublishEvent(signedStateEvent || stateEvent, {
@@ -582,7 +608,10 @@ export async function reconcileRepoCreationEvents({
     const stateAck = extractPublishRelayAck(stateResult);
     let nextRelays = filterAckedRelays(announcementRelays, stateAck);
     if (nextRelays.length === 0) {
-      throw new Error("No candidate relay ACKed both final repository events");
+      const details = describeRelayFailures(stateAck);
+      throw new Error(
+        `No candidate relay ACKed both final repository events${details ? ` (${details})` : ""}`
+      );
     }
 
     if (sameRelaySet(nextRelays, activeRelays) && fetchRelayEvents) {
@@ -593,15 +622,11 @@ export async function reconcileRepoCreationEvents({
           await verifyGraspEventAfterPush({
             relayUrl: targetRelay,
             event: signedAnnouncement,
-            onPublishEvent,
-            publishRelays: [targetRelay],
             fetchRelayEvents,
           });
           await verifyGraspEventAfterPush({
             relayUrl: targetRelay,
             event: signedStateEvent,
-            onPublishEvent,
-            publishRelays: [targetRelay],
             fetchRelayEvents,
           });
           verifiedGraspRelays.push(targetRelay);
@@ -726,8 +751,10 @@ async function pollForExactGraspEvent(params: {
   fetchRelayEvents: FetchRelayEvents;
   visibilityTimeoutMs: number;
   pollIntervalMs: number;
-}): Promise<boolean> {
+}): Promise<{ visible: boolean; confirmedAbsent: boolean; lastError?: string }> {
   const deadline = Date.now() + Math.max(0, params.visibilityTimeoutMs);
+  let completedRead = false;
+  let lastError = "";
 
   while (true) {
     try {
@@ -738,7 +765,9 @@ async function pollForExactGraspEvent(params: {
         ...(params.visibilityTimeoutMs > 0
           ? { timeoutMs: Math.max(1, Math.min(2500, remainingMs || 1)) }
           : {}),
+        throwOnTimeout: true,
       });
+      completedRead = true;
 
       if (
         events.some(
@@ -746,14 +775,20 @@ async function pollForExactGraspEvent(params: {
             candidate?.id === params.event.id && eventMatchesExpectedCore(candidate, params.event)
         )
       ) {
-        return true;
+        return { visible: true, confirmedAbsent: false };
       }
-    } catch {
-      // A transient read failure is treated as absent and retried within this window.
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
     }
 
     const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) return false;
+    if (remainingMs <= 0) {
+      return {
+        visible: false,
+        confirmedAbsent: completedRead,
+        ...(lastError ? { lastError } : {}),
+      };
+    }
     if (params.pollIntervalMs > 0) {
       await delay(Math.min(params.pollIntervalMs, remainingMs));
     }
@@ -763,10 +798,8 @@ async function pollForExactGraspEvent(params: {
 export async function verifyGraspEventAfterPush({
   relayUrl,
   event,
-  onPublishEvent,
-  publishRelays,
   fetchRelayEvents,
-  visibilityTimeoutMs = 3000,
+  visibilityTimeoutMs = 10000,
   pollIntervalMs = 500,
 }: VerifyGraspEventAfterPushParams): Promise<NostrEvent> {
   if (!fetchRelayEvents) {
@@ -784,19 +817,19 @@ export async function verifyGraspEventAfterPush({
     pollIntervalMs,
   };
 
-  if (await pollForExactGraspEvent(pollParams)) return event;
+  const result = await pollForExactGraspEvent(pollParams);
+  if (result.visible) return event;
 
-  await publishGraspEventWithRetry({
-    relayUrl,
-    event,
-    onPublishEvent,
-    publishRelays,
-  });
-
-  if (await pollForExactGraspEvent(pollParams)) return event;
+  if (!result.confirmedAbsent) {
+    throw new Error(
+      `GRASP event ${event.id} could not be verified on ${normalizeRelayOrigin(relayUrl)}${
+        result.lastError ? ` (${result.lastError})` : ""
+      }`
+    );
+  }
 
   throw new Error(
-    `GRASP event ${event.id} was not visible on ${normalizeRelayOrigin(relayUrl)} after exact replay`
+    `GRASP event ${event.id} was absent after completed post-push queries on ${normalizeRelayOrigin(relayUrl)}`
   );
 }
 

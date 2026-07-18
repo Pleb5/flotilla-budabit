@@ -5,6 +5,9 @@ const pushMock = vi.fn(async (_opts?: any) => undefined)
 const fetchMock = vi.fn(async () => undefined)
 const addRemoteMock = vi.fn(async () => undefined)
 const listRemotesMock = vi.fn(async () => [])
+const resolveRefMock = vi.fn(async () => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+const logMock = vi.fn(async () => [] as any[])
+const writeRefMock = vi.fn(async () => undefined)
 const httpFetchMock = vi.fn(async () => ({
   ok: false,
   status: 404,
@@ -34,10 +37,11 @@ vi.mock("../../src/git/factory-browser.js", () => ({
     fetch: fetchMock,
     addRemote: addRemoteMock,
     listRemotes: listRemotesMock,
-    resolveRef: vi.fn(async () => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    resolveRef: resolveRefMock,
+    writeRef: writeRefMock,
     // Other methods may be referenced in unrelated API paths but are not invoked here
     statusMatrix: vi.fn(async () => []),
-    log: vi.fn(async () => []),
+    log: logMock,
     listBranches: vi.fn(async () => ["main"]),
   }),
 }))
@@ -65,11 +69,17 @@ describe("worker.pushToRemote API", () => {
     fetchMock.mockReset()
     addRemoteMock.mockReset()
     listRemotesMock.mockReset()
+    resolveRefMock.mockReset()
+    logMock.mockReset()
+    writeRefMock.mockReset()
     httpFetchMock.mockReset()
     pushMock.mockResolvedValue(undefined)
     fetchMock.mockResolvedValue(undefined)
     addRemoteMock.mockResolvedValue(undefined)
     listRemotesMock.mockResolvedValue([])
+    resolveRefMock.mockResolvedValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    logMock.mockResolvedValue([])
+    writeRefMock.mockResolvedValue(undefined)
     httpFetchMock.mockResolvedValue({
       ok: false,
       status: 404,
@@ -77,6 +87,61 @@ describe("worker.pushToRemote API", () => {
       headers: new Headers(),
       arrayBuffer: async () => new ArrayBuffer(0),
       text: async () => "",
+    })
+  })
+
+  it("materializes an imported pull request refs/nostr ref", async () => {
+    const eventId = "b".repeat(64)
+    const commit = "c".repeat(40)
+    logMock.mockResolvedValue([{oid: commit}])
+    resolveRefMock.mockResolvedValue(commit)
+
+    const result = await exposed.materializeNostrRef({
+      repoId: "owner/repo",
+      eventId,
+      commit,
+      cloneUrls: ["https://github.com/owner/repo.git"],
+      sourceRef: "refs/pull/42/head",
+    })
+
+    expect(result).toEqual({success: true, ref: `refs/nostr/${eventId}`, commit})
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(writeRefMock).toHaveBeenCalledWith({
+      dir: "/repos/owner/repo",
+      ref: `refs/nostr/${eventId}`,
+      value: commit,
+      force: true,
+    })
+  })
+
+  it("fetches a missing pull request tip before materializing its ref", async () => {
+    const eventId = "d".repeat(64)
+    const commit = "e".repeat(40)
+    logMock.mockResolvedValueOnce([]).mockResolvedValue([{oid: commit}])
+    resolveRefMock.mockResolvedValue(commit)
+
+    await exposed.materializeNostrRef({
+      repoId: "owner/repo",
+      eventId,
+      commit,
+      cloneUrls: ["https://github.com/owner/repo.git"],
+      sourceRef: "refs/pull/43/head",
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dir: "/repos/owner/repo",
+        url: "https://github.com/owner/repo.git",
+        ref: "refs/pull/43/head",
+        singleBranch: true,
+        depth: 1,
+      }),
+    )
+    expect(writeRefMock).toHaveBeenCalledWith({
+      dir: "/repos/owner/repo",
+      ref: `refs/nostr/${eventId}`,
+      value: commit,
+      force: true,
     })
   })
 

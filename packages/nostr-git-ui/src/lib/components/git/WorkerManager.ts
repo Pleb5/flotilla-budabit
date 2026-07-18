@@ -519,6 +519,17 @@ export class WorkerManager {
     return this.execute("pushToRemote", params);
   }
 
+  async materializeNostrRef(params: {
+    repoId: string;
+    eventId: string;
+    commit: string;
+    cloneUrls?: string[];
+    sourceRef?: string;
+  }): Promise<{ success: true; ref: string; commit: string }> {
+    await this.initialize();
+    return this.execute("materializeNostrRef", params);
+  }
+
   /**
    * List server refs from a remote URL without cloning
    */

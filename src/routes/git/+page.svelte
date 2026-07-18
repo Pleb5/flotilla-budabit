@@ -3052,8 +3052,10 @@
       )) {
         try {
           if (record.phase === "metadata-pending") {
-            await retryPendingRepoCreationMetadata(record, (event, context) =>
-              publishRepoEventWithRelayOutcomes(event, context?.relays || []),
+            await retryPendingRepoCreationMetadata(
+              record,
+              (event, context) => publishRepoEventWithRelayOutcomes(event, context?.relays || []),
+              fetchRelayEvents,
             )
             if (record.pendingCompensations.length > 0) {
               const next = await retryRepoCreationCompensations(
@@ -3192,11 +3194,13 @@
     relays: string[]
     filters: NostrFilter[]
     timeoutMs?: number
+    throwOnTimeout?: boolean
   }): Promise<NostrEvent[]> =>
     fetchRelayEventsWithTimeout<NostrEvent>({
       relays: params.relays,
       filters: params.filters as any,
       timeoutMs: params.timeoutMs,
+      throwOnTimeout: params.throwOnTimeout,
     })
 
   const getProfileForWizard = async (pubkey: string) => {
@@ -3752,9 +3756,7 @@
       {:else}
         <div class="flex min-w-0 flex-col gap-3">
           {#each filteredSnippets as snippet (snippet.id)}
-            <EventRenderer
-              event={snippet as any}
-              relays={getSnippetShareRelays(snippet)} />
+            <EventRenderer event={snippet as any} relays={getSnippetShareRelays(snippet)} />
           {/each}
         </div>
       {/if}

@@ -1,11 +1,16 @@
-import type { NostrEvent } from "@nostr-git/core";
+import type { NostrEvent, RepoAnnouncementEvent } from "@nostr-git/core";
 
 import type {
   DeleteRepoEvent,
+  FetchRelayEvents,
   PublishRepoEvent,
   PublishRepoEventResult,
 } from "./grasp-pipeline.js";
-import { extractPublishRelayAck } from "./grasp-pipeline.js";
+import {
+  extractPublishRelayAck,
+  reconcileRepoCreationEvents,
+  verifyGraspEventAfterPush,
+} from "./grasp-pipeline.js";
 import type { RemoteSyncTargetResult } from "./remote-sync.js";
 import type { RemoteTargetSelection } from "./remote-targets.js";
 
@@ -262,7 +267,8 @@ function getAnnouncementRelays(event: NostrEvent): string[] {
 
 export async function retryPendingRepoCreationMetadata(
   record: RepoCreationRecoveryRecord,
-  publisher: PublishRepoEvent
+  publisher: PublishRepoEvent,
+  fetchRelayEvents?: FetchRelayEvents
 ): Promise<{ announcement: PublishRepoEventResult; state: PublishRepoEventResult }> {
   if (record.phase !== "metadata-pending") {
     throw new Error(`Repository transaction ${record.id} is not metadata-pending`);
@@ -282,27 +288,164 @@ export async function retryPendingRepoCreationMetadata(
     throw new Error("Metadata recovery requires explicit relay destinations");
   }
 
-  const publishExact = async (item: RepoCreationPublishedEvent) => {
-    const result = await publisher(item.event, { relays, stage: "final" });
+  const publishExact = async (item: RepoCreationPublishedEvent, destinations: string[]) => {
+    const result = await publisher(item.event, { relays: destinations, stage: "final" });
     if (getPublishedEvent(result)?.id !== item.event.id) {
       throw new Error(`Metadata recovery changed signed event ${item.event.id}`);
     }
 
     const ack = extractPublishRelayAck(result);
-    const acked = new Set(ack.ackedRelays.map((relay) => relay.replace(/\/+$/, "")));
-    const missing = relays.filter((relay) => !acked.has(relay.replace(/\/+$/, "")));
-    if (missing.length > 0) {
-      throw new Error(`Metadata recovery failed on: ${missing.join(", ")}`);
+    if (!ack.hasRelayOutcomes || ack.ackedRelays.length === 0) {
+      throw new Error(`Metadata recovery received no relay ACK for event ${item.event.id}`);
     }
-    return result;
+    const acked = new Set(ack.ackedRelays.map((relay) => relay.replace(/\/+$/, "")));
+    return {
+      result,
+      ackedRelays: destinations.filter((relay) => acked.has(relay.replace(/\/+$/, ""))),
+    };
   };
 
-  const result = {
-    announcement: await publishExact(announcement),
-    state: await publishExact(state),
+  const announcementPublish = await publishExact(announcement, relays);
+  const statePublish = await publishExact(state, announcementPublish.ackedRelays);
+  const retainedRelaySet = new Set(
+    statePublish.ackedRelays.map((relay) => relay.replace(/\/+$/, ""))
+  );
+  let effectiveAnnouncement = announcement.event;
+  let effectiveState = state.event;
+  let effectiveRelays = statePublish.ackedRelays;
+  let result = {
+    announcement: announcementPublish.result,
+    state: statePublish.result,
   };
-  if (record.pendingCompensations.length > 0) {
-    writeRecord({ ...record, phase: "cleanup-pending", updatedAt: Date.now() });
+  let recoveryCleanupFailures: RepoCreationRecoveryRecord["pendingCompensations"] = [];
+  const successfulGraspTargets = record.targets
+    .filter(
+      (target) =>
+        target.provider === "grasp" &&
+        target.relayUrl &&
+        record.targetResults.some(
+          (targetResult) => targetResult.id === target.id && targetResult.success
+        )
+    )
+    .flatMap((target) => {
+      const targetResult = record.targetResults.find((result) => result.id === target.id);
+      return targetResult?.remoteUrl
+        ? [
+            {
+              relayUrl: target.relayUrl as string,
+              cloneUrl: targetResult.remoteUrl,
+              webUrl: targetResult.webUrl,
+            },
+          ]
+        : [];
+    });
+  if (statePublish.ackedRelays.length < relays.length) {
+    const graspCloneUrls = new Set(successfulGraspTargets.map((target) => target.cloneUrl));
+    const graspWebUrls = new Set(
+      record.targetResults
+        .filter((targetResult) =>
+          successfulGraspTargets.some((target) => target.cloneUrl === targetResult.remoteUrl)
+        )
+        .map((targetResult) => targetResult.webUrl)
+        .filter(Boolean)
+    );
+    const preservedTags = announcement.event.tags.filter(
+      (tag) => !["clone", "web", "relays"].includes(tag[0])
+    );
+    const fixedCloneUrls =
+      announcement.event.tags
+        .find((tag) => tag[0] === "clone")
+        ?.slice(1)
+        .filter((cloneUrl) => !graspCloneUrls.has(cloneUrl)) || [];
+    const fixedWebUrls =
+      announcement.event.tags
+        .find((tag) => tag[0] === "web")
+        ?.slice(1)
+        .filter((webUrl) => !graspWebUrls.has(webUrl)) || [];
+    const { id: _id, sig: _sig, pubkey: _pubkey, ...announcementTemplate } = announcement.event;
+    const reconciled = await reconcileRepoCreationEvents({
+      relayUrls: statePublish.ackedRelays,
+      graspTargets: successfulGraspTargets.filter((target) =>
+        retainedRelaySet.has(target.relayUrl.replace(/\/+$/, ""))
+      ),
+      stateEvent: state.event,
+      onPublishEvent: publisher,
+      fetchRelayEvents,
+      minCreatedAt: Math.max(announcement.event.created_at, state.event.created_at),
+      buildAnnouncement: ({
+        relays: activeRelays,
+        graspCloneUrls: activeGraspClones,
+        createdAt,
+      }) => {
+        const activeGraspWebUrls = successfulGraspTargets
+          .filter((target) => activeGraspClones.includes(target.cloneUrl))
+          .map((target) => target.webUrl)
+          .filter((webUrl): webUrl is string => Boolean(webUrl));
+        return {
+          ...announcementTemplate,
+          created_at: createdAt,
+          tags: [
+            ...preservedTags.map((tag) => [...tag]),
+            ...(fixedWebUrls.length + activeGraspWebUrls.length > 0
+              ? [["web", ...fixedWebUrls, ...activeGraspWebUrls]]
+              : []),
+            ...(fixedCloneUrls.length + activeGraspClones.length > 0
+              ? [["clone", ...fixedCloneUrls, ...activeGraspClones]]
+              : []),
+            ["relays", ...activeRelays],
+          ],
+        } as RepoAnnouncementEvent;
+      },
+    });
+    effectiveAnnouncement = reconciled.announcementEvent;
+    effectiveState = reconciled.stateEvent;
+    effectiveRelays = reconciled.relays;
+    recoveryCleanupFailures = reconciled.cleanupFailures;
+    result = {
+      announcement: {
+        event: effectiveAnnouncement,
+        ackedRelays: effectiveRelays,
+        failedRelays: [],
+        successCount: effectiveRelays.length,
+        hasRelayOutcomes: true,
+      },
+      state: {
+        event: effectiveState,
+        ackedRelays: effectiveRelays,
+        failedRelays: [],
+        successCount: effectiveRelays.length,
+        hasRelayOutcomes: true,
+      },
+    };
+  }
+  const successfulGraspRelays = successfulGraspTargets
+    .map((target) => target.relayUrl)
+    .filter((relayUrl) =>
+      effectiveRelays.some((relay) => relay.replace(/\/+$/, "") === relayUrl.replace(/\/+$/, ""))
+    );
+  if (successfulGraspRelays.length > 0 && !fetchRelayEvents) {
+    throw new Error("Metadata recovery requires GRASP post-push verification");
+  }
+  for (const relayUrl of successfulGraspRelays) {
+    await verifyGraspEventAfterPush({
+      relayUrl,
+      event: effectiveAnnouncement,
+      fetchRelayEvents: fetchRelayEvents as FetchRelayEvents,
+    });
+    await verifyGraspEventAfterPush({
+      relayUrl,
+      event: effectiveState,
+      fetchRelayEvents: fetchRelayEvents as FetchRelayEvents,
+    });
+  }
+  const pendingCompensations = [...record.pendingCompensations, ...recoveryCleanupFailures];
+  if (pendingCompensations.length > 0) {
+    writeRecord({
+      ...record,
+      phase: "cleanup-pending",
+      pendingCompensations,
+      updatedAt: Date.now(),
+    });
   } else {
     removeRecord(record.id);
   }
@@ -369,7 +512,12 @@ export function trackRepoCreationPublisher(
   return async (event, context): Promise<PublishRepoEventResult> => {
     const result = await publisher(event, context);
     if (event.kind === 30617 || event.kind === 30618) {
-      journal.recordPublishedEvent(result, context?.relays || [], context?.stage || "provisional");
+      const ack = extractPublishRelayAck(result);
+      journal.recordPublishedEvent(
+        result,
+        ack.hasRelayOutcomes ? ack.ackedRelays : context?.relays || [],
+        context?.stage || "provisional"
+      );
     }
     return result;
   };

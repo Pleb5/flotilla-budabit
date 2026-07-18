@@ -4,6 +4,7 @@ import {
   buildImportedRepoMetadata,
   buildImportedRepoEvents,
   getFinalRepoMetadataCreatedAt,
+  getImportedRepoRelayUrls,
   getImportedRepoName,
   trackLatestRepoMetadataCreatedAt,
 } from "./import-repo-metadata";
@@ -116,5 +117,26 @@ describe("import-repo-metadata", () => {
     ]);
     expect(announcementRelayTag).toEqual(["relays", "wss://relay.one", "wss://gitnostr.com"]);
     expect(stateRelayTag).toBeUndefined();
+  });
+
+  it("does not retain a selected GRASP relay whose target failed", () => {
+    const failedGraspUrl =
+      "https://grasp.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git";
+
+    expect(
+      getImportedRepoRelayUrls({
+        admittedRelayUrls: ["wss://repo.example", "wss://grasp.example"],
+        selectedGraspRelayUrls: ["wss://grasp.example"],
+        remotePushResults: [{ success: false, remoteUrl: failedGraspUrl }],
+      })
+    ).toEqual(["wss://repo.example"]);
+
+    expect(
+      getImportedRepoRelayUrls({
+        admittedRelayUrls: ["wss://repo.example", "wss://grasp.example"],
+        selectedGraspRelayUrls: ["wss://grasp.example"],
+        remotePushResults: [{ success: true, remoteUrl: failedGraspUrl }],
+      })
+    ).toEqual(["wss://repo.example", "wss://grasp.example"]);
   });
 });

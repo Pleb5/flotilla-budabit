@@ -119,6 +119,44 @@ describe("RepoCreationTransactionJournal", () => {
     expect(getPendingRepoCreationTransactions()).toHaveLength(0);
   });
 
+  it("records only relays that acknowledged a provisional event", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const journal = new RepoCreationTransactionJournal({
+      id: "import:owner:repo:acked-relays",
+      operation: "import",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    const event = {
+      id: "event-id",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      tags: [["d", "repo"]],
+      content: "",
+    };
+    const publisher = trackRepoCreationPublisher(
+      journal,
+      vi.fn().mockResolvedValue({
+        event,
+        ackedRelays: ["wss://accepted.example"],
+        failedRelays: ["wss://timed-out.example"],
+        successCount: 1,
+        hasRelayOutcomes: true,
+      })
+    );
+
+    await publisher?.(event, {
+      relays: ["wss://accepted.example", "wss://timed-out.example"],
+    });
+
+    expect(journal.record.publishedEvents[0].relayUrls).toEqual(["wss://accepted.example"]);
+  });
+
   it("retries the latest exact signed metadata without recreating targets", async () => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
@@ -158,6 +196,135 @@ describe("RepoCreationTransactionJournal", () => {
     expect(publisher.mock.calls.every((call) => call[1].relays[0] === "wss://relay.example")).toBe(
       true
     );
+    expect(getPendingRepoCreationTransactions()).toHaveLength(0);
+  });
+
+  it("requires exact GRASP visibility before completing metadata recovery", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const journal = new RepoCreationTransactionJournal({
+      id: "import:owner:repo:grasp-recovery",
+      operation: "import",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    const announcement = {
+      id: "announcement-id",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 2,
+      tags: [
+        ["d", "repo"],
+        ["relays", "wss://grasp.example"],
+      ],
+      content: "",
+    };
+    const state = { ...announcement, id: "state-id", kind: 30618, tags: [["d", "repo"]] };
+    journal.setTargets([
+      {
+        id: "grasp:wss://grasp.example",
+        label: "GRASP",
+        provider: "grasp",
+        relayUrl: "wss://grasp.example",
+      },
+    ]);
+    journal.setTargetResults([
+      {
+        id: "grasp:wss://grasp.example",
+        label: "GRASP",
+        provider: "grasp",
+        relayUrl: "wss://grasp.example",
+        remoteUrl: "https://grasp.example/npub1owner/repo.git",
+        success: true,
+      },
+    ]);
+    journal.recordPublishedEvent({ event: announcement }, ["wss://grasp.example"], "final");
+    journal.recordPublishedEvent({ event: state }, ["wss://grasp.example"], "final");
+    journal.setPhase("metadata-pending");
+    const publisher = vi.fn(async (event) => ({
+      event,
+      ackedRelays: ["wss://grasp.example"],
+      failedRelays: [],
+    }));
+    const fetchRelayEvents = vi.fn(async ({ filters }) => {
+      const id = filters[0]?.ids?.[0];
+      return [announcement, state].filter((event) => event.id === id);
+    });
+
+    await retryPendingRepoCreationMetadata(journal.record, publisher, fetchRelayEvents);
+
+    expect(fetchRelayEvents).toHaveBeenCalledTimes(2);
+    expect(getPendingRepoCreationTransactions()).toHaveLength(0);
+  });
+
+  it("recovers metadata through the relay subset that ACKs both exact events", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const journal = new RepoCreationTransactionJournal({
+      id: "import:owner:repo:partial-relays",
+      operation: "import",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    const announcement = {
+      id: "announcement-id",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 2,
+      tags: [
+        ["d", "repo"],
+        ["clone", "https://github.com/owner/repo.git"],
+        ["relays", "wss://available.example", "wss://offline.example"],
+      ],
+      content: "",
+    };
+    const state = { ...announcement, id: "state-id", kind: 30618, tags: [["d", "repo"]] };
+    journal.recordPublishedEvent(
+      { event: announcement },
+      ["wss://available.example", "wss://offline.example"],
+      "final"
+    );
+    journal.recordPublishedEvent(
+      { event: state },
+      ["wss://available.example", "wss://offline.example"],
+      "final"
+    );
+    journal.setPhase("metadata-pending");
+    let signedCount = 0;
+    const publisher = vi.fn(async (event, context) => {
+      const signed = event.id
+        ? event
+        : {
+            ...event,
+            id: `reconciled-${++signedCount}`,
+            pubkey: "f".repeat(64),
+            sig: "signature",
+          };
+      return {
+        event: signed,
+        ackedRelays: ["wss://available.example"],
+        failedRelays: (context?.relays || []).filter(
+          (relay: string) => relay !== "wss://available.example"
+        ),
+        successCount: 1,
+        hasRelayOutcomes: true,
+      };
+    });
+
+    const recovered = await retryPendingRepoCreationMetadata(journal.record, publisher);
+
+    expect(publisher.mock.calls[0][1].relays).toEqual([
+      "wss://available.example",
+      "wss://offline.example",
+    ]);
+    expect(publisher.mock.calls[1][1].relays).toEqual(["wss://available.example"]);
+    expect(recovered.announcement.event.tags).toContainEqual(["relays", "wss://available.example"]);
     expect(getPendingRepoCreationTransactions()).toHaveLength(0);
   });
 

@@ -7,211 +7,99 @@
 
 ## Goal
 
-- Eliminate relay scheduler starvation and duplicate persistent traffic so community rooms, threads, calendar events, and goals load reliably.
-- Complete the seven-phase plan in `docs/session-plan.md`, committing and pushing every verified phase.
+- Make repository import, creation, and fork transactions admission-first, observable, mobile-responsive, recoverable, and safely cancellable.
+- Complete all six phases in `docs/session-plan.md`, committing and pushing every verified phase.
 
 ## Current Phase
 
-- Complete
+- Phase 2: Truthful Progress And Mobile Surfaces
 
 ## Phase Exit Criteria
 
-- All seven phases are implemented and verified.
-- The final closeout commit must be pushed and this checkpoint reread before the final response.
+- Long operations emit operation-scoped, truthful phase/count activity and never synthesize determinate percentages.
+- Import, new, and fork consume isolated progress and show active elapsed/last-activity feedback.
+- Repository dialogs use dynamic viewport sizing, mobile-stacked actions, safe wrapping, scrollable content, and accessible touch targets.
+- Focused progress/mobile tests, typechecks, formatting, and whitespace checks pass.
+- Phase files and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
 
-- Previous Welshman `0.8.16` upgrade workflow was complete before this plan started.
-- Existing relay scheduling/community loading work is committed through `45f97bd0`.
-- Full verification before this workflow passed: 275 test files, 2,246 tests, and `pnpm check` with no diagnostics.
-- Investigation traced the missing-content failure to non-preemptive persistent live slots plus timeout-as-empty route behavior.
-- Phase 1 implemented lifetime-aware scheduling in the Welshman patch:
-  - Finite, critical-live, and background-live accounting is separate.
-  - Persistent logical requests are admitted atomically; oversized groups throw `RequestAdmissionError` before any REQ.
-  - Finite chunks retain wave scheduling and receive bounded queue-age priority boosts.
-  - `onStart` reports physical request admission.
-- Phase 1 changed public and unknown defaults to direct 9 IDs, 5 filters, 7 live IDs, 5 background-live IDs, critical threshold 200, and 128 KiB; stricter NIP-11 limits win.
-- Phase 1 verification passed:
-  - Frozen-lockfile install succeeded.
-  - Focused scheduler/policy tests passed: 2 files, 25 tests.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `git diff --check` passed.
-- Phase 2 corrected required authentication:
-  - Nonterminal auth states are ignored by the terminal waiter.
-  - Typed timeout and socket failure reject the waiter.
-  - Concurrent callers share one socket promise; signer rejection becomes `DeniedSignature`; a new challenge can retry.
-  - Public `auth:none` relays do not create an auth socket/attempt.
-- Phase 2 added relay policy adaptation:
-  - First use refreshes NIP-11 without blocking, active use refreshes hourly, and reconnect forces refresh.
-  - NIP-11 `max_limit` is exposed as `maxLimit`.
-  - Resolver policy and per-request limits are separated so idle/reconnect policy relaxation is possible; overflow learning resets on reconnect.
-  - Finite array-size rejection repartitions once; live rejection closes the logical request.
-- Phase 2 verification passed:
-  - Frozen-lockfile install succeeded.
-  - Focused auth/policy/transport tests passed: 3 files, 62 tests.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `git diff --check` passed.
-- Phase 3 added finite post-bootstrap discovery for `THREAD #h`, recent messages, and calendar/goal targeting wrappers; incomplete discovery retries with bounded delay.
-- Phase 3 added status-aware hydration states and completion-only hydration caching, preserving partial events and distinguishing queued/loading/incomplete/failed reads.
-- Phase 3 exact wrapper follow-up includes referenced relay hints and publishes through the shared repository.
-- Phase 3 corrected calendar/feed timeout completion and updated room/thread/calendar/goal list/detail empty states so incomplete reads are retryable rather than authoritative absence.
-- Phase 3 aligned CommunityMenu room filtering with approved room authors and made historical route requests explicitly finite/interactive.
-- Phase 3 verification passed:
-  - Focused community state/live/feed/room/thread/calendar tests passed: 6 files, 48 tests.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `git diff --check` passed.
-- Phase 4 added a route-scoped activity coordinator:
-  - Exact activity history is finite, background-priority, and bounded by a fixed route boundary.
-  - Live `#E`, `#A`, and `#a` references are grouped in chunks of 100 with make-before-break replacement.
-  - Community routes covered by core `COMMENT #h` issue no additional activity live request.
-  - Registration reference counts close the coordinator after the last consumer.
-- Phase 4 converted `EventActivity` to repository derivation plus coordinator registration and threaded explicit community coverage through thread/calendar/goal cards.
-- Phase 4 removed CommunityMenu room-root network ownership and made Git issue-label prefetch finite/background with repository publication.
-- Phase 4 verification passed:
-  - Focused activity/scheduler/live/feed tests passed: 4 files, 46 tests.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `git diff --check` passed.
-- Phase 5 added a shared relay-level background coordinator that settles finite catch-up before installing grouped background live filters.
-- Phase 5 partitions community notification filters by each community's actual relays and suppresses foreground community live coverage through explicit ownership registration.
-- Phase 5 partitions repo watcher activity by actual repo relays and suppresses foreground-owned canonical repo/relay pairs through a reference-counted registry.
-- Phase 5 groups widget update filters per source relay and compatible author/identifier targets, with repository derivation remaining active while networking is gated.
-- Phase 5 gates notification/repo/widget background networking behind the root delayed startup signal, preventing eager navigation UI subscriptions from starting remote traffic.
-- The public relay configuration changed during Phase 5; policy uses 28 managed IDs, 10 filters, 24 live, 18 background-live, 128 KiB, and limit 200.
-- Phase 5 verification passed after correcting one stricter-NIP-11 test expectation:
-  - Focused background/community/repo/widget/policy tests passed: 6 files, 58 tests.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `git diff --check` passed.
-- Phase 6 replaced extension `nostr:subscribe` `SimplePool` usage with a Welshman logical registry grouped by normalized relay and extension failure domain.
-- Phase 6 enforces 10 logical subscriptions per extension, 8 relays per subscription, and 20 logical subscriptions per relay; exact original filters gate event delivery.
-- Phase 6 replacement is make-before-break at EOSE with bounded overlap deduplication, and extension detach/unload closes all registrations.
-- Phase 6 SDKs use host-returned subscription IDs for unsubscribe/destroy in Kanban and Pipelines shared bridges.
-- Phase 6 scheduler diagnostics expose configured/learned limits, active/queued classes, owners/filter counts, notices, queue ages, and start delay; idle schedulers are removed from strong diagnostic tracking.
-- Phase 6 installs bounded development-only saturation, stale-priority, and live-growth warnings and labels major persistent request owners.
-- Phase 6 verification passed:
-  - Frozen-lockfile install succeeded.
-  - Root focused tests passed: 9 files, 132 tests.
-  - Kanban and Pipelines shared bridge tests passed: 10 tests each.
-  - Both shared SDK typechecks passed.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - Root/nested whitespace checks passed.
-- Phase 7 added integrated public-budget stress coverage:
-  - The test holds 18 background-live and 6 critical-live IDs while cold community discovery starts.
-  - Room, thread, calendar, and goal finite reads progress in waves without exceeding 28 total, 24 live, 18 background-live, 10 filters per REQ, or 128 KiB.
-  - The scenario verifies received events, explicit finite CLOSE, queue progress, and absence of client AUTH.
-- Phase 7 added a read-only opt-in public relay probe and ran it successfully:
-  - NIP-11 reported 30 subscriptions, a 200 result limit, and 131,072-byte messages.
-  - The probe completed 32 requests in two waves with 10 filters per REQ and at most 28 active IDs.
-  - The relay sent no AUTH, NOTICE, or CLOSED response.
-- Phase 7 updated architecture documentation with the deployed limits, human-readable event/tag/retention/write constraints, telemetry tuning gates, and the Welshman upstream boundary.
-- Phase 7 broad verification passed:
-  - Full Vitest: 281 files passed, 1 skipped; 2,302 tests passed, 2 skipped, and 1 todo.
-  - `pnpm check` passed with 0 errors and 0 warnings.
-  - `pnpm run e2e:check` passed.
-  - `pnpm run build` passed with only the existing large-chunk warning.
-  - Root whitespace and new-file formatting checks passed.
-- After Phase 7, the unknown-relay fallback was aligned with the public 28/24/18/10 capacity and result limit 200; stricter NIP-11 metadata and runtime evidence still reduce it.
+- Prior relay scheduling workflow was pushed to `origin/dev` through `8162bdbc` before this plan started.
+- Read-only audits mapped import/new/fork ordering, rollback, recovery, cancellation, long-operation progress, and mobile layout gaps.
+- Current import is the reference flow: admission-first, GRASP-first, state-before-push, exact post-push reads, and successful-target-only reconciliation.
+- Dirty worktree classification identified 24 intentional repository manipulation files, one generated coverage artifact, and two unrelated HiveTalk documents.
+- Phase 1 verified and made durable the import/GRASP reference implementation:
+  - initial admission and GRASP readiness precede clone and target mutation;
+  - existing GRASP announcements are reused and new targets require exact ACK evidence;
+  - state precedes push, exact post-push reads distinguish absence from incomplete evidence, and final metadata keeps only successful targets;
+  - imported PR refs are materialized and checked for complete push results;
+  - recovery reconciles retained targets and publication diagnostics expose transport evidence.
+- Phase 1 focused verification passed: UI 5 files/67 tests, core 2 files/11 tests, main 1 file/3 tests.
+- Phase 1 core/UI/root typechecks passed with 0 diagnostics; Prettier and `git diff --check` passed.
 
 ## Decisions
 
-- The relay now advertises 30 IDs, 200 results per filter, and 128 KiB messages; deployment configuration permits 10 filters per REQ.
-- Use 28 managed IDs, 10 filters per ID, at most 24 live IDs, and at most 18 background-live IDs for the public relay.
-- Use the same 28/24/18/10 capacity and result limit 200 for unknown relays, subject to stricter metadata/runtime evidence and relay-specific authentication discovery.
-- Separate lifetime from priority; priority alone cannot prevent starvation.
-- Keep finite historical activity exact and background-priority because UI counts depend on full history.
-- Preserve unrelated modified files under `packages/nostr-git-core/`.
-- Push verified phase commits to the tracked `origin/dev` branch.
+- Use six durable phases and push each verified phase to tracked `origin/dev`.
+- Show determinate progress only from real denominators; use active indeterminate feedback otherwise.
+- Preserve import-only existing-target reuse; new/fork fail closed on existing coordinates.
+- Never delete ambiguous or partially populated remotes automatically.
+- Do not persist credentials or signing secrets.
+- Do not run live GitHub repository mutation tests without separate approval.
 
 ## Current State
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Unrelated worktree changes exist only under `packages/nostr-git-core/`.
-- Phases 1 through 7 are verified; the checkpoint is Complete.
-- The public relay server limit is now 30 IDs and 10 filters per REQ; client policy uses the 28/24/18/10 budget.
-- Unknown relays use the same 28/24/18/10 fallback budget and limit 200.
+- Phase 1 is verified; Phase 2 begins after its closeout transition.
+- Generated coverage and unrelated HiveTalk documents must remain unstaged.
 
 ## Next Action
 
-- Commit and push the final Phase 7 closeout, reread this checkpoint, and provide the final response.
+- Reread the full plan, inspect the worker progress channel and repository dialog surfaces, then implement the Phase 2 progress contract and responsive layouts.
 
 ## Verification
 
-- Startup inspected checkpoint, full previous plan, status, branch/upstream, remotes, and recent commits.
-- Phase 1: `pnpm install --frozen-lockfile --ignore-scripts` passed.
-- Phase 1: focused Vitest passed, 2 files and 25 tests.
-- Phase 1: `pnpm check` passed with no diagnostics.
-- Phase 1: `git diff --check` passed.
-- Phase 2: `pnpm install --frozen-lockfile --ignore-scripts` passed.
-- Phase 2: focused Vitest passed, 3 files and 62 tests.
-- Phase 2: `pnpm check` passed with no diagnostics.
-- Phase 2: `git diff --check` passed.
-- Phase 3: focused Vitest passed, 6 files and 48 tests.
-- Phase 3: `pnpm check` passed with no diagnostics.
-- Phase 3: `git diff --check` passed.
-- Phase 4: focused Vitest passed, 4 files and 46 tests.
-- Phase 4: `pnpm check` passed with no diagnostics.
-- Phase 4: `git diff --check` passed.
-- Phase 5: focused Vitest passed, 6 files and 58 tests.
-- Phase 5: `pnpm check` passed with no diagnostics.
-- Phase 5: `git diff --check` passed.
-- Phase 6: frozen install passed.
-- Phase 6: root focused Vitest passed, 9 files and 132 tests; SDK bridge tests passed, 20 tests total.
-- Phase 6: root and both SDK typechecks passed.
-- Phase 6: `git diff --check` passed for root and nested changes.
-- Phase 7: focused public policy/stress Vitest passed, 2 files and 9 tests.
-- Phase 7: read-only `pnpm probe:public-relay` passed with 32 requests, 28 maximum active IDs, 10 filters per REQ, and no AUTH/NOTICE/CLOSED.
-- Phase 7: full Vitest passed, 281 files and 2,302 tests; 1 file and 2 tests skipped, with 1 todo.
-- Phase 7: `pnpm check`, `pnpm run e2e:check`, and `pnpm run build` passed.
-- Phase 7: `git diff --check`, new-file Prettier checks, and Node syntax check passed.
-- Unknown-baseline alignment: focused policy/stress Vitest passed, 2 files and 9 tests; `pnpm check`, Prettier, and `git diff --check` passed.
+- Startup read the previous checkpoint and complete prior plan, inspected status/remotes/log, and pushed the prior seven commits.
+- New workflow inspected and classified the dirty diff and audited progress, mobile, and lifecycle architecture.
+- Phase 1: `pnpm --dir packages/nostr-git-ui exec vitest run ...` passed, 5 files and 67 tests.
+- Phase 1: `pnpm --dir packages/nostr-git-core exec vitest run ...` passed, 2 files and 11 tests.
+- Phase 1: main `fetch-relay-events` tests passed, 1 file and 3 tests.
+- Phase 1: core typecheck, UI typecheck, and root `pnpm check` passed.
+- Phase 1: intentional-file Prettier check and repository `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
-- The production build retains its existing large JavaScript chunk warning.
-- The 10-filter, 64 KiB event, 2,000-tag, one-year retention, and write-rate constraints are human-readable server policy and must remain explicit where client behavior depends on them.
-- Generic Welshman changes remain in a pnpm patch until upstreamed or moved to a maintained source fork.
-- Existing unrelated `nostr-git-core` changes must remain unstaged.
+- The worktree contains generated coverage and unrelated untracked HiveTalk documents that must remain unstaged.
+- Operation-scoped physical cancellation requires worker/provider API expansion in Phase 6.
+- Remote creation cannot be exactly-once without provider idempotency support; ambiguous outcomes must remain visible.
 
 ## Files
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `patches/@welshman__net@0.8.16.patch`
-- `pnpm-lock.yaml`
-- `src/app/core/welshman-request-patch.test.ts`
-- `src/app/core/relay-policy.ts`
-- `src/app/core/relay-policy.test.ts`
-- `src/app/core/community-state.ts`
-- `src/app/core/community-state-loading.test.ts`
-- `src/app/core/community-live.ts`
-- `src/routes/c/[community]/+layout.svelte`
-- `src/routes/c/[community]/calendar/+page.svelte`
-- `src/routes/c/[community]/calendar/[event]/+page.svelte`
-- `src/routes/c/[community]/goals/+page.svelte`
-- `src/routes/c/[community]/goals/[goal]/+page.svelte`
-- `src/routes/c/[community]/threads/[thread]/+page.svelte`
-- `src/routes/c/[community]/rooms/[room]/+page.svelte`
-- `src/app/core/event-activity-io.ts`
-- `src/app/core/event-activity-io.test.ts`
-- `src/app/components/EventActivity.svelte`
-- `src/app/components/CommunityMenu.svelte`
-- `src/routes/git/[id=naddr]/issues/+page.svelte`
-- `src/app/util/notification-sources.ts`
-- `src/app/util/repo-watch-notifications.ts`
-- `src/app/extensions/widget-update-notifications.ts`
-- `src/app/core/repo-live-ownership.ts`
+- `docs/architecture/import-repo-architecture.md`
+- `packages/nostr-git-core/src/git/platform-to-nostr.ts`
+- `packages/nostr-git-core/src/worker/worker.ts`
+- `packages/nostr-git-core/test/git/platform-to-nostr.spec.ts`
+- `packages/nostr-git-core/test/worker/push-worker-api.spec.ts`
+- `packages/nostr-git-ui/src/lib/components/git/ImportRepoDialog.svelte`
+- `packages/nostr-git-ui/src/lib/components/git/WorkerManager.ts`
+- `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`
+- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`
+- `packages/nostr-git-ui/src/lib/utils/import-dialog-state.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/import-dialog-state.ts`
+- `packages/nostr-git-ui/src/lib/utils/import-repo-metadata.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/import-repo-metadata.ts`
+- `packages/nostr-git-ui/src/lib/utils/remote-sync.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.ts`
+- `src/app/components/PRView.svelte`
+- `src/app/core/diagnostics.ts`
+- `src/app/core/git-commands.ts`
+- `src/app/util/fetch-relay-events.test.ts`
+- `src/app/util/fetch-relay-events.ts`
+- `src/routes/git/+page.svelte`
 - `src/routes/git/[id=naddr]/+layout.svelte`
-- `src/app/extensions/bridge.ts`
-- `src/app/extensions/bridge.test.ts`
-- `src/app/extensions/extension-subscriptions.ts`
-- `src/app/core/relay-diagnostics.ts`
-- `src/app/core/relay-diagnostics.test.ts`
-- `src/app/core/community-relay-stress.test.ts`
-- `scripts/probe-public-relay.mjs`
-- `package.json`
-- `docs/architecture/community-relay-io-scheduling.md`
-- `packages/budabit-kanban-extension/packages/shared/src/bridge.ts`
-- `packages/budabit-kanban-extension/packages/shared/src/bridge.test.ts`
-- `packages/budabit-pipelines-extension/packages/shared/src/bridge.ts`
-- `packages/budabit-pipelines-extension/packages/shared/src/bridge.test.ts`

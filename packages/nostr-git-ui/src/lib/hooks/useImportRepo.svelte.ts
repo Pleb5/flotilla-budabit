@@ -36,9 +36,7 @@ import type {
 import type { GitComment as Comment, RepoMetadata } from "@nostr-git/core";
 import { nip19 } from "nostr-tools";
 import {
-  getEditableRepoRelayUrls,
-  getEffectiveRepoRelayUrls,
-  getSuccessfulGraspRelayUrls,
+  extractPublishRelayAck,
   reconcileRepoCreationEvents,
   type DeleteRepoEvent,
   type PublishRepoEvent,
@@ -46,11 +44,14 @@ import {
 import {
   buildImportedRepoMetadata,
   buildImportedRepoEvents,
+  getImportedRepoRelayUrls,
   getImportedRepoName,
 } from "../utils/import-repo-metadata.js";
 import {
   applyReconciledGraspResults,
+  assertCompleteRemoteRefPush,
   getRemoteSyncProvisionalEvents,
+  publishRepoSyncAnnouncement,
   syncLocalRepoToTargets,
   type RemoteSyncRef,
   type RemoteSyncTargetResult,
@@ -76,6 +77,7 @@ export const IMPORT_PHASES = [
   "connecting",
   "repository",
   "remotes",
+  "metadata",
   "issues",
   "pull_requests",
   "comments",
@@ -89,6 +91,7 @@ export const IMPORT_PHASE_LABELS: Record<ImportPhase, string> = {
   connecting: "Connecting",
   repository: "Repository",
   remotes: "Remote sync",
+  metadata: "Repository metadata",
   issues: "Issues",
   pull_requests: "Pull requests",
   comments: "Comments",
@@ -289,6 +292,9 @@ interface ImportContext {
   // Repository info
   finalRepo: RepoMetadata | null;
   repoAddr: string;
+  relayUrls: string[];
+  localRepoId?: string;
+  sourceCloneUrls: string[];
 
   // Timestamps
   importTimestamp: number;
@@ -343,6 +349,10 @@ interface ImportContext {
   remoteTargets: ImportRemoteTarget[];
   selectedBranchRefs?: ImportBranchPushRef[];
   creationJournal?: RepoCreationTransactionJournal;
+  admittedRepoRelayUrls?: string[];
+  prepublishedAnnouncement?: NostrEvent;
+  prepublishedAnnouncementByGraspRelay?: Record<string, NostrEvent>;
+  preprovisionedGraspRelayUrls?: string[];
 }
 
 // ===== Batch Publishing Functions =====
@@ -368,17 +378,49 @@ async function flushEventQueue(context: ImportContext): Promise<void> {
 
   const batch = [...context.eventQueue];
   context.eventQueue = [];
-
-  // Publish all events in batch in parallel
-  await Promise.allSettled(
-    batch.map((event) => {
-      if (context.onPublishEvent) {
-        return context.onPublishEvent(event);
-      }
-      // If no onPublishEvent, just resolve (events can't be published)
-      return Promise.resolve();
-    })
+  const relayUrls = Array.from(new Set(context.relayUrls.filter(Boolean)));
+  const hasSuccessfulGraspTarget = context.remotePushResults.some(
+    (result) => result.success && result.provider === "grasp"
   );
+
+  const publishOne = async (event: NostrEvent): Promise<void> => {
+    if (!context.onPublishEvent) return;
+
+    const isProfileEvent = event.kind === 0;
+    const result = await context.onPublishEvent(
+      event,
+      !isProfileEvent && relayUrls.length > 0 ? { relays: relayUrls } : undefined
+    );
+    if (isProfileEvent) return;
+
+    const ack = extractPublishRelayAck(result);
+    if (!ack.hasRelayOutcomes || ack.successCount > 0) return;
+
+    const details =
+      ack.relayOutcomes
+        ?.map((outcome) => `${outcome.relay}: ${outcome.detail || outcome.status}`)
+        .join("; ") || ack.failedRelays.join(", ");
+    throw new Error(
+      `No repository relay ACKed imported event ${event.id}${details ? ` (${details})` : ""}`
+    );
+  };
+
+  const batchTargetsGrasp = batch.some((event) => event.kind !== 0);
+  if (hasSuccessfulGraspTarget && batchTargetsGrasp) {
+    // ngit-grasp permits 60 EVENT messages per minute per connection.
+    const eventDelayMs = Math.max(1250, context.batchDelay);
+    for (let index = 0; index < batch.length; index++) {
+      await publishOne(batch[index]);
+      if (index < batch.length - 1) {
+        await Promise.race([
+          new Promise<void>((resolve) => setTimeout(resolve, eventDelayMs)),
+          context.abortController.waitForAbort(),
+        ]);
+      }
+    }
+  } else {
+    await Promise.all(batch.map((event) => publishOne(event)));
+  }
 
   // Single delay after the batch (not per event)
   if (context.batchDelay > 0) {
@@ -574,6 +616,8 @@ async function initializeImportContext(
     sourceAccessMode: normalizedToken ? "token" : "anonymous",
     config,
     userPubkey,
+    relayUrls: [...(config.relays || [])],
+    sourceCloneUrls: [],
     batchSize: config.relayBatchSize ?? 30,
     batchDelay: config.relayBatchDelay ?? 250,
     eventQueue: [],
@@ -1074,6 +1118,74 @@ async function fetchAndPublishIssuesStreaming(
   return { count: totalIssues, statusEventsPublished };
 }
 
+interface ImportedPullRequestRef {
+  eventId: string;
+  commit: string;
+  sourceRef?: string;
+}
+
+function getPullRequestSourceRef(platform: string, number: number): string | undefined {
+  if (platform === "gitlab") return `refs/merge-requests/${number}/head`;
+  if (platform === "bitbucket") return `refs/pull-requests/${number}/from`;
+  if (platform === "github" || platform === "gitea") return `refs/pull/${number}/head`;
+  return undefined;
+}
+
+async function pushImportedPullRequestRefs(
+  context: ImportContext,
+  pullRequestRefs: ImportedPullRequestRef[]
+): Promise<void> {
+  if (pullRequestRefs.length === 0) return;
+
+  const graspTargets = context.remotePushResults.filter(
+    (result) => result.success && result.provider === "grasp" && result.remoteUrl
+  );
+  if (graspTargets.length === 0) return;
+  if (!context.workerApi?.materializeNostrRef || !context.workerApi?.pushToRemote) {
+    throw new Error("Git worker cannot prepare imported pull request refs for GRASP");
+  }
+  if (!context.localRepoId || context.sourceCloneUrls.length === 0) {
+    throw new Error("Local source mirror is unavailable for imported pull request refs");
+  }
+
+  context.updateProgress(`Preparing ${pullRequestRefs.length} pull request Git ref(s)...`);
+  for (const item of pullRequestRefs) {
+    context.abortController.throwIfAborted();
+    await runAbortableOperation(
+      context.abortController,
+      () =>
+        context.workerApi.materializeNostrRef({
+          repoId: context.localRepoId,
+          eventId: item.eventId,
+          commit: item.commit,
+          cloneUrls: context.sourceCloneUrls,
+          sourceRef: item.sourceRef,
+        }),
+      `Preparing pull request ref ${item.eventId.slice(0, 12)}`,
+      90000
+    );
+  }
+
+  const refs = pullRequestRefs.map((item) => `refs/nostr/${item.eventId}`);
+  for (const target of graspTargets) {
+    context.abortController.throwIfAborted();
+    const pushResult = await runAbortableOperation<any>(
+      context.abortController,
+      () =>
+        context.workerApi.pushToRemote({
+          repoId: context.localRepoId,
+          remoteUrl: target.remoteUrl,
+          refs,
+          token: context.userPubkey,
+          provider: "grasp",
+        }),
+      `Pushing imported pull request refs to ${target.label}`,
+      0
+    );
+    assertCompleteRemoteRefPush(pushResult, refs, target.label);
+  }
+}
+
 /**
  * Fetch and publish pull requests in streaming fashion (page-by-page)
  * Processes and publishes each PR immediately, keeping only ID mappings in memory
@@ -1085,6 +1197,7 @@ async function fetchAndPublishPRsStreaming(context: ImportContext): Promise<numb
   let page = 1;
   const perPage = 100;
   let totalPRs = 0;
+  let pendingGraspRefs: ImportedPullRequestRef[] = [];
 
   while (true) {
     context.abortController.throwIfAborted();
@@ -1174,8 +1287,23 @@ async function fetchAndPublishPRsStreaming(context: ImportContext): Promise<numb
         // Store PR event ID for comment linking
         context.prEventIdMap.set(pr.number, signedPrEvent.id);
 
-        // Publish PR event (batched)
-        await publishEventBatched(context, signedPrEvent);
+        const tipCommit = signedPrEvent.tags.find((tag) => tag[0] === "c")?.[1];
+        if (!tipCommit) {
+          throw new Error(`Imported PR #${pr.number} has no tip commit`);
+        }
+
+        context.eventQueue.push(signedPrEvent);
+        pendingGraspRefs.push({
+          eventId: signedPrEvent.id,
+          commit: tipCommit,
+          sourceRef: getPullRequestSourceRef(context.platform, eventData.platformPullRequestNumber),
+        });
+
+        if (context.eventQueue.length >= context.batchSize) {
+          await flushEventQueue(context);
+          await pushImportedPullRequestRefs(context, pendingGraspRefs);
+          pendingGraspRefs = [];
+        }
 
         context.currentTimestamp += 1;
         totalPRs++;
@@ -1196,6 +1324,7 @@ async function fetchAndPublishPRsStreaming(context: ImportContext): Promise<numb
 
   // Flush any remaining events in the queue
   await flushEventQueue(context);
+  await pushImportedPullRequestRefs(context, pendingGraspRefs);
 
   return totalPRs;
 }
@@ -1810,6 +1939,9 @@ async function syncRepositoryToRemotes(
     );
   }
 
+  context.localRepoId = localRepoId;
+  context.sourceCloneUrls = sourceUrlCandidates;
+
   const branchPushRefs = await resolveRecentBranchPushRefs(
     context,
     localRepoId,
@@ -1861,6 +1993,10 @@ async function syncRepositoryToRemotes(
     },
     community: context.config.community,
     requireNonGraspSuccessBeforeGrasp: false,
+    graspFirst: true,
+    prepublishedAnnouncement: context.prepublishedAnnouncement,
+    prepublishedAnnouncementByGraspRelay: context.prepublishedAnnouncementByGraspRelay,
+    preprovisionedGraspRelayUrls: context.preprovisionedGraspRelayUrls,
   });
 }
 
@@ -1881,21 +2017,13 @@ function convertRepoEvents(context: ImportContext): {
   }
 
   // Get relays from config (required for repo announcement)
-  const relays = Array.from(
-    new Set(
-      getEffectiveRepoRelayUrls(
-        getEditableRepoRelayUrls(
-          context.config.relays || [],
-          context.remoteTargets
-            .filter((target) => target.provider === "grasp" && target.relayUrl)
-            .map((target) => target.relayUrl as string)
-        ),
-        getSuccessfulGraspRelayUrls(
-          context.remotePushResults.map((result) => result.remoteUrl || "")
-        )
-      )
-    )
-  );
+  const relays = getImportedRepoRelayUrls({
+    admittedRelayUrls: context.admittedRepoRelayUrls || context.config.relays || [],
+    selectedGraspRelayUrls: context.remoteTargets
+      .filter((target) => target.provider === "grasp" && target.relayUrl)
+      .map((target) => target.relayUrl as string),
+    remotePushResults: context.remotePushResults,
+  });
 
   if (relays.length === 0) {
     throw new Error("At least one relay is required for repository announcement");
@@ -2019,6 +2147,7 @@ async function publishRepoEvents(
     context.remotePushResults,
     reconciled.graspCloneUrls
   );
+  context.relayUrls = reconciled.relays;
 
   return {
     announcement: reconciled.announcementEvent,
@@ -2133,6 +2262,59 @@ export function useImportRepo(options: UseImportRepoOptions) {
     const effectiveConfig = getEffectiveImportConfig(config, sourceAccessMode);
     let transactionJournal: RepoCreationTransactionJournal | undefined;
     let transactionContext: ImportContext | undefined;
+    let repoMetadataPublished = false;
+    let provisionalRollbackAttempted = false;
+    let provisionalRollbackSucceeded = false;
+
+    const rollbackProvisionalEvents = async (context: ImportContext): Promise<string> => {
+      if (provisionalRollbackAttempted || !transactionJournal) return "";
+
+      const provisionalEvents = getRepoCreationProvisionalEvents(transactionJournal.record).filter(
+        (item) => item.relayUrls.length > 0
+      );
+      if (provisionalEvents.length === 0) {
+        provisionalRollbackAttempted = true;
+        provisionalRollbackSucceeded = true;
+        return "";
+      }
+
+      provisionalRollbackAttempted = true;
+      const rollbackRelays = Array.from(
+        new Set(provisionalEvents.flatMap((item) => item.relayUrls).filter(Boolean))
+      );
+
+      try {
+        if (onRollbackPublishedRepoEvents) {
+          await onRollbackPublishedRepoEvents({
+            repoName: getDestinationRepoName(context),
+            relays: rollbackRelays,
+            events: provisionalEvents.map((item) => item.event),
+          });
+        } else if (context.onDeleteEvent) {
+          for (const item of provisionalEvents) {
+            await context.onDeleteEvent(item.event, item.relayUrls);
+          }
+        } else {
+          throw new Error("Repository event rollback is unavailable");
+        }
+
+        provisionalRollbackSucceeded = true;
+        transactionJournal.setPendingCompensations([]);
+        return "";
+      } catch (rollbackError) {
+        const message =
+          rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+        transactionJournal.setPendingCompensations(
+          provisionalEvents.map((item) => ({
+            action: "delete" as const,
+            eventId: item.event.id,
+            relayUrls: item.relayUrls,
+            error: message,
+          }))
+        );
+        return `; rollback failed: ${message}`;
+      }
+    };
 
     try {
       // Initialize context
@@ -2240,10 +2422,39 @@ export function useImportRepo(options: UseImportRepoOptions) {
         context.onPublishEvent
       );
 
+      if (!context.onPublishEvent) {
+        throw new Error("onPublishEvent callback is required to publish repository events");
+      }
+
+      currentPhaseRef.current = "remotes";
+      const sourceCloneUrl = context.finalRepo.cloneUrl || repoUrl;
+      const sourceCloneUrls = buildSourceCloneCandidates(sourceCloneUrl, context.parsed?.url);
+      const announcementAdmission = await publishRepoSyncAnnouncement({
+        repoName,
+        repoDescription: context.finalRepo.description || "",
+        userPubkey: context.userPubkey,
+        targets: remoteTargets,
+        relayUrls: context.config.relays || [],
+        sourceCloneUrls,
+        sourceWebUrls: [context.parsed?.url].filter(Boolean) as string[],
+        community: context.config.community,
+        onPublishEvent: context.onPublishEvent,
+        onFetchRelayEvents: context.onFetchRelayEvents,
+        updateProgress: (message) => context.updateProgress(message),
+        runAbortable: (operation, label, timeoutMs) =>
+          runAbortableOperation(context.abortController, operation, label, timeoutMs),
+      });
+      context.prepublishedAnnouncement = announcementAdmission.announcementEvent;
+      context.prepublishedAnnouncementByGraspRelay = announcementAdmission.announcementByGraspRelay;
+      context.preprovisionedGraspRelayUrls = announcementAdmission.graspRelayUrls;
+      context.admittedRepoRelayUrls = announcementAdmission.ackedRelayUrls;
+      context.latestRepoMetadataCreatedAt = Math.max(
+        context.latestRepoMetadataCreatedAt,
+        announcementAdmission.latestAnnouncementCreatedAt
+      );
+
       // Sync git data to selected remote targets (continue on individual failures)
       if (remoteTargets.length > 0) {
-        currentPhaseRef.current = "remotes";
-        const sourceCloneUrl = context.finalRepo.cloneUrl || repoUrl;
         context.remotePushResults = await syncRepositoryToRemotes(
           context,
           sourceCloneUrl,
@@ -2255,46 +2466,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
 
         const successfulTargets = context.remotePushResults.filter((result) => result.success);
         if (successfulTargets.length === 0) {
-          const hasGraspTarget = remoteTargets.some((target) => target.provider === "grasp");
-          let rollbackWarning = "";
-
-          if (hasGraspTarget && onRollbackPublishedRepoEvents) {
-            const rollbackRelays = Array.from(
-              new Set(
-                getEffectiveRepoRelayUrls(
-                  getEditableRepoRelayUrls(
-                    context.config.relays || [],
-                    remoteTargets
-                      .filter((target) => target.provider === "grasp" && target.relayUrl)
-                      .map((target) => target.relayUrl as string)
-                  ),
-                  remoteTargets
-                    .filter((target) => target.provider === "grasp" && target.relayUrl)
-                    .map((target) => target.relayUrl as string)
-                )
-              )
-            );
-
-            const provisionalEvents = getRepoCreationProvisionalEvents(transactionJournal.record);
-            try {
-              await onRollbackPublishedRepoEvents({
-                repoName,
-                relays: rollbackRelays,
-                events: provisionalEvents.map((item) => item.event),
-              });
-            } catch (rollbackError) {
-              rollbackWarning = `; rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`;
-              transactionJournal.setPendingCompensations(
-                provisionalEvents.map((item) => ({
-                  action: "delete" as const,
-                  eventId: item.event.id,
-                  relayUrls: item.relayUrls,
-                  error:
-                    rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-                }))
-              );
-            }
-          }
+          const rollbackWarning = await rollbackProvisionalEvents(context);
 
           const failedSummary = context.remotePushResults
             .map((result) => `${result.label}: ${result.error || "push failed"}`)
@@ -2304,6 +2476,17 @@ export function useImportRepo(options: UseImportRepoOptions) {
           );
         }
       }
+
+      // Publish the repository coordinate before any imported collaboration events reference it.
+      currentPhaseRef.current = "metadata";
+      const repoEvents = convertRepoEvents(context);
+      transactionJournal.setPhase("metadata-pending");
+      const publishedRepoEvents = await publishRepoEvents(context, repoEvents);
+      transactionJournal.setTargetResults(context.remotePushResults);
+      transactionJournal.setPendingCompensations(publishedRepoEvents.cleanupFailures);
+      signedRepoAnnouncement = publishedRepoEvents.announcement;
+      signedRepoState = publishedRepoEvents.state;
+      repoMetadataPublished = true;
 
       // Step 2: Stream issues (fetch, process, publish immediately)
       let issuesImported = 0;
@@ -2339,16 +2522,6 @@ export function useImportRepo(options: UseImportRepoOptions) {
       // Final flush: ensure all queued events are published before completing
       await flushEventQueue(context);
 
-      // Publish repo announcement/state at the end (after remote sync and mirror data)
-      currentPhaseRef.current = "repository";
-      const repoEvents = convertRepoEvents(context);
-      transactionJournal.setPhase("metadata-pending");
-      const publishedRepoEvents = await publishRepoEvents(context, repoEvents);
-      transactionJournal.setTargetResults(context.remotePushResults);
-      transactionJournal.setPendingCompensations(publishedRepoEvents.cleanupFailures);
-      signedRepoAnnouncement = publishedRepoEvents.announcement;
-      signedRepoState = publishedRepoEvents.state;
-
       // Complete
       setProgress("complete", "Import completed successfully!");
 
@@ -2379,11 +2552,24 @@ export function useImportRepo(options: UseImportRepoOptions) {
     } catch (err: unknown) {
       if (transactionContext) {
         transactionJournal?.setTargetResults(transactionContext.remotePushResults);
+        if (
+          transactionJournal?.record.phase === "syncing" &&
+          !transactionContext.remotePushResults.some((result) => result.success)
+        ) {
+          await rollbackProvisionalEvents(transactionContext);
+        }
       }
-      transactionJournal?.setPhase(
-        transactionJournal?.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
-        err
-      );
+      if (
+        (repoMetadataPublished || provisionalRollbackSucceeded) &&
+        transactionJournal?.record.pendingCompensations.length === 0
+      ) {
+        transactionJournal.complete();
+      } else {
+        transactionJournal?.setPhase(
+          transactionJournal?.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
+          err
+        );
+      }
       const errorMessage =
         err instanceof ImportAbortedError
           ? err.message

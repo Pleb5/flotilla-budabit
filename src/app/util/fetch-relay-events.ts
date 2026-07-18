@@ -8,13 +8,20 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   filters: any[]
   timeoutMs?: number
   signal?: AbortSignal
+  throwOnTimeout?: boolean
 }): Promise<TEvent[]> {
   const events: TEvent[] = []
+  let sawEose = false
+  let disconnectedRelay = ""
   const controller = new AbortController()
   const onAbort = () => controller.abort()
   params.signal?.addEventListener("abort", onAbort, {once: true})
+  let timedOut = false
   const timeoutId = setTimeout(
-    () => controller.abort(),
+    () => {
+      timedOut = true
+      controller.abort()
+    },
     Math.max(1, params.timeoutMs || DEFAULT_RELAY_FETCH_TIMEOUT_MS),
   )
 
@@ -25,7 +32,20 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
       filters: params.filters,
       signal: controller.signal,
       onEvent: event => events.push(event as TEvent),
+      onEose: () => {
+        sawEose = true
+      },
+      onDisconnect: relay => {
+        disconnectedRelay = relay
+      },
     })
+    if (params.throwOnTimeout && events.length === 0 && !sawEose) {
+      throw new Error(
+        disconnectedRelay
+          ? `Relay disconnected before EOSE: ${disconnectedRelay}`
+          : "Relay query ended without EOSE",
+      )
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "")
     const normalizedMessage = message.toLowerCase()
@@ -36,6 +56,11 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
 
     if (!isAbort) {
       throw error
+    }
+    if (timedOut && params.throwOnTimeout) {
+      throw new Error(
+        `Relay query timed out after ${params.timeoutMs || DEFAULT_RELAY_FETCH_TIMEOUT_MS}ms`,
+      )
     }
   } finally {
     clearTimeout(timeoutId)

@@ -2361,6 +2361,72 @@ const api = {
     return await (git as any).resolveRef({dir, ref: opts.ref})
   },
 
+  async materializeNostrRef(opts: {
+    repoId: string
+    eventId: string
+    commit: string
+    cloneUrls?: string[]
+    sourceRef?: string
+  }): Promise<{success: true; ref: string; commit: string}> {
+    const {key, dir} = repoKeyAndDir(opts.repoId)
+    const eventId = String(opts.eventId || "")
+      .trim()
+      .toLowerCase()
+    const commit = String(opts.commit || "")
+      .trim()
+      .toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(eventId)) {
+      throw new Error("A refs/nostr target requires a 64-character event ID")
+    }
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+      throw new Error("A refs/nostr target requires a Git commit ID")
+    }
+
+    const cloneUrls = filterValidCloneUrls(opts.cloneUrls || [])
+    if (!(await hasCommitObject(dir, commit)) && opts.sourceRef) {
+      const corsProxy = resolveDefaultCorsProxy()
+      for (const url of cloneUrls) {
+        try {
+          const authCallback = getAuthCallback(url)
+          await git.fetch({
+            dir,
+            url,
+            ref: opts.sourceRef,
+            singleBranch: true,
+            depth: 1,
+            tags: false,
+            corsProxy,
+            ...(authCallback && {onAuth: authCallback}),
+          })
+          if (await hasCommitObject(dir, commit)) break
+        } catch {
+          // Fall back to the existing direct-OID and full-ref recovery below.
+        }
+      }
+    }
+
+    if (!(await hasCommitObject(dir, commit))) {
+      const fetched = await fetchRefsUntilOidsAvailable({
+        key,
+        dir,
+        requiredOids: [commit],
+        cloneUrls,
+      })
+      if (!fetched || !(await hasCommitObject(dir, commit))) {
+        throw new Error(`Unable to fetch imported pull request commit ${commit}`)
+      }
+    }
+
+    const ref = `refs/nostr/${eventId}`
+    await (git as any).writeRef({dir, ref, value: commit, force: true})
+    const resolved = await (git as any).resolveRef({dir, ref})
+    if (resolved !== commit) {
+      throw new Error(`Failed to materialize ${ref} at ${commit}`)
+    }
+
+    return toPlain({success: true as const, ref, commit})
+  },
+
   async listRemotes(opts: {repoId: string}): Promise<Array<{remote: string; url: string}>> {
     const {dir} = repoKeyAndDir(opts.repoId)
     const remotes = await (git as any).listRemotes({dir})

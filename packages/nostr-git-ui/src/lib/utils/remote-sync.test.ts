@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { syncLocalRepoToTargets } from "./remote-sync";
+import {
+  assertCompleteRemoteRefPush,
+  publishRepoSyncAnnouncement,
+  syncLocalRepoToTargets,
+} from "./remote-sync";
 
 function signedEvent(event: any) {
   return {
@@ -11,7 +15,224 @@ function signedEvent(event: any) {
   };
 }
 
+describe("assertCompleteRemoteRefPush", () => {
+  it("rejects worker partial success when any requested ref failed", () => {
+    expect(() =>
+      assertCompleteRemoteRefPush(
+        {
+          success: true,
+          details: {
+            pushedRefs: ["refs/nostr/one"],
+            failedRefs: [{ ref: "refs/nostr/two", error: "rejected" }],
+          },
+        },
+        ["refs/nostr/one", "refs/nostr/two"],
+        "GRASP"
+      )
+    ).toThrow("refs/nostr/two: rejected");
+  });
+});
+
+describe("publishRepoSyncAnnouncement", () => {
+  const graspTarget = {
+    id: "grasp:wss://relay.ngit.dev",
+    label: "GRASP (relay.ngit.dev)",
+    provider: "grasp" as const,
+    relayUrl: "wss://relay.ngit.dev",
+  };
+
+  it("requires relay admission and GRASP readiness before returning", async () => {
+    const operations: string[] = [];
+    const onPublishEvent = vi.fn(async (event) => {
+      operations.push("announcement");
+      return {
+        event: signedEvent(event),
+        ackedRelays: ["wss://relay.ngit.dev", "wss://repo.example"],
+        failedRelays: [],
+        successCount: 2,
+        hasRelayOutcomes: true,
+        relayOutcomes: [
+          {
+            relay: "wss://relay.ngit.dev",
+            status: "success",
+            detail: "purgatory: won't be served until git data arrives",
+          },
+          { relay: "wss://repo.example", status: "success", detail: "" },
+        ],
+      };
+    });
+
+    const admission = await publishRepoSyncAnnouncement({
+      repoName: "repo",
+      userPubkey: "a".repeat(64),
+      targets: [graspTarget],
+      relayUrls: ["wss://repo.example"],
+      onPublishEvent,
+      updateProgress: vi.fn(),
+      runAbortable: async (_operation, label) => {
+        operations.push(label.startsWith("Waiting for GRASP") ? "readiness" : label);
+        return undefined as never;
+      },
+    });
+
+    expect(operations).toEqual(["announcement", "readiness"]);
+    expect(admission.ackedRelayUrls).toEqual(["wss://repo.example", "wss://relay.ngit.dev"]);
+    expect(admission.graspRelayUrls).toEqual(["wss://relay.ngit.dev"]);
+    expect(admission.announcementEvent.tags).toEqual(
+      expect.arrayContaining([
+        ["relays", "wss://repo.example", "wss://relay.ngit.dev"],
+        expect.arrayContaining(["clone", expect.stringContaining("relay.ngit.dev")]),
+      ])
+    );
+  });
+
+  it("fails when no repository relay ACKs", async () => {
+    await expect(
+      publishRepoSyncAnnouncement({
+        repoName: "repo",
+        userPubkey: "a".repeat(64),
+        targets: [graspTarget],
+        relayUrls: [],
+        onPublishEvent: vi.fn(async (event) => ({
+          event: signedEvent(event),
+          ackedRelays: [],
+          failedRelays: ["wss://relay.ngit.dev"],
+          successCount: 0,
+          hasRelayOutcomes: true,
+          relayOutcomes: [
+            { relay: "wss://relay.ngit.dev", status: "timeout", detail: "timed out" },
+          ],
+        })),
+        updateProgress: vi.fn(),
+        runAbortable: async (operation) => await operation(),
+      })
+    ).rejects.toThrow("No repository relay ACKed the initial announcement");
+  });
+
+  it("fails when a selected GRASP relay misses the ACK even if a generic relay succeeds", async () => {
+    await expect(
+      publishRepoSyncAnnouncement({
+        repoName: "repo",
+        userPubkey: "a".repeat(64),
+        targets: [graspTarget],
+        relayUrls: ["wss://repo.example"],
+        onPublishEvent: vi.fn(async (event) => ({
+          event: signedEvent(event),
+          ackedRelays: ["wss://repo.example"],
+          failedRelays: ["wss://relay.ngit.dev"],
+          successCount: 1,
+          hasRelayOutcomes: true,
+          relayOutcomes: [
+            { relay: "wss://repo.example", status: "success", detail: "" },
+            { relay: "wss://relay.ngit.dev", status: "timeout", detail: "timed out" },
+          ],
+        })),
+        updateProgress: vi.fn(),
+        runAbortable: async (operation) => await operation(),
+      })
+    ).rejects.toThrow("Selected GRASP target relay did not ACK the initial announcement");
+  });
+
+  it("reuses a queryable announcement instead of replacing an existing GRASP target", async () => {
+    const existingAnnouncement = signedEvent({
+      kind: 30617,
+      created_at: 100,
+      content: "",
+      tags: [
+        ["d", "repo"],
+        ["clone", "https://relay.ngit.dev/npub1example/repo.git"],
+        ["relays", "wss://relay.ngit.dev"],
+      ],
+    });
+    const onPublishEvent = vi.fn();
+
+    const admission = await publishRepoSyncAnnouncement({
+      repoName: "repo",
+      userPubkey: "a".repeat(64),
+      targets: [
+        { ...graspTarget, existingRemoteUrl: "https://relay.ngit.dev/npub1example/repo.git" },
+      ],
+      relayUrls: ["wss://relay.ngit.dev"],
+      onPublishEvent,
+      onFetchRelayEvents: vi.fn().mockResolvedValue([existingAnnouncement]),
+      updateProgress: vi.fn(),
+      runAbortable: async () => undefined as never,
+    });
+
+    expect(onPublishEvent).not.toHaveBeenCalled();
+    expect(admission.announcementEvent).toBe(existingAnnouncement);
+    expect(admission.ackedRelayUrls).toEqual(["wss://relay.ngit.dev"]);
+    expect(admission.graspRelayUrls).toEqual([]);
+    expect(admission.announcementByGraspRelay["wss://relay.ngit.dev"]).toBe(existingAnnouncement);
+  });
+});
+
 describe("syncLocalRepoToTargets", () => {
+  it("reuses a prepublished announcement without publishing or provisioning it again", async () => {
+    const commit = "a".repeat(40);
+    const announcement = signedEvent({
+      kind: 30617,
+      created_at: 100,
+      content: "",
+      tags: [
+        ["d", "repo"],
+        ["clone", "https://relay.ngit.dev/npub1example/repo.git"],
+        ["relays", "wss://relay.ngit.dev"],
+      ],
+    });
+    let publishedState: any;
+    const onPublishEvent = vi.fn(async (event) => {
+      const signed = signedEvent(event);
+      if (event.kind === 30618) publishedState = signed;
+      return {
+        event: signed,
+        ackedRelays: ["wss://relay.ngit.dev"],
+        failedRelays: [],
+        successCount: 1,
+        hasRelayOutcomes: true,
+      };
+    });
+    const runAbortable = vi.fn(async (operation) => await operation());
+    const workerApi = {
+      pushToRemote: vi.fn(async () => ({ success: true })),
+      listServerRefs: vi.fn(async () => [{ ref: "refs/heads/main", oid: commit }]),
+    };
+
+    const results = await syncLocalRepoToTargets({
+      workerApi,
+      localRepoId: "local/repo",
+      repoName: "repo",
+      repoDescription: "",
+      defaultBranch: "main",
+      refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit }],
+      targets: [
+        {
+          id: "grasp:wss://relay.ngit.dev",
+          label: "GRASP (relay.ngit.dev)",
+          provider: "grasp",
+          relayUrl: "wss://relay.ngit.dev",
+        },
+      ],
+      userPubkey: "a".repeat(64),
+      onPublishEvent,
+      onFetchRelayEvents: vi.fn(async ({ filters }) => {
+        const id = filters[0]?.ids?.[0];
+        return [announcement, publishedState].filter((event) => event?.id === id);
+      }),
+      updateProgress: vi.fn(),
+      runAbortable,
+      prepublishedAnnouncement: announcement,
+      preprovisionedGraspRelayUrls: ["wss://relay.ngit.dev"],
+    });
+
+    expect(results).toEqual([expect.objectContaining({ success: true })]);
+    expect(onPublishEvent).toHaveBeenCalledTimes(1);
+    expect(onPublishEvent.mock.calls[0][0].kind).toBe(30618);
+    expect(runAbortable.mock.calls.some((call) => String(call[1]).includes("receive-pack"))).toBe(
+      false
+    );
+  });
+
   it("uses configured web URLs for GRASP provisioning announcements", async () => {
     const commit = "c".repeat(40);
     const featureCommit = "d".repeat(40);

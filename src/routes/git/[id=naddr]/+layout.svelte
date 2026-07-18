@@ -3478,11 +3478,13 @@
     relays: string[]
     filters: NostrFilter[]
     timeoutMs?: number
+    throwOnTimeout?: boolean
   }): Promise<NostrEvent[]> =>
     fetchRelayEventsWithTimeout<NostrEvent>({
       relays: params.relays,
       filters: params.filters as any,
       timeoutMs: params.timeoutMs,
+      throwOnTimeout: params.throwOnTimeout,
     })
 
   async function forkRepo() {

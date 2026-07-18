@@ -15,6 +15,13 @@ const warnedEmptyImageSources = new Set<string>()
 const unique = (values: string[] = []) => Array.from(new Set(values.filter(Boolean)))
 const canLogDiagnostics = () => dev && typeof window !== "undefined"
 
+export const canTraceRepoPublishTransport = () => canLogDiagnostics()
+
+export const logRepoPublishTransport = (detail: Record<string, unknown>) => {
+  if (!canLogDiagnostics()) return
+  console.debug("[budabit:repo-publish] transport", detail)
+}
+
 export const logPublishRelaySummary = ({
   category,
   relays,

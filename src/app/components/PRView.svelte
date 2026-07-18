@@ -236,8 +236,7 @@
     const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     return relays[0] || undefined
   })
-  const getCommentShareRelays = (event: TrustedEvent) =>
-    getSeenEventRelayHints(event.id)
+  const getCommentShareRelays = (event: TrustedEvent) => getSeenEventRelayHints(event.id)
   const prRepoAddress = $derived.by(
     () =>
       (prEvent?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
@@ -2788,11 +2787,13 @@
       relays: string[]
       filters: any[]
       timeoutMs?: number
+      throwOnTimeout?: boolean
     }) =>
       fetchRelayEventsWithTimeout({
         relays: params.relays,
         filters: params.filters,
         timeoutMs: params.timeoutMs,
+        throwOnTimeout: params.throwOnTimeout,
       })
 
     const publishRepoState = async (event: any, context?: {relays: string[]}) => {
@@ -2814,8 +2815,6 @@
       await verifyGraspEventAfterPush({
         relayUrl: publishedState.relayUrl,
         event: publishedState.event,
-        onPublishEvent: publishRepoState,
-        publishRelays: publishedState.publishRelays,
         fetchRelayEvents,
       })
     }

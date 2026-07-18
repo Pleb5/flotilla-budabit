@@ -1,10 +1,12 @@
 import { getGitServiceApiFromUrl, parseRepoUrl, type NostrEvent } from "@nostr-git/core";
-import type { RepoCommunityBinding } from "@nostr-git/core/events";
+import { createRepoAnnouncementEvent, type RepoCommunityBinding } from "@nostr-git/core/events";
+import { sanitizeRelays } from "@nostr-git/core/utils";
 
 import {
   buildGraspRepoUrls,
   createGraspRefMap,
   createGraspAnnouncementAndState,
+  extractPublishRelayAck,
   fetchLatestGraspRepoStateEvent,
   getGraspRefFullName,
   getGraspStateHeadFromEvent,
@@ -81,6 +83,210 @@ export interface SyncLocalRepoToTargetsOptions {
   onLatestRepoMetadataCreatedAt?: (value: number) => void;
   requireNonGraspSuccessBeforeGrasp?: boolean;
   allowApiBranchFastPath?: boolean;
+  graspFirst?: boolean;
+  prepublishedAnnouncement?: NostrEvent;
+  prepublishedAnnouncementByGraspRelay?: Record<string, NostrEvent>;
+  preprovisionedGraspRelayUrls?: string[];
+}
+
+export interface PublishRepoSyncAnnouncementOptions {
+  repoName: string;
+  repoDescription?: string;
+  userPubkey: string;
+  targets: RemoteTargetSelection[];
+  relayUrls: string[];
+  sourceCloneUrls?: string[];
+  sourceWebUrls?: string[];
+  community?: RepoCommunityBinding;
+  onPublishEvent: PublishRepoEvent;
+  onFetchRelayEvents?: FetchRelayEvents;
+  updateProgress: (message: string) => void;
+  runAbortable: <T>(operation: () => Promise<T>, label: string, timeoutMs: number) => Promise<T>;
+}
+
+export interface RepoSyncAnnouncementAdmission {
+  announcementEvent: NostrEvent;
+  ackedRelayUrls: string[];
+  graspRelayUrls: string[];
+  announcementByGraspRelay: Record<string, NostrEvent>;
+  latestAnnouncementCreatedAt: number;
+}
+
+function normalizeRelayForAdmission(relayUrl: string): string {
+  return relayUrl.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+export async function publishRepoSyncAnnouncement({
+  repoName,
+  repoDescription = "",
+  userPubkey,
+  targets,
+  relayUrls,
+  sourceCloneUrls = [],
+  sourceWebUrls = [],
+  community,
+  onPublishEvent,
+  onFetchRelayEvents,
+  updateProgress,
+  runAbortable,
+}: PublishRepoSyncAnnouncementOptions): Promise<RepoSyncAnnouncementAdmission> {
+  const allGraspTargets = targets.filter(
+    (target) => target.provider === "grasp" && target.relayUrl
+  );
+  const allGraspRelayUrls = sanitizeRelays(
+    allGraspTargets.map((target) => normalizeGraspOrigins(target.relayUrl as string).wsOrigin)
+  );
+  const newGraspRelayUrls = sanitizeRelays(
+    targets
+      .filter(
+        (target) => target.provider === "grasp" && target.relayUrl && !target.existingRemoteUrl
+      )
+      .map((target) => normalizeGraspOrigins(target.relayUrl as string).wsOrigin)
+  );
+  const existingGraspRelayUrls = sanitizeRelays(
+    targets
+      .filter(
+        (target) => target.provider === "grasp" && target.relayUrl && target.existingRemoteUrl
+      )
+      .map((target) => normalizeGraspOrigins(target.relayUrl as string).wsOrigin)
+  );
+  const selectedGraspRelaySet = new Set(allGraspRelayUrls.map(normalizeRelayForAdmission));
+  const genericRelayUrls = sanitizeRelays(relayUrls).filter(
+    (relayUrl) => !selectedGraspRelaySet.has(normalizeRelayForAdmission(relayUrl))
+  );
+  const candidateRelays = sanitizeRelays([...genericRelayUrls, ...newGraspRelayUrls]);
+  if (candidateRelays.length === 0 && existingGraspRelayUrls.length === 0) {
+    throw new Error("Repository announcement requires at least one relay");
+  }
+
+  const graspUrls = buildGraspRepoUrls({
+    relayUrls: allGraspRelayUrls,
+    ownerPubkey: userPubkey,
+    repoName,
+  });
+  const announcementEvent = allGraspRelayUrls[0]
+    ? createGraspAnnouncementAndState({
+        relayUrl: allGraspRelayUrls[0],
+        ownerPubkey: userPubkey,
+        repoName,
+        description: repoDescription,
+        relays: candidateRelays,
+        cloneUrls: graspUrls.cloneUrls,
+        webUrls: graspUrls.webUrls,
+        community,
+      }).announcementEvent
+    : createRepoAnnouncementEvent({
+        repoId: repoName,
+        name: repoName,
+        description: repoDescription,
+        relays: candidateRelays,
+        clone: sourceCloneUrls.filter(Boolean),
+        web: sourceWebUrls.filter(Boolean),
+        community,
+      });
+
+  const announcementByGraspRelay: Record<string, NostrEvent> = {};
+  const existingAnnouncements: NostrEvent[] = [];
+  for (const relayUrl of existingGraspRelayUrls) {
+    if (!onFetchRelayEvents) {
+      throw new Error("Existing GRASP target verification requires relay reads");
+    }
+    updateProgress(`Verifying existing repository announcement on ${relayUrl}...`);
+    const events = await onFetchRelayEvents({
+      relays: [relayUrl],
+      filters: [{ kinds: [30617], authors: [userPubkey], "#d": [repoName] }],
+      timeoutMs: 5000,
+      throwOnTimeout: true,
+    });
+    const existingAnnouncement = events
+      .filter(
+        (event) =>
+          event.kind === 30617 &&
+          event.pubkey === userPubkey &&
+          event.tags.some((tag) => tag[0] === "d" && tag[1] === repoName)
+      )
+      .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
+    if (!existingAnnouncement) {
+      throw new Error(
+        `Existing GRASP target has no queryable repository announcement: ${relayUrl}`
+      );
+    }
+    announcementByGraspRelay[normalizeRelayForAdmission(relayUrl)] = existingAnnouncement;
+    existingAnnouncements.push(existingAnnouncement);
+  }
+
+  let signedAnnouncement: NostrEvent | undefined;
+  let ackedRelayUrls: string[] = [];
+  if (candidateRelays.length > 0) {
+    updateProgress("Publishing repository announcement before remote sync...");
+    const result = await onPublishEvent(announcementEvent, {
+      relays: candidateRelays,
+      stage: "provisional",
+    });
+    if (!result?.event?.id || !result.event.sig || !result.event.pubkey) {
+      throw new Error("Repository announcement publication did not return a signed event");
+    }
+
+    const ack = extractPublishRelayAck(result);
+    if (!ack.hasRelayOutcomes) {
+      throw new Error("Repository announcement publication did not return relay outcomes");
+    }
+    if (ack.successCount === 0) {
+      const details =
+        ack.relayOutcomes
+          ?.map((outcome) => `${outcome.relay}: ${outcome.detail || outcome.status}`)
+          .join("; ") || ack.failedRelays.join(", ");
+      throw new Error(
+        `No repository relay ACKed the initial announcement${details ? ` (${details})` : ""}`
+      );
+    }
+
+    const ackedRelaySet = new Set(ack.ackedRelays.map(normalizeRelayForAdmission));
+    const missingGraspRelays = newGraspRelayUrls.filter(
+      (relayUrl) => !ackedRelaySet.has(normalizeRelayForAdmission(relayUrl))
+    );
+    if (missingGraspRelays.length > 0) {
+      throw new Error(
+        `Selected GRASP target relay did not ACK the initial announcement: ${missingGraspRelays.join(", ")}`
+      );
+    }
+
+    signedAnnouncement = result.event;
+    ackedRelayUrls = candidateRelays.filter((relayUrl) =>
+      ackedRelaySet.has(normalizeRelayForAdmission(relayUrl))
+    );
+    for (const relayUrl of newGraspRelayUrls) {
+      announcementByGraspRelay[normalizeRelayForAdmission(relayUrl)] = signedAnnouncement;
+    }
+  }
+
+  for (const relayUrl of allGraspRelayUrls) {
+    updateProgress(`Waiting for GRASP receive-pack on ${relayUrl}...`);
+    await runAbortable(
+      () =>
+        waitForGraspProvisioning({
+          relayUrl,
+          userPubkey,
+          owner: toNpubOrSelf(userPubkey),
+          repoName,
+          maxAttempts: 15,
+          delayMs: 3000,
+        }),
+      `Waiting for GRASP receive-pack on ${relayUrl}`,
+      0
+    );
+  }
+
+  return {
+    announcementEvent: signedAnnouncement || existingAnnouncements[0],
+    ackedRelayUrls: sanitizeRelays([...ackedRelayUrls, ...existingGraspRelayUrls]),
+    graspRelayUrls: newGraspRelayUrls,
+    announcementByGraspRelay,
+    latestAnnouncementCreatedAt: Math.max(
+      signedAnnouncement?.created_at || 0,
+      ...existingAnnouncements.map((event) => event.created_at)
+    ),
+  };
 }
 
 export function getRemoteSyncProvisionalEvents(
@@ -153,6 +359,30 @@ interface WorkerPushToRemoteResult {
     failedRefs?: Array<{ ref: string; error: string }>;
     warnings?: string[];
   };
+}
+
+export function assertCompleteRemoteRefPush(
+  pushResult: WorkerPushToRemoteResult | undefined,
+  refs: string[],
+  targetLabel: string
+): void {
+  const pushedRefs = Array.isArray(pushResult?.details?.pushedRefs)
+    ? new Set(pushResult.details.pushedRefs)
+    : undefined;
+  const failedRefs = Array.isArray(pushResult?.details?.failedRefs)
+    ? pushResult.details.failedRefs
+    : [];
+  const missingRefs = pushedRefs ? refs.filter((ref) => !pushedRefs.has(ref)) : [];
+  if (pushResult?.success && failedRefs.length === 0 && missingRefs.length === 0) return;
+
+  const detail = [
+    ...failedRefs.map((item) => `${item.ref || "unknown ref"}: ${item.error || "push failed"}`),
+    ...(missingRefs.length > 0 ? [`missing refs: ${missingRefs.join(", ")}`] : []),
+  ].join("; ");
+  throw new Error(
+    pushResult?.error ||
+      `Failed to push all imported pull request refs to ${targetLabel}${detail ? ` (${detail})` : ""}`
+  );
 }
 
 class RemotePushResultError extends Error {
@@ -493,6 +723,10 @@ export async function syncLocalRepoToTargets(
     withRateLimit: rateLimiter,
     requireNonGraspSuccessBeforeGrasp = false,
     allowApiBranchFastPath = true,
+    graspFirst = false,
+    prepublishedAnnouncement,
+    prepublishedAnnouncementByGraspRelay = {},
+    preprovisionedGraspRelayUrls = [],
   } = options;
   const webUrls = Array.from(
     new Set(configuredWebUrls.map((url) => String(url || "").trim()).filter(Boolean))
@@ -539,6 +773,7 @@ export async function syncLocalRepoToTargets(
   const orderedTargets = [...targets].sort((a, b) => {
     const aIsGrasp = a.provider === "grasp" ? 1 : 0;
     const bIsGrasp = b.provider === "grasp" ? 1 : 0;
+    if (graspFirst) return bIsGrasp - aIsGrasp;
     return aIsGrasp - bIsGrasp;
   });
   const hasAnyNonGraspTarget = orderedTargets.some((target) => target.provider !== "grasp");
@@ -566,7 +801,12 @@ export async function syncLocalRepoToTargets(
         community,
       })
     : undefined;
-  let canonicalSignedAnnouncement: NostrEvent | undefined;
+  let canonicalSignedAnnouncement: NostrEvent | undefined = prepublishedAnnouncement;
+  const preprovisionedGraspRelays = new Set(
+    preprovisionedGraspRelayUrls.map((relayUrl) =>
+      normalizeRelayForAdmission(normalizeGraspOrigins(relayUrl).wsOrigin)
+    )
+  );
 
   const results: RemoteSyncTargetResult[] = [];
   let latestRepoMetadataCreatedAt = options.latestRepoMetadataCreatedAt || 0;
@@ -583,6 +823,11 @@ export async function syncLocalRepoToTargets(
     let activeRef: RemoteSyncRef | null = null;
     let provisionToken = getTargetTokens(target)[0];
     const provisionalStateEvents: NostrEvent[] = [];
+    let targetSignedAnnouncement = target.relayUrl
+      ? prepublishedAnnouncementByGraspRelay[
+          normalizeRelayForAdmission(normalizeGraspOrigins(target.relayUrl).wsOrigin)
+        ] || canonicalSignedAnnouncement
+      : canonicalSignedAnnouncement;
 
     try {
       throwIfAborted?.();
@@ -613,6 +858,10 @@ export async function syncLocalRepoToTargets(
 
         if (!remoteUrl) {
           createdRemote = true;
+          const targetRelayUrl = normalizeGraspOrigins(target.relayUrl).wsOrigin;
+          const wasPreprovisioned = preprovisionedGraspRelays.has(
+            normalizeRelayForAdmission(targetRelayUrl)
+          );
           const targetUrls = buildGraspRepoUrls({
             relayUrls: [target.relayUrl],
             ownerPubkey: userPubkey,
@@ -640,32 +889,35 @@ export async function syncLocalRepoToTargets(
           latestRepoMetadataCreatedAt = updateLatestRepoMetadataCreatedAt(
             latestRepoMetadataCreatedAt,
             options.onLatestRepoMetadataCreatedAt,
-            graspEvents.announcementEvent,
+            targetSignedAnnouncement || graspEvents.announcementEvent,
             graspEvents.stateEvent
           );
 
-          updateProgress(`Publishing repository announcement to ${target.label}...`);
-          const publishedAnnouncement = await publishGraspEventWithRetry({
-            relayUrl: target.relayUrl,
-            event: canonicalSignedAnnouncement || graspEvents.announcementEvent,
-            onPublishEvent,
-            publishRelays: [normalizeGraspOrigins(target.relayUrl).wsOrigin],
-          });
-          canonicalSignedAnnouncement = publishedAnnouncement.event;
+          if (!wasPreprovisioned) {
+            updateProgress(`Publishing repository announcement to ${target.label}...`);
+            const publishedAnnouncement = await publishGraspEventWithRetry({
+              relayUrl: target.relayUrl,
+              event: targetSignedAnnouncement || graspEvents.announcementEvent,
+              onPublishEvent,
+              publishRelays: [targetRelayUrl],
+            });
+            canonicalSignedAnnouncement = publishedAnnouncement.event;
+            targetSignedAnnouncement = publishedAnnouncement.event;
 
-          await runAbortable(
-            () =>
-              waitForGraspProvisioning({
-                relayUrl: target.relayUrl!,
-                userPubkey,
-                owner: toNpubOrSelf(userPubkey),
-                repoName,
-                maxAttempts: 15,
-                delayMs: 3000,
-              }),
-            `Waiting for GRASP receive-pack on ${target.label}`,
-            0
-          );
+            await runAbortable(
+              () =>
+                waitForGraspProvisioning({
+                  relayUrl: target.relayUrl!,
+                  userPubkey,
+                  owner: toNpubOrSelf(userPubkey),
+                  repoName,
+                  maxAttempts: 15,
+                  delayMs: 3000,
+                }),
+              `Waiting for GRASP receive-pack on ${target.label}`,
+              0
+            );
+          }
         }
 
         if (!remoteUrl) {
@@ -825,12 +1077,10 @@ export async function syncLocalRepoToTargets(
             }
 
             updateProgress(`Verifying GRASP metadata for ${ref.name} on ${target.label}...`);
-            if (!announcementVerified && canonicalSignedAnnouncement) {
+            if (!announcementVerified && targetSignedAnnouncement) {
               await verifyGraspEventAfterPush({
                 relayUrl: target.relayUrl,
-                event: canonicalSignedAnnouncement,
-                onPublishEvent,
-                publishRelays: [normalizeGraspOrigins(target.relayUrl).wsOrigin],
+                event: targetSignedAnnouncement,
                 fetchRelayEvents: options.onFetchRelayEvents,
               });
               announcementVerified = true;
@@ -838,8 +1088,6 @@ export async function syncLocalRepoToTargets(
             await verifyGraspEventAfterPush({
               relayUrl: target.relayUrl,
               event: publishedStateEvent,
-              onPublishEvent,
-              publishRelays: [normalizeGraspOrigins(target.relayUrl).wsOrigin],
               fetchRelayEvents: options.onFetchRelayEvents,
             });
 
@@ -883,7 +1131,7 @@ export async function syncLocalRepoToTargets(
             warningsForTarget.length > 0 ? Array.from(new Set(warningsForTarget)) : undefined,
           relayUrl: normalizeGraspOrigins(target.relayUrl).wsOrigin,
           outcome: "ok",
-          provisionalAnnouncementEvent: canonicalSignedAnnouncement,
+          provisionalAnnouncementEvent: targetSignedAnnouncement,
           provisionalStateEvents,
         });
         continue;
@@ -1118,24 +1366,19 @@ export async function syncLocalRepoToTargets(
               !target.relayUrl ||
               !onPublishEvent ||
               !options.onFetchRelayEvents ||
-              !canonicalSignedAnnouncement ||
+              !targetSignedAnnouncement ||
               !latestStateEvent
             ) {
               throw new Error("GRASP postflight metadata verification is unavailable");
             }
-            const publishRelays = [normalizeGraspOrigins(target.relayUrl).wsOrigin];
             await verifyGraspEventAfterPush({
               relayUrl: target.relayUrl,
-              event: canonicalSignedAnnouncement,
-              onPublishEvent,
-              publishRelays,
+              event: targetSignedAnnouncement,
               fetchRelayEvents: options.onFetchRelayEvents,
             });
             await verifyGraspEventAfterPush({
               relayUrl: target.relayUrl,
               event: latestStateEvent,
-              onPublishEvent,
-              publishRelays,
               fetchRelayEvents: options.onFetchRelayEvents,
             });
           }
@@ -1154,7 +1397,7 @@ export async function syncLocalRepoToTargets(
             ],
             outcome: "ok",
             relayUrl: target.relayUrl ? normalizeGraspOrigins(target.relayUrl).wsOrigin : undefined,
-            provisionalAnnouncementEvent: canonicalSignedAnnouncement,
+            provisionalAnnouncementEvent: targetSignedAnnouncement,
             provisionalStateEvents:
               provisionalStateEvents.length > 0 ? provisionalStateEvents : undefined,
           });
@@ -1201,7 +1444,7 @@ export async function syncLocalRepoToTargets(
         relayUrl: target.relayUrl ? normalizeGraspOrigins(target.relayUrl).wsOrigin : undefined,
         outcome,
         cleanup,
-        provisionalAnnouncementEvent: canonicalSignedAnnouncement,
+        provisionalAnnouncementEvent: targetSignedAnnouncement,
         provisionalStateEvents:
           provisionalStateEvents.length > 0 ? provisionalStateEvents : undefined,
       });

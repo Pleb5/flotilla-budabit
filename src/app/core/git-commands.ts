@@ -8,12 +8,16 @@ import type {
 } from "@nostr-git/core/events"
 import {buildRoleLabelEvent} from "@app/util/labels"
 import {abortThunk, publishThunk, pubkey, repository, signer} from "@welshman/app"
-import {load, publish, PublishStatus} from "@welshman/net"
+import {load, Pool, publish, PublishStatus, SocketEvent} from "@welshman/net"
 import {GIT_RELAYS, getRepoAnnouncementPublishRelays} from "./git-state"
 import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
-import {logPublishRelaySummary} from "@app/core/diagnostics"
+import {
+  canTraceRepoPublishTransport,
+  logPublishRelaySummary,
+  logRepoPublishTransport,
+} from "@app/core/diagnostics"
 import {
   COMMENT,
   GIT_STATUS_OPEN,
@@ -31,6 +35,144 @@ import {GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
 import type {Event as NostrEvent} from "nostr-tools"
 
 export const GRASP_RELAY_ACK_TIMEOUT_MS = 30_000
+
+const repoPublishAttemptCounts = new Map<string, number>()
+const repoPublishSocketIds = new WeakMap<object, number>()
+const repoPublishWebSocketGenerations = new WeakMap<object, number>()
+let nextRepoPublishSocketId = 1
+let nextRepoPublishWebSocketGeneration = 1
+
+const startRepoPublishTransportTrace = (relay: string, eventId: string) => {
+  if (!canTraceRepoPublishTransport()) return () => undefined
+
+  const socket = Pool.get().get(relay) as any
+  let socketId = repoPublishSocketIds.get(socket)
+  if (!socketId) {
+    socketId = nextRepoPublishSocketId++
+    repoPublishSocketIds.set(socket, socketId)
+  }
+  const attemptKey = `${normalizeRelayUrl(relay)}:${eventId}`
+  const attempt = (repoPublishAttemptCounts.get(attemptKey) || 0) + 1
+  repoPublishAttemptCounts.set(attemptKey, attempt)
+  const startedAt = performance.now()
+  const nativeListeners: Array<{ws: WebSocket; type: string; listener: EventListener}> = []
+  const attachedWebSockets = new WeakSet<object>()
+
+  const snapshot = () => {
+    const ws = socket._ws as WebSocket | undefined
+    let generation: number | undefined
+    if (ws) {
+      generation = repoPublishWebSocketGenerations.get(ws)
+      if (!generation) {
+        generation = nextRepoPublishWebSocketGeneration++
+        repoPublishWebSocketGenerations.set(ws, generation)
+      }
+    }
+    return {
+      socketId,
+      generation,
+      socketStatus: socket.status,
+      readyState: ws?.readyState,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    }
+  }
+  const trace = (phase: string, extra: Record<string, unknown> = {}) =>
+    logRepoPublishTransport({relay, eventId, attempt, phase, ...snapshot(), ...extra})
+  const attachNativeListeners = () => {
+    const ws = socket._ws as WebSocket | undefined
+    if (!ws || attachedWebSockets.has(ws)) return
+    attachedWebSockets.add(ws)
+    let nativeGeneration = repoPublishWebSocketGenerations.get(ws)
+    if (!nativeGeneration) {
+      nativeGeneration = nextRepoPublishWebSocketGeneration++
+      repoPublishWebSocketGenerations.set(ws, nativeGeneration)
+    }
+
+    const onError: EventListener = () => trace("native-error", {nativeGeneration})
+    const onClose: EventListener = event => {
+      const close = event as CloseEvent
+      trace("native-close", {
+        nativeGeneration,
+        code: close.code,
+        reason: close.reason,
+        wasClean: close.wasClean,
+      })
+    }
+    const onMessage: EventListener = event => {
+      try {
+        const message = JSON.parse(String((event as MessageEvent).data || ""))
+        if (shouldTraceRelayMessage(message)) {
+          trace("native-message", {
+            nativeGeneration,
+            messageType: message[0],
+            ok: message[2],
+            detail: message[3],
+          })
+        }
+      } catch {
+        // Welshman reports malformed relay messages separately.
+      }
+    }
+    ws.addEventListener("error", onError)
+    ws.addEventListener("close", onClose)
+    ws.addEventListener("message", onMessage)
+    nativeListeners.push(
+      {ws, type: "error", listener: onError},
+      {ws, type: "close", listener: onClose},
+      {ws, type: "message", listener: onMessage},
+    )
+  }
+  const isMatchingClientEvent = (message: any) =>
+    message?.[0] === "EVENT" && message?.[1]?.id === eventId
+  const shouldTraceRelayMessage = (message: any) =>
+    (message?.[0] === "OK" && message?.[1] === eventId) ||
+    message?.[0] === "NOTICE" ||
+    message?.[0] === "AUTH"
+  const onStatus = (status: unknown) => {
+    attachNativeListeners()
+    trace("status", {status})
+  }
+  const onSending = (message: unknown) => {
+    if (isMatchingClientEvent(message)) trace("queued")
+  }
+  const onSend = (message: unknown) => {
+    if (isMatchingClientEvent(message)) trace("send-returned")
+  }
+  const onReceiving = (message: any) => {
+    if (shouldTraceRelayMessage(message)) {
+      trace("raw-receive", {messageType: message[0], ok: message[2], detail: message[3]})
+    }
+  }
+  const onReceive = (message: any) => {
+    if (shouldTraceRelayMessage(message)) {
+      trace("processed-receive", {messageType: message[0], ok: message[2], detail: message[3]})
+    }
+  }
+
+  socket.on(SocketEvent.Status, onStatus)
+  socket.on(SocketEvent.Sending, onSending)
+  socket.on(SocketEvent.Send, onSend)
+  socket.on(SocketEvent.Receiving, onReceiving)
+  socket.on(SocketEvent.Receive, onReceive)
+  attachNativeListeners()
+  trace("start")
+
+  return (result: string = "complete") => {
+    trace("complete", {result})
+    const cleanup = () => {
+      socket.off(SocketEvent.Status, onStatus)
+      socket.off(SocketEvent.Sending, onSending)
+      socket.off(SocketEvent.Send, onSend)
+      socket.off(SocketEvent.Receiving, onReceiving)
+      socket.off(SocketEvent.Receive, onReceive)
+      for (const {ws, type, listener} of nativeListeners) {
+        ws.removeEventListener(type, listener)
+      }
+    }
+    if (result === PublishStatus.Timeout) setTimeout(cleanup, 2000)
+    else cleanup()
+  }
+}
 
 // Helper to safely get user relay URLs, filtering out invalid values
 const getUserRelayUrls = (): string[] => {
@@ -97,6 +239,10 @@ export const publishRepoEventWithRelayOutcomes = async (
   repository.publish(signedEvent as TrustedEvent)
 
   let results: Awaited<ReturnType<typeof publish>> = {}
+  const transportTraces = scopedRelays.map(relay => ({
+    relay,
+    finish: startRepoPublishTransportTrace(relay, signedEvent.id),
+  }))
   try {
     results = await publish({
       relays: scopedRelays,
@@ -108,6 +254,13 @@ export const publishRepoEventWithRelayOutcomes = async (
     results = Object.fromEntries(
       scopedRelays.map(relay => [relay, {relay, status: PublishStatus.Failure, detail}]),
     )
+  } finally {
+    for (const trace of transportTraces) {
+      const result = Object.values(results).find(
+        candidate => normalizeRelayUrl(candidate.relay) === normalizeRelayUrl(trace.relay),
+      )
+      trace.finish(result?.status || PublishStatus.Failure)
+    }
   }
 
   const relayOutcomes = Object.values(results).map(result => ({

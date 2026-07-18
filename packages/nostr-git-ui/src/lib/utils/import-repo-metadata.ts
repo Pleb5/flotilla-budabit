@@ -7,7 +7,12 @@ import {
 import { withRepoCommunityBinding, type RepoCommunityBinding } from "@nostr-git/core/events";
 import { isGraspRepoHttpUrl } from "@nostr-git/core/utils";
 
-import { normalizeGraspOrigins } from "./grasp-pipeline.js";
+import {
+  getEditableRepoRelayUrls,
+  getEffectiveRepoRelayUrls,
+  getSuccessfulGraspRelayUrls,
+  normalizeGraspOrigins,
+} from "./grasp-pipeline.js";
 
 export function trackLatestRepoMetadataCreatedAt(
   current: number,
@@ -41,6 +46,21 @@ export interface ImportedRemotePushResultLike {
   success: boolean;
   remoteUrl?: string;
   webUrl?: string;
+}
+
+export function getImportedRepoRelayUrls(params: {
+  admittedRelayUrls: string[];
+  selectedGraspRelayUrls: string[];
+  remotePushResults: ImportedRemotePushResultLike[];
+}): string[] {
+  return getEffectiveRepoRelayUrls(
+    getEditableRepoRelayUrls(params.admittedRelayUrls, params.selectedGraspRelayUrls),
+    getSuccessfulGraspRelayUrls(
+      params.remotePushResults
+        .filter((result) => result.success)
+        .map((result) => result.remoteUrl || "")
+    )
+  );
 }
 
 export interface ImportedBranchRefLike {

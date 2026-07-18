@@ -243,6 +243,48 @@ describe("grasp-pipeline", () => {
     expect(onPublishEvent.mock.calls[1][0]).toBe(signed);
   });
 
+  it("reports relay rejection details and signs state for recovery", async () => {
+    const relayUrl = "wss://grasp.example";
+    const stateEvent = createRepoStateEvent({
+      repoId: "repo",
+      refs: [{ type: "heads", name: "main", commit: "a".repeat(40) }],
+      head: "main",
+    });
+    const onPublishEvent = vi.fn(async (event: any) => ({
+      event: signedEvent(event, `signed-${event.kind}`),
+      relayOutcomes:
+        event.kind === 30617
+          ? [
+              {
+                relay: relayUrl,
+                status: "failure",
+                detail: "invalid: clone tag does not list this GRASP service",
+              },
+            ]
+          : [],
+    }));
+
+    await expect(
+      reconcileRepoCreationEvents({
+        relayUrls: [relayUrl],
+        stateEvent,
+        onPublishEvent,
+        buildAnnouncement: ({ relays, createdAt }) =>
+          createRepoAnnouncementEvent({
+            repoId: "repo",
+            clone: ["https://github.com/alice/repo.git"],
+            relays,
+            created_at: createdAt,
+          }),
+      })
+    ).rejects.toThrow("invalid: clone tag does not list this GRASP service");
+
+    expect(onPublishEvent).toHaveBeenNthCalledWith(2, stateEvent, {
+      relays: [],
+      stage: "final",
+    });
+  });
+
   it("rebuilds final metadata until every retained relay ACKs announcement and state", async () => {
     const relayOne = "wss://relay.one";
     const relayTwo = "wss://relay.two";
@@ -521,14 +563,11 @@ describe("grasp-pipeline", () => {
       "post-push-id"
     );
     const fetchRelayEvents = vi.fn().mockResolvedValue([event]);
-    const onPublishEvent = vi.fn();
 
     await expect(
       verifyGraspEventAfterPush({
         relayUrl: "https://relay.ngit.dev/path",
         event,
-        onPublishEvent,
-        publishRelays: ["wss://relay.ngit.dev"],
         fetchRelayEvents,
         visibilityTimeoutMs: 0,
         pollIntervalMs: 0,
@@ -538,11 +577,11 @@ describe("grasp-pipeline", () => {
     expect(fetchRelayEvents).toHaveBeenCalledWith({
       relays: ["wss://relay.ngit.dev/path"],
       filters: [{ ids: ["post-push-id"] }],
+      throwOnTimeout: true,
     });
-    expect(onPublishEvent).not.toHaveBeenCalled();
   });
 
-  it("replays the exact event after absent readback and then accepts an exact match", async () => {
+  it("does not replay an exact event after a completed absent readback", async () => {
     const event = signedEvent(
       createRepoStateEvent({
         repoId: "flotilla-budabit",
@@ -552,61 +591,39 @@ describe("grasp-pipeline", () => {
       "post-push-id"
     );
     const wrongCore = { ...event, tags: [...event.tags, ["relays", "wss://wrong"]] };
-    const fetchRelayEvents = vi
-      .fn()
-      .mockResolvedValueOnce([wrongCore])
-      .mockResolvedValueOnce([event]);
-    const publishRelays = ["wss://relay.ngit.dev"];
-    const onPublishEvent = vi.fn().mockResolvedValue({
-      event,
-      ackedRelays: ["wss://relay.ngit.dev"],
-      failedRelays: [],
-    });
+    const fetchRelayEvents = vi.fn().mockResolvedValue([wrongCore]);
 
     await expect(
       verifyGraspEventAfterPush({
         relayUrl: "wss://relay.ngit.dev",
         event,
-        onPublishEvent,
-        publishRelays,
         fetchRelayEvents,
         visibilityTimeoutMs: 0,
         pollIntervalMs: 0,
       })
-    ).resolves.toBe(event);
+    ).rejects.toThrow("was absent after completed post-push queries");
 
-    expect(fetchRelayEvents).toHaveBeenCalledTimes(2);
-    expect(onPublishEvent).toHaveBeenCalledTimes(1);
-    expect(onPublishEvent.mock.calls[0][0]).toBe(event);
-    expect(onPublishEvent.mock.calls[0][1].relays).toBe(publishRelays);
+    expect(fetchRelayEvents).toHaveBeenCalledTimes(1);
   });
 
-  it("fails post-push verification when exact readback is absent after replay", async () => {
+  it("distinguishes an inconclusive relay timeout from confirmed absence", async () => {
     const event = signedEvent(
       createRepoStateEvent({ repoId: "flotilla-budabit" }),
       "missing-post-push-id"
     );
-    const fetchRelayEvents = vi.fn().mockResolvedValue([]);
-    const onPublishEvent = vi.fn().mockResolvedValue({
-      event,
-      ackedRelays: ["wss://relay.ngit.dev"],
-      failedRelays: [],
-    });
+    const fetchRelayEvents = vi.fn().mockRejectedValue(new Error("Relay query timed out"));
 
     await expect(
       verifyGraspEventAfterPush({
         relayUrl: "wss://relay.ngit.dev",
         event,
-        onPublishEvent,
-        publishRelays: ["wss://relay.ngit.dev"],
         fetchRelayEvents,
         visibilityTimeoutMs: 0,
         pollIntervalMs: 0,
       })
-    ).rejects.toThrow("was not visible on wss://relay.ngit.dev after exact replay");
+    ).rejects.toThrow("could not be verified on wss://relay.ngit.dev (Relay query timed out)");
 
-    expect(fetchRelayEvents).toHaveBeenCalledTimes(2);
-    expect(onPublishEvent.mock.calls[0][0]).toBe(event);
+    expect(fetchRelayEvents).toHaveBeenCalledTimes(1);
   });
 
   it("rejects publish when the selected relay does not ACK the state event", async () => {
