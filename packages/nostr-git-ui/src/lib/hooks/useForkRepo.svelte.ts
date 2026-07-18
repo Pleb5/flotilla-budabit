@@ -645,6 +645,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         ownerPubkey: userPubkey,
         repoName: forkName,
         localRepoId,
+        localResource: { ownedByTransaction: true, stage: "planned" },
       });
       transactionJournal.setTargets(selectedTargets);
       transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
@@ -684,6 +685,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
 
       const localCloneDir = `/repos/${localRepoId}`;
 
+      transactionJournal.setLocalResourceStatus("creating");
       updateProgress("fork", "Preparing local duplicate...", "running");
 
       let clonedFrom = "";
@@ -708,13 +710,19 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           );
 
           clonedFrom = sourceUrl;
+          transactionJournal.setLocalResourceStatus("created");
           break;
         } catch (cloneError) {
           cloneFailure = cloneError instanceof Error ? cloneError.message : String(cloneError);
           try {
-            await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
-          } catch {
-            // pass
+            const cleanup = await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
+            if (cleanup?.success === false) {
+              throw new Error(cleanup.error || "Failed to reset local fork mirror");
+            }
+            transactionJournal.setLocalResourceStatus("planned");
+          } catch (cleanupError) {
+            transactionJournal.setLocalResourceStatus("cleanup-pending", cleanupError);
+            throw cloneError;
           }
         }
       }
@@ -778,6 +786,8 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         prepublishedAnnouncement: announcementAdmission.announcementEvent,
         prepublishedAnnouncementByGraspRelay: announcementAdmission.announcementByGraspRelay,
         preprovisionedGraspRelayUrls: announcementAdmission.graspRelayUrls,
+        onCheckpoint: (checkpoint) => transactionJournal!.recordRemoteSyncCheckpoint(checkpoint),
+        onTargetSettled: (targetResult) => transactionJournal!.recordTargetResult(targetResult),
       });
       operationActivity = undefined;
       transactionJournal.setTargetResults(remotePushResults);
@@ -950,6 +960,16 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         remotePushResults,
       };
 
+      transactionJournal.setLocalResourceStatus("cleanup-pending");
+      const localCleanup = await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
+      if (localCleanup?.success === false) {
+        transactionJournal.setLocalResourceStatus(
+          "cleanup-pending",
+          localCleanup.error || "Failed to delete temporary fork mirror"
+        );
+      } else {
+        transactionJournal.setLocalResourceStatus("cleaned");
+      }
       isComplete = true;
       onForkCompleted?.(result);
       transactionJournal.complete();
@@ -971,7 +991,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           options.onDeleteEvent || onRollbackPublishedRepoEvents
         ),
         createdRemoteRepoCount: remoteRollbackTargets.length,
-        hasGitWorkerApi: Boolean(gitWorkerApi),
+        hasGitWorkerApi: Boolean(gitWorkerApi) && !(err instanceof ForkAbortedError),
         hasRollbackLocalRepoId: Boolean(localRepoId),
       });
       const rollbackFailures: string[] = [];
@@ -990,7 +1010,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           relayUrls: string[];
           error: string;
         }> = [];
-        for (const item of provisionalEvents) {
+        for (const item of provisionalEvents.filter((event) => event.relayUrls.length > 0)) {
           try {
             if (options.onDeleteEvent) {
               await options.onDeleteEvent(item.event, item.relayUrls);
@@ -1059,12 +1079,20 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
 
       if (rollbackPlan.rollbackLocalRepo && localRepoId) {
         try {
-          await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
+          transactionJournal?.setLocalResourceStatus("cleanup-pending");
+          const cleanup = await gitWorkerApi.deleteRepo?.({ repoId: localRepoId });
+          if (cleanup?.success === false) {
+            throw new Error(cleanup.error || "Failed to delete local fork mirror");
+          }
+          transactionJournal?.setLocalResourceStatus("cleaned");
         } catch (rollbackError) {
+          transactionJournal?.setLocalResourceStatus("cleanup-pending", rollbackError);
           rollbackFailures.push(
             `local mirror: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
           );
         }
+      } else if (err instanceof ForkAbortedError && transactionJournal) {
+        transactionJournal.setLocalResourceStatus("cleanup-pending", err);
       }
 
       if (rollbackPlan.hasAnyRollback) {

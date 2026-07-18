@@ -71,11 +71,10 @@
     TabsTrigger,
     EventRenderer,
     getPendingRepoCreationTransactions,
+    recoverRepoCreationRecord,
     toast,
     NewRepoWizard,
     ImportRepoDialog,
-    retryPendingRepoCreationMetadata,
-    retryRepoCreationCompensations,
   } from "@nostr-git/ui"
   import type {ImportResult, NewRepoResult, RepoCommunityOption} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
@@ -3051,34 +3050,35 @@
 
     void (async () => {
       let recoveredCount = 0
-      for (const record of getPendingRepoCreationTransactions().filter(
-        pending => pending.ownerPubkey === ownerPubkey,
-      )) {
+      let pendingRecords: ReturnType<typeof getPendingRepoCreationTransactions>
+      try {
+        pendingRecords = getPendingRepoCreationTransactions().filter(
+          pending => pending.ownerPubkey === ownerPubkey,
+        )
+      } catch (error) {
+        console.warn("[repo-creation] Failed to read recovery journals:", error)
+        return
+      }
+      if (pendingRecords.length === 0) return
+
+      let recoveryWorkerApi: any
+      try {
+        recoveryWorkerApi = (await getInitializedGitWorker()).api
+      } catch (error) {
+        console.warn("[repo-creation] Git worker is unavailable for recovery:", error)
+        return
+      }
+
+      for (const record of pendingRecords) {
         try {
-          if (record.phase === "metadata-pending") {
-            await retryPendingRepoCreationMetadata(
-              record,
-              (event, context) => publishRepoEventWithRelayOutcomes(event, context?.relays || []),
-              fetchRelayEvents,
-            )
-            if (record.pendingCompensations.length > 0) {
-              const next = await retryRepoCreationCompensations(
-                {...record, phase: "cleanup-pending"},
-                deleteExactRepoEvent,
-                (event, context) => publishRepoEventWithRelayOutcomes(event, context?.relays || []),
-              )
-              if (next.pendingCompensations.length === 0) recoveredCount += 1
-            } else {
-              recoveredCount += 1
-            }
-          } else if (record.phase === "cleanup-pending") {
-            const next = await retryRepoCreationCompensations(
-              record,
-              deleteExactRepoEvent,
-              (event, context) => publishRepoEventWithRelayOutcomes(event, context?.relays || []),
-            )
-            if (next.pendingCompensations.length === 0) recoveredCount += 1
-          }
+          const recovery = await recoverRepoCreationRecord(record, {
+            workerApi: recoveryWorkerApi,
+            publisher: (event, context) =>
+              publishRepoEventWithRelayOutcomes(event, context?.relays || []),
+            fetchRelayEvents,
+            onDeleteEvent: deleteExactRepoEvent,
+          })
+          if (recovery.status === "recovered") recoveredCount += 1
         } catch (error) {
           console.warn(`[repo-creation] Recovery remains pending for ${record.repoName}:`, error)
         }

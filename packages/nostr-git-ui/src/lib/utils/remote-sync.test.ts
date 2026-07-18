@@ -168,6 +168,137 @@ describe("publishRepoSyncAnnouncement", () => {
 });
 
 describe("syncLocalRepoToTargets", () => {
+  it("checkpoints each target immediately around create, push, verification, and settlement", async () => {
+    const commit = "a".repeat(40);
+    const operations: string[] = [];
+    const checkpoints: unknown[] = [];
+    const workerApi = {
+      createRemoteRepo: vi.fn(async () => {
+        operations.push("create-effect");
+        return { success: true, remoteUrl: "https://github.com/alice/repo.git" };
+      }),
+      pushToRemote: vi.fn(async () => {
+        operations.push("push-effect");
+        return { success: true };
+      }),
+      listServerRefs: vi.fn(async () => {
+        operations.push("verify-effect");
+        return [{ ref: "refs/heads/main", oid: commit }];
+      }),
+    };
+
+    const results = await syncLocalRepoToTargets({
+      workerApi,
+      localRepoId: "local/repo",
+      repoName: "repo",
+      repoDescription: "",
+      defaultBranch: "main",
+      refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit }],
+      targets: [
+        {
+          id: "git:github.com",
+          label: "GitHub",
+          provider: "github",
+          host: "github.com",
+          token: "ghp_callback_secret",
+        },
+      ],
+      userPubkey: "f".repeat(64),
+      updateProgress: vi.fn(),
+      runAbortable: async (operation) => await operation(),
+      onCheckpoint: (checkpoint) => {
+        checkpoints.push(checkpoint);
+        operations.push(
+          `${checkpoint.position}:${checkpoint.action}:${checkpoint.ref?.stage || checkpoint.stage}`
+        );
+      },
+      onTargetSettled: (result) => {
+        operations.push(`settled:${result.id}:${result.outcome}`);
+      },
+    });
+
+    expect(results).toEqual([expect.objectContaining({ success: true, outcome: "ok" })]);
+    expect(operations).toEqual([
+      "before:target:planned",
+      "before:create:creating",
+      "create-effect",
+      "after:create:created",
+      "before:push:pushing",
+      "push-effect",
+      "after:push:pushed",
+      "before:verify:pushing",
+      "verify-effect",
+      "after:verify:verified",
+      "after:target:verified",
+      "settled:git:github.com:ok",
+    ]);
+    expect(JSON.stringify(checkpoints)).not.toContain("ghp_callback_secret");
+    expect(checkpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "create",
+          position: "after",
+          remoteUrl: "https://github.com/alice/repo.git",
+          createdRemote: true,
+        }),
+        expect.objectContaining({
+          action: "push",
+          position: "after",
+          ref: expect.objectContaining({ ref: "refs/heads/main", stage: "pushed" }),
+        }),
+      ])
+    );
+  });
+
+  it("interrupts before further side effects when an after-create checkpoint fails", async () => {
+    const commit = "a".repeat(40);
+    const onTargetSettled = vi.fn();
+    const workerApi = {
+      createRemoteRepo: vi.fn(async () => ({
+        success: true,
+        remoteUrl: "https://github.com/alice/repo.git",
+      })),
+      pushToRemote: vi.fn(async () => ({ success: true })),
+      listServerRefs: vi.fn(async () => [{ ref: "refs/heads/main", oid: commit }]),
+      deleteRemoteRepo: vi.fn(async () => ({ success: true })),
+    };
+
+    await expect(
+      syncLocalRepoToTargets({
+        workerApi,
+        localRepoId: "local/repo",
+        repoName: "repo",
+        repoDescription: "",
+        defaultBranch: "main",
+        refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit }],
+        targets: [
+          {
+            id: "git:github.com",
+            label: "GitHub",
+            provider: "github",
+            host: "github.com",
+            token: "ghp_test",
+          },
+        ],
+        userPubkey: "f".repeat(64),
+        updateProgress: vi.fn(),
+        runAbortable: async (operation) => await operation(),
+        onCheckpoint: (checkpoint) => {
+          if (checkpoint.action === "create" && checkpoint.position === "after") {
+            throw new Error("checkpoint storage unavailable");
+          }
+        },
+        onTargetSettled,
+      })
+    ).rejects.toThrow("Remote sync checkpoint failed: checkpoint storage unavailable");
+
+    expect(workerApi.createRemoteRepo).toHaveBeenCalledTimes(1);
+    expect(workerApi.pushToRemote).not.toHaveBeenCalled();
+    expect(workerApi.listServerRefs).not.toHaveBeenCalled();
+    expect(workerApi.deleteRemoteRepo).not.toHaveBeenCalled();
+    expect(onTargetSettled).not.toHaveBeenCalled();
+  });
+
   it("reuses a prepublished announcement without publishing or provisioning it again", async () => {
     const commit = "a".repeat(40);
     const announcement = signedEvent({

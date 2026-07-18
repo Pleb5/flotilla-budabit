@@ -1918,6 +1918,7 @@ async function syncRepositoryToRemotes(
 
   context.updateProgress("Preparing local mirror for remote sync...");
   context.abortController.throwIfAborted();
+  context.creationJournal?.setLocalResourceStatus("creating");
 
   let clonedFrom = "";
   let cloneFailure = "";
@@ -1940,6 +1941,7 @@ async function syncRepositoryToRemotes(
         90000
       );
       clonedFrom = candidateUrl;
+      context.creationJournal?.setLocalResourceStatus("created");
       break;
     } catch (error) {
       cloneFailure = error instanceof Error ? error.message : String(error);
@@ -2012,6 +2014,8 @@ async function syncRepositoryToRemotes(
     prepublishedAnnouncement: context.prepublishedAnnouncement,
     prepublishedAnnouncementByGraspRelay: context.prepublishedAnnouncementByGraspRelay,
     preprovisionedGraspRelayUrls: context.preprovisionedGraspRelayUrls,
+    onCheckpoint: (checkpoint) => context.creationJournal?.recordRemoteSyncCheckpoint(checkpoint),
+    onTargetSettled: (result) => context.creationJournal?.recordTargetResult(result),
   });
 }
 
@@ -2438,6 +2442,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
         localRepoId: parseRepoId(
           `${context.userPubkey}:import-${repoName}-${context.importTimestamp}`
         ),
+        localResource: { ownedByTransaction: true, stage: "planned" },
       });
       transactionJournal.setTargets(remoteTargets);
       context.creationJournal = transactionJournal;
@@ -2570,6 +2575,24 @@ export function useImportRepo(options: UseImportRepoOptions) {
         remotePushResults: context.remotePushResults,
       };
 
+      if (context.localRepoId && context.workerApi?.deleteRepo) {
+        transactionJournal.setLocalResourceStatus("cleanup-pending");
+        const localCleanup = await context.workerApi.deleteRepo({ repoId: context.localRepoId });
+        if (localCleanup?.success === false) {
+          transactionJournal.setLocalResourceStatus(
+            "cleanup-pending",
+            localCleanup.error || "Failed to delete temporary import mirror"
+          );
+        } else {
+          transactionJournal.setLocalResourceStatus("cleaned");
+        }
+      } else if (context.localRepoId) {
+        transactionJournal.setLocalResourceStatus(
+          "cleanup-pending",
+          "Git worker cannot delete the temporary import mirror"
+        );
+      }
+
       onImportCompleted?.(result);
       transactionJournal.complete();
 
@@ -2582,6 +2605,11 @@ export function useImportRepo(options: UseImportRepoOptions) {
           !transactionContext.remotePushResults.some((result) => result.success)
         ) {
           await rollbackProvisionalEvents(transactionContext);
+        }
+        if (transactionJournal?.record.localResource.stage === "created") {
+          transactionJournal.setLocalResourceStatus("cleanup-pending", err);
+        } else if (transactionJournal?.record.localResource.stage === "creating") {
+          transactionJournal.setLocalResourceStatus("unknown", err);
         }
       }
       if (

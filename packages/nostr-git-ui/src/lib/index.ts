@@ -82,6 +82,11 @@ export {
   type RepoCreationRecoveryRecord,
 } from "./utils/repo-creation-transaction";
 export {
+  recoverRepoCreationRecord,
+  type RepoCreationRecoveryDependencies,
+  type RepoCreationRecoveryResult,
+} from "./utils/repo-creation-recovery";
+export {
   classifyCloneUrlIssue,
   getCloneUrlBannerTitle,
   type CloneUrlIssueKind,

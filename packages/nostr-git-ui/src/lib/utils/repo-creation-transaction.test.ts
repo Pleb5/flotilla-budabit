@@ -36,6 +36,15 @@ class MemoryStorage implements Storage {
   }
 }
 
+class ToggleStorage extends MemoryStorage {
+  failWrites = false;
+
+  override setItem(key: string, value: string): void {
+    if (this.failWrites) throw new Error("storage quota unavailable");
+    super.setItem(key, value);
+  }
+}
+
 const originalLocalStorage = globalThis.localStorage;
 
 afterEach(() => {
@@ -93,13 +102,228 @@ describe("RepoCreationTransactionJournal", () => {
     const [record] = getPendingRepoCreationTransactions();
     expect(record).toEqual(
       expect.objectContaining({
+        version: 2,
         phase: "metadata-pending",
         lastError: "relay timeout",
+        localResource: {
+          id: "owner/repo",
+          ownedByTransaction: true,
+          stage: "unknown",
+        },
         targets: [expect.objectContaining({ id: "git:github.com", host: "github.com" })],
         publishedEvents: [{ event, relayUrls: ["wss://relay.example"], stage: "provisional" }],
+        eventAcks: [
+          expect.objectContaining({
+            eventId: "event-id",
+            requestedRelayUrls: ["wss://relay.example"],
+            ackedRelays: ["wss://relay.example"],
+            failedRelays: [],
+            successCount: 1,
+            hasRelayOutcomes: true,
+          }),
+        ],
       })
     );
     expect(JSON.stringify(record)).not.toContain("secret-token");
+  });
+
+  it("fails closed when the initial journal cannot be persisted", () => {
+    const storage = new ToggleStorage();
+    storage.failWrites = true;
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+
+    expect(
+      () =>
+        new RepoCreationTransactionJournal({
+          id: "new:owner/repo:storage-failure",
+          operation: "new",
+          ownerPubkey: "f".repeat(64),
+          repoName: "repo",
+        })
+    ).toThrow("Failed to persist repository creation journal");
+    expect(storage.length).toBe(0);
+  });
+
+  it("migrates stale v1 failures without TTL deletion", () => {
+    const storage = new MemoryStorage();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+    const id = "import:owner:repo:legacy";
+    const event = {
+      id: "legacy-event",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      tags: [["d", "repo"]],
+      content: "",
+    };
+    const legacyKey = `nostr-git:repo-creation:v1:${encodeURIComponent(id)}`;
+    storage.setItem(
+      legacyKey,
+      JSON.stringify({
+        version: 1,
+        id,
+        operation: "import",
+        ownerPubkey: "f".repeat(64),
+        repoName: "repo",
+        localRepoId: "owner/repo",
+        phase: "failed",
+        targets: [
+          {
+            id: "git:github.com",
+            label: "GitHub",
+            provider: "github",
+            host: "github.com",
+          },
+        ],
+        targetResults: [
+          {
+            id: "git:github.com",
+            label: "GitHub",
+            provider: "github",
+            success: false,
+            remoteUrl: "https://github.com/owner/repo.git",
+            createdRemote: true,
+            outcome: "unknown",
+            error: "network timeout",
+          },
+        ],
+        publishedEvents: [{ event, relayUrls: ["wss://relay.example"], stage: "provisional" }],
+        pendingCompensations: [],
+        lastError: "network timeout",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+    );
+
+    const [record] = getPendingRepoCreationTransactions(10 * 24 * 60 * 60 * 1000);
+
+    expect(record).toEqual(
+      expect.objectContaining({
+        version: 2,
+        id,
+        phase: "failed",
+        localResource: {
+          id: "owner/repo",
+          ownedByTransaction: true,
+          stage: "unknown",
+        },
+        manualAttention: expect.objectContaining({ required: true }),
+        targets: [
+          expect.objectContaining({
+            id: "git:github.com",
+            stage: "unknown",
+            remoteUrl: "https://github.com/owner/repo.git",
+            createdRemote: true,
+            manualAttention: true,
+          }),
+        ],
+        eventAcks: [
+          expect.objectContaining({
+            eventId: "legacy-event",
+            ackedRelays: ["wss://relay.example"],
+            hasRelayOutcomes: false,
+            migrated: true,
+          }),
+        ],
+      })
+    );
+    expect(storage.getItem(legacyKey)).toBeNull();
+    expect(storage.key(0)).toContain("nostr-git:repo-creation:v2:");
+  });
+
+  it("redacts credentials from checkpoints, results, URLs, errors, and ACK details", () => {
+    const storage = new MemoryStorage();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+    const token = "ghp_super_secret";
+    const journal = new RepoCreationTransactionJournal({
+      id: "new:owner:repo:no-secrets",
+      operation: "new",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    journal.setTargets([
+      {
+        id: "git:github.com",
+        label: "GitHub",
+        provider: "github",
+        host: "github.com",
+        token,
+      },
+    ]);
+    journal.recordRemoteSyncCheckpoint({
+      action: "push",
+      position: "after",
+      target: {
+        id: "git:github.com",
+        label: "GitHub",
+        provider: "github",
+        host: "github.com",
+      },
+      stage: "unknown",
+      remoteUrl: `https://owner:${token}@github.com/owner/repo.git?access_token=${token}`,
+      createdRemote: true,
+      error: `network timeout for ${token}`,
+      ref: { ref: "refs/heads/main", stage: "unknown", error: `lost ${token}` },
+    });
+    expect(journal.record.targets[0].cleanup).toEqual({
+      stage: "pending",
+      manualAttention: true,
+    });
+    journal.recordTargetResult({
+      id: "git:github.com",
+      label: "GitHub",
+      provider: "github",
+      success: false,
+      createdRemote: true,
+      outcome: "unknown",
+      error: `ambiguous response ${token}`,
+      failedRefs: [{ ref: "refs/heads/main", error: `failed with ${token}` }],
+    });
+    const event = {
+      id: "event-no-secret",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      tags: [["d", "repo"]],
+      content: "",
+    };
+    journal.recordPublishedEvent(
+      {
+        event,
+        ackedRelays: ["wss://relay.example"],
+        failedRelays: [],
+        relayOutcomes: [
+          { relay: "wss://relay.example", status: "success", detail: `accepted ${token}` },
+        ],
+      },
+      ["wss://relay.example"],
+      "provisional"
+    );
+
+    const serialized = storage.getItem(storage.key(0) as string) as string;
+    expect(serialized).not.toContain(token);
+    expect(serialized).not.toContain(encodeURIComponent(token));
+    expect(serialized).toContain("[REDACTED]");
+    expect(journal.record.targets[0]).toEqual(
+      expect.objectContaining({
+        stage: "unknown",
+        createdRemote: true,
+        manualAttention: true,
+        cleanup: expect.objectContaining({ stage: "unknown", manualAttention: true }),
+        refs: [expect.objectContaining({ ref: "refs/heads/main", stage: "unknown" })],
+      })
+    );
   });
 
   it("removes a completed transaction", () => {
@@ -155,6 +379,41 @@ describe("RepoCreationTransactionJournal", () => {
     });
 
     expect(journal.record.publishedEvents[0].relayUrls).toEqual(["wss://accepted.example"]);
+  });
+
+  it("records no rollback scope when publication has no relay outcomes", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const journal = new RepoCreationTransactionJournal({
+      id: "import:owner:repo:no-outcomes",
+      operation: "import",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    const event = {
+      id: "event-id",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      tags: [["d", "repo"]],
+      content: "",
+    };
+    const publisher = trackRepoCreationPublisher(
+      journal,
+      vi.fn().mockResolvedValue({ event, successCount: 1 })
+    );
+
+    await publisher?.(event, { relays: ["wss://requested.example"] });
+
+    expect(journal.record.publishedEvents[0].relayUrls).toEqual([]);
+    expect(journal.record.eventAcks[0]).toMatchObject({
+      requestedRelayUrls: ["wss://requested.example"],
+      ackedRelays: [],
+      hasRelayOutcomes: false,
+    });
   });
 
   it("retries the latest exact signed metadata without recreating targets", async () => {

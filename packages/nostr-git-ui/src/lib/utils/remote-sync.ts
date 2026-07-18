@@ -42,6 +42,29 @@ export interface RemoteSyncRef {
   commit?: string;
 }
 
+export type RemoteSyncTargetStage =
+  | "planned"
+  | "creating"
+  | "created"
+  | "pushing"
+  | "verified"
+  | "failed"
+  | "unknown";
+export type RemoteSyncRefStage =
+  | "planned"
+  | "pushing"
+  | "pushed"
+  | "verified"
+  | "failed"
+  | "unknown";
+
+export interface RemoteSyncRefCheckpoint {
+  ref: string;
+  commit?: string;
+  stage: RemoteSyncRefStage;
+  error?: string;
+}
+
 export interface RemoteSyncTargetResult {
   id: string;
   label: string;
@@ -64,6 +87,27 @@ export interface RemoteSyncTargetResult {
   provisionalAnnouncementEvent?: NostrEvent;
   provisionalStateEvents?: NostrEvent[];
 }
+
+export interface RemoteSyncCheckpoint {
+  action: "target" | "create" | "publish" | "push" | "verify" | "cleanup";
+  position: "before" | "after";
+  target: Pick<RemoteTargetSelection, "id" | "label" | "provider" | "host" | "relayUrl">;
+  stage: RemoteSyncTargetStage;
+  remoteUrl?: string;
+  webUrl?: string;
+  createdRemote?: boolean;
+  ref?: RemoteSyncRefCheckpoint;
+  refs?: RemoteSyncRefCheckpoint[];
+  cleanup?: RemoteSyncTargetResult["cleanup"];
+  error?: string;
+}
+
+export type RemoteSyncCheckpointCallback = (
+  checkpoint: RemoteSyncCheckpoint
+) => Promise<void> | void;
+export type RemoteSyncTargetSettledCallback = (
+  result: RemoteSyncTargetResult
+) => Promise<void> | void;
 
 export interface SyncLocalRepoToTargetsOptions {
   workerApi: any;
@@ -94,6 +138,8 @@ export interface SyncLocalRepoToTargetsOptions {
   preprovisionedGraspRelayUrls?: string[];
   operationId?: string;
   onOperationProgress?: (event: GitOperationProgressEvent) => void;
+  onCheckpoint?: RemoteSyncCheckpointCallback;
+  onTargetSettled?: RemoteSyncTargetSettledCallback;
 }
 
 export interface PublishRepoSyncAnnouncementOptions {
@@ -480,6 +526,7 @@ async function tryTargetTokens<T>(
     try {
       return await operation(token);
     } catch (error) {
+      if (error instanceof RemoteSyncCheckpointInterruption) throw error;
       failureErrors.push(error);
       failures.push(error instanceof Error ? error.message : String(error));
     }
@@ -653,16 +700,72 @@ function isUnknownRemoteOutcome(error: unknown): boolean {
   );
 }
 
+class RemoteSyncCheckpointInterruption extends Error {
+  constructor(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    super(`Remote sync checkpoint failed: ${message}`, { cause: error });
+    this.name = "RemoteSyncCheckpointInterruption";
+  }
+}
+
+function getCheckpointTarget(target: RemoteTargetSelection): RemoteSyncCheckpoint["target"] {
+  return {
+    id: target.id,
+    label: target.label,
+    provider: target.provider,
+    ...(target.host ? { host: target.host } : {}),
+    ...(target.relayUrl ? { relayUrl: target.relayUrl } : {}),
+  };
+}
+
+function sanitizeCheckpointError(error: unknown, target: RemoteTargetSelection): string {
+  let message = error instanceof Error ? error.message : String(error);
+  for (const token of getTargetTokens(target)) {
+    message = message.split(token).join("[REDACTED]");
+    message = message.split(encodeURIComponent(token)).join("[REDACTED]");
+  }
+  return message;
+}
+
+async function emitCheckpoint(
+  callback: RemoteSyncCheckpointCallback | undefined,
+  checkpoint: RemoteSyncCheckpoint
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(checkpoint);
+  } catch (error) {
+    if (error instanceof RemoteSyncCheckpointInterruption) throw error;
+    throw new RemoteSyncCheckpointInterruption(error);
+  }
+}
+
+async function emitTargetSettled(
+  callback: RemoteSyncTargetSettledCallback | undefined,
+  result: RemoteSyncTargetResult
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(result);
+  } catch (error) {
+    if (error instanceof RemoteSyncCheckpointInterruption) throw error;
+    throw new RemoteSyncCheckpointInterruption(error);
+  }
+}
+
 async function cleanupEmptyCreatedRemote(params: {
   workerApi: any;
   target: RemoteTargetSelection;
   remoteUrl: string;
   token?: string;
+  beforeDelete?: () => Promise<void>;
+  afterDelete?: (cleanup: NonNullable<RemoteSyncTargetResult["cleanup"]>) => Promise<void>;
 }): Promise<RemoteSyncTargetResult["cleanup"]> {
   if (!params.token || !params.workerApi?.listServerRefs || !params.workerApi?.deleteRemoteRepo) {
     return { attempted: false, success: false, error: "Remote emptiness could not be verified" };
   }
 
+  let deleteStarted = false;
   try {
     const refs = (await params.workerApi.listServerRefs({
       url: params.remoteUrl,
@@ -683,6 +786,8 @@ async function cleanupEmptyCreatedRemote(params: {
       };
     }
 
+    await params.beforeDelete?.();
+    deleteStarted = true;
     const result = await params.workerApi.deleteRemoteRepo({
       remoteUrl: params.remoteUrl,
       token: params.token,
@@ -690,21 +795,26 @@ async function cleanupEmptyCreatedRemote(params: {
       baseUrl: getProviderBaseUrl(params.target.provider, params.target.host),
     });
 
-    return result?.success
+    const cleanup = result?.success
       ? { attempted: true, success: true }
       : {
           attempted: true,
           success: false,
           error: result?.error || "Provider repository deletion failed",
         };
+    await params.afterDelete?.(cleanup);
+    return cleanup;
   } catch (error) {
-    return {
+    if (error instanceof RemoteSyncCheckpointInterruption) throw error;
+    const cleanup = {
       attempted: false,
       success: false,
       error: `Remote emptiness could not be verified: ${
         error instanceof Error ? error.message : String(error)
       }`,
     };
+    if (deleteStarted) await params.afterDelete?.(cleanup);
+    return cleanup;
   }
 }
 
@@ -736,6 +846,8 @@ export async function syncLocalRepoToTargets(
     preprovisionedGraspRelayUrls = [],
     operationId,
     onOperationProgress,
+    onCheckpoint,
+    onTargetSettled,
   } = options;
   const webUrls = Array.from(
     new Set(configuredWebUrls.map((url) => String(url || "").trim()).filter(Boolean))
@@ -743,14 +855,41 @@ export async function syncLocalRepoToTargets(
 
   if (!targets.length) return [];
 
+  const settleImmediateResults = async (
+    immediateResults: RemoteSyncTargetResult[]
+  ): Promise<RemoteSyncTargetResult[]> => {
+    for (const result of immediateResults) {
+      const target = targets.find((item) => item.id === result.id);
+      if (target) {
+        await emitCheckpoint(onCheckpoint, {
+          action: "target",
+          position: "after",
+          target: getCheckpointTarget(target),
+          stage: result.outcome === "unknown" ? "unknown" : "failed",
+          error: result.error,
+          refs: options.refs.map((ref) => ({
+            ref: ref.ref,
+            ...(ref.commit ? { commit: ref.commit } : {}),
+            stage: "planned",
+          })),
+        });
+      }
+      await emitTargetSettled(onTargetSettled, result);
+    }
+    return immediateResults;
+  };
+
   if (!workerApi) {
-    return targets.map((target) => ({
-      id: target.id,
-      label: target.label,
-      provider: target.provider,
-      success: false,
-      error: "Git worker unavailable for remote sync",
-    }));
+    return await settleImmediateResults(
+      targets.map((target) => ({
+        id: target.id,
+        label: target.label,
+        provider: target.provider,
+        success: false,
+        outcome: "failed",
+        error: "Git worker unavailable for remote sync",
+      }))
+    );
   }
 
   const orderedRefs = await resolveRequestedRefs(
@@ -759,24 +898,29 @@ export async function syncLocalRepoToTargets(
     sortRefs(options.refs, defaultBranch)
   );
   if (orderedRefs.length === 0) {
-    return targets.map((target) => ({
-      id: target.id,
-      label: target.label,
-      provider: target.provider,
-      success: false,
-      error: "No git refs available for remote sync",
-    }));
+    return await settleImmediateResults(
+      targets.map((target) => ({
+        id: target.id,
+        label: target.label,
+        provider: target.provider,
+        success: false,
+        outcome: "failed",
+        error: "No git refs available for remote sync",
+      }))
+    );
   }
   const unresolvedRef = orderedRefs.find((ref) => !ref.commit);
   if (unresolvedRef) {
-    return targets.map((target) => ({
-      id: target.id,
-      label: target.label,
-      provider: target.provider,
-      success: false,
-      outcome: "failed",
-      error: `Cannot verify ${unresolvedRef.ref} without a resolved commit`,
-    }));
+    return await settleImmediateResults(
+      targets.map((target) => ({
+        id: target.id,
+        label: target.label,
+        provider: target.provider,
+        success: false,
+        outcome: "failed",
+        error: `Cannot verify ${unresolvedRef.ref} without a resolved commit`,
+      }))
+    );
   }
 
   const orderedTargets = [...targets].sort((a, b) => {
@@ -819,6 +963,92 @@ export async function syncLocalRepoToTargets(
 
   const results: RemoteSyncTargetResult[] = [];
   let latestRepoMetadataCreatedAt = options.latestRepoMetadataCreatedAt || 0;
+  const settleTarget = async (
+    target: RemoteTargetSelection,
+    result: RemoteSyncTargetResult
+  ): Promise<void> => {
+    results.push(result);
+    const failedRefs = new Map((result.failedRefs || []).map((item) => [item.ref, item.error]));
+    const pushedRefs = new Set(result.pushedRefs || []);
+    await emitCheckpoint(onCheckpoint, {
+      action: "target",
+      position: "after",
+      target: getCheckpointTarget(target),
+      stage: result.success ? "verified" : result.outcome === "unknown" ? "unknown" : "failed",
+      ...(result.remoteUrl ? { remoteUrl: result.remoteUrl } : {}),
+      ...(result.webUrl ? { webUrl: result.webUrl } : {}),
+      ...(result.createdRemote !== undefined ? { createdRemote: result.createdRemote } : {}),
+      ...(result.cleanup ? { cleanup: result.cleanup } : {}),
+      ...(result.error ? { error: sanitizeCheckpointError(result.error, target) } : {}),
+      refs: orderedRefs.map((ref) => ({
+        ref: ref.ref,
+        ...(ref.commit ? { commit: ref.commit } : {}),
+        stage: failedRefs.has(ref.ref)
+          ? result.outcome === "unknown"
+            ? "unknown"
+            : "failed"
+          : result.success
+            ? "verified"
+            : pushedRefs.has(ref.ref)
+              ? "pushed"
+              : result.outcome === "unknown"
+                ? "unknown"
+                : "planned",
+        ...(failedRefs.has(ref.ref)
+          ? { error: sanitizeCheckpointError(failedRefs.get(ref.ref), target) }
+          : {}),
+      })),
+    });
+    await emitTargetSettled(onTargetSettled, result);
+  };
+  const verifyTargetRefs = async (
+    target: RemoteTargetSelection,
+    remoteUrl: string
+  ): Promise<string[]> => {
+    await emitCheckpoint(onCheckpoint, {
+      action: "verify",
+      position: "before",
+      target: getCheckpointTarget(target),
+      stage: "pushing",
+      remoteUrl,
+    });
+    let verifiedRefs: string[];
+    try {
+      verifiedRefs = await verifyRequestedRemoteRefs({ workerApi, remoteUrl, refs: orderedRefs });
+    } catch (error) {
+      const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
+      await emitCheckpoint(onCheckpoint, {
+        action: "verify",
+        position: "after",
+        target: getCheckpointTarget(target),
+        stage,
+        remoteUrl,
+        error: sanitizeCheckpointError(error, target),
+        refs: orderedRefs.map((ref) => ({
+          ref: ref.ref,
+          ...(ref.commit ? { commit: ref.commit } : {}),
+          stage,
+          error: sanitizeCheckpointError(error, target),
+        })),
+      });
+      throw error;
+    }
+    for (const ref of orderedRefs) {
+      await emitCheckpoint(onCheckpoint, {
+        action: "verify",
+        position: "after",
+        target: getCheckpointTarget(target),
+        stage: "verified",
+        remoteUrl,
+        ref: {
+          ref: ref.ref,
+          ...(ref.commit ? { commit: ref.commit } : {}),
+          stage: "verified",
+        },
+      });
+    }
+    return verifiedRefs;
+  };
   const emitOperationProgress = (
     phase: string,
     progress: Partial<
@@ -865,6 +1095,21 @@ export async function syncLocalRepoToTargets(
           normalizeRelayForAdmission(normalizeGraspOrigins(target.relayUrl).wsOrigin)
         ] || canonicalSignedAnnouncement
       : canonicalSignedAnnouncement;
+
+    await emitCheckpoint(onCheckpoint, {
+      action: "target",
+      position: "before",
+      target: getCheckpointTarget(target),
+      stage: "planned",
+      ...(remoteUrl ? { remoteUrl } : {}),
+      ...(webUrl ? { webUrl } : {}),
+      createdRemote: false,
+      refs: orderedRefs.map((ref) => ({
+        ref: ref.ref,
+        ...(ref.commit ? { commit: ref.commit } : {}),
+        stage: "planned",
+      })),
+    });
 
     try {
       throwIfAborted?.();
@@ -932,11 +1177,44 @@ export async function syncLocalRepoToTargets(
 
           if (!wasPreprovisioned) {
             updateProgress(`Publishing repository announcement to ${target.label}...`);
-            const publishedAnnouncement = await publishGraspEventWithRetry({
-              relayUrl: target.relayUrl,
-              event: targetSignedAnnouncement || graspEvents.announcementEvent,
-              onPublishEvent,
-              publishRelays: [targetRelayUrl],
+            await emitCheckpoint(onCheckpoint, {
+              action: "publish",
+              position: "before",
+              target: getCheckpointTarget(target),
+              stage: "creating",
+              remoteUrl,
+              webUrl,
+              createdRemote: true,
+            });
+            let publishedAnnouncement: Awaited<ReturnType<typeof publishGraspEventWithRetry>>;
+            try {
+              publishedAnnouncement = await publishGraspEventWithRetry({
+                relayUrl: target.relayUrl,
+                event: targetSignedAnnouncement || graspEvents.announcementEvent,
+                onPublishEvent,
+                publishRelays: [targetRelayUrl],
+              });
+            } catch (error) {
+              await emitCheckpoint(onCheckpoint, {
+                action: "publish",
+                position: "after",
+                target: getCheckpointTarget(target),
+                stage: isUnknownRemoteOutcome(error) ? "unknown" : "failed",
+                remoteUrl,
+                webUrl,
+                createdRemote: true,
+                error: sanitizeCheckpointError(error, target),
+              });
+              throw error;
+            }
+            await emitCheckpoint(onCheckpoint, {
+              action: "publish",
+              position: "after",
+              target: getCheckpointTarget(target),
+              stage: "created",
+              remoteUrl,
+              webUrl,
+              createdRemote: true,
             });
             canonicalSignedAnnouncement = publishedAnnouncement.event;
             targetSignedAnnouncement = publishedAnnouncement.event;
@@ -954,6 +1232,16 @@ export async function syncLocalRepoToTargets(
               `Waiting for GRASP receive-pack on ${target.label}`,
               0
             );
+          } else {
+            await emitCheckpoint(onCheckpoint, {
+              action: "create",
+              position: "after",
+              target: getCheckpointTarget(target),
+              stage: "created",
+              remoteUrl,
+              webUrl,
+              createdRemote: true,
+            });
           }
         }
 
@@ -1059,17 +1347,64 @@ export async function syncLocalRepoToTargets(
                 stateEvent
               );
 
-              const publishedState = await runAbortable(
-                () =>
-                  publishGraspEventWithRetry({
-                    relayUrl: target.relayUrl!,
-                    event: stateEvent,
-                    onPublishEvent,
-                    publishRelays: [normalizeGraspOrigins(target.relayUrl!).wsOrigin],
-                  }),
-                `Publishing GRASP state for ${ref.name}`,
-                0
-              );
+              await emitCheckpoint(onCheckpoint, {
+                action: "publish",
+                position: "before",
+                target: getCheckpointTarget(target),
+                stage: "created",
+                remoteUrl: graspRemoteUrl,
+                createdRemote,
+                ref: {
+                  ref: ref.ref,
+                  ...(ref.commit ? { commit: ref.commit } : {}),
+                  stage: "planned",
+                },
+              });
+              let publishedState: Awaited<ReturnType<typeof publishGraspEventWithRetry>>;
+              try {
+                publishedState = await runAbortable(
+                  () =>
+                    publishGraspEventWithRetry({
+                      relayUrl: target.relayUrl!,
+                      event: stateEvent,
+                      onPublishEvent,
+                      publishRelays: [normalizeGraspOrigins(target.relayUrl!).wsOrigin],
+                    }),
+                  `Publishing GRASP state for ${ref.name}`,
+                  0
+                );
+              } catch (error) {
+                const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
+                await emitCheckpoint(onCheckpoint, {
+                  action: "publish",
+                  position: "after",
+                  target: getCheckpointTarget(target),
+                  stage,
+                  remoteUrl: graspRemoteUrl,
+                  createdRemote,
+                  error: sanitizeCheckpointError(error, target),
+                  ref: {
+                    ref: ref.ref,
+                    ...(ref.commit ? { commit: ref.commit } : {}),
+                    stage,
+                    error: sanitizeCheckpointError(error, target),
+                  },
+                });
+                throw error;
+              }
+              await emitCheckpoint(onCheckpoint, {
+                action: "publish",
+                position: "after",
+                target: getCheckpointTarget(target),
+                stage: "created",
+                remoteUrl: graspRemoteUrl,
+                createdRemote,
+                ref: {
+                  ref: ref.ref,
+                  ...(ref.commit ? { commit: ref.commit } : {}),
+                  stage: "planned",
+                },
+              });
               publishedStateEvent = publishedState.event;
               provisionalStateEvents.push(publishedState.event);
               nextStateHead = stateHead;
@@ -1087,25 +1422,88 @@ export async function syncLocalRepoToTargets(
             ref: ref.ref,
           });
 
-          const pushResult = (await runAbortable(
-            () =>
-              workerApi.pushToRemote({
-                repoId: localRepoId,
-                remoteUrl: graspRemoteUrl,
-                branch: defaultBranch,
+          await emitCheckpoint(onCheckpoint, {
+            action: "push",
+            position: "before",
+            target: getCheckpointTarget(target),
+            stage: "pushing",
+            remoteUrl: graspRemoteUrl,
+            createdRemote,
+            ref: {
+              ref: ref.ref,
+              ...(ref.commit ? { commit: ref.commit } : {}),
+              stage: "pushing",
+            },
+          });
+          let pushResult: WorkerPushToRemoteResult;
+          try {
+            pushResult = (await runAbortable(
+              () =>
+                workerApi.pushToRemote({
+                  repoId: localRepoId,
+                  remoteUrl: graspRemoteUrl,
+                  branch: defaultBranch,
+                  ref: ref.ref,
+                  token: userPubkey,
+                  provider: "grasp",
+                  operationId,
+                }),
+              `Pushing ${ref.name} to ${target.label}`,
+              0
+            )) as WorkerPushToRemoteResult;
+          } catch (error) {
+            const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
+            await emitCheckpoint(onCheckpoint, {
+              action: "push",
+              position: "after",
+              target: getCheckpointTarget(target),
+              stage,
+              remoteUrl: graspRemoteUrl,
+              createdRemote,
+              error: sanitizeCheckpointError(error, target),
+              ref: {
                 ref: ref.ref,
-                token: userPubkey,
-                provider: "grasp",
-                operationId,
-              }),
-            `Pushing ${ref.name} to ${target.label}`,
-            0
-          )) as WorkerPushToRemoteResult;
+                ...(ref.commit ? { commit: ref.commit } : {}),
+                stage,
+                error: sanitizeCheckpointError(error, target),
+              },
+            });
+            throw error;
+          }
 
           if (!pushResult?.success) {
             const message = pushResult?.error || `Failed to push ${ref.name} to GRASP target`;
+            await emitCheckpoint(onCheckpoint, {
+              action: "push",
+              position: "after",
+              target: getCheckpointTarget(target),
+              stage: "failed",
+              remoteUrl: graspRemoteUrl,
+              createdRemote,
+              error: sanitizeCheckpointError(message, target),
+              ref: {
+                ref: ref.ref,
+                ...(ref.commit ? { commit: ref.commit } : {}),
+                stage: "failed",
+                error: sanitizeCheckpointError(message, target),
+              },
+            });
             throw new RemotePushResultError(message, pushResult);
           }
+
+          await emitCheckpoint(onCheckpoint, {
+            action: "push",
+            position: "after",
+            target: getCheckpointTarget(target),
+            stage: "pushing",
+            remoteUrl: graspRemoteUrl,
+            createdRemote,
+            ref: {
+              ref: ref.ref,
+              ...(ref.commit ? { commit: ref.commit } : {}),
+              stage: "pushed",
+            },
+          });
 
           const pushedRefs = collectPushResultDetails(
             pushResult,
@@ -1156,13 +1554,9 @@ export async function syncLocalRepoToTargets(
         }
 
         updateProgress(`Verifying remote refs on ${target.label}...`);
-        const verifiedRefs = await verifyRequestedRemoteRefs({
-          workerApi,
-          remoteUrl: graspRemoteUrl,
-          refs: orderedRefs,
-        });
+        const verifiedRefs = await verifyTargetRefs(target, graspRemoteUrl);
 
-        results.push({
+        await settleTarget(target, {
           id: target.id,
           label: target.label,
           provider: target.provider,
@@ -1190,24 +1584,62 @@ export async function syncLocalRepoToTargets(
         const createResult = await tryTargetTokens<WorkerCreateRemoteRepoResult>(
           target,
           async (token) => {
-            const result = (await runAbortable(
-              () =>
-                workerApi.createRemoteRepo({
-                  provider: target.provider,
-                  token,
-                  name: repoName,
-                  description: repoDescription,
-                  isPrivate: false,
-                  baseUrl: getProviderBaseUrl(target.provider, target.host),
-                }),
-              `Creating remote repository on ${target.label}`,
-              45000
-            )) as WorkerCreateRemoteRepoResult;
-
-            if (!result?.success || !result?.remoteUrl) {
-              throw new Error(result?.error || "Failed to create remote repository");
+            await emitCheckpoint(onCheckpoint, {
+              action: "create",
+              position: "before",
+              target: getCheckpointTarget(target),
+              stage: "creating",
+              createdRemote: false,
+            });
+            let result: WorkerCreateRemoteRepoResult;
+            try {
+              result = (await runAbortable(
+                () =>
+                  workerApi.createRemoteRepo({
+                    provider: target.provider,
+                    token,
+                    name: repoName,
+                    description: repoDescription,
+                    isPrivate: false,
+                    baseUrl: getProviderBaseUrl(target.provider, target.host),
+                  }),
+                `Creating remote repository on ${target.label}`,
+                45000
+              )) as WorkerCreateRemoteRepoResult;
+            } catch (error) {
+              await emitCheckpoint(onCheckpoint, {
+                action: "create",
+                position: "after",
+                target: getCheckpointTarget(target),
+                stage: isUnknownRemoteOutcome(error) ? "unknown" : "failed",
+                createdRemote: false,
+                error: sanitizeCheckpointError(error, target),
+              });
+              throw error;
             }
 
+            if (!result?.success || !result?.remoteUrl) {
+              const error = result?.error || "Failed to create remote repository";
+              await emitCheckpoint(onCheckpoint, {
+                action: "create",
+                position: "after",
+                target: getCheckpointTarget(target),
+                stage: "failed",
+                createdRemote: false,
+                error: sanitizeCheckpointError(error, target),
+              });
+              throw new Error(error);
+            }
+
+            await emitCheckpoint(onCheckpoint, {
+              action: "create",
+              position: "after",
+              target: getCheckpointTarget(target),
+              stage: "created",
+              remoteUrl: result.remoteUrl,
+              webUrl: guessWebUrl(result.remoteUrl),
+              createdRemote: true,
+            });
             provisionToken = token;
             return result;
           }
@@ -1259,14 +1691,66 @@ export async function syncLocalRepoToTargets(
                 throw new Error(`Branch sync API unavailable for ${target.label}`);
               }
 
-              await withRateLimit(rateLimiter, target.provider, "upsertBranchRef", () =>
-                targetApi.upsertBranchRef!(targetOwner, targetRepo, ref.name, ref.commit as string)
-              );
+              await emitCheckpoint(onCheckpoint, {
+                action: "push",
+                position: "before",
+                target: getCheckpointTarget(target),
+                stage: "pushing",
+                remoteUrl: targetRemoteUrl,
+                createdRemote,
+                ref: {
+                  ref: ref.ref,
+                  ...(ref.commit ? { commit: ref.commit } : {}),
+                  stage: "pushing",
+                },
+              });
+              try {
+                await withRateLimit(rateLimiter, target.provider, "upsertBranchRef", () =>
+                  targetApi.upsertBranchRef!(
+                    targetOwner,
+                    targetRepo,
+                    ref.name,
+                    ref.commit as string
+                  )
+                );
+              } catch (error) {
+                const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
+                await emitCheckpoint(onCheckpoint, {
+                  action: "push",
+                  position: "after",
+                  target: getCheckpointTarget(target),
+                  stage,
+                  remoteUrl: targetRemoteUrl,
+                  createdRemote,
+                  error: sanitizeCheckpointError(error, target),
+                  ref: {
+                    ref: ref.ref,
+                    ...(ref.commit ? { commit: ref.commit } : {}),
+                    stage,
+                    error: sanitizeCheckpointError(error, target),
+                  },
+                });
+                throw error;
+              }
+              await emitCheckpoint(onCheckpoint, {
+                action: "push",
+                position: "after",
+                target: getCheckpointTarget(target),
+                stage: "pushing",
+                remoteUrl: targetRemoteUrl,
+                createdRemote,
+                ref: {
+                  ref: ref.ref,
+                  ...(ref.commit ? { commit: ref.commit } : {}),
+                  stage: "pushed",
+                },
+              });
             });
 
             pushedRefsForTarget.push(ref.ref);
             continue;
-          } catch {
+          } catch (error) {
+            if (error instanceof RemoteSyncCheckpointInterruption) throw error;
             // fall back to git push below
           }
         }
@@ -1299,6 +1783,19 @@ export async function syncLocalRepoToTargets(
 
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
               try {
+                await emitCheckpoint(onCheckpoint, {
+                  action: "push",
+                  position: "before",
+                  target: getCheckpointTarget(target),
+                  stage: "pushing",
+                  remoteUrl: targetRemoteUrl,
+                  createdRemote,
+                  ref: {
+                    ref: ref.ref,
+                    ...(ref.commit ? { commit: ref.commit } : {}),
+                    stage: "pushing",
+                  },
+                });
                 const result = (await runAbortable(
                   () =>
                     workerApi.pushToRemote({
@@ -1319,10 +1816,40 @@ export async function syncLocalRepoToTargets(
                   throw new RemotePushResultError(message, result);
                 }
 
+                await emitCheckpoint(onCheckpoint, {
+                  action: "push",
+                  position: "after",
+                  target: getCheckpointTarget(target),
+                  stage: "pushing",
+                  remoteUrl: targetRemoteUrl,
+                  createdRemote,
+                  ref: {
+                    ref: ref.ref,
+                    ...(ref.commit ? { commit: ref.commit } : {}),
+                    stage: "pushed",
+                  },
+                });
                 return result;
               } catch (error) {
+                if (error instanceof RemoteSyncCheckpointInterruption) throw error;
                 lastError = error;
                 const message = error instanceof Error ? error.message : String(error || "");
+                const stage = isUnknownRemoteOutcome(error) ? "unknown" : "failed";
+                await emitCheckpoint(onCheckpoint, {
+                  action: "push",
+                  position: "after",
+                  target: getCheckpointTarget(target),
+                  stage,
+                  remoteUrl: targetRemoteUrl,
+                  createdRemote,
+                  error: sanitizeCheckpointError(error, target),
+                  ref: {
+                    ref: ref.ref,
+                    ...(ref.commit ? { commit: ref.commit } : {}),
+                    stage,
+                    error: sanitizeCheckpointError(error, target),
+                  },
+                });
                 const isRetryableGitLabError =
                   /404|not found|repository .* empty|project .* not found|could not read from remote/i.test(
                     message
@@ -1368,13 +1895,9 @@ export async function syncLocalRepoToTargets(
       activeRef = null;
 
       updateProgress(`Verifying remote refs on ${target.label}...`);
-      const verifiedRefs = await verifyRequestedRemoteRefs({
-        workerApi,
-        remoteUrl: targetRemoteUrl,
-        refs: orderedRefs,
-      });
+      const verifiedRefs = await verifyTargetRefs(target, targetRemoteUrl);
 
-      results.push({
+      await settleTarget(target, {
         id: target.id,
         label: target.label,
         provider: target.provider,
@@ -1388,6 +1911,7 @@ export async function syncLocalRepoToTargets(
         outcome: "ok",
       });
     } catch (error) {
+      if (error instanceof RemoteSyncCheckpointInterruption) throw error;
       const message = error instanceof Error ? error.message : String(error);
       const failedPushResult = getPushResultFromError(error);
       if (failedPushResult && activeRef) {
@@ -1408,11 +1932,7 @@ export async function syncLocalRepoToTargets(
         orderedRefs.every((ref) => Boolean(ref.commit))
       ) {
         try {
-          const verifiedRefs = await verifyRequestedRemoteRefs({
-            workerApi,
-            remoteUrl,
-            refs: orderedRefs,
-          });
+          const verifiedRefs = await verifyTargetRefs(target, remoteUrl);
           if (target.provider === "grasp") {
             const latestStateEvent = provisionalStateEvents.at(-1);
             if (
@@ -1435,7 +1955,7 @@ export async function syncLocalRepoToTargets(
               fetchRelayEvents: options.onFetchRelayEvents,
             });
           }
-          results.push({
+          await settleTarget(target, {
             id: target.id,
             label: target.label,
             provider: target.provider,
@@ -1455,7 +1975,8 @@ export async function syncLocalRepoToTargets(
               provisionalStateEvents.length > 0 ? provisionalStateEvents : undefined,
           });
           continue;
-        } catch {
+        } catch (postflightError) {
+          if (postflightError instanceof RemoteSyncCheckpointInterruption) throw postflightError;
           // Preserve the original outcome when postflight verification is unavailable.
         }
       }
@@ -1475,10 +1996,32 @@ export async function syncLocalRepoToTargets(
               target,
               remoteUrl,
               token: provisionToken,
+              beforeDelete: () =>
+                emitCheckpoint(onCheckpoint, {
+                  action: "cleanup",
+                  position: "before",
+                  target: getCheckpointTarget(target),
+                  stage: "failed",
+                  remoteUrl,
+                  createdRemote,
+                }),
+              afterDelete: (cleanupResult) =>
+                emitCheckpoint(onCheckpoint, {
+                  action: "cleanup",
+                  position: "after",
+                  target: getCheckpointTarget(target),
+                  stage: cleanupResult.success || cleanupResult.attempted ? "failed" : "unknown",
+                  remoteUrl,
+                  createdRemote,
+                  cleanup: cleanupResult,
+                  ...(cleanupResult.error
+                    ? { error: sanitizeCheckpointError(cleanupResult.error, target) }
+                    : {}),
+                }),
             })
           : undefined;
 
-      results.push({
+      await settleTarget(target, {
         id: target.id,
         label: target.label,
         provider: target.provider,

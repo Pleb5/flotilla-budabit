@@ -656,6 +656,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     let transactionRemoteResults: RemoteSyncTargetResult[] = [];
     let transactionJournal: RepoCreationTransactionJournal | undefined;
     let transactionPublisher = onPublishEvent;
+    let transactionWorkerApi = options.workerApi;
     const operationId = createGitOperationId("new");
     operationActivity = undefined;
     const onOperationProgress = createGitOperationProgressObserver(
@@ -677,6 +678,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         ownerPubkey: userPubkey || config.authorPubkey || "",
         repoName: config.name,
         localRepoId: canonicalKey,
+        localResource: { ownedByTransaction: true, stage: "planned" },
       });
       transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
 
@@ -757,6 +759,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       const workerApi = options.workerApi
         ? options.workerApi
         : (await (await import("@nostr-git/core")).getGitWorker()).api;
+      transactionWorkerApi = workerApi;
       const effectiveRelayUrls = getEffectiveRepoRelayUrls(
         editableRelays,
         selectedGraspTargetRelays
@@ -810,8 +813,10 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       );
 
       // Create only after all metadata and destination checks complete.
+      transactionJournal.setLocalResourceStatus("creating");
       updateProgress("local", "Creating local repository...", "running");
       const localRepo = await createLocalRepo({ ...config }, canonicalKey);
+      transactionJournal.setLocalResourceStatus("created");
       updateProgress("local", "Local repository created successfully", "completed");
 
       const defaultBranch = config.defaultBranch || "master";
@@ -864,6 +869,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         prepublishedAnnouncement: announcementAdmission.announcementEvent,
         prepublishedAnnouncementByGraspRelay: announcementAdmission.announcementByGraspRelay,
         preprovisionedGraspRelayUrls: announcementAdmission.graspRelayUrls,
+        onCheckpoint: (checkpoint) => transactionJournal!.recordRemoteSyncCheckpoint(checkpoint),
+        onTargetSettled: (result) => transactionJournal!.recordTargetResult(result),
       });
       operationActivity = undefined;
       const remoteResults = transactionRemoteResults;
@@ -1106,13 +1113,14 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       const provisionalEvents = transactionJournal
         ? getRepoCreationProvisionalEvents(transactionJournal.record)
         : getRemoteSyncProvisionalEvents(transactionRemoteResults);
+      const compensableEvents = provisionalEvents.filter((item) => item.relayUrls.length > 0);
       if (
         options.onDeleteEvent &&
-        provisionalEvents.length > 0 &&
+        compensableEvents.length > 0 &&
         transactionRemoteResults.every((result) => !result.success)
       ) {
         const cleanupResults = await Promise.allSettled(
-          provisionalEvents.map((item) =>
+          compensableEvents.map((item) =>
             Promise.resolve(options.onDeleteEvent?.(item.event, item.relayUrls))
           )
         );
@@ -1122,8 +1130,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
               ? [
                   {
                     action: "delete" as const,
-                    eventId: provisionalEvents[index].event.id,
-                    relayUrls: provisionalEvents[index].relayUrls,
+                    eventId: compensableEvents[index].event.id,
+                    relayUrls: compensableEvents[index].relayUrls,
                     error:
                       result.reason instanceof Error
                         ? result.reason.message
@@ -1135,6 +1143,28 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         );
       }
       transactionJournal?.setTargetResults(transactionRemoteResults);
+      const hasSuccessfulTarget = transactionRemoteResults.some((result) => result.success);
+      if (
+        !hasSuccessfulTarget &&
+        transactionJournal?.record.localResource.ownedByTransaction &&
+        transactionJournal.record.localResource.stage === "created" &&
+        transactionWorkerApi?.deleteRepo
+      ) {
+        try {
+          transactionJournal.setLocalResourceStatus("cleanup-pending");
+          const cleanup = await transactionWorkerApi.deleteRepo({
+            repoId: transactionJournal.record.localRepoId,
+          });
+          if (cleanup?.success === false) {
+            throw new Error(cleanup.error || "Failed to delete transaction-owned local repository");
+          }
+          transactionJournal.setLocalResourceStatus("cleaned");
+        } catch (cleanupError) {
+          transactionJournal.setLocalResourceStatus("cleanup-pending", cleanupError);
+        }
+      } else if (transactionJournal?.record.localResource.stage === "creating") {
+        transactionJournal.setLocalResourceStatus("unknown", err);
+      }
       transactionJournal?.setPhase(
         transactionJournal.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
         err

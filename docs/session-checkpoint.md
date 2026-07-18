@@ -12,16 +12,17 @@
 
 ## Current Phase
 
-- Phase 5: Durable Checkpoints Recovery And Cleanup
+- Phase 6: Operation Cancellation And Final Validation
 
 ## Phase Exit Criteria
 
-- Journal schema records local ownership, per-target/ref side-effect stages, remote receipts, exact event scopes, cleanup state, and manual-attention reasons without secrets.
-- Initial persistence fails closed; target checkpoints are saved as side effects settle and unresolved records are retained.
-- Recovery handles metadata-pending, cleanup-pending, syncing, and failed records conservatively without repeating ambiguous hosted mutations.
-- Verified survivors reconcile final metadata; known total failure compensates exact provisional evidence.
-- Import/fork temporary mirrors and failed new transaction-owned local repositories follow safe, retryable cleanup policies.
-- Focused checkpoint/recovery/cleanup tests, typechecks, formatting, and whitespace checks pass.
+- Mutating worker RPCs accept operation IDs and expose terminal status including whether side effects may have occurred.
+- Clone, provider operations, and push observe cancellation where supported; accepted or ambiguous requests end as unknown.
+- Import/new/fork request cancellation, wait for terminal/unknown status, checkpoint it, then clean up.
+- New local creation atomically enforces `mustNotExist` inside the worker.
+- Concurrent operations isolate progress, cancellation, and status.
+- Architecture documentation and broad tests/build/checks cover the final behavior and residual limits.
+- Checkpoint is advanced to `Current Phase: Complete`, committed, pushed, and reread.
 - Phase files and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -55,6 +56,12 @@
 - Phase 4 made GRASP-first synchronization the shared default and explicit in new/fork; final reconciliation continues to retain only successful targets.
 - Phase 4 rollback now compensates each exact event only on that event's ACKed relays, including admission failures before any target executes; intermediate final announcements are also scoped to actual ACK relays.
 - Phase 4 verification passed: lifecycle utilities/hooks 6 files/68 tests, repository surface 12 files/53 tests, UI/root checks with 0 diagnostics, Prettier, and `git diff --check`.
+- Phase 5 introduced a version 2 journal with fail-closed initial persistence, credential redaction/rejection, local ownership state, per-target/ref stages, remote receipts, exact event ACK evidence, cleanup state, and manual-attention reasons.
+- Phase 5 remote synchronization checkpoints immediately before/after creation, publication, push, verification, cleanup, and target settlement; callback persistence failures stop further side effects.
+- Phase 5 retains unresolved records without TTL deletion and migrates legacy records without persisting tokens.
+- Phase 5 extracted conservative recovery for metadata-pending, cleanup-pending, syncing, and failed records; it probes exact refs/GRASP metadata, never replays ambiguous create/push, reconciles verified survivors, and compensates known failures.
+- Phase 5 cleans successful import/fork mirrors and failed transaction-owned new locals when safe; unavailable, aborted, or failed cleanup stays retryable in the journal.
+- Phase 5 verification passed: focused journal/recovery/sync/hooks 5 files/44 tests, repository surface 13 files/56 tests, core delete API 1 file/2 tests, core/UI/root checks with 0 diagnostics, Prettier, and `git diff --check`.
 
 ## Decisions
 
@@ -69,12 +76,12 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phases 1 through 4 are verified; Phase 5 begins after the Phase 4 closeout transition.
-- Generated coverage and unrelated HiveTalk documents must remain unstaged.
+- Phases 1 through 5 are verified; Phase 6 begins after the Phase 5 closeout transition.
+- Generated coverage and unrelated HiveTalk documents, including the new deployment checkpoint, must remain unstaged.
 
 ## Next Action
 
-- Reread the full plan, then version and extend transaction checkpoints, persist target side effects incrementally, extract recovery coordination, and implement safe local cleanup.
+- Reread the full plan, then implement operation-scoped cancellation/status and atomic local creation, update architecture documentation, and run broad final verification.
 
 ## Verification
 
@@ -99,11 +106,17 @@
 - Phase 4: repository admission/preflight surface tests passed, 12 files and 53 tests.
 - Phase 4: UI typecheck and root `pnpm check` passed with 0 diagnostics.
 - Phase 4: changed-file Prettier and `git diff --check` passed.
+- Phase 5: journal/recovery/remote-sync/new/fork tests passed, 5 files and 44 tests.
+- Phase 5: repository recovery surface tests passed, 13 files and 56 tests.
+- Phase 5: core worker delete API tests passed, 1 file and 2 tests.
+- Phase 5: core/UI typechecks and root `pnpm check` passed with 0 diagnostics.
+- Phase 5: changed-file Prettier and `git diff --check` passed.
 
 ## Risks Or Blockers
 
 - No current blocker.
 - The worktree contains generated coverage and unrelated untracked HiveTalk documents that must remain unstaged.
+- Concurrent repository-card alignment changes in `src/routes/git/+page.svelte` are unrelated and must remain unstaged while Phase 5 recovery wiring from the same file is committed selectively.
 - Operation-scoped physical cancellation requires worker/provider API expansion in Phase 6.
 - Remote creation cannot be exactly-once without provider idempotency support; ambiguous outcomes must remain visible.
 
@@ -114,8 +127,12 @@
 - `packages/nostr-git-ui/src/lib/hooks/useForkRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useNewRepo.svelte.ts`
-- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`
+- `packages/nostr-git-ui/src/lib/index.ts`
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.test.ts`
 - `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`
-- `packages/nostr-git-ui/tests/repoAdmissionOrderingSurface.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-recovery.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-recovery.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.ts`
+- `packages/nostr-git-ui/tests/repoRecoverySurface.test.ts`
+- `src/routes/git/+page.svelte`
