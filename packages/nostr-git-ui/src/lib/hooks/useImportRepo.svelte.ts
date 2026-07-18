@@ -2303,17 +2303,15 @@ export function useImportRepo(options: UseImportRepoOptions) {
       }
 
       provisionalRollbackAttempted = true;
-      const rollbackRelays = Array.from(
-        new Set(provisionalEvents.flatMap((item) => item.relayUrls).filter(Boolean))
-      );
-
       try {
         if (onRollbackPublishedRepoEvents) {
-          await onRollbackPublishedRepoEvents({
-            repoName: getDestinationRepoName(context),
-            relays: rollbackRelays,
-            events: provisionalEvents.map((item) => item.event),
-          });
+          for (const item of provisionalEvents) {
+            await onRollbackPublishedRepoEvents({
+              repoName: getDestinationRepoName(context),
+              relays: item.relayUrls,
+              events: [item.event],
+            });
+          }
         } else if (context.onDeleteEvent) {
           for (const item of provisionalEvents) {
             await context.onDeleteEvent(item.event, item.relayUrls);

@@ -12,6 +12,7 @@ import { checkGraspRepoExists } from "../utils/grasp-availability.js";
 import {
   applyReconciledGraspResults,
   getRemoteSyncProvisionalEvents,
+  publishRepoSyncAnnouncement,
   syncLocalRepoToTargets,
   type RemoteSyncTargetResult,
 } from "../utils/remote-sync.js";
@@ -788,6 +789,26 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       });
       transactionJournal.setTargets(targets);
 
+      updateProgress("remotes", "Publishing repository metadata before Git setup...", "running");
+      const announcementAdmission = await publishRepoSyncAnnouncement({
+        repoName: config.name,
+        repoDescription: config.description || "",
+        userPubkey: creationPubkey,
+        targets,
+        relayUrls: verifiedRelayUrls,
+        sourceCloneUrls: normalizeList([config.cloneUrl || "", ...(config.cloneUrls || [])]),
+        sourceWebUrls: configuredWebUrls,
+        community: config.community,
+        onPublishEvent: transactionPublisher!,
+        onFetchRelayEvents: options.onFetchRelayEvents,
+        updateProgress: (message) => updateProgress("remotes", message, "running"),
+        runAbortable: async (operation) => await operation(),
+      });
+      latestRepoMetadataCreatedAt = Math.max(
+        latestRepoMetadataCreatedAt,
+        announcementAdmission.latestAnnouncementCreatedAt
+      );
+
       // Create only after all metadata and destination checks complete.
       updateProgress("local", "Creating local repository...", "running");
       const localRepo = await createLocalRepo({ ...config }, canonicalKey);
@@ -837,8 +858,12 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           latestRepoMetadataCreatedAt = value;
         },
         requireNonGraspSuccessBeforeGrasp: false,
+        graspFirst: true,
         operationId,
         onOperationProgress,
+        prepublishedAnnouncement: announcementAdmission.announcementEvent,
+        prepublishedAnnouncementByGraspRelay: announcementAdmission.announcementByGraspRelay,
+        preprovisionedGraspRelayUrls: announcementAdmission.graspRelayUrls,
       });
       operationActivity = undefined;
       const remoteResults = transactionRemoteResults;
@@ -1078,14 +1103,14 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       transactionJournal.complete();
       return result;
     } catch (err) {
+      const provisionalEvents = transactionJournal
+        ? getRepoCreationProvisionalEvents(transactionJournal.record)
+        : getRemoteSyncProvisionalEvents(transactionRemoteResults);
       if (
         options.onDeleteEvent &&
-        transactionRemoteResults.length > 0 &&
+        provisionalEvents.length > 0 &&
         transactionRemoteResults.every((result) => !result.success)
       ) {
-        const provisionalEvents = transactionJournal
-          ? getRepoCreationProvisionalEvents(transactionJournal.record)
-          : getRemoteSyncProvisionalEvents(transactionRemoteResults);
         const cleanupResults = await Promise.allSettled(
           provisionalEvents.map((item) =>
             Promise.resolve(options.onDeleteEvent?.(item.event, item.relayUrls))

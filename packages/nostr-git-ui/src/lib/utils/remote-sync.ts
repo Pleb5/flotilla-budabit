@@ -730,7 +730,7 @@ export async function syncLocalRepoToTargets(
     withRateLimit: rateLimiter,
     requireNonGraspSuccessBeforeGrasp = false,
     allowApiBranchFastPath = true,
-    graspFirst = false,
+    graspFirst = true,
     prepublishedAnnouncement,
     prepublishedAnnouncementByGraspRelay = {},
     preprovisionedGraspRelayUrls = [],

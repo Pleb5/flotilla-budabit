@@ -16,6 +16,7 @@ import {
   applyReconciledGraspResults,
   getRemoteSyncProvisionalEvents,
   guessWebUrl,
+  publishRepoSyncAnnouncement,
   syncLocalRepoToTargets,
   type RemoteSyncRef,
   type RemoteSyncTargetResult,
@@ -637,6 +638,37 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         relays: rollbackRelays,
       };
 
+      localRepoId = parseRepoId(`${userPubkey}:fork-${forkName}-${Date.now()}`);
+      transactionJournal = new RepoCreationTransactionJournal({
+        id: `fork:${userPubkey}:${forkName}:${Date.now()}`,
+        operation: "fork",
+        ownerPubkey: userPubkey,
+        repoName: forkName,
+        localRepoId,
+      });
+      transactionJournal.setTargets(selectedTargets);
+      transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
+      let latestRepoMetadataCreatedAt = 0;
+
+      updateProgress("publish", "Publishing repository metadata before source clone...", "running");
+      const announcementAdmission = await publishRepoSyncAnnouncement({
+        repoName: forkName,
+        repoDescription:
+          originalRepo.description || `Fork of ${originalRepo.owner}/${originalRepo.name}`,
+        userPubkey,
+        targets: selectedTargets,
+        relayUrls: verifiedRelayUrls,
+        community: config.community,
+        onPublishEvent: transactionPublisher!,
+        onFetchRelayEvents: options.onFetchRelayEvents,
+        updateProgress: (message) => updateProgress("publish", message, "running"),
+        runAbortable: (operation) => runAbortable(abortSignal, operation),
+      });
+      latestRepoMetadataCreatedAt = Math.max(
+        latestRepoMetadataCreatedAt,
+        announcementAdmission.latestAnnouncementCreatedAt
+      );
+
       updateProgress("validate", "Validating fork configuration...", "running");
       updateProgress(
         "validate",
@@ -650,16 +682,6 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         gitWorkerApi = temporaryWorkerClient.api;
       }
 
-      localRepoId = parseRepoId(`${userPubkey}:fork-${forkName}-${Date.now()}`);
-      transactionJournal = new RepoCreationTransactionJournal({
-        id: `fork:${userPubkey}:${forkName}:${Date.now()}`,
-        operation: "fork",
-        ownerPubkey: userPubkey,
-        repoName: forkName,
-        localRepoId,
-      });
-      transactionJournal.setTargets(selectedTargets);
-      transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
       const localCloneDir = `/repos/${localRepoId}`;
 
       updateProgress("fork", "Preparing local duplicate...", "running");
@@ -723,7 +745,6 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         "completed"
       );
 
-      let latestRepoMetadataCreatedAt = 0;
       const remoteMaintainers = Array.from(
         new Set((config.maintainers || []).filter((value) => Boolean(value?.trim())))
       );
@@ -737,7 +758,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         refs: preparedSource.refs,
         targets: selectedTargets,
         userPubkey,
-        relays: config.relays || [],
+        relays: verifiedRelayUrls,
         maintainers: remoteMaintainers.length > 0 ? remoteMaintainers : undefined,
         community: config.community,
         onPublishEvent: transactionPublisher!,
@@ -751,8 +772,12 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         },
         requireNonGraspSuccessBeforeGrasp: false,
         allowApiBranchFastPath: false,
+        graspFirst: true,
         operationId,
         onOperationProgress,
+        prepublishedAnnouncement: announcementAdmission.announcementEvent,
+        prepublishedAnnouncementByGraspRelay: announcementAdmission.announcementByGraspRelay,
+        preprovisionedGraspRelayUrls: announcementAdmission.graspRelayUrls,
       });
       operationActivity = undefined;
       transactionJournal.setTargetResults(remotePushResults);
@@ -942,7 +967,9 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       const rollbackPlan = getForkRollbackPlan({
         successfulTargetCount,
         hasPublishedRepoRollbackContext: Boolean(publishedRepoRollbackContext),
-        hasRollbackPublishedRepoEvents: Boolean(onRollbackPublishedRepoEvents),
+        hasRollbackPublishedRepoEvents: Boolean(
+          options.onDeleteEvent || onRollbackPublishedRepoEvents
+        ),
         createdRemoteRepoCount: remoteRollbackTargets.length,
         hasGitWorkerApi: Boolean(gitWorkerApi),
         hasRollbackLocalRepoId: Boolean(localRepoId),
@@ -957,24 +984,36 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         const provisionalEvents = transactionJournal
           ? getRepoCreationProvisionalEvents(transactionJournal.record)
           : getRemoteSyncProvisionalEvents(remotePushResults);
-        try {
-          await onRollbackPublishedRepoEvents?.({
-            ...publishedRepoRollbackContext,
-            events: provisionalEvents.map((item) => item.event),
-          });
-        } catch (rollbackError) {
-          transactionJournal?.setPendingCompensations(
-            provisionalEvents.map((item) => ({
-              action: "delete" as const,
+        const failedCompensations: Array<{
+          action: "delete";
+          eventId: string;
+          relayUrls: string[];
+          error: string;
+        }> = [];
+        for (const item of provisionalEvents) {
+          try {
+            if (options.onDeleteEvent) {
+              await options.onDeleteEvent(item.event, item.relayUrls);
+            } else {
+              await onRollbackPublishedRepoEvents?.({
+                repoName: publishedRepoRollbackContext.repoName,
+                relays: item.relayUrls,
+                events: [item.event],
+              });
+            }
+          } catch (rollbackError) {
+            const message =
+              rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+            failedCompensations.push({
+              action: "delete",
               eventId: item.event.id,
               relayUrls: item.relayUrls,
-              error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-            }))
-          );
-          rollbackFailures.push(
-            `repo events: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
-          );
+              error: message,
+            });
+            rollbackFailures.push(`repo event ${item.event.id}: ${message}`);
+          }
         }
+        transactionJournal?.setPendingCompensations(failedCompensations);
       }
 
       if (rollbackPlan.rollbackRemoteRepos) {

@@ -818,14 +818,14 @@ describe("syncLocalRepoToTargets", () => {
 
     expect(results).toEqual([
       expect.objectContaining({
-        provider: "github",
-        success: false,
-        cleanup: { attempted: true, success: true },
-      }),
-      expect.objectContaining({
         provider: "grasp",
         success: true,
         pushedRefs: ["refs/heads/main"],
+      }),
+      expect.objectContaining({
+        provider: "github",
+        success: false,
+        cleanup: { attempted: true, success: true },
       }),
     ]);
   });

@@ -572,8 +572,6 @@ export async function reconcileRepoCreationEvents({
     if (!signedAnnouncement) {
       throw new Error("Final repository announcement publication did not return a signed event");
     }
-    obsoleteEvents.push({ event: signedAnnouncement, relayUrls: [...activeRelays] });
-
     const announcementAck = extractPublishRelayAck(announcementResult);
     const announcementRelays = filterAckedRelays(activeRelays, announcementAck);
     if (announcementRelays.length === 0) {
@@ -595,6 +593,7 @@ export async function reconcileRepoCreationEvents({
         `No candidate relay ACKed the final repository announcement${details ? ` (${details})` : ""}`
       );
     }
+    obsoleteEvents.push({ event: signedAnnouncement, relayUrls: [...announcementRelays] });
 
     const stateResult = await onPublishEvent(signedStateEvent || stateEvent, {
       relays: announcementRelays,

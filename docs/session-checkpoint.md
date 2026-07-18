@@ -12,15 +12,16 @@
 
 ## Current Phase
 
-- Phase 4: Admission-First New And Fork
+- Phase 5: Durable Checkpoints Recovery And Cleanup
 
 ## Phase Exit Criteria
 
-- New admits provisional metadata and waits for all GRASP endpoints before local creation.
-- Fork admits provisional metadata and waits for all GRASP endpoints before source clone.
-- New/fork reuse exact admitted events, process GRASP before hosted targets, and reconcile only successful destinations.
-- Admission-only rollback uses event-specific ACKed relay scopes even when no target ran.
-- Pure GRASP, pure hosted, and hybrid ordering/partial-failure tests, typechecks, formatting, and whitespace checks pass.
+- Journal schema records local ownership, per-target/ref side-effect stages, remote receipts, exact event scopes, cleanup state, and manual-attention reasons without secrets.
+- Initial persistence fails closed; target checkpoints are saved as side effects settle and unresolved records are retained.
+- Recovery handles metadata-pending, cleanup-pending, syncing, and failed records conservatively without repeating ambiguous hosted mutations.
+- Verified survivors reconcile final metadata; known total failure compensates exact provisional evidence.
+- Import/fork temporary mirrors and failed new transaction-owned local repositories follow safe, retryable cleanup policies.
+- Focused checkpoint/recovery/cleanup tests, typechecks, formatting, and whitespace checks pass.
 - Phase files and checkpoint advancement are committed and pushed.
 
 ## Completed With Evidence
@@ -50,6 +51,10 @@
 - Phase 3 fork performs authoritative remote and exact-coordinate checks before worker initialization and source clone, including hosted-only metadata relay validation.
 - Phase 3 wizard checks every GRASP relay and blocks pending, conflict, missing-token, timeout, and unknown provider evidence; creation revalidates immediately.
 - Phase 3 verification passed: focused utilities/hooks 4 files/16 tests, repository surface 11 files/50 tests, UI/root checks with 0 diagnostics, Prettier, and `git diff --check`.
+- Phase 4 moved new/fork provisional publication and GRASP readiness ahead of local initialization/source clone, then reused the exact admitted announcement and preprovisioned endpoints during synchronization.
+- Phase 4 made GRASP-first synchronization the shared default and explicit in new/fork; final reconciliation continues to retain only successful targets.
+- Phase 4 rollback now compensates each exact event only on that event's ACKed relays, including admission failures before any target executes; intermediate final announcements are also scoped to actual ACK relays.
+- Phase 4 verification passed: lifecycle utilities/hooks 6 files/68 tests, repository surface 12 files/53 tests, UI/root checks with 0 diagnostics, Prettier, and `git diff --check`.
 
 ## Decisions
 
@@ -64,12 +69,12 @@
 
 - Repository: `/home/johnd/Work/budabit`.
 - Branch: `dev`, tracking `origin/dev`.
-- Phases 1 through 3 are verified; Phase 4 begins after the Phase 3 closeout transition.
+- Phases 1 through 4 are verified; Phase 5 begins after the Phase 4 closeout transition.
 - Generated coverage and unrelated HiveTalk documents must remain unstaged.
 
 ## Next Action
 
-- Reread the full plan, then move new/fork provisional admission and GRASP readiness before local creation/source clone and preserve exact ACK rollback scope.
+- Reread the full plan, then version and extend transaction checkpoints, persist target side effects incrementally, extract recovery coordination, and implement safe local cleanup.
 
 ## Verification
 
@@ -90,6 +95,10 @@
 - Phase 3: repository preflight/surface tests passed, 11 files and 50 tests.
 - Phase 3: UI typecheck and root `pnpm check` passed with 0 diagnostics.
 - Phase 3: changed-file Prettier and `git diff --check` passed.
+- Phase 4: remote-sync, GRASP pipeline, transaction, new/fork, and rollback tests passed, 6 files and 68 tests.
+- Phase 4: repository admission/preflight surface tests passed, 12 files and 53 tests.
+- Phase 4: UI typecheck and root `pnpm check` passed with 0 diagnostics.
+- Phase 4: changed-file Prettier and `git diff --check` passed.
 
 ## Risks Or Blockers
 
@@ -102,12 +111,11 @@
 
 - `docs/session-plan.md`
 - `docs/session-checkpoint.md`
-- `packages/nostr-git-ui/src/lib/components/git/ForkRepoDialog.svelte`
-- `packages/nostr-git-ui/src/lib/components/git/NewRepoWizard.svelte`
 - `packages/nostr-git-ui/src/lib/hooks/useForkRepo.svelte.ts`
+- `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`
 - `packages/nostr-git-ui/src/lib/hooks/useNewRepo.svelte.ts`
-- `packages/nostr-git-ui/src/lib/utils/remote-targets-preflight.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/remote-targets.ts`
-- `packages/nostr-git-ui/src/lib/utils/repo-creation-preflight.test.ts`
-- `packages/nostr-git-ui/src/lib/utils/repo-creation-preflight.ts`
-- `packages/nostr-git-ui/tests/repoCreationPreflightSurface.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`
+- `packages/nostr-git-ui/src/lib/utils/remote-sync.test.ts`
+- `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`
+- `packages/nostr-git-ui/tests/repoAdmissionOrderingSurface.test.ts`

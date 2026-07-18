@@ -430,6 +430,49 @@ describe("grasp-pipeline", () => {
     expect(result.cleanupFailures).toEqual([]);
   });
 
+  it("deletes an intermediate announcement only from relays that ACKed that event", async () => {
+    const relayOne = "wss://relay.one";
+    const relayTwo = "wss://relay.two";
+    const onDeleteEvent = vi.fn();
+    let announcementCount = 0;
+    const onPublishEvent = vi.fn(async (event: any, context?: { relays: string[] }) => {
+      const relays = context?.relays || [];
+      if (event.kind === 30617) announcementCount += 1;
+      return {
+        event: signedEvent(event, `${event.kind}-${event.created_at}-${announcementCount}`),
+        relayOutcomes: relays.map((relay) => ({
+          relay,
+          status:
+            event.kind === 30617 && announcementCount === 1 && relay === relayTwo
+              ? "timeout"
+              : "success",
+          detail:
+            event.kind === 30617 && announcementCount === 1 && relay === relayTwo
+              ? "timed out"
+              : "stored",
+        })),
+      };
+    });
+
+    await reconcileRepoCreationEvents({
+      relayUrls: [relayOne, relayTwo],
+      provisionalRelayUrls: [relayOne, relayTwo],
+      stateEvent: createRepoStateEvent({ repoId: "repo" }),
+      onPublishEvent,
+      onDeleteEvent,
+      buildAnnouncement: ({ relays, createdAt }) =>
+        createRepoAnnouncementEvent({
+          repoId: "repo",
+          clone: ["https://github.com/alice/repo.git"],
+          relays,
+          created_at: createdAt,
+        }),
+    });
+
+    expect(onDeleteEvent).toHaveBeenCalledTimes(1);
+    expect(onDeleteEvent.mock.calls[0][1]).toEqual([relayOne]);
+  });
+
   it("uses NIP-01 replacement ordering for equal-timestamp state events", async () => {
     const lowerId = "1".repeat(64);
     const higherId = "f".repeat(64);
