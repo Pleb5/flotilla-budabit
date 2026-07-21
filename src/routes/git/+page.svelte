@@ -3808,7 +3808,7 @@
               repoCardNavigationKey && navigatingRepoCardKey === repoCardNavigationKey,
             )}
             <div
-              class="relative min-w-0 rounded-md border border-border bg-card p-3 transition {repoCardNavigating
+              class="relative flex min-w-0 flex-col rounded-md border border-border bg-card p-3 transition {repoCardNavigating
                 ? 'cursor-wait opacity-70 ring-2 ring-primary/40'
                 : ''}"
               role="link"
@@ -3841,7 +3841,7 @@
                   showActions={true}
                   hideDate={true} />
               {/if}
-              <div class="mt-3 flex min-w-0 items-center justify-between gap-2">
+              <div class="mt-auto flex min-w-0 items-center justify-between gap-2 pt-3">
                 <div class="min-w-0 flex-1">
                   <RepoMaintainerList
                     maintainers={repoCardMaintainers}
@@ -3954,7 +3954,7 @@
               repoCardNavigationKey && navigatingRepoCardKey === repoCardNavigationKey,
             )}
             <div
-              class="relative min-w-0 rounded-md border border-border bg-card p-3 transition {repoCardNavigating
+              class="relative flex min-w-0 flex-col rounded-md border border-border bg-card p-3 transition {repoCardNavigating
                 ? 'cursor-wait opacity-70 ring-2 ring-primary/40'
                 : ''}"
               role="link"
@@ -3990,7 +3990,7 @@
 
               <!-- Maintainers, community stargazers, and date -->
               <div
-                class="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                class="mt-auto flex min-w-0 flex-col gap-2 pt-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
                   <RepoMaintainerList
                     maintainers={repoCardMaintainers}
