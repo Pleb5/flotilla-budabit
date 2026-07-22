@@ -5,6 +5,7 @@ import {
   getNotificationHistorySince,
   NOTIFICATION_HISTORY_FILTER_LIMIT_STEP,
   NOTIFICATION_HISTORY_LOOKBACK_SECONDS,
+  NOTIFICATION_HISTORY_MAX_PAGES,
   NOTIFICATION_HISTORY_ROW_STEP,
 } from "./notification-history"
 
@@ -29,5 +30,16 @@ describe("notification history window", () => {
       4 * NOTIFICATION_HISTORY_FILTER_LIMIT_STEP,
     )
     expect(NOTIFICATION_HISTORY_ROW_STEP).toBe(50)
+  })
+
+  it("bounds history expansion", () => {
+    const openedAt = NOTIFICATION_HISTORY_LOOKBACK_SECONDS * 20
+
+    expect(getNotificationHistorySince({openedAt, pages: 100})).toBe(
+      openedAt - NOTIFICATION_HISTORY_MAX_PAGES * NOTIFICATION_HISTORY_LOOKBACK_SECONDS,
+    )
+    expect(getNotificationHistoryFilterLimit({pages: 100})).toBe(
+      NOTIFICATION_HISTORY_MAX_PAGES * NOTIFICATION_HISTORY_FILTER_LIMIT_STEP,
+    )
   })
 })

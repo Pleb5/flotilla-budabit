@@ -1,6 +1,5 @@
 import {derived, readable, type Readable} from "svelte/store"
 import {request} from "@welshman/net"
-import {repository, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {isRelayUrl, normalizeRelayUrl, type Filter, type TrustedEvent} from "@welshman/util"
 import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
@@ -9,6 +8,7 @@ import {
   createBackgroundLiveCoordinator,
 } from "@app/core/background-live"
 import {notificationBackgroundEnabled} from "@app/util/notification-background"
+import {notificationEventRepository, receiveNotificationEvent} from "@app/util/notification-events"
 import {parseSmartWidget} from "./registry"
 import {
   defaultExtensionWidgets,
@@ -42,6 +42,7 @@ export type WidgetUpdateRelayGroup = {
 
 const fallbackWidgetUpdateRelays = Array.from(new Set([...SMART_WIDGET_RELAYS, ...INDEXER_RELAYS]))
 const WIDGET_UPDATE_FILTER_CHUNK_SIZE = 100
+const MAX_WIDGET_NOTIFICATION_RELAYS_PER_TARGET = 6
 
 const getCacheFilter = (filter: Filter): Filter => {
   const {limit: _limit, ...rest} = filter
@@ -153,7 +154,7 @@ export const buildInstalledWidgetUpdateTargets = ({
     const relays = getWidgetUpdateRelays({
       source: settings.widgetInstallSources?.[id],
       fallbackRelays,
-    })
+    }).slice(0, MAX_WIDGET_NOTIFICATION_RELAYS_PER_TARGET)
     if (relays.length === 0) return []
 
     return [{id, installed, filter, relays}]
@@ -197,15 +198,10 @@ export const installedWidgetUpdateTargets = derived(
     }),
 )
 
-const receiveWidgetUpdateEvent = (event: TrustedEvent, relay: string) => {
-  if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
-  repository.publish(event)
-}
-
 const widgetUpdateLiveCoordinator = createBackgroundLiveCoordinator({
   request,
   owner: "widget-update",
-  onEvent: receiveWidgetUpdateEvent,
+  onEvent: receiveNotificationEvent,
   onError: (relay, error) => {
     console.warn(`[widget-update-notifications] Failed to subscribe on ${relay}`, error)
   },
@@ -237,7 +233,7 @@ const widgetUpdateEvents: Readable<TrustedEvent[]> = readable<TrustedEvent[]>([]
       const cacheFilters = targets.map(target => getCacheFilter(target.filter))
       if (cacheFilters.length > 0) {
         unsubscribeEvents = deriveEventsAsc(
-          deriveEventsById({repository, filters: cacheFilters}),
+          deriveEventsById({repository: notificationEventRepository, filters: cacheFilters}),
         ).subscribe(events => set(events as TrustedEvent[]))
       } else {
         set([])
@@ -264,7 +260,7 @@ const widgetUpdateEvents: Readable<TrustedEvent[]> = readable<TrustedEvent[]>([]
         filters: group.filters,
         liveFilters: group.filters,
         signal: controller.signal,
-        onEvent: receiveWidgetUpdateEvent,
+        onEvent: receiveNotificationEvent,
         onError: error => {
           if (!controller.signal.aborted) {
             console.warn("[widget-update-notifications] Failed to load widget updates", error)

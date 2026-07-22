@@ -12,8 +12,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {formatTimestamp} from "@welshman/lib"
-  import {onDestroy, onMount} from "svelte"
-  import {derived} from "svelte/store"
+  import {onDestroy, onMount, untrack} from "svelte"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import ArrowRightUp from "@assets/icons/arrow-right-up.svg?dataurl"
   import Bolt from "@assets/icons/bolt.svg?dataurl"
@@ -44,7 +43,7 @@
   import {
     loadMoreNotificationHistory,
     NOTIFICATION_HISTORY_ROW_STEP,
-    notificationHistorySince,
+    notificationHistoryCanLoadMore,
     resetNotificationHistory,
   } from "@app/util/notification-history"
   import {
@@ -70,41 +69,19 @@
   let loadMoreHistoryRowCount = $state(0)
   let loadMoreHistoryTimeout: ReturnType<typeof setTimeout> | undefined
 
-  const rowsWithActorNames = derived(
-    notificationCenterRows,
-    ($rows, set) => {
-      const actorPubkeys = Array.from(
-        new Set(
-          $rows.map(row => row.actorPubkey).filter((value): value is string => Boolean(value)),
-        ),
-      )
-
-      if (actorPubkeys.length === 0) {
-        set($rows)
-        return
-      }
-
-      const nameStores = actorPubkeys.map(pubkey => deriveBudabitProfileDisplay(pubkey))
-
-      return derived(nameStores, actorNames => {
-        const namesByPubkey = new Map(
-          actorPubkeys.map((pubkey, index) => [pubkey, String(actorNames[index] || "").trim()]),
-        )
-
-        return $rows.map(row => {
-          const actorName = row.actorPubkey ? namesByPubkey.get(row.actorPubkey) : ""
-
-          return actorName && actorName !== row.actorName ? {...row, actorName} : row
-        })
-      }).subscribe(set)
-    },
-    [] as NotificationRow[],
+  let actorNamesByPubkey = $state<Record<string, string>>({})
+  const rows = $derived(
+    filterNotificationRows($notificationCenterRows, {filters: rowFilters, term}),
   )
-
-  const rows = $derived(filterNotificationRows($rowsWithActorNames, {filters: rowFilters, term}))
-  const visibleRows = $derived(rows.slice(0, visibleRowLimit))
+  const visibleRowsWithoutActorNames = $derived(rows.slice(0, visibleRowLimit))
+  const visibleRows = $derived(
+    visibleRowsWithoutActorNames.map(row => {
+      const actorName = row.actorPubkey ? actorNamesByPubkey[row.actorPubkey] : ""
+      return actorName && actorName !== row.actorName ? {...row, actorName} : row
+    }),
+  )
   const hasMoreLoadedRows = $derived(rows.length > visibleRows.length)
-  const canLoadOlderHistory = $derived($notificationHistorySince > 0)
+  const canLoadOlderHistory = $derived($notificationHistoryCanLoadMore)
   const loadMoreLabel = $derived(loadMoreHistoryPending ? "Loading..." : "Load more")
 
   const clearLoadMoreHistoryPending = () => {
@@ -135,6 +112,27 @@
     if (loadMoreHistoryPending && rows.length > loadMoreHistoryRowCount) {
       clearLoadMoreHistoryPending()
     }
+  })
+
+  $effect(() => {
+    const actorPubkeys = Array.from(
+      new Set(
+        visibleRowsWithoutActorNames
+          .map(row => row.actorPubkey)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    )
+    actorNamesByPubkey = {}
+    const unsubscribers = actorPubkeys.map(pubkey =>
+      deriveBudabitProfileDisplay(pubkey).subscribe(actorName => {
+        const normalized = String(actorName || "").trim()
+        if (normalized) {
+          actorNamesByPubkey = untrack(() => ({...actorNamesByPubkey, [pubkey]: normalized}))
+        }
+      }),
+    )
+
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe())
   })
 
   const toggleRow = (row: NotificationRow) => {

@@ -12,7 +12,8 @@ import {
 } from "./widget-update-notifications"
 import {getWidgetLineId} from "./widget-identity"
 
-vi.mock("@welshman/net", () => ({
+vi.mock("@welshman/net", async importOriginal => ({
+  ...(await importOriginal<typeof import("@welshman/net")>()),
   load: vi.fn(() => Promise.resolve([])),
   request: vi.fn(() => Promise.resolve([])),
 }))

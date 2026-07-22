@@ -9,6 +9,7 @@ export type NotificationHistoryState = {
 export const NOTIFICATION_HISTORY_LOOKBACK_SECONDS = 60 * 60 * 24 * 14
 export const NOTIFICATION_HISTORY_ROW_STEP = 50
 export const NOTIFICATION_HISTORY_FILTER_LIMIT_STEP = 200
+export const NOTIFICATION_HISTORY_MAX_PAGES = 6
 
 export const createNotificationHistoryState = (): NotificationHistoryState => ({
   openedAt: now(),
@@ -16,7 +17,7 @@ export const createNotificationHistoryState = (): NotificationHistoryState => ({
 })
 
 const normalizeHistoryPages = (pages: number | undefined) =>
-  Math.max(1, Math.round(Number(pages || 1)))
+  Math.min(NOTIFICATION_HISTORY_MAX_PAGES, Math.max(1, Math.round(Number(pages || 1))))
 
 export const getNotificationHistorySince = ({openedAt, pages}: NotificationHistoryState) =>
   Math.max(
@@ -24,7 +25,9 @@ export const getNotificationHistorySince = ({openedAt, pages}: NotificationHisto
     Math.round(openedAt) - normalizeHistoryPages(pages) * NOTIFICATION_HISTORY_LOOKBACK_SECONDS,
   )
 
-export const getNotificationHistoryFilterLimit = ({pages}: Pick<NotificationHistoryState, "pages">) =>
+export const getNotificationHistoryFilterLimit = ({
+  pages,
+}: Pick<NotificationHistoryState, "pages">) =>
   normalizeHistoryPages(pages) * NOTIFICATION_HISTORY_FILTER_LIMIT_STEP
 
 export const notificationHistoryState = writable<NotificationHistoryState>(
@@ -41,10 +44,16 @@ export const notificationHistoryFilterLimit = derived(
   getNotificationHistoryFilterLimit,
 )
 
-export const resetNotificationHistory = () => notificationHistoryState.set(createNotificationHistoryState())
+export const notificationHistoryCanLoadMore = derived(
+  notificationHistoryState,
+  state => normalizeHistoryPages(state.pages) < NOTIFICATION_HISTORY_MAX_PAGES,
+)
+
+export const resetNotificationHistory = () =>
+  notificationHistoryState.set(createNotificationHistoryState())
 
 export const loadMoreNotificationHistory = () =>
   notificationHistoryState.update(state => ({
     openedAt: state.openedAt,
-    pages: normalizeHistoryPages(state.pages) + 1,
+    pages: normalizeHistoryPages(normalizeHistoryPages(state.pages) + 1),
   }))

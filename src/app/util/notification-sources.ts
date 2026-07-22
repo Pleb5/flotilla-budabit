@@ -1,14 +1,6 @@
 import {derived, readable, type Readable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
-import {
-  displayProfileByPubkey,
-  getMutes,
-  getPlaintext,
-  getValidZap,
-  pubkey,
-  repository,
-  tracker,
-} from "@welshman/app"
+import {displayProfileByPubkey, getMutes, getPlaintext, getValidZap, pubkey} from "@welshman/app"
 import {request} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {
@@ -145,6 +137,11 @@ import {
   type CommunityLiveOwnership,
 } from "@app/core/community-live"
 import {notificationBackgroundEnabled} from "@app/util/notification-background"
+import {
+  getNotificationEventRelays,
+  notificationEventRepository,
+  receiveNotificationEvent,
+} from "@app/util/notification-events"
 
 export type BuildChatNotificationRowsOptions = {
   chats: Iterable<Chat>
@@ -230,6 +227,7 @@ export type NotificationRelayFilterGroup = {
 
 const COMMUNITY_NOTIFICATION_LOAD_LIMIT = 200
 const ENGAGEMENT_NOTIFICATION_LOAD_LIMIT = 200
+const MAX_NOTIFICATION_RELAYS_PER_SOURCE = 6
 const GIT_STATUS_KINDS = [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_APPLIED, GIT_STATUS_CLOSED]
 const ENGAGEMENT_NOTIFICATION_KINDS = [
   COMMENT,
@@ -275,9 +273,9 @@ const dedupeNotificationFilters = (filters: Filter[]) =>
 const getCommunityNotificationRelays = (ref: ActiveUserCommunityRef) =>
   Array.from(
     new Set(
-      [...ref.relayHints, ...ref.definition.relays].map(normalizeNotificationRelay).filter(Boolean),
+      [...ref.definition.relays, ...ref.relayHints].map(normalizeNotificationRelay).filter(Boolean),
     ),
-  ).sort()
+  ).slice(0, MAX_NOTIFICATION_RELAYS_PER_SOURCE)
 
 export const groupCommunityNotificationFiltersByRelay = (
   sources: CommunityNotificationFilterSource[],
@@ -744,7 +742,12 @@ const getEngagementEventContext = (
   const chatPath = getDirectMessageEngagementPath(event, currentPubkey)
   if (chatPath) return {source: "chat", path: chatPath}
 
-  if (isGitEngagementEvent(event)) return {source: "git", path: `/${makeEventShareEntity(event)}`}
+  if (isGitEngagementEvent(event)) {
+    return {
+      source: "git",
+      path: `/${makeEventShareEntity(event, {relays: getNotificationEventRelays(event.id)})}`,
+    }
+  }
 }
 
 const getEngagementRowContext = ({
@@ -940,11 +943,6 @@ const getImportantCommunityRootRow = ({
   }
 }
 
-const receiveNotificationEvent = (event: TrustedEvent, relay: string) => {
-  if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
-  repository.publish(event)
-}
-
 const notificationLiveCoordinator = createBackgroundLiveCoordinator({
   request,
   owner: "notification-background",
@@ -989,9 +987,9 @@ const deriveLoadedNotificationEventGroups = ({
         filtersKey = nextFiltersKey
 
         if (filters.length > 0) {
-          unsubscribeEvents = deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(
-            set,
-          )
+          unsubscribeEvents = deriveEventsAsc(
+            deriveEventsById({repository: notificationEventRepository, filters}),
+          ).subscribe(set)
         }
       }
 
@@ -1048,11 +1046,13 @@ const deriveLoadedNotificationEvents = ({
 }) =>
   deriveLoadedNotificationEventGroups({
     groups: derived([filters, relays], ([$filters, $relays]) =>
-      Array.from(new Set($relays.map(normalizeNotificationRelay).filter(Boolean))).map(relay => ({
-        relay,
-        filters: $filters,
-        liveFilters: $filters,
-      })),
+      Array.from(new Set($relays.map(normalizeNotificationRelay).filter(Boolean)))
+        .slice(0, MAX_NOTIFICATION_RELAYS_PER_SOURCE)
+        .map(relay => ({
+          relay,
+          filters: $filters,
+          liveFilters: $filters,
+        })),
     ),
     label,
   })
@@ -3052,7 +3052,9 @@ const engagementNotificationTargetRelays = derived(
       $pubkey ? getAuthorRelayHints($pubkey) : [],
       getUserRelayHints(),
       APP_RELAYS,
-      $events.flatMap(event => getEventRelayHints(event)),
+      $events.flatMap(event =>
+        getEventRelayHints(event, {relays: getNotificationEventRelays(event.id)}),
+      ),
     ),
 )
 

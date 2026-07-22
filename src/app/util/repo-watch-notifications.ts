@@ -1,6 +1,6 @@
 import {derived, readable, type Readable} from "svelte/store"
 import {request} from "@welshman/net"
-import {pubkey, repository, tracker} from "@welshman/app"
+import {pubkey} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {now} from "@welshman/lib"
 import {
@@ -36,7 +36,12 @@ import {
   selectLatestCommunityDefinition,
 } from "@app/core/community-state"
 import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
-import {GIT_RELAYS, getRepoMaintainers, getStatusRootId, repoAnnouncements} from "@app/core/git-state"
+import {
+  GIT_RELAYS,
+  getRepoMaintainers,
+  getStatusRootId,
+  repoAnnouncements,
+} from "@app/core/git-state"
 import {
   defaultRepoWatchOptions,
   repoWatchNotificationSeen,
@@ -67,6 +72,7 @@ import {
   type RepoLiveOwnership,
 } from "@app/core/repo-live-ownership"
 import {notificationBackgroundEnabled} from "@app/util/notification-background"
+import {notificationEventRepository, receiveNotificationEvent} from "@app/util/notification-events"
 
 type RepoWatchAddressRef = {
   address: string
@@ -134,6 +140,7 @@ const REPO_ACTIVITY_FILTER_CHUNK_SIZE = 100
 const REPO_WATCH_SEEN_BUFFER_SECONDS = 60
 const REPO_WATCH_HARD_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
 const REPO_WATCH_LOAD_LIMIT = 200
+const MAX_REPO_NOTIFICATION_RELAYS_PER_SOURCE = 6
 
 export const defaultOwnedRepoNotificationOptions: RepoWatchOptions = {
   ...defaultRepoWatchOptions,
@@ -184,7 +191,10 @@ const getBaseRelays = () => {
     userRelays = []
   }
 
-  return normalizeRelays([...GIT_RELAYS, ...userRelays])
+  return normalizeRelays([...GIT_RELAYS, ...userRelays]).slice(
+    0,
+    MAX_REPO_NOTIFICATION_RELAYS_PER_SOURCE,
+  )
 }
 
 const getRepoWatchPath = (repo: RepoWatchAddressRef, section: RepoWatchCandidateSection) =>
@@ -256,7 +266,7 @@ const getRepoEventRelays = (repo: RepoWatchNotificationRepo) => {
   try {
     return normalizeRelays(
       parseRepoAnnouncementEvent(repo.repoEvent as RepoAnnouncementEvent).relays || [],
-    )
+    ).slice(0, MAX_REPO_NOTIFICATION_RELAYS_PER_SOURCE)
   } catch {
     return []
   }
@@ -523,7 +533,11 @@ const repoAllowsAuthor = ({
   return true
 }
 
-const isRoleLabelForCurrentUser = (event: TrustedEvent, currentPubkey: string | undefined, role: string) => {
+const isRoleLabelForCurrentUser = (
+  event: TrustedEvent,
+  currentPubkey: string | undefined,
+  role: string,
+) => {
   if (!currentPubkey || event.kind !== GIT_LABEL) return false
 
   const hasRoleNamespace = event.tags.some(tag => tag[0] === "L" && tag[1] === ROLE_NS)
@@ -654,7 +668,8 @@ export const getRepoWatchNotificationCandidates = ({
     const prRepo = prReposByRootId.get(rootId)
     const fallbackRepo = reposByAddress.get(getRepoAddress(status))
     const fallbackSection = getRootSection(status)
-    const issueCandidateRepo = issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
+    const issueCandidateRepo =
+      issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
     const prCandidateRepo = prRepo || (fallbackSection === "prs" ? fallbackRepo : undefined)
 
     if (issueCandidateRepo) {
@@ -688,7 +703,8 @@ export const getRepoWatchNotificationCandidates = ({
     const prRepo = prReposByRootId.get(rootId)
     const fallbackRepo = reposByAddress.get(getRepoAddress(comment))
     const fallbackSection = getRootSection(comment)
-    const issueCandidateRepo = issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
+    const issueCandidateRepo =
+      issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
     const prCandidateRepo = prRepo || (fallbackSection === "prs" ? fallbackRepo : undefined)
 
     if (issueCandidateRepo) {
@@ -724,7 +740,8 @@ export const getRepoWatchNotificationCandidates = ({
     const prRepo = prReposByRootId.get(rootId)
     const fallbackRepo = reposByAddress.get(getRepoAddress(label))
     const fallbackSection = getRootSection(label)
-    const issueCandidateRepo = issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
+    const issueCandidateRepo =
+      issueRepo || (fallbackSection === "issues" ? fallbackRepo : undefined)
     const prCandidateRepo = prRepo || (fallbackSection === "prs" ? fallbackRepo : undefined)
 
     if (issueCandidateRepo) {
@@ -733,7 +750,9 @@ export const getRepoWatchNotificationCandidates = ({
         repo: issueCandidateRepo,
         section: "issues",
         event: label,
-        enabled: isAssignment ? issueCandidateRepo.options.assignments : issueCandidateRepo.options.reviews,
+        enabled: isAssignment
+          ? issueCandidateRepo.options.assignments
+          : issueCandidateRepo.options.reviews,
         currentPubkey,
       })
     }
@@ -744,7 +763,9 @@ export const getRepoWatchNotificationCandidates = ({
         repo: prCandidateRepo,
         section: "prs",
         event: label,
-        enabled: isAssignment ? prCandidateRepo.options.assignments : prCandidateRepo.options.reviews,
+        enabled: isAssignment
+          ? prCandidateRepo.options.assignments
+          : prCandidateRepo.options.reviews,
         currentPubkey,
       })
     }
@@ -766,15 +787,10 @@ const watchedRepoRefs: Readable<WatchedRepoRef[]> = derived(userRepoWatchValues,
 
 const baseRelays = derived(pubkey, getBaseRelays)
 
-const receiveRepoWatchEvent = (event: TrustedEvent, relay: string) => {
-  if (!tracker.hasRelay(event.id, relay)) tracker.addRelay(event.id, relay)
-  repository.publish(event)
-}
-
 const repoWatchLiveCoordinator = createBackgroundLiveCoordinator({
   request,
   owner: "repo-watcher",
-  onEvent: receiveRepoWatchEvent,
+  onEvent: receiveNotificationEvent,
   onError: (relay, error) => {
     console.warn(`[repo-watch-notifications] Failed to subscribe on ${relay}`, error)
   },
@@ -815,9 +831,9 @@ const deriveLoadedEventGroups = <T extends TrustedEvent>({
         filtersKey = nextFiltersKey
 
         if (filters.length > 0) {
-          unsubscribeEvents = deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(
-            events => set(events as T[]),
-          )
+          unsubscribeEvents = deriveEventsAsc(
+            deriveEventsById({repository: notificationEventRepository, filters}),
+          ).subscribe(events => set(events as T[]))
         }
       }
 
@@ -846,7 +862,7 @@ const deriveLoadedEventGroups = <T extends TrustedEvent>({
           filters: group.filters,
           liveFilters: group.liveFilters,
           signal: controller.signal,
-          onEvent: receiveRepoWatchEvent,
+          onEvent: receiveNotificationEvent,
           onError: error => {
             if (!controller.signal.aborted) {
               console.warn(`[repo-watch-notifications] Failed to load ${label}`, error)
@@ -875,6 +891,7 @@ const deriveLoadedEvents = <T extends TrustedEvent>({
   deriveLoadedEventGroups({
     groups: derived([filters, relays], ([$filters, $relays]) =>
       normalizeRelays($relays)
+        .slice(0, MAX_REPO_NOTIFICATION_RELAYS_PER_SOURCE)
         .sort()
         .map(relay => ({relay, filters: $filters, liveFilters: $filters})),
     ),

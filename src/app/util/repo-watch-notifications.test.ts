@@ -16,7 +16,8 @@ import {COMMUNITY_SECTION_REPO_CURATOR, PROFILE_LIST_KIND} from "@app/core/commu
 import {defaultRepoWatchOptions, type RepoWatchOptions} from "@app/core/repo-watch"
 import {ROLE_NS} from "@app/util/labels"
 
-vi.mock("@welshman/net", () => ({
+vi.mock("@welshman/net", async importOriginal => ({
+  ...(await importOriginal<typeof import("@welshman/net")>()),
   load: vi.fn(() => Promise.resolve([])),
   request: vi.fn(() => Promise.resolve([])),
 }))
@@ -146,9 +147,8 @@ describe("repo watch notifications", () => {
   })
 
   it("adds owned and maintained repos as baseline notification repos", async () => {
-    const {defaultOwnedRepoNotificationOptions, getRepoNotificationRepos} = await import(
-      "./repo-watch-notifications"
-    )
+    const {defaultOwnedRepoNotificationOptions, getRepoNotificationRepos} =
+      await import("./repo-watch-notifications")
     const watchedOptions = watchOptions({
       issues: {...defaultRepoWatchOptions.issues, comments: false},
     })
@@ -180,7 +180,9 @@ describe("repo watch notifications", () => {
       currentPubkey: viewer,
     })
     const watched = repos.find(repo => repo.address === repoAddress)
-    const owned = repos.find(repo => repo.address === `${GIT_REPO_ANNOUNCEMENT}:${viewer}:owned-repo`)
+    const owned = repos.find(
+      repo => repo.address === `${GIT_REPO_ANNOUNCEMENT}:${viewer}:owned-repo`,
+    )
     const maintained = repos.find(
       repo => repo.address === `${GIT_REPO_ANNOUNCEMENT}:${owner}:maintained-repo`,
     )
@@ -296,9 +298,8 @@ describe("repo watch notifications", () => {
   })
 
   it("handles scoped repo events when the root event is absent", async () => {
-    const {getRepoWatchNotificationCandidates, getRepoWatchRootIdsForEvents} = await import(
-      "./repo-watch-notifications"
-    )
+    const {getRepoWatchNotificationCandidates, getRepoWatchRootIdsForEvents} =
+      await import("./repo-watch-notifications")
     const issueComment = makeEvent({
       id: "old-issue-comment",
       kind: GIT_COMMENT,
