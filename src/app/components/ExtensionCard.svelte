@@ -266,7 +266,7 @@
           </label>
         {/if}
         {#if widgetAppUrls.length > 0}
-          <button class="btn btn-primary btn-sm sm:w-auto" onclick={openWidget}>Preview app</button>
+          <button class="btn btn-primary btn-sm hidden sm:w-auto" onclick={openWidget}>Preview app</button>
         {:else if widget.appUrl}
           <span class="text-xs opacity-70">Insecure app URL blocked</span>
         {/if}
