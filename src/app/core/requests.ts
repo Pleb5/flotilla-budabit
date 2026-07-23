@@ -168,9 +168,14 @@ export const makeFeed = ({
     }
 
     events.update($events => {
+      if ($events.length === 0 && initialLoadComplete) {
+        handled = true
+        return [event]
+      }
+
       for (let i = 0; i < $events.length; i++) {
         if ($events[i].id === event.id) return $events
-        if ($events[i].created_at < event.created_at) {
+        if ($events[i].created_at <= event.created_at) {
           handled = true
           return insertAt(i, event, $events)
         }
@@ -200,6 +205,7 @@ export const makeFeed = ({
 
   const unsubscribe = on(repository, "update", ({added, removed}) => {
     if (removed.size > 0) {
+      for (const id of removed) seen.delete(id)
       removeEvents(event => removed.has(event.id))
     }
 
