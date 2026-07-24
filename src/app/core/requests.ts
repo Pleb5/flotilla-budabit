@@ -31,7 +31,7 @@ import {
 } from "@welshman/util"
 import type {TrustedEvent, Filter, List} from "@welshman/util"
 import {feedFromFilters, makeRelayFeed, makeIntersectionFeed} from "@welshman/feeds"
-import {load, request} from "@welshman/net"
+import {load, request, Tracker} from "@welshman/net"
 import {repository, makeFeedController, loadRelay, tracker} from "@welshman/app"
 import {createScroller} from "@lib/html"
 import {daysBetween} from "@lib/util"
@@ -233,10 +233,16 @@ export const makeFeed = ({
 
   let exhausted = 0
 
+  // One tracker shared across the per-relay controllers and their pages, so an
+  // event returned by several relays or overlapping windows is verified and
+  // emitted once instead of once per relay request.
+  const feedTracker = new Tracker()
+
   const controllers = relays.map(url =>
     makeFeedController({
       useWindowing: true,
       signal: controller.signal,
+      tracker: feedTracker,
       feed: makeIntersectionFeed(makeRelayFeed(url), feedFromFilters(feedFilters)),
       onExhausted: () => {
         exhausted += 1

@@ -5,6 +5,7 @@
   import {NOTE, getReplyTags} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
   import {makeFeedController} from "@welshman/app"
+  import {Tracker} from "@welshman/net"
   import {createScroller} from "@lib/html"
   import {fly} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -21,6 +22,9 @@
 
   const ctrl = makeFeedController({
     useWindowing: true,
+    // Controller-lifetime tracker so paginated windows do not re-verify and
+    // re-emit events already seen on earlier pages.
+    tracker: new Tracker(),
     feed: makeIntersectionFeed(
       makeRelayFeed(url),
       feedFromFilter({kinds: [NOTE], authors: [pubkey]}),
