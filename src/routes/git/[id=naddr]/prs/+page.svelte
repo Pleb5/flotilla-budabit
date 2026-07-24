@@ -1,6 +1,6 @@
 <script lang="ts">
-  import {Button as GitButton, NewPRForm, Status, toast} from "@nostr-git/ui"
-  import {Eye, GitPullRequest, SearchX} from "@lucide/svelte"
+  import {Button as GitButton, NewPRForm, toast} from "@nostr-git/ui"
+  import {GitPullRequest, SearchX, SlidersHorizontal} from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import {GIT_STATUS_OPEN, getTagValue, type TrustedEvent} from "@welshman/util"
   import {
@@ -11,14 +11,9 @@
     type PullRequestEvent,
     type StatusEvent,
   } from "@nostr-git/core/events"
-  import {fade, slideAndFade} from "@lib/transition"
-  import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@app/util/labels"
-  import {
-    getInteractiveCardTarget,
-    isMobile,
-    preventDefault,
-    stopPropagation,
-  } from "@src/lib/html.js"
+  import {fade} from "@lib/transition"
+  import {normalizeEffectiveLabels, toNaturalArray} from "@app/util/labels"
+  import {getInteractiveCardTarget, isMobile} from "@src/lib/html.js"
   import {publishEvent} from "@app/core/git-commands.js"
   import {pushModal} from "@app/util/modal"
   import {
@@ -28,6 +23,7 @@
     setCheckedForRepoNotifications,
   } from "@app/util/notifications"
   import FilterPanel from "@app/components/FilterPanel.svelte"
+  import PullRequestListRow from "@app/components/PullRequestListRow.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
@@ -35,16 +31,9 @@
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
-  import ProfileCircle from "@app/components/ProfileCircle.svelte"
-  import ProfileDetail from "@app/components/ProfileDetail.svelte"
-  import ProfileLink from "@app/components/ProfileLink.svelte"
-  import EventActions from "@app/components/EventActions.svelte"
-  import ReactionSummary from "@app/components/ReactionSummary.svelte"
-  import Markdown from "@src/lib/components/Markdown.svelte"
   import {getContext, onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {beforeNavigate, goto} from "$app/navigation"
-  import {publishDelete, publishReaction} from "@app/core/commands"
   import {normalizeRelays} from "@app/core/community"
   import {makeFeed} from "@src/app/core/requests"
   import {
@@ -54,25 +43,15 @@
     REPO_PROFILE_RELAYS_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
-    REPO_VERIFIED_MAINTAINERS_KEY,
     RESOLVED_STATUS_BY_ROOT_KEY,
     HIDDEN_ROOT_IDS_KEY,
     deriveAssignmentsFor,
     deriveEffectiveLabels,
     getRepoMaintainers,
-    type RepoVerifiedMaintainersContext,
   } from "@app/core/git-state"
-  import {readable, type Readable} from "svelte/store"
+  import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
-
-  type LabelGroups = {
-    Status: string[]
-    Type: string[]
-    Area: string[]
-    Tags: string[]
-    Other: string[]
-  }
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
 
@@ -87,11 +66,8 @@
     pubkey: string
     event: PullRequestEvent
     title: string
-    body: string
     branchName: string
-    tipCommitOid: string
     comments: CommentEvent[]
-    groups: LabelGroups
   }
 
   type PrSearchItem = {id: string; title: string}
@@ -115,9 +91,6 @@
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
-  const repoVerifiedMaintainersContext = getContext<RepoVerifiedMaintainersContext | undefined>(
-    REPO_VERIFIED_MAINTAINERS_KEY,
-  )
   const resolvedStatusByRootStore = getContext<Readable<Map<string, ResolvedRootStatus>>>(
     RESOLVED_STATUS_BY_ROOT_KEY,
   )
@@ -133,10 +106,6 @@
   const statusEventsByRoot = $derived.by(() =>
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
-  const emptyVerifiedMaintainers = readable(new Set<string>())
-  const repoVerifiedMaintainersStore =
-    repoVerifiedMaintainersContext?.maintainers ?? emptyVerifiedMaintainers
-  const verifiedMaintainers = $derived.by(() => $repoVerifiedMaintainersStore)
   const resolvedStatusByRoot = $derived.by(() =>
     resolvedStatusByRootStore ? $resolvedStatusByRootStore : new Map<string, ResolvedRootStatus>(),
   )
@@ -155,43 +124,6 @@
 
     return normalizeRelays([repoClass.community?.relay || ""])
   })
-  const repoCommunityScope = $derived(
-    repoClass.community?.pubkey ||
-      getTagValue("h", ((repoClass as any)?.repoEvent?.tags || []) as string[][]) ||
-      "",
-  )
-  const reactionRelays = $derived.by(() => {
-    const scoped = [...repoRelays].filter(Boolean)
-
-    if (scoped.length > 0) return scoped
-
-    return relayUrl ? [relayUrl] : []
-  })
-
-  const deleteReaction = async (event: TrustedEvent) => {
-    const relays = reactionRelays
-    if (relays.length === 0) return
-
-    publishDelete({
-      relays,
-      event,
-    })
-  }
-
-  const createReaction = async (
-    target: TrustedEvent,
-    template: {content: string; tags?: string[][]},
-  ) => {
-    const relays = reactionRelays
-    if (relays.length === 0) return
-
-    publishReaction({
-      ...template,
-      event: target,
-      relays,
-    })
-  }
-
   const prsSeenKey = $derived.by(() => `${prsPath}:seen`)
   const normalizeChecked = (value: number) =>
     value > 10_000_000_000 ? Math.round(value / 1000) : value
@@ -257,14 +189,8 @@
     return byRoot
   })
 
-  let labelsDataCache = $state<{
-    byId: Map<string, string[]>
-    groupsById: Map<string, Record<string, string[]>>
-    allLabels: string[]
-  }>({
+  let labelsDataCache = $state<{byId: Map<string, string[]>}>({
     byId: new Map<string, string[]>(),
-    groupsById: new Map<string, Record<string, string[]>>(),
-    allLabels: [],
   })
   let labelsDataCacheKey = ""
 
@@ -279,7 +205,6 @@
 
     const timeout = setTimeout(() => {
       const byId = new Map<string, string[]>()
-      const groupsById = new Map<string, Record<string, string[]>>()
 
       for (const pr of currentPullRequests) {
         try {
@@ -291,18 +216,12 @@
           const eventLabels = toNaturalArray(parsed.labels)
           const labels = Array.from(new Set([...eventLabels, ...naturals]))
           byId.set(pr.id, labels)
-          const grouped = eff
-            ? groupLabels(eff)
-            : {Status: [], Type: [], Area: [], Tags: labels, Other: []}
-          groupsById.set(pr.id, grouped)
         } catch {
           byId.set(pr.id, [])
-          groupsById.set(pr.id, {Status: [], Type: [], Area: [], Tags: [], Other: []})
         }
       }
 
-      const allLabels = Array.from(new Set(Array.from(byId.values()).flat()))
-      labelsDataCache = {byId, groupsById, allLabels}
+      labelsDataCache = {byId}
       labelsDataCacheKey = currentKey
     })
 
@@ -311,14 +230,6 @@
 
   const labelsData = $derived(labelsDataCache)
   const labelsByPr = $derived.by(() => labelsData.byId)
-  const labelGroupsFor = (id: string): LabelGroups =>
-    (labelsData.groupsById.get(id) as LabelGroups | undefined) || {
-      Status: [],
-      Type: [],
-      Area: [],
-      Tags: [],
-      Other: [],
-    }
 
   const storageKey = repoClass?.key ? `prsFilters:${repoClass.key}` : ""
   const allNormalizedLabels = $derived.by(() =>
@@ -409,11 +320,8 @@
           pubkey: pr.pubkey,
           event: pr,
           title: parsed.subject || "(no title)",
-          body: parsed.content || pr.content || "",
           branchName: parsed.branchName || "",
-          tipCommitOid: parsed.tipCommitOid || "",
           comments: currentCommentsByPr.get(pr.id) || [],
-          groups: labelGroupsFor(pr.id),
         } satisfies PrListItem
       })
 
@@ -811,16 +719,6 @@
     })
   }
 
-  const openProfile = (profilePubkey: string) =>
-    pushModal(ProfileDetail, {
-      pubkey: profilePubkey,
-      url: repoCommunityProfileRelays[0],
-      relays: repoCommunityProfileRelays,
-      verifiedMaintainerForRepo: verifiedMaintainers.has(profilePubkey)
-        ? repoVerifiedMaintainersContext?.getProfileContext()
-        : undefined,
-    })
-
   const getLatestPrActivityAt = (pr: {
     id: string
     created_at?: number
@@ -1007,8 +905,6 @@
   const loadMorePrs = () => {
     visiblePrCount = Math.min(visiblePrCount + ITEMS_PER_PAGE, searchedPrs.length)
   }
-
-  const formatPrDate = (timestamp: number) => new Date(timestamp * 1000).toLocaleDateString()
 </script>
 
 <svelte:head>
@@ -1016,33 +912,34 @@
 </svelte:head>
 
 <div bind:this={element}>
-  <div class="mb-2 flex flex-col gap-y-2 py-4">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+  <div class="my-3 max-w-full space-y-2">
+    <div class="flex items-center justify-between gap-2">
       <div>
         <h2 class="text-xl font-semibold">PRs</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge pull requests</p>
       </div>
-      <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
+      <GitButton class="h-8 min-h-0 gap-1.5 px-3" variant="git" size="sm" onclick={onNewPR}>
         <GitPullRequest class="h-4 w-4" />
         New PR
-      </Button>
+      </GitButton>
     </div>
-    <div class="row-2 input grow overflow-x-hidden">
-      <Icon icon={Magnifer} />
+    <div class="row-2 input h-9 min-h-0 grow overflow-x-hidden px-3">
+      <Icon icon={Magnifer} class="h-4 w-4" />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}
-        class="w-full"
+        class="h-full min-w-0 flex-1 text-sm"
         bind:value={searchTerm}
         type="text"
         placeholder="Search PRs..." />
       <GitButton
-        variant="outline"
+        variant="ghost"
         size="sm"
-        class="gap-2"
+        class="h-7 min-h-0 shrink-0 gap-1 px-2 text-xs"
+        aria-expanded={showFilters}
         onclick={() => (showFilters = !showFilters)}>
-        <Eye class="h-4 w-4" />
-        {showFilters ? "Hide Filters" : "Filter"}
+        <SlidersHorizontal class="h-3.5 w-3.5" />
+        Filters
       </GitButton>
     </div>
   </div>
@@ -1061,7 +958,8 @@
       on:statusChange={event => (statusFilter = event.detail)}
       on:sortChange={event => (sortBy = event.detail)}
       on:labelsChange={event => (selectedLabels = event.detail)}
-      on:matchAllChange={event => (matchAllLabels = event.detail)} />
+      on:matchAllChange={event => (matchAllLabels = event.detail)}
+      showReset={true} />
   {/if}
 
   {#if loading}
@@ -1094,167 +992,39 @@
       {/if}
     </div>
   {:else}
-    <div class="flex flex-col gap-y-4 overflow-y-auto">
+    <div class="overflow-hidden rounded-md border border-border bg-card">
       {#each visiblePrs as pr, index (pr.id)}
         <div
-          in:slideAndFade={{duration: 200}}
-          class="cursor-pointer"
+          class={`w-full cursor-pointer border-b border-l-2 border-border outline-none transition-colors last:border-b-0 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${getLatestPrActivityAt(pr) > lastPrsSeen ? "border-l-primary" : "border-l-transparent"}`}
           data-index={index}
           data-pr-id={pr.id}
           onclick={event => handlePrClick(event, pr, index)}
           role="link"
           tabindex="0"
           onkeydown={event => handlePrKeydown(event, pr, index)}>
-          <div class="relative">
-            <div
-              class={getLatestPrActivityAt(pr) > lastPrsSeen
-                ? "border-l-2 border-primary pl-2"
-                : ""}>
-              <div
-                class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm transition hover:bg-base-200/40">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-start gap-2">
-                      <GitPullRequest class="mt-1 h-4 w-4 shrink-0 text-primary" />
-                      <div class="min-w-0">
-                        <h3 class="break-words text-base font-semibold leading-tight">
-                          {pr.title}
-                        </h3>
-                        <div
-                          class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span>Opened {formatPrDate(pr.created_at)}</span>
-                          <span>by</span>
-                          <Button
-                            class="p-0"
-                            onclick={stopPropagation(preventDefault(() => openProfile(pr.pubkey)))}>
-                            <ProfileCircle
-                              pubkey={pr.pubkey}
-                              relays={repoCommunityProfileRelays}
-                              size={7} />
-                          </Button>
-                          <ProfileLink pubkey={pr.pubkey} relays={repoCommunityProfileRelays} />
-                          <span
-                            >{pr.comments.length} comment{pr.comments.length === 1
-                              ? ""
-                              : "s"}</span>
-                          {#if $roleAssignments?.get(pr.id)?.reviewers?.size}
-                            <span>
-                              {$roleAssignments.get(pr.id)?.reviewers?.size}
-                              reviewer{$roleAssignments.get(pr.id)?.reviewers?.size === 1
-                                ? ""
-                                : "s"}
-                            </span>
-                          {/if}
-                        </div>
-                      </div>
-                    </div>
-
-                    {#if pr.body}
-                      <div class="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                        <Markdown
-                          content={pr.body}
-                          event={pr.event as TrustedEvent}
-                          relays={repoRelays}
-                          variant="comment" />
-                      </div>
-                    {/if}
-
-                    <div
-                      class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>#{pr.id.slice(0, 8)}</span>
-                      {#if pr.branchName}
-                        <span>Target: {pr.branchName}</span>
-                      {/if}
-                      {#if pr.tipCommitOid}
-                        <code>{pr.tipCommitOid.slice(0, 8)}</code>
-                      {/if}
-                    </div>
-                  </div>
-
-                  <div
-                    class="flex shrink-0 flex-wrap items-center gap-2"
-                    data-stop-link
-                    data-stop-tap>
-                    <Status
-                      repo={repoClass}
-                      rootId={pr.id}
-                      rootKind={pr.event.kind}
-                      rootAuthor={pr.event.pubkey}
-                      statusEvents={mergedStatusEventsByRoot?.get(pr.id) || []}
-                      actorPubkey={$pubkey}
-                      compact={true}
-                      isMirrored={(pr.event.tags || []).some(
-                        (tag: string[]) => tag[0] === "imported",
-                      )} />
-                    <ReactionSummary
-                      event={pr.event as TrustedEvent}
-                      url={relayUrl}
-                      relays={repoRelays}
-                      zapScopeH={repoCommunityScope}
-                      reactionClass="tooltip-left"
-                      {deleteReaction}
-                      createReaction={template =>
-                        createReaction(pr.event as TrustedEvent, template)} />
-                    <EventActions
-                      event={pr.event as TrustedEvent}
-                      url={relayUrl}
-                      noun="pull request"
-                      ownerPubkey={(repoClass as any)?.repoEvent?.pubkey || ""}
-                      zapScopeH={repoCommunityScope}
-                      relays={repoRelays} />
-                  </div>
-                </div>
-              </div>
-            </div>
-            {#if labelsByPr.get(pr.id)?.length}
-              <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                {#if pr.groups.Status.length}
-                  <span class="opacity-60">Status:</span>
-                  {#each pr.groups.Status as label (label)}<span class="badge badge-ghost badge-sm"
-                      >{label}</span
-                    >{/each}
-                {/if}
-                {#if pr.groups.Type.length}
-                  <span class="opacity-60">Type:</span>
-                  {#each pr.groups.Type as label (label)}<span class="badge badge-ghost badge-sm"
-                      >{label}</span
-                    >{/each}
-                {/if}
-                {#if pr.groups.Area.length}
-                  <span class="opacity-60">Area:</span>
-                  {#each pr.groups.Area as label (label)}<span class="badge badge-ghost badge-sm"
-                      >{label}</span
-                    >{/each}
-                {/if}
-                {#if pr.groups.Tags.length}
-                  <span class="opacity-60">Tags:</span>
-                  {#each pr.groups.Tags as label (label)}<span class="badge badge-ghost badge-sm"
-                      >{label}</span
-                    >{/each}
-                {/if}
-                {#if pr.groups.Other.length}
-                  <span class="opacity-60">Other:</span>
-                  {#each pr.groups.Other as label (label)}<span class="badge badge-ghost badge-sm"
-                      >{label}</span
-                    >{/each}
-                {/if}
-              </div>
-            {/if}
-          </div>
+          <PullRequestListRow
+            event={pr.event}
+            title={pr.title}
+            status={currentPrStateFor(pr.id)}
+            commentCount={pr.comments.length}
+            reviewerCount={$roleAssignments?.get(pr.id)?.reviewers?.size || 0}
+            labels={labelsByPr.get(pr.id) || []}
+            branchName={pr.branchName}
+            profileRelays={repoCommunityProfileRelays} />
         </div>
       {/each}
-
-      {#if canLoadMorePrs}
-        <div class="mt-2 flex flex-col items-center gap-2 pb-2">
-          <GitButton variant="outline" size="sm" class="gap-2" onclick={loadMorePrs}>
-            Load more
-          </GitButton>
-          <p class="text-xs text-muted-foreground">
-            Showing {visiblePrs.length} of {searchedPrs.length}
-          </p>
-        </div>
-      {/if}
     </div>
+
+    {#if canLoadMorePrs}
+      <div class="mt-3 flex flex-col items-center gap-1.5 pb-2">
+        <GitButton variant="outline" size="sm" class="h-8 min-h-0 gap-2" onclick={loadMorePrs}>
+          Load more
+        </GitButton>
+        <p class="text-xs text-muted-foreground">
+          Showing {visiblePrs.length} of {searchedPrs.length}
+        </p>
+      </div>
+    {/if}
   {/if}
 </div>
 

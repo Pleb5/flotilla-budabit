@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button as GitButton, toast, pushRepoAlert} from "@nostr-git/ui"
+  import {NewIssueForm, Button as GitButton, toast, pushRepoAlert} from "@nostr-git/ui"
   import {
     createStatusEvent,
     GIT_ISSUE,
@@ -7,7 +7,7 @@
     type IssueEvent,
     type LabelEvent,
   } from "@nostr-git/core/events"
-  import {Eye, Plus, SearchX} from "@lucide/svelte"
+  import {Plus, SearchX, SlidersHorizontal} from "@lucide/svelte"
   import {
     Address,
     getTagValue,
@@ -36,8 +36,8 @@
     notifications,
     setCheckedForRepoNotifications,
   } from "@app/util/notifications"
-  import {postComment} from "@app/core/git-commands.js"
   import FilterPanel from "@app/components/FilterPanel.svelte"
+  import IssueListRow from "@app/components/IssueListRow.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import {getInteractiveCardTarget, isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
@@ -54,7 +54,6 @@
     STATUS_EVENTS_BY_ROOT_KEY,
     RESOLVED_STATUS_BY_ROOT_KEY,
     HIDDEN_ROOT_IDS_KEY,
-    deriveAssignmentsFor,
     getRepoMaintainers,
     getRepoScopedRelays,
   } from "@app/core/git-state"
@@ -63,17 +62,10 @@
   import type {StatusEvent} from "@nostr-git/core/events"
   import {fade} from "svelte/transition"
   import {resolveIssueEdits} from "@app/util/issue-edits"
-  import {publishDelete, publishReaction} from "@app/core/commands"
   import {normalizeRelays} from "@app/core/community"
-  import {
-    canEditReplyEvent,
-    editedTargetIds,
-    filterVisibleAfterDeletesAndEdits,
-  } from "@app/core/event-edits"
-  import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {editedTargetIds, filterVisibleAfterDeletesAndEdits} from "@app/core/event-edits"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
-  import {getSeenEventRelayHints} from "@app/util/event-links"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -115,38 +107,6 @@
 
     return normalizeRelays([repoClass.community?.relay || ""])
   })
-  const getCommentShareRelays = (event: TrustedEvent) => getSeenEventRelayHints(event.id)
-  const reactionRelays = $derived.by(() => {
-    const scoped = [...repoBoundRelays].filter(Boolean)
-
-    if (scoped.length > 0) return scoped
-
-    return relayUrl ? [relayUrl] : []
-  })
-
-  const deleteReaction = async (event: TrustedEvent) => {
-    const relays = reactionRelays
-    if (relays.length === 0) return
-
-    publishDelete({
-      relays,
-      event,
-    })
-  }
-
-  const createReaction = async (
-    target: TrustedEvent,
-    template: {content: string; tags?: string[][]},
-  ) => {
-    const relays = reactionRelays
-    if (relays.length === 0) return
-
-    publishReaction({
-      ...template,
-      event: target,
-      relays,
-    })
-  }
   const repoAddresses = $derived.by((): string[] => (repoAddress ? [repoAddress] : []))
   const repoMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
@@ -969,11 +929,6 @@
     visibleIssueCount = Math.min(visibleIssueCount + ITEMS_PER_PAGE, searchedIssues.length)
   }
 
-  const roleAssignments = $derived.by(() => {
-    const ids = issues?.map((i: any) => i.id) || []
-    return deriveAssignmentsFor(ids)
-  })
-
   // Set loading to false immediately if we have data - don't wait for makeFeed
   let loading = $state(false)
   let feedInitialized = $state(false)
@@ -1112,24 +1067,6 @@
     })
   }
 
-  const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, repoBoundRelays)
-  }
-
-  const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
-
-  const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
-    await publishEditedReply({
-      event: comment as unknown as TrustedEvent,
-      content,
-      tags,
-      relays: repoBoundRelays,
-      url: repoBoundRelays[0],
-    })
-  }
-
-  const requireLogin = () => pushModal(LogIn)
-
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
@@ -1191,31 +1128,36 @@
 </svelte:head>
 
 <div bind:this={pageContainerRef}>
-  <div class="my-4 max-w-full space-y-2">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+  <div class="my-3 max-w-full space-y-2">
+    <div class="flex items-center justify-between gap-2">
       <div>
         <h2 class="text-xl font-semibold">Issues</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Track bugs and feature requests</p>
       </div>
-      <div class="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-        <GitButton class="w-full gap-2 sm:w-auto" variant="git" size="sm" onclick={onNewIssue}>
+      <div class="flex shrink-0 items-center gap-2">
+        <GitButton class="h-8 min-h-0 gap-1.5 px-3" variant="git" size="sm" onclick={onNewIssue}>
           <Plus class="h-4 w-4" />
-          <span class="">New Issue</span>
+          <span>New issue</span>
         </GitButton>
       </div>
     </div>
-    <div class="row-2 input mt-4 grow overflow-x-hidden">
-      <Icon icon={Magnifer} />
+    <div class="row-2 input h-9 min-h-0 grow overflow-x-hidden px-3">
+      <Icon icon={Magnifer} class="h-4 w-4" />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}
-        class="w-full"
+        class="h-full min-w-0 flex-1 text-sm"
         bind:value={searchTerm}
         type="text"
         placeholder="Search issues..." />
-      <GitButton size="sm" class="gap-2" onclick={() => (showFilters = !showFilters)}>
-        <Eye class="h-4 w-4" />
-        {showFilters ? "Hide Filters" : "Filter"}
+      <GitButton
+        variant="ghost"
+        size="sm"
+        class="h-7 min-h-0 shrink-0 gap-1 px-2 text-xs"
+        aria-expanded={showFilters}
+        onclick={() => (showFilters = !showFilters)}>
+        <SlidersHorizontal class="h-3.5 w-3.5" />
+        Filters
       </GitButton>
     </div>
   </div>
@@ -1267,55 +1209,36 @@
       {/if}
     </div>
   {:else}
-    <div class="flex flex-col gap-y-4">
+    <div class="overflow-hidden rounded-md border border-border bg-card">
       {#each visibleIssues as issue, index (issue.id)}
         <div
           data-index={index}
           data-issue-id={issue.id}
-          class="w-full pr-2"
+          class={`w-full cursor-pointer border-b border-l-2 border-border outline-none transition-colors last:border-b-0 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-primary" : "border-l-transparent"}`}
           onclick={event => handleIssueClick(event, issue, index)}
           role="link"
           tabindex="0"
           onkeydown={event => handleIssueKeydown(event, issue, index)}>
-          <div
-            class={getLatestIssueActivityAt(issue) > lastIssuesSeen
-              ? "border-l-2 border-primary pl-2"
-              : ""}>
-            <IssueCard
-              event={issue.event}
-              comments={commentsOrdered[issue.id]}
-              currentCommenter={$pubkey || ""}
-              onCommentCreated={$pubkey ? onCommentCreated : undefined}
-              {canEditComment}
-              onCommentEdited={$pubkey ? onCommentEdited : undefined}
-              onLoginRequired={requireLogin}
-              extraLabels={labelsByIssue.get(issue.id) || []}
-              repo={repoClass}
-              statusEvents={statusEventsByRoot?.get(issue.id) || []}
-              actorPubkey={$pubkey}
-              assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
-              assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
-              relays={repoRelays}
-              getShareRelays={getCommentShareRelays}
-              profileRelays={repoCommunityProfileRelays}
-              onDeleteReaction={deleteReaction}
-              onCreateReaction={template =>
-                createReaction(issue.event as TrustedEvent, template)} />
-          </div>
+          <IssueListRow
+            event={issue.event}
+            status={statusMap[issue.id] || "open"}
+            commentCount={commentsOrdered[issue.id]?.length || 0}
+            labels={labelsByIssue.get(issue.id) || []}
+            profileRelays={repoCommunityProfileRelays} />
         </div>
       {/each}
-
-      {#if canLoadMoreIssues}
-        <div class="mt-2 flex flex-col items-center gap-2 pb-2">
-          <GitButton variant="outline" size="sm" class="gap-2" onclick={loadMoreIssues}>
-            Load more
-          </GitButton>
-          <p class="text-xs text-muted-foreground">
-            Showing {visibleIssues.length} of {searchedIssues.length}
-          </p>
-        </div>
-      {/if}
     </div>
+
+    {#if canLoadMoreIssues}
+      <div class="mt-3 flex flex-col items-center gap-1.5 pb-2">
+        <GitButton variant="outline" size="sm" class="h-8 min-h-0 gap-2" onclick={loadMoreIssues}>
+          Load more
+        </GitButton>
+        <p class="text-xs text-muted-foreground">
+          Showing {visibleIssues.length} of {searchedIssues.length}
+        </p>
+      </div>
+    {/if}
   {/if}
 </div>
 

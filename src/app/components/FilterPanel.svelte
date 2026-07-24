@@ -20,17 +20,7 @@
   import {slide} from "@lib/transition"
   import {createEventDispatcher, onDestroy, onMount} from "svelte"
   import {Button} from "@nostr-git/ui"
-
-  interface StatusOpt {
-    value: string
-    label: string
-    icon?: any
-  }
-  interface SortOpt {
-    value: string
-    label: string
-    icon?: any
-  }
+  import {ChevronDown, SlidersHorizontal} from "@lucide/svelte"
 
   interface Props {
     storageKey?: string
@@ -90,8 +80,7 @@
   // Filter and sort options
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
   let sortByOrder = $state<string>("newest") // newest, oldest, status, commits
-  let showFilters = $state(true)
-  let searchTerm = $state("")
+  let showAdvancedFilters = $state(false)
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
   let sortOptions = $state([
@@ -112,7 +101,6 @@
 
   // Update statusOptions when mode changes
   $effect(() => {
-    mode
     statusOptions = [
       {value: "open", label: "Open", icon: GitCommit},
       {
@@ -143,13 +131,25 @@
     return count > 9 ? "9+" : String(count)
   }
 
+  const advancedFilterCount = $derived(
+    (sortByOrder !== "newest" ? 1 : 0) +
+      (authorFilter ? 1 : 0) +
+      selectedLabels.length +
+      (matchAllLabels && selectedLabels.length > 0 ? 1 : 0),
+  )
+  const hasAdvancedOptions = $derived(
+    sortOptions.length > 0 || authors.length > 1 || allLabels.length > 0,
+  )
+  const hasActiveFilters = $derived(statusFilter !== "open" || advancedFilterCount > 0)
+
   const applyFromData = (data: any) => {
     if (!data) return
     if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
     if (typeof data.sortByOrder === "string") sortByOrder = data.sortByOrder
     if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
-    if (typeof data.showFilters === "boolean") showFilters = data.showFilters
-    if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
+    if (typeof data.showAdvancedFilters === "boolean") {
+      showAdvancedFilters = data.showAdvancedFilters
+    }
     if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
     if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
   }
@@ -169,8 +169,7 @@
     statusFilter = "open"
     sortByOrder = "newest"
     authorFilter = ""
-    showFilters = true
-    searchTerm = ""
+    showAdvancedFilters = false
     selectedLabels = []
     matchAllLabels = false
     if (storageKey) localStorage.removeItem(storageKey)
@@ -199,7 +198,9 @@
             applyFromData(data)
             syncToParent()
           }
-        } catch {}
+        } catch {
+          // Ignore malformed filter data from other tabs.
+        }
       }
     }
     window.addEventListener("storage", storageListener)
@@ -208,8 +209,6 @@
   onDestroy(() => {
     if (storageListener) window.removeEventListener("storage", storageListener)
   })
-
-  const onMatchAllToggle = () => (matchAllLabels = !matchAllLabels)
 
   const blurOnPointerUp = (event: PointerEvent) => {
     const target = event.currentTarget as HTMLElement | null
@@ -223,8 +222,7 @@
         statusFilter,
         sortByOrder,
         authorFilter,
-        showFilters,
-        searchTerm,
+        showAdvancedFilters,
         selectedLabels,
         matchAllLabels,
       }
@@ -236,194 +234,211 @@
 
   // Persist on changes (single watcher)
   $effect(() => {
-    statusFilter
-    sortByOrder
-    authorFilter
-    showFilters
-    searchTerm
-    selectedLabels
-    matchAllLabels
     persist()
   })
 </script>
 
-<div class="mb-6 rounded-md border border-border bg-card p-4" transition:slide>
-  <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-    <!-- Status Filter -->
-    <div>
-      <h3 class="mb-2 text-sm font-medium">Status</h3>
-      <div class="flex flex-wrap gap-2">
+<div class="mb-3 rounded-md border border-border bg-card p-2" transition:slide>
+  <div class="flex flex-wrap items-center gap-1.5">
+    <span class="px-1 text-xs font-medium text-muted-foreground">Status</span>
+    <div class="flex flex-wrap gap-1">
+      <Button
+        variant={statusFilter === "all" ? "default" : "outline"}
+        size="sm"
+        class="h-7 min-h-0 px-2 text-xs"
+        onclick={() => {
+          statusFilter = "all"
+          onStatusChange?.("all")
+          dispatch("statusChange", "all")
+        }}>
+        All
+      </Button>
+      {#each statusOptions as statusOption (statusOption.value)}
         <Button
-          variant={statusFilter === "all" ? "default" : "outline"}
+          variant={statusFilter === statusOption.value ? "default" : "outline"}
           size="sm"
+          class="h-7 min-h-0 gap-1 px-2 text-xs"
           onclick={() => {
-            statusFilter = "all"
-            onStatusChange?.("all")
-            dispatch("statusChange", "all")
+            statusFilter = statusOption.value
+            onStatusChange?.(statusOption.value)
+            dispatch("statusChange", statusOption.value)
           }}>
-          All
+          {#if statusOption.icon}
+            <Icon icon={statusOption.icon} class="h-3 w-3" />
+          {/if}
+          <span>{statusOption.label}</span>
+          {#if getStatusBadgeCount(statusOption.value) > 0}
+            <span
+              class="text-secondary-foreground inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary px-1 text-[10px]">
+              {formatStatusBadgeCount(statusOption.value)}
+            </span>
+          {/if}
         </Button>
-        {#each statusOptions as s (s.value)}
-          <Button
-            variant={statusFilter === s.value ? "default" : "outline"}
-            size="sm"
-            onclick={() => {
-              statusFilter = s.value
-              onStatusChange?.(s.value)
-              dispatch("statusChange", s.value)
-            }}
-            class="gap-1">
-            {#if s.icon}
-              <Icon icon={s.icon} class="h-3 w-3" />
-            {/if}
-            <span>{s.label}</span>
-            {#if getStatusBadgeCount(s.value) > 0}
-              <span class="badge badge-secondary badge-sm min-w-5 px-1.5">
-                {formatStatusBadgeCount(s.value)}
-              </span>
-            {/if}
-          </Button>
-        {/each}
-      </div>
+      {/each}
     </div>
 
-    <!-- Sort Options -->
-    {#if sortOptions.length}
-      <div>
-        <h3 class="mb-2 text-sm font-medium">Sort By</h3>
-        <div class="flex flex-wrap gap-2">
-          {#each sortOptions as so (so.value)}
-            <Button
-              variant={sortByOrder === so.value ? "default" : "outline"}
-              size="sm"
-              onclick={() => {
-                sortByOrder = so.value
-                onSortChange?.(so.value)
-                dispatch("sortChange", so.value)
-              }}
-              class="gap-1">
-              {#if so.icon}
-                <Icon icon={so.icon} class="h-3 w-3" />
-              {/if}
-              {so.label}
-            </Button>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    <!-- Author Filter -->
-    {#if authors.length > 1}
-      <div class="md:col-span-2">
-        <h3 class="mb-2 text-sm font-medium">Author</h3>
-        <div class="flex max-h-48 flex-wrap gap-2 overflow-y-auto pr-1">
-          <Button
-            variant={authorFilter === "" ? "default" : "outline"}
-            size="sm"
-            onclick={() => {
-              authorFilter = ""
-              onAuthorChange?.("")
-              dispatch("authorChange", "")
-            }}>All Authors</Button>
-
-          {#each authors as a (a)}
-            <Button
-              variant={authorFilter === a ? "default" : "outline"}
-              size="sm"
-              onclick={() => {
-                authorFilter = a
-                onAuthorChange?.(a)
-                dispatch("authorChange", a)
-              }}
-              class="gap-1">
-              <Icon icon={User} />
-              <span class="text-sm"><ProfileName pubkey={a} /></span>
-            </Button>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    <!-- Label Filter -->
-    {#if allLabels.length > 0}
-      <div class="md:col-span-2">
-        <h3 class="mb-2 text-sm font-medium">Labels</h3>
-        {#if labelSearchEnabled}
-          <div class="row-2 input mb-2 max-w-md">
-            <Icon icon={Magnifer} />
-            <input
-              class="w-full"
-              value={labelSearch}
-              oninput={e => onLabelSearchChange?.((e.target as HTMLInputElement).value)}
-              type="text"
-              placeholder="Search labels..." />
-          </div>
-        {/if}
-        <div class="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
-          {#each labelSearchEnabled ? allLabels.filter(l => l
-                  .toLowerCase()
-                  .includes(labelSearch.toLowerCase())) : allLabels as lbl (lbl)}
-            <Button
-              variant={selectedLabels.includes(lbl) ? "default" : "outline"}
-              size="sm"
-              class={`label-filter-button${selectedLabels.includes(lbl) ? " label-selected" : ""}`}
-              onpointerup={blurOnPointerUp}
-              onclick={() => {
-                if (selectedLabels.includes(lbl)) {
-                  selectedLabels = selectedLabels.filter(l => l !== lbl)
-                } else {
-                  selectedLabels = [...selectedLabels, lbl]
-                }
-                onToggleLabel?.(lbl)
-                dispatch("labelsChange", selectedLabels)
-              }}>
-              {lbl}
-            </Button>
-          {/each}
-          <Button
-            variant={matchAllLabels ? "default" : "outline"}
-            size="sm"
-            class="label-filter-button"
-            onpointerup={blurOnPointerUp}
-            onclick={() => {
-              matchAllLabels = !matchAllLabels
-              onMatchAllToggle?.()
-              dispatch("matchAllChange", matchAllLabels)
-            }}>Match all</Button>
-          {#if selectedLabels.length > 0}
-            <Button
-              variant="ghost"
-              size="sm"
-              class="label-filter-button"
-              onpointerup={blurOnPointerUp}
-              onclick={() => {
-                selectedLabels = []
-                onClearLabels?.()
-                dispatch("labelsChange", selectedLabels)
-              }}>Clear labels</Button>
+    <div class="ml-auto flex items-center gap-1">
+      {#if showReset && hasActiveFilters}
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-7 min-h-0 px-2 text-xs text-muted-foreground"
+          onclick={() => {
+            resetFilters()
+            syncToParent()
+            dispatch("reset")
+          }}>Reset</Button>
+      {/if}
+      {#if hasAdvancedOptions}
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-7 min-h-0 gap-1 px-2 text-xs"
+          aria-expanded={showAdvancedFilters}
+          onclick={() => (showAdvancedFilters = !showAdvancedFilters)}>
+          <SlidersHorizontal class="h-3.5 w-3.5" />
+          More filters
+          {#if advancedFilterCount > 0}
+            <span
+              class="text-primary-foreground inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px]">
+              {advancedFilterCount > 9 ? "9+" : advancedFilterCount}
+            </span>
           {/if}
-        </div>
-        {#if selectedLabels.length > 0}
-          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span class="text-muted-foreground">Selected:</span>
-            {#each selectedLabels as sl (sl)}
-              <span class="badge badge-ghost badge-sm">{sl}</span>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
+          <ChevronDown
+            class={`h-3.5 w-3.5 transition-transform${showAdvancedFilters ? " rotate-180" : ""}`} />
+        </Button>
+      {/if}
+    </div>
   </div>
 
-  {#if showReset}
-    <div class="mt-4 flex items-center justify-end">
-      <Button
-        variant="ghost"
-        size="sm"
-        onclick={() => {
-          resetFilters()
-          dispatch("reset")
-        }}>Reset Filters</Button>
+  {#if showAdvancedFilters}
+    <div
+      class="mt-2 grid grid-cols-1 gap-3 border-t border-border pt-2 sm:grid-cols-2"
+      transition:slide={{duration: 150}}>
+      {#if sortOptions.length}
+        <div>
+          <h3
+            class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Sort by
+          </h3>
+          <div class="flex flex-wrap gap-1">
+            {#each sortOptions as sortOption (sortOption.value)}
+              <Button
+                variant={sortByOrder === sortOption.value ? "default" : "outline"}
+                size="sm"
+                class="h-7 min-h-0 gap-1 px-2 text-xs"
+                onclick={() => {
+                  sortByOrder = sortOption.value
+                  onSortChange?.(sortOption.value)
+                  dispatch("sortChange", sortOption.value)
+                }}>
+                {#if sortOption.icon}
+                  <Icon icon={sortOption.icon} class="h-3 w-3" />
+                {/if}
+                {sortOption.label}
+              </Button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if authors.length > 1}
+        <div>
+          <h3
+            class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Author
+          </h3>
+          <div class="flex max-h-24 flex-wrap gap-1 overflow-y-auto pr-1">
+            <Button
+              variant={authorFilter === "" ? "default" : "outline"}
+              size="sm"
+              class="h-7 min-h-0 px-2 text-xs"
+              onclick={() => {
+                authorFilter = ""
+                onAuthorChange?.("")
+                dispatch("authorChange", "")
+              }}>All authors</Button>
+
+            {#each authors as author (author)}
+              <Button
+                variant={authorFilter === author ? "default" : "outline"}
+                size="sm"
+                class="h-7 min-h-0 max-w-52 gap-1 px-2 text-xs"
+                onclick={() => {
+                  authorFilter = author
+                  onAuthorChange?.(author)
+                  dispatch("authorChange", author)
+                }}>
+                <Icon icon={User} class="h-3 w-3" />
+                <span class="truncate"><ProfileName pubkey={author} /></span>
+              </Button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if allLabels.length > 0}
+        <div class="sm:col-span-2">
+          <h3
+            class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Labels
+          </h3>
+          {#if labelSearchEnabled}
+            <div class="row-2 input mb-2 h-8 min-h-0 max-w-md px-2 text-sm">
+              <Icon icon={Magnifer} class="h-3.5 w-3.5" />
+              <input
+                class="h-full w-full"
+                value={labelSearch}
+                oninput={event => onLabelSearchChange?.((event.target as HTMLInputElement).value)}
+                type="text"
+                placeholder="Search labels..." />
+            </div>
+          {/if}
+          <div class="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+            {#each labelSearchEnabled ? allLabels.filter(label => label
+                    .toLowerCase()
+                    .includes(labelSearch.toLowerCase())) : allLabels as label (label)}
+              <Button
+                variant={selectedLabels.includes(label) ? "default" : "outline"}
+                size="sm"
+                class={`label-filter-button h-7 min-h-0 px-2 text-xs${selectedLabels.includes(label) ? " label-selected" : ""}`}
+                onpointerup={blurOnPointerUp}
+                onclick={() => {
+                  if (selectedLabels.includes(label)) {
+                    selectedLabels = selectedLabels.filter(selected => selected !== label)
+                  } else {
+                    selectedLabels = [...selectedLabels, label]
+                  }
+                  onToggleLabel?.(label)
+                  dispatch("labelsChange", selectedLabels)
+                }}>
+                {label}
+              </Button>
+            {/each}
+            <Button
+              variant={matchAllLabels ? "default" : "outline"}
+              size="sm"
+              class="label-filter-button h-7 min-h-0 px-2 text-xs"
+              onpointerup={blurOnPointerUp}
+              onclick={() => {
+                matchAllLabels = !matchAllLabels
+                dispatch("matchAllChange", matchAllLabels)
+              }}>Match all</Button>
+            {#if selectedLabels.length > 0}
+              <Button
+                variant="ghost"
+                size="sm"
+                class="label-filter-button h-7 min-h-0 px-2 text-xs"
+                onpointerup={blurOnPointerUp}
+                onclick={() => {
+                  selectedLabels = []
+                  onClearLabels?.()
+                  dispatch("labelsChange", selectedLabels)
+                }}>Clear labels</Button>
+            {/if}
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
