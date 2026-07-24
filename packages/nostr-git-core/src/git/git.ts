@@ -32,6 +32,45 @@ export function clearRepoDepthCache(): void {
   repoDepthCache.clear()
 }
 
+// Deduplicate and rate-limit background refresh fetches for already-cloned repos
+const backgroundFetches: Map<string, Promise<void>> = new Map()
+const backgroundFetchCompletedAt: Map<string, number> = new Map()
+const BACKGROUND_FETCH_TTL_MS = 60_000
+
+/** Clear background fetch bookkeeping - exported for testing */
+export function clearBackgroundFetchCache(): void {
+  backgroundFetches.clear()
+  backgroundFetchCompletedAt.clear()
+}
+
+/**
+ * Refresh an already-cloned repo in the background without blocking the caller.
+ * Fetches are shallow, single-branch, deduped while in flight, and rate-limited.
+ */
+function refreshRepoInBackground(git: any, dir: string, ref: string): void {
+  const key = `${dir}\u0000${ref}`
+  const completedAt = backgroundFetchCompletedAt.get(key)
+
+  if (backgroundFetches.has(key)) return
+  if (completedAt && Date.now() - completedAt < BACKGROUND_FETCH_TTL_MS) return
+
+  const fetchPromise = Promise.resolve(
+    git.fetch({dir, ref, depth: 1, singleBranch: true, noTags: true}),
+  )
+    .then(() => {
+      backgroundFetchCompletedAt.set(key, Date.now())
+    })
+    .catch((error: unknown) => {
+      console.warn(`Background fetch failed for ${dir} (${ref}):`, error)
+    })
+    .finally(() => {
+      backgroundFetches.delete(key)
+    })
+
+  backgroundFetches.set(key, fetchPromise)
+}
+
+
 export function getUsableCloneUrls(repoEvent: Pick<RepoAnnouncement, "clone">): string[] {
   const urls: string[] = []
 
@@ -310,7 +349,7 @@ export async function ensureRepo(
     }
   } else {
     console.log(`Repository already cloned at ${dir}`)
-    git.fetch({dir, ref: opts.branch})
+    refreshRepoInBackground(git, dir, opts.branch)
   }
 }
 
