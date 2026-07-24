@@ -42,6 +42,8 @@
   <img
     src={activeSrc}
     {alt}
+    loading="lazy"
+    decoding="async"
     onerror={markImageFailed}
     class="h-{size} w-{size} min-w-{size} min-h-{size} aspect-square object-cover {props.class}" />
 {/if}

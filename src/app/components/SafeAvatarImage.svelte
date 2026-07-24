@@ -27,5 +27,12 @@
 </script>
 
 {#if safeSrc && !imageFailed}
-  <BaseAvatarImage bind:ref src={safeSrc} {alt} onerror={markImageFailed} {...restProps} />
+  <BaseAvatarImage
+    bind:ref
+    src={safeSrc}
+    {alt}
+    loading="lazy"
+    decoding="async"
+    onerror={markImageFailed}
+    {...restProps} />
 {/if}
