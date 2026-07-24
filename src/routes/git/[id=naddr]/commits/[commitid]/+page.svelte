@@ -40,7 +40,7 @@
   } from "@nostr-git/ui"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
-  import {getContext, hasContext, onMount, tick} from "svelte"
+  import {getContext, hasContext, onDestroy, onMount, tick} from "svelte"
   import {
     REPO_CLONE_URLS_KEY,
     REPO_KEY,
@@ -57,6 +57,7 @@
   import {profilesByPubkey, pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load, request} from "@welshman/net"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {DELETE, normalizeRelayUrl, type EventContent, type TrustedEvent} from "@welshman/util"
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import {clearModals, pushModal} from "@app/util/modal"
@@ -491,6 +492,15 @@
     (repoClass as any).repoEvent?.pubkey || (repoClass as any).owner || "",
   )
 
+  let commitCommentsLiveKey = ""
+  let commitCommentsLiveController: AbortController | null = null
+
+  const stopCommitCommentsLive = () => {
+    commitCommentsLiveController?.abort()
+    commitCommentsLiveController = null
+    commitCommentsLiveKey = ""
+  }
+
   $effect(() => {
     void commentsReloadToken
     const oid = commitCommentOid
@@ -498,37 +508,48 @@
     const filters = commitCommentFilters
 
     if (!oid || filters.length === 0) {
+      stopCommitCommentsLive()
       commentsLoading = false
       commentsError = undefined
       return
     }
     if (relays.length === 0) {
+      stopCommitCommentsLive()
       commentsLoading = false
       commentsError = "No repository relays are available for this discussion."
       return
     }
 
+    // Manage the live subscription manually with a stable key so reactive
+    // reruns with identical content do not abort and reopen relay requests.
+    const loadKey = `${oid}:${commitCommentRepoAddress}:${[...relays].sort().join(",")}:${commentsReloadToken}`
+    if (loadKey === commitCommentsLiveKey) return
+
+    commitCommentsLiveController?.abort()
     const controller = new AbortController()
-    const loadKey = `${oid}:${commitCommentRepoAddress}:${commentsReloadToken}`
-    let active = true
+    commitCommentsLiveController = controller
+    commitCommentsLiveKey = loadKey
+
     commentsLoading = true
     commentsError = undefined
 
     void load({relays, filters})
       .then(() => {
-        if (active) commentsLoading = false
+        if (!controller.signal.aborted) commentsLoading = false
       })
       .catch(error => {
-        if (!active) return
+        if (controller.signal.aborted) return
         commentsLoading = false
         commentsError = error instanceof Error ? error.message : "Failed to load discussion."
       })
 
     void request({
       relays,
-      filters,
+      filters: filters.map(filter => ({...filter, limit: 0})),
       signal: controller.signal,
       lifetime: "live",
+      priority: RELAY_REQUEST_PRIORITY.live,
+      owner: "repo-foreground",
       onEvent: event => repository.publish(event),
       onDuplicate: event => repository.publish(event),
     }).catch(error => {
@@ -536,11 +557,10 @@
         console.warn(`[commit-comments] Live subscription failed for ${loadKey}`, error)
       }
     })
+  })
 
-    return () => {
-      active = false
-      controller.abort()
-    }
+  onDestroy(() => {
+    stopCommitCommentsLive()
   })
 
   let commentDeleteLoadKey = ""

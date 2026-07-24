@@ -178,6 +178,7 @@
           relays: queryRelays,
           filters: [{kinds: [TOPICS], authors: [$pubkey], limit: 1}],
           signal: controller.signal,
+          autoClose: true,
         })
       } catch (error) {
         console.warn("Failed to refresh topic list", error)

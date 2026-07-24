@@ -588,11 +588,32 @@
     }
   }
 
+  let issueMetaLoadKey = ""
   $effect(() => {
     if (!issueEvent) return
     const relays = getPublishRelays()
     if (relays.length === 0) return
+    const key = `${issueEvent.id}::${[...relays].sort().join(",")}`
+    if (issueMetaLoadKey === key) return
+    issueMetaLoadKey = key
     load({relays, filters: [getLabelFilter(), getCoverLetterFilter()]})
+  })
+
+  let threadCommentsLoadKey = ""
+  $effect(() => {
+    if (!issue) return
+    const relays = getPublishRelays()
+    if (relays.length === 0) return
+    const key = `${issue.id}::${[...relays].sort().join(",")}`
+    if (threadCommentsLoadKey === key) return
+    threadCommentsLoadKey = key
+    load({
+      relays: relays as string[],
+      filters: [
+        {kinds: [COMMENT], "#E": [issue.id]},
+        {kinds: [COMMENT], "#e": [issue.id]},
+      ],
+    })
   })
 
   const threadComments = $derived.by(() => {
@@ -601,8 +622,6 @@
         {kinds: [COMMENT], "#E": [issue.id]},
         {kinds: [COMMENT], "#e": [issue.id]},
       ]
-      const relays = getPublishRelays()
-      load({relays: relays as string[], filters})
       return deriveEventsAsc(deriveEventsById({repository, filters}))
     }
   })
