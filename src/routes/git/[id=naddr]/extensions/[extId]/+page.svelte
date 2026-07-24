@@ -67,6 +67,7 @@
     RepoContext,
   } from "@app/extensions/types"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
+  import {theme} from "@app/util/theme"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
 
@@ -191,6 +192,36 @@
     }
   }
 
+  const appTheme = $derived($theme === "dark" ? "dark" : "light")
+
+  function getHostBackgroundColor(): string {
+    const visible = (value: string) =>
+      value && value !== "transparent" && value !== "rgba(0, 0, 0, 0)" ? value : ""
+
+    // Walk up from the iframe's container so the extension matches the surface
+    // it actually sits on (e.g. the extension panel card), not the page body.
+    let element: Element | null = iframeEl?.parentElement || document.body
+    while (element) {
+      const background = visible(getComputedStyle(element).backgroundColor)
+      if (background) return background
+      element = element.parentElement
+    }
+
+    return (
+      visible(getComputedStyle(document.documentElement).backgroundColor) ||
+      (appTheme === "dark" ? "rgb(21, 28, 35)" : "rgb(255, 255, 255)")
+    )
+  }
+
+  function sendTheme(): void {
+    if (!bridge) return
+
+    bridge.post("widget:themeChanged", {
+      theme: appTheme,
+      themeBackground: getHostBackgroundColor(),
+    })
+  }
+
   function sendContext(): void {
     if (!bridge || !iframeEl?.contentWindow) return
 
@@ -274,6 +305,14 @@
     }
 
     sendContext()
+  })
+
+  // Send the host theme once the bridge is ready and whenever it changes
+  $effect(() => {
+    appTheme
+    if (!ready || !bridge) return
+
+    sendTheme()
   })
 
   // Cleanup bridge on destroy
