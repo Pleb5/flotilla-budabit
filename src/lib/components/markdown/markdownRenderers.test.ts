@@ -10,12 +10,9 @@ vi.mock("nostr-tools", () => ({
   },
 }))
 
-vi.mock("highlight.js", () => ({
-  default: {
-    highlight: vi.fn((text: string) => ({
-      value: `<span class="hljs">${text}</span>`,
-    })),
-  },
+vi.mock("@nostr-git/ui", () => ({
+  normalizeHighlightLanguage: vi.fn((lang?: string | null) => lang || "plaintext"),
+  highlightCodeSnippet: vi.fn((text: string) => `<span class="hljs">${text}</span>`),
 }))
 
 describe("markdownRenderers", () => {

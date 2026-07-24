@@ -4,7 +4,7 @@
 
 import type {Tokens, Renderer} from "marked"
 import {nip19} from "nostr-tools"
-import hljs from "highlight.js"
+import {highlightCodeSnippet, normalizeHighlightLanguage} from "@nostr-git/ui"
 import type {TrustedEvent} from "@welshman/util"
 import {shortenUrl, isMediaUrl} from "./markdownUtils.js"
 import {parseNcommunityLink} from "@app/util/community-links"
@@ -171,10 +171,8 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     },
 
     code(token: Tokens.Code): string {
-      const validLang = token.lang || "plaintext"
-      const highlightedCode = hljs.highlight(token.text, {
-        language: validLang,
-      }).value
+      const validLang = normalizeHighlightLanguage(token.lang)
+      const highlightedCode = highlightCodeSnippet(token.text, validLang)
 
       return `<pre class="hljs"><code class="language-${validLang}">${highlightedCode}</code></pre>`
     },
