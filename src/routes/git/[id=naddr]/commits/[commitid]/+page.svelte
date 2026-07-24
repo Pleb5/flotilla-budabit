@@ -492,6 +492,10 @@
     (repoClass as any).repoEvent?.pubkey || (repoClass as any).owner || "",
   )
 
+  // Route-owned abort for finite loads so history/delete requests do not
+  // outlive navigation away from this commit page.
+  const pageAbortController = new AbortController()
+
   let commitCommentsLiveKey = ""
   let commitCommentsLiveController: AbortController | null = null
 
@@ -533,7 +537,7 @@
     commentsLoading = true
     commentsError = undefined
 
-    void load({relays, filters})
+    void load({relays, filters, signal: controller.signal})
       .then(() => {
         if (!controller.signal.aborted) commentsLoading = false
       })
@@ -561,6 +565,7 @@
 
   onDestroy(() => {
     stopCommitCommentsLive()
+    pageAbortController.abort()
   })
 
   let commentDeleteLoadKey = ""
@@ -571,7 +576,11 @@
     if (ids.length === 0 || relays.length === 0 || key === commentDeleteLoadKey) return
 
     commentDeleteLoadKey = key
-    void load({relays, filters: [{kinds: [DELETE], "#e": ids}]}).catch(() => undefined)
+    void load({
+      relays,
+      filters: [{kinds: [DELETE], "#e": ids}],
+      signal: pageAbortController.signal,
+    }).catch(() => undefined)
   })
 
   let commentProfileLoadKey = ""

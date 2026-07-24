@@ -2166,6 +2166,7 @@
 
   // Initialize tracking for data loading
   let unsubscribers: (() => void)[] = []
+  let layoutDestroyed = false
   let requestedCommentRootIds = new Set<string>()
   let pendingCommentRootIds = new Set<string>()
   let commentLoadRelaysKey = ""
@@ -2406,6 +2407,10 @@
 
     initialLoadsPromise
       .then(() => {
+        // Guard against installing the subscription after this layout has been
+        // destroyed: initial loads can resolve later than route teardown.
+        if (layoutDestroyed) return
+
         // Reactively load data when repo addresses change
         const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
           if (addresses.length === 0) return
@@ -2730,6 +2735,8 @@
 
   // Cleanup on component destroy
   onDestroy(() => {
+    layoutDestroyed = true
+
     if (deleteSeenKey) {
       setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
     }
