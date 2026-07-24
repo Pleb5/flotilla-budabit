@@ -4265,44 +4265,18 @@ const api = {
           diffError,
         )
 
+        // Use the shared incremental escalation (presence check, direct OID
+        // depth-1 fetch, shallow refs, full refs) instead of jumping straight
+        // to a deep all-ref fetch.
+        const requiredOids = [commit.oid, ...(commit.commit.parent || [])]
         let recovered = false
         try {
-          const remotes = await git.listRemotes({dir})
-          const originRemote = remotes.find((r: any) => r.remote === "origin")
-          const urlsToTry: string[] = []
-          if (originRemote?.url) urlsToTry.push(originRemote.url)
-
-          try {
-            const cache = await cacheManager.getRepoCache(key)
-            for (const url of filterValidCloneUrls(cache?.cloneUrls || [])) {
-              if (!urlsToTry.includes(url)) urlsToTry.push(url)
-            }
-          } catch {
-            // ignore cache errors
-          }
-
-          const orderedUrls = reorderUrlsByPreference(filterValidCloneUrls(urlsToTry), key)
-          if (orderedUrls.length > 0) {
-            const corsProxy = resolveDefaultCorsProxy()
-            const fetchResult = await withUrlFallback(
-              orderedUrls,
-              async (url: string) => {
-                const authCallback = getAuthCallback(url)
-                await git.fetch({
-                  dir,
-                  url,
-                  singleBranch: false,
-                  depth: 1000,
-                  tags: false,
-                  corsProxy,
-                  ...(authCallback && {onAuth: authCallback}),
-                })
-                return true
-              },
-              {repoId: key, perUrlTimeoutMs: 20000},
-            )
-            recovered = fetchResult.success
-          }
+          recovered = await fetchRefsUntilOidsAvailable({
+            key,
+            dir,
+            requiredOids,
+            cloneUrls: opts.cloneUrls,
+          })
         } catch (recoverError) {
           console.warn(
             `[getCommitDetails] Ancestor refetch failed for ${opts.commitId}:`,
@@ -4317,8 +4291,31 @@ const api = {
             if (!isMissingCommitObjectError(retryError)) {
               throw retryError
             }
-            warning =
-              "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
+
+            // Commit objects exist but trees/blobs behind a shallow boundary
+            // are still missing; escalate to a ref fetch before giving up.
+            const deepened = await fetchRefsUntilOidsAvailable({
+              key,
+              dir,
+              requiredOids,
+              cloneUrls: opts.cloneUrls,
+              forceRefFetch: true,
+            }).catch(() => false)
+
+            if (deepened) {
+              try {
+                changes = await collectCommitChanges()
+              } catch (finalError) {
+                if (!isMissingCommitObjectError(finalError)) {
+                  throw finalError
+                }
+                warning =
+                  "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
+              }
+            } else {
+              warning =
+                "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
+            }
           }
         } else {
           warning =
