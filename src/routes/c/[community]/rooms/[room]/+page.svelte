@@ -3,7 +3,7 @@
   import {onDestroy, onMount, tick} from "svelte"
   import {page} from "$app/stores"
   import {pubkey, publishThunk, repository} from "@welshman/app"
-  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById, throttled} from "@welshman/store"
   import {formatTimestampAsDate, int, MINUTE, now} from "@welshman/lib"
   import type {EventContent, TrustedEvent} from "@welshman/util"
   import {makeEvent, MESSAGE, THREAD} from "@welshman/util"
@@ -433,7 +433,9 @@
       },
     })
 
-    events = feed.events
+    // Throttle live event bursts so the message pipeline (visibility filtering,
+    // grouping, full list rebuild) does not rerun per inserted event.
+    events = throttled(300, feed.events)
     feedCleanup = feed.cleanup
   }
 
@@ -554,9 +556,17 @@
     }
 
     nextElements.reverse()
-    setTimeout(onScroll, 100)
 
     return nextElements
+  })
+
+  // Re-evaluate scroll indicators after the rendered element list changes.
+  // Kept outside the derived so building the list stays side-effect free.
+  $effect(() => {
+    void elements
+    const timer = setTimeout(onScroll, 100)
+
+    return () => clearTimeout(timer)
   })
 
   $effect(() => {
