@@ -805,7 +805,9 @@
       const issueTextKey = currentIssueList
         .map(issue => {
           const subject = getTagValue("subject", issue.event.tags) ?? ""
-          return `${issue.id}:${subject}:${issue.event.content}`
+          // Content length is a cheap change signal (same heuristic as the edits
+          // key above); joining full contents built megabyte-scale strings.
+          return `${issue.id}:${subject}:${issue.event.content.length}:${issue.created_at}`
         })
         .sort()
         .join("|")
