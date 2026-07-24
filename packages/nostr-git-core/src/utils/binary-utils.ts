@@ -16,6 +16,20 @@ export function createDataUrl(content: string, mimeType: string): string {
 }
 
 /**
+ * Convert bytes into a git-style binary (latin1) string.
+ * Chunked String.fromCharCode.apply avoids per-byte allocations and stack overflows.
+ */
+export function bytesToBinaryString(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000; // 32KB chunks
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const sub = bytes.subarray(i, i + chunk);
+    binary += String.fromCharCode.apply(null, sub as unknown as number[]);
+  }
+  return binary;
+}
+
+/**
  * Convert a binary string into a Uint8Array, handling U+FFFD replacement chars.
  */
 export function binaryStringToBytes(content: string): Uint8Array {

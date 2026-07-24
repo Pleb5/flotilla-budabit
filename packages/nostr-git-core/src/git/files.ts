@@ -13,6 +13,7 @@ import {Buffer} from "buffer"
 import {assertRepoAnnouncementEvent} from "../events/nip34/validation.js"
 import {createInvalidInputError, wrapError, type GitErrorContext} from "../errors/index.js"
 import {withUrlFallback} from "../utils/clone-url-fallback.js"
+import {bytesToBinaryString} from "../utils/binary-utils.js"
 import {cacheObservedGitNaturalBlob} from "./natural-read-observed-cache.js"
 
 declare global {
@@ -386,9 +387,7 @@ export async function getRepoFileContentFromEvent(opts: {
     cacheObservedGitNaturalBlob(blobOid, blob)
     // Return raw binary data as string to preserve binary files (images, PDFs, etc.)
     // The UI layer will handle text vs binary detection and appropriate decoding
-    return Array.from(new Uint8Array(blob))
-      .map(byte => String.fromCharCode(byte))
-      .join("")
+    return bytesToBinaryString(new Uint8Array(blob))
   } catch (error: any) {
     if (error.name === "NotFoundError") {
       // If file not found, try to deepen repository and retry
@@ -401,9 +400,7 @@ export async function getRepoFileContentFromEvent(opts: {
         const {oid: blobOid, blob} = await git.readBlob({dir, oid, filepath: opts.path})
         cacheObservedGitNaturalBlob(blobOid, blob)
         // Return raw binary data as string to preserve binary files
-        return Array.from(new Uint8Array(blob))
-          .map(byte => String.fromCharCode(byte))
-          .join("")
+        return bytesToBinaryString(new Uint8Array(blob))
       } catch (retryError: any) {
         if (retryError.name === "NotFoundError") {
           throw createInvalidInputError(
