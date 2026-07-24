@@ -3,7 +3,6 @@
   import "@src/app.css"
   import "@src/lib/crypto-polyfill"
   import {throttle} from "throttle-debounce"
-  import * as nip19 from "nostr-tools/nip19"
   import type {Unsubscriber} from "svelte/store"
   import {get} from "svelte/store"
   import {browser, dev} from "$app/environment"
@@ -20,18 +19,13 @@
   import {defaultSocketPolicies} from "@welshman/net"
   import {
     pubkey,
+    repository,
     sessions,
     signerLog,
     shouldUnwrap,
     userRelayList,
   } from "@welshman/app"
-  import * as lib from "@welshman/lib"
-  import * as util from "@welshman/util"
-  import * as feeds from "@welshman/feeds"
-  import * as router from "@welshman/router"
-  import * as welshmanSigner from "@welshman/signer"
-  import * as net from "@welshman/net"
-  import * as app from "@welshman/app"
+  import {normalizeRelayUrl, isRelayUrl} from "@welshman/util"
   import {ConfigProvider} from "@nostr-git/ui"
   import AppContainer from "@app/components/AppContainer.svelte"
   import ModalContainer from "@app/components/ModalContainer.svelte"
@@ -53,11 +47,8 @@
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
   import {toast, pushToast} from "@app/util/toast"
-  import * as commands from "@app/core/commands"
-  import * as requests from "@app/core/requests"
-  import * as appState from "@app/core/state"
-  import * as notifications from "@app/util/notifications"
-  import * as storage from "@app/util/storage"
+  import {badgeCount, handleBadgeCountChanges} from "@app/util/notifications"
+  import {adapters as storageAdapters} from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncApplicationData, syncGitData} from "@app/core/sync"
@@ -163,22 +154,27 @@
   let notificationBackgroundUnsubscribers: Array<() => void> = []
   let communityAuthWarmupKey = ""
 
-  // Add stuff to window for convenience
+  // Add stuff to window for convenience. Dev-only so production stays tree-shakeable.
+  if (dev) {
+    Promise.all([
+      import("nostr-tools/nip19"),
+      import("@welshman/lib"),
+      import("@welshman/signer"),
+      import("@welshman/router"),
+      import("@welshman/util"),
+      import("@welshman/feeds"),
+      import("@welshman/net"),
+      import("@welshman/app"),
+      import("@app/core/state"),
+      import("@app/core/commands"),
+      import("@app/core/requests"),
+      import("@app/util/notifications"),
+    ]).then(([nip19, ...modules]) => {
+      Object.assign(window, {get, nip19, theme}, ...modules)
+    })
+  }
+
   Object.assign(window, {
-    get,
-    nip19,
-    theme,
-    ...lib,
-    ...welshmanSigner,
-    ...router,
-    ...util,
-    ...feeds,
-    ...net,
-    ...app,
-    ...appState,
-    ...commands,
-    ...requests,
-    ...notifications,
     budabitBuildHash: APP_BUILD_HASH,
     budabitBuildId: APP_BUILD_ID,
   })
@@ -230,7 +226,7 @@
       setupBudabitNotifications(),
       setupRepoWatchNotifications(),
       setupWidgetUpdateNotifications(),
-      notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges),
+      badgeCount.subscribe(handleBadgeCountChanges),
     ]
   }
 
@@ -979,7 +975,7 @@
     ])
 
     // Set up our storage adapters
-    db.adapters = storage.adapters
+    db.adapters = storageAdapters
 
     // Wait until data storage is initialized
     await db.connect()
@@ -1007,12 +1003,12 @@
 
           let normalized = ""
           try {
-            normalized = util.normalizeRelayUrl(tag[1])
+            normalized = normalizeRelayUrl(tag[1])
           } catch {
             normalized = ""
           }
 
-          if (!normalized || !util.isRelayUrl(normalized)) {
+          if (!normalized || !isRelayUrl(normalized)) {
             console.warn("[+layout] Filtered invalid relay tag:", tag)
             modified = true
             return null
@@ -1034,20 +1030,20 @@
     }
 
     // Clean up malformed relay list events from the repository
-    const existingRelayLists = app.repository.query([{kinds: [10002, 10050]}])
+    const existingRelayLists = repository.query([{kinds: [10002, 10050]}])
     for (const event of existingRelayLists) {
       const sanitized = sanitizeRelayListEvent(event)
       if (sanitized !== event) {
         console.log("[+layout] Sanitizing relay list event:", event.id)
         // Remove the old event and add the sanitized version
-        app.repository.removeEvent(event.id)
-        app.repository.publish(sanitized)
+        repository.removeEvent(event.id)
+        repository.publish(sanitized)
       }
     }
 
     // Intercept events before they're stored in the repository
-    const originalPublish = app.repository.publish.bind(app.repository)
-    app.repository.publish = (event: any, options?: any) => {
+    const originalPublish = repository.publish.bind(repository)
+    repository.publish = (event: any, options?: any) => {
       const sanitized = sanitizeRelayListEvent(event)
       return originalPublish(sanitized, options)
     }
