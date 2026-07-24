@@ -2,7 +2,7 @@ import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
 import {deriveProfile, forceLoadRelayList, pubkey, repository, sign, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-import {normalizeUrl, sortBy} from "@welshman/lib"
+import {normalizeUrl, sortBy, LRUCache} from "@welshman/lib"
 import {
   AuthStateEvent,
   AuthStatus,
@@ -233,7 +233,9 @@ export const activeCommunityPermissionStatus = writable<CommunityPermissionStatu
 })
 
 const communityBootstrapPromises = new Map<string, Promise<CommunityBootstrap>>()
-const completedCommunityBootstrap = new Map<string, CommunityBootstrap>()
+// Bounded LRU: bootstraps retain full event arrays, so old communities and
+// stale relay-hint permutations must not accumulate for the app lifetime.
+const completedCommunityBootstrap = new LRUCache<string, CommunityBootstrap>(24)
 const completedCommunityHydrationKeys = new Set<string>()
 let communityBootstrapCacheVersion = 0
 
@@ -263,8 +265,8 @@ export const clearCommunityBootstrapCache = (communityPubkey?: string) => {
 
   communityBootstrapCacheVersion += 1
 
-  for (const key of completedCommunityBootstrap.keys()) {
-    if (matchesCommunity(key)) completedCommunityBootstrap.delete(key)
+  for (const key of [...completedCommunityBootstrap.map.keys()]) {
+    if (matchesCommunity(key)) completedCommunityBootstrap.pop(key)
   }
   for (const key of completedCommunityHydrationKeys) {
     if (matchesCommunity(key)) completedCommunityHydrationKeys.delete(key)

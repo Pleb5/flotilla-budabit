@@ -1,5 +1,9 @@
 <script module lang="ts">
-  const repoInitialLoads = new Map<string, Promise<void>>()
+  import {LRUCache} from "@welshman/lib"
+
+  // Bounded LRU so completed initial-load promises (and the filter arrays their
+  // closures retain) do not accumulate for every repo/relay-list permutation.
+  const repoInitialLoads = new LRUCache<string, Promise<void>>(16)
 </script>
 
 <script lang="ts">
@@ -2329,7 +2333,7 @@
       ])
         .then(() => {})
         .catch(error => {
-          repoInitialLoads.delete(initialLoadKey)
+          repoInitialLoads.pop(initialLoadKey)
           throw error
         })
 

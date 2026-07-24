@@ -1,4 +1,5 @@
 import {forceLoadProfile, loadProfile, profilesByPubkey} from "@welshman/app"
+import {LRUCache} from "@welshman/lib"
 import {displayProfile, displayPubkey, type PublishedProfile} from "@welshman/util"
 import {derived, get, readable, type Readable} from "svelte/store"
 import {normalizePubkey, normalizeRelays} from "@app/core/community"
@@ -16,9 +17,11 @@ export type ProfileResolutionOptions = {
   includeActiveCommunityRelays?: boolean
 }
 
-const attemptedRelaysByPubkey = new Map<string, Set<string>>()
+// Bounded LRUs: profile attempt/completion bookkeeping is keyed by pubkey and
+// pubkey-plus-relay-list permutations, which otherwise grow for the app lifetime.
+const attemptedRelaysByPubkey = new LRUCache<string, Set<string>>(2000)
 const profileLoadPromisesByKey = new Map<string, Promise<PublishedProfile | undefined>>()
-const completedProfileLoadTimesByKey = new Map<string, number>()
+const completedProfileLoadTimesByKey = new LRUCache<string, number>(2000)
 const PROFILE_LOAD_RETRY_MS = 60_000
 
 const hasProfileDisplayData = (profile: PublishedProfile | undefined) =>

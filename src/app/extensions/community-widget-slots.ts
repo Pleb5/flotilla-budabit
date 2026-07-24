@@ -2,6 +2,7 @@ import {
   loadCommunityCuratedWidgets,
   type CommunityCuratedExtensionsResult,
 } from "@app/extensions/community-curation"
+import {LRUCache} from "@welshman/lib"
 import {normalizePubkey, normalizeRelays, parseCommunityInput} from "@app/core/community"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "@app/extensions/types"
 import {logCommunityWidgetDebug} from "./community-widget-debug"
@@ -24,8 +25,10 @@ type LoadCachedCommunityCuratedWidgetsOptions = {
   now?: number
 }
 
-const curatedWidgetLoads = new Map<string, CuratedWidgetCacheEntry>()
-const curatedWidgetSnapshots = new Map<string, SmartWidgetEvent[]>()
+// Bounded LRUs: entries hold full widget events and load promises, keyed by
+// community and evolving relay lists, so they must not grow for the app lifetime.
+const curatedWidgetLoads = new LRUCache<string, CuratedWidgetCacheEntry>(32)
+const curatedWidgetSnapshots = new LRUCache<string, SmartWidgetEvent[]>(32)
 
 const getCurationCacheKey = (input: string) => {
   const trimmed = input.trim()
@@ -69,11 +72,11 @@ export const loadCachedCommunityCuratedWidgets = (
         if (result?.status === "community" && result.widgets.length > 0) {
           curatedWidgetSnapshots.set(getCurationSnapshotKey(input), result.widgets)
         } else if (result?.complete) {
-          curatedWidgetSnapshots.delete(getCurationSnapshotKey(input))
+          curatedWidgetSnapshots.pop(getCurationSnapshotKey(input))
         }
 
         if (!result?.complete) {
-          curatedWidgetLoads.delete(key)
+          curatedWidgetLoads.pop(key)
           return result
         }
 
@@ -84,7 +87,7 @@ export const loadCachedCommunityCuratedWidgets = (
       return result
     })
     .catch(error => {
-      if (curatedWidgetLoads.get(key)?.promise === pending) curatedWidgetLoads.delete(key)
+      if (curatedWidgetLoads.get(key)?.promise === pending) curatedWidgetLoads.pop(key)
       throw error
     })
   curatedWidgetLoads.set(key, {promise: pending})
@@ -92,9 +95,14 @@ export const loadCachedCommunityCuratedWidgets = (
   return pending
 }
 
+const clearLRUCache = <U>(cache: LRUCache<string, U>) => {
+  cache.map.clear()
+  cache.keys.length = 0
+}
+
 export const clearCommunityWidgetSlotCache = () => {
-  curatedWidgetLoads.clear()
-  curatedWidgetSnapshots.clear()
+  clearLRUCache(curatedWidgetLoads)
+  clearLRUCache(curatedWidgetSnapshots)
 }
 
 export const getLastValidatedCommunityCuratedWidgets = (input: string) => [
