@@ -176,27 +176,20 @@ emit_lftp_commands() {
   local remote_worker
   local remote_shell
   local remote_marker
-  local remote_probe
 
   remote_immutable="$(join_remote_path "$remote_path" '_app/immutable/')"
   remote_worker="$(join_remote_path "$remote_path" 'service-worker.js')"
   remote_shell="$(join_remote_path "$remote_path" 'index.html')"
   remote_marker="$(join_remote_path "$remote_path" '_app/version.json')"
-  remote_probe="$(join_remote_path "$remote_path" '.budabit-rename-probe')"
 
   cat <<LFTP
 set cmd:fail-exit yes
 set net:max-retries 2
 
-# Verify that this server can atomically rename over an existing file before changing the release.
-rm -f $(lftp_quote "$remote_probe") $(lftp_quote "${remote_probe}.upload")
-put -o $(lftp_quote "$remote_probe") $(lftp_quote "$deploying_marker_file")
-put -o $(lftp_quote "${remote_probe}.upload") $(lftp_quote "$deploying_marker_file")
-mv $(lftp_quote "${remote_probe}.upload") $(lftp_quote "$remote_probe")
-rm -f $(lftp_quote "$remote_probe")
-
 # Pass 0: prevent old and new workers from installing while shared files change.
-put -o $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$deploying_marker_file")
+rm -f $(lftp_quote "${remote_marker}.budabit-upload")
+put $(lftp_quote "$deploying_marker_file") -o $(lftp_quote "${remote_marker}.budabit-upload")
+rm -f $(lftp_quote "$remote_marker")
 mv $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$remote_marker")
 
 # Pass 1: upload new immutable app assets, keep old immutable files.
@@ -206,15 +199,21 @@ mirror -R --verbose=1 --parallel=$parallel --ignore-time "_app/immutable/" $(lft
 mirror -R --verbose=1 --parallel=$parallel --delete -x '(^|/)_app/immutable(/|$)' -x '^_app/version\.json$' -x '^service-worker\.js$' -x '^index\.html$' "." $(lftp_quote "$remote_path")
 
 # Pass 3: publish the worker only after every file it may cache is available.
-put -o $(lftp_quote "${remote_worker}.budabit-upload") "service-worker.js"
+rm -f $(lftp_quote "${remote_worker}.budabit-upload")
+put "service-worker.js" -o $(lftp_quote "${remote_worker}.budabit-upload")
+rm -f $(lftp_quote "$remote_worker")
 mv $(lftp_quote "${remote_worker}.budabit-upload") $(lftp_quote "$remote_worker")
 
 # Pass 4: publish the app shell after the matching worker is available.
-put -o $(lftp_quote "${remote_shell}.budabit-upload") "index.html"
+rm -f $(lftp_quote "${remote_shell}.budabit-upload")
+put "index.html" -o $(lftp_quote "${remote_shell}.budabit-upload")
+rm -f $(lftp_quote "$remote_shell")
 mv $(lftp_quote "${remote_shell}.budabit-upload") $(lftp_quote "$remote_shell")
 
 # Pass 5: publish the stable update marker last.
-put -o $(lftp_quote "${remote_marker}.budabit-upload") "_app/version.json"
+rm -f $(lftp_quote "${remote_marker}.budabit-upload")
+put "_app/version.json" -o $(lftp_quote "${remote_marker}.budabit-upload")
+rm -f $(lftp_quote "$remote_marker")
 mv $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$remote_marker")
 bye
 LFTP

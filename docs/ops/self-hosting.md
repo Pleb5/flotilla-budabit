@@ -245,7 +245,7 @@ The wrapper runs six ordered phases:
 5. Upload `index.html` after the matching worker is available.
 6. Upload `/_app/version.json` last so the worker cannot install before the release is complete.
 
-Before phase 1, the wrapper verifies that the SFTP server can atomically rename over an existing file. It aborts without changing release files if the server does not support that operation.
+For worker, shell, and marker files, the wrapper uploads a complete temporary file, removes the old destination, and renames the temporary file into place. This works with SFTP servers that do not support rename-over-existing; a request may briefly see a missing file, but never a partially uploaded one.
 
 Preview the generated lftp commands without connecting:
 

@@ -207,9 +207,11 @@ The script should prompt for the SFTP password with `read -rsp` and pass it to `
 The script should run the ordered upload internally from `build/`:
 
 ```sh
-# Pass 0: atomically invalidate the marker before changing shared files.
+# Pass 0: invalidate the marker before changing shared files.
 printf '%s\n' '{"version":"","status":"deploying"}' > /tmp/budabit-version-deploying.json
-put -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" /tmp/budabit-version-deploying.json
+rm -f "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload"
+put /tmp/budabit-version-deploying.json -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload"
+rm -f "$BUDABIT_REMOTE_PATH/_app/version.json"
 mv "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" "$BUDABIT_REMOTE_PATH/_app/version.json"
 
 # Pass 1: upload new immutable app assets, keep old immutable files.
@@ -227,15 +229,21 @@ mirror -R --verbose=1 --parallel=8 --delete \
   "$BUDABIT_REMOTE_PATH"
 
 # Pass 3: publish the worker after its supporting files.
-put -o "$BUDABIT_REMOTE_PATH/service-worker.js.budabit-upload" service-worker.js
+rm -f "$BUDABIT_REMOTE_PATH/service-worker.js.budabit-upload"
+put service-worker.js -o "$BUDABIT_REMOTE_PATH/service-worker.js.budabit-upload"
+rm -f "$BUDABIT_REMOTE_PATH/service-worker.js"
 mv "$BUDABIT_REMOTE_PATH/service-worker.js.budabit-upload" "$BUDABIT_REMOTE_PATH/service-worker.js"
 
 # Pass 4: publish the matching shell.
-put -o "$BUDABIT_REMOTE_PATH/index.html.budabit-upload" index.html
+rm -f "$BUDABIT_REMOTE_PATH/index.html.budabit-upload"
+put index.html -o "$BUDABIT_REMOTE_PATH/index.html.budabit-upload"
+rm -f "$BUDABIT_REMOTE_PATH/index.html"
 mv "$BUDABIT_REMOTE_PATH/index.html.budabit-upload" "$BUDABIT_REMOTE_PATH/index.html"
 
 # Pass 5: publish the stable update marker last.
-put -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" _app/version.json
+rm -f "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload"
+put _app/version.json -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload"
+rm -f "$BUDABIT_REMOTE_PATH/_app/version.json"
 mv "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" "$BUDABIT_REMOTE_PATH/_app/version.json"
 ```
 
@@ -265,19 +273,27 @@ The deploy script may source this file if present. It must still prompt for the 
 If the wrapper script is unavailable, first create `/tmp/budabit-version-deploying.json` with the deployment sentinel shown above. Then run these from inside `build/` after logging into `lftp` and changing to the remote web root:
 
 ```sh
-put -o _app/version.json.budabit-upload /tmp/budabit-version-deploying.json
+rm -f _app/version.json.budabit-upload
+put /tmp/budabit-version-deploying.json -o _app/version.json.budabit-upload
+rm -f _app/version.json
 mv _app/version.json.budabit-upload _app/version.json
 mirror -R --verbose=1 --parallel=8 --ignore-time _app/immutable/ _app/immutable/
 mirror -R --verbose=1 --parallel=8 --delete -x "(^|/)_app/immutable(/|$)" -x "^_app/version\.json$" -x "^service-worker\.js$" -x "^index\.html$" . .
-put -o service-worker.js.budabit-upload service-worker.js
+rm -f service-worker.js.budabit-upload
+put service-worker.js -o service-worker.js.budabit-upload
+rm -f service-worker.js
 mv service-worker.js.budabit-upload service-worker.js
-put -o index.html.budabit-upload index.html
+rm -f index.html.budabit-upload
+put index.html -o index.html.budabit-upload
+rm -f index.html
 mv index.html.budabit-upload index.html
-put -o _app/version.json.budabit-upload _app/version.json
+rm -f _app/version.json.budabit-upload
+put _app/version.json -o _app/version.json.budabit-upload
+rm -f _app/version.json
 mv _app/version.json.budabit-upload _app/version.json
 ```
 
-This is intentionally six ordered operations because marker invalidation, worker, shell, and final marker publication must not run in parallel. The wrapper script hides this complexity for normal deployments and performs the required rename-overwrite preflight.
+This is intentionally six ordered phases because marker invalidation, worker, shell, and final marker publication must not run in parallel. The wrapper script hides this complexity for normal deployments. Removing each destination before renaming supports SFTP servers without rename-over-existing; clients may briefly observe a missing file but never a partially uploaded file.
 
 ## Required Host Headers
 

@@ -18,13 +18,13 @@ Therefore:
 - Supporting mutable files must finish uploading before `service-worker.js`.
 - `service-worker.js` must be available before the matching `index.html`.
 - `/_app/version.json` remains the final stable marker.
-- Each worker, shell, and marker file is uploaded to a temporary path and renamed into place so clients cannot read a partially transferred file.
+- Each worker, shell, and marker file is uploaded to a temporary path. The old destination is then removed and the completed upload is renamed into place, so clients can observe a brief missing file but never a partially transferred file.
 - A worker must fetch the network-only marker during installation and reject installation unless the marker equals its compiled build ID.
 - The worker must check the marker again after filling its cache, because a newer deployment may begin during the download.
 
 The worker-side marker check is the authoritative gate. Deployment order reduces race windows, but the browser must still verify the release state itself.
 
-Before the first upload, the deploy command verifies that the SFTP server can rename a temporary file over an existing destination. A server without atomic overwrite-rename support is rejected before release files are changed.
+The deployment sequence does not require the SFTP server to support rename-over-existing. Brief missing-file windows fail closed: an absent marker or worker cannot certify a build, while the previous complete service-worker cache remains usable.
 
 ## A Cache Name Is Not Proof Of Readiness
 
