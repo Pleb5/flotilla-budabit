@@ -6,6 +6,7 @@ import * as nip19 from "nostr-tools/nip19"
 const APP_CACHE_PREFIX = "budabit-app-"
 const APP_CACHE_NAME = `${APP_CACHE_PREFIX}${version}`
 const APP_BASE = new URL(self.registration.scope).pathname.replace(/\/$/, "")
+const CACHE_BATCH_SIZE = 12
 
 const toAppPath = path => {
   const pathname = path.startsWith("/") ? path : `/${path}`
@@ -18,8 +19,11 @@ const toAppPath = path => {
 }
 
 const INDEX_PATH = toAppPath("/index.html")
+const VERSION_PATH = toAppPath("/_app/version.json")
+const CACHE_COMPLETE_PATH = toAppPath("/__budabit_app_cache_complete__")
+const ACTIVATION_PREVIOUS_PATH = toAppPath("/__budabit_activation_previous__")
 const NETWORK_ONLY_PATHS = new Set([
-  toAppPath("/_app/version.json"),
+  VERSION_PATH,
   toAppPath("/service-worker.js"),
   toAppPath("/sw.js"),
 ])
@@ -41,6 +45,7 @@ const APP_SHELL_PATHS = Array.from(
 const APP_SHELL_PATH_SET = new Set(APP_SHELL_PATHS)
 
 self.__SW_VERSION__ = version
+self.__SW_BUILD_CONTRACT__ = "budabit-build:" + import.meta.env.VITE_BUILD_ID
 
 const toAbsoluteUrl = pathname => new URL(pathname, self.location.origin).toString()
 
@@ -62,19 +67,59 @@ const notifyClients = async message => {
   }
 }
 
+const getPublishedVersion = async () => {
+  const versionUrl = new URL(toAbsoluteUrl(VERSION_PATH))
+  versionUrl.searchParams.set("_budabitWorker", version)
+  const response = await fetch(
+    new Request(versionUrl, {
+      cache: "no-store",
+      headers: {"cache-control": "no-cache", pragma: "no-cache"},
+    }),
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to read published app version: ${response.status}`)
+  }
+
+  const payload = await response.json()
+  return typeof payload?.version === "string" ? payload.version : ""
+}
+
+const assertPublishedVersion = async () => {
+  const publishedVersion = await getPublishedVersion()
+  if (publishedVersion !== version) {
+    throw new Error(
+      `App build ${version} is not published (current marker: ${publishedVersion || "missing"})`,
+    )
+  }
+}
+
 const cacheAppShell = async () => {
-  const cache = await caches.open(APP_CACHE_NAME)
-
   try {
-    await Promise.all(
-      APP_SHELL_PATHS.map(async pathname => {
-        const response = await fetch(new Request(toAbsoluteUrl(pathname), {cache: "reload"}))
+    await assertPublishedVersion()
+    const cache = await caches.open(APP_CACHE_NAME)
 
-        if (!response.ok) {
-          throw new Error(`Failed to cache ${pathname}: ${response.status}`)
-        }
+    for (let index = 0; index < APP_SHELL_PATHS.length; index += CACHE_BATCH_SIZE) {
+      const batch = APP_SHELL_PATHS.slice(index, index + CACHE_BATCH_SIZE)
+      await Promise.all(
+        batch.map(async pathname => {
+          const response = await fetch(new Request(toAbsoluteUrl(pathname), {cache: "reload"}))
 
-        await cache.put(toAbsoluteUrl(pathname), response)
+          if (!response.ok) {
+            throw new Error(`Failed to cache ${pathname}: ${response.status}`)
+          }
+
+          await cache.put(toAbsoluteUrl(pathname), response)
+        }),
+      )
+    }
+
+    // A newer deploy may have started while this cache was downloading.
+    await assertPublishedVersion()
+    await cache.put(
+      toAbsoluteUrl(CACHE_COMPLETE_PATH),
+      new Response(JSON.stringify({version, completedAt: Date.now()}), {
+        headers: {"content-type": "application/json"},
       }),
     )
   } catch (error) {
@@ -83,24 +128,77 @@ const cacheAppShell = async () => {
   }
 }
 
-const getAppCacheNamesToKeep = async () => {
+const getActivationMetadata = async () => {
+  const cache = await caches.open(APP_CACHE_NAME)
+  const response = await cache.match(toAbsoluteUrl(ACTIVATION_PREVIOUS_PATH))
+  if (!response) return {previousVersion: "", reloadClients: false}
+
+  try {
+    const metadata = await response.json()
+    return {
+      previousVersion:
+        typeof metadata?.previousVersion === "string" ? metadata.previousVersion : "",
+      reloadClients: metadata?.reloadClients === true,
+    }
+  } catch {
+    return {previousVersion: "", reloadClients: false}
+  }
+}
+
+const getAppCacheNamesToKeep = async activationMetadata => {
   const keys = await caches.keys()
-  const previousCacheName = keys
-    .filter(key => key.startsWith(APP_CACHE_PREFIX) && key !== APP_CACHE_NAME)
-    .at(-1)
+  const previousVersion = activationMetadata.previousVersion
+  const explicitPreviousCacheName = `${APP_CACHE_PREFIX}${previousVersion}`
+  const otherAppCacheNames = keys.filter(
+    key => key.startsWith(APP_CACHE_PREFIX) && key !== APP_CACHE_NAME,
+  )
+  let previousCacheName = keys.includes(explicitPreviousCacheName) ? explicitPreviousCacheName : ""
+
+  if (!previousCacheName) {
+    const completedCaches = await Promise.all(
+      otherAppCacheNames.map(async (cacheName, order) => {
+        const cache = await caches.open(cacheName)
+        const response = await cache.match(toAbsoluteUrl(CACHE_COMPLETE_PATH))
+        if (!response) return {cacheName, completedAt: 0, order}
+
+        try {
+          const metadata = await response.json()
+          return {
+            cacheName,
+            completedAt: Number.isFinite(metadata?.completedAt) ? metadata.completedAt : 0,
+            order,
+          }
+        } catch {
+          return {cacheName, completedAt: 0, order}
+        }
+      }),
+    )
+    previousCacheName =
+      completedCaches.sort((a, b) => b.completedAt - a.completedAt || b.order - a.order)[0]
+        ?.cacheName ||
+      otherAppCacheNames.at(-1) ||
+      ""
+  }
 
   return new Set([APP_CACHE_NAME, previousCacheName].filter(Boolean))
 }
 
-const cleanupOldAppCaches = async () => {
+const cleanupOldAppCaches = async activationMetadata => {
   const keys = await caches.keys()
-  const appCachesToKeep = await getAppCacheNamesToKeep()
+  const appCachesToKeep = await getAppCacheNamesToKeep(activationMetadata)
 
   await Promise.all(
     keys
       .filter(key => key.startsWith(APP_CACHE_PREFIX) && !appCachesToKeep.has(key))
       .map(key => caches.delete(key)),
   )
+}
+
+const reloadWindowClients = async () => {
+  const clientList = await self.clients.matchAll({type: "window", includeUncontrolled: true})
+  for (const client of clientList) {
+    void client.navigate(client.url).catch(() => null)
+  }
 }
 
 const appShellMiss = pathname =>
@@ -132,17 +230,42 @@ self.addEventListener("install", event => {
 })
 
 self.addEventListener("message", event => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting()
+  const data = event.data
+
+  if (data && data.type === "APP_CACHE_GET_VERSION") {
+    event.ports?.[0]?.postMessage({type: "APP_CACHE_VERSION", version})
+    return
+  }
+
+  const legacySkipWaiting = data?.type === "SKIP_WAITING" && data.version === undefined
+  if (data?.type === "SKIP_WAITING" && (data.version === version || legacySkipWaiting)) {
+    event.waitUntil(
+      (async () => {
+        const previousVersion =
+          typeof data.previousVersion === "string" && data.previousVersion.length <= 200
+            ? data.previousVersion
+            : ""
+        const cache = await caches.open(APP_CACHE_NAME)
+        await cache.put(
+          toAbsoluteUrl(ACTIVATION_PREVIOUS_PATH),
+          new Response(JSON.stringify({previousVersion, reloadClients: legacySkipWaiting}), {
+            headers: {"content-type": "application/json"},
+          }),
+        )
+        await self.skipWaiting()
+      })(),
+    )
   }
 })
 
 self.addEventListener("activate", event => {
   event.waitUntil(
     (async () => {
-      await cleanupOldAppCaches()
+      const activationMetadata = await getActivationMetadata()
+      await cleanupOldAppCaches(activationMetadata)
       await self.clients.claim()
       await notifyClients({type: "APP_CACHE_ACTIVATED", version})
+      if (activationMetadata.reloadClients) await reloadWindowClients()
     })(),
   )
 })

@@ -34,7 +34,10 @@
     "test:e2e:identity": "playwright test --project=identity",
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:widget": "playwright test --project=widget",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:atomic:unit": "vitest run --project=main src/app/core/app-update.test.ts tests/static-deploy.test.ts",
+    "test:atomic:e2e": "playwright test --config=playwright.atomic.config.ts",
+    "test:atomic": "pnpm test:atomic:unit && pnpm test:atomic:e2e"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.10.2",

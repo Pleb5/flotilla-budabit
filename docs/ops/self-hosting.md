@@ -136,7 +136,7 @@ The generated `build/.htaccess` already handles:
 - no-cache/no-store for `service-worker.js`, `sw.js`, `manifest.webmanifest`, and `_app/version.json`
 - CORS headers for `/.well-known/`
 
-If you are on Apache, upload `build/` as-is.
+If you are on Apache, retain the generated `.htaccess`, but deploy the `build/` contents with the ordered deployment command below. Do not replace the remote directory with one parallel upload.
 
 On shared hosting, prefer Apache/PHP-FPM over OpenLiteSpeed for Budabit unless you have verified the headers below. We have seen OpenLiteSpeed/LSCache serve correct files while ignoring or overriding `.htaccess` `Header` and `AddType` rules. Symptoms include `/settings` returning `200`, but `service-worker.js` and `sw.js` still getting a positive `max-age`, `manifest.webmanifest` being served as `application/octet-stream`, and `/_app/immutable/*` missing the long immutable cache header.
 
@@ -189,7 +189,7 @@ git submodule update --init --recursive
 pnpm run build-in-production
 ```
 
-Then upload the new `build/` contents.
+Then use the ordered deployment procedure below. Uploading `build/` as one parallel mirror does not preserve the atomic update contract.
 
 ## Deploying with SFTP/LFTP (Recommended Strategy)
 
@@ -236,11 +236,16 @@ pnpm run build-in-production
 ./scripts/deploy-static-lftp.sh
 ```
 
-The wrapper runs three passes:
+The wrapper runs six ordered phases:
 
-1. Upload new `/_app/immutable/*` files without deleting old immutable files.
-2. Upload mutable files with delete enabled, excluding `/_app/immutable/*` and `/_app/version.json`.
-3. Upload `/_app/version.json` last so browsers do not see an update before all files exist.
+1. Publish a deployment sentinel so no worker can install while shared files change.
+2. Upload new `/_app/immutable/*` files without deleting old immutable files.
+3. Upload supporting mutable files with delete enabled, excluding immutable files, the worker, shell, and marker.
+4. Upload `service-worker.js` after every file it may cache is available.
+5. Upload `index.html` after the matching worker is available.
+6. Upload `/_app/version.json` last so the worker cannot install before the release is complete.
+
+Before phase 1, the wrapper verifies that the SFTP server can atomically rename over an existing file. It aborts without changing release files if the server does not support that operation.
 
 Preview the generated lftp commands without connecting:
 

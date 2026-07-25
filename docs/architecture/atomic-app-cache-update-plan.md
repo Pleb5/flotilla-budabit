@@ -10,6 +10,8 @@ Make Budabit behave like a simple installed static app:
 - The reload button switches the browser from one complete build to another complete build.
 - No page should be able to land in a mixed state where old HTML loads new chunks, new HTML references missing chunks, or old route chunks have been deleted before old tabs are done with them.
 
+Post-implementation audit findings and the invariants learned from production are recorded in [Atomic App Update Lessons](./atomic-app-update-lessons.md).
+
 ## Non-Goals
 
 - Do not restore generic Workbox or `vite-plugin-pwa` caching.
@@ -35,10 +37,11 @@ The service worker has one app-shell responsibility:
 2. Fetch and store every required file for that build during `install`.
 3. Fail the install if any required app-shell file cannot be fetched.
 4. Keep the old service worker and old cache active until the new cache is complete.
-5. Notify the app that an update is ready only after the install succeeds.
-6. Activate the new cache only when the user accepts the update.
-7. On activate, claim clients and reload app tabs into the new complete build.
-8. Delete app-shell caches older than the current and previous build.
+5. Verify the worker's compiled build ID against the published version marker before and after caching.
+6. Notify the app that an update is ready only after the install succeeds.
+7. Activate the exact version-verified waiting worker only when the user accepts the update.
+8. On activate, claim clients and reload every old-build app tab into the new complete build.
+9. Delete app-shell caches older than the current and previous build.
 
 This keeps the browser from observing a half-downloaded app version.
 
@@ -109,13 +112,13 @@ Flow:
 1. Poll `/_app/version.json` with `cache: "no-store"`.
 2. Compare the remote version to the currently running `VITE_BUILD_ID`, not to a localStorage value.
 3. If different, call `registration.update()`.
-4. Wait for the new worker to reach `installed` with a complete cache.
+4. Wait for the new worker to reach `installed`, then verify its build ID directly.
 5. Only then show `New app version is ready`.
-6. On click, store `expectedBuildId` in `sessionStorage`, post `SKIP_WAITING`, and wait for `controllerchange`.
-7. Reload with a cache-busting query parameter.
+6. On click, store `expectedBuildId` in `sessionStorage`, post a version-bound `SKIP_WAITING`, and wait for the matching controller.
+7. After activation, reload every old-build tab with a cache-busting query parameter.
 8. On boot, verify the running `VITE_BUILD_ID` equals `expectedBuildId`.
-9. If verification fails once, unregister legacy workers, delete Cache Storage keys not matching the expected app cache, and reload one more time.
-10. If verification fails twice, show a recovery warning with a manual cache reset action.
+9. If the expected worker controls the tab, allow one additional non-destructive reload.
+10. Otherwise preserve the current cache and show persistent Retry and explicit Reset controls.
 
 Do not write a new version as handled before the new build is actually running.
 
@@ -156,9 +159,12 @@ The deployment must never publish the stable version marker before all files for
 
 Upload order:
 
-1. Upload new `/_app/immutable/*` files without deleting old ones.
-2. Upload all other files except the stable update marker.
-3. Upload the stable update marker last, currently `/_app/version.json`.
+1. Replace `/_app/version.json` with a deployment sentinel that has no build version.
+2. Upload new `/_app/immutable/*` files without deleting old ones.
+3. Upload supporting mutable files except the worker, shell, and stable update marker.
+4. Upload `service-worker.js` after all files it may cache are available.
+5. Upload `index.html` after its matching worker is available.
+6. Upload the stable update marker last, currently `/_app/version.json`.
 
 Keep old immutable files during normal deploys. Clean them only in a maintenance task after a retention window.
 
@@ -201,21 +207,36 @@ The script should prompt for the SFTP password with `read -rsp` and pass it to `
 The script should run the ordered upload internally from `build/`:
 
 ```sh
+# Pass 0: atomically invalidate the marker before changing shared files.
+printf '%s\n' '{"version":"","status":"deploying"}' > /tmp/budabit-version-deploying.json
+put -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" /tmp/budabit-version-deploying.json
+mv "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" "$BUDABIT_REMOTE_PATH/_app/version.json"
+
 # Pass 1: upload new immutable app assets, keep old immutable files.
 mirror -R --verbose=1 --parallel=8 --ignore-time \
   _app/immutable/ \
   "$BUDABIT_REMOTE_PATH/_app/immutable/"
 
-# Pass 2: upload everything else, delete removed mutable files, but do not publish
-# the stable version marker yet and never delete immutable files here.
+# Pass 2: upload supporting mutable files, but not the worker, shell, or marker.
 mirror -R --verbose=1 --parallel=8 --delete \
   -x '(^|/)_app/immutable(/|$)' \
   -x '^_app/version\.json$' \
+  -x '^service-worker\.js$' \
+  -x '^index\.html$' \
   . \
   "$BUDABIT_REMOTE_PATH"
 
-# Pass 3: publish the stable update marker last.
-put -O "$BUDABIT_REMOTE_PATH/_app" _app/version.json
+# Pass 3: publish the worker after its supporting files.
+put -o "$BUDABIT_REMOTE_PATH/service-worker.js.budabit-upload" service-worker.js
+mv "$BUDABIT_REMOTE_PATH/service-worker.js.budabit-upload" "$BUDABIT_REMOTE_PATH/service-worker.js"
+
+# Pass 4: publish the matching shell.
+put -o "$BUDABIT_REMOTE_PATH/index.html.budabit-upload" index.html
+mv "$BUDABIT_REMOTE_PATH/index.html.budabit-upload" "$BUDABIT_REMOTE_PATH/index.html"
+
+# Pass 5: publish the stable update marker last.
+put -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" _app/version.json
+mv "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" "$BUDABIT_REMOTE_PATH/_app/version.json"
 ```
 
 Normal operator flow becomes two commands:
@@ -241,15 +262,22 @@ The deploy script may source this file if present. It must still prompt for the 
 
 ## Manual LFTP Fallback
 
-If the wrapper script is unavailable, run these from inside `build/` after logging into `lftp` and changing to the remote web root:
+If the wrapper script is unavailable, first create `/tmp/budabit-version-deploying.json` with the deployment sentinel shown above. Then run these from inside `build/` after logging into `lftp` and changing to the remote web root:
 
 ```sh
+put -o _app/version.json.budabit-upload /tmp/budabit-version-deploying.json
+mv _app/version.json.budabit-upload _app/version.json
 mirror -R --verbose=1 --parallel=8 --ignore-time _app/immutable/ _app/immutable/
-mirror -R --verbose=1 --parallel=8 --delete -x "(^|/)_app/immutable(/|$)" -x "^_app/version\.json$" . .
-put -O _app _app/version.json
+mirror -R --verbose=1 --parallel=8 --delete -x "(^|/)_app/immutable(/|$)" -x "^_app/version\.json$" -x "^service-worker\.js$" -x "^index\.html$" . .
+put -o service-worker.js.budabit-upload service-worker.js
+mv service-worker.js.budabit-upload service-worker.js
+put -o index.html.budabit-upload index.html
+mv index.html.budabit-upload index.html
+put -o _app/version.json.budabit-upload _app/version.json
+mv _app/version.json.budabit-upload _app/version.json
 ```
 
-This is intentionally three manual operations because the version marker must be uploaded last. The wrapper script hides this complexity for normal deployments.
+This is intentionally six ordered operations because marker invalidation, worker, shell, and final marker publication must not run in parallel. The wrapper script hides this complexity for normal deployments and performs the required rename-overwrite preflight.
 
 ## Required Host Headers
 
@@ -362,6 +390,8 @@ Execution rule: once implementation starts, continue phase by phase through the 
 - A failed deploy upload cannot create an update prompt.
 - A failed service worker install keeps the old app active.
 - Accepting an update reloads into the expected build ID.
+- Activating an update reloads every tab still executing an older build.
+- Activation timeout and reload recovery never delete the controlling build's cache.
 - Route navigation after update acceptance does not fetch missing chunks from the network.
 - Old open tabs do not break if they navigate before accepting the update.
 - The live deploy checker passes for `budabit.club`.

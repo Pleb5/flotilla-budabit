@@ -69,6 +69,8 @@ done
 [[ -d "$build_dir" ]] || die "build directory does not exist: $build_dir"
 [[ -d "$build_dir/_app/immutable" ]] || die "missing build/_app/immutable"
 [[ -f "$build_dir/_app/version.json" ]] || die "missing build/_app/version.json"
+[[ -f "$build_dir/service-worker.js" ]] || die "missing build/service-worker.js"
+[[ -f "$build_dir/index.html" ]] || die "missing build/index.html"
 
 join_remote_path() {
   local base="$1"
@@ -106,6 +108,24 @@ trace_version_state() {
   fi
 }
 
+publish_local_file() {
+  local source="$1"
+  local target="$2"
+  local temporary="${target}.budabit-upload"
+
+  cp "$source" "$temporary"
+  mv -f "$temporary" "$target"
+}
+
+publish_local_text() {
+  local content="$1"
+  local target="$2"
+  local temporary="${target}.budabit-upload"
+
+  printf '%s\n' "$content" >"$temporary"
+  mv -f "$temporary" "$target"
+}
+
 run_local_deploy() {
   local target="$1"
 
@@ -116,45 +136,86 @@ run_local_deploy() {
 
   mkdir -p "$target/_app/immutable" "$target/_app"
 
+  trace 'pass0 invalidate marker start'
+  publish_local_text '{"version":"","status":"deploying"}' "$target/_app/version.json"
+  trace_version_state 'pass0 after' "$target/_app/version.json"
+  trace 'pass0 invalidate marker done'
+
   trace 'pass1 immutable start'
   rsync -a "$build_dir/_app/immutable/" "$target/_app/immutable/"
   trace 'pass1 immutable done'
 
-  trace 'pass2 mutable start'
+  trace 'pass2 supporting mutable start'
   trace_version_state 'pass2 before' "$target/_app/version.json"
   rsync -a --delete \
     --exclude='/_app/immutable/***' \
     --exclude='/_app/version.json' \
+    --exclude='/service-worker.js' \
+    --exclude='/index.html' \
     "$build_dir/" \
     "$target/"
   trace_version_state 'pass2 after' "$target/_app/version.json"
-  trace 'pass2 mutable done'
+  trace 'pass2 supporting mutable done'
 
-  trace 'pass3 version start'
-  cp "$build_dir/_app/version.json" "$target/_app/version.json"
-  trace_version_state 'pass3 after' "$target/_app/version.json"
-  trace 'pass3 version done'
+  trace 'pass3 service worker start'
+  publish_local_file "$build_dir/service-worker.js" "$target/service-worker.js"
+  trace 'pass3 service worker done'
+
+  trace 'pass4 app shell start'
+  publish_local_file "$build_dir/index.html" "$target/index.html"
+  trace 'pass4 app shell done'
+
+  trace 'pass5 version start'
+  publish_local_file "$build_dir/_app/version.json" "$target/_app/version.json"
+  trace_version_state 'pass5 after' "$target/_app/version.json"
+  trace 'pass5 version done'
 }
 
 emit_lftp_commands() {
   local remote_immutable
-  local remote_app
+  local remote_worker
+  local remote_shell
+  local remote_marker
+  local remote_probe
 
   remote_immutable="$(join_remote_path "$remote_path" '_app/immutable/')"
-  remote_app="$(join_remote_path "$remote_path" '_app')"
+  remote_worker="$(join_remote_path "$remote_path" 'service-worker.js')"
+  remote_shell="$(join_remote_path "$remote_path" 'index.html')"
+  remote_marker="$(join_remote_path "$remote_path" '_app/version.json')"
+  remote_probe="$(join_remote_path "$remote_path" '.budabit-rename-probe')"
 
   cat <<LFTP
 set cmd:fail-exit yes
 set net:max-retries 2
 
+# Verify that this server can atomically rename over an existing file before changing the release.
+rm -f $(lftp_quote "$remote_probe") $(lftp_quote "${remote_probe}.upload")
+put -o $(lftp_quote "$remote_probe") $(lftp_quote "$deploying_marker_file")
+put -o $(lftp_quote "${remote_probe}.upload") $(lftp_quote "$deploying_marker_file")
+mv $(lftp_quote "${remote_probe}.upload") $(lftp_quote "$remote_probe")
+rm -f $(lftp_quote "$remote_probe")
+
+# Pass 0: prevent old and new workers from installing while shared files change.
+put -o $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$deploying_marker_file")
+mv $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$remote_marker")
+
 # Pass 1: upload new immutable app assets, keep old immutable files.
 mirror -R --verbose=1 --parallel=$parallel --ignore-time "_app/immutable/" $(lftp_quote "$remote_immutable")
 
-# Pass 2: upload mutable files and delete removed mutable files, but do not publish the marker yet.
-mirror -R --verbose=1 --parallel=$parallel --delete -x '(^|/)_app/immutable(/|$)' -x '^_app/version\.json$' "." $(lftp_quote "$remote_path")
+# Pass 2: upload supporting mutable files before publishing the worker or app shell.
+mirror -R --verbose=1 --parallel=$parallel --delete -x '(^|/)_app/immutable(/|$)' -x '^_app/version\.json$' -x '^service-worker\.js$' -x '^index\.html$' "." $(lftp_quote "$remote_path")
 
-# Pass 3: publish the stable update marker last.
-put -O $(lftp_quote "$remote_app") "_app/version.json"
+# Pass 3: publish the worker only after every file it may cache is available.
+put -o $(lftp_quote "${remote_worker}.budabit-upload") "service-worker.js"
+mv $(lftp_quote "${remote_worker}.budabit-upload") $(lftp_quote "$remote_worker")
+
+# Pass 4: publish the app shell after the matching worker is available.
+put -o $(lftp_quote "${remote_shell}.budabit-upload") "index.html"
+mv $(lftp_quote "${remote_shell}.budabit-upload") $(lftp_quote "$remote_shell")
+
+# Pass 5: publish the stable update marker last.
+put -o $(lftp_quote "${remote_marker}.budabit-upload") "_app/version.json"
+mv $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$remote_marker")
 bye
 LFTP
 }
@@ -166,6 +227,10 @@ fi
 
 [[ -n "${BUDABIT_SFTP_HOST:-}" ]] || die 'BUDABIT_SFTP_HOST is required'
 [[ -n "${BUDABIT_SFTP_USER:-}" ]] || die 'BUDABIT_SFTP_USER is required'
+
+deploying_marker_file="$(mktemp "${TMPDIR:-/tmp}/budabit-version-deploying.XXXXXX")"
+trap 'rm -f "$deploying_marker_file"' EXIT
+printf '%s\n' '{"version":"","status":"deploying"}' >"$deploying_marker_file"
 
 if [[ "$dry_run" == '1' ]]; then
   printf 'Would run ordered lftp deploy from %s:\n\n' "$build_dir"

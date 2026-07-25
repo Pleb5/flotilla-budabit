@@ -4,5 +4,10 @@
     "noEmit": true,
     "types": ["node", "@playwright/test"]
   },
-  "include": ["tests/e2e/**/*.ts", "playwright.config.ts"]
+  "include": [
+    "tests/e2e/**/*.ts",
+    "tests/atomic-app-updates/**/*.ts",
+    "playwright.config.ts",
+    "playwright.atomic.config.ts"
+  ]
 }

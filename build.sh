@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 # Set a default Node.js memory limit unless caller already defined one
 if [[ -z "${NODE_OPTIONS:-}" ]]; then
 	export NODE_OPTIONS="--max-old-space-size=8192"
@@ -36,11 +38,11 @@ NODE
 load_env_defaults .env.template
 load_env_defaults .env
 
-if [[ -z $VITE_BUILD_HASH ]]; then
+if [[ -z "${VITE_BUILD_HASH:-}" ]]; then
 	export VITE_BUILD_HASH=$(git rev-parse --short HEAD)
 fi
 
-if [[ -z $VITE_BUILD_ID ]]; then
+if [[ -z "${VITE_BUILD_ID:-}" ]]; then
 	build_id_base="${VITE_BUILD_HASH:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 	build_id_base="${build_id_base:-dev}"
 	export VITE_BUILD_ID="${build_id_base}-$(date -u +%Y%m%d%H%M%S)"
@@ -48,14 +50,13 @@ fi
 
 export BUDABIT_SERVICE_WORKER=1
 
-if [[ $VITE_PLATFORM_LOGO =~ ^https://* ]]; then
-	curl $VITE_PLATFORM_LOGO >static/logo.png
+if [[ "${VITE_PLATFORM_LOGO:-}" =~ ^https:// ]]; then
+	curl --fail --location "$VITE_PLATFORM_LOGO" >static/logo.png
 	export VITE_PLATFORM_LOGO=static/logo.png
 fi
 
 npx pwa-assets-generator
 npx vite build
-node scripts/check-built-service-worker.mjs
 
 # Replace HTML placeholders and keep web manifest branding in sync
 node - <<'NODE'
@@ -111,3 +112,5 @@ if (fs.existsSync(manifestPath)) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 NODE
+
+node scripts/check-built-service-worker.mjs
