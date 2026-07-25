@@ -9,7 +9,6 @@
   import {makeCommunityPath} from "@app/util/routes"
   import {getInteractiveCardTarget} from "@lib/html"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
-  import {GIT_RELAYS} from "@app/core/git-state"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {parseRepoCommunityBinding} from "@nostr-git/core/events"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
@@ -57,7 +56,7 @@
     if (!community) return ""
     return $communityDisplay || `${community.pubkey.slice(0, 8)}...`
   })
-  const browseHref = $derived.by(() => makeRepoHrefFromEvent(event, {url, gitRelays: GIT_RELAYS}))
+  const browseHref = $derived.by(() => makeRepoHrefFromEvent(event, {url}))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
   const prsHref = $derived.by(() => `${browseHref}/prs`)
   const repoAddress = $derived.by(() => {

@@ -55,13 +55,10 @@ export const isLikelyGraspRepoEvent = (event: any): boolean => {
 export interface RepoRelayPolicyInput {
   event: any
   fallbackRepoRelays?: string[]
-  userOutboxRelays?: string[]
-  gitRelays?: string[]
 }
 
 export interface RepoRelayPolicyResult {
   repoRelays: string[]
-  publishRelays: string[]
   naddrRelays: string[]
   taggedRelays: string[]
   isGrasp: boolean
@@ -70,20 +67,14 @@ export interface RepoRelayPolicyResult {
 export const resolveRepoRelayPolicy = ({
   event,
   fallbackRepoRelays = [],
-  userOutboxRelays = [],
-  gitRelays = [],
 }: RepoRelayPolicyInput): RepoRelayPolicyResult => {
   const taggedRelays = getTaggedRelaysFromRepoEvent(event)
   const fallbackRelays = sanitizeRelays(toStringArray(fallbackRepoRelays))
-  const outboxRelays = sanitizeRelays(toStringArray(userOutboxRelays))
-  const normalizedGitRelays = sanitizeRelays(toStringArray(gitRelays))
 
   const isGrasp = isLikelyGraspRepoEvent(event)
   const repoRelays = isGrasp
     ? sanitizeRelays(taggedRelays)
     : sanitizeRelays([...taggedRelays, ...fallbackRelays])
-  const nonGraspRelays = sanitizeRelays([...repoRelays, ...outboxRelays, ...normalizedGitRelays])
-  const publishRelays = isGrasp ? repoRelays : nonGraspRelays
 
   // Relay hints embedded in shared entities (naddr) must reflect where the
   // repo's events canonically live: the announcement's relays tag. This is
@@ -95,7 +86,6 @@ export const resolveRepoRelayPolicy = ({
 
   return {
     repoRelays,
-    publishRelays,
     naddrRelays,
     taggedRelays,
     isGrasp,
@@ -106,16 +96,12 @@ export interface BuildRepoNaddrInput {
   event: any
   fallbackPubkey?: string
   fallbackRepoRelays?: string[]
-  userOutboxRelays?: string[]
-  gitRelays?: string[]
 }
 
 export const buildRepoNaddrFromEvent = ({
   event,
   fallbackPubkey = "",
   fallbackRepoRelays = [],
-  userOutboxRelays = [],
-  gitRelays = [],
 }: BuildRepoNaddrInput): string | undefined => {
   const kind = Number(event?.kind)
   if (kind !== GIT_REPO_ANNOUNCEMENT && kind !== GIT_REPO_STATE) {
@@ -132,8 +118,6 @@ export const buildRepoNaddrFromEvent = ({
   const {naddrRelays} = resolveRepoRelayPolicy({
     event,
     fallbackRepoRelays,
-    userOutboxRelays,
-    gitRelays,
   })
 
   return nip19.naddrEncode({

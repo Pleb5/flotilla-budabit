@@ -24,7 +24,6 @@
   import {parseRepoAnnouncementEvent} from "@nostr-git/core/events"
   import {tokens as tokensStore} from "@nostr-git/ui"
   import {tryTokensForHost, getTokensForHost} from "@nostr-git/ui"
-  import {GIT_RELAYS} from "@app/core/git-state"
   import {makeRepoHrefFromEvent, makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
@@ -54,11 +53,11 @@
   const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
 
   const repoNaddr = $derived.by(() =>
-    makeRepoNaddrFromEvent(event, {fallbackRelays: relays, gitRelays: GIT_RELAYS}),
+    makeRepoNaddrFromEvent(event, {fallbackRelays: relays}),
   )
 
   const browseHref = $derived.by(() =>
-    makeRepoHrefFromEvent(event, {url, fallbackRelays: relays, gitRelays: GIT_RELAYS}),
+    makeRepoHrefFromEvent(event, {url, fallbackRelays: relays}),
   )
   const codeHref = $derived.by(() => `${browseHref}/code`)
 

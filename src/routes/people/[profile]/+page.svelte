@@ -137,7 +137,7 @@
   const getRepoHref = (event?: RepoAnnouncementEvent | null) => {
     if (!event) return ""
 
-    return makeRepoHrefFromEvent(event, {fallbackRelays: profileRelayHints, gitRelays})
+    return makeRepoHrefFromEvent(event, {fallbackRelays: profileRelayHints})
   }
 
   const isDeletedRepoAnnouncement = (event?: RepoAnnouncementEvent | null) =>

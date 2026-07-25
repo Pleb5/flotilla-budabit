@@ -31,8 +31,6 @@ export type EventRelayHintOptions = {
 
 export type EventShareEntityOptions = EventRelayHintOptions & {
   fallbackPubkey?: string
-  userOutboxRelays?: RelayGroup
-  gitRelays?: RelayGroup
 }
 
 const normalizeRelayHint = (relay: string | undefined | null) => {
@@ -315,8 +313,6 @@ export const makeRepoEventNaddr = (event: TrustedEvent, options: EventShareEntit
     event,
     fallbackPubkey: event.pubkey || options.fallbackPubkey || "",
     fallbackRepoRelays: getEventRelayHints(event, options),
-    userOutboxRelays: normalizeRelayHints(options.userOutboxRelays),
-    gitRelays: normalizeRelayHints(options.gitRelays),
   })
 
 export const makeEventShareEntity = (event: TrustedEvent, options: EventShareEntityOptions = {}) => {

@@ -2505,9 +2505,6 @@
         if (requestId !== accountSearchCardsComputeRequestId || !isAccountSearch) return
         const cards = repositoriesStore.computeCards(repos, {
           parseRepoAnnouncementEvent,
-          Router,
-          Address,
-          gitRelays: GIT_RELAYS,
         })
         accountSearchRepoCards = cards
         if (accountSearchCardsComputeTimer === timer) accountSearchCardsComputeTimer = null
@@ -2853,9 +2850,6 @@
             if (requestId !== cardsComputeRequestId || repoCardsContext !== context) return
             const cards = repositoriesStore.computeCards(reposToShow, {
               parseRepoAnnouncementEvent,
-              Router,
-              Address,
-              gitRelays: GIT_RELAYS,
             })
             cachedCards = cards
             cachedCardsKey = cardsKey
@@ -3010,8 +3004,6 @@
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: fallbackRelays,
-      userOutboxRelays: getUserOutboxRelays(),
-      gitRelays: GIT_RELAYS,
     })
 
     if (policy.isGrasp && policy.repoRelays.length === 0) {
@@ -3099,8 +3091,6 @@
     const naddr = makeRepoNaddrFromEvent(event, {
       fallbackPubkey,
       fallbackRelays: [...getTaggedRelaysFromRepoEvent(event), ...(fallbackRelays || [])],
-      userOutboxRelays: getUserOutboxRelays(),
-      gitRelays: GIT_RELAYS,
     })
 
     if (!naddr) {

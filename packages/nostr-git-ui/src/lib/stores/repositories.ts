@@ -63,9 +63,6 @@ export type LoadedBookmarkedRepo = {
 
 export type ComputeCardsOptions = {
   parseRepoAnnouncementEvent: (event: any) => any;
-  Router: any;
-  Address: any;
-  gitRelays?: string[];
 };
 
 // Minimal singleton repositories store that holds RepoCard[]
@@ -97,7 +94,7 @@ function createRepositoriesStore() {
     loadedBookmarkedRepos: LoadedBookmarkedRepo[],
     options: ComputeCardsOptions
   ): RepoCard[] {
-    const { parseRepoAnnouncementEvent, Router } = options;
+    const { parseRepoAnnouncementEvent } = options;
 
     // Validate that a string is a valid hex pubkey (exactly 64 hex characters)
     const isValidPubkey = (pubkey: string | undefined | null): boolean => {
@@ -143,13 +140,10 @@ function createRepositoriesStore() {
       const repoNaddr = (() => {
         try {
           if (!principal || !title) return "";
-          const userOutboxRelays = Router.get().FromUser().getUrls();
           return (
             buildRepoNaddrFromEvent({
               event: first,
               fallbackPubkey: principal,
-              userOutboxRelays,
-              gitRelays: options.gitRelays || [],
             }) || ""
           );
         } catch {

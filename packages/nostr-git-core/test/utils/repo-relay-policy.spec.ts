@@ -20,17 +20,14 @@ describe("resolveRepoRelayPolicy", () => {
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: ["wss://fallback.example"],
-      userOutboxRelays: ["wss://outbox.example"],
-      gitRelays: ["wss://git.example"],
     })
 
     expect(policy.isGrasp).toBe(true)
     expect(policy.repoRelays).toEqual(["wss://repo-relay.example"])
-    expect(policy.publishRelays).toEqual(["wss://repo-relay.example"])
     expect(policy.naddrRelays).toEqual(["wss://repo-relay.example"])
   })
 
-  it("includes fallback, outbox, and git relays for non-GRASP events", () => {
+  it("includes fallback repo relays for non-GRASP events", () => {
     const event = {
       kind: 30617,
       tags: [
@@ -43,21 +40,13 @@ describe("resolveRepoRelayPolicy", () => {
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: ["wss://fallback.example"],
-      userOutboxRelays: ["wss://outbox.example"],
-      gitRelays: ["wss://git.example"],
     })
 
     expect(policy.isGrasp).toBe(false)
     expect(policy.repoRelays).toEqual(["wss://repo-relay.example", "wss://fallback.example"])
-    expect(policy.publishRelays).toEqual([
-      "wss://repo-relay.example",
-      "wss://fallback.example",
-      "wss://outbox.example",
-      "wss://git.example",
-    ])
   })
 
-  it("keeps outbox and git relays out of naddr hints for non-GRASP events", () => {
+  it("keeps fallback relays out of naddr hints when a relays tag exists", () => {
     const event = {
       kind: 30617,
       tags: [
@@ -70,8 +59,6 @@ describe("resolveRepoRelayPolicy", () => {
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: ["wss://fallback.example"],
-      userOutboxRelays: ["wss://outbox.example"],
-      gitRelays: ["wss://git.example"],
     })
 
     expect(policy.naddrRelays).toEqual(["wss://repo-relay.example"])
@@ -89,8 +76,6 @@ describe("resolveRepoRelayPolicy", () => {
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: ["wss://fallback.example"],
-      userOutboxRelays: ["wss://outbox.example"],
-      gitRelays: ["wss://git.example"],
     })
 
     expect(policy.naddrRelays).toEqual(["wss://fallback.example"])
@@ -125,11 +110,7 @@ describe("buildRepoNaddrFromEvent", () => {
       ],
     }
 
-    const naddr = buildRepoNaddrFromEvent({
-      event,
-      userOutboxRelays: ["wss://outbox.example"],
-      gitRelays: ["wss://git.example"],
-    })
+    const naddr = buildRepoNaddrFromEvent({event})
 
     const decoded = nip19.decode(naddr!)
     expect(decoded.type).toBe("naddr")

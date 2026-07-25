@@ -3199,26 +3199,14 @@
 
       const fallbackRelay = url
 
-      const userOutboxRelays = (() => {
-        try {
-          return Router.get().FromUser().getUrls() || []
-        } catch {
-          return []
-        }
-      })()
-
       const policy = resolveRepoRelayPolicy({
         event: result.announcementEvent,
         fallbackRepoRelays: parsed.relays || [],
-        userOutboxRelays,
-        gitRelays: GIT_RELAYS,
       })
 
       const naddr = makeRepoNaddrFromEvent(result.announcementEvent, {
         fallbackPubkey: $pubkey || "",
         fallbackRelays: policy.repoRelays,
-        userOutboxRelays,
-        gitRelays: GIT_RELAYS,
       })
 
       if (!naddr) {
@@ -3413,8 +3401,6 @@
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: fallbackRelays,
-      userOutboxRelays: getUserOutboxRelays(),
-      gitRelays: GIT_RELAYS,
     })
 
     if (policy.isGrasp) {
