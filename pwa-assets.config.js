@@ -1,10 +1,8 @@
-import dotenv from "dotenv"
 import {defineConfig, minimalPreset as preset} from "@vite-pwa/assets-generator/config"
-
-dotenv.config({path: ".env"})
-dotenv.config({path: ".env.template"})
 
 export default defineConfig({
   preset,
-  images: [process.env.VITE_APP_LOGO],
+  // The source must be a local build input. VITE_APP_LOGO is public runtime
+  // metadata and may legitimately be an absolute URL.
+  images: ["static/budabit.png"],
 })

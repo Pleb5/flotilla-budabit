@@ -2,3 +2,8 @@ node_modules
 android
 ios
 build
+# Optional extension-development workspaces are not bundled into the static
+# application. Their upstream gitlinks are currently unavailable and must not
+# make the production image depend on unrelated extension source.
+packages/budabit-kanban-extension
+packages/flotilla-extension-template
