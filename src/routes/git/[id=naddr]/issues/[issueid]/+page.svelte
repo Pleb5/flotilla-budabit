@@ -237,7 +237,7 @@
   )
   const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
   const getCommentShareRelays = (event: TrustedEvent) =>
-    getSeenEventRelayHints(event.id)
+    repoBoundRelays.length > 0 ? repoBoundRelays : getSeenEventRelayHints(event.id)
   const issueDescriptionContext = $derived.by(
     (): RichComposerContext => ({
       url: issueCommentRelayHint || "",

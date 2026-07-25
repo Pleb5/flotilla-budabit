@@ -9,7 +9,13 @@ export type EventShareOptions = {
 export const getEventShareRelayHints = (
   event: TrustedEvent,
   {url = "", relays = []}: EventShareOptions = {},
-) => getEventRelayHints(event, {relays: [...relays, ...(url ? [url] : [])]})
+) =>
+  getEventRelayHints(event, {
+    relays,
+    // The relay currently being browsed is only a last-resort hint; it must
+    // never be mixed into canonical (repo/explicit) relay hints.
+    fallbackRelays: url ? [url] : [],
+  })
 
 export const makeEventShareEntityForEvent = (
   event: TrustedEvent,

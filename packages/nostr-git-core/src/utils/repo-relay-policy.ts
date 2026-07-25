@@ -1,7 +1,7 @@
 import {nip19} from "nostr-tools"
 
 import {parseGraspRepoHttpUrl} from "./grasp-url.js"
-import {sanitizeRelays} from "./sanitize-relays.js"
+import {sanitizeRelays, shareableRelays} from "./sanitize-relays.js"
 
 const GIT_REPO_ANNOUNCEMENT = 30617
 const GIT_REPO_STATE = 30618
@@ -85,10 +85,18 @@ export const resolveRepoRelayPolicy = ({
   const nonGraspRelays = sanitizeRelays([...repoRelays, ...outboxRelays, ...normalizedGitRelays])
   const publishRelays = isGrasp ? repoRelays : nonGraspRelays
 
+  // Relay hints embedded in shared entities (naddr) must reflect where the
+  // repo's events canonically live: the announcement's relays tag. This is
+  // the same for GRASP and non-GRASP repos; user outbox relays and indexer
+  // defaults are publish concerns and must never leak into hints. Only when
+  // the announcement declares no relays do we fall back to caller-provided
+  // repo relays (e.g. relays the announcement was actually seen on).
+  const naddrRelays = shareableRelays(taggedRelays.length > 0 ? taggedRelays : fallbackRelays)
+
   return {
     repoRelays,
     publishRelays,
-    naddrRelays: publishRelays,
+    naddrRelays,
     taggedRelays,
     isGrasp,
   }

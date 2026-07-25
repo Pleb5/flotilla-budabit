@@ -1,8 +1,9 @@
 import { nip19, type NostrEvent } from "nostr-tools";
-import { sanitizeRelays } from "@nostr-git/core/utils";
+import { sanitizeRelays, shareableRelays } from "@nostr-git/core/utils";
 
+// Relay hints embedded in shared entities must be publicly reachable
 export const getEventRelayHints = (_event: Pick<NostrEvent, "tags">, relays: string[] = []) =>
-  sanitizeRelays(relays);
+  shareableRelays(relays);
 
 export const getReferenceRelayHints = (
   event: Pick<NostrEvent, "tags">,
@@ -26,7 +27,7 @@ export const makeNaddrFromAddress = (address: string, relays: string[] = []) => 
       kind,
       pubkey,
       identifier,
-      relays: sanitizeRelays(relays),
+      relays: shareableRelays(relays),
     });
   } catch {
     return "";

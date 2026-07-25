@@ -40,7 +40,9 @@
 
     return tracker.getRelays(event.id)
   })
-  const relayHints = $derived.by(() => getEventRelayHints(event, {relays: [...propRelays, ...relays]}))
+  const relayHints = $derived.by(() =>
+    getEventRelayHints(event, {relays: propRelays, fallbackRelays: relays}),
+  )
   const nostrURI = $derived(
     makeEventShareEntity(event, {
       relays: relayHints,

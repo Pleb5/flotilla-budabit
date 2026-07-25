@@ -148,3 +148,27 @@ export const sanitizeRelays = (urls: string[]): string[] => {
   }
   return out
 }
+
+// Local/loopback relays may be valid publish targets during development, but
+// they must never be embedded as relay hints in shareable entities
+// (nevent/naddr): nobody else can reach them.
+const isLocalRelayUrl = (url: string): boolean => {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host.endsWith(".local") ||
+      host.endsWith(".localhost")
+    )
+  } catch {
+    return true
+  }
+}
+
+// Sanitize relay URLs for inclusion as hints in shared entities (naddr/nevent)
+export const shareableRelays = (urls: string[]): string[] =>
+  sanitizeRelays(urls).filter(url => !isLocalRelayUrl(url))

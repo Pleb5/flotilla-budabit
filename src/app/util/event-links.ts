@@ -26,6 +26,7 @@ export type EventRelayHintOptions = {
   includeTagRelays?: boolean
   includeAuthorRelays?: boolean
   includeTargetedPublicationRelays?: boolean
+  includeRepoRelays?: boolean
 }
 
 export type EventShareEntityOptions = EventRelayHintOptions & {
@@ -41,6 +42,7 @@ const normalizeRelayHint = (relay: string | undefined | null) => {
   try {
     const normalized = normalizeRelayUrl(relay)
     if (isLikelyNonRelayHint(normalized)) return ""
+    if (isLocalRelayHint(normalized)) return ""
     return isRelayUrl(normalized) ? normalized : ""
   } catch {
     return ""
@@ -71,6 +73,31 @@ const isLikelyNonRelayHint = (relay: string) => {
   const isKnownPlatform = ["github.com", "gitlab.com", "bitbucket.org"].includes(host)
 
   return looksLikeGitRemote || isKnownPlatform
+}
+
+// Local/loopback relays are never useful hints in shared links
+const isLocalRelayHint = (relay: string) => {
+  const raw = String(relay || "").trim()
+  if (!raw) return false
+
+  let parsed: URL
+  try {
+    parsed = new URL(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw : `wss://${raw}`)
+  } catch {
+    return false
+  }
+
+  const host = parsed.hostname.toLowerCase()
+
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host === "[::1]" ||
+    host.endsWith(".local") ||
+    host.endsWith(".localhost")
+  )
 }
 
 export const normalizeRelayHints = (...relayGroups: RelayGroup[]) => {
@@ -149,6 +176,87 @@ export const getTargetedPublicationRelayHints = (
   }
 }
 
+const REPO_ADDRESS_KINDS: number[] = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
+
+const getRepoTaggedRelays = (event: Pick<TrustedEvent, "tags">) =>
+  (event.tags || [])
+    .filter(tag => tag[0] === "relays")
+    .flatMap(tag => tag.slice(1))
+
+export type RepoAddressPointer = {
+  kind: number
+  pubkey: string
+  identifier: string
+  address: string
+  relay?: string
+}
+
+// Extract references to repo announcements (kind 30617/30618) from an event's a/A tags
+export const getRepoAddressPointersFromEvent = (
+  event: Pick<TrustedEvent, "tags">,
+): RepoAddressPointer[] => {
+  const pointers: RepoAddressPointer[] = []
+
+  for (const tag of event.tags || []) {
+    if (tag[0] !== "a" && tag[0] !== "A") continue
+
+    const address = String(tag[1] || "")
+    const [kindPart, pubkey, ...identifierParts] = address.split(":")
+    const kind = normalizeKind(kindPart)
+
+    if (kind === undefined || !REPO_ADDRESS_KINDS.includes(kind) || !pubkey) continue
+
+    pointers.push({
+      kind,
+      pubkey,
+      identifier: identifierParts.join(":"),
+      address,
+      relay: tag[2] || undefined,
+    })
+  }
+
+  return pointers
+}
+
+// Canonical relay hints for repo-related events: the relays declared by the
+// repo announcement the event points at (via its a/A tag). Falls back to the
+// relay hint embedded in the a/A tag when the announcement is not known locally.
+// Repo announcement/state events resolve to their own relays tag.
+export const getRepoAnnouncementRelayHints = (
+  event: Pick<TrustedEvent, "kind" | "tags">,
+) => {
+  const kind = normalizeKind(event.kind)
+
+  if (kind !== undefined && REPO_ADDRESS_KINDS.includes(kind)) {
+    return normalizeRelayHints(getRepoTaggedRelays(event))
+  }
+
+  const pointers = getRepoAddressPointersFromEvent(event)
+  if (pointers.length === 0) return []
+
+  const announcementRelays: string[] = []
+
+  for (const pointer of pointers) {
+    try {
+      const repoEvents = repository.query(
+        [{kinds: [pointer.kind], authors: [pointer.pubkey], "#d": [pointer.identifier]}],
+        {shouldSort: false},
+      ) as TrustedEvent[]
+
+      for (const repoEvent of repoEvents) {
+        announcementRelays.push(...getRepoTaggedRelays(repoEvent))
+      }
+    } catch {
+      // ignore lookup failures, fall through to pointer relay hints
+    }
+  }
+
+  const relays = normalizeRelayHints(announcementRelays)
+  if (relays.length > 0) return relays
+
+  return normalizeRelayHints(pointers.map(pointer => pointer.relay))
+}
+
 export const getEventRelayHints = (
   event: Pick<TrustedEvent, "id" | "kind" | "pubkey" | "tags">,
   {
@@ -157,13 +265,28 @@ export const getEventRelayHints = (
     includeTagRelays = false,
     includeAuthorRelays = true,
     includeTargetedPublicationRelays = true,
+    includeRepoRelays = true,
   }: EventRelayHintOptions = {},
 ) => {
+  // Repo-related events (issues, patches, PRs, statuses, comments, permalinks)
+  // are canonically located on the repo announcement relays. Never mix in
+  // seen-on, browsing, or outbox relays for these.
+  if (includeRepoRelays) {
+    const repoRelays = getRepoAnnouncementRelayHints(event)
+    if (repoRelays.length > 0) return repoRelays
+  }
+
+  // Explicitly provided relays are authoritative; targeted publication
+  // (community) relays are canonical targets and are kept alongside them.
   const targetedRelays = includeTargetedPublicationRelays
     ? getTargetedPublicationRelayHints(event)
     : []
-  const primaryRelays = normalizeRelayHints(relays, getSeenEventRelayHints(event.id), targetedRelays)
+  const primaryRelays = normalizeRelayHints(relays, targetedRelays)
   if (primaryRelays.length > 0) return primaryRelays
+
+  // Relays the event was actually seen on are a best-effort fallback only
+  const seenRelays = getSeenEventRelayHints(event.id)
+  if (seenRelays.length > 0) return seenRelays
 
   return normalizeRelayHints(
     includeTagRelays ? getEventTagRelayHints(event) : undefined,

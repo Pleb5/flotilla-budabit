@@ -236,7 +236,10 @@
     const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     return relays[0] || undefined
   })
-  const getCommentShareRelays = (event: TrustedEvent) => getSeenEventRelayHints(event.id)
+  const getCommentShareRelays = (event: TrustedEvent) => {
+    const boundRelays = repoRelays?.length ? repoRelays : repoClass.relays || []
+    return boundRelays.length > 0 ? boundRelays : getSeenEventRelayHints(event.id)
+  }
   const prRepoAddress = $derived.by(
     () =>
       (prEvent?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
