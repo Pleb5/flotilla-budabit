@@ -1,6 +1,7 @@
 <script lang="ts">
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import type {BlossomUploadContext} from "@app/core/blossom"
+  import {isMobile} from "@lib/html"
   import type {EventContent} from "@welshman/util"
   import type {RichCommentComposerProps, RichComposerContext} from "@nostr-git/ui"
 
@@ -51,6 +52,7 @@
         content={initialContent}
         {placeholder}
         {submitLabel}
+        autofocus={!isMobile && mode !== "comment"}
         showMenu={false}
         {disabled}
         {submitting}

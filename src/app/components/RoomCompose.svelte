@@ -38,6 +38,7 @@
     placeholder?: string
     submitLabel?: string
     showMenu?: boolean
+    autofocus?: boolean
     disabled?: boolean
     submitting?: boolean
     onEscape?: () => void
@@ -53,6 +54,7 @@
     placeholder = "",
     submitLabel = "Send message",
     showMenu = true,
+    autofocus = !isMobile,
     disabled = false,
     submitting = false,
     onEscape,
@@ -60,7 +62,6 @@
     onSubmit,
   }: Props = $props()
 
-  const autofocus = !isMobile
   const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
 
   const uploading = writable(false)
