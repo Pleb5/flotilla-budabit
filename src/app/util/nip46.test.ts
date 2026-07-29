@@ -1,7 +1,13 @@
 import {get} from "svelte/store"
 import {beforeEach, describe, expect, it, vi} from "vitest"
+import {SocketStatus} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
-import {Nip46Controller, makeBudabitNip46Broker} from "./nip46"
+import {
+  Nip46Controller,
+  cycleSignerRelaySockets,
+  makeBudabitNip46Broker,
+  restartNip46Receiver,
+} from "./nip46"
 
 vi.mock("@app/util/toast", () => ({pushToast: vi.fn()}))
 
@@ -81,5 +87,113 @@ describe("Nip46Controller", () => {
     expect(get(controller.loading)).toBe(false)
 
     consoleError.mockRestore()
+  })
+
+  it("ignores resume before the handshake starts", async () => {
+    const controller = new Nip46Controller({onNostrConnect: vi.fn()})
+    const start = vi.fn()
+
+    controller.broker = {
+      params: {relays: []},
+      receiver: {abortController: undefined, start},
+      cleanup: vi.fn(),
+    } as any
+
+    await controller.resume()
+
+    expect(start).not.toHaveBeenCalled()
+    expect(get(controller.resumed)).toBe(0)
+  })
+
+  it("restarts the receiver on resume, debounced, with retry forcing", async () => {
+    const controller = new Nip46Controller({onNostrConnect: vi.fn()})
+    const start = vi.fn().mockResolvedValue(undefined)
+    const abort = vi.fn()
+
+    controller.broker = {
+      params: {relays: ["wss://relay.example/"]},
+      receiver: {abortController: {abort}, start},
+      makeNostrconnectUrl: vi.fn().mockResolvedValue("nostrconnect://test"),
+      waitForNostrconnect: vi.fn(
+        (_url: string, signal: AbortSignal) =>
+          new Promise((_, reject) => signal.addEventListener("abort", () => reject(undefined))),
+      ),
+      cleanup: vi.fn(),
+    } as any
+
+    const started = controller.start()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await controller.resume()
+
+    expect(abort).toHaveBeenCalledOnce()
+    expect(start).toHaveBeenCalledOnce()
+    expect(get(controller.resumed)).toBe(1)
+
+    // A second resume within the debounce window is a no-op
+    await controller.resume()
+
+    expect(start).toHaveBeenCalledOnce()
+    expect(get(controller.resumed)).toBe(1)
+
+    // Manual retry bypasses the debounce
+    await controller.retry()
+
+    expect(start).toHaveBeenCalledTimes(2)
+    expect(get(controller.resumed)).toBe(2)
+
+    controller.stop()
+    await started
+
+    // After stopping, resume is a no-op again
+    await controller.retry()
+
+    expect(start).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("cycleSignerRelaySockets", () => {
+  it("closes open sockets and skips missing or closed ones", () => {
+    const close = vi.fn()
+    const sockets = new Map<string, {status: SocketStatus; close: () => void}>([
+      ["wss://open.example/", {status: SocketStatus.Open, close}],
+      ["wss://closed.example/", {status: SocketStatus.Closed, close: vi.fn()}],
+    ])
+    const pool = {
+      has: (url: string) => sockets.has(url),
+      get: (url: string) => sockets.get(url),
+    }
+
+    cycleSignerRelaySockets(
+      ["wss://open.example/", "wss://closed.example/", "wss://missing.example/"],
+      pool as any,
+    )
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(sockets.get("wss://closed.example/")!.close).not.toHaveBeenCalled()
+  })
+})
+
+describe("restartNip46Receiver", () => {
+  it("aborts the current subscription and starts a fresh one", async () => {
+    const abort = vi.fn()
+    const start = vi.fn().mockResolvedValue(undefined)
+    const receiver = {abortController: {abort}, start}
+
+    await restartNip46Receiver({receiver} as any)
+
+    expect(abort).toHaveBeenCalledOnce()
+    expect(receiver.abortController).toBeUndefined()
+    expect(start).toHaveBeenCalledOnce()
+  })
+
+  it("starts even when no subscription is active", async () => {
+    const start = vi.fn().mockResolvedValue(undefined)
+    const receiver = {abortController: undefined, start}
+
+    await restartNip46Receiver({receiver} as any)
+
+    expect(start).toHaveBeenCalledOnce()
   })
 })

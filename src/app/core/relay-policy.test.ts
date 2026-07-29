@@ -190,4 +190,22 @@ describe("relay policy", () => {
     expect(forceLoadRelayMock).toHaveBeenCalledWith(relay)
     expect(loadRelayMock).not.toHaveBeenCalled()
   })
+
+  it("defaults signer relay requests to critical-live priority", async () => {
+    vi.stubEnv("VITE_SIGNER_RELAYS", "wss://signer.example/,wss://other-signer.example")
+    vi.resetModules()
+
+    try {
+      const {getRelayRequestPolicy: getPolicy, RELAY_REQUEST_PRIORITY: priorities} =
+        await import("./relay-policy")
+
+      expect(getPolicy("wss://signer.example/").priority).toBe(priorities.authority)
+      // Normalization applies to both the env entries and the lookup
+      expect(getPolicy("wss://other-signer.example/").priority).toBe(priorities.authority)
+      expect(getPolicy(unknownRelay).priority).toBeUndefined()
+    } finally {
+      vi.unstubAllEnvs()
+      vi.resetModules()
+    }
+  })
 })

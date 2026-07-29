@@ -126,6 +126,8 @@ export const isMobile =
     navigator.maxTouchPoints > 0 ||
     window.matchMedia?.("(pointer: coarse)")?.matches)
 
+export const isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent)
+
 export const downloadText = (filename: string, text: string) => {
   const blob = new Blob([text], {type: "text/plain"})
   const url = URL.createObjectURL(blob)

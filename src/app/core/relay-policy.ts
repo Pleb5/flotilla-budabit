@@ -53,6 +53,15 @@ const normalizePolicyRelay = (url: string) => {
 
 export const BUDABIT_PUBLIC_RELAY = normalizePolicyRelay("wss://relay.budabit.club/")
 export const BUDABIT_AUTH_RELAY = normalizePolicyRelay("wss://budabit.nostr1.com/")
+
+// Read directly from the environment rather than @app/core/state to avoid a
+// circular import (state.ts imports this module).
+export const SIGNER_POLICY_RELAYS = new Set(
+  ((import.meta.env.VITE_SIGNER_RELAYS as string) || "")
+    .split(",")
+    .filter(Boolean)
+    .map(normalizePolicyRelay),
+)
 export const RELAY_POLICY_REFRESH_INTERVAL = 60 * 60 * 1000
 
 const relayPolicyRefreshes = new Map<string, Promise<RelayPolicy>>()
@@ -202,6 +211,13 @@ export const getRelayRequestPolicy = (url: string): RelayRequestPolicy => {
     maxBackgroundLiveSubscriptions: policy.maxBackgroundLiveSubscriptions,
     criticalLivePriority: policy.criticalLivePriority,
     maxMessageBytes: policy.maxMessageBytes,
+    // The NIP-46 handshake/receiver REQ is issued by @welshman/signer without
+    // an explicit priority. Signer relays are dedicated to that traffic, so
+    // default their requests to critical-live priority to keep the login
+    // handshake from being queued behind background subscriptions.
+    ...(SIGNER_POLICY_RELAYS.has(normalizePolicyRelay(url))
+      ? {priority: RELAY_REQUEST_PRIORITY.authority}
+      : {}),
   }
 }
 
