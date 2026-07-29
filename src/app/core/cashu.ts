@@ -103,6 +103,26 @@ const resetManagerRuntime = () => {
   _resolveManagerReady = null
 }
 
+export const clearCashuWalletStorage = async (): Promise<void> => {
+  resetManagerRuntime()
+  _mnemonic = null
+  _encryptedMnemonic = null
+  clearUnlockedCashuMnemonic()
+  cashuBackupConfirmed.set(false)
+  cashuAutoPayWhitelist.set([])
+  cashuSetupRequired.set(false)
+  cashuSeedEncrypted.set(false)
+  cashuSeedLocked.set(false)
+
+  await Promise.all([
+    storageRemove(KEY_MNEMONIC),
+    storageRemove(KEY_MNEMONIC_ENCRYPTED),
+    storageRemove(KEY_BACKUP_CONFIRMED),
+    storageRemove(KEY_AUTOPAY_WHITELIST),
+  ])
+  await deleteIndexedDB(DB_NAME)
+}
+
 const ensureManagerReady = async (): Promise<void> => {
   if (!_managerReadyPromise) {
     _managerReadyPromise = new Promise<void>(resolve => {

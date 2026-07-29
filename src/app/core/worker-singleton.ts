@@ -65,7 +65,9 @@ const resolveStoredCorsProxy = (): string => {
 }
 
 let workerInstance: GitWorkerInstance | null = null
+let initializingWorker: Worker | null = null
 let initPromise: Promise<GitWorkerInstance> | null = null
+let workerGeneration = 0
 let pendingGitConfig: GitWorkerConfig | null = {defaultCorsProxy: resolveStoredCorsProxy()}
 const progressListeners = new Set<(event: GitOperationProgressEvent) => void>()
 
@@ -115,6 +117,8 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
   }
 
   // Start initialization
+  const generation = workerGeneration
+
   initPromise = (async () => {
     try {
       // Create worker using the git-worker package's getGitWorker function
@@ -130,6 +134,7 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
           console.error("[GitWorker] Worker load error:", ev)
         },
       })
+      initializingWorker = worker
 
       // Ping the worker to verify it's alive (fast failure detection)
       const pingTimeout = 5000
@@ -161,13 +166,22 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
         }
       }
 
+      if (generation !== workerGeneration) {
+        worker.terminate()
+        throw new Error("Git worker initialization cancelled")
+      }
+
       workerInstance = {api, worker}
+      initializingWorker = null
 
       return workerInstance
     } catch (error) {
       console.error("[GitWorker] Failed to initialize worker:", error)
-      // Reset the promise so we can try again
-      initPromise = null
+      if (generation === workerGeneration) {
+        initializingWorker = null
+        // Reset the promise so we can try again
+        initPromise = null
+      }
       throw error
     }
   })()
@@ -189,11 +203,12 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
  * ```
  */
 export function terminateGitWorker(): void {
-  if (workerInstance) {
-    workerInstance.worker.terminate()
-    workerInstance = null
-    initPromise = null
-  }
+  workerGeneration += 1
+  workerInstance?.worker.terminate()
+  initializingWorker?.terminate()
+  workerInstance = null
+  initializingWorker = null
+  initPromise = null
 }
 
 /**

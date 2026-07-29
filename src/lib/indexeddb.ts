@@ -68,7 +68,6 @@ export class IDB {
 
   async connect() {
     if (!this.connection) {
-      const dbManager = this
       const {name, version} = this.options
       const adapters = this.adapters
 
@@ -93,12 +92,12 @@ export class IDB {
         blocked() {
           console.warn(`IndexedDB '${name}' open blocked by another context`)
         },
-        blocking() {
+        blocking: () => {
           console.warn(`IndexedDB '${name}' closing due to external delete/versionchange`)
-          void dbManager.closeConnection()
+          void this.closeConnection()
         },
-        terminated() {
-          dbManager.connection = undefined
+        terminated: () => {
+          this.connection = undefined
         },
       })
 
@@ -106,6 +105,32 @@ export class IDB {
     }
 
     return this.connection
+  }
+
+  async connectWithTimeout(timeoutMs = 5000): Promise<boolean> {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+
+    const connected = this.connect().then(
+      () => true,
+      error => {
+        console.warn(`IndexedDB '${this.options.name}' failed to open`, error)
+        return false
+      },
+    )
+    const timedOut = new Promise<false>(resolve => {
+      timeout = setTimeout(() => {
+        console.warn(
+          `IndexedDB '${this.options.name}' open timed out; continuing without persistent storage`,
+        )
+        resolve(false)
+      }, timeoutMs)
+    })
+
+    const result = await Promise.race([connected, timedOut])
+
+    if (timeout) clearTimeout(timeout)
+
+    return result
   }
 
   table = <T>(name: string) => new IDBTable<T>(this, name)

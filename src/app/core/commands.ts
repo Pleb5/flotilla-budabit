@@ -121,6 +121,9 @@ import {shouldPreloadWidgetRuntime} from "@app/extensions/widget-runtime"
 import {request} from "@welshman/net"
 import type {SmartWidgetEvent} from "@app/extensions/types"
 import {activeRepoClass} from "@app/core/git-state"
+import {clearCashuWalletStorage} from "@app/core/cashu"
+import {terminateGitWorker} from "@app/core/worker-singleton"
+import {terminateSharedWorkerManager} from "@app/core/worker-manager-singleton"
 import {clearUnlockedLocalKeySecrets} from "@app/core/session-storage"
 import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
@@ -479,6 +482,22 @@ export const logout = async () => {
     activeRepoClass.set(undefined)
   }
 
+  // Git workers hold IndexedDB connections for the repository and cache
+  // databases. Terminate both worker entry points before requesting deletes,
+  // otherwise Android browsers can leave a blocked delete queued across the
+  // reload that follows logout.
+  try {
+    terminateSharedWorkerManager()
+  } catch (error) {
+    console.warn("[logout] Failed to terminate shared git worker manager", error)
+  }
+
+  try {
+    terminateGitWorker()
+  } catch (error) {
+    console.warn("[logout] Failed to terminate git worker", error)
+  }
+
   if ($pubkey) {
     dropSession($pubkey)
   }
@@ -492,12 +511,22 @@ export const logout = async () => {
 
   await bestEffortWithTimeout(kv.clear(), "Preferences clear", 2500)
   await bestEffortWithTimeout(db.clear(), "Main IndexedDB clear", 3000)
+  await bestEffortWithTimeout(clearCashuWalletStorage(), "Cashu wallet cleanup", 2500)
   await bestEffortWithTimeout(nostrGitLogoutCleanup(), "Nostr-Git DB cleanup", 2000)
+
+  // Session-sync callbacks may have queued writes before kv.clear(). Make the
+  // final operation synchronous so stale session or wallet keys cannot be
+  // resurrected immediately before the page reloads.
+  localStorage.clear()
 }
 
 export async function nostrGitLogoutCleanup(): Promise<void> {
   try {
-    await Promise.all([deleteIndexedDB("nostr-git"), deleteIndexedDB("nostr-git-cache")])
+    await Promise.all([
+      deleteIndexedDB("nostr-git"),
+      deleteIndexedDB("nostr-git-cache"),
+      deleteIndexedDB("nostr-git-natural-cache"),
+    ])
   } catch (err) {
     console.error("Nostr-Git IndexedDB cleanup failed", err)
   }

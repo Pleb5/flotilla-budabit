@@ -30,6 +30,15 @@ const netMocks = vi.hoisted(() => ({
   poolRelayAuthAttempt: vi.fn(),
 }))
 
+const logoutMocks = vi.hoisted(() => ({
+  clearCashuWalletStorage: vi.fn().mockResolvedValue(undefined),
+  dbClear: vi.fn().mockResolvedValue(undefined),
+  deleteIndexedDB: vi.fn().mockResolvedValue(undefined),
+  kvClear: vi.fn().mockResolvedValue(undefined),
+  terminateGitWorker: vi.fn(),
+  terminateSharedWorkerManager: vi.fn(),
+}))
+
 const registryMocks = vi.hoisted(() => ({
   unloadExtension: vi.fn(),
   registerWidget: vi.fn(),
@@ -78,12 +87,24 @@ vi.mock("@welshman/net", async importOriginal => {
 })
 
 vi.mock("@app/core/storage", () => ({
-  kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn().mockResolvedValue(undefined)},
-  db: {clear: vi.fn().mockResolvedValue(undefined)},
+  kv: {get: vi.fn(), set: vi.fn(), clear: logoutMocks.kvClear},
+  db: {clear: logoutMocks.dbClear},
 }))
 
 vi.mock("@lib/util", () => ({
-  deleteIndexedDB: vi.fn().mockResolvedValue(undefined),
+  deleteIndexedDB: logoutMocks.deleteIndexedDB,
+}))
+
+vi.mock("@app/core/cashu", () => ({
+  clearCashuWalletStorage: logoutMocks.clearCashuWalletStorage,
+}))
+
+vi.mock("@app/core/worker-singleton", () => ({
+  terminateGitWorker: logoutMocks.terminateGitWorker,
+}))
+
+vi.mock("@app/core/worker-manager-singleton", () => ({
+  terminateSharedWorkerManager: logoutMocks.terminateSharedWorkerManager,
 }))
 
 vi.mock("@app/extensions/registry", () => ({
@@ -170,6 +191,12 @@ describe("commands", () => {
     netMocks.request.mockResolvedValue(undefined)
     netMocks.poolClear.mockReset()
     netMocks.poolRelayAuthAttempt.mockReset()
+    logoutMocks.clearCashuWalletStorage.mockReset().mockResolvedValue(undefined)
+    logoutMocks.dbClear.mockReset().mockResolvedValue(undefined)
+    logoutMocks.deleteIndexedDB.mockReset().mockResolvedValue(undefined)
+    logoutMocks.kvClear.mockReset().mockResolvedValue(undefined)
+    logoutMocks.terminateGitWorker.mockReset()
+    logoutMocks.terminateSharedWorkerManager.mockReset()
     registryMocks.unloadExtension.mockReset()
     registryMocks.registerWidget.mockReset()
     registryMocks.loadWidget.mockReset()
@@ -232,6 +259,31 @@ describe("commands", () => {
     expect(localStorage.getItem("budabit:git-auth:v1:pk999")).toBeNull()
     expect(get(activeCommunitySession)).toBeUndefined()
     expect(netMocks.poolClear).toHaveBeenCalledTimes(1)
+  })
+
+  it("logout closes workers before deleting all persistent databases", async () => {
+    const clearStorage = vi.spyOn(Storage.prototype, "clear")
+    const {logout} = await import("./commands")
+
+    await logout()
+
+    expect(logoutMocks.terminateSharedWorkerManager).toHaveBeenCalledOnce()
+    expect(logoutMocks.terminateGitWorker).toHaveBeenCalledOnce()
+    expect(logoutMocks.clearCashuWalletStorage).toHaveBeenCalledOnce()
+    expect(logoutMocks.deleteIndexedDB.mock.calls.map(([name]) => name)).toEqual([
+      "nostr-git",
+      "nostr-git-cache",
+      "nostr-git-natural-cache",
+    ])
+    expect(logoutMocks.terminateGitWorker.mock.invocationCallOrder[0]).toBeLessThan(
+      logoutMocks.clearCashuWalletStorage.mock.invocationCallOrder[0],
+    )
+    expect(logoutMocks.terminateSharedWorkerManager.mock.invocationCallOrder[0]).toBeLessThan(
+      logoutMocks.deleteIndexedDB.mock.invocationCallOrder[0],
+    )
+    expect(clearStorage).toHaveBeenCalledTimes(2)
+
+    clearStorage.mockRestore()
   })
 
   it("normalizeBlossomUrl converts ws to http", async () => {

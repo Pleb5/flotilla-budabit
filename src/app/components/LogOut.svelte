@@ -15,9 +15,10 @@
 
     try {
       await logout()
-      window.location.href = "/"
     } catch (e) {
-      loading = false
+      console.error("[logout] Cleanup failed", e)
+    } finally {
+      window.location.href = "/"
     }
   }
 

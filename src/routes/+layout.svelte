@@ -1005,8 +1005,11 @@
     // Set up our storage adapters
     db.adapters = storageAdapters
 
-    // Wait until data storage is initialized
-    await db.connect()
+    // A stale delete request or another open mobile/PWA context can block an
+    // IndexedDB open indefinitely. Continue with in-memory state instead of
+    // making the whole application wait forever; the pending connection can
+    // still initialize the adapters if the blocker later disappears.
+    await db.connectWithTimeout()
 
     // Sanitize malformed relay list events that are already in storage
     // This fixes the "Invalid relay url 0/6/c" errors caused by malformed relay tags

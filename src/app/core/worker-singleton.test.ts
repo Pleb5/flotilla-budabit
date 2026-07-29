@@ -87,6 +87,34 @@ describe("worker-singleton", () => {
     expect(worker2).not.toBe(worker)
   })
 
+  it("terminateGitWorker also terminates a worker still initializing", async () => {
+    let resolvePing: (value: {success: boolean}) => void = () => {}
+    const ping = new Promise<{success: boolean}>(resolve => {
+      resolvePing = resolve
+    })
+    const worker = {terminate: vi.fn()}
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    mockGetGitWorker.mockImplementationOnce(() => ({
+      api: {
+        ping: vi.fn(() => ping),
+        setGitConfig: vi.fn().mockResolvedValue(undefined),
+      },
+      worker,
+    }))
+
+    const {getInitializedGitWorker, terminateGitWorker} = await import("./worker-singleton")
+    const pending = getInitializedGitWorker()
+
+    await Promise.resolve()
+    terminateGitWorker()
+    resolvePing({success: true})
+
+    await expect(pending).rejects.toThrow("Git worker initialization cancelled")
+    expect(worker.terminate).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
   it("setGitWorkerConfig updates config", async () => {
     const {getInitializedGitWorker, setGitWorkerConfig} = await import("./worker-singleton")
 
