@@ -7,6 +7,7 @@
     Info,
     MoreVertical,
     ChevronLeft,
+    WrapText,
   } from "@lucide/svelte";
   import { tick } from "svelte";
   import { useRegistry } from "../../useRegistry.js";
@@ -46,7 +47,7 @@
     size?: number;
   };
 
-  const {
+  let {
     file,
     getFileContent,
     setDirectory,
@@ -60,6 +61,7 @@
     showActions = true,
     isActive = false,
     linkBasePath = "",
+    lineWrapping = $bindable(false),
   }: {
     file: FileEntry | null;
     getFileContent: (path: string) => Promise<string | FileContentPayload>;
@@ -74,6 +76,7 @@
     showActions?: boolean;
     isActive?: boolean;
     linkBasePath?: string;
+    lineWrapping?: boolean;
   } = $props();
 
   const effectiveEditable = $derived.by(() =>
@@ -198,7 +201,13 @@
       },
     }),
     EditorView.updateListener.of((update) => {
-      if (update.viewportChanged || update.selectionSet || update.docChanged) {
+      if (
+        update.viewportChanged ||
+        update.selectionSet ||
+        update.docChanged ||
+        update.geometryChanged ||
+        update.heightChanged
+      ) {
         queueDomSelectionHighlight();
       }
     }),
@@ -229,7 +238,20 @@
 
   function handleEditorReady(view: EditorView) {
     editorView = view;
+    refreshSelectionScrollParent();
     void applyHashSelection();
+  }
+
+  function handleEditorReconfigure(view: EditorView) {
+    editorView = view;
+    if (lineWrapping) view.scrollDOM.scrollLeft = 0;
+
+    requestAnimationFrame(() => {
+      if (editorView !== view) return;
+      refreshSelectionScrollParent();
+      syncEditorLineHighlight();
+      queueDomSelectionHighlight();
+    });
   }
 
   function binaryFileTypeInfo(): FileTypeInfo {
@@ -328,6 +350,15 @@
     showGutterMenu = false;
     refreshSelectionFromEditor();
     showFileMenu = !showFileMenu;
+  }
+
+  function toggleLineWrapping(event?: MouseEvent) {
+    event?.stopPropagation();
+    lineWrapping = !lineWrapping;
+    showFileMenu = false;
+    if (lineWrapping && editorView) {
+      editorView.scrollDOM.scrollLeft = 0;
+    }
   }
 
   $effect(() => {
@@ -473,15 +504,23 @@
     queueDomSelectionHighlight();
   }
 
-  $effect(() => {
+  function refreshSelectionScrollParent() {
     const host = editorHost;
-    if (!host) return;
-    void content;
+    if (!host) {
+      selectionScrollParent = null;
+      return;
+    }
     const scroller = host.querySelector(".cm-scroller") as HTMLElement | null;
     selectionScrollParent =
       scroller && scroller.scrollHeight > scroller.clientHeight
         ? scroller
         : findSelectionScrollParent(host);
+  }
+
+  $effect(() => {
+    void content;
+    void lineWrapping;
+    refreshSelectionScrollParent();
   });
 
   async function applyHashSelection() {
@@ -673,21 +712,12 @@
     if (!editorHost) return [] as Array<number | null>;
 
     const lineElements = Array.from(editorHost.querySelectorAll(".cm-line")) as HTMLElement[];
-    const gutterElements = Array.from(
-      editorHost.querySelectorAll(".cm-lineNumbers .cm-gutterElement")
-    ) as HTMLElement[];
 
     if (!editorView) {
       return lineElements.map((_, index) => index + 1);
     }
 
-    return lineElements.map((lineEl, index) => {
-      const gutterLineNumber = Number.parseInt(
-        gutterElements[index]?.textContent?.trim() || "",
-        10
-      );
-      if (Number.isFinite(gutterLineNumber)) return gutterLineNumber;
-
+    return lineElements.map((lineEl) => {
       try {
         const domTarget = lineEl.firstChild ?? lineEl;
         const pos = editorView!.posAtDOM(domTarget, 0);
@@ -719,11 +749,12 @@
       lineEl.classList.toggle("cm-selected-line-end", isSelected && lineNumber === range?.end);
     });
 
-    gutterElements.forEach((gutterEl, index) => {
-      const fallbackLineNumber = Number.parseInt(gutterEl.textContent?.trim() || "", 10);
+    gutterElements.forEach((gutterEl) => {
+      const parsedLineNumber = Number.parseInt(gutterEl.textContent?.trim() || "", 10);
       const lineNumber =
-        renderedLineNumbers[index] ??
-        (Number.isFinite(fallbackLineNumber) ? fallbackLineNumber : null);
+        gutterEl.getAttribute("aria-hidden") === "true" || !Number.isFinite(parsedLineNumber)
+          ? null
+          : parsedLineNumber;
       const isSelected =
         !!range && lineNumber !== null && lineNumber >= range.start && lineNumber <= range.end;
 
@@ -1578,6 +1609,19 @@
     </div>
     {#if type === "file" && showActions}
       <div class="hidden sm:flex items-center gap-2">
+        {#if fileTypeInfo?.category === "text"}
+          <Button
+            variant={lineWrapping ? "secondary" : "ghost"}
+            size="sm"
+            class="h-8 w-8 p-0"
+            onclick={toggleLineWrapping}
+            aria-label={lineWrapping ? "Disable line wrapping" : "Enable line wrapping"}
+            aria-pressed={lineWrapping}
+            title={lineWrapping ? "Disable line wrapping" : "Enable line wrapping"}
+          >
+            <WrapText class="h-4 w-4" />
+          </Button>
+        {/if}
         <Button variant="ghost" size="sm" class="h-8 w-8 p-0" onclick={showMetadata}>
           <Info class="h-4 w-4" />
         </Button>
@@ -1615,6 +1659,16 @@
             >
               File info
             </button>
+            {#if fileTypeInfo?.category === "text"}
+              <button
+                class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-secondary/50"
+                onclick={toggleLineWrapping}
+                aria-pressed={lineWrapping}
+              >
+                <WrapText class="h-4 w-4" />
+                {lineWrapping ? "Unwrap lines" : "Wrap lines"}
+              </button>
+            {/if}
             <button
               class="w-full text-left px-3 py-2 text-sm hover:bg-secondary/50"
               onclick={(event) => {
@@ -1703,11 +1757,13 @@
                 bind:value={content}
                 editable={false}
                 readonly={true}
+                lineWrapping={lineWrapping}
                 extensions={[
                   ...(cmExtensions.length ? cmExtensions : [lineNumbers()]),
                   ...viewerExtensions,
                 ]}
                 onready={handleEditorReady}
+                onreconfigure={handleEditorReconfigure}
               />
               {#if showGutterMenu}
                 <div

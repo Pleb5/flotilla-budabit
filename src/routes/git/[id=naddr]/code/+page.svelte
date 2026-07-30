@@ -52,6 +52,7 @@
   let isDesktopViewport = $state(true)
   let fileSearchQuery = $state("")
   let debouncedFileSearchQuery = $state("")
+  let lineWrapping = $state(false)
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -742,6 +743,7 @@
           repo={repoClass}
           linkBasePath={repoLinkBasePath}
           displayMode="viewer"
+          bind:lineWrapping
           {autoOpenPath}
           onClose={closeFilePreview} />
       {/key}
@@ -839,6 +841,7 @@
               repo={repoClass}
               linkBasePath={repoLinkBasePath}
               displayMode="viewer"
+              bind:lineWrapping
               {autoOpenPath} />
           {/key}
         {:else}
