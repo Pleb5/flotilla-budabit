@@ -1,8 +1,14 @@
 import {writable} from "svelte/store"
-import type {Nip46BrokerParams, Nip46ResponseWithResult} from "@welshman/signer"
-import {Nip46Broker} from "@welshman/signer"
+import type {Nip46BrokerParams, Nip46ResponseWithResult, WrappedSigner} from "@welshman/signer"
+import {Nip46Broker, Nip46Signer} from "@welshman/signer"
 import {Pool, SocketStatus} from "@welshman/net"
 import {makeSecret} from "@welshman/util"
+import {
+  isNip46Session,
+  session as activeSession,
+  signer as activeSigner,
+  type Session,
+} from "@welshman/app"
 import {getAppMetadata, SIGNER_RELAYS} from "@app/core/state"
 import {pushToast} from "@app/util/toast"
 
@@ -63,6 +69,75 @@ export const restartNip46Receiver = async (broker: Nip46Broker) => {
   receiver.abortController = undefined
 
   await receiver.start()
+}
+
+export const recoverActiveNip46Receiver = async ({
+  session = activeSession.get(),
+  signer = activeSigner.get(),
+  pool = Pool.get(),
+}: {
+  session?: Session
+  signer?: WrappedSigner
+  pool?: ReturnType<typeof Pool.get>
+} = {}) => {
+  if (!isNip46Session(session)) return false
+
+  const nip46Signer = signer?.signer
+  if (!(nip46Signer instanceof Nip46Signer)) return false
+
+  const {broker} = nip46Signer
+  const receiverController = broker.receiver.abortController
+  if (!receiverController || receiverController.signal.aborted) return false
+
+  cycleSignerRelaySockets(broker.params.relays, pool)
+  await restartNip46Receiver(broker)
+
+  return true
+}
+
+export const setupActiveNip46ReceiverResumeRecovery = ({
+  recover = recoverActiveNip46Receiver,
+  now = () => Date.now(),
+}: {
+  recover?: typeof recoverActiveNip46Receiver
+  now?: () => number
+} = {}) => {
+  if (typeof document === "undefined" || typeof window === "undefined") return () => undefined
+
+  let hiddenAt = document.visibilityState === "hidden" ? now() : 0
+  let lastResumeAt = 0
+
+  const resume = () => {
+    const resumedAt = now()
+    if (resumedAt - lastResumeAt < RESUME_DEBOUNCE_MS) return
+
+    lastResumeAt = resumedAt
+    void recover().catch(error => {
+      console.warn("[nip46] Failed to recover active signer receiver", error)
+    })
+  }
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      hiddenAt = now()
+      return
+    }
+
+    if (hiddenAt && now() - hiddenAt >= RESUME_MIN_HIDDEN_MS) resume()
+    hiddenAt = 0
+  }
+
+  const onPageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) resume()
+  }
+
+  document.addEventListener("visibilitychange", onVisibilityChange)
+  window.addEventListener("pageshow", onPageShow)
+
+  return () => {
+    document.removeEventListener("visibilitychange", onVisibilityChange)
+    window.removeEventListener("pageshow", onPageShow)
+  }
 }
 
 export class Nip46Controller {

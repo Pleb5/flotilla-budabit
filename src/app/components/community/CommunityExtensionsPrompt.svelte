@@ -3,6 +3,7 @@
   import {onDestroy} from "svelte"
   import Link from "@lib/components/Link.svelte"
   import {normalizePubkey} from "@app/core/community"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {activeUserCommunityRefs} from "@app/core/community-state"
   import {
     communityExtensionPrompt,
@@ -77,7 +78,10 @@
 
   $effect(() => {
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
-    const key = $pubkey && isCommunityMember && !dismissed && input ? input : ""
+    const key =
+      $pubkey && isCommunityMember && !dismissed && input
+        ? `${normalizePubkey($pubkey)}:${input}`
+        : ""
 
     if (!key) {
       widgets = []
@@ -89,9 +93,11 @@
 
     if (key === loadKey) return
     loadKey = key
+    widgets = []
+    trustedAuthorPubkeys = []
     const requestId = ++loadRequestId
 
-    loadCachedCommunityCuratedWidgets(input)
+    loadCachedCommunityCuratedWidgets(input, {priority: RELAY_REQUEST_PRIORITY.interactive})
       .then(result => {
         if (!result) return
         if (requestId !== loadRequestId || key !== loadKey) {

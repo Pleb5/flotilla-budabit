@@ -33,15 +33,22 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
+    activeCommunitySession,
+    COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
+    getCommunityBootstrapKey,
     hydrateCommunityEventsWithStatus,
+    makeCommunitySession,
+    recoverCommunityBootstrap,
+    recoverCommunityRelayAuth,
     type CommunityHydrationStatus,
   } from "@app/core/community-state"
   import {
     makeCommunityExclusiveFilter,
     makeCommunityRoomMessagesFilter,
   } from "@app/core/community-feeds"
+  import {normalizePubkey, normalizeRelays} from "@app/core/community"
   import {makeCommunityRoomMessage, readCommunityRoomMessages} from "@app/core/community-messages"
-  import {readCommunityRoomRoot} from "@app/core/community-rooms"
+  import {isCommunityRoomLookupIncomplete, readCommunityRoomRoot} from "@app/core/community-rooms"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -70,6 +77,7 @@
   } from "@app/util/notifications"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
+  import {recoverActiveNip46Receiver} from "@app/util/nip46"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {
     makeCommunityPath,
@@ -90,6 +98,18 @@
   const mounted = now()
   const roomPath = $derived(
     communityPubkey && roomId ? makeCommunityRoomPath(communityPubkey, roomId) : $page.url.pathname,
+  )
+  const expectedCommunityBootstrapKey = $derived.by(() => {
+    const session = $activeCommunitySession
+
+    return communityPubkey && session?.communityPubkey === communityPubkey
+      ? getCommunityBootstrapKey(session, $pubkey || "")
+      : ""
+  })
+  const expectedCommunityPermissionKeyPrefix = $derived(
+    $activeCommunityDefinition?.pubkey === communityPubkey
+      ? `${normalizePubkey($pubkey || "")}:${$activeCommunityDefinition.event.id}:${normalizeRelays($activeCommunityRelays).join(",")}:`
+      : "",
   )
   const lastChecked = $derived.by(() =>
     getNotificationCheckedAt({
@@ -124,33 +144,65 @@
     Boolean(
       communityPubkey &&
       $activeCommunityDefinition?.pubkey === communityPubkey &&
+      expectedCommunityBootstrapKey &&
+      $activeCommunityBootstrapStatus.key === expectedCommunityBootstrapKey &&
       $activeCommunityBootstrapStatus.loaded &&
-      !$activeCommunityBootstrapStatus.loading,
+      !$activeCommunityBootstrapStatus.loading &&
+      !$activeCommunityBootstrapStatus.error,
     ),
   )
   const communityBootstrapLoading = $derived(
-    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+    Boolean(
+      communityPubkey &&
+      !communityBootstrapReady &&
+      ($activeCommunityBootstrapStatus.key !== expectedCommunityBootstrapKey ||
+        !$activeCommunityBootstrapStatus.error),
+    ),
+  )
+  const communityPermissionStatusMatches = $derived(
+    Boolean(
+      communityPubkey &&
+      expectedCommunityPermissionKeyPrefix &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.key.startsWith(expectedCommunityPermissionKeyPrefix),
+    ),
   )
   const communityPermissionsLoading = $derived(
     Boolean(
       communityPubkey &&
-      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-      $activeCommunityPermissionStatus.loading &&
-      !$activeCommunityPermissionStatus.loaded &&
-      !$activeCommunityPermissionStatus.hasCachedEvents,
+      communityBootstrapReady &&
+      (!communityPermissionStatusMatches ||
+        ($activeCommunityPermissionStatus.loading &&
+          !$activeCommunityPermissionStatus.loaded &&
+          !$activeCommunityPermissionStatus.hasCachedEvents)),
+    ),
+  )
+  const communityPermissionReady = $derived(
+    Boolean(
+      communityPermissionStatusMatches &&
+      ($activeCommunityPermissionStatus.hasCachedEvents ||
+        ($activeCommunityPermissionStatus.loaded && !$activeCommunityPermissionStatus.loading)),
     ),
   )
   const communityPermissionEvidenceIncomplete = $derived(
     Boolean(
       communityPubkey &&
       $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      expectedCommunityPermissionKeyPrefix &&
+      $activeCommunityPermissionStatus.key.startsWith(expectedCommunityPermissionKeyPrefix) &&
       $activeCommunityPermissionStatus.loaded &&
       !$activeCommunityPermissionStatus.complete &&
       !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
   )
   const communityBootstrapFailed = $derived(
-    Boolean(communityPubkey && !communityBootstrapReady && $activeCommunityBootstrapStatus.error),
+    Boolean(
+      communityPubkey &&
+      expectedCommunityBootstrapKey &&
+      $activeCommunityBootstrapStatus.key === expectedCommunityBootstrapKey &&
+      !communityBootstrapReady &&
+      $activeCommunityBootstrapStatus.error,
+    ),
   )
   const roomRootSectionName = $derived(
     getCommunityWriteTargetSectionName(
@@ -168,7 +220,11 @@
     `Request ${roomMessageSectionName} access to message this room.`,
   )
   const roomFilters = $derived(
-    communityBootstrapReady && communityPubkey && roomId && roomAuthorPubkeys.length
+    communityBootstrapReady &&
+      communityPermissionReady &&
+      communityPubkey &&
+      roomId &&
+      roomAuthorPubkeys.length
       ? [
           makeCommunityExclusiveFilter(communityPubkey, [THREAD], {
             ids: [roomId],
@@ -466,6 +522,8 @@
   let loadingRoom = $state(false)
   let roomLoadStatus = $state<CommunityHydrationStatus>("idle")
   let roomLoadRetryVersion = $state(0)
+  let retryingRoomLookup = $state(false)
+  let retryingMessageFeed = $state(false)
   let loadingEvents = $state(false)
   let feedLoadStatus = $state<CommunityHydrationStatus>("idle")
   let feedEmptySettled = $state(false)
@@ -499,6 +557,14 @@
     ),
   )
   const waitingForFeed = $derived(Boolean(room && feedKey && !feedInitialized))
+  const roomLookupIncomplete = $derived(
+    isCommunityRoomLookupIncomplete({
+      roomFound: Boolean(room),
+      bootstrapFailed: communityBootstrapFailed,
+      permissionEvidenceIncomplete: communityPermissionEvidenceIncomplete,
+      loadStatus: roomLoadStatus,
+    }),
+  )
 
   const messages = $derived(
     readCommunityRoomMessages(
@@ -581,6 +647,7 @@
 
     if (room) {
       loadingRoom = false
+      roomLoadStatus = "complete"
       return
     }
 
@@ -593,7 +660,8 @@
       filters: roomFilters,
       authenticate: true,
       timeout: FEED_EMPTY_SETTLE_TIMEOUT_MS,
-      priority: RELAY_REQUEST_PRIORITY.interactive,
+      authTimeout: COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
+      priority: RELAY_REQUEST_PRIORITY.community,
       signal: controller.signal,
       onStatus: status => {
         roomLoadStatus = status
@@ -611,14 +679,46 @@
     clearFeedEmptySettleTimer()
   })
 
-  const retryRoomLoad = () => {
-    if (communityBootstrapFailed || communityPermissionEvidenceIncomplete) {
-      window.location.reload()
-      return
-    }
+  const retryRoomLookup = async () => {
+    if (retryingRoomLookup) return
 
-    roomLoadRetryVersion += 1
-    resetFeed()
+    const session =
+      $activeCommunitySession ||
+      (parsedCommunity
+        ? makeCommunitySession(parsedCommunity, $activeCommunityDefinition)
+        : undefined)
+    if (!session) return
+
+    retryingRoomLookup = true
+    loadingRoom = true
+    roomLoadStatus = "queued"
+
+    try {
+      await recoverActiveNip46Receiver().catch(() => false)
+      await recoverCommunityBootstrap(session, {
+        recoverAuth: true,
+      })
+    } catch (error) {
+      console.warn("[community-room] Failed to recover room metadata", error)
+    } finally {
+      roomLoadRetryVersion += 1
+      retryingRoomLookup = false
+    }
+  }
+
+  const retryMessageFeed = async () => {
+    if (retryingMessageFeed) return
+
+    retryingMessageFeed = true
+    try {
+      await recoverActiveNip46Receiver().catch(() => false)
+      await Promise.allSettled(
+        $activeCommunityRelays.map(relay => recoverCommunityRelayAuth(relay)),
+      )
+      resetFeed()
+    } finally {
+      retryingMessageFeed = false
+    }
   }
 
   $effect(() => {
@@ -660,7 +760,11 @@
   })
 </script>
 
-<PageBar>
+<PageBar
+  showTopMenuWidgets={Boolean(room) ||
+    roomLoadStatus === "complete" ||
+    roomLoadStatus === "incomplete" ||
+    roomLoadStatus === "failed"}>
   {#snippet icon()}
     <div class="row-2">
       <a href={makeCommunityPath(communityPubkey)} class="btn btn-neutral btn-sm">
@@ -727,7 +831,7 @@
         </div>
       {/if}
     {/each}
-    {#if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents}
+    {#if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents || feedLoadStatus === "incomplete" || feedLoadStatus === "failed"}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         {#if communityBootstrapLoading}
           <Spinner loading>Loading community...</Spinner>
@@ -735,10 +839,15 @@
           <Spinner loading>Loading room permissions...</Spinner>
         {:else if waitingForRoom}
           <Spinner loading>Loading room...</Spinner>
-        {:else if communityBootstrapFailed || communityPermissionEvidenceIncomplete || roomLoadStatus === "incomplete" || roomLoadStatus === "failed"}
+        {:else if roomLookupIncomplete}
           <span>Room lookup is incomplete or temporarily unavailable.</span>
-          <button class="btn btn-neutral btn-sm" type="button" onclick={retryRoomLoad}
-            >Retry</button>
+          <button
+            class="btn btn-neutral btn-sm"
+            type="button"
+            disabled={retryingRoomLookup}
+            onclick={retryRoomLookup}>
+            {retryingRoomLookup ? "Retrying..." : "Retry"}
+          </button>
         {:else if waitingForFeed}
           <Spinner loading>Looking for messages...</Spinner>
         {:else if loadingEvents}
@@ -749,8 +858,13 @@
           <span>Room not found or not approved for this community.</span>
         {:else if feedLoadStatus === "incomplete" || feedLoadStatus === "failed"}
           <span>Message history is incomplete or temporarily unavailable.</span>
-          <button class="btn btn-neutral btn-sm" type="button" onclick={retryRoomLoad}
-            >Retry</button>
+          <button
+            class="btn btn-neutral btn-sm"
+            type="button"
+            disabled={retryingMessageFeed}
+            onclick={retryMessageFeed}>
+            {retryingMessageFeed ? "Retrying..." : "Retry"}
+          </button>
         {:else if elements.length === 0}
           <span>No messages yet.</span>
         {:else}
@@ -787,7 +901,7 @@
           content={eventToEdit?.content}
           bind:this={compose} />
       {/key}
-    {:else if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom}
+    {:else if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || retryingRoomLookup}
       <div
         class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
         <div class="min-w-0">
@@ -801,17 +915,19 @@
         <div class="min-w-0">
           <strong class="block text-sm">Room unavailable</strong>
           <p class="text-xs opacity-70">
-            {communityBootstrapFailed ||
-            communityPermissionEvidenceIncomplete ||
-            roomLoadStatus === "incomplete" ||
-            roomLoadStatus === "failed"
+            {roomLookupIncomplete
               ? "Room lookup is incomplete. Retry when relay access is available."
               : "This room was not found or is not approved for this community."}
           </p>
         </div>
-        {#if communityBootstrapFailed || communityPermissionEvidenceIncomplete || roomLoadStatus === "incomplete" || roomLoadStatus === "failed"}
-          <button class="btn btn-neutral btn-sm" type="button" onclick={retryRoomLoad}
-            >Retry</button>
+        {#if roomLookupIncomplete}
+          <button
+            class="btn btn-neutral btn-sm"
+            type="button"
+            disabled={retryingRoomLookup}
+            onclick={retryRoomLookup}>
+            {retryingRoomLookup ? "Retrying..." : "Retry"}
+          </button>
         {/if}
       </div>
     {:else}

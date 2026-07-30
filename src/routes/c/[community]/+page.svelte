@@ -26,6 +26,7 @@
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {fade} from "@lib/transition"
+  import {normalizePubkey, normalizeRelays} from "@app/core/community"
   import {
     activeCommunitySession,
     activeCommunityBootstrapStatus,
@@ -35,14 +36,13 @@
     activeCommunityProfileListEvents,
     activeCommunityReportState,
     activeCommunityRelays,
-    clearCommunityBootstrapCache,
-    ensureCommunityBootstrap,
     getCommunityBootstrapKey,
     getCommunityDefinitionRelayHints,
     hasCommunityHydrationCompleted,
-    loadCommunityEvents,
+    loadCommunityEventsWithStatus,
     makeCommunitySession,
     markCommunityHydrationCompleted,
+    recoverCommunityBootstrap,
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
@@ -58,6 +58,12 @@
   } from "@app/core/community-permissions"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
+  import {
+    isCommunityHomeCoreReady,
+    isCommunityHomeExtensionReady,
+    isCompleteCommunityModeratorEvidence,
+    type CommunityModeratorEvidenceStatus,
+  } from "@app/extensions/community-home-readiness"
   import {notifications} from "@app/util/notifications"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {pushModal} from "@app/util/modal"
@@ -119,17 +125,30 @@
     $activeCommunityDefinition?.pubkey === communityId ? $activeCommunityDefinition : undefined,
   )
   const communityDefinitionReady = $derived(Boolean(communityId && routeCommunityDefinition))
+  const expectedCommunityBootstrapKey = $derived.by(() => {
+    const session = $activeCommunitySession
+
+    return communityId &&
+      session &&
+      normalizePubkey(session.communityPubkey) === normalizePubkey(communityId)
+      ? getCommunityBootstrapKey(session, $pubkey || "")
+      : ""
+  })
+  const expectedCommunityPermissionKeyPrefix = $derived(
+    routeCommunityDefinition
+      ? `${normalizePubkey($pubkey || "")}:${routeCommunityDefinition.event.id}:${normalizeRelays($activeCommunityRelays).join(",")}:`
+      : "",
+  )
   const retryCommunityBootstrap = async () => {
     const session =
       $activeCommunitySession || (parsedCommunity && makeCommunitySession(parsedCommunity))
     if (!session || retryingCommunityBootstrap) return
 
     retryingCommunityBootstrap = true
-    clearCommunityBootstrapCache(session.communityPubkey)
 
     try {
-      await ensureCommunityBootstrap(session, {
-        key: getCommunityBootstrapKey(session, $pubkey || ""),
+      await recoverCommunityBootstrap(session, {
+        recoverAuth: true,
       })
     } catch (error) {
       console.warn("[community-home] Failed to retry community bootstrap", error)
@@ -151,11 +170,18 @@
     Boolean(
       communityId &&
       routeCommunityDefinition &&
+      expectedCommunityBootstrapKey &&
+      $activeCommunityBootstrapStatus.key === expectedCommunityBootstrapKey &&
       $activeCommunityBootstrapStatus.loaded &&
-      !$activeCommunityBootstrapStatus.loading,
+      !$activeCommunityBootstrapStatus.loading &&
+      !$activeCommunityBootstrapStatus.error,
     ),
   )
-  const communityBootstrapError = $derived($activeCommunityBootstrapStatus.error || "")
+  const communityBootstrapError = $derived(
+    $activeCommunityBootstrapStatus.key === expectedCommunityBootstrapKey
+      ? $activeCommunityBootstrapStatus.error || ""
+      : "",
+  )
   // Short settle window: hide the "Community unavailable" banner for a brief
   // moment after entering a community so a fast bootstrap or an incoming
   // cached definition never causes an error flash.
@@ -163,7 +189,7 @@
   let communityUnavailableSettleReady = $state(false)
   $effect(() => {
     // Reset the settle gate whenever the community changes.
-    communityId
+    void communityId
     communityUnavailableSettleReady = false
 
     const timer = setTimeout(() => {
@@ -212,43 +238,84 @@
   )
   const communityPermissionsLoading = $derived(
     Boolean(
-      $pubkey &&
       communityId &&
-      $activeCommunityPermissionStatus.communityPubkey === communityId &&
-      $activeCommunityPermissionStatus.loading &&
-      !$activeCommunityPermissionStatus.loaded &&
-      !$activeCommunityPermissionStatus.hasCachedEvents,
+      communityBootstrapReady &&
+      ($activeCommunityPermissionStatus.communityPubkey !== communityId ||
+        !$activeCommunityPermissionStatus.key.startsWith(expectedCommunityPermissionKeyPrefix) ||
+        ($activeCommunityPermissionStatus.loading &&
+          !$activeCommunityPermissionStatus.loaded &&
+          !$activeCommunityPermissionStatus.hasCachedEvents)),
     ),
   )
   const createRoomPermissionLoading = $derived(
     Boolean(communityPermissionsLoading && !canCreateRoom),
   )
-  let moderatorInviteEvidenceKey = ""
-  let moderatorInviteEvidenceLoaded = $state(false)
-  let moderatorInviteEvidenceEvents = $state<TrustedEvent[]>([])
+  const communityHomeCoreReady = $derived(
+    isCommunityHomeCoreReady({
+      communityPubkey: communityId,
+      definitionPubkey: routeCommunityDefinition?.pubkey || "",
+      expectedBootstrapKey: expectedCommunityBootstrapKey,
+      expectedPermissionKeyPrefix: expectedCommunityPermissionKeyPrefix,
+      bootstrapStatus: $activeCommunityBootstrapStatus,
+      permissionStatus: $activeCommunityPermissionStatus,
+    }),
+  )
+  let moderatorInviteEvidenceState = $state<{
+    key: string
+    status: CommunityModeratorEvidenceStatus
+    events: TrustedEvent[]
+  }>({key: "", status: "unresolved", events: []})
+  let moderatorInviteEvidenceLoadKey = ""
+  let moderatorInviteEvidenceRetryKey = ""
+  let moderatorInviteEvidenceRetryCount = 0
+  let moderatorInviteEvidenceRetryNonce = $state(0)
+  let moderatorInviteEvidenceRetryTimer: ReturnType<typeof setTimeout> | undefined
   const moderatorInviteProfileListEvents = $derived([
     ...$activeCommunityProfileListEvents,
-    ...moderatorInviteEvidenceEvents,
+    ...moderatorInviteEvidenceState.events,
   ])
   const pendingModeratorInvites = $derived.by(() => {
     return getPendingCommunityModeratorInvites({
-      definition: $activeCommunityDefinition,
+      definition: routeCommunityDefinition,
       moderatorPubkey: $pubkey || undefined,
       profileListEvents: moderatorInviteProfileListEvents,
     })
   })
   const moderatorInviteProfileListRefs = $derived.by(() =>
     getCommunityModeratorInviteProfileListRefs({
-      definition: $activeCommunityDefinition,
+      definition: routeCommunityDefinition,
       moderatorPubkey: $pubkey || undefined,
     }),
   )
+  const moderatorInviteEvidenceExpectedKey = $derived.by(() => {
+    const definition = routeCommunityDefinition
+    const user = $pubkey || ""
+    const refs = Array.from(new Set(moderatorInviteProfileListRefs.map(ref => ref.address))).sort()
+    const relays = normalizeRelays($activeCommunityRelays)
+
+    return communityHomeCoreReady && definition && user && refs.length > 0 && relays.length > 0
+      ? JSON.stringify({
+          bootstrapKey: expectedCommunityBootstrapKey,
+          permissionKey: $activeCommunityPermissionStatus.key,
+          viewer: user,
+          community: communityId,
+          definition: definition.event.id,
+          relays,
+          addresses: refs,
+        })
+      : ""
+  })
   const showPendingModeratorInvites = $derived(
     !communityPermissionsLoading &&
-      moderatorInviteEvidenceLoaded &&
+      isCompleteCommunityModeratorEvidence(
+        moderatorInviteEvidenceExpectedKey,
+        moderatorInviteEvidenceState,
+      ) &&
       pendingModeratorInvites.length > 0,
   )
   const MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS = 2_000
+  const MODERATOR_INVITE_EVIDENCE_RETRY_DELAY_MS = 5_000
+  const MODERATOR_INVITE_EVIDENCE_RETRY_LIMIT = 2
   const ROOM_ROOT_LOAD_TIMEOUT_MS = 8_000
   const ROOM_ROOT_EMPTY_RETRY_DELAY_MS = 2_000
   const ROOM_ROOT_EMPTY_RETRY_LIMIT = 2
@@ -256,13 +323,43 @@
   let roomRootsLoaded = $state(false)
   let roomRootsComplete = $state(false)
   let roomRootsIncomplete = $state(false)
+  let roomRootsFirstAttemptKey = $state("")
+  let roomRootsFirstAttemptTerminal = $state(false)
   let roomLoadKey = ""
   let roomLoadHydrationKey = ""
   let roomLoadRetryNonce = $state(0)
   let roomLoadEmptyRetries = 0
   let roomLoadRetryTimer: ReturnType<typeof setTimeout> | undefined
+  const roomCatalogReadinessKey = $derived(
+    communityHomeCoreReady
+      ? JSON.stringify({
+          bootstrapKey: expectedCommunityBootstrapKey,
+          permissionKey: $activeCommunityPermissionStatus.key,
+          relays: normalizeRelays($activeCommunityRelays),
+          filters: roomFilters,
+        })
+      : "",
+  )
+  const communityHomeExtensionsReady = $derived(
+    isCommunityHomeExtensionReady({
+      communityPubkey: communityId,
+      definitionPubkey: routeCommunityDefinition?.pubkey || "",
+      expectedBootstrapKey: expectedCommunityBootstrapKey,
+      expectedPermissionKeyPrefix: expectedCommunityPermissionKeyPrefix,
+      bootstrapStatus: $activeCommunityBootstrapStatus,
+      permissionStatus: $activeCommunityPermissionStatus,
+      roomsPresent: rooms.length > 0,
+      expectedRoomCatalogKey: roomCatalogReadinessKey,
+      firstRoomCatalogKey: roomRootsFirstAttemptKey,
+      firstRoomCatalogTerminal: roomRootsFirstAttemptTerminal,
+    }),
+  )
   const roomsWaitingForDefinition = $derived(
-    Boolean(communityId && !communityDefinitionReady && !showCommunityUnavailable),
+    Boolean(
+      communityId &&
+      (!communityDefinitionReady || !communityBootstrapReady) &&
+      !showCommunityUnavailable,
+    ),
   )
   const roomsUnavailable = $derived(
     Boolean(communityId && !communityDefinitionReady && showCommunityUnavailable),
@@ -288,7 +385,7 @@
   let roomsSkeletonDelayElapsed = $state(false)
   $effect(() => {
     // Reset whenever the community changes.
-    communityId
+    void communityId
     roomsSkeletonDelayElapsed = false
     const timer = setTimeout(() => {
       roomsSkeletonDelayElapsed = true
@@ -328,6 +425,31 @@
     }, ROOM_ROOT_EMPTY_RETRY_DELAY_MS * roomLoadEmptyRetries)
 
     return true
+  }
+
+  const clearModeratorInviteEvidenceRetry = () => {
+    if (!moderatorInviteEvidenceRetryTimer) return
+
+    clearTimeout(moderatorInviteEvidenceRetryTimer)
+    moderatorInviteEvidenceRetryTimer = undefined
+  }
+
+  const scheduleModeratorInviteEvidenceRetry = (key: string) => {
+    if (
+      moderatorInviteEvidenceRetryTimer ||
+      moderatorInviteEvidenceRetryCount >= MODERATOR_INVITE_EVIDENCE_RETRY_LIMIT
+    ) {
+      return
+    }
+
+    moderatorInviteEvidenceRetryCount += 1
+    moderatorInviteEvidenceRetryTimer = setTimeout(() => {
+      moderatorInviteEvidenceRetryTimer = undefined
+      if (moderatorInviteEvidenceExpectedKey !== key) return
+
+      moderatorInviteEvidenceLoadKey = ""
+      moderatorInviteEvidenceRetryNonce += 1
+    }, MODERATOR_INVITE_EVIDENCE_RETRY_DELAY_MS * moderatorInviteEvidenceRetryCount)
   }
 
   const createRoom = () => {
@@ -371,29 +493,34 @@
   }
 
   $effect(() => {
+    void moderatorInviteEvidenceRetryNonce
     const refs = Array.from(
       new Map(moderatorInviteProfileListRefs.map(ref => [ref.address, ref])).values(),
-    )
-    const relays = $activeCommunityRelays
-    const definition = $activeCommunityDefinition
-    const user = $pubkey || ""
-    const key =
-      communityBootstrapReady && definition && user && refs.length > 0 && relays.length > 0
-        ? `${definition.event.id}:${user}:${relays.join(",")}:${refs.map(ref => ref.address).join(",")}`
-        : ""
+    ).sort((a, b) => a.address.localeCompare(b.address))
+    const relays = normalizeRelays($activeCommunityRelays)
+    const key = moderatorInviteEvidenceExpectedKey
 
     if (!key) {
-      moderatorInviteEvidenceKey = ""
-      moderatorInviteEvidenceLoaded = refs.length === 0
-      moderatorInviteEvidenceEvents = []
+      clearModeratorInviteEvidenceRetry()
+      moderatorInviteEvidenceLoadKey = ""
+      moderatorInviteEvidenceRetryKey = ""
+      moderatorInviteEvidenceRetryCount = 0
+      moderatorInviteEvidenceState = {key: "", status: "unresolved", events: []}
       return
     }
 
-    if (moderatorInviteEvidenceKey === key) return
+    if (moderatorInviteEvidenceRetryKey !== key) {
+      clearModeratorInviteEvidenceRetry()
+      moderatorInviteEvidenceRetryKey = key
+      moderatorInviteEvidenceRetryCount = 0
+    }
 
-    moderatorInviteEvidenceKey = key
-    moderatorInviteEvidenceLoaded = false
-    moderatorInviteEvidenceEvents = []
+    const requestKey = `${key}:${moderatorInviteEvidenceRetryNonce}`
+    if (moderatorInviteEvidenceLoadKey === requestKey) return
+
+    moderatorInviteEvidenceLoadKey = requestKey
+    moderatorInviteEvidenceState = {key, status: "loading", events: []}
+    const controller = new AbortController()
 
     const filters = refs.map(
       ref =>
@@ -405,51 +532,82 @@
         }) satisfies Filter,
     )
 
-    loadCommunityEvents(relays, filters, {
+    loadCommunityEventsWithStatus(relays, filters, {
+      authenticate: true,
+      priorityAuthRelays: relays,
       timeout: MODERATOR_INVITE_EVIDENCE_TIMEOUT_MS,
       settle: "all",
+      signal: controller.signal,
     })
-      .then(events => {
-        if (moderatorInviteEvidenceKey === key) moderatorInviteEvidenceEvents = events
+      .then(result => {
+        if (
+          controller.signal.aborted ||
+          moderatorInviteEvidenceLoadKey !== requestKey ||
+          moderatorInviteEvidenceExpectedKey !== key
+        ) {
+          return
+        }
+
+        moderatorInviteEvidenceState = {
+          key,
+          status: result.complete ? "complete" : "unresolved",
+          events: result.events,
+        }
+        if (!result.complete) scheduleModeratorInviteEvidenceRetry(key)
       })
       .catch(error => {
+        if (controller.signal.aborted || moderatorInviteEvidenceLoadKey !== requestKey) return
+
+        moderatorInviteEvidenceState = {key, status: "unresolved", events: []}
+        scheduleModeratorInviteEvidenceRetry(key)
         console.warn("[community-home] Failed to hydrate moderator invite evidence", error)
       })
-      .finally(() => {
-        setTimeout(() => {
-          if (moderatorInviteEvidenceKey === key) moderatorInviteEvidenceLoaded = true
-        }, 0)
-      })
+
+    return () => {
+      clearModeratorInviteEvidenceRetry()
+      controller.abort()
+    }
   })
 
   $effect(() => {
-    if (
-      !communityDefinitionReady ||
-      !communityId ||
-      $activeCommunityRelays.length === 0 ||
-      roomFilters.length === 0
-    ) {
+    const key = roomCatalogReadinessKey
+
+    if (!key) {
       roomRootsLoading = false
       roomRootsComplete = false
       roomRootsIncomplete = false
+      roomRootsFirstAttemptKey = ""
+      roomRootsFirstAttemptTerminal = false
       roomLoadKey = ""
       roomLoadHydrationKey = ""
       roomLoadEmptyRetries = 0
-      roomRootsLoaded = Boolean(
-        communityDefinitionReady &&
-        communityId &&
-        ($activeCommunityRelays.length === 0 || roomFilters.length === 0),
-      )
+      roomRootsLoaded = false
       clearRoomLoadRetry()
       return
     }
 
-    const key = JSON.stringify({relays: $activeCommunityRelays, filters: roomFilters})
+    const catalog = JSON.parse(key) as {relays: string[]; filters: Filter[]}
+    const relays = catalog.relays
+    const filters = catalog.filters
+
     if (roomLoadHydrationKey !== key) {
       roomLoadHydrationKey = key
       roomLoadEmptyRetries = 0
+      roomRootsFirstAttemptKey = key
+      roomRootsFirstAttemptTerminal = false
       clearRoomLoadRetry()
       roomLoadRetryNonce = 0
+    }
+
+    if (relays.length === 0 || filters.length === 0) {
+      roomLoadKey = key
+      roomRootsLoading = false
+      roomRootsLoaded = true
+      roomRootsComplete = filters.length === 0
+      roomRootsIncomplete = !roomRootsComplete
+      roomRootsFirstAttemptTerminal = true
+      clearRoomLoadRetry()
+      return
     }
 
     const requestKey = `${key}:${roomLoadRetryNonce}`
@@ -461,6 +619,7 @@
       roomRootsLoaded = true
       roomRootsComplete = true
       roomRootsIncomplete = false
+      roomRootsFirstAttemptTerminal = true
       clearRoomLoadRetry()
       return
     }
@@ -481,6 +640,8 @@
 
     const finishRoomLoad = (events: TrustedEvent[] = []) => {
       if (disposed || roomLoadKey !== requestKey) return
+
+      roomRootsFirstAttemptTerminal = true
 
       const loadedRooms = readCommunityRoomRoots(events, communityId).filter(
         room => !isCommunityPersonBanned($activeCommunityReportState, room.event.pubkey),
@@ -508,11 +669,11 @@
     }
 
     request({
-      relays: $activeCommunityRelays,
+      relays,
       autoClose: true,
       lifetime: "finite",
-      priority: RELAY_REQUEST_PRIORITY.interactive,
-      filters: roomFilters,
+      priority: RELAY_REQUEST_PRIORITY.community,
+      filters,
       signal: controller.signal,
       onDisconnect: () => {
         interrupted = true
@@ -542,7 +703,7 @@
   })
 </script>
 
-<PageBar>
+<PageBar showTopMenuWidgets={communityHomeExtensionsReady}>
   {#snippet icon()}
     <div class="center">
       <Icon icon={HomeSmile} />
@@ -663,8 +824,8 @@
     </section>
   {/if}
 
-  {#if communityId}
-    {#key communityId}
+  {#if communityId && communityHomeExtensionsReady}
+    {#key roomCatalogReadinessKey}
       <CommunityExtensionsPrompt communityPubkey={communityId} relayHints={homeWidgetRelayHints} />
 
       <CommunityHomeWidgetSlot
@@ -762,7 +923,7 @@
               : roomsLoading
                 ? "Loading community rooms."
                 : roomsUnavailable || roomRootsIncomplete
-                  ? "Room history could not be checked completely. Reload to retry."
+                  ? "Room history could not be checked completely. Retry when relay access is available."
                   : createRoomPermissionLoading
                     ? "Loading permissions before showing room actions."
                     : canCreateRoom && roomsSettledEmpty
@@ -770,15 +931,22 @@
                       : "No rooms have been published yet."}
           </p>
         </div>
-        {#if canCreateRoom && roomsSettledEmpty}
+        {#if roomRootsIncomplete}
+          <Button
+            class="btn btn-neutral shrink-0 justify-center"
+            disabled={retryingCommunityBootstrap}
+            onclick={retryCommunityBootstrap}>
+            {retryingCommunityBootstrap ? "Retrying..." : "Retry"}
+          </Button>
+        {:else if canCreateRoom && roomsSettledEmpty}
           <button class="btn btn-primary" type="button" onclick={createRoom}> Create Room </button>
         {/if}
       </div>
     {/if}
   </div>
 
-  {#if communityId}
-    {#key communityId}
+  {#if communityId && communityHomeExtensionsReady}
+    {#key roomCatalogReadinessKey}
       <CommunityHomeWidgetSlot
         communityPubkey={communityId}
         relayHints={homeWidgetRelayHints}

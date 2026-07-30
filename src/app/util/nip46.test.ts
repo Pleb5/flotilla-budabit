@@ -1,15 +1,21 @@
 import {get} from "svelte/store"
-import {beforeEach, describe, expect, it, vi} from "vitest"
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {SocketStatus} from "@welshman/net"
+import {SessionMethod} from "@welshman/app"
+import {Nip46Signer} from "@welshman/signer"
 import {pushToast} from "@app/util/toast"
 import {
   Nip46Controller,
   cycleSignerRelaySockets,
   makeBudabitNip46Broker,
+  recoverActiveNip46Receiver,
   restartNip46Receiver,
+  setupActiveNip46ReceiverResumeRecovery,
 } from "./nip46"
 
 vi.mock("@app/util/toast", () => ({pushToast: vi.fn()}))
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe("Nip46Controller", () => {
   beforeEach(() => {
@@ -195,5 +201,108 @@ describe("restartNip46Receiver", () => {
     await restartNip46Receiver({receiver} as any)
 
     expect(start).toHaveBeenCalledOnce()
+  })
+})
+
+describe("recoverActiveNip46Receiver", () => {
+  it("cycles and restarts an active persisted NIP-46 receiver without sending a request", async () => {
+    const relay = "wss://relay.example/"
+    const broker = makeBudabitNip46Broker({
+      clientSecret: "1".repeat(64),
+      signerPubkey: "2".repeat(64),
+      relays: [relay],
+    })
+    const receiverController = new AbortController()
+    const start = vi.spyOn(broker.receiver, "start").mockImplementation(async () => {
+      broker.receiver.abortController = new AbortController()
+    })
+    const send = vi.spyOn(broker, "send")
+    const close = vi.fn()
+    const pool = {
+      has: vi.fn(() => true),
+      get: vi.fn(() => ({status: SocketStatus.Open, close})),
+    }
+
+    broker.receiver.abortController = receiverController
+
+    await expect(
+      recoverActiveNip46Receiver({
+        session: {
+          method: SessionMethod.Nip46,
+          pubkey: "3".repeat(64),
+          secret: "1".repeat(64),
+          handler: {pubkey: "2".repeat(64), relays: [relay]},
+        },
+        signer: {signer: new Nip46Signer(broker)} as any,
+        pool: pool as any,
+      }),
+    ).resolves.toBe(true)
+
+    expect(receiverController.signal.aborted).toBe(true)
+    expect(close).toHaveBeenCalledOnce()
+    expect(start).toHaveBeenCalledOnce()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("does nothing when the persisted signer's receiver is not already listening", async () => {
+    const broker = makeBudabitNip46Broker({
+      clientSecret: "1".repeat(64),
+      signerPubkey: "2".repeat(64),
+      relays: ["wss://relay.example/"],
+    })
+    const start = vi.spyOn(broker.receiver, "start")
+    const pool = {has: vi.fn(), get: vi.fn()}
+
+    await expect(
+      recoverActiveNip46Receiver({
+        session: {
+          method: SessionMethod.Nip46,
+          pubkey: "3".repeat(64),
+          secret: "1".repeat(64),
+          handler: {pubkey: "2".repeat(64), relays: broker.params.relays},
+        },
+        signer: {signer: new Nip46Signer(broker)} as any,
+        pool: pool as any,
+      }),
+    ).resolves.toBe(false)
+
+    expect(pool.has).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
+  })
+})
+
+describe("setupActiveNip46ReceiverResumeRecovery", () => {
+  it("recovers an active receiver when a tab installed while hidden becomes visible", async () => {
+    const documentListeners = new Map<string, (event: any) => void>()
+    const windowListeners = new Map<string, (event: any) => void>()
+    const documentMock = {
+      visibilityState: "hidden",
+      addEventListener: vi.fn((type: string, listener: (event: any) => void) => {
+        documentListeners.set(type, listener)
+      }),
+      removeEventListener: vi.fn((type: string) => documentListeners.delete(type)),
+    }
+    const windowMock = {
+      addEventListener: vi.fn((type: string, listener: (event: any) => void) => {
+        windowListeners.set(type, listener)
+      }),
+      removeEventListener: vi.fn((type: string) => windowListeners.delete(type)),
+    }
+    let time = 10_000
+    const recover = vi.fn().mockResolvedValue(true)
+    vi.stubGlobal("document", documentMock)
+    vi.stubGlobal("window", windowMock)
+
+    const cleanup = setupActiveNip46ReceiverResumeRecovery({recover, now: () => time})
+    time += 1_500
+    documentMock.visibilityState = "visible"
+    documentListeners.get("visibilitychange")?.(new Event("visibilitychange"))
+    await Promise.resolve()
+
+    expect(recover).toHaveBeenCalledOnce()
+
+    cleanup()
+    expect(documentListeners.size).toBe(0)
+    expect(windowListeners.size).toBe(0)
   })
 })

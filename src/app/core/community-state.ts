@@ -127,6 +127,7 @@ export type CommunityRelayLoadSettle = "all" | "first" | "first-non-empty"
 
 export type CommunityRelayLoadOptions = {
   timeout?: number
+  authTimeout?: number
   authenticate?: boolean
   priorityAuthRelays?: string[]
   settle?: CommunityRelayLoadSettle
@@ -237,7 +238,9 @@ const communityBootstrapPromises = new Map<string, Promise<CommunityBootstrap>>(
 // stale relay-hint permutations must not accumulate for the app lifetime.
 const completedCommunityBootstrap = new LRUCache<string, CommunityBootstrap>(24)
 const completedCommunityHydrationKeys = new Set<string>()
+const communityBootstrapPromiseGenerations = new Map<string, number>()
 let communityBootstrapCacheVersion = 0
+let communityBootstrapGeneration = 0
 
 export const getCommunityBootstrapKey = (session: CommunitySession, userPubkey = "") =>
   `${normalizePubkey(userPubkey)}:${session.communityPubkey}:${normalizeRelays(session.communityRelayHints).join(",")}`
@@ -272,7 +275,10 @@ export const clearCommunityBootstrapCache = (communityPubkey?: string) => {
     if (matchesCommunity(key)) completedCommunityHydrationKeys.delete(key)
   }
   for (const key of communityBootstrapPromises.keys()) {
-    if (matchesCommunity(key)) communityBootstrapPromises.delete(key)
+    if (matchesCommunity(key)) {
+      communityBootstrapPromises.delete(key)
+      communityBootstrapPromiseGenerations.delete(key)
+    }
   }
 }
 
@@ -318,6 +324,7 @@ export const setActiveCommunityDefinition = (definition: CommunityDefinition) =>
 
 export const clearActiveCommunity = () => {
   activeCommunitySession.set(undefined)
+  startCommunityPermissionLoadContext()
   activeCommunityPermissionStatus.set({
     communityPubkey: "",
     key: "",
@@ -538,6 +545,7 @@ export const getCommunityDefinitionRelayHints = (
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
 const COMMUNITY_AUTHORITY_LOAD_TIMEOUT = 3000
 const COMMUNITY_RELAY_AUTH_TIMEOUT = 2000
+const COMMUNITY_RELAY_AUTH_RECOVERY_TIMEOUT = 31_000
 export const COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT = 4500
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
@@ -596,47 +604,87 @@ const getCommunityLoadFailure = (results: CommunityRelayLoadResult[]) => {
 const hasCachedCommunityEventsForFilters = (filters: Filter[]) =>
   filters.length === 0 || filters.every(filter => repository.query([filter]).length > 0)
 
-const makeCommunityPermissionStatusKey = (definition: CommunityDefinition, relays: string[]) =>
-  `${definition.event.id}:${normalizeRelays(relays).join(",")}`
+type CommunityPermissionLoadContext = {
+  viewerPubkey: string
+  generation: number
+}
+
+type CommunityPermissionLoadAttempt = CommunityPermissionLoadContext & {
+  key: string
+  filters: Filter[]
+}
+
+let communityPermissionLoadGeneration = 0
+let latestCommunityPermissionLoadGeneration = 0
+
+const startCommunityPermissionLoadContext = (
+  viewerPubkey = normalizePubkey(pubkey.get() || ""),
+): CommunityPermissionLoadContext => {
+  const generation = ++communityPermissionLoadGeneration
+
+  latestCommunityPermissionLoadGeneration = generation
+
+  return {
+    viewerPubkey,
+    generation,
+  }
+}
+
+const makeCommunityPermissionStatusKey = (
+  definition: CommunityDefinition,
+  relays: string[],
+  {viewerPubkey, generation}: CommunityPermissionLoadContext,
+) => `${viewerPubkey}:${definition.event.id}:${normalizeRelays(relays).join(",")}:${generation}`
+
+const getCommunityPermissionStatusKeyPrefix = (
+  definition: CommunityDefinition,
+  relays: string[],
+  viewerPubkey: string,
+) => `${normalizePubkey(viewerPubkey)}:${definition.event.id}:${normalizeRelays(relays).join(",")}:`
 
 const startCommunityPermissionLoadStatus = ({
   definition,
   relays,
   filters,
+  context,
 }: {
   definition: CommunityDefinition
   relays: string[]
   filters: Filter[]
-}) => {
-  const key = makeCommunityPermissionStatusKey(definition, relays)
+  context: CommunityPermissionLoadContext
+}): CommunityPermissionLoadAttempt => {
+  const key = makeCommunityPermissionStatusKey(definition, relays, context)
   const hasCachedEvents = hasCachedCommunityEventsForFilters(filters)
   const hasFilters = filters.length > 0
 
-  activeCommunityPermissionStatus.set({
-    communityPubkey: definition.pubkey,
-    key,
-    loading: hasFilters,
-    loaded: !hasFilters,
-    complete: !hasFilters,
-    hasCachedEvents,
-  })
+  if (context.generation === latestCommunityPermissionLoadGeneration) {
+    activeCommunityPermissionStatus.set({
+      communityPubkey: definition.pubkey,
+      key,
+      loading: hasFilters,
+      loaded: !hasFilters,
+      complete: !hasFilters,
+      hasCachedEvents,
+    })
+  }
 
-  return key
+  return {...context, key, filters}
 }
 
 const finishCommunityPermissionLoadStatus = (
-  key: string,
+  attempt: CommunityPermissionLoadAttempt,
   {complete, error}: {complete: boolean; error?: unknown},
 ) => {
-  if (!key) return
+  if (!attempt.key || attempt.generation !== latestCommunityPermissionLoadGeneration) return
 
   activeCommunityPermissionStatus.update(current =>
-    current.key === key
+    current.key === attempt.key
       ? {
           ...current,
           loading: false,
           loaded: true,
           complete,
+          hasCachedEvents: hasCachedCommunityEventsForFilters(attempt.filters),
           ...(error ? {error: error instanceof Error ? error.message : String(error)} : {}),
         }
       : current,
@@ -692,9 +740,8 @@ export const waitForCommunityRelayAuth = (auth: AuthState, timeout: number) => {
   }
 
   return new Promise<AuthStatus>((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | undefined
     const cleanup = () => {
-      if (timer) clearTimeout(timer)
+      clearTimeout(timer)
       auth.off(AuthStateEvent.Status, handleAuthStatus)
       auth.socket.off(SocketEvent.Status, handleSocketStatus)
       auth.socket.off(SocketEvent.Error, handleSocketError)
@@ -718,63 +765,103 @@ export const waitForCommunityRelayAuth = (auth: AuthState, timeout: number) => {
     const handleSocketError = (error: string) => {
       fail(new RelayAuthenticationError(auth.socket.url, error || SocketStatus.Error))
     }
+    const timer = setTimeout(
+      () => fail(new RelayAuthenticationTimeoutError(auth.socket.url, timeout)),
+      timeout,
+    )
 
     auth.on(AuthStateEvent.Status, handleAuthStatus)
     auth.socket.on(SocketEvent.Status, handleSocketStatus)
     auth.socket.on(SocketEvent.Error, handleSocketError)
-    timer = setTimeout(
-      () => fail(new RelayAuthenticationTimeoutError(auth.socket.url, timeout)),
-      timeout,
-    )
   })
 }
 
-const authenticateCommunityRelay = async (relay: string, timeout: number) => {
-  if (getRelayPolicy(relay).auth !== "required") return
+const authenticateCommunityRelay = async (
+  relay: string,
+  timeout: number,
+  retryDeniedSignature = false,
+): Promise<void> => {
+  const authPolicy = getRelayPolicy(relay).auth
+  if (authPolicy === "none" || (authPolicy !== "required" && !retryDeniedSignature)) return
 
   const socket = Pool.get().get(relay)
   const auth = socket.auth
+  const hasRecoverableChallenge = Boolean(retryDeniedSignature && auth.challenge)
+
+  if (authPolicy !== "required" && !hasRecoverableChallenge) return
 
   if (auth.status === AuthStatus.Ok) return
   if (auth.status === AuthStatus.Forbidden) {
     throw new RelayAuthenticationError(relay, auth.status)
   }
+  if (retryDeniedSignature && auth.status === AuthStatus.DeniedSignature && !auth.challenge) {
+    throw new RelayAuthenticationError(relay, auth.status)
+  }
 
   const pending = communityRelayAuthPromises.get(socket)
-  if (pending) return pending
-
-  const promise = (async () => {
-    const terminalStatus = waitForCommunityRelayAuth(auth, timeout)
-    const attemptAuth = async () => {
-      let attemptedChallenge = auth.challenge
-
-      do {
-        await auth.attemptAuth(async event => {
-          try {
-            return await sign(event)
-          } catch (error) {
-            if (auth.status === AuthStatus.PendingSignature) {
-              auth.setStatus(AuthStatus.DeniedSignature)
-            }
-
-            throw error
-          }
-        })
-
-        if (COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(auth.status)) return
-        if (auth.status !== AuthStatus.Requested || auth.challenge === attemptedChallenge) return
-
-        attemptedChallenge = auth.challenge
-      } while (auth.status === AuthStatus.Requested)
+  if (pending) {
+    if (retryDeniedSignature && auth.status === AuthStatus.DeniedSignature && auth.challenge) {
+      await pending.catch(() => undefined)
+      return authenticateCommunityRelay(relay, timeout, true)
     }
 
-    void attemptAuth().catch(() => {
+    return pending
+  }
+
+  const promise = (async () => {
+    const initialAuthStatus = auth.status
+    const signAuthEvent: typeof sign = async event => {
+      try {
+        return await sign(event)
+      } catch (error) {
+        if (auth.status === AuthStatus.PendingSignature) {
+          auth.setStatus(AuthStatus.DeniedSignature)
+        }
+
+        throw error
+      }
+    }
+    let authOperation: Promise<void> | undefined
+
+    if (
+      (retryDeniedSignature && auth.status === AuthStatus.DeniedSignature) ||
+      [AuthStatus.None, AuthStatus.Requested].includes(auth.status)
+    ) {
+      authOperation = (async () => {
+        let attemptedChallenge = auth.challenge
+        let retryDenied = retryDeniedSignature && auth.status === AuthStatus.DeniedSignature
+
+        do {
+          await (retryDenied ? auth.retryAuth(signAuthEvent) : auth.attemptAuth(signAuthEvent))
+          retryDenied = false
+
+          if (COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(auth.status)) return
+          if (auth.status !== AuthStatus.Requested || auth.challenge === attemptedChallenge) return
+
+          attemptedChallenge = auth.challenge
+        } while (auth.status === AuthStatus.Requested)
+      })()
+    }
+
+    void authOperation?.catch(() => {
       if (auth.status === AuthStatus.PendingSignature) {
         auth.setStatus(AuthStatus.DeniedSignature)
       }
     })
 
-    const status = await terminalStatus
+    let status = await waitForCommunityRelayAuth(auth, timeout)
+
+    if (
+      status === AuthStatus.DeniedSignature &&
+      retryDeniedSignature &&
+      auth.challenge &&
+      [AuthStatus.PendingSignature, AuthStatus.PendingResponse].includes(initialAuthStatus)
+    ) {
+      const retry = auth.retryAuth(signAuthEvent)
+      const terminalStatus = waitForCommunityRelayAuth(auth, timeout)
+      void retry.catch(() => undefined)
+      status = await terminalStatus
+    }
 
     if (status !== AuthStatus.Ok) {
       throw new RelayAuthenticationError(relay, status)
@@ -788,6 +875,22 @@ const authenticateCommunityRelay = async (relay: string, timeout: number) => {
   communityRelayAuthPromises.set(socket, promise)
 
   return promise
+}
+
+export const recoverCommunityRelayAuth = async (
+  relay: string,
+  options: {timeout?: number} = {},
+) => {
+  if (!get(pubkey)) return
+
+  const normalizedRelay = normalizeRelay(relay)
+  if (!normalizedRelay) return
+
+  return authenticateCommunityRelay(
+    normalizedRelay,
+    options.timeout ?? COMMUNITY_RELAY_AUTH_RECOVERY_TIMEOUT,
+    true,
+  )
 }
 
 export const authenticateCommunityRelays = async (
@@ -839,6 +942,7 @@ export const loadCommunityEventsWithStatus = async (
   if (options.authenticate) {
     authFailedRelays = await authenticateCommunityRelays(normalizedRelays, {
       priorityRelays: options.priorityAuthRelays,
+      timeout: options.authTimeout,
     })
   }
 
@@ -2628,10 +2732,59 @@ const readCachedCommunityDefinition = (communityPubkey: string) => {
   return selectLatestCommunityDefinition(cachedEvents, communityPubkey)
 }
 
+const loadCommunityPermissionEvents = async ({
+  definition,
+  relays,
+  context,
+}: {
+  definition: CommunityDefinition
+  relays: string[]
+  context: CommunityPermissionLoadContext
+}) => {
+  const authorityFilters = makeCommunityProfileListFilters(definition)
+  const admissionFormFilters = makeCommunityAdmissionFormFilters(definition)
+  const attempt = startCommunityPermissionLoadStatus({
+    definition,
+    relays,
+    filters: [...authorityFilters, ...admissionFormFilters],
+    context,
+  })
+
+  try {
+    const [authorityResult, admissionFormResult] = await Promise.all([
+      authorityFilters.length > 0
+        ? loadCommunityEventsWithStatus(relays, authorityFilters, {
+            timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
+            settle: "first-non-empty",
+            authenticate: true,
+          })
+        : makeCompleteEmptyCommunityLoadResult(),
+      admissionFormFilters.length > 0
+        ? loadCommunityEventsWithStatus(relays, admissionFormFilters, {
+            authenticate: true,
+            settle: "first",
+          })
+        : makeCompleteEmptyCommunityLoadResult(),
+    ])
+    const results = [authorityResult, admissionFormResult]
+
+    finishCommunityPermissionLoadStatus(attempt, {
+      complete: results.every(result => result.complete),
+      error: getCommunityLoadFailure(results),
+    })
+
+    return {authorityFilters, admissionFormFilters, authorityResult, admissionFormResult}
+  } catch (error) {
+    finishCommunityPermissionLoadStatus(attempt, {complete: false, error})
+    throw error
+  }
+}
+
 export const loadCommunityBootstrap = async (
   session: CommunitySession,
 ): Promise<CommunityBootstrap> => {
-  const relays = getCommunityBootstrapRelays(session.communityRelayHints)
+  const bootstrapViewerPubkey = normalizePubkey(pubkey.get() || "")
+  const mayClaimUnownedCommunity = !get(activeCommunitySession)
   const definitionFilter = makeCommunityDefinitionFilter(session.communityPubkey)
 
   // Do not block on relay auth before we know the community definition. Once
@@ -2644,13 +2797,45 @@ export const loadCommunityBootstrap = async (
   // for perceived speed: warm cache paths never wait on a round-trip.
   let definition = readCachedCommunityDefinition(session.communityPubkey)
   const cacheHit = Boolean(definition)
+  let refreshedDefinitionId = definition?.event.id || ""
+
+  const hydrateRefreshedDefinition = (refreshed: CommunityDefinition | undefined) => {
+    if (!refreshed) return
+
+    const latest = readCachedCommunityDefinition(session.communityPubkey) || refreshed
+    if (latest.event.id === refreshedDefinitionId) return
+
+    refreshedDefinitionId = latest.event.id
+    const currentSession = get(activeCommunitySession)
+    if (
+      currentSession?.communityPubkey === session.communityPubkey ||
+      (!currentSession && mayClaimUnownedCommunity)
+    ) {
+      setActiveCommunityDefinition(latest)
+    } else {
+      repository.publish(latest.event)
+      return
+    }
+
+    const refreshedRelays = latest.relays.length
+      ? latest.relays
+      : getCommunityBootstrapRelays(session.communityRelayHints)
+    const context = startCommunityPermissionLoadContext()
+    void loadCommunityPermissionEvents({
+      definition: latest,
+      relays: refreshedRelays,
+      context,
+    }).catch(() => undefined)
+  }
 
   if (cacheHit) {
     // Background refresh - non-awaited. The repository will emit updates
     // when a newer definition arrives, and reactive stores will pick it up.
     void loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
       relayHints: session.communityRelayHints,
-    }).catch(() => undefined)
+    })
+      .then(hydrateRefreshedDefinition)
+      .catch(() => undefined)
   } else {
     definition = await loadCommunityDefinitionWithOutboxFallback(session.communityPubkey, {
       relayHints: session.communityRelayHints,
@@ -2665,10 +2850,21 @@ export const loadCommunityBootstrap = async (
     }
   }
 
-  const definitionEvents = definition ? [definition.event] : []
-  let communityRelays = definition ? definition.relays : relays
+  if (!definition) throw new Error("Community definition unavailable")
 
-  if (definition?.relays.length) {
+  const definitionEvents = [definition.event]
+  let communityRelays = definition.relays
+  const ownsActiveBootstrap = () => {
+    const currentSession = get(activeCommunitySession)
+
+    return (
+      (currentSession?.communityPubkey === session.communityPubkey ||
+        (!currentSession && mayClaimUnownedCommunity)) &&
+      normalizePubkey(pubkey.get() || "") === bootstrapViewerPubkey
+    )
+  }
+
+  if (definition.relays.length && ownsActiveBootstrap()) {
     // Give community-declared relays a bounded auth head start before pages
     // begin their own feeds. Without this, warm-cache boot can mark bootstrap
     // complete and let feed requests settle empty while NIP-42 is still signing.
@@ -2685,7 +2881,13 @@ export const loadCommunityBootstrap = async (
       // relays in the background - do not block bootstrap on it.
       void loadCommunityEvents(communityRelays, [definitionFilter], {
         settle: "first-non-empty",
-      }).catch(() => undefined)
+      })
+        .then(events =>
+          hydrateRefreshedDefinition(
+            selectLatestCommunityDefinition(events, session.communityPubkey),
+          ),
+        )
+        .catch(() => undefined)
     } else {
       const relayDefinitionEvents = await loadCommunityEvents(communityRelays, [definitionFilter], {
         settle: "first-non-empty",
@@ -2701,16 +2903,40 @@ export const loadCommunityBootstrap = async (
       }
     }
   }
+
+  const latestCachedDefinition = readCachedCommunityDefinition(session.communityPubkey)
+  if (latestCachedDefinition && latestCachedDefinition.event.id !== definition.event.id) {
+    hydrateRefreshedDefinition(latestCachedDefinition)
+    definition = latestCachedDefinition
+    communityRelays = definition.relays.length
+      ? definition.relays
+      : getCommunityBootstrapRelays(session.communityRelayHints)
+  }
+
   const authorityFilters: Filter[] = []
   const admissionFormFilters: Filter[] = []
   const reportFilters: Filter[] = []
 
   if (definition) {
-    setActiveCommunityDefinition(definition)
+    const currentSession = get(activeCommunitySession)
+
+    if (
+      currentSession?.communityPubkey === session.communityPubkey ||
+      (!currentSession && mayClaimUnownedCommunity)
+    ) {
+      setActiveCommunityDefinition(definition)
+    } else {
+      repository.publish(definition.event)
+    }
     authorityFilters.push(...makeCommunityProfileListFilters(definition))
     admissionFormFilters.push(...makeCommunityAdmissionFormFilters(definition))
     reportFilters.push(...makeCommunityReportFilters(definition))
   }
+
+  const tracksActivePermissionStatus = ownsActiveBootstrap()
+  const permissionLoadContext = tracksActivePermissionStatus
+    ? startCommunityPermissionLoadContext(bootstrapViewerPubkey)
+    : {viewerPubkey: bootstrapViewerPubkey, generation: -1}
 
   // Cache-first for the authority/admission/report events too. When the
   // definition is a cache hit we already have those events in the
@@ -2720,57 +2946,25 @@ export const loadCommunityBootstrap = async (
   const readFromRepository = (filters: Filter[]) =>
     filters.length > 0 ? repository.query(filters) : []
 
-  const permissionLoadFilters = [...authorityFilters, ...admissionFormFilters]
-  const permissionStatusKey = definition
-    ? startCommunityPermissionLoadStatus({
-        definition,
-        relays: communityRelays,
-        filters: permissionLoadFilters,
-      })
-    : ""
-
   let authorityEvents: TrustedEvent[]
   let admissionFormEvents: TrustedEvent[]
   let reportEvents: TrustedEvent[]
 
-  if (cacheHit) {
+  if (cacheHit || !tracksActivePermissionStatus) {
     authorityEvents = readFromRepository(authorityFilters)
     admissionFormEvents = readFromRepository(admissionFormFilters)
     reportEvents = readFromRepository(reportFilters)
-    const permissionRefreshPromises: Promise<CommunityRelayLoadResult>[] = []
 
     // Background refresh - non-awaited, results land in the repository and
     // the reactive stores emit updates naturally.
-    if (authorityFilters.length > 0) {
-      const authorityLoad = loadCommunityEventsWithStatus(communityRelays, authorityFilters, {
-        timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
-        settle: "first-non-empty",
-        authenticate: true,
-      })
-      permissionRefreshPromises.push(authorityLoad)
-      void authorityLoad.catch(() => undefined)
+    if (tracksActivePermissionStatus) {
+      void loadCommunityPermissionEvents({
+        definition,
+        relays: communityRelays,
+        context: permissionLoadContext,
+      }).catch(() => undefined)
     }
-    if (admissionFormFilters.length > 0) {
-      const admissionFormLoad = loadCommunityEventsWithStatus(
-        communityRelays,
-        admissionFormFilters,
-        {
-          authenticate: true,
-          settle: "first",
-        },
-      )
-      permissionRefreshPromises.push(admissionFormLoad)
-      void admissionFormLoad.catch(() => undefined)
-    }
-    if (permissionRefreshPromises.length > 0) {
-      void Promise.all(permissionRefreshPromises).then(results => {
-        finishCommunityPermissionLoadStatus(permissionStatusKey, {
-          complete: results.every(result => result.complete),
-          error: getCommunityLoadFailure(results),
-        })
-      })
-    }
-    if (reportFilters.length > 0) {
+    if (tracksActivePermissionStatus && reportFilters.length > 0) {
       void loadCommunityEvents(communityRelays, reportFilters, {
         authenticate: true,
         settle: "first",
@@ -2784,41 +2978,22 @@ export const loadCommunityBootstrap = async (
         .catch(() => undefined)
     }
   } else {
-    try {
-      const [authorityResult, admissionFormResult, loadedReportEvents] = await Promise.all([
-        authorityFilters.length > 0
-          ? loadCommunityEventsWithStatus(communityRelays, authorityFilters, {
-              timeout: COMMUNITY_AUTHORITY_LOAD_TIMEOUT,
-              settle: "first-non-empty",
-              authenticate: true,
-            })
-          : makeCompleteEmptyCommunityLoadResult(),
-        admissionFormFilters.length > 0
-          ? loadCommunityEventsWithStatus(communityRelays, admissionFormFilters, {
-              authenticate: true,
-              settle: "first",
-            })
-          : makeCompleteEmptyCommunityLoadResult(),
-        reportFilters.length > 0
-          ? loadCommunityEvents(communityRelays, reportFilters, {
-              authenticate: true,
-              settle: "first",
-            })
-          : [],
-      ])
-      authorityEvents = authorityResult.events
-      admissionFormEvents = admissionFormResult.events
-      reportEvents = loadedReportEvents
-      const permissionResults = [authorityResult, admissionFormResult]
-
-      finishCommunityPermissionLoadStatus(permissionStatusKey, {
-        complete: permissionResults.every(result => result.complete),
-        error: getCommunityLoadFailure(permissionResults),
-      })
-    } catch (error) {
-      finishCommunityPermissionLoadStatus(permissionStatusKey, {complete: false, error})
-      throw error
-    }
+    const [permissionResult, loadedReportEvents] = await Promise.all([
+      loadCommunityPermissionEvents({
+        definition,
+        relays: communityRelays,
+        context: permissionLoadContext,
+      }),
+      reportFilters.length > 0
+        ? loadCommunityEvents(communityRelays, reportFilters, {
+            authenticate: true,
+            settle: "first",
+          })
+        : [],
+    ])
+    authorityEvents = permissionResult.authorityResult.events
+    admissionFormEvents = permissionResult.admissionFormResult.events
+    reportEvents = loadedReportEvents
 
     void hydrateCommunityReportDeleteEvents({relays: communityRelays, reportEvents}).catch(
       error => {
@@ -2832,9 +3007,9 @@ export const loadCommunityBootstrap = async (
     : []
 
   let reportReviewEvents: TrustedEvent[]
-  if (cacheHit) {
+  if (cacheHit || !tracksActivePermissionStatus) {
     reportReviewEvents = readFromRepository(reportReviewFilters)
-    if (reportReviewFilters.length > 0) {
+    if (tracksActivePermissionStatus && reportReviewFilters.length > 0) {
       void loadCommunityEvents(communityRelays, reportReviewFilters, {
         authenticate: true,
         settle: "first",
@@ -2864,6 +3039,29 @@ export const loadCommunityBootstrap = async (
   return bootstrap
 }
 
+const ensureCompletedCommunityPermissionHydration = (
+  session: CommunitySession,
+  bootstrap: CommunityBootstrap,
+) => {
+  const definition = readCachedCommunityDefinition(session.communityPubkey) || bootstrap.definition
+  if (!definition) return
+
+  const relays = definition.relays.length
+    ? definition.relays
+    : getCommunityBootstrapRelays(session.communityRelayHints)
+  const viewerPubkey = normalizePubkey(pubkey.get() || "")
+  const keyPrefix = getCommunityPermissionStatusKeyPrefix(definition, relays, viewerPubkey)
+  const status = get(activeCommunityPermissionStatus)
+  const matchesCurrentViewerAndDefinition =
+    status.communityPubkey === definition.pubkey && status.key.startsWith(keyPrefix)
+
+  if (matchesCurrentViewerAndDefinition && (status.loading || status.complete)) return
+
+  const context = startCommunityPermissionLoadContext()
+
+  void loadCommunityPermissionEvents({definition, relays, context}).catch(() => undefined)
+}
+
 export const ensureCommunityBootstrap = async (
   session: CommunitySession,
   options: {key?: string; updateStatus?: boolean} = {},
@@ -2873,6 +3071,8 @@ export const ensureCommunityBootstrap = async (
   const completed = completedCommunityBootstrap.get(key)
 
   if (completed) {
+    ensureCompletedCommunityPermissionHydration(session, completed)
+
     if (updateStatus) {
       // Always overwrite the status when we hit a completed cache entry so a
       // ghost `error` from a previous failed attempt cannot linger and
@@ -2884,6 +3084,8 @@ export const ensureCommunityBootstrap = async (
 
   const existing = communityBootstrapPromises.get(key)
   if (existing) {
+    const generation = communityBootstrapPromiseGenerations.get(key)
+
     if (!updateStatus) return existing
 
     // Reset the error field when we start following an existing in-flight
@@ -2892,14 +3094,20 @@ export const ensureCommunityBootstrap = async (
 
     return existing
       .then(bootstrap => {
-        if (get(activeCommunityBootstrapStatus).key === key) {
+        if (
+          communityBootstrapPromiseGenerations.get(key) === generation &&
+          get(activeCommunityBootstrapStatus).key === key
+        ) {
           activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
         }
 
         return bootstrap
       })
       .catch(error => {
-        if (get(activeCommunityBootstrapStatus).key === key) {
+        if (
+          communityBootstrapPromiseGenerations.get(key) === generation &&
+          get(activeCommunityBootstrapStatus).key === key
+        ) {
           activeCommunityBootstrapStatus.set({
             key,
             loading: false,
@@ -2911,6 +3119,9 @@ export const ensureCommunityBootstrap = async (
         throw error
       })
   }
+
+  const generation = ++communityBootstrapGeneration
+  communityBootstrapPromiseGenerations.set(key, generation)
 
   if (updateStatus) {
     // Clear any prior error from a different key before we start a fresh
@@ -2926,14 +3137,22 @@ export const ensureCommunityBootstrap = async (
       if (cacheVersion === communityBootstrapCacheVersion) {
         completedCommunityBootstrap.set(key, bootstrap)
       }
-      if (updateStatus && get(activeCommunityBootstrapStatus).key === key) {
+      if (
+        updateStatus &&
+        communityBootstrapPromiseGenerations.get(key) === generation &&
+        get(activeCommunityBootstrapStatus).key === key
+      ) {
         activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
       }
 
       return bootstrap
     })
     .catch(error => {
-      if (updateStatus && get(activeCommunityBootstrapStatus).key === key) {
+      if (
+        updateStatus &&
+        communityBootstrapPromiseGenerations.get(key) === generation &&
+        get(activeCommunityBootstrapStatus).key === key
+      ) {
         activeCommunityBootstrapStatus.set({
           key,
           loading: false,
@@ -2951,4 +3170,39 @@ export const ensureCommunityBootstrap = async (
   communityBootstrapPromises.set(key, promise)
 
   return promise
+}
+
+export const recoverCommunityBootstrap = async (
+  session: CommunitySession,
+  options: {
+    recoverAuth?: boolean
+    authTimeout?: number
+    updateStatus?: boolean
+  } = {},
+) => {
+  const viewerPubkey = normalizePubkey(pubkey.get() || "")
+  const isCurrentRecovery = () =>
+    get(activeCommunitySession)?.communityPubkey === session.communityPubkey &&
+    normalizePubkey(pubkey.get() || "") === viewerPubkey
+
+  if (!isCurrentRecovery()) throw new Error("Community recovery was superseded")
+
+  clearCommunityBootstrapCache(session.communityPubkey)
+  startCommunityPermissionLoadContext()
+
+  if (options.recoverAuth && get(pubkey)) {
+    const definition = readCachedCommunityDefinition(session.communityPubkey)
+    const relays = normalizeRelays([...(definition?.relays || []), ...session.communityRelayHints])
+
+    await Promise.allSettled(
+      relays.map(relay => recoverCommunityRelayAuth(relay, {timeout: options.authTimeout})),
+    )
+  }
+
+  if (!isCurrentRecovery()) throw new Error("Community recovery was superseded")
+
+  return ensureCommunityBootstrap(session, {
+    key: getCommunityBootstrapKey(session, pubkey.get() || ""),
+    updateStatus: options.updateStatus,
+  })
 }

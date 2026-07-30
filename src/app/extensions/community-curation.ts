@@ -27,6 +27,7 @@ import {
   getCommunityTargetWriterPubkeys,
   getCommunityWriteTargetSections,
 } from "@app/core/community-permissions"
+import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 import {parseSmartWidget} from "@app/extensions/registry"
 import type {SmartWidgetEvent} from "@app/extensions/types"
 import {recordCommunityWidgetRecommendationContext} from "./recommendation-context"
@@ -42,6 +43,10 @@ export type CommunityCuratedExtensionsResult = {
   relayHints: string[]
   trustedWidgetAuthorPubkeys: string[]
   widgets: SmartWidgetEvent[]
+}
+
+export type CommunityCuratedExtensionsLoadOptions = {
+  priority?: number
 }
 
 const dedupeEvents = (events: TrustedEvent[]) =>
@@ -173,6 +178,7 @@ const getWidgetProfileListOwnerPubkeys = (definition: CommunityDefinition) =>
 
 export const loadCommunityCuratedWidgets = async (
   input: string,
+  {priority = RELAY_REQUEST_PRIORITY.interactive}: CommunityCuratedExtensionsLoadOptions = {},
 ): Promise<CommunityCuratedExtensionsResult> => {
   const parsed = parseCommunityInput(input)
 
@@ -190,7 +196,7 @@ export const loadCommunityCuratedWidgets = async (
   const definitionResult = await loadCurationEvents(
     getCommunityBootstrapRelays(parsed.relays),
     [makeCommunityDefinitionFilter(parsed.pubkey)],
-    {authenticate: true},
+    {authenticate: true, priority},
   )
   const definitionEvents = definitionResult.events
   const definition = selectLatestCommunityDefinition(definitionEvents, parsed.pubkey)
@@ -236,11 +242,12 @@ export const loadCommunityCuratedWidgets = async (
   const profileListPromise = loadCurationEvents(
     communityRelays,
     profileListFilters,
-    {authenticate: true},
+    {authenticate: true, priority},
     () => filtersCoveredByCache(profileListFilters),
   )
   const targetingPromise = loadCurationEvents(communityRelays, targetingFilters, {
     authenticate: true,
+    priority,
   })
   const [profileListResult, targetingResult] = await Promise.all([
     profileListPromise,
@@ -257,7 +264,12 @@ export const loadCommunityCuratedWidgets = async (
 
   const deleteFilters = makeTargetDeleteFilters(targetingEvents)
   const deleteResult = deleteFilters.length
-    ? await loadCurationEvents(communityRelays, deleteFilters, {authenticate: true}, () => false)
+    ? await loadCurationEvents(
+        communityRelays,
+        deleteFilters,
+        {authenticate: true, priority},
+        () => false,
+      )
     : {events: [], complete: true, timedOutRelays: [], failedRelays: []}
   const targetDeleteEvents = deleteResult.events
   const deletedTargetIds = getDeletedTargetEventIds(targetingEvents, targetDeleteEvents)
@@ -332,7 +344,7 @@ export const loadCommunityCuratedWidgets = async (
   const widgetResult = await loadCurationEvents(
     widgetRelays,
     widgetFilters,
-    {authenticate: true, settle: "first-non-empty"},
+    {authenticate: true, priority, settle: "first-non-empty"},
     () => filtersCoveredByCache(widgetFilters),
   )
   const widgetEvents = widgetResult.events

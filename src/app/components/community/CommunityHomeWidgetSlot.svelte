@@ -4,6 +4,7 @@
   import {onDestroy, onMount} from "svelte"
   import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import {normalizePubkey} from "@app/core/community"
+  import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
@@ -46,7 +47,7 @@
   let forceNextLoad = false
   let lastForcedRefreshAt = 0
   let curatedWidgetsBaseKey = initialCurationInput
-    ? `${slotType}:${normalizePubkey(communityPubkey)}`
+    ? `${slotType}:${normalizePubkey(communityPubkey)}:${normalizePubkey($pubkey || "")}`
     : ""
   let lastLoadReadinessKey = ""
   let curationRetryTimer: ReturnType<typeof setTimeout> | undefined
@@ -88,8 +89,8 @@
       : ""
   })
   const cachedCommunitySharedConfigEvents = $derived.by(() => {
-    communityReadinessKey
-    loadRefreshNonce
+    void communityReadinessKey
+    void loadRefreshNonce
 
     try {
       return repository.query([{kinds: [COMMUNITY_SHARED_CONFIG_KIND], limit: 200}] as any)
@@ -231,6 +232,7 @@
       ],
       {
         authenticate: true,
+        priority: RELAY_REQUEST_PRIORITY.interactive,
         priorityAuthRelays: relayHints,
         settle: "first-non-empty",
         timeout: 3_000,
@@ -250,10 +252,10 @@
   })
 
   $effect(() => {
-    loadRefreshNonce
+    void loadRefreshNonce
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
     const baseKey = input
-      ? `${slotType}:${normalizePubkey(communityPubkey)}:${relayHints.slice().sort().join(",")}`
+      ? `${slotType}:${normalizePubkey(communityPubkey)}:${normalizePubkey($pubkey || "")}:${relayHints.slice().sort().join(",")}`
       : ""
     const readinessKey = communityReadinessKey
     const key = baseKey ? `${baseKey}:${readinessKey}` : ""
@@ -293,7 +295,10 @@
       force,
     })
 
-    loadCachedCommunityCuratedWidgets(input, {force})
+    loadCachedCommunityCuratedWidgets(input, {
+      force,
+      priority: RELAY_REQUEST_PRIORITY.interactive,
+    })
       .then(result => {
         if (requestId !== loadRequestId || key !== loadKey) {
           logCommunityWidgetDebug("home slot discarded stale curated widgets result", {

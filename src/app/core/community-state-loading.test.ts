@@ -10,7 +10,7 @@ import {
   type Socket,
 } from "@welshman/net"
 import {type Filter, type TrustedEvent} from "@welshman/util"
-import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
+import {COMMUNITY_DEFINITION_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND} from "./community"
 
 const {
   forceLoadRelayMock,
@@ -85,10 +85,14 @@ vi.mock("@welshman/router", async importOriginal => {
 
 import {
   activeCommunityDefinition,
+  activeCommunityBootstrapStatus,
   activeCommunityPermissionStatus,
+  activeCommunitySession,
   activePreferredCommunities,
   authenticateCommunityRelays,
   clearActiveCommunity,
+  clearCommunityBootstrapCache,
+  ensureCommunityBootstrap,
   hasCommunityHydrationCompleted,
   hydrateCommunityEventsWithStatus,
   hydrateCommunityPreferences,
@@ -96,8 +100,11 @@ import {
   loadCommunityBootstrap,
   loadCommunityEvents,
   loadCommunityEventsWithStatus,
+  recoverCommunityRelayAuth,
+  recoverCommunityBootstrap,
   RelayAuthenticationTimeoutError,
   waitForCommunityRelayAuth,
+  setActiveCommunityInput,
 } from "./community-state"
 
 const communityPubkey = "a".repeat(64)
@@ -145,6 +152,13 @@ const profileListEvent = makeEvent({
     ["d", "General"],
     ["p", memberPubkey],
   ],
+})
+
+const admissionFormEvent = makeEvent({
+  id: "admission-form",
+  kind: FORM_TEMPLATE_KIND,
+  pubkey: listPubkey,
+  tags: [["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:`]],
 })
 
 const singleRelayDefinitionEvent = makeEvent({
@@ -259,11 +273,15 @@ const removeTestEvents = () => {
     singleRelayDefinitionEvent,
     requiredRelayDefinitionEvent,
     profileListEvent,
+    admissionFormEvent,
     moderatorDefinitionEvent,
     moderatorProfileListEvent,
   ]) {
     repository.removeEvent(event.id)
   }
+  repository.removeEvent("definition-newer")
+  repository.removeEvent("general-list-newer")
+  repository.removeEvent("other-definition")
 }
 
 describe("community relay loading", () => {
@@ -298,6 +316,7 @@ describe("community relay loading", () => {
 
   afterEach(async () => {
     await vi.runOnlyPendingTimersAsync()
+    await flushPromises(30)
     for (const socket of socketByRelay.values()) socket.cleanup()
     vi.useRealTimers()
     removeTestEvents()
@@ -496,6 +515,24 @@ describe("community relay loading", () => {
     expect(socketByRelay.has(publicRelay)).toBe(false)
   })
 
+  it("derives relay auth errors without starting authentication", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    const attemptAuth = vi.spyOn(socket.auth, "attemptAuth")
+    const {deriveRelayAuthError} = await import("./state")
+    let authError: string | undefined
+    const unsubscribe = deriveRelayAuthError(requiredRelay).subscribe(error => {
+      authError = error
+    })
+
+    socket.auth.details = "restricted: denied"
+    socket.auth.setStatus(AuthStatus.Forbidden)
+    await flushPromises()
+
+    expect(authError).toBe("denied")
+    expect(attemptAuth).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it("shares one in-flight authentication attempt per relay socket", async () => {
     let releaseSignature: (event: Record<string, unknown>) => void = () => {}
     const socket = getRelaySocket(requiredRelay)
@@ -529,6 +566,86 @@ describe("community relay loading", () => {
 
     await expect(authenticateCommunityRelays([requiredRelay])).resolves.toEqual([requiredRelay])
     expect(socket.auth.status).toBe(AuthStatus.DeniedSignature)
+  })
+
+  it("explicitly retries a denied signature for the same challenge", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    pubkey.set(memberPubkey)
+    signMock.mockRejectedValueOnce(new Error("User rejected signing"))
+    sendAuthChallenge(socket, "same-challenge")
+    await expect(authenticateCommunityRelays([requiredRelay])).resolves.toEqual([requiredRelay])
+
+    const retryAuth = vi.spyOn(socket.auth, "retryAuth")
+    signMock.mockImplementation(async event => makeAuthEvent(event))
+    const retried = recoverCommunityRelayAuth(requiredRelay)
+    await flushPromises()
+    acceptAuth(socket)
+
+    await expect(retried).resolves.toBeUndefined()
+    expect(retryAuth).toHaveBeenCalledOnce()
+    expect(signMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("explicitly retries a challenged optional relay", async () => {
+    const socket = getRelaySocket(relayA)
+    pubkey.set(memberPubkey)
+    sendAuthChallenge(socket, "optional-challenge")
+    socket.auth.setStatus(AuthStatus.DeniedSignature)
+    const retryAuth = vi.spyOn(socket.auth, "retryAuth")
+    signMock.mockImplementation(async event => makeAuthEvent(event))
+
+    const retried = recoverCommunityRelayAuth(relayA)
+    await flushPromises()
+    acceptAuth(socket)
+
+    await expect(retried).resolves.toBeUndefined()
+    expect(retryAuth).toHaveBeenCalledOnce()
+    expect(signMock).toHaveBeenCalledOnce()
+  })
+
+  it("does not retry relay auth after a forbidden response", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    const retryAuth = vi.spyOn(socket.auth, "retryAuth")
+    pubkey.set(memberPubkey)
+    socket.auth.setStatus(AuthStatus.Forbidden)
+
+    await expect(recoverCommunityRelayAuth(requiredRelay)).rejects.toThrow("Authentication failed")
+    expect(retryAuth).not.toHaveBeenCalled()
+    expect(signMock).not.toHaveBeenCalled()
+  })
+
+  it("does not overwrite bootstrap status when recovery is superseded", async () => {
+    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    const otherCommunityPubkey = "f".repeat(64)
+    const socket = getRelaySocket(requiredRelay)
+    repository.publish(requiredRelayDefinitionEvent)
+    setActiveCommunityInput(communityPubkey)
+    pubkey.set(memberPubkey)
+    signMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releaseSignature = resolve
+        }),
+    )
+    sendAuthChallenge(socket)
+
+    const recovery = recoverCommunityBootstrap(
+      {communityPubkey, communityRelayHints: [requiredRelay]},
+      {recoverAuth: true, authTimeout: 1000},
+    )
+    await flushPromises()
+    setActiveCommunityInput(otherCommunityPubkey)
+    activeCommunityBootstrapStatus.set({
+      key: `:${otherCommunityPubkey}:`,
+      loading: true,
+      loaded: false,
+    })
+    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    await flushPromises()
+    acceptAuth(socket)
+
+    await expect(recovery).rejects.toThrow("superseded")
+    expect(get(activeCommunityBootstrapStatus).key).toBe(`:${otherCommunityPubkey}:`)
   })
 
   it("can retry authentication after a new challenge", async () => {
@@ -565,6 +682,56 @@ describe("community relay loading", () => {
     expect(result.complete).toBe(false)
     expect(result.failedRelays).toEqual([requiredRelay])
     expect(loadMock.mock.calls.map(([options]) => options.relays[0])).toEqual([publicRelay])
+  })
+
+  it("forwards a dedicated auth wait timeout from relay loads", async () => {
+    const socket = getRelaySocket(requiredRelay)
+    pubkey.set(memberPubkey)
+    signMock.mockReturnValue(new Promise(() => undefined))
+    sendAuthChallenge(socket)
+
+    const pending = loadCommunityEventsWithStatus([requiredRelay], [{kinds: [PROFILE_LIST_KIND]}], {
+      authenticate: true,
+      authTimeout: 100,
+      timeout: 1000,
+    })
+    await vi.advanceTimersByTimeAsync(100)
+
+    await expect(pending).resolves.toMatchObject({
+      complete: false,
+      failedRelays: [requiredRelay],
+    })
+    expect(loadMock).not.toHaveBeenCalled()
+  })
+
+  it("explicitly recovers when a timed-out pending signature later fails", async () => {
+    let rejectInitialSignature: (error: Error) => void = () => {}
+    const socket = getRelaySocket(requiredRelay)
+    pubkey.set(memberPubkey)
+    signMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectInitialSignature = reject
+          }),
+      )
+      .mockImplementation(async event => makeAuthEvent(event))
+    sendAuthChallenge(socket)
+
+    const initial = authenticateCommunityRelays([requiredRelay], {timeout: 100})
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(initial).resolves.toEqual([requiredRelay])
+    expect(socket.auth.status).toBe(AuthStatus.PendingSignature)
+
+    const retryAuth = vi.spyOn(socket.auth, "retryAuth")
+    const recovery = recoverCommunityRelayAuth(requiredRelay, {timeout: 1000})
+    rejectInitialSignature(new Error("Initial bunker request expired"))
+    await flushPromises()
+    acceptAuth(socket)
+
+    await expect(recovery).resolves.toBeUndefined()
+    expect(retryAuth).toHaveBeenCalledOnce()
+    expect(signMock).toHaveBeenCalledTimes(2)
   })
 
   it("falls back to hydrated community outbox relays when discovery misses", async () => {
@@ -694,6 +861,7 @@ describe("community relay loading", () => {
       if (relays[0] !== relayA) return Promise.resolve([])
       if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) return Promise.resolve([definitionEvent])
       if (hasKind(filters, PROFILE_LIST_KIND)) return Promise.resolve([profileListEvent])
+      if (hasKind(filters, FORM_TEMPLATE_KIND)) return Promise.resolve([admissionFormEvent])
 
       return Promise.resolve([])
     })
@@ -709,6 +877,105 @@ describe("community relay loading", () => {
     expect(get(activeCommunityPermissionStatus)).toMatchObject({
       loaded: true,
       complete: false,
+      hasCachedEvents: true,
+    })
+  })
+
+  it("keeps newer viewer and generation permission status when older loads finish later", async () => {
+    let resolveGuestLoad: (events: TrustedEvent[]) => void = () => {}
+    let resolveSignerLoad: (events: TrustedEvent[]) => void = () => {}
+    let resolveNewestSignerLoad: (events: TrustedEvent[]) => void = () => {}
+    let profileLoadCount = 0
+    const guestLoad = new Promise<TrustedEvent[]>(resolve => {
+      resolveGuestLoad = resolve
+    })
+    const signerLoad = new Promise<TrustedEvent[]>(resolve => {
+      resolveSignerLoad = resolve
+    })
+    const newestSignerLoad = new Promise<TrustedEvent[]>(resolve => {
+      resolveNewestSignerLoad = resolve
+    })
+
+    repository.publish(singleRelayDefinitionEvent)
+    loadMock.mockImplementation(({filters}: {filters: Filter[]}) => {
+      if (hasKind(filters, PROFILE_LIST_KIND)) {
+        profileLoadCount += 1
+        return [guestLoad, signerLoad, newestSignerLoad][profileLoadCount - 1]
+      }
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([singleRelayDefinitionEvent])
+      }
+      if (hasKind(filters, FORM_TEMPLATE_KIND)) return Promise.resolve([admissionFormEvent])
+
+      return Promise.resolve([])
+    })
+
+    await loadCommunityBootstrap({communityPubkey, communityRelayHints: [relayA]})
+    pubkey.set(memberPubkey)
+    await loadCommunityBootstrap({communityPubkey, communityRelayHints: [relayA]})
+    const olderSignerStatusKey = get(activeCommunityPermissionStatus).key
+    await loadCommunityBootstrap({communityPubkey, communityRelayHints: [relayA]})
+
+    const signerStatusKey = get(activeCommunityPermissionStatus).key
+    expect(signerStatusKey.startsWith(`${memberPubkey}:`)).toBe(true)
+    expect(signerStatusKey).not.toBe(olderSignerStatusKey)
+
+    resolveNewestSignerLoad([profileListEvent])
+    await flushPromises()
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({
+      key: signerStatusKey,
+      loaded: true,
+      complete: true,
+      hasCachedEvents: true,
+    })
+
+    resolveSignerLoad([])
+    resolveGuestLoad([])
+    await flushPromises()
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({
+      key: signerStatusKey,
+      loaded: true,
+      complete: true,
+      hasCachedEvents: true,
+    })
+  })
+
+  it("refreshes incomplete permissions when a completed bootstrap is cached", async () => {
+    const session = {communityPubkey, communityRelayHints: [relayA]}
+    let profileLoadCount = 0
+
+    clearCommunityBootstrapCache(communityPubkey)
+    repository.publish(singleRelayDefinitionEvent)
+    loadMock.mockImplementation(({filters, onClosed}: any) => {
+      if (hasKind(filters, PROFILE_LIST_KIND)) {
+        profileLoadCount += 1
+        if (profileLoadCount === 1) {
+          onClosed?.("restricted: denied", relayA)
+          return Promise.resolve([])
+        }
+
+        return Promise.resolve([profileListEvent])
+      }
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([singleRelayDefinitionEvent])
+      }
+      if (hasKind(filters, FORM_TEMPLATE_KIND)) return Promise.resolve([admissionFormEvent])
+
+      return Promise.resolve([])
+    })
+
+    await ensureCommunityBootstrap(session)
+    await flushPromises()
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({loaded: true, complete: false})
+
+    await ensureCommunityBootstrap(session)
+    await flushPromises()
+
+    expect(profileLoadCount).toBe(2)
+    expect(get(activeCommunityPermissionStatus)).toMatchObject({
+      loaded: true,
+      complete: true,
+      hasCachedEvents: true,
     })
   })
 
@@ -750,6 +1017,61 @@ describe("community relay loading", () => {
       loaded: true,
       complete: true,
     })
+  })
+
+  it("does not reactivate a bootstrap after navigation changed communities", async () => {
+    const otherCommunityPubkey = "f".repeat(64)
+    const otherDefinition = makeEvent({
+      id: "other-definition",
+      kind: COMMUNITY_DEFINITION_KIND,
+      pubkey: otherCommunityPubkey,
+      tags: [["r", relayA]],
+    })
+    repository.publish(singleRelayDefinitionEvent)
+    repository.publish(otherDefinition)
+    loadMock.mockResolvedValue([])
+
+    setActiveCommunityInput(communityPubkey)
+    const staleBootstrap = loadCommunityBootstrap({
+      communityPubkey,
+      communityRelayHints: [relayA],
+    })
+    setActiveCommunityInput(otherCommunityPubkey)
+    activeCommunityPermissionStatus.set({
+      communityPubkey: otherCommunityPubkey,
+      key: "other-permission-generation",
+      loading: false,
+      loaded: true,
+      complete: true,
+      hasCachedEvents: true,
+    })
+
+    await staleBootstrap
+    const activeCommunity = get(activeCommunitySession)?.communityPubkey
+    const activePermission = get(activeCommunityPermissionStatus)
+    repository.removeEvent(otherDefinition.id)
+
+    expect(activeCommunity).toBe(otherCommunityPubkey)
+    expect(activePermission).toMatchObject({
+      communityPubkey: otherCommunityPubkey,
+      key: "other-permission-generation",
+    })
+  })
+
+  it("does not reactivate a bootstrap after active community state is cleared", async () => {
+    repository.publish(singleRelayDefinitionEvent)
+    loadMock.mockResolvedValue([])
+    setActiveCommunityInput(communityPubkey)
+
+    const staleBootstrap = loadCommunityBootstrap({
+      communityPubkey,
+      communityRelayHints: [relayA],
+    })
+    clearActiveCommunity()
+    await staleBootstrap
+
+    expect(get(activeCommunitySession)).toBeUndefined()
+    expect(get(activeCommunityPermissionStatus).communityPubkey).toBe("")
   })
 
   it("waits for community relay auth before loading bootstrap content", async () => {
@@ -908,5 +1230,35 @@ describe("community relay loading", () => {
         isAdmin: true,
       }),
     )
+  })
+
+  it("hydrates permissions for a newer background definition", async () => {
+    const newerDefinition = makeEvent({
+      ...singleRelayDefinitionEvent,
+      id: "definition-newer",
+      created_at: singleRelayDefinitionEvent.created_at + 1,
+    })
+    const newerProfileList = makeEvent({...profileListEvent, id: "general-list-newer"})
+    repository.publish(singleRelayDefinitionEvent)
+    setActiveCommunityInput(communityPubkey)
+    loadMock.mockImplementation(({filters}: {filters: Filter[]}) => {
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) return Promise.resolve([newerDefinition])
+      if (hasKind(filters, PROFILE_LIST_KIND)) return Promise.resolve([newerProfileList])
+
+      return Promise.resolve([])
+    })
+
+    await loadCommunityBootstrap({communityPubkey, communityRelayHints: [relayA]})
+    await flushPromises(30)
+    const refreshedDefinitionIds = repository
+      .query([{ids: [newerDefinition.id]}])
+      .map(event => event.id)
+    const permissionStatus = get(activeCommunityPermissionStatus)
+    repository.removeEvent(newerDefinition.id)
+    repository.removeEvent(newerProfileList.id)
+
+    expect(refreshedDefinitionIds).toEqual([newerDefinition.id])
+    expect(permissionStatus.key).toContain(`:${newerDefinition.id}:`)
+    expect(permissionStatus).toMatchObject({loaded: true})
   })
 })

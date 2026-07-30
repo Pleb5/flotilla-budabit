@@ -1,4 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
+import {pubkey} from "@welshman/app"
+import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 import type {CommunityCuratedExtensionsResult} from "./community-curation"
 import {
   COMMUNITY_SHARED_CONFIG_KIND,
@@ -59,6 +61,7 @@ describe("community widget slots", () => {
     vi.useRealTimers()
     mocks.loadCommunityCuratedWidgets.mockReset()
     clearCommunityWidgetSlotCache()
+    pubkey.set(undefined)
   })
 
   it("selects installed and enabled widgets for a community slot", () => {
@@ -356,6 +359,61 @@ describe("community widget slots", () => {
     expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(1)
     resolveLoad(makeCuratedResult())
     await first
+  })
+
+  it("upgrades a pending background load for an interactive caller", async () => {
+    let resolveBackground: (result: CommunityCuratedExtensionsResult) => void = () => {}
+    let resolveInteractive: (result: CommunityCuratedExtensionsResult) => void = () => {}
+    const backgroundResult = new Promise<CommunityCuratedExtensionsResult>(resolve => {
+      resolveBackground = resolve
+    })
+    const interactiveResult = new Promise<CommunityCuratedExtensionsResult>(resolve => {
+      resolveInteractive = resolve
+    })
+    mocks.loadCommunityCuratedWidgets
+      .mockReturnValueOnce(backgroundResult)
+      .mockReturnValueOnce(interactiveResult)
+
+    const background = loadCachedCommunityCuratedWidgets("community-a", {
+      priority: RELAY_REQUEST_PRIORITY.background,
+    })
+    const interactive = loadCachedCommunityCuratedWidgets("community-a", {
+      priority: RELAY_REQUEST_PRIORITY.interactive,
+    })
+    const duplicateInteractive = loadCachedCommunityCuratedWidgets("community-a", {
+      priority: RELAY_REQUEST_PRIORITY.interactive,
+    })
+
+    expect(interactive).not.toBe(background)
+    expect(duplicateInteractive).toBe(interactive)
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenNthCalledWith(1, "community-a", {
+      priority: RELAY_REQUEST_PRIORITY.background,
+    })
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenNthCalledWith(2, "community-a", {
+      priority: RELAY_REQUEST_PRIORITY.interactive,
+    })
+
+    resolveBackground(makeCuratedResult())
+    resolveInteractive(makeCuratedResult())
+    await Promise.all([background, interactive])
+  })
+
+  it("isolates curated widget caches and snapshots by viewer", async () => {
+    const firstWidget = makeWidget("first-viewer")
+    const secondWidget = makeWidget("second-viewer")
+    mocks.loadCommunityCuratedWidgets
+      .mockResolvedValueOnce(makeCuratedResult([firstWidget]))
+      .mockResolvedValueOnce(makeCuratedResult([secondWidget]))
+
+    pubkey.set("1".repeat(64))
+    await loadCachedCommunityCuratedWidgets("community-a")
+    expect(getLastValidatedCommunityCuratedWidgets("community-a")).toEqual([firstWidget])
+
+    pubkey.set("2".repeat(64))
+    expect(getLastValidatedCommunityCuratedWidgets("community-a")).toEqual([])
+    await loadCachedCommunityCuratedWidgets("community-a")
+    expect(getLastValidatedCommunityCuratedWidgets("community-a")).toEqual([secondWidget])
+    expect(mocks.loadCommunityCuratedWidgets).toHaveBeenCalledTimes(2)
   })
 
   it("does not negative-cache incomplete empty results", async () => {

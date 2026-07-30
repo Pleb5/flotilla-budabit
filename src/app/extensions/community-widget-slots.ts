@@ -3,7 +3,9 @@ import {
   type CommunityCuratedExtensionsResult,
 } from "@app/extensions/community-curation"
 import {LRUCache} from "@welshman/lib"
+import {pubkey} from "@welshman/app"
 import {normalizePubkey, normalizeRelays, parseCommunityInput} from "@app/core/community"
+import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 import type {SmartWidgetEvent, WidgetCommunitySlotType} from "@app/extensions/types"
 import {logCommunityWidgetDebug} from "./community-widget-debug"
 import {getWidgetLineId} from "./widget-identity"
@@ -16,13 +18,15 @@ export const COMMUNITY_SHARED_CONFIG_PREFIX = "budabit-community-config"
 type CuratedWidgetLoad = ReturnType<typeof loadCommunityCuratedWidgets>
 type CuratedWidgetCacheEntry = {
   promise: CuratedWidgetLoad
+  priority: number
   settledAt?: number
   ttlMs?: number
 }
 
-type LoadCachedCommunityCuratedWidgetsOptions = {
+export type LoadCachedCommunityCuratedWidgetsOptions = {
   force?: boolean
   now?: number
+  priority?: number
 }
 
 // Bounded LRUs: entries hold full widget events and load promises, keyed by
@@ -30,20 +34,20 @@ type LoadCachedCommunityCuratedWidgetsOptions = {
 const curatedWidgetLoads = new LRUCache<string, CuratedWidgetCacheEntry>(32)
 const curatedWidgetSnapshots = new LRUCache<string, SmartWidgetEvent[]>(32)
 
-const getCurationCacheKey = (input: string) => {
+const getCurationCacheKey = (input: string, viewerPubkey: string) => {
   const trimmed = input.trim()
   const parsed = parseCommunityInput(trimmed)
 
   return parsed
-    ? `${normalizePubkey(parsed.pubkey)}:${normalizeRelays(parsed.relays).join(",")}`
-    : trimmed
+    ? `${normalizePubkey(viewerPubkey)}:${normalizePubkey(parsed.pubkey)}:${normalizeRelays(parsed.relays).join(",")}`
+    : `${normalizePubkey(viewerPubkey)}:${trimmed}`
 }
 
-const getCurationSnapshotKey = (input: string) => {
+const getCurationSnapshotKey = (input: string, viewerPubkey: string) => {
   const trimmed = input.trim()
   const parsed = parseCommunityInput(trimmed)
 
-  return parsed ? normalizePubkey(parsed.pubkey) : trimmed
+  return `${normalizePubkey(viewerPubkey)}:${parsed ? normalizePubkey(parsed.pubkey) : trimmed}`
 }
 
 const getCuratedWidgetResultTtl = (result: CommunityCuratedExtensionsResult | undefined) =>
@@ -56,23 +60,33 @@ const isFreshCacheEntry = (entry: CuratedWidgetCacheEntry, now: number) =>
 
 export const loadCachedCommunityCuratedWidgets = (
   input: string,
-  {force = false, now = Date.now()}: LoadCachedCommunityCuratedWidgetsOptions = {},
+  {
+    force = false,
+    now = Date.now(),
+    priority = RELAY_REQUEST_PRIORITY.interactive,
+  }: LoadCachedCommunityCuratedWidgetsOptions = {},
 ) => {
-  const key = getCurationCacheKey(input)
+  const viewerPubkey = normalizePubkey(pubkey.get() || "")
+  const key = getCurationCacheKey(input, viewerPubkey)
+  const snapshotKey = getCurationSnapshotKey(input, viewerPubkey)
   if (!key) return Promise.resolve(undefined)
 
   const existing = curatedWidgetLoads.get(key)
-  if (existing && existing.settledAt === undefined) return existing.promise
-  if (!force && existing && isFreshCacheEntry(existing, now)) return existing.promise
+  if (existing && existing.settledAt === undefined && existing.priority >= priority) {
+    return existing.promise
+  }
+  if (!force && existing?.settledAt !== undefined && isFreshCacheEntry(existing, now)) {
+    return existing.promise
+  }
 
-  const pending = loadCommunityCuratedWidgets(input.trim())
+  const pending = loadCommunityCuratedWidgets(input.trim(), {priority})
     .then(result => {
       const entry = curatedWidgetLoads.get(key)
       if (entry?.promise === pending) {
         if (result?.status === "community" && result.widgets.length > 0) {
-          curatedWidgetSnapshots.set(getCurationSnapshotKey(input), result.widgets)
+          curatedWidgetSnapshots.set(snapshotKey, result.widgets)
         } else if (result?.complete) {
-          curatedWidgetSnapshots.pop(getCurationSnapshotKey(input))
+          curatedWidgetSnapshots.pop(snapshotKey)
         }
 
         if (!result?.complete) {
@@ -90,7 +104,7 @@ export const loadCachedCommunityCuratedWidgets = (
       if (curatedWidgetLoads.get(key)?.promise === pending) curatedWidgetLoads.pop(key)
       throw error
     })
-  curatedWidgetLoads.set(key, {promise: pending})
+  curatedWidgetLoads.set(key, {promise: pending, priority})
 
   return pending
 }
@@ -105,9 +119,10 @@ export const clearCommunityWidgetSlotCache = () => {
   clearLRUCache(curatedWidgetSnapshots)
 }
 
-export const getLastValidatedCommunityCuratedWidgets = (input: string) => [
-  ...(curatedWidgetSnapshots.get(getCurationSnapshotKey(input)) || []),
-]
+export const getLastValidatedCommunityCuratedWidgets = (
+  input: string,
+  viewerPubkey = pubkey.get() || "",
+) => [...(curatedWidgetSnapshots.get(getCurationSnapshotKey(input, viewerPubkey)) || [])]
 
 export const shouldPreserveCuratedWidgetView = (
   currentWidgets: SmartWidgetEvent[],

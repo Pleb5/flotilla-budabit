@@ -7,6 +7,7 @@ import {
   buildTargetedPublication,
 } from "@app/core/community"
 import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
+import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 
 const mocks = vi.hoisted(() => ({
   loadCommunityEventsWithStatus: vi.fn(),
@@ -92,6 +93,35 @@ describe("community curated widgets", () => {
   beforeEach(() => {
     mocks.loadCommunityEventsWithStatus.mockReset()
     clearCommunityWidgetRecommendationContexts()
+  })
+
+  it("uses interactive priority by default and forwards an explicit priority", async () => {
+    const definition = makeEvent({
+      id: "community-definition",
+      pubkey: communityPubkey,
+      kind: COMMUNITY_DEFINITION_KIND,
+      tags: [],
+    })
+    mocks.loadCommunityEventsWithStatus.mockResolvedValue(loadResult([definition]))
+
+    await loadCommunityCuratedWidgets(communityPubkey)
+
+    expect(mocks.loadCommunityEventsWithStatus).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.any(Array),
+      expect.objectContaining({priority: RELAY_REQUEST_PRIORITY.interactive}),
+    )
+
+    mocks.loadCommunityEventsWithStatus.mockClear()
+    await loadCommunityCuratedWidgets(communityPubkey, {
+      priority: RELAY_REQUEST_PRIORITY.background,
+    })
+
+    expect(mocks.loadCommunityEventsWithStatus).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.any(Array),
+      expect.objectContaining({priority: RELAY_REQUEST_PRIORITY.background}),
+    )
   })
 
   it("loads only widgets targeted by valid, undeleted community writers", async () => {

@@ -141,9 +141,9 @@
   }
 
   $effect(() => {
-    loadRefreshNonce
+    void loadRefreshNonce
     const input = makeCommunityInputValue({pubkey: communityPubkey, relayHints})
-    const key = input ? `${slotType}:${input}` : ""
+    const key = input ? `${normalizePubkey($pubkey || "")}:${slotType}:${input}` : ""
 
     if (!key || !input) {
       curatedWidgets = []
@@ -154,6 +154,7 @@
 
     if (key === loadKey) return
     loadKey = key
+    curatedWidgets = []
     const force = forceNextLoad
     forceNextLoad = false
     const requestId = ++loadRequestId
@@ -210,7 +211,7 @@
   <div class={containerClass} data-widget-slot={slotType}>
     {#each slotWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
-      <button class={buttonClass} title={title} aria-label={title} onclick={() => openWidget(widget)}>
+      <button class={buttonClass} {title} aria-label={title} onclick={() => openWidget(widget)}>
         {#if widget.iconUrl || widget.imageUrl}
           <img
             src={widget.iconUrl || widget.imageUrl}

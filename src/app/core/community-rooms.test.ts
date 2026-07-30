@@ -9,6 +9,7 @@ import {
   isCommunityRoomArchived,
   makeCommunityRoomArchiveLabel,
   makeCommunityRoomRoot,
+  isCommunityRoomLookupIncomplete,
   readCommunityRoomRoot,
   readCommunityRoomRoots,
 } from "./community-rooms"
@@ -31,6 +32,28 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   }) as TrustedEvent
 
 describe("community room helpers", () => {
+  it("suppresses stale lookup failures after a room resolves", () => {
+    expect(
+      isCommunityRoomLookupIncomplete({
+        roomFound: true,
+        bootstrapFailed: false,
+        permissionEvidenceIncomplete: true,
+        loadStatus: "failed",
+      }),
+    ).toBe(false)
+  })
+
+  it("preserves lookup failures while the room is still missing", () => {
+    expect(
+      isCommunityRoomLookupIncomplete({
+        roomFound: false,
+        bootstrapFailed: false,
+        permissionEvidenceIncomplete: false,
+        loadStatus: "incomplete",
+      }),
+    ).toBe(true)
+  })
+
   it("builds immutable room root content", () => {
     expect(makeCommunityRoomRoot({communityPubkey, name: "General", about: "Main room"})).toEqual({
       content: "Main room",

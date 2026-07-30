@@ -54,6 +54,7 @@
   import AppUpdateNotice from "@app/components/AppUpdateNotice.svelte"
   import {syncApplicationData, syncGitData} from "@app/core/sync"
   import {setupChiiDevInjection} from "@app/util/chii-dev"
+  import {setupActiveNip46ReceiverResumeRecovery} from "@app/util/nip46"
   import {setupBudabitNotifications} from "@app/util/notifications"
   import {setupRepoWatchNotifications} from "@app/util/repo-watch-notifications"
   import {ExtensionProvider} from "@src/app/extensions"
@@ -82,7 +83,6 @@
     getCommunityAuthWarmupRelays,
     getCommunityBootstrapKey,
     hydrateCommunityPreferences,
-    hydratePreferredCommunities,
     hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
@@ -165,6 +165,8 @@
   let notificationBackgroundStarted = false
   let notificationBackgroundUnsubscribers: Array<() => void> = []
   let communityAuthWarmupKey = ""
+  let builtinExtensionInstallFrame: number | null = null
+  let builtinExtensionInstallCancelled = false
 
   // Add stuff to window for convenience. Dev-only so production stays tree-shakeable.
   if (dev) {
@@ -393,10 +395,9 @@
       })
   })
 
-  // Auto-install and enable built-in extensions
+  // Browser integrations that do not depend on persisted startup state.
   if (browser) {
     setupChiiDevInjection()
-    installBuiltinExtensions()
     registerCashuBridgeHandlers(CashuPayConfirm)
   }
 
@@ -1001,6 +1002,7 @@
         storage: sessionsStorage,
       }),
     ])
+    unsubscribers.push(setupActiveNip46ReceiverResumeRecovery())
 
     // Set up our storage adapters
     db.adapters = storageAdapters
@@ -1142,9 +1144,30 @@
     return () => unsubscribers.forEach(call)
   })
 
+  if (browser) {
+    void unsubscribe.then(() => {
+      if (builtinExtensionInstallCancelled) return
+
+      // Let the child route mount and begin its community bootstrap before
+      // built-in widgets issue any background relay requests.
+      builtinExtensionInstallFrame = requestAnimationFrame(() => {
+        if (builtinExtensionInstallCancelled) return
+
+        builtinExtensionInstallFrame = null
+        installBuiltinExtensions()
+      })
+    })
+  }
+
   // Cleanup on hot reload
   import.meta.hot?.dispose(() => {
+    builtinExtensionInstallCancelled = true
     unsubscribe.then(call)
+
+    if (builtinExtensionInstallFrame !== null) {
+      cancelAnimationFrame(builtinExtensionInstallFrame)
+      builtinExtensionInstallFrame = null
+    }
     uninstallSocketPolicies()
     uninstallRelayRequestPolicy()
     uninstallRelayDiagnostics()

@@ -17,6 +17,23 @@ export type CommunityRoomRoot = {
   creatorPubkey: string
 }
 
+export const isCommunityRoomLookupIncomplete = ({
+  roomFound,
+  bootstrapFailed,
+  permissionEvidenceIncomplete,
+  loadStatus,
+}: {
+  roomFound: boolean
+  bootstrapFailed: boolean
+  permissionEvidenceIncomplete: boolean
+  loadStatus: string
+}) =>
+  !roomFound &&
+  (bootstrapFailed ||
+    permissionEvidenceIncomplete ||
+    loadStatus === "incomplete" ||
+    loadStatus === "failed")
+
 export const makeCommunityRoomRoot = ({
   communityPubkey,
   name,
@@ -29,7 +46,12 @@ export const makeCommunityRoomRoot = ({
   tags?: string[][]
 }): EventContent => ({
   content: about,
-  tags: [["h", normalizePubkey(communityPubkey)], [COMMUNITY_SUBTYPE_ROOM], ["title", name], ...tags],
+  tags: [
+    ["h", normalizePubkey(communityPubkey)],
+    [COMMUNITY_SUBTYPE_ROOM],
+    ["title", name],
+    ...tags,
+  ],
 })
 
 export const readCommunityRoomRoot = (

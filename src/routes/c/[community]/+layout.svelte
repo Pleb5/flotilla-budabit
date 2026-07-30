@@ -34,13 +34,14 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
     activeCommunityReportState,
+    activeCommunitySession,
     ensureCommunityBootstrap,
     getCommunityBootstrapKey,
     hydrateCommunityEventsWithStatus,
     makeCommunitySession,
     setActiveCommunityInput,
   } from "@app/core/community-state"
-  import {FORM_RESPONSE_KIND, parseTargetedPublication} from "@app/core/community"
+  import {FORM_RESPONSE_KIND, normalizePubkey, parseTargetedPublication} from "@app/core/community"
   import {canWriteCommunityTarget} from "@app/core/community-permissions"
   import {
     COMMUNITY_EXCLUSIVE_KINDS,
@@ -105,6 +106,7 @@
   let authRelayUrl = $state("")
   let relayAuthError = $state("")
   let shownAuthErrorKey = $state("")
+  let communityDefinitionPermissionRefreshKey = ""
   // Per-relay subscriptions so the community live stream expands additively
   // when new relays are discovered instead of tearing down existing streams.
   let communityLiveFiltersKey = ""
@@ -273,6 +275,45 @@
     }
 
     load()
+  })
+
+  // A definition can also arrive through the live subscription after bootstrap.
+  // Refresh its permission filters before route catalogs use the new definition.
+  $effect(() => {
+    const definition = $activeCommunityDefinition
+    const session = $activeCommunitySession
+    const viewer = normalizePubkey($pubkey || "")
+    const bootstrapKey = session ? getCommunityBootstrapKey(session, viewer) : ""
+    const permissionPrefix = definition ? `${viewer}:${definition.event.id}:` : ""
+    const key = definition && session ? `${bootstrapKey}:${definition.event.id}` : ""
+
+    if (
+      !definition ||
+      !session ||
+      definition.pubkey !== session.communityPubkey ||
+      $activeCommunityBootstrapStatus.key !== bootstrapKey ||
+      !$activeCommunityBootstrapStatus.loaded ||
+      $activeCommunityBootstrapStatus.loading
+    ) {
+      if (!key) communityDefinitionPermissionRefreshKey = ""
+      return
+    }
+
+    if ($activeCommunityPermissionStatus.key.startsWith(permissionPrefix)) {
+      communityDefinitionPermissionRefreshKey = ""
+      return
+    }
+
+    if (communityDefinitionPermissionRefreshKey === key) return
+    communityDefinitionPermissionRefreshKey = key
+    void ensureCommunityBootstrap(session, {key: bootstrapKey, updateStatus: false}).catch(
+      error => {
+        if (communityDefinitionPermissionRefreshKey === key) {
+          communityDefinitionPermissionRefreshKey = ""
+        }
+        console.warn("[community] Failed to refresh permissions for updated definition", error)
+      },
+    )
   })
 
   $effect.pre(() => {

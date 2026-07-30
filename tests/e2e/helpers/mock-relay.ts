@@ -94,6 +94,8 @@ export interface MockRelayOptions {
   interceptUrls?: string[]
   /** Simulated network latency in ms (default: 10) */
   latency?: number
+  /** Optional response latency override when a subscription includes a kind */
+  responseLatencyByKind?: Record<number, number>
 }
 
 /**
@@ -111,6 +113,7 @@ export class MockRelay {
   private debug: boolean = false
   private interceptUrls: string[] = []
   private latency: number = 10
+  private responseLatencyByKind: Record<number, number> = {}
   private eventWaiters: Map<
     number,
     {resolve: (event: NostrEvent) => void; reject: (error: Error) => void}[]
@@ -139,6 +142,9 @@ export class MockRelay {
     }
     if (options?.latency !== undefined) {
       this.latency = options.latency
+    }
+    if (options?.responseLatencyByKind) {
+      this.responseLatencyByKind = {...options.responseLatencyByKind}
     }
   }
 
@@ -171,6 +177,12 @@ export class MockRelay {
     if (options?.latency !== undefined) {
       this.latency = options.latency
     }
+    if (options?.responseLatencyByKind) {
+      this.responseLatencyByKind = {
+        ...this.responseLatencyByKind,
+        ...options.responseLatencyByKind,
+      }
+    }
 
     this.page = page
     this.isSetup = true
@@ -194,7 +206,7 @@ export class MockRelay {
 
     // Inject the mock WebSocket before any scripts run
     await page.addInitScript(
-      ({seedEvents, seedEventsByRelay, debug, interceptUrls, latency}) => {
+      ({seedEvents, seedEventsByRelay, debug, interceptUrls, latency, responseLatencyByKind}) => {
         // Store original WebSocket
         const OriginalWebSocket = window.WebSocket
 
@@ -329,8 +341,17 @@ export class MockRelay {
               }
             ).__mockRelaySubscribe?.(subId, filters)
 
+            const responseLatency = Math.max(
+              latency,
+              ...filters.flatMap(filter =>
+                (filter.kinds || []).map(kind => responseLatencyByKind[kind] || latency),
+              ),
+            )
+
             // Send matching events from seed data
             setTimeout(() => {
+              if (!this.subscriptions.has(subId)) return
+
               const availableEvents = [...seedEvents, ...(seedEventsByRelay[this.url] || [])]
               const matchingEvents = availableEvents.filter((event: NostrEvent) =>
                 this.eventMatchesFilters(event, filters),
@@ -342,7 +363,7 @@ export class MockRelay {
 
               // Send EOSE (End of Stored Events)
               this.sendMessage(["EOSE", subId])
-            }, latency)
+            }, responseLatency)
           }
 
           private handleEvent(params: unknown[]): void {
@@ -505,6 +526,7 @@ export class MockRelay {
         debug: this.debug,
         interceptUrls: this.interceptUrls,
         latency: this.latency,
+        responseLatencyByKind: this.responseLatencyByKind,
       },
     )
   }
@@ -1072,7 +1094,7 @@ export function createTestRepo(name: string = "test-repo"): NostrEvent {
 }
 
 /**
-  * Create a complete test scenario with a repo and issues
+ * Create a complete test scenario with a repo and issues
  */
 export function createFullTestScenario(): NostrEvent[] {
   const repoOwner = TEST_USERS.alice.pubkey
