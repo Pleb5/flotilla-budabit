@@ -690,7 +690,7 @@
       appUpdateRecoveryMessage =
         "The app update could not be activated. The current version is still available."
     } finally {
-      appUpdateReloading = false
+      if (!serviceWorkerReloadInFlight) appUpdateReloading = false
     }
   }
 
