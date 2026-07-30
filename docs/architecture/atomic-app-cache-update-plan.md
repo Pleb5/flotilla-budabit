@@ -159,8 +159,8 @@ The deployment must never publish the stable version marker before all files for
 
 Upload order:
 
-1. Replace `/_app/version.json` with a deployment sentinel that has no build version.
-2. Upload new `/_app/immutable/*` files without deleting old ones.
+1. Upload new `/_app/immutable/*` files without deleting old ones.
+2. Replace `/_app/version.json` with a deployment sentinel that has no build version.
 3. Upload supporting mutable files except the worker, shell, and stable update marker.
 4. Upload `service-worker.js` after all files it may cache are available.
 5. Upload `index.html` after its matching worker is available.
@@ -207,17 +207,17 @@ The script should prompt for the SFTP password with `read -rsp` and pass it to `
 The script should run the ordered upload internally from `build/`:
 
 ```sh
-# Pass 0: invalidate the marker before changing shared files.
+# Pass 0: upload new immutable app assets, keep old immutable files.
+mirror -R --verbose=1 --parallel=8 --ignore-time \
+  _app/immutable/ \
+  "$BUDABIT_REMOTE_PATH/_app/immutable/"
+
+# Pass 1: invalidate the marker before changing shared files.
 printf '%s\n' '{"version":"","status":"deploying"}' > /tmp/budabit-version-deploying.json
 rm -f "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload"
 put /tmp/budabit-version-deploying.json -o "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload"
 rm -f "$BUDABIT_REMOTE_PATH/_app/version.json"
 mv "$BUDABIT_REMOTE_PATH/_app/version.json.budabit-upload" "$BUDABIT_REMOTE_PATH/_app/version.json"
-
-# Pass 1: upload new immutable app assets, keep old immutable files.
-mirror -R --verbose=1 --parallel=8 --ignore-time \
-  _app/immutable/ \
-  "$BUDABIT_REMOTE_PATH/_app/immutable/"
 
 # Pass 2: upload supporting mutable files, but not the worker, shell, or marker.
 mirror -R --verbose=1 --parallel=8 --delete \
@@ -273,11 +273,11 @@ The deploy script may source this file if present. It must still prompt for the 
 If the wrapper script is unavailable, first create `/tmp/budabit-version-deploying.json` with the deployment sentinel shown above. Then run these from inside `build/` after logging into `lftp` and changing to the remote web root:
 
 ```sh
+mirror -R --verbose=1 --parallel=8 --ignore-time _app/immutable/ _app/immutable/
 rm -f _app/version.json.budabit-upload
 put /tmp/budabit-version-deploying.json -o _app/version.json.budabit-upload
 rm -f _app/version.json
 mv _app/version.json.budabit-upload _app/version.json
-mirror -R --verbose=1 --parallel=8 --ignore-time _app/immutable/ _app/immutable/
 mirror -R --verbose=1 --parallel=8 --delete -x "(^|/)_app/immutable(/|$)" -x "^_app/version\.json$" -x "^service-worker\.js$" -x "^index\.html$" . .
 rm -f service-worker.js.budabit-upload
 put service-worker.js -o service-worker.js.budabit-upload

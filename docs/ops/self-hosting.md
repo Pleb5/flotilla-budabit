@@ -227,6 +227,7 @@ For less typing, create an untracked `.deploy.local.env`:
 BUDABIT_SFTP_HOST='sftp://example.com'
 BUDABIT_SFTP_USER='your-user'
 BUDABIT_REMOTE_PATH='.' # e.g. '/public_html'
+BUDABIT_DEPLOY_VERIFY_URL='https://example.com'
 ```
 
 Then normal deploys are:
@@ -238,8 +239,8 @@ pnpm run build-in-production
 
 The wrapper runs six ordered phases:
 
-1. Publish a deployment sentinel so no worker can install while shared files change.
-2. Upload new `/_app/immutable/*` files without deleting old immutable files.
+1. Upload new `/_app/immutable/*` files without deleting old immutable files.
+2. Publish a deployment sentinel so no worker can install while shared files change.
 3. Upload supporting mutable files with delete enabled, excluding immutable files, the worker, shell, and marker.
 4. Upload `service-worker.js` after every file it may cache is available.
 5. Upload `index.html` after the matching worker is available.
@@ -257,7 +258,7 @@ Notes:
 
 - Do **not** add `--delete-excluded` to the mutable pass, or excluded immutable files may be removed.
 - If your SFTP server is unstable, set `BUDABIT_LFTP_PARALLEL=2` or `BUDABIT_LFTP_PARALLEL=4`.
-- After deployment, run `node scripts/check-deploy-cache.mjs https://your-domain.com`.
+- Set `BUDABIT_DEPLOY_VERIFY_URL` to run the release and cache-header checks automatically after deployment, or run `node scripts/check-deploy-cache.mjs https://your-domain.com` manually.
 
 ### Remote storage growth and cleanup
 

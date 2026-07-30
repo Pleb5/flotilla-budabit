@@ -3,8 +3,8 @@
   "version": "1.6.2",
   "private": true,
   "scripts": {
-    "dev": "BUDABIT_SERVICE_WORKER=0 vite dev",
-    "dev:app": "BUDABIT_SERVICE_WORKER=0 vite dev",
+    "dev": "vite dev",
+    "dev:app": "vite dev",
     "dev:full": "node dev-full.mjs",
     "screenshots:landing": "node scripts/capture-landing-screenshots.mjs",
     "build": "./build.sh",
@@ -35,7 +35,7 @@
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:widget": "playwright test --project=widget",
     "test:e2e:ui": "playwright test --ui",
-    "test:atomic:unit": "vitest run --project=main src/app/core/app-update.test.ts tests/static-deploy.test.ts",
+    "test:atomic:unit": "vitest run --project=main src/app/core/app-update.test.ts tests/static-deploy.test.ts tests/deploy-cache-check.test.ts",
     "test:atomic:e2e": "playwright test --config=playwright.atomic.config.ts",
     "test:atomic": "pnpm test:atomic:unit && pnpm test:atomic:e2e"
   },

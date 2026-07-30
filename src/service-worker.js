@@ -21,7 +21,6 @@ const toAppPath = path => {
 const INDEX_PATH = toAppPath("/index.html")
 const VERSION_PATH = toAppPath("/_app/version.json")
 const CACHE_COMPLETE_PATH = toAppPath("/__budabit_app_cache_complete__")
-const ACTIVATION_PREVIOUS_PATH = toAppPath("/__budabit_activation_previous__")
 const NETWORK_ONLY_PATHS = new Set([
   VERSION_PATH,
   toAppPath("/service-worker.js"),
@@ -43,6 +42,7 @@ const APP_SHELL_PATHS = Array.from(
   .filter(shouldPrecachePath)
   .sort()
 const APP_SHELL_PATH_SET = new Set(APP_SHELL_PATHS)
+let activationRequested = false
 
 self.__SW_VERSION__ = version
 self.__SW_BUILD_CONTRACT__ = "budabit-build:" + import.meta.env.VITE_BUILD_ID
@@ -128,64 +128,41 @@ const cacheAppShell = async () => {
   }
 }
 
-const getActivationMetadata = async () => {
-  const cache = await caches.open(APP_CACHE_NAME)
-  const response = await cache.match(toAbsoluteUrl(ACTIVATION_PREVIOUS_PATH))
-  if (!response) return {previousVersion: "", reloadClients: false}
-
-  try {
-    const metadata = await response.json()
-    return {
-      previousVersion:
-        typeof metadata?.previousVersion === "string" ? metadata.previousVersion : "",
-      reloadClients: metadata?.reloadClients === true,
-    }
-  } catch {
-    return {previousVersion: "", reloadClients: false}
-  }
-}
-
-const getAppCacheNamesToKeep = async activationMetadata => {
+const getAppCacheNamesToKeep = async () => {
   const keys = await caches.keys()
-  const previousVersion = activationMetadata.previousVersion
-  const explicitPreviousCacheName = `${APP_CACHE_PREFIX}${previousVersion}`
   const otherAppCacheNames = keys.filter(
     key => key.startsWith(APP_CACHE_PREFIX) && key !== APP_CACHE_NAME,
   )
-  let previousCacheName = keys.includes(explicitPreviousCacheName) ? explicitPreviousCacheName : ""
+  const completedCaches = await Promise.all(
+    otherAppCacheNames.map(async (cacheName, order) => {
+      const cache = await caches.open(cacheName)
+      const response = await cache.match(toAbsoluteUrl(CACHE_COMPLETE_PATH))
+      if (!response) return {cacheName, completedAt: 0, order}
 
-  if (!previousCacheName) {
-    const completedCaches = await Promise.all(
-      otherAppCacheNames.map(async (cacheName, order) => {
-        const cache = await caches.open(cacheName)
-        const response = await cache.match(toAbsoluteUrl(CACHE_COMPLETE_PATH))
-        if (!response) return {cacheName, completedAt: 0, order}
-
-        try {
-          const metadata = await response.json()
-          return {
-            cacheName,
-            completedAt: Number.isFinite(metadata?.completedAt) ? metadata.completedAt : 0,
-            order,
-          }
-        } catch {
-          return {cacheName, completedAt: 0, order}
+      try {
+        const metadata = await response.json()
+        return {
+          cacheName,
+          completedAt: Number.isFinite(metadata?.completedAt) ? metadata.completedAt : 0,
+          order,
         }
-      }),
-    )
-    previousCacheName =
-      completedCaches.sort((a, b) => b.completedAt - a.completedAt || b.order - a.order)[0]
-        ?.cacheName ||
-      otherAppCacheNames.at(-1) ||
-      ""
-  }
+      } catch {
+        return {cacheName, completedAt: 0, order}
+      }
+    }),
+  )
+  const previousCacheName =
+    completedCaches.sort((a, b) => b.completedAt - a.completedAt || b.order - a.order)[0]
+      ?.cacheName ||
+    otherAppCacheNames.at(-1) ||
+    ""
 
   return new Set([APP_CACHE_NAME, previousCacheName].filter(Boolean))
 }
 
-const cleanupOldAppCaches = async activationMetadata => {
+const cleanupOldAppCaches = async () => {
   const keys = await caches.keys()
-  const appCachesToKeep = await getAppCacheNamesToKeep(activationMetadata)
+  const appCachesToKeep = await getAppCacheNamesToKeep()
 
   await Promise.all(
     keys
@@ -237,35 +214,24 @@ self.addEventListener("message", event => {
     return
   }
 
-  const legacySkipWaiting = data?.type === "SKIP_WAITING" && data.version === undefined
-  if (data?.type === "SKIP_WAITING" && (data.version === version || legacySkipWaiting)) {
-    event.waitUntil(
-      (async () => {
-        const previousVersion =
-          typeof data.previousVersion === "string" && data.previousVersion.length <= 200
-            ? data.previousVersion
-            : ""
-        const cache = await caches.open(APP_CACHE_NAME)
-        await cache.put(
-          toAbsoluteUrl(ACTIVATION_PREVIOUS_PATH),
-          new Response(JSON.stringify({previousVersion, reloadClients: legacySkipWaiting}), {
-            headers: {"content-type": "application/json"},
-          }),
-        )
-        await self.skipWaiting()
-      })(),
-    )
+  if (data?.type === "SKIP_WAITING") {
+    activationRequested = true
+    event.waitUntil(self.skipWaiting())
   }
 })
 
 self.addEventListener("activate", event => {
   event.waitUntil(
     (async () => {
-      const activationMetadata = await getActivationMetadata()
-      await cleanupOldAppCaches(activationMetadata)
       await self.clients.claim()
       await notifyClients({type: "APP_CACHE_ACTIVATED", version})
-      if (activationMetadata.reloadClients) await reloadWindowClients()
+      if (activationRequested) await reloadWindowClients()
+
+      try {
+        await cleanupOldAppCaches()
+      } catch (error) {
+        console.warn("Service Worker: Failed to clean old app caches", error)
+      }
     })(),
   )
 })

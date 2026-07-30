@@ -14,7 +14,7 @@ Publishing `/_app/version.json` last is necessary but not sufficient. Browsers c
 
 Therefore:
 
-- Publish a marker with no build version before changing any shared app-shell file, preventing an old worker from certifying a mixed cache during deployment.
+- Upload content-hashed immutable files first, then publish a marker with no build version before changing any shared app-shell file. This shortens the update blackout without allowing a worker to certify a mixed cache.
 - Supporting mutable files must finish uploading before `service-worker.js`.
 - `service-worker.js` must be available before the matching `index.html`.
 - `/_app/version.json` remains the final stable marker.
@@ -23,6 +23,8 @@ Therefore:
 - The worker must check the marker again after filling its cache, because a newer deployment may begin during the download.
 
 The worker-side marker check is the authoritative gate. Deployment order reduces race windows, but the browser must still verify the release state itself.
+
+The application owns service-worker registration after reading a stable marker. SvelteKit's generated load-time registration is disabled so another tab cannot replace a verified waiting worker, and a registration attempt that encounters the deployment sentinel or a brief missing-worker window can be retried.
 
 The deployment sequence does not require the SFTP server to support rename-over-existing. Brief missing-file windows fail closed: an absent marker or worker cannot certify a build, while the previous complete service-worker cache remains usable.
 
@@ -37,15 +39,15 @@ Readiness requires all of the following:
 - The registration's actual waiting worker is B.
 - The published network marker is B.
 
-Activation messages include the expected build ID, and a worker ignores `SKIP_WAITING` requests for any other build.
+The client verifies the registration's exact waiting worker through the version handshake before sending `SKIP_WAITING`. Once validated, the worker calls `skipWaiting()` immediately; cache metadata and cleanup do not gate activation.
 
-The first repaired worker also accepts the previous production client's unversioned `SKIP_WAITING` message. For that transition only, the worker records legacy activation and navigates every claimed window itself so old tabs do not remain on old JavaScript under the new controller.
+The worker navigates every claimed window after activation so no tab remains on old JavaScript under the new controller.
 
 ## Activation Is A Multi-Tab Transition
 
 Service-worker activation changes the controller for an origin, not only for the tab where the user clicked Reload. Every old-build tab must move to the activated build.
 
-The activated worker claims clients and broadcasts `APP_CACHE_ACTIVATED` with its build ID. Every current tab also listens for `controllerchange` as a fallback. A tab reloads only when the new controller reports a build ID different from the JavaScript currently running in that tab.
+The activated worker claims clients and broadcasts `APP_CACHE_ACTIVATED` with its build ID before performing nonessential old-cache cleanup. Every current tab also listens for `controllerchange` as a fallback. A tab reloads only when the new controller reports a build ID different from the JavaScript currently running in that tab.
 
 The previous complete cache remains available during this transition. It is not deleted merely because another tab activated a newer worker.
 
@@ -58,7 +60,8 @@ On timeout:
 - Do not delete the active cache.
 - Do not reload under an unverified controller.
 - Keep the current build usable.
-- Show persistent Retry and explicit Reset controls.
+- Continue monitoring activation and offer Retry without reporting a definitive failure.
+- Show explicit Reset controls only when activation could not start.
 - Use destructive cache clearing only after a user explicitly chooses Reset.
 
 After a reload, one additional cache-busted reload is safe only when the controlling worker already reports the expected build. Otherwise the app stays on the current build and presents recovery UI.
@@ -104,6 +107,6 @@ The contract is exercised at three levels:
 
 - Pure update-policy tests cover preparation and non-destructive recovery decisions.
 - Static deploy tests verify immutable retention and the worker, shell, marker publication order for local and LFTP paths.
-- A production Chromium test builds A and B, rejects an unpublished worker, injects a required-asset failure, retries installation, activates B across two tabs, retains both caches, reloads B offline, and exercises the previous client's unversioned activation message.
+- A production Chromium test builds A and B, rejects an unpublished worker, injects a required-asset failure, retries installation, activates B across two tabs, retains both caches, and reloads B offline.
 
 Any change to build IDs, service-worker messages, cache cleanup, deployment ordering, update UI, or reload recovery must keep `pnpm test:atomic` passing.

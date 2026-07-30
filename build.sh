@@ -48,8 +48,6 @@ if [[ -z "${VITE_BUILD_ID:-}" ]]; then
 	export VITE_BUILD_ID="${build_id_base}-$(date -u +%Y%m%d%H%M%S)"
 fi
 
-export BUDABIT_SERVICE_WORKER=1
-
 if [[ "${VITE_PLATFORM_LOGO:-}" =~ ^https:// ]]; then
 	curl --fail --location "$VITE_PLATFORM_LOGO" >static/logo.png
 	export VITE_PLATFORM_LOGO=static/logo.png

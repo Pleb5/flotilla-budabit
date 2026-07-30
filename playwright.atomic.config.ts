@@ -23,6 +23,6 @@ export default defineConfig({
     command: webServerCommand,
     url: `${baseURL}/__atomic/state`,
     reuseExistingServer: false,
-    timeout: 300_000,
+    timeout: 900_000,
   },
 })

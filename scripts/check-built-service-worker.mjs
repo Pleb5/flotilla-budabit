@@ -18,12 +18,8 @@ const assert = (condition, message) => {
 }
 
 assert(
-  /navigator\.serviceWorker\.register\(["']\/service-worker\.js["']\)/.test(indexHtml),
-  "build/index.html does not contain SvelteKit's production service-worker registration",
-)
-assert(
-  !/navigator\.serviceWorker\.register\([^)]*type\s*:\s*["']module["']/.test(indexHtml),
-  "build/index.html registers the production service worker as a module",
+  !/navigator\.serviceWorker\.register\(/.test(indexHtml),
+  "build/index.html contains a competing generated service-worker registration",
 )
 assert(serviceWorker.includes("budabit-app-"), "service worker is missing atomic app caches")
 assert(serviceWorker.includes("APP_CACHE_READY"), "service worker is missing cache-ready signaling")

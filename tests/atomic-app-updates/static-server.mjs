@@ -1,5 +1,5 @@
 import {createReadStream} from "node:fs"
-import {cp, mkdir, readFile, rm, stat} from "node:fs/promises"
+import {cp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises"
 import {createServer} from "node:http"
 import path from "node:path"
 import {fileURLToPath} from "node:url"
@@ -10,6 +10,8 @@ const fixture = JSON.parse(await readFile(path.join(outputRoot, "state.json"), "
 let failedAsset = ""
 let failedAssetRequests = 0
 let workerMarkerReads = {}
+let clientMarkerReads = {}
+let activationDelayMs = 0
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -58,6 +60,8 @@ const handleControl = async (request, response, pathname) => {
       failedAssetRequests,
       failingAsset: fixture.failingAsset,
       workerMarkerReads,
+      clientMarkerReads,
+      activationDelayMs,
     })
     return true
   }
@@ -71,9 +75,25 @@ const handleControl = async (request, response, pathname) => {
     failedAsset = ""
     failedAssetRequests = 0
     workerMarkerReads = {}
+    clientMarkerReads = {}
+    activationDelayMs = 0
   } else if (pathname === "/__atomic/stage-b") {
     await copyBuildWithoutMarker()
+  } else if (pathname === "/__atomic/start-b-deploy") {
+    await copyBuildWithoutMarker()
+    await writeFile(
+      path.join(fixture.remote, "_app/version.json"),
+      '{"version":"","status":"deploying"}\n',
+    )
+  } else if (pathname === "/__atomic/hide-worker") {
+    await rm(path.join(fixture.remote, "service-worker.js"), {force: true})
+  } else if (pathname === "/__atomic/delay-activation") {
+    activationDelayMs = 45_000
   } else if (pathname === "/__atomic/publish-b") {
+    await cp(
+      path.join(fixture.buildB, "service-worker.js"),
+      path.join(fixture.remote, "service-worker.js"),
+    )
     await cp(
       path.join(fixture.buildB, "_app/version.json"),
       path.join(fixture.remote, "_app/version.json"),
@@ -96,17 +116,6 @@ const server = createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://localhost")
     if (await handleControl(request, response, url.pathname)) return
 
-    if (request.method === "GET" && url.pathname === "/__atomic/legacy-window") {
-      const html = `<!doctype html><title>Legacy client</title><script>navigator.serviceWorker.register('/service-worker.js')</script>`
-      response.writeHead(200, {
-        "cache-control": "no-store",
-        "content-length": Buffer.byteLength(html),
-        "content-type": "text/html; charset=utf-8",
-      })
-      response.end(html)
-      return
-    }
-
     if (url.pathname === failedAsset) {
       failedAssetRequests += 1
       response.writeHead(503, {"cache-control": "no-store", "content-type": "text/plain"})
@@ -115,12 +124,17 @@ const server = createServer(async (request, response) => {
     }
 
     const workerVersion = url.searchParams.get("_budabitWorker") || ""
-    if (url.pathname === "/_app/version.json" && workerVersion) {
+    if (url.pathname === "/_app/version.json") {
       const marker = JSON.parse(
         await readFile(path.join(fixture.remote, "_app/version.json"), "utf8"),
       )
-      const key = `${workerVersion}:${marker.version || marker.status || "missing"}`
-      workerMarkerReads[key] = (workerMarkerReads[key] || 0) + 1
+      const markerState = marker.version || marker.status || "missing"
+      if (workerVersion) {
+        const key = `${workerVersion}:${markerState}`
+        workerMarkerReads[key] = (workerMarkerReads[key] || 0) + 1
+      } else {
+        clientMarkerReads[markerState] = (clientMarkerReads[markerState] || 0) + 1
+      }
     }
 
     const decodedPath = decodeURIComponent(url.pathname)
@@ -144,16 +158,27 @@ const server = createServer(async (request, response) => {
     }
 
     const immutable = decodedPath.startsWith("/_app/immutable/")
+    let transformedBody = ""
+    if (decodedPath === "/service-worker.js" && activationDelayMs > 0) {
+      const source = await readFile(filePath, "utf8")
+      const skipWaiting = ".waitUntil(self.skipWaiting())"
+      if (!source.includes(skipWaiting)) throw new Error("Could not inject atomic activation delay")
+      transformedBody = source.replace(
+        skipWaiting,
+        `.waitUntil(new Promise(resolve=>setTimeout(resolve,${activationDelayMs})).then(()=>self.skipWaiting()))`,
+      )
+    }
     const headers = {
       "cache-control": immutable
         ? "public, max-age=31536000, immutable"
         : "no-store, must-revalidate",
-      "content-length": fileStat.size,
+      "content-length": transformedBody ? Buffer.byteLength(transformedBody) : fileStat.size,
       "content-type": contentTypes[path.extname(filePath)] || "application/octet-stream",
     }
     if (decodedPath === "/service-worker.js") headers["service-worker-allowed"] = "/"
     response.writeHead(200, headers)
     if (request.method === "HEAD") response.end()
+    else if (transformedBody) response.end(transformedBody)
     else createReadStream(filePath).pipe(response)
   } catch (error) {
     sendJson(response, 500, {error: error instanceof Error ? error.message : String(error)})

@@ -49,7 +49,9 @@ const fetchText = async path => {
 
 const hasNoStoreOrRevalidate = cacheControl => {
   const value = cacheControl.toLowerCase()
-  return value.includes("no-store") || (value.includes("max-age=0") && value.includes("must-revalidate"))
+  return (
+    value.includes("no-store") || (value.includes("max-age=0") && value.includes("must-revalidate"))
+  )
 }
 
 const hasImmutableCache = cacheControl => {
@@ -124,11 +126,42 @@ const checkImmutable = async path => {
 
   const response = await fetchResponse(path)
   const cacheControl = getHeader(response, "cache-control")
+  const contentType = getHeader(response, "content-type")
 
   assert(response.ok, `${path}: expected 2xx, got ${getStatusLine(response)}`)
   assert(
+    !contentType.toLowerCase().includes("text/html"),
+    `${path}: expected an immutable asset, got HTML fallback`,
+  )
+  assert(
     hasImmutableCache(cacheControl),
     `${path}: expected public max-age>=31536000 immutable, got Cache-Control: ${cacheControl || "<missing>"}`,
+  )
+}
+
+const checkReleaseContract = async () => {
+  const markerResult = await fetchText("/_app/version.json")
+  let marker = null
+
+  try {
+    marker = JSON.parse(markerResult.text)
+  } catch {
+    failures.push("/_app/version.json: expected valid JSON release marker")
+  }
+
+  const version = typeof marker?.version === "string" ? marker.version : ""
+  assert(version, "/_app/version.json: expected a non-empty version")
+  assert(
+    marker?.status !== "deploying",
+    "/_app/version.json: deployment sentinel is still published",
+  )
+
+  const workerResult = await fetchText("/service-worker.js")
+  const workerVersion = workerResult.text.match(/budabit-build:([^"'`\\]+)/)?.[1] || ""
+  assert(workerVersion, "/service-worker.js: missing budabit build contract")
+  assert(
+    Boolean(version && workerVersion === version),
+    `release marker and service worker use different build IDs (${version || "<missing>"} vs ${workerVersion || "<missing>"})`,
   )
 }
 
@@ -141,6 +174,7 @@ await checkMutable("/service-worker.js")
 await checkMutable("/sw.js")
 await checkManifest()
 await checkImmutable(await findImmutableAsset())
+await checkReleaseContract()
 
 for (const warning of warnings) console.warn(`WARN ${warning}`)
 

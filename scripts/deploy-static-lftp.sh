@@ -21,6 +21,7 @@ Environment:
   BUDABIT_DEPLOY_CONFIG   Local config file, defaults to ./.deploy.local.env
   BUDABIT_DEPLOY_LOCAL_REMOTE  Local mock remote path for verification
   BUDABIT_DEPLOY_TRACE_FILE    Optional trace file for local mock verification
+  BUDABIT_DEPLOY_VERIFY_URL    Optional public URL checked after a real deploy
 
 Local config example, kept untracked in .deploy.local.env:
   BUDABIT_SFTP_HOST='sftp://example.com<:optional port>'
@@ -136,14 +137,14 @@ run_local_deploy() {
 
   mkdir -p "$target/_app/immutable" "$target/_app"
 
-  trace 'pass0 invalidate marker start'
-  publish_local_text '{"version":"","status":"deploying"}' "$target/_app/version.json"
-  trace_version_state 'pass0 after' "$target/_app/version.json"
-  trace 'pass0 invalidate marker done'
-
-  trace 'pass1 immutable start'
+  trace 'pass0 immutable start'
   rsync -a "$build_dir/_app/immutable/" "$target/_app/immutable/"
-  trace 'pass1 immutable done'
+  trace 'pass0 immutable done'
+
+  trace 'pass1 invalidate marker start'
+  publish_local_text '{"version":"","status":"deploying"}' "$target/_app/version.json"
+  trace_version_state 'pass1 after' "$target/_app/version.json"
+  trace 'pass1 invalidate marker done'
 
   trace 'pass2 supporting mutable start'
   trace_version_state 'pass2 before' "$target/_app/version.json"
@@ -186,14 +187,14 @@ emit_lftp_commands() {
 set cmd:fail-exit yes
 set net:max-retries 2
 
-# Pass 0: prevent old and new workers from installing while shared files change.
+# Pass 0: upload new immutable app assets, keep old immutable files.
+mirror -R --verbose=1 --parallel=$parallel --ignore-time "_app/immutable/" $(lftp_quote "$remote_immutable")
+
+# Pass 1: prevent old and new workers from installing while shared files change.
 rm -f $(lftp_quote "${remote_marker}.budabit-upload")
 put $(lftp_quote "$deploying_marker_file") -o $(lftp_quote "${remote_marker}.budabit-upload")
 rm -f $(lftp_quote "$remote_marker")
 mv $(lftp_quote "${remote_marker}.budabit-upload") $(lftp_quote "$remote_marker")
-
-# Pass 1: upload new immutable app assets, keep old immutable files.
-mirror -R --verbose=1 --parallel=$parallel --ignore-time "_app/immutable/" $(lftp_quote "$remote_immutable")
 
 # Pass 2: upload supporting mutable files before publishing the worker or app shell.
 mirror -R --verbose=1 --parallel=$parallel --delete -x '(^|/)_app/immutable(/|$)' -x '^_app/version\.json$' -x '^service-worker\.js$' -x '^index\.html$' "." $(lftp_quote "$remote_path")
@@ -257,4 +258,8 @@ fi
 
 if [[ "$password_from_prompt" == '1' ]]; then
   unset LFTP_PASSWORD
+fi
+
+if [[ -n "${BUDABIT_DEPLOY_VERIFY_URL:-}" ]]; then
+  node "$repo_root/scripts/check-deploy-cache.mjs" "$BUDABIT_DEPLOY_VERIFY_URL"
 fi

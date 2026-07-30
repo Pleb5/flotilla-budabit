@@ -6,19 +6,10 @@ import {
 } from "./app-update"
 
 describe("app update policy", () => {
-  it("only prepares a different build that is not already ready", () => {
-    expect(shouldPrepareAppUpdate({remoteBuildId: "", runningBuildId: "a", readyBuildId: ""})).toBe(
-      false,
-    )
-    expect(
-      shouldPrepareAppUpdate({remoteBuildId: "a", runningBuildId: "a", readyBuildId: ""}),
-    ).toBe(false)
-    expect(
-      shouldPrepareAppUpdate({remoteBuildId: "b", runningBuildId: "a", readyBuildId: "b"}),
-    ).toBe(false)
-    expect(
-      shouldPrepareAppUpdate({remoteBuildId: "b", runningBuildId: "a", readyBuildId: ""}),
-    ).toBe(true)
+  it("reconciles every published build that differs from the running build", () => {
+    expect(shouldPrepareAppUpdate({remoteBuildId: "", runningBuildId: "a"})).toBe(false)
+    expect(shouldPrepareAppUpdate({remoteBuildId: "a", runningBuildId: "a"})).toBe(false)
+    expect(shouldPrepareAppUpdate({remoteBuildId: "b", runningBuildId: "a"})).toBe(true)
   })
 
   it("reloads a mismatched document only when the expected worker controls it", () => {

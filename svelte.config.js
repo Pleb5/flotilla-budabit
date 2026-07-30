@@ -2,7 +2,6 @@ import adapter from "@sveltejs/adapter-static"
 import {vitePreprocess} from "@sveltejs/vite-plugin-svelte"
 
 const buildVersion = process.env.VITE_BUILD_ID || process.env.VITE_BUILD_HASH || "dev"
-const registerServiceWorker = process.env.BUDABIT_SERVICE_WORKER === "1"
 
 /** @type {import('@sveltejs/kit').Config} */
 export default {
@@ -15,7 +14,7 @@ export default {
       relative: false,
     },
     serviceWorker: {
-      register: registerServiceWorker,
+      register: false,
     },
     alias: {
       "@src": "src",

@@ -71,11 +71,11 @@ describe("ordered static deployment", () => {
 
     const traceLines = (await readFile(trace, "utf8")).trim().split("\n")
     expect(traceLines).toEqual([
-      "pass0 invalidate marker start",
-      'pass0 after version={"version":"","status":"deploying"}',
-      "pass0 invalidate marker done",
-      "pass1 immutable start",
-      "pass1 immutable done",
+      "pass0 immutable start",
+      "pass0 immutable done",
+      "pass1 invalidate marker start",
+      'pass1 after version={"version":"","status":"deploying"}',
+      "pass1 invalidate marker done",
       "pass2 supporting mutable start",
       'pass2 before version={"version":"","status":"deploying"}',
       'pass2 after version={"version":"","status":"deploying"}',
@@ -125,6 +125,8 @@ describe("ordered static deployment", () => {
     expect(stdout).toContain("-x '^index\\.html$'")
     expect(stdout).not.toContain(".budabit-rename-probe")
     expect(stdout.indexOf("# Pass 0:")).toBeLessThan(immutable)
+    expect(stdout.indexOf("# Pass 1:")).toBeGreaterThan(immutable)
+    expect(stdout.indexOf("# Pass 1:")).toBeLessThan(mutable)
     expect(stdout.match(/\.budabit-upload/g)).toHaveLength(12)
     expect(stdout.match(/^put ".+" -o ".+"$/gm)).toHaveLength(4)
     expect(stdout).not.toMatch(/^put -o /m)

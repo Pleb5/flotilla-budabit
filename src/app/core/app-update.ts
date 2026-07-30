@@ -3,12 +3,10 @@ export type ExpectedBuildAction = "continue" | "reload" | "recover"
 export const shouldPrepareAppUpdate = ({
   remoteBuildId,
   runningBuildId,
-  readyBuildId,
 }: {
   remoteBuildId: string
   runningBuildId: string
-  readyBuildId: string
-}) => Boolean(remoteBuildId && remoteBuildId !== runningBuildId && remoteBuildId !== readyBuildId)
+}) => Boolean(remoteBuildId && remoteBuildId !== runningBuildId)
 
 export const getExpectedBuildAction = ({
   expectedBuildId,
