@@ -322,9 +322,7 @@ const addUniqueSource = (
 
 const getDmRelayRecommendationPriority = (recommendation: DmRelayRecommendation) => {
   if (
-    recommendation.evidence.some(evidence =>
-      DM_RELAY_STRONG_COMMUNITY_SOURCES.has(evidence.source),
-    )
+    recommendation.evidence.some(evidence => DM_RELAY_STRONG_COMMUNITY_SOURCES.has(evidence.source))
   ) {
     return 3
   }
@@ -411,8 +409,8 @@ export const getDmRelayRecommendations = (
         isModerator: Boolean(source.isModerator || sourceKind === "moderator_messaging"),
         isAdmin: Boolean(
           source.isAdmin ||
-            sourceKind === "community_messaging" ||
-            sourceKind === "admin_messaging",
+          sourceKind === "community_messaging" ||
+          sourceKind === "admin_messaging",
         ),
       }
 
@@ -482,9 +480,7 @@ export const getDmRelayRecommendations = (
   )
 }
 
-export const getDmRelayRecommendationSourceLabel = (
-  source: DmRelayRecommendationSourceKind,
-) => {
+export const getDmRelayRecommendationSourceLabel = (source: DmRelayRecommendationSourceKind) => {
   switch (source) {
     case "active_community_relay":
       return "active community relay"

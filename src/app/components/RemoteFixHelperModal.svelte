@@ -1671,19 +1671,7 @@
       .filter(target => target.refs.length > 0),
   )
 
-  const selectedGraspBackfillTargets = $derived.by(() =>
-    selectedBackfillTargets.filter(target => isGraspLikeRemote(target.remoteUrl)),
-  )
-
-  const selectedStandardBackfillTargets = $derived.by(() =>
-    selectedBackfillTargets.filter(target => !isGraspLikeRemote(target.remoteUrl)),
-  )
-
   const selectedBackfillRemoteCount = $derived.by(() => selectedBackfillTargets.length)
-
-  const selectedBackfillRefCount = $derived.by(
-    () => (backfillDiscovery?.refs || []).filter(ref => selectedBackfillRefs[ref.ref]).length,
-  )
 
   const selectedBackfillActionCount = $derived.by(() =>
     selectedBackfillTargets.reduce((sum, target) => sum + target.refs.length, 0),

@@ -58,7 +58,8 @@ export const makeCalendarDateBasedFilters = (filters: Filter[]): Filter[] =>
   filters.flatMap(filter => {
     if (!filterIncludesKind(filter, EVENT_DATE)) return []
 
-    const {"#D": _dayTags, ...dateFilter} = filter
+    const {"#D": dayTags, ...dateFilter} = filter
+    void dayTags
 
     return [{...dateFilter, kinds: [EVENT_DATE]}]
   })

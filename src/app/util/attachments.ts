@@ -22,8 +22,12 @@ export type PublishedAttachment = {
   type?: string
 }
 
-export const isPreviewableAttachment = ({type = "", url = ""}: Pick<PublishedAttachment, "type" | "url">) =>
-  /^(image|video)\//.test(type) || /\.(jpe?g|png|gif|webp|svg|bmp|ico|mov|webm|mp4)(\?.*)?$/i.test(url)
+export const isPreviewableAttachment = ({
+  type = "",
+  url = "",
+}: Pick<PublishedAttachment, "type" | "url">) =>
+  /^(image|video)\//.test(type) ||
+  /\.(jpe?g|png|gif|webp|svg|bmp|ico|mov|webm|mp4)(\?.*)?$/i.test(url)
 
 export const formatAttachmentSize = (size?: number) => {
   if (!size || !Number.isFinite(size)) return "Unknown size"
@@ -42,9 +46,10 @@ export const getAttachmentExtension = (attachment: Pick<PublishedAttachment, "na
 }
 
 export const makeDraftAttachment = (file: File): DraftAttachment => {
-  const previewUrl = file.type.startsWith("image/") || file.type.startsWith("video/")
-    ? URL.createObjectURL(file)
-    : undefined
+  const previewUrl =
+    file.type.startsWith("image/") || file.type.startsWith("video/")
+      ? URL.createObjectURL(file)
+      : undefined
 
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -72,7 +77,12 @@ export const makeAttachmentImetaTag = (attachment: PublishedAttachment) => {
   if (attachment.size) meta.size = String(attachment.size)
   if (attachment.name) meta.name = attachment.name
 
-  return ["imeta", ...Object.entries(meta).map(([key, value]) => `${key} ${value}`).sort()]
+  return [
+    "imeta",
+    ...Object.entries(meta)
+      .map(([key, value]) => `${key} ${value}`)
+      .sort(),
+  ]
 }
 
 export const makePublishedAttachment = ({
@@ -89,8 +99,10 @@ export const makePublishedAttachment = ({
   type: result.type,
 })
 
-export const appendAttachmentUrlsToContent = (content: string, attachments: PublishedAttachment[]) =>
-  [content.trim(), ...attachments.map(attachment => attachment.url)].filter(Boolean).join("\n")
+export const appendAttachmentUrlsToContent = (
+  content: string,
+  attachments: PublishedAttachment[],
+) => [content.trim(), ...attachments.map(attachment => attachment.url)].filter(Boolean).join("\n")
 
 export const getEventAttachments = (event?: Pick<TrustedEvent, "tags">): PublishedAttachment[] => {
   const seen = new Set<string>()

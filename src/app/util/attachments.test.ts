@@ -20,9 +20,7 @@ describe("attachment helpers", () => {
       type: "text/markdown",
     }
 
-    expect(appendAttachmentUrlsToContent("See attached", [attachment])).toBe(
-      `See attached\n${url}`,
-    )
+    expect(appendAttachmentUrlsToContent("See attached", [attachment])).toBe(`See attached\n${url}`)
     expect(makeAttachmentImetaTag(attachment)).toEqual([
       "imeta",
       "m text/markdown",
@@ -49,8 +47,6 @@ describe("attachment helpers", () => {
   it("detects previewable image and video attachments", () => {
     expect(isPreviewableAttachment({url: "https://example.com/photo.png"})).toBe(true)
     expect(isPreviewableAttachment({url: "https://example.com/file.pdf"})).toBe(false)
-    expect(isPreviewableAttachment({url: "https://example.com/blob", type: "video/mp4"})).toBe(
-      true,
-    )
+    expect(isPreviewableAttachment({url: "https://example.com/blob", type: "video/mp4"})).toBe(true)
   })
 })

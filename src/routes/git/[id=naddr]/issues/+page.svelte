@@ -31,7 +31,6 @@
   import {pushModal} from "@app/util/modal"
   import {
     checked,
-    setChecked,
     setCheckedAt,
     notifications,
     setCheckedForRepoNotifications,
@@ -222,7 +221,7 @@
     if (items.length === 0) return
 
     const containerRect = scrollEl.getBoundingClientRect()
-    let anchor =
+    const anchor =
       items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
 
     if (!anchor) return
@@ -334,7 +333,6 @@
     let parsedIndex = 0
     let parsedOffset = 0
     let savedIssueId = ""
-    let savedIssueTitle = ""
 
     try {
       const parsed = JSON.parse(savedRaw) as {
@@ -347,7 +345,6 @@
       parsedIndex = Number(parsed?.index ?? 0)
       parsedOffset = Number(parsed?.offset ?? 0)
       savedIssueId = typeof parsed?.id === "string" ? parsed.id : ""
-      savedIssueTitle = typeof parsed?.title === "string" ? parsed.title : ""
       const parsedVisibleCount = Number(parsed?.visibleCount ?? ITEMS_PER_PAGE)
       if (
         !Number.isNaN(parsedVisibleCount) &&
@@ -393,9 +390,6 @@
     }
 
     const targetIssue = searchedIssues[targetIndex]
-    const targetIssueTitle = targetIssue
-      ? (getTagValue("subject", targetIssue.event.tags) ?? "")
-      : ""
     const targetIssueId = targetIssue?.id ?? ""
     const anchorIssueId = savedIssueId || targetIssueId
     const finishRestore = () => {
@@ -677,7 +671,7 @@
   })
 
   // Persist filters per repo (delegated to FilterPanel)
-  let storageKey = repoClass ? `issuesFilters:${repoClass.key}` : ""
+  const storageKey = repoClass ? `issuesFilters:${repoClass.key}` : ""
 
   const statusMap = $derived.by(() => {
     const map: Record<string, string> = {}
@@ -903,12 +897,12 @@
   })
 
   $effect(() => {
-    searchTerm
-    statusFilter
-    authorFilter
-    selectedLabels
-    matchAllLabels
-    sortByOrder
+    void searchTerm
+    void statusFilter
+    void authorFilter
+    void selectedLabels
+    void matchAllLabels
+    void sortByOrder
     visibleIssueCount = ITEMS_PER_PAGE
   })
 
@@ -932,7 +926,7 @@
   }
 
   // Set loading to false immediately if we have data - don't wait for makeFeed
-  let loading = $state(false)
+  const loading = $state(false)
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
 
@@ -1036,7 +1030,9 @@
         title: "New issue",
         body: getTagValue("subject", issueWithRecipients.tags) || "",
       })
-    } catch {}
+    } catch {
+      // Alert creation is best-effort.
+    }
 
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,

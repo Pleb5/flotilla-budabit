@@ -53,12 +53,17 @@ export const mergeRichEditorTags = (
   tags: string[][] = [],
   {repoAddress}: {repoAddress?: string} = {},
 ) =>
-  uniqTags([...preserveTags(event || {tags: []}, RICH_EDITOR_TAGS), ...sanitizeEditorTags(tags)]).filter(
-    tag => tag[0] !== "a" || tag.length > 2 || tag[1] !== repoAddress,
-  )
+  uniqTags([
+    ...preserveTags(event || {tags: []}, RICH_EDITOR_TAGS),
+    ...sanitizeEditorTags(tags),
+  ]).filter(tag => tag[0] !== "a" || tag.length > 2 || tag[1] !== repoAddress)
 
 export const areTagsEqual = (left: string[][] = [], right: string[][] = []) => {
-  const serialize = (tags: string[][]) => tags.map(tag => JSON.stringify(tag)).sort().join("\n")
+  const serialize = (tags: string[][]) =>
+    tags
+      .map(tag => JSON.stringify(tag))
+      .sort()
+      .join("\n")
 
   return serialize(left) === serialize(right)
 }

@@ -56,13 +56,7 @@ const makeCommunityRef = ({
   } as ActiveUserCommunityRef
 }
 
-const makeProfileList = ({
-  pubkey,
-  members = [],
-}: {
-  pubkey: string
-  members?: string[]
-}) =>
+const makeProfileList = ({pubkey, members = []}: {pubkey: string; members?: string[]}) =>
   makeEvent({
     id: `${pubkey.slice(0, 8)}-profile-list`,
     pubkey,
@@ -349,7 +343,10 @@ describe("dm", () => {
       const member = "4".repeat(64)
       const follow = "5".repeat(64)
       const starred = "6".repeat(64)
-      const communityRef = makeCommunityRef({communityPubkey: community, moderatorPubkey: moderator})
+      const communityRef = makeCommunityRef({
+        communityPubkey: community,
+        moderatorPubkey: moderator,
+      })
       const profileList = makeProfileList({pubkey: moderator, members: [viewer, member]})
 
       const authors = getDmRelayRecommendationAuthors({
@@ -372,7 +369,10 @@ describe("dm", () => {
       const member = "4".repeat(64)
       const follow = "5".repeat(64)
       const mutedFollow = "6".repeat(64)
-      const communityRef = makeCommunityRef({communityPubkey: community, moderatorPubkey: moderator})
+      const communityRef = makeCommunityRef({
+        communityPubkey: community,
+        moderatorPubkey: moderator,
+      })
       const profileList = makeProfileList({pubkey: moderator, members: [viewer, member]})
       const recommendations = buildDmRelayRecommendations({
         viewerPubkey: viewer,

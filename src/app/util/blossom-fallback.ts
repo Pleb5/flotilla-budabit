@@ -4,12 +4,7 @@ import type {BlossomUploadRecord} from "@app/core/blossom"
 
 const SHA256_HEX_RE = /[0-9a-f]{64}/
 
-export type BlossomFallbackSource =
-  | "original"
-  | "mirror"
-  | "community"
-  | "author"
-  | "last-resort"
+export type BlossomFallbackSource = "original" | "mirror" | "community" | "author" | "last-resort"
 
 export type BlossomFallbackTarget = {
   server: string
@@ -93,7 +88,9 @@ export const getBlossomMirrorUrlsFromUploads = ({
       .flatMap(upload => [
         upload.canonical.url,
         ...upload.mirrorJobs.flatMap(job =>
-          job.status === "succeeded" ? [job.resultUrl, buildBlobUrl(job.targetUrl, normalizedHash)] : [],
+          job.status === "succeeded"
+            ? [job.resultUrl, buildBlobUrl(job.targetUrl, normalizedHash)]
+            : [],
         ),
       ])
       .map(normalizeFallbackUrl)

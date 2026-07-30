@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import {describe, expect, it, vi} from "vitest"
+import {describe, expect, it} from "vitest"
 
 describe("keyboard", () => {
   it("syncKeyboard returns noop cleanup", async () => {

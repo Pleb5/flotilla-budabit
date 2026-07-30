@@ -11,7 +11,7 @@ import {
   normalizeRelayUrl,
 } from "@welshman/util"
 import type {Filter, TrustedEvent} from "@welshman/util"
-import {request, load, pull, makeLoader} from "@welshman/net"
+import {request, pull, makeLoader} from "@welshman/net"
 import {Router} from "@welshman/router"
 import {
   pubkey,
@@ -55,26 +55,6 @@ type PullOpts = {
 
 type DmPullOpts = PullOpts & {
   fullHistory?: boolean
-}
-
-const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
-  const [smart, dumb] = partition(hasNegentropy, relays)
-  const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
-  const promises: Promise<TrustedEvent[]>[] = [pull({relays: smart, filters, signal, events})]
-
-  // Since pulling from relays without negentropy is expensive, limit how many
-  // duplicates we repeatedly download
-  for (const url of dumb) {
-    const urlEvents = events.filter(e => tracker.getRelays(e.id).has(url))
-
-    if (urlEvents.length >= 100) {
-      filters = filters.map(assoc("since", sortBy(e => -e.created_at, urlEvents)[10]!.created_at))
-    }
-
-    promises.push(load({relays: [url], filters, signal}))
-  }
-
-  return Promise.all(promises)
 }
 
 const dmLoad = makeLoader({delay: 200, timeout: 3000, threshold: 0.5})

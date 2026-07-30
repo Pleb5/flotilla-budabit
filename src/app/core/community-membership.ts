@@ -219,7 +219,10 @@ export const selectCommunityMemberList = ({
         moderatorRefAddressesByPubkey.set(
           moderatorPubkey,
           Array.from(
-            new Set([...(moderatorRefAddressesByPubkey.get(moderatorPubkey) || []), profileList.address]),
+            new Set([
+              ...(moderatorRefAddressesByPubkey.get(moderatorPubkey) || []),
+              profileList.address,
+            ]),
           ).sort((a, b) => a.localeCompare(b)),
         )
 

@@ -43,7 +43,8 @@ export const markNotificationsReadState = (
   timestamp?: unknown,
 ): NotificationReadState => {
   const current = rememberLatestNotificationTimestampState(state, timestamp)
-  const readTimestamp = normalizeNotificationTimestamp(timestamp) || current.latestNotificationTimestamp
+  const readTimestamp =
+    normalizeNotificationTimestamp(timestamp) || current.latestNotificationTimestamp
 
   return {
     latestNotificationTimestamp: current.latestNotificationTimestamp,
@@ -51,9 +52,7 @@ export const markNotificationsReadState = (
   }
 }
 
-export const hasUnreadNotificationsState = (
-  state: Partial<NotificationReadState> | undefined,
-) => {
+export const hasUnreadNotificationsState = (state: Partial<NotificationReadState> | undefined) => {
   const current = normalizeNotificationReadState(state)
 
   return current.latestNotificationTimestamp > current.lastReadTimestamp
@@ -71,4 +70,5 @@ export const rememberLatestNotificationTimestamp = (timestamp: unknown) =>
 export const markNotificationsRead = (timestamp?: unknown) =>
   notificationReadState.update(state => markNotificationsReadState(state, timestamp))
 
-export const clearNotificationReadState = () => notificationReadState.set(defaultNotificationReadState())
+export const clearNotificationReadState = () =>
+  notificationReadState.set(defaultNotificationReadState())

@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import {RelayMode} from "@welshman/util"
   import {waitForThunkCompletion, getPubkeyRelays, pubkey} from "@welshman/app"
   import ChatSquare from "@assets/icons/chat-square.svg?dataurl"

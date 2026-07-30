@@ -838,7 +838,9 @@
           await repoClass.cacheManager.clear("file_exists")
           await repoClass.cacheManager.clear("file_history")
         }
-      } catch {}
+      } catch {
+        // Cache cleanup is best-effort after deletion.
+      }
 
       const kindCounts = new Map<number, number>()
       for (const event of eventsToDelete) {

@@ -21,7 +21,10 @@ describe("community renunciations", () => {
   it("creates a private named people list for renounced communities", () => {
     const list = makeRenouncedCommunitiesList({
       kind: NAMED_PEOPLE,
-      publicTags: [["d", "old"], ["title", "Renounced"]],
+      publicTags: [
+        ["d", "old"],
+        ["title", "Renounced"],
+      ],
       privateTags: [["p", communityPubkey]],
     })
 
@@ -37,7 +40,11 @@ describe("community renunciations", () => {
     const list = makeRenouncedCommunitiesList({
       kind: NAMED_PEOPLE,
       publicTags: [["p", otherCommunityPubkey]],
-      privateTags: [["p", communityPubkey], ["p", "bad"], ["e", otherCommunityPubkey]],
+      privateTags: [
+        ["p", communityPubkey],
+        ["p", "bad"],
+        ["e", otherCommunityPubkey],
+      ],
     })
 
     expect(getRenouncedCommunityPubkeysFromList(list)).toEqual([communityPubkey])
@@ -57,7 +64,10 @@ describe("community renunciations", () => {
     const removed = await removeRenouncedCommunityFromList(
       makeRenouncedCommunitiesList({
         kind: NAMED_PEOPLE,
-        privateTags: [["p", communityPubkey], ["p", otherCommunityPubkey]],
+        privateTags: [
+          ["p", communityPubkey],
+          ["p", otherCommunityPubkey],
+        ],
       }),
       communityPubkey,
     ).reconcile(async value => `encrypted:${value}`)

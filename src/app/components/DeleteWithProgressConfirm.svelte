@@ -29,7 +29,7 @@
   }
 
   const {
-    title,
+    title: modalTitle,
     subtitle = "",
     message,
     errorMessage,
@@ -114,7 +114,7 @@
 <form class="column gap-4" onsubmit={preventDefault(confirmDelete)}>
   <ModalHeader>
     {#snippet title()}
-      <div>{title}</div>
+      <div>{modalTitle}</div>
     {/snippet}
     {#snippet info()}
       <div>{subtitle}</div>

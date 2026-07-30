@@ -6,7 +6,6 @@
   import {EVENT_DATE, EVENT_TIME, makeEvent} from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {preventDefault} from "@lib/html"
-  import GallerySend from "@assets/icons/gallery-send.svg?dataurl"
   import MapPoint from "@assets/icons/map-point.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -57,8 +56,6 @@
   const uploadStage = writable<BlossomUploadStage>("idle")
 
   const back = () => history.back()
-
-  const selectFiles = () => editor.then(ed => ed.chain().selectFiles().run())
 
   const validateDateRange = () => {
     const normalizedStartDate = parseCalendarDate(startDate)

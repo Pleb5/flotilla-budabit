@@ -2226,9 +2226,6 @@
       ? deriveEventsAsc(deriveEventsById({repository, filters: admissionReviewFilters}))
       : undefined,
   )
-  const sectionMigrationSummary = $derived.by(() =>
-    buildSectionMigrationSummary(makeSectionInputsFromDrafts(sectionDrafts)),
-  )
   const recommendedCommunityRelays = $derived.by(() => {
     const active = new Set(activeCommunityRelays)
 

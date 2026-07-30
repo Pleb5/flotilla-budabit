@@ -61,7 +61,7 @@
     {label: "Code-and-widget-curator", detail: "Repo, permalink, and widget curation together"},
   ]
 
-  let {showStartCommunityCta = false}: {showStartCommunityCta?: boolean} = $props()
+  const {showStartCommunityCta = false}: {showStartCommunityCta?: boolean} = $props()
 </script>
 
 <svelte:head>

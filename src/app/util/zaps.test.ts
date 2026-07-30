@@ -121,10 +121,9 @@ describe("zap utilities", () => {
     const {getZapRelays} = await import("./zaps")
     const event = makeEvent()
 
-    expect(getZapRelays({event: event as any, relayHints: ["wss://explicit.example.com"]})).toEqual([
-      "wss://inbox.example.com/",
-      "wss://read.example.com/",
-    ])
+    expect(getZapRelays({event: event as any, relayHints: ["wss://explicit.example.com"]})).toEqual(
+      ["wss://inbox.example.com/", "wss://read.example.com/"],
+    )
   })
 
   it("falls back to event relay hints with git relays when author inbox relays are unknown", async () => {
@@ -161,7 +160,13 @@ describe("zap utilities", () => {
 
   it("adds event, address, and community scope tags to zap requests", async () => {
     const {makeZapRequestForEvent} = await import("./zaps")
-    const event = makeEvent({kind: 30023, tags: [["d", "note"], ["h", "community"]]})
+    const event = makeEvent({
+      kind: 30023,
+      tags: [
+        ["d", "note"],
+        ["h", "community"],
+      ],
+    })
     const request = makeZapRequestForEvent({
       event: event as any,
       zapper: {lnurl: "lnurl1test"},
@@ -187,7 +192,13 @@ describe("zap utilities", () => {
 
   it("builds receipt filters from normal zap tags without requiring h tags", async () => {
     const {getZapReceiptFilters} = await import("./zaps")
-    const event = makeEvent({kind: 30023, tags: [["d", "note"], ["h", "community"]]})
+    const event = makeEvent({
+      kind: 30023,
+      tags: [
+        ["d", "note"],
+        ["h", "community"],
+      ],
+    })
     const filters = getZapReceiptFilters({
       event: event as any,
       zapper: {nostrPubkey: "4".repeat(64)},

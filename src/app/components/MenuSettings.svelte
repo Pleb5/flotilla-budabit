@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
   import Server from "@assets/icons/server.svg?dataurl"
   import Moon from "@assets/icons/moon.svg?dataurl"

@@ -1,8 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {
-    getListTags,
-    getPubkeyTagValues,
     getTag,
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
@@ -11,10 +9,9 @@
     type Filter,
     type TrustedEvent,
   } from "@welshman/util"
-  import {userMuteList} from "@welshman/app"
   import {formatTimestampRelative} from "@welshman/lib"
   import {load, request} from "@welshman/net"
-  import {now, nthEq, sortBy} from "@welshman/lib"
+  import {now, nthEq} from "@welshman/lib"
   import {GIT_REPO_ANNOUNCEMENT, GitIssueStatus} from "@nostr-git/core/events"
   import NoteCard from "./NoteCard.svelte"
   import Content from "@app/components/Content.svelte"
@@ -61,8 +58,6 @@
   const issueLink = `${repoLink}/issues/${nip19.noteEncode(issue.id)}`
 
   const lastActive = $derived(latestStatus?.created_at ?? issue.created_at)
-
-  const mutedPubkeys = getPubkeyTagValues(getListTags($userMuteList))
 
   let statusColor = $state("badge-success")
   let displayedStatus = $state(GitIssueStatus.OPEN)
@@ -149,7 +144,7 @@
         maintainersSet = new Set(getRepoMaintainers(repoEvent as any))
         repoOwnerPubkey = repoEvent.pubkey || ""
 
-        const [tagId, ...relays] = getTag("relays", repoEvent.tags) ?? []
+        const [, ...relays] = getTag("relays", repoEvent.tags) ?? []
 
         queryRelays = backupRelays
         if (relays.length > 0) {
@@ -182,7 +177,9 @@
             const idx = s.lastIndexOf("/")
             return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
           })
-        } catch {}
+        } catch {
+          // Label derivation is optional; leave labels empty if unavailable.
+        }
 
         statusFilter.since = now()
         request({

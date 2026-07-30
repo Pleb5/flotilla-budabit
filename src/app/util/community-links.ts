@@ -106,7 +106,9 @@ export const getNcommunityLinkAtStart = (src: string): CommunityLinkToken | unde
   return {type: "community", value, raw}
 }
 
-export const communityLinkTokenFromParsedLink = (parsed: ParsedLink): CommunityLinkToken | undefined => {
+export const communityLinkTokenFromParsedLink = (
+  parsed: ParsedLink,
+): CommunityLinkToken | undefined => {
   const raw = parsed.raw || parsed.value.url.toString()
   const value = parseNcommunityLink(raw)
 
@@ -114,4 +116,6 @@ export const communityLinkTokenFromParsedLink = (parsed: ParsedLink): CommunityL
 }
 
 export const replaceCommunityLinks = (content: Parsed[]): ParsedWithCommunity[] =>
-  content.map(parsed => (isLink(parsed) ? communityLinkTokenFromParsedLink(parsed) || parsed : parsed))
+  content.map(parsed =>
+    isLink(parsed) ? communityLinkTokenFromParsedLink(parsed) || parsed : parsed,
+  )

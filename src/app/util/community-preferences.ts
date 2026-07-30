@@ -310,7 +310,9 @@ export const selectPreferredCommunities = ({
   }
 
   return Array.from(preferences.values())
-    .filter(preference => preference.isAdmin || !excludedCommunities.has(preference.communityPubkey))
+    .filter(
+      preference => preference.isAdmin || !excludedCommunities.has(preference.communityPubkey),
+    )
     .map(({scoreParts, ...preference}) => preference)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score

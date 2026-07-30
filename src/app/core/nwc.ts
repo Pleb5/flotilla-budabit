@@ -49,7 +49,10 @@ const getSelectedEncryptionType = (client: NwcClient) => {
   }
 }
 
-const getPersistedNwcInfo = (client: NwcClient, fallbackEncryptionType = PREFERRED_NWC_ENCRYPTION) => ({
+const getPersistedNwcInfo = (
+  client: NwcClient,
+  fallbackEncryptionType = PREFERRED_NWC_ENCRYPTION,
+) => ({
   ...client.options,
   nostrWalletConnectUrl: client.nostrWalletConnectUrl,
   encryptionType: getSelectedEncryptionType(client) || fallbackEncryptionType,

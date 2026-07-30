@@ -25,7 +25,8 @@ class MockNWCClient {
       relayUrl: "wss://relay.example.com/",
       walletPubkey: "wallet-pubkey",
       secret: "secret",
-      nostrWalletConnectUrl: "nostr+walletconnect://wallet-pubkey?relay=wss://relay.example.com/&secret=secret",
+      nostrWalletConnectUrl:
+        "nostr+walletconnect://wallet-pubkey?relay=wss://relay.example.com/&secret=secret",
       ...options,
     }
     this.nostrWalletConnectUrl = this.options.nostrWalletConnectUrl
@@ -96,11 +97,14 @@ describe("NWC helpers", () => {
 
   it("connects and persists NIP-44 wallet info", async () => {
     const {connectNwcWallet} = await import("./nwc")
-    const result = await connectNwcWallet("nostr+walletconnect://wallet-pubkey?relay=wss://relay.example.com/&secret=secret")
+    const result = await connectNwcWallet(
+      "nostr+walletconnect://wallet-pubkey?relay=wss://relay.example.com/&secret=secret",
+    )
 
     expect(result.info).toEqual(mocks.info)
     expect(result.walletInfo).toMatchObject({
-      nostrWalletConnectUrl: "nostr+walletconnect://wallet-pubkey?relay=wss://relay.example.com/&secret=secret",
+      nostrWalletConnectUrl:
+        "nostr+walletconnect://wallet-pubkey?relay=wss://relay.example.com/&secret=secret",
       encryptionType: "nip44_v2",
     })
     expect(mocks.instances[0].closed).toBe(true)

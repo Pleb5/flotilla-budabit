@@ -154,12 +154,6 @@ const safeJsonArray = (value: string | undefined): unknown[] => {
 
 const getDTag = (event: TrustedEvent) => event.tags.find(tag => tag[0] === "d")?.[1] || ""
 
-const getEventAddress = (event: TrustedEvent) => {
-  const identifier = getDTag(event)
-
-  return identifier ? `${event.kind}:${event.pubkey}:${identifier}` : ""
-}
-
 export const makeCommunityDefinitionAddress = (communityPubkey: string) => {
   const pubkey = normalizePubkey(communityPubkey)
 
@@ -656,7 +650,8 @@ export const parseAdmissionReview = (event: TrustedEvent): CommunityFormReview |
     responseId,
     applicantPubkey: event.tags.find(tag => tag[0] === "p")?.[1],
     formAddress: event.tags.find(tag => tag[0] === "a")?.[1],
-    communityPubkey: normalizePubkey(event.tags.find(tag => tag[0] === "h")?.[1] || "") || undefined,
+    communityPubkey:
+      normalizePubkey(event.tags.find(tag => tag[0] === "h")?.[1] || "") || undefined,
     sectionName:
       normalizeCommunitySectionName(event.tags.find(tag => tag[0] === "content")?.[1] || "") ||
       undefined,

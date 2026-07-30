@@ -167,10 +167,10 @@ describe("getQuoteRelayHints", () => {
 
   it("handles single string relay hints and drops platform URLs", () => {
     expect(
-      getQuoteRelayHints(
-        "wss://relay.damus.io",
-        ["wss://github.com/Pleb5/flotilla-budabit.git", "https://github.com/Pleb5/flotilla-budabit"],
-      ),
+      getQuoteRelayHints("wss://relay.damus.io", [
+        "wss://github.com/Pleb5/flotilla-budabit.git",
+        "https://github.com/Pleb5/flotilla-budabit",
+      ]),
     ).toEqual(["wss://relay.damus.io/"])
   })
 })

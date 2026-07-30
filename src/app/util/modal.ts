@@ -69,7 +69,9 @@ const retainModalIds = (retainedIds: string[]) => {
   const current = get(modals)
   const retained = new Set(retainedIds.filter(id => current[id]))
 
-  modals.set(Object.fromEntries(Object.entries(current).filter(([modalId]) => retained.has(modalId))))
+  modals.set(
+    Object.fromEntries(Object.entries(current).filter(([modalId]) => retained.has(modalId))),
+  )
   modalIds.set(retainedIds.filter(id => retained.has(id)))
 }
 
@@ -117,7 +119,9 @@ export const pushModal = (
   const retained = new Set(retainedIds)
 
   modals.update(current => {
-    const next = Object.fromEntries(Object.entries(current).filter(([modalId]) => retained.has(modalId)))
+    const next = Object.fromEntries(
+      Object.entries(current).filter(([modalId]) => retained.has(modalId)),
+    )
 
     return {...next, [id]: {id, component, props, options}}
   })

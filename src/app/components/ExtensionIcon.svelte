@@ -40,7 +40,7 @@
     size?: number
   }
 
-  let {icon, class: className = "", size = 24}: Props = $props()
+  const {icon, class: className = "", size = 24}: Props = $props()
 
   // Check if icon is a URL (starts with http, https, or /)
   const isUrl = $derived(icon ? /^(https?:\/\/|\/|data:)/.test(icon) : false)

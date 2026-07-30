@@ -28,7 +28,10 @@ import {
   getCommunitySectionAuthorityPubkeys,
   getCommunitySectionWriterPubkeys,
 } from "@app/core/community-permissions"
-import {isCommunityPersonBanned, type EffectiveCommunityReportState} from "@app/core/community-reports"
+import {
+  isCommunityPersonBanned,
+  type EffectiveCommunityReportState,
+} from "@app/core/community-reports"
 import type {CommunityProfile} from "@app/core/community-state"
 import type {
   CommunityEventDescriptor,
@@ -57,7 +60,9 @@ export type CommunityDescriptorQueryPlan = {
   originalFilters: Filter[]
 }
 
-const COMMUNITY_TARGETABLE_KIND_SET = new Set<number>(COMMUNITY_TARGETABLE_KINDS as readonly number[])
+const COMMUNITY_TARGETABLE_KIND_SET = new Set<number>(
+  COMMUNITY_TARGETABLE_KINDS as readonly number[],
+)
 const COMMUNITY_CALENDAR_KIND_SET = new Set<number>([EVENT_DATE, EVENT_TIME])
 const COMMUNITY_DIRECT_QUERY_TARGETABLE_KIND_SET = COMMUNITY_CALENDAR_KIND_SET
 
@@ -94,13 +99,18 @@ const sectionFingerprint = (definition: CommunityDefinition) =>
   definition.sections.map(section => ({
     name: section.name,
     kinds: section.kinds.map(kind => normalizeDescriptor(kind)),
-    profileLists: section.profileLists.map(ref => ref.address || `${ref.kind}:${ref.pubkey}:${ref.identifier}`),
+    profileLists: section.profileLists.map(
+      ref => ref.address || `${ref.kind}:${ref.pubkey}:${ref.identifier}`,
+    ),
     badges: section.badges.map(ref => ref.address || `${ref.kind}:${ref.pubkey}:${ref.identifier}`),
   }))
 
 const eventFingerprint = (events: TrustedEvent[]) =>
   events
-    .map(event => `${event.kind}:${event.pubkey}:${event.tags.find(tag => tag[0] === "d")?.[1] || event.id}:${event.created_at}:${event.id}`)
+    .map(
+      event =>
+        `${event.kind}:${event.pubkey}:${event.tags.find(tag => tag[0] === "d")?.[1] || event.id}:${event.created_at}:${event.id}`,
+    )
     .sort()
 
 export const getCommunityContextRuntimeSnapshot = ({
@@ -162,7 +172,11 @@ const findDescriptorSections = (
     sectionSupportsKind(section, descriptor.kind, descriptor.subtype),
   )
 
-  if (sections.length > 0 || descriptor.subtype || !COMMUNITY_CALENDAR_KIND_SET.has(descriptor.kind)) {
+  if (
+    sections.length > 0 ||
+    descriptor.subtype ||
+    !COMMUNITY_CALENDAR_KIND_SET.has(descriptor.kind)
+  ) {
     return sections
   }
 
@@ -178,8 +192,8 @@ const getSectionPermissionDescriptor = (
   if (sectionSupportsKind(section, descriptor.kind, descriptor.subtype)) return descriptor
   if (descriptor.subtype || !COMMUNITY_CALENDAR_KIND_SET.has(descriptor.kind)) return descriptor
 
-  const calendarKind = section.kinds.find(kind =>
-    !kind.subtype && COMMUNITY_CALENDAR_KIND_SET.has(kind.kind),
+  const calendarKind = section.kinds.find(
+    kind => !kind.subtype && COMMUNITY_CALENDAR_KIND_SET.has(kind.kind),
   )
 
   return calendarKind ? {kind: calendarKind.kind} : descriptor
@@ -267,7 +281,9 @@ export const resolveCommunityEventDescriptors = ({
   return normalizeCommunityEventDescriptors(descriptors).map(descriptor => {
     const sections = findDescriptorSections(definition, descriptor)
     if (sections.length === 0) {
-      throw new Error(`No active community section supports event descriptor ${getDescriptorLabel(descriptor)}`)
+      throw new Error(
+        `No active community section supports event descriptor ${getDescriptorLabel(descriptor)}`,
+      )
     }
 
     const writerPubkeys = Array.from(
@@ -403,9 +419,7 @@ export const makeCommunityWidgetContext = ({
     viewer: {
       pubkey: normalizedUser || undefined,
       isOwner: Boolean(normalizedUser && normalizedUser === normalizedCommunity),
-      isBanned: Boolean(
-        normalizedUser && isCommunityPersonBanned(reportState, normalizedUser),
-      ),
+      isBanned: Boolean(normalizedUser && isCommunityPersonBanned(reportState, normalizedUser)),
     },
   }
 }
@@ -438,7 +452,9 @@ export const makeCommunityDescriptorQueryPlan = ({
   const targetableInfos = resolved.filter(info =>
     COMMUNITY_TARGETABLE_KIND_SET.has(info.descriptor.kind),
   )
-  const directInfos = resolved.filter(info => !COMMUNITY_TARGETABLE_KIND_SET.has(info.descriptor.kind))
+  const directInfos = resolved.filter(
+    info => !COMMUNITY_TARGETABLE_KIND_SET.has(info.descriptor.kind),
+  )
   const targetKinds = Array.from(new Set(targetableInfos.map(info => info.descriptor.kind)))
   const originalFilters: Filter[] = []
 
@@ -461,7 +477,12 @@ export const makeCommunityDescriptorQueryPlan = ({
       })
     })
     const allowedAuthors = Array.from(
-      new Set(targetableInfos.flatMap(info => info.writerPubkeys).map(normalizePubkey).filter(Boolean)),
+      new Set(
+        targetableInfos
+          .flatMap(info => info.writerPubkeys)
+          .map(normalizePubkey)
+          .filter(Boolean),
+      ),
     )
 
     originalFilters.push(

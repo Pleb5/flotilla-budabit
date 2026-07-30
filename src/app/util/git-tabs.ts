@@ -9,7 +9,11 @@ export const GIT_MODE_STORAGE_KEY = "git:selected-mode"
 const DEFAULT_GIT_TAB: GitTab = "my-repos"
 const DEFAULT_GIT_MODE: GitMode = "community"
 
-const readSyncedValue = <T>(key: string, isValid: (value: unknown) => value is T, fallback: T): T => {
+const readSyncedValue = <T>(
+  key: string,
+  isValid: (value: unknown) => value is T,
+  fallback: T,
+): T => {
   if (typeof localStorage === "undefined") return fallback
 
   try {
@@ -26,7 +30,8 @@ const readSyncedValue = <T>(key: string, isValid: (value: unknown) => value is T
 export const getInitialGitTab = () =>
   readSyncedValue<GitTab>(
     GIT_TAB_STORAGE_KEY,
-    (value): value is GitTab => value === "my-repos" || value === "bookmarks" || value === "snippets",
+    (value): value is GitTab =>
+      value === "my-repos" || value === "bookmarks" || value === "snippets",
     DEFAULT_GIT_TAB,
   )
 

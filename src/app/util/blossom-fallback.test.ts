@@ -42,10 +42,26 @@ describe("blossom fallback helpers", () => {
         lastResortServers: ["https://fallback.example.com"],
       }),
     ).toEqual([
-      {server: "https://mirror.example.com", source: "mirror", url: `https://mirror.example.com/${hashA}.png`},
-      {server: "https://mirror-server.example.com", source: "mirror", url: `https://mirror-server.example.com/${hashA}`},
-      {server: "https://community.example.com", source: "community", url: `https://community.example.com/${hashA}`},
-      {server: "https://fallback.example.com", source: "last-resort", url: `https://fallback.example.com/${hashA}`},
+      {
+        server: "https://mirror.example.com",
+        source: "mirror",
+        url: `https://mirror.example.com/${hashA}.png`,
+      },
+      {
+        server: "https://mirror-server.example.com",
+        source: "mirror",
+        url: `https://mirror-server.example.com/${hashA}`,
+      },
+      {
+        server: "https://community.example.com",
+        source: "community",
+        url: `https://community.example.com/${hashA}`,
+      },
+      {
+        server: "https://fallback.example.com",
+        source: "last-resort",
+        url: `https://fallback.example.com/${hashA}`,
+      },
     ])
   })
 

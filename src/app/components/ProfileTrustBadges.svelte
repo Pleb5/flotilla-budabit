@@ -76,7 +76,7 @@
     const viewer = normalizePubkey($sessionPubkey || "")
     const target = normalizePubkey(pubkey)
 
-    $userFollowList
+    void $userFollowList
 
     return Boolean(
       viewer &&
@@ -91,7 +91,7 @@
     const viewer = normalizePubkey($sessionPubkey || "")
     const target = normalizePubkey(pubkey)
 
-    $userMuteList
+    void $userMuteList
 
     return Boolean(
       viewer &&

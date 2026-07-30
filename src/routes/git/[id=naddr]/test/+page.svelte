@@ -4,7 +4,6 @@
   import {getEventsForUrl} from "@app/core/state"
   import {makeFeed} from "@app/core/requests"
   import {sortBy} from "@welshman/lib"
-  import {Button} from "@nostr-git/ui"
 
   const url = (($page.data as any)?.url || "") as string
   const repositoryNaddr = $page.params.id!

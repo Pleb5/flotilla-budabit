@@ -52,7 +52,10 @@ const getReqs = (send: ReturnType<typeof vi.fn>) =>
   getMessages(send).filter(message => message[0] === ClientMessageType.Req)
 
 afterEach(() => {
-  restorePolicies.splice(0).reverse().forEach(restore => restore())
+  restorePolicies
+    .splice(0)
+    .reverse()
+    .forEach(restore => restore())
   vi.useRealTimers()
 })
 
@@ -613,10 +616,11 @@ describe("Welshman request patch", () => {
     expect(getReqs(send)).toHaveLength(6)
     activeControllers[0].abort()
     expect(getReqs(send)).toHaveLength(8)
-    expect(getReqs(send).slice(6).map(message => (message[2] as Filter).kinds)).toEqual([
-      [100],
-      [101],
-    ])
+    expect(
+      getReqs(send)
+        .slice(6)
+        .map(message => (message[2] as Filter).kinds),
+    ).toEqual([[100], [101]])
 
     activeControllers.slice(1).forEach(controller => controller.abort())
     groupController.abort()

@@ -93,14 +93,17 @@ export const getDateBasedExclusiveEndDate = (startDate?: string, inclusiveEndDat
 
 export const parseCalendarTimestamp = (value: string | number | undefined) => {
   if (typeof value === "number") {
-    return Number.isFinite(value) ? Math.floor(value > 1_000_000_000_000 ? value / 1000 : value) : undefined
+    return Number.isFinite(value)
+      ? Math.floor(value > 1_000_000_000_000 ? value / 1000 : value)
+      : undefined
   }
 
   const trimmed = value?.trim()
   if (!trimmed) return undefined
 
   const numeric = Number(trimmed)
-  if (Number.isFinite(numeric)) return Math.floor(numeric > 1_000_000_000_000 ? numeric / 1000 : numeric)
+  if (Number.isFinite(numeric))
+    return Math.floor(numeric > 1_000_000_000_000 ? numeric / 1000 : numeric)
 
   const timestamp = Date.parse(DATE_RE.test(trimmed) ? `${trimmed}T00:00:00` : trimmed)
 
@@ -153,7 +156,8 @@ export const makeCalendarEventTags = ({
 
   if (kind === EVENT_DATE) {
     const normalizedStartDate = parseCalendarDate(startDate)
-    if (!normalizedStartDate) throw new Error("Date-based calendar events require a valid start date.")
+    if (!normalizedStartDate)
+      throw new Error("Date-based calendar events require a valid start date.")
 
     const normalizedEndDate = parseCalendarDate(endDate) || normalizedStartDate
 

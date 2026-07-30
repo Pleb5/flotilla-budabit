@@ -3,7 +3,6 @@ import {
   GIT_USER_GRASP_LIST,
   GRASP_SET_KIND,
   normalizeGraspServerUrl,
-  normalizeUserGraspServerUrls,
   parseGraspServersEvent,
   parseUserGraspListServerUrls,
   type UserGraspListEvent,
@@ -96,12 +95,15 @@ export type GraspServerListResolution = {
   urls: string[]
 }
 
-export const resolvePreferredGraspServerList = (events: TrustedEvent[]): GraspServerListResolution => {
+export const resolvePreferredGraspServerList = (
+  events: TrustedEvent[],
+): GraspServerListResolution => {
   const latestUserList = selectLatest(events.filter(isUserGraspListEvent))
   if (latestUserList) return {source: "user", urls: parseUserGraspServerUrls(latestUserList)}
 
   const latestLegacyList = selectLatest(events.filter(isLegacyGraspServersEvent))
-  if (latestLegacyList) return {source: "legacy", urls: parseLegacyGraspServerUrls(latestLegacyList)}
+  if (latestLegacyList)
+    return {source: "legacy", urls: parseLegacyGraspServerUrls(latestLegacyList)}
 
   return {source: "none", urls: []}
 }

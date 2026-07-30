@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {preventDefault} from "@lib/html"
   import {randomInt, displayList, TIMEZONE} from "@welshman/lib"
   import {Address} from "@welshman/util"
@@ -182,7 +181,9 @@
         try {
           const address = Address.fromEvent(event).toString()
           repoByAddress.set(address, event)
-        } catch {}
+        } catch {
+          // Ignore malformed repository announcements.
+        }
       }
       for (const repoAddr of selectedRepos) {
         const repoEvent = repoByAddress.get(repoAddr)
@@ -193,7 +194,9 @@
             const normalized = normalizeRelayUrl(relay)
             if (isRelayUrl(normalized)) relaySet.add(normalized)
           }
-        } catch {}
+        } catch {
+          // Ignore malformed relay metadata.
+        }
       }
 
       const relays = Array.from(relaySet)

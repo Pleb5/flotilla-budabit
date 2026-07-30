@@ -45,7 +45,8 @@ const WIDGET_UPDATE_FILTER_CHUNK_SIZE = 100
 const MAX_WIDGET_NOTIFICATION_RELAYS_PER_TARGET = 6
 
 const getCacheFilter = (filter: Filter): Filter => {
-  const {limit: _limit, ...rest} = filter
+  const {limit, ...rest} = filter
+  void limit
 
   return rest
 }
@@ -77,7 +78,10 @@ const chunkBySize = <T>(items: T[], size: number) => {
 }
 
 const getCompatibleWidgetFilterKey = (filter: Filter) => {
-  const {authors: _authors, "#d": _identifiers, limit: _limit, ...compatible} = filter
+  const {authors, "#d": identifiers, limit, ...compatible} = filter
+  void authors
+  void identifiers
+  void limit
   return JSON.stringify(
     Object.fromEntries(Object.entries(compatible).sort(([a], [b]) => a.localeCompare(b))),
   )
@@ -102,7 +106,10 @@ const groupCompatibleWidgetFilters = (filters: Filter[]) => {
   const grouped = [...standalone]
   for (const filters of filtersByCompatibility.values()) {
     for (const chunk of chunkBySize(filters, WIDGET_UPDATE_FILTER_CHUNK_SIZE)) {
-      const {authors: _authors, "#d": _identifiers, limit: _limit, ...base} = chunk[0]
+      const {authors, "#d": identifiers, limit, ...base} = chunk[0]
+      void authors
+      void identifiers
+      void limit
       grouped.push({
         ...base,
         authors: Array.from(new Set(chunk.flatMap(filter => filter.authors || []))).sort(),

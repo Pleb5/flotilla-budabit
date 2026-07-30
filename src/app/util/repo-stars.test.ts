@@ -137,9 +137,9 @@ describe("repo stars", () => {
       tags: [["h", "target-id"], ...makeStar("community", 2).tags],
     })
 
-    expect(selectActiveRepoStars({reactions: [personal, communityTargeted], author: userPubkey})).toEqual([
-      expect.objectContaining({reaction: personal}),
-    ])
+    expect(
+      selectActiveRepoStars({reactions: [personal, communityTargeted], author: userPubkey}),
+    ).toEqual([expect.objectContaining({reaction: personal})])
   })
 
   it("builds filters for loading repo star reactions and deletes", () => {

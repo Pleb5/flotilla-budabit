@@ -187,9 +187,9 @@ export const canCreateCommunityBadge = ({
 
   return Boolean(
     normalized &&
-      getCommunityBadgeCreatorPubkeys({definition, profileListEvents, reportState}).includes(
-        normalized,
-      ),
+    getCommunityBadgeCreatorPubkeys({definition, profileListEvents, reportState}).includes(
+      normalized,
+    ),
   )
 }
 
@@ -615,7 +615,9 @@ export const getCommunityBadgeAward = ({
         award.recipientPubkey === recipient &&
         normalizePubkey(award.event.pubkey || "") === definition.pubkey,
     )
-    .toSorted((a, b) => b.event.created_at - a.event.created_at || a.event.id.localeCompare(b.event.id))[0]
+    .toSorted(
+      (a, b) => b.event.created_at - a.event.created_at || a.event.id.localeCompare(b.event.id),
+    )[0]
 }
 
 export const getAcceptedCommunityBadges = ({

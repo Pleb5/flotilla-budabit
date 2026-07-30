@@ -146,9 +146,7 @@ const normalizeKind = (kind: number | string | undefined) => {
 const isTargetablePublicationKind = (kind: number | undefined) =>
   kind !== undefined && TARGETED_PUBLICATION_KINDS.includes(kind as any)
 
-export const getTargetedPublicationRelayHints = (
-  event: Pick<TrustedEvent, "kind" | "tags">,
-) => {
+export const getTargetedPublicationRelayHints = (event: Pick<TrustedEvent, "kind" | "tags">) => {
   const kind = normalizeKind(event.kind)
   if (!isTargetablePublicationKind(kind)) return []
 
@@ -177,9 +175,7 @@ export const getTargetedPublicationRelayHints = (
 const REPO_ADDRESS_KINDS: number[] = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
 
 const getRepoTaggedRelays = (event: Pick<TrustedEvent, "tags">) =>
-  (event.tags || [])
-    .filter(tag => tag[0] === "relays")
-    .flatMap(tag => tag.slice(1))
+  (event.tags || []).filter(tag => tag[0] === "relays").flatMap(tag => tag.slice(1))
 
 export type RepoAddressPointer = {
   kind: number
@@ -220,9 +216,7 @@ export const getRepoAddressPointersFromEvent = (
 // repo announcement the event points at (via its a/A tag). Falls back to the
 // relay hint embedded in the a/A tag when the announcement is not known locally.
 // Repo announcement/state events resolve to their own relays tag.
-export const getRepoAnnouncementRelayHints = (
-  event: Pick<TrustedEvent, "kind" | "tags">,
-) => {
+export const getRepoAnnouncementRelayHints = (event: Pick<TrustedEvent, "kind" | "tags">) => {
   const kind = normalizeKind(event.kind)
 
   if (kind !== undefined && REPO_ADDRESS_KINDS.includes(kind)) {
@@ -315,7 +309,10 @@ export const makeRepoEventNaddr = (event: TrustedEvent, options: EventShareEntit
     fallbackRepoRelays: getEventRelayHints(event, options),
   })
 
-export const makeEventShareEntity = (event: TrustedEvent, options: EventShareEntityOptions = {}) => {
+export const makeEventShareEntity = (
+  event: TrustedEvent,
+  options: EventShareEntityOptions = {},
+) => {
   const relayHints = getEventRelayHints(event, options)
 
   if (isReplaceable(event)) {

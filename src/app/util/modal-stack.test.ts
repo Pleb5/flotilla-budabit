@@ -56,8 +56,8 @@ describe("modal stack helpers", () => {
     expect(shouldUseHistoryForTopClose(plan, {}, true)).toBe(true)
     expect(shouldUseHistoryForTopClose(plan, {replaceState: true}, true)).toBe(false)
     expect(shouldUseHistoryForTopClose(plan, {}, false)).toBe(false)
-    expect(shouldUseHistoryForTopClose(getModalTopClosePlan(["notifications"], "notifications"))).toBe(
-      false,
-    )
+    expect(
+      shouldUseHistoryForTopClose(getModalTopClosePlan(["notifications"], "notifications")),
+    ).toBe(false)
   })
 })

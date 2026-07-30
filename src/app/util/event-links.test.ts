@@ -270,9 +270,10 @@ describe("event link utilities", () => {
         tags: [["a", repoAddress, "wss://pointer.example.com"]],
       })
 
-      expect(
-        getEventRelayHints(issue as any, {relays: ["wss://explicit.example.com"]}),
-      ).toEqual(["wss://repo-relay.example.com/", "wss://repo-relay2.example.com/"])
+      expect(getEventRelayHints(issue as any, {relays: ["wss://explicit.example.com"]})).toEqual([
+        "wss://repo-relay.example.com/",
+        "wss://repo-relay2.example.com/",
+      ])
     })
 
     it("uses repo announcement relays for comments referencing a repo root", async () => {

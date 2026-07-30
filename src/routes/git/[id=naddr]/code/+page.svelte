@@ -398,9 +398,6 @@
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
-  let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
-    $state([])
-
   // Track if we've already attempted clone check to prevent infinite retries
   let cloneCheckAttempted = $state(false)
 
@@ -518,9 +515,6 @@
       const timeout = setTimeout(() => {
         repoClass
           .getAllRefsWithFallback()
-          .then(loadedRefs => {
-            refs = loadedRefs
-          })
           .catch((err: Error) => {
             console.error("Failed to load repository references:", err)
             notifyCorsProxyIssue(err)
@@ -536,7 +530,6 @@
                 theme: "error",
               })
             }
-            refs = []
           })
       }, 100)
 

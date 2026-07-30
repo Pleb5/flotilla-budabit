@@ -98,7 +98,9 @@ describe("widget targeting", () => {
         ],
         communityPubkeys: [communityPubkey],
       }),
-    ).toThrow("Target communities must declare relays before publishing widgets: No Relay Community")
+    ).toThrow(
+      "Target communities must declare relays before publishing widgets: No Relay Community",
+    )
   })
 
   it("rejects unavailable target communities instead of publishing only to base relays", () => {

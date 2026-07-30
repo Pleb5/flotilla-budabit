@@ -92,8 +92,8 @@ describe("community room message helpers", () => {
       parentMessageId: "parent-message",
     })
     expect(readCommunityRoomMessage(message, communityPubkey, "other-room")).toBeUndefined()
-    expect(readCommunityRoomMessages([message, otherRoom], communityPubkey, "room-root").map(m => m.id)).toEqual([
-      "message-id",
-    ])
+    expect(
+      readCommunityRoomMessages([message, otherRoom], communityPubkey, "room-root").map(m => m.id),
+    ).toEqual(["message-id"])
   })
 })

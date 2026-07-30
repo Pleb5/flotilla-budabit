@@ -24,7 +24,10 @@ export const withPublicationTargetingId = <T extends EventContent>(
   targetingId = randomId(),
 ): T & {targetingId: string} => ({
   ...template,
-  tags: [[TARGETING_TAG, targetingId], ...(template.tags || []).filter(tag => tag[0] !== TARGETING_TAG)],
+  tags: [
+    [TARGETING_TAG, targetingId],
+    ...(template.tags || []).filter(tag => tag[0] !== TARGETING_TAG),
+  ],
   targetingId,
 })
 

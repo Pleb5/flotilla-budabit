@@ -125,13 +125,19 @@ describe("extension registry", () => {
       ...makeWidgetEvent(),
       id: "first-shared-widget",
       pubkey: "a".repeat(64),
-      tags: [["d", "shared-widget"], ["l", "basic"]],
+      tags: [
+        ["d", "shared-widget"],
+        ["l", "basic"],
+      ],
     })
     const second = parseSmartWidget({
       ...makeWidgetEvent(),
       id: "second-shared-widget",
       pubkey: "b".repeat(64),
-      tags: [["d", "shared-widget"], ["l", "basic"]],
+      tags: [
+        ["d", "shared-widget"],
+        ["l", "basic"],
+      ],
     })
 
     const firstExt = extensionRegistry.registerWidget(first)

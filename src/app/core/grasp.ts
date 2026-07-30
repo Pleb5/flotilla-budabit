@@ -635,15 +635,21 @@ const getGraspServerRecommendationRelays = (
 
   try {
     authorRelays = Router.get().FromPubkeys(authors).getUrls() || []
-  } catch {}
+  } catch {
+    // Continue with the other best-effort relay sources.
+  }
 
   try {
     userRelays = Router.get().FromUser().getUrls() || []
-  } catch {}
+  } catch {
+    // Continue with the other best-effort relay sources.
+  }
 
   try {
     indexRelays = Router.get().Index().getUrls() || []
-  } catch {}
+  } catch {
+    // Continue with the other best-effort relay sources.
+  }
 
   return normalizeRelays([
     ...communityRefs.flatMap(ref => ref.relayHints),

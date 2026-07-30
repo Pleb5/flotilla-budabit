@@ -15,9 +15,7 @@ export const makeRepoNaddrFromEvent = (
   options: EventShareEntityOptions = {},
 ) => {
   try {
-    return (
-      makeRepoEventNaddr(event, options) || Address.fromEvent(event).toNaddr()
-    )
+    return makeRepoEventNaddr(event, options) || Address.fromEvent(event).toNaddr()
   } catch {
     return ""
   }

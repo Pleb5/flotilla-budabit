@@ -405,10 +405,7 @@ describe("ExtensionBridge", () => {
     )
 
     const options = mocks.request.mock.calls[0][0]
-    options.onEvent(
-      makeEvent({kind: 30301, tags: [["d", "board"]]}),
-      "wss://relay.example/",
-    )
+    options.onEvent(makeEvent({kind: 30301, tags: [["d", "board"]]}), "wss://relay.example/")
     expect(extension.iframeWindow.postMessage).toHaveBeenCalledWith(
       {
         type: "event",

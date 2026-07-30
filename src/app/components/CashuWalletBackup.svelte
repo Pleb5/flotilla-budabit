@@ -51,9 +51,9 @@
   const seedEncrypted = $derived($cashuSeedEncrypted)
   const mints = $derived($cashuMints)
   const mnemonic = $derived.by(() => {
-    seedRevision
-    seedLocked
-    seedEncrypted
+    void seedRevision
+    void seedLocked
+    void seedEncrypted
 
     try {
       return getCashuMnemonic()

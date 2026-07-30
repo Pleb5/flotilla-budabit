@@ -5,7 +5,6 @@
   import {goto} from "$app/navigation"
   import {tryCatch} from "@welshman/lib"
   import {fromNostrURI} from "@welshman/util"
-  import {pubkey} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import Button from "@lib/components/Button.svelte"

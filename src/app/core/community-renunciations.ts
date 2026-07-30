@@ -94,7 +94,9 @@ const getUserOutboxRelays = () => {
 export const getRenunciationPublishRelays = (outboxRelays = getUserOutboxRelays()) => {
   const normalizedOutboxRelays = normalizeRelays(outboxRelays)
 
-  return normalizedOutboxRelays.length > 0 ? normalizedOutboxRelays : normalizeRelays(INDEXER_RELAYS)
+  return normalizedOutboxRelays.length > 0
+    ? normalizedOutboxRelays
+    : normalizeRelays(INDEXER_RELAYS)
 }
 
 const getRequiredRenunciationPublishRelays = () => {
@@ -107,8 +109,7 @@ const getRequiredRenunciationPublishRelays = () => {
   return relays
 }
 
-const makeAbortError = () =>
-  Object.assign(new Error("Update cancelled."), {name: "AbortError"})
+const makeAbortError = () => Object.assign(new Error("Update cancelled."), {name: "AbortError"})
 
 const throwIfAborted = (signal?: AbortSignal) => {
   if (signal?.aborted) throw makeAbortError()
@@ -252,9 +253,7 @@ const publishAndVerifyRenouncedCommunitiesEvent = async (
     const abort = () => finishReject(makeAbortError())
     const rejectIfDone = () => {
       if (!settled && pending === 0) {
-        finishReject(
-          new Error(failures[0] || "Couldn't confirm this was saved. Please try again."),
-        )
+        finishReject(new Error(failures[0] || "Couldn't confirm this was saved. Please try again."))
       }
     }
 
@@ -309,7 +308,10 @@ export const addRenouncedCommunityToList = (list: List | undefined, communityPub
   return addToListPrivately(makeRenouncedCommunitiesList(list), ["p", normalizedCommunity])
 }
 
-export const removeRenouncedCommunityFromList = (list: List | undefined, communityPubkey: string) => {
+export const removeRenouncedCommunityFromList = (
+  list: List | undefined,
+  communityPubkey: string,
+) => {
   const normalizedCommunity = normalizePubkey(communityPubkey)
   if (!normalizedCommunity) throw new Error("This group looks invalid.")
 
@@ -358,7 +360,9 @@ const loadRenouncedCommunitiesListForUpdate = async (
   if (!activePubkey) throw new Error("Log in to update your groups.")
 
   options.onStatus?.("Checking your current choice...")
-  const filters = [{kinds: [NAMED_PEOPLE], authors: [activePubkey], "#d": [RENOUNCED_COMMUNITIES_DTAG]}]
+  const filters = [
+    {kinds: [NAMED_PEOPLE], authors: [activePubkey], "#d": [RENOUNCED_COMMUNITIES_DTAG]},
+  ]
   const loadedEvents = await load({relays, filters, signal: options.signal})
 
   throwIfAborted(options.signal)

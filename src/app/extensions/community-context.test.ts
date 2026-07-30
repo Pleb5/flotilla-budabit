@@ -276,10 +276,7 @@ describe("community widget context", () => {
     const roomRoot = makeEvent({
       id: "room-root",
       kind: THREAD,
-      tags: [
-        ["h", communityPubkey],
-        ["room"],
-      ],
+      tags: [["h", communityPubkey], ["room"]],
     })
     const threadRoot = makeEvent({
       id: "thread-root",

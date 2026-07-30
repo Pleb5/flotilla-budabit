@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import {now} from "@welshman/lib"
   import {Address} from "@welshman/util"
   import {preventDefault} from "@lib/html"

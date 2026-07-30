@@ -143,9 +143,7 @@ const normalizeInstalled = (installed: any): NormalizedInstalled => {
   )
   const widgetKeyMap = buildWidgetKeyMap(widgetEntries)
   const legacyFlat =
-    installed && typeof installed === "object" && !installed.widget
-      ? installed
-      : {}
+    installed && typeof installed === "object" && !installed.widget ? installed : {}
   const remainingLegacy: Record<string, any> = {}
 
   for (const [id, value] of Object.entries(legacyFlat)) {
@@ -395,12 +393,7 @@ const normalizeExtensionSettings = (
   )
 
   return {
-    enabled: normalizeExtensionIds(
-      settings.enabled,
-      installedIds,
-      widgetIds,
-      widgetKeyMap,
-    ),
+    enabled: normalizeExtensionIds(settings.enabled, installedIds, widgetIds, widgetKeyMap),
     disabledDefaultIds: normalizeDisabledDefaultIds(
       settings.disabledDefaultIds,
       widgetKeyMap,

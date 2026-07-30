@@ -2,7 +2,6 @@
   import {onMount, onDestroy} from "svelte"
   import type {Nip46ResponseWithResult} from "@welshman/signer"
   import {Nip46Broker} from "@welshman/signer"
-  import {makeSecret} from "@welshman/util"
   import {loginWithNip01, loginWithNip46} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -18,7 +17,7 @@
   import {clearModals} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
-  import {SIGNER_RELAYS, NIP46_PERMS} from "@app/core/state"
+  import {NIP46_PERMS} from "@app/core/state"
 
   const back = () => {
     if (mode === "connect") {

@@ -118,7 +118,8 @@ const restoreUnlockedLocalKeySession = (
 const prepareSessionForStorage = (session: Session): StoredSession => {
   if (!hasNip49EncryptedLocalSecret(session)) return session
 
-  const {secret: _secret, ...storedSession} = session
+  const {secret, ...storedSession} = session
+  void secret
 
   return storedSession
 }

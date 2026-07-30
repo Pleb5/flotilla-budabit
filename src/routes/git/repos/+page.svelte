@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {page} from "$app/stores"
   import {Address, getTagValue, type Filter} from "@welshman/util"
   import {repository, tracker} from "@welshman/app"
   import {fly} from "@lib/transition"

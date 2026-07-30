@@ -1,6 +1,12 @@
 import * as nip19 from "nostr-tools/nip19"
 import type {EventContent, TrustedEvent} from "@welshman/util"
-import {BADGE_DEFINITION, EVENT_DATE, EVENT_TIME, isRelayUrl, normalizeRelayUrl} from "@welshman/util"
+import {
+  BADGE_DEFINITION,
+  EVENT_DATE,
+  EVENT_TIME,
+  isRelayUrl,
+  normalizeRelayUrl,
+} from "@welshman/util"
 import {randomId} from "@welshman/lib"
 import {normalizeUserGraspServerUrls} from "@nostr-git/core/events"
 
@@ -43,7 +49,14 @@ export const getCommunitySectionKindLabel = (kind: number, subtype?: string) => 
   return normalizedSubtype ? `${kind}/${normalizedSubtype}` : String(kind)
 }
 
-export const TARGETED_PUBLICATION_KINDS = [EVENT_DATE, EVENT_TIME, 9041, 30617, 1623, 30033] as const
+export const TARGETED_PUBLICATION_KINDS = [
+  EVENT_DATE,
+  EVENT_TIME,
+  9041,
+  30617,
+  1623,
+  30033,
+] as const
 
 export type CommunityInputSource = "hex" | "npub" | "ncommunity"
 
@@ -695,7 +708,7 @@ export const isRenouncedCommunitiesListEvent = (
 ) =>
   Boolean(
     event?.kind === PROFILE_LIST_KIND &&
-      event.tags?.some(tag => tag[0] === "d" && tag[1] === RENOUNCED_COMMUNITIES_DTAG),
+    event.tags?.some(tag => tag[0] === "d" && tag[1] === RENOUNCED_COMMUNITIES_DTAG),
   )
 
 export const getProfileListPubkeys = (event: TrustedEvent | undefined) => {

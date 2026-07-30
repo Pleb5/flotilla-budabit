@@ -1,9 +1,7 @@
 <script lang="ts">
   import {fade} from "@lib/transition"
   import CompassBig from "@assets/icons/compass-big.svg?dataurl"
-  import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic.svg?dataurl"
-  import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
@@ -17,9 +15,6 @@
   const {url}: Props = $props()
   const chatPath = makeSpacePath(url, "chat")
   const goalsPath = makeSpacePath(url, "goals")
-  const threadsPath = makeSpacePath(url, "threads")
-  const calendarPath = makeSpacePath(url, "calendar")
-  const gitPath = makeSpacePath(url, "git")
 </script>
 
 <div class="card2 bg-alt md:hidden">

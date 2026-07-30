@@ -24,7 +24,9 @@ describe("community profile relay hints", () => {
     const home = readProjectFile("../../routes/c/[community]/+page.svelte")
 
     expect(home).toContain('import Content from "@app/components/Content.svelte"')
-    expect(home).toContain("const communityDescriptionEvent = $derived({content: communityDescription, tags: []})")
+    expect(home).toContain(
+      "const communityDescriptionEvent = $derived({content: communityDescription, tags: []})",
+    )
     expect(home).toContain("<Content event={communityDescriptionEvent} showEntire />")
     expect(home).not.toContain("kind: 1")
     expect(home).not.toMatch(

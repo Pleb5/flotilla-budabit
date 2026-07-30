@@ -11,7 +11,6 @@
   } from "@welshman/util"
   import {
     repository,
-    publishThunk,
     profilesByPubkey,
     tracker,
     profileSearch,
@@ -99,7 +98,6 @@
     activePreferredCommunities,
     activeUserCommunityRefs,
     communityPreferencesLoading,
-    hydratePreferredCommunities,
     hydratePreferredCommunityList,
     makeCommunityDefinitionFilter,
     makeCommunityProfileListFilters,
@@ -110,11 +108,7 @@
     setActiveCommunityInput,
   } from "@app/core/community-state"
   import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
-  import {
-    parseCommunityInput,
-    parseTargetedPublication,
-    TARGETED_PUBLICATION_KIND,
-  } from "@app/core/community"
+  import {parseCommunityInput} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
@@ -126,7 +120,6 @@
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
-  import {getPublicationTargetingId} from "@app/core/community-targeting"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Star from "@assets/icons/star.svg?dataurl"
@@ -385,8 +378,6 @@
     timeoutMs?: number
   }) => {
     let settled = false
-    let timeout: ReturnType<typeof setTimeout>
-
     const settle = () => {
       if (settled) return
       settled = true
@@ -396,16 +387,13 @@
       afterRepoLoadSettle(onSettled)
     }
 
-    timeout = setTimeout(settle, timeoutMs)
+    const timeout = setTimeout(settle, timeoutMs)
     repoLoadTimeoutTimers.add(timeout)
     void promise.finally(settle).catch(() => {})
   }
 
   const requestedGitCommunityInput = $derived(
     $page.url.searchParams.get(GIT_COMMUNITY_PARAM)?.trim() || "",
-  )
-  const requestedGitCommunityPubkey = $derived(
-    parseCommunityInput(requestedGitCommunityInput)?.pubkey || "",
   )
   const getInitialGitCommunityInput = () =>
     getStore(page).url.searchParams.get(GIT_COMMUNITY_PARAM)?.trim() || ""
@@ -2860,9 +2848,6 @@
             if (cardsComputeTimer === timer) cardsComputeTimer = null
           }, 0)
           cardsComputeTimer = timer
-        } else if (renderedRepoCardsContext !== context && cachedCards.length > 0) {
-          repositoriesStore.set(cachedCards)
-          renderedRepoCardsContext = context
         }
       } else {
         if (cardsComputeTimer) {

@@ -14,7 +14,7 @@
     class?: string
   }
 
-  let {onEmoji, children, class: className = ""}: Props = $props()
+  const {onEmoji, children, class: className = ""}: Props = $props()
 
   const open = () => {
     if (!popover || popover.state.isDestroyed) return

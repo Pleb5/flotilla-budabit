@@ -3,7 +3,6 @@
   import {getContext, onDestroy} from "svelte"
   import {fade} from "svelte/transition"
   import {
-    getTags,
     parsePullRequestEvent,
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,

@@ -67,10 +67,7 @@ export const aggregateRelayDiagnostics = (snapshots: RequestSchedulerSnapshot[])
           ? snapshot.learnedMaxSubscriptions
           : Math.min(current.learnedMaxSubscriptions, snapshot.learnedMaxSubscriptions)
     }
-    current.oldestQueuedAgeMs = Math.max(
-      current.oldestQueuedAgeMs,
-      snapshot.oldestQueuedAgeMs,
-    )
+    current.oldestQueuedAgeMs = Math.max(current.oldestQueuedAgeMs, snapshot.oldestQueuedAgeMs)
     for (const requestClass of ["finite", "critical-live", "background-live"] as const) {
       current.oldestQueuedAgeMsByClass[requestClass] = Math.max(
         current.oldestQueuedAgeMsByClass[requestClass],

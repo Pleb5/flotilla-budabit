@@ -348,7 +348,7 @@
   }
 
   const getWidgetPreviewCommunityOptions = (widget: SmartWidgetEvent) => {
-    recommendationContextVersion
+    void recommendationContextVersion
 
     return makeCommunityWidgetPreviewContextOptions({
       widgetLineId: getWidgetLineId(widget),

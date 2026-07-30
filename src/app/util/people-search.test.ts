@@ -126,13 +126,19 @@ describe("people-search", () => {
           id: "allowed-profile-list",
           kind: PROFILE_LIST_KIND,
           pubkey: allowedListOwner,
-          tags: [["d", "Repositories"], ["p", allowedMember]],
+          tags: [
+            ["d", "Repositories"],
+            ["p", allowedMember],
+          ],
         } as any,
         {
           id: "renounced-profile-list",
           kind: PROFILE_LIST_KIND,
           pubkey: renouncedListOwner,
-          tags: [["d", "Repositories"], ["p", renouncedMember]],
+          tags: [
+            ["d", "Repositories"],
+            ["p", renouncedMember],
+          ],
         } as any,
       ],
     })

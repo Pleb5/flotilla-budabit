@@ -40,9 +40,8 @@ describe("notification center read state", () => {
   })
 
   it("marks the global notification timestamp read", async () => {
-    const {hasUnreadNotificationsState, markNotificationsReadState} = await import(
-      "./notification-center"
-    )
+    const {hasUnreadNotificationsState, markNotificationsReadState} =
+      await import("./notification-center")
     const unread = {lastReadTimestamp: 50, latestNotificationTimestamp: 120}
     const read = markNotificationsReadState(unread)
 

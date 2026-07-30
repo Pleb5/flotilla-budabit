@@ -5,9 +5,7 @@ vi.mock("@nostr-git/core", () => ({
   parseRepoUrl: vi.fn(),
   filterValidCloneUrls: vi.fn((urls: string[]) => urls),
   reorderUrlsByPreference: vi.fn((urls: string[], _repoId?: string) => urls),
-  hasRestApiSupport: vi.fn(
-    (url: string) => url.includes("github.com") || url.includes("gitlab."),
-  ),
+  hasRestApiSupport: vi.fn((url: string) => url.includes("github.com") || url.includes("gitlab.")),
 }))
 
 describe("commit-api", () => {
@@ -93,11 +91,7 @@ describe("commit-api", () => {
     )
 
     expect(result?.success).toBe(true)
-    expect(getGitServiceApi).toHaveBeenCalledWith(
-      "gitlab",
-      "",
-      "https://gitlab.example.com/api/v4",
-    )
+    expect(getGitServiceApi).toHaveBeenCalledWith("gitlab", "", "https://gitlab.example.com/api/v4")
 
     consoleSpy.mockRestore()
   })

@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import {onMount} from "svelte"
   import {goto} from "$app/navigation"
   import BudabitAlerts from "@app/components/BudabitAlerts.svelte"

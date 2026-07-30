@@ -309,7 +309,7 @@
 
   // Send the host theme once the bridge is ready and whenever it changes
   $effect(() => {
-    appTheme
+    void appTheme
     if (!ready || !bridge) return
 
     sendTheme()

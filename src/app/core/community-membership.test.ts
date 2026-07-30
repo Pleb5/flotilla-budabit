@@ -282,10 +282,10 @@ describe("community membership", () => {
     }
 
     expect(
-      filterExcludedCommunityRefs([adminRef, memberRef], [
-        adminRef.communityPubkey,
-        memberRef.communityPubkey,
-      ]).map(ref => ref.communityPubkey),
+      filterExcludedCommunityRefs(
+        [adminRef, memberRef],
+        [adminRef.communityPubkey, memberRef.communityPubkey],
+      ).map(ref => ref.communityPubkey),
     ).toEqual([adminRef.communityPubkey])
   })
 
@@ -310,7 +310,10 @@ describe("community membership", () => {
             id: "renounced-list",
             pubkey: listOwner,
             kind: PROFILE_LIST_KIND,
-            tags: [["d", RENOUNCED_COMMUNITIES_DTAG], ["p", userPubkey]],
+            tags: [
+              ["d", RENOUNCED_COMMUNITIES_DTAG],
+              ["p", userPubkey],
+            ],
           }),
         ],
       }),

@@ -15,7 +15,9 @@ export type WidgetPublisherDraft = {
   changelog?: string
 }
 
-export const getWidgetAppUrlsFromUpload = (upload: Pick<UploadFileResult, "result" | "mirrors">) => {
+export const getWidgetAppUrlsFromUpload = (
+  upload: Pick<UploadFileResult, "result" | "mirrors">,
+) => {
   const urls = [upload.result?.url, ...(upload.mirrors || []).map(mirror => mirror.url)].filter(
     (url): url is string => Boolean(url),
   )
@@ -52,7 +54,9 @@ export const filterSelectedWidgetCommunityOptions = (
   options: WidgetCommunityOption[],
   selectedPubkeys: string[],
 ) => {
-  const selected = new Set(selectedPubkeys.map(pubkey => pubkey.trim().toLowerCase()).filter(Boolean))
+  const selected = new Set(
+    selectedPubkeys.map(pubkey => pubkey.trim().toLowerCase()).filter(Boolean),
+  )
 
   return options.filter(option => selected.has(option.pubkey.trim().toLowerCase()))
 }

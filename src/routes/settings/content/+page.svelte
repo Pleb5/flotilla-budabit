@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import {getListTags, getPubkeyTagValues, MUTES, makeEvent} from "@welshman/util"
   import {Router} from "@welshman/router"
   import {userMuteList, tagPubkey, publishThunk} from "@welshman/app"

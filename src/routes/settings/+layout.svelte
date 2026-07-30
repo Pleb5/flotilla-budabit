@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import type {Snippet} from "svelte"
   import {page} from "$app/stores"
   import {fly} from "@lib/transition"

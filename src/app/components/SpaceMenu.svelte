@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global __ALERTS__ */
   import {onMount} from "svelte"
   import {goto} from "$app/navigation"
   import {displayRelayUrl} from "@welshman/util"

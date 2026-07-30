@@ -246,7 +246,9 @@ const getExplicitGraspServerRelays = (viewerPubkey = get(pubkey)) => {
 
   const filters = makeGraspServerListFilters(author)
   const events = repository.query(filters, {shouldSort: false}) as TrustedEvent[]
-  return getPreferredGraspServerUrls(events).map(safeNormalizeRelayUrl).filter(isRelayUrl) as string[]
+  return getPreferredGraspServerUrls(events)
+    .map(safeNormalizeRelayUrl)
+    .filter(isRelayUrl) as string[]
 }
 
 export type RepoAnnouncementPublishRelaysParams = {

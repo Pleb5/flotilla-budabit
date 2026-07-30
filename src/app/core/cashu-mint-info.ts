@@ -55,7 +55,8 @@ export const normalizeCashuMintInfoUrl = (value: string | undefined) => {
   }
 }
 
-export const getCashuMintInfoKey = (mintUrl: string) => normalizeCashuMintInfoUrl(mintUrl) || mintUrl
+export const getCashuMintInfoKey = (mintUrl: string) =>
+  normalizeCashuMintInfoUrl(mintUrl) || mintUrl
 
 const normalizeHttpUrl = (value: unknown, baseUrl: string) => {
   const raw = getString(value)

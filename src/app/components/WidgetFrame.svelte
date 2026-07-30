@@ -305,7 +305,7 @@
     })
   }
 
-  const isAllowedWidgetOrigin = (origin: string, source?: MessageEventSource | null) => {
+  const isAllowedWidgetOrigin = (origin: string, source?: MessageEvent["source"]) => {
     const expectedOrigin = getAppOrigin()
 
     return Boolean(
@@ -315,7 +315,7 @@
     )
   }
 
-  const syncBridgeOrigin = (origin: string, source?: MessageEventSource | null) => {
+  const syncBridgeOrigin = (origin: string, source?: MessageEvent["source"]) => {
     if (!bridgeExtension || bridgeExtension.origin === origin) return false
     if (!isAllowedWidgetOrigin(origin, source)) return false
 
@@ -577,7 +577,7 @@
   })
 
   $effect(() => {
-    appTheme
+    void appTheme
     scheduleThemePost()
   })
 

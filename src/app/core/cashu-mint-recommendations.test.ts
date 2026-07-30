@@ -64,7 +64,9 @@ const makeProfileList = ({
     kind: PROFILE_LIST_KIND,
     tags: [
       ["d", identifier],
-      ...members.map(member => (Array.isArray(member) ? ["p", member[0], member[1]] : ["p", member])),
+      ...members.map(member =>
+        Array.isArray(member) ? ["p", member[0], member[1]] : ["p", member],
+      ),
     ],
   })
 
@@ -171,7 +173,9 @@ describe("cashu mint recommendations", () => {
       ?.evidence.find(evidence => evidence.kind === "member")
 
     expect(communityEvidence?.relayHints).toEqual(normalizeRelays(["wss://relay.example.com"]))
-    expect(memberEvidence?.communityRelayHints).toEqual(normalizeRelays(["wss://relay.example.com"]))
+    expect(memberEvidence?.communityRelayHints).toEqual(
+      normalizeRelays(["wss://relay.example.com"]),
+    )
     expect(memberEvidence?.relayHints).toEqual(
       expect.arrayContaining(
         normalizeRelays(["wss://relay.example.com", "wss://member-profile.example.com"]),

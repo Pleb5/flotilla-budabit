@@ -462,7 +462,10 @@ describe("community badges", () => {
   })
 
   it("finds an active existing award for a badge and recipient", () => {
-    const badgeDefinition = parseCommunityBadgeDefinition(makeBadgeDefinitionEvent(), communityPubkey)!
+    const badgeDefinition = parseCommunityBadgeDefinition(
+      makeBadgeDefinitionEvent(),
+      communityPubkey,
+    )!
     const olderAward = makeEvent({
       id: "older-award",
       kind: BADGE_AWARD,

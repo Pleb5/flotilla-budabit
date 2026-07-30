@@ -5,7 +5,7 @@
     stage?: BlossomUploadStage
   }
 
-  let {stage = "idle"}: Props = $props()
+  const {stage = "idle"}: Props = $props()
 
   const message = $derived(getBlossomUploadStageMessage(stage))
   const active = $derived(stage !== "idle")
