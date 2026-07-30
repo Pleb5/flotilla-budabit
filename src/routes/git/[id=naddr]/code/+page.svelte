@@ -786,7 +786,9 @@
                 data-testid="code-browser-search" />
             </div>
             {#if error}
-              <div class="text-sm text-red-500">{error}</div>
+              <div class="w-full min-w-0 max-w-full text-sm text-red-500 [overflow-wrap:anywhere]">
+                {error}
+              </div>
             {:else}
               {#key files}
                 <div transition:fade>

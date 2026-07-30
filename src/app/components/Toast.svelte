@@ -13,18 +13,21 @@
 </script>
 
 {#if $toast.length > 0}
-  <div class="bottom-sai right-sai toast z-toast flex flex-col gap-2">
+  <div
+    class="bottom-sai right-sai toast z-toast flex min-w-0 max-w-[calc(100vw-var(--sail)-var(--sair)-1rem)] flex-col gap-2 whitespace-normal">
     {#each $toast as item (item.id)}
       {@const theme = item.theme || "info"}
       <div
         transition:fly
         role="alert"
-        class="alert flex justify-center whitespace-normal text-left"
+        class="alert flex w-full min-w-0 max-w-full justify-center whitespace-normal text-left"
         class:bg-base-100={theme === "info"}
         class:text-base-content={theme === "info"}
         class:alert-error={theme === "error"}
         class:alert-warning={theme === "warning"}>
-        <p class:welshman-content-error={theme === "error"}>
+        <p
+          class="min-w-0 flex-1 [overflow-wrap:anywhere]"
+          class:welshman-content-error={theme === "error"}>
           {#if item.message}
             {@html renderAsHtml(parse({content: item.message}))}
             {#if item.action}
@@ -37,7 +40,7 @@
             <Component toast={item} {...props} />
           {/if}
         </p>
-        <Button class="flex items-center opacity-75" onclick={() => popToast(item.id)}>
+        <Button class="flex shrink-0 items-center opacity-75" onclick={() => popToast(item.id)}>
           <Icon icon={CloseCircle} />
         </Button>
       </div>

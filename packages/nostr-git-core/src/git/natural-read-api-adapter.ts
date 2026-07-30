@@ -429,6 +429,7 @@ async function withTemporaryGlobalFetch<T>(
 function createFetchOverride(fetcher: FetchLike): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const response = await fetcher(String(input), init ?? {method: "GET"})
+    throwForHttpError(response, input)
     const responseWithBytes = response as Awaited<ReturnType<FetchLike>> & {
       bytes?: () => Promise<Uint8Array>
     }
@@ -445,12 +446,34 @@ function createFetchOverride(fetcher: FetchLike): typeof fetch {
 function createResponseBytesFetch(fetcher: typeof fetch): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const response = init === undefined ? await fetcher(input) : await fetcher(input, init)
+    throwForHttpError(response, input)
     const compatible = response as Response & {bytes?: () => Promise<Uint8Array>}
     if (!compatible.bytes) {
       compatible.bytes = async () => new Uint8Array(await response.arrayBuffer())
     }
     return compatible
   }) as typeof fetch
+}
+
+function throwForHttpError(
+  response: {ok?: boolean; status: number; statusText?: string},
+  input: RequestInfo | URL,
+): void {
+  const status = Number(response.status)
+  const ok =
+    typeof response.ok === "boolean"
+      ? response.ok
+      : Number.isFinite(status) && status >= 200 && status < 300
+  if (ok) return
+
+  const requestUrl =
+    typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+  const statusText = response.statusText ? ` ${response.statusText}` : ""
+  throw new GitNaturalReadError(
+    "http-error",
+    `Git natural API request failed with HTTP ${status}${statusText} for ${redactUrlForDiagnostics(requestUrl)}`,
+    {effectiveUrl: requestUrl, status},
+  )
 }
 
 function parseGitNaturalCommit(data: Uint8Array, hash: string): GitNaturalApiCommit {

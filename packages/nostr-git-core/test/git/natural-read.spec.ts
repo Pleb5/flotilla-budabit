@@ -420,6 +420,28 @@ describe("natural read API adapter", () => {
     )
   })
 
+  it("preserves HTTP status when infoRefs returns an error response", async () => {
+    const body = encoder.encode("Git error: repository not found")
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      text: async () => decoder.decode(body),
+      arrayBuffer: async () => arrayBuffer(body),
+    }))
+    vi.stubGlobal("fetch", fetcher)
+    const adapter = new GitNaturalApiAdapter({corsProxy: "https://cors.example"})
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      name: "GitNaturalReadError",
+      code: "http-error",
+      status: 404,
+      effectiveUrl: `${GRASP_URL}/info/refs?service=git-upload-pack`,
+      message: expect.stringContaining("HTTP 404 Not Found"),
+    })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
   it("retries direct GRASP infoRefs through the configured proxy after a network failure", async () => {
     const advertisement = buildAdvertisement()
     const fetcher = vi
