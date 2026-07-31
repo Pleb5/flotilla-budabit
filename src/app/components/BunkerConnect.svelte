@@ -32,8 +32,13 @@
 
 {#if $url}
   {#if $loading}
-    <div class="flex justify-center">
+    <div class="flex flex-col items-center gap-3">
       <Spinner loading>Establishing connection...</Spinner>
+      {#if showRetry}
+        <Button class="btn btn-neutral btn-sm" onclick={controller.retry}>
+          Approved in your signer but nothing happened? Tap to retry.
+        </Button>
+      {/if}
     </div>
   {:else}
     <div class="flex flex-col items-center gap-2">

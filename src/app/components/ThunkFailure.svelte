@@ -15,6 +15,7 @@
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import ThunkStatusDetail from "@app/components/ThunkStatusDetail.svelte"
   import {pushToast} from "@app/util/toast"
+  import {recoverActiveNip46Receiver} from "@app/util/nip46"
 
   interface Props {
     thunk: AbstractThunk
@@ -25,7 +26,8 @@
 
   let {thunk, partial = false, showToastOnRetry, ...restProps}: Props = $props()
 
-  const retry = () => {
+  const retry = async () => {
+    await recoverActiveNip46Receiver().catch(() => false)
     thunk = retryThunk(thunk)
 
     if (showToastOnRetry) {

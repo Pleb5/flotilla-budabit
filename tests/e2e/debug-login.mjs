@@ -29,6 +29,9 @@ console.log('Clicking bunker option...');
 await page.getByTestId('login-option-bunker').click();
 await page.waitForTimeout(1000);
 
+console.log('Clicking bunker-link fallback...');
+await page.getByTestId('login-bunker-fallback').click();
+
 console.log('Looking for bunker input...');
 const input = page.getByTestId('login-bunker-url');
 console.log('Input visible:', await input.isVisible());

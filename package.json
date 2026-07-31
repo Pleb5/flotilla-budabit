@@ -146,8 +146,10 @@
   },
   "pnpm": {
     "patchedDependencies": {
+      "@welshman/app@0.8.16": "patches/@welshman__app@0.8.16.patch",
       "@welshman/feeds@0.8.16": "patches/@welshman__feeds@0.8.16.patch",
-      "@welshman/net@0.8.16": "patches/@welshman__net@0.8.16.patch"
+      "@welshman/net@0.8.16": "patches/@welshman__net@0.8.16.patch",
+      "@welshman/signer@0.8.16": "patches/@welshman__signer@0.8.16.patch"
     },
     "overrides": {
       "@tiptap/core": "2.27.1",

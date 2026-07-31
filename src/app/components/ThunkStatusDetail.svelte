@@ -32,6 +32,8 @@
       message = "no details received"
     }
   })
+
+  const signingFailed = $derived(/signing|nip-46/i.test(message))
 </script>
 
 <div class="card2 bg-alt col-2 shadow-lg">
@@ -39,6 +41,8 @@
     <p>
       Published to {successCount}/{relayCount} relays. {displayRelayUrl(url)} did not confirm: {message}.
     </p>
+  {:else if signingFailed}
+    <p>Failed to sign the event: {message}.</p>
   {:else}
     <p>
       Failed to publish to {displayRelayUrl(url)}: {message}.

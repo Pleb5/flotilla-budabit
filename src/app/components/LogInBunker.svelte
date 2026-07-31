@@ -3,6 +3,7 @@
   import type {Nip46ResponseWithResult} from "@welshman/signer"
   import {Nip46Broker} from "@welshman/signer"
   import {loginWithNip01, loginWithNip46} from "@welshman/app"
+  import {makeSecret} from "@welshman/util"
   import {preventDefault} from "@lib/html"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -20,8 +21,8 @@
   import {NIP46_PERMS} from "@app/core/state"
 
   const back = () => {
-    if (mode === "connect") {
-      selectBunker()
+    if (mode === "bunker") {
+      selectConnect()
     } else {
       history.back()
     }
@@ -39,6 +40,7 @@
   })
 
   const {loading, bunker} = controller
+  let manualBroker: Nip46Broker | undefined
 
   const onSubmit = async () => {
     if ($loading) return
@@ -62,14 +64,14 @@
 
       controller.loading.set(true)
 
-      const {clientSecret} = controller
+      const clientSecret = makeSecret()
       const broker = makeBudabitNip46Broker({relays, clientSecret, signerPubkey})
+      manualBroker = broker
       const result = await broker.connect(connectSecret, NIP46_PERMS)
       const pubkey = await broker.getPublicKey()
 
       // TODO: remove ack result
       if (pubkey && ["ack", connectSecret].includes(result)) {
-        broker.cleanup()
         controller.stop()
 
         loginWithNip46(
@@ -92,6 +94,8 @@
         message: "Something went wrong, please try again!",
       })
     } finally {
+      manualBroker?.cleanup()
+      manualBroker = undefined
       controller.loading.set(false)
     }
 
@@ -99,6 +103,8 @@
   }
 
   const selectConnect = () => {
+    manualBroker?.cleanup()
+    manualBroker = undefined
     controller.loading.set(false)
     mode = "connect"
   }
@@ -107,7 +113,7 @@
     mode = "bunker"
   }
 
-  let mode: string = $state("bunker")
+  let mode: string = $state("connect")
 
   const DEV_LOGIN_TOKEN = "reviewkey"
   const DEV_LOGIN_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -126,6 +132,7 @@
   })
 
   onDestroy(() => {
+    manualBroker?.cleanup()
     controller.stop()
   })
 </script>
@@ -142,10 +149,11 @@
   <div class:hidden={mode !== "bunker"}></div>
   {#if mode === "connect"}
     <BunkerConnect {controller} />
+    <Button class="btn btn-neutral" data-testid="login-bunker-fallback" onclick={selectBunker}>
+      Log in with a bunker link instead
+    </Button>
   {:else}
     <BunkerUrl {controller} />
-    <Button class="btn {$bunker ? 'btn-neutral' : 'btn-primary'}" onclick={selectConnect}
-      >Log in with a QR code instead</Button>
   {/if}
   <ModalFooter>
     <Button class="btn btn-link" onclick={back} disabled={$loading}>

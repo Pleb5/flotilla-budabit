@@ -1,4 +1,10 @@
-import {forceLoadRelay, getRelay, loadRelay} from "@welshman/app"
+import {
+  forceLoadRelay,
+  getRelay,
+  isNip46Session,
+  loadRelay,
+  session as activeSession,
+} from "@welshman/app"
 import {on} from "@welshman/lib"
 import {
   setRequestPolicy,
@@ -62,6 +68,19 @@ export const SIGNER_POLICY_RELAYS = new Set(
     .filter(Boolean)
     .map(normalizePolicyRelay),
 )
+
+export const isSignerPolicyRelay = (url: string) => {
+  const normalized = normalizePolicyRelay(url)
+
+  if (SIGNER_POLICY_RELAYS.has(normalized)) return true
+
+  const session = activeSession.get()
+
+  return (
+    isNip46Session(session) &&
+    session.handler.relays.some(relay => normalizePolicyRelay(relay) === normalized)
+  )
+}
 export const RELAY_POLICY_REFRESH_INTERVAL = 60 * 60 * 1000
 
 const relayPolicyRefreshes = new Map<string, Promise<RelayPolicy>>()
@@ -216,9 +235,7 @@ export const getRelayRequestPolicy = (url: string): RelayRequestPolicy => {
     // an explicit priority. Signer relays are dedicated to that traffic, so
     // default their requests to critical-live priority to keep the login
     // handshake from being queued behind background subscriptions.
-    ...(SIGNER_POLICY_RELAYS.has(normalizePolicyRelay(url))
-      ? {priority: RELAY_REQUEST_PRIORITY.authority}
-      : {}),
+    ...(isSignerPolicyRelay(url) ? {priority: RELAY_REQUEST_PRIORITY.authority} : {}),
   }
 }
 

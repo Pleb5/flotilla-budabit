@@ -31,6 +31,7 @@ import {
   ALERT_STATUS,
   ALERT_WEB,
   APP_DATA,
+  BLOSSOM_AUTH,
   CLIENT_AUTH,
   COMMENT,
   DELETE,
@@ -131,6 +132,8 @@ export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt,switch_relays," +
   [
     CLIENT_AUTH,
+    BLOSSOM_AUTH,
+    DELETE,
     HTTP_AUTH,
     LIVE_CHAT_MESSAGE,
     LIVE_EVENT,

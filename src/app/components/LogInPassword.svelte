@@ -69,6 +69,8 @@
       image: $APP_LOGO,
     })
 
+    if (abortController.signal.aborted) return
+
     let response
     try {
       response = await broker.waitForNostrconnect(url, abortController.signal)
@@ -87,7 +89,7 @@
       loading = true
 
       try {
-        const pubkey = response.event.pubkey
+        const pubkey = await broker.getPublicKey()
         const session = makeNip46Session(
           pubkey,
           clientSecret,
@@ -114,6 +116,7 @@
 
   onDestroy(() => {
     abortController.abort()
+    broker.cleanup()
   })
 </script>
 

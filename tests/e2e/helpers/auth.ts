@@ -92,6 +92,11 @@ async function loginWithLocalDev(page: Page, options: LoginOptions): Promise<str
   await remoteSignerOption.click()
   await page.waitForTimeout(500)
 
+  // Switch from the default nostrconnect flow to the bunker-link fallback
+  const bunkerFallback = page.getByTestId("login-bunker-fallback")
+  await expect(bunkerFallback).toBeVisible({timeout: 5000})
+  await bunkerFallback.click()
+
   // Enter dev login token in bunker input
   // The app has a dev shortcut: when bunker value === "reviewkey", it auto-logs in
   const bunkerInput = page.getByTestId("login-bunker-url")

@@ -152,7 +152,9 @@ describe("state", () => {
     const {NIP46_PERMS} = await import("./state")
 
     expect(NIP46_PERMS).toContain("sign_event:1311")
+    expect(NIP46_PERMS).toContain("sign_event:5")
     expect(NIP46_PERMS).toContain("sign_event:22242")
+    expect(NIP46_PERMS).toContain("sign_event:24242")
     expect(NIP46_PERMS).toContain("sign_event:27235")
     expect(NIP46_PERMS).toContain("sign_event:30311")
   })

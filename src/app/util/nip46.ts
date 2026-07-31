@@ -1,7 +1,7 @@
 import {writable} from "svelte/store"
 import type {Nip46BrokerParams, Nip46ResponseWithResult, WrappedSigner} from "@welshman/signer"
 import {Nip46Broker, Nip46Signer} from "@welshman/signer"
-import {Pool, SocketStatus} from "@welshman/net"
+import {Pool} from "@welshman/net"
 import {makeSecret} from "@welshman/util"
 import {
   isNip46Session,
@@ -20,6 +20,12 @@ export const RESUME_MIN_HIDDEN_MS = 1_000
 // visibility flaps.
 export const RESUME_DEBOUNCE_MS = 3_000
 
+// Give WebSocket/message tasks released with the foregrounded tab a chance
+// to deliver before replacing the frozen socket.
+export const RESUME_RESPONSE_GRACE_MS = 250
+
+const receiverRestarts = new WeakMap<Nip46Broker, Promise<void>>()
+
 export const makeBudabitNip46Broker = (params: Nip46BrokerParams) => {
   const broker = new Nip46Broker(params)
   const switchRelays = broker.switchRelays.bind(broker)
@@ -36,39 +42,49 @@ export const makeBudabitNip46Broker = (params: Nip46BrokerParams) => {
   return broker
 }
 
-// Force-close signer relay sockets so they get re-opened with a fresh
-// connection. Android (especially Vanadium on GrapheneOS) freezes WebSockets
-// while the tab is backgrounded during signer approval, leaving zombie
-// sockets that miss the ephemeral kind-24133 connect response.
+// Remove signer relay sockets from the shared pool so a restarted receiver
+// cannot attach to a socket that is still asynchronously closing. Android
+// (especially Vanadium on GrapheneOS) can leave these sockets looking open
+// after the tab was frozen in a signer app.
 export const cycleSignerRelaySockets = (relays: string[], pool = Pool.get()) => {
   for (const url of relays) {
     try {
       if (!pool.has(url)) continue
 
-      const socket = pool.get(url)
-
-      if ([SocketStatus.Open, SocketStatus.Opening].includes(socket.status)) {
-        socket.close()
-      }
+      pool.remove(url)
     } catch (error) {
       console.warn("[nip46] Failed to cycle signer relay socket", url, error)
     }
   }
 }
 
-// Re-issue the receiver's kind-24133 REQ. Relays used for signing
-// (e.g. relay.nsec.app, bucket.coracle.social) briefly retain nip46 responses,
-// so a fresh REQ recovers a connect response that was published while the tab
-// was frozen. Listeners registered on the receiver emitter are preserved.
-export const restartNip46Receiver = async (broker: Nip46Broker) => {
-  const {receiver} = broker
+// Re-issue the receiver's kind-24133 REQ on fresh sockets. Relays used for
+// signing briefly retain NIP-46 responses, so this recovers responses that
+// arrived while the browser was frozen. Receiver emitter listeners survive.
+export const restartNip46Receiver = (
+  broker: Nip46Broker,
+  pool: ReturnType<typeof Pool.get> = Pool.get(),
+) => {
+  const pending = receiverRestarts.get(broker)
+  if (pending) return pending
 
-  // Aborting synchronously triggers the request's onClose, which clears
-  // receiver.abortController and allows start() to create a fresh REQ.
-  receiver.abortController?.abort()
-  receiver.abortController = undefined
+  const restart = Promise.resolve()
+    .then(async () => {
+      const {receiver} = broker
 
-  await receiver.start()
+      receiver.abortController?.abort()
+      receiver.abortController = undefined
+      cycleSignerRelaySockets(broker.params.relays, pool)
+
+      await receiver.start()
+    })
+    .finally(() => {
+      if (receiverRestarts.get(broker) === restart) receiverRestarts.delete(broker)
+    })
+
+  receiverRestarts.set(broker, restart)
+
+  return restart
 }
 
 export const recoverActiveNip46Receiver = async ({
@@ -86,11 +102,7 @@ export const recoverActiveNip46Receiver = async ({
   if (!(nip46Signer instanceof Nip46Signer)) return false
 
   const {broker} = nip46Signer
-  const receiverController = broker.receiver.abortController
-  if (!receiverController || receiverController.signal.aborted) return false
-
-  cycleSignerRelaySockets(broker.params.relays, pool)
-  await restartNip46Receiver(broker)
+  await restartNip46Receiver(broker, pool)
 
   return true
 }
@@ -106,15 +118,19 @@ export const setupActiveNip46ReceiverResumeRecovery = ({
 
   let hiddenAt = document.visibilityState === "hidden" ? now() : 0
   let lastResumeAt = 0
+  let resumeTimer: ReturnType<typeof setTimeout> | undefined
 
   const resume = () => {
     const resumedAt = now()
     if (resumedAt - lastResumeAt < RESUME_DEBOUNCE_MS) return
 
     lastResumeAt = resumedAt
-    void recover().catch(error => {
-      console.warn("[nip46] Failed to recover active signer receiver", error)
-    })
+    resumeTimer = setTimeout(() => {
+      resumeTimer = undefined
+      void recover().catch(error => {
+        console.warn("[nip46] Failed to recover active signer receiver", error)
+      })
+    }, RESUME_RESPONSE_GRACE_MS)
   }
 
   const onVisibilityChange = () => {
@@ -131,12 +147,24 @@ export const setupActiveNip46ReceiverResumeRecovery = ({
     if (event.persisted) resume()
   }
 
+  const onFocus = () => {
+    if (document.visibilityState !== "hidden") resume()
+  }
+  const onOnline = () => {
+    if (document.visibilityState !== "hidden") resume()
+  }
+
   document.addEventListener("visibilitychange", onVisibilityChange)
   window.addEventListener("pageshow", onPageShow)
+  window.addEventListener("focus", onFocus)
+  window.addEventListener("online", onOnline)
 
   return () => {
+    if (resumeTimer) clearTimeout(resumeTimer)
     document.removeEventListener("visibilitychange", onVisibilityChange)
     window.removeEventListener("pageshow", onPageShow)
+    window.removeEventListener("focus", onFocus)
+    window.removeEventListener("online", onOnline)
   }
 }
 
@@ -175,7 +203,10 @@ export class Nip46Controller {
 
     this.lastResumeAt = now
 
-    cycleSignerRelaySockets(this.broker.params.relays)
+    if (!force) {
+      await new Promise(resolve => setTimeout(resolve, RESUME_RESPONSE_GRACE_MS))
+      if (!this.waiting || this.abortController.signal.aborted) return
+    }
 
     try {
       await restartNip46Receiver(this.broker)
@@ -195,7 +226,10 @@ export class Nip46Controller {
       if (document.visibilityState === "hidden") {
         this.hiddenAt = Date.now()
       } else if (this.hiddenAt && Date.now() - this.hiddenAt >= RESUME_MIN_HIDDEN_MS) {
+        this.hiddenAt = 0
         void this.resume()
+      } else {
+        this.hiddenAt = 0
       }
     }
 
@@ -203,12 +237,23 @@ export class Nip46Controller {
       if (event.persisted) void this.resume()
     }
 
+    const onFocus = () => {
+      if (document.visibilityState !== "hidden") void this.resume()
+    }
+    const onOnline = () => {
+      if (document.visibilityState !== "hidden") void this.resume()
+    }
+
     document.addEventListener("visibilitychange", onVisibilityChange)
     window.addEventListener("pageshow", onPageShow)
+    window.addEventListener("focus", onFocus)
+    window.addEventListener("online", onOnline)
 
     this.removeResumeListeners = () => {
       document.removeEventListener("visibilitychange", onVisibilityChange)
       window.removeEventListener("pageshow", onPageShow)
+      window.removeEventListener("focus", onFocus)
+      window.removeEventListener("online", onOnline)
       this.removeResumeListeners = undefined
     }
   }
@@ -221,42 +266,46 @@ export class Nip46Controller {
       image: appMetadata.logo,
     })
 
+    if (this.abortController.signal.aborted) return
+
     this.url.set(url)
     this.waiting = true
     this.attachResumeListeners()
 
-    let response
     try {
-      response = await this.broker.waitForNostrconnect(url, this.abortController.signal)
-    } catch (errorResponse: any) {
-      if (errorResponse?.error) {
-        pushToast({
-          theme: "error",
-          message: `Received error from signer: ${errorResponse.error}`,
-        })
-      } else if (errorResponse) {
-        console.error(errorResponse)
+      let response
+      try {
+        response = await this.broker.waitForNostrconnect(url, this.abortController.signal)
+      } catch (errorResponse: any) {
+        if (errorResponse?.error) {
+          pushToast({
+            theme: "error",
+            message: `Received error from signer: ${errorResponse.error}`,
+          })
+        } else if (errorResponse) {
+          console.error(errorResponse)
+        }
+      }
+
+      if (response) {
+        this.loading.set(true)
+
+        try {
+          await this.onNostrConnect(response)
+        } catch (e) {
+          console.error(e)
+
+          pushToast({
+            theme: "error",
+            message: "Something went wrong, please try again!",
+          })
+        } finally {
+          this.loading.set(false)
+        }
       }
     } finally {
       this.waiting = false
       this.removeResumeListeners?.()
-    }
-
-    if (response) {
-      this.loading.set(true)
-
-      try {
-        await this.onNostrConnect(response)
-      } catch (e) {
-        console.error(e)
-
-        pushToast({
-          theme: "error",
-          message: "Something went wrong, please try again!",
-        })
-      } finally {
-        this.loading.set(false)
-      }
     }
   }
 

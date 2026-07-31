@@ -11,7 +11,7 @@ vi.mock("@welshman/app", async importOriginal => {
   return {...actual, forceLoadRelay: forceLoadRelayMock, loadRelay: loadRelayMock}
 })
 
-import {relaysByUrl} from "@welshman/app"
+import {pubkey as activePubkey, relaysByUrl, SessionMethod, sessions} from "@welshman/app"
 import {Socket, SocketEvent, SocketStatus} from "@welshman/net"
 import {
   getRelayPolicy,
@@ -43,6 +43,8 @@ beforeEach(() => {
 
 afterEach(() => {
   relaysByUrl.set(new Map())
+  activePubkey.set(undefined)
+  sessions.set({})
   forceLoadRelayMock.mockReset()
   loadRelayMock.mockReset()
   vi.useRealTimers()
@@ -207,5 +209,41 @@ describe("relay policy", () => {
       vi.unstubAllEnvs()
       vi.resetModules()
     }
+  })
+
+  it("gives relays negotiated by an active NIP-46 session critical-live priority", () => {
+    const relay = "wss://dynamic-signer.example/"
+    const pubkey = "1".repeat(64)
+
+    sessions.set({
+      [pubkey]: {
+        method: SessionMethod.Nip46,
+        pubkey,
+        secret: "2".repeat(64),
+        handler: {pubkey: "3".repeat(64), relays: [relay]},
+      },
+    })
+    activePubkey.set(pubkey)
+
+    expect(getRelayRequestPolicy(relay).priority).toBe(400)
+  })
+
+  it("does not authorize a signer relay belonging only to an inactive identity", () => {
+    const inactivePubkey = "4".repeat(64)
+    const active = "5".repeat(64)
+    const inactiveRelay = "wss://inactive-signer.example/"
+
+    sessions.set({
+      [inactivePubkey]: {
+        method: SessionMethod.Nip46,
+        pubkey: inactivePubkey,
+        secret: "6".repeat(64),
+        handler: {pubkey: "7".repeat(64), relays: [inactiveRelay]},
+      },
+      [active]: {method: SessionMethod.Pubkey, pubkey: active},
+    })
+    activePubkey.set(active)
+
+    expect(getRelayRequestPolicy(inactiveRelay).priority).toBeUndefined()
   })
 })
