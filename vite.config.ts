@@ -98,6 +98,7 @@ export default defineConfig({
       "@codemirror/lang-markdown",
       "@codemirror/lang-rust",
       "@codemirror/lang-sql",
+      "@codemirror/lang-vue",
       "@codemirror/lang-yaml",
       "@codemirror/language",
       "@codemirror/legacy-modes",

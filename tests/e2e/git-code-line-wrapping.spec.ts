@@ -16,6 +16,7 @@ const owner = "budabit-tests"
 const repo = "line-wrapping-fixture"
 const relayUrl = "wss://line-wrapping.test"
 const filename = "wrapped-lines.txt"
+const vueFilename = "ArticlesList.vue"
 const longLine = Array.from({length: 80}, (_, index) => `segment-${index}`).join(" ")
 const fileContent = [
   "first logical line",
@@ -23,6 +24,30 @@ const fileContent = [
   "third logical line",
   "fourth logical line",
 ].join("\n")
+const vueFileContent = `<script setup lang="ts">
+import { get_articles } from '../data/articles'
+
+defineProps<{
+  max_count: number
+}>()
+</script>
+
+<template>
+  <div v-for="article in get_articles(max_count)">
+    <a :href="article.link">
+      <img v-if="article.img" :src="article.img" :alt="article.name" />
+    </a>
+    <p v-html="article.text" />
+    <!--
+    <p>{{ article.origin }}<span>|</span>{{ article.cat }}</p>
+    -->
+  </div>
+</template>
+
+<style scoped>
+.card { max-width: 320px; }
+</style>
+`
 
 function githubResponse(pathname: string) {
   const repoBase = `/repos/${owner}/${repo}`
@@ -41,6 +66,13 @@ function githubResponse(pathname: string) {
         size: fileContent.length,
         sha: TEST_COMMITS.initial,
       },
+      {
+        name: vueFilename,
+        path: vueFilename,
+        type: "file",
+        size: vueFileContent.length,
+        sha: TEST_COMMITS.second,
+      },
     ]
   }
   if (pathname === `${repoBase}/contents/${filename}`) {
@@ -54,12 +86,27 @@ function githubResponse(pathname: string) {
       content: Buffer.from(fileContent).toString("base64"),
     }
   }
+  if (pathname === `${repoBase}/contents/${vueFilename}`) {
+    return {
+      name: vueFilename,
+      path: vueFilename,
+      type: "file",
+      size: vueFileContent.length,
+      sha: TEST_COMMITS.second,
+      encoding: "base64",
+      content: Buffer.from(vueFileContent).toString("base64"),
+    }
+  }
 
   return null
 }
 
-test("wraps code without changing logical selection across responsive layouts", async ({page}) => {
+test("keeps code wrapping and Vue highlighting correct across responsive layouts", async ({
+  page,
+}) => {
   test.setTimeout(90_000)
+  const pageErrors: Error[] = []
+  page.on("pageerror", error => pageErrors.push(error))
 
   const announcement = signTestEvent(
     createRepoAnnouncement({
@@ -180,4 +227,9 @@ test("wraps code without changing logical selection across responsive layouts", 
     "false",
   )
   await expect(page.locator(".file-view .cm-content")).not.toHaveClass(/cm-lineWrapping/)
+
+  await page.getByRole("button", {name: vueFilename}).click()
+  await expect(page.locator(".file-view .cm-content")).toContainText("get_articles")
+  await expect(page.locator(".file-view .cm-content span").first()).toBeVisible()
+  expect(pageErrors).toEqual([])
 })

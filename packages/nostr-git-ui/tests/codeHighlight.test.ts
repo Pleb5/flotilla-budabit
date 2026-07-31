@@ -23,6 +23,7 @@ describe("code highlighting helpers", () => {
     expect(getHighlightLanguageForPath("puppet/site.pp")).toBe("puppet");
     expect(getHighlightLanguageForPath(".env.production")).toBe("ini");
     expect(getHighlightLanguageForPath("src/App.svelte")).toBe("svelte");
+    expect(getHighlightLanguageForPath("src/App.vue")).toBe("vue");
   });
 
   it("registers shared highlight.js languages once", () => {
@@ -38,6 +39,7 @@ describe("code highlighting helpers", () => {
     expect(highlighter.getLanguage("nginx")).toBeTruthy();
     expect(highlighter.getLanguage("apache")).toBeTruthy();
     expect(highlighter.getLanguage("puppet")).toBeTruthy();
+    expect(highlighter.getLanguage("vue")).toBeTruthy();
   });
 
   it("highlights newly supported snippet languages", () => {
@@ -71,5 +73,6 @@ describe("code highlighting helpers", () => {
       1
     );
     await expect(loadCodeMirrorLanguageExtensions("puppet/site.pp", null)).resolves.toHaveLength(1);
+    await expect(loadCodeMirrorLanguageExtensions("src/App.vue", null)).resolves.toHaveLength(1);
   });
 });

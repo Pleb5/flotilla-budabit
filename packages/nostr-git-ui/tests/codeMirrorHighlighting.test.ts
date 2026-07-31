@@ -44,4 +44,36 @@ describe("CodeMirror language rendering", () => {
 
     expect(markup).toContain("<span");
   });
+
+  it("renders highlighted spans for Vue single-file components", async () => {
+    const markup = await renderHighlightedMarkup(
+      "App.vue",
+      `<script setup lang="ts">
+import { get_articles } from '../data/articles'
+
+defineProps<{
+  max_count: number
+}>()
+</script>
+
+<template>
+  <div v-for="article in get_articles(max_count)">
+    <a :href="article.link">
+      <img v-if="article.img" :src="article.img" :alt="article.name" />
+    </a>
+    <p v-html="article.text" />
+    <!--
+    <p>{{ article.origin }}<span>|</span>{{ article.cat }}</p>
+    -->
+  </div>
+</template>
+
+<style scoped>
+.card { max-width: 320px; }
+</style>
+`
+    );
+
+    expect(markup).toContain("<span");
+  });
 });

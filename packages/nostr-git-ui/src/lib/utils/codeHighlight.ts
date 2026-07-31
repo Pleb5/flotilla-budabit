@@ -112,6 +112,7 @@ export function getHighlightJs() {
   registerLanguage("scss", scss);
   registerLanguage("xml", xml);
   registerLanguage("html", xml);
+  registerLanguage("vue", xml);
   registerLanguage("svelte", svelte);
   registerLanguage("json", json);
   registerLanguage("yaml", yaml);
@@ -400,6 +401,10 @@ export async function loadCodeMirrorLanguageExtensions(
     case "svelte": {
       const mod = await import("@replit/codemirror-lang-svelte");
       return [mod.svelte()];
+    }
+    case "vue": {
+      const mod = await import("@codemirror/lang-vue");
+      return [mod.vue()];
     }
     case "html": {
       const mod = await import("@codemirror/lang-html");
