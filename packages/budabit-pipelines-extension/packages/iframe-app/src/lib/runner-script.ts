@@ -98,18 +98,23 @@ if [ $EXIT_CODE -eq 0 ]; then
   echo ""
   echo ">>> Running GitHub Actions with act..."
 
+  # NOTE: capture the pipeline status with \`|| ACT_EXIT=$?\` — inside an
+  # \`if ! cmd\` branch, \`$?\` is the status of the *negated* condition (0 when
+  # the command failed), which silently reported every failed workflow as
+  # success. pipefail (set above) makes the pipeline return act's status
+  # rather than tee's.
+  ACT_EXIT=0
   if [ -n "$HIVE_CI_WORKFLOW" ]; then
     echo "Workflow file: \${HIVE_CI_WORKFLOW}"
-    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" 2>&1 | tee "$ACT_LOG_FILE"; then
-      EXIT_CODE=$?
-      echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
-    fi
+    sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" 2>&1 | tee "$ACT_LOG_FILE" || ACT_EXIT=$?
   else
     echo "Running all workflows"
-    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest 2>&1 | tee "$ACT_LOG_FILE"; then
-      EXIT_CODE=$?
-      echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
-    fi
+    sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest 2>&1 | tee "$ACT_LOG_FILE" || ACT_EXIT=$?
+  fi
+
+  if [ "$ACT_EXIT" -ne 0 ]; then
+    EXIT_CODE=$ACT_EXIT
+    echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
   fi
 fi
 
