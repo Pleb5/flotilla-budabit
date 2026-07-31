@@ -28,6 +28,22 @@ export function getBestCompatibleMint(
   )
 }
 
+/**
+ * A worker that advertises no pricing (no `price` tags in its kind 10100 ad)
+ * cannot be prepaid — there is no rate or mint to mint a token against. Such
+ * runs are submitted without a `payment` tag; the loom worker only executes
+ * them when the sender's pubkey is in its unpaid allowlist
+ * (ALLOW_UNPAID_PUBKEYS).
+ *
+ * Only the explicit no-pricing representation counts as free. A malformed
+ * paid ad (NaN / zero / negative rate) keeps the paid path, where token
+ * generation fails and blocks submission — never fail open into an unpaid
+ * 5100 event the worker would silently reject.
+ */
+export function isFreeWorker(worker: LoomWorker | null): boolean {
+  return !!worker && worker.pricing == null
+}
+
 export function canGenerateSuggestedToken(args: {
   walletAvailable: boolean
   selectedMint: string

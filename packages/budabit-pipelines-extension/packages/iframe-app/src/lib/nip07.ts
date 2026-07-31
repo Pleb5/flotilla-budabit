@@ -126,7 +126,9 @@ export async function submitRerun(
       ['e', runId],
       ['cmd', draft.command],
       ['args', ...draft.args],
-      ['payment', paymentToken],
+      // Unpaid runs omit the payment tag entirely (not an empty string) — the
+      // loom worker only treats a job as trusted-unpaid when the tag is absent.
+      ...(paymentToken ? [['payment', paymentToken]] : []),
       ...envTags,
       ...secretTags,
     ],

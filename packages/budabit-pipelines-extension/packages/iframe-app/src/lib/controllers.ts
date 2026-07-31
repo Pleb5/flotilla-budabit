@@ -54,6 +54,8 @@ export async function submitRunController(args: {
   rerunDraft: RerunDraft
   rerunArgsText: string
   rerunPaymentToken: string
+  /** False for free workers (no advertised pricing) — the run is submitted without a payment tag. */
+  requiresPayment: boolean
   runnerScriptTemplate: string
   rerunSecrets: Array<{ key: string; value: string }>
 }) {
@@ -65,6 +67,7 @@ export async function submitRunController(args: {
     rerunDraft,
     rerunArgsText,
     rerunPaymentToken,
+    requiresPayment,
     runnerScriptTemplate,
     rerunSecrets,
   } = args
@@ -77,7 +80,7 @@ export async function submitRunController(args: {
     throw new Error('Workflow path is required.')
   }
 
-  if (!rerunPaymentToken.trim()) {
+  if (requiresPayment && !rerunPaymentToken.trim()) {
     throw new Error('Payment token is required.')
   }
 
@@ -99,7 +102,7 @@ export async function submitRunController(args: {
     bridge,
     signerPubkey,
     nextDraft,
-    rerunPaymentToken.trim(),
+    requiresPayment ? rerunPaymentToken.trim() : '',
     rerunSecrets
   )
 }

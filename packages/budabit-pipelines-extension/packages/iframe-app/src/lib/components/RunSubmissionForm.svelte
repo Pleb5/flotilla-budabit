@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {isFreeWorker} from '../submission'
   import type {LoomWorker, RerunDraft, WorkflowDefinition} from '../types'
 
   interface Props {
@@ -92,6 +93,10 @@
   )
 
   const selectedMintBalance = $derived(selectedMint ? walletBalancesByMint[selectedMint] || 0 : 0)
+
+  // Free workers advertise no pricing — runs are submitted without a payment
+  // token and only execute if the worker accepts unpaid jobs from this pubkey.
+  const selectedWorkerIsFree = $derived(isFreeWorker(selectedWorker))
 
   const validationMessage = $derived.by(() => {
     if (!rerunDraft.workerPubkey) return 'Please select a worker'
@@ -321,7 +326,7 @@
                     {/if}
                   </div>
                   <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span>{rate || '?'} {worker.pricing?.unit || 'sat'}/s</span>
+                    <span>{isFreeWorker(worker) ? 'no pricing' : `${rate || '?'} ${worker.pricing?.unit || 'sat'}/s`}</span>
                     <span>queue {queue}{worker.maxConcurrentJobs ? `/${worker.maxConcurrentJobs}` : ''}</span>
                     <span>{worker.architecture || 'unknown arch'}</span>
                     {#if worker.lastSeen}
@@ -470,18 +475,28 @@
     <!-- Prepayment (derived from duration × worker rate) -->
     <div class="block rounded-md border border-primary/30 bg-primary/5 p-4">
       <div class="text-xs uppercase tracking-wide text-muted-foreground">Prepayment</div>
-      <div class="mt-1 flex items-baseline gap-2">
-        <span class="text-2xl font-semibold">{paymentAmount.toLocaleString()}</span>
-        <span class="text-base font-normal text-muted-foreground">sats</span>
-      </div>
-      <p class="mt-1 text-[11px] text-muted-foreground">
-        {selectedWorker?.pricing?.perSecondRate
-          ? `${selectedWorker.pricing.perSecondRate} ${selectedWorker.pricing.unit || 'sat'}/s × ${formatDuration(maxDuration)}`
-          : 'Pick a worker to compute prepayment'}
-      </p>
+      {#if selectedWorkerIsFree}
+        <div class="mt-1 flex items-baseline gap-2">
+          <span class="text-2xl font-semibold">None</span>
+        </div>
+        <p class="mt-1 text-[11px] text-muted-foreground">
+          This worker advertises no pricing — the run is submitted without a payment
+          token and will only execute if the worker accepts unpaid jobs from your pubkey.
+        </p>
+      {:else}
+        <div class="mt-1 flex items-baseline gap-2">
+          <span class="text-2xl font-semibold">{paymentAmount.toLocaleString()}</span>
+          <span class="text-base font-normal text-muted-foreground">sats</span>
+        </div>
+        <p class="mt-1 text-[11px] text-muted-foreground">
+          {selectedWorker?.pricing?.perSecondRate
+            ? `${selectedWorker.pricing.perSecondRate} ${selectedWorker.pricing.unit || 'sat'}/s × ${formatDuration(maxDuration)}`
+            : 'Pick a worker to compute prepayment'}
+        </p>
+      {/if}
     </div>
 
-    {#if selectedWorker && walletAvailable && compatibleMints.length === 0}
+    {#if selectedWorker && !selectedWorkerIsFree && walletAvailable && compatibleMints.length === 0}
       <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">No overlapping mints between your wallet and the selected worker.</div>
     {/if}
 
@@ -499,8 +514,8 @@
         : generatingPaymentToken
           ? 'Preparing payment…'
           : submissionMode === 'new'
-            ? 'Pay and run'
-            : 'Pay and rerun'}
+            ? (selectedWorkerIsFree ? 'Run' : 'Pay and run')
+            : (selectedWorkerIsFree ? 'Rerun' : 'Pay and rerun')}
     </button>
   </aside>
 </div>

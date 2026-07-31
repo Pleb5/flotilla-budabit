@@ -38,6 +38,7 @@
     getCompatibleMints,
     getSelectedWorker,
     getVisibleMintOptions,
+    isFreeWorker,
   } from './lib/submission'
   import RunSubmissionForm from './lib/components/RunSubmissionForm.svelte'
   import ConsoleOutput from './lib/components/ConsoleOutput.svelte'
@@ -808,7 +809,7 @@
       // mint choice here before submitting. Only bails if the wallet has no
       // overlapping mint at all — otherwise any populated mint works.
       const hasMint = await ensureMintPicked()
-      if (!hasMint) {
+      if (!hasMint && !isFreeWorker(selectedWorker)) {
         applySubmissionReset()
         void showToast('No compatible mint available for this worker. Add a wallet balance on a mint the worker accepts, then try again.', 'error')
         return
@@ -830,13 +831,34 @@
       return
     }
 
-    // Every run consumes a fresh single-use Cashu token. The token UI was
-    // removed from the form; we always mint a new one at submit time. The
-    // wallet bridge surfaces its own confirmation dialog before spending.
-    await generatePaymentToken()
-    if (!rerunPaymentToken.trim()) {
-      // generatePaymentToken already surfaced an error + toast.
-      return
+    // Free workers (no advertised pricing) can't be prepaid — submit without
+    // a payment tag. The loom worker only executes such runs when the sender
+    // is in its unpaid allowlist.
+    const freeRun = isFreeWorker(selectedWorker)
+    if (freeRun) {
+      // A token minted for an earlier paid attempt is bearer value — return
+      // it to the wallet rather than discarding it.
+      const leftoverToken = rerunPaymentToken.trim()
+      if (leftoverToken) {
+        try {
+          await refundCashuToken(bridge, leftoverToken)
+        } catch {
+          console.error(
+            'Failed to refund unused payment token; import it manually:',
+            leftoverToken,
+          )
+        }
+      }
+      rerunPaymentToken = ''
+    } else {
+      // Every paid run consumes a fresh single-use Cashu token. The token UI
+      // was removed from the form; we always mint a new one at submit time.
+      // The wallet bridge surfaces its own confirmation dialog before spending.
+      await generatePaymentToken()
+      if (!rerunPaymentToken.trim()) {
+        // generatePaymentToken already surfaced an error + toast.
+        return
+      }
     }
 
     rerunSubmitting = true
@@ -857,6 +879,7 @@
         rerunDraft,
         rerunArgsText,
         rerunPaymentToken,
+        requiresPayment: !freeRun,
         runnerScriptTemplate,
         rerunSecrets,
       })

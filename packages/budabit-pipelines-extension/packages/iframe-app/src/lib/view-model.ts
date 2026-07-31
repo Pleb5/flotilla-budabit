@@ -62,6 +62,8 @@ export async function submitRunViewModel(args: {
   rerunDraft: RerunDraft;
   rerunArgsText: string;
   rerunPaymentToken: string;
+  /** False for free workers (no advertised pricing) — the run is submitted without a payment tag. */
+  requiresPayment: boolean;
   runnerScriptTemplate: string;
   rerunSecrets: Array<{ key: string; value: string }>;
 }) {
@@ -73,6 +75,7 @@ export async function submitRunViewModel(args: {
     rerunDraft: args.rerunDraft,
     rerunArgsText: args.rerunArgsText,
     rerunPaymentToken: args.rerunPaymentToken,
+    requiresPayment: args.requiresPayment,
     runnerScriptTemplate: args.runnerScriptTemplate,
     rerunSecrets: args.rerunSecrets,
   });
