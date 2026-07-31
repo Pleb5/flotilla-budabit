@@ -1,4 +1,4 @@
-import { createWidgetBridge, type WidgetBridge } from '@flotilla/ext-shared';
+import { createWidgetBridge, watchHostTheme, type WidgetBridge } from '@flotilla/ext-shared';
 import { getHostOrigin, transformHostContext } from './context';
 import type { RepoContext } from './types';
 
@@ -39,6 +39,9 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
   });
 
   onBridgeChange(bridge);
+
+  // Match the host application's theme (light/dark + background)
+  const offTheme = watchHostTheme(bridge);
 
   const handleRepoContext = (input: unknown, options: { resetRunState: boolean }) => {
     contextReceived = true;
@@ -97,6 +100,7 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
   return () => {
     cancelled = true;
     if (pollTimer) clearTimeout(pollTimer);
+    offTheme();
     offInit();
     offUnmounting();
     offContext();

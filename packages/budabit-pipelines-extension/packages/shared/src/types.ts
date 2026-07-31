@@ -28,6 +28,7 @@ export type { NostrEvent };
  *   widget:init          — initial context (pubkey, relays, host version, etc.)
  *   widget:mounted       — extension iframe is fully loaded and ready
  *   widget:unmounting     — extension is about to be removed
+ *   widget:themeChanged  — host theme changed ({theme, themeBackground})
  *   context:repoUpdate   — repo context has changed (for repo-scoped extensions)
  *   context:update       — @deprecated alias for context:repoUpdate (will be removed in v2.0)
  *   nostr:event          — a new event from a nostr:subscribe subscription
@@ -70,8 +71,28 @@ export type WidgetInitPayload = {
   hostVersion?: string;
   extensionId?: string;
   repo?: RepoContext;
+  /** Host UI theme at load time. */
+  theme?: HostTheme;
+  /** Effective host background color behind the widget (CSS color string). */
+  themeBackground?: string;
   [k: string]: unknown;
 };
+
+/**
+ * Host UI theme name.
+ */
+export type HostTheme = 'light' | 'dark';
+
+/**
+ * Payload delivered via `widget:themeChanged` whenever the host theme
+ * (or the effective background color behind the widget) changes.
+ */
+export type WidgetThemeChangedPayload = {
+  theme: HostTheme;
+  /** Effective host background color behind the widget (CSS color string). */
+  themeBackground?: string;
+};
+
 
 /**
  * Repo context delivered via `context:repoUpdate` for repo-scoped extensions.
@@ -234,6 +255,9 @@ export interface WidgetActionMap {
   };
   'widget:unmounting': {
     event: { timestamp: number };
+  };
+  'widget:themeChanged': {
+    event: WidgetThemeChangedPayload;
   };
 
   // Extension → Host events (one-way)

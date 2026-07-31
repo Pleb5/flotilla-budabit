@@ -24,6 +24,32 @@
     --input: 240 5% 25%;
     --ring: 265 84% 70%;
     --radius: 0.5rem;
+    color-scheme: dark;
+  }
+
+  /* Light theme — applied when the host reports theme: "light" via
+     widget:init / widget:themeChanged (see lib/widget-lifecycle.ts). */
+  :root[data-theme='light'] {
+    --background: 220 25% 97%;
+    --foreground: 222 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 25% 12%;
+    --primary: 265 70% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 15% 91%;
+    --secondary-foreground: 222 25% 18%;
+    --muted: 220 15% 91%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 265 70% 52%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 74% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 14% 84%;
+    --input: 220 14% 88%;
+    --ring: 265 70% 52%;
+    color-scheme: light;
   }
 }
 
@@ -33,6 +59,9 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    /* Match the host's effective surface color when it reports one
+       (--host-background is set by applyHostTheme in @flotilla/ext-shared). */
+    background-color: var(--host-background, hsl(var(--background)));
   }
 }
