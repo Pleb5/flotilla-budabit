@@ -1,0 +1,39 @@
+{
+  "name": "@welshman/util",
+  "version": "0.8.16",
+  "author": "hodlbod",
+  "license": "MIT",
+  "description": "A collection of nostr-related utilities.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/util/src/index.js",
+  "types": "dist/util/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && pnpm run compile --force",
+    "clean": "rimraf ./dist",
+    "compile": "tsc -b tsconfig.build.json",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@types/ws": "^8.5.13",
+    "js-base64": "^3.7.7",
+    "nostr-wasm": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@noble/curves": "^1.9.7",
+    "@welshman/lib": "workspace:*",
+    "nostr-tools": "^2.19.4"
+  },
+  "devDependencies": {
+    "@noble/curves": "^1.9.7",
+    "@welshman/lib": "workspace:*",
+    "nostr-tools": "^2.19.4",
+    "rimraf": "~6.0.0",
+    "typescript": "~5.8.0"
+  }
+}

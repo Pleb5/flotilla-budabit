@@ -1,0 +1,8 @@
+--ignore-dir=docs/assets
+--ignore-dir=docs/reference
+--ignore-dir=docs/.vitepress/cache
+--ignore-dir=dist
+--ignore-dir=build
+--ignore-dir=.svelte-kit
+--ignore-file=match:pnpm-lock.yaml
+--ignore-file=match:tsbuildinfo
