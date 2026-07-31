@@ -1,5 +1,5 @@
 import { mount } from 'svelte';
-import { seedHostThemeFallback } from '@flotilla/ext-shared';
+import { seedHostThemeFallback } from './host-theme';
 import './app.css';
 import App from './App.svelte';
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { WidgetBridge } from '@flotilla/ext-shared';
+  import type { WidgetBridge } from 'budabit-sdk';
   import type { RepoContextNormalized } from '../types';
   import {
     AlertCircle,

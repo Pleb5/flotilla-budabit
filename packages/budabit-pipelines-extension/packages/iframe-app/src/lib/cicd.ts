@@ -59,7 +59,7 @@ function parseActDuration(text: string): number | undefined {
 // its `✅ Success` marker, or cargo/rustup output that spans many lines) do
 // not carry this prefix; they belong to whichever job emitted the most
 // recent prefixed line.
-const CTX_RE = /^\[([^\]\/]+)\/([^\]]+)\]\s(.*)$/
+const CTX_RE = /^\[([^\]/]+)\/([^\]]+)\]\s(.*)$/
 
 export function parseActLog(log: string): ActJob[] {
   const jobMap = new Map<string, ActJob>()
@@ -235,7 +235,7 @@ function asArray<T>(value: T | T[] | undefined): T[] {
 }
 
 export function parseWorkflowJobsFromYaml(content: string): WorkflowJob[] {
-  const doc = yaml.load(content) as any
+  const doc = yaml.load(content)
   const jobs = doc?.jobs
   if (!jobs || typeof jobs !== 'object') return []
 
@@ -250,8 +250,8 @@ export function parseWorkflowJobsFromYaml(content: string): WorkflowJob[] {
         : ''
 
     return {
-      id: String(id),
-      name: typeof job?.name === 'string' && job.name.trim().length > 0 ? job.name : String(id),
+      id,
+      name: typeof job?.name === 'string' && job.name.trim().length > 0 ? job.name : id,
       runsOn,
       needs: rawNeeds,
       steps: rawSteps.map((step: any, index: number) => ({

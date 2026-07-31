@@ -1,5 +1,5 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
-import type { WidgetBridge } from '@flotilla/ext-shared';
+import type { WidgetBridge } from 'budabit-sdk';
 import type { RerunDraft } from './types';
 
 function hexFromBytes(bytes: Uint8Array): string {

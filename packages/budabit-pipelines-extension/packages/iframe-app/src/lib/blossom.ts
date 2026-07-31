@@ -1,5 +1,5 @@
 import {Actions, createUploadAuth} from 'blossom-client-sdk';
-import type {WidgetBridge} from '@flotilla/ext-shared';
+import type {WidgetBridge} from 'budabit-sdk';
 
 /** Order matters — first server that accepts the upload wins. */
 const DEFAULT_BLOSSOM_SERVERS = ['https://cdn.sovbit.host/'];

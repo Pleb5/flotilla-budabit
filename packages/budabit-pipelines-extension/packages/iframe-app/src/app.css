@@ -61,7 +61,7 @@
   body {
     @apply text-foreground;
     /* Match the host's effective surface color when it reports one
-       (--host-background is set by applyHostTheme in @flotilla/ext-shared). */
+       (--host-background is set by applyHostTheme in budabit-sdk). */
     background-color: var(--host-background, hsl(var(--background)));
   }
 }

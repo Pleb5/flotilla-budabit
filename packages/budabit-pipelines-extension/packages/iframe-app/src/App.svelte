@@ -1,6 +1,6 @@
 <script lang="ts">
   import {untrack} from 'svelte'
-  import type {WidgetBridge} from '@flotilla/ext-shared'
+  import type {WidgetBridge} from 'budabit-sdk'
   import {
     AlertCircle,
     ArrowLeft,

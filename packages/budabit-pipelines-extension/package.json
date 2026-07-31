@@ -30,6 +30,7 @@
     "widget:publish:github": "pnpm widget:build && pnpm --filter @flotilla/ext-manifest publish-widget --upload-first --github-repo ${GITHUB_REPO} --github-tag ${GITHUB_TAG} --artifact ../iframe-app/dist/index.html"
   },
   "keywords": [
+    "budabit",
     "flotilla",
     "nostr",
     "smart-widget",
@@ -45,6 +46,7 @@
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^2.1.8",
     "@vitest/ui": "^2.1.8",
+    "budabit-sdk": "^0.2.0",
     "eslint": "^9.17.0",
     "jsdom": "^25.0.1",
     "prettier": "^3.4.2",

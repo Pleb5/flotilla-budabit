@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WidgetBridge } from './bridge.js';
+import { WidgetBridge } from 'budabit-sdk';
 
 // Test-only type for wire messages with id
 type TestWireMessage = {
@@ -88,13 +88,13 @@ describe('WidgetBridge', () => {
   describe('onEvent()', () => {
     it('should call handler when event message is received', async () => {
       const handler = vi.fn();
-      bridge.onEvent('context:update', handler);
+      bridge.onEvent('context:repoUpdate', handler);
 
       window.dispatchEvent(
         new MessageEvent('message', {
           data: {
             type: 'event',
-            action: 'context:update',
+            action: 'context:repoUpdate',
             payload: { contextId: 'room-123', userPubkey: 'pk-abc' },
           },
           source: targetWindow,
@@ -110,7 +110,7 @@ describe('WidgetBridge', () => {
 
     it('should return unsubscribe function', async () => {
       const handler = vi.fn();
-      const unsub = bridge.onEvent('context:update', handler);
+      const unsub = bridge.onEvent('context:repoUpdate', handler);
 
       unsub();
 
@@ -118,7 +118,7 @@ describe('WidgetBridge', () => {
         new MessageEvent('message', {
           data: {
             type: 'event',
-            action: 'context:update',
+            action: 'context:repoUpdate',
             payload: { contextId: 'room-456' },
           },
           source: targetWindow,
@@ -261,13 +261,13 @@ describe('WidgetBridge', () => {
       });
 
       const handler = vi.fn();
-      strictBridge.onEvent('context:update', handler);
+      strictBridge.onEvent('context:repoUpdate', handler);
 
       window.dispatchEvent(
         new MessageEvent('message', {
           data: {
             type: 'event',
-            action: 'context:update',
+            action: 'context:repoUpdate',
             payload: { contextId: 'room-123' },
           },
           source: targetWindow,
@@ -294,7 +294,7 @@ describe('WidgetBridge', () => {
 
     it('should stop receiving messages after destroy', async () => {
       const handler = vi.fn();
-      bridge.onEvent('context:update', handler);
+      bridge.onEvent('context:repoUpdate', handler);
 
       bridge.destroy();
 
@@ -302,7 +302,7 @@ describe('WidgetBridge', () => {
         new MessageEvent('message', {
           data: {
             type: 'event',
-            action: 'context:update',
+            action: 'context:repoUpdate',
             payload: { contextId: 'room-123' },
           },
           source: targetWindow,

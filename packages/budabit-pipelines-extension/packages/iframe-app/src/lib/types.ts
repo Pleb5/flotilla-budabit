@@ -1,4 +1,4 @@
-import type { WidgetBridge } from '@flotilla/ext-shared';
+import type { WidgetBridge } from 'budabit-sdk';
 
 export interface RepoContext {
   contextId?: string;

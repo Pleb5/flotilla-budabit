@@ -217,7 +217,7 @@ export async function queryEvents(
 
       if (response && typeof response === 'object' && 'error' in response) {
         throw new Error(
-          String((response as { error?: string }).error || 'Unknown Nostr query error')
+          (response as { error?: string }).error || 'Unknown Nostr query error'
         );
       }
 
@@ -390,7 +390,7 @@ export function workers$(relays: string[]): Observable<LoomWorker[]> {
   const ticker$ = interval(30_000);
   mergeRx(events$, ticker$).subscribe(value => {
     if (value && typeof value === 'object' && 'pubkey' in value) {
-      const event = value as NostrEvent;
+      const event = value;
       const prior = latestByPubkey.get(event.pubkey);
       if (prior && prior.created_at >= event.created_at) return;
       latestByPubkey.set(event.pubkey, event);

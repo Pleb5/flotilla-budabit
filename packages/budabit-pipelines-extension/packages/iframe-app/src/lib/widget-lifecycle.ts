@@ -1,4 +1,5 @@
-import { createWidgetBridge, watchHostTheme, type WidgetBridge } from '@flotilla/ext-shared';
+import { createWidgetBridge, type WidgetBridge } from 'budabit-sdk';
+import { watchHostTheme } from '../host-theme';
 import { getHostOrigin, transformHostContext } from './context';
 import type { RepoContext } from './types';
 
@@ -62,6 +63,8 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
     onUnmount();
   });
 
+  // Deprecated legacy fallback for pre-v2 hosts; context:repoUpdate is the
+  // primary event. Remove with bridge API v2.0.
   const offContext = bridge.onEvent('context:update', (ctx: any) => {
     handleRepoContext(ctx, { resetRunState: true });
   });
@@ -69,6 +72,10 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
   const offRepoUpdate = bridge.onEvent('context:repoUpdate', (ctx: any) => {
     handleRepoContext(ctx, { resetRunState: true });
   });
+
+  // Signal to the host that we're ready for lifecycle events.
+  // This triggers faster widget:mounted delivery (host waits up to 5s otherwise).
+  bridge.signalReady();
 
   // Actively fetch context, in case the host's context:update event was sent
   // before our listeners were registered (e.g. after an HMR reload, where the

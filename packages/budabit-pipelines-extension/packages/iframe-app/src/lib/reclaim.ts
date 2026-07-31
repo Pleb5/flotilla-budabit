@@ -1,4 +1,4 @@
-import type {WidgetBridge} from '@flotilla/ext-shared'
+import type {WidgetBridge} from 'budabit-sdk'
 import {eventTagValue} from './workflows'
 import type {WorkflowRun} from './types'
 

@@ -1,4 +1,4 @@
-import type { WidgetBridge } from '@flotilla/ext-shared'
+import type { WidgetBridge } from 'budabit-sdk'
 import { buildScriptArgs } from './blossom'
 import { loadWorkflowRunDetail } from './workflows'
 import { createCashuPaymentToken, loadCashuWalletState } from './wallet'

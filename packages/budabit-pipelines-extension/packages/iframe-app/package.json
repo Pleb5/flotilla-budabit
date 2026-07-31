@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@cashu/cashu-ts": "^3.6.2",
-    "@flotilla/ext-shared": "workspace:*",
     "@lucide/svelte": "^0.562.0",
     "@tursodatabase/database-wasm": "^0.5.3",
     "anser": "^2.3.5",
@@ -21,6 +20,7 @@
     "applesauce-relay": "^5.2.0",
     "applesauce-sqlite": "^5.2.0",
     "blossom-client-sdk": "^5.0.0",
+    "budabit-sdk": "^0.2.0",
     "date-fns": "^4.1.0",
     "js-yaml": "^4.1.1",
     "nostr-tools": "^2.11.0",
