@@ -10,6 +10,7 @@
     rerunCommandMode?: 'reuse' | 'regenerate'
     rerunArgsText?: string
     rerunPaymentToken?: string
+    unpaidRun?: boolean
     rerunSecrets?: {key: string; value: string}[]
     rerunSubmitting?: boolean
     discoveredWorkers?: LoomWorker[]
@@ -53,6 +54,7 @@
     rerunCommandMode = $bindable('reuse'),
     rerunArgsText = $bindable(''),
     rerunPaymentToken = $bindable(''),
+    unpaidRun = $bindable(false),
     rerunSecrets = $bindable([{key: '', value: ''}]),
     rerunSubmitting = false,
     discoveredWorkers = [],
@@ -97,6 +99,10 @@
   // Free workers advertise no pricing — runs are submitted without a payment
   // token and only execute if the worker accepts unpaid jobs from this pubkey.
   const selectedWorkerIsFree = $derived(isFreeWorker(selectedWorker))
+
+  // Payment is waived when the worker is free, or the user opted into an
+  // unpaid run on a priced worker (worker-side pubkey allowlist).
+  const paymentWaived = $derived(selectedWorkerIsFree || unpaidRun)
 
   const validationMessage = $derived.by(() => {
     if (!rerunDraft.workerPubkey) return 'Please select a worker'
@@ -484,23 +490,36 @@
           token and will only execute if the worker accepts unpaid jobs from your pubkey.
         </p>
       {:else}
-        <div class="mt-1 flex items-baseline gap-2">
+        <div class="mt-1 flex items-baseline gap-2 {unpaidRun ? 'opacity-40' : ''}">
           <span class="text-2xl font-semibold">{paymentAmount.toLocaleString()}</span>
           <span class="text-base font-normal text-muted-foreground">sats</span>
         </div>
-        <p class="mt-1 text-[11px] text-muted-foreground">
+        <p class="mt-1 text-[11px] text-muted-foreground {unpaidRun ? 'opacity-40' : ''}">
           {selectedWorker?.pricing?.perSecondRate
             ? `${selectedWorker.pricing.perSecondRate} ${selectedWorker.pricing.unit || 'sat'}/s × ${formatDuration(maxDuration)}`
             : 'Pick a worker to compute prepayment'}
         </p>
+        {#if selectedWorker}
+          <label class="mt-3 flex cursor-pointer items-start gap-2">
+            <input type="checkbox" class="mt-0.5" bind:checked={unpaidRun} />
+            <span class="text-xs">
+              <span class="font-medium">Run unpaid</span>
+              <span class="block text-[11px] text-muted-foreground">
+                Submit without payment. Only works if this worker's operator has
+                allowlisted your pubkey for unpaid usage — otherwise the job is
+                ignored by the worker.
+              </span>
+            </span>
+          </label>
+        {/if}
       {/if}
     </div>
 
-    {#if selectedWorker && !selectedWorkerIsFree && walletAvailable && compatibleMints.length === 0}
+    {#if selectedWorker && !paymentWaived && walletAvailable && compatibleMints.length === 0}
       <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">No overlapping mints between your wallet and the selected worker.</div>
     {/if}
 
-    {#if selectedMint && paymentAmount > selectedMintBalance && walletAvailable}
+    {#if selectedMint && paymentAmount > selectedMintBalance && walletAvailable && !paymentWaived}
       <div class="rounded-md border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">Selected mint balance is lower than the prepayment.</div>
     {/if}
 
@@ -514,8 +533,8 @@
         : generatingPaymentToken
           ? 'Preparing payment…'
           : submissionMode === 'new'
-            ? (selectedWorkerIsFree ? 'Run' : 'Pay and run')
-            : (selectedWorkerIsFree ? 'Rerun' : 'Pay and rerun')}
+            ? (paymentWaived ? 'Run' : 'Pay and run')
+            : (paymentWaived ? 'Rerun' : 'Pay and rerun')}
     </button>
   </aside>
 </div>

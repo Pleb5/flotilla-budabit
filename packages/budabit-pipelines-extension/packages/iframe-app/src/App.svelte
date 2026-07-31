@@ -124,6 +124,11 @@
   let submissionMode = $state<'new' | 'rerun' | null>(null)
   let rerunArgsText = $state('')
   let rerunPaymentToken = $state('')
+  // User opt-in to submit without payment on a priced worker. Only works when
+  // the worker's operator has allowlisted the user's pubkey for unpaid usage
+  // (ALLOW_UNPAID_PUBKEYS) — the allowlist is not visible in worker ads, so
+  // this is an explicit user choice rather than something we can detect.
+  let unpaidRun = $state(false)
   let rerunSecrets = $state([{key: '', value: ''}])
   let rerunSubmitting = $state(false)
   let immediateRerunInFlight = $state(false)
@@ -226,7 +231,9 @@
     }),
   )
   const autoTokenCandidateKey = $derived.by(() =>
-    buildAutoTokenCandidateKey({
+    unpaidRun
+      ? ''
+      : buildAutoTokenCandidateKey({
       draft: rerunDraft,
       selectedWorker,
       selectedMint,
@@ -551,6 +558,7 @@
   function applySubmissionReset() {
     applySubmissionState(createSubmissionResetState())
     maxDuration = 900
+    unpaidRun = false
   }
 
   function applyWalletState(nextState: {
@@ -831,10 +839,11 @@
       return
     }
 
-    // Free workers (no advertised pricing) can't be prepaid — submit without
-    // a payment tag. The loom worker only executes such runs when the sender
-    // is in its unpaid allowlist.
-    const freeRun = isFreeWorker(selectedWorker)
+    // Unpaid path: the worker advertises no pricing (can't be prepaid), or
+    // the user explicitly opted into an unpaid run. Either way the loom
+    // worker only executes the job when the sender is in its unpaid
+    // allowlist (ALLOW_UNPAID_PUBKEYS).
+    const freeRun = isFreeWorker(selectedWorker) || unpaidRun
     if (freeRun) {
       // A token minted for an earlier paid attempt is bearer value — return
       // it to the wallet rather than discarding it.
@@ -1407,6 +1416,7 @@
           bind:rerunCommandMode
           bind:rerunArgsText
           bind:rerunPaymentToken
+            bind:unpaidRun
           bind:rerunSecrets
           bind:selectedMint
           {paymentAmount}
@@ -1671,6 +1681,7 @@
                   bind:rerunCommandMode
                   bind:rerunArgsText
                   bind:rerunPaymentToken
+            bind:unpaidRun
                   bind:rerunSecrets
                   bind:selectedMint
                   {paymentAmount}
@@ -1900,6 +1911,7 @@
               bind:rerunCommandMode
               bind:rerunArgsText
               bind:rerunPaymentToken
+            bind:unpaidRun
               bind:rerunSecrets
               bind:selectedMint
               {paymentAmount}
