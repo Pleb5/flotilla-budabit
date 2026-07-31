@@ -1,0 +1,58 @@
+{
+  "name": "@welshman/editor",
+  "version": "0.8.16",
+  "author": "hodlbod",
+  "license": "MIT",
+  "description": "A batteries-included nostr editor.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/editor/src/index.js",
+      "types": "./dist/editor/src/index.d.ts"
+    },
+    "./index.css": "./src/index.css"
+  },
+  "files": [
+    "dist",
+    "src/index.css"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && pnpm run compile --force",
+    "clean": "rimraf ./dist",
+    "compile": "tsc -b tsconfig.build.json",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@tiptap/core": "^2.11.7",
+    "@tiptap/extension-code": "^2.11.7",
+    "@tiptap/extension-code-block": "^2.11.7",
+    "@tiptap/extension-document": "^2.11.7",
+    "@tiptap/extension-dropcursor": "^2.11.7",
+    "@tiptap/extension-gapcursor": "^2.11.7",
+    "@tiptap/extension-hard-break": "^2.11.7",
+    "@tiptap/extension-history": "^2.11.7",
+    "@tiptap/extension-paragraph": "^2.11.7",
+    "@tiptap/extension-placeholder": "^2.11.7",
+    "@tiptap/extension-text": "^2.11.7",
+    "@tiptap/pm": "^2.11.7",
+    "@tiptap/suggestion": "^2.11.7",
+    "tippy.js": "^6.3.7"
+  },
+  "peerDependencies": {
+    "@welshman/lib": "workspace:*",
+    "@welshman/util": "workspace:*",
+    "nostr-tools": "^2.19.4",
+    "nostr-editor": "^1.1.1"
+  },
+  "devDependencies": {
+    "rimraf": "~6.0.0",
+    "typescript": "~5.8.0",
+    "@welshman/lib": "workspace:*",
+    "@welshman/util": "workspace:*",
+    "nostr-tools": "^2.19.4",
+    "nostr-editor": "^1.1.2"
+  }
+}

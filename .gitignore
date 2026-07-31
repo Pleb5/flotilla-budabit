@@ -1,0 +1,11 @@
+node_modules
+**/dist
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/.vitepress/.temp
+docs/reference
+results
+.nyc_output
+*.tsbuildinfo
+.vscode
+docs/**/*.html

@@ -1,0 +1,43 @@
+{
+  "name": "@welshman/signer",
+  "version": "0.8.16",
+  "author": "hodlbod",
+  "license": "MIT",
+  "description": "A nostr signer implemenation supporting several login methods.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/signer/src/index.js",
+  "types": "dist/signer/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && pnpm run compile --force",
+    "clean": "rimraf ./dist",
+    "compile": "tsc -b tsconfig.build.json",
+    "prepublishOnly": "pnpm run build"
+  },
+  "peerDependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^2.0.1",
+    "@welshman/lib": "workspace:*",
+    "@welshman/net": "workspace:*",
+    "@welshman/util": "workspace:*",
+    "nostr-signer-capacitor-plugin": "*",
+    "nostr-tools": "^2.19.4"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^7.2.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^2.0.1",
+    "@welshman/lib": "workspace:*",
+    "@welshman/net": "workspace:*",
+    "@welshman/util": "workspace:*",
+    "nostr-signer-capacitor-plugin": "github:coracle-social/nostr-signer-capacitor-plugin#main",
+    "nostr-tools": "^2.19.4",
+    "rimraf": "~6.0.0",
+    "typescript": "~5.8.0"
+  }
+}

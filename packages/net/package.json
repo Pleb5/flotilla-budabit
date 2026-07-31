@@ -1,0 +1,36 @@
+{
+  "name": "@welshman/net",
+  "version": "0.8.16",
+  "author": "hodlbod",
+  "license": "MIT",
+  "description": "Utilities for connecting with nostr relays.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/net/src/index.js",
+  "types": "dist/net/src/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && pnpm run compile --force",
+    "clean": "rimraf ./dist",
+    "compile": "tsc -b tsconfig.build.json",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "events": "^3.3.0",
+    "isomorphic-ws": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@welshman/lib": "workspace:*",
+    "@welshman/util": "workspace:*"
+  },
+  "devDependencies": {
+    "rimraf": "~6.0.0",
+    "typescript": "~5.8.0",
+    "@welshman/lib": "workspace:*",
+    "@welshman/util": "workspace:*"
+  }
+}
