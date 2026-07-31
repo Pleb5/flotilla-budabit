@@ -162,6 +162,7 @@
       name: repoClass.name,
       naddr: naddr,
       relays: [...repoRelays],
+      maintainers: repoClass.maintainers ? [...repoClass.maintainers] : [],
     }
   }
 

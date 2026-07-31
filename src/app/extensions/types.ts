@@ -201,6 +201,8 @@ export type RepoContext = {
   naddr?: string
   /** Relays associated with this repository */
   relays?: string[]
+  /** Declared repo maintainer pubkeys */
+  maintainers?: string[]
 }
 
 /**

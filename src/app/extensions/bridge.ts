@@ -2050,7 +2050,14 @@ registerBridgeHandler("context:getRepo", (payload, ext) => {
         name: ext.repoContext.name,
         naddr: ext.repoContext.naddr,
         relays: ext.repoContext.relays,
+        maintainers: ext.repoContext.maintainers,
         address: getRepoAddress(ext.repoContext), // Canonical "30617:pubkey:name" format
+        // The push-based context:update event is the primary carrier of the
+        // signed-in user's pubkey, but it can be lost if the host sends it
+        // before the widget's listeners are registered. Widgets recover via
+        // this polled response, so it must carry userPubkey too — otherwise
+        // they render fine but stay permanently "not signed in".
+        userPubkey: get(activeUserPubkey) || undefined,
       },
     }
   } catch (err: any) {
