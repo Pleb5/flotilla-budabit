@@ -1,8 +1,20 @@
 import {Actions, createUploadAuth} from 'blossom-client-sdk';
 import type {WidgetBridge} from 'budabit-sdk';
 
-/** Order matters — first server that accepts the upload wins. */
-const DEFAULT_BLOSSOM_SERVERS = ['https://cdn.sovbit.host/'];
+/**
+ * Order matters — first server that accepts the upload wins.
+ *
+ * Servers must answer browser CORS preflights on /upload, since this runs
+ * inside the extension iframe (cdn.sovbit.host stopped doing so, which
+ * surfaced as "Network error while loading workflow data" on submit — it is
+ * kept as a last-resort fallback only). The worker fetches the script
+ * server-side via curl, so any public Blossom server works for retrieval.
+ */
+const DEFAULT_BLOSSOM_SERVERS = [
+  'https://blossom.budabit.club/',
+  'https://blossom.primal.net/',
+  'https://cdn.sovbit.host/',
+];
 
 /**
  * Wraps the host bridge's `nostr:sign` action as a blossom-client-sdk-compatible
