@@ -8,7 +8,7 @@ const secondRoomPath = `/c/${community}/rooms/second-room`
 test("marks a room checked when navigating directly to another room", async ({page}) => {
   await page.addInitScript(() => localStorage.clear())
   await page.goto(firstRoomPath)
-  await expect(page.getByText("Still looking for messages...")).toBeVisible()
+  await expect(page.locator('[data-component="PageContent"]')).toBeVisible({timeout: 15_000})
 
   await page.evaluate(path => {
     document.body.dataset.clientNavigation = "ready"

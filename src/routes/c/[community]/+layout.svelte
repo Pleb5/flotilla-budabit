@@ -64,6 +64,7 @@
     registerCommunityLiveOwnership,
   } from "@app/core/community-live"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
+  import {activeCommunityRoomLoad} from "@app/core/community-foreground"
 
   type Props = {
     children?: Snippet
@@ -101,6 +102,13 @@
         ? "community-with-menu"
         : "community-with-menu community-with-floating-menu"
       : "cw-full",
+  )
+  const activeRoomLoadPending = $derived(
+    Boolean(
+      parsedCommunity &&
+      $activeCommunityRoomLoad.pending &&
+      $activeCommunityRoomLoad.communityPubkey === parsedCommunity.pubkey,
+    ),
   )
 
   let authRelayUrl = $state("")
@@ -352,7 +360,7 @@
   $effect(() => {
     void communityHistoryRetryVersion
 
-    if (!communityBackgroundHydrationReady) {
+    if (!communityBackgroundHydrationReady || activeRoomLoadPending) {
       stopCommunityHistoryLoad()
       return
     }
@@ -410,7 +418,7 @@
   $effect(() => {
     void communityFollowUpRetryVersion
 
-    if (!communityBackgroundHydrationReady) {
+    if (!communityBackgroundHydrationReady || activeRoomLoadPending) {
       stopCommunityFollowUpLoad()
       return
     }
@@ -476,7 +484,7 @@
   })
 
   $effect(() => {
-    if (!communityBackgroundHydrationReady) {
+    if (!communityBackgroundHydrationReady || activeRoomLoadPending) {
       stopCommunityDeleteLoad()
       return
     }

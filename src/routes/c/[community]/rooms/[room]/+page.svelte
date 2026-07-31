@@ -80,6 +80,10 @@
   import {recoverActiveNip46Receiver} from "@app/util/nip46"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {
+    activeCommunityRoomLoad,
+    clearActiveCommunityRoomLoad,
+  } from "@app/core/community-foreground"
+  import {
     makeCommunityPath,
     makeCommunityRoomPath,
     parseCommunityRouteParam,
@@ -91,6 +95,7 @@
     | {type: "note"; id: string; value: TrustedEvent; showPubkey: boolean}
 
   const FEED_EMPTY_SETTLE_TIMEOUT_MS = 10_000
+  const ROOM_LOAD_RETRY_DELAYS_MS = [5_000, 10_000, 20_000]
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
@@ -445,7 +450,22 @@
     }, FEED_EMPTY_SETTLE_TIMEOUT_MS)
   }
 
-  const resetFeed = () => {
+  const clearRoomAutoRetry = (resetAttempts = true) => {
+    if (roomAutoRetryTimer) clearTimeout(roomAutoRetryTimer)
+    roomAutoRetryTimer = undefined
+    roomAutoRetryScheduled = false
+    if (resetAttempts) roomAutoRetryAttempt = 0
+  }
+
+  const clearMessageAutoRetry = (resetAttempts = true) => {
+    if (messageAutoRetryTimer) clearTimeout(messageAutoRetryTimer)
+    messageAutoRetryTimer = undefined
+    messageAutoRetryScheduled = false
+    if (resetAttempts) messageAutoRetryAttempt = 0
+  }
+
+  const resetFeed = ({preserveRetryState = false}: {preserveRetryState?: boolean} = {}) => {
+    if (!preserveRetryState) clearMessageAutoRetry()
     feedCleanup?.()
     feedCleanup = undefined
     clearFeedEmptySettleTimer()
@@ -476,11 +496,16 @@
       relays: $activeCommunityRelays,
       feedFilters: messageFilters,
       subscriptionFilters: messageFilters,
+      initialLoadTimeoutMs: FEED_EMPTY_SETTLE_TIMEOUT_MS,
+      priority: RELAY_REQUEST_PRIORITY.foreground,
+      owner: `active-room:${roomId}`,
       onInitialLoad: ({complete, timedOut}) => {
         loadingEvents = false
         feedLoadStatus = complete ? "complete" : timedOut ? "incomplete" : "failed"
+        if (complete) clearMessageAutoRetry()
       },
       onExhausted: () => {
+        clearMessageAutoRetry()
         loadingEvents = false
         feedLoadStatus = "complete"
         feedEmptySettled = true
@@ -524,6 +549,10 @@
   let roomLoadRetryVersion = $state(0)
   let retryingRoomLookup = $state(false)
   let retryingMessageFeed = $state(false)
+  let roomAutoRetryAttempt = $state(0)
+  let roomAutoRetryScheduled = $state(false)
+  let messageAutoRetryAttempt = $state(0)
+  let messageAutoRetryScheduled = $state(false)
   let loadingEvents = $state(false)
   let feedLoadStatus = $state<CommunityHydrationStatus>("idle")
   let feedEmptySettled = $state(false)
@@ -543,7 +572,10 @@
   let feedCleanup: (() => void) | undefined = $state()
   let feedInitialized = $state(false)
   let feedEmptySettleTimer: ReturnType<typeof setTimeout> | undefined
+  let roomAutoRetryTimer: ReturnType<typeof setTimeout> | undefined
+  let messageAutoRetryTimer: ReturnType<typeof setTimeout> | undefined
   let lastFeedKey = ""
+  let lastRoomRetryPath = ""
   const waitingForRoom = $derived(
     Boolean(
       communityBootstrapReady &&
@@ -557,7 +589,7 @@
     ),
   )
   const waitingForFeed = $derived(Boolean(room && feedKey && !feedInitialized))
-  const roomLookupIncomplete = $derived(
+  const roomLookupNeedsRecovery = $derived(
     isCommunityRoomLookupIncomplete({
       roomFound: Boolean(room),
       bootstrapFailed: communityBootstrapFailed,
@@ -565,6 +597,13 @@
       loadStatus: roomLoadStatus,
     }),
   )
+  const roomRecoveryActive = $derived(retryingRoomLookup || roomAutoRetryScheduled || loadingRoom)
+  const roomLookupIncomplete = $derived(
+    roomLookupNeedsRecovery &&
+      !roomRecoveryActive &&
+      roomAutoRetryAttempt >= ROOM_LOAD_RETRY_DELAYS_MS.length,
+  )
+  const recoveringRoomLookup = $derived(roomLookupNeedsRecovery && !roomLookupIncomplete)
 
   const messages = $derived(
     readCommunityRoomMessages(
@@ -661,7 +700,7 @@
       authenticate: true,
       timeout: FEED_EMPTY_SETTLE_TIMEOUT_MS,
       authTimeout: COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
-      priority: RELAY_REQUEST_PRIORITY.community,
+      priority: RELAY_REQUEST_PRIORITY.foreground,
       signal: controller.signal,
       onStatus: status => {
         roomLoadStatus = status
@@ -675,12 +714,17 @@
   $effect(() => {
     if (elements.length === 0) return
 
+    clearMessageAutoRetry()
+    loadingEvents = false
+    feedLoadStatus = "complete"
     feedEmptySettled = true
     clearFeedEmptySettleTimer()
   })
 
-  const retryRoomLookup = async () => {
+  const retryRoomLookup = async ({automatic = false}: {automatic?: boolean} = {}) => {
     if (retryingRoomLookup) return
+
+    if (!automatic) clearRoomAutoRetry()
 
     const session =
       $activeCommunitySession ||
@@ -706,20 +750,115 @@
     }
   }
 
-  const retryMessageFeed = async () => {
+  const retryMessageFeed = async ({automatic = false}: {automatic?: boolean} = {}) => {
     if (retryingMessageFeed) return
 
+    if (!automatic) clearMessageAutoRetry()
     retryingMessageFeed = true
     try {
       await recoverActiveNip46Receiver().catch(() => false)
       await Promise.allSettled(
         $activeCommunityRelays.map(relay => recoverCommunityRelayAuth(relay)),
       )
-      resetFeed()
+      resetFeed({preserveRetryState: automatic})
     } finally {
       retryingMessageFeed = false
     }
   }
+
+  const scheduleRoomAutoRetry = () => {
+    if (
+      roomAutoRetryTimer ||
+      retryingRoomLookup ||
+      roomAutoRetryAttempt >= ROOM_LOAD_RETRY_DELAYS_MS.length
+    )
+      return
+
+    const delay = ROOM_LOAD_RETRY_DELAYS_MS[roomAutoRetryAttempt]
+    roomAutoRetryAttempt += 1
+    roomAutoRetryScheduled = true
+    roomAutoRetryTimer = setTimeout(() => {
+      roomAutoRetryTimer = undefined
+      roomAutoRetryScheduled = false
+      void retryRoomLookup({automatic: true})
+    }, delay)
+  }
+
+  const scheduleMessageAutoRetry = () => {
+    if (
+      messageAutoRetryTimer ||
+      retryingMessageFeed ||
+      messageAutoRetryAttempt >= ROOM_LOAD_RETRY_DELAYS_MS.length
+    )
+      return
+
+    const delay = ROOM_LOAD_RETRY_DELAYS_MS[messageAutoRetryAttempt]
+    messageAutoRetryAttempt += 1
+    messageAutoRetryScheduled = true
+    messageAutoRetryTimer = setTimeout(() => {
+      messageAutoRetryTimer = undefined
+      messageAutoRetryScheduled = false
+      void retryMessageFeed({automatic: true})
+    }, delay)
+  }
+
+  const messageFeedNeedsRecovery = $derived(
+    Boolean(
+      room &&
+      elements.length === 0 &&
+      (feedLoadStatus === "incomplete" || feedLoadStatus === "failed"),
+    ),
+  )
+  const messageRecoveryActive = $derived(
+    retryingMessageFeed || messageAutoRetryScheduled || loadingEvents,
+  )
+  const messageFeedFailureVisible = $derived(
+    messageFeedNeedsRecovery &&
+      !messageRecoveryActive &&
+      messageAutoRetryAttempt >= ROOM_LOAD_RETRY_DELAYS_MS.length,
+  )
+  const recoveringMessageFeed = $derived(messageFeedNeedsRecovery && !messageFeedFailureVisible)
+  const foregroundRoomLoadSettled = $derived(
+    Boolean(
+      roomCensorReason ||
+      elements.length > 0 ||
+      (!room && (roomLoadStatus === "complete" || roomLookupIncomplete)) ||
+      (room && feedInitialized && (feedLoadStatus === "complete" || messageFeedFailureVisible)),
+    ),
+  )
+
+  $effect(() => {
+    if (lastRoomRetryPath === roomPath) return
+
+    lastRoomRetryPath = roomPath
+    clearRoomAutoRetry()
+  })
+
+  $effect(() => {
+    if (room) {
+      clearRoomAutoRetry()
+      return
+    }
+
+    if (roomLookupNeedsRecovery && !retryingRoomLookup) scheduleRoomAutoRetry()
+  })
+
+  $effect(() => {
+    if (elements.length > 0 || feedLoadStatus === "complete") {
+      clearMessageAutoRetry()
+      return
+    }
+
+    if (messageFeedNeedsRecovery && !retryingMessageFeed) scheduleMessageAutoRetry()
+  })
+
+  $effect(() => {
+    activeCommunityRoomLoad.set({
+      communityPubkey,
+      roomId,
+      pending: !foregroundRoomLoadSettled,
+    })
+  })
 
   $effect(() => {
     const key = feedKey
@@ -729,7 +868,9 @@
       return
     }
 
-    if (!feedInitialized || key !== lastFeedKey) {
+    if (!feedInitialized) {
+      startFeed(key)
+    } else if (key !== lastFeedKey) {
       resetFeed()
       startFeed(key)
     }
@@ -756,6 +897,9 @@
   })
 
   onDestroy(() => {
+    clearRoomAutoRetry()
+    clearMessageAutoRetry()
+    clearActiveCommunityRoomLoad(communityPubkey, roomId)
     resetFeed()
   })
 </script>
@@ -831,7 +975,7 @@
         </div>
       {/if}
     {/each}
-    {#if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents || feedLoadStatus === "incomplete" || feedLoadStatus === "failed"}
+    {#if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents || (elements.length === 0 && (feedLoadStatus === "incomplete" || feedLoadStatus === "failed"))}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         {#if communityBootstrapLoading}
           <Spinner loading>Loading community...</Spinner>
@@ -839,32 +983,36 @@
           <Spinner loading>Loading room permissions...</Spinner>
         {:else if waitingForRoom}
           <Spinner loading>Loading room...</Spinner>
+        {:else if recoveringRoomLookup}
+          <Spinner loading>Still loading room...</Spinner>
         {:else if roomLookupIncomplete}
           <span>Room lookup is incomplete or temporarily unavailable.</span>
           <button
             class="btn btn-neutral btn-sm"
             type="button"
             disabled={retryingRoomLookup}
-            onclick={retryRoomLookup}>
+            onclick={() => retryRoomLookup()}>
             {retryingRoomLookup ? "Retrying..." : "Retry"}
           </button>
+        {:else if !room}
+          <span>Room not found or not approved for this community.</span>
         {:else if waitingForFeed}
           <Spinner loading>Looking for messages...</Spinner>
         {:else if loadingEvents}
           <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-        {:else if !feedEmptySettled && elements.length === 0 && feedLoadStatus !== "incomplete" && feedLoadStatus !== "failed"}
+        {:else if recoveringMessageFeed}
           <Spinner loading>Still looking for messages...</Spinner>
-        {:else if !room}
-          <span>Room not found or not approved for this community.</span>
-        {:else if feedLoadStatus === "incomplete" || feedLoadStatus === "failed"}
+        {:else if messageFeedFailureVisible}
           <span>Message history is incomplete or temporarily unavailable.</span>
           <button
             class="btn btn-neutral btn-sm"
             type="button"
             disabled={retryingMessageFeed}
-            onclick={retryMessageFeed}>
+            onclick={() => retryMessageFeed()}>
             {retryingMessageFeed ? "Retrying..." : "Retry"}
           </button>
+        {:else if !feedEmptySettled && elements.length === 0}
+          <Spinner loading>Still looking for messages...</Spinner>
         {:else if elements.length === 0}
           <span>No messages yet.</span>
         {:else}
@@ -875,7 +1023,7 @@
   </PageContent>
 {/if}
 
-{#if !roomCensorReason}
+{#if !roomCensorReason && room}
   <div class="chat__compose bg-base-200" bind:this={chatCompose}>
     {#if canSendMessage}
       <div>
@@ -901,35 +1049,6 @@
           content={eventToEdit?.content}
           bind:this={compose} />
       {/key}
-    {:else if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || retryingRoomLookup}
-      <div
-        class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
-        <div class="min-w-0">
-          <strong class="block text-sm">Checking room access</strong>
-          <p class="text-xs opacity-70">Loading community permissions...</p>
-        </div>
-      </div>
-    {:else if !room}
-      <div
-        class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
-        <div class="min-w-0">
-          <strong class="block text-sm">Room unavailable</strong>
-          <p class="text-xs opacity-70">
-            {roomLookupIncomplete
-              ? "Room lookup is incomplete. Retry when relay access is available."
-              : "This room was not found or is not approved for this community."}
-          </p>
-        </div>
-        {#if roomLookupIncomplete}
-          <button
-            class="btn btn-neutral btn-sm"
-            type="button"
-            disabled={retryingRoomLookup}
-            onclick={retryRoomLookup}>
-            {retryingRoomLookup ? "Retrying..." : "Retry"}
-          </button>
-        {/if}
-      </div>
     {:else}
       <div
         class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">

@@ -9,6 +9,9 @@ overrides:
   '@tiptap/pm': 2.27.1
 
 patchedDependencies:
+  '@welshman/feeds@0.8.16':
+    hash: eb5b6a96e36bea303a9e3225e08303d7f207e13bcbcd13ed3c48dc5d6861d045
+    path: patches/@welshman__feeds@0.8.16.patch
   '@welshman/net@0.8.16':
     hash: 7649895c27a3362aac7526ea051e497c298b60ab6a66c86494e983d017715474
     path: patches/@welshman__net@0.8.16.patch
@@ -124,7 +127,7 @@ importers:
         version: 0.2.6
       '@welshman/app':
         specifier: ^0.8.16
-        version: 0.8.16(264483ec31d3f21945f49f3fc90dac70)
+        version: 0.8.16(67491832eb423fb20073e52bddf72df0)
       '@welshman/content':
         specifier: ^0.8.16
         version: 0.8.16(nostr-tools@2.23.3(typescript@5.9.3))
@@ -133,7 +136,7 @@ importers:
         version: 0.8.16(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-editor@1.1.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/extension-image@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1)))(@tiptap/extension-link@2.27.2(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1)(linkifyjs@4.3.2)(nostr-tools@2.23.3(typescript@5.9.3))(prosemirror-markdown@1.13.4)(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(tiptap-markdown@0.8.10(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))))(nostr-tools@2.23.3(typescript@5.9.3))
       '@welshman/feeds':
         specifier: ^0.8.16
-        version: 0.8.16(62464b8b8fbbdde89fab005bab52bbcc)
+        version: 0.8.16(patch_hash=eb5b6a96e36bea303a9e3225e08303d7f207e13bcbcd13ed3c48dc5d6861d045)(62464b8b8fbbdde89fab005bab52bbcc)
       '@welshman/lib':
         specifier: ^0.8.16
         version: 0.8.16
@@ -6696,10 +6699,10 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@welshman/app@0.8.16(264483ec31d3f21945f49f3fc90dac70)':
+  '@welshman/app@0.8.16(67491832eb423fb20073e52bddf72df0)':
     dependencies:
       '@pomade/core': 0.2.6(@frostr/bifrost@1.0.7(typescript@5.9.3))(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(patch_hash=7649895c27a3362aac7526ea051e497c298b60ab6a66c86494e983d017715474)(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/signer@0.8.16(@noble/curves@1.9.7)(@noble/hashes@2.0.1)(@welshman/lib@0.8.16)(@welshman/net@0.8.16(patch_hash=7649895c27a3362aac7526ea051e497c298b60ab6a66c86494e983d017715474)(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.5.0))(nostr-tools@2.23.3(typescript@5.9.3)))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(nostr-tools@2.23.3(typescript@5.9.3))
-      '@welshman/feeds': 0.8.16(62464b8b8fbbdde89fab005bab52bbcc)
+      '@welshman/feeds': 0.8.16(patch_hash=eb5b6a96e36bea303a9e3225e08303d7f207e13bcbcd13ed3c48dc5d6861d045)(62464b8b8fbbdde89fab005bab52bbcc)
       '@welshman/lib': 0.8.16
       '@welshman/net': 0.8.16(patch_hash=7649895c27a3362aac7526ea051e497c298b60ab6a66c86494e983d017715474)(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)
       '@welshman/router': 0.8.16(@welshman/lib@0.8.16)(@welshman/net@0.8.16(patch_hash=7649895c27a3362aac7526ea051e497c298b60ab6a66c86494e983d017715474)(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0))(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))
@@ -6736,7 +6739,7 @@ snapshots:
       nostr-tools: 2.23.3(typescript@5.9.3)
       tippy.js: 6.3.7
 
-  '@welshman/feeds@0.8.16(62464b8b8fbbdde89fab005bab52bbcc)':
+  '@welshman/feeds@0.8.16(patch_hash=eb5b6a96e36bea303a9e3225e08303d7f207e13bcbcd13ed3c48dc5d6861d045)(62464b8b8fbbdde89fab005bab52bbcc)':
     dependencies:
       '@welshman/lib': 0.8.16
       '@welshman/net': 0.8.16(patch_hash=7649895c27a3362aac7526ea051e497c298b60ab6a66c86494e983d017715474)(@welshman/lib@0.8.16)(@welshman/util@0.8.16(@noble/curves@1.9.7)(@welshman/lib@0.8.16)(nostr-tools@2.23.3(typescript@5.9.3)))(ws@8.19.0)

@@ -559,10 +559,21 @@ const COMMUNITY_PROFILE_HYDRATION_TTL = 30_000
 const COMMUNITY_REPORT_DELETE_HYDRATION_TTL = 30_000
 const COMMUNITY_RELAY_BATCH_DELAY = 50
 
-const communityStateLoad = makeLoader({
-  delay: COMMUNITY_RELAY_BATCH_DELAY,
-  priority: RELAY_REQUEST_PRIORITY.community,
-})
+const communityStateLoaders = new Map<number, ReturnType<typeof makeLoader>>()
+
+const getCommunityStateLoader = (requestedPriority?: number) => {
+  const priority = Number.isFinite(requestedPriority)
+    ? Number(requestedPriority)
+    : RELAY_REQUEST_PRIORITY.community
+  let loader = communityStateLoaders.get(priority)
+
+  if (!loader) {
+    loader = makeLoader({delay: COMMUNITY_RELAY_BATCH_DELAY, priority})
+    communityStateLoaders.set(priority, loader)
+  }
+
+  return loader
+}
 
 const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -981,7 +992,7 @@ export const loadCommunityEventsWithStatus = async (
 
       options.signal?.addEventListener("abort", handleAbort, {once: true})
       const outcome = await Promise.race([
-        communityStateLoad({
+        getCommunityStateLoader(options.priority)({
           relays: [relay],
           filters,
           signal: controller.signal,

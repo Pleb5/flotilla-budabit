@@ -93,6 +93,9 @@ export interface FeedOptions {
   feedFilters: Filter[]
   subscriptionFilters?: Filter[]
   initialEvents?: TrustedEvent[]
+  initialLoadTimeoutMs?: number
+  priority?: number
+  owner?: string
   onInitialLoad?: (result: InitialLoadResult) => void
   onExhausted?: () => void
 }
@@ -103,6 +106,9 @@ export const makeFeed = ({
   feedFilters,
   subscriptionFilters,
   initialEvents,
+  initialLoadTimeoutMs = INITIAL_FEED_LOAD_TIMEOUT,
+  priority,
+  owner,
   onInitialLoad,
   onExhausted,
 }: FeedOptions) => {
@@ -139,7 +145,7 @@ export const makeFeed = ({
 
   initialLoadTimeout = setTimeout(
     () => markInitialLoadComplete({complete: false, timedOut: true}),
-    INITIAL_FEED_LOAD_TIMEOUT,
+    initialLoadTimeoutMs,
   )
 
   const relaysSet = new Set(relays)
@@ -244,6 +250,8 @@ export const makeFeed = ({
       useWindowing: true,
       signal: controller.signal,
       tracker: feedTracker,
+      priority,
+      owner,
       feed: makeIntersectionFeed(makeRelayFeed(url), feedFromFilters(feedFilters)),
       onExhausted: () => {
         exhausted += 1
@@ -270,7 +278,7 @@ export const makeFeed = ({
       if ($buffer.length < 100) {
         const result = await waitForSettled(
           Promise.all(controllers.map(ctrl => ctrl.load(100))),
-          INITIAL_FEED_LOAD_TIMEOUT,
+          initialLoadTimeoutMs,
         )
 
         if (flushBuffer() > 0) {

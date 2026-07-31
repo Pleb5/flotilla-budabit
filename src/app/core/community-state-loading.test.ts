@@ -307,11 +307,16 @@ describe("community relay loading", () => {
     pubkey.set(undefined)
   })
 
-  it("uses a dedicated priority loader for community state", () => {
-    expect(makeLoaderMock).toHaveBeenCalledWith({
-      delay: 50,
-      priority: 300,
-    })
+  it("isolates community state requests in their requested priority lanes", async () => {
+    loadMock.mockResolvedValue([])
+
+    await loadCommunityEvents([relayA], [{kinds: [1]}], {priority: -100})
+    await loadCommunityEvents([relayA], [{kinds: [2]}])
+    await loadCommunityEvents([relayA], [{kinds: [3]}], {priority: 350})
+
+    expect(makeLoaderMock).toHaveBeenCalledWith({delay: 50, priority: -100})
+    expect(makeLoaderMock).toHaveBeenCalledWith({delay: 50, priority: 300})
+    expect(makeLoaderMock).toHaveBeenCalledWith({delay: 50, priority: 350})
   })
 
   afterEach(async () => {

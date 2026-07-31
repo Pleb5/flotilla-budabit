@@ -92,6 +92,7 @@ export const RELAY_REQUEST_PRIORITY = {
   interactive: 100,
   live: 200,
   community: 300,
+  foreground: 350,
   authority: 400,
 } as const
 

@@ -146,6 +146,7 @@
   },
   "pnpm": {
     "patchedDependencies": {
+      "@welshman/feeds@0.8.16": "patches/@welshman__feeds@0.8.16.patch",
       "@welshman/net@0.8.16": "patches/@welshman__net@0.8.16.patch"
     },
     "overrides": {

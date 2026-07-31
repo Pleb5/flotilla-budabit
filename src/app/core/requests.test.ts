@@ -20,6 +20,7 @@ vi.mock("@welshman/app", async importOriginal => {
   return {
     ...actual,
     loadRelay: vi.fn().mockResolvedValue({}),
+    makeFeedController: vi.fn(actual.makeFeedController),
   }
 })
 
@@ -110,6 +111,41 @@ describe("requests", () => {
       feed.cleanup()
       repository.removeEvent(event.id)
       tracker.removeRelay(event.id, relay)
+      vi.useRealTimers()
+    }
+  })
+
+  it("honors a custom initial timeout and forwards request scheduling metadata", async () => {
+    vi.useFakeTimers()
+
+    const {makeFeed} = await import("./requests")
+    const {makeFeedController} = await import("@welshman/app")
+    const onInitialLoad = vi.fn()
+    const controllerMock = vi.mocked(makeFeedController)
+    controllerMock.mockClear()
+    const feed = makeFeed({
+      element: document.createElement("div"),
+      relays: ["wss://priority-room.test"],
+      feedFilters: [{kinds: [9]}],
+      initialLoadTimeoutMs: 10_000,
+      priority: 350,
+      owner: "active-room:test",
+      onInitialLoad,
+    })
+
+    try {
+      expect(controllerMock).toHaveBeenCalledWith(
+        expect.objectContaining({priority: 350, owner: "active-room:test"}),
+      )
+
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(onInitialLoad).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(onInitialLoad).toHaveBeenCalledOnce()
+      expect(onInitialLoad).toHaveBeenCalledWith({complete: false, timedOut: true})
+    } finally {
+      feed.cleanup()
       vi.useRealTimers()
     }
   })

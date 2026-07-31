@@ -1,0 +1,95 @@
+diff --git a/dist/feeds/src/controller.d.ts b/dist/feeds/src/controller.d.ts
+index 29fef0300029358b6aec1bff38f245d2ad2c01a8..0e54e4aef5744f912211d052d0ff6107a25caa2e 100644
+--- a/dist/feeds/src/controller.d.ts
++++ b/dist/feeds/src/controller.d.ts
+@@ -5,6 +5,8 @@ import { FeedCompiler, FeedCompilerOptions } from "./compiler.js";
+ export type FeedControllerOptions = FeedCompilerOptions & {
+     feed: Feed;
+     tracker?: Tracker;
++    priority?: number;
++    owner?: string;
+     onEvent?: (event: TrustedEvent) => void;
+     onExhausted?: () => void;
+     useWindowing?: boolean;
+diff --git a/dist/feeds/src/controller.js b/dist/feeds/src/controller.js
+index 49ef4bc3917101e74829762285555853a8f50dcc..e38e00c683d290481ee87da85aa7f7ce4f965b05 100644
+--- a/dist/feeds/src/controller.js
++++ b/dist/feeds/src/controller.js
+@@ -113,6 +113,8 @@ export class FeedController {
+                 signal: this.options.signal,
+                 tracker: this.options.tracker,
+                 context: this.options.context,
++                priority: this.options.priority,
++                owner: this.options.owner,
+                 onEvent: (event) => {
+                     count += 1;
+                     until = Math.min(until, event.created_at - 1);
+@@ -264,6 +266,8 @@ export class FeedController {
+                 filters: trimFilters(requestFilters),
+                 tracker: this.options.tracker,
+                 context: this.options.context,
++                priority: this.options.priority,
++                owner: this.options.owner,
+             }));
+             return () => controller.abort();
+         };
+diff --git a/dist/feeds/src/request.d.ts b/dist/feeds/src/request.d.ts
+index 3957169108218d96032757721269134e75d89dbf..2dde13bf18896516267f1edab6c6cd9a44e8f606 100644
+--- a/dist/feeds/src/request.d.ts
++++ b/dist/feeds/src/request.d.ts
+@@ -8,9 +8,11 @@ export type RequestPageOptions = {
+     tracker?: Tracker;
+     signal?: AbortSignal;
+     context?: AdapterContext;
++    priority?: number;
++    owner?: string;
+     autoClose?: boolean;
+ };
+-export declare const requestPage: ({ filters, onEvent, relays, tracker, signal, context, autoClose, }: RequestPageOptions) => Promise<TrustedEvent[] | undefined>;
++export declare const requestPage: ({ filters, onEvent, relays, tracker, signal, context, priority, owner, autoClose, }: RequestPageOptions) => Promise<TrustedEvent[] | undefined>;
+ export type RequestDVMOptions = {
+     kind: number;
+     tags?: string[][];
+diff --git a/dist/feeds/src/request.js b/dist/feeds/src/request.js
+index 0ade16aa60de02f194586769fc712abedcc911376..20657413685662290cf78acbc74d94375099847c 100644
+--- a/dist/feeds/src/request.js
++++ b/dist/feeds/src/request.js
+@@ -3,9 +3,9 @@ import { makeEvent, getPubkeyTagValues, asDecryptedEvent, readList, getRelaysFrom
+ import { Nip01Signer } from "@welshman/signer";
+ import { Router, getFilterSelections, addMinimalFallbacks } from "@welshman/router";
+ import { LOCAL_RELAY_URL, Tracker, request, publish } from "@welshman/net";
+-export const requestPage = async ({ filters, onEvent, relays = [], tracker = new Tracker(), signal, context, autoClose, }) => {
++export const requestPage = async ({ filters, onEvent, relays = [], tracker = new Tracker(), signal, context, priority, owner, autoClose, }) => {
+     if (relays.length > 0) {
+-        return request({ tracker, signal, context, onEvent, relays, filters, autoClose });
++        return request({ tracker, signal, context, priority, owner, onEvent, relays, filters, autoClose });
+     }
+     const promises = [];
+     const [withSearch, withoutSearch] = partition(f => Boolean(f.search), filters);
+@@ -14,6 +14,8 @@ export const requestPage = async ({ filters, onEvent, relays = [], tracker = new
+             signal,
+             context,
+             onEvent,
++            priority,
++            owner,
+             threshold: 0.1,
+             autoClose,
+             filters: withSearch,
+@@ -26,6 +28,8 @@ export const requestPage = async ({ filters, onEvent, relays = [], tracker = new
+             signal,
+             context,
+             onEvent,
++            priority,
++            owner,
+             relays,
+             filters,
+             threshold: 0.5,
+@@ -44,6 +48,8 @@ export const requestPage = async ({ filters, onEvent, relays = [], tracker = new
+         signal,
+         context,
+         onEvent,
++        priority,
++        owner,
+         filters,
+         relays: [LOCAL_RELAY_URL],
+         autoClose,
