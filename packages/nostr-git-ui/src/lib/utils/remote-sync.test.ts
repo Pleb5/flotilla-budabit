@@ -126,8 +126,57 @@ describe("publishRepoSyncAnnouncement", () => {
         })),
         updateProgress: vi.fn(),
         runAbortable: async (operation) => await operation(),
+        maxAnnouncementPublishAttempts: 1,
       })
     ).rejects.toThrow("No repository relay ACKed the initial announcement");
+  });
+
+  it("retries a timed-out announcement with the exact signed event", async () => {
+    let signedAnnouncement: any;
+    const onPublishEvent = vi.fn(async (event) => {
+      signedAnnouncement ||= signedEvent(event);
+      if (onPublishEvent.mock.calls.length === 1) {
+        return {
+          event: signedAnnouncement,
+          ackedRelays: [],
+          failedRelays: ["wss://relay.ngit.dev"],
+          hasRelayOutcomes: true,
+          relayOutcomes: [
+            { relay: "wss://relay.ngit.dev", status: "timeout", detail: "timed out" },
+          ],
+        };
+      }
+      return {
+        event,
+        ackedRelays: ["wss://relay.ngit.dev"],
+        failedRelays: [],
+        hasRelayOutcomes: true,
+        relayOutcomes: [
+          {
+            relay: "wss://relay.ngit.dev",
+            status: "success",
+            detail: "purgatory: won't be served until git data arrives",
+          },
+        ],
+      };
+    });
+
+    const admission = await publishRepoSyncAnnouncement({
+      repoName: "repo",
+      userPubkey: "a".repeat(64),
+      targets: [graspTarget],
+      relayUrls: [],
+      onPublishEvent,
+      updateProgress: vi.fn(),
+      runAbortable: async () => undefined as never,
+      maxAnnouncementPublishAttempts: 2,
+      announcementRetryDelayMs: 0,
+    });
+
+    expect(onPublishEvent).toHaveBeenCalledTimes(2);
+    expect(onPublishEvent.mock.calls[1]?.[0]).toBe(signedAnnouncement);
+    expect(admission.announcementEvent).toBe(signedAnnouncement);
+    expect(admission.ackedRelayUrls).toEqual(["wss://relay.ngit.dev"]);
   });
 
   it("fails when a selected GRASP relay misses the ACK even if a generic relay succeeds", async () => {
@@ -150,6 +199,7 @@ describe("publishRepoSyncAnnouncement", () => {
         })),
         updateProgress: vi.fn(),
         runAbortable: async (operation) => await operation(),
+        maxAnnouncementPublishAttempts: 1,
       })
     ).rejects.toThrow("Selected GRASP target relay did not ACK the initial announcement");
   });

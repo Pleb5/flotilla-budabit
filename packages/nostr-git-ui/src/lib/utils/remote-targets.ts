@@ -281,6 +281,14 @@ export async function preflightRemoteTargets(params: {
             };
           }
 
+          if (probe.provisioned) {
+            return {
+              ...target,
+              status: "ready" as const,
+              detail: "Empty GRASP repository found; import will resume it",
+            };
+          }
+
           return {
             ...target,
             status: "ready" as const,

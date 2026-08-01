@@ -2,6 +2,7 @@ import { nip19 } from "nostr-tools";
 
 export interface GraspRepoExistsResult {
   exists: boolean;
+  provisioned?: boolean;
   htmlUrl?: string;
 }
 
@@ -65,6 +66,14 @@ function isLikelyCorsOrNetworkFailure(error: unknown): boolean {
 
 const SMART_HTTP_PROBE_TIMEOUT_MS = 3500;
 
+function hasAdvertisedGitRefs(advertisement: string): boolean {
+  const refPattern = /([0-9a-f]{40,64}) (HEAD|refs\/[^\0\r\n ]+)/gi;
+  for (const match of advertisement.matchAll(refPattern)) {
+    if (!/^0+$/.test(match[1])) return true;
+  }
+  return false;
+}
+
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SMART_HTTP_PROBE_TIMEOUT_MS);
@@ -117,8 +126,14 @@ export async function checkGraspRepoExists({
   try {
     const response = await probeSmartHttp(url);
     if (!response) return { exists: false };
-    if (response.ok)
-      return { exists: true, htmlUrl: `${httpBase}/${ownerNpub}/${encodedRepoName}` };
+    if (response.ok) {
+      const htmlUrl = `${httpBase}/${ownerNpub}/${encodedRepoName}`;
+      const advertisement = await response.text();
+      if (hasAdvertisedGitRefs(advertisement)) {
+        return { exists: true, provisioned: true, htmlUrl };
+      }
+      return { exists: false, provisioned: true, htmlUrl };
+    }
     if (response.status === 404) return { exists: false };
 
     throw new Error(`Smart HTTP probe failed with status ${response.status}`);

@@ -114,6 +114,34 @@ describe("remote target preflight", () => {
     expect(result.detail).toContain("Fork only creates new destinations");
   });
 
+  it("keeps empty provisioned GRASP repositories resumable for import", async () => {
+    checkGraspRepoExists.mockResolvedValue({
+      exists: false,
+      provisioned: true,
+      htmlUrl: "https://relay.example/npub1test/seedsigner",
+    });
+
+    const [result] = await preflightRemoteTargets({
+      targets: [
+        {
+          id: "grasp:wss://relay.example",
+          label: "GRASP (relay.example)",
+          provider: "grasp",
+          relayUrl: "wss://relay.example",
+          status: "checking",
+        },
+      ],
+      tokenList: [],
+      userPubkey: "pubkey",
+      repoName: "seedsigner",
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.existsAlready).toBeUndefined();
+    expect(result.existingRemoteUrl).toBeUndefined();
+    expect(result.detail).toContain("resume");
+  });
+
   it("fails the authoritative new-target preflight when any destination exists", async () => {
     checkGraspRepoExists.mockResolvedValue({
       exists: true,

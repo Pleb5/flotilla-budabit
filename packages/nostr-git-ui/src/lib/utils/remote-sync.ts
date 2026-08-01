@@ -173,6 +173,8 @@ export interface PublishRepoSyncAnnouncementOptions {
   onFetchRelayEvents?: FetchRelayEvents;
   updateProgress: (message: string) => void;
   runAbortable: <T>(operation: () => Promise<T>, label: string, timeoutMs: number) => Promise<T>;
+  maxAnnouncementPublishAttempts?: number;
+  announcementRetryDelayMs?: number;
 }
 
 export interface RepoSyncAnnouncementAdmission {
@@ -200,6 +202,8 @@ export async function publishRepoSyncAnnouncement({
   onFetchRelayEvents,
   updateProgress,
   runAbortable,
+  maxAnnouncementPublishAttempts = 3,
+  announcementRetryDelayMs = 500,
 }: PublishRepoSyncAnnouncementOptions): Promise<RepoSyncAnnouncementAdmission> {
   const allGraspTargets = targets.filter(
     (target) => target.provider === "grasp" && target.relayUrl
@@ -289,30 +293,72 @@ export async function publishRepoSyncAnnouncement({
   let signedAnnouncement: NostrEvent | undefined;
   let ackedRelayUrls: string[] = [];
   if (candidateRelays.length > 0) {
-    updateProgress("Publishing repository announcement before remote sync...");
-    const result = await onPublishEvent(announcementEvent, {
-      relays: candidateRelays,
-      stage: "provisional",
-    });
-    if (!result?.event?.id || !result.event.sig || !result.event.pubkey) {
+    const attempts = Math.max(1, Math.floor(maxAnnouncementPublishAttempts));
+    const ackedRelaySet = new Set<string>();
+    const relayOutcomes = new Map<
+      string,
+      { relay: string; status: string; detail: string }
+    >();
+    let pendingRelays = [...candidateRelays];
+
+    for (let attempt = 1; attempt <= attempts && pendingRelays.length > 0; attempt++) {
+      updateProgress(
+        attempt === 1
+          ? "Publishing repository announcement before remote sync..."
+          : `Retrying repository announcement (${attempt}/${attempts})...`
+      );
+      const result = await onPublishEvent(signedAnnouncement || announcementEvent, {
+        relays: pendingRelays,
+        stage: "provisional",
+      });
+      if (!result?.event?.id || !result.event.sig || !result.event.pubkey) {
+        throw new Error("Repository announcement publication did not return a signed event");
+      }
+      if (signedAnnouncement && result.event.id !== signedAnnouncement.id) {
+        throw new Error("Repository announcement retry returned a different signed event");
+      }
+      signedAnnouncement ||= result.event;
+
+      const ack = extractPublishRelayAck(result);
+      for (const relayUrl of ack.ackedRelays) {
+        ackedRelaySet.add(normalizeRelayForAdmission(relayUrl));
+      }
+      for (const outcome of ack.relayOutcomes || []) {
+        relayOutcomes.set(normalizeRelayForAdmission(outcome.relay), outcome);
+      }
+
+      pendingRelays = pendingRelays.filter((relayUrl) => {
+        const relayKey = normalizeRelayForAdmission(relayUrl);
+        if (ackedRelaySet.has(relayKey)) return false;
+        const status = relayOutcomes.get(relayKey)?.status.toLowerCase();
+        return status !== "failure";
+      });
+
+      if (pendingRelays.length > 0 && attempt < attempts && announcementRetryDelayMs > 0) {
+        await runAbortable(
+          () => new Promise<void>((resolve) => setTimeout(resolve, announcementRetryDelayMs)),
+          "Waiting to retry repository announcement",
+          announcementRetryDelayMs + 1000
+        );
+      }
+    }
+
+    if (!signedAnnouncement) {
       throw new Error("Repository announcement publication did not return a signed event");
     }
-
-    const ack = extractPublishRelayAck(result);
-    if (!ack.hasRelayOutcomes) {
-      throw new Error("Repository announcement publication did not return relay outcomes");
-    }
-    if (ack.successCount === 0) {
-      const details =
-        ack.relayOutcomes
-          ?.map((outcome) => `${outcome.relay}: ${outcome.detail || outcome.status}`)
-          .join("; ") || ack.failedRelays.join(", ");
-      throw new Error(
-        `No repository relay ACKed the initial announcement${details ? ` (${details})` : ""}`
-      );
+    ackedRelayUrls = candidateRelays.filter((relayUrl) =>
+      ackedRelaySet.has(normalizeRelayForAdmission(relayUrl))
+    );
+    if (ackedRelayUrls.length === 0) {
+      const details = candidateRelays
+        .map((relayUrl) => {
+          const outcome = relayOutcomes.get(normalizeRelayForAdmission(relayUrl));
+          return `${relayUrl}: ${outcome?.detail || outcome?.status || "no relay outcome"}`;
+        })
+        .join("; ");
+      throw new Error(`No repository relay ACKed the initial announcement (${details})`);
     }
 
-    const ackedRelaySet = new Set(ack.ackedRelays.map(normalizeRelayForAdmission));
     const missingGraspRelays = newGraspRelayUrls.filter(
       (relayUrl) => !ackedRelaySet.has(normalizeRelayForAdmission(relayUrl))
     );
@@ -322,10 +368,6 @@ export async function publishRepoSyncAnnouncement({
       );
     }
 
-    signedAnnouncement = result.event;
-    ackedRelayUrls = candidateRelays.filter((relayUrl) =>
-      ackedRelaySet.has(normalizeRelayForAdmission(relayUrl))
-    );
     for (const relayUrl of newGraspRelayUrls) {
       announcementByGraspRelay[normalizeRelayForAdmission(relayUrl)] = signedAnnouncement;
     }

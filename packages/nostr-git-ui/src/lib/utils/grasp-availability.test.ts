@@ -1,10 +1,46 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { checkGraspReceivePackReady } from "./grasp-availability.js";
+import { checkGraspReceivePackReady, checkGraspRepoExists } from "./grasp-availability.js";
 
 describe("grasp-availability", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("treats an empty provisioned repository as resumable rather than existing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        "001e# service=git-upload-pack\n000001350000000000000000000000000000000000000000 capabilities^{}\0multi_ack\n0000",
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      checkGraspRepoExists({
+        relayUrl: "wss://grasp.example",
+        userPubkey: "a".repeat(64),
+        owner: "a".repeat(64),
+        repoName: "seedsigner",
+      })
+    ).resolves.toMatchObject({ exists: false, provisioned: true });
+  });
+
+  it("recognizes a repository with an advertised Git ref as existing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `001e# service=git-upload-pack\n0044${"b".repeat(40)} HEAD\0multi_ack\n0000`,
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      checkGraspRepoExists({
+        relayUrl: "wss://grasp.example",
+        userPubkey: "a".repeat(64),
+        owner: "a".repeat(64),
+        repoName: "seedsigner",
+      })
+    ).resolves.toMatchObject({ exists: true, provisioned: true });
   });
 
   it("probes receive-pack with only the service query parameter", async () => {

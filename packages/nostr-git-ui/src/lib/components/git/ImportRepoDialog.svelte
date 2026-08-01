@@ -1122,7 +1122,7 @@
   }
 
   function targetStatusLabel(target: ImportTargetOption): string {
-    if (target.status === "ready") return "Ready";
+    if (target.status === "ready") return target.existsAlready ? "Ready (existing)" : "Ready";
     if (target.status === "checking") return "Checking";
     if (target.status === "no-token") return "No token";
     if (target.status === "unsupported") return "Unsupported";

@@ -102,7 +102,11 @@ The import is admitted only when:
 
 The publisher records ACK evidence by event ID and relay. A queued send, an open WebSocket, an `EOSE`, or an unrelated relay response is not admission evidence.
 
+If an ACK attempt times out, Budabit may retry only the exact signed event returned by the first attempt. A retry that produces a different event ID is rejected, and Smart HTTP readiness never substitutes for a matching relay `OK`.
+
 An existing GRASP repository is different. Budabit queries its current kind `30617` event and reuses it for readiness and synchronization. It does not publish a replacement provisional announcement that could hide or disturb an already usable repository.
+
+An HTTP endpoint that advertises no Git refs is provisioned but not an active existing repository. Import treats this as resumable residue, publishes a fresh provisional announcement, and still requires its exact ACK before pushing. This covers a prior attempt that admitted metadata but failed before any Git ref arrived.
 
 If admission fails, the transaction stops before cloning, hosted repository creation, or pushing. Rollback is limited to relays that actually ACKed a provisional event.
 
