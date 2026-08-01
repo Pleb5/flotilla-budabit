@@ -2640,7 +2640,6 @@ const api = {
             url,
             ref: opts.sourceRef,
             singleBranch: true,
-            depth: 1,
             tags: false,
             corsProxy,
             ...(authCallback && {onAuth: authCallback}),

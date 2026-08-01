@@ -114,7 +114,7 @@ describe("worker.pushToRemote API", () => {
     })
   })
 
-  it("fetches a missing pull request tip before materializing its ref", async () => {
+  it("fetches complete pull request history before materializing a missing ref", async () => {
     const eventId = "d".repeat(64)
     const commit = "e".repeat(40)
     logMock.mockResolvedValueOnce([]).mockResolvedValue([{oid: commit}])
@@ -134,9 +134,9 @@ describe("worker.pushToRemote API", () => {
         url: "https://github.com/owner/repo.git",
         ref: "refs/pull/43/head",
         singleBranch: true,
-        depth: 1,
       }),
     )
+    expect(fetchMock.mock.calls[0]?.[0]).not.toHaveProperty("depth")
     expect(writeRefMock).toHaveBeenCalledWith({
       dir: "/repos/owner/repo",
       ref: `refs/nostr/${eventId}`,
