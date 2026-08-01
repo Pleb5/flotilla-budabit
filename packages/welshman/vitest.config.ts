@@ -10,6 +10,13 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
     },
     globals: true,
+    server: {
+      deps: {
+        // @pomade/core imports @welshman/* which resolve to TypeScript source in
+        // this repo, so it must be processed by Vite rather than loaded by Node
+        inline: [/@pomade\/core/],
+      },
+    },
   },
   resolve: {
     alias: {

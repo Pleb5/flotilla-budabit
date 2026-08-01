@@ -1,7 +1,0 @@
-export CI=1
-
-set -e
-
-pnpm run lint
-pnpm run docs
-pnpm run test

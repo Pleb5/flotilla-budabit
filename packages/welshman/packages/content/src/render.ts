@@ -1,21 +1,21 @@
 import {neventEncode, nprofileEncode, naddrEncode} from "nostr-tools/nip19"
 import {sanitizeUrl} from "@braintree/sanitize-url"
 import {
-  Parsed,
+  type Parsed,
   ParsedType,
-  ParsedTopic,
-  ParsedProfile,
-  ParsedNewline,
-  ParsedLink,
-  ParsedInvoice,
-  ParsedEvent,
-  ParsedEmoji,
-  ParsedEmail,
-  ParsedEllipsis,
-  ParsedCode,
-  ParsedCashu,
-  ParsedAddress,
-  ParsedText,
+  type ParsedTopic,
+  type ParsedProfile,
+  type ParsedNewline,
+  type ParsedLink,
+  type ParsedInvoice,
+  type ParsedEvent,
+  type ParsedEmoji,
+  type ParsedEmail,
+  type ParsedEllipsis,
+  type ParsedCode,
+  type ParsedCashu,
+  type ParsedAddress,
+  type ParsedText,
 } from "./parser.js"
 
 export class Renderer {

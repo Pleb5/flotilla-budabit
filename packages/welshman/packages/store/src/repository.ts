@@ -1,15 +1,15 @@
-import {readable, Readable} from "svelte/store"
-import {on, now, mapPop, Maybe, MaybeAsync, call, sortBy, first} from "@welshman/lib"
+import {readable, type Readable} from "svelte/store"
+import {on, now, mapPop, type Maybe, type MaybeAsync, call, sortBy, first} from "@welshman/lib"
 import {
   matchFilters,
   getIdFilters,
-  Filter,
-  TrustedEvent,
+  type Filter,
+  type TrustedEvent,
   sortEventsAsc,
   sortEventsDesc,
   getIdOrAddress,
 } from "@welshman/util"
-import {Repository, RepositoryUpdate, Tracker} from "@welshman/net"
+import {type Repository, type RepositoryUpdate, type Tracker} from "@welshman/net"
 import {deriveDeduplicated} from "./misc.js"
 
 // Events by id

@@ -1,6 +1,6 @@
 import {now, bytesToHex, hexToBytes} from "@welshman/lib"
 import {BLOSSOM_AUTH} from "./Kinds.js"
-import {makeEvent, SignedEvent} from "./Events.js"
+import {makeEvent, type SignedEvent} from "./Events.js"
 import {makeHttpAuthHeader} from "./Nip98.js"
 
 export type BlossomAuthAction = "get" | "upload" | "list" | "delete"
@@ -255,7 +255,11 @@ export async function decryptFile({
   const cryptoKey = await crypto.subtle.importKey("raw", keyBytes, {name: "AES-GCM"}, false, [
     "decrypt",
   ])
-  const decryptedBuffer = await crypto.subtle.decrypt({name: "AES-GCM", iv}, cryptoKey, ciphertext)
+  const decryptedBuffer = await crypto.subtle.decrypt(
+    {name: "AES-GCM", iv},
+    cryptoKey,
+    ciphertext as BufferSource,
+  )
 
   return new Uint8Array(decryptedBuffer)
 }

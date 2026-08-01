@@ -20,13 +20,18 @@ vi.mock("@nostr-git/ui", () => ({
   graspServersStore: {subscribe: () => () => {}},
 }))
 
-vi.mock("@welshman/router", () => ({
-  Router: {
-    get: () => ({
-      FromUser: () => ({getUrls: () => relayMocks.userOutboxRelays}),
-    }),
-  },
-}))
+vi.mock("@welshman/router", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/router")>()
+
+  return {
+    ...actual,
+    Router: {
+      get: () => ({
+        FromUser: () => ({getUrls: () => relayMocks.userOutboxRelays}),
+      }),
+    },
+  }
+})
 
 vi.mock("@app/core/state", () => ({
   deriveEvent: () => ({subscribe: () => () => {}}),

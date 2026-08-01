@@ -1,5 +1,5 @@
-import {writable, Subscriber} from "svelte/store"
-import {Zapper, TrustedEvent, Zap, getTagValues, zapFromEvent} from "@welshman/util"
+import {writable, type Subscriber} from "svelte/store"
+import {type Zapper, type TrustedEvent, type Zap, getTagValues, zapFromEvent} from "@welshman/util"
 import {
   removeUndefined,
   fetchJson,

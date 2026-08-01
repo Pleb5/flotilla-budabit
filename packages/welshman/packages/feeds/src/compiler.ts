@@ -1,24 +1,24 @@
 import {uniq, identity, flatten, pushToMapKey, intersection, tryCatch, now} from "@welshman/lib"
 import {
-  TrustedEvent,
-  Filter,
+  type TrustedEvent,
+  type Filter,
   intersectFilters,
   matchFilter,
   getAddress,
   getIdFilters,
   unionFilters,
 } from "@welshman/util"
-import {ISigner} from "@welshman/signer"
-import {AdapterContext} from "@welshman/net"
+import {type ISigner} from "@welshman/signer"
+import {type AdapterContext} from "@welshman/net"
 import {
-  CreatedAtItem,
-  RequestItem,
-  ListItem,
-  LabelItem,
-  WOTItem,
-  DVMItem,
-  Scope,
-  Feed,
+  type CreatedAtItem,
+  type RequestItem,
+  type ListItem,
+  type LabelItem,
+  type WOTItem,
+  type DVMItem,
+  type Scope,
+  type Feed,
   FeedType,
 } from "./core.js"
 import {getFeedArgs, feedsFromTags} from "./utils.js"

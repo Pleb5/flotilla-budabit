@@ -1,5 +1,5 @@
-import {StampedEvent, own, hash, sign, getPubkey, makeSecret} from "@welshman/util"
-import {nip04, nip44, ISigner, SignOptions, signWithOptions} from "../util.js"
+import {type StampedEvent, own, hash, sign, getPubkey, makeSecret} from "@welshman/util"
+import {nip04, nip44, type ISigner, type SignOptions, signWithOptions} from "../util.js"
 
 export class Nip01Signer implements ISigner {
   #pubkey: string

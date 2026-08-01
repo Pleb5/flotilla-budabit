@@ -1,19 +1,19 @@
 import EventEmitter from "events"
 import {call, sleep, mergeRight, on} from "@welshman/lib"
-import {isRelayUrl, matchFilters, Filter} from "@welshman/util"
-import {LOCAL_RELAY_URL, Repository} from "./repository.js"
+import {isRelayUrl, matchFilters, type Filter} from "@welshman/util"
+import {LOCAL_RELAY_URL, type Repository} from "./repository.js"
 import {
-  RelayMessage,
+  type RelayMessage,
   RelayMessageType,
-  ClientMessage,
+  type ClientMessage,
   ClientMessageType,
-  ClientEvent,
-  ClientReq,
-  ClientClose,
+  type ClientEvent,
+  type ClientReq,
+  type ClientClose,
 } from "./message.js"
-import {Socket, SocketEvent} from "./socket.js"
-import {Unsubscriber} from "./util.js"
-import {netContext, NetContext} from "./context.js"
+import {type Socket, SocketEvent} from "./socket.js"
+import {type Unsubscriber} from "./util.js"
+import {netContext, type NetContext} from "./context.js"
 
 export enum AdapterEvent {
   Receive = "receive",

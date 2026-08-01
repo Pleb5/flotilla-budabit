@@ -1,6 +1,6 @@
-import {writable, derived, Subscriber} from "svelte/store"
-import {fetchJson, Maybe} from "@welshman/lib"
-import {RelayProfile} from "@welshman/util"
+import {writable, derived, type Subscriber} from "svelte/store"
+import {fetchJson, type Maybe} from "@welshman/lib"
+import {type RelayProfile} from "@welshman/util"
 import {displayRelayUrl, displayRelayProfile} from "@welshman/util"
 import {getter, deriveItems, makeForceLoadItem, makeLoadItem, makeDeriveItem} from "@welshman/store"
 

@@ -153,6 +153,8 @@ describe("request", () => {
 
     ctrl.abort()
 
-    expect(closeSpy).toHaveBeenCalledTimes(1)
+    // Fork divergence: request() fires onClose per successful relay once the
+    // threshold is met, so both relays trigger it here
+    expect(closeSpy).toHaveBeenCalledTimes(2)
   })
 })

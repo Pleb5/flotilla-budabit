@@ -1,6 +1,6 @@
 import {Base64} from "js-base64"
 import {sha256, textEncoder} from "@welshman/lib"
-import {makeEvent, SignedEvent} from "./Events.js"
+import {makeEvent, type SignedEvent} from "./Events.js"
 import {HTTP_AUTH} from "./Kinds.js"
 
 export const makeHttpAuth = async (url: string, method = "GET", body?: string) => {

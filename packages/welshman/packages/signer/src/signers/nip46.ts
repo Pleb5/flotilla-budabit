@@ -6,22 +6,22 @@ import {
   sleep,
   tryCatch,
   randomId,
-  MaybeAsync,
+  type MaybeAsync,
   parseJson,
 } from "@welshman/lib"
 import {
-  HashedEvent,
+  type HashedEvent,
   makeEvent,
   makeSecret,
   normalizeRelayUrl,
   NOSTR_CONNECT,
   prep,
-  RelayMode,
-  StampedEvent,
-  TrustedEvent,
+  type RelayMode,
+  type StampedEvent,
+  type TrustedEvent,
 } from "@welshman/util"
-import {publish, request, AdapterContext} from "@welshman/net"
-import {ISigner, EncryptionImplementation, signWithOptions, SignOptions, decrypt} from "../util.js"
+import {publish, request, type AdapterContext} from "@welshman/net"
+import {type ISigner, type EncryptionImplementation, signWithOptions, type SignOptions, decrypt} from "../util.js"
 import {Nip01Signer} from "./nip01.js"
 
 export type Nip46Context = {
@@ -37,6 +37,11 @@ const nip46Log = (...args: any[]) => {
     console.log(...args)
   }
 }
+
+// Rejections are surfaced to consumers that expect a Nip46ResponseWithError shape,
+// so attach an `error` field to the Error instance.
+const makeNip46Error = (message: string) =>
+  Object.assign(new Error(message), {error: message}) as unknown as Nip46ResponseWithError
 
 export type Nip46Algorithm = "nip04" | "nip44"
 
@@ -147,17 +152,25 @@ export class Nip46Receiver extends Emitter {
   start = async () => {
     if (this.abortController) return
 
-    this.abortController = new AbortController()
+    const abortController = new AbortController()
+
+    this.abortController = abortController
 
     const {relays, context} = this.params
     const userPubkey = await this.signer.getPubkey()
     const filters = [{kinds: [NOSTR_CONNECT], "#p": [userPubkey]}]
 
-    request({
+    const clearAbortController = () => {
+      if (this.abortController === abortController) {
+        this.abortController = undefined
+      }
+    }
+
+    void request({
       relays,
       filters,
       context,
-      signal: this.abortController.signal,
+      signal: abortController.signal,
       onEvent: async (event: TrustedEvent, url: string) => {
         const json = await decrypt(this.signer, event.pubkey, event.content)
         const response = tryCatch(() => JSON.parse(json)) || {}
@@ -169,9 +182,10 @@ export class Nip46Receiver extends Emitter {
 
         this.emit(Nip46Event.Receive, {...response, url, event} as Nip46Response)
       },
-      onClose: () => {
-        this.abortController = undefined
-      },
+      onClose: clearAbortController,
+    }).then(clearAbortController, error => {
+      clearAbortController()
+      nip46Log("nip46 receiver error:", error)
     })
   }
 
@@ -184,6 +198,9 @@ export class Nip46Receiver extends Emitter {
 export class Nip46Sender extends Emitter {
   public processing = false
   public queue: Nip46Request[] = []
+  public stopped = false
+  public activeRequest?: Nip46Request
+  public abortController?: AbortController
 
   constructor(
     public signer: ISigner,
@@ -193,6 +210,10 @@ export class Nip46Sender extends Emitter {
   }
   // send a request to the remote signer, emitting the request and the pub
   public send = async (request: Nip46Request) => {
+    if (this.stopped) {
+      throw makeNip46Error("NIP-46 sender stopped")
+    }
+
     const {id, method, params} = request
     const {relays, signerPubkey, context, algorithm = "nip44"} = this.params
 
@@ -205,7 +226,42 @@ export class Nip46Sender extends Emitter {
     const template = makeEvent(NOSTR_CONNECT, {content, tags: [["p", signerPubkey]]})
     const event = await this.signer.sign(template)
 
-    publish({relays, event, context})
+    if (this.stopped) {
+      throw makeNip46Error("NIP-46 sender stopped")
+    }
+
+    const abortController = new AbortController()
+
+    this.abortController = abortController
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let accepted = false
+
+        void publish({
+          relays,
+          event,
+          context,
+          signal: abortController.signal,
+          onSuccess: () => {
+            accepted = true
+            resolve()
+          },
+        }).then(results => {
+          if (accepted) return
+
+          const detail = Object.values(results)
+            .map(result => `${result.relay}: ${result.detail || result.status}`)
+            .join(", ")
+
+          reject(new Error(`Unable to publish NIP-46 request${detail ? ` (${detail})` : ""}`))
+        }, reject)
+      })
+    } finally {
+      if (this.abortController === abortController) {
+        this.abortController = undefined
+      }
+    }
 
     this.emit(Nip46Event.Send, request)
   }
@@ -222,10 +278,17 @@ export class Nip46Sender extends Emitter {
       while (this.queue.length > 0) {
         const [request] = this.queue.splice(0, 1)
 
+        this.activeRequest = request
+
         try {
           await this.send(request)
         } catch (error: any) {
+          request.promise.reject(makeNip46Error(String(error || "Unable to send NIP-46 request")))
           nip46Log("nip46 error:", error, request)
+        } finally {
+          if (this.activeRequest === request) {
+            this.activeRequest = undefined
+          }
         }
       }
     } finally {
@@ -235,11 +298,31 @@ export class Nip46Sender extends Emitter {
 
   // enqueue a request to the queue and process it
   enqueue = (request: Nip46Request) => {
+    if (this.stopped) {
+      request.promise.reject(makeNip46Error("NIP-46 sender stopped"))
+      return
+    }
+
     this.queue.push(request)
+
+    const removeRequest = () => {
+      this.queue = this.queue.filter(candidate => candidate !== request)
+    }
+
+    request.promise.then(removeRequest, removeRequest)
+
     this.process()
   }
 
   stop = () => {
+    this.stopped = true
+    this.abortController?.abort()
+    this.activeRequest?.promise.reject(makeNip46Error("NIP-46 sender stopped"))
+
+    for (const request of this.queue.splice(0)) {
+      request.promise.reject(makeNip46Error("NIP-46 sender stopped"))
+    }
+
     this.removeAllListeners()
   }
 }
@@ -256,6 +339,13 @@ export class Nip46Request {
 
   // listen for a response from the remote signer and resolve/reject the in class promise
   listen = async (receiver: Nip46Receiver) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      receiver.off(Nip46Event.Receive, onReceive)
+    }
+
     await receiver.start()
 
     const onReceive = (response: Nip46Response) => {
@@ -272,11 +362,18 @@ export class Nip46Request {
           this.promise.resolve(response as Nip46ResponseWithResult)
         }
 
-        receiver.off(Nip46Event.Receive, onReceive)
+        cleanup()
       }
     }
 
     receiver.on(Nip46Event.Receive, onReceive)
+
+    timeout = setTimeout(
+      () => this.promise.reject(makeNip46Error("NIP-46 request timed out")),
+      this.method === "switch_relays" ? 5_000 : 30_000,
+    )
+
+    this.promise.then(cleanup, cleanup)
   }
 
   // send the request to the remote signer

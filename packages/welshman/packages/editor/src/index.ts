@@ -1,5 +1,5 @@
 export * from "./nodeviews/index.js"
 export * from "./extensions/index.js"
 export * from "./plugins/index.js"
-export {Editor, NodeViewProps} from "@tiptap/core"
-export {UploadTask, FileAttributes, editorProps} from "nostr-editor"
+export {Editor, type NodeViewProps} from "@tiptap/core"
+export {type UploadTask, type FileAttributes, editorProps} from "nostr-editor"

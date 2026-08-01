@@ -1,10 +1,10 @@
 import EventEmitter from "events"
 import {on, poll, call, tryCatch} from "@welshman/lib"
-import {SignedEvent, StampedEvent} from "@welshman/util"
+import {type SignedEvent, type StampedEvent} from "@welshman/util"
 import {makeRelayAuth} from "@welshman/util"
-import {isRelayAuth, isClientAuth, isRelayOk, RelayMessage} from "./message.js"
-import {Socket, SocketStatus, SocketEvent} from "./socket.js"
-import {Unsubscriber} from "./util.js"
+import {isRelayAuth, isClientAuth, isRelayOk, type RelayMessage} from "./message.js"
+import {type Socket, SocketStatus, SocketEvent} from "./socket.js"
+import {type Unsubscriber} from "./util.js"
 
 export enum AuthStatus {
   None = "none",

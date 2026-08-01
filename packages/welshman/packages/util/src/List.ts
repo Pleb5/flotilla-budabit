@@ -1,8 +1,8 @@
 import {parseJson, uniq, nthEq} from "@welshman/lib"
 import {Address} from "./Address.js"
 import {uniqTags, getRelayTags} from "./Tags.js"
-import {isRelayUrl, RelayMode, normalizeRelayUrl} from "./Relay.js"
-import {Encryptable, DecryptedEvent} from "./Encryptable.js"
+import {isRelayUrl, type RelayMode, normalizeRelayUrl} from "./Relay.js"
+import {Encryptable, type DecryptedEvent} from "./Encryptable.js"
 import type {EncryptableUpdates} from "./Encryptable.js"
 
 export type ListParams = {

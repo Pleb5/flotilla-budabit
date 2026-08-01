@@ -1,13 +1,13 @@
-import {Client, ClientOptions, PomadeSigner} from "@pomade/core"
+import {Client, type ClientOptions, PomadeSigner} from "@pomade/core"
 import {derived, writable} from "svelte/store"
 import {cached, randomId, append, omit, equals, assoc, TaskQueue} from "@welshman/lib"
 import {withGetter} from "@welshman/store"
 import {
-  Wallet,
+  type Wallet,
   WRAP,
   getPubkeyTagValues,
-  StampedEvent,
-  SignedEvent,
+  type StampedEvent,
+  type SignedEvent,
   getPubkey,
 } from "@welshman/util"
 import {
@@ -18,7 +18,7 @@ import {
   Nip07Signer,
   Nip01Signer,
   Nip55Signer,
-  ISigner,
+  type ISigner,
 } from "@welshman/signer"
 import {WrapManager} from "@welshman/net"
 import {tracker, repository} from "./core.js"
@@ -98,6 +98,12 @@ export const session = withGetter(
 export const getSession = (pubkey: string) => sessions.get()[pubkey]
 
 export const addSession = (session: Session) => {
+  const previousSession = getSession(session.pubkey)
+
+  if (previousSession && !equals(previousSession, session)) {
+    getSigner.pop(previousSession)?.cleanup?.()
+  }
+
   sessions.update(assoc(session.pubkey, session))
   pubkey.set(session.pubkey)
 }
@@ -250,7 +256,10 @@ export const wrapSigner = (signer: ISigner) =>
 
 export const getSigner = cached({
   maxSize: 100,
-  getKey: ([session]: [Session | undefined]) => `${session?.method}:${session?.pubkey}`,
+  getKey: ([session]: [Session | undefined]) =>
+    isNip46Session(session)
+      ? `${session.method}:${session.pubkey}:${session.secret}:${session.handler.pubkey}:${session.handler.relays.join(",")}`
+      : `${session?.method}:${session?.pubkey}`,
   getValue: ([session]: [Session | undefined]) => {
     if (isNip07Session(session)) return wrapSigner(new Nip07Signer())
     if (isNip01Session(session)) return wrapSigner(new Nip01Signer(session.secret))
@@ -264,6 +273,8 @@ export const getSigner = cached({
       } = session
       const broker = new Nip46Broker({clientSecret, signerPubkey, relays})
       const signer = new Nip46Signer(broker)
+
+      signer.pubkey = session.pubkey
 
       return wrapSigner(signer)
     }

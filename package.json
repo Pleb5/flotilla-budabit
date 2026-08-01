@@ -19,6 +19,7 @@
     "prepare": "husky",
     "test": "vitest run --coverage",
     "test:main": "vitest run --coverage --project=main",
+    "test:welshman": "pnpm --filter @welshman test",
     "test:nostr-git-core": "vitest run --coverage -c packages/nostr-git-core/vitest.config.ts",
     "test:nostr-git-ui": "vitest run --coverage -c packages/nostr-git-ui/vitest.config.ts",
     "test:repo": "vitest run -c packages/nostr-git-ui/tests/vitest.config.ts",
@@ -108,16 +109,16 @@
     "@types/qrcode": "^1.5.5",
     "@types/throttle-debounce": "^5.0.2",
     "@vite-pwa/assets-generator": "^0.2.6",
-    "@welshman/app": "^0.8.16",
-    "@welshman/content": "^0.8.16",
-    "@welshman/editor": "^0.8.16",
-    "@welshman/feeds": "^0.8.16",
-    "@welshman/lib": "^0.8.16",
-    "@welshman/net": "^0.8.16",
-    "@welshman/router": "^0.8.16",
-    "@welshman/signer": "^0.8.16",
-    "@welshman/store": "^0.8.16",
-    "@welshman/util": "^0.8.16",
+    "@welshman/app": "workspace:*",
+    "@welshman/content": "workspace:*",
+    "@welshman/editor": "workspace:*",
+    "@welshman/feeds": "workspace:*",
+    "@welshman/lib": "workspace:*",
+    "@welshman/net": "workspace:*",
+    "@welshman/router": "workspace:*",
+    "@welshman/signer": "workspace:*",
+    "@welshman/store": "workspace:*",
+    "@welshman/util": "workspace:*",
     "@cashu/coco-core": "1.0.0",
     "@cashu/coco-indexeddb": "1.0.0",
     "comlink": "^4.4.2",
@@ -145,12 +146,6 @@
     "tippy.js": "^6.3.7"
   },
   "pnpm": {
-    "patchedDependencies": {
-      "@welshman/app@0.8.16": "patches/@welshman__app@0.8.16.patch",
-      "@welshman/feeds@0.8.16": "patches/@welshman__feeds@0.8.16.patch",
-      "@welshman/net@0.8.16": "patches/@welshman__net@0.8.16.patch",
-      "@welshman/signer@0.8.16": "patches/@welshman__signer@0.8.16.patch"
-    },
     "overrides": {
       "@tiptap/core": "2.27.1",
       "@tiptap/pm": "2.27.1"

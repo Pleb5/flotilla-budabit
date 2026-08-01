@@ -1,4 +1,4 @@
-import {get, derived, Readable, Unsubscriber, Writable, Subscriber} from "svelte/store"
+import {get, derived, type Readable, type Unsubscriber, type Writable, type Subscriber} from "svelte/store"
 import {memoize, identity, equals, throttle} from "@welshman/lib"
 
 // Define Stores and StoresValues types locally since they're not exported in Svelte 5

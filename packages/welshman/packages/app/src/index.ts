@@ -31,7 +31,7 @@ import {
   isDVMKind,
   WRAP,
   RelayMode,
-  RelayProfile,
+  type RelayProfile,
   getRelaysFromList,
 } from "@welshman/util"
 import {routerContext} from "@welshman/router"

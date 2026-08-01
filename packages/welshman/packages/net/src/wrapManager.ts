@@ -1,7 +1,7 @@
 import {Emitter, remove, omit} from "@welshman/lib"
-import {HashedEvent, SignedEvent} from "@welshman/util"
-import {Tracker} from "./tracker.js"
-import {Repository} from "./repository.js"
+import {type HashedEvent, type SignedEvent} from "@welshman/util"
+import {type Tracker} from "./tracker.js"
+import {type Repository} from "./repository.js"
 
 export type WrapItem = Omit<HashedEvent, "content"> & {
   rumorId: string

@@ -1,6 +1,6 @@
 import {npubEncode} from "nostr-tools/nip19"
 import {ellipsize, parseJson} from "@welshman/lib"
-import {TrustedEvent, EventTemplate} from "./Events.js"
+import {type TrustedEvent, type EventTemplate} from "./Events.js"
 import {getLnUrl} from "./Zaps.js"
 import {PROFILE} from "./Kinds.js"
 

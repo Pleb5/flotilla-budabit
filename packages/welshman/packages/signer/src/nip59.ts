@@ -1,14 +1,14 @@
 import {
   isHashedEvent,
-  SignedEvent,
-  HashedEvent,
-  StampedEvent,
+  type SignedEvent,
+  type HashedEvent,
+  type StampedEvent,
   WRAP,
   SEAL,
   prep,
   hash,
 } from "@welshman/util"
-import {decrypt, ISigner} from "./util.js"
+import {decrypt, type ISigner} from "./util.js"
 import {Nip01Signer} from "./signers/nip01.js"
 
 export const seen = new Map<string, HashedEvent | Error>()

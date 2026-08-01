@@ -2,7 +2,7 @@ import {hexToBytes} from "@noble/curves/abstract/utils"
 import * as nt04 from "nostr-tools/nip04"
 import * as nt44 from "nostr-tools/nip44"
 import {Emitter, cached} from "@welshman/lib"
-import {SignedEvent, StampedEvent} from "@welshman/util"
+import {type SignedEvent, type StampedEvent} from "@welshman/util"
 
 export const nip04 = {
   detect: (m: string) => m.includes("?iv="),

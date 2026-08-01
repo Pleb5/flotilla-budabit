@@ -1,5 +1,5 @@
 // (C) 2023 Doug Hoyte. MIT license
-/* eslint-disable */
+ 
 // @ts-nocheck
 
 const PROTOCOL_VERSION = 0x61 // Version 1

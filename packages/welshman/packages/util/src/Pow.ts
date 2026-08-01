@@ -1,7 +1,7 @@
 import {call} from "@welshman/lib"
 import {getTag} from "./Tags.js"
 import {makeSecret, own, getPubkey} from "./Keys.js"
-import {makeEvent, OwnedEvent, HashedEvent} from "./Events.js"
+import {makeEvent, type OwnedEvent, type HashedEvent} from "./Events.js"
 
 export let benchmark = 0
 

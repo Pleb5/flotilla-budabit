@@ -1,5 +1,5 @@
-import {verifyEvent, TrustedEvent} from "@welshman/util"
-import {AbstractAdapter} from "./adapter.js"
+import {verifyEvent, type TrustedEvent} from "@welshman/util"
+import {type AbstractAdapter} from "./adapter.js"
 import {Repository} from "./repository.js"
 import {Pool} from "./pool.js"
 

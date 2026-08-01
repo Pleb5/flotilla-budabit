@@ -3,22 +3,24 @@ import {
   removeUndefined,
   call,
   defer,
-  Deferred,
+  type Deferred,
   memoize,
   omitVals,
   max,
   min,
   now,
 } from "@welshman/lib"
-import {EPOCH, trimFilters, guessFilterDelta, TrustedEvent, Filter} from "@welshman/util"
-import {Tracker} from "@welshman/net"
-import {Feed, FeedType, RequestItem} from "./core.js"
-import {FeedCompiler, FeedCompilerOptions} from "./compiler.js"
+import {EPOCH, trimFilters, guessFilterDelta, type TrustedEvent, type Filter} from "@welshman/util"
+import {type Tracker} from "@welshman/net"
+import {type Feed, FeedType, type RequestItem} from "./core.js"
+import {FeedCompiler, type FeedCompilerOptions} from "./compiler.js"
 import {requestPage} from "./request.js"
 
 export type FeedControllerOptions = FeedCompilerOptions & {
   feed: Feed
   tracker?: Tracker
+  priority?: number
+  owner?: string
   onEvent?: (event: TrustedEvent) => void
   onExhausted?: () => void
   useWindowing?: boolean
@@ -164,6 +166,8 @@ export class FeedController {
           signal: this.options.signal,
           tracker: this.options.tracker,
           context: this.options.context,
+          priority: this.options.priority,
+          owner: this.options.owner,
           onEvent: (event: TrustedEvent) => {
             count += 1
             until = Math.min(until, event.created_at - 1)
@@ -365,6 +369,8 @@ export class FeedController {
           filters: trimFilters(requestFilters),
           tracker: this.options.tracker,
           context: this.options.context,
+          priority: this.options.priority,
+          owner: this.options.owner,
         }),
       )
 

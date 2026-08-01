@@ -1,5 +1,5 @@
 import type {Filter} from "@welshman/util"
-import {isSignedEvent, SignedEvent} from "@welshman/util"
+import {isSignedEvent, type SignedEvent} from "@welshman/util"
 import {push as basePush, pull as basePull, publishOne, requestOne} from "@welshman/net"
 import {repository} from "./core.js"
 import {getRelay} from "./relays.js"

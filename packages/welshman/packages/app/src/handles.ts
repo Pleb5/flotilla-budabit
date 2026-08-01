@@ -1,4 +1,4 @@
-import {writable, Subscriber} from "svelte/store"
+import {writable, type Subscriber} from "svelte/store"
 import {tryCatch, fetchJson, batcher, postJson, last} from "@welshman/lib"
 import {
   getter,

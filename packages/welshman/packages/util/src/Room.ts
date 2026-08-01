@@ -9,7 +9,7 @@ import {
   ROOM_ADD_MEMBER,
   ROOM_REMOVE_MEMBER,
 } from "./Kinds.js"
-import {makeEvent, TrustedEvent, getIdentifier} from "./Events.js"
+import {makeEvent, type TrustedEvent, getIdentifier} from "./Events.js"
 import {getTag, getTagValue} from "./Tags.js"
 
 export type RoomMeta = {

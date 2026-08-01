@@ -3,11 +3,11 @@ import {
   RELAYS,
   asDecryptedEvent,
   readList,
-  TrustedEvent,
+  type TrustedEvent,
   sortEventsDesc,
   getRelaysFromList,
   RelayMode,
-  Filter,
+  type Filter,
   isPlainReplaceableKind,
 } from "@welshman/util"
 import {

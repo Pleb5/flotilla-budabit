@@ -1,8 +1,8 @@
-import {writable, Subscriber} from "svelte/store"
+import {writable, type Subscriber} from "svelte/store"
 import {getter, makeDeriveItem} from "@welshman/store"
 import {groupBy, batch, now, ago, DAY, HOUR, MINUTE} from "@welshman/lib"
 import {isOnionUrl, isLocalUrl, isIPAddress, isRelayUrl, getRelaysFromList} from "@welshman/util"
-import {Pool, Socket, SocketStatus, SocketEvent, ClientMessage, RelayMessage} from "@welshman/net"
+import {Pool, type Socket, SocketStatus, SocketEvent, type ClientMessage, type RelayMessage} from "@welshman/net"
 import {getBlockedRelayList} from "./blockedRelayLists.js"
 import {pubkey} from "./session.js"
 

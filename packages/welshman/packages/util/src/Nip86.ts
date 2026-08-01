@@ -1,4 +1,4 @@
-import {SignedEvent} from "./Events.js"
+import {type SignedEvent} from "./Events.js"
 import {makeHttpAuthHeader} from "./Nip98.js"
 
 export enum ManagementMethod {

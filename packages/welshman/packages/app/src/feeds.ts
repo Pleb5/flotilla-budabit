@@ -1,4 +1,4 @@
-import {Scope, FeedController, FeedControllerOptions, Feed} from "@welshman/feeds"
+import {Scope, FeedController, type FeedControllerOptions, type Feed} from "@welshman/feeds"
 import {pubkey, signer} from "./session.js"
 import {getWotGraph, getMaxWot, getFollows, getNetwork, getFollowers} from "./wot.js"
 

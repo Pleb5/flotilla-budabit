@@ -1,9 +1,9 @@
 import WebSocket from "isomorphic-ws"
 import EventEmitter from "events"
 import {TaskQueue, call} from "@welshman/lib"
-import {RelayMessage, ClientMessage} from "./message.js"
+import {type RelayMessage, type ClientMessage} from "./message.js"
 import {AuthState} from "./auth.js"
-import {Unsubscriber} from "./util.js"
+import {type Unsubscriber} from "./util.js"
 
 export enum SocketStatus {
   Open = "open",

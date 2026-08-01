@@ -86,7 +86,7 @@ export type ClientNegClosePayload = [string]
 
 export type ClientNegOpenPayload = [string, Filter, string]
 
-export type ClientReqPayload = [string, Filter]
+export type ClientReqPayload = [string, ...Filter[]]
 
 export type ClientAuth = [ClientMessageType.Auth, ...ClientAuthPayload]
 

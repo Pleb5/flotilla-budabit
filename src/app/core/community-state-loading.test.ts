@@ -64,6 +64,7 @@ vi.mock("@welshman/net", async importOriginal => {
 
           return socket
         },
+        subscribe: () => () => {},
       }),
     },
   }

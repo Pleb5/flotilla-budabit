@@ -81,6 +81,7 @@ vi.mock("@welshman/net", async importOriginal => {
       get: () => ({
         clear: netMocks.poolClear,
         get: () => ({auth: {attemptAuth: netMocks.poolRelayAuthAttempt}}),
+        subscribe: () => () => {},
       }),
     },
   }

@@ -1,5 +1,5 @@
 import {MUTES, asDecryptedEvent, readList} from "@welshman/util"
-import {TrustedEvent, PublishedList} from "@welshman/util"
+import {type TrustedEvent, type PublishedList} from "@welshman/util"
 import {
   deriveItemsByKey,
   deriveItems,

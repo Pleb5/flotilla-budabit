@@ -2,11 +2,11 @@ import {get} from "svelte/store"
 import {uniq, reject, nth, now, nthNe, removeUndefined, nthEq} from "@welshman/lib"
 import {
   sendManagementRequest,
-  ManagementRequest,
+  type ManagementRequest,
   addToListPublicly,
   addToListPrivately,
   updateList,
-  EventTemplate,
+  type EventTemplate,
   removeFromList,
   makeHttpAuth,
   getListTags,
@@ -54,7 +54,7 @@ import {
   forceLoadUserPinList,
 } from "./user.js"
 import {nip44EncryptToSelf, signer, pubkey} from "./session.js"
-import {ThunkOptions, MergedThunk, publishThunk} from "./thunk.js"
+import {type ThunkOptions, MergedThunk, publishThunk} from "./thunk.js"
 import {loadMessagingRelayList} from "./messagingRelayLists.js"
 
 // NIP 65

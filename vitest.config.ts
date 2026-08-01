@@ -19,6 +19,13 @@ export default defineConfig({
     alias: rootAliases,
   },
   test: {
+    server: {
+      deps: {
+        // @pomade/core imports @welshman/* which resolve to workspace TypeScript
+        // source, so it must be processed by Vite rather than loaded by Node
+        inline: [/@pomade\/core/],
+      },
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
@@ -46,6 +53,11 @@ export default defineConfig({
           name: "main",
           include: ["src/**/*.{test,spec}.ts", "tests/**/*.{test,spec}.ts"],
           exclude: ["**/node_modules/**", "**/packages/**", "**/e2e/**", "tests/e2e/**"],
+          server: {
+            deps: {
+              inline: [/@pomade\/core/],
+            },
+          },
         },
       },
       {

@@ -1,5 +1,5 @@
 // Copied from https://github.com/sindresorhus/normalize-url
-/* eslint-disable */
+ 
 
 export type Options = {
   /**

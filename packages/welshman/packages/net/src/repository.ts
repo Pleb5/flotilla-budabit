@@ -18,8 +18,8 @@ import {
   matchFilter,
   isReplaceable,
   getAddress,
-  Filter,
-  TrustedEvent,
+  type Filter,
+  type TrustedEvent,
 } from "@welshman/util"
 
 export const LOCAL_RELAY_URL = "local://welshman.relay/"

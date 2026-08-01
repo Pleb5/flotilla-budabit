@@ -1,4 +1,4 @@
-import {Filter} from "@welshman/util"
+import {type Filter} from "@welshman/util"
 
 export enum FeedType {
   Address = "address",

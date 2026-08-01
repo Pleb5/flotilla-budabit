@@ -3,10 +3,10 @@ import {bytesToHex, hexToBytes} from "@noble/curves/abstract/utils"
 import {generateSecretKey, getPublicKey, getEventHash} from "nostr-tools/pure"
 import {now} from "@welshman/lib"
 import {
-  HashedEvent,
-  EventTemplate,
-  StampedEvent,
-  OwnedEvent,
+  type HashedEvent,
+  type EventTemplate,
+  type StampedEvent,
+  type OwnedEvent,
   isStampedEvent,
   isOwnedEvent,
   isHashedEvent,

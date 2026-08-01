@@ -3,9 +3,9 @@ import {writable} from "svelte/store"
 import type {Override} from "@welshman/lib"
 import {append, TaskQueue, ensurePlural, remove, defer, sleep, nth, without} from "@welshman/lib"
 import {
-  HashedEvent,
-  EventTemplate,
-  SignedEvent,
+  type HashedEvent,
+  type EventTemplate,
+  type SignedEvent,
   isSignedEvent,
   WRAPPED_KINDS,
   prep,
@@ -14,11 +14,11 @@ import {
 import {
   publish,
   PublishStatus,
-  PublishResult,
-  PublishOptions,
-  PublishResultsByRelay,
+  type PublishResult,
+  type PublishOptions,
+  type PublishResultsByRelay,
 } from "@welshman/net"
-import {ISigner, Nip01Signer, Nip59} from "@welshman/signer"
+import {type ISigner, Nip01Signer, Nip59} from "@welshman/signer"
 import {repository, tracker} from "./core.js"
 import {pubkey, signer, wrapManager} from "./session.js"
 

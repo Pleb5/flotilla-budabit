@@ -4,13 +4,18 @@ const routerMocks = vi.hoisted(() => ({
   fromPubkeys: vi.fn(),
 }))
 
-vi.mock("@welshman/router", () => ({
-  Router: {
-    get: () => ({
-      FromPubkeys: routerMocks.fromPubkeys,
-    }),
-  },
-}))
+vi.mock("@welshman/router", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/router")>()
+
+  return {
+    ...actual,
+    Router: {
+      get: () => ({
+        FromPubkeys: routerMocks.fromPubkeys,
+      }),
+    },
+  }
+})
 
 vi.mock("@app/core/state", () => ({
   INDEXER_RELAYS: ["wss://indexer.example"],

@@ -1,20 +1,20 @@
 import {on, ms, omit, nthNe, always, call, sleep, ago, now} from "@welshman/lib"
-import {RELAY_JOIN, StampedEvent, SignedEvent, Filter} from "@welshman/util"
+import {RELAY_JOIN, type StampedEvent, type SignedEvent, type Filter} from "@welshman/util"
 import {
-  ClientMessage,
+  type ClientMessage,
   isClientAuth,
   isClientClose,
   isClientEvent,
   isClientReq,
   isClientNegOpen,
   isClientNegClose,
-  RelayMessage,
+  type RelayMessage,
   isRelayOk,
   isRelayEose,
   isRelayClosed,
   isRelayNegErr,
 } from "./message.js"
-import {Socket, SocketStatus, SocketEvent, SocketPolicy} from "./socket.js"
+import {type Socket, SocketStatus, SocketEvent, type SocketPolicy} from "./socket.js"
 import {AuthStatus, AuthStateEvent} from "./auth.js"
 
 /**
@@ -167,6 +167,8 @@ export const socketPolicyCloseInactive = (socket: Socket) => {
         const delay = Math.max(0, ms(5 - (now() - lastOpen)))
 
         sleep(delay).then(() => {
+          if (pending.size === 0) return
+
           socket.attemptToOpen()
 
           for (const message of pending.values()) {
@@ -201,6 +203,13 @@ export const socketPolicyCloseInactive = (socket: Socket) => {
         pending.set(message[1], message)
       }
 
+      if (isClientClose(message) || isClientNegClose(message)) {
+        pending.delete(message[1])
+      }
+    }),
+    // A CLOSE queued while disconnected must cancel reconnect replay before
+    // the send queue starts again.
+    on(socket, SocketEvent.Sending, (message: ClientMessage) => {
       if (isClientClose(message) || isClientNegClose(message)) {
         pending.delete(message[1])
       }

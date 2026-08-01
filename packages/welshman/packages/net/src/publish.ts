@@ -1,7 +1,7 @@
 import {fromPairs, once} from "@welshman/lib"
-import {SignedEvent} from "@welshman/util"
-import {RelayMessage, ClientMessageType, isRelayOk} from "./message.js"
-import {AdapterEvent, AdapterContext, getAdapter} from "./adapter.js"
+import {type SignedEvent} from "@welshman/util"
+import {type RelayMessage, ClientMessageType, isRelayOk} from "./message.js"
+import {AdapterEvent, type AdapterContext, getAdapter} from "./adapter.js"
 
 export enum PublishStatus {
   Sending = "sending",

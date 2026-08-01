@@ -1,17 +1,17 @@
 import {partition, now, nthEq, race} from "@welshman/lib"
 import {
   makeEvent,
-  Filter,
+  type Filter,
   getPubkeyTagValues,
-  TrustedEvent,
+  type TrustedEvent,
   asDecryptedEvent,
   readList,
   getRelaysFromList,
   RELAYS,
 } from "@welshman/util"
-import {Nip01Signer, ISigner} from "@welshman/signer"
+import {Nip01Signer, type ISigner} from "@welshman/signer"
 import {Router, getFilterSelections, addMinimalFallbacks} from "@welshman/router"
-import {LOCAL_RELAY_URL, Tracker, AdapterContext, request, publish} from "@welshman/net"
+import {LOCAL_RELAY_URL, Tracker, type AdapterContext, request, publish} from "@welshman/net"
 
 export type RequestPageOptions = {
   filters: Filter[]
@@ -20,6 +20,8 @@ export type RequestPageOptions = {
   tracker?: Tracker
   signal?: AbortSignal
   context?: AdapterContext
+  priority?: number
+  owner?: string
   autoClose?: boolean
 }
 
@@ -30,10 +32,12 @@ export const requestPage = async ({
   tracker = new Tracker(),
   signal,
   context,
+  priority,
+  owner,
   autoClose,
 }: RequestPageOptions) => {
   if (relays.length > 0) {
-    return request({tracker, signal, context, onEvent, relays, filters, autoClose})
+    return request({tracker, signal, context, priority, owner, onEvent, relays, filters, autoClose})
   }
 
   const promises: Promise<TrustedEvent[]>[] = []
@@ -46,6 +50,8 @@ export const requestPage = async ({
         signal,
         context,
         onEvent,
+        priority,
+        owner,
         threshold: 0.1,
         autoClose,
         filters: withSearch,
@@ -62,6 +68,8 @@ export const requestPage = async ({
           signal,
           context,
           onEvent,
+          priority,
+          owner,
           relays,
           filters,
           threshold: 0.5,
@@ -83,6 +91,8 @@ export const requestPage = async ({
     signal,
     context,
     onEvent,
+    priority,
+    owner,
     filters,
     relays: [LOCAL_RELAY_URL],
     autoClose,

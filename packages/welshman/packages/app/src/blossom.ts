@@ -1,5 +1,5 @@
 import {BLOSSOM_SERVERS, asDecryptedEvent, readList} from "@welshman/util"
-import {TrustedEvent} from "@welshman/util"
+import {type TrustedEvent} from "@welshman/util"
 import {
   deriveItemsByKey,
   deriveItems,

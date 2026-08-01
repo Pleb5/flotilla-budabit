@@ -1,4 +1,4 @@
-import {writable, Writable} from "svelte/store"
+import {writable, type Writable} from "svelte/store"
 import {getJson, setJson} from "@welshman/lib"
 
 export interface StorageProvider {

@@ -107,6 +107,16 @@ export default defineConfig({
       "highlight.svelte",
       "@nostr-git/core",
       "@nostr-git/ui",
+      // Must not be prebundled: it imports @welshman/* which resolve to linked
+      // workspace TypeScript source; prebundling would inline a duplicate copy
+      // of welshman's module-level singletons (Pool, netContext, ...)
+      "@pomade/core",
+      // Two zod majors coexist (app code uses zod@3, @pomade/core needs its
+      // nested zod@4). If zod were prebundled, Vite would rewrite every bare
+      // "zod" import to the single optimized copy by name, breaking one side.
+      // Excluded, each importer node-resolves to its own correct version.
+      // Safe: both are pure ESM and no prebundled dep imports zod.
+      "zod",
     ],
   },
   ssr: {

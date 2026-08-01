@@ -1,5 +1,5 @@
-import {derived, Readable} from "svelte/store"
-import {ItemsByKey, deriveDeduplicated} from "@welshman/store"
+import {derived, type Readable} from "svelte/store"
+import {type ItemsByKey, deriveDeduplicated} from "@welshman/store"
 import {pubkey} from "./session.js"
 import {profilesByPubkey, forceLoadProfile, loadProfile} from "./profiles.js"
 import {followListsByPubkey, forceLoadFollowList, loadFollowList} from "./follows.js"

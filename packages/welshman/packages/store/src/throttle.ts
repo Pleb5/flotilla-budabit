@@ -1,4 +1,4 @@
-import {Readable, Subscriber} from "svelte/store"
+import {type Readable, type Subscriber} from "svelte/store"
 import {throttle} from "@welshman/lib"
 
 export const throttled = <T, S extends Readable<T>>(delay: number, store: S) => {

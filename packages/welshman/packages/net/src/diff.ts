@@ -1,14 +1,14 @@
 import {EventEmitter} from "events"
 import {on, sleep, randomId, groupBy, pushToMapKey, inc, flatten, chunk} from "@welshman/lib"
-import {SignedEvent, TrustedEvent, Filter} from "@welshman/util"
+import {type SignedEvent, type TrustedEvent, type Filter} from "@welshman/util"
 import {
-  RelayMessage,
+  type RelayMessage,
   isRelayNegErr,
   isRelayNegMsg,
   RelayMessageType,
   ClientMessageType,
 } from "./message.js"
-import {getAdapter, AdapterContext, AbstractAdapter, AdapterEvent} from "./adapter.js"
+import {getAdapter, type AdapterContext, type AbstractAdapter, AdapterEvent} from "./adapter.js"
 import {Negentropy, NegentropyStorageVector} from "./negentropy.js"
 import {requestOne} from "./request.js"
 import {publish} from "./publish.js"
