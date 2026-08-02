@@ -111,7 +111,6 @@ export const loadCachedCommunityCuratedWidgets = (
 
 const clearLRUCache = <U>(cache: LRUCache<string, U>) => {
   cache.map.clear()
-  cache.keys.length = 0
 }
 
 export const clearCommunityWidgetSlotCache = () => {

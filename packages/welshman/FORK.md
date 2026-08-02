@@ -38,6 +38,9 @@ Ported from the former dist patches into TypeScript source:
      chunking by count/bytes, learned subscription caps from NOTICEs,
      retry-on-"too big", diagnostics snapshots via
      `getRequestSchedulerSnapshots`/`subscribeRequestScheduler`)
+5. **lib** (`packages/lib/src/LRUCache.ts`)
+   - Uses `Map` insertion order for exact LRU eviction instead of a duplicate-prone
+     access-history array
 
 Additional mechanical divergences (not behavioral):
 
