@@ -67,6 +67,15 @@ describe("NIP-34 builders", () => {
     expect(evt.tags).toContainEqual(["r", "euc-123", "euc"])
   })
 
+  it("omits the relays tag when every configured relay is invalid", () => {
+    const evt = createRepoAnnouncementEvent({
+      repoId: "owner/name",
+      relays: ["", "https://github.com/owner/repo.git", "wss://invalid-no-dot", "not a URL"],
+    })
+
+    expect(getTag(evt as any, "relays")).toBeUndefined()
+  })
+
   it("createRepoStateEvent encodes refs and HEAD (including ancestry)", () => {
     const evt = createRepoStateEvent({
       repoId: "owner/name",

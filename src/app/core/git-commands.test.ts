@@ -163,6 +163,27 @@ describe("budabit commands", () => {
       expect(mockSignerSign).not.toHaveBeenCalled()
       expect(mockPublish).toHaveBeenCalledWith(expect.objectContaining({event}))
     })
+
+    it("can defer local publication until the caller validates relay ACKs", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const relay = "wss://relay.example.com/"
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      mockPublish.mockResolvedValue({
+        [relay]: {relay, status: "failure", detail: "denied"},
+      })
+
+      await publishRepoEventWithRelayOutcomes(event as any, [relay], {publishLocally: false})
+
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+    })
   })
 
   describe("postComment", () => {

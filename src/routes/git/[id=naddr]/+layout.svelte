@@ -2113,29 +2113,20 @@
     },
   })
   setContext(REPO_SETTINGS_ACTIONS_KEY, {
-    publishRepoEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
+    publishRepoEvent: async (
+      event: RepoAnnouncementEvent | RepoStateEvent,
+      context?: {relays: string[]; additionalRelays?: string[]},
+    ) => {
       if (!$pubkey || repoPubkey !== $pubkey) {
         throw new Error("Only the owner can edit this repo announcement")
       }
 
-      const relaysForPublish = getStore(repoRelaysStore)
-      if (event.kind === GIT_REPO_STATE && relaysForPublish.length === 0) {
-        throw new Error("Repository relays not ready. Please wait...")
-      }
-
-      const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish)
-
-      if (thunk?.event && !repository.getEvent(thunk.event.id)) {
-        repository.publish(thunk.event as TrustedEvent)
-      }
-
-      if (event.kind === GIT_REPO_STATE && thunk?.event) {
-        const published = thunk.event as RepoStateEvent
-        optimisticRepoStates = {
-          ...optimisticRepoStates,
-          [repoName]: published,
-        }
-      }
+      const relaysForPublish = context?.relays?.length ? context.relays : getStore(repoRelaysStore)
+      return publishRepoSettingsEventWithOutcomes(
+        event,
+        relaysForPublish,
+        context?.additionalRelays,
+      )
     },
     onSaveComplete: async ({
       renamed,
@@ -2147,7 +2138,7 @@
       relays: string[]
     }) => {
       if (!renamed) {
-        await refreshRepo()
+        await refreshRepo({throwOnError: true})
         return
       }
       await navigateToRenamedRepo(nextName, relays)
@@ -3127,8 +3118,15 @@
   })
 
   // Refresh repository function
-  async function refreshRepo() {
-    if (!repoClass || isRefreshing) return
+  async function refreshRepo(options: {throwOnError?: boolean} = {}) {
+    if (!repoClass) {
+      if (options.throwOnError) throw new Error("Repository is not ready to refresh")
+      return
+    }
+    if (isRefreshing) {
+      if (options.throwOnError) throw new Error("Repository refresh is already in progress")
+      return
+    }
 
     isRefreshing = true
 
@@ -3174,6 +3172,7 @@
         message: `Failed to sync repository: ${error instanceof Error ? error.message : "Unknown error"}`,
         theme: "error",
       })
+      if (options.throwOnError) throw error
     } finally {
       isRefreshing = false
     }
@@ -3434,6 +3433,46 @@
     return thunk
   }
 
+  async function publishRepoSettingsEventWithOutcomes(
+    event: RepoAnnouncementEvent | RepoStateEvent,
+    requiredRelayUrls: string[],
+    additionalRelayUrls: string[] = [],
+  ) {
+    const requiredRelays = Array.from(
+      new Set(requiredRelayUrls.map(safeNormalizeRelayUrl).filter(Boolean)),
+    )
+    if (requiredRelays.length === 0) {
+      throw new Error("Repository settings require at least one relay destination")
+    }
+    const additionalRelays = additionalRelayUrls.map(safeNormalizeRelayUrl).filter(Boolean)
+    const publishRelays =
+      event.kind === GIT_REPO_ANNOUNCEMENT
+        ? getRepoAnnouncementPublishRelays({
+            repoEvent: event,
+            repoRelays: [...requiredRelays, ...additionalRelays],
+            userOutboxRelays: getUserOutboxRelays(),
+            gitIndexerRelays: GIT_RELAYS,
+          })
+        : requiredRelays
+    const result = await publishRepoEventWithRelayOutcomes(event, publishRelays, {
+      publishLocally: false,
+    })
+    const ackedRelaySet = new Set(result.ackedRelays.map(safeNormalizeRelayUrl).filter(Boolean))
+    const hasRequiredAck = requiredRelays.some(relay => ackedRelaySet.has(relay))
+
+    if (hasRequiredAck && result.event && !repository.getEvent(result.event.id)) {
+      repository.publish(result.event as TrustedEvent)
+    }
+    if (hasRequiredAck && event.kind === GIT_REPO_STATE && result.event) {
+      optimisticRepoStates = {
+        ...optimisticRepoStates,
+        [repoName]: result.event as RepoStateEvent,
+      }
+    }
+
+    return result
+  }
+
   const extractPublishedRelayAck = (thunk: any) => {
     if (Array.isArray(thunk?.relayOutcomes)) return thunk
 
@@ -3617,20 +3656,12 @@
       EditRepoPanel,
       {
         repo: repoClass,
-        onPublishEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
-          const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish)
-
-          if (thunk?.event && !repository.getEvent(thunk.event.id)) {
-            repository.publish(thunk.event as TrustedEvent)
-          }
-
-          if (event.kind === GIT_REPO_STATE && thunk?.event) {
-            const published = thunk.event as RepoStateEvent
-            optimisticRepoStates = {
-              ...optimisticRepoStates,
-              [repoName]: published,
-            }
-          }
+        onPublishEvent: async (
+          event: RepoAnnouncementEvent | RepoStateEvent,
+          context?: {relays: string[]; additionalRelays?: string[]},
+        ) => {
+          const eventRelays = context?.relays?.length ? context.relays : relaysForPublish
+          return publishRepoSettingsEventWithOutcomes(event, eventRelays, context?.additionalRelays)
         },
         onSaveComplete: async ({
           renamed,
@@ -3642,7 +3673,7 @@
           relays: string[]
         }) => {
           if (!renamed) {
-            await refreshRepo()
+            await refreshRepo({throwOnError: true})
             return
           }
           await navigateToRenamedRepo(nextName, relays)

@@ -32,7 +32,7 @@ import {
 import {nip19, type NostrEvent} from "nostr-tools"
 import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "@app/util/issue-edits"
-import {graspServersStore, type Repo} from "@nostr-git/ui"
+import {graspServersStore, type PublishRepoEvent, type Repo} from "@nostr-git/ui"
 import {getScopedCommunityPublishRelays, type CommunityRelayRef} from "@app/core/community-relays"
 import {logPublishRelaySummary} from "@app/core/diagnostics"
 import {
@@ -99,7 +99,7 @@ type RepoProfileSummary = {
 }
 
 export type RepoSettingsActions = {
-  publishRepoEvent: (event: NostrEvent) => Promise<void>
+  publishRepoEvent: PublishRepoEvent
   onSaveComplete: (result: {
     renamed: boolean
     previousName: string

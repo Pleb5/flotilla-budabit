@@ -16,10 +16,12 @@ import {
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
   getMandatoryGraspRelayUrls,
+  getRepoSettingsRelayState,
   getSuccessfulGraspRelayUrls,
   publishGraspEventWithRetry,
   publishGraspRepoStateAndWait,
   publishGraspRepoStateForPush,
+  publishRepoSettingsEvents,
   reconcileRepoCreationEvents,
   verifyGraspEventAfterPush,
   waitForGraspProvisioning,
@@ -89,6 +91,187 @@ describe("grasp-pipeline", () => {
         "https://grasp.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
       ])
     ).toEqual(["wss://grasp.example"]);
+  });
+
+  it("keeps a declared GRASP relay when its matching clone URL is removed", () => {
+    const graspClone =
+      "https://grasp.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git";
+    const githubClone = "https://github.com/example/repo.git";
+
+    expect(getRepoSettingsRelayState(["wss://grasp.example/"], [githubClone, graspClone])).toEqual({
+      declaredRelays: ["wss://grasp.example"],
+      mandatoryGraspRelays: ["wss://grasp.example"],
+      automaticGraspRelays: [],
+      effectiveRelays: ["wss://grasp.example"],
+    });
+
+    expect(getRepoSettingsRelayState(["wss://grasp.example/"], [githubClone])).toEqual({
+      declaredRelays: ["wss://grasp.example"],
+      mandatoryGraspRelays: [],
+      automaticGraspRelays: [],
+      effectiveRelays: ["wss://grasp.example"],
+    });
+  });
+
+  it("does not retain a GRASP relay that was only derived from an unsaved clone URL", () => {
+    const graspClone =
+      "https://grasp.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git";
+
+    expect(getRepoSettingsRelayState([], [graspClone])).toEqual({
+      declaredRelays: [],
+      mandatoryGraspRelays: ["wss://grasp.example"],
+      automaticGraspRelays: ["wss://grasp.example"],
+      effectiveRelays: ["wss://grasp.example"],
+    });
+    expect(getRepoSettingsRelayState([], [])).toEqual({
+      declaredRelays: [],
+      mandatoryGraspRelays: [],
+      automaticGraspRelays: [],
+      effectiveRelays: [],
+    });
+  });
+
+  it("publishes repository settings state only to relays that acknowledged the announcement", async () => {
+    const announcementEvent = createRepoAnnouncementEvent({
+      repoId: "repo",
+      relays: ["wss://relay.one", "wss://relay.two"],
+    });
+    const stateEvent = createRepoStateEvent({ repoId: "repo" });
+    const publisher = vi.fn(async (event: any, _context?: any) => ({
+      event: signedEvent(event),
+      ackedRelays: ["wss://relay.one"],
+      failedRelays: event.kind === 30617 ? ["wss://relay.two"] : [],
+      hasRelayOutcomes: true,
+      relayOutcomes: [],
+    }));
+
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent,
+        stateEvent,
+        relayUrls: ["wss://relay.one", "wss://relay.two"],
+        onPublishEvent: publisher,
+      })
+    ).resolves.toEqual({
+      ackedRelays: ["wss://relay.one"],
+      failedRelays: ["wss://relay.two"],
+    });
+    expect(publisher).toHaveBeenNthCalledWith(1, announcementEvent, {
+      relays: ["wss://relay.one", "wss://relay.two"],
+      stage: "final",
+    });
+    expect(publisher).toHaveBeenNthCalledWith(2, stateEvent, {
+      relays: ["wss://relay.one"],
+      stage: "final",
+    });
+  });
+
+  it("reports failed replacement delivery to removed relays without failing the save", async () => {
+    const announcementEvent = createRepoAnnouncementEvent({
+      repoId: "repo",
+      relays: ["wss://relay.new"],
+    });
+    const stateEvent = createRepoStateEvent({ repoId: "repo" });
+    const publisher = vi.fn(async (event: any) => ({
+      event: signedEvent(event),
+      ackedRelays: ["wss://relay.new"],
+      failedRelays: event.kind === 30617 ? ["wss://relay.removed"] : [],
+      hasRelayOutcomes: true,
+    }));
+
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent,
+        stateEvent,
+        relayUrls: ["wss://relay.new"],
+        previousRelayUrls: ["wss://relay.removed"],
+        onPublishEvent: publisher,
+      })
+    ).resolves.toEqual({
+      ackedRelays: ["wss://relay.new"],
+      failedRelays: [],
+      failedAdditionalRelays: ["wss://relay.removed"],
+    });
+    expect(publisher).toHaveBeenNthCalledWith(1, announcementEvent, {
+      relays: ["wss://relay.new"],
+      additionalRelays: ["wss://relay.removed"],
+      stage: "final",
+    });
+    expect(publisher).toHaveBeenNthCalledWith(2, stateEvent, {
+      relays: ["wss://relay.new"],
+      stage: "final",
+    });
+  });
+
+  it("fails repository settings publication without a common relay ACK", async () => {
+    const announcementEvent = createRepoAnnouncementEvent({
+      repoId: "repo",
+      relays: ["wss://relay.one"],
+    });
+    const stateEvent = createRepoStateEvent({ repoId: "repo" });
+    const publisher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        event: signedEvent(announcementEvent),
+        ackedRelays: ["wss://relay.one"],
+        failedRelays: [],
+        hasRelayOutcomes: true,
+      })
+      .mockResolvedValueOnce({
+        event: signedEvent(stateEvent),
+        ackedRelays: [],
+        failedRelays: ["wss://relay.one"],
+        hasRelayOutcomes: true,
+      });
+
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent,
+        stateEvent,
+        relayUrls: ["wss://relay.one"],
+        onPublishEvent: publisher,
+      })
+    ).rejects.toThrow(
+      "No configured repository relay acknowledged both the updated announcement and state"
+    );
+  });
+
+  it("does not publish repository state when no configured relay acknowledges the announcement", async () => {
+    const announcementEvent = createRepoAnnouncementEvent({
+      repoId: "repo",
+      relays: ["wss://relay.one"],
+    });
+    const stateEvent = createRepoStateEvent({ repoId: "repo" });
+    const publisher = vi.fn().mockResolvedValue({
+      event: signedEvent(announcementEvent),
+      ackedRelays: [],
+      failedRelays: ["wss://relay.one"],
+      hasRelayOutcomes: true,
+    });
+
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent,
+        stateEvent,
+        relayUrls: ["wss://relay.one"],
+        onPublishEvent: publisher,
+      })
+    ).rejects.toThrow("No configured repository relay acknowledged the updated announcement");
+    expect(publisher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not publish repository settings without an effective relay", async () => {
+    const publisher = vi.fn();
+
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent: createRepoAnnouncementEvent({ repoId: "repo" }),
+        stateEvent: createRepoStateEvent({ repoId: "repo" }),
+        relayUrls: [],
+        onPublishEvent: publisher,
+      })
+    ).rejects.toThrow("At least one repository relay is required");
+    expect(publisher).not.toHaveBeenCalled();
   });
 
   it("derives successful GRASP relays from successful remote URLs only", () => {

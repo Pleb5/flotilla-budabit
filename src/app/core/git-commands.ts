@@ -220,6 +220,7 @@ export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) 
 export const publishRepoEventWithRelayOutcomes = async (
   event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
   relays: string[],
+  options: {publishLocally?: boolean} = {},
 ) => {
   const scopedRelays = getScopedRelayUrls(relays)
   const activePubkey = pubkey.get()
@@ -236,7 +237,9 @@ export const publishRepoEventWithRelayOutcomes = async (
     throw new Error("Repository event signing failed")
   }
 
-  repository.publish(signedEvent as TrustedEvent)
+  if (options.publishLocally !== false) {
+    repository.publish(signedEvent as TrustedEvent)
+  }
 
   let results: Awaited<ReturnType<typeof publish>> = {}
   const transportTraces = scopedRelays.map(relay => ({

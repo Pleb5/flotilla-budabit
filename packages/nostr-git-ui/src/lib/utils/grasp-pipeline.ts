@@ -72,6 +72,7 @@ export interface ReconciledRepoCreationEvents {
 
 export interface PublishRepoEventContext {
   relays: string[];
+  additionalRelays?: string[];
   stage?: "provisional" | "final";
 }
 
@@ -324,6 +325,101 @@ export function getEffectiveRepoRelayUrls(
     ...getEditableRepoRelayUrls(relayUrls, mandatoryGraspRelayUrls),
     ...getMandatoryGraspRelayUrls(mandatoryGraspRelayUrls),
   ]);
+}
+
+export interface RepoSettingsRelayState {
+  declaredRelays: string[];
+  mandatoryGraspRelays: string[];
+  automaticGraspRelays: string[];
+  effectiveRelays: string[];
+}
+
+export interface PublishRepoSettingsEventsParams {
+  announcementEvent: RepoAnnouncementEvent;
+  stateEvent: RepoStateEvent;
+  relayUrls: string[];
+  previousRelayUrls?: string[];
+  onPublishEvent: PublishRepoEvent;
+  onStage?: (stage: "announcement" | "state") => void;
+}
+
+export interface PublishedRepoSettingsEvents {
+  ackedRelays: string[];
+  failedRelays: string[];
+  failedAdditionalRelays?: string[];
+}
+
+export function getRepoSettingsRelayState(
+  relayUrls: string[] = [],
+  cloneUrls: string[] = []
+): RepoSettingsRelayState {
+  const declaredRelays = sanitizeRelays(relayUrls);
+  const mandatoryGraspRelays = getSuccessfulGraspRelayUrls(cloneUrls);
+  const declaredRelaySet = new Set(declaredRelays);
+
+  return {
+    declaredRelays,
+    mandatoryGraspRelays,
+    automaticGraspRelays: mandatoryGraspRelays.filter((relay) => !declaredRelaySet.has(relay)),
+    effectiveRelays: sanitizeRelays([...declaredRelays, ...mandatoryGraspRelays]),
+  };
+}
+
+export async function publishRepoSettingsEvents({
+  announcementEvent,
+  stateEvent,
+  relayUrls,
+  previousRelayUrls = [],
+  onPublishEvent,
+  onStage,
+}: PublishRepoSettingsEventsParams): Promise<PublishedRepoSettingsEvents> {
+  const configuredRelays = sanitizeRelays(relayUrls);
+  if (configuredRelays.length === 0) {
+    throw new Error("At least one repository relay is required");
+  }
+  const configuredRelaySet = new Set(configuredRelays.map(normalizeRelayForCompare));
+  const additionalRelays = sanitizeRelays(previousRelayUrls).filter(
+    (relay) => !configuredRelaySet.has(normalizeRelayForCompare(relay))
+  );
+
+  onStage?.("announcement");
+  const announcementResult = await onPublishEvent(announcementEvent, {
+    relays: configuredRelays,
+    ...(additionalRelays.length > 0 ? { additionalRelays } : {}),
+    stage: "final",
+  });
+  const announcementAck = extractPublishRelayAck(announcementResult);
+  const announcementRelays = configuredRelays.filter((relay) =>
+    didRelayAckGraspEvents(announcementAck, relay)
+  );
+  if (!announcementAck.hasRelayOutcomes || announcementRelays.length === 0) {
+    throw new Error("No configured repository relay acknowledged the updated announcement");
+  }
+
+  onStage?.("state");
+  const stateResult = await onPublishEvent(stateEvent, {
+    relays: announcementRelays,
+    stage: "final",
+  });
+  const stateAck = extractPublishRelayAck(stateResult);
+  const ackedRelays = announcementRelays.filter((relay) => didRelayAckGraspEvents(stateAck, relay));
+  if (!stateAck.hasRelayOutcomes || ackedRelays.length === 0) {
+    throw new Error(
+      "No configured repository relay acknowledged both the updated announcement and state"
+    );
+  }
+
+  const ackedRelaySet = new Set(ackedRelays.map(normalizeRelayForCompare));
+  const failedAdditionalRelays = additionalRelays.filter(
+    (relay) => !didRelayAckGraspEvents(announcementAck, relay)
+  );
+  return {
+    ackedRelays,
+    failedRelays: configuredRelays.filter(
+      (relay) => !ackedRelaySet.has(normalizeRelayForCompare(relay))
+    ),
+    ...(failedAdditionalRelays.length > 0 ? { failedAdditionalRelays } : {}),
+  };
 }
 
 export function getSuccessfulGraspRelayUrls(remoteUrls: string[] = []): string[] {

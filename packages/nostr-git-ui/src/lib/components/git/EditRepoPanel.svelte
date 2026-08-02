@@ -18,19 +18,23 @@
     CheckCircle2,
     Loader2,
   } from "@lucide/svelte";
-  import { nip19, type NostrEvent } from "nostr-tools";
+  import { sanitizeRelays } from "@nostr-git/core/utils";
+  import { nip19 } from "nostr-tools";
   import { PeoplePicker } from "@nostr-git/ui";
   import { Repo } from "./Repo.svelte";
   import { commonHashtags } from "../../stores/hashtags";
   import {
-    getEditableRepoRelayUrls,
-    getEffectiveRepoRelayUrls,
-    getSuccessfulGraspRelayUrls,
+    getRepoSettingsRelayState,
+    publishRepoSettingsEvents,
+    type PublishRepoEvent,
   } from "../../utils/grasp-pipeline.js";
   import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement.js";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
   import type { RepoCommunityOption } from "./repo-community-options.js";
-  import { findRepoCommunityOption, getRepoCommunityOptionBinding } from "./repo-community-options.js";
+  import {
+    findRepoCommunityOption,
+    getRepoCommunityOptionBinding,
+  } from "./repo-community-options.js";
 
   // Types for edit configuration and progress
   interface EditProgress {
@@ -63,7 +67,7 @@
   // Component props
   interface Props {
     repo: Repo;
-    onPublishEvent: (event: NostrEvent) => Promise<void>;
+    onPublishEvent: PublishRepoEvent;
     progress?: EditProgress;
     error?: string;
     isEditing?: boolean;
@@ -90,9 +94,9 @@
   const {
     repo,
     onPublishEvent,
-    progress,
-    error,
-    isEditing = false,
+    progress: externalProgress,
+    error: externalError,
+    isEditing: externalIsEditing = false,
     variant = "modal",
     canDelete = false,
     onRequestDelete,
@@ -104,6 +108,29 @@
   }: Props = $props();
 
   const isPage = $derived(variant === "page");
+
+  type SaveFeedback = {
+    type: "success" | "warning" | "error";
+    message: string;
+    failedRelays?: string[];
+    retryRelayUrls?: string[];
+    retryCompletion?: SaveCompleteResult;
+  };
+
+  let localIsEditing = $state(false);
+  let localProgress = $state<EditProgress | undefined>();
+  let saveFeedback = $state<SaveFeedback | undefined>();
+  let preserveFormAfterSaveFailure = $state(false);
+  let lastReplacementCreatedAt = 0;
+
+  const isEditing = $derived(
+    localIsEditing || (externalIsEditing && !externalProgress?.isComplete)
+  );
+  const progress = $derived(localProgress ?? externalProgress);
+  const error = $derived(saveFeedback?.type === "error" ? saveFeedback.message : externalError);
+  const showProgress = $derived(
+    Boolean(progress && !saveFeedback && !error && (isEditing || externalProgress?.isComplete))
+  );
 
   const copyList = (values?: string[] | null) => (Array.isArray(values) ? [...values] : []);
   const getDeclaredMaintainers = (targetRepo: Repo): string[] =>
@@ -160,7 +187,7 @@
       visibility: isPrivate ? "private" : ("public" as "public" | "private"),
       defaultBranch,
       maintainers: getDeclaredMaintainers(repo),
-      relays: getEditableRepoRelayUrls(copyList(repo.relays), editableCloneUrls),
+      relays: getRepoSettingsRelayState(copyList(repo.relays), editableCloneUrls).declaredRelays,
       webUrls: copyList(repo.web),
       cloneUrls: editableCloneUrls,
       hashtags: copyList(repo.hashtags),
@@ -189,12 +216,16 @@
   // Handle relay search with debounce
   let relaySearchTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  const mandatoryGraspRelays = $derived.by(() =>
-    getSuccessfulGraspRelayUrls(formData.cloneUrls || [])
+  const relayState = $derived.by(() =>
+    getRepoSettingsRelayState(formData.relays || [], formData.cloneUrls || [])
   );
+  const mandatoryGraspRelays = $derived(relayState.mandatoryGraspRelays);
+  const automaticGraspRelays = $derived(relayState.automaticGraspRelays);
 
   function normalizeRelayValue(value: string): string {
-    return String(value || "").trim().replace(/\/+$/, "");
+    return String(value || "")
+      .trim()
+      .replace(/\/+$/, "");
   }
 
   function hasRelay(relayUrl: string): boolean {
@@ -202,6 +233,13 @@
 
     return [...mandatoryGraspRelays, ...formData.relays].some(
       (existing) => normalizeRelayValue(existing) === normalized
+    );
+  }
+
+  function isMandatoryGraspRelay(relayUrl: string): boolean {
+    const normalized = normalizeRelayValue(relayUrl);
+    return mandatoryGraspRelays.some(
+      (mandatoryRelay) => normalizeRelayValue(mandatoryRelay) === normalized
     );
   }
 
@@ -552,7 +590,7 @@
 
   // Update form data when repo changes
   $effect(() => {
-    if (repo && repo.repoEvent && !isEditing) {
+    if (repo && repo.repoEvent && !isEditing && !preserveFormAfterSaveFailure) {
       const next = extractCurrentValues();
       formData = cloneFormData(next);
       originalFormData = cloneFormData(next);
@@ -601,10 +639,12 @@
 
     // Relays validation (wss:// URLs)
     const invalidRelays = (Array.isArray(formData.relays) ? formData.relays : []).filter(
-      (r) => r?.trim?.() && !r.match(/^wss?:\/\/.+/)
+      (r) => r?.trim?.() && (!r.match(/^wss?:\/\/.+/) || sanitizeRelays([r.trim()]).length === 0)
     );
     if (invalidRelays.length > 0) {
       errors.relays = "Relays must be valid WebSocket URLs (wss://...)";
+    } else if (relayState.effectiveRelays.length === 0) {
+      errors.relays = "At least one repository relay is required";
     }
 
     // Web URLs validation
@@ -650,14 +690,20 @@
   const back = () => history.back();
 
   function handleCancel() {
+    const hadSaveFailure = saveFeedback?.type === "error";
+    saveFeedback = undefined;
+    localProgress = undefined;
+
     if (isPage) {
       formData = cloneFormData(originalFormData);
       commitSearchQuery = "";
       showCommitDropdown = false;
       earliestUniqueCommitTouched = false;
+      preserveFormAfterSaveFailure = hadSaveFailure;
       return;
     }
 
+    preserveFormAfterSaveFailure = false;
     if (!isEditing) {
       back();
     }
@@ -694,33 +740,63 @@
       return;
     }
 
+    const retryFeedback = saveFeedback;
+    localIsEditing = true;
+    preserveFormAfterSaveFailure = true;
+    saveFeedback = undefined;
+    localProgress = {
+      stage: "Preparing repository settings...",
+      percentage: 10,
+      isComplete: false,
+    };
+
     try {
       // Filter out empty strings from arrays
       const cleanMaintainers = formData.maintainers.filter((m) => m.trim());
-      const normalizedMaintainers = cleanMaintainers.map((m) => {
-        const v = m.trim();
-        if (/^npub1/i.test(v)) {
-          try {
-            const dec = nip19.decode(v);
-            if (dec.type === "npub" && typeof dec.data === "string") {
-              return dec.data.toLowerCase();
+      const normalizedMaintainers = Array.from(
+        new Set(
+          cleanMaintainers.map((m) => {
+            const v = m.trim();
+            if (/^npub1/i.test(v)) {
+              try {
+                const dec = nip19.decode(v);
+                if (dec.type === "npub" && typeof dec.data === "string") {
+                  return dec.data.toLowerCase();
+                }
+              } catch {
+                // Validation should have caught invalid npubs; keep original as a fallback.
+              }
             }
-          } catch {
-            // Validation should have caught invalid npubs; keep original as a fallback.
-          }
-        }
-        return v.toLowerCase();
-      });
-      const cleanWebUrls = formData.webUrls.filter((w) => w.trim());
-      const cleanCloneUrls = formData.cloneUrls.filter((c) => c.trim());
-      const cleanRelays = getEffectiveRepoRelayUrls(
-        formData.relays.filter((r) => r.trim()),
-        cleanCloneUrls
+            return v.toLowerCase();
+          })
+        )
       );
-      const cleanHashtags = formData.hashtags.filter((h) => h.trim());
-      const previousName = originalFormData.name.trim();
+      const cleanList = (values: string[]) =>
+        Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+      const cleanWebUrls = cleanList(formData.webUrls);
+      const cleanCloneUrls = cleanList(formData.cloneUrls);
+      const cleanRelays = getRepoSettingsRelayState(
+        formData.relays,
+        cleanCloneUrls
+      ).effectiveRelays;
+      const cleanHashtags = Array.from(
+        new Set(cleanList(formData.hashtags).map(normalizeHashtag).filter(Boolean))
+      );
+      const retryCompletion =
+        retryFeedback?.retryCompletion?.nextName === formData.name.trim()
+          ? retryFeedback.retryCompletion
+          : undefined;
+      const previousName = retryCompletion?.previousName ?? originalFormData.name.trim();
       const nextName = formData.name.trim();
-      const renamed = previousName !== nextName;
+      const renamed = retryCompletion?.renamed ?? previousName !== nextName;
+      const now = Math.floor(Date.now() / 1000);
+      const replacementCreatedAt = Math.max(
+        now,
+        (repo.repoEvent?.created_at || 0) + 1,
+        (repo.repoStateEvent?.created_at || 0) + 1,
+        lastReplacementCreatedAt + 1
+      );
+      lastReplacementCreatedAt = replacementCreatedAt;
 
       // Create updated repository announcement event using all NIP-34 fields
       const updatedAnnouncementEvent = repo.createRepoAnnouncementEvent({
@@ -740,6 +816,7 @@
         web: cleanWebUrls,
         clone: cleanCloneUrls,
       });
+      updatedAnnouncementEvent.created_at = replacementCreatedAt;
 
       // Create updated repository state event using existing repo state
       // Convert ProcessedBranch[] to string[] for branch names
@@ -760,35 +837,138 @@
         branches: branchNames,
         refs: refs,
       });
+      updatedStateEvent.created_at = replacementCreatedAt;
 
       // Sign and publish the events
-      await onPublishEvent(updatedAnnouncementEvent);
-      await onPublishEvent(updatedStateEvent);
+      localProgress = {
+        stage: "Publishing repository announcement...",
+        percentage: 35,
+        isComplete: false,
+      };
+      const previousRelayUrls = Array.from(
+        new Set([
+          ...getRepoSettingsRelayState(originalFormData.relays, originalFormData.cloneUrls)
+            .effectiveRelays,
+          ...(retryFeedback?.retryRelayUrls || []),
+        ])
+      );
+      const {
+        ackedRelays: durableRelays,
+        failedRelays,
+        failedAdditionalRelays = [],
+      } = await publishRepoSettingsEvents({
+        announcementEvent: updatedAnnouncementEvent,
+        stateEvent: updatedStateEvent,
+        relayUrls: cleanRelays,
+        previousRelayUrls,
+        onPublishEvent,
+        onStage: (stage) => {
+          if (stage !== "state") return;
+          localProgress = {
+            stage: "Publishing repository state...",
+            percentage: 70,
+            isComplete: false,
+          };
+        },
+      });
 
+      const savedFormData: FormData = {
+        ...formData,
+        name: nextName,
+        defaultBranch: formData.defaultBranch.trim(),
+        maintainers: normalizedMaintainers,
+        relays: cleanRelays,
+        webUrls: cleanWebUrls,
+        cloneUrls: cleanCloneUrls,
+        hashtags: cleanHashtags,
+        earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase(),
+        communityPubkey: formData.communityPubkey.trim().toLowerCase(),
+      };
+      formData = cloneFormData(savedFormData);
+      originalFormData = cloneFormData(savedFormData);
+
+      let completionWarning = "";
       if (onSaveComplete) {
-        await onSaveComplete({
-          renamed,
-          previousName,
-          nextName,
-          relays: cleanRelays,
-        });
+        localProgress = {
+          stage: "Refreshing repository...",
+          percentage: 90,
+          isComplete: false,
+        };
+        try {
+          await onSaveComplete({
+            renamed,
+            previousName,
+            nextName,
+            relays: cleanRelays,
+          });
+        } catch (completionError) {
+          completionWarning =
+            completionError instanceof Error
+              ? completionError.message
+              : "The repository was saved, but refreshing the page failed";
+        }
       }
+      preserveFormAfterSaveFailure = Boolean(completionWarning);
 
-      if (isPage) {
-        originalFormData = cloneFormData(formData);
+      localProgress = {
+        stage: "Repository settings updated",
+        percentage: 100,
+        isComplete: true,
+      };
+
+      if (failedRelays.length > 0 || failedAdditionalRelays.length > 0 || completionWarning) {
+        const relayWarning =
+          failedRelays.length > 0
+            ? `Settings were saved to ${durableRelays.length} of ${cleanRelays.length} repository relays. Delivery failed for: ${failedRelays.join(", ")}.`
+            : "";
+        const removedRelayWarning =
+          failedAdditionalRelays.length > 0
+            ? `Removed relays could not be updated and may retain stale settings: ${failedAdditionalRelays.join(", ")}.`
+            : "";
+        saveFeedback = {
+          type: "warning",
+          message: [relayWarning, removedRelayWarning, completionWarning].filter(Boolean).join(" "),
+          failedRelays,
+          retryRelayUrls: failedAdditionalRelays,
+          ...(completionWarning
+            ? {
+                retryCompletion: {
+                  renamed,
+                  previousName,
+                  nextName,
+                  relays: cleanRelays,
+                },
+              }
+            : {}),
+        };
         return;
       }
+
+      saveFeedback = {
+        type: "success",
+        message: "Repository settings updated successfully.",
+      };
+
+      if (isPage) return;
 
       if (!renamed || !onSaveComplete) {
         back();
       }
-    } catch (error) {
-      console.error("Failed to save repository changes:", error);
+    } catch (saveError) {
+      console.error("Failed to save repository changes:", saveError);
+      saveFeedback = {
+        type: "error",
+        message:
+          saveError instanceof Error ? saveError.message : "Failed to save repository changes",
+      };
+      localProgress = undefined;
+    } finally {
+      localIsEditing = false;
     }
   }
 
   function handleRetry() {
-    if (error && !isEditing) {
+    if ((error || saveFeedback?.type === "warning") && !isEditing) {
       handleSave();
     }
   }
@@ -1069,7 +1249,7 @@
             Relays
           </label>
           <div class="space-y-2">
-            {#each mandatoryGraspRelays as relayUrl}
+            {#each automaticGraspRelays as relayUrl}
               <div class="flex min-w-0 items-center space-x-2">
                 <input
                   type="text"
@@ -1094,18 +1274,30 @@
                   oninput={(e) =>
                     updateArrayItem("relays", index, (e.target as HTMLInputElement).value)}
                   disabled={isEditing}
+                  readonly={isMandatoryGraspRelay(relay)}
+                  aria-label={isMandatoryGraspRelay(relay)
+                    ? "GRASP target repository relay"
+                    : "Repository relay"}
                   class="min-w-0 flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder="wss://relay.example.com"
                 />
-                <button
-                  type="button"
-                  onclick={() => removeArrayItem("relays", index)}
-                  disabled={isEditing}
-                  class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label="Remove relay"
-                >
-                  <Trash2 class="w-4 h-4" />
-                </button>
+                {#if isMandatoryGraspRelay(relay)}
+                  <span
+                    class="shrink-0 whitespace-nowrap rounded border border-blue-500/30 bg-blue-500/20 px-1.5 py-1 text-[10px] text-blue-700 dark:text-blue-300 sm:px-2 sm:text-xs"
+                  >
+                    GRASP target
+                  </span>
+                {:else}
+                  <button
+                    type="button"
+                    onclick={() => removeArrayItem("relays", index)}
+                    disabled={isEditing}
+                    class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Remove relay"
+                  >
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                {/if}
               </div>
             {/each}
 
@@ -1166,6 +1358,10 @@
               <span>{validationErrors.relays}</span>
             </p>
           {/if}
+          <p class="mt-1 text-xs text-gray-400">
+            GRASP targets are required while their clone URL is present. Removing a clone URL keeps
+            an existing repository relay until you remove it explicitly.
+          </p>
         </div>
 
         <!-- Web URLs -->
@@ -1564,7 +1760,9 @@
         </div>
 
         {#if onRequestDelete}
-          <div class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-600/40 dark:bg-red-950/30">
+          <div
+            class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-600/40 dark:bg-red-950/30"
+          >
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <h3 class="font-semibold text-red-700 dark:text-red-300">Danger Zone</h3>
@@ -1589,45 +1787,73 @@
             </div>
           </div>
         {/if}
+      </div>
+    </div>
 
-        <!-- Progress Display -->
-        {#if isEditing && progress}
-          <div class="space-y-4">
+    {#if showProgress || saveFeedback || error}
+      <div class="border-t border-gray-700 p-4 sm:px-6" aria-live="polite">
+        {#if showProgress && progress}
+          <div class="space-y-3" role="status">
             <div class="flex items-center space-x-3">
               {#if progress.isComplete}
-                <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400" />
-                <span class="text-green-700 dark:text-green-400 font-medium">
-                  Repository updated successfully!
-                </span>
+                <CheckCircle2 class="h-5 w-5 text-green-600 dark:text-green-400" />
               {:else}
-                <Loader2 class="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
-                <span class="text-white">{progress.stage}</span>
+                <Loader2 class="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" />
               {/if}
+              <span class="text-white">{progress.stage}</span>
             </div>
-
-            <!-- Progress Bar -->
-            <div class="w-full bg-gray-700 rounded-full h-2">
+            <div class="h-2 w-full rounded-full bg-gray-700">
               <div
-                class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                class="h-2 rounded-full bg-blue-600 transition-all duration-300"
                 style="width: {progress.percentage}%"
               ></div>
             </div>
-            <div class="text-right text-sm text-gray-400">
-              {Math.round(progress.percentage)}%
-            </div>
           </div>
-        {/if}
-
-        <!-- Error Display -->
-        {#if error}
+        {:else if saveFeedback?.type === "success"}
           <div
-            class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50"
+            class="rounded-lg border border-green-300 bg-green-50 p-4 dark:border-green-500/50 dark:bg-green-900/30"
+            role="status"
           >
             <div class="flex items-start space-x-3">
-              <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+              <CheckCircle2 class="mt-0.5 h-5 w-5 shrink-0 text-green-600 dark:text-green-400" />
+              <div>
+                <h4 class="mb-1 font-medium text-green-800 dark:text-green-300">Settings Saved</h4>
+                <p class="text-sm text-green-700 dark:text-green-200">{saveFeedback.message}</p>
+              </div>
+            </div>
+          </div>
+        {:else if saveFeedback?.type === "warning"}
+          <div
+            class="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/50 dark:bg-amber-900/30"
+            role="status"
+          >
+            <div class="flex items-start space-x-3">
+              <AlertCircle class="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
               <div class="flex-1">
-                <h4 class="text-red-800 dark:text-red-400 font-medium mb-1">Update Failed</h4>
-                <p class="text-red-700 dark:text-red-300 text-sm">{error}</p>
+                <h4 class="mb-1 font-medium text-amber-800 dark:text-amber-300">
+                  Settings Saved With Warnings
+                </h4>
+                <p class="text-sm text-amber-700 dark:text-amber-200">{saveFeedback.message}</p>
+                <button
+                  type="button"
+                  onclick={handleRetry}
+                  class="mt-3 text-sm text-amber-800 underline hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200"
+                >
+                  Retry delivery
+                </button>
+              </div>
+            </div>
+          </div>
+        {:else if error}
+          <div
+            class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50"
+            role="alert"
+          >
+            <div class="flex items-start space-x-3">
+              <AlertCircle class="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+              <div class="flex-1">
+                <h4 class="mb-1 font-medium text-red-800 dark:text-red-400">Update Failed</h4>
+                <p class="text-sm text-red-700 dark:text-red-300">{error}</p>
                 {#if workflowScopeIssue}
                   <div class="mt-3 text-xs text-red-700/80 dark:text-red-200/80">
                     GitHub requires the workflow token scope to push files under
@@ -1636,70 +1862,59 @@
                       href={ACCESS_TOKEN_SETTINGS_PATH}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="ml-2 inline-flex items-center text-red-700 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100 underline"
+                      class="ml-2 inline-flex items-center text-red-700 underline hover:text-red-800 dark:text-red-200 dark:hover:text-red-100"
                     >
                       Open settings
                     </a>
                   </div>
                 {/if}
-                {#if !isEditing}
-                  <button
-                    onclick={handleRetry}
-                    class="mt-3 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm underline"
-                  >
-                    Try again
-                  </button>
-                {/if}
+                <button
+                  type="button"
+                  onclick={handleRetry}
+                  class="mt-3 text-sm text-red-700 underline hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                >
+                  Try again
+                </button>
               </div>
             </div>
           </div>
         {/if}
       </div>
-    </div>
+    {/if}
 
     <!-- Footer -->
-    {#if !progress?.isComplete}
-      <div class="flex flex-col gap-4 p-4 border-t border-gray-700 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div class="text-sm text-gray-400 sm:min-w-0">
-          {#if isFormDirty}
-            <span class="text-yellow-700 dark:text-yellow-400">• Unsaved changes</span>
-          {:else}
-            <span>No changes</span>
-          {/if}
-        </div>
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-3 sm:gap-0">
-          <button
-            onclick={handleCancel}
-            disabled={isEditing}
-            class="w-full px-4 py-2 text-center text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto"
-          >
-            {isPage ? "Reset" : "Cancel"}
-          </button>
-          <button
-            onclick={handleSave}
-            disabled={isEditing || !isFormValid || !isFormDirty}
-            class="flex w-full items-center justify-center space-x-2 whitespace-nowrap rounded-lg bg-blue-600 px-4 py-2 !text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          >
-            {#if isEditing}
-              <Loader2 class="w-4 h-4 animate-spin" />
-              <span>Saving...</span>
-            {:else}
-              <Save class="w-4 h-4" />
-              <span>Save Changes</span>
-            {/if}
-          </button>
-        </div>
+    <div
+      class="flex flex-col gap-4 p-4 border-t border-gray-700 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+    >
+      <div class="text-sm text-gray-400 sm:min-w-0">
+        {#if isFormDirty}
+          <span class="text-yellow-700 dark:text-yellow-400">• Unsaved changes</span>
+        {:else}
+          <span>No changes</span>
+        {/if}
       </div>
-    {:else}
-      <div class="flex items-center justify-end p-4 border-t border-gray-700 sm:p-6">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-3 sm:gap-0">
         <button
-          onclick={back}
-          class="px-4 py-2 bg-green-600 hover:bg-green-700 !text-white rounded-lg transition-colors flex items-center space-x-2"
+          onclick={handleCancel}
+          disabled={isEditing}
+          class="w-full px-4 py-2 text-center text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto"
         >
-          <CheckCircle2 class="w-4 h-4" />
-          <span>Done</span>
+          {isPage ? "Reset" : "Cancel"}
+        </button>
+        <button
+          onclick={handleSave}
+          disabled={isEditing || !isFormValid || !isFormDirty}
+          class="flex w-full items-center justify-center space-x-2 whitespace-nowrap rounded-lg bg-blue-600 px-4 py-2 !text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+        >
+          {#if isEditing}
+            <Loader2 class="w-4 h-4 animate-spin" />
+            <span>Saving...</span>
+          {:else}
+            <Save class="w-4 h-4" />
+            <span>Save Changes</span>
+          {/if}
         </button>
       </div>
-    {/if}
+    </div>
   </div>
 </div>

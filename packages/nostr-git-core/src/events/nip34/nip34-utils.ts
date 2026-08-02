@@ -391,7 +391,8 @@ export function createRepoAnnouncementEvent(opts: {
   // NIP-34: web, clone, relays, maintainers tags can include multiple values in a single tag
   if (opts.web && opts.web.length > 0) tags.push(["web", ...opts.web])
   if (opts.clone && opts.clone.length > 0) tags.push(["clone", ...opts.clone])
-  if (opts.relays && opts.relays.length > 0) tags.push(["relays", ...sanitizeRelays(opts.relays)])
+  const relays = sanitizeRelays(opts.relays || [])
+  if (relays.length > 0) tags.push(["relays", ...relays])
   if (opts.maintainers && opts.maintainers.length > 0)
     tags.push(["maintainers", ...opts.maintainers])
   if (opts.hashtags) opts.hashtags.forEach(t => tags.push(["t", t]))
