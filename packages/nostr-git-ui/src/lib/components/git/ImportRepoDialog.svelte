@@ -53,10 +53,15 @@
     sortImportBranches,
     type SourceAccessMode,
   } from "../../utils/import-source-access.js";
+  import { canProceedImportStep2 } from "../../utils/import-dialog-state.js";
   import {
-    canProceedImportStep2,
-    getUnbackedGraspRelayUrls,
-  } from "../../utils/import-dialog-state.js";
+    buildGraspServiceDescriptors,
+    formatUnbackedGraspRelayError,
+    getUnbackedKnownGraspRelayUrls,
+    mergeGraspServiceDescriptors,
+    resolveKnownGraspServices,
+    type GraspServiceDescriptor,
+  } from "../../utils/grasp-service-coupling.js";
   import {
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
@@ -91,6 +96,7 @@
       timeoutMs?: number;
     }) => Promise<NostrEvent[]>;
     onClose: () => void;
+    onDispose?: () => void;
     onPublishEvent?: PublishRepoEvent;
     onDeleteEvent?: DeleteRepoEvent;
     onRollbackPublishedRepoEvents?: (params: {
@@ -116,6 +122,7 @@
     onFetchEvents,
     onFetchRelayEvents,
     onClose,
+    onDispose,
     onPublishEvent,
     onDeleteEvent,
     onRollbackPublishedRepoEvents,
@@ -225,6 +232,9 @@
 
   // UI state
   let validationError = $state<string | undefined>();
+  let resolvedGraspServices = $state<GraspServiceDescriptor[]>([]);
+  let resolvingGraspServices = $state(false);
+  let graspServiceResolutionRunId = 0;
   let isCheckingOwnership = $state(false);
   let relaySearchQuery = $state("");
   let relaySearchResults = $state<string[]>([]);
@@ -249,8 +259,24 @@
   }
 
   let relaySearchTimeout: ReturnType<typeof setTimeout> | null = null;
+  const selectedCommunityGraspServerUrls = $derived.by(() =>
+    normalizeGraspServerUrls(
+      findRepoCommunityOption(communityOptions, selectedCommunityPubkey)?.graspServers || []
+    )
+  );
+  const otherCommunityGraspServerUrls = $derived.by(() =>
+    normalizeGraspServerUrls(
+      communityOptions
+        .filter((option) => option.pubkey !== selectedCommunityPubkey)
+        .flatMap((option) => option.graspServers || [])
+    )
+  );
   const recommendedGraspServerOptions = $derived.by(() =>
-    normalizeGraspServerUrls(graspServerOptions)
+    normalizeGraspServerUrls([
+      ...selectedCommunityGraspServerUrls,
+      ...graspServerOptions,
+      ...otherCommunityGraspServerUrls,
+    ])
   );
 
   $effect(() => {
@@ -571,13 +597,45 @@
   const effectiveSelectedRelays = $derived.by(() =>
     getEffectiveRepoRelayUrls(selectedRelays || [], mandatoryGraspRelays)
   );
+  const declaredGraspServices = $derived.by(() =>
+    mergeGraspServiceDescriptors([
+      ...buildGraspServiceDescriptors(selectedCommunityGraspServerUrls, "community-10222"),
+      ...buildGraspServiceDescriptors(graspServerOptions, "user-10317"),
+      ...buildGraspServiceDescriptors(otherCommunityGraspServerUrls, "community-10222"),
+    ])
+  );
   const unbackedGraspRelayUrls = $derived.by(() =>
-    getUnbackedGraspRelayUrls({
+    getUnbackedKnownGraspRelayUrls({
       repoRelayUrls: effectiveSelectedRelays,
-      selectedImportTargetIds,
-      importTargets,
+      backedGraspRelayUrls: selectedGraspTargetRelays,
+      knownServices: resolvedGraspServices,
     })
   );
+  const graspRelayCouplingError = $derived.by(() =>
+    resolvingGraspServices
+      ? "Checking repository relay capabilities..."
+      : unbackedGraspRelayUrls.length > 0
+        ? formatUnbackedGraspRelayError(unbackedGraspRelayUrls)
+        : ""
+  );
+
+  $effect(() => {
+    const relayUrls = [...effectiveSelectedRelays];
+    const knownServices = [...declaredGraspServices];
+    const runId = ++graspServiceResolutionRunId;
+    resolvingGraspServices = true;
+    void resolveKnownGraspServices({ relayUrls, knownServices })
+      .then((services) => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = services;
+        resolvingGraspServices = false;
+      })
+      .catch(() => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = knownServices;
+        resolvingGraspServices = false;
+      });
+  });
 
   function commitNewGraspRelay() {
     if (!newGraspRelayUrl.trim()) return;
@@ -1051,8 +1109,8 @@
       return;
     }
 
-    if (unbackedGraspRelayUrls.length > 0) {
-      validationError = `${unbackedGraspRelayUrls.join(", ")} can only be used as a repository relay when its matching GRASP import target is selected.`;
+    if (graspRelayCouplingError) {
+      validationError = graspRelayCouplingError;
       return;
     }
 
@@ -1084,6 +1142,7 @@
       mirrorPullRequests: sourceAccessMode === "anonymous" ? false : mirrorPullRequests,
       mirrorComments: sourceAccessMode === "anonymous" ? false : mirrorComments,
       relays: effectiveSelectedRelays,
+      knownGraspRelayUrls: resolvedGraspServices.map((service) => service.relayUrl),
       community: getRepoCommunityOptionBinding(
         findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
       ),
@@ -1170,6 +1229,7 @@
       if (importState.isImporting) {
         void requestImportAbort("Component unmounted");
       }
+      onDispose?.();
     };
   });
 
@@ -1258,7 +1318,7 @@
       isOwner: Boolean(repoMetadata?.isOwner),
       selectedImportTargetIds,
       importTargets,
-      unbackedGraspRelayCount: unbackedGraspRelayUrls.length,
+      unbackedGraspRelayCount: unbackedGraspRelayUrls.length + (resolvingGraspServices ? 1 : 0),
     })
   );
   const targetPreflightPending = $derived(
@@ -1864,6 +1924,9 @@
                 Repository metadata will be published to these relays. Selected GRASP targets add
                 matching repo relays automatically.
               </p>
+              {#if graspRelayCouplingError}
+                <p class="mt-2 text-sm text-red-400" role="alert">{graspRelayCouplingError}</p>
+              {/if}
             </div>
 
             <!-- Confirmation Checkboxes -->

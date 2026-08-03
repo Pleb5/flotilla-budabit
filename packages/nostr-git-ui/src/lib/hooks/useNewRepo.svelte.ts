@@ -28,9 +28,9 @@ import {
 } from "../utils/repo-creation-transaction.js";
 import {
   createGraspAnnouncementAndState,
+  buildGraspRepoUrls,
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
-  getSuccessfulGraspRelayUrls,
   normalizeGraspOrigins,
   reconcileRepoCreationEvents,
   toNpubOrSelf,
@@ -52,6 +52,11 @@ import {
   WorkerOperationSession,
   hasUnknownWorkerOperation,
 } from "../utils/worker-operation-session.js";
+import {
+  buildGraspServiceDescriptors,
+  formatUnbackedGraspRelayError,
+  getUnbackedKnownGraspRelayUrls,
+} from "../utils/grasp-service-coupling.js";
 
 export function getPublishedEventFromPublishResult(result: unknown): NostrEvent | undefined {
   const event = (result as { event?: NostrEvent } | undefined)?.event;
@@ -519,6 +524,7 @@ export interface NewRepoConfig {
   cloneUrls?: string[]; // Preferred ordered clone URLs
   cloneUrlOrder?: string[]; // Provider order for clone URL priority
   community?: RepoCommunityBinding;
+  knownGraspRelayUrls?: string[];
 }
 
 export interface NewRepoResult {
@@ -737,6 +743,17 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       const selectedGraspTargetRelays = includesGrasp
         ? normalizeList([config.relayUrl || "", ...(config.relayUrls || [])])
         : [];
+      const unbackedGraspRelays = getUnbackedKnownGraspRelayUrls({
+        repoRelayUrls: config.relays || [],
+        backedGraspRelayUrls: selectedGraspTargetRelays,
+        knownServices: buildGraspServiceDescriptors(
+          config.knownGraspRelayUrls || [],
+          "selected-target"
+        ),
+      });
+      if (unbackedGraspRelays.length > 0) {
+        throw new Error(formatUnbackedGraspRelayError(unbackedGraspRelays));
+      }
       const editableRelays = getEditableRepoRelayUrls(
         config.relays || [],
         selectedGraspTargetRelays
@@ -861,6 +878,11 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         updateProgress: (message) => updateProgress("remotes", message, "running"),
         runAbortable: runCreationAbortable,
       });
+      for (const [relayUrl, event] of Object.entries(
+        announcementAdmission.announcementByGraspRelay
+      )) {
+        transactionJournal.recordGraspAnnouncementEvidence(relayUrl, event);
+      }
       latestRepoMetadataCreatedAt = Math.max(
         latestRepoMetadataCreatedAt,
         announcementAdmission.latestAnnouncementCreatedAt
@@ -998,8 +1020,12 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       const successfulGraspRepos = successfulRemoteRepos.filter(
         (remoteRepo) => remoteRepo.provider === "grasp" && remoteRepo.relayUrl
       );
-      const successfulGraspRelays = getSuccessfulGraspRelayUrls(
-        successfulGraspRepos.map((remoteRepo) => remoteRepo.url)
+      const successfulGraspRelays = Array.from(
+        new Set(
+          successfulGraspRepos
+            .map((remoteRepo) => normalizeGraspOrigins(remoteRepo.relayUrl || "").wsOrigin)
+            .filter(Boolean)
+        )
       );
       let finalRelays = getEffectiveRepoRelayUrls(editableRelays, successfulGraspRelays);
 
@@ -1077,11 +1103,19 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         const allSuccessfulGraspCloneUrls = new Set(
           successfulGraspRepos.map((remoteRepo) => remoteRepo.url)
         );
+        const allSelectedGraspCloneUrls = new Set(
+          buildGraspRepoUrls({
+            relayUrls: selectedGraspTargetRelays,
+            ownerPubkey: creationPubkey,
+            repoName: config.name,
+          }).cloneUrls
+        );
         const graspWebUrlByCloneUrl = new Map(
           successfulGraspRepos.map((remoteRepo) => [remoteRepo.url, remoteRepo.webUrl])
         );
         const fixedCloneUrls = finalCloneUrls.filter(
-          (cloneUrl) => !allSuccessfulGraspCloneUrls.has(cloneUrl)
+          (cloneUrl) =>
+            !allSuccessfulGraspCloneUrls.has(cloneUrl) && !allSelectedGraspCloneUrls.has(cloneUrl)
         );
         const candidateCloneOrder = [...finalCloneUrls];
         const graspWebUrls = new Set(
@@ -1101,6 +1135,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           provisionalEvents: getRepoCreationProvisionalEvents(transactionJournal.record),
           onDeleteEvent: options.onDeleteEvent,
           minCreatedAt: latestRepoMetadataCreatedAt,
+          ownerPubkey: creationPubkey,
+          identifier: config.name,
           buildAnnouncement: ({ relays, graspCloneUrls, createdAt }) => {
             const retainedCloneUrls = new Set([...fixedCloneUrls, ...graspCloneUrls]);
             return createAnnouncementEventShared({

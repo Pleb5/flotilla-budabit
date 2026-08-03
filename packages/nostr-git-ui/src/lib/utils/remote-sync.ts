@@ -7,7 +7,11 @@ import {
   type WorkerMutationOperation,
 } from "@nostr-git/core";
 import { createRepoAnnouncementEvent, type RepoCommunityBinding } from "@nostr-git/core/events";
-import { sanitizeRelays } from "@nostr-git/core/utils";
+import {
+  hasMatchingGraspRepoCloneUrl,
+  parseGraspRepoHttpUrl,
+  sanitizeRelays,
+} from "@nostr-git/core/utils";
 
 import {
   buildGraspRepoUrls,
@@ -175,6 +179,8 @@ export interface PublishRepoSyncAnnouncementOptions {
   runAbortable: <T>(operation: () => Promise<T>, label: string, timeoutMs: number) => Promise<T>;
   maxAnnouncementPublishAttempts?: number;
   announcementRetryDelayMs?: number;
+  maxExistingAnnouncementQueryAttempts?: number;
+  existingAnnouncementRetryDelayMs?: number;
 }
 
 export interface RepoSyncAnnouncementAdmission {
@@ -186,7 +192,23 @@ export interface RepoSyncAnnouncementAdmission {
 }
 
 function normalizeRelayForAdmission(relayUrl: string): string {
-  return relayUrl.trim().replace(/\/+$/, "").toLowerCase();
+  const trimmed = relayUrl.trim();
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    url.search = "";
+    return url.pathname === "/" && !url.search ? url.origin : url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function isNewerReplaceableEvent(candidate: NostrEvent, current?: NostrEvent): boolean {
+  return (
+    !current ||
+    candidate.created_at > current.created_at ||
+    (candidate.created_at === current.created_at && candidate.id.localeCompare(current.id) < 0)
+  );
 }
 
 export async function publishRepoSyncAnnouncement({
@@ -204,6 +226,8 @@ export async function publishRepoSyncAnnouncement({
   runAbortable,
   maxAnnouncementPublishAttempts = 3,
   announcementRetryDelayMs = 500,
+  maxExistingAnnouncementQueryAttempts = 3,
+  existingAnnouncementRetryDelayMs = 250,
 }: PublishRepoSyncAnnouncementOptions): Promise<RepoSyncAnnouncementAdmission> {
   const allGraspTargets = targets.filter(
     (target) => target.provider === "grasp" && target.relayUrl
@@ -246,8 +270,10 @@ export async function publishRepoSyncAnnouncement({
         repoName,
         description: repoDescription,
         relays: candidateRelays,
-        cloneUrls: graspUrls.cloneUrls,
-        webUrls: graspUrls.webUrls,
+        cloneUrls: Array.from(
+          new Set([...sourceCloneUrls.filter(Boolean), ...graspUrls.cloneUrls])
+        ),
+        webUrls: Array.from(new Set([...sourceWebUrls.filter(Boolean), ...graspUrls.webUrls])),
         community,
       }).announcementEvent
     : createRepoAnnouncementEvent({
@@ -266,24 +292,86 @@ export async function publishRepoSyncAnnouncement({
     if (!onFetchRelayEvents) {
       throw new Error("Existing GRASP target verification requires relay reads");
     }
-    updateProgress(`Verifying existing repository announcement on ${relayUrl}...`);
-    const events = await onFetchRelayEvents({
-      relays: [relayUrl],
-      filters: [{ kinds: [30617], authors: [userPubkey], "#d": [repoName] }],
-      timeoutMs: 5000,
-      throwOnTimeout: true,
-    });
-    const existingAnnouncement = events
-      .filter(
-        (event) =>
-          event.kind === 30617 &&
-          event.pubkey === userPubkey &&
-          event.tags.some((tag) => tag[0] === "d" && tag[1] === repoName)
-      )
-      .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
+    const attempts = Math.max(1, Math.floor(maxExistingAnnouncementQueryAttempts));
+    const relayKey = normalizeRelayForAdmission(relayUrl);
+    const existingTarget = allGraspTargets.find(
+      (target) =>
+        normalizeRelayForAdmission(normalizeGraspOrigins(target.relayUrl || "").wsOrigin) ===
+        relayKey
+    );
+    const existingHttpBase = parseGraspRepoHttpUrl(
+      existingTarget?.existingRemoteUrl || ""
+    )?.httpBase;
+    let existingAnnouncement: NostrEvent | undefined;
+    let latestCoordinateEventSeen: NostrEvent | undefined;
+    let lastReadError: unknown;
+    for (let attempt = 1; attempt <= attempts && !existingAnnouncement; attempt++) {
+      updateProgress(
+        attempt === 1
+          ? `Verifying existing repository announcement on ${relayUrl}...`
+          : `Retrying existing repository announcement read (${attempt}/${attempts}) on ${relayUrl}...`
+      );
+      try {
+        const events = await onFetchRelayEvents({
+          relays: [relayUrl],
+          filters: [{ kinds: [30617], authors: [userPubkey], "#d": [repoName] }],
+          timeoutMs: 5000,
+          throwOnTimeout: true,
+        });
+        const latestCoordinateEvent = events
+          .filter(
+            (event) =>
+              event.kind === 30617 &&
+              event.pubkey === userPubkey &&
+              event.tags.some((tag) => tag[0] === "d" && tag[1] === repoName)
+          )
+          .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
+        if (
+          latestCoordinateEvent &&
+          isNewerReplaceableEvent(latestCoordinateEvent, latestCoordinateEventSeen)
+        ) {
+          latestCoordinateEventSeen = latestCoordinateEvent;
+        }
+        if (latestCoordinateEventSeen) {
+          const cloneUrls = latestCoordinateEventSeen.tags
+            .filter((tag) => tag[0] === "clone")
+            .flatMap((tag) => tag.slice(1));
+          const taggedRelayKeys = new Set(
+            latestCoordinateEventSeen.tags
+              .filter((tag) => tag[0] === "relays")
+              .flatMap((tag) => tag.slice(1))
+              .map((taggedRelay) =>
+                normalizeRelayForAdmission(normalizeGraspOrigins(taggedRelay).wsOrigin)
+              )
+          );
+          if (
+            taggedRelayKeys.has(relayKey) &&
+            hasMatchingGraspRepoCloneUrl(cloneUrls, {
+              relayUrl,
+              httpBaseAliases: existingHttpBase ? [existingHttpBase] : undefined,
+              ownerPubkey: userPubkey,
+              identifier: repoName,
+            })
+          ) {
+            existingAnnouncement = latestCoordinateEventSeen;
+          }
+        }
+      } catch (error) {
+        lastReadError = error;
+      }
+      if (!existingAnnouncement && attempt < attempts && existingAnnouncementRetryDelayMs > 0) {
+        await runAbortable(
+          () =>
+            new Promise<void>((resolve) => setTimeout(resolve, existingAnnouncementRetryDelayMs)),
+          "Waiting to retry existing repository announcement read",
+          existingAnnouncementRetryDelayMs + 1000
+        );
+      }
+    }
     if (!existingAnnouncement) {
+      const detail = lastReadError instanceof Error ? ` (${lastReadError.message})` : "";
       throw new Error(
-        `Existing GRASP target has no queryable repository announcement: ${relayUrl}`
+        `Existing GRASP target has no queryable repository announcement after ${attempts} attempts: ${relayUrl}${detail}`
       );
     }
     announcementByGraspRelay[normalizeRelayForAdmission(relayUrl)] = existingAnnouncement;
@@ -295,10 +383,7 @@ export async function publishRepoSyncAnnouncement({
   if (candidateRelays.length > 0) {
     const attempts = Math.max(1, Math.floor(maxAnnouncementPublishAttempts));
     const ackedRelaySet = new Set<string>();
-    const relayOutcomes = new Map<
-      string,
-      { relay: string; status: string; detail: string }
-    >();
+    const relayOutcomes = new Map<string, { relay: string; status: string; detail: string }>();
     let pendingRelays = [...candidateRelays];
 
     for (let attempt = 1; attempt <= attempts && pendingRelays.length > 0; attempt++) {

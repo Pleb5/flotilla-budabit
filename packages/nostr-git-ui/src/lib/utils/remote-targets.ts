@@ -1,4 +1,5 @@
 import { getGitServiceApi } from "@nostr-git/core";
+import { hasMatchingGraspRepoCloneUrl, parseGraspRepoHttpUrl } from "@nostr-git/core/utils";
 
 import type { Token } from "../stores/tokens.js";
 import { checkGraspRepoExists } from "./grasp-availability.js";
@@ -431,6 +432,7 @@ export async function preflightNewRemoteTargets(params: {
   userPubkey: string;
   repoName: string;
   existingRepoMessage?: string;
+  allowExistingRepoReuse?: boolean;
 }): Promise<RemoteTargetSelection[]> {
   const checked = await preflightRemoteTargets({
     targets: params.targets.map((target) => ({
@@ -447,7 +449,7 @@ export async function preflightNewRemoteTargets(params: {
     userPubkey: params.userPubkey,
     repoName: params.repoName,
     options: {
-      allowExistingRepoReuse: false,
+      allowExistingRepoReuse: params.allowExistingRepoReuse ?? false,
       existingRepoMessage:
         params.existingRepoMessage ||
         "Destination already exists. Create and fork require a new destination; use import to reuse an existing repository.",
@@ -474,6 +476,64 @@ export function getDefaultSelectedRemoteTargetIds(targets: RemoteTargetOption[])
     .map((target) => target.id);
 
   return readyGraspTargets.length > 0 ? readyGraspTargets : readyGitTargets;
+}
+
+export function reconcileRemoteTargetSelection(params: {
+  targets: RemoteTargetOption[];
+  selectedIds: string[];
+  userChangedSelection: boolean;
+}): string[] {
+  if (!params.userChangedSelection) return getDefaultSelectedRemoteTargetIds(params.targets);
+  const readyIds = new Set(
+    params.targets.filter((target) => target.status === "ready").map((target) => target.id)
+  );
+  return params.selectedIds.filter((id) => readyIds.has(id));
+}
+
+function getCloneIdentity(cloneUrl: string): string {
+  const scpMatch = cloneUrl.trim().match(/^[^@]+@([^:]+):(.+)$/);
+  if (scpMatch) {
+    return `${normalizeTokenHostForTarget(scpMatch[1])}/${scpMatch[2]
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\.git$/i, "")}`;
+  }
+  try {
+    const url = new URL(cloneUrl);
+    return `${normalizeTokenHostForTarget(url.host)}/${decodeURIComponent(url.pathname)
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\.git$/i, "")}`;
+  } catch {
+    return "";
+  }
+}
+
+export function getAdvertisedRemoteTargetIds(params: {
+  targets: RemoteTargetOption[];
+  cloneUrls: string[];
+  ownerPubkey: string;
+  identifier: string;
+}): string[] {
+  const { targets, cloneUrls, ownerPubkey, identifier } = params;
+  const cloneIdentities = new Set(cloneUrls.map(getCloneIdentity).filter(Boolean));
+
+  return targets
+    .filter((target) => {
+      if (target.provider !== "grasp") {
+        return Boolean(
+          target.existingRemoteUrl &&
+          cloneIdentities.has(getCloneIdentity(target.existingRemoteUrl))
+        );
+      }
+      if (!target.relayUrl || !ownerPubkey || !identifier) return false;
+      const existingHttpBase = parseGraspRepoHttpUrl(target.existingRemoteUrl || "")?.httpBase;
+      return hasMatchingGraspRepoCloneUrl(cloneUrls, {
+        relayUrl: target.relayUrl,
+        httpBaseAliases: existingHttpBase ? [existingHttpBase] : undefined,
+        ownerPubkey,
+        identifier,
+      });
+    })
+    .map((target) => target.id);
 }
 
 export function toRemoteTargetSelection(target: RemoteTargetOption): RemoteTargetSelection {

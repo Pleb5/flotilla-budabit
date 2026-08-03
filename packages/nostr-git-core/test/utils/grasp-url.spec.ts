@@ -1,8 +1,12 @@
 import {describe, expect, it} from "vitest"
+import {nip19} from "nostr-tools"
 
 import {
+  findMatchingGraspRepoCloneUrl,
   isGraspRelayUrl,
   isGraspRepoHttpUrl,
+  normalizeGraspServiceHttpBase,
+  normalizeGraspServiceRelayUrl,
   parseGraspRepoHttpUrl,
   resolveCorsProxyForUrl,
 } from "../../src/utils/grasp-url.js"
@@ -43,6 +47,51 @@ describe("grasp-url utilities", () => {
   it("matches bare GRASP relay origins without treating repo paths as relays", () => {
     expect(isGraspRelayUrl("wss://relay.example")).toBe(true)
     expect(isGraspRelayUrl("wss://relay.example/npub1owner/repo.git")).toBe(false)
+  })
+
+  it("normalizes service bases while preserving deployment paths", () => {
+    expect(normalizeGraspServiceHttpBase("wss://Relay.Example/git/")).toBe(
+      "https://relay.example/git",
+    )
+    expect(normalizeGraspServiceRelayUrl("https://Relay.Example/git/")).toBe(
+      "wss://relay.example/git",
+    )
+  })
+
+  it("matches only the exact service, owner, and repository identifier", () => {
+    const ownerPubkey = "a".repeat(64)
+    const ownerNpub = nip19.npubEncode(ownerPubkey)
+    const matchingUrl = `https://relay.example/git/${ownerNpub}/repo.git`
+
+    expect(
+      findMatchingGraspRepoCloneUrl([matchingUrl], {
+        relayUrl: "wss://nostr.example",
+        httpBaseAliases: ["https://relay.example/git"],
+        ownerPubkey,
+        identifier: "repo",
+      })?.url,
+    ).toBe(matchingUrl)
+    expect(
+      findMatchingGraspRepoCloneUrl([matchingUrl], {
+        relayUrl: "wss://relay.example/git",
+        ownerPubkey: "b".repeat(64),
+        identifier: "repo",
+      }),
+    ).toBeNull()
+    expect(
+      findMatchingGraspRepoCloneUrl([matchingUrl], {
+        relayUrl: "wss://relay.example/git",
+        ownerPubkey,
+        identifier: "other",
+      }),
+    ).toBeNull()
+    expect(
+      findMatchingGraspRepoCloneUrl([matchingUrl], {
+        relayUrl: "wss://relay.example",
+        ownerPubkey,
+        identifier: "repo",
+      }),
+    ).toBeNull()
   })
 
   it("forces direct transport for grasp-like HTTP remotes", () => {

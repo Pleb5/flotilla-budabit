@@ -58,6 +58,11 @@ import {
 } from "../utils/remote-sync.js";
 import type { RemoteTargetSelection } from "../utils/remote-targets.js";
 import {
+  buildGraspServiceDescriptors,
+  formatUnbackedGraspRelayError,
+  getUnbackedKnownGraspRelayUrls,
+} from "../utils/grasp-service-coupling.js";
+import {
   getRepoCreationProvisionalEvents,
   RepoCreationTransactionJournal,
   trackRepoCreationPublisher,
@@ -2156,6 +2161,8 @@ async function publishRepoEvents(
       : getRemoteSyncProvisionalEvents(context.remotePushResults),
     onDeleteEvent: context.onDeleteEvent,
     minCreatedAt: context.latestRepoMetadataCreatedAt,
+    ownerPubkey: context.userPubkey,
+    identifier: getDestinationRepoName(context),
     buildAnnouncement: ({ relays, graspCloneUrls, createdAt }) => {
       const retainedCloneUrls = new Set([...fixedCloneUrls, ...graspCloneUrls]);
       const cloneUrls = candidateCloneUrls.filter((cloneUrl) => retainedCloneUrls.has(cloneUrl));
@@ -2288,6 +2295,22 @@ export function useImportRepo(options: UseImportRepoOptions) {
   ): Promise<ImportResult> {
     if (isImporting) {
       throw new Error("Import operation already in progress");
+    }
+
+    const selectedGraspRelays = remoteTargets
+      .filter((target) => target.provider === "grasp")
+      .map((target) => target.relayUrl || "")
+      .filter(Boolean);
+    const unbackedGraspRelays = getUnbackedKnownGraspRelayUrls({
+      repoRelayUrls: config.relays || [],
+      backedGraspRelayUrls: selectedGraspRelays,
+      knownServices: buildGraspServiceDescriptors(
+        config.knownGraspRelayUrls || [],
+        "selected-target"
+      ),
+    });
+    if (unbackedGraspRelays.length > 0) {
+      throw new Error(formatUnbackedGraspRelayError(unbackedGraspRelays));
     }
 
     isImporting = true;
@@ -2498,6 +2521,11 @@ export function useImportRepo(options: UseImportRepoOptions) {
         runAbortable: (operation, label, timeoutMs) =>
           runAbortableOperation(context.abortController, operation, label, timeoutMs),
       });
+      for (const [relayUrl, event] of Object.entries(
+        announcementAdmission.announcementByGraspRelay
+      )) {
+        transactionJournal.recordGraspAnnouncementEvidence(relayUrl, event);
+      }
       context.prepublishedAnnouncement = announcementAdmission.announcementEvent;
       context.prepublishedAnnouncementByGraspRelay = announcementAdmission.announcementByGraspRelay;
       context.preprovisionedGraspRelayUrls = announcementAdmission.graspRelayUrls;

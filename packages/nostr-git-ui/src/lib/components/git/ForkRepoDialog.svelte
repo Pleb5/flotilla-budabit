@@ -19,7 +19,7 @@
   import { nip19 } from "nostr-tools";
   import { Repo } from "./Repo.svelte";
   import { useRegistry } from "../../useRegistry";
-  import { useForkRepo } from "../../hooks/useForkRepo.svelte";
+  import { isSameLogicalRepoAugmentation, useForkRepo } from "../../hooks/useForkRepo.svelte";
   import { deriveForkProgressPhases } from "./fork-progress";
   import { tokens } from "$lib/stores/tokens";
   import { PeoplePicker } from "@nostr-git/ui";
@@ -44,18 +44,29 @@
   } from "./fork-branch-filter";
   import {
     buildRemoteTargetOptions,
-    getDefaultSelectedRemoteTargetIds,
+    getAdvertisedRemoteTargetIds,
     normalizeRelayUrl,
     preflightRemoteTargets,
+    reconcileRemoteTargetSelection,
     toRemoteTargetSelection,
     type RemoteTargetOption,
   } from "../../utils/remote-targets.js";
   import {
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
+    reconcileSelectedGraspRelays,
     type DeleteRepoEvent,
     type PublishRepoEvent,
   } from "../../utils/grasp-pipeline.js";
+  import {
+    buildGraspServiceDescriptors,
+    formatUnbackedGraspRelayError,
+    getGraspRelayUrlsBackedByCloneUrls,
+    getUnbackedKnownGraspRelayUrls,
+    mergeGraspServiceDescriptors,
+    resolveKnownGraspServices,
+    type GraspServiceDescriptor,
+  } from "../../utils/grasp-service-coupling.js";
   import {
     ACCESS_TOKEN_SETTINGS_PATH,
     getAccessTokenManagementMessage,
@@ -82,11 +93,13 @@
       relays: string[];
       events?: NostrEvent[];
     }) => Promise<void>;
+    onClose?: () => void;
     graspServerUrls?: string[];
     useForkRepoImpl?: (
       options?: Parameters<typeof useForkRepo>[0]
     ) => ReturnType<typeof useForkRepo>;
     navigateToForkedRepo?: (result: ForkResult) => void | Promise<void>;
+    onOperationComplete?: () => void;
     defaultRelays?: string[];
     sourceCloneUrls?: string[];
     defaultMaintainers?: string[];
@@ -118,9 +131,11 @@
     onDeleteEvent,
     onFetchRelayEvents,
     onRollbackPublishedRepoEvents,
+    onClose,
     graspServerUrls = [],
     useForkRepoImpl,
     navigateToForkedRepo,
+    onOperationComplete,
     defaultRelays = [],
     sourceCloneUrls = [],
     defaultMaintainers = [],
@@ -141,6 +156,7 @@
   let shouldCloseAfterAbort = $state(false);
   let isCancelingFork = $state(false);
   let isNavigatingToRepo = $state(false);
+  let closeNotified = false;
   let selectedCommunityPubkey = $state(defaultCommunityPubkey);
 
   const forkOptions = $derived.by(() => {
@@ -160,6 +176,7 @@
               : "Repository forked successfully!",
           variant: failedTargets.length > 0 ? "warning" : "default",
         });
+        onOperationComplete?.();
       },
       onPublishEvent,
       onDeleteEvent,
@@ -173,6 +190,12 @@
 
     return baseOptions;
   });
+
+  function notifyClose() {
+    if (closeNotified) return;
+    closeNotified = true;
+    onClose?.();
+  }
 
   const forkState = $derived(forkImpl(forkOptions));
   const progress = $derived(forkState.progress);
@@ -269,13 +292,21 @@
     }) || ""
   );
   const parsedUrl = $derived(parseCloneUrl(cloneUrl));
+  const sourceIdentifier = $derived.by(
+    () =>
+      repo.repoEvent?.tags.find((tag) => tag[0] === "d")?.[1] || parsedUrl.name || repo.name || ""
+  );
   const originalRepo = $derived({
     owner: parsedUrl.owner,
-    name: parsedUrl.name,
+    name: sourceIdentifier,
+    displayName: repo.name || sourceIdentifier,
     description: repo.description || "",
     cloneUrls: sourceCloneUrls.length > 0 ? sourceCloneUrls : repo.clone || [],
-    sourceRepoId: repo.repoId || "",
+    webUrls: repo.web || [],
+    sourceAnnouncementEvent: repo.repoEvent,
     defaultBranch: repo.selectedBranch || repo.mainBranch || "main",
+    community: repo.community,
+    earliestUniqueCommit: repo.earliestUniqueCommit || "",
   });
   const ownerDisplayOwner = $derived.by(() => toDisplayOwner(originalRepo.owner));
   const ownerDisplayName = $derived.by(() => originalRepo.name || "repository");
@@ -317,6 +348,16 @@
 
   let forkName = $state("");
   let validationError = $state<string | undefined>();
+  let resolvedGraspServices = $state<GraspServiceDescriptor[]>([]);
+  let resolvingGraspServices = $state(false);
+  let graspServiceResolutionRunId = 0;
+  const isAugmentingExistingRepo = $derived.by(() =>
+    isSameLogicalRepoAugmentation({
+      sourceAnnouncementEvent: originalRepo.sourceAnnouncementEvent,
+      destinationName: forkName,
+      userPubkey: pubkey,
+    })
+  );
 
   function validateForkName(name: string): string | undefined {
     if (!name.trim()) return "Fork name is required";
@@ -341,6 +382,10 @@
       forkName = originalRepo.name;
       graspTargetRelayUrls = [""];
       initializedGraspTargetRelayUrls = false;
+      selectedForkTargetIds = [];
+      userChangedTargetSelection = false;
+      parkedTargetRelayUrls = [];
+      explicitlyRemovedPreferredRelayUrls = [];
     }
   });
 
@@ -369,8 +414,21 @@
 
   const knownGraspServers = $derived.by(() => {
     const selectedRelayUrls = new Set(graspTargetRelayUrls.map(normalizeRelayUrl).filter(Boolean));
+    const selectedCommunity = findRepoCommunityOption(communityOptions, selectedCommunityPubkey);
+    const communityGraspServerUrls = [
+      ...(selectedCommunity?.graspServers || []),
+      ...communityOptions
+        .filter((option) => option.pubkey !== selectedCommunity?.pubkey)
+        .flatMap((option) => option.graspServers || []),
+    ];
 
-    return normalizeGraspServerUrls(graspServerUrlsLocal)
+    return normalizeGraspServerUrls([
+      ...(selectedCommunity?.graspServers || []),
+      ...graspServerUrlsLocal,
+      ...communityGraspServerUrls.filter(
+        (url) => !(selectedCommunity?.graspServers || []).includes(url)
+      ),
+    ])
       .map(normalizeRelayUrl)
       .filter((url) => Boolean(url) && !selectedRelayUrls.has(url));
   });
@@ -381,7 +439,6 @@
     initializedGraspTargetRelayUrls = true;
     if (graspTargetRelayUrls.every((value) => !normalizeRelayUrl(value))) {
       graspTargetRelayUrls = [normalized];
-      initializedTargetSelection = false;
       if (!graspServerUrlsLocal.includes(normalized)) {
         graspServerUrlsLocal = [...graspServerUrlsLocal, normalized];
       }
@@ -389,7 +446,6 @@
     }
     if (!graspTargetRelayUrls.includes(normalized)) {
       graspTargetRelayUrls = [...graspTargetRelayUrls, normalized];
-      initializedTargetSelection = false;
     }
     if (!graspServerUrlsLocal.includes(normalized)) {
       graspServerUrlsLocal = [...graspServerUrlsLocal, normalized];
@@ -400,7 +456,6 @@
     initializedGraspTargetRelayUrls = true;
     const nextRelayUrls = graspTargetRelayUrls.filter((_, i) => i !== index);
     graspTargetRelayUrls = nextRelayUrls.length > 0 ? nextRelayUrls : [""];
-    initializedTargetSelection = false;
   }
 
   function updateGraspRelay(index: number, value: string) {
@@ -408,7 +463,6 @@
     graspTargetRelayUrls = graspTargetRelayUrls.map((existingValue, valueIndex) =>
       valueIndex === index ? normalizeRelayUrl(value) : existingValue
     );
-    initializedTargetSelection = false;
   }
 
   function commitNewGraspRelay() {
@@ -421,7 +475,7 @@
 
   let forkTargets = $state<RemoteTargetOption[]>([]);
   let selectedForkTargetIds = $state<string[]>([]);
-  let initializedTargetSelection = $state(false);
+  let userChangedTargetSelection = $state(false);
   let targetPreflightRunId = 0;
 
   const targetPreflightPending = $derived.by(
@@ -444,24 +498,77 @@
       .filter(Boolean)
   );
 
+  const advertisedForkTargetIds = $derived.by(() =>
+    isAugmentingExistingRepo
+      ? getAdvertisedRemoteTargetIds({
+          targets: forkTargets,
+          cloneUrls: originalRepo.cloneUrls || [],
+          ownerPubkey: originalRepo.sourceAnnouncementEvent?.pubkey || "",
+          identifier: sourceIdentifier,
+        })
+      : []
+  );
+
+  function isAdvertisedForkTarget(target: RemoteTargetOption): boolean {
+    return advertisedForkTargetIds.includes(target.id);
+  }
+
+  function isSelectedForkTarget(target: RemoteTargetOption): boolean {
+    return selectedForkTargetIds.includes(target.id);
+  }
+
   $effect(() => {
-    const nextPreferredRelays = getEditableRepoRelayUrls(preferredRelays, selectedGraspRelayUrls);
+    const next = reconcileSelectedGraspRelays({
+      editableRelayUrls: preferredRelays,
+      parkedTargetRelayUrls,
+      selectedGraspRelayUrls,
+      preservedRelayUrls: isAugmentingExistingRepo ? defaultRelays : [],
+      explicitlyRemovedRelayUrls: explicitlyRemovedPreferredRelayUrls,
+    });
 
     if (
-      nextPreferredRelays.length !== preferredRelays.length ||
-      nextPreferredRelays.some((value, index) => value !== preferredRelays[index])
+      next.editableRelayUrls.length !== preferredRelays.length ||
+      next.editableRelayUrls.some((value, index) => value !== preferredRelays[index])
     ) {
-      preferredRelays = nextPreferredRelays;
+      preferredRelays = next.editableRelayUrls;
+    }
+    if (
+      next.parkedTargetRelayUrls.length !== parkedTargetRelayUrls.length ||
+      next.parkedTargetRelayUrls.some((value, index) => value !== parkedTargetRelayUrls[index])
+    ) {
+      parkedTargetRelayUrls = next.parkedTargetRelayUrls;
     }
   });
 
   function targetStatusLabel(target: RemoteTargetOption): string {
-    if (target.status === "ready") return target.existsAlready ? "Ready (existing)" : "Ready";
+    if (target.status === "ready" && isAdvertisedForkTarget(target)) {
+      return isSelectedForkTarget(target) ? "Advertised (sync)" : "Advertised (preserved)";
+    }
+    if (target.status === "ready" && target.existsAlready) {
+      return isSelectedForkTarget(target) ? "Existing (add)" : "Existing (available)";
+    }
+    if (target.status === "ready") {
+      return isSelectedForkTarget(target) ? "Ready (add)" : "Ready (available)";
+    }
     if (target.status === "checking") return "Checking";
     if (target.status === "failed" && target.existsAlready) return "Exists";
     if (target.status === "no-token") return "No token";
     if (target.status === "unsupported") return "Unsupported";
     return "Failed";
+  }
+
+  function targetDetail(target: RemoteTargetOption): string {
+    if (target.status === "ready" && isAdvertisedForkTarget(target)) {
+      return isSelectedForkTarget(target)
+        ? "Already in the repository announcement; selected for synchronization."
+        : "Already in the repository announcement and preserved without synchronization.";
+    }
+    if (target.status === "ready" && !isSelectedForkTarget(target)) {
+      return target.existsAlready
+        ? "Existing destination available; select it to synchronize and advertise."
+        : "Available destination; select it to add as a repository remote.";
+    }
+    return target.detail || "";
   }
 
   function targetStatusTone(target: RemoteTargetOption): string {
@@ -474,19 +581,19 @@
   }
 
   function handleForkTargetSelectionChange() {
-    initializedTargetSelection = true;
+    userChangedTargetSelection = true;
   }
 
   function selectAllReadyTargets() {
     selectedForkTargetIds = forkTargets
       .filter((target) => target.status === "ready")
       .map((target) => target.id);
-    initializedTargetSelection = true;
+    userChangedTargetSelection = true;
   }
 
   function clearSelectedTargets() {
     selectedForkTargetIds = [];
-    initializedTargetSelection = true;
+    userChangedTargetSelection = true;
   }
 
   $effect(() => {
@@ -514,28 +621,24 @@
         userPubkey: pubkey,
         repoName: forkName.trim(),
         options: {
-          allowExistingRepoReuse: false,
+          allowExistingRepoReuse: isAugmentingExistingRepo,
           existingRepoMessage:
-            "Destination already exists. Fork only creates new destinations; use import or attach the remote manually if you want to sync an existing repository.",
+            "Destination already exists. A renamed fork requires a new destination.",
         },
       })
     ).then((nextTargets) => {
       if (currentRun !== targetPreflightRunId) return;
 
       forkTargets = nextTargets;
-      const readyTargets = nextTargets.filter((target) => target.status === "ready");
-      selectedForkTargetIds = selectedForkTargetIds.filter((id) =>
-        readyTargets.some((target) => target.id === id)
-      );
-
-      if (!initializedTargetSelection) {
-        selectedForkTargetIds = getDefaultSelectedRemoteTargetIds(nextTargets);
-        initializedTargetSelection = true;
-      }
+      selectedForkTargetIds = reconcileRemoteTargetSelection({
+        targets: nextTargets,
+        selectedIds: selectedForkTargetIds,
+        userChangedSelection: userChangedTargetSelection,
+      });
     });
   });
 
-  let earliestUniqueCommit = $state("");
+  let earliestUniqueCommit = $state(repo.earliestUniqueCommit || "");
   let useBranchCopyFilter = $state(false);
   let availableCommits = $state<Array<any>>([]);
   let loadingCommits = $state(false);
@@ -603,6 +706,8 @@
   let tags = $state<string[]>([]);
   let maintainers = $state<string[]>([]);
   let preferredRelays = $state<string[]>([]);
+  let parkedTargetRelayUrls = $state<string[]>([]);
+  let explicitlyRemovedPreferredRelayUrls = $state<string[]>([]);
   let relaysInitialized = $state(false);
   let tagsInitialized = $state(false);
   let maintainersInitialized = $state(false);
@@ -634,6 +739,66 @@
 
   const effectivePreferredRelays = $derived.by(() => {
     return getEffectiveRepoRelayUrls(preferredRelays, selectedGraspRelayUrls);
+  });
+  const declaredGraspServices = $derived.by(() =>
+    mergeGraspServiceDescriptors([
+      ...buildGraspServiceDescriptors(
+        findRepoCommunityOption(communityOptions, selectedCommunityPubkey)?.graspServers || [],
+        "community-10222"
+      ),
+      ...buildGraspServiceDescriptors(graspServerUrlsLocal, "user-10317"),
+      ...buildGraspServiceDescriptors(
+        communityOptions
+          .filter((option) => option.pubkey !== selectedCommunityPubkey)
+          .flatMap((option) => option.graspServers || []),
+        "community-10222"
+      ),
+    ])
+  );
+  const advertisedGraspRelayUrls = $derived.by(() =>
+    isAugmentingExistingRepo && originalRepo.sourceAnnouncementEvent
+      ? getGraspRelayUrlsBackedByCloneUrls({
+          repoRelayUrls: effectivePreferredRelays,
+          cloneUrls: originalRepo.sourceAnnouncementEvent.tags
+            .filter((tag) => tag[0] === "clone")
+            .flatMap((tag) => tag.slice(1)),
+          knownServices: resolvedGraspServices,
+          ownerPubkey: originalRepo.sourceAnnouncementEvent.pubkey,
+          identifier: sourceIdentifier,
+        })
+      : []
+  );
+  const unbackedGraspRelayUrls = $derived.by(() =>
+    getUnbackedKnownGraspRelayUrls({
+      repoRelayUrls: effectivePreferredRelays,
+      backedGraspRelayUrls: [...selectedGraspRelayUrls, ...advertisedGraspRelayUrls],
+      knownServices: resolvedGraspServices,
+    })
+  );
+  const graspRelayCouplingError = $derived.by(() =>
+    resolvingGraspServices
+      ? "Checking repository relay capabilities..."
+      : unbackedGraspRelayUrls.length > 0
+        ? formatUnbackedGraspRelayError(unbackedGraspRelayUrls)
+        : ""
+  );
+
+  $effect(() => {
+    const relayUrls = [...effectivePreferredRelays];
+    const knownServices = [...declaredGraspServices];
+    const runId = ++graspServiceResolutionRunId;
+    resolvingGraspServices = true;
+    void resolveKnownGraspServices({ relayUrls, knownServices })
+      .then((services) => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = services;
+        resolvingGraspServices = false;
+      })
+      .catch(() => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = knownServices;
+        resolvingGraspServices = false;
+      });
   });
 
   let relaySearchQuery = $state("");
@@ -675,6 +840,44 @@
   }
   function updateItem(arr: string[], index: number, value: string): string[] {
     return (arr || []).map((item, i) => (i === index ? value : item));
+  }
+
+  function removePreferredRelay(index: number): void {
+    const relayUrl = normalizeRelayUrl(preferredRelays[index] || "");
+    if (relayUrl && !explicitlyRemovedPreferredRelayUrls.includes(relayUrl)) {
+      explicitlyRemovedPreferredRelayUrls = [...explicitlyRemovedPreferredRelayUrls, relayUrl];
+    }
+    preferredRelays = removeItem(preferredRelays, index);
+  }
+
+  function updatePreferredRelay(index: number, value: string): void {
+    const previousRelayUrl = normalizeRelayUrl(preferredRelays[index] || "");
+    const nextRelayUrl = normalizeRelayUrl(value);
+    if (
+      previousRelayUrl &&
+      previousRelayUrl !== nextRelayUrl &&
+      !explicitlyRemovedPreferredRelayUrls.includes(previousRelayUrl)
+    ) {
+      explicitlyRemovedPreferredRelayUrls = [
+        ...explicitlyRemovedPreferredRelayUrls,
+        previousRelayUrl,
+      ];
+    }
+    if (nextRelayUrl) {
+      explicitlyRemovedPreferredRelayUrls = explicitlyRemovedPreferredRelayUrls.filter(
+        (relayUrl) => relayUrl !== nextRelayUrl
+      );
+    }
+    preferredRelays = updateItem(preferredRelays, index, value);
+  }
+
+  function addPreferredRelay(relayUrl: string): void {
+    const normalized = normalizeRelayUrl(relayUrl);
+    if (!normalized || preferredRelays.includes(normalized)) return;
+    explicitlyRemovedPreferredRelayUrls = explicitlyRemovedPreferredRelayUrls.filter(
+      (removedRelayUrl) => removedRelayUrl !== normalized
+    );
+    preferredRelays = [...preferredRelays, normalized];
   }
 
   let hashtagSearchQuery = $state("");
@@ -809,6 +1012,7 @@
     completedResult = null;
     showDetails = false;
     isOpen = false;
+    notifyClose();
     window.history.back();
   }
 
@@ -863,6 +1067,11 @@
       return;
     }
 
+    if (graspRelayCouplingError) {
+      validationError = graspRelayCouplingError;
+      return;
+    }
+
     validationError = undefined;
 
     const forkConfig: ForkConfig = {
@@ -870,6 +1079,7 @@
       visibility: "public",
       targets: selectedForkTargets,
       includeBranches:
+        !isAugmentingExistingRepo &&
         branchCopyFilterState.mode === "toggle" &&
         useBranchCopyFilter &&
         branchCopyFilterState.maintainerBranchNames.length > 0
@@ -879,9 +1089,15 @@
       tags,
       maintainers,
       relays: effectivePreferredRelays,
-      community: getRepoCommunityOptionBinding(
-        findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
-      ),
+      knownGraspRelayUrls: resolvedGraspServices.map((service) => service.relayUrl),
+      knownGraspServices: resolvedGraspServices,
+      community: selectedCommunityPubkey
+        ? getRepoCommunityOptionBinding(
+            findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
+          ) ||
+          repo.community ||
+          null
+        : null,
     };
 
     try {
@@ -953,6 +1169,7 @@
       if (isForking && !isNavigatingToRepo) {
         forkState.abortFork?.("Fork dialog closed");
       }
+      notifyClose();
     };
   });
 
@@ -1006,7 +1223,7 @@
         <div class="flex min-w-0 items-center space-x-3">
           <GitFork class="w-6 h-6 text-blue-600 dark:text-blue-400" />
           <h2 id="fork-dialog-title" class="min-w-0 break-words text-xl font-semibold text-white">
-            Fork Repository
+            {isAugmentingExistingRepo ? "Add Repository Remote" : "Fork Repository"}
           </h2>
         </div>
         {#if !isForking && !isNavigatingToRepo}
@@ -1182,8 +1399,8 @@
                   {/if}
 
                   <p class="text-xs text-gray-400">
-                    The first configured relay is added automatically and selected when it passes
-                    preflight.
+                    Configured GRASP candidates stay listed when unchecked. Use the trash control to
+                    remove a candidate.
                   </p>
                 </div>
               </div>
@@ -1214,8 +1431,10 @@
                             >{targetStatusLabel(target)}</span
                           >
                         </div>
-                        {#if target.detail}
-                          <p class="mt-0.5 break-words text-xs text-gray-400">{target.detail}</p>
+                        {#if targetDetail(target)}
+                          <p class="mt-0.5 break-words text-xs text-gray-400">
+                            {targetDetail(target)}
+                          </p>
                         {/if}
                       </div>
                     </label>
@@ -1225,13 +1444,16 @@
               <p class="text-xs text-gray-400">
                 {#if targetPreflightPending}
                   Running destination preflight checks...
+                {:else if isAugmentingExistingRepo}
+                  Unchecked advertised remotes remain in the repository announcement. Select a
+                  target only when it should be synchronized or added.
                 {:else}
                   Select at least one target with Ready status.
                 {/if}
               </p>
             </div>
 
-            {#if branchCopyFilterState.mode !== "hidden"}
+            {#if branchCopyFilterState.mode !== "hidden" && !isAugmentingExistingRepo}
               <div class="space-y-3 border border-gray-700 rounded-lg p-4 bg-gray-900/60">
                 <div>
                   <div class="flex items-center gap-2">
@@ -1560,11 +1782,7 @@
                         type="text"
                         value={preferredRelays[index]}
                         oninput={(event) =>
-                          (preferredRelays = updateItem(
-                            preferredRelays,
-                            index,
-                            (event.target as HTMLInputElement).value
-                          ))}
+                          updatePreferredRelay(index, (event.target as HTMLInputElement).value)}
                         placeholder="wss://relay.example.com"
                         class="min-w-0 flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -1572,7 +1790,7 @@
                         type="button"
                         class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                         aria-label="Remove relay"
-                        onclick={() => (preferredRelays = removeItem(preferredRelays, index))}
+                        onclick={() => removePreferredRelay(index)}
                       >
                         <Trash2 class="w-4 h-4" />
                       </button>
@@ -1612,9 +1830,7 @@
                               type="button"
                               onmousedown={(event) => event.preventDefault()}
                               onclick={() => {
-                                if (!preferredRelays.includes(relayUrl)) {
-                                  preferredRelays = [...preferredRelays, relayUrl];
-                                }
+                                addPreferredRelay(relayUrl);
                                 relaySearchQuery = "";
                                 showRelayAutocomplete = false;
                               }}
@@ -1640,6 +1856,9 @@
                 <p class="mt-1 text-xs text-gray-400">
                   Selected GRASP target relays are included automatically when publishing.
                 </p>
+                {#if graspRelayCouplingError}
+                  <p class="mt-2 text-sm text-red-400" role="alert">{graspRelayCouplingError}</p>
+                {/if}
               </div>
             </div>
           </form>
@@ -1651,7 +1870,15 @@
           {:else if isForking}
             {currentProgressMessage}
           {:else if isProgressComplete}
-            Fork completed successfully.
+            {#if warning}
+              {isAugmentingExistingRepo
+                ? "Repository sync completed with warnings."
+                : "Fork completed with warnings."}
+            {:else}
+              {isAugmentingExistingRepo
+                ? "Repository sync completed successfully."
+                : "Fork completed successfully."}
+            {/if}
           {/if}
         </div>
 
@@ -1665,7 +1892,11 @@
               />
               <div class="flex-1">
                 <h4 class="text-amber-800 dark:text-amber-200 font-medium mb-1">
-                  Fork completed with warnings
+                  {error
+                    ? "Partial synchronization details"
+                    : isAugmentingExistingRepo
+                      ? "Repository sync completed with warnings"
+                      : "Fork completed with warnings"}
                 </h4>
                 <p class="text-amber-700 dark:text-amber-100 text-sm">{warning}</p>
               </div>
@@ -1680,7 +1911,9 @@
             <div class="flex items-start space-x-3">
               <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
               <div class="flex-1">
-                <h4 class="text-red-800 dark:text-red-400 font-medium mb-1">Fork Failed</h4>
+                <h4 class="text-red-800 dark:text-red-400 font-medium mb-1">
+                  {isAugmentingExistingRepo ? "Repository Sync Failed" : "Fork Failed"}
+                </h4>
                 <div class="text-red-700 dark:text-red-300 text-sm">
                   {#if Markdown}
                     <Markdown content={error} relays={defaultRelays} variant="comment" />
@@ -1715,12 +1948,16 @@
           </div>
         {:else if isProgressComplete}
           <div class="space-y-4">
-            <div class="flex items-center space-x-3">
-              <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400" />
-              <span class="text-green-700 dark:text-green-400 font-medium">
-                Fork completed successfully!
-              </span>
-            </div>
+            {#if !warning}
+              <div class="flex items-center space-x-3">
+                <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400" />
+                <span class="text-green-700 dark:text-green-400 font-medium">
+                  {isAugmentingExistingRepo
+                    ? "Repository sync completed successfully!"
+                    : "Fork completed successfully!"}
+                </span>
+              </div>
+            {/if}
 
             {#if primaryForkUrl}
               <div class="bg-gray-800 rounded-lg p-4 border border-gray-600">
@@ -1940,7 +2177,11 @@
             class="min-h-10 w-full px-4 py-2 text-gray-300 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {#if isForking}
-              {isCancelingFork ? "Canceling..." : "Cancel fork"}
+              {isCancelingFork
+                ? "Canceling..."
+                : isAugmentingExistingRepo
+                  ? "Cancel sync"
+                  : "Cancel fork"}
             {:else}
               Cancel
             {/if}
@@ -1951,15 +2192,16 @@
             disabled={isForking ||
               targetPreflightPending ||
               !!validationError ||
+              Boolean(graspRelayCouplingError) ||
               selectedForkTargets.length === 0}
             class="flex min-h-10 w-full items-center justify-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {#if isForking}
               <Loader2 class="w-4 h-4 animate-spin" />
-              <span>Forking...</span>
+              <span>{isAugmentingExistingRepo ? "Syncing remotes..." : "Forking..."}</span>
             {:else}
               <GitFork class="w-4 h-4" />
-              <span>Fork repository</span>
+              <span>{isAugmentingExistingRepo ? "Add selected remotes" : "Fork repository"}</span>
             {/if}
           </button>
         </div>

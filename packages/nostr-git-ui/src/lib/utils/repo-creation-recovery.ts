@@ -90,7 +90,11 @@ async function probeTarget(
     }
 
     if (target.provider === "grasp") {
-      const announcement = latestEvent(record, 30617);
+      const announcement =
+        target.announcementEvent ||
+        record.targetResults.find((result) => result.id === target.id)
+          ?.provisionalAnnouncementEvent ||
+        latestEvent(record, 30617);
       const state = latestEvent(record, 30618);
       if (!target.relayUrl || !announcement || !state) {
         return {
@@ -197,8 +201,10 @@ async function finalizeVerifiedTargets(
   deps: RepoCreationRecoveryDependencies
 ): Promise<RepoCreationRecoveryResult> {
   const provisionalAnnouncement = latestEvent(record, 30617);
+  const sourceAnnouncement = record.sourceMetadata?.announcementEvent;
+  const announcementBase = sourceAnnouncement || provisionalAnnouncement;
   const stateEvent = buildRecoveredState(record, verifiedTargets);
-  if (!provisionalAnnouncement || !stateEvent) {
+  if (!announcementBase || !stateEvent) {
     const pending = persistRepoCreationRecoveryRecord({
       ...record,
       targets: verifiedTargets,
@@ -209,21 +215,60 @@ async function finalizeVerifiedTargets(
   }
 
   const taggedRelays =
-    provisionalAnnouncement.tags
-      .find((tag) => tag[0] === "relays")
-      ?.slice(1)
-      .filter(Boolean) || [];
-  const relays = Array.from(
-    new Set([...taggedRelays, ...verifiedTargets.map((target) => target.relayUrl).filter(Boolean)])
+    record.repositoryRelayUrls && record.repositoryRelayUrls.length > 0
+      ? record.repositoryRelayUrls
+      : Array.from(
+          new Set(
+            [sourceAnnouncement, provisionalAnnouncement].flatMap(
+              (event) =>
+                event?.tags
+                  .find((tag) => tag[0] === "relays")
+                  ?.slice(1)
+                  .filter(Boolean) || []
+            )
+          )
+        );
+  const cloneUrls = Array.from(
+    new Set([
+      ...(record.sourceMetadata?.cloneUrls || []),
+      ...verifiedTargets.map((target) => target.remoteUrl).filter(Boolean),
+    ])
   ) as string[];
-  const cloneUrls = verifiedTargets.map((target) => target.remoteUrl).filter(Boolean) as string[];
-  const webUrls = verifiedTargets.map((target) => target.webUrl).filter(Boolean) as string[];
+  const webUrls = Array.from(
+    new Set([
+      ...(record.sourceMetadata?.webUrls || []),
+      ...verifiedTargets.map((target) => target.webUrl).filter(Boolean),
+    ])
+  ) as string[];
+  const sourceCloneUrls = new Set(record.sourceMetadata?.cloneUrls || []);
+  const authoritativeSourceCloneUrls =
+    sourceAnnouncement?.tags.filter((tag) => tag[0] === "clone").flatMap((tag) => tag.slice(1)) ||
+    [];
+  const sourceWebUrls = new Set(record.sourceMetadata?.webUrls || []);
   const graspTargets = verifiedTargets.flatMap((target) =>
     target.provider === "grasp" && target.relayUrl && target.remoteUrl
       ? [{ relayUrl: target.relayUrl, cloneUrl: target.remoteUrl, webUrl: target.webUrl }]
       : []
   );
-  const { id: _id, sig: _sig, pubkey: _pubkey, ...announcementTemplate } = provisionalAnnouncement;
+  const normalizeRelay = (relay: string) => relay.replace(/\/+$/, "");
+  const selectedGraspRelayKeys = new Set(
+    record.targets
+      .filter((target) => target.provider === "grasp" && target.relayUrl)
+      .map((target) => normalizeRelay(target.relayUrl as string))
+  );
+  const verifiedGraspRelayKeys = new Set(
+    graspTargets.map((target) => normalizeRelay(target.relayUrl))
+  );
+  const relays = Array.from(
+    new Set([
+      ...taggedRelays.filter((relay) => {
+        const key = normalizeRelay(relay);
+        return !selectedGraspRelayKeys.has(key) || verifiedGraspRelayKeys.has(key);
+      }),
+      ...verifiedTargets.map((target) => target.relayUrl).filter(Boolean),
+    ])
+  ) as string[];
+  const { id: _id, sig: _sig, pubkey: _pubkey, ...announcementTemplate } = announcementBase;
   const preservedTags = announcementTemplate.tags.filter(
     (tag) => !["clone", "web", "relays"].includes(tag[0])
   );
@@ -237,20 +282,39 @@ async function finalizeVerifiedTargets(
     provisionalEvents: getRepoCreationProvisionalEvents(record),
     onDeleteEvent: deps.onDeleteEvent,
     minCreatedAt: Math.max(
-      provisionalAnnouncement.created_at,
+      sourceAnnouncement?.created_at || 0,
+      provisionalAnnouncement?.created_at || 0,
       ...record.publishedEvents.map((item) => item.event.created_at)
     ),
+    ownerPubkey: record.ownerPubkey,
+    identifier: record.repoName,
+    allowedUnlistedCloneUrls: authoritativeSourceCloneUrls,
     buildAnnouncement: ({ relays: nextRelays, graspCloneUrls, createdAt }) => {
       const retained = new Set([
-        ...cloneUrls.filter((url) => !graspTargets.some((target) => target.cloneUrl === url)),
+        ...cloneUrls.filter(
+          (url) =>
+            sourceCloneUrls.has(url) || !graspTargets.some((target) => target.cloneUrl === url)
+        ),
         ...graspCloneUrls,
       ]);
+      const activeGraspWebUrls = graspTargets
+        .filter((target) => graspCloneUrls.includes(target.cloneUrl))
+        .map((target) => target.webUrl)
+        .filter((url): url is string => Boolean(url));
+      const retainedWebUrls = Array.from(
+        new Set([
+          ...webUrls.filter(
+            (url) => sourceWebUrls.has(url) || !graspTargets.some((target) => target.webUrl === url)
+          ),
+          ...activeGraspWebUrls,
+        ])
+      );
       return {
         ...announcementTemplate,
         created_at: createdAt,
         tags: [
           ...preservedTags,
-          ...(webUrls.length > 0 ? [["web", ...webUrls]] : []),
+          ...(retainedWebUrls.length > 0 ? [["web", ...retainedWebUrls]] : []),
           ["clone", ...Array.from(retained)],
           ["relays", ...nextRelays],
         ],
@@ -275,6 +339,8 @@ async function finalizeVerifiedTargets(
       outcome: "ok" as const,
       pushedRefs: target.refs.filter((ref) => ref.stage === "verified").map((ref) => ref.ref),
       relayUrl: target.relayUrl,
+      provisionalAnnouncementEvent: record.targetResults.find((result) => result.id === target.id)
+        ?.provisionalAnnouncementEvent,
     })),
     publishedEvents: [
       ...record.publishedEvents,

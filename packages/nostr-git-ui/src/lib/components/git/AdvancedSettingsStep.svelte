@@ -12,6 +12,7 @@
     maintainers: string[];
     relays: string[];
     mandatoryRelays?: string[];
+    relayError?: string;
     tags: string[];
     webUrls: string[];
     cloneUrls: string[];
@@ -49,6 +50,7 @@
     maintainers,
     relays,
     mandatoryRelays = [],
+    relayError,
     tags,
     webUrls,
     cloneUrls,
@@ -696,6 +698,9 @@
           <p class="mt-1 text-sm text-gray-400">
             Preferred relay URLs (wss://). Selected GRASP target relays are included automatically.
           </p>
+          {#if relayError}
+            <p class="mt-2 text-sm text-red-400" role="alert">{relayError}</p>
+          {/if}
         </fieldset>
       </div>
     </div>

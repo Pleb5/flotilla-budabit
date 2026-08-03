@@ -25,6 +25,8 @@ The flow is implemented primarily in:
 - `src/app/core/git-commands.ts`;
 - `src/app/util/fetch-relay-events.ts`.
 
+Critical relay publications and exact transactional reads use operation-scoped transport isolation. See [Critical Relay Transport Isolation](./critical-relay-transport-isolation.md) for the scheduler interaction, guarantees, and usage criteria.
+
 ## Terms
 
 ### Repository announcement
@@ -67,6 +69,8 @@ The import flow preserves these invariants:
 10. An exact post-push read is successful only when the expected event is returned, not merely when a relay completes a query.
 11. Rollback targets only relays that ACKed provisional events.
 12. Recovery publishes newer reconciled metadata instead of replaying stale provisional metadata.
+13. Same-coordinate augmentation may preserve a GRASP clone URL from the exact source announcement without selecting its legacy service relay; this exception never applies to a newly introduced clone URL.
+14. Augmentation target selection controls synchronization, not metadata removal. Unchecked source remotes and their original repository relays remain advertised unless the user explicitly removes that metadata. A selected GRASP source remote that fails and is de-listed is removed from final clone and web URLs because cleanup can make that endpoint unavailable.
 
 ## Import Lifecycle
 

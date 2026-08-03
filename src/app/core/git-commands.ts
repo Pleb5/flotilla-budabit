@@ -42,10 +42,91 @@ const repoPublishWebSocketGenerations = new WeakMap<object, number>()
 let nextRepoPublishSocketId = 1
 let nextRepoPublishWebSocketGeneration = 1
 
-const startRepoPublishTransportTrace = (relay: string, eventId: string) => {
+type NativeRepoPublishAck = {relay: string; ok: boolean; detail: string}
+
+export const parseNativeRepoPublishAck = (
+  relay: string,
+  eventId: string,
+  message: unknown,
+): NativeRepoPublishAck | undefined => {
+  if (!Array.isArray(message) || message[0] !== "OK" || message[1] !== eventId) return
+  const detail = String(message[3] || "")
+  if (message[2] === false && detail.toLowerCase().startsWith("auth-required:")) return
+  return {relay, ok: message[2] === true, detail}
+}
+
+const observeNativeRepoPublishAck = (pool: Pool, relay: string, eventId: string) => {
+  let ack: NativeRepoPublishAck | undefined
+  let socket: any
+  const listeners: Array<{ws: WebSocket; listener: EventListener}> = []
+  const attached = new WeakSet<object>()
+
+  const attach = () => {
+    const ws = socket?._ws as WebSocket | undefined
+    if (!ws || attached.has(ws)) return
+    attached.add(ws)
+    const listener: EventListener = event => {
+      try {
+        const message = JSON.parse(String((event as MessageEvent).data || ""))
+        ack = parseNativeRepoPublishAck(relay, eventId, message) || ack
+      } catch {
+        // Ignore malformed relay messages; Welshman will report its own outcome.
+      }
+    }
+    ws.addEventListener("message", listener)
+    listeners.push({ws, listener})
+  }
+  const onStatus = () => attach()
+
+  try {
+    socket = pool.get(relay) as any
+    socket.on(SocketEvent.Status, onStatus)
+    attach()
+  } catch {
+    // Native observation is a fallback; the normal publish result remains authoritative.
+  }
+
+  return {
+    getAck: () => ack,
+    stop: () => {
+      try {
+        socket?.off(SocketEvent.Status, onStatus)
+      } catch {
+        // pass
+      }
+      for (const {ws, listener} of listeners) ws.removeEventListener("message", listener)
+    },
+  }
+}
+
+export const applyNativeRepoPublishAcks = <
+  T extends {relay: string; status: string; detail?: string},
+>(
+  results: Record<string, T>,
+  nativeAcks: NativeRepoPublishAck[],
+): Record<string, T> => {
+  const next = {...results}
+  for (const ack of nativeAcks) {
+    const entry = Object.entries(next).find(
+      ([, result]) => normalizeRelayUrl(result.relay) === normalizeRelayUrl(ack.relay),
+    )
+    const key = entry?.[0] || ack.relay
+    const current = entry?.[1]
+    if (current && current.status !== PublishStatus.Timeout) continue
+    next[key] = {
+      ...(current || ({relay: ack.relay} as T)),
+      relay: current?.relay || ack.relay,
+      status: ack.ok ? PublishStatus.Success : PublishStatus.Failure,
+      detail: ack.detail,
+    }
+  }
+  return next
+}
+
+const startRepoPublishTransportTrace = (pool: Pool, relay: string, eventId: string) => {
   if (!canTraceRepoPublishTransport()) return () => undefined
 
-  const socket = Pool.get().get(relay) as any
+  const socket = pool.get(relay) as any
   let socketId = repoPublishSocketIds.get(socket)
   if (!socketId) {
     socketId = nextRepoPublishSocketId++
@@ -217,10 +298,14 @@ export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) 
   })
 }
 
-export const publishRepoEventWithRelayOutcomes = async (
+export type RepoPublishOptions = {publishLocally?: boolean}
+type RepoPublishExecutionOptions = RepoPublishOptions & {signal?: AbortSignal}
+
+const publishRepoEventWithRelayOutcomesUsingPool = async (
+  pool: Pool,
   event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
   relays: string[],
-  options: {publishLocally?: boolean} = {},
+  options: RepoPublishExecutionOptions = {},
 ) => {
   const scopedRelays = getScopedRelayUrls(relays)
   const activePubkey = pubkey.get()
@@ -229,40 +314,65 @@ export const publishRepoEventWithRelayOutcomes = async (
     ? event
     : activePubkey && activeSigner
       ? await activeSigner.sign(prep(event, activePubkey), {
-          signal: AbortSignal.timeout(GRASP_RELAY_ACK_TIMEOUT_MS),
+          signal: options.signal
+            ? AbortSignal.any([options.signal, AbortSignal.timeout(GRASP_RELAY_ACK_TIMEOUT_MS)])
+            : AbortSignal.timeout(GRASP_RELAY_ACK_TIMEOUT_MS),
         })
       : undefined
 
   if (!signedEvent || !isSignedEvent(signedEvent as TrustedEvent)) {
     throw new Error("Repository event signing failed")
   }
+  options.signal?.throwIfAborted()
 
   if (options.publishLocally !== false) {
     repository.publish(signedEvent as TrustedEvent)
   }
 
   let results: Awaited<ReturnType<typeof publish>> = {}
+  let publishThrew = false
+  const nativeAckObservers = scopedRelays.map(relay => ({
+    relay,
+    observer: observeNativeRepoPublishAck(pool, relay, signedEvent.id),
+  }))
   const transportTraces = scopedRelays.map(relay => ({
     relay,
-    finish: startRepoPublishTransportTrace(relay, signedEvent.id),
+    finish: startRepoPublishTransportTrace(pool, relay, signedEvent.id),
   }))
   try {
     results = await publish({
       relays: scopedRelays,
       event: signedEvent,
       timeout: GRASP_RELAY_ACK_TIMEOUT_MS,
+      context: {pool},
+      signal: options.signal,
     })
   } catch (error) {
+    publishThrew = true
     const detail = error instanceof Error ? error.message : String(error || "publish failed")
     results = Object.fromEntries(
       scopedRelays.map(relay => [relay, {relay, status: PublishStatus.Failure, detail}]),
     )
   } finally {
+    results = applyNativeRepoPublishAcks(
+      results,
+      nativeAckObservers.flatMap(({observer}) => {
+        const ack = observer.getAck()
+        observer.stop()
+        return ack ? [ack] : []
+      }),
+    )
     for (const trace of transportTraces) {
       const result = Object.values(results).find(
         candidate => normalizeRelayUrl(candidate.relay) === normalizeRelayUrl(trace.relay),
       )
       trace.finish(result?.status || PublishStatus.Failure)
+    }
+  }
+
+  for (const result of Object.values(results)) {
+    if (publishThrew || result.status === PublishStatus.Timeout) {
+      pool.remove(result.relay)
     }
   }
 
@@ -286,6 +396,56 @@ export const publishRepoEventWithRelayOutcomes = async (
     failedRelays,
     successCount: ackedRelays.length,
     hasRelayOutcomes: relayOutcomes.length > 0,
+  }
+}
+
+export const createRepoPublishTransport = () => {
+  const pool = new Pool()
+  const controller = new AbortController()
+  let pending = Promise.resolve()
+  let disposed = false
+
+  return {
+    publish: (
+      event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
+      relays: string[],
+      options: RepoPublishOptions = {},
+    ) => {
+      if (disposed) throw new Error("Repository publication transport is closed")
+      const operation = pending.then(() => {
+        if (disposed) throw new Error("Repository publication transport is closed")
+        return publishRepoEventWithRelayOutcomesUsingPool(pool, event, relays, {
+          ...options,
+          signal: controller.signal,
+        })
+      })
+      pending = operation.then(
+        () => undefined,
+        () => undefined,
+      )
+      return operation
+    },
+    dispose: () => {
+      if (disposed) return
+      disposed = true
+      controller.abort()
+      pool.clear()
+    },
+  }
+}
+
+export type RepoPublishTransport = ReturnType<typeof createRepoPublishTransport>
+
+export const publishRepoEventWithRelayOutcomes = async (
+  event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
+  relays: string[],
+  options: RepoPublishOptions = {},
+) => {
+  const transport = createRepoPublishTransport()
+  try {
+    return await transport.publish(event, relays, options)
+  } finally {
+    transport.dispose()
   }
 }
 

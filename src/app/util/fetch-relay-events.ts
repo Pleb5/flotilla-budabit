@@ -1,4 +1,4 @@
-import {load} from "@welshman/net"
+import {load, makeLoader, Pool} from "@welshman/net"
 import {normalizeRelayHints} from "@app/util/event-links"
 
 const DEFAULT_RELAY_FETCH_TIMEOUT_MS = 2500
@@ -9,11 +9,13 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   timeoutMs?: number
   signal?: AbortSignal
   throwOnTimeout?: boolean
+  isolated?: boolean
 }): Promise<TEvent[]> {
   const events: TEvent[] = []
   let sawEose = false
   let disconnectedRelay = ""
   const controller = new AbortController()
+  const isolatedPool = params.isolated ? new Pool() : undefined
   const onAbort = () => controller.abort()
   params.signal?.addEventListener("abort", onAbort, {once: true})
   let timedOut = false
@@ -27,7 +29,10 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
 
   try {
     const relays = normalizeRelayHints(params.relays as any)
-    await load({
+    const loadEvents = isolatedPool
+      ? makeLoader({delay: 0, threshold: 1, context: {pool: isolatedPool}})
+      : load
+    await loadEvents({
       relays,
       filters: params.filters,
       signal: controller.signal,
@@ -65,6 +70,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   } finally {
     clearTimeout(timeoutId)
     params.signal?.removeEventListener("abort", onAbort)
+    isolatedPool?.clear()
   }
 
   return events

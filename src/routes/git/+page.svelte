@@ -43,7 +43,11 @@
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {APP_URL} from "@app/core/state"
   import {makeExactEventDelete} from "@app/core/commands"
-  import {publishRepoEventWithRelayOutcomes} from "@app/core/git-commands"
+  import {
+    createRepoPublishTransport,
+    publishRepoEventWithRelayOutcomes,
+    type RepoPublishTransport,
+  } from "@app/core/git-commands"
   import {goto} from "$app/navigation"
   import {onMount, onDestroy, tick, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
@@ -602,6 +606,7 @@
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
         relays: ref.definition.relays,
+        graspServers: ref.definition.graspServers,
       })),
   )
 
@@ -2869,6 +2874,8 @@
 
   onDestroy(() => {
     gitPageDestroyed = true
+    for (const transport of activeRepoPublishTransports) transport.dispose()
+    activeRepoPublishTransports.clear()
     cardsComputeRequestId += 1
     accountSearchCardsComputeRequestId += 1
     if (cardsComputeTimer) {
@@ -3180,7 +3187,23 @@
       filters: params.filters as any,
       timeoutMs: params.timeoutMs,
       throwOnTimeout: params.throwOnTimeout,
+      isolated: true,
     })
+
+  const activeRepoPublishTransports = new Set<RepoPublishTransport>()
+
+  const createTrackedRepoPublishTransport = () => {
+    const transport = createRepoPublishTransport()
+    const trackedTransport: RepoPublishTransport = {
+      publish: transport.publish,
+      dispose: () => {
+        transport.dispose()
+        activeRepoPublishTransports.delete(trackedTransport)
+      },
+    }
+    activeRepoPublishTransports.add(trackedTransport)
+    return trackedTransport
+  }
 
   const getProfileForWizard = async (pubkey: string) => {
     try {
@@ -3287,7 +3310,10 @@
     const authorName = getAuthorName(profile)
     const authorEmail = getAuthorEmail(profile, $pubkey)
 
+    let publishTransport: RepoPublishTransport | undefined
     try {
+      publishTransport = createTrackedRepoPublishTransport()
+      const operationPublishTransport = publishTransport
       const modalId = pushModal(
         NewRepoWizard,
         {
@@ -3295,10 +3321,15 @@
           workerInstance, // Pass worker instance for event signing
           subscribeGitProgress: subscribeGitWorkerProgress,
           onRepoCreated: (result: NewRepoResult) => {
+            operationPublishTransport.dispose()
             setTimeout(() => hydrateRepoEvents(result), 0)
           },
           onNavigateToRepo: (result: NewRepoResult) => navigateToCreatedRepo(result, "new repo"),
-          onCancel: back,
+          onCancel: () => {
+            operationPublishTransport.dispose()
+            back()
+          },
+          onDispose: () => operationPublishTransport.dispose(),
           defaultRelays: [...defaultRepoRelays],
           platformRelays: [...GIT_RELAYS],
           platformUrl: $APP_URL,
@@ -3307,13 +3338,18 @@
           defaultAuthorName: authorName,
           defaultAuthorEmail: authorEmail,
           communityOptions: repoPublishCommunityOptions,
+          defaultCommunityPubkey:
+            activeMode === "community" &&
+            repoPublishCommunityOptions.some(option => option.pubkey === selectedCommunityPubkey)
+              ? selectedCommunityPubkey
+              : "",
           onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
             const explicitRelays = context?.relays || []
             const targetRelays =
               explicitRelays.length > 0
                 ? explicitRelays
                 : resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
-            return publishRepoEventWithRelayOutcomes(repoEvent, targetRelays)
+            return operationPublishTransport.publish(repoEvent, targetRelays)
           },
           onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
             await deleteExactRepoEvent(event, relays)
@@ -3325,8 +3361,10 @@
         },
         {fullscreen: true, noEscape: true},
       )
+      if (!modalId) operationPublishTransport.dispose()
       console.log("[+page.svelte] NewRepoWizard modal pushed with ID:", modalId)
     } catch (error) {
+      publishTransport?.dispose()
       console.error("[+page.svelte] Failed to push NewRepoWizard modal:", error)
       pushToast({message: `Failed to open New Repo wizard: ${String(error)}`, theme: "error"})
     }
@@ -3391,6 +3429,7 @@
       return await signer.sign(event)
     }
 
+    let publishTransport: RepoPublishTransport | undefined
     try {
       const rollbackPublishedRepoEvents = async (params: {
         repoName: string
@@ -3439,6 +3478,8 @@
         }
       }
 
+      publishTransport = createTrackedRepoPublishTransport()
+      const operationPublishTransport = publishTransport
       const modalId = pushModal(
         ImportRepoDialog,
         {
@@ -3457,21 +3498,24 @@
           },
           onFetchRelayEvents: fetchRelayEvents,
           onClose: () => {
+            operationPublishTransport.dispose()
             clearModals()
           },
+          onDispose: () => operationPublishTransport.dispose(),
           onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
             const explicitRelays = context?.relays || []
             const targetRelays =
               explicitRelays.length > 0
                 ? explicitRelays
                 : resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
-            return publishRepoEventWithRelayOutcomes(repoEvent, targetRelays)
+            return operationPublishTransport.publish(repoEvent, targetRelays)
           },
           onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
             await deleteExactRepoEvent(event, relays)
           },
           onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
           onImportComplete: (result: ImportResult) => {
+            operationPublishTransport.dispose()
             hydrateRepoEvents(result)
             // Reload repos by forcing bookmarks refresh and announcements
             loadRepoAnnouncements(repoAnnouncementRelays)
@@ -3494,11 +3538,18 @@
           defaultRelays: [...defaultRepoRelays],
           searchRelays: searchRelaysForWizard,
           communityOptions: repoPublishCommunityOptions,
+          defaultCommunityPubkey:
+            activeMode === "community" &&
+            repoPublishCommunityOptions.some(option => option.pubkey === selectedCommunityPubkey)
+              ? selectedCommunityPubkey
+              : "",
         },
         {fullscreen: true, noEscape: true},
       )
+      if (!modalId) operationPublishTransport.dispose()
       console.log("[+page.svelte] ImportRepoDialog modal pushed with ID:", modalId)
     } catch (error) {
+      publishTransport?.dispose()
       console.error("[+page.svelte] Failed to push ImportRepoDialog modal:", error)
       pushToast({
         message: `Failed to open Import Repo dialog: ${String(error)}`,

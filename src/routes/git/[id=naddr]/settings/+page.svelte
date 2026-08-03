@@ -40,6 +40,7 @@
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
         relays: ref.definition.relays,
+        graspServers: ref.definition.graspServers,
       })),
   )
 </script>
@@ -53,6 +54,7 @@
       repo={repoClass}
       onPublishEvent={repoSettings.publishRepoEvent}
       onSaveComplete={repoSettings.onSaveComplete}
+      onClose={repoSettings.disposePublishTransport}
       canDelete={repoSettings.canDelete}
       onRequestDelete={repoSettings.canDelete ? repoSettings.openDeleteRepoModal : undefined}
       getProfile={repoSettings.getProfile}

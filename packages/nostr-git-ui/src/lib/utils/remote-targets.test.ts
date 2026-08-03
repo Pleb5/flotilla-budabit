@@ -1,8 +1,11 @@
+import { nip19 } from "nostr-tools";
 import { describe, expect, it } from "vitest";
 
 import {
   buildRemoteTargetOptions,
+  getAdvertisedRemoteTargetIds,
   getDefaultSelectedRemoteTargetIds,
+  reconcileRemoteTargetSelection,
   validateRemoteTargetRepoName,
 } from "./remote-targets";
 
@@ -47,6 +50,115 @@ describe("remote target helpers", () => {
     ]);
 
     expect(selectedIds).toEqual(["git:github.com", "git:gitlab.com"]);
+  });
+
+  it("recomputes defaults as asynchronous targets become ready until the user intervenes", () => {
+    const gitTarget = { id: "git:github.com", label: "GitHub", provider: "github" as const };
+    const graspTarget = {
+      id: "grasp:wss://relay.example",
+      label: "GRASP",
+      provider: "grasp" as const,
+    };
+
+    expect(
+      reconcileRemoteTargetSelection({
+        targets: [
+          { ...gitTarget, status: "ready" },
+          { ...graspTarget, status: "checking" },
+        ],
+        selectedIds: [],
+        userChangedSelection: false,
+      })
+    ).toEqual([gitTarget.id]);
+    expect(
+      reconcileRemoteTargetSelection({
+        targets: [
+          { ...gitTarget, status: "ready" },
+          { ...graspTarget, status: "ready" },
+        ],
+        selectedIds: [gitTarget.id],
+        userChangedSelection: false,
+      })
+    ).toEqual([graspTarget.id]);
+    expect(
+      reconcileRemoteTargetSelection({
+        targets: [
+          { ...gitTarget, status: "ready" },
+          { ...graspTarget, status: "ready" },
+        ],
+        selectedIds: [gitTarget.id],
+        userChangedSelection: true,
+      })
+    ).toEqual([gitTarget.id]);
+  });
+
+  it("identifies hosted and GRASP targets already advertised by source clone URLs", () => {
+    const ownerPubkey = "a".repeat(64);
+    const ownerNpub = nip19.npubEncode(ownerPubkey);
+    const targets = [
+      {
+        id: "git:github.com",
+        label: "GitHub",
+        provider: "github" as const,
+        host: "github.com",
+        existingRemoteUrl: "https://github.com/alice/repo.git",
+        status: "ready" as const,
+      },
+      {
+        id: "git:gitlab.com",
+        label: "GitLab",
+        provider: "gitlab" as const,
+        host: "gitlab.com",
+        status: "ready" as const,
+      },
+      {
+        id: "grasp:wss://relay.example",
+        label: "GRASP",
+        provider: "grasp" as const,
+        relayUrl: "wss://relay.example",
+        status: "ready" as const,
+      },
+    ];
+
+    expect(
+      getAdvertisedRemoteTargetIds({
+        targets,
+        cloneUrls: [
+          "https://github.com/alice/repo.git",
+          `https://relay.example/${ownerNpub}/repo.git`,
+        ],
+        ownerPubkey,
+        identifier: "repo",
+      })
+    ).toEqual(["git:github.com", "grasp:wss://relay.example"]);
+
+    expect(
+      getAdvertisedRemoteTargetIds({
+        targets: [
+          {
+            ...targets[0],
+            existingRemoteUrl: "https://github.com/bob/repo.git",
+          },
+        ],
+        cloneUrls: ["https://github.com/alice/repo.git"],
+        ownerPubkey,
+        identifier: "repo",
+      })
+    ).toEqual([]);
+
+    expect(
+      getAdvertisedRemoteTargetIds({
+        targets: [
+          {
+            ...targets[0],
+            existingRemoteUrl: "https://github.com:8443/alice/repo.git",
+          },
+        ],
+        cloneUrls: ["https://github.com/alice/repo.git"],
+        ownerPubkey,
+        identifier: "repo",
+      })
+    ).toEqual([]);
   });
 
   it("validates remote target repository names", () => {

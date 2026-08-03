@@ -70,6 +70,8 @@ describe("import-repo-metadata", () => {
       remotePushResults: [
         {
           success: true,
+          provider: "grasp",
+          relayUrl: "wss://gitnostr.com",
           remoteUrl:
             "https://gitnostr.com/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
           webUrl:
@@ -127,7 +129,14 @@ describe("import-repo-metadata", () => {
       getImportedRepoRelayUrls({
         admittedRelayUrls: ["wss://repo.example", "wss://grasp.example"],
         selectedGraspRelayUrls: ["wss://grasp.example"],
-        remotePushResults: [{ success: false, remoteUrl: failedGraspUrl }],
+        remotePushResults: [
+          {
+            success: false,
+            provider: "grasp",
+            relayUrl: "wss://grasp.example",
+            remoteUrl: failedGraspUrl,
+          },
+        ],
       })
     ).toEqual(["wss://repo.example"]);
 
@@ -135,8 +144,33 @@ describe("import-repo-metadata", () => {
       getImportedRepoRelayUrls({
         admittedRelayUrls: ["wss://repo.example", "wss://grasp.example"],
         selectedGraspRelayUrls: ["wss://grasp.example"],
-        remotePushResults: [{ success: true, remoteUrl: failedGraspUrl }],
+        remotePushResults: [
+          {
+            success: true,
+            provider: "grasp",
+            relayUrl: "wss://grasp.example",
+            remoteUrl: failedGraspUrl,
+          },
+        ],
       })
     ).toEqual(["wss://repo.example", "wss://grasp.example"]);
+  });
+
+  it("retains the event relay when Smart HTTP uses a different host", () => {
+    expect(
+      getImportedRepoRelayUrls({
+        admittedRelayUrls: ["wss://events.example"],
+        selectedGraspRelayUrls: ["wss://events.example"],
+        remotePushResults: [
+          {
+            success: true,
+            provider: "grasp",
+            relayUrl: "wss://events.example",
+            remoteUrl:
+              "https://git.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git",
+          },
+        ],
+      })
+    ).toEqual(["wss://events.example"]);
   });
 });

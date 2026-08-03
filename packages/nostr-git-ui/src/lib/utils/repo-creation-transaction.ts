@@ -1,4 +1,5 @@
 import type { NostrEvent, RepoAnnouncementEvent } from "@nostr-git/core";
+import { parseGraspRepoHttpUrl } from "@nostr-git/core/utils";
 
 import type {
   DeleteRepoEvent,
@@ -8,6 +9,7 @@ import type {
 } from "./grasp-pipeline.js";
 import {
   extractPublishRelayAck,
+  normalizeGraspOrigins,
   reconcileRepoCreationEvents,
   verifyGraspEventAfterPush,
 } from "./grasp-pipeline.js";
@@ -18,6 +20,7 @@ import type {
 } from "./remote-sync.js";
 import type { RemoteTargetSelection } from "./remote-targets.js";
 import type { OperationStatus } from "@nostr-git/core";
+import { assertGraspCloneRelayCoupling } from "./grasp-service-coupling.js";
 
 export type RepoCreationOperation = "new" | "import" | "fork";
 export type RepoCreationPhase = "syncing" | "metadata-pending" | "cleanup-pending" | "failed";
@@ -66,6 +69,7 @@ export interface RepoCreationTargetRecord extends Pick<
   remoteUrl?: string;
   webUrl?: string;
   createdRemote?: boolean;
+  announcementEvent?: NostrEvent;
   refs: RemoteSyncRefCheckpoint[];
   cleanup: RepoCreationCleanupState;
   manualAttention: boolean;
@@ -98,7 +102,13 @@ export interface RepoCreationRecoveryRecord {
   operation: RepoCreationOperation;
   ownerPubkey: string;
   repoName: string;
+  repositoryRelayUrls?: string[];
   localRepoId?: string;
+  sourceMetadata?: {
+    cloneUrls: string[];
+    webUrls: string[];
+    announcementEvent?: NostrEvent;
+  };
   localResource: RepoCreationLocalResource;
   phase: RepoCreationPhase;
   targets: RepoCreationTargetRecord[];
@@ -119,6 +129,7 @@ export interface RepoCreationRecoveryRecord {
       | "pushedRefs"
       | "failedRefs"
       | "warnings"
+      | "provisionalAnnouncementEvent"
     >
   >;
   publishedEvents: RepoCreationPublishedEvent[];
@@ -276,6 +287,18 @@ function initialTargetCleanup(createdRemote = false): RepoCreationCleanupState {
     : { stage: "not-needed", manualAttention: false };
 }
 
+function relayUrlKey(value: string): string {
+  const trimmed = normalizeGraspOrigins(value).wsOrigin.trim();
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    url.search = "";
+    return url.pathname === "/" ? url.origin : url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
 function sanitizeTargets(
   targets: RemoteTargetSelection[],
   existingTargets: RepoCreationTargetRecord[] = [],
@@ -301,6 +324,14 @@ function sanitizeTargets(
           : remoteUrl
             ? { createdRemote: false }
             : {}),
+        ...(existing?.announcementEvent
+          ? {
+              announcementEvent: {
+                ...existing.announcementEvent,
+                tags: existing.announcementEvent.tags.map((tag) => [...tag]),
+              },
+            }
+          : {}),
         refs: (existing?.refs || []).map((ref) => sanitizeRefCheckpoint(ref, secrets)),
         cleanup: existing?.cleanup || initialTargetCleanup(false),
         manualAttention: existing?.manualAttention || false,
@@ -331,6 +362,7 @@ function sanitizeResults(
       pushedRefs,
       failedRefs,
       warnings,
+      provisionalAnnouncementEvent,
     }) => ({
       id,
       label,
@@ -354,6 +386,14 @@ function sanitizeResults(
         : {}),
       ...(warnings
         ? { warnings: warnings.map((warning) => redactSecrets(warning, secrets) || "") }
+        : {}),
+      ...(provisionalAnnouncementEvent
+        ? {
+            provisionalAnnouncementEvent: {
+              ...provisionalAnnouncementEvent,
+              tags: provisionalAnnouncementEvent.tags.map((tag) => [...tag]),
+            },
+          }
         : {}),
     })
   );
@@ -399,7 +439,13 @@ export class RepoCreationTransactionJournal {
     operation: RepoCreationOperation;
     ownerPubkey: string;
     repoName: string;
+    repositoryRelayUrls?: string[];
     localRepoId?: string;
+    sourceMetadata?: {
+      cloneUrls?: string[];
+      webUrls?: string[];
+      announcementEvent?: NostrEvent;
+    };
     localResource?: Partial<
       Pick<RepoCreationLocalResource, "ownedByTransaction" | "stage" | "error">
     >;
@@ -411,7 +457,36 @@ export class RepoCreationTransactionJournal {
       operation: params.operation,
       ownerPubkey: params.ownerPubkey,
       repoName: params.repoName,
+      ...(params.repositoryRelayUrls
+        ? {
+            repositoryRelayUrls: params.repositoryRelayUrls
+              .map((relay) => sanitizeUrl(relay, []))
+              .filter((relay): relay is string => Boolean(relay)),
+          }
+        : {}),
       ...(params.localRepoId ? { localRepoId: params.localRepoId } : {}),
+      ...(params.sourceMetadata
+        ? {
+            sourceMetadata: {
+              cloneUrls:
+                params.sourceMetadata.cloneUrls
+                  ?.map((url) => sanitizeUrl(url, []))
+                  .filter((url): url is string => Boolean(url)) || [],
+              webUrls:
+                params.sourceMetadata.webUrls
+                  ?.map((url) => sanitizeUrl(url, []))
+                  .filter((url): url is string => Boolean(url)) || [],
+              ...(params.sourceMetadata.announcementEvent
+                ? {
+                    announcementEvent: {
+                      ...params.sourceMetadata.announcementEvent,
+                      tags: params.sourceMetadata.announcementEvent.tags.map((tag) => [...tag]),
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
       localResource: {
         ...(params.localRepoId ? { id: params.localRepoId } : {}),
         ownedByTransaction: params.localResource?.ownedByTransaction ?? true,
@@ -471,6 +546,23 @@ export class RepoCreationTransactionJournal {
       this.#secrets = previousSecrets;
       throw error;
     }
+  }
+
+  recordGraspAnnouncementEvidence(relayUrl: string, event: NostrEvent): void {
+    const relayKey = relayUrlKey(relayUrl);
+    const targets = this.#record.targets.map((target) =>
+      target.provider === "grasp" && relayUrlKey(target.relayUrl || "") === relayKey
+        ? {
+            ...target,
+            announcementEvent: {
+              ...event,
+              tags: event.tags.map((tag) => [...tag]),
+            },
+            updatedAt: Date.now(),
+          }
+        : target
+    );
+    this.#update({ targets });
   }
 
   setTargetResults(results: RemoteSyncTargetResult[]): void {
@@ -847,6 +939,51 @@ export async function retryPendingRepoCreationMetadata(
     throw new Error("Metadata recovery requires explicit relay destinations");
   }
 
+  const successfulGraspTargets = record.targets
+    .filter(
+      (target) =>
+        target.provider === "grasp" &&
+        target.relayUrl &&
+        record.targetResults.some(
+          (targetResult) => targetResult.id === target.id && targetResult.success
+        )
+    )
+    .flatMap((target) => {
+      const targetResult = record.targetResults.find((result) => result.id === target.id);
+      return targetResult?.remoteUrl
+        ? [
+            {
+              relayUrl: target.relayUrl as string,
+              cloneUrl: targetResult.remoteUrl,
+              webUrl: targetResult.webUrl,
+            },
+          ]
+        : [];
+    });
+  const authoritativeSourceCloneUrls =
+    record.sourceMetadata?.announcementEvent?.tags
+      .filter((tag) => tag[0] === "clone")
+      .flatMap((tag) => tag.slice(1)) || [];
+  assertGraspCloneRelayCoupling({
+    repoRelayUrls: relays,
+    cloneUrls: announcement.event.tags
+      .filter((tag) => tag[0] === "clone")
+      .flatMap((tag) => tag.slice(1)),
+    knownServices: record.targets
+      .filter((target) => target.provider === "grasp" && target.relayUrl)
+      .map((target) => {
+        const result = record.targetResults.find((item) => item.id === target.id);
+        return {
+          relayUrl: target.relayUrl as string,
+          httpBaseAliases: [parseGraspRepoHttpUrl(result?.remoteUrl || "")?.httpBase || ""],
+          sources: ["selected-target" as const],
+        };
+      }),
+    ownerPubkey: record.ownerPubkey,
+    identifier: record.repoName,
+    allowedUnlistedCloneUrls: authoritativeSourceCloneUrls,
+  });
+
   const publishExact = async (item: RepoCreationPublishedEvent, destinations: string[]) => {
     const result = await publisher(item.event, { relays: destinations, stage: "final" });
     if (getPublishedEvent(result)?.id !== item.event.id) {
@@ -877,27 +1014,6 @@ export async function retryPendingRepoCreationMetadata(
     state: statePublish.result,
   };
   let recoveryCleanupFailures: RepoCreationRecoveryRecord["pendingCompensations"] = [];
-  const successfulGraspTargets = record.targets
-    .filter(
-      (target) =>
-        target.provider === "grasp" &&
-        target.relayUrl &&
-        record.targetResults.some(
-          (targetResult) => targetResult.id === target.id && targetResult.success
-        )
-    )
-    .flatMap((target) => {
-      const targetResult = record.targetResults.find((result) => result.id === target.id);
-      return targetResult?.remoteUrl
-        ? [
-            {
-              relayUrl: target.relayUrl as string,
-              cloneUrl: targetResult.remoteUrl,
-              webUrl: targetResult.webUrl,
-            },
-          ]
-        : [];
-    });
   if (statePublish.ackedRelays.length < relays.length) {
     const graspCloneUrls = new Set(successfulGraspTargets.map((target) => target.cloneUrl));
     const graspWebUrls = new Set(
@@ -908,6 +1024,8 @@ export async function retryPendingRepoCreationMetadata(
         .map((targetResult) => targetResult.webUrl)
         .filter(Boolean)
     );
+    const sourceCloneUrls = new Set(record.sourceMetadata?.cloneUrls || []);
+    const sourceWebUrls = new Set(record.sourceMetadata?.webUrls || []);
     const preservedTags = announcement.event.tags.filter(
       (tag) => !["clone", "web", "relays"].includes(tag[0])
     );
@@ -915,12 +1033,12 @@ export async function retryPendingRepoCreationMetadata(
       announcement.event.tags
         .find((tag) => tag[0] === "clone")
         ?.slice(1)
-        .filter((cloneUrl) => !graspCloneUrls.has(cloneUrl)) || [];
+        .filter((cloneUrl) => sourceCloneUrls.has(cloneUrl) || !graspCloneUrls.has(cloneUrl)) || [];
     const fixedWebUrls =
       announcement.event.tags
         .find((tag) => tag[0] === "web")
         ?.slice(1)
-        .filter((webUrl) => !graspWebUrls.has(webUrl)) || [];
+        .filter((webUrl) => sourceWebUrls.has(webUrl) || !graspWebUrls.has(webUrl)) || [];
     const { id: _id, sig: _sig, pubkey: _pubkey, ...announcementTemplate } = announcement.event;
     const reconciled = await reconcileRepoCreationEvents({
       relayUrls: statePublish.ackedRelays,
@@ -931,6 +1049,9 @@ export async function retryPendingRepoCreationMetadata(
       onPublishEvent: publisher,
       fetchRelayEvents,
       minCreatedAt: Math.max(announcement.event.created_at, state.event.created_at),
+      ownerPubkey: record.ownerPubkey,
+      identifier: record.repoName,
+      allowedUnlistedCloneUrls: authoritativeSourceCloneUrls,
       buildAnnouncement: ({
         relays: activeRelays,
         graspCloneUrls: activeGraspClones,
@@ -940,17 +1061,15 @@ export async function retryPendingRepoCreationMetadata(
           .filter((target) => activeGraspClones.includes(target.cloneUrl))
           .map((target) => target.webUrl)
           .filter((webUrl): webUrl is string => Boolean(webUrl));
+        const finalWebUrls = Array.from(new Set([...fixedWebUrls, ...activeGraspWebUrls]));
+        const finalCloneUrls = Array.from(new Set([...fixedCloneUrls, ...activeGraspClones]));
         return {
           ...announcementTemplate,
           created_at: createdAt,
           tags: [
             ...preservedTags.map((tag) => [...tag]),
-            ...(fixedWebUrls.length + activeGraspWebUrls.length > 0
-              ? [["web", ...fixedWebUrls, ...activeGraspWebUrls]]
-              : []),
-            ...(fixedCloneUrls.length + activeGraspClones.length > 0
-              ? [["clone", ...fixedCloneUrls, ...activeGraspClones]]
-              : []),
+            ...(finalWebUrls.length > 0 ? [["web", ...finalWebUrls]] : []),
+            ...(finalCloneUrls.length > 0 ? [["clone", ...finalCloneUrls]] : []),
             ["relays", ...activeRelays],
           ],
         } as RepoAnnouncementEvent;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import {
     Settings,
     X,
@@ -23,6 +24,16 @@
   import { PeoplePicker } from "@nostr-git/ui";
   import { Repo } from "./Repo.svelte";
   import { commonHashtags } from "../../stores/hashtags";
+  import { graspServersStore } from "../../stores/graspServers.js";
+  import {
+    buildGraspServiceDescriptors,
+    formatUnbackedGraspRelayError,
+    getCloneGraspServiceDescriptors,
+    getUnbackedGraspCloneRelayUrls,
+    mergeGraspServiceDescriptors,
+    resolveKnownGraspServices,
+    type GraspServiceDescriptor,
+  } from "../../utils/grasp-service-coupling.js";
   import {
     getRepoSettingsRelayState,
     publishRepoSettingsEvents,
@@ -74,6 +85,7 @@
     variant?: "modal" | "page";
     canDelete?: boolean;
     onRequestDelete?: () => void;
+    onClose?: () => void;
     onSaveComplete?: (result: SaveCompleteResult) => Promise<void> | void;
     getProfile?: (
       pubkey: string
@@ -100,6 +112,7 @@
     variant = "modal",
     canDelete = false,
     onRequestDelete,
+    onClose,
     onSaveComplete,
     getProfile,
     searchProfiles,
@@ -122,6 +135,23 @@
   let saveFeedback = $state<SaveFeedback | undefined>();
   let preserveFormAfterSaveFailure = $state(false);
   let lastReplacementCreatedAt = 0;
+  let closeNotified = false;
+
+  function notifyClose() {
+    if (closeNotified) return;
+    closeNotified = true;
+    onClose?.();
+  }
+  let personalGraspServerUrls = $state<string[]>([]);
+  let resolvedGraspServices = $state<GraspServiceDescriptor[]>([]);
+  let resolvingGraspServices = $state(false);
+  let graspServiceResolutionRunId = 0;
+
+  const unsubscribeGraspServers = graspServersStore.subscribe((urls) => {
+    personalGraspServerUrls = urls;
+  });
+  onDestroy(unsubscribeGraspServers);
+  onDestroy(notifyClose);
 
   const isEditing = $derived(
     localIsEditing || (externalIsEditing && !externalProgress?.isComplete)
@@ -217,10 +247,67 @@
   let relaySearchTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const relayState = $derived.by(() =>
-    getRepoSettingsRelayState(formData.relays || [], formData.cloneUrls || [])
+    getRepoSettingsRelayState(
+      formData.relays || [],
+      formData.cloneUrls || [],
+      resolvedGraspServices
+    )
   );
   const mandatoryGraspRelays = $derived(relayState.mandatoryGraspRelays);
   const automaticGraspRelays = $derived(relayState.automaticGraspRelays);
+  const declaredGraspServices = $derived.by(() =>
+    mergeGraspServiceDescriptors([
+      ...buildGraspServiceDescriptors(
+        findRepoCommunityOption(communityOptions, formData.communityPubkey)?.graspServers || [],
+        "community-10222"
+      ),
+      ...buildGraspServiceDescriptors(personalGraspServerUrls, "user-10317"),
+      ...buildGraspServiceDescriptors(
+        communityOptions
+          .filter((option) => option.pubkey !== formData.communityPubkey)
+          .flatMap((option) => option.graspServers || []),
+        "community-10222"
+      ),
+    ])
+  );
+  const unbackedGraspRelays = $derived.by(() =>
+    getUnbackedGraspCloneRelayUrls({
+      repoRelayUrls: relayState.effectiveRelays,
+      cloneUrls: formData.cloneUrls,
+      knownServices: resolvedGraspServices,
+      ownerPubkey: repo.repoEvent?.pubkey || "",
+      identifier: formData.name.trim(),
+    })
+  );
+
+  $effect(() => {
+    const relayUrls = Array.from(
+      new Set([
+        ...(formData.relays || []),
+        ...getCloneGraspServiceDescriptors(formData.cloneUrls || []).map(
+          (service) => service.relayUrl
+        ),
+      ])
+    );
+    const knownServices = [...declaredGraspServices];
+    const runId = ++graspServiceResolutionRunId;
+    resolvingGraspServices = true;
+    void resolveKnownGraspServices({
+      relayUrls,
+      knownServices,
+      enrichKnownServices: getCloneGraspServiceDescriptors(formData.cloneUrls || []).length > 0,
+    })
+      .then((services) => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = services;
+        resolvingGraspServices = false;
+      })
+      .catch(() => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = knownServices;
+        resolvingGraspServices = false;
+      });
+  });
 
   function normalizeRelayValue(value: string): string {
     return String(value || "")
@@ -645,6 +732,10 @@
       errors.relays = "Relays must be valid WebSocket URLs (wss://...)";
     } else if (relayState.effectiveRelays.length === 0) {
       errors.relays = "At least one repository relay is required";
+    } else if (resolvingGraspServices) {
+      errors.relays = "Checking repository relay capabilities...";
+    } else if (unbackedGraspRelays.length > 0) {
+      errors.relays = formatUnbackedGraspRelayError(unbackedGraspRelays);
     }
 
     // Web URLs validation
@@ -687,7 +778,10 @@
     validationErrors = validateForm();
   });
 
-  const back = () => history.back();
+  const back = () => {
+    notifyClose();
+    history.back();
+  };
 
   function handleCancel() {
     const hadSaveFailure = saveFeedback?.type === "error";
@@ -777,7 +871,8 @@
       const cleanCloneUrls = cleanList(formData.cloneUrls);
       const cleanRelays = getRepoSettingsRelayState(
         formData.relays,
-        cleanCloneUrls
+        cleanCloneUrls,
+        resolvedGraspServices
       ).effectiveRelays;
       const cleanHashtags = Array.from(
         new Set(cleanList(formData.hashtags).map(normalizeHashtag).filter(Boolean))
@@ -847,8 +942,11 @@
       };
       const previousRelayUrls = Array.from(
         new Set([
-          ...getRepoSettingsRelayState(originalFormData.relays, originalFormData.cloneUrls)
-            .effectiveRelays,
+          ...getRepoSettingsRelayState(
+            originalFormData.relays,
+            originalFormData.cloneUrls,
+            resolvedGraspServices
+          ).effectiveRelays,
           ...(retryFeedback?.retryRelayUrls || []),
         ])
       );
@@ -861,6 +959,11 @@
         stateEvent: updatedStateEvent,
         relayUrls: cleanRelays,
         previousRelayUrls,
+        coupling: {
+          knownServices: resolvedGraspServices,
+          ownerPubkey: repo.repoEvent?.pubkey || "",
+          identifier: nextName,
+        },
         onPublishEvent,
         onStage: (stage) => {
           if (stage !== "state") return;
@@ -1359,8 +1462,8 @@
             </p>
           {/if}
           <p class="mt-1 text-xs text-gray-400">
-            GRASP targets are required while their clone URL is present. Removing a clone URL keeps
-            an existing repository relay until you remove it explicitly.
+            Known GRASP services require a matching clone URL for this repository. Remove the relay
+            too if the repository is no longer hosted there.
           </p>
         </div>
 

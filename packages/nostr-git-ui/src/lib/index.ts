@@ -63,6 +63,19 @@ export {
   type RepoCreationProvisionalEvent,
 } from "./utils/grasp-pipeline";
 export {
+  assertGraspCloneRelayCoupling,
+  buildGraspServiceDescriptors,
+  formatUnbackedGraspRelayError,
+  getCloneGraspServiceDescriptors,
+  getOrphanedGraspCloneUrls,
+  getUnbackedGraspCloneRelayUrls,
+  getUnbackedKnownGraspRelayUrls,
+  mergeGraspServiceDescriptors,
+  resolveKnownGraspServices,
+  type GraspServiceDescriptor,
+  type GraspServiceSource,
+} from "./utils/grasp-service-coupling";
+export {
   applyReconciledGraspResults,
   getRemoteSyncProvisionalEvents,
   syncLocalRepoToTargets,

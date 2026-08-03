@@ -47,9 +47,11 @@
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
   import {
+    createRepoPublishTransport,
     postRepoAnnouncement,
     postRepoStateEvent,
     publishRepoEventWithRelayOutcomes,
+    type RepoPublishTransport,
   } from "@app/core/git-commands.js"
   import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
@@ -166,6 +168,7 @@
   import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import {getInitializedGitWorker, subscribeGitWorkerProgress} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
+  import {isSameRepoCoordinate, waitForRepoNavigation} from "@app/util/repo-operation-navigation"
   import {
     diffBranchHeads,
     overlayLatestRepoStates,
@@ -250,6 +253,7 @@
         pubkey: ref.communityPubkey,
         label: getCommunityOptionLabel(ref.communityPubkey),
         relays: ref.definition.relays,
+        graspServers: ref.definition.graspServers,
       })),
   )
 
@@ -2078,6 +2082,32 @@
     // Repo instance reused when navigating within same repo
   }
 
+  const activeRepoPublishTransports = new Set<RepoPublishTransport>()
+  let repoSettingsPagePublishTransport: RepoPublishTransport | undefined
+
+  const createTrackedRepoPublishTransport = () => {
+    const transport = createRepoPublishTransport()
+    const trackedTransport: RepoPublishTransport = {
+      publish: transport.publish,
+      dispose: () => {
+        transport.dispose()
+        activeRepoPublishTransports.delete(trackedTransport)
+      },
+    }
+    activeRepoPublishTransports.add(trackedTransport)
+    return trackedTransport
+  }
+
+  const getRepoSettingsPagePublishTransport = () => {
+    repoSettingsPagePublishTransport ||= createTrackedRepoPublishTransport()
+    return repoSettingsPagePublishTransport
+  }
+
+  const disposeRepoSettingsPagePublishTransport = () => {
+    repoSettingsPagePublishTransport?.dispose()
+    repoSettingsPagePublishTransport = undefined
+  }
+
   // Set context for child components (only once, not in effect)
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
@@ -2126,6 +2156,7 @@
         event,
         relaysForPublish,
         context?.additionalRelays,
+        getRepoSettingsPagePublishTransport(),
       )
     },
     onSaveComplete: async ({
@@ -2137,12 +2168,14 @@
       nextName: string
       relays: string[]
     }) => {
+      disposeRepoSettingsPagePublishTransport()
       if (!renamed) {
         await refreshRepo({throwOnError: true})
         return
       }
       await navigateToRenamedRepo(nextName, relays)
     },
+    disposePublishTransport: disposeRepoSettingsPagePublishTransport,
     openDeleteRepoModal: () => openDeleteRepoModal(),
     getProfile: (pubkey: string) => getRepoProfile(pubkey),
     searchProfiles: (query: string) => searchRepoProfiles(query),
@@ -2727,6 +2760,8 @@
   // Cleanup on component destroy
   onDestroy(() => {
     layoutDestroyed = true
+    for (const transport of activeRepoPublishTransports) transport.dispose()
+    activeRepoPublishTransports.clear()
 
     if (deleteSeenKey) {
       setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
@@ -3196,6 +3231,20 @@
     try {
       const parsed = parseRepoAnnouncementEvent(result.announcementEvent)
 
+      hydrateForkRepoEvents(result)
+      if (
+        isSameRepoCoordinate({
+          currentOwner: repoPubkey,
+          currentIdentifier: repoName,
+          nextOwner: result.announcementEvent.pubkey,
+          nextIdentifier: parsed.repoId,
+        })
+      ) {
+        clearModals()
+        await tick()
+        return
+      }
+
       const fallbackRelay = url
 
       const policy = resolveRepoRelayPolicy({
@@ -3231,14 +3280,12 @@
         return
       }
 
-      hydrateForkRepoEvents(result)
-
-      // Encode relay URL for the route
-      // Navigate to the forked repo page
       const targetPath = makeGitPath(effectiveRelay, naddr)
-      await goto(withCurrentModalHash(makeGitPath()), {replaceState: true})
-      await tick()
-      await goto(withCurrentModalHash(targetPath), {replaceState: true})
+      await waitForRepoNavigation(
+        () => goto(withCurrentModalHash(targetPath), {replaceState: true, invalidateAll: true}),
+        undefined,
+        clearModals,
+      )
       clearModals()
     } catch (error) {
       console.error("Failed to navigate to forked repo:", error)
@@ -3391,10 +3438,13 @@
       timeoutMs?: number
       label?: string
       relays?: string[]
+      transport?: RepoPublishTransport
     } = {},
   ) {
     if (options.relays?.length) {
-      return publishRepoEventWithRelayOutcomes(event, options.relays)
+      return options.transport
+        ? options.transport.publish(event, options.relays)
+        : publishRepoEventWithRelayOutcomes(event, options.relays)
     }
 
     const policy = resolveRepoRelayPolicy({
@@ -3416,11 +3466,26 @@
               gitIndexerRelays: GIT_RELAYS,
             })
           : policy.repoRelays
-      return publishRepoEventWithRelayOutcomes(event, publishRelays)
+      return options.transport
+        ? options.transport.publish(event, publishRelays)
+        : publishRepoEventWithRelayOutcomes(event, publishRelays)
     }
 
     if (event.kind !== GIT_REPO_ANNOUNCEMENT && policy.repoRelays.length === 0) {
       throw new Error("Repository relays not ready. Please wait...")
+    }
+
+    if (options.transport) {
+      const publishRelays =
+        event.kind === GIT_REPO_ANNOUNCEMENT
+          ? getRepoAnnouncementPublishRelays({
+              repoEvent: event,
+              repoRelays: policy.repoRelays,
+              userOutboxRelays: getUserOutboxRelays(),
+              gitIndexerRelays: GIT_RELAYS,
+            })
+          : policy.repoRelays
+      return options.transport.publish(event, publishRelays)
     }
 
     const thunk =
@@ -3437,6 +3502,7 @@
     event: RepoAnnouncementEvent | RepoStateEvent,
     requiredRelayUrls: string[],
     additionalRelayUrls: string[] = [],
+    transport?: RepoPublishTransport,
   ) {
     const requiredRelays = Array.from(
       new Set(requiredRelayUrls.map(safeNormalizeRelayUrl).filter(Boolean)),
@@ -3454,9 +3520,9 @@
             gitIndexerRelays: GIT_RELAYS,
           })
         : requiredRelays
-    const result = await publishRepoEventWithRelayOutcomes(event, publishRelays, {
-      publishLocally: false,
-    })
+    const result = await (transport
+      ? transport.publish(event, publishRelays, {publishLocally: false})
+      : publishRepoEventWithRelayOutcomes(event, publishRelays, {publishLocally: false}))
     const ackedRelaySet = new Set(result.ackedRelays.map(safeNormalizeRelayUrl).filter(Boolean))
     const hasRequiredAck = requiredRelays.some(relay => ackedRelaySet.has(relay))
 
@@ -3521,6 +3587,7 @@
       filters: params.filters as any,
       timeoutMs: params.timeoutMs,
       throwOnTimeout: params.throwOnTimeout,
+      isolated: true,
     })
 
   async function forkRepo() {
@@ -3595,7 +3662,8 @@
       }
     }
 
-    pushModal(
+    const publishTransport = createTrackedRepoPublishTransport()
+    const modalId = pushModal(
       ForkRepoDialog,
       {
         repo: repoClass,
@@ -3616,6 +3684,7 @@
                   ? "Fork repo state publish"
                   : "Fork repo announcement publish",
               relays: context?.relays,
+              transport: publishTransport,
             },
           )
           if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
@@ -3625,6 +3694,8 @@
           await deleteExactRepoEvent(event, relays)
         },
         onFetchRelayEvents: fetchRepoRelayEvents,
+        onClose: () => publishTransport.dispose(),
+        onOperationComplete: () => publishTransport.dispose(),
         onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
         graspServerUrls: $graspServersStore.length > 0 ? $graspServersStore : graspServerUrls,
         navigateToForkedRepo: navigateToForkedRepo,
@@ -3632,12 +3703,14 @@
         sourceCloneUrls,
         defaultMaintainers,
         communityOptions: repoCommunityOptions,
+        defaultCommunityPubkey: repoClass.community?.pubkey || "",
         getProfile: getRepoProfile,
         searchProfiles: searchRepoProfiles,
         searchRelays: searchRepoRelays,
       },
       {fullscreen: true, noEscape: true},
     )
+    if (!modalId) publishTransport.dispose()
   }
 
   function settingsRepo(replaceState = false) {
@@ -3651,8 +3724,17 @@
     }
 
     const relaysForPublish = getStore(repoRelaysStore)
+    let publishTransport: RepoPublishTransport | undefined
+    const getPublishTransport = () => {
+      publishTransport ||= createTrackedRepoPublishTransport()
+      return publishTransport
+    }
+    const disposePublishTransport = () => {
+      publishTransport?.dispose()
+      publishTransport = undefined
+    }
 
-    pushModal(
+    const modalId = pushModal(
       EditRepoPanel,
       {
         repo: repoClass,
@@ -3661,7 +3743,12 @@
           context?: {relays: string[]; additionalRelays?: string[]},
         ) => {
           const eventRelays = context?.relays?.length ? context.relays : relaysForPublish
-          return publishRepoSettingsEventWithOutcomes(event, eventRelays, context?.additionalRelays)
+          return publishRepoSettingsEventWithOutcomes(
+            event,
+            eventRelays,
+            context?.additionalRelays,
+            getPublishTransport(),
+          )
         },
         onSaveComplete: async ({
           renamed,
@@ -3672,6 +3759,7 @@
           nextName: string
           relays: string[]
         }) => {
+          disposePublishTransport()
           if (!renamed) {
             await refreshRepo({throwOnError: true})
             return
@@ -3680,6 +3768,7 @@
         },
         canDelete: !!$pubkey && repoPubkey === $pubkey,
         onRequestDelete: () => openDeleteRepoModal(),
+        onClose: disposePublishTransport,
         getProfile: getRepoProfile,
         searchProfiles: searchRepoProfiles,
         searchRelays: searchRepoRelays,
@@ -3687,6 +3776,7 @@
       },
       replaceState ? {replaceState: true} : {},
     )
+    if (!modalId) disposePublishTransport()
   }
 
   async function syncRepoBranchStateFromRemote({

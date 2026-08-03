@@ -165,6 +165,31 @@ describe("remote target preflight", () => {
     ).rejects.toThrow("Repository target preflight failed");
   });
 
+  it("allows authoritative target reuse for same-coordinate augmentation", async () => {
+    checkGraspRepoExists.mockResolvedValue({
+      exists: true,
+      htmlUrl: "https://relay.example/npub1test/repo",
+    });
+
+    const [target] = await preflightNewRemoteTargets({
+      targets: [
+        {
+          id: "grasp:wss://relay.example",
+          label: "GRASP (relay.example)",
+          provider: "grasp",
+          relayUrl: "wss://relay.example",
+        },
+      ],
+      tokenList: [],
+      userPubkey: "pubkey",
+      repoName: "repo",
+      allowExistingRepoReuse: true,
+    });
+
+    expect(target.existsAlready).toBe(true);
+    expect(target.existingRemoteUrl).toBe("https://relay.example/npub1test/repo.git");
+  });
+
   it("checks every selected GRASP target", async () => {
     checkGraspRepoExists.mockResolvedValue({ exists: false });
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { nip19 } from "nostr-tools";
 
 import {
   getPendingRepoCreationTransactions,
@@ -66,6 +67,7 @@ describe("RepoCreationTransactionJournal", () => {
       operation: "new",
       ownerPubkey: "f".repeat(64),
       repoName: "repo",
+      repositoryRelayUrls: ["wss://relay.example"],
       localRepoId: "owner/repo",
     });
     journal.setTargets([
@@ -104,6 +106,7 @@ describe("RepoCreationTransactionJournal", () => {
       expect.objectContaining({
         version: 2,
         phase: "metadata-pending",
+        repositoryRelayUrls: ["wss://relay.example"],
         lastError: "relay timeout",
         localResource: {
           id: "owner/repo",
@@ -516,10 +519,12 @@ describe("RepoCreationTransactionJournal", () => {
       configurable: true,
       value: new MemoryStorage(),
     });
+    const ownerPubkey = "f".repeat(64);
+    const cloneUrl = `https://grasp.example/${nip19.npubEncode(ownerPubkey)}/repo.git`;
     const journal = new RepoCreationTransactionJournal({
       id: "import:owner:repo:grasp-recovery",
       operation: "import",
-      ownerPubkey: "f".repeat(64),
+      ownerPubkey,
       repoName: "repo",
     });
     const announcement = {
@@ -530,6 +535,7 @@ describe("RepoCreationTransactionJournal", () => {
       created_at: 2,
       tags: [
         ["d", "repo"],
+        ["clone", cloneUrl],
         ["relays", "wss://grasp.example"],
       ],
       content: "",
@@ -543,16 +549,20 @@ describe("RepoCreationTransactionJournal", () => {
         relayUrl: "wss://grasp.example",
       },
     ]);
+    journal.recordGraspAnnouncementEvidence("wss://grasp.example", announcement);
+    expect(journal.record.targets[0].announcementEvent).toEqual(announcement);
     journal.setTargetResults([
       {
         id: "grasp:wss://grasp.example",
         label: "GRASP",
         provider: "grasp",
         relayUrl: "wss://grasp.example",
-        remoteUrl: "https://grasp.example/npub1owner/repo.git",
+        remoteUrl: cloneUrl,
         success: true,
+        provisionalAnnouncementEvent: announcement,
       },
     ]);
+    expect(journal.record.targetResults[0].provisionalAnnouncementEvent).toEqual(announcement);
     journal.recordPublishedEvent({ event: announcement }, ["wss://grasp.example"], "final");
     journal.recordPublishedEvent({ event: state }, ["wss://grasp.example"], "final");
     journal.setPhase("metadata-pending");
@@ -577,25 +587,67 @@ describe("RepoCreationTransactionJournal", () => {
       configurable: true,
       value: new MemoryStorage(),
     });
+    const ownerPubkey = "f".repeat(64);
+    const cloneUrl = `https://available.example/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+    const legacyCloneUrl = `https://legacy.example/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+    const webUrl = cloneUrl.replace(/\.git$/, "");
+    const sourceAnnouncement = {
+      id: "source-announcement-id",
+      sig: "signature",
+      pubkey: ownerPubkey,
+      kind: 30617,
+      created_at: 1,
+      tags: [
+        ["d", "repo"],
+        ["clone", cloneUrl, legacyCloneUrl],
+        ["relays", "wss://available.example"],
+      ],
+      content: "",
+    };
     const journal = new RepoCreationTransactionJournal({
       id: "import:owner:repo:partial-relays",
       operation: "import",
-      ownerPubkey: "f".repeat(64),
+      ownerPubkey,
       repoName: "repo",
+      sourceMetadata: {
+        cloneUrls: [cloneUrl, legacyCloneUrl],
+        webUrls: [webUrl],
+        announcementEvent: sourceAnnouncement,
+      },
     });
     const announcement = {
       id: "announcement-id",
       sig: "signature",
-      pubkey: "f".repeat(64),
+      pubkey: ownerPubkey,
       kind: 30617,
       created_at: 2,
       tags: [
         ["d", "repo"],
-        ["clone", "https://github.com/owner/repo.git"],
+        ["clone", cloneUrl, legacyCloneUrl],
+        ["web", webUrl],
         ["relays", "wss://available.example", "wss://offline.example"],
       ],
       content: "",
     };
+    journal.setTargets([
+      {
+        id: "grasp:wss://available.example",
+        label: "GRASP",
+        provider: "grasp",
+        relayUrl: "wss://available.example",
+      },
+    ]);
+    journal.setTargetResults([
+      {
+        id: "grasp:wss://available.example",
+        label: "GRASP",
+        provider: "grasp",
+        relayUrl: "wss://available.example",
+        remoteUrl: cloneUrl,
+        webUrl,
+        success: true,
+      },
+    ]);
     const state = { ...announcement, id: "state-id", kind: 30618, tags: [["d", "repo"]] };
     journal.recordPublishedEvent(
       { event: announcement },
@@ -609,15 +661,17 @@ describe("RepoCreationTransactionJournal", () => {
     );
     journal.setPhase("metadata-pending");
     let signedCount = 0;
+    const publishedEventsById = new Map<string, any>();
     const publisher = vi.fn(async (event, context) => {
       const signed = event.id
         ? event
         : {
             ...event,
             id: `reconciled-${++signedCount}`,
-            pubkey: "f".repeat(64),
+            pubkey: ownerPubkey,
             sig: "signature",
           };
+      publishedEventsById.set(signed.id, signed);
       return {
         event: signed,
         ackedRelays: ["wss://available.example"],
@@ -628,8 +682,16 @@ describe("RepoCreationTransactionJournal", () => {
         hasRelayOutcomes: true,
       };
     });
+    const fetchRelayEvents = vi.fn(async ({ filters }) => {
+      const event = publishedEventsById.get(filters[0]?.ids?.[0] || "");
+      return event ? [event] : [];
+    });
 
-    const recovered = await retryPendingRepoCreationMetadata(journal.record, publisher);
+    const recovered = await retryPendingRepoCreationMetadata(
+      journal.record,
+      publisher,
+      fetchRelayEvents
+    );
 
     expect(publisher.mock.calls[0][1].relays).toEqual([
       "wss://available.example",
@@ -637,6 +699,8 @@ describe("RepoCreationTransactionJournal", () => {
     ]);
     expect(publisher.mock.calls[1][1].relays).toEqual(["wss://available.example"]);
     expect(recovered.announcement.event.tags).toContainEqual(["relays", "wss://available.example"]);
+    expect(recovered.announcement.event.tags).toContainEqual(["clone", cloneUrl, legacyCloneUrl]);
+    expect(recovered.announcement.event.tags).toContainEqual(["web", webUrl]);
     expect(getPendingRepoCreationTransactions()).toHaveLength(0);
   });
 

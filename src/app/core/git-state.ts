@@ -106,6 +106,7 @@ export type RepoSettingsActions = {
     nextName: string
     relays: string[]
   }) => Promise<void>
+  disposePublishTransport: () => void
   openDeleteRepoModal: () => void
   getProfile: (pubkey: string) => Promise<RepoProfileSummary | null>
   searchProfiles: (query: string) => Promise<Array<RepoProfileSummary & {pubkey: string}>>

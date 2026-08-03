@@ -6,9 +6,18 @@ import {
   type RepoStateEvent,
 } from "@nostr-git/core/events";
 import type { NostrEvent, NostrFilter } from "@nostr-git/core";
-import { isGraspRepoHttpUrl, sanitizeRelays } from "@nostr-git/core/utils";
+import {
+  isGraspRepoHttpUrl,
+  normalizeGraspServiceHttpBase,
+  parseGraspRepoHttpUrl,
+  sanitizeRelays,
+} from "@nostr-git/core/utils";
 import { nip19 } from "nostr-tools";
 import { checkGraspRepoExists, checkGraspReceivePackReady } from "./grasp-availability.js";
+import {
+  assertGraspCloneRelayCoupling,
+  type GraspServiceDescriptor,
+} from "./grasp-service-coupling.js";
 
 export interface GraspPublishRelayAck {
   ackedRelays: string[];
@@ -53,6 +62,9 @@ export interface ReconcileRepoCreationEventsParams {
   onDeleteEvent?: DeleteRepoEvent;
   minCreatedAt?: number;
   maxRounds?: number;
+  ownerPubkey?: string;
+  identifier?: string;
+  allowedUnlistedCloneUrls?: string[];
 }
 
 export interface ReconciledRepoCreationEvents {
@@ -327,6 +339,40 @@ export function getEffectiveRepoRelayUrls(
   ]);
 }
 
+export function reconcileSelectedGraspRelays(params: {
+  editableRelayUrls: string[];
+  parkedTargetRelayUrls: string[];
+  selectedGraspRelayUrls: string[];
+  preservedRelayUrls?: string[];
+  explicitlyRemovedRelayUrls?: string[];
+}): { editableRelayUrls: string[]; parkedTargetRelayUrls: string[] } {
+  const editableRelayUrls = sanitizeRelays(params.editableRelayUrls);
+  const parkedTargetRelayUrls = sanitizeRelays(params.parkedTargetRelayUrls);
+  const explicitlyRemovedRelaySet = new Set(
+    sanitizeRelays(params.explicitlyRemovedRelayUrls || [])
+  );
+  const preservedRelayUrls = sanitizeRelays(params.preservedRelayUrls || []).filter(
+    (relayUrl) => !explicitlyRemovedRelaySet.has(relayUrl)
+  );
+  const selectedRelaySet = new Set(getMandatoryGraspRelayUrls(params.selectedGraspRelayUrls));
+  const retainedEditableRelayUrls = editableRelayUrls.filter(
+    (relayUrl) => !explicitlyRemovedRelaySet.has(relayUrl)
+  );
+  const retainedParkedRelayUrls = parkedTargetRelayUrls.filter(
+    (relayUrl) => !explicitlyRemovedRelaySet.has(relayUrl)
+  );
+  const relayCandidates = sanitizeRelays([
+    ...retainedEditableRelayUrls,
+    ...retainedParkedRelayUrls,
+    ...preservedRelayUrls,
+  ]);
+
+  return {
+    editableRelayUrls: relayCandidates.filter((relayUrl) => !selectedRelaySet.has(relayUrl)),
+    parkedTargetRelayUrls: relayCandidates.filter((relayUrl) => selectedRelaySet.has(relayUrl)),
+  };
+}
+
 export interface RepoSettingsRelayState {
   declaredRelays: string[];
   mandatoryGraspRelays: string[];
@@ -339,6 +385,11 @@ export interface PublishRepoSettingsEventsParams {
   stateEvent: RepoStateEvent;
   relayUrls: string[];
   previousRelayUrls?: string[];
+  coupling?: {
+    knownServices: GraspServiceDescriptor[];
+    ownerPubkey: string;
+    identifier: string;
+  };
   onPublishEvent: PublishRepoEvent;
   onStage?: (stage: "announcement" | "state") => void;
 }
@@ -351,10 +402,23 @@ export interface PublishedRepoSettingsEvents {
 
 export function getRepoSettingsRelayState(
   relayUrls: string[] = [],
-  cloneUrls: string[] = []
+  cloneUrls: string[] = [],
+  knownServices: GraspServiceDescriptor[] = []
 ): RepoSettingsRelayState {
   const declaredRelays = sanitizeRelays(relayUrls);
-  const mandatoryGraspRelays = getSuccessfulGraspRelayUrls(cloneUrls);
+  const mandatoryGraspRelays = dedupeStrings(
+    cloneUrls.flatMap((cloneUrl) => {
+      const parsed = parseGraspRepoHttpUrl(cloneUrl);
+      if (!parsed) return [];
+      const cloneBase = normalizeGraspServiceHttpBase(parsed.httpBase);
+      const matchingService = knownServices.find((service) =>
+        service.httpBaseAliases.some((alias) => normalizeGraspServiceHttpBase(alias) === cloneBase)
+      );
+      return matchingService
+        ? [matchingService.relayUrl]
+        : [normalizeGraspOrigins(parsed.httpBase).wsOrigin];
+    })
+  );
   const declaredRelaySet = new Set(declaredRelays);
 
   return {
@@ -370,12 +434,24 @@ export async function publishRepoSettingsEvents({
   stateEvent,
   relayUrls,
   previousRelayUrls = [],
+  coupling,
   onPublishEvent,
   onStage,
 }: PublishRepoSettingsEventsParams): Promise<PublishedRepoSettingsEvents> {
   const configuredRelays = sanitizeRelays(relayUrls);
   if (configuredRelays.length === 0) {
     throw new Error("At least one repository relay is required");
+  }
+  if (coupling) {
+    assertGraspCloneRelayCoupling({
+      repoRelayUrls: configuredRelays,
+      cloneUrls: announcementEvent.tags
+        .filter((tag) => tag[0] === "clone")
+        .flatMap((tag) => tag.slice(1)),
+      knownServices: coupling.knownServices,
+      ownerPubkey: coupling.ownerPubkey,
+      identifier: coupling.identifier,
+    });
   }
   const configuredRelaySet = new Set(configuredRelays.map(normalizeRelayForCompare));
   const additionalRelays = sanitizeRelays(previousRelayUrls).filter(
@@ -628,6 +704,9 @@ export async function reconcileRepoCreationEvents({
   onDeleteEvent,
   minCreatedAt = 0,
   maxRounds = 3,
+  ownerPubkey,
+  identifier,
+  allowedUnlistedCloneUrls = [],
 }: ReconcileRepoCreationEventsParams): Promise<ReconciledRepoCreationEvents> {
   const allCandidateRelays = dedupeStrings([
     ...relayUrls.map(normalizeRelayOrigin),
@@ -660,6 +739,26 @@ export async function reconcileRepoCreationEvents({
       graspCloneUrls: activeGraspTargets.map((target) => target.cloneUrl),
       createdAt,
     });
+    if (ownerPubkey && identifier) {
+      const cloneUrls = announcementTemplate.tags
+        .filter((tag) => tag[0] === "clone")
+        .flatMap((tag) => tag.slice(1));
+      const taggedRelays = announcementTemplate.tags
+        .filter((tag) => tag[0] === "relays")
+        .flatMap((tag) => tag.slice(1));
+      assertGraspCloneRelayCoupling({
+        repoRelayUrls: taggedRelays,
+        cloneUrls,
+        knownServices: activeGraspTargets.map((target) => ({
+          relayUrl: target.relayUrl,
+          httpBaseAliases: [parseGraspRepoHttpUrl(target.cloneUrl)?.httpBase || ""],
+          sources: ["selected-target"],
+        })),
+        ownerPubkey,
+        identifier,
+        allowedUnlistedCloneUrls,
+      });
+    }
     const announcementResult = await onPublishEvent(announcementTemplate, {
       relays: activeRelays,
       stage: "final",

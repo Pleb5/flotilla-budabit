@@ -77,6 +77,9 @@ export interface ImportConfig {
    */
   relays?: string[]
 
+  /** GRASP services known from personal/community configuration or NIP-11. */
+  knownGraspRelayUrls?: string[]
+
   /**
    * Progress callback function
    * Called with message, optional current count, and optional total count

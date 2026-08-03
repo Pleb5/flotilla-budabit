@@ -101,6 +101,67 @@ describe("budabit commands", () => {
   })
 
   describe("publishRepoEventWithRelayOutcomes", () => {
+    it("keeps native auth-required rejections hidden for Welshman retry", async () => {
+      const {parseNativeRepoPublishAck} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+
+      expect(
+        parseNativeRepoPublishAck(relay, "event-id", [
+          "OK",
+          "event-id",
+          false,
+          "auth-required: authenticate",
+        ]),
+      ).toBeUndefined()
+      expect(
+        parseNativeRepoPublishAck(relay, "event-id", [
+          "OK",
+          "event-id",
+          true,
+          "purgatory: accepted",
+        ]),
+      ).toEqual({relay, ok: true, detail: "purgatory: accepted"})
+    })
+
+    it("promotes an exact native OK when the publish aggregate reports a timeout", async () => {
+      const {applyNativeRepoPublishAcks} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+
+      expect(
+        applyNativeRepoPublishAcks({[relay]: {relay, status: "timeout", detail: "timed out"}}, [
+          {relay: "wss://grasp.example.com", ok: true, detail: "purgatory"},
+        ]),
+      ).toEqual({
+        [relay]: {relay, status: "success", detail: "purgatory"},
+      })
+    })
+
+    it("does not promote an explicit native rejection", async () => {
+      const {applyNativeRepoPublishAcks} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+
+      expect(
+        applyNativeRepoPublishAcks({[relay]: {relay, status: "timeout", detail: "timed out"}}, [
+          {relay, ok: false, detail: "blocked"},
+        ]),
+      ).toEqual({
+        [relay]: {relay, status: "failure", detail: "blocked"},
+      })
+    })
+
+    it("keeps an authoritative non-timeout publish result", async () => {
+      const {applyNativeRepoPublishAcks} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+
+      expect(
+        applyNativeRepoPublishAcks({[relay]: {relay, status: "success", detail: "accepted"}}, [
+          {relay, ok: false, detail: "late rejection"},
+        ]),
+      ).toEqual({
+        [relay]: {relay, status: "success", detail: "accepted"},
+      })
+    })
+
     it("signs once before publishing and returns detailed relay outcomes", async () => {
       const {GRASP_RELAY_ACK_TIMEOUT_MS, publishRepoEventWithRelayOutcomes} =
         await import("./git-commands")
@@ -133,12 +194,181 @@ describe("budabit commands", () => {
       })
 
       expect(mockSignerSign).toHaveBeenCalledTimes(1)
-      expect(mockPublish).toHaveBeenCalledWith({
-        event: result.event,
-        relays: [relay],
-        timeout: GRASP_RELAY_ACK_TIMEOUT_MS,
-      })
+      expect(mockPublish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: result.event,
+          relays: [relay],
+          timeout: GRASP_RELAY_ACK_TIMEOUT_MS,
+          context: {pool: expect.anything()},
+        }),
+      )
       expect(mockRepositoryPublish).toHaveBeenCalledWith(result.event)
+    })
+
+    it("reuses an isolated pool within one repository publication transport", async () => {
+      const {createRepoPublishTransport} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      mockPublish.mockResolvedValue({
+        [relay]: {relay, status: "success", detail: "purgatory"},
+      })
+      const transport = createRepoPublishTransport()
+
+      await transport.publish(event as any, [relay])
+      await transport.publish(event as any, [relay])
+
+      expect(mockPublish.mock.calls[0]?.[0].context.pool).toBe(
+        mockPublish.mock.calls[1]?.[0].context.pool,
+      )
+      transport.dispose()
+    })
+
+    it("evicts a timed-out socket before the operation retries", async () => {
+      const net = await import("@welshman/net")
+      const removeSpy = vi.spyOn(net.Pool.prototype, "remove")
+      const {createRepoPublishTransport} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      mockPublish.mockResolvedValue({
+        [relay]: {relay, status: "timeout", detail: "timed out"},
+      })
+      const transport = createRepoPublishTransport()
+
+      await transport.publish(event as any, [relay])
+
+      expect(removeSpy).toHaveBeenCalledWith(relay)
+      transport.dispose()
+      removeSpy.mockRestore()
+    })
+
+    it("uses a new socket but keeps the operation pool after a timeout", async () => {
+      const {createRepoPublishTransport} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      const pools: any[] = []
+      const sockets: any[] = []
+      mockPublish
+        .mockImplementationOnce(async options => {
+          pools.push(options.context.pool)
+          sockets.push(options.context.pool.get(relay))
+          return {[relay]: {relay, status: "timeout", detail: "timed out"}}
+        })
+        .mockImplementationOnce(async options => {
+          pools.push(options.context.pool)
+          sockets.push(options.context.pool.get(relay))
+          return {[relay]: {relay, status: "success", detail: "purgatory"}}
+        })
+      const transport = createRepoPublishTransport()
+
+      await transport.publish(event as any, [relay])
+      await transport.publish(event as any, [relay])
+
+      expect(pools[1]).toBe(pools[0])
+      expect(sockets[1]).not.toBe(sockets[0])
+      transport.dispose()
+    })
+
+    it("serializes publications sharing an operation transport", async () => {
+      const {createRepoPublishTransport} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      let finishFirst!: () => void
+      mockPublish
+        .mockImplementationOnce(
+          () =>
+            new Promise<Record<string, {relay: string; status: string; detail: string}>>(
+              resolve => {
+                finishFirst = () =>
+                  resolve({
+                    [relay]: {relay, status: "success", detail: "first"},
+                  })
+              },
+            ),
+        )
+        .mockResolvedValueOnce({
+          [relay]: {relay, status: "success", detail: "second"},
+        })
+      const transport = createRepoPublishTransport()
+
+      const first = transport.publish(event as any, [relay])
+      const second = transport.publish(event as any, [relay])
+      await vi.waitFor(() => expect(mockPublish).toHaveBeenCalledTimes(1))
+      finishFirst()
+      await first
+      await second
+
+      expect(mockPublish).toHaveBeenCalledTimes(2)
+      transport.dispose()
+    })
+
+    it("aborts an in-flight publication when its transport is disposed", async () => {
+      const {createRepoPublishTransport} = await import("./git-commands")
+      const relay = "wss://grasp.example.com/"
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+        id: "e".repeat(64),
+        pubkey: "a".repeat(64),
+        sig: "signature",
+      }
+      mockPublish.mockImplementation(
+        options =>
+          new Promise(resolve => {
+            options.signal.addEventListener(
+              "abort",
+              () =>
+                resolve({
+                  [relay]: {relay, status: "aborted", detail: "aborted"},
+                }),
+              {once: true},
+            )
+          }),
+      )
+      const transport = createRepoPublishTransport()
+
+      const publication = transport.publish(event as any, [relay])
+      await vi.waitFor(() => expect(mockPublish).toHaveBeenCalledOnce())
+      transport.dispose()
+
+      await expect(publication).resolves.toEqual(
+        expect.objectContaining({
+          relayOutcomes: [{relay, status: "aborted", detail: "aborted"}],
+        }),
+      )
     })
 
     it("replays an already-signed event without invoking the signer", async () => {

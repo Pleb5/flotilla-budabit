@@ -5,6 +5,7 @@ export type RepoCommunityOption = {
   label?: string;
   relay?: string;
   relays?: string[];
+  graspServers?: string[];
 };
 
 export const getRepoCommunityOptionLabel = (option: RepoCommunityOption): string =>
@@ -22,5 +23,4 @@ export const getRepoCommunityOptionBinding = (
 export const findRepoCommunityOption = (
   options: RepoCommunityOption[],
   pubkey: string | undefined
-): RepoCommunityOption | undefined =>
-  options.find((option) => option.pubkey === pubkey);
+): RepoCommunityOption | undefined => options.find((option) => option.pubkey === pubkey);

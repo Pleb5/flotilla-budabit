@@ -5,12 +5,10 @@ import {
   type NostrEvent,
 } from "@nostr-git/core";
 import { withRepoCommunityBinding, type RepoCommunityBinding } from "@nostr-git/core/events";
-import { isGraspRepoHttpUrl } from "@nostr-git/core/utils";
 
 import {
   getEditableRepoRelayUrls,
   getEffectiveRepoRelayUrls,
-  getSuccessfulGraspRelayUrls,
   normalizeGraspOrigins,
 } from "./grasp-pipeline.js";
 
@@ -44,6 +42,8 @@ export function getFinalRepoMetadataCreatedAt(
 
 export interface ImportedRemotePushResultLike {
   success: boolean;
+  provider?: string;
+  relayUrl?: string;
   remoteUrl?: string;
   webUrl?: string;
 }
@@ -55,10 +55,14 @@ export function getImportedRepoRelayUrls(params: {
 }): string[] {
   return getEffectiveRepoRelayUrls(
     getEditableRepoRelayUrls(params.admittedRelayUrls, params.selectedGraspRelayUrls),
-    getSuccessfulGraspRelayUrls(
-      params.remotePushResults
-        .filter((result) => result.success)
-        .map((result) => result.remoteUrl || "")
+    Array.from(
+      new Set(
+        params.remotePushResults
+          .filter((result) => result.success && result.provider === "grasp" && result.relayUrl)
+          .map((result) => result.relayUrl as string)
+          .map((relayUrl) => normalizeGraspOrigins(relayUrl).wsOrigin)
+          .filter(Boolean)
+      )
     )
   );
 }
@@ -161,10 +165,8 @@ export function buildImportedRepoEvents(params: {
   const successfulGraspRelays = Array.from(
     new Set(
       remotePushResults
-        .filter(
-          (result) => result.success && result.remoteUrl && isGraspRepoHttpUrl(result.remoteUrl)
-        )
-        .map((result) => normalizeGraspOrigins(result.remoteUrl as string).wsOrigin)
+        .filter((result) => result.success && result.provider === "grasp" && result.relayUrl)
+        .map((result) => normalizeGraspOrigins(result.relayUrl as string).wsOrigin)
         .filter(Boolean)
     )
   );

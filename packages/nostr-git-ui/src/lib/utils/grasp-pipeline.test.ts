@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRepoAnnouncementEvent, createRepoStateEvent } from "@nostr-git/core/events";
+import { nip19 } from "nostr-tools";
 
 const graspAvailabilityMocks = vi.hoisted(() => ({
   checkGraspRepoExists: vi.fn(),
@@ -22,6 +23,7 @@ import {
   publishGraspRepoStateAndWait,
   publishGraspRepoStateForPush,
   publishRepoSettingsEvents,
+  reconcileSelectedGraspRelays,
   reconcileRepoCreationEvents,
   verifyGraspEventAfterPush,
   waitForGraspProvisioning,
@@ -79,6 +81,43 @@ describe("grasp-pipeline", () => {
     ).toEqual(["wss://relay.extra", "wss://relay.one"]);
   });
 
+  it("restores an existing repository relay when its sync target is unchecked", () => {
+    const selected = reconcileSelectedGraspRelays({
+      editableRelayUrls: ["wss://relay.example"],
+      parkedTargetRelayUrls: [],
+      selectedGraspRelayUrls: ["wss://grasp.example"],
+      preservedRelayUrls: ["wss://grasp.example"],
+    });
+    expect(selected).toEqual({
+      editableRelayUrls: ["wss://relay.example"],
+      parkedTargetRelayUrls: ["wss://grasp.example"],
+    });
+
+    expect(
+      reconcileSelectedGraspRelays({
+        ...selected,
+        selectedGraspRelayUrls: [],
+        preservedRelayUrls: ["wss://grasp.example"],
+      })
+    ).toEqual({
+      editableRelayUrls: ["wss://relay.example", "wss://grasp.example"],
+      parkedTargetRelayUrls: [],
+    });
+
+    expect(
+      reconcileSelectedGraspRelays({
+        editableRelayUrls: ["wss://relay.example"],
+        parkedTargetRelayUrls: [],
+        selectedGraspRelayUrls: [],
+        preservedRelayUrls: ["wss://grasp.example"],
+        explicitlyRemovedRelayUrls: ["wss://grasp.example"],
+      })
+    ).toEqual({
+      editableRelayUrls: ["wss://relay.example"],
+      parkedTargetRelayUrls: [],
+    });
+  });
+
   it("does not derive mandatory GRASP relays from platform clone URLs", () => {
     expect(
       getMandatoryGraspRelayUrls([
@@ -128,6 +167,28 @@ describe("grasp-pipeline", () => {
       mandatoryGraspRelays: [],
       automaticGraspRelays: [],
       effectiveRelays: [],
+    });
+  });
+
+  it("maps a Smart HTTP clone alias back to its advertised event relay", () => {
+    const ownerNpub = nip19.npubEncode("a".repeat(64));
+    expect(
+      getRepoSettingsRelayState(
+        ["wss://events.example"],
+        [`https://git.example/${ownerNpub}/repo.git`],
+        [
+          {
+            relayUrl: "wss://events.example",
+            httpBaseAliases: ["https://events.example", "https://git.example"],
+            sources: ["nip11"],
+          },
+        ]
+      )
+    ).toEqual({
+      declaredRelays: ["wss://events.example"],
+      mandatoryGraspRelays: ["wss://events.example"],
+      automaticGraspRelays: [],
+      effectiveRelays: ["wss://events.example"],
     });
   });
 
@@ -271,6 +332,36 @@ describe("grasp-pipeline", () => {
         onPublishEvent: publisher,
       })
     ).rejects.toThrow("At least one repository relay is required");
+    expect(publisher).not.toHaveBeenCalled();
+  });
+
+  it("does not publish settings with a known GRASP relay and no exact clone", async () => {
+    const publisher = vi.fn();
+    const ownerPubkey = "a".repeat(64);
+
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent: createRepoAnnouncementEvent({
+          repoId: "repo",
+          clone: ["https://github.com/alice/repo.git"],
+          relays: ["wss://grasp.example"],
+        }),
+        stateEvent: createRepoStateEvent({ repoId: "repo" }),
+        relayUrls: ["wss://grasp.example"],
+        coupling: {
+          knownServices: [
+            {
+              relayUrl: "wss://grasp.example",
+              httpBaseAliases: ["https://grasp.example"],
+              sources: ["community-10222"],
+            },
+          ],
+          ownerPubkey,
+          identifier: "repo",
+        },
+        onPublishEvent: publisher,
+      })
+    ).rejects.toThrow("matching GRASP remote");
     expect(publisher).not.toHaveBeenCalled();
   });
 
@@ -466,6 +557,77 @@ describe("grasp-pipeline", () => {
       relays: [],
       stage: "final",
     });
+  });
+
+  it("rejects final GRASP metadata for the wrong destination coordinate before publishing", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const ownerNpub = nip19.npubEncode(ownerPubkey);
+    const relayUrl = "wss://grasp.example";
+    const onPublishEvent = vi.fn();
+
+    await expect(
+      reconcileRepoCreationEvents({
+        relayUrls: [relayUrl],
+        graspTargets: [
+          {
+            relayUrl,
+            cloneUrl: `https://grasp.example/${ownerNpub}/wrong.git`,
+          },
+        ],
+        ownerPubkey,
+        identifier: "repo",
+        stateEvent: createRepoStateEvent({ repoId: "repo" }),
+        onPublishEvent,
+        buildAnnouncement: ({ relays, graspCloneUrls, createdAt }) =>
+          createRepoAnnouncementEvent({
+            repoId: "repo",
+            clone: graspCloneUrls,
+            relays,
+            created_at: createdAt,
+          }),
+      })
+    ).rejects.toThrow("matching GRASP remote");
+    expect(onPublishEvent).not.toHaveBeenCalled();
+  });
+
+  it("preserves an authoritative source GRASP clone without restoring its legacy relay", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const ownerNpub = nip19.npubEncode(ownerPubkey);
+    const selectedRelay = "wss://selected.example";
+    const sourceCloneUrl = `https://legacy.example/${ownerNpub}/repo.git`;
+    const selectedCloneUrl = `https://selected.example/${ownerNpub}/repo.git`;
+    const onPublishEvent = vi.fn(async (event: any, context?: { relays: string[] }) => ({
+      event: signedEvent(event, `${event.kind}-${event.created_at}`),
+      relayOutcomes: (context?.relays || []).map((relay) => ({
+        relay,
+        status: "success",
+        detail: "stored",
+      })),
+    }));
+
+    const result = await reconcileRepoCreationEvents({
+      relayUrls: [selectedRelay],
+      graspTargets: [{ relayUrl: selectedRelay, cloneUrl: selectedCloneUrl }],
+      stateEvent: createRepoStateEvent({ repoId: "repo" }),
+      onPublishEvent,
+      ownerPubkey,
+      identifier: "repo",
+      allowedUnlistedCloneUrls: [sourceCloneUrl],
+      buildAnnouncement: ({ relays, graspCloneUrls, createdAt }) =>
+        createRepoAnnouncementEvent({
+          repoId: "repo",
+          clone: [sourceCloneUrl, ...graspCloneUrls],
+          relays,
+          created_at: createdAt,
+        }),
+    });
+
+    expect(result.relays).toEqual([selectedRelay]);
+    expect(result.announcementEvent.tags).toContainEqual([
+      "clone",
+      sourceCloneUrl,
+      selectedCloneUrl,
+    ]);
   });
 
   it("rebuilds final metadata until every retained relay ACKs announcement and state", async () => {

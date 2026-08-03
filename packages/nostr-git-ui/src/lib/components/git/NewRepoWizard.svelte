@@ -24,6 +24,14 @@
   import { graspServersStore } from "../../stores/graspServers.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
   import {
+    buildGraspServiceDescriptors,
+    formatUnbackedGraspRelayError,
+    getUnbackedKnownGraspRelayUrls,
+    mergeGraspServiceDescriptors,
+    resolveKnownGraspServices,
+    type GraspServiceDescriptor,
+  } from "../../utils/grasp-service-coupling.js";
+  import {
     findRepoCommunityOption,
     getRepoCommunityOptionBinding,
   } from "./repo-community-options.js";
@@ -60,6 +68,7 @@
     /** Called when user chooses to navigate to the newly created repo (app should goto repo URL) */
     onNavigateToRepo?: (repoData: NewRepoResult) => void | Promise<void>;
     onCancel?: () => void;
+    onDispose?: () => void;
     onPublishEvent?: PublishRepoEvent;
     onDeleteEvent?: DeleteRepoEvent;
     defaultRelays?: string[];
@@ -102,6 +111,7 @@
     onRepoCreated,
     onNavigateToRepo,
     onCancel,
+    onDispose,
     onPublishEvent,
     onDeleteEvent,
     defaultRelays = [],
@@ -120,6 +130,13 @@
   }: Props = $props();
 
   console.log("defaultRelays", defaultRelays);
+
+  $effect(() => {
+    return () => {
+      if (isCreating()) abortCreation("Repository wizard unmounted");
+      onDispose?.();
+    };
+  });
 
   let createdResult = $state<NewRepoResult | null>(null);
 
@@ -160,6 +177,9 @@
   let userEditedCloneUrl = $state(false);
   let userEditedRelays = $state(false);
   let selectedCommunityPubkey = $state(defaultCommunityPubkey);
+  let resolvedGraspServices = $state<GraspServiceDescriptor[]>([]);
+  let resolvingGraspServices = $state(false);
+  let graspServiceResolutionRunId = 0;
 
   // Grasp server options sourced from global singleton store
   let graspServerOptions = $state<string[]>([]);
@@ -254,6 +274,61 @@
       selectedProviders.includes("grasp") ? graspRelayUrls || [] : []
     );
   }
+
+  const selectedCommunityGraspServerUrls = $derived.by(
+    () => findRepoCommunityOption(communityOptions, selectedCommunityPubkey)?.graspServers || []
+  );
+  const otherCommunityGraspServerUrls = $derived.by(() =>
+    communityOptions
+      .filter((option) => option.pubkey !== selectedCommunityPubkey)
+      .flatMap((option) => option.graspServers || [])
+  );
+  const recommendedGraspServerOptions = $derived.by(() =>
+    dedupeStrings([
+      ...selectedCommunityGraspServerUrls,
+      ...graspServerOptions,
+      ...otherCommunityGraspServerUrls,
+    ])
+  );
+  const declaredGraspServices = $derived.by(() =>
+    mergeGraspServiceDescriptors([
+      ...buildGraspServiceDescriptors(selectedCommunityGraspServerUrls, "community-10222"),
+      ...buildGraspServiceDescriptors(graspServerOptions, "user-10317"),
+      ...buildGraspServiceDescriptors(otherCommunityGraspServerUrls, "community-10222"),
+    ])
+  );
+  const unbackedGraspRelays = $derived.by(() =>
+    getUnbackedKnownGraspRelayUrls({
+      repoRelayUrls: getEffectiveRepoRelays(),
+      backedGraspRelayUrls: selectedProviders.includes("grasp") ? graspRelayUrls : [],
+      knownServices: resolvedGraspServices,
+    })
+  );
+  const relayCouplingError = $derived.by(() =>
+    resolvingGraspServices
+      ? "Checking repository relay capabilities..."
+      : unbackedGraspRelays.length > 0
+        ? formatUnbackedGraspRelayError(unbackedGraspRelays)
+        : ""
+  );
+
+  $effect(() => {
+    const relayUrls = getEffectiveRepoRelays();
+    const knownServices = [...declaredGraspServices];
+    const runId = ++graspServiceResolutionRunId;
+    resolvingGraspServices = true;
+    void resolveKnownGraspServices({ relayUrls, knownServices })
+      .then((services) => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = services;
+        resolvingGraspServices = false;
+      })
+      .catch(() => {
+        if (runId !== graspServiceResolutionRunId) return;
+        resolvedGraspServices = knownServices;
+        resolvingGraspServices = false;
+      });
+  });
 
   const mandatoryGraspRelays = $derived.by(() =>
     selectedProviders.includes("grasp") ? getMandatoryGraspRelayUrls(graspRelayUrls || []) : []
@@ -647,6 +722,7 @@
 
     const relayCount = getEffectiveRepoRelays().length;
     if (relayCount === 0) return;
+    if (relayCouplingError) return;
 
     const providerDefaults = getProviderUrlDefaults(repoDetails.name.trim());
     const cloneProviderOrder = getCloneProviderOrder(providerDefaults);
@@ -672,6 +748,7 @@
         authorPubkey: userPubkey,
         maintainers: advancedSettings.maintainers,
         relays: getEffectiveRepoRelays(),
+        knownGraspRelayUrls: resolvedGraspServices.map((service) => service.relayUrl),
         tags: advancedSettings.tags,
         webUrls: advancedSettings.webUrls.filter((v) => v && v.trim()),
         cloneUrls: advancedSettings.cloneUrls.filter((v) => v && v.trim()),
@@ -913,7 +990,7 @@
             disabledProviders={nameAvailabilityResults?.conflictProviders || []}
             relayUrls={graspRelayUrls}
             onRelayUrlsChange={handleRelayUrlsChange}
-            graspServerOptions={graspServerOptions}
+            graspServerOptions={recommendedGraspServerOptions}
           />
         {:else if currentStep === 2}
           <RepoDetailsStep
@@ -943,6 +1020,7 @@
             maintainers={advancedSettings.maintainers}
             relays={advancedSettings.relays}
             mandatoryRelays={mandatoryGraspRelays}
+            relayError={relayCouplingError}
             tags={advancedSettings.tags}
             webUrls={advancedSettings.webUrls}
             cloneUrls={advancedSettings.cloneUrls}
@@ -1003,6 +1081,7 @@
                   availabilityBlocksCreation(nameAvailabilityResults))) ||
               (currentStep === 3 &&
                 (getEffectiveRepoRelays().length === 0 ||
+                  Boolean(relayCouplingError) ||
                   isCheckingAvailability ||
                   availabilityBlocksCreation(nameAvailabilityResults)))}
             variant="git"

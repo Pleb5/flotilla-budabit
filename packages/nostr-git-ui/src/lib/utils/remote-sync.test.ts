@@ -1,3 +1,4 @@
+import { nip19 } from "nostr-tools";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -107,6 +108,37 @@ describe("publishRepoSyncAnnouncement", () => {
     );
   });
 
+  it("preserves source URLs in an augmentation announcement sent to GRASP", async () => {
+    const githubClone = "https://github.com/Pleb5/zap-stream-core.git";
+    const githubWeb = "https://github.com/Pleb5/zap-stream-core";
+    const onPublishEvent = vi.fn(async (event) => ({
+      event: signedEvent(event),
+      ackedRelays: ["wss://relay.ngit.dev"],
+      failedRelays: [],
+      hasRelayOutcomes: true,
+      relayOutcomes: [{ relay: "wss://relay.ngit.dev", status: "success", detail: "stored" }],
+    }));
+
+    const admission = await publishRepoSyncAnnouncement({
+      repoName: "zap-stream-core",
+      userPubkey: "a".repeat(64),
+      targets: [graspTarget],
+      relayUrls: ["wss://relay.ngit.dev"],
+      sourceCloneUrls: [githubClone],
+      sourceWebUrls: [githubWeb],
+      onPublishEvent,
+      updateProgress: vi.fn(),
+      runAbortable: async () => undefined as never,
+    });
+
+    expect(admission.announcementEvent.tags.find((tag) => tag[0] === "clone")).toEqual(
+      expect.arrayContaining(["clone", githubClone])
+    );
+    expect(admission.announcementEvent.tags.find((tag) => tag[0] === "web")).toEqual(
+      expect.arrayContaining(["web", githubWeb])
+    );
+  });
+
   it("fails when no repository relay ACKs", async () => {
     await expect(
       publishRepoSyncAnnouncement({
@@ -205,24 +237,24 @@ describe("publishRepoSyncAnnouncement", () => {
   });
 
   it("reuses a queryable announcement instead of replacing an existing GRASP target", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const cloneUrl = `https://relay.ngit.dev/${nip19.npubEncode(ownerPubkey)}/repo.git`;
     const existingAnnouncement = signedEvent({
       kind: 30617,
       created_at: 100,
       content: "",
       tags: [
         ["d", "repo"],
-        ["clone", "https://relay.ngit.dev/npub1example/repo.git"],
-        ["relays", "wss://relay.ngit.dev"],
+        ["clone", cloneUrl],
+        ["relays", "wss://relay.ngit.dev:443/"],
       ],
     });
     const onPublishEvent = vi.fn();
 
     const admission = await publishRepoSyncAnnouncement({
       repoName: "repo",
-      userPubkey: "a".repeat(64),
-      targets: [
-        { ...graspTarget, existingRemoteUrl: "https://relay.ngit.dev/npub1example/repo.git" },
-      ],
+      userPubkey: ownerPubkey,
+      targets: [{ ...graspTarget, existingRemoteUrl: cloneUrl }],
       relayUrls: ["wss://relay.ngit.dev"],
       onPublishEvent,
       onFetchRelayEvents: vi.fn().mockResolvedValue([existingAnnouncement]),
@@ -235,6 +267,195 @@ describe("publishRepoSyncAnnouncement", () => {
     expect(admission.ackedRelayUrls).toEqual(["wss://relay.ngit.dev"]);
     expect(admission.graspRelayUrls).toEqual([]);
     expect(admission.announcementByGraspRelay["wss://relay.ngit.dev"]).toBe(existingAnnouncement);
+  });
+
+  it("retries an empty existing GRASP announcement read before failing closed", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const cloneUrl = `https://relay.ngit.dev/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+    const existingAnnouncement = signedEvent({
+      kind: 30617,
+      created_at: 100,
+      content: "",
+      tags: [
+        ["d", "repo"],
+        ["clone", cloneUrl],
+        ["relays", "wss://relay.ngit.dev"],
+      ],
+    });
+    const onFetchRelayEvents = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([existingAnnouncement]);
+    const onPublishEvent = vi.fn();
+
+    const admission = await publishRepoSyncAnnouncement({
+      repoName: "repo",
+      userPubkey: ownerPubkey,
+      targets: [{ ...graspTarget, existingRemoteUrl: cloneUrl }],
+      relayUrls: ["wss://relay.ngit.dev"],
+      onPublishEvent,
+      onFetchRelayEvents,
+      updateProgress: vi.fn(),
+      runAbortable: async () => undefined as never,
+      maxExistingAnnouncementQueryAttempts: 2,
+      existingAnnouncementRetryDelayMs: 0,
+    });
+
+    expect(onFetchRelayEvents).toHaveBeenCalledTimes(2);
+    expect(onPublishEvent).not.toHaveBeenCalled();
+    expect(admission.announcementEvent).toBe(existingAnnouncement);
+  });
+
+  it("rejects an existing announcement that does not advertise the selected GRASP service", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const cloneUrl = `https://relay.ngit.dev/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+    const onPublishEvent = vi.fn();
+
+    await expect(
+      publishRepoSyncAnnouncement({
+        repoName: "repo",
+        userPubkey: ownerPubkey,
+        targets: [
+          {
+            ...graspTarget,
+            existingRemoteUrl: cloneUrl,
+          },
+        ],
+        relayUrls: ["wss://relay.ngit.dev"],
+        onPublishEvent,
+        onFetchRelayEvents: vi.fn().mockResolvedValue([
+          signedEvent({
+            kind: 30617,
+            created_at: 99,
+            content: "",
+            tags: [
+              ["d", "repo"],
+              ["clone", cloneUrl],
+              ["relays", "wss://relay.ngit.dev"],
+            ],
+          }),
+          signedEvent({
+            kind: 30617,
+            created_at: 100,
+            content: "",
+            tags: [["d", "repo"]],
+          }),
+        ]),
+        updateProgress: vi.fn(),
+        runAbortable: async () => undefined as never,
+        maxExistingAnnouncementQueryAttempts: 1,
+      })
+    ).rejects.toThrow("no queryable repository announcement after 1 attempts");
+    expect(onPublishEvent).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a newer de-listing event with an older retry result", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const cloneUrl = `https://relay.ngit.dev/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+    const olderListedEvent = signedEvent({
+      kind: 30617,
+      created_at: 99,
+      content: "",
+      tags: [
+        ["d", "repo"],
+        ["clone", cloneUrl],
+        ["relays", "wss://relay.ngit.dev"],
+      ],
+    });
+    const newerDelistedEvent = signedEvent({
+      kind: 30617,
+      created_at: 100,
+      content: "",
+      tags: [["d", "repo"]],
+    });
+
+    await expect(
+      publishRepoSyncAnnouncement({
+        repoName: "repo",
+        userPubkey: ownerPubkey,
+        targets: [{ ...graspTarget, existingRemoteUrl: cloneUrl }],
+        relayUrls: ["wss://relay.ngit.dev"],
+        onPublishEvent: vi.fn(),
+        onFetchRelayEvents: vi
+          .fn()
+          .mockResolvedValueOnce([newerDelistedEvent])
+          .mockResolvedValueOnce([olderListedEvent]),
+        updateProgress: vi.fn(),
+        runAbortable: async () => undefined as never,
+        maxExistingAnnouncementQueryAttempts: 2,
+        existingAnnouncementRetryDelayMs: 0,
+      })
+    ).rejects.toThrow("no queryable repository announcement after 2 attempts");
+  });
+
+  it("does not conflate case-sensitive GRASP service paths", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const cloneUrl = `https://git.example/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+
+    await expect(
+      publishRepoSyncAnnouncement({
+        repoName: "repo",
+        userPubkey: ownerPubkey,
+        targets: [
+          {
+            ...graspTarget,
+            relayUrl: "wss://events.example/GRASP",
+            existingRemoteUrl: cloneUrl,
+          },
+        ],
+        relayUrls: ["wss://events.example/GRASP"],
+        onPublishEvent: vi.fn(),
+        onFetchRelayEvents: vi.fn().mockResolvedValue([
+          signedEvent({
+            kind: 30617,
+            created_at: 100,
+            content: "",
+            tags: [
+              ["d", "repo"],
+              ["clone", cloneUrl],
+              ["relays", "wss://events.example/grasp"],
+            ],
+          }),
+        ]),
+        updateProgress: vi.fn(),
+        runAbortable: async () => undefined as never,
+        maxExistingAnnouncementQueryAttempts: 1,
+      })
+    ).rejects.toThrow("no queryable repository announcement after 1 attempts");
+  });
+
+  it("accepts an existing announcement with a distinct Smart HTTP host", async () => {
+    const ownerPubkey = "a".repeat(64);
+    const cloneUrl = `https://git.example/${nip19.npubEncode(ownerPubkey)}/repo.git`;
+    const existingAnnouncement = signedEvent({
+      kind: 30617,
+      created_at: 100,
+      content: "",
+      tags: [
+        ["d", "repo"],
+        ["clone", cloneUrl],
+        ["relays", "wss://events.example//GRASP//"],
+      ],
+    });
+
+    const admission = await publishRepoSyncAnnouncement({
+      repoName: "repo",
+      userPubkey: ownerPubkey,
+      targets: [
+        {
+          ...graspTarget,
+          relayUrl: "wss://events.example/GRASP",
+          existingRemoteUrl: cloneUrl,
+        },
+      ],
+      relayUrls: ["wss://events.example/GRASP"],
+      onPublishEvent: vi.fn(),
+      onFetchRelayEvents: vi.fn().mockResolvedValue([existingAnnouncement]),
+      updateProgress: vi.fn(),
+      runAbortable: async () => undefined as never,
+    });
+
+    expect(admission.announcementEvent).toBe(existingAnnouncement);
   });
 });
 

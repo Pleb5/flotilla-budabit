@@ -1,3 +1,4 @@
+import { nip19 } from "nostr-tools";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { recoverRepoCreationRecord } from "./repo-creation-recovery.js";
@@ -81,17 +82,22 @@ describe("repository creation recovery", () => {
 
   it("reconciles final metadata from a verified survivor without replaying Git mutations", async () => {
     const commit = "b".repeat(40);
+    const ownerPubkey = "a".repeat(64);
+    const legacyCloneUrl = `https://legacy.example/${nip19.npubEncode(ownerPubkey)}/repo.git`;
     const provisional = {
       id: "provisional",
       sig: "sig",
       kind: 30617,
-      pubkey: "a".repeat(64),
+      pubkey: ownerPubkey,
       created_at: 1,
       content: "",
       tags: [
         ["d", "repo"],
-        ["clone", "https://github.com/alice/repo.git"],
-        ["relays", "wss://relay.example"],
+        ["name", "Repository Display Name"],
+        ["t", "nostr"],
+        ["clone", "https://github.com/alice/repo.git", legacyCloneUrl],
+        ["web", "https://github.com/alice/repo"],
+        ["relays", "wss://relay.example", "wss://grasp.failed"],
       ],
     };
     const publisher = vi.fn(async (event: any, context?: { relays?: string[] }) => ({
@@ -99,7 +105,7 @@ describe("repository creation recovery", () => {
         ...event,
         id: `${event.kind}-${event.created_at}`,
         sig: "sig",
-        pubkey: "a".repeat(64),
+        pubkey: ownerPubkey,
       },
       relayOutcomes: (context?.relays || []).map((relay) => ({
         relay,
@@ -112,6 +118,12 @@ describe("repository creation recovery", () => {
 
     const result = await recoverRepoCreationRecord(
       record({
+        repositoryRelayUrls: ["wss://selected.example"],
+        sourceMetadata: {
+          cloneUrls: ["https://github.com/alice/repo.git", legacyCloneUrl],
+          webUrls: ["https://github.com/alice/repo"],
+          announcementEvent: provisional,
+        },
         targets: [
           {
             id: "git:github.com",
@@ -125,10 +137,20 @@ describe("repository creation recovery", () => {
             manualAttention: true,
             updatedAt: 1,
           },
+          {
+            id: "grasp:wss://grasp.failed",
+            label: "Failed GRASP",
+            provider: "grasp",
+            stage: "pushing",
+            relayUrl: "wss://grasp.failed",
+            remoteUrl: "https://grasp.failed/npub1owner/repo.git",
+            refs: [{ ref: "refs/heads/main", commit, stage: "pushing" }],
+            cleanup: { stage: "not-needed", manualAttention: false },
+            manualAttention: true,
+            updatedAt: 1,
+          },
         ],
-        publishedEvents: [
-          { event: provisional, relayUrls: ["wss://relay.example"], stage: "provisional" },
-        ],
+        publishedEvents: [],
       }),
       {
         workerApi: {
@@ -144,6 +166,21 @@ describe("repository creation recovery", () => {
 
     expect(result.status).toBe("recovered");
     expect(publisher).toHaveBeenCalled();
+    const finalAnnouncement = publisher.mock.calls
+      .map(([event]) => event)
+      .find((event) => event.kind === 30617);
+    const finalCloneTag = finalAnnouncement?.tags.find((tag) => tag[0] === "clone");
+    expect(finalCloneTag).toContain("https://github.com/alice/repo.git");
+    expect(finalCloneTag).toContain(legacyCloneUrl);
+    expect(finalAnnouncement?.tags).toContainEqual(["web", "https://github.com/alice/repo"]);
+    expect(finalAnnouncement?.tags).toContainEqual(["relays", "wss://selected.example"]);
+    expect(finalAnnouncement?.tags).toContainEqual(["name", "Repository Display Name"]);
+    expect(finalAnnouncement?.tags).toContainEqual(["t", "nostr"]);
+    expect(
+      publisher.mock.calls.every(
+        ([, context]) => !(context?.relays || []).includes("wss://grasp.failed")
+      )
+    ).toBe(true);
     expect(createRemoteRepo).not.toHaveBeenCalled();
     expect(pushToRemote).not.toHaveBeenCalled();
   });
