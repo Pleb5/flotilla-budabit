@@ -27,6 +27,7 @@
   import UserSpeak from "@assets/icons/user-speak.svg?dataurl"
   import Users from "@assets/icons/users-group-rounded.svg?dataurl"
   import Widget from "@assets/icons/widget.svg?dataurl"
+  import Settings from "@assets/icons/settings.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -242,11 +243,23 @@
   }
 
   const isFilterActive = (source: NotificationRowFilter) => rowFilters.includes(source)
+
+  const openNotificationSettings = async () => {
+    clearModals()
+    await goto("/settings/notifications")
+  }
 </script>
 
 <div class="flex max-h-[82vh] min-h-[28rem] flex-col gap-4 sm:min-w-[28rem]">
-  <header class="px-1">
+  <header class="flex items-center justify-between gap-3 px-1">
     <h1 class="text-lg font-semibold leading-none">Notifications</h1>
+    <Button
+      class="btn btn-ghost btn-sm btn-square"
+      aria-label="Notification settings"
+      data-tip="Notification settings"
+      onclick={openNotificationSettings}>
+      <Icon icon={Settings} size={4.5} />
+    </Button>
   </header>
 
   <div class="grid gap-3">

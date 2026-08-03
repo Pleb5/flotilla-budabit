@@ -23,6 +23,12 @@ import {
 const communityPubkey = "a".repeat(64)
 const requesterPubkey = "b".repeat(64)
 const existingModeratorPubkey = "c".repeat(64)
+const emailDigestService = {
+  servicePubkey: requesterPubkey,
+  requestRelay: "wss://digest-requests.example.com/",
+  handlerAddress: `31990:${existingModeratorPubkey}:daily`,
+  handlerRelay: "wss://digest-handler.example.com/",
+}
 
 const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   ({
@@ -49,6 +55,8 @@ const makeDefinition = () => {
     description: "A community",
     blossomServers: ["https://blossom.example.com"],
     graspServers: ["wss://grasp.example.com"],
+    emailDigestServices: [emailDigestService],
+    otherServiceTags: [["service", "future-provider", "opaque"]],
     mints: [{url: "https://mint.example.com", type: "cashu"}],
     tos: {ref: "tos-document", relay: "wss://relay.example.com"},
     location: "Online",
@@ -181,6 +189,8 @@ describe("community moderator promotion requests", () => {
     expect(updated.description).toBe("A community")
     expect(updated.blossomServers).toEqual(["https://blossom.example.com"])
     expect(updated.graspServers).toEqual(["wss://grasp.example.com"])
+    expect(updated.emailDigestServices).toEqual([emailDigestService])
+    expect(updated.otherServiceTags).toEqual([["service", "future-provider", "opaque"]])
     expect(updated.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(updated.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
     expect(updated.location).toBe("Online")
@@ -325,6 +335,8 @@ describe("community moderator promotion requests", () => {
           description: "A community",
           blossomServers: ["https://blossom.example.com"],
           graspServers: ["wss://grasp.example.com"],
+          emailDigestServices: [emailDigestService],
+          otherServiceTags: [["service", "future-provider", "opaque"]],
           mints: [{url: "https://mint.example.com", type: "cashu"}],
           tos: {ref: "tos-document", relay: "wss://relay.example.com"},
           location: "Online",
@@ -363,6 +375,7 @@ describe("community moderator promotion requests", () => {
     expect(revoked.description).toBe("A community")
     expect(revoked.blossomServers).toEqual(["https://blossom.example.com"])
     expect(revoked.graspServers).toEqual(["wss://grasp.example.com"])
+    expect(revoked.emailDigestServices).toEqual([emailDigestService])
     expect(revoked.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(revoked.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
     expect(revoked.location).toBe("Online")
@@ -402,6 +415,8 @@ describe("community moderator promotion requests", () => {
           description: "A community",
           blossomServers: ["https://blossom.example.com"],
           graspServers: ["wss://grasp.example.com"],
+          emailDigestServices: [emailDigestService],
+          otherServiceTags: [["service", "future-provider", "opaque"]],
           mints: [{url: "https://mint.example.com", type: "cashu"}],
           tos: {ref: "tos-document", relay: "wss://relay.example.com"},
           location: "Online",
@@ -447,6 +462,8 @@ describe("community moderator promotion requests", () => {
     expect(edited.description).toBe("A community")
     expect(edited.blossomServers).toEqual(["https://blossom.example.com"])
     expect(edited.graspServers).toEqual(["wss://grasp.example.com"])
+    expect(edited.emailDigestServices).toEqual([emailDigestService])
+    expect(edited.otherServiceTags).toEqual([["service", "future-provider", "opaque"]])
     expect(edited.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(edited.tos).toEqual({ref: "tos-document", relay: "wss://relay.example.com/"})
     expect(edited.location).toBe("Online")

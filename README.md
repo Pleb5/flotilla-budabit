@@ -87,7 +87,7 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 - **Community Catalogs**: Target repositories, calendar events, goals, permalinks, and widgets to `/c/<community>` pages
 - **Extensions And Smart Widgets**: Install Smart Widget extensions from Nostr `kind:30033` events; built-in extensions are not bundled by default
 - **Collaborative Development**: Work with teams using Nostr-based communication, moderation, and membership requests
-- **Notifications**: In-app unread badges and sounds are available; external email and web push alert setup is build-gated behind `FEATURE_ALERTS=1`
+- **Notifications**: In-app badges and sounds plus an account-wide Git email digest from a provider endorsed by one of the user's communities
 
 ## Environment
 
@@ -117,14 +117,12 @@ Git and optional services:
 - `VITE_GIT_RELAYS` - Comma-separated Nostr relays used for Git repository discovery
 - `VITE_GIT_DEFAULT_CORS_PROXY` - Default CORS proxy for Git HTTP operations
 - `VITE_BURROW_URL` - Optional hosted email/password account service URL; empty hides those flows
-- `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, `VITE_VAPID_PUBLIC_KEY` - Optional external notifier and push values used only when `FEATURE_ALERTS=1`
 - `VITE_BUILD_HASH` - Build hash shown in Settings > About and used by the service worker; usually injected by CI
 
 Build-time feature flags:
 
 - `FEATURE_GRASP` - Enables GRASP and Nostr Git paths unless set to `0`
 - `FEATURE_CICD` - Enables experimental CI/CD hooks only when set to `1`
-- `FEATURE_ALERTS` - Enables external email and web push alert setup only when set to `1`; in-app badges do not require this
 
 Development-only helpers:
 

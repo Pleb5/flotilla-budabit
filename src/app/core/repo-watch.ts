@@ -14,6 +14,7 @@ import {
   waitForThunkCompletion,
 } from "@welshman/app"
 import {Router} from "@welshman/router"
+import {PublishStatus} from "@welshman/net"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
 
 export const REPO_WATCH_DTAG = "budabit/repo-watch"
@@ -217,9 +218,16 @@ const publishRepoWatchState = async (next: RepoWatchState) => {
 
   const content = await $signer.nip44.encrypt($pubkey, JSON.stringify(next))
   const event = makeEvent(APP_DATA, {content, tags: [["d", REPO_WATCH_DTAG]]})
-  await waitForThunkCompletion(
-    publishThunk({event, relays: getUserDataPublishRelays(Router.get().FromUser().getUrls())}),
-  )
+  const thunk = publishThunk({
+    event,
+    relays: getUserDataPublishRelays(Router.get().FromUser().getUrls()),
+  })
+  await waitForThunkCompletion(thunk)
+
+  if (!Object.values(thunk.results).some(result => result.status === PublishStatus.Success)) {
+    const detail = Object.values(thunk.results).find(result => result.detail)?.detail
+    throw new Error(detail || "No account data relay accepted the Watch update.")
+  }
 }
 
 export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOptions | null) => {
@@ -232,11 +240,20 @@ export const updateRepoWatch = async (repoAddr: string, options: RepoWatchOption
     delete repos[repoAddr]
   }
 
-  await publishRepoWatchState({
+  const next = {
     version: 1,
     repos,
     notificationSeen: current.notificationSeen || {},
-  })
+  } satisfies RepoWatchState
+
+  await publishRepoWatchState(next)
+
+  try {
+    const {resynchronizeEnabledEmailDigest} = await import("@app/core/email-digest-state")
+    await resynchronizeEnabledEmailDigest(next)
+  } catch (error) {
+    console.warn("[repo-watch] Saved watch settings but failed to synchronize email digest", error)
+  }
 }
 
 export const updateRepoWatchNotificationSeen = async (updates: Record<string, number>) => {

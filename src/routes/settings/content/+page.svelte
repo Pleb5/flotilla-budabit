@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global __ALERTS__ */
   import {getListTags, getPubkeyTagValues, MUTES, makeEvent} from "@welshman/util"
   import {Router} from "@welshman/router"
   import {userMuteList, tagPubkey, publishThunk} from "@welshman/app"
@@ -13,7 +12,6 @@
   import {userSettingsValues} from "@app/core/state"
   import {publishSettings} from "@app/core/commands"
   import {getUserDataPublishRelays} from "@app/core/community-relays"
-  import {clearBadges} from "@app/util/notifications"
 
   const reset = () => {
     settings = {...$userSettingsValues}
@@ -24,10 +22,6 @@
     const nextSettings = $state.snapshot(settings)
 
     await publishSettings(nextSettings)
-
-    if (!__ALERTS__ && !nextSettings.show_notifications_badge) {
-      await clearBadges()
-    }
 
     publishThunk({
       event: makeEvent(MUTES, {tags: mutedPubkeys.map(tagPubkey)}),
@@ -100,37 +94,6 @@
         </p>
       {/snippet}
     </FieldInline>
-    {#if !__ALERTS__}
-      <strong class="text-lg">Notification Settings</strong>
-      <FieldInline>
-        {#snippet label()}
-          <p>Show unread badge?</p>
-        {/snippet}
-        {#snippet input()}
-          <input
-            type="checkbox"
-            class="toggle toggle-primary"
-            bind:checked={settings.show_notifications_badge} />
-        {/snippet}
-        {#snippet info()}
-          <p>Show an in-app badge when unread messages or updates are available.</p>
-        {/snippet}
-      </FieldInline>
-      <FieldInline>
-        {#snippet label()}
-          <p>Play notification sound?</p>
-        {/snippet}
-        {#snippet input()}
-          <input
-            type="checkbox"
-            class="toggle toggle-primary"
-            bind:checked={settings.play_notification_sound} />
-        {/snippet}
-        {#snippet info()}
-          <p>Play a sound for new in-app notifications while the app is in the background.</p>
-        {/snippet}
-      </FieldInline>
-    {/if}
     <div class="rounded-box bg-base-200 p-3 text-sm">
       Personal media servers moved to <Link class="link" href="/settings/blossom">Blossom</Link>,
       where upload history, mirroring, and optimization settings live together.

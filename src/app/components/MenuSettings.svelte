@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global __ALERTS__ */
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
   import Server from "@assets/icons/server.svg?dataurl"
   import Moon from "@assets/icons/moon.svg?dataurl"
@@ -85,21 +84,19 @@
         {/snippet}
       </CardButton>
     </Link>
-    {#if __ALERTS__}
-      <Link replaceState href="/settings/alerts">
-        <CardButton class="btn-neutral">
-          {#snippet icon()}
-            <div><Icon icon={Bell} size={7} /></div>
-          {/snippet}
-          {#snippet title()}
-            <div>Alerts</div>
-          {/snippet}
-          {#snippet info()}
-            <div>Set up email digests and push notifications</div>
-          {/snippet}
-        </CardButton>
-      </Link>
-    {/if}
+    <Link replaceState href="/settings/notifications">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Bell} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Notifications</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Manage in-app activity and community-endorsed email digests</div>
+        {/snippet}
+      </CardButton>
+    </Link>
     <Link replaceState href="/settings/wallet">
       <CardButton class="btn-neutral">
         {#snippet icon()}
@@ -148,11 +145,7 @@
           <div>Content Settings</div>
         {/snippet}
         {#snippet info()}
-          {#if __ALERTS__}
-            <div>Manage how you view and publish content</div>
-          {:else}
-            <div>Manage content display, editor, and in-app notification preferences</div>
-          {/if}
+          <div>Manage how you view and publish content</div>
         {/snippet}
       </CardButton>
     </Link>

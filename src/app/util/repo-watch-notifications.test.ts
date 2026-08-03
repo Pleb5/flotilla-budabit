@@ -378,6 +378,7 @@ describe("repo watch notifications", () => {
       blossomServers: [],
       graspServers: [],
       mints: [],
+      emailDigestServices: [],
       sections: [
         {
           name: COMMUNITY_SECTION_REPO_CURATOR,

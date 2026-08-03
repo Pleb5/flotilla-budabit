@@ -140,6 +140,15 @@ describe("community admin helpers", () => {
       tags: [
         ["r", "wss://relay.example.com"],
         ["grasp", "wss://grasp.example.com"],
+        [
+          "service",
+          "email-digest",
+          memberPubkey,
+          "wss://digest-requests.example.com",
+          `31990:${otherPubkey}:daily`,
+          "wss://digest-handler.example.com",
+        ],
+        ["service", "future-provider", "opaque"],
         ["content", "Threads"],
         ["k", "11", "threads"],
         ["a", moderatorRef.address, moderatorRef.relay || ""],
@@ -160,6 +169,15 @@ describe("community admin helpers", () => {
       "wss://relay.example.com/",
     ])
     expect(result.definitionUpdate?.tags).toContainEqual(["grasp", "wss://grasp.example.com"])
+    expect(result.definitionUpdate?.tags).toContainEqual([
+      "service",
+      "email-digest",
+      memberPubkey,
+      "wss://digest-requests.example.com/",
+      `31990:${otherPubkey}:daily`,
+      "wss://digest-handler.example.com/",
+    ])
+    expect(result.definitionUpdate?.tags).toContainEqual(["service", "future-provider", "opaque"])
   })
 
   it("reuses an existing owner member grant list ref", () => {

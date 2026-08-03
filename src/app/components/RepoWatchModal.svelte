@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global __ALERTS__ */
   import {now} from "@welshman/lib"
   import {Address} from "@welshman/util"
   import {preventDefault} from "@lib/html"
@@ -360,11 +359,8 @@
   </div>
 
   <p class="text-xs text-muted-foreground">
-    {#if __ALERTS__}
-      Comments are in-app only. Email digests include issues, PRs, status changes, and assignments.
-    {:else}
-      Watch settings create in-app notifications only.
-    {/if}
+    These Watch settings control in-app notifications and, when enabled, email digests. Email
+    digests include the selected issues, PRs, comments, status changes, and assignments.
   </p>
 
   <ModalFooter>

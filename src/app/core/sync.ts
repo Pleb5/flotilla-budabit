@@ -30,7 +30,6 @@ import {
 import {INDEXER_RELAYS, loadSettings} from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
-import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 import {
   loadGraspServers,
   loadRepositories,
@@ -43,6 +42,7 @@ import {
 } from "@app/core/git-requests"
 import {applyRemoteExtensionSettings} from "@app/extensions/settings"
 import {loadRepoWatch} from "@app/core/repo-watch"
+import {hydrateEmailDigestSettings} from "@app/core/email-digest-state"
 import {loadBudabitProfile} from "@app/core/profile-resolver"
 
 // Utils
@@ -60,8 +60,6 @@ type DmPullOpts = PullOpts & {
 const dmLoad = makeLoader({delay: 200, timeout: 3000, threshold: 0.5})
 const DM_RECENT_BACKFILL_LIMIT = 100
 const DM_BOOTSTRAP_BACKFILL_LIMIT = 200
-
-const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
 
 const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
   const [smart, dumb] = partition(hasNegentropy, relays)
@@ -177,16 +175,15 @@ const syncRelays = () => {
 const syncUserData = () => {
   const unsubscribeRelayList = userRelayList.subscribe(($userRelayList: any) => {
     if ($userRelayList) {
-      if (ALERTS_ENABLED) {
-        loadAlerts($userRelayList.event.pubkey)
-        loadAlertStatuses($userRelayList.event.pubkey)
-      }
       loadUserBlossomServerList()
       loadUserFollowList()
       loadUserMuteList()
       loadBudabitProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
       loadRepoWatch($userRelayList.event.pubkey)
+      void hydrateEmailDigestSettings($userRelayList.event.pubkey).catch(error => {
+        console.warn("[email-digest] Failed to hydrate encrypted settings", error)
+      })
     }
   })
 

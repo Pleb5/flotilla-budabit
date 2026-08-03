@@ -1,11 +1,6 @@
 import {on, fromPairs, batch, indexBy} from "@welshman/lib"
 import {throttled} from "@welshman/store"
 import {
-  ALERT_ANDROID,
-  ALERT_EMAIL,
-  ALERT_IOS,
-  ALERT_STATUS,
-  ALERT_WEB,
   APP_DATA,
   BLOSSOM_SERVERS,
   EVENT_TIME,
@@ -33,6 +28,7 @@ import {GIT_USER_GRASP_LIST} from "@nostr-git/core/events"
 import {COMMUNITY_DEFINITION_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND} from "@app/core/community"
 import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
 import {PROFILE_BADGES_KIND} from "@app/core/community-badges"
+import {EMAIL_DIGEST_STATUS_KIND, EMAIL_DIGEST_SUBSCRIPTION_KIND} from "@app/core/email-digest"
 import {
   tracker,
   plaintext,
@@ -65,7 +61,7 @@ const kinds = {
     GIT_USER_GRASP_LIST,
     APP_DATA,
   ],
-  alert: [ALERT_STATUS, ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID],
+  digest: [EMAIL_DIGEST_SUBSCRIPTION_KIND, EMAIL_DIGEST_STATUS_KIND],
   content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DM_KIND],
   community: [
     COMMUNITY_DEFINITION_KIND,
@@ -92,7 +88,7 @@ const rankEvent = (event: TrustedEvent) => {
   if (kinds.community.includes(event.kind) || isCommunityStarReaction(event)) return 9
   if (isPersistedCommunityReportDeleteEvent(event)) return 9
   if (isCommunityStarDelete(event)) return 8
-  if (kinds.alert.includes(event.kind)) return 8
+  if (kinds.digest.includes(event.kind)) return 8
   if (kinds.content.includes(event.kind) && (!isMobile || isPersistedMobileContentEvent(event))) {
     return 5
   }

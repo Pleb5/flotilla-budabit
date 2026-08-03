@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global __ALERTS__ */
   import type {Snippet} from "svelte"
   import {page} from "$app/stores"
   import {fly} from "@lib/transition"
@@ -57,13 +56,11 @@
           <Icon icon={Git} /> Git
         </SecondaryNavItem>
       </div>
-      {#if __ALERTS__}
-        <div in:fly|local={{delay: 100}}>
-          <SecondaryNavItem href="/settings/alerts">
-            <Icon icon={Bell} /> Alerts
-          </SecondaryNavItem>
-        </div>
-      {/if}
+      <div in:fly|local={{delay: 100}}>
+        <SecondaryNavItem href="/settings/notifications">
+          <Icon icon={Bell} /> Notifications
+        </SecondaryNavItem>
+      </div>
       <div in:fly|local={{delay: 150}}>
         <SecondaryNavItem href="/settings/wallet">
           <Icon icon={Wallet} /> Wallet

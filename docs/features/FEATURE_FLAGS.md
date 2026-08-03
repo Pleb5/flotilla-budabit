@@ -28,21 +28,12 @@ Enables GRASP and Nostr Git integration paths.
 
 Enables experimental CI/CD automation hooks.
 
-### `__ALERTS__`
-
-**Type**: Feature
-**Default**: Disabled unless `FEATURE_ALERTS=1`
-**Control**: `FEATURE_ALERTS`
-
-Enables external email digest and web push alert setup.
-
-Current default/self-hosted behavior keeps this disabled. When disabled, email and push alert setup is hidden and direct alert creation is rejected. In-app unread badges and notification sounds remain available and are the default way to show new activity.
-
 ## Removed Flags
 
 These are intentionally not feature flags:
 
 - NIP-34 pull request support is part of the app and is always on.
+- Notification settings and community-endorsed Git email digests are always available and are not compile-gated.
 - Terminal UI is removed for now instead of being gated.
 - Strict NIP-29 validation is not relevant to the current Communikey community architecture.
 
@@ -57,7 +48,6 @@ export default defineConfig({
     __DEVELOPMENT__: JSON.stringify(process.env.NODE_ENV !== "production"),
     __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
-    __ALERTS__: JSON.stringify(process.env.FEATURE_ALERTS === "1"),
   },
 })
 ```
@@ -71,7 +61,6 @@ declare const __PRODUCTION__: boolean
 declare const __DEVELOPMENT__: boolean
 declare const __GRASP__: boolean
 declare const __CICD__: boolean
-declare const __ALERTS__: boolean
 ```
 
 ## Source Of Truth

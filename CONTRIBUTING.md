@@ -97,7 +97,7 @@ Here are a few important domain objects:
 - Spaces are relays used as community groups. Their `url`s are core to a lot of data and components, and are frequently passed around from place to place.
 - Chats are direct message conversations. There is currently some ambiguity in routing, since relays that don't support NIP 29 also have a "chat" tab, which uses vanilla NIP-C7.
 - NIP 29 groups are called "rooms". Conventionally, "h" is a group id, while a "room" as an object representing the group's metadata.
-- "Alerts" are records of requests the user has made to be notified, following [this NIP](https://github.com/nostr-protocol/nips/pull/1796)
+- Git email digests are one account-wide, provider-specific subscription derived from explicit repository Watch settings.
 
 `app/core/requests` contains utilities related to loading data from the nostr network. This might include feed manager utilities, loaders, or listeners.
 

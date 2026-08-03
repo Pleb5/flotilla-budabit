@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global __ALERTS__ */
   import {onMount} from "svelte"
   import {goto} from "$app/navigation"
   import {displayRelayUrl} from "@welshman/util"
@@ -11,7 +10,6 @@
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
-  import Bell from "@assets/icons/bell.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -22,7 +20,6 @@
   import SpaceDetail from "@app/components/SpaceDetail.svelte"
   import LogOut from "@app/components/LogOut.svelte"
   import RelayName from "@app/components/RelayName.svelte"
-  import BudabitAlerts from "@app/components/BudabitAlerts.svelte"
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
   import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
@@ -54,10 +51,6 @@
     if (!canCreateRoom) return
 
     pushModal(RoomCreate, {url}, {replaceState})
-  }
-
-  const manageAlerts = () => {
-    pushModal(BudabitAlerts, {}, {replaceState})
   }
 
   const logout = () => pushModal(LogOut)
@@ -141,12 +134,6 @@
       <SocketStatusIndicator {url} />
     </Button>
     {#if $pubkey}
-      {#if __ALERTS__}
-        <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
-          <Icon icon={Bell} />
-          Manage Alerts
-        </Button>
-      {/if}
       <Button class="btn btn-neutral btn-sm" onclick={logout}>
         <Icon icon={Exit} />
         Log Out

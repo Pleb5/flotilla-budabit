@@ -102,6 +102,7 @@ const makeCommunityRef = (): ActiveUserCommunityRef => ({
     blossomServers: [],
     graspServers: [],
     mints: [],
+    emailDigestServices: [],
     sections: [
       {
         name: COMMUNITY_SECTION_GENERAL,

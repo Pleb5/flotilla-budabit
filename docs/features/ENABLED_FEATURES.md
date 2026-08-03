@@ -6,11 +6,10 @@ This document records the current build-time feature defaults and built-in exten
 
 The root `vite.config.ts` defines these compile-time flags from environment variables. `.env.example` carries the recommended defaults.
 
-| Environment variable | Compile-time constant | Default                    | Current role                                                                                                     |
-| -------------------- | --------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_GRASP`      | `__GRASP__`           | Enabled unless set to `0`  | GRASP and Nostr Git integration paths.                                                                           |
-| `FEATURE_CICD`       | `__CICD__`            | Disabled unless set to `1` | Experimental CI/CD automation hooks.                                                                             |
-| `FEATURE_ALERTS`     | `__ALERTS__`          | Disabled unless set to `1` | External email digest and web push alert setup. In-app unread badges and sounds remain available while disabled. |
+| Environment variable | Compile-time constant | Default                    | Current role                         |
+| -------------------- | --------------------- | -------------------------- | ------------------------------------ |
+| `FEATURE_GRASP`      | `__GRASP__`           | Enabled unless set to `0`  | GRASP and Nostr Git integration.     |
+| `FEATURE_CICD`       | `__CICD__`            | Disabled unless set to `1` | Experimental CI/CD automation hooks. |
 
 ## Community Architecture Note
 

@@ -365,7 +365,6 @@ Execution rule: once implementation starts, continue phase by phase through the 
 - Start by reading this architecture plan: `docs/architecture/atomic-app-cache-update-plan.md`.
 - Replace the current `/service-worker.js` behavior with the strict custom app-cache service worker.
 - Precache all app-shell files excluding sourcemaps.
-- Keep push notification behavior only if it does not interfere with app-shell caching.
 - Do not use runtime app-shell caching strategies.
 - Verify with a production build, local static serving, browser DevTools Cache Storage inspection, and offline reload/navigation tests.
 - End the phase by inspecting `git status` and `git diff`, committing only the phase changes, and pushing the commit.

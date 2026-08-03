@@ -267,7 +267,7 @@ The `RepoCore` class in `repo-core.ts` orchestrates Nostr-based git workflows, i
 
 GRASP and Nostr Git paths are compiled in unless `FEATURE_GRASP=0`. Experimental CI/CD hooks require `FEATURE_CICD=1`.
 
-External email/push alerts are compiled in only with `FEATURE_ALERTS=1`. In-app unread badges and notification sounds remain available without enabling external alerts.
+Notification settings are always available. Git email digest providers are discovered from verified `kind:10222` community definitions and selected explicitly per account.
 
 ---
 

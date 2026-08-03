@@ -45,6 +45,7 @@ const makeCommunityRef = ({
       blossomServers: [],
       graspServers,
       mints: [],
+      emailDigestServices: [],
       sections: [
         {
           name: "Repositories",

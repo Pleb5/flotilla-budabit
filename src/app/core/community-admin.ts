@@ -183,6 +183,8 @@ export const getOwnerMembershipGrantProfileList = ({
       blossomServers: definition.blossomServers,
       graspServers: definition.graspServers,
       mints: definition.mints,
+      emailDigestServices: definition.emailDigestServices,
+      otherServiceTags: definition.otherServiceTags,
       tos: definition.tos,
       location: definition.location,
       geohash: definition.geohash,

@@ -1,7 +1,7 @@
 import twColors from "tailwindcss/colors"
 import {get, derived, readable, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
-import {on, call, uniq, parseJson, identity, always, tryCatch} from "@welshman/lib"
+import {on, call, uniq, parseJson, identity, always} from "@welshman/lib"
 import {
   Pool,
   load,
@@ -23,13 +23,7 @@ import {
   getEventsByIdForUrl,
   deriveEventsByIdForUrl,
 } from "@welshman/store"
-import {isKindFeed, findFeed} from "@welshman/feeds"
 import {
-  ALERT_ANDROID,
-  ALERT_EMAIL,
-  ALERT_IOS,
-  ALERT_STATUS,
-  ALERT_WEB,
   APP_DATA,
   BLOSSOM_AUTH,
   CLIENT_AUTH,
@@ -47,19 +41,16 @@ import {
   ZAP_REQUEST,
   ZAP_RESPONSE,
   getPubkeyTagValues,
-  getTagValue,
   normalizeRelayUrl,
   verifyEvent,
 } from "@welshman/util"
 import type {TrustedEvent, Filter} from "@welshman/util"
-import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
   pubkey,
   repository,
   tracker,
   ensurePlaintext,
-  signer,
   makeOutboxLoader,
   appContext,
   createSearch,
@@ -77,16 +68,6 @@ export const GENERAL = "_"
 export const DM_KIND = 4444
 
 export const ENABLE_ZAPS = true
-
-export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY
-
-export const NOTIFIER_RELAY = import.meta.env.VITE_NOTIFIER_RELAY
-
-export const NOTIFIER_HANDLER_ADDRESS = import.meta.env.VITE_NOTIFIER_HANDLER_ADDRESS
-
-export const NOTIFIER_HANDLER_RELAY = import.meta.env.VITE_NOTIFIER_HANDLER_RELAY
-
-export const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
 export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)
 
@@ -299,39 +280,6 @@ export const relaysPendingTrust = writable<string[]>([])
 
 export const relaysMostlyRestricted = writable<Record<string, string>>({})
 
-// Alerts
-
-export type Alert = {
-  event: TrustedEvent
-  tags: string[][]
-}
-
-export const alertsById = deriveItemsByKey<Alert>({
-  repository,
-  getKey: alert => alert.event.id,
-  filters: [{kinds: [ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID]}],
-  eventToItem: async event => {
-    const $signer = signer.get()
-
-    if ($signer) {
-      const tags = parseJson(await decrypt($signer, NOTIFIER_PUBKEY, event.content))
-
-      return {event, tags}
-    }
-  },
-})
-
-export const getAlertFeed = (alert: Alert) =>
-  tryCatch(() => JSON.parse(getTagValue("feed", alert.tags)!))
-
-export const dmAlert = derived(alertsById, $alertsById => {
-  for (const alert of $alertsById.values()) {
-    if (findFeed(getAlertFeed(alert), f => isKindFeed(f) && f.includes(DM_KIND))) {
-      return alert
-    }
-  }
-})
-
 export type LegacyChannel = {
   id: string
   room: string
@@ -360,31 +308,6 @@ export const publishBudaBitRoomMeta = (..._args: any[]): any => undefined
 export const getRoomMetaRelays = (url: string) => [url].filter(Boolean)
 
 export const deriveUserIsSpaceAdmin = (_url: string) => derived(pubkey, () => false)
-
-// Alert Statuses
-
-export type AlertStatus = {
-  event: TrustedEvent
-  tags: string[][]
-}
-
-export const alertStatusesByAddress = deriveItemsByKey<AlertStatus>({
-  repository,
-  filters: [{kinds: [ALERT_STATUS]}],
-  getKey: alertStatus => getTagValue("d", alertStatus.event.tags)!,
-  eventToItem: async event => {
-    const $signer = signer.get()
-
-    if ($signer) {
-      const tags = parseJson(await decrypt($signer, NOTIFIER_PUBKEY, event.content))
-
-      return {event, tags}
-    }
-  },
-})
-
-export const deriveAlertStatus = (address: string) =>
-  derived(alertStatusesByAddress, statuses => statuses.get(address))
 
 // Chats
 

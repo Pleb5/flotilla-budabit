@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global __ALERTS__ */
   import "@src/app.css"
   import "@src/lib/crypto-polyfill"
   import {throttle} from "throttle-debounce"
@@ -35,7 +34,6 @@
   import {db} from "@app/core/storage"
   import {pubkeyStorage, sessionsStorage} from "@app/core/session-storage"
   import {theme} from "@app/util/theme"
-  import {initializePushNotifications} from "@app/push"
   import {toast, pushToast} from "@app/util/toast"
   import {badgeCount, handleBadgeCountChanges} from "@app/util/notifications"
   import {adapters as storageAdapters} from "@app/util/storage"
@@ -187,11 +185,6 @@
     budabitBuildHash: APP_BUILD_HASH,
     budabitBuildId: APP_BUILD_ID,
   })
-
-  // Initialize the external push handler only when email/push alerts are enabled.
-  if (__ALERTS__) {
-    initializePushNotifications()
-  }
 
   // Keep unwrap enabled globally so wrapped relay traffic does not throw noisily.
   shouldUnwrap.set(true)

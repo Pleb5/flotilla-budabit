@@ -15,6 +15,7 @@ export const TARGETED_PUBLICATION_KIND = 30222
 export const PROFILE_LIST_KIND = 30000
 export const FORM_TEMPLATE_KIND = 30168
 export const FORM_RESPONSE_KIND = 1069
+export const COMMUNITY_EMAIL_DIGEST_HANDLER_KIND = 31990
 export const MAX_TARGET_COMMUNITIES = 12
 export const PROFILE_LIST_STATUS_DECLINED = "declined"
 export const RENOUNCED_COMMUNITIES_DTAG = "app/budabit/renounced-communities"
@@ -125,6 +126,15 @@ export type CommunityTos = {
   relay?: string
 }
 
+export type CommunityEmailDigestService = {
+  servicePubkey: string
+  requestRelay: string
+  handlerAddress: string
+  handlerRelay: string
+}
+
+export type CommunityOtherServiceTag = ["service", string, ...string[]]
+
 export type CommunityDefinition = {
   event: TrustedEvent
   pubkey: string
@@ -132,6 +142,8 @@ export type CommunityDefinition = {
   blossomServers: string[]
   graspServers: string[]
   mints: CommunityMint[]
+  emailDigestServices: CommunityEmailDigestService[]
+  otherServiceTags?: CommunityOtherServiceTag[]
   sections: CommunitySection[]
   tos?: CommunityTos
   location?: string
@@ -196,6 +208,8 @@ export type BuildCommunityDefinitionParams = {
   blossomServers?: string[]
   graspServers?: string[]
   mints?: CommunityMint[]
+  emailDigestServices?: CommunityEmailDigestService[]
+  otherServiceTags?: CommunityOtherServiceTag[]
   tos?: CommunityTos
   location?: string
   geohash?: string
@@ -203,6 +217,10 @@ export type BuildCommunityDefinitionParams = {
 
 const HEX_PUBKEY_RE = /^[0-9a-f]{64}$/i
 const GEOHASH_RE = /^[0123456789bcdefghjkmnpqrstuvwxyz]+$/i
+const COMMUNITY_SERVICE_CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/
+const COMMUNITY_SERVICE_MAX_URL_LENGTH = 2048
+const COMMUNITY_SERVICE_MAX_ADDRESS_LENGTH = 350
+const COMMUNITY_SERVICE_MAX_IDENTIFIER_LENGTH = 200
 
 export const isHexPubkey = (value: string) => HEX_PUBKEY_RE.test(value)
 
@@ -237,6 +255,93 @@ export const normalizeRelay = (url?: string) => {
 
 export const normalizeRelays = (relays: string[]) =>
   Array.from(new Set(relays.map(normalizeRelay).filter(Boolean)))
+
+export const normalizeCommunityServiceRelay = (value: string) => {
+  const trimmed = value.trim()
+  if (
+    value.length > COMMUNITY_SERVICE_MAX_URL_LENGTH ||
+    !/^wss:\/\//i.test(trimmed) ||
+    COMMUNITY_SERVICE_CONTROL_CHAR_RE.test(trimmed)
+  ) {
+    return ""
+  }
+
+  try {
+    const url = new URL(trimmed)
+    if (url.protocol !== "wss:" || !url.hostname || url.username || url.password || url.hash) {
+      return ""
+    }
+    const normalized = url.toString()
+    const transportNormalized = normalizeRelayUrl(normalized)
+    return normalized.length <= COMMUNITY_SERVICE_MAX_URL_LENGTH &&
+      isRelayUrl(normalized) &&
+      transportNormalized === normalized
+      ? normalized
+      : ""
+  } catch {
+    return ""
+  }
+}
+
+export const normalizeCommunityEmailDigestHandlerAddress = (value: string) => {
+  const trimmed = value.trim()
+  if (
+    value.length > COMMUNITY_SERVICE_MAX_ADDRESS_LENGTH ||
+    COMMUNITY_SERVICE_CONTROL_CHAR_RE.test(trimmed)
+  ) {
+    return ""
+  }
+  const [kind, pubkey, ...identifierParts] = trimmed.split(":")
+  const identifier = identifierParts.join(":")
+
+  if (kind !== String(COMMUNITY_EMAIL_DIGEST_HANDLER_KIND)) return ""
+  if (
+    !pubkey ||
+    !isHexPubkey(pubkey) ||
+    !identifier ||
+    identifier.length > COMMUNITY_SERVICE_MAX_IDENTIFIER_LENGTH ||
+    COMMUNITY_SERVICE_CONTROL_CHAR_RE.test(identifier)
+  ) {
+    return ""
+  }
+
+  return `${COMMUNITY_EMAIL_DIGEST_HANDLER_KIND}:${pubkey.toLowerCase()}:${identifier}`
+}
+
+export const normalizeCommunityEmailDigestService = (
+  service: CommunityEmailDigestService,
+): CommunityEmailDigestService | undefined => {
+  const servicePubkey = service.servicePubkey.trim()
+  const requestRelay = normalizeCommunityServiceRelay(service.requestRelay)
+  const handlerAddress = normalizeCommunityEmailDigestHandlerAddress(service.handlerAddress)
+  const handlerRelay = normalizeCommunityServiceRelay(service.handlerRelay)
+
+  if (!isHexPubkey(servicePubkey) || !requestRelay || !handlerAddress || !handlerRelay) {
+    return undefined
+  }
+
+  return {
+    servicePubkey: servicePubkey.toLowerCase(),
+    requestRelay,
+    handlerAddress,
+    handlerRelay,
+  }
+}
+
+export const getCommunityEmailDigestServiceDescriptorKey = (
+  service: CommunityEmailDigestService,
+) => {
+  const normalized = normalizeCommunityEmailDigestService(service)
+
+  return normalized
+    ? JSON.stringify([
+        normalized.servicePubkey,
+        normalized.requestRelay,
+        normalized.handlerAddress,
+        normalized.handlerRelay,
+      ])
+    : ""
+}
 
 export const makeCommunityNcommunity = ({
   pubkey,
@@ -425,6 +530,8 @@ export const buildCommunityDefinition = ({
   blossomServers = [],
   graspServers = [],
   mints = [],
+  emailDigestServices = [],
+  otherServiceTags = [],
   tos,
   location,
   geohash,
@@ -456,6 +563,30 @@ export const buildCommunityDefinition = ({
   if (location?.trim()) tags.push(["location", location.trim()])
   const normalizedGeohash = normalizeGeohash(geohash)
   if (normalizedGeohash) tags.push(["g", normalizedGeohash])
+
+  const serviceKeys = new Set<string>()
+  for (const service of emailDigestServices) {
+    const normalized = normalizeCommunityEmailDigestService(service)
+    if (!normalized) continue
+
+    const key = getCommunityEmailDigestServiceDescriptorKey(normalized)
+    if (serviceKeys.has(key)) continue
+
+    serviceKeys.add(key)
+    tags.push([
+      "service",
+      "email-digest",
+      normalized.servicePubkey,
+      normalized.requestRelay,
+      normalized.handlerAddress,
+      normalized.handlerRelay,
+    ])
+  }
+  for (const tag of otherServiceTags) {
+    if (tag[0] === "service" && tag[1] && (tag[1] !== "email-digest" || tag.length > 6)) {
+      tags.push([...tag])
+    }
+  }
 
   for (const section of sections) {
     tags.push(["content", normalizeCommunitySectionName(section.name)])
@@ -565,6 +696,19 @@ const parseRetentionPolicy = (tag: string[]): CommunityRetentionPolicy | undefin
   return {kind, value, type}
 }
 
+const parseCommunityEmailDigestService = (
+  tag: string[],
+): CommunityEmailDigestService | undefined => {
+  if (tag.length !== 6 || tag[0] !== "service" || tag[1] !== "email-digest") return undefined
+
+  return normalizeCommunityEmailDigestService({
+    servicePubkey: tag[2] || "",
+    requestRelay: tag[3] || "",
+    handlerAddress: tag[4] || "",
+    handlerRelay: tag[5] || "",
+  })
+}
+
 const makeSection = (name: string): CommunitySection => ({
   name,
   kinds: [],
@@ -583,6 +727,9 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
   const blossomServers: string[] = []
   const graspServers: string[] = []
   const mints: CommunityMint[] = []
+  const emailDigestServices: CommunityEmailDigestService[] = []
+  const otherServiceTags: CommunityOtherServiceTag[] = []
+  const emailDigestServiceKeys = new Set<string>()
   const sections: CommunitySection[] = []
   let currentSection: CommunitySection | undefined
   let tos: CommunityTos | undefined
@@ -591,6 +738,20 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
   let description: string | undefined
 
   for (const tag of event.tags || []) {
+    if (tag[0] === "service") {
+      if (tag[1] === "email-digest" && tag.length === 6) {
+        const service = parseCommunityEmailDigestService(tag)
+        const key = service ? getCommunityEmailDigestServiceDescriptorKey(service) : ""
+        if (service && !emailDigestServiceKeys.has(key)) {
+          emailDigestServiceKeys.add(key)
+          emailDigestServices.push(service)
+        }
+      } else if (tag[1] && (tag[1] !== "email-digest" || tag.length > 6)) {
+        otherServiceTags.push([...tag] as CommunityOtherServiceTag)
+      }
+      continue
+    }
+
     if (tag[0] === "content" && tag[1]) {
       currentSection = makeSection(normalizeCommunitySectionName(tag[1]))
       sections.push(currentSection)
@@ -663,6 +824,8 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
     blossomServers: Array.from(new Set(blossomServers.filter(Boolean))),
     graspServers: normalizeUserGraspServerUrls(graspServers),
     mints,
+    emailDigestServices,
+    otherServiceTags,
     sections,
     tos,
     location,

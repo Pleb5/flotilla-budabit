@@ -48,8 +48,7 @@ const mocks = vi.hoisted(() => {
     loadMuteList: vi.fn().mockResolvedValue(undefined),
     loadUserMuteList: vi.fn().mockResolvedValue(undefined),
     loadSettings: vi.fn().mockResolvedValue(undefined),
-    loadAlerts: vi.fn().mockResolvedValue(undefined),
-    loadAlertStatuses: vi.fn().mockResolvedValue(undefined),
+    hydrateEmailDigestSettings: vi.fn().mockResolvedValue(undefined),
     hasNegentropy: vi.fn(() => false),
     repositoryQuery: vi.fn(() => []),
     trackerGetRelays: vi.fn(() => new Set<string>()),
@@ -173,11 +172,6 @@ vi.mock("@app/core/profile-resolver", () => ({
   loadBudabitProfile: mocks.loadProfile,
 }))
 
-vi.mock("@app/core/requests", () => ({
-  loadAlerts: mocks.loadAlerts,
-  loadAlertStatuses: mocks.loadAlertStatuses,
-}))
-
 vi.mock("@app/core/dm", () => ({
   DM_KIND: 4444,
   getMessagingRelayHints: () => ["wss://hint.relay.example.com/"],
@@ -208,6 +202,10 @@ vi.mock("@app/extensions/settings", () => ({
 
 vi.mock("@app/core/repo-watch", () => ({
   loadRepoWatch: mocks.loadRepoWatch,
+}))
+
+vi.mock("@app/core/email-digest-state", () => ({
+  hydrateEmailDigestSettings: mocks.hydrateEmailDigestSettings,
 }))
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -345,6 +343,7 @@ describe("syncApplicationData", () => {
 
     expect(mocks.loadSettings).toHaveBeenCalledWith("b".repeat(64))
     expect(mocks.loadRepoWatch).toHaveBeenCalledWith("b".repeat(64))
+    expect(mocks.hydrateEmailDigestSettings).toHaveBeenCalledWith("b".repeat(64))
     expect(mocks.loadUserBlossomServerList).toHaveBeenCalledWith()
     expect(mocks.loadUserFollowList).toHaveBeenCalledWith()
     expect(mocks.loadUserMuteList).toHaveBeenCalledWith()

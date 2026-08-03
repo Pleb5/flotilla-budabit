@@ -20,6 +20,7 @@ import {
   buildTargetedPublication,
   canWriteFromProfileList,
   findCommunitySection,
+  getCommunityEmailDigestServiceDescriptorKey,
   getCommunityMainRelay,
   getDefaultCommunitySectionKinds,
   makeCommunityBadgeDefinition,
@@ -28,6 +29,7 @@ import {
   makeCommunitySetupRefs,
   getProfileListPubkeys,
   normalizeGeohash,
+  normalizeCommunityEmailDigestService,
   normalizeCommunitySectionName,
   normalizePubkey,
   parseAddressRef,
@@ -157,6 +159,278 @@ describe("community protocol helpers", () => {
     })
     expect(general.badges).toEqual([])
     expect(general.retention).toEqual([{kind: 9, value: 100, type: "count"}])
+  })
+
+  it("normalizes and round-trips email digest service declarations", () => {
+    const service = {
+      servicePubkey: pubkeyB.toUpperCase(),
+      requestRelay: "WSS://REQUESTS.EXAMPLE.COM",
+      handlerAddress: `31990:${pubkeyC.toUpperCase()}:daily-digest`,
+      handlerRelay: "wss://HANDLERS.EXAMPLE.COM",
+    }
+    const normalized = {
+      servicePubkey: pubkeyB,
+      requestRelay: "wss://requests.example.com/",
+      handlerAddress: `31990:${pubkeyC}:daily-digest`,
+      handlerRelay: "wss://handlers.example.com/",
+    }
+    const template = buildCommunityDefinition({
+      relays: ["wss://relay.example.com"],
+      sections: [{name: "General", kinds: [{kind: 1111}]}],
+      emailDigestServices: [service],
+    })
+    const definition = parseCommunityDefinition(
+      makeEvent({kind: COMMUNITY_DEFINITION_KIND, pubkey: pubkeyA, tags: template.tags}),
+    )!
+    const parsedRawTag = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: pubkeyA,
+        tags: [
+          [
+            "service",
+            "email-digest",
+            service.servicePubkey,
+            service.requestRelay,
+            service.handlerAddress,
+            service.handlerRelay,
+          ],
+        ],
+      }),
+    )!
+
+    expect(normalizeCommunityEmailDigestService(service)).toEqual(normalized)
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        requestRelay: "wss://requests.example.com/path?token=abc",
+        handlerRelay: "wss://handlers.example.com/path?key=xyz",
+      }),
+    ).toMatchObject({
+      requestRelay: "wss://requests.example.com/path?token=abc",
+      handlerRelay: "wss://handlers.example.com/path?key=xyz",
+    })
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        requestRelay: "wss://requests.example.com/CaseSensitive",
+      }),
+    ).toBeUndefined()
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        handlerRelay: "wss://handlers.example.com/path?token=AbC",
+      }),
+    ).toBeUndefined()
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        requestRelay: "wss://user@requests.example.com",
+      }),
+    ).toBeUndefined()
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        handlerRelay: "wss://handlers.example.com/#fragment",
+      }),
+    ).toBeUndefined()
+    expect(definition.emailDigestServices).toEqual([normalized])
+    expect(parsedRawTag.emailDigestServices).toEqual([normalized])
+    expect(template.tags).toContainEqual([
+      "service",
+      "email-digest",
+      pubkeyB,
+      "wss://requests.example.com/",
+      `31990:${pubkeyC}:daily-digest`,
+      "wss://handlers.example.com/",
+    ])
+  })
+
+  it("ignores malformed email digest service declarations", () => {
+    const validTag = [
+      "service",
+      "email-digest",
+      pubkeyB,
+      "wss://requests.example.com",
+      `31990:${pubkeyC}:daily`,
+      "wss://handlers.example.com",
+    ]
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: pubkeyA,
+        tags: [
+          validTag,
+          validTag.slice(0, 5),
+          [...validTag, "extra"],
+          ["service", "Email-Digest", ...validTag.slice(2)],
+          ["service", "email-digest", "bad", ...validTag.slice(3)],
+          ["service", "email-digest", pubkeyB, "ws://requests.example.com", ...validTag.slice(4)],
+          [
+            "service",
+            "email-digest",
+            pubkeyB,
+            "wss://requests.example.com",
+            `31989:${pubkeyC}:daily`,
+            "wss://handlers.example.com",
+          ],
+          [
+            "service",
+            "email-digest",
+            pubkeyB,
+            "wss://requests.example.com",
+            "31990:bad:daily",
+            "wss://handlers.example.com",
+          ],
+          [
+            "service",
+            "email-digest",
+            pubkeyB,
+            "wss://requests.example.com",
+            `31990:${pubkeyC}:`,
+            "wss://handlers.example.com",
+          ],
+          [
+            "service",
+            "email-digest",
+            pubkeyB,
+            "wss://requests.example.com",
+            `31990:${pubkeyC}:daily`,
+            "ws://handlers.example.com",
+          ],
+        ],
+      }),
+    )!
+
+    expect(definition.emailDigestServices).toEqual([
+      {
+        servicePubkey: pubkeyB,
+        requestRelay: "wss://requests.example.com/",
+        handlerAddress: `31990:${pubkeyC}:daily`,
+        handlerRelay: "wss://handlers.example.com/",
+      },
+    ])
+  })
+
+  it("enforces Anchor service URL and handler address limits", () => {
+    const service = {
+      servicePubkey: pubkeyB,
+      requestRelay: "wss://requests.example.com",
+      handlerAddress: `31990:${pubkeyC}:daily`,
+      handlerRelay: "wss://handlers.example.com",
+    }
+
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        requestRelay: `wss://requests.example.com/?token=${"x".repeat(2048)}`,
+      }),
+    ).toBeUndefined()
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        handlerAddress: `31990:${pubkeyC}:${"x".repeat(201)}`,
+      }),
+    ).toBeUndefined()
+    expect(
+      normalizeCommunityEmailDigestService({
+        ...service,
+        handlerAddress: `31990:${pubkeyC}:bad\nidentifier`,
+      }),
+    ).toBeUndefined()
+  })
+
+  it("preserves unknown and extended service tags through definition rebuilds", () => {
+    const futureService = ["service", "push-v2", "opaque", "future"] as const
+    const extendedDigest = [
+      "service",
+      "email-digest",
+      "2",
+      "future",
+      "fields",
+      "remain",
+      "opaque",
+    ] as const
+    const malformedExactDigest = [
+      "service",
+      "email-digest",
+      "bad-pubkey",
+      "wss://requests.example.com",
+      `31990:${pubkeyC}:daily`,
+      "wss://handlers.example.com",
+    ]
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: pubkeyA,
+        tags: [
+          [...futureService],
+          [...extendedDigest],
+          malformedExactDigest,
+          ["content", "General"],
+          ["k", "1111"],
+        ],
+      }),
+    )!
+    const rebuilt = buildCommunityDefinition({
+      relays: definition.relays,
+      sections: definition.sections,
+      emailDigestServices: definition.emailDigestServices,
+      otherServiceTags: definition.otherServiceTags,
+    })
+    const reparsed = parseCommunityDefinition(
+      makeEvent({kind: COMMUNITY_DEFINITION_KIND, pubkey: pubkeyA, tags: rebuilt.tags}),
+    )!
+
+    expect(definition.otherServiceTags).toEqual([futureService, extendedDigest])
+    expect(rebuilt.tags).toContainEqual(futureService)
+    expect(rebuilt.tags).toContainEqual(extendedDigest)
+    expect(rebuilt.tags).not.toContainEqual(malformedExactDigest)
+    expect(reparsed.otherServiceTags).toEqual(definition.otherServiceTags)
+  })
+
+  it("deduplicates email digest services in order before content tags", () => {
+    const first = {
+      servicePubkey: pubkeyB,
+      requestRelay: "wss://requests.example.com",
+      handlerAddress: `31990:${pubkeyC}:daily`,
+      handlerRelay: "wss://handlers.example.com",
+    }
+    const second = {
+      servicePubkey: pubkeyC,
+      requestRelay: "wss://requests-2.example.com",
+      handlerAddress: `31990:${pubkeyB}:weekly`,
+      handlerRelay: "wss://handlers-2.example.com",
+    }
+    const template = buildCommunityDefinition({
+      relays: ["wss://relay.example.com"],
+      sections: [{name: "General", kinds: [{kind: 1111}]}],
+      emailDigestServices: [first, {...first, servicePubkey: pubkeyB.toUpperCase()}, second],
+    })
+    const serviceTags = template.tags.filter(tag => tag[0] === "service")
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: pubkeyA,
+        tags: [...template.tags, serviceTags[0]],
+      }),
+    )!
+
+    expect(serviceTags).toHaveLength(2)
+    expect(serviceTags.map(tag => tag[2])).toEqual([pubkeyB, pubkeyC])
+    expect(template.tags.indexOf(serviceTags[1])).toBeLessThan(
+      template.tags.findIndex(tag => tag[0] === "content"),
+    )
+    expect(definition.emailDigestServices.map(service => service.servicePubkey)).toEqual([
+      pubkeyB,
+      pubkeyC,
+    ])
+    expect(getCommunityEmailDigestServiceDescriptorKey(first)).toBe(
+      getCommunityEmailDigestServiceDescriptorKey({...first, servicePubkey: pubkeyB.toUpperCase()}),
+    )
+    expect(getCommunityEmailDigestServiceDescriptorKey(first)).not.toBe(
+      getCommunityEmailDigestServiceDescriptorKey(second),
+    )
   })
 
   it("checks profile-list based write access and delegated admin authority", () => {

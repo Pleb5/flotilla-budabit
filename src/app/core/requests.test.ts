@@ -25,18 +25,6 @@ vi.mock("@welshman/app", async importOriginal => {
 })
 
 describe("requests", () => {
-  it("loadAlerts returns without throwing", async () => {
-    const {loadAlerts} = await import("./requests")
-    const pubkey = "a".repeat(64)
-    expect(() => loadAlerts(pubkey)).not.toThrow()
-  })
-
-  it("loadAlertStatuses returns without throwing", async () => {
-    const {loadAlertStatuses} = await import("./requests")
-    const pubkey = "b".repeat(64)
-    expect(() => loadAlertStatuses(pubkey)).not.toThrow()
-  })
-
   it("discoverRelays returns promise for empty lists", async () => {
     const {discoverRelays} = await import("./requests")
     const result = discoverRelays([])

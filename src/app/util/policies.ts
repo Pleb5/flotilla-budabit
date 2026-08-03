@@ -25,10 +25,10 @@ import {
   relaysMostlyRestricted,
   INDEXER_RELAYS,
   SIGNER_RELAYS,
-  NOTIFIER_RELAY,
 } from "@app/core/state"
 import {activeCommunityRelays} from "@app/core/community-state"
 import {getRelayPolicy, isSignerPolicyRelay} from "@app/core/relay-policy"
+import {isEmailDigestAuthRelay} from "@app/core/email-digest-auth"
 import {graspServersStore} from "@nostr-git/ui"
 
 let guestRelaySigner: Nip01Signer | undefined
@@ -47,7 +47,6 @@ const buildAlwaysAllowedRelays = () => {
   const urls = new Set<string>()
   for (const url of INDEXER_RELAYS) urls.add(safeNormalizeUrl(url))
   for (const url of SIGNER_RELAYS) urls.add(safeNormalizeUrl(url))
-  if (NOTIFIER_RELAY) urls.add(safeNormalizeUrl(NOTIFIER_RELAY))
   urls.delete("")
   return urls
 }
@@ -61,6 +60,7 @@ const isUserOwnedRelay = (url: string) => {
   const normalized = safeNormalizeUrl(url)
   if (!normalized) return false
   if (alwaysAllowedRelays.has(normalized)) return true
+  if (isEmailDigestAuthRelay(url)) return true
   if (isSignerPolicyRelay(normalized)) return true
 
   const userRelays = getRelaysFromList(get(userRelayList))

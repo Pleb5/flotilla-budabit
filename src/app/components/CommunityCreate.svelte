@@ -55,8 +55,12 @@
     getCommunitySectionKindKey,
     getCommunitySectionKindLabel,
     getProfileListPubkeys,
+    isHexPubkey,
     makeCommunityNcommunity,
     makeCommunitySetupSection,
+    normalizeCommunityEmailDigestHandlerAddress,
+    normalizeCommunityEmailDigestService,
+    normalizeCommunityServiceRelay,
     normalizeGeohash,
     normalizePubkey,
     normalizeRelay,
@@ -65,7 +69,9 @@
     type CommunityBadgeRef,
     type CommunityDefinition,
     type CommunityDefinitionSectionInput,
+    type CommunityEmailDigestService,
     type CommunityMint,
+    type CommunityOtherServiceTag,
     type CommunityProfileListRef,
     type CommunityRetentionPolicy,
     type CommunitySectionKind,
@@ -131,6 +137,10 @@
     | "extraRelays"
     | "blossomServers"
     | "graspServers"
+    | "emailDigestServicePubkey"
+    | "emailDigestRequestRelay"
+    | "emailDigestHandlerAddress"
+    | "emailDigestHandlerRelay"
     | "mints"
     | "tosRef"
     | "tosRelay"
@@ -167,6 +177,8 @@
     extraRelays: string[]
     blossomServers: string[]
     graspServers: string[]
+    emailDigestServices: CommunityEmailDigestService[]
+    otherServiceTags: CommunityOtherServiceTag[]
     mints: CommunityMint[]
     tos?: {ref: string; relay?: string}
     location: string
@@ -185,6 +197,11 @@
     extraRelays: string
     blossomServers: string
     graspServers: string
+    emailDigestServicePubkey: string
+    emailDigestRequestRelay: string
+    emailDigestHandlerAddress: string
+    emailDigestHandlerRelay: string
+    additionalEmailDigestServices: CommunityEmailDigestService[]
     mints: string
     tosRef: string
     tosRelay: string
@@ -323,6 +340,11 @@
     extraRelays: communityDefinition.relays.slice(1).join("\n"),
     blossomServers: communityDefinition.blossomServers.join("\n"),
     graspServers: communityDefinition.graspServers.join("\n"),
+    emailDigestServicePubkey: communityDefinition.emailDigestServices[0]?.servicePubkey || "",
+    emailDigestRequestRelay: communityDefinition.emailDigestServices[0]?.requestRelay || "",
+    emailDigestHandlerAddress: communityDefinition.emailDigestServices[0]?.handlerAddress || "",
+    emailDigestHandlerRelay: communityDefinition.emailDigestServices[0]?.handlerRelay || "",
+    additionalEmailDigestServices: communityDefinition.emailDigestServices.slice(1),
     mints: communityDefinition.mints
       .map(mint => [mint.url, mint.type].filter(Boolean).join(" "))
       .join("\n"),
@@ -639,6 +661,72 @@
     return normalizedMints
   }
 
+  const validateEmailDigestServiceFields = (
+    nextErrors: FieldErrors,
+    updateValues = false,
+  ): CommunityEmailDigestService | undefined => {
+    const fieldNames = [
+      "emailDigestServicePubkey",
+      "emailDigestRequestRelay",
+      "emailDigestHandlerAddress",
+      "emailDigestHandlerRelay",
+    ]
+    for (const field of fieldNames) delete nextErrors[field]
+
+    const servicePubkeyValue = emailDigestServicePubkey.trim()
+    const requestRelayValue = emailDigestRequestRelay.trim()
+    const handlerAddressValue = emailDigestHandlerAddress.trim()
+    const handlerRelayValue = emailDigestHandlerRelay.trim()
+    if (!servicePubkeyValue && !requestRelayValue && !handlerAddressValue && !handlerRelayValue) {
+      return undefined
+    }
+
+    const normalizedServicePubkey = isHexPubkey(servicePubkeyValue)
+      ? servicePubkeyValue.toLowerCase()
+      : ""
+    const normalizedRequestRelay = normalizeCommunityServiceRelay(requestRelayValue)
+    const normalizedHandlerAddress =
+      normalizeCommunityEmailDigestHandlerAddress(handlerAddressValue)
+    const normalizedHandlerRelay = normalizeCommunityServiceRelay(handlerRelayValue)
+
+    if (!servicePubkeyValue) {
+      nextErrors.emailDigestServicePubkey = "Service pubkey is required when adding a provider."
+    } else if (!normalizedServicePubkey) {
+      nextErrors.emailDigestServicePubkey = "Service pubkey must be 64 hexadecimal characters."
+    }
+    if (!requestRelayValue) {
+      nextErrors.emailDigestRequestRelay =
+        "Request/status relay is required when adding a provider."
+    } else if (!normalizedRequestRelay) {
+      nextErrors.emailDigestRequestRelay = "Request/status relay must be a valid wss:// URL."
+    }
+    if (!handlerAddressValue) {
+      nextErrors.emailDigestHandlerAddress = "Handler address is required when adding a provider."
+    } else if (!normalizedHandlerAddress) {
+      nextErrors.emailDigestHandlerAddress =
+        "Handler address must use 31990:<64hex pubkey>:<nonempty id>."
+    }
+    if (!handlerRelayValue) {
+      nextErrors.emailDigestHandlerRelay = "Handler relay is required when adding a provider."
+    } else if (!normalizedHandlerRelay) {
+      nextErrors.emailDigestHandlerRelay = "Handler relay must be a valid wss:// URL."
+    }
+
+    if (updateValues) {
+      if (normalizedServicePubkey) emailDigestServicePubkey = normalizedServicePubkey
+      if (normalizedRequestRelay) emailDigestRequestRelay = normalizedRequestRelay
+      if (normalizedHandlerAddress) emailDigestHandlerAddress = normalizedHandlerAddress
+      if (normalizedHandlerRelay) emailDigestHandlerRelay = normalizedHandlerRelay
+    }
+
+    return normalizeCommunityEmailDigestService({
+      servicePubkey: servicePubkeyValue,
+      requestRelay: requestRelayValue,
+      handlerAddress: handlerAddressValue,
+      handlerRelay: handlerRelayValue,
+    })
+  }
+
   const setFieldError = (field: string, message = "") => {
     const nextErrors = {...errors}
 
@@ -827,6 +915,15 @@
           graspServers = normalized.join("\n")
           setFieldError(field)
         }
+        break
+      }
+      case "emailDigestServicePubkey":
+      case "emailDigestRequestRelay":
+      case "emailDigestHandlerAddress":
+      case "emailDigestHandlerRelay": {
+        const nextErrors = {...errors}
+        validateEmailDigestServiceFields(nextErrors, true)
+        errors = nextErrors
         break
       }
       case "mints": {
@@ -1053,6 +1150,7 @@
         return url
       })
       .filter(Boolean)
+    const normalizedEmailDigestService = validateEmailDigestServiceFields(nextErrors)
     const normalizedMints = validateMints(nextErrors)
     const trimmedTosRef = tosRef.trim()
     const normalizedTosRelay = normalizeRelay(tosRelay)
@@ -1106,6 +1204,11 @@
       extraRelays: normalizedExtraRelays,
       blossomServers: normalizedBlossomServers,
       graspServers: normalizedGraspServers,
+      emailDigestServices: [
+        ...(normalizedEmailDigestService ? [normalizedEmailDigestService] : []),
+        ...additionalEmailDigestServices,
+      ],
+      otherServiceTags: definition?.otherServiceTags || [],
       mints: normalizedMints,
       tos: trimmedTosRef ? {ref: trimmedTosRef, relay: normalizedTosRelay || undefined} : undefined,
       location: location.trim(),
@@ -1457,6 +1560,8 @@
           description: validated.description,
           blossomServers: validated.blossomServers,
           graspServers: validated.graspServers,
+          emailDigestServices: validated.emailDigestServices,
+          otherServiceTags: validated.otherServiceTags,
           mints: validated.mints,
           tos: validated.tos,
           location: validated.location,
@@ -1573,6 +1678,13 @@
           website: validated.website,
           picture: validated.picture,
         })
+        emailDigestServicePubkey = originalDraftState.emailDigestServicePubkey
+        emailDigestRequestRelay = originalDraftState.emailDigestRequestRelay
+        emailDigestHandlerAddress = originalDraftState.emailDigestHandlerAddress
+        emailDigestHandlerRelay = originalDraftState.emailDigestHandlerRelay
+        additionalEmailDigestServices = originalDraftState.additionalEmailDigestServices.map(
+          service => ({...service}),
+        )
       }
 
       reportStatus(
@@ -1607,6 +1719,15 @@
     extraRelays = originalDraftState.extraRelays
     blossomServers = originalDraftState.blossomServers
     graspServers = originalDraftState.graspServers
+    emailDigestServicePubkey = originalDraftState.emailDigestServicePubkey
+    emailDigestRequestRelay = originalDraftState.emailDigestRequestRelay
+    emailDigestHandlerAddress = originalDraftState.emailDigestHandlerAddress
+    emailDigestHandlerRelay = originalDraftState.emailDigestHandlerRelay
+    additionalEmailDigestServices = originalDraftState.additionalEmailDigestServices.map(
+      service => ({
+        ...service,
+      }),
+    )
     mints = originalDraftState.mints
     tosRef = originalDraftState.tosRef
     tosRelay = originalDraftState.tosRelay
@@ -1826,6 +1947,7 @@
     extraRelays = validated.extraRelays.join("\n")
     blossomServers = validated.blossomServers.join("\n")
     graspServers = validated.graspServers.join("\n")
+    validateEmailDigestServiceFields({}, true)
     mints = validated.mints.map(mint => [mint.url, mint.type].filter(Boolean).join(" ")).join("\n")
     tosRef = validated.tos?.ref || ""
     tosRelay = validated.tos?.relay || ""
@@ -2155,6 +2277,11 @@
   let extraRelays = $state("")
   let blossomServers = $state("")
   let graspServers = $state("")
+  let emailDigestServicePubkey = $state("")
+  let emailDigestRequestRelay = $state("")
+  let emailDigestHandlerAddress = $state("")
+  let emailDigestHandlerRelay = $state("")
+  let additionalEmailDigestServices = $state<CommunityEmailDigestService[]>([])
   let mints = $state("")
   let tosRef = $state("")
   let tosRelay = $state("")
@@ -2266,6 +2393,11 @@
     extraRelays = ""
     blossomServers = ""
     graspServers = ""
+    emailDigestServicePubkey = ""
+    emailDigestRequestRelay = ""
+    emailDigestHandlerAddress = ""
+    emailDigestHandlerRelay = ""
+    additionalEmailDigestServices = []
     mints = ""
     tosRef = ""
     tosRelay = ""
@@ -2791,6 +2923,73 @@
                   placeholder="wss://grasp.example.com"></textarea>
                 >{/snippet}
             </Field>
+          </div>
+          <div class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5">
+            <div class="mb-4">
+              <p class="font-semibold">
+                Email digest provider <span class="opacity-60">(optional)</span>
+              </p>
+              <p class="mt-1 text-sm leading-relaxed text-base-content/70">
+                Declaring a provider is a community endorsement only. Users opt in separately and
+                share their email address directly with that provider.
+              </p>
+              {#if additionalEmailDigestServices.length > 0}
+                <p class="mt-2 text-xs font-medium text-info">
+                  {additionalEmailDigestServices.length} additional provider declaration{additionalEmailDigestServices.length ===
+                  1
+                    ? " is"
+                    : "s are"} preserved unchanged.
+                </p>
+              {/if}
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <Field error={errors.emailDigestServicePubkey}>
+                {#snippet label()}<p>Service pubkey</p>{/snippet}
+                {#snippet input()}<input
+                    bind:value={emailDigestServicePubkey}
+                    class="input input-bordered w-full {errors.emailDigestServicePubkey
+                      ? 'input-error'
+                      : ''}"
+                    onblur={() => validateField("emailDigestServicePubkey")}
+                    type="text"
+                    spellcheck="false"
+                    placeholder="64-character hex pubkey" />{/snippet}
+              </Field>
+              <Field error={errors.emailDigestRequestRelay}>
+                {#snippet label()}<p>Request/status relay</p>{/snippet}
+                {#snippet input()}<input
+                    bind:value={emailDigestRequestRelay}
+                    class="input input-bordered w-full {errors.emailDigestRequestRelay
+                      ? 'input-error'
+                      : ''}"
+                    onblur={() => validateField("emailDigestRequestRelay")}
+                    type="url"
+                    placeholder="wss://digest.example.com" />{/snippet}
+              </Field>
+              <Field error={errors.emailDigestHandlerAddress}>
+                {#snippet label()}<p>Handler address</p>{/snippet}
+                {#snippet input()}<input
+                    bind:value={emailDigestHandlerAddress}
+                    class="input input-bordered w-full {errors.emailDigestHandlerAddress
+                      ? 'input-error'
+                      : ''}"
+                    onblur={() => validateField("emailDigestHandlerAddress")}
+                    type="text"
+                    spellcheck="false"
+                    placeholder="31990:<handler pubkey>:<id>" />{/snippet}
+              </Field>
+              <Field error={errors.emailDigestHandlerRelay}>
+                {#snippet label()}<p>Handler relay</p>{/snippet}
+                {#snippet input()}<input
+                    bind:value={emailDigestHandlerRelay}
+                    class="input input-bordered w-full {errors.emailDigestHandlerRelay
+                      ? 'input-error'
+                      : ''}"
+                    onblur={() => validateField("emailDigestHandlerRelay")}
+                    type="url"
+                    placeholder="wss://handlers.example.com" />{/snippet}
+              </Field>
+            </div>
           </div>
         </section>
       </div>

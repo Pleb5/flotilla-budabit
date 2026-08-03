@@ -9,22 +9,12 @@ import {
   sortBy,
   now,
   on,
-  isDefined,
-  filterVals,
-  fromPairs,
 } from "@welshman/lib"
 import {
   DELETE,
   EVENT_DATE,
   EVENT_TIME,
-  RELAY_INVITE,
-  ALERT_EMAIL,
-  ALERT_WEB,
-  ALERT_IOS,
-  ALERT_ANDROID,
-  ALERT_STATUS,
   matchFilters,
-  getTagValue,
   getAddress,
   isShareableRelayUrl,
   getRelaysFromList,
@@ -35,7 +25,7 @@ import {load, request, Tracker} from "@welshman/net"
 import {repository, makeFeedController, loadRelay, tracker} from "@welshman/app"
 import {createScroller} from "@lib/html"
 import {daysBetween} from "@lib/util"
-import {NOTIFIER_RELAY, getEventsForUrl} from "@app/core/state"
+import {getEventsForUrl} from "@app/core/state"
 import {
   deleteEventsDeleteTarget,
   editedTargetIds,
@@ -571,44 +561,9 @@ export const makeCalendarFeed = ({
 
 // Domain specific
 
-const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
-
-export const loadAlerts = (pubkey: string) =>
-  ALERTS_ENABLED
-    ? request({
-        autoClose: true,
-        relays: [NOTIFIER_RELAY],
-        filters: [{kinds: [ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID], authors: [pubkey]}],
-      })
-    : Promise.resolve([])
-
-export const loadAlertStatuses = (pubkey: string) =>
-  ALERTS_ENABLED
-    ? request({
-        autoClose: true,
-        relays: [NOTIFIER_RELAY],
-        filters: [{kinds: [ALERT_STATUS], "#p": [pubkey]}],
-      })
-    : Promise.resolve([])
-
 export const discoverRelays = (lists: List[]) =>
   Promise.all(
     uniq(lists.flatMap($l => getRelaysFromList($l)))
       .filter(isShareableRelayUrl)
       .map(url => loadRelay(url)),
-  )
-
-export const requestRelayClaim = async (url: string) => {
-  const filters = [{kinds: [RELAY_INVITE], limit: 1}]
-  const events = await load({filters, relays: [url]})
-
-  if (events.length > 0) {
-    return getTagValue("claim", events[0].tags)
-  }
-}
-
-export const requestRelayClaims = async (urls: string[]) =>
-  filterVals(
-    isDefined,
-    fromPairs(await Promise.all(urls.map(async url => [url, await requestRelayClaim(url)]))),
   )

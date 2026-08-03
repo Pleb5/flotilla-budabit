@@ -82,6 +82,7 @@ Self-hosting Budabit does not create a community by itself. Before setting `VITE
 - `content`, `k`, and `a` tags for the sections you want to expose and their `kind:30000` profile-list write permissions
 - Optional `blossom` tags for community-owned media storage
 - Optional ordered `["grasp", "wss://..."]` tags for GRASP servers the community endorses or offers to members
+- Optional `["service", "email-digest", <service-pubkey>, <request-relay>, <handler-address>, <handler-relay>]` tags for community-endorsed Git email digest providers
 - Optional `mint` tags for community Cashu mints
 - Optional `g` tag for the community geohash; do not use `g` for GRASP servers
 
@@ -89,23 +90,11 @@ Community declarations do not automatically create or update user `kind:10063` B
 
 Relays are infrastructure, not identity. Do not configure a deployment as if one relay URL is the community. The app routes community state through `/c/<community>`, where `<community>` is parsed as a hex pubkey, `npub`, or `ncommunity` value.
 
-## Optional Alerts
+## Email Digests
 
-External email digests and web push alerts are disabled by default with `FEATURE_ALERTS=0`. That is the current expected self-hosting mode.
+In-app badges and notification sounds are always available. Git email digest providers are not configured through deployment variables. A community administrator advertises a provider in the signed `kind:10222` definition, and each user explicitly selects one endorsed provider in Settings > Notifications.
 
-In-app unread badges and notification sounds do not require notifier values and remain available without `FEATURE_ALERTS=1`.
-
-Set `FEATURE_ALERTS=1` only if you want to expose external alert delivery setup, then configure:
-
-```env
-VITE_NOTIFIER_RELAY=
-VITE_NOTIFIER_PUBKEY=
-VITE_NOTIFIER_HANDLER_ADDRESS=
-VITE_NOTIFIER_HANDLER_RELAY=
-VITE_VAPID_PUBLIC_KEY=
-```
-
-If these values are absent while `FEATURE_ALERTS=0`, users still get in-app indications for new activity.
+The provider receives the user's encrypted subscription on its declared request relay. Removing a service declaration does not transfer existing users to another provider; Budabit preserves their selected snapshot so they can disable the old registration.
 
 ## Optional Account Service
 
@@ -294,7 +283,7 @@ Budabit is static, but it still talks to public network services from the browse
 - Git HTTP remotes, usually through a CORS proxy
 - Dufflepud at `https://dufflepud.onrender.com`, currently wired as the Welshman backend service URL and used for link preview service calls
 - Optional Burrow account service if `VITE_BURROW_URL` is set
-- Optional notifier/push services only when `FEATURE_ALERTS=1`
+- Community-endorsed email digest providers selected by individual users
 
 Git-over-HTTP operations use a CORS proxy. If you do not set one, Budabit falls back to `https://corsproxy.budabit.club`.
 
@@ -311,7 +300,7 @@ VITE_GIT_DEFAULT_CORS_PROXY=https://your-cors-proxy.example.com
 - Do not use a dumb file server without SPA rewrites and expect deep links to work.
 - Do not point `VITE_DEFAULT_COMMUNITY` at a user profile that has no resolvable `kind:10222` community definition.
 - Do not rely on legacy `/spaces/[relay]` routes. They were removed in the Communikey pivot.
-- Do not expect external email or push delivery unless `FEATURE_ALERTS=1` and notifier values are configured. In-app badges are the default notification path.
+- Do not expect Git email delivery unless an eligible community advertises a provider and the user explicitly enables it.
 
 ## Sanity Check
 

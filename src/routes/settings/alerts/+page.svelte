@@ -1,18 +1,3 @@
-<script lang="ts">
-  /* global __ALERTS__ */
-  import {onMount} from "svelte"
-  import {goto} from "$app/navigation"
-  import BudabitAlerts from "@app/components/BudabitAlerts.svelte"
-
-  onMount(() => {
-    if (!__ALERTS__) {
-      goto("/settings/content", {replaceState: true})
-    }
-  })
-</script>
-
-{#if __ALERTS__}
-  <div class="content column">
-    <BudabitAlerts />
-  </div>
-{/if}
+<div class="content column">
+  <p class="opacity-70">Opening notification settings...</p>
+</div>

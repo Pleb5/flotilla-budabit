@@ -88,18 +88,18 @@ This document summarizes how the Budabit client is structured and how the main p
   - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_GIT_RELAYS`.
   - App metadata and theme: `VITE_APP_NAME`, `VITE_APP_URL`, `VITE_APP_LOGO`, `VITE_APP_ACCENT`, `VITE_APP_ACCENT_CONTENT`, `VITE_APP_SECONDARY`, `VITE_APP_SECONDARY_CONTENT`.
   - Media: `VITE_DEFAULT_BLOSSOM_SERVERS` for fallback Blossom upload targets; community Blossom servers come from active community definitions.
-  - Services: `VITE_BURROW_URL`; alert delivery services `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, and `VITE_VAPID_PUBLIC_KEY` are used only when `FEATURE_ALERTS=1`.
+  - Services: `VITE_BURROW_URL`; email digest providers are discovered from verified community definitions rather than deployment environment variables.
   - Widgets: `VITE_SMART_WIDGET_RELAYS` overrides default widget discovery relays.
   - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.
   - Development: `VITE_DEV_ALLOWED_HOSTS`, `VITE_DEV_HMR_*`, and `VITE_DEV_CHII_TARGET_URL` support reverse-proxied/mobile dev sessions.
-- Build-time constants are defined in `vite.config.ts`: `__GRASP__` is enabled unless `FEATURE_GRASP=0`, `__CICD__` is enabled only with `FEATURE_CICD=1`, and `__ALERTS__` is enabled only with `FEATURE_ALERTS=1`.
-- Current notification behavior: in-app unread badges and sounds remain available without alerts; external email and web push setup is hidden/rejected unless `FEATURE_ALERTS=1`.
+- Build-time constants are defined in `vite.config.ts`: `__GRASP__` is enabled unless `FEATURE_GRASP=0`, and `__CICD__` is enabled only with `FEATURE_CICD=1`.
+- Notification settings always include in-app unread badges and sounds. Signed community definitions may also advertise providers for the account-wide Git email digest.
 - `build.sh` currently post-processes HTML and manifest metadata from `VITE_PLATFORM_NAME`, `VITE_PLATFORM_SHORT_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_ACCENT`, and `VITE_PLATFORM_URL`, while runtime app metadata and PWA icon generation use `VITE_APP_*`.
 
 ## App Shell Boot Sequence
 
 - `src/routes/+layout.ts` disables SSR for the app shell.
-- `src/routes/+layout.svelte` wires global policies and app providers, including signer context, storage/event sync, push setup when alerts are enabled, community hydration, extension provider setup, Cashu bridge integration, update polling, and debug/dev hooks.
+- `src/routes/+layout.svelte` wires global policies and app providers, including signer context, storage/event sync, community hydration, extension provider setup, Cashu bridge integration, update polling, and debug/dev hooks.
 - The SvelteKit static adapter uses `fallback: "index.html"`, so deployed hosts must preserve SPA fallback behavior.
 
 ## How Pages Use State
