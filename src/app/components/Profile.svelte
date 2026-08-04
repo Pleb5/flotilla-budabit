@@ -109,7 +109,11 @@
       {#if showPubkey}
         <div class="flex items-center gap-2 overflow-hidden text-ellipsis text-sm opacity-70">
           {displayPubkey(pubkey)}
-          <Button onclick={copyPubkey} class="shrink-0 p-1">
+          <Button
+            onclick={copyPubkey}
+            class="shrink-0 p-1"
+            title="Copy profile npub"
+            aria-label="Copy profile npub">
             <Icon size={4} icon={Copy} />
           </Button>
         </div>

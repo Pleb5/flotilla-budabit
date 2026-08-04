@@ -12,10 +12,15 @@
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Icon from "@lib/components/Icon.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
   import Link from "@lib/components/Link.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
+  import Profile from "@app/components/Profile.svelte"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import {publishSettings} from "@app/core/commands"
+  import {activeCommunityDefinition, activeUserCommunityRefs} from "@app/core/community-state"
   import {GIT_RELAYS, repoAnnouncements} from "@app/core/git-state"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {userSettingsValues} from "@app/core/state"
@@ -33,6 +38,7 @@
   import {
     buildEmailDigestRepositories,
     getDefaultEmailDigestTimezone,
+    isEmailDigestVerificationPending,
     isEmailDigestProviderAdvertised,
     normalizeEmailDigestEmail,
     type EmailDigestProvider,
@@ -42,6 +48,7 @@
     type CommunityEmailDigestService,
   } from "@app/core/community"
   import {clearBadges} from "@app/util/notifications"
+  import {pushModal} from "@app/util/modal"
   import {makeGitPath} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
 
@@ -66,6 +73,8 @@
   let savingDigest = $state(false)
   let disablingDigest = $state(false)
   let digestError = $state("")
+  let openProviderEvidenceKey = $state("")
+  let verificationEmailNotice = $state("")
 
   const providerChoices = $derived.by(() => {
     const choices: ProviderChoice[] = $emailDigestProviders.map(provider => ({...provider}))
@@ -136,6 +145,13 @@
               ? "Error"
               : "Pending confirmation",
   )
+  const verificationRequired = $derived(
+    savedDigestEnabled &&
+      (Boolean(verificationEmailNotice) || isEmailDigestVerificationPending(providerState.status)),
+  )
+  const verificationEmail = $derived(
+    verificationEmailNotice || $userEmailDigestSettingsValues.email,
+  )
 
   function getProviderKey(provider: CommunityEmailDigestService) {
     return getCommunityEmailDigestServiceDescriptorKey(provider)
@@ -148,6 +164,29 @@
       return provider.requestRelay
     }
   }
+
+  const getCommunityProfileRelays = (communityPubkey: string) => {
+    const communityRef = $activeUserCommunityRefs.find(
+      ref => ref.communityPubkey === communityPubkey,
+    )
+    if (communityRef) return communityRef.relayHints
+    if ($activeCommunityDefinition?.pubkey === communityPubkey) {
+      return $activeCommunityDefinition.relays
+    }
+    return []
+  }
+
+  const openCommunityProfile = (communityPubkey: string) =>
+    pushModal(ProfileDetail, {
+      pubkey: communityPubkey,
+      relays: getCommunityProfileRelays(communityPubkey),
+    })
+
+  const getProviderEvidenceKey = (provider: CommunityEmailDigestService) =>
+    `${getProviderKey(provider)}:communities`
+
+  const getCommunityCountLabel = (count: number) =>
+    `${count} ${count === 1 ? "Community" : "Communities"}`
 
   const getRepoPath = (address: string) => {
     try {
@@ -209,6 +248,7 @@
     statusRequestProviderKey = ""
     loadingStatus = false
     digestError = ""
+    openProviderEvidenceKey = ""
     if (switching) email = ""
   }
 
@@ -259,6 +299,13 @@
     event.preventDefault()
     if (!selectedProvider) return
     const wasEnabled = savedDigestEnabled
+    const savedProvider = $userEmailDigestSettingsValues.provider
+    const normalizedEmail = normalizeEmailDigestEmail(email)
+    const requiresNewVerification =
+      !wasEnabled ||
+      !savedProvider ||
+      getProviderKey(savedProvider) !== selectedProviderKey ||
+      $userEmailDigestSettingsValues.email !== normalizedEmail
     statusRequestToken += 1
     statusRequestProviderKey = ""
     loadingStatus = false
@@ -282,6 +329,12 @@
       })
       providerSwitchConfirmed = false
       digestFormDirty = false
+      if (
+        requiresNewVerification &&
+        (!providerState.status || providerState.status.emailConfirmed === false)
+      ) {
+        verificationEmailNotice = normalizedEmail
+      }
       pushToast({message: wasEnabled ? "Email digest updated" : "Email digest enabled"})
     } catch (error) {
       digestError = error instanceof Error ? error.message : "Failed to save email digest"
@@ -300,6 +353,7 @@
     try {
       await disableEmailDigest($userEmailDigestSettingsValues)
       providerState = {}
+      verificationEmailNotice = ""
       pushToast({message: "Email digest disabled"})
     } catch (error) {
       digestError = error instanceof Error ? error.message : "Failed to disable email digest"
@@ -342,6 +396,10 @@
         : ""
     if (!digestSettingsHydrated || !queryKey || queryKey === statusQueryKey) return
     if (refreshStatus(provider)) statusQueryKey = queryKey
+  })
+
+  $effect(() => {
+    if (providerState.status?.emailConfirmed) verificationEmailNotice = ""
   })
 
   onMount(() => {
@@ -457,6 +515,31 @@
       </div>
     {/if}
 
+    {#if verificationRequired}
+      <div class="border-b border-warning/40 bg-warning/10 px-5 py-4 sm:px-6" role="status">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex min-w-0 items-start gap-3">
+            <div class="shrink-0 rounded-xl bg-warning/15 p-2.5 text-warning-content">
+              <Icon icon={Mailbox} size={5} />
+            </div>
+            <div class="min-w-0">
+              <h3 class="font-semibold">Verify your delivery email</h3>
+              <p class="mt-1 text-sm leading-6 text-muted-foreground">
+                We sent a verification email{verificationEmail ? ` to ${verificationEmail}` : ""}.
+                Open that inbox and click the verification link to activate your digest.
+              </p>
+            </div>
+          </div>
+          <Button
+            class="btn btn-warning btn-sm shrink-0"
+            disabled={loadingStatus || !$userEmailDigestSettingsValues.provider}
+            onclick={() => refreshStatus($userEmailDigestSettingsValues.provider)}>
+            <Spinner loading={loadingStatus}>I've verified, refresh status</Spinner>
+          </Button>
+        </div>
+      </div>
+    {/if}
+
     <div class="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.85fr)]">
       <div class="grid min-w-0 gap-6">
         {#if $emailDigestProviders.length === 0}
@@ -469,7 +552,9 @@
           </div>
         {/if}
 
-        <fieldset class="contents" disabled={savingDigest || disablingDigest}>
+        <fieldset
+          class="contents"
+          disabled={savingDigest || disablingDigest || !digestSettingsHydrated}>
           {#if providerChoices.length > 0}
             <Field>
               {#snippet label()}<span>Community-endorsed provider</span>{/snippet}
@@ -483,11 +568,6 @@
                       {provider.unavailable ? "No longer advertised - " : ""}{getProviderHost(
                         provider,
                       )}
-                      ({provider.servicePubkey.slice(0, 8)}...) - endorsed by
-                      {provider.endorsingCommunityPubkeys.length}
-                      {provider.endorsingCommunityPubkeys.length === 1
-                        ? "community"
-                        : "communities"}
                     </option>
                   {/each}
                 </select>
@@ -499,30 +579,79 @@
             </Field>
 
             {#if selectedProvider}
+              {@const evidenceKey = getProviderEvidenceKey(selectedProvider)}
               <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div class="flex items-center gap-2 text-sm font-semibold">
-                    <Icon icon={Server} size={4} />
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div class="min-w-0">
+                    <Profile
+                      pubkey={selectedProvider.servicePubkey}
+                      relays={[selectedProvider.handlerRelay]}
+                      avatarSize={8}
+                      showPubkey />
+                  </div>
+                  <div
+                    class="flex shrink-0 items-center gap-1.5 rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-xs text-muted-foreground">
+                    <Icon icon={Server} size={3.5} />
                     {getProviderHost(selectedProvider)}
                   </div>
-                  <code class="rounded bg-base-100 px-2 py-1 text-[11px]">
-                    {selectedProvider.servicePubkey.slice(
-                      0,
-                      12,
-                    )}...{selectedProvider.servicePubkey.slice(-6)}
-                  </code>
                 </div>
-                <div
-                  class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                  <span>Endorsed by</span>
-                  {#each selectedProvider.endorsingCommunityPubkeys as communityPubkey, index (communityPubkey)}
-                    <span class="font-medium text-base-content">
-                      <ProfileName pubkey={communityPubkey} />{index <
-                      selectedProvider.endorsingCommunityPubkeys.length - 1
-                        ? ","
-                        : ""}
-                    </span>
-                  {/each}
+
+                <div class="relative mt-3 w-fit">
+                  <button
+                    type="button"
+                    class="badge cursor-pointer border border-base-content/15 bg-base-200 font-medium text-base-content/80 hover:bg-base-300"
+                    class:bg-base-300={openProviderEvidenceKey === evidenceKey}
+                    aria-expanded={openProviderEvidenceKey === evidenceKey}
+                    onclick={() =>
+                      (openProviderEvidenceKey =
+                        openProviderEvidenceKey === evidenceKey ? "" : evidenceKey)}>
+                    {getCommunityCountLabel(selectedProvider.endorsingCommunityPubkeys.length)}
+                  </button>
+
+                  {#if openProviderEvidenceKey === evidenceKey}
+                    <InlinePopover
+                      align="left"
+                      widthClass="w-80 sm:w-96"
+                      onClose={() => (openProviderEvidenceKey = "")}>
+                      <div class="flex min-w-0 flex-col gap-3 text-sm">
+                        <div>
+                          <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                            Community evidence
+                          </p>
+                          <p class="mt-1 text-xs leading-5 opacity-70">
+                            Latest verified community definitions advertising this provider.
+                          </p>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                          {#each selectedProvider.endorsingCommunityPubkeys as communityPubkey (communityPubkey)}
+                            {@const communityRelays = getCommunityProfileRelays(communityPubkey)}
+                            <div
+                              class="flex min-w-0 items-center gap-2 rounded-box bg-base-200/60 p-3">
+                              <button
+                                type="button"
+                                class="shrink-0"
+                                aria-label="Open community profile"
+                                onclick={() => openCommunityProfile(communityPubkey)}>
+                                <ProfileCircle
+                                  pubkey={communityPubkey}
+                                  relays={communityRelays}
+                                  size={7} />
+                              </button>
+                              <div class="min-w-0 flex-1">
+                                <button
+                                  type="button"
+                                  class="max-w-full truncate text-sm font-medium hover:underline"
+                                  onclick={() => openCommunityProfile(communityPubkey)}>
+                                  <ProfileName pubkey={communityPubkey} relays={communityRelays} />
+                                </button>
+                                <div class="text-xs opacity-70">Community definition</div>
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      </div>
+                    </InlinePopover>
+                  {/if}
                 </div>
               </div>
             {/if}

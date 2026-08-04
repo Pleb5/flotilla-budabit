@@ -95,6 +95,9 @@ export type EmailDigestStatus = {
   lastCompletedAt: number | null
 }
 
+export const isEmailDigestVerificationPending = (status?: EmailDigestStatus) =>
+  status?.state === "pending" && status.emailConfirmed === false
+
 const LOCAL_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 const REPOSITORY_ADDRESS_RE = /^30617:([0-9a-f]{64}):(.+)$/i
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/

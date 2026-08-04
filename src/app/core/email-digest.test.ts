@@ -19,6 +19,7 @@ import {
   decryptEmailDigestSettingsEvent,
   discoverEmailDigestProviders,
   getNextEmailDigestCreatedAt,
+  isEmailDigestVerificationPending,
   normalizeEmailDigestSettings,
   parseEmailDigestStatus,
   runBestEffortEmailDigestSync,
@@ -559,6 +560,31 @@ describe("email digest event and status restrictions", () => {
     expect(parseEmailDigestStatus({...status, extra: true})).toBeUndefined()
     const {emailConfirmed: _emailConfirmed, ...missingField} = status
     expect(parseEmailDigestStatus(missingField)).toBeUndefined()
+  })
+
+  it("identifies provider status that still requires email verification", () => {
+    const pending = {
+      version: 1,
+      channel: "email-digest",
+      status: "pending",
+      state: "pending",
+      message: "Confirm your email",
+      emailConfirmed: false,
+      nextRunAt: null,
+      lastCompletedAt: null,
+    } as const
+
+    expect(isEmailDigestVerificationPending(pending)).toBe(true)
+    expect(isEmailDigestVerificationPending({...pending, emailConfirmed: true})).toBe(false)
+    expect(
+      isEmailDigestVerificationPending({
+        ...pending,
+        status: "ok",
+        state: "active",
+        emailConfirmed: true,
+      }),
+    ).toBe(false)
+    expect(isEmailDigestVerificationPending()).toBe(false)
   })
 
   it("publishes disable deletion only for a loaded subscription and makes it newer", async () => {
