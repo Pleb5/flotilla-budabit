@@ -23,7 +23,8 @@ describe("empty image source guards", () => {
   it("uses the fallback avatar icon when profile images fail", () => {
     const source = readProjectFile("../components/ProfileCircle.svelte")
 
-    expect(source).toContain("fallbackSrc={UserRounded}")
+    expect(source).toContain("fallbackSrc = UserRounded")
+    expect(source).toContain("{fallbackSrc}")
     expect(source).toContain("src={$profile?.picture}")
     expect(source).not.toContain("src={$profile?.picture || UserRounded}")
   })

@@ -3,13 +3,13 @@
   import {getContext} from "svelte"
   import {readable} from "svelte/store"
   import {removeUndefined} from "@welshman/lib"
-  import {displayPubkey} from "@welshman/util"
+  import {displayProfile, displayPubkey, profileHasName} from "@welshman/util"
   import {deriveHandleForPubkey, displayHandle} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
-  import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
+  import {deriveBudabitProfile} from "@app/core/profile-resolver"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
   import {
@@ -25,6 +25,8 @@
     relays?: string[]
     showPubkey?: boolean
     avatarSize?: number
+    fallbackName?: string
+    fallbackPicture?: string
     hideDetails?: boolean
     roleLabel?: string
     verifiedMaintainerForRepo?: VerifiedMaintainerForRepo | false
@@ -36,13 +38,18 @@
     relays = [],
     showPubkey,
     avatarSize = 10,
+    fallbackName,
+    fallbackPicture,
     hideDetails = false,
     roleLabel,
     verifiedMaintainerForRepo,
   }: Props = $props()
 
   const relayHints = $derived(removeUndefined([url, ...relays]))
-  const profileDisplay = $derived(deriveBudabitProfileDisplay(pubkey, {url, relays}))
+  const profile = $derived(deriveBudabitProfile(pubkey, {url, relays}))
+  const profileDisplay = $derived(
+    profileHasName($profile) ? displayProfile($profile) : fallbackName || displayPubkey(pubkey),
+  )
   const handle = $derived(deriveHandleForPubkey(pubkey))
   const repoVerifiedMaintainersContext = getContext<RepoVerifiedMaintainersContext | undefined>(
     REPO_VERIFIED_MAINTAINERS_KEY,
@@ -76,6 +83,7 @@
       {pubkey}
       {url}
       {relays}
+      fallbackSrc={fallbackPicture}
       size={avatarSize}
       verifiedMaintainerForRepo={Boolean(activeVerifiedMaintainerForRepo)} />
   </Button>
@@ -85,7 +93,7 @@
         <Button
           onclick={openProfile}
           class="text-bold overflow-hidden text-ellipsis whitespace-nowrap">
-          {$profileDisplay}
+          {profileDisplay}
         </Button>
         {#if roleLabel}
           <span

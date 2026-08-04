@@ -6,6 +6,10 @@ const source = readFileSync(
   "utf8",
 )
 const profileSource = readFileSync(new URL("../components/Profile.svelte", import.meta.url), "utf8")
+const profileCircleSource = readFileSync(
+  new URL("../components/ProfileCircle.svelte", import.meta.url),
+  "utf8",
+)
 
 describe("email digest notification settings UI", () => {
   it("uses profile identity and recommendation evidence instead of pubkeys in provider options", () => {
@@ -14,8 +18,19 @@ describe("email digest notification settings UI", () => {
     expect(profileSource).toContain("Copy profile npub")
     expect(source).toContain("Community evidence")
     expect(source).toContain("<InlinePopover")
+    expect(source).toContain("selectedProviderProfileRelays")
+    expect(source).toContain("hydratePubkeyProfiles")
+    expect(source).toContain("selectEmailDigestProviderIdentity")
+    expect(source).toContain("fallbackName={selectedProviderIdentity?.name")
+    expect(profileSource).toContain("fallbackName?: string")
+    expect(profileSource).toContain("fallbackPicture?: string")
+    expect(profileCircleSource).toContain("fallbackSrc?: string")
     expect(source).not.toContain("provider.servicePubkey.slice")
     expect(source).not.toContain("endorsed by")
+  })
+
+  it("centers spinner content in notification action buttons", () => {
+    expect(source.match(/\[&>span\]:min-h-0/g)?.length).toBeGreaterThanOrEqual(5)
   })
 
   it("keeps email verification guidance on the page after a successful subscription", () => {

@@ -18,6 +18,7 @@ import {
   buildEmailDigestRepositories,
   decryptEmailDigestSettingsEvent,
   discoverEmailDigestProviders,
+  getEmailDigestHandlerFilter,
   getNextEmailDigestCreatedAt,
   isEmailDigestVerificationPending,
   normalizeEmailDigestSettings,
@@ -25,6 +26,7 @@ import {
   runBestEffortEmailDigestSync,
   runEmailDigestDisableSequence,
   runEmailDigestSaveSequence,
+  selectEmailDigestProviderIdentity,
   selectEmailDigestStatusEvent,
   selectEmailDigestSubscriptionEvent,
   shouldAutoSyncEmailDigest,
@@ -239,6 +241,38 @@ describe("verified email digest provider discovery", () => {
         communityRefs: [],
       }),
     ).toEqual([])
+  })
+
+  it("uses signed handler metadata as the provider identity fallback", () => {
+    const handler = finalizeEvent(
+      {
+        kind: 31990,
+        created_at: 100,
+        content: "",
+        tags: [
+          ["d", "git-digest"],
+          ["name", "Budabit Email Digest"],
+          ["about", "Repository activity by email"],
+          ["image", "https://budabit.example/digest.png"],
+        ],
+      },
+      handlerSecret,
+    )
+
+    expect(getEmailDigestHandlerFilter(provider)).toEqual({
+      kinds: [31990],
+      authors: [handlerPubkey],
+      "#d": ["git-digest"],
+      limit: 5,
+    })
+    expect(selectEmailDigestProviderIdentity([handler], provider)).toEqual({
+      name: "Budabit Email Digest",
+      about: "Repository activity by email",
+      picture: "https://budabit.example/digest.png",
+    })
+    expect(
+      selectEmailDigestProviderIdentity([{...handler, sig: "0".repeat(128)}], provider),
+    ).toBeUndefined()
   })
 })
 

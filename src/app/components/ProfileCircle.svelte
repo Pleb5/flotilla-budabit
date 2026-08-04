@@ -16,10 +16,19 @@
     size?: number
     url?: string
     relays?: string[]
+    fallbackSrc?: string
     verifiedMaintainerForRepo?: boolean
   }
 
-  const {pubkey, url, relays = [], size = 7, verifiedMaintainerForRepo, ...props}: Props = $props()
+  const {
+    pubkey,
+    url,
+    relays = [],
+    size = 7,
+    fallbackSrc = UserRounded,
+    verifiedMaintainerForRepo,
+    ...props
+  }: Props = $props()
 
   const profile = $derived(deriveBudabitProfile(pubkey, {url, relays}))
   const repoVerifiedMaintainersContext = getContext<RepoVerifiedMaintainersContext | undefined>(
@@ -39,5 +48,5 @@
   class={cx(props.class, "rounded-full", {
     "ring-2 ring-emerald-400/70 ring-offset-1 ring-offset-background": isRepoVerifiedMaintainer,
   })}
-  fallbackSrc={UserRounded}
+  {fallbackSrc}
   src={$profile?.picture} />

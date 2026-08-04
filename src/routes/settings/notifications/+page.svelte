@@ -1,5 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
+  import {request} from "@welshman/net"
   import {Address, type TrustedEvent} from "@welshman/util"
   import {pubkey} from "@welshman/app"
   import Bell from "@assets/icons/bell.svg?dataurl"
@@ -20,10 +21,14 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import {publishSettings} from "@app/core/commands"
-  import {activeCommunityDefinition, activeUserCommunityRefs} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeUserCommunityRefs,
+    hydratePubkeyProfiles,
+  } from "@app/core/community-state"
   import {GIT_RELAYS, repoAnnouncements} from "@app/core/git-state"
   import {userRepoWatchValues} from "@app/core/repo-watch"
-  import {userSettingsValues} from "@app/core/state"
+  import {APP_LOGO, userSettingsValues} from "@app/core/state"
   import {
     disableEmailDigest,
     emailDigestSettingsHydration,
@@ -38,13 +43,17 @@
   import {
     buildEmailDigestRepositories,
     getDefaultEmailDigestTimezone,
+    getEmailDigestHandlerFilter,
     isEmailDigestVerificationPending,
     isEmailDigestProviderAdvertised,
     normalizeEmailDigestEmail,
+    selectEmailDigestProviderIdentity,
     type EmailDigestProvider,
+    type EmailDigestProviderIdentity,
   } from "@app/core/email-digest"
   import {
     getCommunityEmailDigestServiceDescriptorKey,
+    normalizeRelays,
     type CommunityEmailDigestService,
   } from "@app/core/community"
   import {clearBadges} from "@app/util/notifications"
@@ -75,6 +84,8 @@
   let digestError = $state("")
   let openProviderEvidenceKey = $state("")
   let verificationEmailNotice = $state("")
+  let providerIdentities = $state<Record<string, EmailDigestProviderIdentity | undefined>>({})
+  let providerProfileHydrationKey = $state("")
 
   const providerChoices = $derived.by(() => {
     const choices: ProviderChoice[] = $emailDigestProviders.map(provider => ({...provider}))
@@ -99,6 +110,20 @@
   )
   const selectedProviderAvailable = $derived(
     isEmailDigestProviderAdvertised(selectedProvider, $emailDigestProviders),
+  )
+  const selectedProviderIdentity = $derived(providerIdentities[selectedProviderKey])
+  const selectedProviderPicture = $derived(
+    selectedProviderIdentity?.picture ||
+      ($APP_LOGO.startsWith("static/") ? `/${$APP_LOGO.slice("static/".length)}` : $APP_LOGO) ||
+      Mailbox,
+  )
+  const selectedProviderProfileRelays = $derived.by(() =>
+    selectedProvider
+      ? normalizeRelays([
+          selectedProvider.handlerRelay,
+          ...selectedProvider.endorsingCommunityPubkeys.flatMap(getCommunityProfileRelays),
+        ])
+      : [],
   )
   const watchedRepoCount = $derived(Object.keys($userRepoWatchValues.repos).length)
   const repositorySummary = $derived.by(() => {
@@ -165,7 +190,7 @@
     }
   }
 
-  const getCommunityProfileRelays = (communityPubkey: string) => {
+  function getCommunityProfileRelays(communityPubkey: string) {
     const communityRef = $activeUserCommunityRefs.find(
       ref => ref.communityPubkey === communityPubkey,
     )
@@ -399,6 +424,41 @@
   })
 
   $effect(() => {
+    const provider = selectedProvider
+    const profileRelays = selectedProviderProfileRelays
+    const key = provider ? `${provider.servicePubkey}:${profileRelays.join(",")}` : ""
+    if (!provider || !key || key === providerProfileHydrationKey) return
+
+    providerProfileHydrationKey = key
+    void hydratePubkeyProfiles({
+      pubkeys: [provider.servicePubkey],
+      relayHints: profileRelays,
+    }).catch(() => {})
+  })
+
+  $effect(() => {
+    const provider = selectedProvider
+    const filter = provider ? getEmailDigestHandlerFilter(provider) : undefined
+    if (!provider || !filter) return
+
+    const providerKey = getProviderKey(provider)
+    const controller = new AbortController()
+    void request({
+      relays: [provider.handlerRelay],
+      filters: [filter],
+      autoClose: true,
+      signal: controller.signal,
+    })
+      .then(events => {
+        const identity = selectEmailDigestProviderIdentity(events as TrustedEvent[], provider)
+        providerIdentities = {...providerIdentities, [providerKey]: identity}
+      })
+      .catch(() => {})
+
+    return () => controller.abort()
+  })
+
+  $effect(() => {
     if (providerState.status?.emailConfirmed) verificationEmailNotice = ""
   })
 
@@ -472,7 +532,10 @@
       </FieldInline>
     </div>
     <div class="mt-5 flex justify-end">
-      <Button type="submit" class="btn btn-neutral btn-sm" disabled={savingInApp}>
+      <Button
+        type="submit"
+        class="btn btn-neutral btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0"
+        disabled={savingInApp}>
         <Spinner loading={savingInApp}>Save in-app settings</Spinner>
       </Button>
     </div>
@@ -531,7 +594,7 @@
             </div>
           </div>
           <Button
-            class="btn btn-warning btn-sm shrink-0"
+            class="btn btn-warning btn-sm inline-flex shrink-0 items-center justify-center text-center [&>span]:min-h-0"
             disabled={loadingStatus || !$userEmailDigestSettingsValues.provider}
             onclick={() => refreshStatus($userEmailDigestSettingsValues.provider)}>
             <Spinner loading={loadingStatus}>I've verified, refresh status</Spinner>
@@ -585,8 +648,11 @@
                   <div class="min-w-0">
                     <Profile
                       pubkey={selectedProvider.servicePubkey}
-                      relays={[selectedProvider.handlerRelay]}
+                      relays={selectedProviderProfileRelays}
                       avatarSize={8}
+                      fallbackName={selectedProviderIdentity?.name ||
+                        getProviderHost(selectedProvider)}
+                      fallbackPicture={selectedProviderPicture}
                       showPubkey />
                   </div>
                   <div
@@ -841,14 +907,14 @@
       class="flex flex-col-reverse gap-3 border-t border-base-300 bg-base-200/30 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
       <div class="flex flex-wrap gap-2">
         <Button
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0"
           disabled={loadingStatus || !selectedProvider || !digestSettingsHydrated}
           onclick={() => refreshStatus()}>
           <Spinner loading={loadingStatus}>Refresh status</Spinner>
         </Button>
         {#if savedDigestEnabled}
           <Button
-            class="btn btn-outline btn-error btn-sm"
+            class="btn btn-outline btn-error btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0"
             disabled={disablingDigest || savingDigest || !digestSettingsHydrated}
             onclick={disableDigest}>
             <Spinner loading={disablingDigest}>Disable digest</Spinner>
@@ -857,7 +923,7 @@
       </div>
       <Button
         type="submit"
-        class="btn btn-primary"
+        class="btn btn-primary inline-flex items-center justify-center text-center [&>span]:min-h-0"
         disabled={savingDigest ||
           disablingDigest ||
           !digestSettingsHydrated ||

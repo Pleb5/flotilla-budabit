@@ -34,6 +34,12 @@ export type EmailDigestProvider = CommunityEmailDigestService & {
   isActiveCommunity: boolean
 }
 
+export type EmailDigestProviderIdentity = {
+  name: string
+  about: string
+  picture: string
+}
+
 export type EmailDigestSettings = {
   version: 1
   enabled: boolean
@@ -347,6 +353,75 @@ const normalizeEmailDigestProvider = (provider: CommunityEmailDigestService) => 
   const handlerRelay = normalizeSecureRelay(normalized.handlerRelay)
   if (!requestRelay || !handlerRelay) return undefined
   return {...normalized, requestRelay, handlerRelay}
+}
+
+export const getEmailDigestHandlerFilter = (provider: CommunityEmailDigestService) => {
+  const normalized = normalizeEmailDigestProvider(provider)
+  if (!normalized) return undefined
+  const [kind, pubkey, ...identifier] = normalized.handlerAddress.split(":")
+
+  return {
+    kinds: [Number(kind)],
+    authors: [pubkey],
+    "#d": [identifier.join(":")],
+    limit: 5,
+  }
+}
+
+const identityText = (values: unknown[], maxLength: number) => {
+  const value = values.find(value => typeof value === "string" && value.trim())
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : ""
+}
+
+const identityPicture = (values: unknown[]) => {
+  const value = identityText(values, 2048)
+  if (!value) return ""
+
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash
+      ? url.toString()
+      : ""
+  } catch {
+    return ""
+  }
+}
+
+export const selectEmailDigestProviderIdentity = (
+  events: TrustedEvent[],
+  provider: CommunityEmailDigestService,
+): EmailDigestProviderIdentity | undefined => {
+  const normalized = normalizeEmailDigestProvider(provider)
+  if (!normalized) return undefined
+  const [kind, pubkey, ...identifierParts] = normalized.handlerAddress.split(":")
+  const identifier = identifierParts.join(":")
+  const event = events
+    .filter(
+      event =>
+        event.kind === Number(kind) &&
+        event.pubkey === pubkey &&
+        event.tags.some(tag => tag[0] === "d" && tag[1] === identifier) &&
+        verifyEventSignature(event),
+    )
+    .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0]
+  if (!event) return undefined
+
+  const metadata = parseJson(event.content)
+  const source =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : {}
+  const tagValue = (name: string) => event.tags.find(tag => tag[0] === name)?.[1]
+  const name = identityText([source.display_name, source.name, tagValue("name")], 100)
+  const about = identityText([source.about, tagValue("about")], 500)
+  const picture = identityPicture([
+    source.picture,
+    source.image,
+    tagValue("picture"),
+    tagValue("image"),
+  ])
+
+  return name || about || picture ? {name, about, picture} : undefined
 }
 
 const parseRepositoryAddress = (address: string) => {
