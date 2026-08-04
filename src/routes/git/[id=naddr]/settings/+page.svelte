@@ -59,6 +59,7 @@
       onRequestDelete={repoSettings.canDelete ? repoSettings.openDeleteRepoModal : undefined}
       getProfile={repoSettings.getProfile}
       searchProfiles={repoSettings.searchProfiles}
+      searchProfilesUpdateSignal={repoSettings.searchProfilesUpdateSignal}
       searchRelays={repoSettings.searchRelays}
       communityOptions={repoCommunityOptions} />
   {:else}

@@ -41,6 +41,119 @@ describe("people-search", () => {
     expect(results[1]).toMatchObject({bucket: "direct_follow", label: "You follow"})
   })
 
+  it("keeps repository authority ahead of community and text relevance", () => {
+    const owner = "1".repeat(64)
+    const maintainer = "2".repeat(64)
+    const communityMember = "3".repeat(64)
+    const directFollow = "4".repeat(64)
+    const profiles = new Map([
+      [owner, {name: "Alice Owner"}],
+      [maintainer, {name: "Alice Maintainer"}],
+      [communityMember, {name: "Alice Community"}],
+      [directFollow, {display_name: "alice", name: "alice", nip05: "alice"}],
+    ])
+
+    const results = buildPeopleSearchResults({
+      query: "alice",
+      repoOwnerPubkeys: [owner],
+      repoMaintainerPubkeys: [maintainer],
+      communityPubkeys: [communityMember],
+      directFollowPubkeys: [directFollow],
+      knownPubkeys: [owner, maintainer, communityMember, directFollow],
+      communityAssessments: new Map([
+        [
+          communityMember,
+          {
+            category: "community_member",
+            score: 4,
+            evidence: [{type: "community_member", label: "Community member"}],
+            displayLabels: ["Community member"],
+            suppressed: false,
+          },
+        ],
+      ]),
+      getProfile: pubkey => profiles.get(pubkey),
+    })
+
+    expect(results.map(result => result.pubkey)).toEqual([
+      owner,
+      maintainer,
+      communityMember,
+      directFollow,
+    ])
+    expect(results.map(result => result.bucket)).toEqual([
+      "repo_owner",
+      "repo_maintainer",
+      "community",
+      "direct_follow",
+    ])
+  })
+
+  it("places matching repository authority inside the first bounded scan", () => {
+    const owner = "b".repeat(64)
+    const profileMatches = Array.from({length: 400}, (_, index) =>
+      index.toString(16).padStart(64, "0"),
+    )
+    const candidates = buildPeopleSearchCandidates({
+      query: "alice",
+      repoOwnerPubkeys: [owner],
+      profileMatches,
+    })
+    const batch = searchPeopleCandidates({
+      query: "alice",
+      candidates,
+      getProfile: pubkey => (pubkey === owner ? {name: "Alice Owner"} : {name: "Alice"}),
+      scanLimit: 1,
+    })
+
+    expect(batch.results).toEqual([expect.objectContaining({pubkey: owner, bucket: "repo_owner"})])
+  })
+
+  it("uses community-first discovery for empty-query suggestions", () => {
+    const communityMember = "5".repeat(64)
+    const directFollow = "6".repeat(64)
+    const known = "7".repeat(64)
+
+    const results = buildPeopleSearchResults({
+      query: "",
+      allowEmptyQuery: true,
+      communityPubkeys: [communityMember],
+      directFollowPubkeys: [directFollow],
+      knownPubkeys: [known],
+      communityAssessments: new Map([
+        [
+          communityMember,
+          {
+            category: "community_member",
+            score: 4,
+            evidence: [{type: "community_member", label: "Community member"}],
+            displayLabels: ["Community member"],
+            suppressed: false,
+          },
+        ],
+      ]),
+    })
+
+    expect(results.map(result => result.pubkey)).toEqual([communityMember, directFollow, known])
+  })
+
+  it("demotes direct mutes without using them as discovery candidates", () => {
+    const unmuted = "8".repeat(64)
+    const muted = "9".repeat(64)
+    const muteOnly = "a".repeat(64)
+
+    const results = buildPeopleSearchResults({
+      query: "alice",
+      knownPubkeys: [muted, unmuted],
+      directMutePubkeys: [muted, muteOnly],
+      getProfile: pubkey =>
+        pubkey === muted || pubkey === unmuted ? {name: "Alice"} : {name: "Alice muted only"},
+    })
+
+    expect(results.map(result => result.pubkey)).toEqual([unmuted, muted])
+    expect(results[1]?.evidenceLabels).toContain("Muted by you")
+  })
+
   it("returns exact identity matches without a profile", () => {
     const pubkey = "c".repeat(64)
 

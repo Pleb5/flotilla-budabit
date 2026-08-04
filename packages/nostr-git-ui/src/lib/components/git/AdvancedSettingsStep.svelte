@@ -2,6 +2,10 @@
   import { commonHashtags } from "../../stores/hashtags";
   import { PeoplePicker } from "@nostr-git/ui";
   import { Plus, Trash2, X, Hash, Globe, Users, ChevronUp, ChevronDown } from "@lucide/svelte";
+  import type {
+    ProfileSearchContext,
+    ProfileSearchUpdateSignal,
+  } from "../../types/profile-search.js";
 
   interface Props {
     gitignoreTemplate: string;
@@ -29,7 +33,10 @@
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
-    searchProfiles?: (query: string) => Promise<
+    searchProfiles?: (
+      query: string,
+      context?: ProfileSearchContext
+    ) => Promise<
       Array<{
         pubkey: string;
         name?: string;
@@ -38,6 +45,8 @@
         display_name?: string;
       }>
     >;
+    communityPubkey?: string;
+    searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
   }
 
@@ -66,8 +75,15 @@
     onCloneUrlsChange,
     getProfile,
     searchProfiles,
+    communityPubkey = "",
+    searchProfilesUpdateSignal,
     searchRelays,
   }: Props = $props();
+
+  function searchMaintainerProfiles(query: string) {
+    if (!searchProfiles) return Promise.resolve([]);
+    return searchProfiles(query, { communityPubkey: communityPubkey || undefined });
+  }
 
   // Autocomplete state for relays
   let relaySearchQuery = $state("");
@@ -575,7 +591,9 @@
             showSuggestionsOnFocus={true}
             compact={false}
             getProfile={getProfile}
-            searchProfiles={searchProfiles}
+            searchProfiles={searchProfiles ? searchMaintainerProfiles : undefined}
+            searchProfilesUpdateSignal={searchProfilesUpdateSignal}
+            searchProfilesContextKey={communityPubkey}
             add={(pubkey: string) => {
               if (!maintainers.includes(pubkey)) {
                 onMaintainersChange([...maintainers, pubkey]);

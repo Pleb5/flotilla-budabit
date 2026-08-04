@@ -5,6 +5,7 @@
   import { Plus } from "@lucide/svelte";
   import { resolveNip05Cached } from "@nostr-git/core/utils";
   import type { LabelEvent } from "@nostr-git/core/events";
+  import type { ProfileSearchUpdateSignal } from "../../types/profile-search.js";
 
   export interface PersonProfile {
     name?: string;
@@ -28,6 +29,8 @@
     showSuggestionsOnFocus?: boolean;
     getProfile?: (pubkey: string) => Promise<PersonProfile | null>;
     searchProfiles?: (query: string) => Promise<PersonSuggestion[]>;
+    searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
+    searchProfilesContextKey?: string;
     add?: (pubkey: string) => void | Promise<void>;
     remove?: (pubkey: string) => void | Promise<void>;
     onDeleteLabel?: (evt: LabelEvent) => void | Promise<void>;
@@ -43,6 +46,8 @@
     showSuggestionsOnFocus = false,
     getProfile,
     searchProfiles,
+    searchProfilesUpdateSignal,
+    searchProfilesContextKey = "",
     add,
     remove,
     onDeleteLabel,
@@ -54,6 +59,7 @@
   let highlighted = $state(-1);
   let loading = $state(false);
   let resolving = $state(false);
+  let searchRevision = $state(0);
   let profileCache = $state(new Map<string, PersonProfile>());
   let inputEl = $state<HTMLInputElement | null>(null);
 
@@ -62,6 +68,19 @@
 
   let searchTimeout: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
+    const signal = searchProfilesUpdateSignal;
+    if (!signal) return;
+
+    let initialized = false;
+    return signal.subscribe(() => {
+      if (initialized) searchRevision += 1;
+      initialized = true;
+    });
+  });
+
+  $effect(() => {
+    void searchRevision;
+    void searchProfilesContextKey;
     if (!searchProfiles) return;
     const query = inputValue.trim();
     if (searchTimeout) clearTimeout(searchTimeout);

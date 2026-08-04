@@ -1,29 +1,11 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
-  import {getFollows, profileSearch, profilesByPubkey, pubkey} from "@welshman/app"
-  import type {TrustedEvent} from "@welshman/util"
   import Spinner from "@lib/components/Spinner.svelte"
   import ChatItem from "@app/components/ChatItem.svelte"
   import PeopleSearchResultItem from "@app/components/PeopleSearchResultItem.svelte"
   import {chatSearch} from "@app/core/state"
-  import {
-    communityAdminDefinitionEvents,
-    communityMemberDefinitionEvents,
-    communityMemberProfileListEvents,
-    communityMemberReportStates,
-    communityModeratorDefinitionEvents,
-    communityModeratorProfileListEvents,
-  } from "@app/core/community-state"
-  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
-  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
-  import {
-    buildPeopleSearchCandidates,
-    getCommunityPeoplePubkeys,
-    PEOPLE_SEARCH_DEBOUNCE_MS,
-    PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
-    searchPeopleCandidates,
-    type PeopleSearchResult,
-  } from "@app/util/people-search"
+  import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
+  import {PEOPLE_SEARCH_DEBOUNCE_MS, PEOPLE_SEARCH_QUICK_SCAN_LIMIT} from "@app/util/people-search"
 
   const PEOPLE_RESULT_LIMIT = 8
 
@@ -65,58 +47,15 @@
   const chats = $derived($chatSearch.searchOptions(debouncedTerm))
   const shownChatPubkeys = $derived(new Set(chats.map(chat => chat.id)))
   const recentConversationPubkeys = $derived($chatSearch.searchOptions("").map(chat => chat.id))
-  const profileMatches = $derived.by(() =>
-    normalizedTerm ? ($profileSearch.searchValues(normalizedTerm) as string[]) : [],
-  )
-  const directFollowPubkeys = $derived($pubkey ? getFollows($pubkey) : [])
-  const communityDefinitionEvents = $derived([
-    ...$communityAdminDefinitionEvents,
-    ...$communityMemberDefinitionEvents,
-    ...$communityModeratorDefinitionEvents,
-  ] as TrustedEvent[])
-  const communityProfileListEvents = $derived([
-    ...$communityMemberProfileListEvents,
-    ...$communityModeratorProfileListEvents,
-  ] as TrustedEvent[])
-  const communityPubkeys = $derived(
-    getCommunityPeoplePubkeys({
-      definitionEvents: communityDefinitionEvents,
-      profileListEvents: communityProfileListEvents,
-      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
-    }),
-  )
-  const peopleSearchCandidates = $derived(
-    normalizedTerm
-      ? buildPeopleSearchCandidates({
-          query: normalizedTerm,
-          recentConversationPubkeys,
-          communityPubkeys,
-          directFollowPubkeys,
-          profileMatches,
-        })
-      : [],
-  )
   const peopleResults = $derived.by(() =>
     normalizedTerm
-      ? searchPeopleCandidates({
-          query: normalizedTerm,
-          candidates: peopleSearchCandidates,
+      ? $peopleDiscoverySearch.searchResults(normalizedTerm, {
+          recentConversationPubkeys,
           excludePubkeys: Array.from(shownChatPubkeys),
-          getProfile: pubkey => $profilesByPubkey.get(pubkey),
-          getCommunityAssessments: candidatePubkeys =>
-            buildCommunityTrustAssessments({
-              candidatePubkeys,
-              viewerPubkey: $pubkey || undefined,
-              context: {scope: "global_discovery"},
-              definitionEvents: communityDefinitionEvents,
-              profileListEvents: communityProfileListEvents,
-              reportStates: $communityMemberReportStates,
-              renouncedCommunityPubkeys: $userRenouncedCommunityPubkeys,
-            }),
           scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
           resultLimit: PEOPLE_RESULT_LIMIT,
-        }).results
-      : ([] as PeopleSearchResult[]),
+        })
+      : [],
   )
 </script>
 

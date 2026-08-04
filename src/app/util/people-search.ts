@@ -7,7 +7,7 @@ import {
   parseCommunityDefinition,
   PROFILE_LIST_KIND,
 } from "@app/core/community"
-import type {TrustAssessment} from "@app/core/trust-assessment"
+import {DIRECT_MUTE_WEIGHT, type TrustAssessment} from "@app/core/trust-assessment"
 
 export type PeopleSearchProfile = {
   display_name?: string
@@ -19,6 +19,8 @@ export type PeopleSearchProfile = {
 export type PeopleSearchBucketKey =
   | "identity"
   | "recent_conversation"
+  | "repo_owner"
+  | "repo_maintainer"
   | "community"
   | "direct_follow"
   | "known_profile"
@@ -37,8 +39,11 @@ export type PeopleSearchCandidate = {
   pubkey: string
   identity: boolean
   recentConversation: boolean
+  repoOwner: boolean
+  repoMaintainer: boolean
   community: boolean
   directFollow: boolean
+  directMute: boolean
   knownProfile: boolean
   profileMatch: boolean
 }
@@ -46,14 +51,18 @@ export type PeopleSearchCandidate = {
 export type BuildPeopleSearchResultsOptions = {
   query: string
   recentConversationPubkeys?: string[]
+  repoOwnerPubkeys?: string[]
+  repoMaintainerPubkeys?: string[]
   communityPubkeys?: string[]
   directFollowPubkeys?: string[]
+  directMutePubkeys?: string[]
   knownPubkeys?: string[]
   profileMatches?: string[]
   excludePubkeys?: string[]
   communityAssessments?: Map<string, TrustAssessment>
   getProfile?: (pubkey: string) => PeopleSearchProfile | null | undefined
   limit?: number
+  allowEmptyQuery?: boolean
 }
 
 export type BuildPeopleSearchCandidatesOptions = Omit<
@@ -73,6 +82,7 @@ export type SearchPeopleCandidatesOptions = {
   cursor?: number
   scanLimit?: number
   resultLimit?: number
+  allowEmptyQuery?: boolean
 }
 
 export type PeopleSearchBatch = {
@@ -89,11 +99,13 @@ export const PEOPLE_SEARCH_SCAN_CHUNK_SIZE = 160
 export const PEOPLE_SEARCH_QUICK_SCAN_LIMIT = 320
 
 const PEOPLE_SEARCH_BUCKET_PRIORITY: Record<PeopleSearchBucketKey, number> = {
-  identity: 5000,
-  recent_conversation: 4000,
-  community: 3000,
-  direct_follow: 2000,
-  known_profile: 1000,
+  identity: 7000,
+  recent_conversation: 6000,
+  repo_owner: 5000,
+  repo_maintainer: 4500,
+  community: 4000,
+  direct_follow: 3000,
+  known_profile: 2000,
 }
 
 const npubCache = new Map<string, string>()
@@ -270,8 +282,11 @@ const upsertCandidate = (
     pubkey: normalizedPubkey,
     identity: false,
     recentConversation: false,
+    repoOwner: false,
+    repoMaintainer: false,
     community: false,
     directFollow: false,
+    directMute: false,
     knownProfile: false,
     profileMatch: false,
   }
@@ -291,6 +306,8 @@ const getBucket = (
 ): PeopleSearchBucketKey => {
   if (candidate.identity) return "identity"
   if (candidate.recentConversation) return "recent_conversation"
+  if (candidate.repoOwner) return "repo_owner"
+  if (candidate.repoMaintainer) return "repo_maintainer"
   if (hasCommunityEvidence(assessment)) return "community"
   if (candidate.directFollow) return "direct_follow"
   return "known_profile"
@@ -302,6 +319,8 @@ const getEvidenceLabels = (
 ) => {
   if (bucket === "identity") return ["Exact match"]
   if (bucket === "recent_conversation") return ["Recent conversation"]
+  if (bucket === "repo_owner") return ["Repository owner"]
+  if (bucket === "repo_maintainer") return ["Repository maintainer"]
   if (bucket === "community") return getCommunityEvidenceLabels(assessment)
   if (bucket === "direct_follow") return ["You follow"]
   return ["Known profile"]
@@ -310,8 +329,11 @@ const getEvidenceLabels = (
 export const buildPeopleSearchCandidates = ({
   query = "",
   recentConversationPubkeys = [],
+  repoOwnerPubkeys = [],
+  repoMaintainerPubkeys = [],
   communityPubkeys = [],
   directFollowPubkeys = [],
+  directMutePubkeys = [],
   knownPubkeys = [],
   profileMatches = [],
 }: BuildPeopleSearchCandidatesOptions): PeopleSearchCandidate[] => {
@@ -320,28 +342,46 @@ export const buildPeopleSearchCandidates = ({
   const normalizedProfileMatches = uniquePubkeys(profileMatches)
 
   if (identityPubkey) upsertCandidate(candidates, identityPubkey, {identity: true})
-  // Profile text matches are the most likely to produce useful early results.
-  for (const pubkey of normalizedProfileMatches) {
-    upsertCandidate(candidates, pubkey, {knownProfile: true, profileMatch: true})
-  }
+
+  // Contextual sources lead bounded scans; callers should prefilter them for typed queries.
   for (const pubkey of uniquePubkeys(recentConversationPubkeys)) {
     upsertCandidate(candidates, pubkey, {recentConversation: true})
+  }
+  for (const pubkey of uniquePubkeys(repoOwnerPubkeys)) {
+    upsertCandidate(candidates, pubkey, {repoOwner: true})
+  }
+  for (const pubkey of uniquePubkeys(repoMaintainerPubkeys)) {
+    upsertCandidate(candidates, pubkey, {repoMaintainer: true})
+  }
+  for (const pubkey of uniquePubkeys(communityPubkeys)) {
+    upsertCandidate(candidates, pubkey, {community: true})
   }
   for (const pubkey of uniquePubkeys(directFollowPubkeys)) {
     upsertCandidate(candidates, pubkey, {directFollow: true})
   }
-  for (const pubkey of uniquePubkeys(communityPubkeys)) {
-    upsertCandidate(candidates, pubkey, {community: true})
+  for (const pubkey of normalizedProfileMatches) {
+    upsertCandidate(candidates, pubkey, {knownProfile: true, profileMatch: true})
   }
   for (const pubkey of uniquePubkeys(knownPubkeys)) {
     upsertCandidate(candidates, pubkey, {knownProfile: true})
   }
 
+  // A mute is an ordering overlay, not an independent discovery source.
+  for (const pubkey of uniquePubkeys(directMutePubkeys)) {
+    const candidate = candidates.get(pubkey)
+    if (candidate) candidates.set(pubkey, {...candidate, directMute: true})
+  }
+
   return Array.from(candidates.values())
 }
 
+const comparePeopleSearchResults = (a: PeopleSearchResult, b: PeopleSearchResult) =>
+  PEOPLE_SEARCH_BUCKET_PRIORITY[b.bucket] - PEOPLE_SEARCH_BUCKET_PRIORITY[a.bucket] ||
+  b.score - a.score ||
+  a.pubkey.localeCompare(b.pubkey)
+
 const sortPeopleSearchResults = (results: PeopleSearchResult[]) =>
-  [...results].sort((a, b) => b.score - a.score || a.pubkey.localeCompare(b.pubkey))
+  [...results].sort(comparePeopleSearchResults)
 
 export const mergePeopleSearchResults = (
   existingResults: PeopleSearchResult[],
@@ -351,7 +391,7 @@ export const mergePeopleSearchResults = (
 
   for (const result of [...existingResults, ...nextResults]) {
     const existing = byPubkey.get(result.pubkey)
-    if (!existing || result.score > existing.score) {
+    if (!existing || comparePeopleSearchResults(result, existing) < 0) {
       byPubkey.set(result.pubkey, result)
     }
   }
@@ -369,13 +409,14 @@ export const searchPeopleCandidates = ({
   cursor = 0,
   scanLimit = candidates.length,
   resultLimit,
+  allowEmptyQuery = false,
 }: SearchPeopleCandidatesOptions): PeopleSearchBatch => {
   const normalizedQuery = normalizeSearchValue(query)
   const totalCandidates = candidates.length
   const start = Math.max(0, Math.min(cursor, totalCandidates))
   const end = Math.max(start, Math.min(totalCandidates, start + scanLimit))
 
-  if (!normalizedQuery) {
+  if (!normalizedQuery && !allowEmptyQuery) {
     return {
       results: [],
       cursor: 0,
@@ -399,7 +440,9 @@ export const searchPeopleCandidates = ({
     const profile = getProfile?.(candidate.pubkey) || null
     const textScore = getPeopleSearchTextScore({pubkey: candidate.pubkey, profile, query})
 
-    if (!candidate.identity && textScore === 0 && !candidate.profileMatch) continue
+    if (normalizedQuery && !candidate.identity && textScore === 0 && !candidate.profileMatch) {
+      continue
+    }
 
     matchedCandidates.push({candidate, profile, textScore})
   }
@@ -416,11 +459,15 @@ export const searchPeopleCandidates = ({
       const assessment =
         communityAssessments.get(candidate.pubkey) || lazyCommunityAssessments.get(candidate.pubkey)
       const bucket = getBucket(candidate, assessment)
-      const evidenceLabels = getEvidenceLabels(bucket, assessment)
+      const evidenceLabels = [
+        ...getEvidenceLabels(bucket, assessment),
+        ...(candidate.directMute ? ["Muted by you"] : []),
+      ]
       const score =
         PEOPLE_SEARCH_BUCKET_PRIORITY[bucket] +
         textScore +
-        (bucket === "community" ? assessment?.score || 0 : 0)
+        (bucket === "community" ? assessment?.score || 0 : 0) +
+        (candidate.directMute ? DIRECT_MUTE_WEIGHT : 0)
 
       return {
         pubkey: candidate.pubkey,
@@ -446,23 +493,30 @@ export const searchPeopleCandidates = ({
 export const buildPeopleSearchResults = ({
   query,
   recentConversationPubkeys = [],
+  repoOwnerPubkeys = [],
+  repoMaintainerPubkeys = [],
   communityPubkeys = [],
   directFollowPubkeys = [],
+  directMutePubkeys = [],
   knownPubkeys = [],
   profileMatches = [],
   excludePubkeys = [],
   communityAssessments = new Map(),
   getProfile,
   limit = 20,
+  allowEmptyQuery = false,
 }: BuildPeopleSearchResultsOptions): PeopleSearchResult[] => {
   const normalizedQuery = normalizeSearchValue(query)
-  if (!normalizedQuery) return []
+  if (!normalizedQuery && !allowEmptyQuery) return []
 
   const candidates = buildPeopleSearchCandidates({
     query,
     recentConversationPubkeys,
+    repoOwnerPubkeys,
+    repoMaintainerPubkeys,
     communityPubkeys,
     directFollowPubkeys,
+    directMutePubkeys,
     knownPubkeys,
     profileMatches,
   })
@@ -474,5 +528,6 @@ export const buildPeopleSearchResults = ({
     communityAssessments,
     getProfile,
     resultLimit: limit,
+    allowEmptyQuery,
   }).results
 }

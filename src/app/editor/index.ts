@@ -1,25 +1,15 @@
 import {mount} from "svelte"
 import type {Writable} from "svelte/store"
-import {get, derived} from "svelte/store"
+import {get} from "svelte/store"
 import {Router} from "@welshman/router"
-import {dec} from "@welshman/lib"
-import {throttled} from "@welshman/store"
-import type {PublishedProfile} from "@welshman/util"
-import {
-  createSearch,
-  profiles,
-  searchProfiles,
-  handlesByNip05,
-  getFollows,
-  pubkey,
-  signer,
-} from "@welshman/app"
+import {signer} from "@welshman/app"
 import type {FileAttributes, WelshmanExtensionOptions} from "@welshman/editor"
 import {Editor, MentionSuggestion, WelshmanExtension, editorProps} from "@welshman/editor"
 import {makeMentionNodeView} from "@app/editor/MentionNodeView"
 import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
 import type {BlossomUploadContext, BlossomUploadStage} from "@app/core/blossom"
+import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
 import {pushToast} from "@app/util/toast"
 import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 import {getQuoteEventTags} from "@app/util/git-quote"
@@ -97,41 +87,6 @@ export const makeEditor = async ({
     return uploadResult
   }
 
-  const profileSearch = derived(
-    [throttled(800, profiles), throttled(800, handlesByNip05)],
-    ([$profiles, $handlesByNip05]) => {
-      // Remove invalid nip05's from profiles
-      const options = $profiles.map(p => {
-        const isNip05Valid = !p.nip05 || $handlesByNip05.get(p.nip05)?.pubkey === p.event.pubkey
-
-        return isNip05Valid ? p : {...p, nip05: ""}
-      })
-
-      return createSearch(options, {
-        onSearch: searchProfiles,
-        getValue: (profile: PublishedProfile) => profile.event.pubkey,
-        sortFn: ({score = 1, item}) => {
-          const viewerPubkey = pubkey.get()
-          const directFollow = viewerPubkey
-            ? getFollows(viewerPubkey).includes(item.event.pubkey)
-            : false
-
-          return dec(score) * (directFollow ? 2 : 1)
-        },
-        fuseOptions: {
-          keys: [
-            "nip05",
-            {name: "name", weight: 0.8},
-            {name: "display_name", weight: 0.5},
-            {name: "about", weight: 0.3},
-          ],
-          threshold: 0.3,
-          shouldSort: false,
-        },
-      })
-    },
-  )
-
   const extensions: EditorExtensionOptions = {
     placeholder: {
       config: {
@@ -168,9 +123,13 @@ export const makeEditor = async ({
           return [
             MentionSuggestion({
               editor: (this as any).editor,
-              search: (term: string) => get(profileSearch).searchValues(term),
+              search: (term: string) =>
+                get(peopleDiscoverySearch).searchValues(term, {
+                  context: {scope: "global_discovery"},
+                  resultLimit: 8,
+                }),
               getRelays: (pubkey: string) => Router.get().FromPubkeys([pubkey]).getUrls(),
-              updateSignal: profileSearch,
+              updateSignal: peopleDiscoverySearch,
               createSuggestion: (value: string) => {
                 const target = document.createElement("div")
 

@@ -27,6 +27,8 @@ Social Nostr signals remain useful because users may carry valuable context from
 
 The previous Welshman-derived graph used kind `3` follows and kind `10000` mutes to build a 2-hop network. That model fits social clients better than BudaBit's current community-first product.
 
+Profile discovery now keeps transport and ordering separate. Welshman's `profileSearch` performs NIP-50 loading, NIP-05 validation, and text-relevance matching without applying a trust graph. BudaBit's `peopleDiscoverySearch` adapter applies community, repository, and direct-social ordering to those raw matches. This keeps relay selection and profile hydration independent from trust-policy changes.
+
 | Concern | 2-hop social WoT | Direct-only social overlay |
 | --- | --- | --- |
 | Performance | Requires loading many follows and mutes for many followed users. Hundreds of follows can fan out into large relay requests. | Requires only the viewer's direct lists and relevant community data. |
@@ -162,6 +164,20 @@ Repo discovery should put personally intentional signals first, then community c
 | 7 | Known repo owners | Fallback from already loaded repository events. |
 
 Text relevance and recency can sort within each bucket. Internal trust scores can break ties, but the UI should describe the bucket and evidence rather than showing the score.
+
+## People Discovery Contexts
+
+People search uses separate community and repository contexts that can be combined when a repository has a relevant community.
+
+| Context | Primary ordering evidence |
+| --- | --- |
+| Global | Exact identity, recent conversation where applicable, shared community roles, direct follows, known profiles. |
+| Community | Admin, moderator, and member evidence from the selected community, followed by direct social and known-profile fallbacks. |
+| Repository | Repository owner, maintainers declared in the owner's current kind `30617` announcement, then repository-community evidence, direct social, and known profiles. |
+
+Repository authority is independent from community authority. A community admin or moderator is not a repository maintainer unless the repository owner declared them. Conversely, an owner-declared maintainer remains repository authority even when they have no community role.
+
+For a published repository, a parsed community binding contributes community ordering only when the existing repo-community validator considers the association `strong` or `valid`. Draft and edit flows may use the community explicitly selected by the user as prospective context. Unvalidated bindings do not become community trust evidence.
 
 ## PR And Collaboration Policy
 

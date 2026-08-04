@@ -8,6 +8,7 @@
     type CoverLetterTag,
     type CommentEvent,
     type LabelEvent,
+    type RepoAnnouncementEvent,
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {resolveIssueStatus} from "@nostr-git/core/events"
@@ -35,7 +36,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
-  import {profilesByPubkey, profileSearch} from "@welshman/app"
+  import {profilesByPubkey} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
@@ -51,6 +52,7 @@
   import {ROLE_NS, buildRoleLabelEvent} from "@app/util/labels"
   import {
     deriveRoleAssignments,
+    getRepoDeclaredMaintainers,
     getRepoMaintainers,
     getRepoScopedRelays,
     REPO_PROFILE_RELAYS_KEY,
@@ -75,6 +77,7 @@
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
   import {getSeenEventRelayHints} from "@app/util/event-links"
+  import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
@@ -652,8 +655,17 @@
     Array.from((roleAssignments?.get()?.assignees || new Set()) as Set<string>),
   )
   const recommendedAssigneePubkeys = $derived.by(() => {
+    if (!issue) return []
+
     const selectedAssignees = new Set(assignees)
-    return Array.from(authoritativeEditors).filter(
+    const repoEvent = issueRepoEvent as RepoAnnouncementEvent | undefined
+    const canonicalRecommendations = new Set([
+      issue.author.pubkey,
+      repoEvent?.pubkey || "",
+      ...getRepoDeclaredMaintainers(repoEvent),
+    ])
+
+    return Array.from(canonicalRecommendations).filter(
       (pubkey): pubkey is string => Boolean(pubkey) && !selectedAssignees.has(pubkey),
     )
   })
@@ -773,7 +785,26 @@
     const trimmedQuery = query.trim()
     const selectedAssignees = new Set(assignees)
     const pubkeys = trimmedQuery
-      ? $profileSearch.searchValues(trimmedQuery)
+      ? $peopleDiscoverySearch.searchValues(trimmedQuery, {
+          context: issueRepoEvent
+            ? {
+                scope: "repo",
+                repoAddress: issueEditRepoAddress,
+                authority: {
+                  source: "announcement",
+                  event: issueRepoEvent as RepoAnnouncementEvent,
+                },
+              }
+            : currentRepoOwner
+              ? {
+                  scope: "repo",
+                  repoAddress: issueEditRepoAddress,
+                  authority: {source: "draft", ownerPubkey: currentRepoOwner},
+                }
+              : {scope: "global_discovery"},
+          excludePubkeys: assignees,
+          resultLimit: 10,
+        })
       : recommendedAssigneePubkeys
 
     return Array.from(new Set(pubkeys))
@@ -998,6 +1029,7 @@
             compact={false}
             {getProfile}
             {searchProfiles}
+            searchProfilesUpdateSignal={peopleDiscoverySearch}
             add={async (pubkey: string) => {
               if (!issue) return
               try {

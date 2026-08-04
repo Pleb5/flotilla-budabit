@@ -16,6 +16,7 @@
     WorkerManager,
     ForkRepoDialog,
     graspServersStore,
+    type ProfileSearchContext,
     type RepoCommunityOption,
   } from "@nostr-git/ui"
   import ProfileName from "@app/components/ProfileName.svelte"
@@ -106,7 +107,6 @@
     tracker,
     pubkey,
     profilesByPubkey,
-    profileSearch,
     relaySearch,
     publishThunk,
     deriveProfile,
@@ -159,6 +159,7 @@
     groupStatusEventsByRoot,
   } from "@app/core/git-state"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
+  import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
@@ -2178,7 +2179,9 @@
     disposePublishTransport: disposeRepoSettingsPagePublishTransport,
     openDeleteRepoModal: () => openDeleteRepoModal(),
     getProfile: (pubkey: string) => getRepoProfile(pubkey),
-    searchProfiles: (query: string) => searchRepoProfiles(query),
+    searchProfiles: (query: string, context?: ProfileSearchContext) =>
+      searchRepoProfiles(query, context),
+    searchProfilesUpdateSignal: peopleDiscoverySearch,
     searchRelays: (query: string) => searchRepoRelays(query),
     get canEditAnnouncement() {
       return !!$pubkey && repoPubkey === $pubkey
@@ -3333,8 +3336,29 @@
     return null
   }
 
-  const searchRepoProfiles = async (query: string) => {
-    const pubkeys = $profileSearch.searchValues(query)
+  const searchRepoProfiles = async (
+    query: string,
+    {communityPubkey}: ProfileSearchContext = {},
+  ) => {
+    const repoEvent = getStore(repoEventStore) || repoClass?.repoEvent
+    const selectedCommunityPubkey =
+      communityPubkey && communityPubkey !== repoBoundCommunity?.pubkey ? communityPubkey : ""
+
+    const pubkeys = getStore(peopleDiscoverySearch).searchValues(query, {
+      context: {
+        scope: "repo",
+        repoAddress: getStore(repoAddressStore),
+        authority: repoEvent
+          ? {source: "announcement", event: repoEvent}
+          : {source: "draft", ownerPubkey: repoPubkey},
+        ...(selectedCommunityPubkey
+          ? {community: {scope: "community" as const, communityPubkey: selectedCommunityPubkey}}
+          : {}),
+      },
+      allowEmptyQuery: true,
+      scanLimit: query.trim() ? undefined : 320,
+      resultLimit: 10,
+    })
     return pubkeys.map((pubkey: string) => {
       const profile = $profilesByPubkey.get(pubkey)
       return {
@@ -3706,6 +3730,7 @@
         defaultCommunityPubkey: repoClass.community?.pubkey || "",
         getProfile: getRepoProfile,
         searchProfiles: searchRepoProfiles,
+        searchProfilesUpdateSignal: peopleDiscoverySearch,
         searchRelays: searchRepoRelays,
       },
       {fullscreen: true, noEscape: true},
@@ -3771,6 +3796,7 @@
         onClose: disposePublishTransport,
         getProfile: getRepoProfile,
         searchProfiles: searchRepoProfiles,
+        searchProfilesUpdateSignal: peopleDiscoverySearch,
         searchRelays: searchRepoRelays,
         communityOptions: repoCommunityOptions,
       },

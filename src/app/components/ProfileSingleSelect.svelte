@@ -3,8 +3,6 @@
   import type {Writable} from "svelte/store"
   import * as nip19 from "nostr-tools/nip19"
   import type {Instance} from "tippy.js"
-  import type {TrustedEvent} from "@welshman/util"
-  import {getFollows, profileSearch, profilesByPubkey, pubkey as sessionPubkey} from "@welshman/app"
   import Suggestions from "@lib/components/Suggestions.svelte"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
@@ -17,22 +15,8 @@
   import {pushModal} from "@app/util/modal"
   import {normalizePubkey} from "@app/core/community"
   import {chatSearch} from "@app/core/state"
-  import {
-    communityAdminDefinitionEvents,
-    communityMemberDefinitionEvents,
-    communityMemberProfileListEvents,
-    communityMemberReportStates,
-    communityModeratorDefinitionEvents,
-    communityModeratorProfileListEvents,
-  } from "@app/core/community-state"
-  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
-  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
-  import {
-    buildPeopleSearchCandidates,
-    getCommunityPeoplePubkeys,
-    PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
-    searchPeopleCandidates,
-  } from "@app/util/people-search"
+  import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
+  import {PEOPLE_SEARCH_QUICK_SCAN_LIMIT} from "@app/util/people-search"
 
   interface Props {
     value: string
@@ -74,48 +58,12 @@
     const query = term.trim()
     if (!query) return []
 
-    const profileMatches = $profileSearch.searchValues(query) as string[]
     const recentConversationPubkeys = $chatSearch.searchOptions("").map(chat => chat.id)
-    const directFollowPubkeys = $sessionPubkey ? getFollows($sessionPubkey) : []
-    const communityDefinitionEvents = [
-      ...$communityAdminDefinitionEvents,
-      ...$communityMemberDefinitionEvents,
-      ...$communityModeratorDefinitionEvents,
-    ] as TrustedEvent[]
-    const communityProfileListEvents = [
-      ...$communityMemberProfileListEvents,
-      ...$communityModeratorProfileListEvents,
-    ] as TrustedEvent[]
-    const communityPubkeys = getCommunityPeoplePubkeys({
-      definitionEvents: communityDefinitionEvents,
-      profileListEvents: communityProfileListEvents,
-      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
-    })
-    const candidates = buildPeopleSearchCandidates({
-      query,
+    return $peopleDiscoverySearch.searchValues(query, {
       recentConversationPubkeys,
-      communityPubkeys,
-      directFollowPubkeys,
-      profileMatches,
-    })
-
-    return searchPeopleCandidates({
-      query,
-      candidates,
-      getProfile: pubkey => $profilesByPubkey.get(pubkey),
-      getCommunityAssessments: candidatePubkeys =>
-        buildCommunityTrustAssessments({
-          candidatePubkeys,
-          viewerPubkey: $sessionPubkey || undefined,
-          context: {scope: "global_discovery"},
-          definitionEvents: communityDefinitionEvents,
-          profileListEvents: communityProfileListEvents,
-          reportStates: $communityMemberReportStates,
-          renouncedCommunityPubkeys: $userRenouncedCommunityPubkeys,
-        }),
       scanLimit: PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
       resultLimit: 8,
-    }).results.map(result => result.pubkey)
+    })
   }
 
   const selectPubkey = (pubkey: string) => {

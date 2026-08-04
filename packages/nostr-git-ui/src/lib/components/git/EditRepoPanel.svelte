@@ -42,6 +42,10 @@
   import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement.js";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
   import type { RepoCommunityOption } from "./repo-community-options.js";
+  import type {
+    ProfileSearchContext,
+    ProfileSearchUpdateSignal,
+  } from "../../types/profile-search.js";
   import {
     findRepoCommunityOption,
     getRepoCommunityOptionBinding,
@@ -90,7 +94,10 @@
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
-    searchProfiles?: (query: string) => Promise<
+    searchProfiles?: (
+      query: string,
+      context?: ProfileSearchContext
+    ) => Promise<
       Array<{
         pubkey: string;
         name?: string;
@@ -99,6 +106,7 @@
         display_name?: string;
       }>
     >;
+    searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
     communityOptions?: RepoCommunityOption[];
   }
@@ -116,6 +124,7 @@
     onSaveComplete,
     getProfile,
     searchProfiles,
+    searchProfilesUpdateSignal,
     searchRelays,
     communityOptions = [],
   }: Props = $props();
@@ -136,6 +145,13 @@
   let preserveFormAfterSaveFailure = $state(false);
   let lastReplacementCreatedAt = 0;
   let closeNotified = false;
+
+  function searchMaintainerProfiles(query: string) {
+    if (!searchProfiles) return Promise.resolve([]);
+    return searchProfiles(query, {
+      communityPubkey: formData.communityPubkey || undefined,
+    });
+  }
 
   function notifyClose() {
     if (closeNotified) return;
@@ -1314,7 +1330,9 @@
             showSuggestionsOnFocus={true}
             compact={false}
             getProfile={getProfile}
-            searchProfiles={searchProfiles}
+            searchProfiles={searchProfiles ? searchMaintainerProfiles : undefined}
+            searchProfilesUpdateSignal={searchProfilesUpdateSignal}
+            searchProfilesContextKey={formData.communityPubkey}
             add={(pubkey: string) => {
               if (!formData.maintainers.includes(pubkey)) {
                 formData.maintainers = [...formData.maintainers, pubkey];

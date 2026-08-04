@@ -1,34 +1,21 @@
 <script lang="ts">
   import {untrack} from "svelte"
-  import {getFollows, profileSearch, profilesByPubkey, pubkey as sessionPubkey} from "@welshman/app"
-  import type {TrustedEvent} from "@welshman/util"
   import {isMobile} from "@lib/html"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import ContentSearch from "@lib/components/ContentSearch.svelte"
   import PeopleItem from "@app/components/PeopleItem.svelte"
-  import type {TrustAssessment} from "@app/core/trust-assessment"
   import {
-    communityAdminDefinitionEvents,
-    communityMemberDefinitionEvents,
-    communityMemberProfileListEvents,
-    communityMemberReportStates,
-    communityModeratorDefinitionEvents,
-    communityModeratorProfileListEvents,
-  } from "@app/core/community-state"
-  import {buildCommunityTrustAssessments} from "@app/core/community-trust"
-  import {userRenouncedCommunityPubkeys} from "@app/core/community-renunciations"
+    peopleDiscoverySearch,
+    type PeopleDiscoverySearch,
+  } from "@app/core/people-discovery-search"
   import {
-    buildPeopleSearchCandidates,
-    getCommunityPeoplePubkeys,
     mergePeopleSearchResults,
     PEOPLE_SEARCH_DEBOUNCE_MS,
     PEOPLE_SEARCH_PAGE_SIZE,
     PEOPLE_SEARCH_QUICK_SCAN_LIMIT,
     PEOPLE_SEARCH_SCAN_CHUNK_SIZE,
-    searchPeopleCandidates,
-    type PeopleSearchProfile,
     type PeopleSearchResult,
   } from "@app/util/people-search"
 
@@ -43,42 +30,10 @@
   let peopleSearchResults = $state<PeopleSearchResult[]>([])
   let activeSearchSession: {
     query: string
-    candidates: ReturnType<typeof buildPeopleSearchCandidates>
-    getProfile: (pubkey: string) => PeopleSearchProfile | null | undefined
-    getCommunityAssessments: (pubkeys: string[]) => Map<string, TrustAssessment>
+    adapter: PeopleDiscoverySearch
   } | null = null
 
   const normalizedSearchTerm = $derived(searchTerm.trim())
-  const profileMatches = $derived.by(() =>
-    normalizedSearchTerm ? ($profileSearch.searchValues(normalizedSearchTerm) as string[]) : [],
-  )
-  const directFollowPubkeys = $derived($sessionPubkey ? getFollows($sessionPubkey) : [])
-  const communityDefinitionEvents = $derived([
-    ...$communityAdminDefinitionEvents,
-    ...$communityMemberDefinitionEvents,
-    ...$communityModeratorDefinitionEvents,
-  ] as TrustedEvent[])
-  const communityProfileListEvents = $derived([
-    ...$communityMemberProfileListEvents,
-    ...$communityModeratorProfileListEvents,
-  ] as TrustedEvent[])
-  const communityPubkeys = $derived(
-    getCommunityPeoplePubkeys({
-      definitionEvents: communityDefinitionEvents,
-      profileListEvents: communityProfileListEvents,
-      excludedCommunityPubkeys: $userRenouncedCommunityPubkeys,
-    }),
-  )
-  const peopleSearchCandidates = $derived(
-    normalizedSearchTerm
-      ? buildPeopleSearchCandidates({
-          query: normalizedSearchTerm,
-          communityPubkeys,
-          directFollowPubkeys,
-          profileMatches,
-        })
-      : [],
-  )
   const peopleResults = $derived(peopleSearchResults.slice(0, visibleLimit))
   const hasMorePeopleResults = $derived(
     Boolean(
@@ -112,13 +67,9 @@
         scannedThisRun < maxCandidatesToScan
       ) {
         const remainingScanBudget = maxCandidatesToScan - scannedThisRun
-        const batch = searchPeopleCandidates({
-          query: session.query,
-          candidates: session.candidates,
+        const batch = session.adapter.search(session.query, {
           cursor: searchCursor,
           scanLimit: Math.min(PEOPLE_SEARCH_SCAN_CHUNK_SIZE, remainingScanBudget),
-          getProfile: session.getProfile,
-          getCommunityAssessments: session.getCommunityAssessments,
         })
 
         if (activeSearchSession !== session) return
@@ -163,21 +114,14 @@
 
   $effect(() => {
     const query = normalizedSearchTerm
-    const candidates = peopleSearchCandidates
-    const viewerPubkey = $sessionPubkey || undefined
-    const definitionEvents = communityDefinitionEvents
-    const profileListEvents = communityProfileListEvents
-    const reportStates = $communityMemberReportStates
-    const renouncedCommunityPubkeys = $userRenouncedCommunityPubkeys
-    const profiles = $profilesByPubkey
-    const communityAssessmentCache = new Map<string, TrustAssessment>()
+    const adapter = $peopleDiscoverySearch
 
     visibleLimit = PEOPLE_SEARCH_PAGE_SIZE
     searchCursor = 0
     searchedCandidateCount = 0
-    totalCandidateCount = candidates.length
+    totalCandidateCount = 0
     peopleSearchLoading = false
-    peopleSearchExhausted = !query || candidates.length === 0
+    peopleSearchExhausted = !query
     peopleSearchResults = []
 
     if (!query) {
@@ -185,38 +129,9 @@
       return
     }
 
-    const getCommunityAssessments = (pubkeys: string[]) => {
-      const missingPubkeys = pubkeys.filter(pubkey => !communityAssessmentCache.has(pubkey))
-
-      if (missingPubkeys.length > 0) {
-        const assessments = buildCommunityTrustAssessments({
-          candidatePubkeys: missingPubkeys,
-          viewerPubkey,
-          context: {scope: "global_discovery"},
-          definitionEvents,
-          profileListEvents,
-          reportStates,
-          renouncedCommunityPubkeys,
-        })
-
-        for (const [pubkey, assessment] of assessments) {
-          communityAssessmentCache.set(pubkey, assessment)
-        }
-      }
-
-      return new Map(
-        pubkeys.flatMap(pubkey => {
-          const assessment = communityAssessmentCache.get(pubkey)
-          return assessment ? ([[pubkey, assessment]] as Array<[string, TrustAssessment]>) : []
-        }),
-      )
-    }
-
     activeSearchSession = {
       query,
-      candidates,
-      getProfile: pubkey => profiles.get(pubkey),
-      getCommunityAssessments,
+      adapter,
     }
 
     untrack(() => void scanPeopleSearch(PEOPLE_SEARCH_PAGE_SIZE))

@@ -30,12 +30,12 @@
       <div class="truncate text-sm font-semibold">
         <ProfileName pubkey={result.pubkey} />
       </div>
-      <div class="truncate text-[11px] leading-4 opacity-60">{result.label}</div>
+      <div class="truncate text-[11px] leading-4 opacity-60">
+        {result.evidenceLabels.join(" · ") || result.label}
+      </div>
     </div>
   </button>
-  <Link
-    href={chatPath}
-    class="btn btn-primary btn-square btn-xs shrink-0">
+  <Link href={chatPath} class="btn btn-square btn-primary btn-xs shrink-0">
     <Icon icon={Letter} size={4} />
   </Link>
 </div>

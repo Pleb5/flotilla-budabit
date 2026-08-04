@@ -5,7 +5,7 @@
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {
-    profileSearch,
+    profileSearch as welshmanProfileSearch,
     profilesByPubkey,
     pubkey,
     publishThunk,
@@ -353,7 +353,7 @@
     () =>
       new Set(
         normalizedMemberSearch
-          ? ($profileSearch.searchValues(normalizedMemberSearch) as string[])
+          ? ($welshmanProfileSearch.searchValues(normalizedMemberSearch) as string[])
           : [],
       ),
   )

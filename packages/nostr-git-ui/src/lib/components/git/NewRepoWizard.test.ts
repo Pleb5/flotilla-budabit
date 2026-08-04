@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { ProfileSearchContext } from '../../types/profile-search';
 
 /**
  * Tests for NewRepoWizard author props
@@ -21,7 +22,7 @@ describe('NewRepoWizard Author Props', () => {
     defaultAuthorName?: string;
     defaultAuthorEmail?: string;
     getProfile?: (pubkey: string) => Promise<any>;
-    searchProfiles?: (query: string) => Promise<any[]>;
+    searchProfiles?: (query: string, context?: ProfileSearchContext) => Promise<any[]>;
     searchRelays?: (query: string) => Promise<string[]>;
   }
 

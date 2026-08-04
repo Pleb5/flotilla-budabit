@@ -1,12 +1,11 @@
 import Fuse, {type IFuseOptions, type FuseResult} from "fuse.js"
 import {debounce} from "throttle-debounce"
 import {derived} from "svelte/store"
-import {dec, inc, sortBy} from "@welshman/lib"
+import {sortBy} from "@welshman/lib"
 import {PROFILE, type PublishedProfile, type RelayProfile} from "@welshman/util"
 import {load} from "@welshman/net"
 import {throttled} from "@welshman/store"
 import {Router} from "@welshman/router"
-import {getWotGraph, getMaxWot} from "./wot.js"
 import {profiles} from "./profiles.js"
 import {topics, type Topic} from "./topics.js"
 import {relays} from "./relays.js"
@@ -74,11 +73,6 @@ export const profileSearch = derived(
     return createSearch(options, {
       onSearch: searchProfiles,
       getValue: (profile: PublishedProfile) => profile.event.pubkey,
-      sortFn: ({score = 1, item}) => {
-        const wotScore = getWotGraph().get(item.event.pubkey) || 0
-
-        return dec(score) * inc(wotScore / getMaxWot())
-      },
       fuseOptions: {
         keys: [
           "nip05",
@@ -87,7 +81,7 @@ export const profileSearch = derived(
           {name: "about", weight: 0.3},
         ],
         threshold: 0.3,
-        shouldSort: false,
+        shouldSort: true,
       },
     })
   },

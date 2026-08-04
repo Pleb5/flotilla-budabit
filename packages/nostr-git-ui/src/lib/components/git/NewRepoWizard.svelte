@@ -23,6 +23,10 @@
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { graspServersStore } from "../../stores/graspServers.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
+  import type {
+    ProfileSearchContext,
+    ProfileSearchUpdateSignal,
+  } from "../../types/profile-search.js";
   import {
     buildGraspServiceDescriptors,
     formatUnbackedGraspRelayError,
@@ -83,7 +87,10 @@
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
-    searchProfiles?: (query: string) => Promise<
+    searchProfiles?: (
+      query: string,
+      context?: ProfileSearchContext
+    ) => Promise<
       Array<{
         pubkey: string;
         name?: string;
@@ -92,6 +99,7 @@
         display_name?: string;
       }>
     >;
+    searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
     communityOptions?: RepoCommunityOption[];
     defaultCommunityPubkey?: string;
@@ -123,6 +131,7 @@
     defaultAuthorEmail = "",
     getProfile,
     searchProfiles,
+    searchProfilesUpdateSignal,
     searchRelays,
     communityOptions = [],
     defaultCommunityPubkey = "",
@@ -1035,6 +1044,8 @@
             onWebUrlsChange={handleWebUrlsChange}
             getProfile={getProfile}
             searchProfiles={searchProfiles}
+            searchProfilesUpdateSignal={searchProfilesUpdateSignal}
+            communityPubkey={selectedCommunityPubkey}
             searchRelays={searchRelays}
             onCloneUrlsChange={handleCloneUrlsChange}
           />

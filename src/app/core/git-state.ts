@@ -32,13 +32,22 @@ import {
 import {nip19, type NostrEvent} from "nostr-tools"
 import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "@app/util/issue-edits"
-import {graspServersStore, type PublishRepoEvent, type Repo} from "@nostr-git/ui"
+import {
+  graspServersStore,
+  type ProfileSearchContext,
+  type ProfileSearchUpdateSignal,
+  type PublishRepoEvent,
+  type Repo,
+} from "@nostr-git/ui"
 import {getScopedCommunityPublishRelays, type CommunityRelayRef} from "@app/core/community-relays"
 import {logPublishRelaySummary} from "@app/core/diagnostics"
 import {
   getPreferredGraspServerUrls,
   makeGraspServerListFilters,
 } from "@app/core/grasp-server-events"
+import {getRepoDeclaredMaintainers, getRepoMaintainers} from "@app/core/repo-authority"
+
+export {getRepoDeclaredMaintainers, getRepoMaintainers} from "@app/core/repo-authority"
 
 export const shouldReloadRepos = writable(false)
 
@@ -109,7 +118,11 @@ export type RepoSettingsActions = {
   disposePublishTransport: () => void
   openDeleteRepoModal: () => void
   getProfile: (pubkey: string) => Promise<RepoProfileSummary | null>
-  searchProfiles: (query: string) => Promise<Array<RepoProfileSummary & {pubkey: string}>>
+  searchProfiles: (
+    query: string,
+    context?: ProfileSearchContext,
+  ) => Promise<Array<RepoProfileSummary & {pubkey: string}>>
+  searchProfilesUpdateSignal: ProfileSearchUpdateSignal
   searchRelays: (query: string) => Promise<string[]>
   readonly canEditAnnouncement: boolean
   readonly canDelete: boolean
@@ -141,36 +154,6 @@ const normalizePubkey = (value: string) => {
     }
   }
   return ""
-}
-
-const parseRepoAnnouncementSafe = (event: RepoAnnouncementEvent) => {
-  try {
-    return parseRepoAnnouncementEvent(event)
-  } catch {
-    return null
-  }
-}
-
-export const getRepoMaintainers = (event?: RepoAnnouncementEvent | null) => {
-  if (!event) return []
-
-  const owner = normalizePubkey(event.pubkey || "")
-  const declaredMaintainers = (parseRepoAnnouncementSafe(event)?.maintainers || [])
-    .map(normalizePubkey)
-    .filter(Boolean)
-
-  return Array.from(new Set([owner, ...declaredMaintainers].filter(Boolean)))
-}
-
-export const getRepoDeclaredMaintainers = (event?: RepoAnnouncementEvent | null) => {
-  if (!event) return []
-
-  const owner = normalizePubkey(event.pubkey || "")
-  const declaredMaintainers = (parseRepoAnnouncementSafe(event)?.maintainers || [])
-    .map(normalizePubkey)
-    .filter(pubkey => pubkey && pubkey !== owner)
-
-  return Array.from(new Set(declaredMaintainers))
 }
 
 export const getStatusRootId = (status: Pick<StatusEvent, "tags">) =>

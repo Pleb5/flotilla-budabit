@@ -4,7 +4,7 @@
   import * as nip19 from "nostr-tools/nip19"
   import type {TrustedEvent} from "@welshman/util"
   import type {Instance} from "tippy.js"
-  import {profileSearch, profilesByPubkey} from "@welshman/app"
+  import {profileSearch as welshmanProfileSearch, profilesByPubkey} from "@welshman/app"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -17,6 +17,7 @@
   import {getPeopleSearchTextScore} from "@app/util/people-search"
   import {pushToast} from "@app/util/toast"
   import {activeCommunityReportState, hydratePubkeyProfiles} from "@app/core/community-state"
+  import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
   import {
     getProfileListPubkeys,
     normalizePubkey,
@@ -113,7 +114,7 @@
     () =>
       new Set(
         normalizedMemberSearch
-          ? ($profileSearch.searchValues(normalizedMemberSearch) as string[])
+          ? ($welshmanProfileSearch.searchValues(normalizedMemberSearch) as string[])
           : [],
       ),
   )
@@ -206,10 +207,10 @@
     const query = term.trim()
     if (!query) return []
 
-    const typedPubkey = normalizePubkey(query)
-    const matches = $profileSearch.searchValues(query) as string[]
-
-    return Array.from(new Set([typedPubkey, ...matches].map(normalizePubkey).filter(Boolean)))
+    return $peopleDiscoverySearch.searchValues(query, {
+      context: {scope: "community", communityPubkey: definition.pubkey},
+      resultLimit: 8,
+    })
   }
 
   const onPeopleKeyDown = (event: Event) => {

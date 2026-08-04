@@ -33,6 +33,10 @@
   import GitOperationActivity from "./GitOperationActivity.svelte";
   import type { SubscribeGitProgress } from "../../utils/git-operation-progress.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
+  import type {
+    ProfileSearchContext,
+    ProfileSearchUpdateSignal,
+  } from "../../types/profile-search.js";
   import {
     findRepoCommunityOption,
     getRepoCommunityOptionBinding,
@@ -108,7 +112,10 @@
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
-    searchProfiles?: (query: string) => Promise<
+    searchProfiles?: (
+      query: string,
+      context?: ProfileSearchContext
+    ) => Promise<
       Array<{
         pubkey: string;
         name?: string;
@@ -117,6 +124,7 @@
         display_name?: string;
       }>
     >;
+    searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
   }
 
@@ -143,6 +151,7 @@
     defaultCommunityPubkey = "",
     getProfile,
     searchProfiles,
+    searchProfilesUpdateSignal,
     searchRelays,
   }: Props = $props();
 
@@ -158,6 +167,13 @@
   let isNavigatingToRepo = $state(false);
   let closeNotified = false;
   let selectedCommunityPubkey = $state(defaultCommunityPubkey);
+
+  function searchMaintainerProfiles(query: string) {
+    if (!searchProfiles) return Promise.resolve([]);
+    return searchProfiles(query, {
+      communityPubkey: selectedCommunityPubkey || undefined,
+    });
+  }
 
   const forkOptions = $derived.by(() => {
     const baseOptions = {
@@ -1740,7 +1756,9 @@
                   showSuggestionsOnFocus={true}
                   compact={false}
                   getProfile={getProfile}
-                  searchProfiles={searchProfiles}
+                  searchProfiles={searchProfiles ? searchMaintainerProfiles : undefined}
+                  searchProfilesUpdateSignal={searchProfilesUpdateSignal}
+                  searchProfilesContextKey={selectedCommunityPubkey}
                   add={(value: string) => {
                     if (!maintainers.includes(value)) maintainers = [...maintainers, value];
                   }}

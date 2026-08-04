@@ -212,4 +212,31 @@ describe("NewRepoWizard modal surface", () => {
       expect(source).toContain('class="mt-0.5 break-words text-sm text-gray-400"');
     }
   });
+
+  it("passes the live prospective community to maintainer profile searches", async () => {
+    const newRepoWizard = await readPackageSource("src/lib/components/git/NewRepoWizard.svelte");
+    const advancedStep = await readPackageSource(
+      "src/lib/components/git/AdvancedSettingsStep.svelte"
+    );
+    const forkDialog = await readPackageSource("src/lib/components/git/ForkRepoDialog.svelte");
+    const editPanel = await readPackageSource("src/lib/components/git/EditRepoPanel.svelte");
+    const contextType = await readPackageSource("src/lib/types/profile-search.ts");
+    const packageIndex = await readPackageSource("src/lib/index.ts");
+
+    expect(contextType).toContain("communityPubkey?: string;");
+    expect(contextType).toContain("ProfileSearchUpdateSignal");
+    expect(packageIndex).toContain("ProfileSearchContext, ProfileSearchUpdateSignal");
+    for (const source of [newRepoWizard, advancedStep, forkDialog, editPanel]) {
+      expect(source).toContain("context?: ProfileSearchContext");
+    }
+
+    expect(newRepoWizard).toContain("communityPubkey={selectedCommunityPubkey}");
+    expect(advancedStep).toContain("communityPubkey: communityPubkey || undefined");
+    expect(forkDialog).toContain("communityPubkey: selectedCommunityPubkey || undefined");
+    expect(editPanel).toContain("communityPubkey: formData.communityPubkey || undefined");
+    for (const source of [advancedStep, forkDialog, editPanel]) {
+      expect(source).toContain("searchProfilesUpdateSignal");
+      expect(source).toContain("searchProfilesContextKey");
+    }
+  });
 });

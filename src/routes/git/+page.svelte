@@ -13,7 +13,7 @@
     repository,
     profilesByPubkey,
     tracker,
-    profileSearch,
+    profileSearch as repositoryOwnerProfileSearch,
     getFollows,
     relaySearch,
     pubkey,
@@ -79,7 +79,12 @@
     NewRepoWizard,
     ImportRepoDialog,
   } from "@nostr-git/ui"
-  import type {ImportResult, NewRepoResult, RepoCommunityOption} from "@nostr-git/ui"
+  import type {
+    ImportResult,
+    NewRepoResult,
+    ProfileSearchContext,
+    RepoCommunityOption,
+  } from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
   import {
     loadRepoAnnouncements,
@@ -176,6 +181,7 @@
     type RepoOwnerProfile,
   } from "@app/util/repo-discovery-search"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
+  import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
 
   const url = GIT_RELAYS[0] || ""
 
@@ -1655,9 +1661,9 @@
       .filter(Boolean) as string[]
   }
 
-  const getProfileSearchMatches = (query: string) => {
+  const getRepositoryOwnerProfileMatches = (query: string) => {
     try {
-      const searchStore = getStore(profileSearch)
+      const searchStore = getStore(repositoryOwnerProfileSearch)
       return (searchStore?.searchValues?.(query) || []) as string[]
     } catch {
       return []
@@ -2077,7 +2083,7 @@
     }
 
     const discoveryInputs = untrack(() => {
-      const profileMatches = getProfileSearchMatches(query)
+      const profileMatches = getRepositoryOwnerProfileMatches(query)
       const activeCommunityPubkeys =
         activeMode === "community" ? [...selectedCommunityRepoWriterPubkeys] : []
       const communityAssociatedPubkeys =
@@ -3236,10 +3242,23 @@
     return null
   }
 
-  const searchProfilesForWizard = async (query: string) => {
+  const searchProfilesForWizard = async (
+    query: string,
+    {communityPubkey}: ProfileSearchContext = {},
+  ) => {
     try {
-      const searchStore = getStore(profileSearch)
-      const pubkeys = searchStore?.searchValues?.(query) || []
+      if (!$pubkey) return []
+
+      const pubkeys = getStore(peopleDiscoverySearch).searchValues(query, {
+        context: {
+          scope: "repo",
+          authority: {source: "draft", ownerPubkey: $pubkey},
+          ...(communityPubkey ? {community: {scope: "community" as const, communityPubkey}} : {}),
+        },
+        allowEmptyQuery: true,
+        scanLimit: query.trim() ? undefined : 320,
+        resultLimit: 10,
+      })
       const map = getStore(profilesByPubkey)
       return pubkeys.map((pk: string) => {
         const profile = map?.get(pk)
@@ -3357,6 +3376,7 @@
           onFetchRelayEvents: fetchRelayEvents,
           getProfile: getProfileForWizard,
           searchProfiles: searchProfilesForWizard,
+          searchProfilesUpdateSignal: peopleDiscoverySearch,
           searchRelays: searchRelaysForWizard,
         },
         {fullscreen: true, noEscape: true},
