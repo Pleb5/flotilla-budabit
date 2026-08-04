@@ -15,6 +15,7 @@
     "lint": "prettier --check \"src/**/*.{ts,js,css}\" && eslint src",
     "format": "git diff head --name-only --diff-filter d | grep -E '(js|ts|css)$' | xargs -r prettier --write",
     "format:all": "prettier --write \"src/**/*.{ts,js,css}\"",
+    "discover:relay-defaults": "node scripts/discover-relay-defaults.mjs",
     "probe:public-relay": "node scripts/probe-public-relay.mjs",
     "prepare": "husky",
     "test": "vitest run --coverage",

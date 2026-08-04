@@ -21,6 +21,7 @@ blob-report/
 .playwright/
 
 coverage/
+relay-discovery-output/
 
 # Generated assets
 static/favicon.ico
