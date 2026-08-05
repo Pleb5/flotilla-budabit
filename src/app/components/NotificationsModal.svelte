@@ -12,7 +12,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {formatTimestamp} from "@welshman/lib"
-  import {onDestroy, onMount, untrack} from "svelte"
+  import {onDestroy, onMount, tick, untrack} from "svelte"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import ArrowRightUp from "@assets/icons/arrow-right-up.svg?dataurl"
   import Bolt from "@assets/icons/bolt.svg?dataurl"
@@ -69,6 +69,7 @@
   let loadMoreHistoryPending = $state(false)
   let loadMoreHistoryRowCount = $state(0)
   let loadMoreHistoryTimeout: ReturnType<typeof setTimeout> | undefined
+  let pendingNavigationKey = $state("")
 
   let actorNamesByPubkey = $state<Record<string, string>>({})
   const rows = $derived(
@@ -84,6 +85,11 @@
   const hasMoreLoadedRows = $derived(rows.length > visibleRows.length)
   const canLoadOlderHistory = $derived($notificationHistoryCanLoadMore)
   const loadMoreLabel = $derived(loadMoreHistoryPending ? "Loading..." : "Load more")
+  const navigationPending = $derived(Boolean(pendingNavigationKey))
+  const notificationSettingsTarget: NotificationRowNavigation = {
+    label: "Notification settings",
+    path: "/settings/notifications",
+  }
 
   const clearLoadMoreHistoryPending = () => {
     loadMoreHistoryPending = false
@@ -142,6 +148,18 @@
 
   const isExternalPath = (path: string) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path)
 
+  const getNavigationKey = (target: NotificationRowNavigation | NotificationRowDisplaySection) =>
+    `${target.path || ""}:${target.eventId || ""}`
+
+  const isNavigationPending = (target: NotificationRowNavigation | NotificationRowDisplaySection) =>
+    pendingNavigationKey === getNavigationKey(target)
+
+  const waitForNavigationIntentPaint = async () => {
+    await tick()
+    if (typeof requestAnimationFrame !== "function") return
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  }
+
   const openNavigationTarget = async (
     event: Event | undefined,
     target: NotificationRowNavigation | NotificationRowDisplaySection,
@@ -150,15 +168,26 @@
     event?.stopPropagation()
 
     if (!target.path) return
-
-    clearModals()
+    if (navigationPending) return
 
     if (isExternalPath(target.path)) {
       window.open(target.path, "_blank", "noopener")
+      clearModals()
       return
     }
 
-    await goto(target.path)
+    const navigationKey = getNavigationKey(target)
+    pendingNavigationKey = navigationKey
+
+    try {
+      await waitForNavigationIntentPaint()
+      await goto(target.path)
+      clearModals()
+    } catch (error) {
+      if (pendingNavigationKey === navigationKey) pendingNavigationKey = ""
+      console.error("[NotificationsModal] Failed to navigate to notification target", error)
+      return
+    }
 
     if (target.eventId) await scrollToEvent(target.eventId)
   }
@@ -166,6 +195,7 @@
   const openProfile = (event: Event, pubkey: string) => {
     event.preventDefault()
     event.stopPropagation()
+    if (navigationPending) return
     pushModal(ProfileDetail, {pubkey})
   }
 
@@ -174,6 +204,12 @@
     row: NotificationRow,
     display: ReturnType<typeof getNotificationRowDisplay>,
   ) => {
+    if (navigationPending) {
+      event?.preventDefault()
+      event?.stopPropagation()
+      return
+    }
+
     if (display.canExpand) {
       event?.preventDefault()
       event?.stopPropagation()
@@ -244,21 +280,27 @@
 
   const isFilterActive = (source: NotificationRowFilter) => rowFilters.includes(source)
 
-  const openNotificationSettings = async () => {
-    clearModals()
-    await goto("/settings/notifications")
-  }
+  const openNotificationSettings = (event: Event) =>
+    openNavigationTarget(event, notificationSettingsTarget)
 </script>
 
-<div class="flex max-h-[82vh] min-h-[28rem] flex-col gap-4 sm:min-w-[28rem]">
+<div
+  class="flex max-h-[82vh] min-h-[28rem] flex-col gap-4 sm:min-w-[28rem]"
+  aria-busy={navigationPending}>
   <header class="flex items-center justify-between gap-3 px-1">
     <h1 class="text-lg font-semibold leading-none">Notifications</h1>
     <Button
-      class="btn btn-ghost btn-sm btn-square"
+      class="btn btn-square btn-ghost btn-sm"
       aria-label="Notification settings"
       data-tip="Notification settings"
+      disabled={navigationPending}
       onclick={openNotificationSettings}>
-      <Icon icon={Settings} size={4.5} />
+      {#if isNavigationPending(notificationSettingsTarget)}
+        <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+        <span class="sr-only">Opening notification settings</span>
+      {:else}
+        <Icon icon={Settings} size={4.5} />
+      {/if}
     </Button>
   </header>
 
@@ -299,13 +341,20 @@
           {#each visibleRows as row (row.id)}
             {@const display = getNotificationRowDisplay(row)}
             {@const isExpanded = expandedRowId === row.id}
+            {@const rowNavigating = isNavigationPending(display.primaryAction)}
             <article
-              class="card2 bg-alt overflow-hidden text-left transition-colors hover:bg-base-200">
+              class="card2 bg-alt overflow-hidden text-left transition-colors hover:bg-base-200 {rowNavigating
+                ? 'cursor-wait ring-2 ring-primary/40'
+                : ''}">
               <div
                 role="button"
                 tabindex="0"
                 aria-expanded={display.canExpand ? isExpanded : undefined}
-                class="flex cursor-pointer items-start gap-2.5 p-3 sm:gap-3"
+                aria-busy={rowNavigating}
+                aria-disabled={navigationPending}
+                class="flex items-start gap-2.5 p-3 sm:gap-3 {navigationPending
+                  ? 'cursor-wait'
+                  : 'cursor-pointer'}"
                 onclick={event => activateRow(event, row, display)}
                 onkeydown={event => activateRowFromKeyboard(event, row, display)}>
                 <div
@@ -317,6 +366,7 @@
                   <Button
                     class="btn btn-circle btn-ghost btn-sm shrink-0 p-0"
                     aria-label="View profile"
+                    disabled={navigationPending}
                     onkeydown={stopKeyboardPropagation}
                     onclick={event => openProfile(event, row.actorPubkey!)}>
                     <ProfileCircle pubkey={row.actorPubkey} size={8} />
@@ -362,6 +412,13 @@
                         class={isExpanded
                           ? "mt-1 rotate-180 transition-transform"
                           : "mt-1 transition-transform"} />
+                    {:else if rowNavigating}
+                      <span
+                        class="mt-1 flex shrink-0 items-center gap-1.5 text-xs font-medium text-primary">
+                        <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+                        <span class="hidden sm:inline">Opening...</span>
+                        <span class="sr-only sm:hidden">Opening notification</span>
+                      </span>
                     {:else}
                       <Icon icon={ArrowRightUp} size={3.5} class="mt-1 text-muted-foreground" />
                     {/if}
@@ -373,6 +430,7 @@
                 <div class="border-t border-base-300/70 px-3 pb-3 pt-2">
                   <div class="grid gap-2 sm:ml-[5.5rem]">
                     {#each display.sections as section}
+                      {@const sectionNavigating = isNavigationPending(section)}
                       <article
                         class="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100/70 p-3 shadow-sm">
                         <div class="flex items-start justify-between gap-2">
@@ -387,10 +445,17 @@
                             <Button
                               class="btn btn-ghost btn-xs shrink-0 gap-1"
                               aria-label={section.actionLabel || display.primaryAction.label}
+                              disabled={navigationPending}
                               onkeydown={stopKeyboardPropagation}
                               onclick={event => openNavigationTarget(event, section)}>
-                              <Icon icon={ArrowRightUp} size={3} />
-                              <span>Open</span>
+                              {#if sectionNavigating}
+                                <span class="loading loading-spinner loading-xs" aria-hidden="true"
+                                ></span>
+                                <span>Opening...</span>
+                              {:else}
+                                <Icon icon={ArrowRightUp} size={3} />
+                                <span>Open</span>
+                              {/if}
                             </Button>
                           {/if}
                         </div>
