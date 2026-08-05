@@ -28,7 +28,6 @@
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import ProfileAdvancedSettings from "@app/components/ProfileAdvancedSettings.svelte"
   import ProfileAccountSettings from "@app/components/ProfileAccountSettings.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileEdit from "@app/components/ProfileEdit.svelte"
@@ -826,9 +825,6 @@
         </div>
       </details>
 
-      {#if isSelf}
-        <ProfileAdvancedSettings />
-      {/if}
     </div>
   {:else}
     <div class="card2 bg-alt mx-auto mt-3 max-w-xl !p-3 shadow-md sm:mt-4 sm:!p-6">

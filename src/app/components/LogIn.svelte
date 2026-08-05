@@ -6,9 +6,11 @@
   import Cpu from "@assets/icons/cpu-bolt.svg?dataurl"
   import Compass from "@assets/icons/compass-big.svg?dataurl"
   import ShieldWarning from "@assets/icons/shield-warning.svg?dataurl"
+  import UserPlus from "@assets/icons/user-plus.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Divider from "@lib/components/Divider.svelte"
   import SignUp from "@app/components/SignUp.svelte"
   import InfoNostr from "@app/components/InfoNostr.svelte"
   import LogInBunker from "@app/components/LogInBunker.svelte"
@@ -149,8 +151,9 @@
       Browse Signer Apps
     </Link>
   {/if}
-  <div class="text-sm">
-    Need an account?
-    <Button class="link" onclick={signUp}>Register instead</Button>
-  </div>
+  <Divider>New to Nostr?</Divider>
+  <Button class="btn btn-outline btn-primary" onclick={signUp} data-testid="login-option-signup">
+    <Icon icon={UserPlus} />
+    Create a new account
+  </Button>
 </div>

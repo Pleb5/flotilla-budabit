@@ -15,6 +15,7 @@ test.describe("NIP-46 login", () => {
     await expect(login).toBeVisible({timeout: 15_000})
     await login.click()
     await expect(page.getByTestId("login-modal")).toBeVisible()
+    await expect(page.getByTestId("login-option-signup")).toBeVisible()
     await page.getByTestId("login-option-bunker").click()
 
     const fallback = page.getByTestId("login-bunker-fallback")
