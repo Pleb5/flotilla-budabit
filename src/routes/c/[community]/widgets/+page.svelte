@@ -2,7 +2,6 @@
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {profilesByPubkey, pubkey, repository} from "@welshman/app"
-  import {Router} from "@welshman/router"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {DELETE, makeEvent, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
   import {randomId} from "@welshman/lib"
@@ -39,7 +38,6 @@
     communityWritableSectionsSupportTarget,
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {SMART_WIDGET_RELAYS} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import type {WidgetCommunitySlotType} from "@app/extensions/types"
@@ -71,10 +69,10 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
   )
   const targetingFilters = $derived(
@@ -176,14 +174,6 @@
     return options
   })
 
-  const getUserOutboxRelays = () => {
-    try {
-      return Router.get().FromUser().getUrls() || []
-    } catch {
-      return []
-    }
-  }
-
   function makeTargetDeleteFilters(events: TrustedEvent[]): Filter[] {
     const ids = events.map(event => event.id).filter(Boolean)
 
@@ -228,13 +218,15 @@
 
   const getWidgetAppUrls = () =>
     Array.from(
-      new Set([
-        appUrl.trim(),
-        ...fallbackAppUrls
-          .split(/\n|,/)
-          .map(url => url.trim())
-          .filter(Boolean),
-      ].filter(Boolean)),
+      new Set(
+        [
+          appUrl.trim(),
+          ...fallbackAppUrls
+            .split(/\n|,/)
+            .map(url => url.trim())
+            .filter(Boolean),
+        ].filter(Boolean),
+      ),
     )
 
   const uploadWidgetArtifact = async (input: HTMLInputElement) => {
@@ -295,7 +287,7 @@
       })
       return
     }
-    const baseRelays = normalizeRelays([...SMART_WIDGET_RELAYS, ...getUserOutboxRelays()])
+    const baseRelays: string[] = []
     let relays: string[]
 
     try {
@@ -387,7 +379,8 @@
       !widgetUploading &&
       Boolean(name.trim()) &&
       getWidgetAppUrls().length > 0 &&
-      filterSelectedWidgetCommunityOptions(widgetCommunityOptions, selectedTargetCommunityPubkeys).length > 0,
+      filterSelectedWidgetCommunityOptions(widgetCommunityOptions, selectedTargetCommunityPubkeys)
+        .length > 0,
   )
 
   $effect(() => {
@@ -543,7 +536,8 @@
         {/if}
         {#if widgetUploadMirrors.length > 0}
           <p class="mt-1 text-xs opacity-70">
-            Immediate mirrors: {widgetUploadMirrors.filter(mirror => mirror.ok && mirror.url).length}
+            Immediate mirrors: {widgetUploadMirrors.filter(mirror => mirror.ok && mirror.url)
+              .length}
           </p>
         {/if}
       {/snippet}
@@ -618,11 +612,12 @@
       {/if}
     </div>
     <div class="flex justify-end">
-      <Button
-        type="submit"
-        class="btn btn-primary"
-        disabled={!canSubmitWidget}>
-        {widgetUploading ? "Uploading..." : widgetAccessLoading ? "Loading access..." : "Publish widget"}
+      <Button type="submit" class="btn btn-primary" disabled={!canSubmitWidget}>
+        {widgetUploading
+          ? "Uploading..."
+          : widgetAccessLoading
+            ? "Loading access..."
+            : "Publish widget"}
       </Button>
     </div>
   </form>

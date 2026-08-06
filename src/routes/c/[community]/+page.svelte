@@ -34,6 +34,7 @@
     activeCommunityPermissionStatus,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     getCommunityBootstrapKey,
@@ -460,7 +461,7 @@
     const invites = pendingModeratorInvites
     if (invites.length === 0) return
 
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
@@ -724,7 +725,10 @@
         {#if $activeCommunityDefinition?.pubkey === communityId}
           <CommunityShareButton communityPubkey={communityId} relayHints={communityShareRelays} />
         {/if}
-        <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
+        <CommunityStarButton
+          communityPubkey={communityId}
+          relayHints={communityActionRelays}
+          publishRelayHints={$activeCommunityPublishRelays} />
       </div>
     {/if}
     <div class="relative flex gap-4">

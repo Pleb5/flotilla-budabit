@@ -44,6 +44,7 @@
     readOnly?: boolean
     profileRelays?: string[]
     interactionRelays?: string[]
+    actionRelays?: string[]
     interactionAuthorPubkeys?: string[]
     scopeH?: string
     communitySectionName?: string
@@ -60,6 +61,7 @@
     readOnly = false,
     profileRelays = [],
     interactionRelays = [],
+    actionRelays = undefined,
     interactionAuthorPubkeys = undefined,
     scopeH = "",
     communitySectionName = "",
@@ -86,6 +88,7 @@
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
   )
+  const actionRelayTargets = $derived(actionRelays ?? relayTargets)
   const censorReason = $derived.by(() =>
     communitySectionName
       ? getCommunityCensorReason({
@@ -128,7 +131,7 @@
       reply,
       edit,
       readOnly,
-      relays: relayTargets,
+      relays: actionRelayTargets,
       scopeH,
       communitySectionName,
     })
@@ -143,7 +146,7 @@
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({
       url,
-      relays: relayTargets,
+      relays: actionRelayTargets,
       event,
     })
 
@@ -151,7 +154,7 @@
     publishReaction({
       ...template,
       event,
-      relays: relayTargets,
+      relays: actionRelayTargets,
       tags: [...(template.tags || []), ...scopedTags],
     })
 </script>
@@ -217,9 +220,9 @@
         data-stop-link
         data-stop-tap>
         {#if ENABLE_ZAPS}
-          <RoomItemZapButton {event} relays={relayTargets} {scopeH} />
+          <RoomItemZapButton {event} relays={actionRelayTargets} {scopeH} />
         {/if}
-        <RoomItemEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+        <RoomItemEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
             <Icon icon={Reply} size={4} />
@@ -268,10 +271,10 @@
     <div class="z-10 absolute right-2 top-2 hidden items-center gap-1 text-xs sm:flex">
       <div class={actionGroupClass}>
         {#if ENABLE_ZAPS && !readOnly}
-          <RoomItemZapButton {event} relays={relayTargets} {scopeH} />
+          <RoomItemZapButton {event} relays={actionRelayTargets} {scopeH} />
         {/if}
         {#if !readOnly}
-          <RoomItemEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+          <RoomItemEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
         {/if}
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply}>
@@ -288,7 +291,7 @@
           {event}
           {readOnly}
           class={menuButtonClass}
-          relays={relayTargets}
+          relays={actionRelayTargets}
           {communitySectionName} />
       </div>
       {#if !readOnly}

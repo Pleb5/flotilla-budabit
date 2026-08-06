@@ -2,6 +2,7 @@
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {EVENT_TIME, type TrustedEvent} from "@welshman/util"
+import {finalizeEvent} from "nostr-tools/pure"
 import {
   COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
@@ -78,6 +79,7 @@ const mocks = vi.hoisted(() => {
     activeCommunityProfileListEvents: createStore([] as any[]),
     activeCommunityRelayHints: createStore([] as string[]),
     activeCommunityRelays: createStore([] as string[]),
+    activeCommunityPublishRelays: createStore([] as string[]),
     activeCommunityReportState: createStore(undefined as any),
   }
 })
@@ -104,6 +106,18 @@ const communityDefinition = parseCommunityDefinition(
     kind: COMMUNITY_DEFINITION_KIND,
     pubkey: communityPubkey,
     tags: [
+      ["content", "Events and meetups"],
+      ["k", String(EVENT_TIME)],
+      ["a", `${PROFILE_LIST_KIND}:${calendarWriterPubkey}:Events and meetups`],
+    ],
+  }),
+)!
+const communityDefinitionWithRelays = parseCommunityDefinition(
+  makeEvent({
+    kind: COMMUNITY_DEFINITION_KIND,
+    pubkey: communityPubkey,
+    tags: [
+      ["r", "wss://relay.example.com/"],
       ["content", "Events and meetups"],
       ["k", String(EVENT_TIME)],
       ["a", `${PROFILE_LIST_KIND}:${calendarWriterPubkey}:Events and meetups`],
@@ -171,6 +185,7 @@ vi.mock("@app/core/community-state", () => ({
   activeCommunityProfileListEvents: mocks.activeCommunityProfileListEvents,
   activeCommunityRelayHints: mocks.activeCommunityRelayHints,
   activeCommunityRelays: mocks.activeCommunityRelays,
+  activeCommunityPublishRelays: mocks.activeCommunityPublishRelays,
   activeCommunityReportState: mocks.activeCommunityReportState,
   authenticateCommunityRelays: mocks.authenticateCommunityRelays,
   getCommunityBootstrapRelays: vi.fn((relays: string[] = []) => relays),
@@ -296,6 +311,7 @@ beforeEach(() => {
   mocks.activeCommunityProfileListEvents.set([])
   mocks.activeCommunityRelayHints.set([])
   mocks.activeCommunityRelays.set([])
+  mocks.activeCommunityPublishRelays.set([])
   mocks.activeCommunityReportState.set(undefined)
 })
 
@@ -331,6 +347,7 @@ describe("ExtensionBridge", () => {
     const communityRelay = "wss://community.example.com/"
     const publicRelay = "wss://public.example.com/"
     mocks.activeCommunityRelays.set([communityRelay])
+    mocks.activeCommunityPublishRelays.set([communityRelay])
     mocks.activeCommunityRelayHints.set([communityRelay])
     mocks.publishThunk.mockReturnValue({
       complete: Promise.resolve(),
@@ -343,7 +360,7 @@ describe("ExtensionBridge", () => {
     const extension = makeExtension({widget: {permissions: ["nostr:publish"]}})
     const bridge = new ExtensionBridge(extension as any)
     const response = await sendBridgeRequest(bridge, extension, "nostr:publish", {
-      event: makeEvent({kind: 30311}),
+      event: {kind: 30311, created_at: 1, content: "", tags: []},
       relays: [communityRelay, publicRelay],
     })
 
@@ -354,6 +371,83 @@ describe("ExtensionBridge", () => {
       mocks.publishThunk.mock.invocationCallOrder[0],
     )
     expect(response.result.successCount).toBe(2)
+  })
+
+  it("rejects community-scoped events from generic nostr publishing", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension({widget: {permissions: ["nostr:publish"]}})
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "nostr:publish", {
+        event: {
+          kind: 30311,
+          created_at: 1,
+          content: "",
+          tags: [["h", communityPubkey]],
+        },
+        relays: ["wss://relay.example.com/"],
+      }),
+    ).resolves.toEqual({
+      error: "Community-scoped events must use a dedicated community publish capability",
+    })
+    expect(mocks.publishThunk).not.toHaveBeenCalled()
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "nostr:publish", {
+        event: {kind: 30222, created_at: 1, content: "", tags: [["d", "target"]]},
+        relays: ["wss://relay.example.com/"],
+      }),
+    ).resolves.toEqual({
+      error: "Community-scoped events must use a dedicated community publish capability",
+    })
+    expect(mocks.publishThunk).not.toHaveBeenCalled()
+  })
+
+  it("verifies externally signed events before publishing", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const relay = "wss://relay.example.com/"
+    const signedEvent = finalizeEvent(
+      {kind: 30311, created_at: 1, content: "", tags: []},
+      new Uint8Array(32).fill(1),
+    )
+    const extension = makeExtension({widget: {permissions: ["nostr:publish"]}})
+    const bridge = new ExtensionBridge(extension as any)
+    mocks.publishThunk.mockReturnValue({
+      complete: Promise.resolve(),
+      results: {[relay]: {status: "success"}},
+      event: signedEvent,
+    })
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "nostr:publish", {
+        event: signedEvent,
+        relays: [relay],
+      }),
+    ).resolves.toMatchObject({status: "ok", result: {eventId: signedEvent.id, successCount: 1}})
+
+    mocks.publishThunk.mockClear()
+    await expect(
+      sendBridgeRequest(bridge, extension, "nostr:publish", {
+        event: {...signedEvent, content: "tampered"},
+        relays: [relay],
+      }),
+    ).resolves.toEqual({error: "Externally signed event failed cryptographic verification"})
+    expect(mocks.publishThunk).not.toHaveBeenCalled()
+  })
+
+  it("returns failure when generic publishing is not accepted by any relay", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension({widget: {permissions: ["nostr:publish"]}})
+    const bridge = new ExtensionBridge(extension as any)
+    mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "nostr:publish", {
+        event: {kind: 30311, created_at: 1, content: "", tags: []},
+        relays: ["wss://relay.example.com/"],
+      }),
+    ).resolves.toEqual({error: "Event was not accepted by any relay"})
   })
 
   it("rejects privileged actions when the extension does not have permission", async () => {
@@ -1024,9 +1118,10 @@ describe("ExtensionBridge", () => {
 
   it("only lets descriptor moderators publish shared config", async () => {
     const {ExtensionBridge} = await import("./bridge")
-    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityDefinition.set(communityDefinitionWithRelays)
     mocks.activeCommunityProfileListEvents.set([calendarProfileList])
     mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    mocks.activeCommunityPublishRelays.set(["wss://relay.example.com/"])
     mocks.pubkey.set(calendarMemberPubkey)
 
     const extension = makeWidgetStorageExtension({
@@ -1073,6 +1168,37 @@ describe("ExtensionBridge", () => {
         event: expect.objectContaining({kind: 30078}),
       }),
     )
+  })
+
+  it("does not use runtime relay hints for dedicated community publishing", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelayHints.set(["wss://hint.example.com/"])
+    mocks.activeCommunityRelays.set(["wss://hint.example.com/"])
+    mocks.pubkey.set(calendarWriterPubkey)
+
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:publishSharedConfig"],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:publishSharedConfig", {
+        namespace: "budabit-calendar-widget",
+        key: "featured-calendar-event",
+        descriptors: [{kind: EVENT_TIME}],
+        config: {header: "Featured", eventRefs: [calendarEventRef]},
+      }),
+    ).resolves.toEqual({
+      error: "Community definition must declare relays before publishing",
+      code: "COMMUNITY_CONTEXT_NOT_READY",
+    })
+    expect(mocks.authenticateCommunityRelays).not.toHaveBeenCalled()
+    expect(mocks.publishThunk).not.toHaveBeenCalled()
   })
 
   it("uses widget relay hints when community definition relays are empty", async () => {

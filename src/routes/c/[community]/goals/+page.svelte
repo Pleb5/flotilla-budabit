@@ -19,6 +19,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
@@ -397,6 +398,7 @@
     <GoalItem
       url={communityPubkey}
       relays={$activeCommunityRelays}
+      publishRelays={$activeCommunityPublishRelays}
       scopeH={communityPubkey}
       activityLiveCovered
       communitySectionName={goalSectionName}

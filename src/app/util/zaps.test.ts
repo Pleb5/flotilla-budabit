@@ -96,7 +96,7 @@ describe("zap utilities", () => {
     })
   })
 
-  it("uses scoped relay hints and author receipt relays for community zaps", async () => {
+  it("uses only supplied relay hints for community zaps", async () => {
     mocks.authorInboxRelays = ["wss://author-inbox.example.com"]
     mocks.authorReadRelays = ["wss://author-read.example.com"]
     const {getZapRelays} = await import("./zaps")
@@ -108,11 +108,19 @@ describe("zap utilities", () => {
         relayHints: ["wss://community.example.com"],
         scopeH: "community",
       }),
-    ).toEqual([
-      "wss://community.example.com/",
-      "wss://author-inbox.example.com/",
-      "wss://author-read.example.com/",
-    ])
+    ).toEqual(["wss://community.example.com/"])
+    expect(mocks.getEventRelayHints).not.toHaveBeenCalled()
+  })
+
+  it("returns no relays for community zaps when no scoped hints are supplied", async () => {
+    mocks.authorInboxRelays = ["wss://author-inbox.example.com"]
+    mocks.authorReadRelays = ["wss://author-read.example.com"]
+    mocks.eventRelayHints = ["wss://seen.example.com"]
+    const {getZapRelays} = await import("./zaps")
+    const event = makeEvent({tags: [["h", "community"]]})
+
+    expect(getZapRelays({event: event as any})).toEqual([])
+    expect(mocks.getEventRelayHints).not.toHaveBeenCalled()
   })
 
   it("uses the zapped author's receipt relays for unscoped zaps", async () => {

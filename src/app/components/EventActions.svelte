@@ -59,7 +59,7 @@
   const reactionRelays = $derived.by(() => {
     const scopedRelays = (relays || []).filter(Boolean)
 
-    if (scopedRelays.length > 0) {
+    if (scopeH || scopedRelays.length > 0) {
       return scopedRelays
     }
 

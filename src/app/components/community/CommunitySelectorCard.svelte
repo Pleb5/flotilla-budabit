@@ -11,6 +11,7 @@
     pubkey: string
     relayHints?: string[]
     shareRelayHints?: string[]
+    publishRelayHints?: string[]
     isCurrent?: boolean
     isAdmin?: boolean
     isModerator?: boolean
@@ -24,6 +25,7 @@
     pubkey,
     relayHints = [],
     shareRelayHints = relayHints,
+    publishRelayHints = [],
     isCurrent = false,
     isAdmin = false,
     isModerator = false,
@@ -102,5 +104,6 @@
   <CommunityStarButton
     communityPubkey={pubkey}
     relayHints={profileRelays}
+    {publishRelayHints}
     class="btn btn-square btn-sm shrink-0" />
 </div>

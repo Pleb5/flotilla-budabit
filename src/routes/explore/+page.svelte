@@ -45,6 +45,7 @@
   type SelectorCommunity = {
     pubkey: string
     relayHints: string[]
+    publishRelayHints: string[]
     isCurrent: boolean
     isAdmin: boolean
     isModerator: boolean
@@ -331,6 +332,13 @@
     $pubkey ? selectLatestCommunityDefinition($communityAdminDefinitionEvents, $pubkey) : undefined,
   )
   const hasOwnCommunity = $derived(Boolean(ownCommunityDefinition))
+  const getLoadedCommunityPublishRelays = (communityPubkey: string) =>
+    normalizeRelays(
+      ($activeCommunityDefinition?.pubkey === communityPubkey
+        ? $activeCommunityDefinition
+        : selectLatestCommunityDefinition(communityDefinitionEvents, communityPubkey)
+      )?.relays || [],
+    )
   const currentRelayHints = $derived.by(() => {
     const session = $activeCommunitySession
     if (!session) return []
@@ -361,6 +369,7 @@
           {
             pubkey: session.communityPubkey,
             relayHints: currentRelayHints,
+            publishRelayHints: getLoadedCommunityPublishRelays(session.communityPubkey),
             isCurrent: true,
             isAdmin: Boolean(currentPreference?.isAdmin),
             isModerator: Boolean(currentPreference?.isModerator),
@@ -376,6 +385,7 @@
           ...community.relayHints,
           ...(selectorRelayHints[community.communityPubkey] || []),
         ]),
+        publishRelayHints: getLoadedCommunityPublishRelays(community.communityPubkey),
         isCurrent: false,
         isAdmin: community.isAdmin,
         isModerator: community.isModerator,
@@ -394,6 +404,7 @@
       ...(selectorRelayHints[previewPubkey] || []),
     ])
   })
+  const previewPublishRelayHints = $derived(getLoadedCommunityPublishRelays(previewPubkey))
   const previewOpenInput = $derived(
     previewPubkey
       ? makeCommunityInputValue({pubkey: previewPubkey, relayHints: previewRelayHints}) ||
@@ -441,6 +452,7 @@
         : []),
     ])
   })
+  const defaultPublishRelayHints = $derived(getLoadedCommunityPublishRelays(defaultCommunityPubkey))
   const defaultOpenInput = $derived(
     defaultCommunityPubkey
       ? makeCommunityInputValue({pubkey: defaultCommunityPubkey, relayHints: defaultRelayHints}) ||
@@ -716,6 +728,7 @@
             pubkey={previewPubkey}
             relayHints={previewRelayHints}
             shareRelayHints={selectorRelayHints[previewPubkey] || previewRelayHints}
+            publishRelayHints={previewPublishRelayHints}
             label={previewLabel}
             emptyInfo={previewEmptyInfo}
             onOpen={openPreviewCommunity}
@@ -737,6 +750,7 @@
               pubkey={defaultCommunityPubkey}
               relayHints={defaultRelayHints}
               shareRelayHints={selectorRelayHints[defaultCommunityPubkey] || defaultRelayHints}
+              publishRelayHints={defaultPublishRelayHints}
               label="Brand new? Start here:"
               emptyInfo="Start with the recommended community."
               onOpen={openDefaultCommunity}
@@ -788,6 +802,7 @@
                   pubkey={item.pubkey}
                   relayHints={item.relayHints}
                   shareRelayHints={selectorRelayHints[item.pubkey] || item.relayHints}
+                  publishRelayHints={item.publishRelayHints}
                   isCurrent={item.isCurrent}
                   isAdmin={item.isAdmin}
                   isModerator={item.isModerator}

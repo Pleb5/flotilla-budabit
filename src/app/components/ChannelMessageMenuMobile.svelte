@@ -41,7 +41,9 @@
     communitySectionName = "",
   }: Props = $props()
 
-  const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+  const reactionRelays = $derived.by(() =>
+    (scopeH || relays.length > 0 ? relays : [url]).filter(Boolean),
+  )
 
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {

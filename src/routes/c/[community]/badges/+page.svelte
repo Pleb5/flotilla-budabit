@@ -26,6 +26,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityRelays,
     activeCommunityReportState,
     getCommunityBadgeRelays,
@@ -79,6 +80,7 @@
   const badgeRelays = $derived(
     normalizeRelays(getCommunityBadgeRelays(communityBootstrapReady ? $activeCommunityRelays : [])),
   )
+  const badgePublishRelays = $derived(communityBootstrapReady ? $activeCommunityPublishRelays : [])
   const communityProfileRelays = $derived(communityBootstrapReady ? $activeCommunityRelays : [])
 
   let pageTab = $state<BadgePageTab>("awarded")
@@ -200,9 +202,12 @@
   }
 
   const publishTemplate = async (template: {kind: number; content: string; tags: string[][]}) => {
-    if (badgeRelays.length === 0) throw new Error("No badge relays are available.")
+    if (badgePublishRelays.length === 0) throw new Error("No badge relays are available.")
 
-    const thunk = publishThunk({relays: badgeRelays, event: makeEvent(template.kind, template)})
+    const thunk = publishThunk({
+      relays: badgePublishRelays,
+      event: makeEvent(template.kind, template),
+    })
     await waitForThunkCompletion(thunk)
     if (!hasSuccessfulRelay(thunk)) throw new Error(getPublishError(thunk))
     repository.publish(thunk.event as TrustedEvent)

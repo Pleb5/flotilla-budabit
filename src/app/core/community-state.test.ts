@@ -30,6 +30,7 @@ import {
   activeCommunityProfileListEvents,
   activeCommunityBlossomServers,
   activeUserCommunityBlossomRefs,
+  activeCommunityPublishRelays,
   activeCommunityRelays,
   activeCommunitySession,
   clearActiveCommunity,
@@ -327,10 +328,12 @@ describe("community state helpers", () => {
       "wss://hint.example.com/",
       ...COMMUNITY_DISCOVERY_RELAYS,
     ])
+    expect(get(activeCommunityPublishRelays)).toEqual([])
 
     setActiveCommunityDefinition(definition)
     expect(get(activeCommunityDefinition)?.event.id).toBe("definition-1")
     expect(get(activeCommunityRelays)).toEqual(["wss://relay.example.com/"])
+    expect(get(activeCommunityPublishRelays)).toEqual(["wss://relay.example.com/"])
 
     repository.removeEvent(definition.event.id)
     clearActiveCommunity()
@@ -364,6 +367,7 @@ describe("community state helpers", () => {
 
     setActiveCommunityDefinition(definition)
     expect(get(activeCommunityRelays)).toEqual([])
+    expect(get(activeCommunityPublishRelays)).toEqual([])
 
     repository.removeEvent(definition.event.id)
     clearActiveCommunity()

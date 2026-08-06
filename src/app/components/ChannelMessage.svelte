@@ -41,6 +41,7 @@
     inert?: boolean
     readOnly?: boolean
     interactionRelays?: string[]
+    actionRelays?: string[]
     profileRelays?: string[]
     interactionAuthorPubkeys?: string[]
     scopeH?: string
@@ -59,6 +60,7 @@
     inert = false,
     readOnly = false,
     interactionRelays = [],
+    actionRelays = undefined,
     profileRelays = [],
     interactionAuthorPubkeys = undefined,
     scopeH = "",
@@ -104,6 +106,7 @@
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
   )
+  const actionRelayTargets = $derived(actionRelays ?? relayTargets)
   const profileRelayHints = $derived.by(() =>
     (profileRelays.length > 0 ? profileRelays : relayTargets).filter(Boolean),
   )
@@ -142,7 +145,7 @@
       reply,
       edit,
       readOnly,
-      relays: relayTargets,
+      relays: actionRelayTargets,
       scopeH,
       communitySectionName,
     })
@@ -168,7 +171,7 @@
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({
       url,
-      relays: relayTargets,
+      relays: actionRelayTargets,
       event,
     })
 
@@ -176,7 +179,7 @@
     publishReaction({
       ...template,
       event,
-      relays: relayTargets,
+      relays: actionRelayTargets,
       tags: [...(template.tags || []), ...scopedTags],
     })
 </script>
@@ -282,9 +285,9 @@
         data-stop-link
         data-stop-tap>
         {#if ENABLE_ZAPS}
-          <ChannelMessageZapButton {event} relays={relayTargets} {scopeH} />
+          <ChannelMessageZapButton {event} relays={actionRelayTargets} {scopeH} />
         {/if}
-        <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+        <ChannelMessageEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
             <Icon icon={Reply} size={4} />
@@ -317,10 +320,10 @@
       <div
         class="join rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
         {#if ENABLE_ZAPS && !readOnly}
-          <ChannelMessageZapButton {event} relays={relayTargets} {scopeH} />
+          <ChannelMessageZapButton {event} relays={actionRelayTargets} {scopeH} />
         {/if}
         {#if !readOnly}
-          <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+          <ChannelMessageEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
         {/if}
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply}>
@@ -335,7 +338,7 @@
         <ChannelMessageMenuButton
           {url}
           {event}
-          relays={relayTargets}
+          relays={actionRelayTargets}
           {communitySectionName}
           readOnly={inert || readOnly} />
       </div>

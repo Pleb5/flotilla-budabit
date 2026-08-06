@@ -4,6 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
 import {repository} from "@welshman/app"
+import * as welshmanApp from "@welshman/app"
 import {getWidgetLineId} from "@app/extensions/widget-identity"
 import {
   blossomDashboardState,
@@ -891,6 +892,45 @@ describe("commands", () => {
     })
     expect(reaction.kind).toBe(7)
     expect(reaction.content).toBe("+")
+  })
+
+  it("normalizes scoped social destinations and rejects empty explicit relays", async () => {
+    const publishSpy = vi.spyOn(welshmanApp, "publishThunk").mockReturnValue({
+      event: {id: "published"},
+      complete: Promise.resolve(),
+      results: {},
+    } as any)
+    const {publishComment, publishReaction, publishReport, publishSocialDelete} =
+      await import("./commands")
+    const event = {
+      id: "evt-social",
+      pubkey: "a".repeat(64),
+      kind: 1,
+      created_at: 1,
+      content: "",
+      tags: [["h", "community"]],
+      sig: "",
+    } as any
+
+    try {
+      publishReaction({event, content: "+", relays: ["wss://relay.example.com"]})
+      expect(publishSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({relays: ["wss://relay.example.com/"]}),
+      )
+
+      expect(() => publishComment({event, content: "reply", relays: []})).toThrow(
+        "No valid scoped publish relays",
+      )
+      expect(() =>
+        publishReport({event, content: "", reason: "spam", relays: ["invalid"]}),
+      ).toThrow("No valid scoped publish relays")
+      expect(() => publishSocialDelete({event, url: "wss://fallback.example", relays: []})).toThrow(
+        "No valid scoped publish relays",
+      )
+      expect(publishSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      publishSpy.mockRestore()
+    }
   })
 
   it("makeReaction drops standalone dash tags", async () => {

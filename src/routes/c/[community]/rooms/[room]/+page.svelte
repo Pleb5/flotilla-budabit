@@ -31,6 +31,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     activeCommunitySession,
@@ -335,7 +336,7 @@
       return false
     }
 
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return false
@@ -964,6 +965,7 @@
             url={communityPubkey}
             profileRelays={$activeCommunityRelays}
             interactionRelays={$activeCommunityRelays}
+            actionRelays={$activeCommunityPublishRelays}
             interactionAuthorPubkeys={messageAuthorPubkeys}
             scopeH={communityPubkey}
             communitySectionName={roomMessageSectionName}

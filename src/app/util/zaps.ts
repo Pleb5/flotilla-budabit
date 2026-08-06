@@ -76,22 +76,18 @@ export const getZapRelays = ({
   const scoped = Boolean(getZapScope({event, scopeH}))
   const normalizedRelayHints = normalizeRelayHints(relayHints)
 
+  if (scoped) return normalizedRelayHints
+
   const authorReceiptRelays = getAuthorZapReceiptRelays(event.pubkey)
 
-  if (scoped && normalizedRelayHints.length > 0) {
-    return normalizeRelayHints(normalizedRelayHints, authorReceiptRelays)
-  }
-
-  if (!scoped) {
-    if (authorReceiptRelays.length > 0) {
-      return authorReceiptRelays
-    }
+  if (authorReceiptRelays.length > 0) {
+    return authorReceiptRelays
   }
 
   const eventRelays = getEventRelayHints(event, {
     relays: normalizedRelayHints,
     fallbackRelays,
-    includeAuthorRelays: !scoped,
+    includeAuthorRelays: true,
   })
 
   return eventRelays.length > 0 ? eventRelays : normalizeRelayHints(fallbackRelays)

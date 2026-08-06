@@ -13,11 +13,13 @@
     url?: string
     event: TrustedEvent
     relays?: string[]
+    publishRelays?: string[]
     scopeH?: string
     class?: string
   }
 
-  const {event, relays = [], scopeH = "", ...props}: Props = $props()
+  const {event, relays = [], publishRelays = undefined, scopeH = "", ...props}: Props = $props()
+  const zapRelays = $derived(publishRelays ?? relays)
 
   const zaps = deriveArray(
     deriveItemsByKey<Zap>({
@@ -50,7 +52,7 @@
     </div>
   </div>
   <progress class="progress progress-primary" value={zapAmount} max={goalAmount}></progress>
-  <ZapButton {event} relayHints={relays} {scopeH} class="btn btn-primary lg:m-auto lg:px-20">
+  <ZapButton {event} relayHints={zapRelays} {scopeH} class="btn btn-primary lg:m-auto lg:px-20">
     <Icon icon={Bolt} />
     Contribute to this goal
   </ZapButton>

@@ -30,6 +30,7 @@
     showRoom?: boolean
     showActivity?: boolean
     relays?: string[]
+    publishRelays?: string[]
     scopeH?: string
     communitySectionName?: string
     readOnly?: boolean
@@ -44,6 +45,7 @@
     showRoom,
     showActivity,
     relays = [],
+    publishRelays = undefined,
     scopeH = "",
     communitySectionName = "",
     readOnly = false,
@@ -56,6 +58,7 @@
   const eventRouteParam = getTagValue("d", event.tags) || event.id
   const path = makeCalendarPath(url, eventRouteParam)
   const canExport = $derived(Boolean(makeCalendarEventIcs(event)))
+  const actionRelays = $derived(publishRelays ?? (relays.length > 0 ? relays : url ? [url] : []))
 
   const getEventPageUrl = () => new URL(path, window.location.origin).toString()
 
@@ -77,18 +80,18 @@
     pushModal(CalendarEventEdit, {
       url,
       event,
-      relays,
+      relays: actionRelays,
       redirectPath: redirectOnEdit ? path : undefined,
     })
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishSocialDelete({url, event})
+    publishSocialDelete({url, relays: actionRelays, event})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({
       ...template,
       event,
-      relays: relays.length ? relays : [url],
+      relays: actionRelays,
       tags: [...(template.tags || []), ...(scopeH ? [["h", scopeH]] : [])],
     })
 </script>
@@ -140,7 +143,7 @@
   {/if}
   <EventActions
     {url}
-    {relays}
+    relays={actionRelays}
     {scopeH}
     {communitySectionName}
     {readOnly}

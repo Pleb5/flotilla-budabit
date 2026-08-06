@@ -21,6 +21,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
@@ -64,10 +65,10 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
   )
   const repoAuthorPubkeys = $derived(
@@ -186,7 +187,7 @@
       pushToast({theme: "error", message: repoAccessMessage})
       return
     }
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return

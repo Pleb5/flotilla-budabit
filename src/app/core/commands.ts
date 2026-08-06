@@ -674,18 +674,6 @@ const logDeleteDebug = ({
   })
 }
 
-export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) => {
-  const thunk = publishThunk({event: makeDelete(params), relays})
-
-  logDeleteDebug({
-    deleteEvent: thunk.event as TrustedEvent,
-    targetEvent: params.event,
-    relays,
-  })
-
-  return thunk
-}
-
 const sanitizeDeleteRelays = (relays: string[]) =>
   uniq(
     (relays || [])
@@ -698,6 +686,29 @@ const sanitizeDeleteRelays = (relays: string[]) =>
       })
       .filter(isRelayUrl),
   )
+
+const requireScopedPublishRelays = (relays: string[]) => {
+  const normalizedRelays = sanitizeDeleteRelays(relays)
+
+  if (normalizedRelays.length === 0) {
+    throw new Error("No valid scoped publish relays were provided.")
+  }
+
+  return normalizedRelays
+}
+
+export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) => {
+  const publishRelays = requireScopedPublishRelays(relays)
+  const thunk = publishThunk({event: makeDelete(params), relays: publishRelays})
+
+  logDeleteDebug({
+    deleteEvent: thunk.event as TrustedEvent,
+    targetEvent: params.event,
+    relays: publishRelays,
+  })
+
+  return thunk
+}
 
 export const getDeleteRelaysForSocialEvent = ({
   url,
@@ -726,8 +737,8 @@ export const publishSocialDelete = ({
   publishDelete({
     ...params,
     relays:
-      relays && relays.length > 0
-        ? sanitizeDeleteRelays(relays)
+      relays !== undefined
+        ? requireScopedPublishRelays(relays)
         : getDeleteRelaysForSocialEvent({url, event: params.event}),
   })
 
@@ -754,7 +765,10 @@ export const publishReport = ({
   reason,
   content,
 }: ReportParams & {relays: string[]}) =>
-  publishThunk({event: makeReport({event, reason, content}), relays})
+  publishThunk({
+    event: makeReport({event, reason, content}),
+    relays: requireScopedPublishRelays(relays),
+  })
 
 // Reactions
 
@@ -776,7 +790,7 @@ export const makeReaction = ({content, event, tags: paramTags = []}: ReactionPar
 }
 
 export const publishReaction = ({relays, ...params}: ReactionParams & {relays: string[]}) =>
-  publishThunk({event: makeReaction(params), relays})
+  publishThunk({event: makeReaction(params), relays: requireScopedPublishRelays(relays)})
 
 // Comments
 
@@ -790,7 +804,7 @@ export const makeComment = ({event, content, tags = []}: CommentParams) =>
   makeEvent(COMMENT, {content, tags: [...sanitizePublishTags(tags), ...tagEventForComment(event)]})
 
 export const publishComment = ({relays, ...params}: CommentParams & {relays: string[]}) =>
-  publishThunk({event: makeComment(params), relays})
+  publishThunk({event: makeComment(params), relays: requireScopedPublishRelays(relays)})
 
 // Settings
 

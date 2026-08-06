@@ -25,8 +25,8 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
-    activeCommunityRelays,
     getUserOutboxRelays,
   } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND, normalizeRelays} from "@app/core/community"
@@ -79,14 +79,14 @@
   const canCreateEvent = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityCalendarTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          reportState: $activeCommunityReportState,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityCalendarTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        reportState: $activeCommunityReportState,
+      }),
     ),
   )
 
@@ -154,7 +154,7 @@
     if (currentEventKind === EVENT_DATE && !dateRange) return
     if (currentEventKind === EVENT_TIME && !timeRange) return
 
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
@@ -268,22 +268,22 @@
         {/snippet}
       </Field>
     {:else}
-    <Field>
-      {#snippet label()}
-        <p>Start</p>
-      {/snippet}
-      {#snippet input()}
-        <DateTimeInput bind:value={start} />
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>End</p>
-      {/snippet}
-      {#snippet input()}
-        <DateTimeInput bind:value={end} />
-      {/snippet}
-    </Field>
+      <Field>
+        {#snippet label()}
+          <p>Start</p>
+        {/snippet}
+        {#snippet input()}
+          <DateTimeInput bind:value={start} />
+        {/snippet}
+      </Field>
+      <Field>
+        {#snippet label()}
+          <p>End</p>
+        {/snippet}
+        {#snippet input()}
+          <DateTimeInput bind:value={end} />
+        {/snippet}
+      </Field>
     {/if}
     <Field>
       {#snippet label()}

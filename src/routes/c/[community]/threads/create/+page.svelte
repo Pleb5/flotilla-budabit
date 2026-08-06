@@ -17,8 +17,8 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
-    activeCommunityRelays,
   } from "@app/core/community-state"
   import {makeCommunityThread} from "@app/core/community-threads"
   import {
@@ -74,7 +74,7 @@
       return
     }
 
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return

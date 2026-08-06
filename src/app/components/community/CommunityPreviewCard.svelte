@@ -20,6 +20,7 @@
     pubkey: string
     relayHints?: string[]
     shareRelayHints?: string[]
+    publishRelayHints?: string[]
     label: string
     emptyInfo: string
     onOpen: () => void
@@ -44,6 +45,7 @@
     pubkey,
     relayHints = [],
     shareRelayHints = relayHints,
+    publishRelayHints = [],
     label,
     emptyInfo,
     onOpen,
@@ -196,6 +198,7 @@
       <CommunityStarButton
         communityPubkey={pubkey}
         relayHints={profileRelays}
+        {publishRelayHints}
         class="btn btn-square btn-sm shrink-0 self-center" />
     {/if}
   </div>

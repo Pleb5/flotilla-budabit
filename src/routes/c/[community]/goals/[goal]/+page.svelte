@@ -36,6 +36,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     hydrateCommunityEventsWithStatus,
@@ -271,7 +272,7 @@
       pushToast({theme: "error", message: commentAccessMessage})
       return false
     }
-    if ($activeCommunityRelays.length === 0) {
+    if ($activeCommunityPublishRelays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return false
     }
@@ -281,7 +282,7 @@
         event: eventToEdit,
         content: trimmed,
         tags,
-        relays: $activeCommunityRelays,
+        relays: $activeCommunityPublishRelays,
         url: communityPubkey,
       })
       eventToEdit = undefined
@@ -290,7 +291,7 @@
     }
 
     publishComment({
-      relays: $activeCommunityRelays,
+      relays: $activeCommunityPublishRelays,
       event: approvedGoal,
       content: trimmed,
       tags: [["h", communityPubkey], ...tags],
@@ -486,6 +487,7 @@
               event={approvedGoal}
               url={communityPubkey}
               relays={$activeCommunityRelays}
+              publishRelays={$activeCommunityPublishRelays}
               scopeH={communityPubkey} />
             <div class="flex w-full justify-end">
               <GoalActions
@@ -493,6 +495,7 @@
                 event={approvedGoal}
                 url={communityPubkey}
                 relays={$activeCommunityRelays}
+                publishRelays={$activeCommunityPublishRelays}
                 scopeH={communityPubkey}
                 communitySectionName={goalSectionName}
                 allowedAuthors={interactionAuthorPubkeys}
@@ -534,6 +537,7 @@
                 showPubkey
                 readOnly={!canReact}
                 interactionRelays={$activeCommunityRelays}
+                actionRelays={$activeCommunityPublishRelays}
                 profileRelays={$activeCommunityRelays}
                 {interactionAuthorPubkeys}
                 scopeH={communityPubkey}

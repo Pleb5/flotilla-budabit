@@ -10,6 +10,7 @@
     getCommunityStarRelays,
     hydrateCommunityStars,
   } from "@app/core/community-state"
+  import {normalizeRelays} from "@app/core/community"
   import {makeCommunityDefinitionAddress} from "@app/core/community-forms"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
@@ -18,17 +19,22 @@
   type Props = {
     communityPubkey: string
     relayHints?: string[]
+    publishRelayHints?: string[]
     class?: string
   }
 
   const {
     communityPubkey,
     relayHints = [],
+    publishRelayHints = undefined,
     class: className = "btn btn-square btn-sm",
   }: Props = $props()
 
   let toggling = $state(false)
   const relays = $derived(getCommunityStarRelays(relayHints))
+  const publishRelays = $derived(
+    publishRelayHints === undefined ? relays : normalizeRelays(publishRelayHints),
+  )
   const star = $derived($activeCommunityStarByCommunity.get(communityPubkey))
 
   const toggleStar = () => {
@@ -36,7 +42,7 @@
       pushModal(LogIn)
       return
     }
-    if (!communityPubkey || relays.length === 0) {
+    if (!communityPubkey || publishRelays.length === 0) {
       pushToast({theme: "error", message: "No relays available for updating this star."})
       return
     }
@@ -45,12 +51,15 @@
 
     try {
       if (star) {
-        const thunk = publishDelete({event: star.reaction, relays})
+        const thunk = publishDelete({event: star.reaction, relays: publishRelays})
         if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
         pushToast({message: "Community unstarred."})
       } else {
-        const event = makeCommunityStarReaction({communityPubkey, relayHints})
-        const thunk = publishThunk({event, relays})
+        const event = makeCommunityStarReaction({
+          communityPubkey,
+          relayHints: publishRelayHints ?? relayHints,
+        })
+        const thunk = publishThunk({event, relays: publishRelays})
         if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
         pushToast({message: "Community starred."})
       }

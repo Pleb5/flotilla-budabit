@@ -42,7 +42,9 @@
     communitySectionName = "",
   }: Props = $props()
 
-  const actionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+  const actionRelays = $derived.by(() =>
+    (scopeH || relays.length > 0 ? relays : [url]).filter(Boolean),
+  )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
       return [] as string[][]

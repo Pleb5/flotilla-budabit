@@ -19,6 +19,7 @@
     url: string
     event: TrustedEvent
     relays?: string[]
+    publishRelays?: string[]
     scopeH?: string
     communitySectionName?: string
     readOnly?: boolean
@@ -31,6 +32,7 @@
     url,
     event,
     relays = [],
+    publishRelays = undefined,
     scopeH = "",
     communitySectionName = "",
     readOnly = false,
@@ -69,7 +71,7 @@
         expandMode="inline"
         minLength={50}
         maxLength={300} />
-      <GoalSummary {url} {event} {relays} {scopeH} />
+      <GoalSummary {url} {event} {relays} {publishRelays} {scopeH} />
       <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
         <span class="whitespace-nowrap py-1 text-sm opacity-75">
           Posted by <ProfileLink pubkey={event.pubkey} {relays} />
@@ -81,6 +83,7 @@
           showActivity
           {url}
           {relays}
+          {publishRelays}
           {scopeH}
           {communitySectionName}
           {readOnly}

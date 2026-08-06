@@ -22,6 +22,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
@@ -500,6 +501,7 @@
       <CalendarEventItem
         url={communityPubkey}
         relays={$activeCommunityRelays}
+        publishRelays={$activeCommunityPublishRelays}
         scopeH={communityPubkey}
         activityLiveCovered
         communitySectionName={getCalendarEventSectionName(event.kind)}

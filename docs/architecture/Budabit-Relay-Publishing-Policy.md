@@ -13,6 +13,8 @@ This document defines where Budabit should publish events. It separates personal
 | Do not use repo relays for profiles | Repository relays are not profile storage relays unless they are also indexer, user outbox, or relevant community relays. | Repo infrastructure should not be treated as identity infrastructure. |
 | Do not treat event provenance as author routing | `tracker.getRelays(eventId)` identifies relays where that exact event was seen. It is not the author's outbox relay list. | Prevents fetching or publishing profile data to unrelated event-source relays. |
 | Prefer narrow scoped publication | Community-scoped events go to the scoped community relays, not every active community. Repo-scoped events go to repo relays, not every active community. | Limits data leakage and keeps relay load bounded. |
+| Community writes require a definition | Community-bound writes use only normalized relays declared by the loaded community definition. Route hints, discovery relays, event provenance, and runtime widget hints are never write fallbacks. | Bootstrap destinations are discovery inputs, not community publication authority. |
+| Empty scoped destinations fail closed | A scoped publish or explicit scoped delete with no valid relay must fail before creating a publish thunk. | Prevents router, tracker, URL, or library defaults from silently widening publication. |
 
 ## Relay Sets
 
@@ -74,24 +76,31 @@ One signed profile replacement is sent concurrently to the selected indexer, cur
 
 Community-bound events are scoped to one community or a small explicit set of communities. They should use scoped community relays, not all active community relays.
 
+`activeCommunityRelays` remains bootstrap-capable and is used for loading and live reads. `activeCommunityPublishRelays` is definition-only and is the route/component source for community-bound writes. If the active definition is unavailable or declares no valid relays, publication is unavailable even when route hints or discovery relays were sufficient to load cached community state.
+
 | Event | Kind | Publish relays | Why |
 |---|---:|---|---|
 | Community definition | `10222` | The community's configured relays, plus explicit setup/admin targets. | The definition establishes the relay set and should be discoverable at its own relays. |
-| Section profile list | `30000` | Scoped community relays and explicit authority relay hints. | Profile lists are access-control state for the community. |
+| Section profile list | `30000` | Scoped community relays. | Profile lists are access-control state for the community. |
 | Admission form template | `30168` | Scoped community relays. | Forms are community moderation workflow state. |
 | Admission form response | `1069` | Scoped community relays for the selected community. | Applicant state belongs to the community reviewing it. |
 | Admission review reaction | `7` | Scoped community relays. | Review decisions must be close to the response and profile-list state. |
 | Community report/person ban | `1984` | Scoped community relays. | Moderation evidence is contextual and should not become global gossip. |
 | Report review label | `1985` | Scoped community relays. | Review labels are moderation workflow state. |
-| Community badge definition | `30009` | Scoped community relays and explicit issuer relays when needed. | Badge definitions are community endorsement infrastructure. |
-| Community badge award | `8` | Scoped community relays and explicit badge issuer/recipient targets when needed. | Awards should be discoverable in community profile views. |
+| Community badge definition | `30009` | Scoped community relays. | Badge definitions are community endorsement infrastructure. |
+| Community badge award | `8` | Scoped community relays. | Awards should remain in the community context. |
 | Room root | `11` | Scoped community relays. | Room identity is community-local. |
 | Room message/reply | `9` | Scoped community relays. | Chat content belongs to the selected community room. |
 | Thread root | `11` | Scoped community relays. | Thread identity is community-local. |
-| Thread reply/comment | `1111` | Scoped community relays and event reply hints where applicable. | Replies should stay close to the community thread. |
-| Community star/reaction | `7` | Scoped community relays, user outbox, indexers where current community-star helpers require discovery. | Community preference discovery benefits from both scoped and user-owned locations. |
+| Thread reply/comment | `1111` | Scoped community relays. | Replies should stay with the community thread. |
+| Community star/reaction | `7` | Scoped community relays. | Community preference events should not leak to unrelated relays. |
+| Community widget and targeting association | `30033` / `30222` | Explicit target community relays. | Widget content and its community association remain within the selected communities. |
 
-If an event targets multiple communities explicitly, publish to the union of those communities' relays. Do not add unrelated active communities.
+If an event targets multiple communities explicitly, publish to the union of those communities' relays. Do not add unrelated active communities. Every selected target must have accepted definition relays or publication fails closed.
+
+Community-scoped zaps follow the same destination boundary. When an explicit `scopeH` or the target event's `h` tag establishes community scope, the zap request relay tag contains only normalized relay hints supplied by the scoped caller. Author inboxes, author read relays, event provenance, and generic fallback relays are not added; missing scoped hints produce an empty relay set.
+
+Dedicated extension community publish capabilities derive destinations from `definition.relays` and fail when that set is empty. Generic `nostr:publish` rejects `h`-tagged events, verifies externally signed events before handing them to optimistic publication, and reports failure unless at least one requested relay accepts the event.
 
 ## Repository Publication
 
@@ -111,7 +120,7 @@ Repository-related publishing is mostly repo-relay scoped. The exception is repo
 | Role label | `1985` | Repo relays. | Assignee/reviewer state is repo-scoped. |
 | Repo delete/moderation marker | `5` or relevant marker kind | Same relays as the event being deleted or moderated. | Delete visibility should match original event visibility. |
 | Git permalink | `1623` | Repo relays, and scoped community relays when explicitly community-targeted. | Permalinks are repo-scoped, with optional explicit community targeting. |
-| Targeted publication association | `30222` | Scoped target community relays and the publication's normal relays. | Association belongs to the community being targeted. |
+| Targeted publication association | `30222` | Scoped target community relays. | The association belongs to the explicitly targeted community. |
 
 For h-tagged community repo announcements, the community relay set must come from the h-tagged community definition. Do not use all active community relays for repo announcements unless all of those communities are explicitly targeted.
 

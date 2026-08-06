@@ -13,7 +13,7 @@
     noun?: string
   }
 
-  const {url, relays = [], event, noun = "Message"}: Props = $props()
+  const {url, relays = undefined, event, noun = "Message"}: Props = $props()
 
   const waitForDeletePublish = async (
     thunk: {complete?: Promise<unknown>} | undefined,
@@ -53,7 +53,7 @@
       current: noun.toLowerCase(),
     })
 
-    const thunk = publishSocialDelete({url, relays, event})
+    const thunk = publishSocialDelete({url, ...(relays !== undefined ? {relays} : {}), event})
     await waitForDeletePublish(thunk, signal)
 
     return thunk

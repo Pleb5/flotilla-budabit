@@ -10,8 +10,15 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {pushToast} from "@app/util/toast"
   import {publishReport} from "@app/core/commands"
+  import {normalizeRelays} from "@app/core/community"
+  import type {TrustedEvent} from "@welshman/util"
 
-  const {url, event} = $props()
+  type Props = {
+    event: TrustedEvent
+    relays?: string[]
+  }
+
+  const {event, relays = []}: Props = $props()
 
   const back = () => history.back()
 
@@ -23,14 +30,30 @@
       })
     }
 
+    const publishRelays = normalizeRelays(relays)
+    if (publishRelays.length === 0) {
+      return pushToast({theme: "error", message: "No report relays are available."})
+    }
+
     loading = true
 
-    await publishReport({event, reason: reason.toLowerCase(), content, relays: [url]})
-
-    loading = false
-    history.back()
-
-    return pushToast({message: "Your report has been sent!"})
+    try {
+      publishReport({
+        event,
+        reason: reason.toLowerCase(),
+        content,
+        relays: publishRelays,
+      })
+      history.back()
+      return pushToast({message: "Your report has been sent!"})
+    } catch (error) {
+      return pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to send this report.",
+      })
+    } finally {
+      loading = false
+    }
   }
 
   let reason = $state("")

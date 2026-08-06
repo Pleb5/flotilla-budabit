@@ -409,6 +409,11 @@ export const activeCommunityRelays: Readable<string[]> = derived(
       : getCommunityBootstrapRelays($activeCommunityRelayHints),
 )
 
+export const activeCommunityPublishRelays: Readable<string[]> = derived(
+  activeCommunityDefinition,
+  definition => normalizeRelays(definition?.relays || []),
+)
+
 const normalizeCommunityBlossomServer = (server?: string) => {
   const value = server?.trim()
   if (!value || !/^https?:\/\//i.test(value)) return ""

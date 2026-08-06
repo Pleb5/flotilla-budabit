@@ -44,6 +44,7 @@
     onClick,
     customActions,
     relays = [],
+    scopeH = "",
     communitySectionName = "",
     ownerPubkey = "",
     showReport = true,
@@ -52,14 +53,23 @@
 
   const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
-  const report = () => pushModal(Report, {url, event})
+  const report = () => pushModal(Report, {url, event, relays})
 
   const publishHideSpam = () => {
-    const reportRelays = relays.length > 0 ? relays : url ? [url] : []
+    const reportRelays =
+      scopeH || communitySectionName ? relays : relays.length > 0 ? relays : url ? [url] : []
     if (reportRelays.length === 0) return
-    publishReport({event, reason: "spam", content: "", relays: reportRelays})
-    pushToast({message: `${noun} hidden from BudaBit users.`})
-    history.back()
+
+    try {
+      publishReport({event, reason: "spam", content: "", relays: reportRelays})
+      pushToast({message: `${noun} hidden from BudaBit users.`})
+      history.back()
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : `Failed to hide this ${noun}.`,
+      })
+    }
   }
 
   const hideSpam = () => {
@@ -88,7 +98,7 @@
       pushModal(PullRequestDeleteConfirm, {event, relays: deleteRelays})
       return
     }
-    pushModal(EventDeleteConfirm, {url, event, noun})
+    pushModal(EventDeleteConfirm, {url, event, noun, relays})
   }
 
   let ul: Element

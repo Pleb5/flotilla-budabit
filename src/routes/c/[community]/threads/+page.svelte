@@ -17,6 +17,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
@@ -312,6 +313,7 @@
       <ThreadItem
         url={communityPubkey}
         relays={$activeCommunityRelays}
+        publishRelays={$activeCommunityPublishRelays}
         scopeH={communityPubkey}
         activityLiveCovered
         communitySectionName={threadSectionName}

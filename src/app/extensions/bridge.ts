@@ -1,6 +1,7 @@
 import {pubkey as activeUserPubkey, publishThunk, repository, signer} from "@welshman/app"
 import {goto} from "$app/navigation"
 import {PublishStatus, load} from "@welshman/net"
+import {verifyEvent} from "nostr-tools/pure"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
 import {
@@ -9,6 +10,7 @@ import {
   activeCommunityProfileListEvents,
   activeCommunityRelayHints,
   activeCommunityRelays,
+  activeCommunityPublishRelays,
   activeCommunityReportState,
   authenticateCommunityRelays,
   getCommunityBootstrapRelays,
@@ -18,6 +20,7 @@ import {
   type CommunityRelayLoadResult,
 } from "@app/core/community-state"
 import {
+  TARGETED_PUBLICATION_KIND,
   PROFILE_LIST_KIND,
   normalizePubkey,
   normalizeRelays,
@@ -274,8 +277,19 @@ const parseNostrPublishPayload = (payload: any): {event: any; relays?: string[]}
   return {event: payload}
 }
 
+const verifyExternallySignedEvent = (event: any) =>
+  verifyEvent({
+    id: event.id,
+    pubkey: event.pubkey,
+    created_at: event.created_at,
+    kind: event.kind,
+    tags: event.tags,
+    content: event.content,
+    sig: event.sig,
+  })
+
 const authenticatePublishCommunityRelays = async (relays: string[] = []) => {
-  const activeRelaySet = new Set(normalizeRelayUrls(get(activeCommunityRelays)))
+  const activeRelaySet = new Set(normalizeRelayUrls(get(activeCommunityPublishRelays)))
   const communityRelays = relays.filter(relay => activeRelaySet.has(relay))
 
   if (communityRelays.length === 0) return
@@ -524,6 +538,14 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:publish from ${ext.id}`, payload)
   try {
     const {event, relays} = parseNostrPublishPayload(payload)
+    if (!relays?.length) throw new Error("No valid publish relays provided")
+    if (
+      event?.kind === TARGETED_PUBLICATION_KIND ||
+      (Array.isArray(event?.tags) &&
+        event.tags.some((tag: unknown) => Array.isArray(tag) && tag[0] === "h"))
+    ) {
+      throw new Error("Community-scoped events must use a dedicated community publish capability")
+    }
     await authenticatePublishCommunityRelays(relays)
     const hasIdAndSig =
       event &&
@@ -533,7 +555,11 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
 
     console.log(`[bridge] nostr:publish event hasIdAndSig=${hasIdAndSig}, relays=${relays?.length}`)
 
-    if (relays && relays.length > 0 && hasIdAndSig) {
+    if (hasIdAndSig && !verifyExternallySignedEvent(event)) {
+      throw new Error("Externally signed event failed cryptographic verification")
+    }
+
+    if (hasIdAndSig) {
       console.log(`[bridge] nostr:publish using publishThunk for signed event`)
       // For already-signed events, still use publishThunk which handles relay connections
       const thunk = (publishThunk as any)({event, relays})
@@ -551,6 +577,8 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
         reason: r?.detail || r?.message,
       }))
       console.log(`[bridge] nostr:publish completed:`, sanitizedResult)
+      if (successCount === 0) throw new Error("Event was not accepted by any relay")
+
       return {
         status: "ok",
         result: {
@@ -563,51 +591,22 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
       }
     }
 
-    // Event needs signing - use publishThunk
     console.log(
       `[bridge] nostr:publish using publishThunk to sign and publish, event:`,
       JSON.stringify(event),
     )
-    if (relays && relays.length > 0) {
-      try {
-        const thunk = (publishThunk as any)({event, relays})
-        await thunk.complete
-        // Log publish results to debug - use PublishStatus enum
-        const results = thunk.results || {}
-        const successCount = Object.values(results).filter(
-          (r: any) => r?.status === PublishStatus.Success,
-        ).length
-        // Log detailed results for each relay
-        for (const [relay, result] of Object.entries(results)) {
-          const r = result as any
-          console.log(
-            `[bridge] nostr:publish relay ${relay}: status=${r?.status}, message=${r?.message || r?.detail || "none"}`,
-          )
-        }
-        console.log(
-          `[bridge] nostr:publish publishThunk completed: ${successCount}/${relays.length} relays accepted`,
-        )
-        // Return immediately - client should handle retry logic
-        const signedEventId = thunk.event?.id || null
-        return {
-          status: "ok",
-          result: {published: true, relays: [...relays], successCount, eventId: signedEventId},
-        }
-      } catch (e: any) {
-        console.error(`[bridge] nostr:publish publishThunk with relays failed:`, e)
-        // Fallback to legacy behavior below.
-      }
-    }
-
-    const thunk = publishThunk({event, relays: relays ?? []})
+    const thunk = (publishThunk as any)({event, relays})
     await thunk.complete
-    console.log(
-      `[bridge] nostr:publish publishThunk completed (no relays), waiting for relay indexing`,
-    )
-    // Give relays time to index the event before returning
-    await new Promise(r => setTimeout(r, 500))
+    const successCount = Object.values(thunk.results || {}).filter(
+      (result: any) => result?.status === PublishStatus.Success,
+    ).length
+    if (successCount === 0) throw new Error("Event was not accepted by any relay")
+
     const signedEventId = thunk.event?.id || null
-    return {status: "ok", result: {published: true, eventId: signedEventId}}
+    return {
+      status: "ok",
+      result: {published: true, relays: [...relays], successCount, eventId: signedEventId},
+    }
   } catch (err: any) {
     console.error("Error in nostr:publish bridge handler:", err)
     return {error: err.message}
@@ -1112,7 +1111,18 @@ const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
           relayHints,
         })
 
-    return {definition, profileListEvents, reportState, relays, relayHints, userPubkey, ...runtime}
+    const publishRelays = normalizeRelays(definition.relays)
+
+    return {
+      definition,
+      profileListEvents,
+      reportState,
+      relays,
+      relayHints,
+      publishRelays,
+      userPubkey,
+      ...runtime,
+    }
   }
 
   const definition = get(activeCommunityDefinition)
@@ -1154,7 +1164,18 @@ const getCommunityRequestSnapshot = (ext: LoadedExtension) => {
     relayHints,
   })
 
-  return {definition, profileListEvents, reportState, relays, relayHints, userPubkey, ...runtime}
+  const publishRelays = normalizeRelays(definition.relays)
+
+  return {
+    definition,
+    profileListEvents,
+    reportState,
+    relays,
+    relayHints,
+    publishRelays,
+    userPubkey,
+    ...runtime,
+  }
 }
 
 const loadBridgeEvents = async ({
@@ -1728,6 +1749,12 @@ registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
     const snapshot = await getHydratedCommunityRequestSnapshot(ext)
     const normalizedUser = normalizePubkey(snapshot.userPubkey)
 
+    if (snapshot.publishRelays.length === 0) {
+      throw makeCommunityContextNotReadyError(
+        "Community definition must declare relays before publishing",
+      )
+    }
+
     if (!normalizedUser) {
       throw Object.assign(new Error("Login required to publish shared community config"), {
         code: "LOGIN_REQUIRED",
@@ -1771,8 +1798,10 @@ registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
         ),
       ],
     }
-    await authenticatePublishCommunityRelays(snapshot.relays)
-    const thunk = (publishThunk as any)({event, relays: snapshot.relays})
+    await authenticateCommunityRelays(snapshot.publishRelays, {
+      priorityRelays: snapshot.relayHints,
+    })
+    const thunk = (publishThunk as any)({event, relays: snapshot.publishRelays})
     await thunk.complete
     const successCount = Object.values(thunk.results || {}).filter(
       (result: any) => result?.status === PublishStatus.Success,
@@ -1784,7 +1813,7 @@ registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
     return {
       status: "ok",
       eventId: thunk.event?.id,
-      relays: snapshot.relays,
+      relays: snapshot.publishRelays,
       successCount,
       contextSessionId: snapshot.contextSessionId,
       contextVersion: snapshot.contextVersion,

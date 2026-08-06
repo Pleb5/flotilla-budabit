@@ -41,6 +41,7 @@
     activeCommunityDefinition,
     activeCommunityPermissionStatus,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
     hydrateCommunityEventsWithStatus,
@@ -365,7 +366,7 @@
       pushToast({theme: "error", message: commentAccessMessage})
       return false
     }
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return false
@@ -606,6 +607,7 @@
           <CalendarEventActions
             url={communityPubkey}
             relays={$activeCommunityRelays}
+            publishRelays={$activeCommunityPublishRelays}
             scopeH={communityPubkey}
             communitySectionName={approvedEventSectionName}
             allowedAuthors={interactionAuthorPubkeys}
@@ -639,6 +641,7 @@
               showPubkey
               readOnly={!canReact}
               interactionRelays={$activeCommunityRelays}
+              actionRelays={$activeCommunityPublishRelays}
               profileRelays={$activeCommunityRelays}
               {interactionAuthorPubkeys}
               scopeH={communityPubkey}

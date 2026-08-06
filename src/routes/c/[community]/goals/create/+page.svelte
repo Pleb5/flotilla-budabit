@@ -19,8 +19,8 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityPublishRelays,
     activeCommunityReportState,
-    activeCommunityRelays,
     getUserOutboxRelays,
   } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND, normalizeRelays} from "@app/core/community"
@@ -81,7 +81,7 @@
       return
     }
 
-    const relays = $activeCommunityRelays
+    const relays = $activeCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
