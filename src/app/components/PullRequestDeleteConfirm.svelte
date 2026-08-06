@@ -7,9 +7,10 @@
   type Props = {
     event: TrustedEvent
     relays?: string[]
+    repoAddress?: string
   }
 
-  const {event, relays = []}: Props = $props()
+  const {event, relays = [], repoAddress = ""}: Props = $props()
 
   const noun = "pull request"
   const title = "Delete Pull Request"
@@ -20,7 +21,14 @@
   }: {
     signal: AbortSignal
     onProgress: (progress: any) => void
-  }) => deletePullRequestWithRelated({root: event, relays, signal, onProgress})
+  }) =>
+    deletePullRequestWithRelated({
+      root: event,
+      relays,
+      repoAddress: repoAddress || undefined,
+      signal,
+      onProgress,
+    })
 
   const onSuccess = (result: unknown) => {
     const {deletedEvents = 0} = (result || {}) as {deletedEvents?: number}

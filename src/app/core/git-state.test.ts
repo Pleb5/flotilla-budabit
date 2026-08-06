@@ -247,8 +247,16 @@ describe("budabit state", () => {
           repoRelays: ["wss://repo.example"],
           communityPubkeys: [communityPubkey],
           communityRefs: [
-            {communityPubkey, relayHints: ["wss://community.example"]},
-            {communityPubkey: unrelatedCommunityPubkey, relayHints: ["wss://unrelated.example"]},
+            {
+              communityPubkey,
+              relayHints: ["wss://route-hint.example"],
+              definition: {relays: ["wss://community.example"]},
+            },
+            {
+              communityPubkey: unrelatedCommunityPubkey,
+              relayHints: ["wss://unrelated.example"],
+              definition: {relays: ["wss://unrelated.example"]},
+            },
           ],
           gitIndexerRelays: ["wss://git.example"],
           userOutboxRelays: ["wss://outbox.example"],
@@ -271,8 +279,16 @@ describe("budabit state", () => {
         getRepoAnnouncementPublishRelays({
           repoEvent: {tags: [["h", communityPubkey]]},
           communityRefs: [
-            {communityPubkey, relayHints: ["wss://community.example"]},
-            {communityPubkey: unrelatedCommunityPubkey, relayHints: ["wss://unrelated.example"]},
+            {
+              communityPubkey,
+              relayHints: ["wss://route-hint.example"],
+              definition: {relays: ["wss://community.example"]},
+            },
+            {
+              communityPubkey: unrelatedCommunityPubkey,
+              relayHints: ["wss://unrelated.example"],
+              definition: {relays: ["wss://unrelated.example"]},
+            },
           ],
           gitIndexerRelays: ["wss://git.example"],
           userOutboxRelays: ["wss://outbox.example"],

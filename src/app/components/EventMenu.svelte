@@ -30,6 +30,7 @@
     onClick: () => void
     customActions?: Snippet
     relays?: string[]
+    repoAddress?: string
     scopeH?: string
     communitySectionName?: string
     ownerPubkey?: string
@@ -44,6 +45,7 @@
     onClick,
     customActions,
     relays = [],
+    repoAddress = "",
     scopeH = "",
     communitySectionName = "",
     ownerPubkey = "",
@@ -53,15 +55,27 @@
 
   const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
-  const report = () => pushModal(Report, {url, event, relays})
+  const report = () => pushModal(Report, {url, event, relays, repoAddress})
 
   const publishHideSpam = () => {
     const reportRelays =
-      scopeH || communitySectionName ? relays : relays.length > 0 ? relays : url ? [url] : []
+      scopeH || communitySectionName || repoAddress
+        ? relays
+        : relays.length > 0
+          ? relays
+          : url
+            ? [url]
+            : []
     if (reportRelays.length === 0) return
 
     try {
-      publishReport({event, reason: "spam", content: "", relays: reportRelays})
+      publishReport({
+        event,
+        reason: "spam",
+        content: "",
+        relays: reportRelays,
+        repoAddress: repoAddress || undefined,
+      })
       pushToast({message: `${noun} hidden from BudaBit users.`})
       history.back()
     } catch (error) {
@@ -89,16 +103,16 @@
 
   const showDelete = () => {
     if (event.kind === 1621) {
-      const deleteRelays = relays.length > 0 ? relays : url ? [url] : []
-      pushModal(IssueDeleteConfirm, {event, relays: deleteRelays})
+      const deleteRelays = repoAddress ? relays : relays.length > 0 ? relays : url ? [url] : []
+      pushModal(IssueDeleteConfirm, {event, relays: deleteRelays, repoAddress})
       return
     }
     if (event.kind === GIT_PULL_REQUEST) {
-      const deleteRelays = relays.length > 0 ? relays : url ? [url] : []
-      pushModal(PullRequestDeleteConfirm, {event, relays: deleteRelays})
+      const deleteRelays = repoAddress ? relays : relays.length > 0 ? relays : url ? [url] : []
+      pushModal(PullRequestDeleteConfirm, {event, relays: deleteRelays, repoAddress})
       return
     }
-    pushModal(EventDeleteConfirm, {url, event, noun, relays})
+    pushModal(EventDeleteConfirm, {url, event, noun, relays, repoAddress})
   }
 
   let ul: Element

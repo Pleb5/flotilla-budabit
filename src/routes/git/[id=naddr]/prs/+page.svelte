@@ -659,27 +659,17 @@
   }
 
   const onPRCreated = async (prEvent: PullRequestEvent) => {
-    const relaysToUse = repoRelays.length ? repoRelays : repoClass.relays
-    if (!relaysToUse || relaysToUse.length === 0) {
-      toast.push({
-        message: "No relays available to publish pull request.",
-        variant: "destructive",
-      })
-      return
-    }
+    const relaysToUse = repoRelays
 
     const evt = repoClass.repoEvent
     if (!evt) {
-      toast.push({
-        message: "No repository event found to publish pull request.",
-        variant: "destructive",
-      })
-      return
+      throw new Error("Repository announcement is unavailable. Reload and try again.")
     }
+    if (!repoAddress) throw new Error("Repository address is unavailable. Reload and try again.")
 
     const maintainers = Array.from(new Set([...repoMaintainers, evt.pubkey].filter(Boolean)))
     const prEventWithRecipients = withPullRequestRepoContext(prEvent, maintainers, repoAddress)
-    const publishedPR = publishEvent(prEventWithRecipients, relaysToUse)
+    const publishedPR = publishEvent(prEventWithRecipients, relaysToUse, repoAddress)
     const rootId = publishedPR.event.id
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
@@ -691,7 +681,7 @@
       repoAddr: repoClass.address,
       relays: relaysToUse,
     })
-    publishEvent(statusEvent as any, relaysToUse)
+    publishEvent(statusEvent as any, relaysToUse, repoAddress)
     pushToast({message: "Pull request created"})
   }
 

@@ -25,6 +25,8 @@
     relays?: string[]
     scopeH?: string
     zapScopeH?: string
+    strictZapRelays?: boolean
+    repoAddress?: string
     communitySectionName?: string
     ownerPubkey?: string
     readOnly?: boolean
@@ -45,6 +47,8 @@
     relays = [],
     scopeH = "",
     zapScopeH = "",
+    strictZapRelays = false,
+    repoAddress = "",
     communitySectionName = "",
     ownerPubkey = "",
     readOnly = false,
@@ -59,7 +63,7 @@
   const reactionRelays = $derived.by(() => {
     const scopedRelays = (relays || []).filter(Boolean)
 
-    if (scopeH || scopedRelays.length > 0) {
+    if (scopeH || repoAddress || scopedRelays.length > 0) {
       return scopedRelays
     }
 
@@ -75,6 +79,7 @@
       event,
       content: emoji.unicode,
       relays: reactionRelays,
+      repoAddress: repoAddress || undefined,
       tags: scopeH ? [["h", scopeH]] : [],
     })
 
@@ -94,6 +99,7 @@
       {event}
       relayHints={relays}
       scopeH={zapScopeH || scopeH}
+      strict={strictZapRelays}
       class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
     </ZapButton>
@@ -114,6 +120,7 @@
         customActions,
         onClick: hidePopover,
         relays,
+        repoAddress,
         scopeH,
         communitySectionName,
         ownerPubkey,

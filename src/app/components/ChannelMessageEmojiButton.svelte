@@ -11,12 +11,13 @@
     event: TrustedEvent
     relays?: string[]
     scopeH?: string
+    repoAddress?: string
   }
 
-  const {url, event, relays = [], scopeH = ""}: Props = $props()
+  const {url, event, relays = [], scopeH = "", repoAddress = ""}: Props = $props()
 
   const reactionRelays = $derived.by(() =>
-    (scopeH || relays.length > 0 ? relays : [url]).filter(Boolean),
+    (scopeH || repoAddress || relays.length > 0 ? relays : [url]).filter(Boolean),
   )
 
   const scopedTags = $derived.by(() => {
@@ -33,6 +34,7 @@
       relays: reactionRelays,
       content: emoji.unicode,
       tags: scopedTags,
+      repoAddress: repoAddress || undefined,
     })
 </script>
 

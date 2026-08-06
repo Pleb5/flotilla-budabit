@@ -44,7 +44,7 @@
   let labels = $state<string[]>([]);
   let customLabels = $state<string[]>([]);
   let newLabel = $state("");
-  let errors = $state<{ subject?: string; content?: string }>({});
+  let errors = $state<{ subject?: string; content?: string; submit?: string }>({});
   let isSubmitting = $state(false);
   let descriptionEditor = $state<RichDescriptionEditorHandle | null>(null);
 
@@ -146,6 +146,7 @@
       back();
     } catch (error) {
       console.error(error);
+      errors.submit = error instanceof Error ? error.message : "Failed to create issue";
     } finally {
       isSubmitting = false;
     }
@@ -201,6 +202,9 @@
     {/if}
     <p class="text-xs text-muted-foreground">Supports Markdown formatting</p>
   </div>
+  {#if errors.submit}
+    <div class="text-sm text-red-500">{errors.submit}</div>
+  {/if}
   <div class="space-y-3">
     <Label>Labels</Label>
     <div class="grid grid-cols-2 gap-2">

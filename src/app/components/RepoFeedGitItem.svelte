@@ -40,6 +40,7 @@
     zapScopeH?: string
     statusState?: RepoFeedStatusState
     defaultThreadCommunityPubkey?: string
+    repoAddress: string
   }
 
   const {
@@ -51,12 +52,11 @@
     zapScopeH = "",
     statusState = "open",
     defaultThreadCommunityPubkey = "",
+    repoAddress,
   }: Props = $props()
 
   const thunk = $derived($thunks.find(t => t.event.id === event.id))
-  const relayTargets = $derived.by(() =>
-    (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
-  )
+  const relayTargets = $derived.by(() => interactionRelays.filter(Boolean))
   const canCreateThread = $derived.by(() =>
     $activeUserCommunityRefs.some(ref =>
       communityWritableSectionsSupportTarget({
@@ -198,6 +198,7 @@
       url,
       relays: relayTargets,
       event,
+      repoAddress,
     })
 
   const createReaction = async (template: EventContent) =>
@@ -205,6 +206,7 @@
       ...template,
       event,
       relays: relayTargets,
+      repoAddress,
       tags: [...(template.tags || []), ...scopedTags],
     })
 </script>
@@ -236,7 +238,7 @@
 
           <div
             class="flex shrink-0 items-center gap-1 rounded-full border border-neutral bg-base-100/90 p-1">
-            <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} />
+            <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} {repoAddress} />
             <Button
               class="btn btn-xs"
               onclick={shareItem}
@@ -288,6 +290,8 @@
         relays={relayTargets}
         {zapScopeH}
         {scopeH}
+        strictZapRelays={true}
+        loadZapReceipts={false}
         {event}
         {deleteReaction}
         {createReaction}

@@ -413,6 +413,7 @@
         {@const isReply = Boolean(parentId && parentId !== threadRootId)}
         {@const eventActionUrl = relays[0] || relayHint || ""}
         {@const commentRelayHints = getCommentRelayHints(c.raw)}
+        {@const commentActionRelays = repoAddress ? relays : commentRelayHints}
         {@const commentProfileRelays = getProfileRelayHints()}
         {@const canHideSpam = Boolean(
           ownerPubkey && currentCommenter === ownerPubkey && c.raw.pubkey !== currentCommenter
@@ -490,7 +491,9 @@
                 event={c.raw}
                 url={eventActionUrl}
                 noun="comment"
-                relays={commentRelayHints}
+                relays={commentActionRelays}
+                repoAddress={repoAddress}
+                strictZapRelays={Boolean(repoAddress)}
                 ownerPubkey={canHideSpam ? ownerPubkey : ""}
                 showReport={canHideSpam}
                 showModeration={false}
@@ -569,7 +572,8 @@
               <ReactionSummary
                 event={c.raw as any}
                 url={eventActionUrl}
-                relays={commentRelayHints}
+                relays={commentActionRelays}
+                strictZapRelays={Boolean(repoAddress)}
                 deleteReaction={(event: NostrEvent) => deleteReaction(event)}
                 createReaction={(template: ReactionTemplate) => createReaction(c.raw, template)}
                 reactionClass="tooltip-left"

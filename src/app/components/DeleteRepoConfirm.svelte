@@ -40,13 +40,12 @@
     getTokensForHost,
     type Token,
   } from "@nostr-git/ui"
-  import {getRepoAnnouncementRelays} from "@app/core/git-state"
+  import {requireRepoPublicationScope} from "@app/core/repo-publication"
   import {
     buildGraspRepoDeleteRequest,
     buildRepoDeleteTags,
     buildRepoOwnedDeleteFilters,
     canDeleteLocalRepoAfterRemoteResults,
-    getMetadataDeleteRelays,
     getGraspRepoDeleteTarget,
     getRepoDeleteAddresses,
   } from "@app/util/repo-delete"
@@ -604,12 +603,13 @@
     }
   })
 
-  const publishDeleteEvent = async (event: any, relays: string[]) => {
+  const publishDeleteEvent = async (event: any, relays: string[], repoAddress: string) => {
+    const publishRelays = requireRepoPublicationScope({event, relays, repoAddress})
     const currentSigner = get(signer)
     if (!currentSigner) throw new Error("No signer available")
     const signedEvent = await currentSigner.sign(event, {signal: AbortSignal.timeout(30_000)})
     const results = Object.values(
-      await publish({event: signedEvent, relays, timeout: 10_000}),
+      await publish({event: signedEvent, relays: publishRelays, timeout: 10_000}),
     ) as any[]
     const accepted = results.filter(result => result?.status === PublishStatus.Success)
     if (accepted.length > 0) repository.publish(signedEvent)
@@ -646,8 +646,12 @@
     try {
       const repoAddress = Address.fromEvent(repoEvent).toString()
       const deleteRepoAddresses = getRepoDeleteAddresses(repoAddresses, repoAddress)
-      const relays = getRepoAnnouncementRelays(repoRelays)
-      const metadataRelays = getMetadataDeleteRelays({relays, remoteTargets: operationTargets})
+      const relays = requireRepoPublicationScope({
+        event: repoEvent,
+        relays: repoRelays,
+        repoAddress,
+      })
+      const metadataRelays = relays
       const filters = buildRepoOwnedDeleteFilters({
         pubkey: ownerPubkey,
         repoName,
@@ -689,6 +693,7 @@
           const outcome = await publishDeleteEvent(
             makeEvent(DELETE, {tags, created_at: createdAt}),
             metadataRelays,
+            repoAddress,
           )
           metadataDeliveriesAttempted += metadataRelays.length
           metadataDeliveriesAccepted += outcome.accepted.length
@@ -743,13 +748,22 @@
           let successStatus: RemoteDeleteResult["status"] = "deleted"
           let successDetail: string | undefined
           if (target.graspRelay) {
+            const targetRelay = requireRepoPublicationScope({
+              event: repoEvent,
+              relays: [target.graspRelay],
+              repoAddress,
+            })[0]
+            if (!relays.includes(targetRelay)) {
+              throw new Error("GRASP relay is not declared by the repository announcement")
+            }
             const request = buildGraspRepoDeleteRequest({
               event: repoEvent,
               ownerPubkey,
             })
             const outcome = await publishDeleteEvent(
               makeEvent(DELETE, {tags: request.tags, created_at: request.createdAt}),
-              [target.graspRelay],
+              [targetRelay],
+              repoAddress,
             )
             const accepted = outcome.accepted[0]
             if (!accepted) {

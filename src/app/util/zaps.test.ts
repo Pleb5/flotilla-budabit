@@ -166,6 +166,32 @@ describe("zap utilities", () => {
     )
   })
 
+  it("uses only explicit repository relays in strict mode", async () => {
+    mocks.authorInboxRelays = ["wss://author-inbox.example.com"]
+    mocks.authorReadRelays = ["wss://author-read.example.com"]
+    mocks.eventRelayHints = ["wss://seen.example.com"]
+    const {getZapRelays} = await import("./zaps")
+    const event = makeEvent({tags: [["a", `30617:${"a".repeat(64)}:repo`]]})
+
+    expect(
+      getZapRelays({
+        event: event as any,
+        relayHints: ["wss://repo.example.com", "invalid"],
+        strict: true,
+      }),
+    ).toEqual(["wss://repo.example.com/"])
+    expect(mocks.getEventRelayHints).not.toHaveBeenCalled()
+  })
+
+  it("does not add fallbacks when strict zap scope has no repository relay", async () => {
+    mocks.authorInboxRelays = ["wss://author-inbox.example.com"]
+    mocks.eventRelayHints = ["wss://seen.example.com"]
+    const {getZapRelays} = await import("./zaps")
+
+    expect(getZapRelays({event: makeEvent() as any, strict: true})).toEqual([])
+    expect(mocks.getEventRelayHints).not.toHaveBeenCalled()
+  })
+
   it("adds event, address, and community scope tags to zap requests", async () => {
     const {makeZapRequestForEvent} = await import("./zaps")
     const event = makeEvent({

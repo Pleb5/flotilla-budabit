@@ -37,8 +37,8 @@ describe("authoritative repository loading scope", () => {
     ]) {
       const source = readProjectFile(path)
 
-      expect(source).toContain("getRepoScopedRelays(")
-      expect(source).not.toMatch(/getRepoScopedRelays\([^)]*naddrRelays/)
+      expect(source).toContain("REPO_RELAYS_KEY")
+      expect(source).not.toContain("naddrRelays")
     }
 
     const testRoute = readProjectFile("../../routes/git/[id=naddr]/test/+page.svelte")

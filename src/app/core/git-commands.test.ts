@@ -169,7 +169,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", "wss://grasp.example.com"],
+        ],
       }
       const relay = "wss://grasp.example.com/"
       mockSignerSign.mockImplementation(async event => ({...(event as object), sig: "signature"}))
@@ -212,7 +215,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", relay],
+        ],
         id: "e".repeat(64),
         pubkey: "a".repeat(64),
         sig: "signature",
@@ -240,7 +246,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", relay],
+        ],
         id: "e".repeat(64),
         pubkey: "a".repeat(64),
         sig: "signature",
@@ -264,7 +273,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", relay],
+        ],
         id: "e".repeat(64),
         pubkey: "a".repeat(64),
         sig: "signature",
@@ -299,7 +311,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", relay],
+        ],
         id: "e".repeat(64),
         pubkey: "a".repeat(64),
         sig: "signature",
@@ -340,7 +355,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", relay],
+        ],
         id: "e".repeat(64),
         pubkey: "a".repeat(64),
         sig: "signature",
@@ -401,7 +419,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 1,
-        tags: [["d", "repo"]],
+        tags: [
+          ["d", "repo"],
+          ["relays", relay],
+        ],
         id: "e".repeat(64),
         pubkey: "a".repeat(64),
         sig: "signature",
@@ -437,6 +458,120 @@ describe("budabit commands", () => {
           relays: ["wss://relay.example.com/"],
         }),
       )
+    })
+  })
+
+  describe("repository publication circuit breaker", () => {
+    const owner = "a".repeat(64)
+    const repoAddress = `30617:${owner}:repo`
+    const relay = "wss://repo.example.com/"
+
+    it("fails before signing, local insertion, or network work when scope is empty", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const event = {
+        kind: 30618,
+        content: "",
+        created_at: 1,
+        tags: [["d", "repo"]],
+      }
+
+      await expect(
+        publishRepoEventWithRelayOutcomes(event as any, ["not-a-relay"], {repoAddress}),
+      ).rejects.toThrow("requires at least one valid relay declared")
+      expect(mockSignerSign).not.toHaveBeenCalled()
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+      expect(mockPublish).not.toHaveBeenCalled()
+    })
+
+    it("accepts repeated same-repository coordinates across supported tags", async () => {
+      const {postIssue} = await import("./git-commands")
+      const issue = {
+        id: "issue",
+        kind: 1621,
+        content: "",
+        created_at: 1,
+        pubkey: owner,
+        sig: "sig",
+        tags: [
+          ["a", repoAddress],
+          ["A", repoAddress],
+          ["q", repoAddress],
+          ["repo", repoAddress],
+        ],
+      }
+
+      postIssue(issue as any, [relay], repoAddress)
+
+      expect(mockPublishThunk).toHaveBeenCalledWith(
+        expect.objectContaining({event: issue, relays: [relay]}),
+      )
+    })
+
+    it("rejects conflicting repository coordinates before thunk creation", async () => {
+      const {postIssue} = await import("./git-commands")
+      const issue = {
+        id: "issue",
+        kind: 1621,
+        content: "",
+        created_at: 1,
+        pubkey: owner,
+        sig: "sig",
+        tags: [
+          ["a", repoAddress],
+          ["q", `30617:${"b".repeat(64)}:other`],
+        ],
+      }
+
+      expect(() => postIssue(issue as any, [relay], repoAddress)).toThrow(
+        "conflicting repository coordinates",
+      )
+      expect(mockPublishThunk).not.toHaveBeenCalled()
+    })
+
+    it("requires an announcement relay before using broad discovery destinations", async () => {
+      const {postRepoAnnouncement} = await import("./git-commands")
+      const relayless = {
+        id: "repo",
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        pubkey: owner,
+        sig: "sig",
+        tags: [["d", "repo"]],
+      }
+
+      expect(() => postRepoAnnouncement(relayless as any, [relay])).toThrow(
+        "must declare at least one valid repository relay",
+      )
+      expect(mockPublishThunk).not.toHaveBeenCalled()
+
+      const declared = {...relayless, tags: [...relayless.tags, ["relays", relay]]}
+      postRepoAnnouncement(declared as any, [relay])
+      expect(mockPublishThunk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: declared,
+          relays: [relay, "wss://announcement.example/"],
+        }),
+      )
+    })
+
+    it("does not create an optimistic thunk for empty repository relays", async () => {
+      const {publishEvent} = await import("./git-commands")
+      const event = {
+        id: "event",
+        kind: 1624,
+        content: "",
+        created_at: 1,
+        pubkey: owner,
+        sig: "sig",
+        tags: [["a", repoAddress]],
+      }
+
+      expect(() => publishEvent(event as any, [], repoAddress)).toThrow(
+        "requires at least one valid relay declared",
+      )
+      expect(mockPublishThunk).not.toHaveBeenCalled()
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
     })
   })
 
@@ -523,7 +658,10 @@ describe("budabit commands", () => {
         kind: 30617,
         content: "",
         created_at: 0,
-        tags: [],
+        tags: [
+          ["d", "repo"],
+          ["relays", "wss://repo.example/"],
+        ],
         pubkey: "a".repeat(64),
         sig: "sig",
       } as any

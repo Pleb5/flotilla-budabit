@@ -371,10 +371,11 @@
         },
         onCollect: async (selection: PublicationDestinationSelection) => {
           try {
-            const relays = repoClass.relays || []
+            const relays = commentRelays
             const published = publishPermalinkToDestinations({
               permalink,
               relays,
+              repoAddress: repoClass.address || "",
               communityOptions: permalinkCommunityOptions,
               selection,
             })
@@ -453,7 +454,7 @@
   const commitCommentRoot = $derived(commitCommentOid ? getCommitCommentRoot(commitCommentOid) : "")
   const commitCommentRepoAddress = $derived(repoClass.address || "")
   const commentRelays = $derived.by(() =>
-    normalizeCommentRelays([...($repoRelaysStore || []), ...(repoClass.relays || [])]),
+    normalizeCommentRelays($repoRelaysStore || []),
   )
   const commentProfileRelays = $derived.by(() => {
     const profileRelays = normalizeCommentRelays(getRepoProfileRelays?.() || [])
@@ -604,7 +605,7 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = getCommentPublishRelays()
     if (relays.length === 0) throw new Error("No repository relays are available")
-    await postComment(comment, relays)
+    await postComment(comment, relays, commitCommentRepoAddress)
   }
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
@@ -618,13 +619,14 @@
       tags,
       relays,
       url: relays[0],
+      repoAddress: commitCommentRepoAddress,
     })
   }
 
   const deleteCommentReaction = async (event: TrustedEvent) => {
     const relays = getCommentPublishRelays()
     if (relays.length === 0) return
-    publishDelete({event, relays})
+    publishDelete({event, relays, repoAddress: commitCommentRepoAddress})
   }
 
   const createCommentReaction = async (comment: CommentEvent, template: EventContent) => {
@@ -634,6 +636,7 @@
       ...template,
       event: comment as unknown as TrustedEvent,
       relays,
+      repoAddress: commitCommentRepoAddress,
     })
   }
 

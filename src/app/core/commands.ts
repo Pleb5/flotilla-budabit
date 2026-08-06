@@ -142,6 +142,7 @@ import {
   type BlossomUploadStage,
   type BlossomUploadContext,
 } from "@app/core/blossom"
+import {requireRepoPublicationScope} from "@app/core/repo-publication"
 
 // Utils
 
@@ -588,12 +589,16 @@ const getRepoAddressForDelete = (event: TrustedEvent) => {
     tag => tag[0] === "q" && tag[1]?.startsWith(`${GIT_REPO_ANNOUNCEMENT}:`),
   )?.[1]
   if (repoRefTag) return repoRefTag
-  if (event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE) {
+  if (event.kind === GIT_REPO_ANNOUNCEMENT) {
     try {
       return getAddress(event)
     } catch {
       return ""
     }
+  }
+  if (event.kind === GIT_REPO_STATE) {
+    const identifier = getTagValue("d", event.tags)
+    return identifier ? `${GIT_REPO_ANNOUNCEMENT}:${event.pubkey}:${identifier}` : ""
   }
   return ""
 }
@@ -697,8 +702,14 @@ const requireScopedPublishRelays = (relays: string[]) => {
   return normalizedRelays
 }
 
-export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) => {
-  const publishRelays = requireScopedPublishRelays(relays)
+export const publishDelete = ({
+  relays,
+  repoAddress,
+  ...params
+}: DeleteParams & {relays: string[]; repoAddress?: string}) => {
+  const publishRelays = repoAddress
+    ? requireRepoPublicationScope({event: params.event, relays, repoAddress})
+    : requireScopedPublishRelays(relays)
   const thunk = publishThunk({event: makeDelete(params), relays: publishRelays})
 
   logDeleteDebug({
@@ -732,10 +743,12 @@ export const getDeleteRelaysForSocialEvent = ({
 export const publishSocialDelete = ({
   url,
   relays,
+  repoAddress,
   ...params
-}: DeleteParams & {url?: string; relays?: string[]}) =>
+}: DeleteParams & {url?: string; relays?: string[]; repoAddress?: string}) =>
   publishDelete({
     ...params,
+    repoAddress,
     relays:
       relays !== undefined
         ? requireScopedPublishRelays(relays)
@@ -761,13 +774,16 @@ export const makeReport = ({event, reason, content}: ReportParams) => {
 
 export const publishReport = ({
   relays,
+  repoAddress,
   event,
   reason,
   content,
-}: ReportParams & {relays: string[]}) =>
+}: ReportParams & {relays: string[]; repoAddress?: string}) =>
   publishThunk({
     event: makeReport({event, reason, content}),
-    relays: requireScopedPublishRelays(relays),
+    relays: repoAddress
+      ? requireRepoPublicationScope({event, relays, repoAddress})
+      : requireScopedPublishRelays(relays),
   })
 
 // Reactions
@@ -789,8 +805,19 @@ export const makeReaction = ({content, event, tags: paramTags = []}: ReactionPar
   return makeEvent(REACTION, {content, tags})
 }
 
-export const publishReaction = ({relays, ...params}: ReactionParams & {relays: string[]}) =>
-  publishThunk({event: makeReaction(params), relays: requireScopedPublishRelays(relays)})
+export const publishReaction = ({
+  relays,
+  repoAddress,
+  ...params
+}: ReactionParams & {relays: string[]; repoAddress?: string}) => {
+  const event = makeReaction(params)
+  return publishThunk({
+    event,
+    relays: repoAddress
+      ? requireRepoPublicationScope({event, relays, repoAddress})
+      : requireScopedPublishRelays(relays),
+  })
+}
 
 // Comments
 
@@ -803,8 +830,19 @@ export type CommentParams = {
 export const makeComment = ({event, content, tags = []}: CommentParams) =>
   makeEvent(COMMENT, {content, tags: [...sanitizePublishTags(tags), ...tagEventForComment(event)]})
 
-export const publishComment = ({relays, ...params}: CommentParams & {relays: string[]}) =>
-  publishThunk({event: makeComment(params), relays: requireScopedPublishRelays(relays)})
+export const publishComment = ({
+  relays,
+  repoAddress,
+  ...params
+}: CommentParams & {relays: string[]; repoAddress?: string}) => {
+  const event = makeComment(params)
+  return publishThunk({
+    event,
+    relays: repoAddress
+      ? requireRepoPublicationScope({event, relays, repoAddress})
+      : requireScopedPublishRelays(relays),
+  })
+}
 
 // Settings
 

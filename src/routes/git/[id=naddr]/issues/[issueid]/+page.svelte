@@ -35,13 +35,13 @@
   } from "@welshman/util"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {pubkey, repository} from "@welshman/app"
   import {profilesByPubkey} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {postComment} from "@app/core/git-commands"
+  import {postComment, postLabel, postStatus, publishEvent} from "@app/core/git-commands"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
   import {publishDelete, publishReaction} from "@app/core/commands"
@@ -54,8 +54,8 @@
     deriveRoleAssignments,
     getRepoDeclaredMaintainers,
     getRepoMaintainers,
-    getRepoScopedRelays,
     REPO_PROFILE_RELAYS_KEY,
+    REPO_RELAYS_KEY,
     loadRepoContext,
     repoAnnouncementsByAddress,
   } from "@app/core/git-state"
@@ -81,15 +81,14 @@
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
   }
 
-  const repoBoundRelays = $derived.by(() => {
-    return getRepoScopedRelays(repoClass.repoEvent as any)
-  })
+  const repoBoundRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const repoCommunityScope = $derived(
     repoClass.community?.pubkey ||
       getTagValue("h", ((repoClass as any)?.repoEvent?.tags || []) as string[][]) ||
@@ -276,7 +275,7 @@
     () =>
       ({
         maintainers: Array.from(issueMaintainers),
-        relays: repoClass.relays || repoBoundRelays || [],
+        relays: repoBoundRelays,
         repoEvent: issueRepoEvent || (repoClass as any).repoEvent,
         owner: currentRepoOwner,
         getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
@@ -371,7 +370,7 @@
         namespaces: ["#t"],
         labels: [{namespace: "#t", value}],
       }) as any
-      publishThunk({event: labelEvent, relays})
+      postLabel(labelEvent, relays, issueEditRepoAddress)
       await load({relays: relays as string[], filters: [getLabelFilter()]})
       newLabel = ""
     } catch (e) {
@@ -411,11 +410,11 @@
 
   const deleteReaction = async (event: TrustedEvent) => {
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
     publishDelete({
       event,
       relays,
+      repoAddress: issueEditRepoAddress,
     })
   }
 
@@ -423,30 +422,33 @@
     if (!issueEvent) return
 
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
     publishReaction({
       ...template,
       event: issueEvent as TrustedEvent,
       relays,
+      repoAddress: issueEditRepoAddress,
     })
   }
 
   const deleteCommentReaction = async (event: any) => {
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
-    publishDelete({event: event as unknown as TrustedEvent, relays})
+    publishDelete({
+      event: event as unknown as TrustedEvent,
+      relays,
+      repoAddress: issueEditRepoAddress,
+    })
   }
 
   const createCommentReaction = async (comment: CommentEvent, template: EventContent) => {
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
     publishReaction({
       ...template,
       event: comment as unknown as TrustedEvent,
       relays,
+      repoAddress: issueEditRepoAddress,
     })
   }
 
@@ -461,7 +463,7 @@
       namespaces,
       labels,
     }) as any
-    publishThunk({event: labelEvent, relays})
+    postLabel(labelEvent, relays, issueEditRepoAddress)
   }
 
   const removeLabel = async (labelValue: string) => {
@@ -471,7 +473,6 @@
     if (!value) return
 
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
     const rootSet = new Set(rootIssueTags || [])
 
@@ -501,7 +502,7 @@
         const eventToDelete = candidate?.id ? issueLabelEventsById.get(candidate.id) : undefined
 
         if (eventToDelete && eventToDelete.pubkey === $pubkey) {
-          publishDelete({event: eventToDelete as any, relays})
+          publishDelete({event: eventToDelete as any, relays, repoAddress: issueEditRepoAddress})
         } else {
           publishTagDeleteMarker(value, relays, true)
         }
@@ -522,7 +523,6 @@
     }
 
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
     try {
       savingTitle = true
@@ -533,7 +533,7 @@
         namespaces: ["#subject"],
         labels: [{namespace: "#subject", value}],
       }) as any
-      publishThunk({event: labelEvent, relays})
+      postLabel(labelEvent, relays, issueEditRepoAddress)
       await load({relays, filters: [getLabelFilter()]})
       editingTitle = false
     } catch (error) {
@@ -548,7 +548,6 @@
     if (!issue || !isMaintainerOrAuthor) return
 
     const relays = getPublishRelays()
-    if (relays.length === 0) return
 
     try {
       savingDescription = true
@@ -578,7 +577,7 @@
         content: value,
         tags: nextTags as CoverLetterTag[],
       })
-      publishThunk({event: coverLetterEvent as any, relays})
+      publishEvent(coverLetterEvent as any, relays, issueEditRepoAddress)
       await load({relays, filters: [getCoverLetterFilter()]})
       descriptionDraft = value
       editingDescription = false
@@ -706,7 +705,7 @@
   // Remove inline status state and auto-publish; Status component handles publishing
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, getPublishRelays())
+    await postComment(comment, getPublishRelays(), issueEditRepoAddress)
   }
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
@@ -718,6 +717,7 @@
       tags,
       relays: getPublishRelays(),
       url: repoBoundRelays[0],
+      repoAddress: issueEditRepoAddress,
     })
   }
 
@@ -743,7 +743,7 @@
       ...statusEvent,
       tags,
     }
-    return publishThunk({event: statusWithRecipients as any, relays: getPublishRelays()})
+    return postStatus(statusWithRecipients as any, getPublishRelays(), issueEditRepoAddress)
   }
 
   const toPersonSuggestion = (pubkey: string) => {
@@ -890,6 +890,7 @@
                 url={repoBoundRelays[0] || ""}
                 relays={repoBoundRelays}
                 zapScopeH={repoCommunityScope}
+                strictZapRelays={true}
                 {deleteReaction}
                 {createReaction}
                 reactionClass="tooltip-left" />
@@ -898,6 +899,8 @@
                 url={repoBoundRelays[0] || ""}
                 relays={repoBoundRelays}
                 zapScopeH={repoCommunityScope}
+                strictZapRelays={true}
+                repoAddress={issueEditRepoAddress}
                 ownerPubkey={currentRepoOwner}
                 noun="issue" />
             </div>
@@ -1039,7 +1042,7 @@
                   pubkeys: [pubkey],
                   repoAddr: issueEditRepoAddress,
                 })
-                publishThunk({event: roleLabelEvent as any, relays: publishRelays})
+                postLabel(roleLabelEvent as any, publishRelays, issueEditRepoAddress)
                 await load({
                   relays: publishRelays,
                   filters: [{kinds: [1985], "#e": [issue.id]}],
@@ -1052,7 +1055,7 @@
               if (!issue) return
               try {
                 const relays = getPublishRelays()
-                publishDelete({event: evt as any, relays})
+                publishDelete({event: evt as any, relays, repoAddress: issueEditRepoAddress})
                 await load({relays, filters: [{kinds: [1985], "#e": [issue.id]}]})
               } catch (err) {
                 console.error("[IssueDetail] Failed to delete assignee label", err)

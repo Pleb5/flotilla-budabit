@@ -33,6 +33,7 @@ import {
 } from "@welshman/util"
 import {GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
 import type {Event as NostrEvent} from "nostr-tools"
+import {getDeclaredRepoRelays, requireRepoPublicationScope} from "@app/core/repo-publication"
 
 export const GRASP_RELAY_ACK_TIMEOUT_MS = 30_000
 
@@ -267,20 +268,12 @@ const getUserRelayUrls = (): string[] => {
   }
 }
 
-const getScopedRelayUrls = (relays: string[] = []) => {
-  const scopedRelays = Array.from(
-    new Set(
-      relays
-        .map(relay => {
-          try {
-            return normalizeRelayUrl(relay)
-          } catch {
-            return ""
-          }
-        })
-        .filter(isRelayUrl),
-    ),
-  )
+const getScopedRelayUrls = (
+  event: Pick<NostrEvent, "kind" | "pubkey" | "tags">,
+  relays: string[] = [],
+  repoAddress?: string,
+) => {
+  const scopedRelays = requireRepoPublicationScope({event, relays, repoAddress})
 
   logPublishRelaySummary({
     category: "repo-scoped",
@@ -291,14 +284,18 @@ const getScopedRelayUrls = (relays: string[] = []) => {
   return scopedRelays
 }
 
-export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) => {
+export const publishEvent = <T extends NostrEvent>(
+  event: T,
+  relays: string[] = [],
+  repoAddress?: string,
+) => {
   return publishThunk({
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(event, relays, repoAddress),
     event: event,
   })
 }
 
-export type RepoPublishOptions = {publishLocally?: boolean}
+export type RepoPublishOptions = {publishLocally?: boolean; repoAddress?: string}
 type RepoPublishExecutionOptions = RepoPublishOptions & {signal?: AbortSignal}
 
 const publishRepoEventWithRelayOutcomesUsingPool = async (
@@ -307,7 +304,7 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
   relays: string[],
   options: RepoPublishExecutionOptions = {},
 ) => {
-  const scopedRelays = getScopedRelayUrls(relays)
+  const scopedRelays = getScopedRelayUrls(event, relays, options.repoAddress)
   const activePubkey = pubkey.get()
   const activeSigner = signer.get()
   const signedEvent = isSignedEvent(event as TrustedEvent)
@@ -412,9 +409,10 @@ export const createRepoPublishTransport = () => {
       options: RepoPublishOptions = {},
     ) => {
       if (disposed) throw new Error("Repository publication transport is closed")
+      const scopedRelays = getScopedRelayUrls(event, relays, options.repoAddress)
       const operation = pending.then(() => {
         if (disposed) throw new Error("Repository publication transport is closed")
-        return publishRepoEventWithRelayOutcomesUsingPool(pool, event, relays, {
+        return publishRepoEventWithRelayOutcomesUsingPool(pool, event, scopedRelays, {
           ...options,
           signal: controller.signal,
         })
@@ -449,31 +447,32 @@ export const publishRepoEventWithRelayOutcomes = async (
   }
 }
 
-export const postComment = (comment: CommentEvent, relays: string[]) => {
+export const postComment = (comment: CommentEvent, relays: string[], repoAddress?: string) => {
   return publishThunk({
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(comment, relays, repoAddress),
     event: comment,
   })
 }
 
-export const postIssue = (issue: IssueEvent, relays: string[]) => {
+export const postIssue = (issue: IssueEvent, relays: string[], repoAddress?: string) => {
   return publishThunk({
     event: issue,
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(issue, relays, repoAddress),
   })
 }
 
-export const postStatus = (status: StatusEvent, relays: string[]) => {
+export const postStatus = (status: StatusEvent, relays: string[], repoAddress?: string) => {
   return publishThunk({
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(status, relays, repoAddress),
     event: status,
   })
 }
 
 export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string[]) => {
+  const repoRelays = getScopedRelayUrls(repo, [...getDeclaredRepoRelays(repo), ...relays])
   const merged = getRepoAnnouncementPublishRelays({
     repoEvent: repo,
-    repoRelays: relays,
+    repoRelays,
     userOutboxRelays: getUserRelayUrls(),
     gitIndexerRelays: GIT_RELAYS,
   })
@@ -483,25 +482,29 @@ export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string
   })
 }
 
-export const postRepoStateEvent = (repoEvent: RepoStateEvent, relays: string[]) => {
+export const postRepoStateEvent = (
+  repoEvent: RepoStateEvent,
+  relays: string[],
+  repoAddress?: string,
+) => {
   return publishThunk({
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(repoEvent, relays, repoAddress),
     event: repoEvent,
   })
 }
 
 // Publish a NIP-32 label event (kind 1985)
-export const postLabel = (labelEvent: any, relays: string[]) => {
+export const postLabel = (labelEvent: any, relays: string[], repoAddress?: string) => {
   return publishThunk({
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(labelEvent, relays, repoAddress),
     event: labelEvent,
   })
 }
 
-export const postPermalink = (permalink: NostrEvent, relays: string[]) => {
+export const postPermalink = (permalink: NostrEvent, relays: string[], repoAddress?: string) => {
   return publishThunk({
     event: permalink,
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(permalink, relays, repoAddress),
   })
 }
 
@@ -528,9 +531,10 @@ export const postRoleLabel = (params: {
   pubkeys: string[]
   repoAddr?: string
   relays: string[]
+  expectedRepoAddress?: string
   created_at?: number
 }) => {
-  const {rootId, role, pubkeys, repoAddr, relays, created_at} = params
+  const {rootId, role, pubkeys, repoAddr, relays, expectedRepoAddress, created_at} = params
   const event = buildRoleLabelEvent({
     rootId,
     role,
@@ -539,13 +543,20 @@ export const postRoleLabel = (params: {
     created_at,
   })
   return publishThunk({
-    relays: getScopedRelayUrls(relays),
+    relays: getScopedRelayUrls(event, relays, expectedRepoAddress || repoAddr),
     event: event,
   })
 }
 
-export const deleteRoleLabelEvent = ({relays, event}: {relays: string[]; event: TrustedEvent}) =>
-  publishDelete({event, relays})
+export const deleteRoleLabelEvent = ({
+  relays,
+  event,
+  repoAddress,
+}: {
+  relays: string[]
+  event: TrustedEvent
+  repoAddress?: string
+}) => publishDelete({event, relays, repoAddress})
 
 export type DeleteProgress = {
   label: string
@@ -628,12 +639,14 @@ const deleteEventsSequentially = async ({
   root,
   events,
   relays,
+  repoAddress,
   signal,
   onProgress,
 }: {
   root: TrustedEvent
   events: TrustedEvent[]
   relays: string[]
+  repoAddress?: string
 } & DeleteCallbacks) => {
   let deletedEvents = 0
 
@@ -650,6 +663,7 @@ const deleteEventsSequentially = async ({
     const thunk = publishDelete({
       event,
       relays,
+      repoAddress,
     })
 
     await waitForDeletePublish(thunk, signal)
@@ -669,16 +683,18 @@ const deleteEventsSequentially = async ({
 export const deleteIssueWithLabels = async ({
   issue,
   relays = [],
+  repoAddress,
   signal,
   onProgress,
 }: {
   issue: TrustedEvent
   relays?: string[]
+  repoAddress?: string
 } & DeleteCallbacks): Promise<{labelsDeleted: number}> => {
   if (!issue) return {labelsDeleted: 0}
   if (issue.kind !== 1621) return {labelsDeleted: 0}
 
-  const merged = getScopedRelayUrls(relays)
+  const merged = getScopedRelayUrls(issue, relays, repoAddress)
 
   if (!issue.id || !issue.pubkey || merged.length === 0) {
     return {labelsDeleted: 0}
@@ -716,6 +732,7 @@ export const deleteIssueWithLabels = async ({
     root: issue,
     events: [issue, ...labelEvents],
     relays: merged,
+    repoAddress,
     signal,
     onProgress,
   })
@@ -726,18 +743,20 @@ export const deleteIssueWithLabels = async ({
 export const deletePullRequestWithRelated = async ({
   root,
   relays = [],
+  repoAddress,
   signal,
   onProgress,
 }: {
   root: TrustedEvent
   relays?: string[]
+  repoAddress?: string
 } & DeleteCallbacks): Promise<{deletedEvents: number; relatedDeleted: number}> => {
   if (!root?.id) return {deletedEvents: 0, relatedDeleted: 0}
   if (root.kind !== GIT_PULL_REQUEST) {
     return {deletedEvents: 0, relatedDeleted: 0}
   }
 
-  const merged = getScopedRelayUrls(relays)
+  const merged = getScopedRelayUrls(root, relays, repoAddress)
 
   if (merged.length === 0) {
     return {deletedEvents: 0, relatedDeleted: 0}
@@ -801,6 +820,7 @@ export const deletePullRequestWithRelated = async ({
     root,
     events: Array.from(eventsToDelete.values()),
     relays: merged,
+    repoAddress,
     signal,
     onProgress,
   })

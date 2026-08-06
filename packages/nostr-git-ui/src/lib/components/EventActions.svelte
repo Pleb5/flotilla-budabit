@@ -7,6 +7,8 @@
     noun: string;
     customActions?: Snippet;
     relays?: string[];
+    repoAddress?: string;
+    strictZapRelays?: boolean;
     ownerPubkey?: string;
     showReport?: boolean;
     showModeration?: boolean;

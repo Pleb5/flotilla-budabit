@@ -115,6 +115,7 @@
           <RepoFeedGitItem
             url={routeUrl}
             interactionRelays={repoRelays}
+            repoAddress={repoClass.address || ""}
             zapScopeH={repoCommunityScope}
             event={element.value}
             openHref={getOpenHref(element.value)}

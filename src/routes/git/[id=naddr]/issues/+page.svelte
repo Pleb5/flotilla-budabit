@@ -18,7 +18,7 @@
     getTag,
     type TrustedEvent,
   } from "@welshman/util"
-  import {createSearch, pubkey, publishThunk, repository} from "@welshman/app"
+  import {createSearch, pubkey, repository} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -54,7 +54,6 @@
     RESOLVED_STATUS_BY_ROOT_KEY,
     HIDDEN_ROOT_IDS_KEY,
     getRepoMaintainers,
-    getRepoScopedRelays,
   } from "@app/core/git-state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
@@ -65,6 +64,7 @@
   import {editedTargetIds, filterVisibleAfterDeletesAndEdits} from "@app/core/event-edits"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
+  import {postIssue, postStatus} from "@app/core/git-commands"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -96,9 +96,8 @@
   const lastIssuesSeen = $derived.by(() => normalizeChecked($checked[issuesSeenKey] || 0))
   const repoAddress = $derived.by(() => repoClass?.address || "")
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
-  const repoBoundRelays = $derived.by(() => {
-    return getRepoScopedRelays((repoClass as any).repoEvent)
-  })
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  const repoBoundRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const repoCommunityProfileRelays = $derived.by(() => {
     const relays = repoProfileRelays?.() || []
     if (relays.length > 0) return relays
@@ -475,7 +474,6 @@
     RESOLVED_STATUS_BY_ROOT_KEY,
   )
   const hiddenRootIdsStore = getContext<Readable<Set<string>>>(HIDDEN_ROOT_IDS_KEY)
-  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -1008,19 +1006,12 @@
 
   const onIssueCreated = async (issue: IssueEvent) => {
     const relaysToUse = repoBoundRelays
-    if (!relaysToUse || relaysToUse.length === 0) {
-      console.warn("onIssueCreated: no relays available", {relaysToUse})
-      toast.push({
-        message: "No relays available to publish issue.",
-        variant: "destructive",
-      })
-      return
-    }
+    if (!repoAddress) throw new Error("Repository address is unavailable. Reload and try again.")
     const evt: any = (repoClass as any).repoEvent
     const maintainers = Array.from(new Set([...repoMaintainers, evt?.pubkey].filter(Boolean)))
     const issueWithRecipients = withIssueRepoContext(issue, maintainers, repoAddress)
 
-    const postIssueEvent = publishThunk({event: issueWithRecipients, relays: relaysToUse})
+    const postIssueEvent = postIssue(issueWithRecipients, relaysToUse, repoAddress)
     pushToast({message: "Issue created"})
     try {
       pushRepoAlert({
@@ -1041,7 +1032,7 @@
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
-    publishThunk({event: statusEvent, relays: relaysToUse})
+    postStatus(statusEvent, relaysToUse, repoAddress)
   }
 
   const onNewIssue = () => {

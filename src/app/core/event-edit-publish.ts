@@ -6,6 +6,7 @@ import {
   makeEditedReplyTemplate,
   suppressEventAfterEdit,
 } from "@app/core/event-edits"
+import {requireRepoPublicationScope} from "@app/core/repo-publication"
 
 export const publishEditedMessage = ({
   event,
@@ -13,6 +14,7 @@ export const publishEditedMessage = ({
   tags = [],
   relays,
   url,
+  repoAddress,
   delay,
 }: {
   event: TrustedEvent
@@ -20,13 +22,17 @@ export const publishEditedMessage = ({
   tags?: string[][]
   relays: string[]
   url?: string
+  repoAddress?: string
   delay?: number
 }) => {
+  const publishRelays = repoAddress
+    ? requireRepoPublicationScope({event, relays, repoAddress})
+    : relays
   suppressEventAfterEdit(event)
-  publishSocialDelete({url, relays, event})
+  publishSocialDelete({url, relays: publishRelays, event, repoAddress})
 
   return publishThunk({
-    relays,
+    relays: publishRelays,
     event: makeEvent(MESSAGE, makeEditedMessageTemplate(event, {content, tags})),
     delay,
   })
@@ -38,18 +44,23 @@ export const publishEditedReply = ({
   tags = [],
   relays,
   url,
+  repoAddress,
 }: {
   event: TrustedEvent
   content: string
   tags?: string[][]
   relays: string[]
   url?: string
+  repoAddress?: string
 }) => {
+  const publishRelays = repoAddress
+    ? requireRepoPublicationScope({event, relays, repoAddress})
+    : relays
   suppressEventAfterEdit(event)
-  publishSocialDelete({url, relays, event})
+  publishSocialDelete({url, relays: publishRelays, event, repoAddress})
 
   return publishThunk({
-    relays,
+    relays: publishRelays,
     event: makeEvent(COMMENT, makeEditedReplyTemplate(event, {content, tags})),
   })
 }

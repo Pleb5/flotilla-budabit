@@ -19,6 +19,7 @@ type ZapRelayOptions = {
   relayHints?: string[]
   scopeH?: string
   fallbackRelays?: string[]
+  strict?: boolean
 }
 
 type ZapRequestOptions = ZapRelayOptions & {
@@ -72,11 +73,12 @@ export const getZapRelays = ({
   relayHints = [],
   scopeH = "",
   fallbackRelays = GIT_RELAYS,
+  strict = false,
 }: ZapRelayOptions) => {
   const scoped = Boolean(getZapScope({event, scopeH}))
   const normalizedRelayHints = normalizeRelayHints(relayHints)
 
-  if (scoped) return normalizedRelayHints
+  if (strict || scoped) return normalizedRelayHints
 
   const authorReceiptRelays = getAuthorZapReceiptRelays(event.pubkey)
 
@@ -103,10 +105,11 @@ export const makeZapRequestForEvent = ({
   relayHints = [],
   scopeH = "",
   fallbackRelays,
+  strict = false,
 }: ZapRequestOptions) => {
   const relays = explicitRelays
     ? normalizeRelayHints(explicitRelays)
-    : getZapRelays({event, relayHints, scopeH, fallbackRelays})
+    : getZapRelays({event, relayHints, scopeH, fallbackRelays, strict})
   const tags = [
     ["relays", ...relays],
     ["amount", String(msats)],

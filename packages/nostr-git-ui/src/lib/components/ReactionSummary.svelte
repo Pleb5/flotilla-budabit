@@ -5,6 +5,8 @@
     createReaction?: (template: any) => unknown;
     url?: string;
     relays?: string[];
+    strictZapRelays?: boolean;
+    loadZapReceipts?: boolean;
     reactionClass?: string;
     noTooltip?: boolean;
     children?: any;

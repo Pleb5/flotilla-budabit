@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { canProceedImportStep2, getUnbackedGraspRelayUrls } from "./import-dialog-state.js";
 
 describe("import-dialog-state", () => {
+  it("keeps relay form state empty until a concrete selection is made", () => {
+    const source = readFileSync(
+      new URL("../components/git/ImportRepoDialog.svelte", import.meta.url),
+      "utf8"
+    );
+
+    expect(source).toContain("defaultRelays = []");
+    expect(source).toContain("let selectedRelays = $state<string[]>([...defaultRelays])");
+    expect(source).toContain("Select at least one repository or GRASP relay");
+    expect(source).not.toContain("DEFAULT_RELAYS.default");
+    expect(source).not.toContain("graspRelayUrls = [...urls]");
+  });
+
   it("allows step 2 when only a mandatory GRASP relay is present", () => {
     expect(
       canProceedImportStep2({

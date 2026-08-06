@@ -189,6 +189,7 @@
   const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
     Array.from(new Set(relays.map(normalizeRelay).filter(Boolean)))
 
+  const strictRepoRelays = $derived.by(() => normalizeUniqueRelays(repoRelays || []))
   const strictPrEditRelays = $derived.by(() => normalizeUniqueRelays(prEditRelays || []))
   const profileRelays = $derived.by(() =>
     repoClass.community?.relay ? normalizeUniqueRelays([repoClass.community.relay]) : [],
@@ -232,13 +233,10 @@
   })
   const commentRepoRefs = $derived.by(() => repoAddresses)
   const commentRelayHint = $derived.by(() => {
-    const sourceRelays = repoRelays?.length ? repoRelays : repoClass.relays || []
-    const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-    return relays[0] || undefined
+    return strictRepoRelays[0] || undefined
   })
   const getCommentShareRelays = (event: TrustedEvent) => {
-    const boundRelays = repoRelays?.length ? repoRelays : repoClass.relays || []
-    return boundRelays.length > 0 ? boundRelays : getSeenEventRelayHints(event.id)
+    return strictRepoRelays.length > 0 ? strictRepoRelays : getSeenEventRelayHints(event.id)
   }
   const prRepoAddress = $derived.by(
     () =>
@@ -280,7 +278,7 @@
     () =>
       ({
         maintainers: repoMaintainers,
-        relays: repoClass.relays || repoRelays || [],
+        relays: strictRepoRelays,
         repoEvent: (repoClass as any).repoEvent,
         owner: repoOwnerPubkey,
         getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
@@ -381,7 +379,7 @@
   const prThreadComments = $derived.by(() => {
     if (!prEvent) return undefined
     const filters = prThreadCommentFilters
-    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = strictRepoRelays
     load({relays: relays as string[], filters})
     return deriveEventsAsc(deriveEventsById({repository, filters}))
   })
@@ -2228,13 +2226,14 @@
   const handlePrDiffCommentSubmit = (comment: any) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     try {
-      postComment(comment, relays)
+      postComment(comment, relays, prRepoAddress)
     } catch (e) {
       toast.push({
         message: "Failed to start sending comment",
         timeout: 3000,
         variant: "destructive",
       })
+      throw e
     }
   }
 
@@ -2491,7 +2490,7 @@
         id: "",
         sig: "",
       }
-      publishEvent(event as any, repoRelays || [])
+      publishEvent(event as any, strictRepoRelays, prRepoAddress)
       showUpdatePrForm = false
       updatePrPreview = null
       updatePrSourceBranch = ""
@@ -2556,7 +2555,7 @@
         content: nextDescription,
         tags: nextTags as CoverLetterTag[],
       })
-      publishThunk({event: coverLetterEvent as any, relays})
+      publishEvent(coverLetterEvent as any, relays, prRepoAddress)
       await load({relays, filters: [getPrCoverLetterFilter()]})
       descriptionDraft = nextDescription
       editingDescription = false
@@ -2572,15 +2571,12 @@
     }
   }
 
-  const getCommentPublishRelays = () =>
-    (repoRelays?.length ? repoRelays : repoClass.relays || [])
-      .map((u: string) => normalizeRelayUrl(u))
-      .filter(Boolean)
+  const getCommentPublishRelays = () => [...strictRepoRelays]
 
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = getCommentPublishRelays()
     try {
-      await postComment(comment, relays)
+      await postComment(comment, relays, prRepoAddress)
     } catch (error) {
       toast.push({
         message: "Failed to start sending comment",
@@ -2601,6 +2597,7 @@
       tags,
       relays,
       url: relays[0],
+      repoAddress: prRepoAddress,
     })
   }
 
@@ -2608,7 +2605,7 @@
     const relays = getCommentPublishRelays()
     if (relays.length === 0) return
 
-    publishDelete({event: event as unknown as TrustedEvent, relays})
+    publishDelete({event: event as unknown as TrustedEvent, relays, repoAddress: prRepoAddress})
   }
 
   const createCommentReaction = async (comment: CommentEvent, template: EventContent) => {
@@ -2619,6 +2616,7 @@
       ...template,
       event: comment as unknown as TrustedEvent,
       relays,
+      repoAddress: prRepoAddress,
     })
   }
 
@@ -2638,10 +2636,7 @@
       ...statusEvent,
       tags,
     }
-    const relays = (repoClass.relays || repoRelays || [])
-      .map((u: string) => normalizeRelayUrl(u))
-      .filter(Boolean)
-    return postStatus(statusWithRecipients as any, relays)
+    return postStatus(statusWithRecipients as any, strictRepoRelays, prRepoAddress)
   }
 
   // PR merge state
@@ -2785,6 +2780,10 @@
   const publishMergeStateToRelay = async (remoteUrl: string, branch: string, commitSha: string) => {
     const remote = new URL(remoteUrl)
     const relayUrl = `${remote.protocol === "http:" ? "ws" : "wss"}://${remote.host}`
+    const normalizedRelayUrl = normalizeRelay(relayUrl)
+    if (!strictRepoRelays.includes(normalizedRelayUrl)) {
+      throw new Error("The selected GRASP relay is not declared by this repository announcement.")
+    }
 
     const fetchRelayEvents = async (params: {
       relays: string[]
@@ -2800,8 +2799,13 @@
       })
 
     const publishRepoState = async (event: any, context?: {relays: string[]}) => {
-      const publishRelays = context?.relays?.length ? context.relays : [relayUrl]
-      return publishRepoEventWithRelayOutcomes(event, publishRelays)
+      const requestedRelays = context?.relays?.length ? context.relays : [normalizedRelayUrl]
+      const publishRelays = normalizeUniqueRelays(requestedRelays).filter(relay =>
+        strictRepoRelays.includes(relay),
+      )
+      return publishRepoEventWithRelayOutcomes(event, publishRelays, {
+        repoAddress: prRepoAddress,
+      })
     }
 
     const publishedState = await publishGraspRepoStateForPush({
@@ -3122,11 +3126,11 @@
         rootId: prEvent.id,
         recipients,
         repoAddr: repoAddress,
-        relays: repoClass.relays || repoRelays || [],
+        relays: strictRepoRelays,
         appliedCommits,
         mergedCommit: mergeCommitOid,
       })
-      postStatus(statusEvent as any, repoClass.relays || repoRelays || [])
+      postStatus(statusEvent as any, strictRepoRelays, repoAddress)
     } catch (error) {
       console.error("[emitPRAppliedStatus] Failed to publish status event:", error)
       toast.push({
@@ -3259,6 +3263,8 @@
               event={prEvent as any}
               url={commentRelayHint || repoRelays[0] || ""}
               relays={repoRelays}
+              repoAddress={prRepoAddress}
+              strictZapRelays={true}
               noun="pull request"
               ownerPubkey={repoOwnerPubkey}
               zapScopeH={repoCommunityScope}
@@ -3320,7 +3326,7 @@
           <Markdown
             content={prDescription || ""}
             event={prDescriptionEvent as any}
-            relays={repoRelays}
+            relays={strictRepoRelays}
             variant="body" />
           {#if canEditPrDescription}
             <button
@@ -4377,7 +4383,7 @@
             {canEditComment}
             onCommentEdited={$pubkey ? onCommentEdited : undefined}
             onLoginRequired={requireLogin}
-            relays={repoRelays?.length ? repoRelays : repoClass.relays || []}
+            relays={strictRepoRelays}
             {profileRelays}
             repoAddress={repoClass.address || ""}
             rootEvent={prEvent}

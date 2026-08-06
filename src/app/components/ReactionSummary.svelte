@@ -36,6 +36,8 @@
     relays?: string[]
     scopeH?: string
     zapScopeH?: string
+    strictZapRelays?: boolean
+    loadZapReceipts?: boolean
     reactionClass?: string
     noTooltip?: boolean
     readOnly?: boolean
@@ -51,6 +53,8 @@
     relays = [],
     scopeH = "",
     zapScopeH = "",
+    strictZapRelays = false,
+    loadZapReceipts = true,
     reactionClass = "",
     noTooltip = false,
     readOnly = false,
@@ -190,7 +194,7 @@
   })
 
   const zapLoadRelays = $derived.by(() =>
-    getZapRelays({event, relayHints: relays, scopeH: effectiveZapScopeH}),
+    getZapRelays({event, relayHints: relays, scopeH: effectiveZapScopeH, strict: strictZapRelays}),
   )
   const zapLoadFilters = $derived.by(() => getZapReceiptFilters({event}))
 
@@ -217,7 +221,7 @@
       })
     }
 
-    if (zapLoadRelays.length > 0 && zapLoadFilters.length > 0) {
+    if (loadZapReceipts && zapLoadRelays.length > 0 && zapLoadFilters.length > 0) {
       load({
         relays: zapLoadRelays,
         signal: controller.signal,

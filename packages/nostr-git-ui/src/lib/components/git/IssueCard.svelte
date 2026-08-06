@@ -65,7 +65,7 @@
     getShareRelays,
   }: Props = $props();
 
-  // Get relay URL from relays prop or repo relays or use a default
+  // Repository interactions fail closed when the caller has no authoritative relay.
   const relayUrl = $derived.by(() => {
     if (relays && relays.length > 0) {
       return relays[0];
@@ -73,8 +73,7 @@
     if (repo?.relays && repo.relays.length > 0) {
       return repo.relays[0];
     }
-    // Fallback to a default relay if no relays available
-    return "wss://relay.budabit.club/";
+    return "";
   });
 
   const commentRelays = $derived.by(() => {
@@ -290,6 +289,9 @@
         <ReactionSummary
           event={event}
           url={relayUrl}
+          relays={commentRelays}
+          strictZapRelays={true}
+          loadZapReceipts={false}
           reactionClass="tooltip-left"
           deleteReaction={onDeleteReaction || (() => {})}
           createReaction={onCreateReaction || (() => {})}
@@ -301,6 +303,8 @@
           url={relayUrl}
           noun="issue"
           relays={commentRelays}
+          repoAddress={repoAddress}
+          strictZapRelays={true}
           ownerPubkey={repoOwnerPubkey}
           customActions={undefined}
         />

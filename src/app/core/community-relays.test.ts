@@ -163,10 +163,15 @@ describe("community relay policies", () => {
       getScopedCommunityPublishRelays(
         [communityPubkey],
         [
-          {communityPubkey, relayHints: ["wss://community.example", "wss://shared.example"]},
+          {
+            communityPubkey,
+            relayHints: ["wss://route-hint.example"],
+            definition: {relays: ["wss://community.example", "wss://shared.example"]},
+          },
           {
             communityPubkey: otherCommunityPubkey,
             relayHints: ["wss://other.example", "wss://shared.example"],
+            definition: {relays: ["wss://other.example", "wss://shared.example"]},
           },
         ],
       ),

@@ -16,9 +16,10 @@
   type Props = {
     event: TrustedEvent
     relays?: string[]
+    repoAddress?: string
   }
 
-  const {event, relays = []}: Props = $props()
+  const {event, relays = [], repoAddress = ""}: Props = $props()
 
   const back = () => history.back()
 
@@ -43,6 +44,7 @@
         reason: reason.toLowerCase(),
         content,
         relays: publishRelays,
+        repoAddress: repoAddress || undefined,
       })
       history.back()
       return pushToast({message: "Your report has been sent!"})

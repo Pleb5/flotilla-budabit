@@ -23,9 +23,10 @@
     event: TrustedEvent
     relayHints?: string[]
     scopeH?: string
+    strict?: boolean
   }
 
-  const {event, relayHints = [], scopeH = ""}: Props = $props()
+  const {event, relayHints = [], scopeH = "", strict = false}: Props = $props()
 
   const minPos = 1
   const maxPos = 1000
@@ -122,7 +123,7 @@
     try {
       const zapper = $zapperStore!
       const msats = amount * 1000
-      const relays = getZapRelays({event, relayHints, scopeH})
+      const relays = getZapRelays({event, relayHints, scopeH, strict})
 
       if (relays.length === 0) {
         throw new Error("No relay hints available for the zap receipt")
@@ -130,7 +131,7 @@
 
       const filters = getRecentZapReceiptFilters({zapper, event})
       const zapRequest = await $signer!.sign(
-        makeZapRequestForEvent({event, content, msats, relays, scopeH, zapper}),
+        makeZapRequestForEvent({event, content, msats, relays, scopeH, zapper, strict}),
       )
       const res = await requestZap({zapper, event: zapRequest})
 

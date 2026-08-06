@@ -48,6 +48,7 @@
     publishRepoEventWithRelayOutcomes,
     type RepoPublishTransport,
   } from "@app/core/git-commands"
+  import {getDeclaredRepoRelays, getRepoPublicationAddress} from "@app/core/repo-publication"
   import {goto} from "$app/navigation"
   import {onMount, onDestroy, tick, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
@@ -2985,7 +2986,7 @@
       .map(item => item.pubkey)
   }
 
-  const defaultRepoRelays = $state<string[]>([...GIT_RELAYS])
+  const defaultRepoRelays = $state<string[]>([])
 
   const getUserOutboxRelays = (): string[] => {
     try {
@@ -3021,11 +3022,15 @@
   }
 
   const deleteExactRepoEvent = async (event: NostrEvent, relayUrls: string[]) => {
-    const relays = Array.from(new Set(relayUrls.map(relay => normalizeRelayUrl(relay))))
+    const repoAddress = getRepoPublicationAddress(event)
+    const targetRelays =
+      event.kind === GIT_REPO_ANNOUNCEMENT ? getDeclaredRepoRelays(event) : relayUrls
+    const relays = Array.from(new Set(targetRelays.map(relay => normalizeRelayUrl(relay))))
     if (relays.length === 0) throw new Error("Exact event deletion requires relay destinations")
     const result = await publishRepoEventWithRelayOutcomes(
       makeExactEventDelete({event: event as any}) as any,
       relays,
+      {repoAddress},
     )
     if (result.successCount !== relays.length) {
       throw new Error(`Exact event deletion failed on: ${result.failedRelays.join(", ")}`)

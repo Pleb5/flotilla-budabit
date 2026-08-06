@@ -196,20 +196,6 @@
     graspServerOptions = urls;
   });
 
-  $effect(() => {
-    // Pre-populate GRASP relay URLs from the user's saved GRASP relay set
-    void selectedProviders;
-    void graspServerOptions;
-    if (
-      selectedProviders.includes("grasp") &&
-      graspRelayUrls.length === 0 &&
-      graspServerOptions.length > 0
-    ) {
-      graspRelayUrls = [...graspServerOptions];
-      syncGraspRelaysToPreferredRelays(graspServerOptions);
-    }
-  });
-
   // Repository name availability tracking
   let nameAvailabilityResults = $state<{
     results: Array<{
@@ -319,6 +305,11 @@
       : unbackedGraspRelays.length > 0
         ? formatUnbackedGraspRelayError(unbackedGraspRelays)
         : ""
+  );
+  const relaySelectionError = $derived.by(() =>
+    getEffectiveRepoRelays().length === 0
+      ? "Select at least one repository or GRASP relay before creating the repository."
+      : relayCouplingError
   );
 
   $effect(() => {
@@ -730,8 +721,7 @@
     if (availabilityBlocksCreation(availability)) return;
 
     const relayCount = getEffectiveRepoRelays().length;
-    if (relayCount === 0) return;
-    if (relayCouplingError) return;
+    if (relayCount === 0 || relaySelectionError) return;
 
     const providerDefaults = getProviderUrlDefaults(repoDetails.name.trim());
     const cloneProviderOrder = getCloneProviderOrder(providerDefaults);
@@ -1029,7 +1019,7 @@
             maintainers={advancedSettings.maintainers}
             relays={advancedSettings.relays}
             mandatoryRelays={mandatoryGraspRelays}
-            relayError={relayCouplingError}
+            relayError={relaySelectionError}
             tags={advancedSettings.tags}
             webUrls={advancedSettings.webUrls}
             cloneUrls={advancedSettings.cloneUrls}
@@ -1092,7 +1082,7 @@
                   availabilityBlocksCreation(nameAvailabilityResults))) ||
               (currentStep === 3 &&
                 (getEffectiveRepoRelays().length === 0 ||
-                  Boolean(relayCouplingError) ||
+                  Boolean(relaySelectionError) ||
                   isCheckingAvailability ||
                   availabilityBlocksCreation(nameAvailabilityResults)))}
             variant="git"

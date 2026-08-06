@@ -9,6 +9,7 @@ import type {ActiveUserCommunityRef} from "@app/core/community-membership"
 export type CommunityRelayRef = {
   communityPubkey: string
   relayHints: string[]
+  definition?: Pick<CommunityDefinition, "relays">
 }
 
 export const getPubkeyOutboxRelays = (pubkey: string | undefined) => {
@@ -118,7 +119,7 @@ export const getScopedCommunityPublishRelays = (
 
   return normalizeRelays(
     communityRefs.flatMap(ref =>
-      scopedPubkeys.has(normalizePubkey(ref.communityPubkey)) ? ref.relayHints : [],
+      scopedPubkeys.has(normalizePubkey(ref.communityPubkey)) ? ref.definition?.relays || [] : [],
     ),
   )
 }

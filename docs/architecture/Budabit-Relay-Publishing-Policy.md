@@ -14,7 +14,7 @@ This document defines where Budabit should publish events. It separates personal
 | Do not treat event provenance as author routing | `tracker.getRelays(eventId)` identifies relays where that exact event was seen. It is not the author's outbox relay list. | Prevents fetching or publishing profile data to unrelated event-source relays. |
 | Prefer narrow scoped publication | Community-scoped events go to the scoped community relays, not every active community. Repo-scoped events go to repo relays, not every active community. | Limits data leakage and keeps relay load bounded. |
 | Community writes require a definition | Community-bound writes use only normalized relays declared by the loaded community definition. Route hints, discovery relays, event provenance, and runtime widget hints are never write fallbacks. | Bootstrap destinations are discovery inputs, not community publication authority. |
-| Empty scoped destinations fail closed | A scoped publish or explicit scoped delete with no valid relay must fail before creating a publish thunk. | Prevents router, tracker, URL, or library defaults from silently widening publication. |
+| Empty scoped destinations fail closed | A community or repository publish, sign, optimistic insert, scoped read-for-write, or explicit scoped delete with no valid authoritative relay must fail before side effects begin. | Prevents router, tracker, URL, or library defaults from silently widening publication. |
 
 ## Relay Sets
 
@@ -110,21 +110,25 @@ Repository-related publishing is mostly repo-relay scoped. The exception is repo
 
 | Event | Kind | Publish relays | Why |
 |---|---:|---|---|
-| Repo announcement | `30617` | Git indexer relays, user outbox relays, user GRASP relays, and repo relays when available. If the announcement is h-tagged with a community pubkey, also publish to that community's relays only. | Repo announcements are discovery records. Community-tagged repo announcements should be discoverable in that community, but not broadcast to all active communities. |
-| Repo state | `30618` | Repo relays and GRASP-backed repo targets. | State belongs to the repo infrastructure. |
+| Repo announcement | `30617` | At least one valid relay declared by the announcement is required first. After that circuit breaker passes, Git indexers, user outbox relays, explicit GRASP targets, and explicitly targeted accepted community relays may be added. | Repo announcements are the only broad repository discovery records. |
+| Repo state | `30618` | Relays declared by the authoritative repo announcement, including declared GRASP relays. | State belongs to the repo infrastructure. |
 | Git issue | `1621` | Repo relays. | Issue collaboration is repo-scoped. |
 | Git pull request | `1618` | Repo relays. | PR collaboration is repo-scoped. |
 | Pull request update | `1619` | Repo relays. | Updates belong with the PR and repo. |
 | Git status | `1630`-`1633` | Repo relays. | Statuses are repo/issue/PR state. |
 | Git cover letter | `1624` | Repo relays. | Body updates are repo-scoped. |
-| Git inline/file comment | `1111` | Repo relays and explicit reply relay hints when available. | Code discussion should stay with the repo context. |
+| Git inline/file comment | `1111` | Repo relays. | Code discussion should stay with the repo context; reply, author, and provenance hints do not widen writes. |
 | Git label | `1985` | Repo relays. | Labels are repo/issue/PR metadata. |
 | Role label | `1985` | Repo relays. | Assignee/reviewer state is repo-scoped. |
-| Repo delete/moderation marker | `5` or relevant marker kind | Same relays as the event being deleted or moderated. | Delete visibility should match original event visibility. |
+| Repo delete/moderation marker | `5` or relevant marker kind | Authoritative repo relays. | Deletes, reports, reactions, and related activity share the repository circuit breaker. |
 | Git permalink | `1623` | Repo relays, and scoped community relays when explicitly community-targeted. | Permalinks are repo-scoped, with optional explicit community targeting. |
 | Targeted publication association | `30222` | Scoped target community relays. | The association belongs to the explicitly targeted community. |
 
 For h-tagged community repo announcements, the community relay set must come from the h-tagged community definition. Do not use all active community relays for repo announcements unless all of those communities are explicitly targeted.
+
+All repository publication helpers normalize and require a nonempty authoritative relay set before signing, creating a publish thunk, inserting an optimistic event, or starting publication-related network work. Repository coordinates carried by `a`, `A`, `q`, and `repo` tags must agree with each other and with the active repository address. Repository creation and import forms start without package or Git-indexer relay defaults; an explicit repository or GRASP relay selection is required, and validation failures leave entered form data in place.
+
+Repository zaps and receipt reads use only the authoritative repo relays supplied by the repository route. Author inbox, author read, event provenance, Git defaults, and generic fallback relays are not added. Community-targeted permalinks may add accepted target-community relays only after the repository relay circuit breaker succeeds.
 
 Repository announcement discovery and repository activity loading are separate phases. Git discovery relays, user outbox relays, GRASP discovery, route and `naddr` hints, event provenance, and defaults may be used to fetch the matching `kind:30617` announcement only. They must not receive `kind:30618` state or repository activity filters unless the accepted announcement itself declares them. Owned-repository state reads are partitioned by announcement so one repository's state filter is never sent to another repository's relays.
 

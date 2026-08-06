@@ -7,9 +7,10 @@
   type Props = {
     event: TrustedEvent
     relays?: string[]
+    repoAddress?: string
   }
 
-  const {event, relays = []}: Props = $props()
+  const {event, relays = [], repoAddress = ""}: Props = $props()
 
   const startDelete = ({
     signal,
@@ -17,7 +18,14 @@
   }: {
     signal: AbortSignal
     onProgress: (progress: any) => void
-  }) => deleteIssueWithLabels({issue: event, relays, signal, onProgress})
+  }) =>
+    deleteIssueWithLabels({
+      issue: event,
+      relays,
+      repoAddress: repoAddress || undefined,
+      signal,
+      onProgress,
+    })
 
   const onSuccess = (result: unknown) => {
     const {labelsDeleted = 0} = (result || {}) as {labelsDeleted?: number}

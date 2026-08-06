@@ -51,9 +51,11 @@
     createRepoPublishTransport,
     postRepoAnnouncement,
     postRepoStateEvent,
+    publishEvent,
     publishRepoEventWithRelayOutcomes,
     type RepoPublishTransport,
   } from "@app/core/git-commands.js"
+  import {getDeclaredRepoRelays, getRepoPublicationAddress} from "@app/core/repo-publication"
   import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   import type {NostrFilter, NostrEvent} from "@nostr-git/core"
@@ -182,7 +184,7 @@
     getRepoBookmarkAddressSet,
     isAnyBookmarked,
   } from "@app/util/bookmarks"
-  import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {activeRepoStars, hydrateRepoStars} from "@app/core/repo-stars-state"
   import {
     activeCommunitySession,
     activeUserCommunityRefs,
@@ -949,7 +951,11 @@
               head: repo.headBranch,
               refs: repo.refs,
             })
-            const thunk = publishThunk({event: stateEvent, relays: targetRelays})
+            const thunk = postRepoStateEvent(
+              stateEvent,
+              targetRelays,
+              `${GIT_REPO_ANNOUNCEMENT}:${$pubkey}:${repo.repoId}`,
+            )
             if (thunk?.complete) {
               await thunk.complete
             }
@@ -2903,12 +2909,12 @@
     repoRelays: string[]
     createdAt: number
   }) => {
-    const relays = getRepoStarRelays([relayHint, ...repoRelays])
+    const relays = normalizeScopeValues(repoRelays)
     const starEvent = {
       ...makeRepoStarReaction({event, address, relayHints: [relayHint]}),
       created_at: createdAt,
     }
-    const thunk = publishThunk({event: starEvent, relays})
+    const thunk = publishEvent(starEvent as any, relays, address)
     if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
     return thunk as PublishThunkResult | undefined
   }
@@ -2929,17 +2935,19 @@
     createdAt: number
   }) => {
     const targetingId = randomId()
-    const relays = getRepoStarRelays([
-      relayHint,
+    const relays = normalizeScopeValues(repoRelays)
+    const communityRelays = normalizeScopeValues([
       community.relay || "",
       ...(community.relays || []),
-      ...repoRelays,
     ])
+    if (communityRelays.length === 0) {
+      throw new Error("Selected community must declare at least one relay.")
+    }
     const starEvent = withPublicationTargetingId(
       {...makeRepoStarReaction({event, address, relayHints: [relayHint]}), created_at: createdAt},
       targetingId,
     )
-    const starThunk = publishThunk({event: starEvent, relays})
+    const starThunk = publishEvent(starEvent as any, relays, address)
     if (starThunk?.event) repository.publish(starThunk.event as TrustedEvent)
 
     const targetingEvent = makeEvent(TARGETED_PUBLICATION_KIND, {
@@ -2951,7 +2959,7 @@
       }),
       created_at: createdAt + 1,
     })
-    const targetingThunk = publishThunk({event: targetingEvent, relays})
+    const targetingThunk = publishThunk({event: targetingEvent, relays: communityRelays})
     if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
     return [starThunk, targetingThunk] as Array<PublishThunkResult | undefined>
   }
@@ -2997,14 +3005,11 @@
           }> = []
 
           if (existingPersonalStar && !personal) {
-            const relaysToPublish = getRepoStarRelays([
-              relayHint,
-              ...(existingPersonalStar.relayHints || []),
-              ...repoRelays,
-            ])
+            const relaysToPublish = normalizeScopeValues(repoRelays)
             const thunk = publishDelete({
               event: existingPersonalStar.reaction,
               relays: relaysToPublish,
+              repoAddress: address,
             })
             if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
             actions.push({
@@ -3492,7 +3497,11 @@
 
     const thunk =
       event.kind === GIT_REPO_STATE
-        ? postRepoStateEvent(event as RepoStateEvent, policy.repoRelays)
+        ? postRepoStateEvent(
+            event as RepoStateEvent,
+            policy.repoRelays,
+            `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`,
+          )
         : postRepoAnnouncement(event as RepoAnnouncementEvent, policy.repoRelays)
 
     await awaitPublishThunk(thunk, options)
@@ -3567,11 +3576,15 @@
   }
 
   const deleteExactRepoEvent = async (event: NostrEvent, relayUrls: string[]) => {
-    const relays = Array.from(new Set(relayUrls.map(safeNormalizeRelayUrl).filter(Boolean)))
+    const repoAddress = getRepoPublicationAddress(event)
+    const targetRelays =
+      event.kind === GIT_REPO_ANNOUNCEMENT ? getDeclaredRepoRelays(event) : relayUrls
+    const relays = Array.from(new Set(targetRelays.map(safeNormalizeRelayUrl).filter(Boolean)))
     if (relays.length === 0) throw new Error("Exact event deletion requires relay destinations")
     const result = await publishRepoEventWithRelayOutcomes(
       makeExactEventDelete({event: event as TrustedEvent}) as any,
       relays,
+      {repoAddress},
     )
     if (result.successCount !== relays.length) {
       throw new Error(`Exact event deletion failed on: ${result.failedRelays.join(", ")}`)

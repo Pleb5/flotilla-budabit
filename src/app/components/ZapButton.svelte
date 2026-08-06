@@ -13,6 +13,7 @@
     children: Snippet
     relayHints?: string[]
     scopeH?: string
+    strict?: boolean
     replaceState?: boolean
     class?: string
   }
@@ -22,6 +23,7 @@
     children,
     relayHints = [],
     scopeH = "",
+    strict = false,
     replaceState,
     ...props
   }: Props = $props()
@@ -35,7 +37,7 @@
       if (!zapper?.allowsNostr) {
         pushModal(InfoZapperError, {pubkey: event.pubkey}, {replaceState})
       } else if ($session?.wallet) {
-        pushModal(Zap, {event, relayHints, scopeH}, {replaceState})
+        pushModal(Zap, {event, relayHints, scopeH, strict}, {replaceState})
       } else {
         pushModal(WalletConnect, {}, {replaceState})
       }

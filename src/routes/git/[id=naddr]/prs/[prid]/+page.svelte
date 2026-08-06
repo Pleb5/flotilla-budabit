@@ -20,7 +20,6 @@
     REPO_RELAYS_KEY,
     PULL_REQUESTS_KEY,
     HIDDEN_ROOT_IDS_KEY,
-    getRepoScopedRelays,
   } from "@app/core/git-state"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -40,7 +39,7 @@
   const pullRequests = $derived.by(
     () => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[],
   )
-  const prEditRelays = $derived.by(() => getRepoScopedRelays(repoClass.repoEvent as any))
+  const prEditRelays = $derived(repoRelays)
   const LOAD_TIMEOUT_MS = 7000
   const SCROLL_TO_TOP_THRESHOLD = 300
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})

@@ -28,7 +28,6 @@
   import { graspServersStore, normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import {
     parseRepoUrl,
-    DEFAULT_RELAYS,
     checkRepoOwnership,
     getGitServiceApiFromUrl,
   } from "@nostr-git/core";
@@ -129,7 +128,7 @@
     onImportComplete,
     onNavigateToRepo,
     onAbortImport,
-    defaultRelays = DEFAULT_RELAYS.default.slice(0, 2),
+    defaultRelays = [],
     searchRelays,
     communityOptions = [],
     defaultCommunityPubkey = "",
@@ -249,9 +248,6 @@
 
   graspServersStore.subscribe((urls) => {
     graspServerOptions = urls;
-    if (graspRelayUrls.length === 0 && urls.length > 0) {
-      graspRelayUrls = [...urls];
-    }
   });
 
   async function waitForTokens(): Promise<Token[]> {
@@ -1105,7 +1101,8 @@
 
     // Validate relays
     if (effectiveSelectedRelays.length === 0) {
-      validationError = "At least one relay is required";
+      validationError =
+        "Select at least one repository or GRASP relay before starting the import.";
       return;
     }
 

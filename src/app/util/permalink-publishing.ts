@@ -9,6 +9,7 @@ import {
   makeTargetedPublicationForCommunity,
   withPublicationTargetingId,
 } from "@app/core/community-targeting"
+import {requireRepoPublicationScope} from "@app/core/repo-publication"
 
 export type PublicationDestinationSelection = {
   personal: boolean
@@ -65,15 +66,17 @@ export const publishPermalinkToDestinations = ({
   relays,
   communityOptions,
   selection,
+  repoAddress,
   createdAt = Math.floor(Date.now() / 1000),
 }: {
   permalink: PermalinkEvent
   relays: string[]
   communityOptions: RepoCommunityOption[]
   selection: PublicationDestinationSelection
+  repoAddress?: string
   createdAt?: number
 }): PublishedPermalink | undefined => {
-  const baseRelays = normalizeRelays(relays)
+  const baseRelays = requireRepoPublicationScope({event: permalink, relays, repoAddress})
   let firstPublished: PublishedPermalink | undefined
 
   if (selection.personal) {

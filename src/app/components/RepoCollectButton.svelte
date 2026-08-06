@@ -8,7 +8,10 @@
     return ids.length ? [{kinds: [DELETE], "#e": ids, limit: ids.length}] : []
   }
 
-  const getDeletedTargetEventIds = (targetEvents: ModuleTrustedEvent[], deleteEvents: ModuleTrustedEvent[]) => {
+  const getDeletedTargetEventIds = (
+    targetEvents: ModuleTrustedEvent[],
+    deleteEvents: ModuleTrustedEvent[],
+  ) => {
     const targetsById = new Map(targetEvents.map(event => [event.id, event]))
     const deletedIds = new Set<string>()
 
@@ -50,20 +53,21 @@
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import {publishDelete} from "@app/core/commands"
-  import {
-    activeUserCommunityRefs,
-    hydratePreferredCommunities,
-  } from "@app/core/community-state"
+  import {activeUserCommunityRefs, hydratePreferredCommunities} from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND, parseTargetedPublication} from "@app/core/community"
-  import {COMMUNITY_WRITE_TARGETS, communityWritableSectionsSupportTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    communityWritableSectionsSupportTarget,
+  } from "@app/core/community-permissions"
   import {makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
     getPublicationTargetingId,
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
-  import {GIT_RELAYS} from "@app/core/git-state"
-  import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {GIT_RELAYS, getRepoScopedRelays} from "@app/core/git-state"
+  import {publishEvent} from "@app/core/git-commands"
+  import {activeRepoStars, hydrateRepoStars} from "@app/core/repo-stars-state"
   import {
     getCanonicalRepoKeyFromEvent,
     getRepoAddressFromEvent,
@@ -103,7 +107,8 @@
     event,
     relayHint = "",
     relayHints = [],
-    class: className = "rounded-full border border-border bg-background/80 p-1.5 text-muted-foreground transition-colors hover:text-foreground",
+    class:
+      className = "rounded-full border border-border bg-background/80 p-1.5 text-muted-foreground transition-colors hover:text-foreground",
     iconClass = "h-4 w-4",
     disabled = false,
   }: Props = $props()
@@ -146,6 +151,7 @@
   const collectionRelays = $derived(
     normalizeRelays([eventRelayHint, ...relayHints, ...getUserOutboxRelays(), ...GIT_RELAYS]),
   )
+  const repoPublishRelays = $derived.by(() => getRepoScopedRelays(repoEvent))
   const candidateAddresses = $derived(new Set(repoAddress ? [repoAddress] : []))
   const candidateRepoKeys = $derived.by(() => {
     const key = getCanonicalRepoKeyFromEvent(repoEvent)
@@ -202,7 +208,9 @@
   })
   const userCommunityStarTargetEvents = $derived.by(() =>
     userCommunityStarTargetFilters.length
-      ? deriveEventsDesc(deriveEventsById({repository, filters: userCommunityStarTargetFilters as any}))
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: userCommunityStarTargetFilters as any}),
+        )
       : undefined,
   )
   const userCommunityStarTargetDeleteFilters = $derived.by(() =>
@@ -374,7 +382,7 @@
   }
 
   const publishPersonalRepoStar = ({createdAt}: {createdAt: number}) => {
-    const relays = getRepoStarRelays([eventRelayHint, ...collectionRelays])
+    const relays = normalizeRelays(repoPublishRelays)
     const starEvent = {
       ...makeRepoStarReaction({
         event: repoEvent,
@@ -383,7 +391,7 @@
       }),
       created_at: createdAt,
     }
-    const thunk = publishThunk({event: starEvent, relays})
+    const thunk = publishEvent(starEvent as any, relays, repoAddress)
 
     if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
 
@@ -399,11 +407,7 @@
   }) => {
     const targetingId = randomId()
     const communityRelays = requireDeclaredCommunityRelays(community)
-    const relays = getRepoStarRelays([
-      eventRelayHint,
-      ...communityRelays,
-      ...collectionRelays,
-    ])
+    const relays = normalizeRelays(repoPublishRelays)
     const starEvent = withPublicationTargetingId(
       {
         ...makeRepoStarReaction({
@@ -415,7 +419,7 @@
       },
       targetingId,
     )
-    const starThunk = publishThunk({event: starEvent, relays})
+    const starThunk = publishEvent(starEvent as any, relays, repoAddress)
     if (starThunk?.event) repository.publish(starThunk.event as TrustedEvent)
 
     const targetingEvent = makeEvent(TARGETED_PUBLICATION_KIND, {
@@ -427,7 +431,7 @@
       }),
       created_at: createdAt + 1,
     })
-    const targetingThunk = publishThunk({event: targetingEvent, relays})
+    const targetingThunk = publishThunk({event: targetingEvent, relays: communityRelays})
     if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
 
     return [starThunk, targetingThunk] as Array<PublishThunkResult | undefined>
@@ -441,17 +445,14 @@
     community?: RepoCommunityOption
   }) => {
     const communityRelays = requireDeclaredCommunityRelays(community || collection.community)
-    const relays = getRepoStarRelays([
-      eventRelayHint,
-      collection.star.relayHint,
-      ...(collection.star.relayHints || []),
-      ...communityRelays,
-      ...collectionRelays,
-    ])
-    const targetDelete = publishDelete({event: collection.targetEvent, relays})
+    const relays = normalizeRelays(repoPublishRelays)
+    const targetDelete = publishDelete({
+      event: collection.targetEvent,
+      relays: communityRelays,
+    })
     if (targetDelete?.event) repository.publish(targetDelete.event as TrustedEvent)
 
-    const starDelete = publishDelete({event: collection.star.reaction, relays})
+    const starDelete = publishDelete({event: collection.star.reaction, relays, repoAddress})
     if (starDelete?.event) repository.publish(starDelete.event as TrustedEvent)
 
     return [targetDelete, starDelete] as Array<PublishThunkResult | undefined>
@@ -520,12 +521,8 @@
           }> = []
 
           if (personalStar && !personal) {
-            const relays = getRepoStarRelays([
-              eventRelayHint,
-              ...(personalStar.relayHints || []),
-              ...collectionRelays,
-            ])
-            const thunk = publishDelete({event: personalStar.reaction, relays})
+            const relays = normalizeRelays(repoPublishRelays)
+            const thunk = publishDelete({event: personalStar.reaction, relays, repoAddress})
             if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
             actions.push({
               thunks: [thunk as PublishThunkResult | undefined],
@@ -553,7 +550,9 @@
           for (const [index, communityPubkey] of communityPubkeys.entries()) {
             if (existingCommunityByPubkey.has(communityPubkey)) continue
 
-            const community = repoStarCommunityOptions.find(option => option.pubkey === communityPubkey)
+            const community = repoStarCommunityOptions.find(
+              option => option.pubkey === communityPubkey,
+            )
             if (!community) continue
 
             actions.push({
@@ -585,7 +584,8 @@
         } catch (error) {
           console.error("[repo-collect] Failed to edit repository collections", error)
           pushToast({
-            message: error instanceof Error ? error.message : "Failed to edit repository collections",
+            message:
+              error instanceof Error ? error.message : "Failed to edit repository collections",
             theme: "error",
           })
         } finally {
@@ -611,11 +611,23 @@
     })
   })
 
-  $effect(() => loadFilters("community star targets", repoStarCommunityRelays, userCommunityStarTargetFilters))
   $effect(() =>
-    loadFilters("community star target deletes", repoStarCommunityRelays, userCommunityStarTargetDeleteFilters),
+    loadFilters("community star targets", repoStarCommunityRelays, userCommunityStarTargetFilters),
   )
-  $effect(() => loadFilters("community star reactions", repoStarCommunityRelays, userCommunityStarReactionFilters))
+  $effect(() =>
+    loadFilters(
+      "community star target deletes",
+      repoStarCommunityRelays,
+      userCommunityStarTargetDeleteFilters,
+    ),
+  )
+  $effect(() =>
+    loadFilters(
+      "community star reactions",
+      repoStarCommunityRelays,
+      userCommunityStarReactionFilters,
+    ),
+  )
 </script>
 
 <button
