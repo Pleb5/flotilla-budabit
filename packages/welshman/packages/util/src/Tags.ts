@@ -39,8 +39,16 @@ export const getTopicTags = (tags: string[][]) => tags.filter(nthEq(0, "t"))
 export const getTopicTagValues = (tags: string[][]) =>
   getTopicTags(tags).map(t => t[1].replace(/^#/, ""))
 
-export const getRelayTags = (tags: string[][]) =>
-  tags.filter(t => ["r", "relay"].includes(t[0]) && isRelayUrl(t[1] || ""))
+export const getRelayTags = (tags: unknown): string[][] =>
+  Array.isArray(tags)
+    ? tags.filter(
+        (tag): tag is string[] =>
+          Array.isArray(tag) &&
+          tag.every(value => typeof value === "string") &&
+          ["r", "relay"].includes(tag[0]) &&
+          isRelayUrl(tag[1]),
+      )
+    : []
 
 export const getRelayTagValues = (tags: string[][]) => getRelayTags(tags).map(nth(1))
 

@@ -1,5 +1,6 @@
 import {describe, it, vi, expect, beforeEach} from "vitest"
 import * as Tags from "../src/Tags"
+import {isRelayUrl} from "../src/Relay"
 
 describe("Tags", () => {
   beforeEach(() => {
@@ -115,6 +116,25 @@ describe("Tags", () => {
           "wss://relay.example.com",
           "wss://relay2.example.com",
         ])
+      })
+
+      it("should ignore malformed relay tags and non-string urls", () => {
+        const validTag = ["r", "wss://relay.example.com"]
+        const nonStringUrls = [null, undefined, 0, 6, false, {}, []]
+        const tags: unknown = [
+          null,
+          6,
+          "r",
+          {0: "r", 1: "wss://relay.example.com"},
+          ["r", 0],
+          ["relay", false],
+          ["r", "wss://relay.example.com", 1],
+          validTag,
+        ]
+
+        expect(Tags.getRelayTags(tags)).toEqual([validTag])
+        expect(Tags.getRelayTags(null)).toEqual([])
+        expect(nonStringUrls.every(url => !isRelayUrl(url))).toBe(true)
       })
     })
 

@@ -108,6 +108,17 @@ export const zapFromEvent = (response: TrustedEvent, zapper: Zapper | undefined)
     return undefined
   }
 
+  if (zap.request.kind !== ZAP_REQUEST || response.kind !== ZAP_RESPONSE) return undefined
+  const requestRecipients = zap.request.tags.filter(tag => tag[0] === "p" && tag[1])
+  const responseRecipients = response.tags.filter(tag => tag[0] === "p" && tag[1])
+  if (
+    requestRecipients.length !== 1 ||
+    responseRecipients.length !== 1 ||
+    requestRecipients[0][1] !== responseRecipients[0][1]
+  ) {
+    return undefined
+  }
+
   // Don't count zaps that the user requested for himself
   if (zap.request.pubkey === zapper?.pubkey) {
     return undefined
@@ -118,11 +129,6 @@ export const zapFromEvent = (response: TrustedEvent, zapper: Zapper | undefined)
   // Verify that the zapper actually sent the requested amount (if it was supplied)
   if (amount && parseInt(amount) !== zap.invoiceAmount) {
     return undefined
-  }
-
-  // If the recipient and the zapper are the same person, it's legit
-  if (responseMeta.p === response.pubkey) {
-    return zap
   }
 
   // If the sending client provided an lnurl tag, verify that too

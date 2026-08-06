@@ -36,14 +36,14 @@ export type RelayProfile = {
 
 export const LOCAL_RELAY_URL = "local://welshman.relay/"
 
-export const isRelayUrl = (url: string) => {
-  if (!url.includes("://")) {
-    url = "wss://" + url
-  }
+export const isRelayUrl = (url: unknown): url is string => {
+  if (typeof url !== "string") return false
+
+  const relayUrl = url.includes("://") ? url : "wss://" + url
 
   let parsed: URL
   try {
-    parsed = new URL(url)
+    parsed = new URL(relayUrl)
   } catch (e) {
     return false
   }

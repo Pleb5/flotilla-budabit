@@ -25,7 +25,11 @@ export const makeList = (list: ListParams & Partial<List>): List => ({
   ...list,
 })
 
-const isValidTag = (tag: string[]) => {
+const isValidTag = (tag: unknown): tag is string[] => {
+  if (!Array.isArray(tag) || tag.length === 0 || tag.some(value => typeof value !== "string")) {
+    return false
+  }
+
   if (tag[0] === "p") return tag[1]?.length === 64
   if (tag[0] === "e") return tag[1]?.length === 64
   if (tag[0] === "a") return Address.isAddress(tag[1] || "")
@@ -37,7 +41,8 @@ const isValidTag = (tag: string[]) => {
 }
 
 export const readList = (event: DecryptedEvent): PublishedList => {
-  const getTags = (tags: string[][]) => (Array.isArray(tags) ? tags.filter(isValidTag) : [])
+  const getTags = (tags: unknown): string[][] =>
+    Array.isArray(tags) ? tags.filter(isValidTag) : []
   const privateTags = getTags(parseJson(event.plaintext?.content) || [])
   const publicTags = getTags(event.tags)
 

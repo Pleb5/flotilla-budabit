@@ -143,6 +143,76 @@ describe("List", () => {
       const list = readList(event)
       expect(list.privateTags).toEqual([])
     })
+
+    it("should filter malformed tags while preserving valid unknown tags", () => {
+      const publicUnknown = ["unknown", "public"]
+      const privateUnknown = ["unknown", "private"]
+      const event = createDecryptedEvent({
+        tags: [
+          null,
+          6,
+          "r",
+          {},
+          [],
+          [6, "value"],
+          ["r", 0],
+          ["unknown", false],
+          publicUnknown,
+          ["r", "wss://public.example.com"],
+        ] as unknown as string[][],
+        plaintext: {
+          content: JSON.stringify([
+            null,
+            6,
+            "r",
+            {},
+            [],
+            [6, "value"],
+            ["relay", false],
+            ["unknown", 1],
+            privateUnknown,
+            ["relay", "wss://private.example.com"],
+          ]),
+        },
+      })
+
+      expect(readList(event)).toMatchObject({
+        publicTags: [publicUnknown, ["r", "wss://public.example.com"]],
+        privateTags: [privateUnknown, ["relay", "wss://private.example.com"]],
+      })
+    })
+
+    it("should not mutate signed event tags", () => {
+      const tags = [
+        ["unknown", "value"],
+        ["r", "WSS://Relay.Example.com"],
+        ["r", 0],
+      ] as unknown as string[][]
+      const event = createDecryptedEvent({tags})
+      const snapshot = JSON.parse(JSON.stringify(event))
+
+      tags.forEach(Object.freeze)
+      Object.freeze(tags)
+      Object.freeze(event.plaintext)
+      Object.freeze(event)
+
+      const list = readList(event)
+
+      expect(event).toEqual(snapshot)
+      expect(list.event).toBe(event)
+      expect(list.publicTags).toEqual([
+        ["unknown", "value"],
+        ["r", "WSS://Relay.Example.com"],
+      ])
+      expect(list.publicTags[0]).toBe(tags[0])
+      expect(list.publicTags[1]).toBe(tags[1])
+    })
+
+    it("should handle a non-array public tag value", () => {
+      const event = createDecryptedEvent({tags: null as unknown as string[][]})
+
+      expect(readList(event).publicTags).toEqual([])
+    })
   })
 
   describe("getListTags", () => {

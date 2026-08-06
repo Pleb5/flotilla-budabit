@@ -13,8 +13,7 @@
   import {installRelayRequestPolicy, relayPolicyRefreshPolicy} from "@app/core/relay-policy"
   import {installRelayDiagnostics} from "@app/core/relay-diagnostics"
   import {defaultSocketPolicies} from "@welshman/net"
-  import {pubkey, repository, sessions, signerLog, shouldUnwrap, userRelayList} from "@welshman/app"
-  import {normalizeRelayUrl, isRelayUrl} from "@welshman/util"
+  import {pubkey, sessions, signerLog, shouldUnwrap, userRelayList} from "@welshman/app"
   import {ConfigProvider} from "@nostr-git/ui"
   import AppContainer from "@app/components/AppContainer.svelte"
   import ModalContainer from "@app/components/ModalContainer.svelte"
@@ -1088,74 +1087,6 @@
     // making the whole application wait forever; the pending connection can
     // still initialize the adapters if the blocker later disappears.
     await db.connectWithTimeout()
-
-    // Sanitize malformed relay list events that are already in storage
-    // This fixes the "Invalid relay url 0/6/c" errors caused by malformed relay tags
-    const sanitizeRelayListEvent = (event: any) => {
-      // Only process relay list events (kind 10002 for relay lists, 10050 for messaging relays)
-      if (event.kind !== 10002 && event.kind !== 10050) return event
-
-      if (!event.tags || !Array.isArray(event.tags)) return event
-
-      let modified = false
-      // Filter and fix relay tags
-      const sanitizedTags = event.tags
-        .map((tag: any) => {
-          if (!Array.isArray(tag) || tag[0] !== "r") return tag
-
-          // Ensure the relay URL (tag[1]) is a valid string
-          if (typeof tag[1] !== "string" || tag[1].length === 0) {
-            console.warn("[+layout] Filtered invalid relay tag:", tag)
-            modified = true
-            return null
-          }
-
-          let normalized = ""
-          try {
-            normalized = normalizeRelayUrl(tag[1])
-          } catch {
-            normalized = ""
-          }
-
-          if (!normalized || !isRelayUrl(normalized)) {
-            console.warn("[+layout] Filtered invalid relay tag:", tag)
-            modified = true
-            return null
-          }
-
-          if (normalized !== tag[1]) {
-            modified = true
-            return [tag[0], normalized, ...tag.slice(2)]
-          }
-
-          return tag
-        })
-        .filter(Boolean)
-
-      if (modified) {
-        return {...event, tags: sanitizedTags}
-      }
-      return event
-    }
-
-    // Clean up malformed relay list events from the repository
-    const existingRelayLists = repository.query([{kinds: [10002, 10050]}])
-    for (const event of existingRelayLists) {
-      const sanitized = sanitizeRelayListEvent(event)
-      if (sanitized !== event) {
-        console.log("[+layout] Sanitizing relay list event:", event.id)
-        // Remove the old event and add the sanitized version
-        repository.removeEvent(event.id)
-        repository.publish(sanitized)
-      }
-    }
-
-    // Intercept events before they're stored in the repository
-    const originalPublish = repository.publish.bind(repository)
-    repository.publish = (event: any, options?: any) => {
-      const sanitized = sanitizeRelayListEvent(event)
-      return originalPublish(sanitized, options)
-    }
 
     // Close the database connection on reload
     unsubscribers.push(() => db.close())

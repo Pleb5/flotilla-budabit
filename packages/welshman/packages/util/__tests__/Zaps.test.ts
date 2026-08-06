@@ -186,14 +186,33 @@ describe("Zaps", () => {
       expect(result).toBeUndefined()
     })
 
-    it("should accept zap when recipient is zapper", () => {
+    it("should reject a receipt signer that is not the advertised zap service", () => {
       const request = createZapRequest()
       const response = createZapReceipt(request)
       response.pubkey = recipient // Recipient is zapper
 
       const result = zapFromEvent(response, validZapper)
 
-      expect(result).toBeTruthy()
+      expect(result).toBeUndefined()
+    })
+
+    it("should reject a receipt whose recipient differs from the request", () => {
+      const request = createZapRequest()
+      const response = createZapReceipt(request)
+      response.tags = response.tags.map(tag => (tag[0] === "p" ? ["p", "ab".repeat(32)] : tag))
+
+      expect(zapFromEvent(response, validZapper)).toBeUndefined()
+    })
+
+    it("should reject duplicate recipient tags and unexpected event kinds", () => {
+      const request = createZapRequest()
+      const response = createZapReceipt(request)
+
+      expect(
+        zapFromEvent({...response, tags: [...response.tags, ["p", recipient]]}, validZapper),
+      ).toBeUndefined()
+      expect(zapFromEvent({...response, kind: 1}, validZapper)).toBeUndefined()
+      expect(zapFromEvent(createZapReceipt({...request, kind: 1}), validZapper)).toBeUndefined()
     })
   })
 })
