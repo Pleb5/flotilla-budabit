@@ -8,17 +8,17 @@
 
   type Props = {
     event: TrustedEvent
-    url: string
+    relays?: string[]
   }
 
-  const {event, url}: Props = $props()
+  const {event, relays = []}: Props = $props()
   const meta = $derived(fromPairs(event.tags) as Record<string, string>)
 </script>
 
 <div class="flex min-w-0 flex-col gap-1 text-sm opacity-75">
   <span class="flex items-center gap-1">
     <Icon icon={UserCircle} size={4} />
-    Posted by <ProfileLink pubkey={event.pubkey} {url} />
+    Posted by <ProfileLink pubkey={event.pubkey} {relays} />
   </span>
   {#if meta.location}
     <span class="flex items-start gap-1">

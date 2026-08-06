@@ -64,7 +64,7 @@
       <div class="flex flex-col items-start gap-1 py-1 text-sm opacity-75">
         <span class="whitespace-nowrap">
           Posted by
-          <ProfileLink pubkey={event.pubkey} {url} />
+          <ProfileLink pubkey={event.pubkey} {relays} />
         </span>
         <span>{formatTimestamp(event.created_at)}</span>
       </div>

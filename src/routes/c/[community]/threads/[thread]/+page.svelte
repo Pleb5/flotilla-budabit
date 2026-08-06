@@ -438,7 +438,7 @@
       {#if threadCensorReason}
         <ModeratedContent reason={threadCensorReason} />
       {:else}
-        <NoteCard event={thread.event} url={communityPubkey}>
+        <NoteCard event={thread.event} relays={$activeCommunityRelays}>
           <h1 class="text-xl font-bold">{thread.title}</h1>
           <Content
             event={thread.event}

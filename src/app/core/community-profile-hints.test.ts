@@ -77,6 +77,31 @@ describe("community profile relay hints", () => {
     expect(admin).toContain("openProfile(person.pubkey)")
   })
 
+  it("passes scoped relays to community content author profiles", () => {
+    const threadItem = readProjectFile("../components/ThreadItem.svelte")
+    const goalItem = readProjectFile("../components/GoalItem.svelte")
+    const calendarItem = readProjectFile("../components/CalendarEventItem.svelte")
+    const calendarMeta = readProjectFile("../components/CalendarEventMeta.svelte")
+    const threadDetail = readProjectFile("../../routes/c/[community]/threads/[thread]/+page.svelte")
+    const goalDetail = readProjectFile("../../routes/c/[community]/goals/[goal]/+page.svelte")
+    const calendarDetail = readProjectFile(
+      "../../routes/c/[community]/calendar/[event]/+page.svelte",
+    )
+
+    for (const source of [threadItem, goalItem, calendarItem, calendarMeta]) {
+      expect(source).toContain("<ProfileLink pubkey={event.pubkey} {relays} />")
+      expect(source).not.toContain("<ProfileLink pubkey={event.pubkey} {url} />")
+    }
+
+    expect(threadDetail).toContain(
+      "<NoteCard event={thread.event} relays={$activeCommunityRelays}>",
+    )
+    expect(goalDetail).toContain("<NoteCard event={approvedGoal} relays={$activeCommunityRelays}>")
+    expect(calendarDetail).toContain(
+      "<CalendarEventMeta event={approvedEvent} relays={$activeCommunityRelays} />",
+    )
+  })
+
   it("keeps repo cards on resolver-backed profile avatars instead of direct cache reads", () => {
     const gitPage = readProjectFile("../../routes/git/+page.svelte")
     const gitItem = readProjectFile("../components/GitItem.svelte")

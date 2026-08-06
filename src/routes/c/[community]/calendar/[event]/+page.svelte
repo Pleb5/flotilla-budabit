@@ -594,7 +594,7 @@
           <CalendarEventDate event={approvedEvent} />
           <div class="flex min-w-0 flex-grow flex-col gap-1">
             <CalendarEventHeader event={approvedEvent} />
-            <CalendarEventMeta event={approvedEvent} url={communityPubkey} />
+            <CalendarEventMeta event={approvedEvent} relays={$activeCommunityRelays} />
             <CalendarEventDescription
               event={approvedEvent}
               url={communityPubkey}

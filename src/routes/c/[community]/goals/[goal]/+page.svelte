@@ -472,7 +472,7 @@
       {#if approvedGoalCensorReason}
         <ModeratedContent reason={approvedGoalCensorReason} />
       {:else}
-        <NoteCard event={approvedGoal} url={communityPubkey}>
+        <NoteCard event={approvedGoal} relays={$activeCommunityRelays}>
           <div class="col-3 ml-12">
             <Content
               event={{
