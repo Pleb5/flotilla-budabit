@@ -46,6 +46,7 @@ import {
   makeGraspServerListFilters,
 } from "@app/core/grasp-server-events"
 import {getRepoDeclaredMaintainers, getRepoMaintainers} from "@app/core/repo-authority"
+import {getRepoActivityRelays} from "@nostr-git/core/utils"
 
 export {getRepoDeclaredMaintainers, getRepoMaintainers} from "@app/core/repo-authority"
 
@@ -303,25 +304,64 @@ export const repoAnnouncementRelaysStore = derived(
   ([viewerPubkey]) => getRepoAnnouncementRelays([], viewerPubkey),
 )
 
+export type RepoRelayCoordinate = {
+  pubkey?: string
+  identifier?: string
+}
+
 export const getRepoScopedRelays = (
   repoEvent?: RepoAnnouncementEvent | null,
-  relayHints: string[] = [],
-) => {
-  const hints = relayHints.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)
+  expected: RepoRelayCoordinate = {},
+) => getRepoActivityRelays(repoEvent, expected)
 
-  if (!repoEvent) {
-    return Array.from(new Set(hints)) as string[]
+export type OwnedRepoStateLoadScope = {
+  repoId: string
+  relays: string[]
+}
+
+export type OwnedRepoStateLoadPlan = {
+  relay: string
+  repoIds: string[]
+}
+
+export const getOwnedRepoStateLoadScopes = (
+  repoEvents: RepoAnnouncementEvent[],
+  ownerPubkey: string,
+): OwnedRepoStateLoadScope[] => {
+  const owner = normalizePubkey(ownerPubkey)
+  if (!owner) return []
+
+  const scopes = new Map<string, OwnedRepoStateLoadScope>()
+  for (const event of repoEvents || []) {
+    const repoId = getTagValue("d", event.tags || []) || ""
+    if (!repoId) continue
+
+    const relays = getRepoActivityRelays(event, {pubkey: owner, identifier: repoId})
+    if (relays.length === 0) continue
+    scopes.set(repoId, {repoId, relays})
   }
 
-  try {
-    const parsed = parseRepoAnnouncementEvent(repoEvent)
-    const relays = [...(parsed.relays || []), ...hints]
-    return Array.from(
-      new Set(relays.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
-    ) as string[]
-  } catch {
-    return Array.from(new Set(hints)) as string[]
+  return Array.from(scopes.values()).sort((a, b) => a.repoId.localeCompare(b.repoId))
+}
+
+export const getOwnedRepoStateLoadPlans = (
+  repoEvents: RepoAnnouncementEvent[],
+  ownerPubkey: string,
+): OwnedRepoStateLoadPlan[] => {
+  const repoIdsByRelay = new Map<string, Set<string>>()
+
+  for (const scope of getOwnedRepoStateLoadScopes(repoEvents, ownerPubkey)) {
+    for (const relay of scope.relays) {
+      const repoIds = repoIdsByRelay.get(relay) || new Set<string>()
+      repoIds.add(scope.repoId)
+      repoIdsByRelay.set(relay, repoIds)
+    }
   }
+
+  return Array.from(repoIdsByRelay, ([relay, repoIds]) => ({
+    relay,
+    repoIds: Array.from(repoIds).sort(),
+  })).sort((a, b) => a.relay.localeCompare(b.relay))
 }
 
 // Repositories adapter (NIP-34 repo announcements)
@@ -569,9 +609,9 @@ export const loadRepoContext = (args: {
     rootEventId: args.rootId,
     euc: args.euc,
   })
-  const defaults = GIT_RELAYS
-  const relays = (args.relays || defaults)
-    .map((u: string) => normalizeRelayUrl(u))
+  const relays = (args.relays || [])
+    .map((u: string) => safeNormalizeRelayUrl(u))
     .filter(isRelayUrl) as string[]
+  if (relays.length === 0) return Promise.resolve([] as TrustedEvent[])
   return load({relays, filters})
 }

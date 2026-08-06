@@ -87,9 +87,8 @@
     throw new Error("Repo context not available")
   }
 
-  const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
   const repoBoundRelays = $derived.by(() => {
-    return getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays)
+    return getRepoScopedRelays(repoClass.repoEvent as any)
   })
   const repoCommunityScope = $derived(
     repoClass.community?.pubkey ||

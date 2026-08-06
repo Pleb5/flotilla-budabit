@@ -56,24 +56,21 @@
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
-  import {Router} from "@welshman/router"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {ExtensionBridge} from "@app/extensions/bridge"
-  import {REPO_KEY} from "@app/core/git-state"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
-  import type {
-    LoadedWidgetExtension,
-    SmartWidgetEvent,
-    RepoContext,
-  } from "@app/extensions/types"
+  import type {Readable} from "svelte/store"
+  import type {LoadedWidgetExtension, SmartWidgetEvent, RepoContext} from "@app/extensions/types"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {theme} from "@app/util/theme"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
 
-  if (!repoClass) {
+  if (!repoClass || !repoRelaysStore) {
     throw new Error("Repo context not available")
   }
 
@@ -123,20 +120,9 @@
     return settings.enabled.includes(resolvedExtId)
   })
 
-  // Get relays for the extension - use repo's relays, fallback to user relays
-  // Spread into new array to avoid reactive proxy serialization issues with postMessage
-  const repoRelays = $derived.by(() => {
-    // First try repo's declared relays
-    if (repoClass.relays && repoClass.relays.length > 0) {
-      return [...repoClass.relays]
-    }
-    // Fallback to user relays
-    const router = Router.get()
-    const userRelays = router.FromUser().getUrls()
-    if (userRelays.length > 0) return [...userRelays]
-    // Last resort: default git relays
-    return ["wss://relay.budabit.club/", "wss://nos.lol/"]
-  })
+  // Spread into a plain array to avoid reactive proxy serialization through postMessage.
+  const repoRelays = $derived([...$repoRelaysStore])
+  const hasRepoRelayAuthority = $derived(repoRelays.length > 0)
 
   // Iframe state
   let iframeEl: HTMLIFrameElement | null = $state(null)
@@ -150,13 +136,15 @@
 
   // Initialize iframe src when the widget app URL is available.
   $effect(() => {
-    if (secureExtEntrypoint && !iframeSrc) {
+    if (!hasRepoRelayAuthority) {
+      iframeSrc = undefined
+    } else if (secureExtEntrypoint && !iframeSrc) {
       iframeSrc = secureExtEntrypoint
     }
   })
 
   function buildRepoContext(): RepoContext | undefined {
-    if (!repoClass.repoEvent?.pubkey || !repoClass.name) return undefined
+    if (!repoClass.repoEvent?.pubkey || !repoClass.name || !hasRepoRelayAuthority) return undefined
     return {
       pubkey: repoClass.repoEvent.pubkey,
       name: repoClass.name,
@@ -167,7 +155,7 @@
   }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
-    if (!secureExtEntrypoint) return null
+    if (!secureExtEntrypoint || !hasRepoRelayAuthority) return null
 
     const origin = new URL(secureExtEntrypoint).origin
     const identifier = `${resolvedExtId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
@@ -224,7 +212,7 @@
   }
 
   function sendContext(): void {
-    if (!bridge || !iframeEl?.contentWindow) return
+    if (!bridge || !iframeEl?.contentWindow || !hasRepoRelayAuthority) return
 
     // Spread arrays to avoid reactive proxy serialization issues with postMessage
     const maintainers = repoClass.maintainers ? [...repoClass.maintainers] : []
@@ -282,6 +270,7 @@
   }
 
   function retryLoad(): void {
+    if (!hasRepoRelayAuthority) return
     error = null
     loading = true
     retryCount++
@@ -298,7 +287,7 @@
   $effect(() => {
     if (!ready || !bridge) return
     // Wait for repo context to be available
-    if (!repoClass.repoEvent?.pubkey || !repoClass.name) return
+    if (!repoClass.repoEvent?.pubkey || !repoClass.name || !hasRepoRelayAuthority) return
 
     // Keep repoContext on the extension object in sync so context:getRepo handler works
     if (extInstance) {
@@ -374,6 +363,19 @@
       <div>
         <h2 class="text-lg font-semibold">Insecure Extension URL Blocked</h2>
         <p class="text-sm text-muted-foreground">{SECURE_EMBED_URL_REQUIREMENT}</p>
+      </div>
+    </div>
+  </Card>
+{:else if !hasRepoRelayAuthority}
+  <Card class="p-6">
+    <div class="flex flex-col items-center gap-4 text-center">
+      <ExtensionIcon icon="AlertCircle" size={48} class="text-muted-foreground" />
+      <div>
+        <h2 class="text-lg font-semibold">Repository Relays Unavailable</h2>
+        <p class="text-sm text-muted-foreground">
+          This extension is disabled until a valid repository announcement declares at least one
+          relay.
+        </p>
       </div>
     </div>
   </Card>

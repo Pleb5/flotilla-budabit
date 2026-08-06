@@ -2,6 +2,7 @@ import {nip19} from "nostr-tools"
 
 import {parseGraspRepoHttpUrl} from "./grasp-url.js"
 import {sanitizeRelays, shareableRelays} from "./sanitize-relays.js"
+import {validateRepoAnnouncementEvent} from "./validation.js"
 
 const GIT_REPO_ANNOUNCEMENT = 30617
 const GIT_REPO_STATE = 30618
@@ -16,6 +17,34 @@ const getRepoIdentifier = (event: any): string => {
   const dTag = tags.find((tag: any[]) => Array.isArray(tag) && tag[0] === "d")
   const nameTag = tags.find((tag: any[]) => Array.isArray(tag) && tag[0] === "name")
   return String(dTag?.[1] || nameTag?.[1] || "").trim()
+}
+
+export interface RepoActivityRelayCoordinate {
+  pubkey?: string
+  identifier?: string
+}
+
+export const getRepoActivityRelays = (
+  announcement: any,
+  expected: RepoActivityRelayCoordinate = {},
+): string[] => {
+  if (!validateRepoAnnouncementEvent(announcement).success) return []
+
+  const pubkey = String(announcement.pubkey || "")
+    .trim()
+    .toLowerCase()
+  const dTags = announcement.tags.filter((tag: string[]) => tag[0] === "d")
+  const identifier = String(dTags[0]?.[1] || "")
+  const expectedPubkey = String(expected.pubkey || "")
+    .trim()
+    .toLowerCase()
+
+  if (!/^[0-9a-f]{64}$/.test(pubkey) || dTags.length !== 1 || !identifier.trim()) return []
+  if (announcement.tags.some((tag: string[]) => tag[0] === "deleted")) return []
+  if (expectedPubkey && pubkey !== expectedPubkey) return []
+  if (expected.identifier !== undefined && identifier !== expected.identifier) return []
+
+  return getTaggedRelaysFromRepoEvent(announcement)
 }
 
 export const getTaggedRelaysFromRepoEvent = (event: any): string[] => {
@@ -59,6 +88,7 @@ export interface RepoRelayPolicyInput {
 
 export interface RepoRelayPolicyResult {
   repoRelays: string[]
+  activityRelays: string[]
   naddrRelays: string[]
   taggedRelays: string[]
   isGrasp: boolean
@@ -86,6 +116,7 @@ export const resolveRepoRelayPolicy = ({
 
   return {
     repoRelays,
+    activityRelays: getRepoActivityRelays(event),
     naddrRelays,
     taggedRelays,
     isGrasp,

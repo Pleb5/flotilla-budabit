@@ -1,11 +1,16 @@
 <script lang="ts">
   import {onMount, onDestroy} from "svelte"
+  import {getContext} from "svelte"
   import {page} from "$app/stores"
   import {getEventsForUrl} from "@app/core/state"
   import {makeFeed} from "@app/core/requests"
   import {sortBy} from "@welshman/lib"
+  import {REPO_RELAYS_KEY} from "@app/core/git-state"
+  import type {Readable} from "svelte/store"
 
-  const url = (($page.data as any)?.url || "") as string
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  if (!repoRelaysStore) throw new Error("Repo relay context not available")
+
   const repositoryNaddr = $page.params.id!
   const workflowFilter = {kinds: [5100], "#a": [repositoryNaddr]}
 
@@ -14,17 +19,23 @@
   let feedCleanup: (() => void) | undefined = $state(undefined)
 
   onMount(() => {
+    const relays = [...$repoRelaysStore]
     console.log("=== Starting workflow query test ===")
-    console.log("URL:", url)
+    console.log("Relays:", relays)
     console.log("Repository naddr:", repositoryNaddr)
     console.log("Filter:", workflowFilter)
 
+    if (relays.length === 0) {
+      loading = false
+      return
+    }
+
     const feed = makeFeed({
       element: document.body,
-      relays: ["wss://relay.budabit.club"],
+      relays,
       feedFilters: [workflowFilter],
       subscriptionFilters: [workflowFilter],
-      initialEvents: getEventsForUrl(url, [workflowFilter]),
+      initialEvents: relays.flatMap(relay => getEventsForUrl(relay, [workflowFilter])),
       onInitialLoad: () => {
         loading = false
       },
@@ -69,11 +80,12 @@
   <div class="mb-6 rounded-lg border border-border bg-card p-4">
     <h2 class="mb-2 font-semibold">Relay</h2>
     <code class="block break-all rounded bg-background p-3 text-sm text-foreground">
-      wss://relay.budabit.club
+      {$repoRelaysStore.join(", ") || "No authoritative repository relays"}
     </code>
   </div>
 
-  <div class="mb-6 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-500/30 dark:bg-purple-950/30">
+  <div
+    class="mb-6 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-500/30 dark:bg-purple-950/30">
     <h2 class="mb-2 font-semibold">Repository Filter</h2>
     <p class="mb-2 text-sm text-muted-foreground">
       Only showing events with #a tag matching this repository:
@@ -83,7 +95,8 @@
     </code>
   </div>
 
-  <div class="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-500/30 dark:bg-blue-950/30">
+  <div
+    class="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-500/30 dark:bg-blue-950/30">
     <h2 class="mb-2 font-semibold">Status</h2>
     <p class="text-lg">
       {#if loading}
@@ -104,7 +117,8 @@
         <div class="space-y-3 rounded-lg border border-border bg-card p-4">
           <div class="mb-3 flex items-center gap-2">
             <span class="text-lg font-semibold">Event {i + 1}</span>
-            <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+            <span
+              class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
               Kind {event.kind}
             </span>
           </div>
@@ -148,7 +162,8 @@
             {/if}
           </div>
           <details class="mt-3">
-            <summary class="cursor-pointer text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+            <summary
+              class="cursor-pointer text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
               View full event JSON
             </summary>
             <pre

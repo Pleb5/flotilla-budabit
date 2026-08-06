@@ -10,7 +10,7 @@ type LayoutResult = {
   repoId: string
   repoName: string
   repoPubkey: string
-  fallbackRelays: string[]
+  announcementDiscoveryRelays: string[]
   naddrRelays: string[]
   id: string
 }
@@ -57,7 +57,7 @@ describe("git [id=naddr] layout load", () => {
     refreshPubkeyOutboxRelaysMock.mockClear()
   })
 
-  it("returns repoId, repoName, repoPubkey, url, fallbackRelays, naddrRelays, and params", async () => {
+  it("returns broad announcement discovery relays separately from naddr hints", async () => {
     const naddr = nip19.naddrEncode({
       kind: 30617,
       pubkey: VALID_PUBKEY,
@@ -74,7 +74,7 @@ describe("git [id=naddr] layout load", () => {
       repoPubkey: VALID_PUBKEY,
       id: naddr,
     })
-    expect(result.fallbackRelays).toEqual([
+    expect(result.announcementDiscoveryRelays).toEqual([
       "wss://author.relay.example.com",
       "wss://fallback.relay.example.com",
     ])

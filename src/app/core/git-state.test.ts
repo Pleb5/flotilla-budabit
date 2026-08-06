@@ -43,6 +43,8 @@ import {
   getRepoAnnouncementRelays,
   getRepoDeclaredMaintainers,
   getRepoMaintainers,
+  getOwnedRepoStateLoadScopes,
+  getOwnedRepoStateLoadPlans,
   getRepoScopedRelays,
   getVerifiedRepoMaintainers,
   groupStatusEventsByRoot,
@@ -281,21 +283,124 @@ describe("budabit state", () => {
   })
 
   describe("getRepoScopedRelays", () => {
-    it("uses repo relays plus naddr hints only", () => {
-      const repoEvent = createRepoAnnouncementEvent({
-        repoId: `${"f".repeat(64)}:repo`,
+    const owner = "f".repeat(64)
+
+    it("uses only normalized relays declared by a matching announcement", () => {
+      const repoEvent = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo",
         relays: ["wss://repo.relay.example.com"],
-      }) as any
+      })
 
-      const relays = getRepoScopedRelays(repoEvent, ["wss://hint.relay.example.com"])
+      const relays = getRepoScopedRelays(repoEvent, {pubkey: owner, identifier: "repo"})
 
-      expect(relays).toEqual(["wss://repo.relay.example.com/", "wss://hint.relay.example.com/"])
+      expect(relays).toEqual(["wss://repo.relay.example.com"])
     })
 
-    it("falls back to hints when repo announcement is unavailable", () => {
-      const relays = getRepoScopedRelays(undefined, ["wss://hint.relay.example.com"])
+    it("keeps route hints in announcement discovery only", () => {
+      const hint = "wss://hint.relay.example.com"
+      const repoEvent = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo",
+        relays: ["wss://repo.relay.example.com"],
+      })
 
-      expect(relays).toEqual(["wss://hint.relay.example.com/"])
+      expect(getRepoAnnouncementRelays([hint])).toContain("wss://hint.relay.example.com/")
+      expect(getRepoScopedRelays(repoEvent, {pubkey: owner, identifier: "repo"})).toEqual([
+        "wss://repo.relay.example.com",
+      ])
+    })
+
+    it("rejects missing, malformed, mismatched, and relayless announcements", () => {
+      const malformed = {
+        kind: 30617,
+        pubkey: owner,
+        tags: [
+          ["d", "repo"],
+          ["relays", 1],
+        ],
+      } as any
+      const relayless = makeRepoAnnouncement({pubkey: owner, identifier: "repo"})
+      const valid = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo",
+        relays: ["wss://repo.relay.example.com"],
+      })
+      const expected = {pubkey: owner, identifier: "repo"}
+
+      expect(getRepoScopedRelays(undefined, expected)).toEqual([])
+      expect(getRepoScopedRelays(malformed, expected)).toEqual([])
+      expect(getRepoScopedRelays(relayless, expected)).toEqual([])
+      expect(getRepoScopedRelays(valid, {...expected, identifier: "other"})).toEqual([])
+      expect(getRepoScopedRelays(valid, {...expected, pubkey: "e".repeat(64)})).toEqual([])
+    })
+  })
+
+  describe("getOwnedRepoStateLoadScopes", () => {
+    it("partitions each repository state coordinate onto its own declared relays", () => {
+      const owner = "a".repeat(64)
+      const repoA = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo-a",
+        relays: ["wss://relay-a.example"],
+      })
+      const repoB = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo-b",
+        relays: ["wss://relay-b.example"],
+      })
+
+      expect(getOwnedRepoStateLoadScopes([repoA, repoB], owner)).toEqual([
+        {repoId: "repo-a", relays: ["wss://relay-a.example"]},
+        {repoId: "repo-b", relays: ["wss://relay-b.example"]},
+      ])
+    })
+
+    it("excludes malformed, foreign, and relayless repository announcements", () => {
+      const owner = "a".repeat(64)
+      const valid = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "valid",
+        relays: ["wss://valid.example"],
+      })
+      const foreign = makeRepoAnnouncement({
+        pubkey: "b".repeat(64),
+        identifier: "foreign",
+        relays: ["wss://foreign.example"],
+      })
+      const relayless = makeRepoAnnouncement({pubkey: owner, identifier: "relayless"})
+      const malformed = {
+        kind: 30617,
+        pubkey: owner,
+        tags: [
+          ["d", "malformed"],
+          ["relays", false],
+        ],
+      } as any
+
+      expect(getOwnedRepoStateLoadScopes([valid, foreign, relayless, malformed], owner)).toEqual([
+        {repoId: "valid", relays: ["wss://valid.example"]},
+      ])
+    })
+
+    it("groups shared relay state filters without leaking ids to unrelated relays", () => {
+      const owner = "a".repeat(64)
+      const repoA = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo-a",
+        relays: ["wss://shared.example", "wss://relay-a.example"],
+      })
+      const repoB = makeRepoAnnouncement({
+        pubkey: owner,
+        identifier: "repo-b",
+        relays: ["wss://shared.example", "wss://relay-b.example"],
+      })
+
+      expect(getOwnedRepoStateLoadPlans([repoA, repoB], owner)).toEqual([
+        {relay: "wss://relay-a.example", repoIds: ["repo-a"]},
+        {relay: "wss://relay-b.example", repoIds: ["repo-b"]},
+        {relay: "wss://shared.example", repoIds: ["repo-a", "repo-b"]},
+      ])
     })
   })
 

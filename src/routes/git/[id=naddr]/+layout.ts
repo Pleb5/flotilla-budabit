@@ -34,17 +34,17 @@ export const load: LayoutLoad = async ({params}) => {
     naddrRelays.length === 0
       ? await refreshPubkeyOutboxRelays(repoPubkey, configuredFallbackRelays)
       : []
-  const fallbackRelays = Array.from(
+  const announcementDiscoveryRelays = Array.from(
     new Set([...naddrRelays, ...targetOutboxRelays, ...configuredFallbackRelays]),
   )
-  const url = naddrRelays[0] || fallbackRelays[0] || ""
+  const url = naddrRelays[0] || announcementDiscoveryRelays[0] || ""
 
   return {
     url,
     repoId,
     repoName,
     repoPubkey,
-    fallbackRelays,
+    announcementDiscoveryRelays,
     naddrRelays,
     ...params,
   }

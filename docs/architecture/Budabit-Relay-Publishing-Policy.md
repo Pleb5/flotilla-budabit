@@ -27,7 +27,7 @@ This document defines where Budabit should publish events. It separates personal
 | Active community relays | Union of `definition.relays` from `activeUserCommunityRefs` | Personal user-data fanout when the user updates that data. |
 | Scoped community relays | Relays from one specific community definition | Community-bound content, moderation, applications, and h-tagged community repo announcements. |
 | Git indexer relays | `VITE_GIT_RELAYS` / `GIT_RELAYS` when used for git discovery | Repo announcement discovery and git app infrastructure. |
-| Repo relays | Relays declared or selected for a repository | Repo state, issues, PRs, comments, labels, and status events. |
+| Repo relays | Normalized relays declared by the accepted coordinate-matching `kind:30617` announcement | Repo state, issues, PRs, comments, labels, and status events. Missing, malformed, deleted, mismatched, or relayless announcements establish no repository loading scope. |
 | User GRASP relays | User's GRASP server list, with app fallback where configured | Repo announcement and GRASP-backed repo discovery. |
 
 ## Active Community Relay Eligibility
@@ -125,6 +125,8 @@ Repository-related publishing is mostly repo-relay scoped. The exception is repo
 | Targeted publication association | `30222` | Scoped target community relays. | The association belongs to the explicitly targeted community. |
 
 For h-tagged community repo announcements, the community relay set must come from the h-tagged community definition. Do not use all active community relays for repo announcements unless all of those communities are explicitly targeted.
+
+Repository announcement discovery and repository activity loading are separate phases. Git discovery relays, user outbox relays, GRASP discovery, route and `naddr` hints, event provenance, and defaults may be used to fetch the matching `kind:30617` announcement only. They must not receive `kind:30618` state or repository activity filters unless the accepted announcement itself declares them. Owned-repository state reads are partitioned by announcement so one repository's state filter is never sent to another repository's relays.
 
 ## Read-Time Profile Discovery
 

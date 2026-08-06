@@ -95,10 +95,9 @@
     value > 10_000_000_000 ? Math.round(value / 1000) : value
   const lastIssuesSeen = $derived.by(() => normalizeChecked($checked[issuesSeenKey] || 0))
   const repoAddress = $derived.by(() => repoClass?.address || "")
-  const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const repoBoundRelays = $derived.by(() => {
-    return getRepoScopedRelays((repoClass as any).repoEvent, naddrRelays)
+    return getRepoScopedRelays((repoClass as any).repoEvent)
   })
   const repoCommunityProfileRelays = $derived.by(() => {
     const relays = repoProfileRelays?.() || []

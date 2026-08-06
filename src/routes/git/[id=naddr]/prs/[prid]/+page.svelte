@@ -40,10 +40,7 @@
   const pullRequests = $derived.by(
     () => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[],
   )
-  const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
-  const prEditRelays = $derived.by(() =>
-    getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays),
-  )
+  const prEditRelays = $derived.by(() => getRepoScopedRelays(repoClass.repoEvent as any))
   const LOAD_TIMEOUT_MS = 7000
   const SCROLL_TO_TOP_THRESHOLD = 300
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
@@ -57,7 +54,9 @@
   let scrollParent: HTMLElement | null = $state(null)
 
   const prId = $derived($page.params.prid ?? "")
-  const hiddenRootIds = $derived.by(() => (hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>()))
+  const hiddenRootIds = $derived.by(() =>
+    hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>(),
+  )
   const isHiddenRoot = $derived.by(() => hiddenRootIds.has(prId))
   const isDeletedRepositoryEvent = (event?: TrustedEvent) =>
     Boolean(event && (repository as any).isDeleted?.(event))

@@ -154,6 +154,8 @@
     getRepoAnnouncementPublishRelays,
     getRepoAnnouncementRelays,
     getRepoScopedRelays,
+    getOwnedRepoStateLoadScopes,
+    getOwnedRepoStateLoadPlans,
     getRepoMaintainers,
     getVerifiedRepoMaintainers,
     groupStatusEventsByRoot,
@@ -214,11 +216,11 @@
     repoId: string
     repoName: string
     repoPubkey: string
-    fallbackRelays: string[]
+    announcementDiscoveryRelays: string[]
     naddrRelays: string[]
     url: string
   }
-  const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
+  const {repoId, repoName, repoPubkey, announcementDiscoveryRelays, url} = layoutData
   const safeNormalizeRelayUrl = (relay: unknown) => {
     try {
       return normalizeRelayUrl(String(relay || "").trim())
@@ -759,47 +761,16 @@
     return latest
   })
 
-  const myRepoIds = $derived.by(() => {
-    if (!isOwnedRepo || latestMyRepos.length === 0) return []
-    const ids = new Set<string>()
-    for (const repo of latestMyRepos) {
-      try {
-        const parsed = parseRepoAnnouncementEvent(repo)
-        if (parsed.repoId) ids.add(parsed.repoId)
-      } catch {
-        const fallbackRepoId = getTagValue("d", repo.tags) || ""
-        if (fallbackRepoId) ids.add(fallbackRepoId)
-      }
-    }
-    return Array.from(ids)
+  const myRepoStateLoadScopes = $derived.by(() => {
+    if (!isOwnedRepo || !$pubkey) return []
+    return getOwnedRepoStateLoadScopes(latestMyRepos, $pubkey)
+  })
+  const myRepoStateLoadPlans = $derived.by(() => {
+    if (!isOwnedRepo || !$pubkey) return []
+    return getOwnedRepoStateLoadPlans(latestMyRepos, $pubkey)
   })
 
-  const myRepoRelays = $derived.by(() => {
-    if (!isOwnedRepo || latestMyRepos.length === 0) return []
-    const relays = new Set<string>()
-    for (const repo of latestMyRepos) {
-      try {
-        const parsed = parseRepoAnnouncementEvent(repo)
-        for (const relay of parsed.relays || []) {
-          const normalized = safeNormalizeRelayUrl(relay)
-          if (normalized) relays.add(normalized)
-        }
-      } catch {
-        // pass
-      }
-    }
-    return Array.from(relays)
-  })
-
-  const branchStateRelays = $derived.by(() => {
-    if (!isOwnedRepo) return []
-    const relays = new Set<string>()
-    for (const relay of [...myRepoRelays, ...GIT_RELAYS]) {
-      const normalized = safeNormalizeRelayUrl(relay)
-      if (normalized) relays.add(normalized)
-    }
-    return Array.from(relays)
-  })
+  const myRepoIds = $derived(myRepoStateLoadScopes.map(scope => scope.repoId))
 
   $effect(() => {
     if (!isOwnedRepo || !$pubkey || myRepoIds.length === 0) {
@@ -832,9 +803,10 @@
       repoStateSettled = false
       return
     }
-    const ids = [...myRepoIds].sort()
-    const relayKey = [...branchStateRelays].sort().join(",")
-    const key = `${$pubkey}:${ids.join(",")}:${relayKey}`
+    const plans = myRepoStateLoadPlans
+    const key = `${$pubkey}:${plans
+      .map(plan => `${plan.relay}:${plan.repoIds.join(",")}`)
+      .join("|")}`
     if (repoStateLoadKey === key) return
     repoStateLoadKey = key
     repoStateSettled = false
@@ -846,8 +818,14 @@
       repoStateSettled = true
       repoStateSettleTimer = null
     }, 2500)
-    const filter = {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": ids} as Filter
-    load({relays: branchStateRelays, filters: [filter]}).catch(() => {})
+    for (const plan of plans) {
+      const filter = {
+        kinds: [GIT_REPO_STATE],
+        authors: [$pubkey],
+        "#d": plan.repoIds,
+      } as Filter
+      load({relays: [plan.relay], filters: [filter]}).catch(() => {})
+    }
   })
 
   const buildRepoBranchUpdate = async (repoEvent: RepoAnnouncementEvent) => {
@@ -1293,12 +1271,9 @@
     }) as Readable<RepoStateEvent[]>
   }
 
-  function deriveRepoRelays(
-    repoEvent: Readable<RepoAnnouncementEvent | undefined>,
-    naddrRelays: string[],
-  ) {
+  function deriveRepoRelays(repoEvent: Readable<RepoAnnouncementEvent | undefined>) {
     return derived(repoEvent, (re: RepoAnnouncementEvent | undefined) => {
-      return getRepoScopedRelays(re, naddrRelays)
+      return getRepoScopedRelays(re, {pubkey: repoPubkey, identifier: repoName})
     })
   }
 
@@ -1656,7 +1631,7 @@
     const editable = repoClass?.editable ? "1" : "0"
     return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
   })
-  const rootRepoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays)
+  const rootRepoRelaysStore = deriveRepoRelays(repoEventStore)
   const repoRelaysStore: Readable<string[]> = rootRepoRelaysStore
   const realIssuesStore = deriveIssues(repoAddressesStore)
   const realPullRequestsStore = derivePullRequests(repoAddressesStore)
@@ -1892,7 +1867,7 @@
   $effect(() => {
     const eventId = $repoEventStore?.id || ""
 
-    if (fallbackRelays.length === 0 || !eventId) {
+    if (announcementDiscoveryRelays.length === 0 || !eventId) {
       repoAnnouncementLoadKey = ""
       repoAnnouncementSettled = false
       if (repoAnnouncementSettleTimer) {
@@ -1902,7 +1877,7 @@
       return
     }
 
-    const key = `${repoPubkey}:${repoName}:${fallbackRelays.slice().sort().join(",")}:${eventId}`
+    const key = `${repoPubkey}:${repoName}:${announcementDiscoveryRelays.slice().sort().join(",")}:${eventId}`
     if (repoAnnouncementLoadKey === key) return
 
     repoAnnouncementLoadKey = key
@@ -1920,7 +1895,7 @@
 
   $effect(() => {
     const relays = $repoRelaysStore || []
-    const announcementRelays = fallbackRelays
+    const announcementRelays = announcementDiscoveryRelays
     if (relays.length === 0 || announcementRelays.length === 0) return
     const owners = $repoOwnerStore || []
     const ownerList = owners.length > 0 ? owners : [repoPubkey]
@@ -1972,7 +1947,7 @@
         const currentRepoEvent = getStore(repoEventStore)
         const currentRepoStateEvent = getStore(repoStateEventStore)
         if (currentRepoEvent && currentRepoStateEvent) return
-        const announcementRelaysRetry = getRepoAnnouncementRelays(fallbackRelays)
+        const announcementRelaysRetry = getRepoAnnouncementRelays(announcementDiscoveryRelays)
         const relaysRetry = getStore(repoRelaysStore)
         if (announcementRelaysRetry.length === 0 || relaysRetry.length === 0) return
         const ownersRetry = getStore(repoOwnerStore)
@@ -2208,9 +2183,8 @@
   let repoAddressLoadRelaysKey = ""
   let repoAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let dataLoadInitialized = $state(false)
-  // The live subscription is split per-relay so that a growing relay set
-  // (e.g. discovering maintainer outbox relays after the announcement lands)
-  // adds new streams without tearing down the ones already receiving events.
+  // The live subscription is split per-relay so that an announcement replacement
+  // can add declared relays without tearing down streams that remain authoritative.
   // `repoLiveSubscriptionFiltersKey` still forces a full restart when the
   // filters themselves change (addresses/root ids/viewer differ).
   let repoLiveSubscriptionFiltersKey = ""
@@ -2273,29 +2247,28 @@
   // Only run once when component mounts, not on every navigation
   $effect(() => {
     if (!$repoActivityHydrationReady) return
-    // Prevent re-running on navigation - only initialize once
     if (dataLoadInitialized) return
 
-    // Mark as initialized immediately to prevent re-runs
-    dataLoadInitialized = true
+    const announcementRelays = announcementDiscoveryRelays
+    if (announcementRelays.length === 0) return
 
-    // Load initial data
-    const repoFilters = [
+    const announcementFilters = [
       {
         authors: [repoPubkey],
         kinds: [GIT_REPO_ANNOUNCEMENT],
         "#d": [repoName],
       },
-      {
-        authors: [repoPubkey],
-        kinds: [GIT_REPO_STATE],
-        "#d": [repoName],
-      },
     ]
+    const repoLoadPromise = load({relays: announcementRelays, filters: announcementFilters})
 
-    const relayListFromUrl = getStore(repoRelaysStore)
-    const announcementRelays = getRepoAnnouncementRelays(fallbackRelays)
-    const repoLoadPromise = load({relays: announcementRelays, filters: repoFilters})
+    const relayListFromUrl = $repoRelaysStore
+    if (relayListFromUrl.length === 0) {
+      void repoLoadPromise.catch(() => {})
+      return
+    }
+
+    // State and activity only start after the matching announcement establishes authority.
+    dataLoadInitialized = true
 
     const allReposFilter = {
       kinds: [GIT_REPO_ANNOUNCEMENT],
@@ -2324,6 +2297,11 @@
       const issuePrStatusLoad = load({
         relays: relayListFromUrl,
         filters: [
+          {
+            authors: [repoPubkey],
+            kinds: [GIT_REPO_STATE],
+            "#d": [repoName],
+          },
           {
             kinds: [GIT_ISSUE],
             "#a": addressFilter,
