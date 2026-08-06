@@ -128,6 +128,8 @@ Publishing policy and read discovery should align but remain separate.
 | Repo relays | No | Repo relays are not profile storage by default. |
 | `tracker.getRelays(non-profile-event-id)` | No | Event provenance is not author profile routing. |
 
+After accepted community references first become available for a signed-in identity, Budabit makes one nonblocking finite `kind:0` request to at most four deterministically selected definition relays. The request uses one author filter with `limit:1`, times out after three seconds, aborts on identity change, and is not retried during that login session. It installs no live subscription and does not rerun when membership state changes.
+
 ## Implementation Expectations
 
 | Area | Expected helper |

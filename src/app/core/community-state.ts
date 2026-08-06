@@ -1242,15 +1242,17 @@ export const hydratePubkeyProfiles = async ({
   pubkeys,
   relayHints = [],
   force = false,
+  signal,
   timeout = COMMUNITY_PROFILE_LOAD_TIMEOUT,
 }: {
   pubkeys: string[]
   relayHints?: string[]
   force?: boolean
+  signal?: AbortSignal
   timeout?: number
 }) => {
   const authors = Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean)))
-  const relays = getCommunityBootstrapRelays(relayHints)
+  const relays = normalizeRelays(relayHints)
   const key = `${authors.join(",")}:${relays.slice().sort().join(",")}`
 
   if (authors.length === 0 || relays.length === 0 || !key) return []
@@ -1264,7 +1266,7 @@ export const hydratePubkeyProfiles = async ({
   const promise = loadCommunityEvents(
     relays,
     [{kinds: [PROFILE], authors, limit: authors.length}],
-    {timeout, authenticate: true},
+    {timeout, authenticate: true, signal},
   )
     .then(events => {
       if (events.length > 0) profileHydratedAt.set(key, Date.now())

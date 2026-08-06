@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {onDestroy} from "svelte"
   import "@src/app.css"
   import "@src/lib/crypto-polyfill"
   import {throttle} from "throttle-debounce"
@@ -63,6 +64,7 @@
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunitySession,
+    activeUserCommunityRefs,
     authenticateCommunityRelays,
     COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT,
     communityPreferencesLoading,
@@ -73,6 +75,7 @@
     hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
+  import {getProfileCommunityRelaysFromRefs} from "@app/core/community-relays"
 
   const {children} = $props()
   const nostrGitProviderProps = /** @type {any} */ ({
@@ -147,8 +150,9 @@
   let appUpdateActivationDelayed = $state(false)
   let loadedUserModeratorRequestsKey = ""
   let loadingUserModeratorRequestsKey = ""
-  let loadedUserProfileKey = ""
-  let loadingUserProfileKey = ""
+  let userProfileHydrationIdentity = ""
+  let userProfileHydrationAttempted = false
+  let userProfileHydrationController: AbortController | null = null
   let loadedCommunityPreferencesKey = ""
   let loadingCommunityPreferencesKey = ""
   let notificationStartupDelayKey = ""
@@ -356,31 +360,42 @@
 
   $effect(() => {
     const user = $pubkey || ""
-    const relayHints = $activeCommunityRelays
-    const key = user ? `${user}:${relayHints.join(",")}` : ""
+    const communityRefs = $activeUserCommunityRefs
 
-    if (
-      !browser ||
-      !user ||
-      !key ||
-      loadedUserProfileKey === key ||
-      loadingUserProfileKey === key
-    ) {
-      return
+    if (userProfileHydrationIdentity !== user) {
+      userProfileHydrationController?.abort()
+      userProfileHydrationController = null
+      userProfileHydrationIdentity = user
+      userProfileHydrationAttempted = false
     }
 
-    loadingUserProfileKey = key
-    hydratePubkeyProfiles({pubkeys: [user], relayHints})
-      .then(events => {
-        if (events.length > 0) loadedUserProfileKey = key
-      })
+    if (!browser || !user || userProfileHydrationAttempted || communityRefs.length === 0) return
+
+    userProfileHydrationAttempted = true
+    const relayHints = getProfileCommunityRelaysFromRefs(communityRefs)
+    if (relayHints.length === 0) return
+
+    const controller = new AbortController()
+    userProfileHydrationController = controller
+    void hydratePubkeyProfiles({
+      pubkeys: [user],
+      relayHints,
+      signal: controller.signal,
+      timeout: 3000,
+    })
       .catch(error => {
-        console.warn("[profile] Failed to load active user profile", error)
+        if (!controller.signal.aborted) {
+          console.warn("[profile] Failed to load active user profile", error)
+        }
       })
       .finally(() => {
-        if (loadingUserProfileKey === key) loadingUserProfileKey = ""
+        if (userProfileHydrationController === controller) {
+          userProfileHydrationController = null
+        }
       })
   })
+
+  onDestroy(() => userProfileHydrationController?.abort())
 
   // Browser integrations that do not depend on persisted startup state.
   if (browser) {
