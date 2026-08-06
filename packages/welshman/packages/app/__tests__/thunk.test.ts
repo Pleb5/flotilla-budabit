@@ -3,7 +3,14 @@ import {NOTE, DIRECT_MESSAGE, WRAP, makeEvent, getPubkey, makeSecret, prep} from
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {repository, tracker} from "../src/core"
 import {addSession, dropSession, makeNip01Session} from "../src/session"
-import {abortThunk, MergedThunk, publishThunk, thunkQueue, flattenThunks} from "../src/thunk"
+import {
+  abortThunk,
+  MergedThunk,
+  publishThunk,
+  retryThunk,
+  thunkQueue,
+  flattenThunks,
+} from "../src/thunk"
 
 const secret = makeSecret()
 
@@ -76,22 +83,33 @@ describe("thunk", () => {
       expect(removeEventSpy).toHaveBeenCalledWith(thunk.event.id)
     })
 
-    it("removes only the optimistic event when signing fails", async () => {
+    it("keeps a signing failure visible and replaces it on retry", async () => {
       const event = prep(makeEvent(NOTE, {tags: [["test", "signing-failure"]]}), pubkey)
       const removeEventSpy = vi.spyOn(repository, "removeEvent")
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
       const thunk = publishThunk({event, relays: [LOCAL_RELAY_URL]})
       const optimisticEventId = thunk.event.id
 
-      vi.spyOn(thunk.signer, "sign").mockRejectedValue(new Error("signing failed"))
+      vi.spyOn(thunk.signer, "sign").mockRejectedValueOnce(new Error("signing failed"))
       expect(repository.getEvent(optimisticEventId)).toBe(thunk.event)
 
       await vi.runAllTimersAsync()
 
-      expect(removeEventSpy).toHaveBeenCalledTimes(1)
-      expect(removeEventSpy).toHaveBeenCalledWith(optimisticEventId)
-      expect(repository.getEvent(optimisticEventId)).toBeUndefined()
+      expect(removeEventSpy).not.toHaveBeenCalled()
+      expect(repository.getEvent(optimisticEventId)).toBe(thunk.event)
       expect(thunk.results[LOCAL_RELAY_URL].status).toEqual(PublishStatus.Failure)
+
+      const retry = retryThunk(thunk)
+      expect(thunk._optimisticEventId).toBeUndefined()
+      expect(retry._optimisticEventId).toBe(optimisticEventId)
+
+      await vi.runAllTimersAsync()
+
+      expect(removeEventSpy).toHaveBeenCalledOnce()
+      expect(removeEventSpy).toHaveBeenCalledWith(optimisticEventId)
+      expect(repository.getEvent(optimisticEventId)).toBe(retry.event)
+      expect(retry.event).toHaveProperty("sig")
+      expect(retry.results[LOCAL_RELAY_URL].status).toEqual(PublishStatus.Success)
       consoleErrorSpy.mockRestore()
     })
   })

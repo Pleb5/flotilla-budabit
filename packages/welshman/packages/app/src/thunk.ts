@@ -225,10 +225,6 @@ export class Thunk {
 
       return this._publish(signedEvent)
     } catch (e: any) {
-      if (this._optimisticEventId) {
-        repository.removeEvent(this._optimisticEventId)
-        this._optimisticEventId = undefined
-      }
       console.error("Failed to sign event", e)
       return this._fail(String(e || "Failed to sign event"))
     }
@@ -433,7 +429,15 @@ export const abortThunk = (thunk: AbstractThunk) => {
   }
 }
 
+const retrySingleThunk = (thunk: Thunk) => {
+  const retry = new Thunk({...thunk.options, event: thunk.event})
+
+  retry._optimisticEventId = thunk._optimisticEventId
+  thunk._optimisticEventId = undefined
+  retry.enqueue()
+
+  return retry
+}
+
 export const retryThunk = (thunk: AbstractThunk) =>
-  isMergedThunk(thunk)
-    ? mergeThunks(thunk.thunks.map(t => publishThunk(t.options)))
-    : publishThunk(thunk.options)
+  isMergedThunk(thunk) ? mergeThunks(thunk.thunks.map(retrySingleThunk)) : retrySingleThunk(thunk)
