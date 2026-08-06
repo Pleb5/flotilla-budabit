@@ -1,6 +1,8 @@
+import {EventEmitter} from "node:events"
 import {describe, expect, it, vi} from "vitest"
 import {readFileSync} from "node:fs"
 import {finalizeEvent, generateSecretKey, getPublicKey} from "nostr-tools/pure"
+import {AuthStateEvent, AuthStatus} from "@welshman/net"
 import type {TrustedEvent} from "@welshman/util"
 import {
   buildCommunityDefinition,
@@ -41,6 +43,7 @@ import {
   getPersistedEmailDigestAuthRelay,
   isEmailDigestAuthRelay,
   setEmailDigestAuthRelay,
+  waitForEmailDigestAuth,
   withTemporaryEmailDigestAuthRelay,
 } from "./email-digest-auth"
 
@@ -824,5 +827,21 @@ describe("email digest relay authentication scope", () => {
       }),
     ).rejects.toThrow("query failed")
     expect(getEmailDigestAuthRelays()).toEqual([])
+  })
+
+  it("waits only while provider authentication is pending", async () => {
+    const auth = Object.assign(new EventEmitter(), {status: AuthStatus.PendingSignature})
+    const waiting = waitForEmailDigestAuth(auth)
+
+    auth.status = AuthStatus.PendingResponse
+    auth.emit(AuthStateEvent.Status, auth.status)
+    auth.status = AuthStatus.Ok
+    auth.emit(AuthStateEvent.Status, auth.status)
+
+    await expect(waiting).resolves.toBe(AuthStatus.Ok)
+    expect(auth.listenerCount(AuthStateEvent.Status)).toBe(0)
+
+    auth.status = AuthStatus.None
+    await expect(waitForEmailDigestAuth(auth)).resolves.toBe(AuthStatus.None)
   })
 })

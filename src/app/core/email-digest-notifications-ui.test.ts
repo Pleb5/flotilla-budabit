@@ -31,6 +31,13 @@ describe("email digest notification settings UI", () => {
 
   it("centers spinner content in notification action buttons", () => {
     expect(source.match(/\[&>span\]:min-h-0/g)?.length).toBeGreaterThanOrEqual(5)
+    expect(source.match(/\[&>span\]:w-full/g)?.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it("explains disabled digest actions and keeps status content responsive", () => {
+    expect(source).toContain("digestDisabledReason")
+    expect(source).toContain("Enter a valid delivery email before enabling this digest.")
+    expect(source).toContain("max-w-full shrink-0 whitespace-normal break-words")
   })
 
   it("keeps email verification guidance on the page after a successful subscription", () => {

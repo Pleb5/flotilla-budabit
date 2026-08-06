@@ -177,6 +177,21 @@
   const verificationEmail = $derived(
     verificationEmailNotice || $userEmailDigestSettingsValues.email,
   )
+  const digestDisabledReason = $derived.by(() => {
+    if (!digestSettingsHydrated) {
+      return $emailDigestSettingsHydration.status === "error"
+        ? "Reload to finish loading encrypted email digest settings."
+        : "Encrypted email digest settings are still loading."
+    }
+    if (!normalizeEmailDigestEmail(email)) {
+      return "Enter a valid delivery email before enabling this digest."
+    }
+    if (!selectedProvider) return "Select a community-endorsed provider."
+    if (!selectedProviderAvailable) return "Select a provider that is still advertised."
+    if (watchedRepoCount === 0) return "Watch at least one repository before enabling this digest."
+    if (repositorySummary.error) return repositorySummary.error
+    return ""
+  })
 
   function getProviderKey(provider: CommunityEmailDigestService) {
     return getCommunityEmailDigestServiceDescriptorKey(provider)
@@ -484,14 +499,14 @@
           </p>
         </div>
         <div
-          class="flex items-center gap-2 rounded-full border border-base-300 bg-base-100/80 px-3 py-2 text-xs shadow-sm">
+          class="flex w-fit max-w-full items-center gap-2 self-start rounded-xl border border-base-300 bg-base-100/80 px-3 py-2 text-xs leading-5 shadow-sm sm:shrink-0">
           <span
-            class="h-2 w-2 rounded-full"
+            class="h-2 w-2 shrink-0 rounded-full"
             class:bg-success={savedDigestEnabled && statusState === "active"}
             class:bg-warning={savedDigestEnabled && statusState === "pending"}
             class:bg-error={savedDigestEnabled && ["error", "suppressed"].includes(statusState)}
             class:bg-base-300={!savedDigestEnabled}></span>
-          Git digest: {statusLabel}
+          <span class="min-w-0 break-words text-center">Git digest: {statusLabel}</span>
         </div>
       </div>
     </div>
@@ -545,12 +560,12 @@
     class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"
     onsubmit={saveDigest}>
     <div class="border-b border-base-300 px-5 py-5 sm:px-6">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex items-start gap-3">
-          <div class="rounded-xl bg-secondary/10 p-2.5 text-secondary">
+      <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 items-start gap-3">
+          <div class="shrink-0 rounded-xl bg-secondary/10 p-2.5 text-secondary">
             <Icon icon={Mailbox} size={5} />
           </div>
-          <div>
+          <div class="min-w-0">
             <h2 class="text-lg font-semibold">Git email digest</h2>
             <p class="text-sm text-muted-foreground">
               One schedule and provider for all explicitly watched repositories.
@@ -558,7 +573,7 @@
           </div>
         </div>
         <span
-          class="badge h-auto min-h-6 px-3 py-1"
+          class="badge h-auto min-h-6 max-w-full shrink-0 whitespace-normal break-words px-3 py-1 text-center leading-4"
           class:badge-success={savedDigestEnabled && statusState === "active"}
           class:badge-warning={savedDigestEnabled && statusState === "pending"}
           class:badge-error={savedDigestEnabled && ["error", "suppressed"].includes(statusState)}
@@ -594,7 +609,7 @@
             </div>
           </div>
           <Button
-            class="btn btn-warning btn-sm inline-flex shrink-0 items-center justify-center text-center [&>span]:min-h-0"
+            class="btn btn-warning btn-sm inline-flex max-w-full shrink-0 items-center justify-center whitespace-normal text-center [&>span]:min-h-0 [&>span]:w-full [&>span]:justify-center"
             disabled={loadingStatus || !$userEmailDigestSettingsValues.provider}
             onclick={() => refreshStatus($userEmailDigestSettingsValues.provider)}>
             <Spinner loading={loadingStatus}>I've verified, refresh status</Spinner>
@@ -603,7 +618,7 @@
       </div>
     {/if}
 
-    <div class="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.85fr)]">
+    <div class="grid min-w-0 gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.85fr)]">
       <div class="grid min-w-0 gap-6">
         {#if $emailDigestProviders.length === 0}
           <div class="rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm">
@@ -616,7 +631,7 @@
         {/if}
 
         <fieldset
-          class="contents"
+          class="grid min-w-0 gap-6"
           disabled={savingDigest || disablingDigest || !digestSettingsHydrated}>
           {#if providerChoices.length > 0}
             <Field>
@@ -643,7 +658,7 @@
 
             {#if selectedProvider}
               {@const evidenceKey = getProviderEvidenceKey(selectedProvider)}
-              <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
+              <div class="min-w-0 rounded-xl border border-base-300 bg-base-200/50 p-4">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div class="min-w-0">
                     <Profile
@@ -656,9 +671,10 @@
                       showPubkey />
                   </div>
                   <div
-                    class="flex shrink-0 items-center gap-1.5 rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-xs text-muted-foreground">
-                    <Icon icon={Server} size={3.5} />
-                    {getProviderHost(selectedProvider)}
+                    class="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-base-300 bg-base-100 px-2.5 py-1.5 text-xs text-muted-foreground sm:max-w-72 sm:shrink-0">
+                    <span class="shrink-0"><Icon icon={Server} size={3.5} /></span>
+                    <span class="min-w-0 truncate" title={getProviderHost(selectedProvider)}
+                      >{getProviderHost(selectedProvider)}</span>
                   </div>
                 </div>
 
@@ -733,10 +749,11 @@
             </div>
           {/if}
 
-          <div class="rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm leading-6">
-            <div class="flex items-start gap-2">
-              <Icon icon={Shield} size={4.5} />
-              <p>
+          <div
+            class="min-w-0 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm leading-6">
+            <div class="flex min-w-0 items-start gap-2">
+              <span class="shrink-0"><Icon icon={Shield} size={4.5} /></span>
+              <p class="min-w-0 break-words">
                 The selected provider receives your delivery email and mirrors the watched
                 repository addresses, relays, and event-type selections shown below. The advanced
                 in-app author/activity filter is not currently sent to the provider. Your email is
@@ -823,13 +840,14 @@
         </fieldset>
       </div>
 
-      <aside class="grid content-start gap-4">
-        <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
+      <aside class="grid min-w-0 content-start gap-4">
+        <div class="min-w-0 rounded-xl border border-base-300 bg-base-200/40 p-4">
           <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2 font-semibold">
-              <Icon icon={Git} size={4.5} /> Watched repositories
+            <div class="flex min-w-0 items-center gap-2 font-semibold">
+              <span class="shrink-0"><Icon icon={Git} size={4.5} /></span>
+              <span class="min-w-0 break-words">Watched repositories</span>
             </div>
-            <span class="badge badge-ghost">{watchedRepoCount}</span>
+            <span class="badge badge-ghost shrink-0">{watchedRepoCount}</span>
           </div>
 
           {#if watchedRepoCount === 0}
@@ -846,9 +864,9 @@
               {#each repositorySummary.repositories as repository (repository.address)}
                 <Link
                   href={getRepoPath(repository.address)}
-                  class="rounded-lg border border-base-300 bg-base-100 p-3 transition-colors hover:border-primary/40">
+                  class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 p-3 transition-colors hover:border-primary/40">
                   <div class="truncate text-sm font-semibold">{repository.name}</div>
-                  <div class="mt-1 text-xs leading-5 text-muted-foreground">
+                  <div class="mt-1 break-words text-xs leading-5 text-muted-foreground">
                     {getRepoOptionLabels(repository).join(", ") || "No activity selected"}
                   </div>
                 </Link>
@@ -863,15 +881,15 @@
         <div class="rounded-xl border border-base-300 p-4 text-sm">
           <div class="mb-3 font-semibold">Delivery state</div>
           <dl class="grid gap-3">
-            <div class="flex items-start justify-between gap-4">
-              <dt class="text-muted-foreground">Next run</dt>
-              <dd class="text-right font-medium">
+            <div class="flex min-w-0 items-start justify-between gap-4">
+              <dt class="shrink-0 text-muted-foreground">Next run</dt>
+              <dd class="min-w-0 break-words text-right font-medium">
                 {formatStatusTime(providerState.status?.nextRunAt)}
               </dd>
             </div>
-            <div class="flex items-start justify-between gap-4">
-              <dt class="text-muted-foreground">Last completed</dt>
-              <dd class="text-right font-medium">
+            <div class="flex min-w-0 items-start justify-between gap-4">
+              <dt class="shrink-0 text-muted-foreground">Last completed</dt>
+              <dd class="min-w-0 break-words text-right font-medium">
                 {formatStatusTime(providerState.status?.lastCompletedAt)}
               </dd>
             </div>
@@ -907,33 +925,34 @@
       class="flex flex-col-reverse gap-3 border-t border-base-300 bg-base-200/30 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
       <div class="flex flex-wrap gap-2">
         <Button
-          class="btn btn-outline btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0"
+          class="btn btn-outline btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0 [&>span]:w-full [&>span]:justify-center"
           disabled={loadingStatus || !selectedProvider || !digestSettingsHydrated}
           onclick={() => refreshStatus()}>
           <Spinner loading={loadingStatus}>Refresh status</Spinner>
         </Button>
         {#if savedDigestEnabled}
           <Button
-            class="btn btn-outline btn-error btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0"
+            class="btn btn-outline btn-error btn-sm inline-flex items-center justify-center text-center [&>span]:min-h-0 [&>span]:w-full [&>span]:justify-center"
             disabled={disablingDigest || savingDigest || !digestSettingsHydrated}
             onclick={disableDigest}>
             <Spinner loading={disablingDigest}>Disable digest</Spinner>
           </Button>
         {/if}
       </div>
-      <Button
-        type="submit"
-        class="btn btn-primary inline-flex items-center justify-center text-center [&>span]:min-h-0"
-        disabled={savingDigest ||
-          disablingDigest ||
-          !digestSettingsHydrated ||
-          !selectedProvider ||
-          !selectedProviderAvailable ||
-          watchedRepoCount === 0 ||
-          Boolean(repositorySummary.error)}>
-        <Spinner loading={savingDigest}
-          >{savedDigestEnabled ? "Save digest" : "Enable digest"}</Spinner>
-      </Button>
+      <div class="flex min-w-0 flex-col items-stretch gap-2 sm:max-w-sm sm:items-end">
+        {#if digestDisabledReason && !savingDigest && !disablingDigest}
+          <p class="text-xs leading-5 text-muted-foreground sm:text-right">
+            {digestDisabledReason}
+          </p>
+        {/if}
+        <Button
+          type="submit"
+          class="btn btn-primary inline-flex items-center justify-center whitespace-normal text-center [&>span]:min-h-0 [&>span]:w-full [&>span]:justify-center"
+          disabled={savingDigest || disablingDigest || Boolean(digestDisabledReason)}>
+          <Spinner loading={savingDigest}
+            >{savedDigestEnabled ? "Save digest" : "Enable digest"}</Spinner>
+        </Button>
+      </div>
     </div>
   </form>
 </div>

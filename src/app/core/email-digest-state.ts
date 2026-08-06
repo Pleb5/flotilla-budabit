@@ -13,6 +13,7 @@ import {APP_BASE_URL} from "@app/core/state"
 import {
   getPersistedEmailDigestAuthRelay,
   setEmailDigestAuthRelay,
+  waitForEmailDigestAuth,
   withTemporaryEmailDigestAuthRelay,
 } from "@app/core/email-digest-auth"
 import {
@@ -208,6 +209,7 @@ const authenticateEmailDigestRelay = async (provider: CommunityEmailDigestServic
   const {currentSigner} = requireSession()
   const socket = Pool.get().get(provider.requestRelay)
   await socket.auth.retryAuth(event => currentSigner.sign(event))
+  await waitForEmailDigestAuth(socket.auth)
   if (socket.auth.status !== AuthStatus.Ok) {
     throw new Error("Email digest provider authentication did not complete.")
   }
@@ -405,7 +407,7 @@ const publishEmailDigestSubscription = async ({
   announcements: TrustedEvent[]
   currentState?: EmailDigestProviderState
 }) => {
-  const {userPubkey, currentSigner} = requireSession()
+  const {currentSigner} = requireSession()
   const provider = settings.provider!
   const payload = buildCurrentEmailDigestPayload({settings, watchState, announcements})
   const providerState = currentState || (await queryEmailDigestProviderState(provider))
