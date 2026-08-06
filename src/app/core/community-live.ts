@@ -50,6 +50,15 @@ type CommunityFiniteFollowUpFilterInput = {
   moderatorRequestReactionEvents: TrustedEvent[]
 }
 
+type CommunityFiniteFollowUpRelayPlanInput = CommunityFiniteFollowUpFilterInput & {
+  relays: string[]
+}
+
+export type CommunityFiniteFollowUpRelayPlan = {
+  relay: string
+  filters: Filter[]
+}
+
 const COMMUNITY_LIVE_TAG_CHUNK_SIZE = 100
 export const COMMUNITY_HISTORICAL_TARGET_KINDS = [EVENT_DATE, EVENT_TIME, ZAP_GOAL] as const
 
@@ -107,19 +116,6 @@ export const buildCommunityHistoricalDiscoveryFilters = (communityPubkey: string
   {kinds: [THREAD], "#h": [communityPubkey]},
   makeCommunityTargetingFilter(communityPubkey, COMMUNITY_HISTORICAL_TARGET_KINDS),
 ]
-
-export const getCommunityFiniteFollowUpRelays = (
-  relays: string[],
-  targetingEvents: TrustedEvent[],
-) =>
-  normalizeCommunityLiveValues([
-    ...relays,
-    ...targetingEvents.flatMap(event => {
-      const relay = parseTargetedPublication(event)?.ref?.relay
-
-      return relay ? [relay] : []
-    }),
-  ])
 
 const chunkValues = <T>(values: T[], size: number) => {
   const chunks: T[][] = []
@@ -229,6 +225,67 @@ export const buildCommunityFiniteFollowUpFilters = ({
   pushTagChunkFilters(filters, [DELETE, COMMUNITY_FORM_REVIEW_KIND], "#e", admissionResponseIds)
 
   return dedupeFilters(filters, false)
+}
+
+const buildCommunityWorkflowFollowUpFilters = ({
+  definition,
+  admissionResponseIds,
+  reportEvents,
+  moderatorRequests,
+  moderatorRequestReactionEvents,
+}: CommunityFiniteFollowUpFilterInput) => {
+  const filters: Filter[] = [
+    ...chunkFiltersByTag(
+      makeCommunityModeratorRequestReactionFilters(definition, moderatorRequests),
+      "#e",
+    ),
+    ...chunkFiltersByTag(
+      makeCommunityModeratorRequestDeleteFilters(definition, moderatorRequestReactionEvents),
+      "#e",
+    ),
+    ...chunkFiltersByTag(makeCommunityReportDeleteFilters(reportEvents), "#e"),
+    ...chunkFiltersByTag(makeCommunityReportReviewFilters(definition, reportEvents), "#e"),
+  ]
+
+  pushTagChunkFilters(filters, [DELETE, COMMUNITY_FORM_REVIEW_KIND], "#e", admissionResponseIds)
+
+  return dedupeFilters(filters, false)
+}
+
+export const buildCommunityFiniteFollowUpRelayPlans = ({
+  relays,
+  targetingEvents,
+  ...input
+}: CommunityFiniteFollowUpRelayPlanInput): CommunityFiniteFollowUpRelayPlan[] => {
+  const communityRelays = normalizeCommunityLiveValues(
+    relays.map(normalizeCommunityLiveRelay).filter(Boolean),
+  )
+  const communityRelaySet = new Set(communityRelays)
+  const allOriginalFilters = makeTargetedPublicationOriginalFilters(targetingEvents)
+  const communityFilters = dedupeFilters(
+    [...allOriginalFilters, ...buildCommunityWorkflowFollowUpFilters({...input, targetingEvents})],
+    false,
+  )
+  const filtersByRelay = new Map<string, Filter[]>()
+
+  for (const relay of communityRelays) filtersByRelay.set(relay, communityFilters)
+
+  for (const event of targetingEvents) {
+    const relay = normalizeCommunityLiveRelay(parseTargetedPublication(event)?.ref?.relay || "")
+    if (!relay || communityRelaySet.has(relay)) continue
+
+    filtersByRelay.set(
+      relay,
+      dedupeFilters(
+        [...(filtersByRelay.get(relay) || []), ...makeTargetedPublicationOriginalFilters([event])],
+        false,
+      ),
+    )
+  }
+
+  return Array.from(filtersByRelay, ([relay, filters]) => ({relay, filters}))
+    .filter(plan => plan.filters.length > 0)
+    .sort((a, b) => a.relay.localeCompare(b.relay))
 }
 
 export const getCommunityLiveSubscriptionKey = ({

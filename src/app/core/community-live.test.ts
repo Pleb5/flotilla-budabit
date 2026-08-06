@@ -9,9 +9,9 @@ import {
 } from "./community"
 import {
   buildCommunityFiniteFollowUpFilters,
+  buildCommunityFiniteFollowUpRelayPlans,
   buildCommunityHistoricalDiscoveryFilters,
   buildCommunityLiveFilters,
-  getCommunityFiniteFollowUpRelays,
 } from "./community-live"
 
 const communityPubkey = "a".repeat(64)
@@ -130,20 +130,46 @@ describe("community live filters", () => {
     expect(filters.every(filter => filter.limit !== 0)).toBe(true)
   })
 
-  it("uses wrapper relay hints and exact event ids for finite follow-up", () => {
-    const filters = buildCommunityFiniteFollowUpFilters({
+  it("sends external relays only the exact originals they host", () => {
+    const otherTargetingEvent = makeEvent({
+      id: "other-targeting-event",
+      kind: TARGETED_PUBLICATION_KIND,
+      tags: buildTargetedPublication({
+        id: "other-goal-target",
+        kind: ZAP_GOAL,
+        ref: {
+          type: "e",
+          value: "other-goal-event-id",
+          relay: "wss://other-goal-hint.example.com/",
+        },
+        communities: [{pubkey: communityPubkey}],
+      }).tags,
+    })
+    const plans = buildCommunityFiniteFollowUpRelayPlans({
       definition,
-      targetingEvents: [goalTargetingEvent],
-      admissionResponseIds: [],
+      relays: ["wss://relay.budabit.club/"],
+      targetingEvents: [goalTargetingEvent, otherTargetingEvent],
+      admissionResponseIds: ["response-id"],
       reportEvents: [],
       moderatorRequests: [],
       moderatorRequestReactionEvents: [],
     })
+    const communityPlan = plans.find(plan => plan.relay === "wss://relay.budabit.club/")
+    const externalPlan = plans.find(plan => plan.relay === "wss://goal-hint.example.com/")
+    const otherExternalPlan = plans.find(
+      plan => plan.relay === "wss://other-goal-hint.example.com/",
+    )
 
-    expect(filters).toContainEqual({kinds: [ZAP_GOAL], ids: ["goal-event-id"]})
-    expect(
-      getCommunityFiniteFollowUpRelays(["wss://relay.budabit.club/"], [goalTargetingEvent]),
-    ).toEqual(["wss://goal-hint.example.com/", "wss://relay.budabit.club/"])
+    expect(plans.map(plan => plan.relay)).toEqual([
+      "wss://goal-hint.example.com/",
+      "wss://other-goal-hint.example.com/",
+      "wss://relay.budabit.club/",
+    ])
+    expect(externalPlan?.filters).toEqual([{kinds: [ZAP_GOAL], ids: ["goal-event-id"]}])
+    expect(otherExternalPlan?.filters).toEqual([{kinds: [ZAP_GOAL], ids: ["other-goal-event-id"]}])
+    expect(communityPlan?.filters).toContainEqual({kinds: [ZAP_GOAL], ids: ["goal-event-id"]})
+    expect(communityPlan?.filters.some(filter => filter["#e"]?.includes("response-id"))).toBe(true)
+    expect(externalPlan?.filters.some(filter => filter["#e"]?.includes("response-id"))).toBe(false)
   })
 
   it("chunks growing response ids into bounded finite filters", () => {

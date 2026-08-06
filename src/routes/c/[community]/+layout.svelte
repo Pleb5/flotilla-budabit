@@ -56,9 +56,8 @@
   } from "@app/core/community-deletes"
   import {
     buildCommunityHistoricalDiscoveryFilters,
-    buildCommunityFiniteFollowUpFilters,
+    buildCommunityFiniteFollowUpRelayPlans,
     buildCommunityLiveFilters,
-    getCommunityFiniteFollowUpRelays,
     getCommunityLiveSubscriptionKey,
     normalizeCommunityLiveValues,
     registerCommunityLiveOwnership,
@@ -425,18 +424,15 @@
 
     const definition = $activeCommunityDefinition
     const relays = normalizeCommunityLiveValues($activeCommunityRelays)
-    const followUpRelays = getCommunityFiniteFollowUpRelays(
-      relays,
-      authorizedCommunityTargetingEvents,
-    )
 
     if (!definition || relays.length === 0) {
       stopCommunityFollowUpLoad()
       return
     }
 
-    const filters = buildCommunityFiniteFollowUpFilters({
+    const plans = buildCommunityFiniteFollowUpRelayPlans({
       definition,
+      relays,
       targetingEvents: authorizedCommunityTargetingEvents,
       admissionResponseIds,
       reportEvents: effectiveCommunityReportEvents,
@@ -444,16 +440,20 @@
       moderatorRequestReactionEvents: $activeCommunityModeratorRequestReactionEvents,
     })
 
-    if (filters.length === 0) {
+    if (plans.length === 0) {
       stopCommunityFollowUpLoad()
       return
     }
 
-    const key = getCommunityLiveSubscriptionKey({
-      communityPubkey: definition.pubkey,
-      relays: followUpRelays,
-      filters,
-    })
+    const key = JSON.stringify(
+      plans.map(plan =>
+        getCommunityLiveSubscriptionKey({
+          communityPubkey: definition.pubkey,
+          relays: [plan.relay],
+          filters: plan.filters,
+        }),
+      ),
+    )
     if (communityFollowUpLoadKey === key) return
 
     communityFollowUpLoadController?.abort()
@@ -461,18 +461,22 @@
     const controller = new AbortController()
     communityFollowUpLoadController = controller
 
-    void hydrateCommunityEventsWithStatus({
-      key: `community-follow-up:${key}`,
-      relays: followUpRelays,
-      filters,
-      authenticate: true,
-      timeout: COMMUNITY_HISTORY_LOAD_TIMEOUT_MS,
-      signal: controller.signal,
-      priority: RELAY_REQUEST_PRIORITY.community,
-    }).then(result => {
+    void Promise.all(
+      plans.map(plan =>
+        hydrateCommunityEventsWithStatus({
+          key: `community-follow-up:${definition.pubkey}:${plan.relay}:${key}`,
+          relays: [plan.relay],
+          filters: plan.filters,
+          authenticate: true,
+          timeout: COMMUNITY_HISTORY_LOAD_TIMEOUT_MS,
+          signal: controller.signal,
+          priority: RELAY_REQUEST_PRIORITY.community,
+        }),
+      ),
+    ).then(results => {
       if (communityFollowUpLoadController !== controller) return
       communityFollowUpLoadController = null
-      if (result.complete) return
+      if (results.every(result => result.complete)) return
 
       communityFollowUpLoadKey = ""
       if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)

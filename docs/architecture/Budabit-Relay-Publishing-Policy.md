@@ -102,6 +102,8 @@ Community-scoped zaps follow the same destination boundary. When an explicit `sc
 
 Dedicated extension community publish capabilities derive destinations from `definition.relays` and fail when that set is empty. Generic `nostr:publish` rejects `h`-tagged events, verifies externally signed events before handing them to optimistic publication, and reports failure unless at least one requested relay accepts the event.
 
+Finite community follow-up reads are partitioned per relay. Community relays receive community workflow filters and exact targeted-original filters. An external relay named by a targeting wrapper receives only exact filters for originals explicitly hosted by that relay; it never receives admission, moderation, report, review, delete, or another external relay's original identifiers.
+
 ## Repository Publication
 
 Repository-related publishing is mostly repo-relay scoped. The exception is repo announcements, which are also discovery events.
