@@ -43,7 +43,7 @@
     submitting?: boolean
     onEscape?: () => void
     onEditPrevious?: () => void
-    onSubmit: (event: EventContent) => void | Promise<void>
+    onSubmit: (event: EventContent) => void | boolean | Promise<void | boolean>
   }
 
   const {
@@ -199,8 +199,8 @@
       const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
 
       try {
-        const result = onSubmit({content, tags})
-        if (result && typeof result.then === "function") await result
+        const submitted = await onSubmit({content, tags})
+        if (submitted === false) return
       } catch {
         return
       }
@@ -280,7 +280,11 @@
       <Tippy
         bind:popover={attachmentPopover}
         component={AttachmentMenu}
-        props={{onPickMedia: pickMediaFiles, onPickFile: pickGenericFiles, onClick: hideAttachmentPopover}}
+        props={{
+          onPickMedia: pickMediaFiles,
+          onPickFile: pickGenericFiles,
+          onClick: hideAttachmentPopover,
+        }}
         params={{trigger: "manual", interactive: true}}>
         <Button
           data-tip="Attach file"

@@ -176,7 +176,9 @@
   let kind = $state<CalendarEventKind>(normalizeCalendarEventKind(initialValues?.kind))
   let start: number | undefined = $state(initialValues?.start)
   let end: number | undefined = $state(initialValues?.end)
-  let startDate = $state(initialValues?.startDate || timestampToDateInputValue(initialValues?.start))
+  let startDate = $state(
+    initialValues?.startDate || timestampToDateInputValue(initialValues?.start),
+  )
   let endDate = $state(initialValues?.endDate || timestampToDateInputValue(initialValues?.end))
   let endDirty = Boolean(initialValues?.end)
   const isDateBased = $derived(kind === EVENT_DATE)
@@ -235,7 +237,10 @@
       <p>Event type</p>
     {/snippet}
     {#snippet input()}
-      <select bind:value={kind} class="select select-bordered w-full">
+      <select
+        bind:value={kind}
+        class="select select-bordered w-full"
+        disabled={Boolean(initialValues)}>
         <option value={EVENT_TIME}>Timed event</option>
         <option value={EVENT_DATE}>All-day event</option>
       </select>

@@ -253,20 +253,20 @@
 
   const sendReply = ({content, tags}: EventContent) => {
     const trimmed = content.trim()
-    if (!trimmed || !communityPubkey || !threadId) return
+    if (!trimmed || !communityPubkey || !threadId) return false
     if (!thread) {
       pushToast({theme: "error", message: "Thread metadata is not loaded yet."})
-      return
+      return false
     }
     if (!canReply) {
       pushToast({theme: "error", message: commentAccessMessage})
-      return
+      return false
     }
 
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
+      return false
     }
 
     if (eventToEdit) {
@@ -278,7 +278,7 @@
         url: communityPubkey,
       })
       closeCommentPrompt()
-      return
+      return true
     }
 
     const template = makeCommunityThreadReply({
@@ -297,6 +297,7 @@
       event: makeEvent(COMMENT, template),
     })
     closeCommentPrompt()
+    return true
   }
 
   const scrollToLatestReply = async () => {

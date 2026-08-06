@@ -360,15 +360,15 @@
 
   const sendReply = ({content, tags}: EventContent) => {
     const trimmed = content.trim()
-    if (!approvedEvent || !trimmed) return
+    if (!approvedEvent || !trimmed) return false
     if (!canReply) {
       pushToast({theme: "error", message: commentAccessMessage})
-      return
+      return false
     }
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
+      return false
     }
 
     if (eventToEdit) {
@@ -380,7 +380,7 @@
         url: communityPubkey,
       })
       closeCommentPrompt()
-      return
+      return true
     }
 
     const template = makeCommunityCalendarEventReply({
@@ -399,6 +399,7 @@
       event: makeEvent(COMMENT, template),
     })
     closeCommentPrompt()
+    return true
   }
 
   const scrollToReplyParent = async (event: TrustedEvent) => {

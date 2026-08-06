@@ -266,14 +266,14 @@
 
   const sendReply = ({content, tags}: EventContent) => {
     const trimmed = content.trim()
-    if (!approvedGoal || !trimmed) return
+    if (!approvedGoal || !trimmed) return false
     if (!canReply) {
       pushToast({theme: "error", message: commentAccessMessage})
-      return
+      return false
     }
     if ($activeCommunityRelays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
+      return false
     }
 
     if (eventToEdit) {
@@ -286,7 +286,7 @@
       })
       eventToEdit = undefined
       showReply = false
-      return
+      return true
     }
 
     publishComment({
@@ -296,6 +296,7 @@
       tags: [["h", communityPubkey], ...tags],
     })
     showReply = false
+    return true
   }
 
   const openReply = async () => {

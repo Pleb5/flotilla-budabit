@@ -34,6 +34,7 @@ export type ThunkOptions = Override<
 
 export class Thunk {
   _subs: Subscriber<Thunk>[] = []
+  _optimisticEventId?: string
 
   pubkey: string
   signer: ISigner
@@ -217,11 +218,17 @@ export class Thunk {
         }
       }
 
-      repository.removeEvent(this.event.id)
+      if (this._optimisticEventId) repository.removeEvent(this._optimisticEventId)
       repository.publish(signedEvent)
+      this._optimisticEventId = undefined
+      this.event = signedEvent
 
       return this._publish(signedEvent)
     } catch (e: any) {
+      if (this._optimisticEventId) {
+        repository.removeEvent(this._optimisticEventId)
+        this._optimisticEventId = undefined
+      }
       console.error("Failed to sign event", e)
       return this._fail(String(e || "Failed to sign event"))
     }
@@ -234,14 +241,15 @@ export class Thunk {
       tracker.track(this.event.id, url)
     }
 
-    repository.publish(this.event)
+    if (repository.publish(this.event)) this._optimisticEventId = this.event.id
     thunks.update($thunks => append(this, $thunks))
 
     this.controller.signal.addEventListener("abort", () => {
       if (this.wrap) {
         wrapManager.remove(this.wrap.id)
-      } else {
-        repository.removeEvent(this.event.id)
+      } else if (this._optimisticEventId) {
+        repository.removeEvent(this._optimisticEventId)
+        this._optimisticEventId = undefined
       }
 
       thunks.update($thunks => remove(this, $thunks))

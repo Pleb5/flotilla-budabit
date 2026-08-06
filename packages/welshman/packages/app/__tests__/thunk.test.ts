@@ -66,18 +66,43 @@ describe("thunk", () => {
 
     it("should handle abort", () => {
       const removeEventSpy = vi.spyOn(repository, "removeEvent")
-      const thunk = publishThunk(mockRequest)
+      const thunk = publishThunk({
+        ...mockRequest,
+        event: makeEvent(NOTE, {tags: [["test", "publish-abort"]]}),
+      })
 
       abortThunk(thunk)
 
       expect(removeEventSpy).toHaveBeenCalledWith(thunk.event.id)
+    })
+
+    it("removes only the optimistic event when signing fails", async () => {
+      const event = prep(makeEvent(NOTE, {tags: [["test", "signing-failure"]]}), pubkey)
+      const removeEventSpy = vi.spyOn(repository, "removeEvent")
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+      const thunk = publishThunk({event, relays: [LOCAL_RELAY_URL]})
+      const optimisticEventId = thunk.event.id
+
+      vi.spyOn(thunk.signer, "sign").mockRejectedValue(new Error("signing failed"))
+      expect(repository.getEvent(optimisticEventId)).toBe(thunk.event)
+
+      await vi.runAllTimersAsync()
+
+      expect(removeEventSpy).toHaveBeenCalledTimes(1)
+      expect(removeEventSpy).toHaveBeenCalledWith(optimisticEventId)
+      expect(repository.getEvent(optimisticEventId)).toBeUndefined()
+      expect(thunk.results[LOCAL_RELAY_URL].status).toEqual(PublishStatus.Failure)
+      consoleErrorSpy.mockRestore()
     })
   })
 
   describe("abortThunk", () => {
     it("should abort a thunk and clean up", () => {
       const removeEventSpy = vi.spyOn(repository, "removeEvent")
-      const thunk = publishThunk(mockRequest)
+      const thunk = publishThunk({
+        ...mockRequest,
+        event: makeEvent(NOTE, {tags: [["test", "abort-thunk"]]}),
+      })
 
       abortThunk(thunk)
 

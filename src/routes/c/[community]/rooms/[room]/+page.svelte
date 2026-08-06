@@ -325,20 +325,20 @@
 
   const onSubmit = async ({content, tags}: EventContent) => {
     const trimmed = content.trim()
-    if (!trimmed || !communityPubkey || !roomId) return
+    if (!trimmed || !communityPubkey || !roomId) return false
     if (!room) {
       pushToast({theme: "error", message: "Room metadata is not loaded yet."})
-      return
+      return false
     }
     if (!canSendMessage) {
       pushToast({theme: "error", message: roomMessageAccessMessage})
-      return
+      return false
     }
 
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
+      return false
     }
 
     if (eventToEdit) {
@@ -365,7 +365,7 @@
       clearShare()
       clearEventToEdit()
       void tick().then(() => scrollToBottom())
-      return
+      return true
     }
 
     let template: EventContent = makeCommunityRoomMessage({
@@ -405,6 +405,7 @@
     clearShare()
     clearEventToEdit()
     void tick().then(() => scrollToBottom())
+    return true
   }
 
   const onScroll = () => {

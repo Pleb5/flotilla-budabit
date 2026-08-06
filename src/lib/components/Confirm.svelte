@@ -85,7 +85,10 @@
     </div>
   {/if}
   <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <Button class="btn btn-link inline-flex justify-center sm:justify-start" onclick={back}>
+    <Button
+      class="btn btn-link inline-flex justify-center sm:justify-start"
+      disabled={loading && !cancel}
+      onclick={back}>
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
