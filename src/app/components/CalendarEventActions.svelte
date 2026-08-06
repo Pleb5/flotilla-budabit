@@ -11,9 +11,17 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import CalendarEventEdit from "@app/components/CalendarEventEdit.svelte"
+  import {
+    makeCalendarEventFilename,
+    makeCalendarEventIcs,
+    makeGoogleCalendarEventUrl,
+  } from "@app/core/calendar-export"
   import {publishSocialDelete, publishReaction} from "@app/core/commands"
   import {makeCalendarPath, makeSpacePath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
+  import {downloadText} from "@lib/html"
+  import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
+  import FileDownload from "@assets/icons/file-download.svg?dataurl"
   import Pen2 from "@assets/icons/pen-2.svg?dataurl"
 
   type Props = {
@@ -47,6 +55,23 @@
   const h = getTagValue("h", event.tags)
   const eventRouteParam = getTagValue("d", event.tags) || event.id
   const path = makeCalendarPath(url, eventRouteParam)
+  const canExport = $derived(Boolean(makeCalendarEventIcs(event)))
+
+  const getEventPageUrl = () => new URL(path, window.location.origin).toString()
+
+  const addToGoogleCalendar = () => {
+    const calendarUrl = makeGoogleCalendarEventUrl(event, {url: getEventPageUrl()})
+
+    if (calendarUrl) window.open(calendarUrl, "_blank", "noopener")
+  }
+
+  const downloadCalendarEvent = () => {
+    const calendar = makeCalendarEventIcs(event, {url: getEventPageUrl()})
+
+    if (calendar) {
+      downloadText(makeCalendarEventFilename(event), calendar, "text/calendar;charset=utf-8")
+    }
+  }
 
   const editEvent = () =>
     pushModal(CalendarEventEdit, {
@@ -95,6 +120,24 @@
       {allowedAuthors}
       coreCommunityLiveCovered={activityLiveCovered} />
   {/if}
+  {#if canExport}
+    <div class="join rounded-full" role="group" aria-label="Calendar export actions">
+      <Button
+        class="btn join-item btn-neutral btn-xs tooltip tooltip-left"
+        data-tip="Add to Google Calendar"
+        aria-label="Add to Google Calendar"
+        onclick={addToGoogleCalendar}>
+        <Icon size={4} icon={CalendarAdd} />
+      </Button>
+      <Button
+        class="btn join-item btn-neutral btn-xs tooltip tooltip-left"
+        data-tip="Download calendar file"
+        aria-label="Download calendar file"
+        onclick={downloadCalendarEvent}>
+        <Icon size={4} icon={FileDownload} />
+      </Button>
+    </div>
+  {/if}
   <EventActions
     {url}
     {relays}
@@ -105,6 +148,20 @@
     noun="Event"
     allowAdminDelete={false}>
     {#snippet customActions()}
+      {#if canExport}
+        <li>
+          <Button onclick={addToGoogleCalendar}>
+            <Icon size={4} icon={CalendarAdd} />
+            Add to Google Calendar
+          </Button>
+        </li>
+        <li>
+          <Button onclick={downloadCalendarEvent}>
+            <Icon size={4} icon={FileDownload} />
+            Download calendar file
+          </Button>
+        </li>
+      {/if}
       {#if event.pubkey === $pubkey}
         <li>
           <Button onclick={editEvent}>

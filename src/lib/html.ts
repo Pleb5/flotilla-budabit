@@ -128,8 +128,8 @@ export const isMobile =
 
 export const isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent)
 
-export const downloadText = (filename: string, text: string) => {
-  const blob = new Blob([text], {type: "text/plain"})
+export const downloadText = (filename: string, text: string, type = "text/plain") => {
+  const blob = new Blob([text], {type})
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
 
@@ -138,7 +138,8 @@ export const downloadText = (filename: string, text: string) => {
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  // WebKit may start Blob downloads asynchronously, especially on iOS.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 export const isIntersecting = async (element: Element) =>
