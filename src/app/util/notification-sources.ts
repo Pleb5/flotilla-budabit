@@ -651,12 +651,19 @@ const getRepoAddress = (event: TrustedEvent) =>
   })?.[1] ||
   ""
 
-const getRepoNaddr = (event: TrustedEvent) => {
+const getRepoNaddr = (event: TrustedEvent, relayHints: string[] = []) => {
   const address = getRepoAddress(event)
   if (!address) return ""
 
   try {
-    return Address.from(address).toNaddr()
+    const ref = Address.from(address)
+    if (ref.kind !== GIT_REPO_ANNOUNCEMENT || !ref.pubkey || !ref.identifier) return ""
+    return nip19.naddrEncode({
+      kind: ref.kind,
+      pubkey: ref.pubkey,
+      identifier: ref.identifier,
+      relays: normalizeRelayHints(relayHints),
+    })
   } catch {
     return ""
   }
@@ -703,8 +710,9 @@ const getRepoRowPath = (sectionPath: string, event: TrustedEvent) => {
 }
 
 const getGitEngagementEventPath = (event: TrustedEvent) => {
+  if (!isGitEngagementEvent(event)) return undefined
   const section = getRepoNotificationSection(event)
-  const repoNaddr = getRepoNaddr(event)
+  const repoNaddr = getRepoNaddr(event, getNotificationEventRelays(event.id))
   if (!section || !repoNaddr) return undefined
 
   return getRepoRowPath(`${makeGitPath(undefined, repoNaddr)}/${section}`, event)
@@ -1925,6 +1933,51 @@ const getRepoEventTitle = (event: TrustedEvent) => {
   return "Git activity"
 }
 
+const isRepoNotificationRelayHintEvent = (event: TrustedEvent) => {
+  if (
+    event.kind === GIT_ISSUE ||
+    event.kind === GIT_PULL_REQUEST ||
+    event.kind === GIT_PULL_REQUEST_UPDATE ||
+    event.kind === GIT_COMMENT ||
+    GIT_STATUS_KINDS.includes(event.kind)
+  ) {
+    return true
+  }
+
+  if (event.kind !== GIT_LABEL) return false
+  return event.tags.some(
+    tag =>
+      tag[0] === "l" &&
+      (tag[1] === "assignee" || tag[1] === "reviewer") &&
+      tag[2] === ROLE_NS &&
+      tag[3] !== "del",
+  )
+}
+
+export const addRepoNotificationRelayHints = (
+  path: string,
+  event: TrustedEvent,
+  relayHints: string[] = [],
+) => {
+  if (!isRepoNotificationRelayHintEvent(event)) return path
+
+  const relays = normalizeRelayHints(relayHints)
+  if (relays.length === 0) return path
+
+  const match = path.match(/^\/git\/([^/]+)\/(issues|prs)(.*)$/)
+  if (!match) return path
+
+  try {
+    const decoded = nip19.decode(match[1])
+    if (decoded.type !== "naddr" || decoded.data.kind !== GIT_REPO_ANNOUNCEMENT) return path
+
+    const naddr = nip19.naddrEncode({...decoded.data, relays})
+    return `/git/${naddr}/${match[2]}${match[3]}`
+  } catch {
+    return path
+  }
+}
+
 export const buildRepoWatchNotificationRows = ({
   candidates,
 }: BuildRepoWatchNotificationRowsOptions): NotificationRow[] => {
@@ -1935,7 +1988,11 @@ export const buildRepoWatchNotificationRows = ({
 
       const title = getRepoEventTitle(event)
       const preview = getTextPreview(event, title)
-      const path = getRepoRowPath(candidate.path, event)
+      const navigationBasePath = addRepoNotificationRelayHints(candidate.path, event, [
+        ...(candidate.repoRelayHints || []),
+        ...getNotificationEventRelays(event.id),
+      ])
+      const path = getRepoRowPath(navigationBasePath, event)
       const contextLabel = getRepoContextLabel(candidate.path, event)
 
       return [

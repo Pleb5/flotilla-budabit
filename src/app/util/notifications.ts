@@ -60,6 +60,7 @@ export const setCheckedAt = (key: string, timestamp: number) =>
 export type NotificationCandidate = {
   path: string
   latestEvent?: TrustedEvent
+  repoRelayHints?: string[]
 }
 
 export type RoomMessageNotificationCandidateOptions = {

@@ -146,6 +146,39 @@ describe("repo watch notifications", () => {
     ).toEqual([{path: `${repoPath}/issues`, latestEvent: issue}])
   })
 
+  it("carries only announcement-declared relays with real repository triggers", async () => {
+    const {getRepoWatchNotificationCandidates} = await import("./repo-watch-notifications")
+    const issue = makeEvent({
+      id: "scoped-issue",
+      kind: GIT_ISSUE,
+      pubkey: outsider,
+      tags: [["a", repoAddress]],
+    })
+    const repoEvent = makeEvent({
+      id: "repo-event",
+      kind: GIT_REPO_ANNOUNCEMENT,
+      pubkey: owner,
+      tags: [
+        ["d", repoIdentifier],
+        ["relays", "wss://REPO.example/", "wss://second.example"],
+      ],
+    })
+
+    expect(
+      getRepoWatchNotificationCandidates({
+        repos: [{...makeRepo(), repoEvent}],
+        issues: [issue],
+        currentPubkey: viewer,
+      }),
+    ).toEqual([
+      {
+        path: `${repoPath}/issues`,
+        latestEvent: issue,
+        repoRelayHints: ["wss://repo.example/", "wss://second.example/"],
+      },
+    ])
+  })
+
   it("adds owned and maintained repos as baseline notification repos", async () => {
     const {defaultOwnedRepoNotificationOptions, getRepoNotificationRepos} =
       await import("./repo-watch-notifications")

@@ -1138,6 +1138,50 @@ describe("notification sources", () => {
     ).toBe(`${path}/${issue.id}`)
   })
 
+  it("adds repo and trigger relays only to eligible repo notification navigation", async () => {
+    const {addRepoNotificationRelayHints, buildRepoWatchNotificationRows} =
+      await import("./notification-sources")
+    const {receiveNotificationEvent} = await import("./notification-events")
+    const repoNaddr = nip19.naddrEncode({
+      kind: GIT_REPO_ANNOUNCEMENT,
+      pubkey: viewer,
+      identifier: "repo",
+    })
+    const basePath = `/git/${repoNaddr}/issues`
+    const issue = makeEvent({
+      id: "scoped-issue",
+      kind: GIT_ISSUE,
+      pubkey: writer,
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    const relays = ["wss://repo.example", "wss://second.example"]
+    receiveNotificationEvent(issue, "wss://trigger.example")
+    const row = buildRepoWatchNotificationRows({
+      candidates: [{path: basePath, latestEvent: issue, repoRelayHints: relays}],
+    })[0]!
+    const encoded = row.path.split("/")[2]
+    const decoded = nip19.decode(encoded)
+
+    expect(decoded.type).toBe("naddr")
+    expect(decoded.type === "naddr" ? decoded.data.relays : []).toEqual([
+      "wss://repo.example/",
+      "wss://second.example/",
+      "wss://trigger.example/",
+    ])
+    expect(row.readPath).toBe(basePath)
+    expect(row.repoWatchSeenPath).toBe(basePath)
+
+    const report = makeEvent({kind: COMMUNITY_REPORT_KIND})
+    const channelMessage = makeEvent({kind: 42})
+    const reportReview = makeEvent({
+      kind: COMMUNITY_REPORT_REVIEW_LABEL_KIND,
+      tags: [["L", COMMUNITY_REPORT_REVIEW_NAMESPACE]],
+    })
+    expect(addRepoNotificationRelayHints(basePath, report, relays)).toBe(basePath)
+    expect(addRepoNotificationRelayHints(basePath, channelMessage, relays)).toBe(basePath)
+    expect(addRepoNotificationRelayHints(basePath, reportReview, relays)).toBe(basePath)
+  })
+
   it("builds widget update rows that open extension settings", async () => {
     const {buildWidgetUpdateNotificationRows} = await import("./notification-sources")
     const widget = {

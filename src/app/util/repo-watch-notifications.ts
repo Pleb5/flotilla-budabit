@@ -569,7 +569,7 @@ const addCandidate = ({
   enabled,
   currentPubkey,
 }: {
-  candidates: Map<string, TrustedEvent>
+  candidates: Map<string, NotificationCandidate>
   repo: RepoWatchNotificationRepo
   section: RepoWatchCandidateSection
   event: TrustedEvent
@@ -582,8 +582,13 @@ const addCandidate = ({
   const path = getRepoWatchPath(repo, section)
   const current = candidates.get(path)
 
-  if (!current || isNewerEvent(event, current)) {
-    candidates.set(path, event)
+  if (!current?.latestEvent || isNewerEvent(event, current.latestEvent)) {
+    const repoRelayHints = getRepoEventRelays(repo)
+    candidates.set(path, {
+      path,
+      latestEvent: event,
+      ...(repoRelayHints.length > 0 ? {repoRelayHints} : {}),
+    })
   }
 }
 
@@ -610,7 +615,7 @@ export const getRepoWatchNotificationCandidates = ({
   const reposByAddress = new Map(repos.map(repo => [repo.address, repo]))
   const issueReposByRootId = new Map<string, RepoWatchNotificationRepo>()
   const prReposByRootId = new Map<string, RepoWatchNotificationRepo>()
-  const candidates = new Map<string, TrustedEvent>()
+  const candidates = new Map<string, NotificationCandidate>()
 
   for (const issue of issues) {
     if (issue.kind !== GIT_ISSUE) continue
@@ -771,9 +776,7 @@ export const getRepoWatchNotificationCandidates = ({
     }
   }
 
-  return Array.from(candidates.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([path, latestEvent]) => ({path, latestEvent}))
+  return Array.from(candidates.values()).sort((a, b) => a.path.localeCompare(b.path))
 }
 
 const watchedRepoRefs: Readable<WatchedRepoRef[]> = derived(userRepoWatchValues, $values =>
