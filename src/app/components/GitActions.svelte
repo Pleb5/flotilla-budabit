@@ -52,13 +52,9 @@
   const relaysTag = event.tags.find(nthEq(0, "relays")) || []
   const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
 
-  const repoNaddr = $derived.by(() =>
-    makeRepoNaddrFromEvent(event, {fallbackRelays: relays}),
-  )
+  const repoNaddr = $derived.by(() => makeRepoNaddrFromEvent(event, {fallbackRelays: relays}))
 
-  const browseHref = $derived.by(() =>
-    makeRepoHrefFromEvent(event, {url, fallbackRelays: relays}),
-  )
+  const browseHref = $derived.by(() => makeRepoHrefFromEvent(event, {url, fallbackRelays: relays}))
   const codeHref = $derived.by(() => `${browseHref}/code`)
 
   const deleted = deriveIsDeleted(repository, event)
@@ -189,11 +185,16 @@
               tokens,
               (h: string) => h === hostname,
               async (token: string) => {
-                return await workerApi.pushToRemote({repoId, remoteUrl, token})
+                return await workerApi.pushToRemote({
+                  repoId,
+                  remoteUrl,
+                  token,
+                  repoRelays: relays,
+                })
               },
             )
           } else {
-            await workerApi.pushToRemote({repoId, remoteUrl})
+            await workerApi.pushToRemote({repoId, remoteUrl, repoRelays: relays})
           }
 
           pushedTo = remoteUrl

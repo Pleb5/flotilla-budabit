@@ -1,15 +1,12 @@
 import type { Event } from "nostr-tools";
 import type { RepoAnnouncementEvent, RepoStateEvent } from "@nostr-git/core/events";
-import {
-  createRepoAnnouncementEvent,
-  getTagValue,
-} from "@nostr-git/core/events";
+import { createRepoAnnouncementEvent, getTags, getTagValue } from "@nostr-git/core/events";
 import { detectVendorFromUrl } from "@nostr-git/core/git";
-import { isGraspRepoHttpUrl } from "@nostr-git/core/utils";
+import { isGraspRepoHttpUrl, sanitizeRelays } from "@nostr-git/core/utils";
 import { tokens as tokensStore } from "../stores/tokens.js";
 import {
   createGraspStateEventFromExistingState,
-  normalizeGraspOrigins,
+  type PublishRepoEvent,
 } from "../utils/grasp-pipeline.js";
 import { getAccessTokenManagementMessage, isWorkflowScopeIssue } from "../utils/tokenManagement.js";
 import { tryTokensForHost } from "../utils/tokenHelpers.js";
@@ -40,6 +37,31 @@ interface UseEditRepoOptions {
   workerApi?: any; // Git worker API instance (optional for backward compatibility)
 }
 
+export function getEditRepoRelays(announcement: RepoAnnouncementEvent): string[] {
+  return sanitizeRelays(getTags(announcement as any, "relays").flatMap((tag) => tag.slice(1)));
+}
+
+export async function publishEditedRepoEvents(params: {
+  announcementEvent: RepoAnnouncementEvent;
+  stateEvent?: RepoStateEvent;
+  repoRelays: string[];
+  onSignEvent: (event: Partial<Event>) => Promise<Event>;
+  onPublishEvent: PublishRepoEvent;
+}): Promise<void> {
+  const repoRelays = sanitizeRelays(params.repoRelays);
+  if (repoRelays.length === 0) {
+    throw new Error("Repository edit requires relays from the accepted announcement");
+  }
+
+  const signedAnnouncement = await params.onSignEvent(params.announcementEvent);
+  await params.onPublishEvent(signedAnnouncement, { relays: repoRelays });
+
+  if (params.stateEvent) {
+    const signedState = await params.onSignEvent(params.stateEvent);
+    await params.onPublishEvent(signedState, { relays: repoRelays });
+  }
+}
+
 /**
  * Svelte 5 composable for managing edit repository workflow
  * Handles git-worker integration, progress tracking, and NIP-34 event emission
@@ -49,14 +71,6 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
   let progress = $state<EditProgress | undefined>();
   let error = $state<string | undefined>();
   let isEditing = $state(false);
-
-  const deriveGraspRelayUrl = (remoteUrl: string): string | undefined => {
-    try {
-      return normalizeGraspOrigins(remoteUrl).wsOrigin;
-    } catch {
-      return undefined;
-    }
-  };
 
   /**
    * Edit a repository with full workflow
@@ -72,7 +86,7 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
     editOptions: {
       repoDir: string;
       onSignEvent: (event: Partial<Event>) => Promise<Event>;
-      onPublishEvent: (event: Event) => Promise<void>;
+      onPublishEvent: PublishRepoEvent;
       onUpdateStore?: (repoId: string, updates: any) => Promise<void>;
     }
   ): Promise<void> {
@@ -88,6 +102,11 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
     };
 
     try {
+      const repoRelays = getEditRepoRelays(currentAnnouncement);
+      if (repoRelays.length === 0) {
+        throw new Error("Repository edit requires relays from the accepted announcement");
+      }
+
       // Get the git worker instance using dynamic import
       let gitWorker: any;
       if (hookOptions.workerApi) {
@@ -232,17 +251,14 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
           ? cloneUrl.replace(`/${repo}.git`, `/${config.name}.git`)
           : cloneUrl;
 
-      const isGraspRepo = isGraspRepoHttpUrl(updatedCloneUrl);
       const cloneUrls = [updatedCloneUrl];
-      const relayUrl = isGraspRepo ? deriveGraspRelayUrl(updatedCloneUrl) : undefined;
-      const relayUrls = relayUrl ? [relayUrl] : [];
 
       const announcementEvent = createRepoAnnouncementEvent({
         repoId: repoId,
         name: config.name,
         description: config.description,
         clone: cloneUrls,
-        relays: relayUrls.length > 0 ? relayUrls : undefined,
+        relays: repoRelays,
         created_at: Math.floor(Date.now() / 1000),
       });
 
@@ -261,14 +277,13 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
         isComplete: false,
       };
 
-      // Sign and publish the announcement event
-      const signedAnnouncement = await onSignEvent(announcementEvent);
-      await onPublishEvent(signedAnnouncement);
-
-      if (stateEvent) {
-        const signedState = await onSignEvent(stateEvent);
-        await onPublishEvent(signedState);
-      }
+      await publishEditedRepoEvents({
+        announcementEvent,
+        stateEvent: stateEvent || undefined,
+        repoRelays,
+        onSignEvent,
+        onPublishEvent,
+      });
 
       // Step 4: Update local store
       if (onUpdateStore) {

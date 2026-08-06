@@ -666,6 +666,7 @@ describe("syncLocalRepoToTargets", () => {
     expect(workerApi.pushToRemote).toHaveBeenCalledWith(
       expect.objectContaining({
         operationId: expect.stringMatching(/^import:progress:.+:pushToRemote:\d+$/),
+        repoRelays: ["wss://relay.ngit.dev"],
       })
     );
     expect(onOperationProgress.mock.calls.map(([event]) => event.phase)).toEqual(
@@ -1460,6 +1461,7 @@ describe("syncLocalRepoToTargets", () => {
       expect.objectContaining({
         provider: "grasp",
         ref: "refs/heads/feature",
+        repoRelays: ["wss://relay.ngit.dev"],
       })
     );
   });

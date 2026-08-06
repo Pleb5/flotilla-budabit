@@ -1,22 +1,24 @@
-import { NostrGitProvider } from "../src/api/providers/nostr-git-provider.js";
-import type { EventIO } from "../src/types/index.js";
-import { makeRepoAddr } from "../src/utils/repo-addr.js";
+import {NostrGitProvider} from "../src/api/providers/nostr-git-provider.js"
+import type {EventIO} from "../src/types/index.js"
+import {makeRepoAddr} from "../src/utils/repo-addr.js"
 
-const demoOwner = "f".repeat(64);
+const demoOwner = "f".repeat(64)
 
 // Minimal EventIO implementation for demos
 const eventIO: EventIO = {
-  fetchEvents: async () => {
-    console.log("[eventIO.fetchEvents]", "returning no events for demo");
-    return [];
+  fetchEvents: async (_filters, scope) => {
+    console.log("[eventIO.fetchEvents] relays=", scope.relays)
+    console.log("[eventIO.fetchEvents]", "returning no events for demo")
+    return []
   },
-  publishEvent: async (event) => {
-    console.log("[eventIO.publishEvent] kind=", event.kind ?? "unknown");
-    return { ok: true, relays: [] };
+  publishEvent: async (event, scope) => {
+    console.log("[eventIO.publishEvent] kind=", event.kind ?? "unknown")
+    return {ok: true, relays: scope.relays}
   },
-  publishEvents: async (events) => Promise.all(events.map((evt) => eventIO.publishEvent(evt))),
+  publishEvents: async (events, scope) =>
+    Promise.all(events.map(evt => eventIO.publishEvent(evt, scope))),
   getCurrentPubkey: () => demoOwner,
-};
+}
 
 // Fake Git provider that fails first push (ssh) and succeeds second (https)
 class DemoGit {

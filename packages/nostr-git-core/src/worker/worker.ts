@@ -154,6 +154,7 @@ import {
   withUrlFallback,
 } from "../utils/clone-url-fallback.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
+import {sanitizeRelays} from "../utils/sanitize-relays.js"
 
 import type {AuthConfig} from "./workers/auth.js"
 import {getAuthCallback, getConfiguredAuthHosts, setAuthConfig} from "./workers/auth.js"
@@ -1768,7 +1769,18 @@ const api = {
   },
 
   async pushToRemote(opts: PushToRemoteOptions) {
-    const {repoId, remoteUrl, branch, ref, refs, token, provider, blossomMirror, operationId} = opts
+    const {
+      repoId,
+      remoteUrl,
+      branch,
+      ref,
+      refs,
+      token,
+      provider,
+      blossomMirror,
+      repoRelays,
+      operationId,
+    } = opts
     const {key, dir} = repoKeyAndDir(repoId)
     const targetBranch = branch || "main"
 
@@ -2405,6 +2417,10 @@ const api = {
 
       // Check if NostrGitProvider is available before trying to use it
       if (isNostrUrl && hasNostrGitProvider()) {
+        const explicitRepoRelays = sanitizeRelays(repoRelays || [])
+        if (explicitRepoRelays.length === 0) {
+          throw new Error("Nostr repository push requires at least one explicit repository relay")
+        }
         const nostrProvider = getNostrGitProvider()
         let blossomSummary: BlossomPushSummary | undefined
         const pushedRefs: string[] = []
@@ -2422,6 +2438,7 @@ const api = {
             url: remoteUrl,
             onAuth,
             blossomMirror: blossomMirror ?? Boolean(provider === "blossom"),
+            repoRelays: explicitRepoRelays,
             ...(operation ? {signal: operation.signal} : {}),
           })
           if (!blossomSummary && result?.blossomSummary) {
@@ -2575,6 +2592,7 @@ const api = {
           branch?: string
           token?: string
           provider?: any
+          repoRelays?: string[]
         }) => {
           try {
             return await api.pushToRemote({
@@ -2583,6 +2601,7 @@ const api = {
               branch: args.branch,
               token: args.token,
               provider: args.provider,
+              ...(args.repoRelays ? {repoRelays: args.repoRelays} : {}),
             })
           } catch (e: any) {
             return {success: false, error: e?.message || String(e)} as any

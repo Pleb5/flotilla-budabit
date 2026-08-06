@@ -2590,6 +2590,7 @@ export class Repo {
           branch,
           token,
           provider,
+          repoRelays: this.relays,
           allowForce,
           confirmDestructive,
         });

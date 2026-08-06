@@ -74,8 +74,6 @@ export {
 } from "./git/index.js"
 
 export {getGitServiceApi, getGitServiceApiFromUrl} from "./git/provider-factory.js"
-export {DEFAULT_RELAYS} from "./api/providers/nostr-git-factory.js"
-
 // API type exports
 export type {
   GitServiceApi,
@@ -87,5 +85,11 @@ export type {
 } from "./api/api.js"
 
 // IO and event type exports
-export type {EventIO, NostrEvent, NostrFilter, PublishResult} from "./types/io-types.js"
+export type {
+  EventIO,
+  EventIORelayScope,
+  NostrEvent,
+  NostrFilter,
+  PublishResult,
+} from "./types/io-types.js"
 export type {RepoAnnouncementEvent, RepoStateEvent} from "./events/index.js"

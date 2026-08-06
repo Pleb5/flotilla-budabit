@@ -27,6 +27,8 @@ Critical repository operations use an operation-scoped `Pool`:
 6. Abort signing and publication, close sockets, and dispose the pool when the operation completes, is cancelled, or its UI unmounts.
 7. Run strict transactional reads through separate short-lived pools and dispose them after the query.
 
+Transport isolation does not select destinations. The repository operation must first supply a normalized, nonempty authoritative relay scope. Core `EventIO`, provider, and worker layers pass that scope unchanged to transport and fail before signing or network work when it is absent; they never substitute user outbox, Git defaults, GRASP defaults, event provenance, or an empty-relay publish path.
+
 The implementation is centered in:
 
 - `src/app/core/git-commands.ts` via `createRepoPublishTransport()`;

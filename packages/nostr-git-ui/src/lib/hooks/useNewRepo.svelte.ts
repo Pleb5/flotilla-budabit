@@ -1665,6 +1665,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             branch: config.defaultBranch,
             token: providerToken,
             provider: config.provider as any,
+            repoRelays: config.relays || [],
             operationId,
           })
       );
@@ -1706,6 +1707,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             branch: config.defaultBranch,
             token: token,
             provider: config.provider as any,
+            repoRelays: config.relays || [],
             preflight: {
               blockIfUncommitted: true,
               requireUpToDate: false, // Skip for new repo - we just created it

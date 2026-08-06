@@ -160,13 +160,42 @@ describe("worker.pushToRemote API", () => {
       remoteUrl:
         "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git",
       branch: "main",
+      repoRelays: [" WSS://RELAY.NGIT.DEV/ ", "wss://relay.ngit.dev"],
     })
 
     // Assert
     expect(res.success).toBe(true)
     expect(res.branch).toBe("main")
     expect(res.blossomSummary).toEqual(summary)
-    expect(pushSpy).toHaveBeenCalledTimes(1)
+    expect(pushSpy).toHaveBeenCalledWith(
+      expect.objectContaining({repoRelays: ["wss://relay.ngit.dev"]}),
+    )
+  })
+
+  it("fails a Nostr provider push with empty relay scope before provider or git work", async () => {
+    const pushSpy = vi.fn(async () => ({}))
+    const mod = await import("../../src/api/git-provider.js")
+    ;(mod as any).getNostrGitProvider = () => ({push: pushSpy})
+    ;(mod as any).hasNostrGitProvider = () => true
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      branch: "main",
+      repoRelays: [],
+    })
+
+    expect(res).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: "Nostr repository push requires at least one explicit repository relay",
+      }),
+    )
+    expect(pushSpy).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(writeRefMock).not.toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 
   it("falls back to git.push when no Nostr provider and returns success without blossomSummary", async () => {

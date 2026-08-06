@@ -33,6 +33,7 @@ export interface PushToRemoteOptions {
   token?: string
   provider?: string
   blossomMirror?: boolean
+  repoRelays?: string[]
   operationId?: string
 }
 

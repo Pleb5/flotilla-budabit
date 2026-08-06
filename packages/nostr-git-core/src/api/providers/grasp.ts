@@ -410,7 +410,7 @@ export class GraspApiProvider implements GitServiceApi {
       // Mirrors ngit architectural flexibility where publishing lives in client layer (client.rs)
       if (this.eventIO?.publishEvent) {
         try {
-          await this.eventIO.publishEvent(event as any)
+          await this.eventIO.publishEvent(event as any, {relays: [this.relayUrl]})
         } catch (e) {
           console.warn("EventIO.publishEvent failed; returning unsigned event instead", e)
           return event as unknown as NostrEvent

@@ -1336,9 +1336,7 @@ export function createGraspAnnouncementAndState({
 }
 
 export async function publishGraspRepoEvents(
-  onPublishEvent:
-    | ((event: RepoAnnouncementEvent | RepoStateEvent) => Promise<unknown> | unknown)
-    | undefined,
+  onPublishEvent: PublishRepoEvent | undefined,
   announcementEvent: RepoAnnouncementEvent,
   stateEvent: RepoStateEvent,
   onStage?: (stage: "announcement" | "state") => void
@@ -1346,11 +1344,17 @@ export async function publishGraspRepoEvents(
   if (!onPublishEvent) {
     throw new Error("GRASP operation requires onPublishEvent callback");
   }
+  const repoRelays = sanitizeRelays(
+    announcementEvent.tags.filter((tag) => tag[0] === "relays").flatMap((tag) => tag.slice(1))
+  );
+  if (repoRelays.length === 0) {
+    throw new Error("GRASP repository events require at least one declared relay");
+  }
 
   onStage?.("announcement");
-  const announcementResult = await onPublishEvent(announcementEvent);
+  const announcementResult = await onPublishEvent(announcementEvent, { relays: repoRelays });
   onStage?.("state");
-  const stateResult = await onPublishEvent(stateEvent);
+  const stateResult = await onPublishEvent(stateEvent, { relays: repoRelays });
 
   const announcementAck = extractPublishRelayAck(announcementResult);
   const stateAck = extractPublishRelayAck(stateResult);

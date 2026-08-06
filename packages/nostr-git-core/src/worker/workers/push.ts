@@ -10,6 +10,7 @@ export interface SafePushOptions {
   branch?: string
   token?: string
   provider?: GitVendor
+  repoRelays?: string[]
   allowForce?: boolean
   confirmDestructive?: boolean
   preflight?: {
@@ -44,6 +45,7 @@ export async function safePushToRemoteUtil(
       branch?: string
       token?: string
       provider?: GitVendor
+      repoRelays?: string[]
     }) => Promise<{success?: boolean; blossomSummary?: BlossomPushSummary}>
   },
 ): Promise<{
@@ -61,6 +63,7 @@ export async function safePushToRemoteUtil(
     branch,
     token,
     provider,
+    repoRelays,
     allowForce = false,
     confirmDestructive = false,
     preflight,
@@ -151,6 +154,7 @@ export async function safePushToRemoteUtil(
       branch: targetBranch,
       token,
       provider,
+      ...(repoRelays ? {repoRelays} : {}),
     })
     const ok = (pushRes as any)?.success
     if (ok === undefined) {

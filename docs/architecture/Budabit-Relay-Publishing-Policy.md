@@ -132,6 +132,8 @@ Repository zaps and receipt reads use only the authoritative repo relays supplie
 
 Repository announcement discovery and repository activity loading are separate phases. Git discovery relays, user outbox relays, GRASP discovery, route and `naddr` hints, event provenance, and defaults may be used to fetch the matching `kind:30617` announcement only. They must not receive `kind:30618` state or repository activity filters unless the accepted announcement itself declares them. Owned-repository state reads are partitioned by announcement so one repository's state filter is never sent to another repository's relays.
 
+The core `EventIO` adapter has no ambient repository relay source. Every fetch and publication receives a required explicit relay scope, normalizes it, and rejects an empty result before signing or transport work. Provider discovery receives announcement-discovery relays separately, then uses only valid relays declared by the accepted `kind:30617` announcement for repository state and activity. Worker RPC callers carry that same repository scope; core providers do not add user outbox, Git, GRASP, provenance, or built-in default destinations.
+
 ## Read-Time Profile Discovery
 
 Publishing policy and read discovery should align but remain separate.

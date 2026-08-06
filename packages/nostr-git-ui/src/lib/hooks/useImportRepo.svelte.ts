@@ -925,7 +925,7 @@ async function lookupNip39BridgedPubkey(
 
   const identity = `${platform}:${username}`;
 
-  const fetchEvents = context.onFetchEvents ?? context.eventIO?.fetchEvents;
+  const fetchEvents = context.onFetchEvents;
   if (!fetchEvents) {
     return null;
   }
@@ -1200,6 +1200,7 @@ async function pushImportedPullRequestRefs(
             refs,
             token: context.userPubkey,
             provider: "grasp",
+            repoRelays: context.relayUrls,
             operationId,
           })
         ),

@@ -23,12 +23,6 @@ import {GraspApi, type GraspApiConfig} from "./grasp-api.js"
 export interface NostrGitFactoryOptions {
   /** Clean Event I/O interface - no more signer passing! */
   eventIO: EventIO
-  /** Default relay URLs */
-  defaultRelays?: string[]
-  /** Fallback relay URLs */
-  fallbackRelays?: string[]
-  /** GRASP relay URLs */
-  graspRelays?: string[]
   /** Whether to enable GRASP integration */
   enableGrasp?: boolean
   /** Whether to publish repo state by default */
@@ -42,16 +36,6 @@ export interface NostrGitFactoryOptions {
 }
 
 /**
- * Default relay configuration
- * Based on ngit's default relay sets
- */
-export const DEFAULT_RELAYS = {
-  default: ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band"],
-  fallback: ["wss://purplerelay.com", "wss://purplepages.es", "wss://relayable.org"],
-  grasp: ["wss://relay.ngit.dev", "wss://gitnostr.com"],
-}
-
-/**
  * Create a NostrGitProvider instance
  *
  * This factory method creates a properly configured NostrGitProvider
@@ -60,9 +44,6 @@ export const DEFAULT_RELAYS = {
 export function createNostrGitProvider(options: NostrGitFactoryOptions): NostrGitProvider {
   const {
     eventIO,
-    defaultRelays = DEFAULT_RELAYS.default,
-    fallbackRelays = DEFAULT_RELAYS.fallback,
-    graspRelays = DEFAULT_RELAYS.grasp,
     enableGrasp = true,
     publishRepoState = true,
     publishRepoAnnouncements = false,
@@ -74,10 +55,9 @@ export function createNostrGitProvider(options: NostrGitFactoryOptions): NostrGi
   let graspApi
   if (enableGrasp) {
     const graspConfig: GraspApiConfig = {
-      relays: graspRelays,
       timeoutMs,
-      publishEvent: (event: NostrEvent) => {
-        return eventIO.publishEvent(event)
+      publishEvent: (event: NostrEvent, scope) => {
+        return eventIO.publishEvent(event, scope)
       },
     }
     graspApi = new GraspApi(graspConfig)
@@ -94,9 +74,6 @@ export function createNostrGitProvider(options: NostrGitFactoryOptions): NostrGi
   const config: NostrGitConfig = {
     eventIO,
     grasp: graspApi,
-    defaultRelays,
-    fallbackRelays,
-    graspRelays,
     publishRepoState,
     publishRepoAnnouncements,
     httpOverrides: corsProxy ? {corsProxy} : undefined,
@@ -119,11 +96,9 @@ export async function createNostrGitProviderFromEnv(options: {
 
   const gitConfig = loadConfig()
 
-  // Read configuration from environment variables (browser-safe)
+  // Read non-relay behavior from environment variables (browser-safe).
+  // Repository relay scope is always supplied by the operation.
   const env = typeof process !== "undefined" && process.env ? process.env : {}
-  const defaultRelays = env.NOSTR_DEFAULT_RELAYS?.split(";") || DEFAULT_RELAYS.default
-  const fallbackRelays = env.NOSTR_FALLBACK_RELAYS?.split(";") || DEFAULT_RELAYS.fallback
-  const graspRelays = env.NOSTR_GRASP_RELAYS?.split(";") || DEFAULT_RELAYS.grasp
   const enableGrasp = env.NOSTR_ENABLE_GRASP !== "false"
   const publishRepoState = env.NOSTR_PUBLISH_REPO_STATE !== "false"
   const publishRepoAnnouncements = env.NOSTR_PUBLISH_REPO_ANNOUNCEMENTS === "true"
@@ -131,9 +106,6 @@ export async function createNostrGitProviderFromEnv(options: {
 
   return createNostrGitProvider({
     eventIO,
-    defaultRelays,
-    fallbackRelays,
-    graspRelays,
     enableGrasp,
     publishRepoState,
     publishRepoAnnouncements,
@@ -157,9 +129,6 @@ export async function createNostrGitProviderFromGitConfig(options: {
 
   // Default configuration
   let config = {
-    defaultRelays: DEFAULT_RELAYS.default,
-    fallbackRelays: DEFAULT_RELAYS.fallback,
-    graspRelays: DEFAULT_RELAYS.grasp,
     enableGrasp: true,
     publishRepoState: true,
     publishRepoAnnouncements: false,
@@ -170,11 +139,6 @@ export async function createNostrGitProviderFromGitConfig(options: {
   try {
     // Note: In a real implementation, this would use git config commands
     // For now, we'll use environment variables as fallback
-    const gitConfigRelays = process.env.GIT_CONFIG_NOSTR_RELAYS?.split(";")
-    if (gitConfigRelays && gitConfigRelays.length > 0) {
-      config.defaultRelays = gitConfigRelays
-    }
-
     const gitConfigGrasp = process.env.GIT_CONFIG_NOSTR_GRASP
     if (gitConfigGrasp !== undefined) {
       config.enableGrasp = gitConfigGrasp === "true"

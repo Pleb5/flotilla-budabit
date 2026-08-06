@@ -7,19 +7,24 @@
  * IMPORTANT: This is the CLEAN interface that uses closures instead of passing signers around.
  */
 
-import type { NostrEvent, Filter as NostrFilter } from "nostr-tools";
+import type {NostrEvent, Filter as NostrFilter} from "nostr-tools"
 
 // Re-export types from nostr-tools for convenience
-export type { NostrEvent, NostrFilter };
+export type {NostrEvent, NostrFilter}
 
 /**
  * Result returned after publishing an event.
  */
 export type PublishResult = {
-  ok: boolean;
-  relays?: string[];
-  error?: string;
-};
+  ok: boolean
+  relays?: string[]
+  error?: string
+}
+
+/** Explicit relay destinations for one repository I/O operation. */
+export interface EventIORelayScope {
+  relays: string[]
+}
 
 /**
  * Event I/O interface that uses closures instead of passing signers around.
@@ -30,31 +35,38 @@ export type PublishResult = {
 export interface EventIO {
   /**
    * Fetch events matching the given filters from relays.
-   * Should use the host app's existing relay pool/connection manager.
+   * Should use the host app's existing relay pool/connection manager, but only
+   * for the explicitly supplied relay scope.
    */
-  fetchEvents: (filters: NostrFilter[]) => Promise<NostrEvent[]>;
+  fetchEvents: (filters: NostrFilter[], scope: EventIORelayScope) => Promise<NostrEvent[]>
 
   /**
    * Publish an unsigned event (handles signing internally).
    * This is the key improvement - no more passing signers around!
    */
-  publishEvent: (event: Omit<NostrEvent, "id" | "pubkey" | "sig">) => Promise<PublishResult>;
-  
+  publishEvent: (
+    event: Omit<NostrEvent, "id" | "pubkey" | "sig">,
+    scope: EventIORelayScope,
+  ) => Promise<PublishResult>
+
   /**
    * Publish multiple unsigned events in batch.
    */
-  publishEvents: (events: Omit<NostrEvent, "id" | "pubkey" | "sig">[]) => Promise<PublishResult[]>;
-  
+  publishEvents: (
+    events: Omit<NostrEvent, "id" | "pubkey" | "sig">[],
+    scope: EventIORelayScope,
+  ) => Promise<PublishResult[]>
+
   /**
    * Get the current user's pubkey.
    */
-  getCurrentPubkey: () => string | null;
+  getCurrentPubkey: () => string | null
 
   /**
    * Sign an event without publishing it.
    * Used by consumers that need a signed event before choosing how to publish it.
    */
-  signEvent?: (event: Omit<NostrEvent, "id" | "pubkey" | "sig">) => Promise<NostrEvent>;
+  signEvent?: (event: Omit<NostrEvent, "id" | "pubkey" | "sig">) => Promise<NostrEvent>
 }
 
 /**
@@ -65,8 +77,8 @@ export interface EventIO {
  * @deprecated Use EventIO instead
  */
 export interface LegacyEventIO {
-  fetchEvents: (filters: NostrFilter[]) => Promise<NostrEvent[]>;
-  publishEvent: (evt: NostrEvent) => Promise<PublishResult>;
+  fetchEvents: (filters: NostrFilter[], scope: EventIORelayScope) => Promise<NostrEvent[]>
+  publishEvent: (evt: NostrEvent, scope: EventIORelayScope) => Promise<PublishResult>
 }
 
 /**
@@ -76,6 +88,4 @@ export interface LegacyEventIO {
  *
  * @deprecated Use EventIO instead
  */
-export type SignEvent = (
-  unsigned: Omit<NostrEvent, "id" | "pubkey" | "sig">
-) => Promise<NostrEvent>;
+export type SignEvent = (unsigned: Omit<NostrEvent, "id" | "pubkey" | "sig">) => Promise<NostrEvent>

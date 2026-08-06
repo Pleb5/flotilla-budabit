@@ -7,6 +7,7 @@ import {
 } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { createNeventFromPermalink } from "@nostr-git/core/git";
+import { sanitizeRelays } from "@nostr-git/core/utils";
 import type { EventTemplate, NostrEvent } from "nostr-tools";
 import type { EventIO } from "@nostr-git/core/types";
 import type { MarkdownSerializerState } from "@tiptap/pm/markdown";
@@ -150,14 +151,33 @@ export const PermalinkNode = Node.create<PermalinkNodeOptions>({
         if (!currentNode.attrs.nevent && currentNode.attrs.permalink) {
           try {
             const eventIO: EventIO = {
-              fetchEvents: async () => [],
-              publishEvent: async (unsigned) => {
-                await options.signer(unsigned as unknown as EventTemplate);
-                return { ok: true, relays: options.relays };
+              fetchEvents: async (_filters, scope) => {
+                if (sanitizeRelays(scope.relays).length === 0) {
+                  throw new Error("Permalink EventIO requires at least one explicit relay");
+                }
+                return [];
               },
-              publishEvents: async (events) => {
+              publishEvent: async (unsigned, scope) => {
+                const relays = sanitizeRelays(scope.relays);
+                if (relays.length === 0) {
+                  return {
+                    ok: false,
+                    error: "Permalink EventIO requires at least one explicit relay",
+                  };
+                }
+                await options.signer(unsigned as unknown as EventTemplate);
+                return { ok: true, relays };
+              },
+              publishEvents: async (events, scope) => {
+                const relays = sanitizeRelays(scope.relays);
+                if (relays.length === 0) {
+                  return events.map(() => ({
+                    ok: false,
+                    error: "Permalink EventIO requires at least one explicit relay",
+                  }));
+                }
                 await Promise.all(events.map((e) => options.signer(e as unknown as EventTemplate)));
-                return events.map(() => ({ ok: true, relays: options.relays }));
+                return events.map(() => ({ ok: true, relays }));
               },
               getCurrentPubkey: () => null,
             };
