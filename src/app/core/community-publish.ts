@@ -1,6 +1,9 @@
 import {
   publish,
+  publishOne,
   PublishStatus,
+  type PublishOneOptions,
+  type PublishResult,
   type PublishOptions,
   type PublishResultsByRelay,
 } from "@welshman/net"
@@ -10,6 +13,7 @@ import {
   getAddress,
   getIdFilters,
   isReplaceable,
+  PROFILE,
   type Filter,
   type SignedEvent,
   type TrustedEvent,
@@ -21,6 +25,16 @@ export const COMMUNITY_PUBLISH_TIMEOUT = 12_000
 export const COMMUNITY_PUBLISH_VERIFY_TIMEOUT = 5_000
 
 export type CommunityPublishStatusUpdate = (message: string) => void
+
+type ProfilePublishOptions = {
+  event: SignedEvent
+  relays: string[]
+  setStatus?: CommunityPublishStatusUpdate
+  timeout?: number
+  verifyTimeout?: number
+  publishToRelay?: (options: PublishOneOptions) => Promise<PublishResult>
+  loadEvents?: typeof loadCommunityEvents
+}
 
 type PublishCommunityEventOptions = {
   event: SignedEvent
@@ -185,4 +199,71 @@ export const publishAndVerifyCommunityEvent = async ({
     timeout: verifyTimeout,
     loadEvents,
   })
+}
+
+export const publishAndVerifyProfileEvent = async ({
+  event,
+  relays,
+  setStatus = () => undefined,
+  timeout = COMMUNITY_PUBLISH_TIMEOUT,
+  verifyTimeout = COMMUNITY_PUBLISH_VERIFY_TIMEOUT,
+  publishToRelay = publishOne,
+  loadEvents = loadCommunityEvents,
+}: ProfilePublishOptions): Promise<TrustedEvent> => {
+  if (event.kind !== PROFILE) throw new Error("Profile publication requires a kind-0 event.")
+
+  const normalizedRelays = normalizeRelays(relays)
+  if (normalizedRelays.length === 0) throw new Error("No profile publish relays are configured.")
+
+  const controller = new AbortController()
+  setStatus("Publishing profile...")
+
+  const attempts = normalizedRelays.map(async relay => {
+    const result = await publishToRelay({
+      event,
+      relay,
+      signal: controller.signal,
+      timeout,
+    })
+    if (result.status !== PublishStatus.Success) {
+      throw new Error(result.detail || `${relay} did not accept the profile.`)
+    }
+
+    setStatus("Verifying profile on relay...")
+    const matches = await loadEvents(
+      [relay],
+      [{kinds: [PROFILE], authors: [event.pubkey], limit: 1}],
+      {
+        authenticate: true,
+        publishEvents: false,
+        settle: "first-non-empty",
+        signal: controller.signal,
+        timeout: verifyTimeout,
+      },
+    )
+    const current = selectCurrentReplacementEvent(event, matches)
+
+    if (current?.id !== event.id) {
+      throw new Error(
+        current
+          ? `Profile was accepted by ${relay}, but it serves a different current profile.`
+          : `Profile was accepted by ${relay}, but it did not serve the current profile.`,
+      )
+    }
+
+    return current
+  })
+
+  try {
+    return await Promise.any(attempts)
+  } catch (error) {
+    if (error instanceof AggregateError) {
+      const detail = error.errors.find(reason => reason instanceof Error)?.message
+      throw new Error(detail || "No relay accepted and served the current profile.")
+    }
+
+    throw error
+  } finally {
+    controller.abort()
+  }
 }

@@ -13,7 +13,7 @@ describe("personal user-data relay policy wiring", () => {
     const source = compact(commands)
     const denseSource = dense(commands)
 
-    expect(source).toContain("import {getUserDataPublishRelays}")
+    expect(source).toContain("getProfileCommunityRelays, getUserDataPublishRelays")
     expect(denseSource).toContain(
       "relays:getUserDataPublishRelays([url,...INDEXER_RELAYS,...Router.get().FromUser().getUrls(),])",
     )
@@ -24,12 +24,10 @@ describe("personal user-data relay policy wiring", () => {
       "relays:getUserDataPublishRelays(Router.get().FromUser().getUrls())",
     )
     expect(denseSource).toContain(
-      "exportconstgetProfilePublishRelays=async()=>normalizeRelays([...INDEXER_RELAYS,...(awaitgetDefaultCommunityProfileRelays())])",
+      "normalizeRelays([...INDEXER_RELAYS,...outboxRelays,...getProfileCommunityRelays()])",
     )
-    expect(denseSource).toContain(
-      "loadCommunityDefinitionFromRelays(communityInput.pubkey,lookupRelays,",
-    )
-    expect(denseSource).toContain('publishAndVerifyCommunityEvent({event,relays,label:"profile"})')
+    expect(denseSource).not.toContain("getDefaultCommunityProfileRelays")
+    expect(denseSource).toContain("publishAndVerifyProfileEvent({event,relays})")
   })
 
   it("adds active community relays to personal git app-data updates", () => {

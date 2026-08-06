@@ -134,6 +134,7 @@ export type CommunityRelayLoadOptions = {
   priority?: number
   signal?: AbortSignal
   onStart?: (relay: string) => void
+  publishEvents?: boolean
 }
 
 export type CommunityRelayLoadResult = {
@@ -1001,7 +1002,7 @@ export const loadCommunityEventsWithStatus = async (
           onEvent: (event, url) => {
             tracker.addRelay(event.id, url)
             receivedEvents.push(event)
-            repository.publish(event)
+            if (options.publishEvents !== false) repository.publish(event)
           },
           onDisconnect: () => {
             disconnected = true
@@ -1020,7 +1021,7 @@ export const loadCommunityEventsWithStatus = async (
         }),
       ])
       const events = dedupeCommunityEvents([...receivedEvents, ...outcome.events])
-      publishCommunityEvents(events)
+      if (options.publishEvents !== false) publishCommunityEvents(events)
 
       return {
         relay,

@@ -25,6 +25,7 @@ import {
   getActiveUserCommunityRelaysFromRefs,
   getCommunityRootPublishRelays,
   getCommunityScopedPublishRelays,
+  getProfileCommunityRelaysFromRefs,
   getScopedCommunityPublishRelays,
   getUserDataPublishRelays,
 } from "./community-relays"
@@ -104,6 +105,57 @@ describe("community relay policies", () => {
         ["wss://community.example", "wss://other.example"],
       ),
     ).toEqual(["wss://outbox.example/", "wss://community.example/", "wss://other.example/"])
+  })
+
+  it("selects profile community relays deterministically and fairly", () => {
+    const communityC = "c".repeat(64)
+    const makeRef = (pubkey: string, relays: string[]) =>
+      ({
+        communityPubkey: pubkey,
+        definition: {relays},
+      }) as Parameters<typeof getProfileCommunityRelaysFromRefs>[0][number]
+    const refs = [
+      makeRef(otherCommunityPubkey, ["wss://b-2.example", "wss://b-1.example"]),
+      makeRef(communityC, ["wss://c-1.example", "wss://c-2.example"]),
+      makeRef(communityPubkey, ["wss://a-3.example", "wss://a-1.example", "wss://a-2.example"]),
+    ]
+
+    expect(getProfileCommunityRelaysFromRefs(refs)).toEqual([
+      "wss://a-1.example/",
+      "wss://b-1.example/",
+      "wss://c-1.example/",
+      "wss://a-2.example/",
+    ])
+    expect(getProfileCommunityRelaysFromRefs([...refs].reverse())).toEqual(
+      getProfileCommunityRelaysFromRefs(refs),
+    )
+  })
+
+  it("uses only definition relays for profile community fanout", () => {
+    expect(
+      getProfileCommunityRelaysFromRefs([
+        {
+          communityPubkey,
+          definition: {relays: ["wss://definition.example"]},
+          relayHints: ["wss://route-hint.example"],
+        } as unknown as Parameters<typeof getProfileCommunityRelaysFromRefs>[0][number],
+      ]),
+    ).toEqual(["wss://definition.example/"])
+  })
+
+  it("never selects more than two profile relays for duplicate community refs", () => {
+    const makeRef = (relays: string[]) =>
+      ({
+        communityPubkey,
+        definition: {relays},
+      }) as Parameters<typeof getProfileCommunityRelaysFromRefs>[0][number]
+
+    expect(
+      getProfileCommunityRelaysFromRefs([
+        makeRef(["wss://c.example", "wss://a.example"]),
+        makeRef(["wss://d.example", "wss://b.example"]),
+      ]),
+    ).toEqual(["wss://a.example/", "wss://b.example/"])
   })
 
   it("resolves scoped community publish relays without adding unrelated communities", () => {

@@ -6,6 +6,7 @@ import {
   getNextReplacementCreatedAt,
   makeReplacementCurrentFilter,
   publishAndVerifyCommunityEvent,
+  publishAndVerifyProfileEvent,
   selectCurrentReplacementEvent,
   verifyCommunityEventReadback,
 } from "./community-publish"
@@ -175,5 +176,85 @@ describe("community publish verification", () => {
       }),
     ).resolves.toEqual(event)
     expect(statuses).toEqual(["Publishing member list...", "Verifying member list on relay..."])
+  })
+
+  it("resolves profile publication after the first current replacement readback", async () => {
+    const event = makeSignedEvent({id: "d".repeat(64), kind: 0, created_at: 5})
+    const signals = new Map<string, AbortSignal>()
+    const publishToRelay = vi.fn(async ({relay, signal}: {relay: string; signal?: AbortSignal}) => {
+      signals.set(relay, signal!)
+      if (relay === backupRelay) {
+        return await new Promise<any>(resolve => {
+          signal?.addEventListener(
+            "abort",
+            () => resolve({relay, status: PublishStatus.Aborted, detail: "aborted"}),
+            {once: true},
+          )
+        })
+      }
+
+      return {relay, status: PublishStatus.Success, detail: ""}
+    })
+    const loadEvents = vi.fn(async (_relays, filters, options) => {
+      expect(filters).toEqual([{kinds: [0], authors: [pubkey], limit: 1}])
+      expect(options).toMatchObject({publishEvents: false, settle: "first-non-empty"})
+      return [event as TrustedEvent]
+    })
+
+    await expect(
+      publishAndVerifyProfileEvent({
+        event,
+        relays: [relay, backupRelay],
+        publishToRelay: publishToRelay as any,
+        loadEvents: loadEvents as any,
+      }),
+    ).resolves.toEqual(event)
+    expect(publishToRelay).toHaveBeenCalledTimes(2)
+    expect(signals.get(backupRelay)?.aborted).toBe(true)
+    expect(loadEvents).toHaveBeenCalledTimes(1)
+  })
+
+  it("continues profile verification when an earlier relay serves a stale replacement", async () => {
+    const event = makeSignedEvent({id: "d".repeat(64), kind: 0, created_at: 5})
+    const stale = makeTrustedEvent({id: "e".repeat(64), kind: 0, created_at: 6})
+    const publishToRelay = vi.fn(async ({relay}: {relay: string}) => ({
+      relay,
+      status: PublishStatus.Success,
+      detail: "",
+    }))
+    const loadEvents = vi.fn(async (relays: string[]) =>
+      relays[0] === relay ? [stale] : [event as TrustedEvent],
+    )
+
+    await expect(
+      publishAndVerifyProfileEvent({
+        event,
+        relays: [relay, backupRelay],
+        publishToRelay: publishToRelay as any,
+        loadEvents: loadEvents as any,
+      }),
+    ).resolves.toEqual(event)
+    expect(loadEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it("fails profile publication when no relay both accepts and serves it", async () => {
+    const event = makeSignedEvent({id: "d".repeat(64), kind: 0, created_at: 5})
+    const publishToRelay = vi.fn(async ({relay}: {relay: string}) => ({
+      relay,
+      status: PublishStatus.Failure,
+      detail: `${relay} rejected`,
+    }))
+    const loadEvents = vi.fn()
+
+    await expect(
+      publishAndVerifyProfileEvent({
+        event,
+        relays: [relay, backupRelay],
+        publishToRelay: publishToRelay as any,
+        loadEvents: loadEvents as any,
+      }),
+    ).rejects.toThrow("rejected")
+    expect(publishToRelay).toHaveBeenCalledTimes(2)
+    expect(loadEvents).not.toHaveBeenCalled()
   })
 })

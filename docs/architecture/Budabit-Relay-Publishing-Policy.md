@@ -45,6 +45,10 @@ Implementation source of truth: `activeUserCommunityRefs` in `src/app/core/commu
 
 Personal user-data events are not community-bound by content, but Budabit wants them discoverable close to the user's communities. The rule is: when the user explicitly updates one of these events, publish to the normal targets plus all active community relays.
 
+The current policy rollout is intentionally limited to `kind:0` profiles. It does not add generic personal-metadata synchronization or change the existing publication behavior of the other records listed below.
+
+Profile community destinations come only from the current `activeUserCommunityRefs` snapshot and each reference's `definition.relays`. Budabit selects at most two normalized relays per community and four community relays total, deterministically across communities sorted by pubkey. Stars, route hints, event provenance, newly discovered definitions, indexer results, NIP-65 results, and the configured default community do not establish community eligibility.
+
 | Event | Kind | Normal targets | Add active community relays on user update | Why |
 |---|---:|---|---:|---|
 | Profile metadata | `0` | User outbox relays, indexer relays | Yes | Names and avatars should be easy to resolve inside communities. |
@@ -63,6 +67,8 @@ Personal user-data events are not community-bound by content, but Budabit wants 
 | Repo watch settings | `30078` with repo-watch d-tag | User outbox relays | Yes | Encrypted user-owned repo preferences follow the explicit-update rule. |
 
 Do not publish these events to community relays merely because a user logs in, views a community, or gains membership. The next explicit update is the dissemination point.
+
+One signed profile replacement is sent concurrently to the selected indexer, current user-outbox, and capped accepted-community destinations. Profile save succeeds after the first relay both acknowledges the event and serves it as the current `kind:0` replacement. Budabit does not wait for every destination, require a quorum, or retry automatically. If no policy-compliant destination exists, profile save fails closed and preserves the submitted form.
 
 ## Community-Bound Publication
 

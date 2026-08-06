@@ -115,13 +115,14 @@ import {
   activeUserCommunityBlossomRefs,
   clearActiveCommunity,
   clearCommunityBootstrapCache,
-  DEFAULT_COMMUNITY_INPUT,
   getCommunityBlossomServers,
-  loadCommunityDefinitionFromRelays,
 } from "@app/core/community-state"
-import {getUserDataPublishRelays} from "@app/core/community-relays"
-import {normalizeRelays, parseCommunityInput} from "@app/core/community"
-import {publishAndVerifyCommunityEvent} from "@app/core/community-publish"
+import {getProfileCommunityRelays, getUserDataPublishRelays} from "@app/core/community-relays"
+import {normalizeRelays} from "@app/core/community"
+import {
+  getNextReplacementCreatedAt,
+  publishAndVerifyProfileEvent,
+} from "@app/core/community-publish"
 import {payNwcInvoice} from "@app/core/nwc"
 import {
   blossomDashboardState,
@@ -1795,26 +1796,17 @@ export const uploadFile = async (
 export const PROFILE_PUBLISH_RETRY_MESSAGE =
   "Please resubmit your profile from the profile page later."
 
-const PROFILE_PUBLISH_DEFAULT_COMMUNITY_LOOKUP_TIMEOUT = 3000
+export const getProfilePublishRelays = () => {
+  let outboxRelays: string[] = []
 
-const getDefaultCommunityProfileRelays = async () => {
-  const communityInput = parseCommunityInput(DEFAULT_COMMUNITY_INPUT)
-  if (!communityInput) return []
+  try {
+    outboxRelays = Router.get().FromUser().getUrls() || []
+  } catch {
+    // Profiles can still use indexers or accepted community relays without NIP-65.
+  }
 
-  const lookupRelays = normalizeRelays([...communityInput.relays, ...INDEXER_RELAYS])
-  const definitionRelays = lookupRelays.length
-    ? await loadCommunityDefinitionFromRelays(communityInput.pubkey, lookupRelays, {
-        timeout: PROFILE_PUBLISH_DEFAULT_COMMUNITY_LOOKUP_TIMEOUT,
-      })
-        .then(definition => definition?.relays || [])
-        .catch(() => [])
-    : []
-
-  return normalizeRelays([...communityInput.relays, ...definitionRelays])
+  return normalizeRelays([...INDEXER_RELAYS, ...outboxRelays, ...getProfileCommunityRelays()])
 }
-
-export const getProfilePublishRelays = async () =>
-  normalizeRelays([...INDEXER_RELAYS, ...(await getDefaultCommunityProfileRelays())])
 
 export const updateProfile = async ({profile}: {profile: Profile}) => {
   const $pubkey = pubkey.get()
@@ -1824,11 +1816,16 @@ export const updateProfile = async ({profile}: {profile: Profile}) => {
 
   if (!$pubkey || !$signer) throw new Error("Log in before publishing your profile.")
 
-  const relays = await getProfilePublishRelays()
+  const relays = getProfilePublishRelays()
   if (relays.length === 0) throw new Error("No profile publish relays are configured.")
 
-  const event = await $signer.sign(prep(template, $pubkey))
-  const verified = await publishAndVerifyCommunityEvent({event, relays, label: "profile"})
+  const localProfiles = repository.query([{kinds: [PROFILE], authors: [$pubkey]}], {
+    shouldSort: false,
+  }) as TrustedEvent[]
+  const previousProfile = isPublishedProfile(profile) ? profile.event : undefined
+  const createdAt = getNextReplacementCreatedAt([previousProfile, ...localProfiles])
+  const event = await $signer.sign(prep(template, $pubkey, createdAt))
+  const verified = await publishAndVerifyProfileEvent({event, relays})
 
   repository.publish(verified)
 
