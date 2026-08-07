@@ -1,7 +1,7 @@
 <script lang="ts">
   import {writable} from "svelte/store"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
+  import {pubkey, publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, type TrustedEvent} from "@welshman/util"
   import Field from "@lib/components/Field.svelte"
@@ -115,6 +115,8 @@
   let selectedRecipientPubkey = $state("")
   let publishing = $state(false)
   let checkingAwards = $state(false)
+  type GovernanceThunk = ReturnType<typeof publishThunk>
+  const failedAwardThunks = new Map<string, GovernanceThunk>()
 
   const selectedDefinition = $derived(
     ownActiveBadgeDefinitions.find(definition => definition.address === selectedDefinitionAddress),
@@ -153,24 +155,32 @@
       : ownActiveBadgeDefinitions,
   )
 
-  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === "success")
+  const publishTemplate = async (
+    operation: string,
+    template: {kind: number; content: string; tags: string[][]},
+  ) => {
+    const intent = JSON.stringify({operation, relays: badgePublishRelays})
+    const failedThunk = failedAwardThunks.get(intent)
+    if (!failedThunk && badgePublishRelays.length === 0) {
+      throw new Error("No badge relays are available.")
+    }
 
-  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
-    const result = Object.values(thunk.results).find(result => result.status !== "success")
+    const thunk = failedThunk
+      ? (retryThunk(failedThunk) as GovernanceThunk)
+      : publishThunk({
+          relays: badgePublishRelays,
+          event: makeEvent(template.kind, template),
+          optimistic: false,
+        })
 
-    return result ? `${result.relay}: ${result.detail || result.status}` : "No relay confirmed."
-  }
+    try {
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      failedAwardThunks.set(intent, thunk)
+      throw error
+    }
 
-  const publishTemplate = async (template: {kind: number; content: string; tags: string[][]}) => {
-    if (badgePublishRelays.length === 0) throw new Error("No badge relays are available.")
-
-    const thunk = publishThunk({
-      relays: badgePublishRelays,
-      event: makeEvent(template.kind, template),
-    })
-    await waitForThunkCompletion(thunk)
-    if (!hasSuccessfulRelay(thunk)) throw new Error(getPublishError(thunk))
+    failedAwardThunks.delete(intent)
     repository.publish(thunk.event as TrustedEvent)
   }
 
@@ -230,6 +240,7 @@
       confirm: () =>
         runPublish(async () => {
           await publishTemplate(
+            `badge-award:create:${selectedDefinition.address}:${targetPubkey}`,
             makeCommunityBadgeAwardEvent({
               definitionAddress: selectedDefinition.address,
               recipientPubkey: targetPubkey,

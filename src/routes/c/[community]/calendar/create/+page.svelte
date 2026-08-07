@@ -41,6 +41,7 @@
     canWriteCommunityCalendarTarget,
     getCommunityCalendarWriteTargetSectionName,
   } from "@app/core/community-permissions"
+  import {publishLinkedOperation, type LinkedPublishOperation} from "@app/core/linked-publish"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -66,6 +67,9 @@
   let end = $state(initialStart + HOUR)
   let startDate = $state(timestampToDateInputValue(initialStart))
   let endDate = $state(timestampToDateInputValue(initialStart))
+  let publishing = $state(false)
+  let publishError = $state("")
+  let publishOperation: LinkedPublishOperation = {}
 
   const isDateBased = $derived(eventKind === EVENT_DATE)
   const calendarSectionName = $derived(
@@ -136,9 +140,22 @@
     return {start, end}
   }
 
-  const createEvent = () => {
+  const createEvent = async () => {
     const trimmedTitle = title.trim()
-    if (!$pubkey || !communityPubkey || !trimmedTitle) return
+    if (publishing || !$pubkey || !communityPubkey || !trimmedTitle) return
+
+    const currentEventKind = eventKind
+    const semanticInput = JSON.stringify({
+      pubkey: $pubkey,
+      communityPubkey,
+      communityRelays: $activeCommunityPublishRelays,
+      outboxRelays: getUserOutboxRelays(),
+      title: trimmedTitle,
+      location: location.trim(),
+      description: description.trim(),
+      eventKind: currentEventKind,
+      range: currentEventKind === EVENT_DATE ? {startDate, endDate} : {start, end},
+    })
     if (!communityBootstrapReady) {
       pushToast({theme: "error", message: "Community permissions are still loading."})
       return
@@ -148,7 +165,6 @@
       return
     }
 
-    const currentEventKind = eventKind
     const dateRange = currentEventKind === EVENT_DATE ? validateDateRange() : undefined
     const timeRange = currentEventKind === EVENT_TIME ? validateTimeRange() : undefined
     if (currentEventKind === EVENT_DATE && !dateRange) return
@@ -160,52 +176,80 @@
       return
     }
 
-    const eventId = randomId()
-    const targetingId = randomId()
-    const eventTemplate = withPublicationTargetingId(
-      {
-        content: description.trim(),
-        tags: makeCalendarEventTags({
-          kind: currentEventKind,
-          identifier: eventId,
-          title: trimmedTitle,
-          location: location.trim(),
-          start: timeRange?.start,
-          end: timeRange?.end,
-          startDate: dateRange?.startDate,
-          endDate: dateRange?.endDate,
-        }),
-      },
-      targetingId,
-    )
-    const originalRef = makeAddressablePublicationRef({
-      kind: currentEventKind,
-      pubkey: $pubkey,
-      identifier: eventId,
-      relay: relays[0],
-    })
+    const authorPubkey = $pubkey
     const originalRelays = normalizeRelays([...getUserOutboxRelays(), ...relays])
+    let eventId = ""
+    let targetingId = ""
 
-    publishThunk({
-      relays: originalRelays.length ? originalRelays : relays,
-      event: makeEvent(currentEventKind, eventTemplate),
-    })
-    publishThunk({
-      relays,
-      event: makeEvent(
-        TARGETED_PUBLICATION_KIND,
-        makeTargetedPublicationForCommunity({
-          targetingId,
-          originalKind: currentEventKind,
-          originalRef,
-          communityPubkey,
-          communityRelay: relays[0],
-        }),
-      ),
-    })
+    publishing = true
+    publishError = ""
 
+    try {
+      await publishLinkedOperation({
+        operation: publishOperation,
+        semanticInput,
+        requiredRelays: relays,
+        originalFactory: () => {
+          eventId = randomId()
+          targetingId = randomId()
+          const eventTemplate = withPublicationTargetingId(
+            {
+              content: description.trim(),
+              tags: makeCalendarEventTags({
+                kind: currentEventKind,
+                identifier: eventId,
+                title: trimmedTitle,
+                location: location.trim(),
+                start: timeRange?.start,
+                end: timeRange?.end,
+                startDate: dateRange?.startDate,
+                endDate: dateRange?.endDate,
+              }),
+            },
+            targetingId,
+          )
+
+          return publishThunk({
+            relays: originalRelays.length ? originalRelays : relays,
+            event: makeEvent(currentEventKind, eventTemplate),
+            optimistic: false,
+          })
+        },
+        targetFactory: originalAckRelay => {
+          const originalRef = makeAddressablePublicationRef({
+            kind: currentEventKind,
+            pubkey: authorPubkey,
+            identifier: eventId,
+            relay: originalAckRelay,
+          })
+
+          return publishThunk({
+            relays,
+            event: makeEvent(
+              TARGETED_PUBLICATION_KIND,
+              makeTargetedPublicationForCommunity({
+                targetingId,
+                originalKind: currentEventKind,
+                originalRef,
+                communityPubkey,
+                communityRelay: originalAckRelay,
+              }),
+            ),
+            optimistic: false,
+          })
+        },
+      })
+    } catch (error) {
+      publishError = error instanceof Error ? error.message : "Publication failed. Retry."
+      pushToast({theme: "error", message: publishError})
+      return
+    } finally {
+      publishing = false
+    }
+
+    publishOperation = {}
     pushToast({message: "Calendar event published."})
-    if (calendarPath) goto(calendarPath)
+    if (calendarPath) await goto(calendarPath)
   }
 </script>
 
@@ -301,14 +345,17 @@
         <textarea bind:value={description} class="textarea textarea-bordered" rows="6"></textarea>
       {/snippet}
     </Field>
+    {#if publishError}
+      <p class="text-sm text-error" role="alert">{publishError}</p>
+    {/if}
     <div class="flex justify-end">
       <PublishGate
         target={COMMUNITY_WRITE_TARGETS.calendar}
         alternateTargets={COMMUNITY_CALENDAR_WRITE_TARGETS}
         action="publish calendar events"
         submit
-        disabled={!title.trim()}>
-        Create event
+        disabled={publishing || !title.trim()}>
+        {publishing ? "Publishing..." : publishError ? "Retry publication" : "Create event"}
       </PublishGate>
     </div>
   </form>

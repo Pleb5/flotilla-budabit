@@ -56,7 +56,8 @@ describe("personal user-data relay policy wiring", () => {
     expect(badges).toContain(
       "constrelays=getUserDataPublishRelays([...getPubkeyOutboxRelays($pubkey),...badgeRelays])",
     )
-    expect(badges).toContain("publishProfileBadgeTemplate(makeProfileBadgeAcceptanceEvent")
-    expect(badges).toContain("publishProfileBadgeTemplate(makeProfileBadgeRemovalEvent")
+    expect(badges).toContain("publishProfileBadgeTemplate(")
+    expect(badges).toContain("makeProfileBadgeAcceptanceEvent")
+    expect(badges).toContain("makeProfileBadgeRemovalEvent")
   })
 })

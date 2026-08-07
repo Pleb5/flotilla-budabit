@@ -3,8 +3,15 @@
   import { useRegistry } from "../../useRegistry";
   import RichText from "../RichText.svelte";
   import TimeAgo from "../../TimeAgo.svelte";
-  const { Avatar, AvatarFallback, AvatarImage, Button, Textarea, Markdown, RichInlineCommentComposer } =
-    useRegistry();
+  const {
+    Avatar,
+    AvatarFallback,
+    AvatarImage,
+    Button,
+    Textarea,
+    Markdown,
+    RichInlineCommentComposer,
+  } = useRegistry();
   import { tick } from "svelte";
   import parseDiff from "parse-diff";
   import { ChevronDown, ChevronRight, ChevronUp } from "@lucide/svelte";
@@ -117,9 +124,13 @@
     comments?: Comment[];
     rootEvent?: DiffViewerRootEvent;
     parentEvent?: DiffViewerRootEvent;
-    onComment?: (comment: Omit<CommentEvent, "id" | "pubkey" | "sig">) => void;
+    onComment?: (comment: Omit<CommentEvent, "id" | "pubkey" | "sig">) => Promise<void> | void;
     canEditComment?: (comment: CommentEvent) => boolean;
-    onCommentEdited?: (comment: CommentEvent, content: string, tags?: string[][]) => Promise<void> | void;
+    onCommentEdited?: (
+      comment: CommentEvent,
+      content: string,
+      tags?: string[][]
+    ) => Promise<void> | void;
     currentPubkey?: string | null;
     repo?: Repo;
     repoRefs?: string[];
@@ -533,6 +544,11 @@
   };
 
   function closeCommentComposer() {
+    if (isSubmitting) return;
+    resetCommentComposer();
+  }
+
+  function resetCommentComposer() {
     selectedLine = null;
     selectedFileIdx = null;
     selectedChunkIdx = null;
@@ -542,6 +558,11 @@
   }
 
   function closeInlineReplyComposer() {
+    if (isSubmitting) return;
+    resetInlineReplyComposer();
+  }
+
+  function resetInlineReplyComposer() {
     replyThreadRootId = null;
     replyContent = "";
     editingCommentEvent = null;
@@ -647,6 +668,7 @@
     let touchSelectionStartedInGutter = false;
 
     const handlePointerDown = (e: PointerEvent) => {
+      if (isSubmitting) return;
       lastInputWasTouch = e.pointerType === "touch";
       if (e.pointerType === "touch") return;
       if (!canSelectDiffLines) return;
@@ -737,6 +759,7 @@
     };
 
     const handleTouchStart = (e: TouchEvent) => {
+      if (isSubmitting) return;
       const target = e.target as HTMLElement;
       if (!container.contains(target)) return;
       if (!canSelectDiffLines) return;
@@ -953,6 +976,7 @@
   }
 
   function toggleInlineThread(thread: Comment[]) {
+    if (isSubmitting) return;
     const root = getThreadRoot(thread);
     if (!root?.id) return;
     inlineThreadOpenById = {
@@ -1316,7 +1340,7 @@
   }
 
   function openCommentBoxFromSelection(selection: DiffSelection | null = getSelectionRange()) {
-    if (!canComment || !selection) return false;
+    if (!canComment || !selection || isSubmitting) return false;
     const endInfo = getLineInfoForIndex(selection.filePath, selection.end);
     if (!endInfo || endInfo.lineNumber === null) return false;
     selectedLine = endInfo.line;
@@ -1464,7 +1488,7 @@
   }
 
   function toggleCommentBox(line: number, fileIdx: number, chunkIdx: number) {
-    if (!canComment) return;
+    if (!canComment || isSubmitting) return;
     if (selectedLine === line && selectedFileIdx === fileIdx && selectedChunkIdx === chunkIdx) {
       selectedLine = null;
       selectedFileIdx = null;
@@ -1561,10 +1585,10 @@
       });
 
       // Publish the comment
-      onComment(commentEvent);
+      await onComment(commentEvent);
 
       // Reset state
-      closeCommentComposer();
+      resetCommentComposer();
     } catch (error) {
       console.error("[DiffViewer] Failed to submit comment:", error);
       throw error;
@@ -1581,7 +1605,11 @@
     }
   }
 
-  function makeCommentReplyEvent(parentComment: Comment, content: string, extraTags: CommentTag[] = []) {
+  function makeCommentReplyEvent(
+    parentComment: Comment,
+    content: string,
+    extraTags: CommentTag[] = []
+  ) {
     if (!rootEvent || !onComment || !currentPubkey || !parentComment.rawEvent) return null;
     const defaultRepoRef =
       repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
@@ -1609,12 +1637,17 @@
   async function submitReplyPayload(parentComment: Comment, payload: RichContentPayload) {
     const content = payload.content.trim();
     if (!content || isSubmitting) return;
-    const replyEvent = makeCommentReplyEvent(parentComment, content, (payload.tags || []) as CommentTag[]);
-    if (!replyEvent || !onComment) throw new Error("Cannot submit inline reply: missing required props");
+    const replyEvent = makeCommentReplyEvent(
+      parentComment,
+      content,
+      (payload.tags || []) as CommentTag[]
+    );
+    if (!replyEvent || !onComment)
+      throw new Error("Cannot submit inline reply: missing required props");
     isSubmitting = true;
     try {
-      onComment(replyEvent);
-      closeInlineReplyComposer();
+      await onComment(replyEvent);
+      resetInlineReplyComposer();
     } finally {
       isSubmitting = false;
     }
@@ -1635,7 +1668,7 @@
     isSubmitting = true;
     try {
       await onCommentEdited(editingCommentEvent, content, payload.tags);
-      closeInlineReplyComposer();
+      resetInlineReplyComposer();
     } finally {
       isSubmitting = false;
     }
@@ -1650,7 +1683,7 @@
   }
 
   function startEditingInlineComment(comment: Comment, rootComment: Comment) {
-    if (!comment.rawEvent) return;
+    if (!comment.rawEvent || isSubmitting) return;
 
     editingCommentEvent = comment.rawEvent;
     replyThreadRootId = rootComment.id;
@@ -1659,11 +1692,13 @@
 
   async function resolveThread(rootComment: Comment) {
     if (resolvingThreadRootId || !rootComment.id) return;
-    const resolveEvent = makeCommentReplyEvent(rootComment, "Resolved", [["l", "resolved"] as CommentTag]);
+    const resolveEvent = makeCommentReplyEvent(rootComment, "Resolved", [
+      ["l", "resolved"] as CommentTag,
+    ]);
     if (!resolveEvent || !onComment) return;
     resolvingThreadRootId = rootComment.id;
     try {
-      onComment(resolveEvent);
+      await onComment(resolveEvent);
     } finally {
       resolvingThreadRootId = null;
     }
@@ -2059,10 +2094,12 @@
                                     type="button"
                                     class="flex items-center gap-1.5 hover:text-foreground"
                                     onclick={() => {
+                                      if (isSubmitting) return;
                                       replyThreadRootId = rootComment.id;
                                       editingCommentEvent = null;
                                       replyContent = "";
                                     }}
+                                    disabled={isSubmitting}
                                   >
                                     ↩ Reply
                                   </button>
@@ -2117,7 +2154,13 @@
                                   submitting={isSubmitting}
                                   context={inlineComposerContext}
                                   onSubmit={(payload) =>
-                                    submitCommentPayload(payload, ln, fileIdx, chunkIdx, currentFilePath)}
+                                    submitCommentPayload(
+                                      payload,
+                                      ln,
+                                      fileIdx,
+                                      chunkIdx,
+                                      currentFilePath
+                                    )}
                                   onCancel={closeCommentComposer}
                                   onEscape={closeCommentComposer}
                                 />

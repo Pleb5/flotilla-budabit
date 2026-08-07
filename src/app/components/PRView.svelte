@@ -41,7 +41,7 @@
   } from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
-  import {profilesByPubkey, pubkey, publishThunk, repository} from "@welshman/app"
+  import {profilesByPubkey, pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {
@@ -73,9 +73,9 @@
     resolveStatusState,
   } from "@nostr-git/core/events"
   import {
-    postComment,
     postStatus,
     publishEvent,
+    publishRepoEventAfterAck,
     publishRepoEventWithRelayOutcomes,
   } from "@app/core/git-commands"
   import {publishDelete, publishReaction} from "@app/core/commands"
@@ -2223,10 +2223,16 @@
       includeLines: prDiffCommentLinesByFile.get(change.path) || [],
     })
 
-  const handlePrDiffCommentSubmit = (comment: any) => {
+  const handlePrDiffCommentSubmit = async (comment: any) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     try {
-      postComment(comment, relays, prRepoAddress)
+      await publishRepoEventAfterAck({
+        publication: "comment",
+        rootId: prEvent.id,
+        event: comment,
+        relays,
+        repoAddress: prRepoAddress,
+      })
     } catch (e) {
       toast.push({
         message: "Failed to start sending comment",
@@ -2555,8 +2561,13 @@
         content: nextDescription,
         tags: nextTags as CoverLetterTag[],
       })
-      publishEvent(coverLetterEvent as any, relays, prRepoAddress)
-      await load({relays, filters: [getPrCoverLetterFilter()]})
+      await publishRepoEventAfterAck({
+        publication: "event",
+        rootId: prEvent.id,
+        event: coverLetterEvent as any,
+        relays,
+        repoAddress: prRepoAddress,
+      })
       descriptionDraft = nextDescription
       editingDescription = false
       descriptionEditor = null
@@ -2576,7 +2587,13 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = getCommentPublishRelays()
     try {
-      await postComment(comment, relays, prRepoAddress)
+      await publishRepoEventAfterAck({
+        publication: "comment",
+        rootId: prEvent.id,
+        event: comment as any,
+        relays,
+        repoAddress: prRepoAddress,
+      })
     } catch (error) {
       toast.push({
         message: "Failed to start sending comment",
@@ -2591,14 +2608,23 @@
 
   const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
     const relays = getCommentPublishRelays()
-    await publishEditedReply({
-      event: comment as unknown as TrustedEvent,
-      content,
-      tags,
-      relays,
-      url: relays[0],
-      repoAddress: prRepoAddress,
-    })
+    try {
+      await publishEditedReply({
+        event: comment as unknown as TrustedEvent,
+        content,
+        tags,
+        relays,
+        url: relays[0],
+        repoAddress: prRepoAddress,
+      })
+    } catch (error) {
+      toast.push({
+        message: error instanceof Error ? error.message : "Failed to publish comment edit",
+        timeout: 3000,
+        theme: "error",
+      })
+      throw error
+    }
   }
 
   const deleteCommentReaction = async (event: any) => {
@@ -2636,7 +2662,13 @@
       ...statusEvent,
       tags,
     }
-    return postStatus(statusWithRecipients as any, strictRepoRelays, prRepoAddress)
+    return publishRepoEventAfterAck({
+      publication: "status",
+      rootId: prEvent.id,
+      event: statusWithRecipients as any,
+      relays: strictRepoRelays,
+      repoAddress: prRepoAddress,
+    })
   }
 
   // PR merge state

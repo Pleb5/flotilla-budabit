@@ -29,7 +29,7 @@
   import {onDestroy} from "svelte"
 
   type Props = {
-    onSubmit: (event: EventContent) => void
+    onSubmit: (event: EventContent) => Promise<boolean | void>
     disabled?: boolean
     disabledMessage?: string
   }
@@ -46,6 +46,7 @@
   const uploading = writable(false)
   const uploadStage = writable<BlossomUploadStage>("idle")
   let attachments = $state<DraftAttachment[]>([])
+  let submitInFlight = $state(false)
 
   export const focus = () => {
     if (disabled) return
@@ -53,7 +54,7 @@
   }
 
   const addFiles = (files?: FileList | null) => {
-    if (disabled || !files?.length) return
+    if (disabled || submitInFlight || !files?.length) return
 
     attachments = [...attachments, ...Array.from(files).map(makeDraftAttachment)]
   }
@@ -137,32 +138,43 @@
   const hideAttachmentPopover = () => attachmentPopover?.hide()
 
   const submit = async () => {
-    if (disabled || $uploading) return
+    if (disabled || submitInFlight || $uploading) return
 
-    const ed = await editor
-    const messageText = ed.getText({blockSeparator: "\n"}).trim()
-
-    if (!messageText && attachments.length === 0) return
-
-    let uploadedAttachments: PublishedAttachment[]
+    submitInFlight = true
 
     try {
-      uploadedAttachments = await uploadAttachments()
-    } catch (error) {
-      uploadStage.set("failed")
-      pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
-      return
+      const ed = await editor
+      const messageText = ed.getText({blockSeparator: "\n"}).trim()
+
+      if (!messageText && attachments.length === 0) return
+
+      let uploadedAttachments: PublishedAttachment[]
+
+      try {
+        uploadedAttachments = await uploadAttachments()
+      } catch (error) {
+        uploadStage.set("failed")
+        pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
+        return
+      }
+
+      const tags = ed.storage.nostr.getEditorTags()
+      tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
+      const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
+
+      try {
+        const submitted = await onSubmit({content, tags})
+        if (submitted === false) return
+      } catch {
+        return
+      }
+
+      ed.chain().clearContent().run()
+      clearAttachments()
+      uploadStage.set("idle")
+    } finally {
+      submitInFlight = false
     }
-
-    const tags = ed.storage.nostr.getEditorTags()
-    tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
-    const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
-
-    onSubmit({content, tags})
-
-    ed.chain().clearContent().run()
-    clearAttachments()
-    uploadStage.set("idle")
   }
 
   const editor = makeEditor({
@@ -195,6 +207,7 @@
       class="hidden"
       accept="image/*,video/*"
       multiple
+      disabled={submitInFlight}
       onchange={event => {
         addFiles(event.currentTarget.files)
         event.currentTarget.value = ""
@@ -204,6 +217,7 @@
       type="file"
       class="hidden"
       multiple
+      disabled={submitInFlight}
       onchange={event => {
         addFiles(event.currentTarget.files)
         event.currentTarget.value = ""
@@ -218,12 +232,16 @@
       <Tippy
         bind:popover={attachmentPopover}
         component={AttachmentMenu}
-        props={{onPickMedia: pickMediaFiles, onPickFile: pickGenericFiles, onClick: hideAttachmentPopover}}
+        props={{
+          onPickMedia: pickMediaFiles,
+          onPickFile: pickGenericFiles,
+          onClick: hideAttachmentPopover,
+        }}
         params={{trigger: "manual", interactive: true}}>
         <Button
           data-tip="Attach file"
           class="center tooltip tooltip-right h-10 w-10 min-w-10 rounded-box bg-base-300 transition-colors hover:bg-base-200"
-          disabled={$uploading}
+          disabled={submitInFlight || $uploading}
           onclick={showAttachmentPopover}>
           {#if $uploading}
             <span class="loading loading-spinner loading-xs"></span>
@@ -238,7 +256,7 @@
       <Button
         data-tip={!isMobile ? sendShortcut : undefined}
         class={`center absolute right-2 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
-        disabled={$uploading}
+        disabled={submitInFlight || $uploading}
         onclick={submit}>
         <Icon icon={Plane} />
       </Button>

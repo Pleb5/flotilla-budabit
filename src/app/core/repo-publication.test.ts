@@ -29,24 +29,50 @@ describe("repository publication authority", () => {
     expect(getRepoPublicationCoordinates(event)).toEqual([repoAddress])
   })
 
-  it("fails closed for empty relays and conflicting coordinates", () => {
+  it("accepts URL-valued repo metadata on a permalink", () => {
+    const event = {
+      kind: 1623,
+      tags: [
+        ["a", repoAddress],
+        ["repo", "https://github.com/budabit/budabit"],
+      ],
+    }
+
+    expect(requireRepoPublicationScope({event, relays: [relay], repoAddress})).toEqual([
+      `${relay}/`,
+    ])
+    expect(getRepoPublicationCoordinates(event)).toEqual([repoAddress])
+  })
+
+  it("fails closed for empty relays", () => {
     expect(() =>
       requireRepoPublicationScope({event: {kind: 1621, tags: [["a", repoAddress]]}, relays: []}),
     ).toThrow("requires at least one valid relay declared")
+  })
 
+  it("rejects conflicting coordinate-valued permalink tags", () => {
     expect(() =>
       requireRepoPublicationScope({
         event: {
-          kind: 1621,
+          kind: 1623,
           tags: [
             ["a", repoAddress],
-            ["q", `30617:${otherOwner}:other`],
+            ["repo", `30617:${otherOwner}:other`],
           ],
         },
         relays: [relay],
         repoAddress,
       }),
     ).toThrow("conflicting repository coordinates")
+  })
+
+  it("rejects malformed coordinate-like tag values", () => {
+    expect(() => getRepoPublicationCoordinates({tags: [["repo", "30617"]]})).toThrow(
+      "malformed repository coordinate",
+    )
+    expect(() =>
+      getRepoPublicationCoordinates({tags: [["repo", "30617:not-a-pubkey:repo"]]}),
+    ).toThrow("must be a valid 30617")
   })
 
   it("requires announcements to declare a relay", () => {

@@ -70,6 +70,7 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedMessage} from "@app/core/event-edit-publish"
+  import {signEventForPublication} from "@app/core/publication"
   import {
     checked,
     effectiveCommunityNotificationBaselines,
@@ -343,23 +344,21 @@
     }
 
     if (eventToEdit) {
-      const thunk = publishEditedMessage({
-        event: eventToEdit,
-        content: trimmed,
-        tags,
-        relays,
-        url: communityPubkey,
-        delay: $userSettingsValues.send_delay,
-      })
-
-      if ($userSettingsValues.send_delay) {
-        pushToast({
-          timeout: 30_000,
-          children: {
-            component: ThunkToast,
-            props: {thunk},
-          },
+      try {
+        await publishEditedMessage({
+          event: eventToEdit,
+          content: trimmed,
+          tags,
+          relays,
+          url: communityPubkey,
+          delay: $userSettingsValues.send_delay,
         })
+      } catch (error) {
+        pushToast({
+          theme: "error",
+          message: error instanceof Error ? error.message : "Failed to publish edit.",
+        })
+        return false
       }
 
       clearParent()
@@ -386,15 +385,26 @@
       template = prependParent(parent, template, {relays})
     }
 
-    const thunk = publishThunk({
-      relays,
-      event: makeEvent(MESSAGE, template),
-      delay: $userSettingsValues.send_delay,
-    })
+    let thunk: ReturnType<typeof publishThunk>
+
+    try {
+      const event = await signEventForPublication(makeEvent(MESSAGE, template))
+      thunk = publishThunk({
+        relays,
+        event,
+        delay: $userSettingsValues.send_delay,
+      })
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to send message.",
+      })
+      return false
+    }
 
     if ($userSettingsValues.send_delay) {
       pushToast({
-        timeout: 30_000,
+        timeout: 0,
         children: {
           component: ThunkToast,
           props: {thunk},
@@ -979,7 +989,7 @@
       {/if}
     {/each}
     {#if communityBootstrapLoading || communityPermissionsLoading || waitingForRoom || waitingForFeed || loadingEvents || elements.length === 0 || exhaustedEvents || (elements.length === 0 && (feedLoadStatus === "incomplete" || feedLoadStatus === "failed"))}
-      <p class="flex h-10 items-center justify-center py-20 text-center">
+      <p class="flex h-10 flex-col items-center justify-center gap-2 py-20 text-center">
         {#if communityBootstrapLoading}
           <Spinner loading>Loading community...</Spinner>
         {:else if communityPermissionsLoading}

@@ -33,6 +33,7 @@
     canWriteCommunityTarget,
     getCommunityWriteTargetSectionName,
   } from "@app/core/community-permissions"
+  import {publishLinkedOperation, type LinkedPublishOperation} from "@app/core/linked-publish"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -68,10 +69,27 @@
     ),
   )
 
-  const createGoal = () => {
+  let title = $state("")
+  let summary = $state("")
+  let amount = $state(1000)
+  let publishing = $state(false)
+  let publishError = $state("")
+  let publishOperation: LinkedPublishOperation = {}
+
+  const createGoal = async () => {
     const trimmedTitle = title.trim()
     const trimmedSummary = summary.trim()
-    if (!$pubkey || !communityPubkey || !trimmedTitle || !trimmedSummary) return
+    if (publishing || !$pubkey || !communityPubkey || !trimmedTitle || !trimmedSummary) return
+
+    const semanticInput = JSON.stringify({
+      pubkey: $pubkey,
+      communityPubkey,
+      communityRelays: $activeCommunityPublishRelays,
+      outboxRelays: getUserOutboxRelays(),
+      title: trimmedTitle,
+      summary: trimmedSummary,
+      amount: String(amount),
+    })
     if (!communityBootstrapReady) {
       pushToast({theme: "error", message: "Community permissions are still loading."})
       return
@@ -87,45 +105,68 @@
       return
     }
 
-    const targetingId = randomId()
-    const goalEvent = makeEvent(
-      ZAP_GOAL,
-      withPublicationTargetingId(
-        {
-          content: trimmedTitle,
-          tags: [
-            ["summary", trimmedSummary],
-            ["amount", String(amount)],
-            ["relays", relays[0]],
-          ],
-        },
-        targetingId,
-      ),
-    )
+    let targetingId = ""
     const originalRelays = normalizeRelays([...getUserOutboxRelays(), ...relays])
 
-    publishThunk({relays: originalRelays.length ? originalRelays : relays, event: goalEvent})
-    publishThunk({
-      relays,
-      event: makeEvent(
-        TARGETED_PUBLICATION_KIND,
-        makeTargetedPublicationForCommunity({
-          targetingId,
-          originalKind: ZAP_GOAL,
-          originalRef: undefined,
-          communityPubkey,
-          communityRelay: relays[0],
-        }),
-      ),
-    })
+    publishing = true
+    publishError = ""
 
+    try {
+      await publishLinkedOperation({
+        operation: publishOperation,
+        semanticInput,
+        requiredRelays: relays,
+        originalFactory: () => {
+          targetingId = randomId()
+          const goalEvent = makeEvent(
+            ZAP_GOAL,
+            withPublicationTargetingId(
+              {
+                content: trimmedTitle,
+                tags: [
+                  ["summary", trimmedSummary],
+                  ["amount", String(amount)],
+                  ["relays", ...relays],
+                ],
+              },
+              targetingId,
+            ),
+          )
+
+          return publishThunk({
+            relays: originalRelays.length ? originalRelays : relays,
+            event: goalEvent,
+            optimistic: false,
+          })
+        },
+        targetFactory: originalAckRelay =>
+          publishThunk({
+            relays,
+            event: makeEvent(
+              TARGETED_PUBLICATION_KIND,
+              makeTargetedPublicationForCommunity({
+                targetingId,
+                originalKind: ZAP_GOAL,
+                originalRef: undefined,
+                communityPubkey,
+                communityRelay: originalAckRelay,
+              }),
+            ),
+            optimistic: false,
+          }),
+      })
+    } catch (error) {
+      publishError = error instanceof Error ? error.message : "Publication failed. Retry."
+      pushToast({theme: "error", message: publishError})
+      return
+    } finally {
+      publishing = false
+    }
+
+    publishOperation = {}
     pushToast({message: "Goal published."})
-    if (goalsPath) goto(goalsPath)
+    if (goalsPath) await goto(goalsPath)
   }
-
-  let title = $state("")
-  let summary = $state("")
-  let amount = $state(1000)
 </script>
 
 <PageBar>
@@ -177,13 +218,16 @@
         <textarea bind:value={summary} class="textarea textarea-bordered" rows="8"></textarea>
       {/snippet}
     </Field>
+    {#if publishError}
+      <p class="text-sm text-error" role="alert">{publishError}</p>
+    {/if}
     <div class="flex justify-end">
       <PublishGate
         target={COMMUNITY_WRITE_TARGETS.goal}
         action="publish goals"
         submit
-        disabled={!title.trim() || !summary.trim()}>
-        Create goal
+        disabled={publishing || !title.trim() || !summary.trim()}>
+        {publishing ? "Publishing..." : publishError ? "Retry publication" : "Create goal"}
       </PublishGate>
     </div>
   </form>

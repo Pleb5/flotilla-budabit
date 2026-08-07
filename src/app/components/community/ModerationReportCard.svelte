@@ -13,7 +13,7 @@
     getTagValue,
     makeEvent,
   } from "@welshman/util"
-  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
+  import {pubkey, publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
@@ -37,6 +37,8 @@
 
   let revokeStatus = $state<"idle" | "publishing">("idle")
   let targetEventLoadStatus = $state<"idle" | "loading" | "done">("idle")
+  type GovernanceThunk = ReturnType<typeof publishThunk>
+  const failedReportDeleteThunks = new Map<string, GovernanceThunk>()
 
   const currentPubkey = $derived(normalizePubkey($pubkey || ""))
   const reportRelays = $derived(getCommunityScopedPublishRelays($activeCommunityDefinition))
@@ -102,17 +104,6 @@
 
   let targetEventLoadKey = ""
 
-  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === "success")
-
-  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
-    const result = Object.values(thunk.results).find(result => result.status !== "success")
-
-    return result
-      ? `${result.relay}: ${result.detail || result.status}`
-      : "Relay did not confirm the report delete."
-  }
-
   const publishReportDelete = async () => {
     if (!canRevoke) {
       pushToast({theme: "error", message: "Only the reporting moderator can revoke this action."})
@@ -126,21 +117,31 @@
 
     revokeStatus = "publishing"
     const template = makeCommunityReportDelete({reportId: report.event.id})
-    const thunk = publishThunk({relays: reportRelays, event: makeEvent(template.kind, template)})
+    const operation = `community-report-delete:${report.event.id}`
+    const failedThunk = failedReportDeleteThunks.get(operation)
+    let thunk: GovernanceThunk | undefined
 
     try {
-      await waitForThunkCompletion(thunk)
-    } catch {
-      // The result map below carries the relay-specific failure detail.
-    }
-
-    if (!hasSuccessfulRelay(thunk)) {
+      thunk = failedThunk
+        ? (retryThunk(failedThunk) as GovernanceThunk)
+        : publishThunk({
+            relays: reportRelays,
+            event: makeEvent(template.kind, template),
+            optimistic: false,
+          })
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      if (thunk) failedReportDeleteThunks.set(operation, thunk)
       revokeStatus = "idle"
-      pushToast({theme: "error", message: `${revokeLabel} failed: ${getPublishError(thunk)}`})
+      pushToast({
+        theme: "error",
+        message: `${revokeLabel} failed: ${error instanceof Error ? error.message : String(error)}`,
+      })
       return
     }
 
-    if (thunk.event) repository.publish(thunk.event as TrustedEvent)
+    failedReportDeleteThunks.delete(operation)
+    repository.publish(thunk.event as TrustedEvent)
     revokeStatus = "idle"
     pushToast({
       theme: "success",

@@ -3,8 +3,8 @@
   import {writable} from "svelte/store"
   import {goto} from "$app/navigation"
   import {HOUR, now, randomId} from "@welshman/lib"
-  import {EVENT_DATE, EVENT_TIME, makeEvent} from "@welshman/util"
-  import {publishThunk} from "@welshman/app"
+  import {EVENT_DATE, EVENT_TIME, makeEvent, type TrustedEvent} from "@welshman/util"
+  import {publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import MapPoint from "@assets/icons/map-point.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
@@ -26,6 +26,7 @@
     timestampToDateInputValue,
   } from "@app/core/calendar-events"
   import type {BlossomUploadStage} from "@app/core/blossom"
+  import {signEventForPublication} from "@app/core/publication"
   import {pushToast} from "@app/util/toast"
 
   type Props = {
@@ -54,6 +55,10 @@
 
   const uploading = writable(false)
   const uploadStage = writable<BlossomUploadStage>("idle")
+  const failedEditThunks = new Map<string, ReturnType<typeof publishThunk>>()
+
+  let isSavingEdit = $state(false)
+  let isCreating = $state(false)
 
   const back = () => history.back()
 
@@ -104,7 +109,7 @@
   }
 
   const submit = async () => {
-    if ($uploading) return
+    if ($uploading || isSavingEdit || isCreating) return
 
     if (!title) {
       return pushToast({
@@ -150,8 +155,63 @@
       return pushToast({theme: "error", message: "No relay is available to publish this event."})
     }
 
+    if (!initialValues) {
+      isCreating = true
+
+      try {
+        const signedEvent = await signEventForPublication(event)
+        publishThunk({event: signedEvent, relays: publishRelays})
+      } catch (error) {
+        pushToast({
+          theme: "error",
+          message: error instanceof Error ? error.message : "Failed to save your event.",
+        })
+        return
+      } finally {
+        isCreating = false
+      }
+
+      pushToast({message: "Your event has been saved!"})
+
+      if (redirectPath) {
+        goto(redirectPath, {replaceState: true})
+      } else {
+        history.back()
+      }
+      return
+    }
+
+    const editKey = JSON.stringify({
+      kind: event.kind,
+      content: event.content,
+      tags: event.tags,
+      relays: publishRelays,
+    })
+    let thunk = failedEditThunks.get(editKey)
+    isSavingEdit = true
+
+    try {
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof publishThunk>
+      } else {
+        thunk = publishThunk({event, relays: publishRelays, optimistic: false})
+      }
+
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      if (thunk) failedEditThunks.set(editKey, thunk)
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to save your event.",
+      })
+      return
+    } finally {
+      isSavingEdit = false
+    }
+
+    repository.publish(thunk.event as TrustedEvent)
+    failedEditThunks.clear()
     pushToast({message: "Your event has been saved!"})
-    publishThunk({event, relays: publishRelays})
 
     if (redirectPath) {
       goto(redirectPath, {replaceState: true})
@@ -297,8 +357,11 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={$uploading}>
-      <Spinner loading={$uploading}>Save Event</Spinner>
+    <Button
+      type="submit"
+      class="btn btn-primary"
+      disabled={$uploading || isSavingEdit || isCreating}>
+      <Spinner loading={$uploading || isSavingEdit || isCreating}>Save Event</Spinner>
     </Button>
   </ModalFooter>
 </form>

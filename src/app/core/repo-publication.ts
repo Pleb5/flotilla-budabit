@@ -58,7 +58,7 @@ export const getRepoPublicationCoordinates = (event: RepoPublicationEvent) => {
     const value = String(tag[1] || "").trim()
     const isRepoCoordinate = value.startsWith(`${GIT_REPO_ANNOUNCEMENT}:`)
     if (!isRepoCoordinate) {
-      if (tag[0] === "repo" || value === String(GIT_REPO_ANNOUNCEMENT)) {
+      if (value === String(GIT_REPO_ANNOUNCEMENT)) {
         throw new Error(`Repository ${tag[0]} tag contains a malformed repository coordinate.`)
       }
       continue

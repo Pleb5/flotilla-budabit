@@ -44,10 +44,11 @@
     activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
+    getUserOutboxRelays,
     hydrateCommunityEventsWithStatus,
     type CommunityHydrationStatus,
   } from "@app/core/community-state"
-  import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
+  import {normalizePubkey, normalizeRelays, parseTargetedPublication} from "@app/core/community"
   import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
   import {
     COMMUNITY_CALENDAR_WRITE_TARGETS,
@@ -69,6 +70,7 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {signEventForPublication} from "@app/core/publication"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
@@ -153,6 +155,9 @@
           reportState: $activeCommunityReportState,
         })
       : [],
+  )
+  const calendarEditPublishRelays = $derived(
+    normalizeRelays([...getUserOutboxRelays(), ...$activeCommunityPublishRelays]),
   )
   const isEventIdParam = $derived(/^[0-9a-f]{64}$/i.test(eventParam))
   const eventFilters = $derived.by<Filter[]>(() => {
@@ -359,7 +364,7 @@
     parent = undefined
   }
 
-  const sendReply = ({content, tags}: EventContent) => {
+  const sendReply = async ({content, tags}: EventContent) => {
     const trimmed = content.trim()
     if (!approvedEvent || !trimmed) return false
     if (!canReply) {
@@ -373,13 +378,21 @@
     }
 
     if (eventToEdit) {
-      publishEditedReply({
-        event: eventToEdit,
-        content: trimmed,
-        tags,
-        relays,
-        url: communityPubkey,
-      })
+      try {
+        await publishEditedReply({
+          event: eventToEdit,
+          content: trimmed,
+          tags,
+          relays,
+          url: communityPubkey,
+        })
+      } catch (error) {
+        pushToast({
+          theme: "error",
+          message: error instanceof Error ? error.message : "Failed to publish edit.",
+        })
+        return false
+      }
       closeCommentPrompt()
       return true
     }
@@ -395,10 +408,17 @@
         : undefined,
     })
 
-    publishThunk({
-      relays,
-      event: makeEvent(COMMENT, template),
-    })
+    try {
+      const event = await signEventForPublication(makeEvent(COMMENT, template))
+      publishThunk({relays, event})
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to publish comment.",
+      })
+      return false
+    }
+
     closeCommentPrompt()
     return true
   }
@@ -607,7 +627,7 @@
           <CalendarEventActions
             url={communityPubkey}
             relays={$activeCommunityRelays}
-            publishRelays={$activeCommunityPublishRelays}
+            publishRelays={calendarEditPublishRelays}
             scopeH={communityPubkey}
             communitySectionName={approvedEventSectionName}
             allowedAuthors={interactionAuthorPubkeys}

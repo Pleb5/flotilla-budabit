@@ -8,7 +8,10 @@
   import {
     pubkey,
     publishThunk,
+    repository,
+    retryThunk,
     signer,
+    waitForAnyRelayAck,
     forceLoadMessagingRelayList,
     messagingRelayListsByPubkey,
   } from "@welshman/app"
@@ -27,8 +30,9 @@
   import ChatCompose from "@app/components/ChatCompose.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import {userSettingsValues, deriveChat} from "@app/core/state"
+  import {signEventForPublication} from "@app/core/publication"
   import {pushModal} from "@app/util/modal"
-  import {pushToast} from "@app/util/toast"
+  import {popToast, pushToast} from "@app/util/toast"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {goto} from "$app/navigation"
 
@@ -116,25 +120,15 @@
     }
   }
 
+  const failedDmPublishThunks = new Map<string, ReturnType<typeof publishThunk>>()
+  const dmPublishToastIds = new Map<string, string>()
+
   const onSubmit = async (params: EventContent) => {
-    if (!recipientPubkey || !canSend) return
+    if (!recipientPubkey || !canSend) return false
 
     const content = params.content.trim()
 
-    if (!content) return
-
-    const activeSigner = signer.get()
-
-    if (!activeSigner) {
-      pushToast({theme: "error", message: "No signer available to send messages."})
-      return
-    }
-
-    const encrypted = await activeSigner.nip44.encrypt(recipientPubkey, content)
-    const template: EventTemplate = makeEvent(DM_KIND, {
-      content: encrypted,
-      tags: [["p", recipientPubkey]],
-    })
+    if (!content) return false
 
     const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
 
@@ -143,22 +137,67 @@
         theme: "error",
         message: "Recipient DM inbox relays are missing. Message not sent.",
       })
-      return
+      return false
     }
 
-    const thunk = publishThunk({
-      event: template,
-      relays: sendRelays,
-      delay: $userSettingsValues.send_delay,
+    const publishKey = JSON.stringify({
+      sender: $pubkey,
+      recipient: recipientPubkey,
+      payload: {content, tags: params.tags},
+      relays: [...new Set(sendRelays)].sort(),
     })
+    let thunk = failedDmPublishThunks.get(publishKey)
 
-    pushToast({
-      timeout: 30_000,
-      children: {
-        component: ThunkToast,
-        props: {thunk},
-      },
-    })
+    try {
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof publishThunk>
+      } else {
+        const activeSigner = signer.get()
+
+        if (!activeSigner) {
+          throw new Error("No signer available to send messages.")
+        }
+
+        const encrypted = await activeSigner.nip44.encrypt(recipientPubkey, content)
+        const template: EventTemplate = makeEvent(DM_KIND, {
+          content: encrypted,
+          tags: [["p", recipientPubkey]],
+        })
+        const signedEvent = await signEventForPublication(template)
+
+        thunk = publishThunk({
+          event: signedEvent,
+          relays: sendRelays,
+          delay: $userSettingsValues.send_delay,
+          optimistic: false,
+        })
+      }
+
+      const previousToastId = dmPublishToastIds.get(publishKey)
+      if (previousToastId) popToast(previousToastId)
+      const toastId = pushToast({
+        timeout: 0,
+        children: {
+          component: ThunkToast,
+          props: {thunk, retryable: false},
+        },
+      })
+      dmPublishToastIds.set(publishKey, toastId)
+
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      if (thunk) failedDmPublishThunks.set(publishKey, thunk)
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to send message.",
+      })
+      return false
+    }
+
+    failedDmPublishThunks.delete(publishKey)
+    dmPublishToastIds.delete(publishKey)
+    repository.publish(thunk.event as TrustedEvent)
+    return true
   }
 
   let loading = $state(true)

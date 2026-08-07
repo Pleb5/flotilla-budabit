@@ -21,6 +21,7 @@
     activeCommunityReportState,
   } from "@app/core/community-state"
   import {makeCommunityThread} from "@app/core/community-threads"
+  import {signEventForPublication} from "@app/core/publication"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -61,10 +62,10 @@
     ),
   )
 
-  const createThread = () => {
+  const createThread = async () => {
     const trimmedTitle = title.trim()
     const trimmedContent = content.trim()
-    if (!communityPubkey || !trimmedTitle || !trimmedContent) return
+    if (!communityPubkey || !trimmedTitle || !trimmedContent || creating) return
     if (!communityBootstrapReady) {
       pushToast({theme: "error", message: "Community permissions are still loading."})
       return
@@ -80,19 +81,33 @@
       return
     }
 
-    publishThunk({
-      relays,
-      event: makeEvent(
-        THREAD,
-        makeCommunityThread({communityPubkey, title: trimmedTitle, content: trimmedContent}),
-      ),
-    })
+    creating = true
+
+    try {
+      const event = await signEventForPublication(
+        makeEvent(
+          THREAD,
+          makeCommunityThread({communityPubkey, title: trimmedTitle, content: trimmedContent}),
+        ),
+      )
+      publishThunk({relays, event})
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to publish thread.",
+      })
+      return
+    } finally {
+      creating = false
+    }
+
     pushToast({message: "Thread published."})
     if (threadsPath) goto(threadsPath)
   }
 
   let title = $state("")
   let content = $state("")
+  let creating = $state(false)
 </script>
 
 <PageBar>
@@ -138,7 +153,7 @@
         target={COMMUNITY_WRITE_TARGETS.thread}
         action="create threads"
         submit
-        disabled={!title.trim() || !content.trim()}>
+        disabled={!title.trim() || !content.trim() || creating}>
         Create thread
       </PublishGate>
     </div>

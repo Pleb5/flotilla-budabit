@@ -7,7 +7,15 @@ import type {
   UserGraspListEvent,
 } from "@nostr-git/core/events"
 import {buildRoleLabelEvent} from "@app/util/labels"
-import {abortThunk, publishThunk, pubkey, repository, signer} from "@welshman/app"
+import {
+  abortThunk,
+  publishThunk,
+  pubkey,
+  repository,
+  retryThunk,
+  signer,
+  waitForAnyRelayAck,
+} from "@welshman/app"
 import {load, Pool, publish, PublishStatus, SocketEvent} from "@welshman/net"
 import {GIT_RELAYS, getRepoAnnouncementPublishRelays} from "./git-state"
 import {Router} from "@welshman/router"
@@ -34,6 +42,7 @@ import {
 import {GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
 import type {Event as NostrEvent} from "nostr-tools"
 import {getDeclaredRepoRelays, requireRepoPublicationScope} from "@app/core/repo-publication"
+import {signEventForPublication} from "@app/core/publication"
 
 export const GRASP_RELAY_ACK_TIMEOUT_MS = 30_000
 
@@ -288,10 +297,12 @@ export const publishEvent = <T extends NostrEvent>(
   event: T,
   relays: string[] = [],
   repoAddress?: string,
+  options: {optimistic?: boolean} = {},
 ) => {
   return publishThunk({
     relays: getScopedRelayUrls(event, relays, repoAddress),
     event: event,
+    optimistic: options.optimistic,
   })
 }
 
@@ -447,10 +458,16 @@ export const publishRepoEventWithRelayOutcomes = async (
   }
 }
 
-export const postComment = (comment: CommentEvent, relays: string[], repoAddress?: string) => {
+export const postComment = (
+  comment: CommentEvent,
+  relays: string[],
+  repoAddress?: string,
+  options: {optimistic?: boolean} = {},
+) => {
   return publishThunk({
     relays: getScopedRelayUrls(comment, relays, repoAddress),
     event: comment,
+    optimistic: options.optimistic,
   })
 }
 
@@ -461,10 +478,16 @@ export const postIssue = (issue: IssueEvent, relays: string[], repoAddress?: str
   })
 }
 
-export const postStatus = (status: StatusEvent, relays: string[], repoAddress?: string) => {
+export const postStatus = (
+  status: StatusEvent,
+  relays: string[],
+  repoAddress?: string,
+  options: {optimistic?: boolean} = {},
+) => {
   return publishThunk({
     relays: getScopedRelayUrls(status, relays, repoAddress),
     event: status,
+    optimistic: options.optimistic,
   })
 }
 
@@ -494,11 +517,138 @@ export const postRepoStateEvent = (
 }
 
 // Publish a NIP-32 label event (kind 1985)
-export const postLabel = (labelEvent: any, relays: string[], repoAddress?: string) => {
+export const postLabel = (
+  labelEvent: any,
+  relays: string[],
+  repoAddress?: string,
+  options: {optimistic?: boolean} = {},
+) => {
   return publishThunk({
     relays: getScopedRelayUrls(labelEvent, relays, repoAddress),
     event: labelEvent,
+    optimistic: options.optimistic,
   })
+}
+
+type RepoPublicationThunk = ReturnType<typeof publishThunk>
+type RepoPublicationKind = "comment" | "status" | "label" | "event" | "delete"
+
+type RepoPublicationOperation = {
+  thunk?: RepoPublicationThunk
+  acked: boolean
+  committed: boolean
+  inFlight?: Promise<TrustedEvent>
+}
+
+const repoPublicationOperations = new Map<string, RepoPublicationOperation>()
+
+const getRepoPublicationKey = ({
+  publication,
+  rootId,
+  event,
+  author,
+  relays,
+  repoAddress,
+}: {
+  publication: RepoPublicationKind
+  rootId: string
+  event: Pick<NostrEvent, "kind" | "content" | "tags"> & {id?: string}
+  author: string
+  relays: string[]
+  repoAddress?: string
+}) =>
+  JSON.stringify([
+    publication,
+    author,
+    rootId,
+    repoAddress,
+    relays,
+    event.kind,
+    event.content,
+    event.tags,
+    publication === "delete" ? event.id : undefined,
+  ])
+
+export const publishRepoEventAfterAck = ({
+  publication,
+  rootId,
+  event,
+  relays,
+  repoAddress,
+}: {
+  publication: RepoPublicationKind
+  rootId: string
+  event: NostrEvent
+  relays: string[]
+  repoAddress?: string
+}) => {
+  const scopedRelays = getScopedRelayUrls(event, relays, repoAddress)
+  const publicationKey = getRepoPublicationKey({
+    publication,
+    rootId,
+    event,
+    author: pubkey.get() || "",
+    relays: [...scopedRelays].sort(),
+    repoAddress,
+  })
+  const operation: RepoPublicationOperation = repoPublicationOperations.get(publicationKey) || {
+    acked: false,
+    committed: false,
+  }
+
+  repoPublicationOperations.set(publicationKey, operation)
+  if (operation.inFlight) return operation.inFlight
+
+  const inFlight = (async () => {
+    if (!operation.thunk) {
+      if (publication === "delete") {
+        operation.thunk = publishDelete({
+          event: event as TrustedEvent,
+          relays: scopedRelays,
+          repoAddress,
+          optimistic: false,
+        })
+      } else {
+        const signedEvent = await signEventForPublication(event)
+
+        if (publication === "comment") {
+          operation.thunk = postComment(signedEvent as CommentEvent, scopedRelays, repoAddress, {
+            optimistic: false,
+          })
+        } else if (publication === "status") {
+          operation.thunk = postStatus(signedEvent as StatusEvent, scopedRelays, repoAddress, {
+            optimistic: false,
+          })
+        } else if (publication === "label") {
+          operation.thunk = postLabel(signedEvent, scopedRelays, repoAddress, {optimistic: false})
+        } else {
+          operation.thunk = publishEvent(signedEvent, scopedRelays, repoAddress, {
+            optimistic: false,
+          })
+        }
+      }
+    } else if (!operation.acked) {
+      operation.thunk = retryThunk(operation.thunk) as RepoPublicationThunk
+    }
+
+    if (!operation.acked) {
+      await waitForAnyRelayAck(operation.thunk, operation.thunk.options.relays)
+      operation.acked = true
+    }
+
+    if (!operation.committed) {
+      repository.publish(operation.thunk.event as TrustedEvent)
+      operation.committed = true
+    }
+
+    repoPublicationOperations.delete(publicationKey)
+    return operation.thunk.event as TrustedEvent
+  })().finally(() => {
+    operation.inFlight = undefined
+  })
+
+  operation.inFlight = inFlight
+  return inFlight
 }
 
 export const postPermalink = (permalink: NostrEvent, relays: string[], repoAddress?: string) => {
@@ -508,11 +658,15 @@ export const postPermalink = (permalink: NostrEvent, relays: string[], repoAddre
   })
 }
 
-export const postGraspServersList = (graspServersList: UserGraspListEvent) => {
+export const postGraspServersList = (
+  graspServersList: UserGraspListEvent,
+  options: {optimistic?: boolean} = {},
+) => {
   const merged = getUserDataPublishRelays([...getUserRelayUrls(), ...GIT_RELAYS])
   return publishThunk({
     event: graspServersList,
     relays: merged,
+    optimistic: options.optimistic,
   })
 }
 
@@ -610,15 +764,6 @@ const reportDeleteProgress = (
   onProgress?.(progress)
 }
 
-const waitForDeletePublish = async (
-  thunk: {complete?: Promise<unknown>} | undefined,
-  signal?: AbortSignal,
-) => {
-  if (!thunk?.complete) return
-
-  await awaitWithAbort(thunk.complete, signal, () => abortThunk(thunk as any))
-}
-
 const getDeleteTargetLabel = (event: TrustedEvent, root: TrustedEvent) => {
   if (event.id === root.id) {
     return root.kind === GIT_PULL_REQUEST ? "pull request" : "issue"
@@ -635,7 +780,91 @@ const getDeleteTargetLabel = (event: TrustedEvent, root: TrustedEvent) => {
   return "event"
 }
 
-const deleteEventsSequentially = async ({
+type RetainedDelete = {
+  thunk: ReturnType<typeof publishDelete>
+  acked: boolean
+  published: boolean
+}
+
+type RetainedDeleteOperation = {
+  events: Map<string, TrustedEvent>
+  deletes: Map<string, RetainedDelete>
+  inFlight?: Promise<number>
+}
+
+const retainedDeleteOperations = new Map<string, RetainedDeleteOperation>()
+
+const runDeleteEventsSequentially = async ({
+  root,
+  events,
+  retainedDeletes,
+  relays,
+  repoAddress,
+  signal,
+  onProgress,
+}: {
+  root: TrustedEvent
+  events: TrustedEvent[]
+  retainedDeletes: Map<string, RetainedDelete>
+  relays: string[]
+  repoAddress?: string
+} & DeleteCallbacks) => {
+  let deletedEvents = events.filter(event => retainedDeletes.get(event.id)?.published).length
+
+  for (const event of events) {
+    throwIfAborted(signal)
+
+    let retainedDelete = retainedDeletes.get(event.id)
+    if (retainedDelete?.acked && !retainedDelete.published) {
+      repository.publish(retainedDelete.thunk.event as TrustedEvent)
+      retainedDelete.published = true
+      deletedEvents += 1
+    }
+    if (retainedDelete?.published) continue
+
+    reportDeleteProgress(onProgress, {
+      label: "Waiting for relay acknowledgements...",
+      completed: deletedEvents,
+      total: events.length,
+      current: getDeleteTargetLabel(event, root),
+    })
+
+    const thunk = retainedDelete
+      ? (retryThunk(retainedDelete.thunk) as ReturnType<typeof publishDelete>)
+      : publishDelete({
+          event,
+          relays,
+          repoAddress,
+          optimistic: false,
+        })
+
+    if (retainedDelete) {
+      retainedDelete.thunk = thunk
+    } else {
+      retainedDelete = {thunk, acked: false, published: false}
+      retainedDeletes.set(event.id, retainedDelete)
+    }
+
+    await awaitWithAbort(waitForAnyRelayAck(thunk, thunk.options.relays), signal, () =>
+      abortThunk(thunk),
+    )
+    retainedDelete.acked = true
+    repository.publish(thunk.event as TrustedEvent)
+    retainedDelete.published = true
+    deletedEvents += 1
+
+    reportDeleteProgress(onProgress, {
+      label: "Delete requests acknowledged.",
+      completed: deletedEvents,
+      total: events.length,
+      current: getDeleteTargetLabel(event, root),
+    })
+  }
+
+  return deletedEvents
+}
+
+const deleteEventsSequentially = ({
   root,
   events,
   relays,
@@ -648,36 +877,44 @@ const deleteEventsSequentially = async ({
   relays: string[]
   repoAddress?: string
 } & DeleteCallbacks) => {
-  let deletedEvents = 0
-
-  for (const event of events) {
-    throwIfAborted(signal)
-
-    reportDeleteProgress(onProgress, {
-      label: "Waiting for relay acknowledgements...",
-      completed: deletedEvents,
-      total: events.length,
-      current: getDeleteTargetLabel(event, root),
-    })
-
-    const thunk = publishDelete({
-      event,
-      relays,
-      repoAddress,
-    })
-
-    await waitForDeletePublish(thunk, signal)
-    deletedEvents += 1
-
-    reportDeleteProgress(onProgress, {
-      label: "Delete requests acknowledged.",
-      completed: deletedEvents,
-      total: events.length,
-      current: getDeleteTargetLabel(event, root),
-    })
+  if (pubkey.get() !== root.pubkey) {
+    return Promise.reject(new Error("Restore the event author's account before deleting it."))
   }
 
-  return deletedEvents
+  const operationKey = JSON.stringify([root.id, root.pubkey, repoAddress, [...relays].sort()])
+  let operation = retainedDeleteOperations.get(operationKey)
+
+  if (!operation) {
+    operation = {events: new Map(), deletes: new Map()}
+    retainedDeleteOperations.set(operationKey, operation)
+  }
+  if (operation.inFlight) return operation.inFlight
+
+  for (const event of events) {
+    if (event.id !== root.id) operation.events.set(event.id, event)
+  }
+  operation.events.delete(root.id)
+  operation.events.set(root.id, root)
+
+  const inFlight = runDeleteEventsSequentially({
+    root,
+    events: Array.from(operation.events.values()),
+    retainedDeletes: operation.deletes,
+    relays,
+    repoAddress,
+    signal,
+    onProgress,
+  })
+    .then(result => {
+      retainedDeleteOperations.delete(operationKey)
+      return result
+    })
+    .finally(() => {
+      operation!.inFlight = undefined
+    })
+
+  operation.inFlight = inFlight
+  return inFlight
 }
 
 export const deleteIssueWithLabels = async ({
@@ -730,7 +967,7 @@ export const deleteIssueWithLabels = async ({
 
   await deleteEventsSequentially({
     root: issue,
-    events: [issue, ...labelEvents],
+    events: [...labelEvents, issue],
     relays: merged,
     repoAddress,
     signal,
@@ -808,13 +1045,14 @@ export const deletePullRequestWithRelated = async ({
 
   const relatedEvents = repository.query(filters, {shouldSort: false}) as TrustedEvent[]
   const eventsToDelete = new Map<string, TrustedEvent>()
-  eventsToDelete.set(root.id, root)
 
   for (const event of relatedEvents) {
     if (!event?.id || event.id === root.id) continue
     if (event.pubkey !== root.pubkey) continue
     eventsToDelete.set(event.id, event)
   }
+
+  eventsToDelete.set(root.id, root)
 
   const deletedEvents = await deleteEventsSequentially({
     root,

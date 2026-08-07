@@ -1,7 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
+  import {pubkey, publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, type TrustedEvent} from "@welshman/util"
   import MedalStar from "@assets/icons/medal-star.svg?dataurl"
@@ -94,6 +94,8 @@
   let uploadingImage = $state(false)
   let imageUploadStage = $state<BlossomUploadStage>("idle")
   let imageUploadNote = $state("")
+  type GovernanceThunk = ReturnType<typeof publishThunk>
+  const failedGovernanceThunks = new Map<string, GovernanceThunk>()
 
   const canManageBadges = $derived(
     Boolean(
@@ -192,38 +194,58 @@
         })
       : [],
   )
-  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === "success")
+  const publishTemplate = async (
+    operation: string,
+    template: {kind: number; content: string; tags: string[][]},
+  ) => {
+    const intent = JSON.stringify({operation, relays: badgePublishRelays})
+    const failedThunk = failedGovernanceThunks.get(intent)
+    if (!failedThunk && badgePublishRelays.length === 0) {
+      throw new Error("No badge relays are available.")
+    }
 
-  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
-    const result = Object.values(thunk.results).find(result => result.status !== "success")
+    const thunk = failedThunk
+      ? (retryThunk(failedThunk) as GovernanceThunk)
+      : publishThunk({
+          relays: badgePublishRelays,
+          event: makeEvent(template.kind, template),
+          optimistic: false,
+        })
 
-    return result ? `${result.relay}: ${result.detail || result.status}` : "No relay confirmed."
-  }
+    try {
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      failedGovernanceThunks.set(intent, thunk)
+      throw error
+    }
 
-  const publishTemplate = async (template: {kind: number; content: string; tags: string[][]}) => {
-    if (badgePublishRelays.length === 0) throw new Error("No badge relays are available.")
-
-    const thunk = publishThunk({
-      relays: badgePublishRelays,
-      event: makeEvent(template.kind, template),
-    })
-    await waitForThunkCompletion(thunk)
-    if (!hasSuccessfulRelay(thunk)) throw new Error(getPublishError(thunk))
+    failedGovernanceThunks.delete(intent)
     repository.publish(thunk.event as TrustedEvent)
   }
 
-  const publishProfileBadgeTemplate = async (template: {
-    kind: number
-    content: string
-    tags: string[][]
-  }) => {
+  const publishProfileBadgeTemplate = async (
+    operation: string,
+    template: {kind: number; content: string; tags: string[][]},
+  ) => {
     const relays = getUserDataPublishRelays([...getPubkeyOutboxRelays($pubkey), ...badgeRelays])
-    if (relays.length === 0) throw new Error("No profile badge relays are available.")
+    const intent = JSON.stringify({operation, relays})
+    const failedThunk = failedGovernanceThunks.get(intent)
+    if (!failedThunk && relays.length === 0) {
+      throw new Error("No profile badge relays are available.")
+    }
 
-    const thunk = publishThunk({relays, event: makeEvent(template.kind, template)})
-    await waitForThunkCompletion(thunk)
-    if (!hasSuccessfulRelay(thunk)) throw new Error(getPublishError(thunk))
+    const thunk = failedThunk
+      ? (retryThunk(failedThunk) as GovernanceThunk)
+      : publishThunk({relays, event: makeEvent(template.kind, template), optimistic: false})
+
+    try {
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      failedGovernanceThunks.set(intent, thunk)
+      throw error
+    }
+
+    failedGovernanceThunks.delete(intent)
     repository.publish(thunk.event as TrustedEvent)
   }
 
@@ -302,7 +324,18 @@
   const publishBadgeDefinition = async (deprecated = false) => {
     if (!canManageBadges) throw new Error("Log in as the admin or an active moderator first.")
 
-    await publishTemplate(buildBadgeDefinitionTemplate(deprecated))
+    const operation = JSON.stringify({
+      type: editingDefinition ? "badge-definition-update" : "badge-definition-create",
+      address: editingDefinition?.address || "",
+      communityPubkey,
+      pubkey: $pubkey,
+      badgeName,
+      badgeDescription,
+      badgeImage,
+      badgeImageDimensions,
+      deprecated,
+    })
+    await publishTemplate(operation, buildBadgeDefinitionTemplate(deprecated))
     resetBadgeForm()
   }
 
@@ -327,6 +360,7 @@
         runPublish(
           () =>
             publishTemplate(
+              `badge-definition:retire:${definition.address}`,
               makeCommunityBadgeDefinitionEvent({
                 communityPubkey: $activeCommunityDefinition!.pubkey,
                 identifier: definition.identifier,
@@ -351,6 +385,7 @@
         runPublish(
           () =>
             publishTemplate(
+              `badge-definition:resurrect:${definition.address}`,
               makeCommunityBadgeDefinitionEvent({
                 communityPubkey: $activeCommunityDefinition!.pubkey,
                 identifier: definition.identifier,
@@ -379,6 +414,7 @@
     await runPublish(
       () =>
         publishProfileBadgeTemplate(
+          `profile-badge:accept:${award.award.event.id}`,
           makeProfileBadgeAcceptanceEvent({
             currentEvent,
             pair: {
@@ -401,6 +437,7 @@
     await runPublish(
       () =>
         publishProfileBadgeTemplate(
+          `profile-badge:remove:${badge.profilePair.awardId}`,
           makeProfileBadgeRemovalEvent({
             currentEvent,
             pair: badge.profilePair,
@@ -416,7 +453,11 @@
       message: `Revoke ${definition.name} from this recipient?`,
       confirm: () =>
         runPublish(
-          () => publishTemplate(makeCommunityBadgeAwardDelete({awardId: award.event.id})),
+          () =>
+            publishTemplate(
+              `badge-award:delete:${award.event.id}`,
+              makeCommunityBadgeAwardDelete({awardId: award.event.id}),
+            ),
           "Badge award revoked.",
         ),
     })

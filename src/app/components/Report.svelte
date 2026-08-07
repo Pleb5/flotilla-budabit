@@ -12,6 +12,7 @@
   import {publishReport} from "@app/core/commands"
   import {normalizeRelays} from "@app/core/community"
   import type {TrustedEvent} from "@welshman/util"
+  import {repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
 
   type Props = {
     event: TrustedEvent
@@ -20,10 +21,13 @@
   }
 
   const {event, relays = [], repoAddress = ""}: Props = $props()
+  const failedReportThunks = new Map<string, ReturnType<typeof publishReport>>()
 
   const back = () => history.back()
 
   const confirm = async () => {
+    if (loading) return
+
     if (!reason) {
       return pushToast({
         theme: "error",
@@ -36,26 +40,47 @@
       return pushToast({theme: "error", message: "No report relays are available."})
     }
 
+    const normalizedReason = reason.toLowerCase()
+    const reportKey = JSON.stringify({
+      eventId: event.id,
+      reason: normalizedReason,
+      content,
+      relays: publishRelays,
+      repoAddress,
+    })
+    let thunk = failedReportThunks.get(reportKey)
     loading = true
 
     try {
-      publishReport({
-        event,
-        reason: reason.toLowerCase(),
-        content,
-        relays: publishRelays,
-        repoAddress: repoAddress || undefined,
-      })
-      history.back()
-      return pushToast({message: "Your report has been sent!"})
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof publishReport>
+      } else {
+        thunk = publishReport({
+          event,
+          reason: normalizedReason,
+          content,
+          relays: publishRelays,
+          repoAddress: repoAddress || undefined,
+          optimistic: false,
+        })
+      }
+
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
     } catch (error) {
-      return pushToast({
+      if (thunk) failedReportThunks.set(reportKey, thunk)
+      pushToast({
         theme: "error",
         message: error instanceof Error ? error.message : "Failed to send this report.",
       })
+      return
     } finally {
       loading = false
     }
+
+    failedReportThunks.clear()
+    repository.publish(thunk.event as TrustedEvent)
+    history.back()
+    pushToast({message: "Your report has been sent!"})
   }
 
   let reason = $state("")

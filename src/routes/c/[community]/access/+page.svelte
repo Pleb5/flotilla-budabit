@@ -10,7 +10,8 @@
     pubkey,
     publishThunk,
     repository,
-    waitForThunkCompletion,
+    retryThunk,
+    waitForAnyRelayAck,
   } from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
@@ -128,6 +129,9 @@
   let renunciationActionInFlight = $state(false)
   let renunciationAbortController: AbortController | undefined
   const renunciationPublishStatus = writable("")
+  type GovernanceThunk = ReturnType<typeof publishThunk>
+  const failedGovernanceThunks = new Map<string, GovernanceThunk>()
+  const governanceOperationsInFlight = new Set<string>()
   const currentUserBanned = $derived(
     isCommunityPersonBanned($activeCommunityReportState, $pubkey || ""),
   )
@@ -518,7 +522,40 @@
     }
   }
 
-  const submitApplication = (
+  const publishGovernanceEvent = async (
+    operation: string,
+    relays: string[],
+    template: {kind: number; content: string; tags: string[][]},
+  ) => {
+    const intent = JSON.stringify({operation, relays, template})
+    if (governanceOperationsInFlight.has(intent)) {
+      throw new Error("This publication is already in progress.")
+    }
+
+    const failedThunk = failedGovernanceThunks.get(intent)
+    const thunk = failedThunk
+      ? (retryThunk(failedThunk) as GovernanceThunk)
+      : publishThunk({
+          relays,
+          event: makeEvent(template.kind, template),
+          optimistic: false,
+        })
+
+    governanceOperationsInFlight.add(intent)
+    try {
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      failedGovernanceThunks.set(intent, thunk)
+      throw error
+    } finally {
+      governanceOperationsInFlight.delete(intent)
+    }
+
+    failedGovernanceThunks.delete(intent)
+    repository.publish(thunk.event as TrustedEvent)
+  }
+
+  const submitApplication = async (
     sectionName: string,
     sectionDisplayName: string,
     form: CommunityAdmissionForm,
@@ -592,8 +629,19 @@
 
     const template = makeAdmissionResponse({formAddress: form.address, values, metadata})
 
-    publishThunk({relays: communityPublishRelays, event: makeEvent(template.kind, template)})
-    pushToast({message: `Application submitted for ${sectionDisplayName}.`})
+    try {
+      await publishGovernanceEvent(
+        `admission-submit:${communityPubkey}:${form.address}`,
+        communityPublishRelays,
+        template,
+      )
+      pushToast({message: `Application submitted for ${sectionDisplayName}.`})
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: `Application submission failed: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
   }
 
   const setModeratorRequestPublishState = (
@@ -604,19 +652,6 @@
       ...moderatorRequestPublishStates,
       [sectionName]: publishState,
     }
-  }
-
-  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === "success")
-
-  const getPublishError = (thunks: Array<ReturnType<typeof publishThunk>>) => {
-    const result = thunks
-      .flatMap(thunk => Object.values(thunk.results))
-      .find(result => result.status !== "success")
-
-    return result
-      ? `${result.relay}: ${result.detail || result.status}`
-      : "Relay did not confirm the request."
   }
 
   const canSubmitModeratorRequest = (sectionName: string) => {
@@ -683,15 +718,12 @@
       detail: "Waiting for relay confirmation...",
     })
 
-    let profileListThunk: ReturnType<typeof publishThunk>
-
     try {
-      profileListThunk = publishThunk({
-        relays: communityPublishRelays,
-        event: makeEvent(profileList.kind, profileList),
-      })
-
-      await waitForThunkCompletion(profileListThunk)
+      await publishGovernanceEvent(
+        `moderator-request:${definition.pubkey}:${sectionName}:${requesterPubkey}`,
+        communityPublishRelays,
+        profileList,
+      )
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       setModeratorRequestPublishState(sectionName, {status: "failed", detail})
@@ -699,14 +731,6 @@
       return false
     }
 
-    if (!hasSuccessfulRelay(profileListThunk)) {
-      const detail = getPublishError([profileListThunk])
-      setModeratorRequestPublishState(sectionName, {status: "failed", detail})
-      pushToast({theme: "error", message: `Moderator request failed: ${detail}`})
-      return false
-    }
-
-    repository.publish(profileListThunk.event as TrustedEvent)
     setModeratorRequestPublishState(sectionName, {
       status: "sent",
       detail: "Relay confirmed the request.",
@@ -749,10 +773,22 @@
         otherAnswers = {...otherAnswers, [sectionName]: getResponseOtherAnswers(response)}
         const template = makeAdmissionResponseDelete({responseId: response.event.id})
 
-        publishThunk({relays: communityPublishRelays, event: makeEvent(template.kind, template)})
+        try {
+          await publishGovernanceEvent(
+            `admission-delete:${communityPubkey}:${response.event.id}`,
+            communityPublishRelays,
+            template,
+          )
+        } catch (error) {
+          pushToast({
+            theme: "error",
+            message: `Submission deletion failed: ${error instanceof Error ? error.message : String(error)}`,
+          })
+          return
+        }
+
         pushToast({
-          message:
-            "Submission deleted. You can submit a revised application after relays confirm it.",
+          message: "Submission deleted. You can now submit a revised application.",
         })
         history.back()
       },

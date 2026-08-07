@@ -16,6 +16,7 @@
     Card,
     IssueThread,
     Status,
+    toast,
     type RichComposerContext,
     type RichContentPayload,
     type RichDescriptionEditorHandle,
@@ -41,7 +42,7 @@
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {postComment, postLabel, postStatus, publishEvent} from "@app/core/git-commands"
+  import {publishRepoEventAfterAck} from "@app/core/git-commands"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
   import {publishDelete, publishReaction} from "@app/core/commands"
@@ -370,8 +371,13 @@
         namespaces: ["#t"],
         labels: [{namespace: "#t", value}],
       }) as any
-      postLabel(labelEvent, relays, issueEditRepoAddress)
-      await load({relays: relays as string[], filters: [getLabelFilter()]})
+      await publishRepoEventAfterAck({
+        publication: "label",
+        rootId: issue.id,
+        event: labelEvent,
+        relays,
+        repoAddress: issueEditRepoAddress,
+      })
       newLabel = ""
     } catch (e) {
       console.error("[IssueDetail] Failed to add label", e)
@@ -452,7 +458,11 @@
     })
   }
 
-  const publishTagDeleteMarker = (labelValue: string, relays: string[], includeUgc = false) => {
+  const publishTagDeleteMarker = async (
+    labelValue: string,
+    relays: string[],
+    includeUgc = false,
+  ) => {
     if (!issue) return
     const namespaces = includeUgc ? ["#t", "ugc"] : ["#t"]
     const labels = namespaces.map(namespace => ({namespace, value: labelValue, op: "del" as const}))
@@ -463,7 +473,13 @@
       namespaces,
       labels,
     }) as any
-    postLabel(labelEvent, relays, issueEditRepoAddress)
+    await publishRepoEventAfterAck({
+      publication: "label",
+      rootId: issue.id,
+      event: labelEvent,
+      relays,
+      repoAddress: issueEditRepoAddress,
+    })
   }
 
   const removeLabel = async (labelValue: string) => {
@@ -478,7 +494,7 @@
 
     try {
       if (rootSet.has(value)) {
-        publishTagDeleteMarker(value, relays)
+        await publishTagDeleteMarker(value, relays)
       } else {
         const relevant = ((parsedIssueLabelEvents || []) as any[])
           .filter(label => {
@@ -502,13 +518,17 @@
         const eventToDelete = candidate?.id ? issueLabelEventsById.get(candidate.id) : undefined
 
         if (eventToDelete && eventToDelete.pubkey === $pubkey) {
-          publishDelete({event: eventToDelete as any, relays, repoAddress: issueEditRepoAddress})
+          await publishRepoEventAfterAck({
+            publication: "delete",
+            rootId: issue.id,
+            event: eventToDelete as any,
+            relays,
+            repoAddress: issueEditRepoAddress,
+          })
         } else {
-          publishTagDeleteMarker(value, relays, true)
+          await publishTagDeleteMarker(value, relays, true)
         }
       }
-
-      await load({relays, filters: [getLabelFilter()]})
     } catch (error) {
       console.error("[IssueDetail] Failed to remove label", error)
     }
@@ -533,8 +553,13 @@
         namespaces: ["#subject"],
         labels: [{namespace: "#subject", value}],
       }) as any
-      postLabel(labelEvent, relays, issueEditRepoAddress)
-      await load({relays, filters: [getLabelFilter()]})
+      await publishRepoEventAfterAck({
+        publication: "label",
+        rootId: issue.id,
+        event: labelEvent,
+        relays,
+        repoAddress: issueEditRepoAddress,
+      })
       editingTitle = false
     } catch (error) {
       console.error("[IssueDetail] Failed to edit title", error)
@@ -577,8 +602,13 @@
         content: value,
         tags: nextTags as CoverLetterTag[],
       })
-      publishEvent(coverLetterEvent as any, relays, issueEditRepoAddress)
-      await load({relays, filters: [getCoverLetterFilter()]})
+      await publishRepoEventAfterAck({
+        publication: "event",
+        rootId: issue.id,
+        event: coverLetterEvent as any,
+        relays,
+        repoAddress: issueEditRepoAddress,
+      })
       descriptionDraft = value
       editingDescription = false
       descriptionEditor = null
@@ -705,20 +735,35 @@
   // Remove inline status state and auto-publish; Status component handles publishing
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, getPublishRelays(), issueEditRepoAddress)
+    await publishRepoEventAfterAck({
+      publication: "comment",
+      rootId: issue?.id || issueId,
+      event: comment as any,
+      relays: getPublishRelays(),
+      repoAddress: issueEditRepoAddress,
+    })
   }
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
 
   const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
-    await publishEditedReply({
-      event: comment as unknown as TrustedEvent,
-      content,
-      tags,
-      relays: getPublishRelays(),
-      url: repoBoundRelays[0],
-      repoAddress: issueEditRepoAddress,
-    })
+    try {
+      await publishEditedReply({
+        event: comment as unknown as TrustedEvent,
+        content,
+        tags,
+        relays: getPublishRelays(),
+        url: repoBoundRelays[0],
+        repoAddress: issueEditRepoAddress,
+      })
+    } catch (error) {
+      toast.push({
+        message: error instanceof Error ? error.message : "Failed to publish comment edit",
+        timeout: 3000,
+        theme: "error",
+      })
+      throw error
+    }
   }
 
   const requireLogin = () => pushModal(LogIn)
@@ -743,7 +788,13 @@
       ...statusEvent,
       tags,
     }
-    return postStatus(statusWithRecipients as any, getPublishRelays(), issueEditRepoAddress)
+    return publishRepoEventAfterAck({
+      publication: "status",
+      rootId: issue?.id || issueId,
+      event: statusWithRecipients as any,
+      relays: getPublishRelays(),
+      repoAddress: issueEditRepoAddress,
+    })
   }
 
   const toPersonSuggestion = (pubkey: string) => {
@@ -1042,10 +1093,12 @@
                   pubkeys: [pubkey],
                   repoAddr: issueEditRepoAddress,
                 })
-                postLabel(roleLabelEvent as any, publishRelays, issueEditRepoAddress)
-                await load({
+                await publishRepoEventAfterAck({
+                  publication: "label",
+                  rootId: issue.id,
+                  event: roleLabelEvent as any,
                   relays: publishRelays,
-                  filters: [{kinds: [1985], "#e": [issue.id]}],
+                  repoAddress: issueEditRepoAddress,
                 })
               } catch (err) {
                 console.error("[IssueDetail] Failed to add assignee", err)
@@ -1055,8 +1108,13 @@
               if (!issue) return
               try {
                 const relays = getPublishRelays()
-                publishDelete({event: evt as any, relays, repoAddress: issueEditRepoAddress})
-                await load({relays, filters: [{kinds: [1985], "#e": [issue.id]}]})
+                await publishRepoEventAfterAck({
+                  publication: "delete",
+                  rootId: issue.id,
+                  event: evt as any,
+                  relays,
+                  repoAddress: issueEditRepoAddress,
+                })
               } catch (err) {
                 console.error("[IssueDetail] Failed to delete assignee label", err)
               }

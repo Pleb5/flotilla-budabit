@@ -17,6 +17,7 @@
   import {pushToast} from "@app/util/toast"
   import {makeEditor} from "@app/editor"
   import type {BlossomUploadStage} from "@app/core/blossom"
+  import {signEventForPublication} from "@app/core/publication"
 
   type Props = {
     url: string
@@ -33,7 +34,7 @@
   const selectFiles = () => editor.then(ed => ed.commands.selectFiles())
 
   const submit = async () => {
-    if ($uploading) return
+    if ($uploading || submitting) return
 
     if (!content) {
       return pushToast({
@@ -42,33 +43,43 @@
       })
     }
 
-    const ed = await editor
-    const summary = ed.getText({blockSeparator: "\n"}).trim()
+    submitting = true
 
-    if (!summary.trim()) {
-      return pushToast({
+    try {
+      const ed = await editor
+      const summary = ed.getText({blockSeparator: "\n"}).trim()
+
+      if (!summary.trim()) {
+        return pushToast({
+          theme: "error",
+          message: "Please provide details about your funding goal.",
+        })
+      }
+
+      const tags = [
+        ...ed.storage.nostr.getEditorTags(),
+        ["summary", summary],
+        ["amount", String(amount)],
+        ["relays", url],
+      ]
+
+      if (h) {
+        tags.push(["h", h])
+      }
+
+      const event = await signEventForPublication(makeEvent(ZAP_GOAL, {content, tags}))
+
+      publishThunk({relays: [url], event})
+
+      history.back()
+    } catch (error) {
+      pushToast({
         theme: "error",
-        message: "Please provide details about your funding goal.",
+        message: error instanceof Error ? error.message : "Failed to create funding goal.",
       })
+    } finally {
+      submitting = false
     }
-
-    const tags = [
-      ...ed.storage.nostr.getEditorTags(),
-      ["summary", summary],
-      ["amount", String(amount)],
-      ["relays", url],
-    ]
-
-    if (h) {
-      tags.push(["h", h])
-    }
-
-    publishThunk({
-      relays: [url],
-      event: makeEvent(ZAP_GOAL, {content, tags}),
-    })
-
-    history.back()
   }
 
   const editor = makeEditor({
@@ -82,6 +93,7 @@
 
   let content = $state("")
   let amount = $state(1000)
+  let submitting = $state(false)
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(submit)}>
@@ -164,6 +176,7 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary">Create Goal</Button>
+    <Button type="submit" class="btn btn-primary" disabled={$uploading || submitting}
+      >Create Goal</Button>
   </ModalFooter>
 </form>

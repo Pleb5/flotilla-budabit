@@ -4,7 +4,7 @@
   import type {TrustedEvent} from "@welshman/util"
   import {COMMENT} from "@welshman/util"
   import {GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
-  import {pubkey} from "@welshman/app"
+  import {pubkey, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
@@ -56,8 +56,9 @@
   const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
   const report = () => pushModal(Report, {url, event, relays, repoAddress})
+  const failedHideThunks = new Map<string, ReturnType<typeof publishReport>>()
 
-  const publishHideSpam = () => {
+  const publishHideSpam = async () => {
     const reportRelays =
       scopeH || communitySectionName || repoAddress
         ? relays
@@ -68,22 +69,37 @@
             : []
     if (reportRelays.length === 0) return
 
+    const hideKey = JSON.stringify({eventId: event.id, relays: reportRelays, repoAddress})
+    let thunk = failedHideThunks.get(hideKey)
+
     try {
-      publishReport({
-        event,
-        reason: "spam",
-        content: "",
-        relays: reportRelays,
-        repoAddress: repoAddress || undefined,
-      })
-      pushToast({message: `${noun} hidden from BudaBit users.`})
-      history.back()
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof publishReport>
+      } else {
+        thunk = publishReport({
+          event,
+          reason: "spam",
+          content: "",
+          relays: reportRelays,
+          repoAddress: repoAddress || undefined,
+          optimistic: false,
+        })
+      }
+
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
     } catch (error) {
+      if (thunk) failedHideThunks.set(hideKey, thunk)
       pushToast({
         theme: "error",
         message: error instanceof Error ? error.message : `Failed to hide this ${noun}.`,
       })
+      return
     }
+
+    failedHideThunks.clear()
+    repository.publish(thunk.event as TrustedEvent)
+    pushToast({message: `${noun} hidden from BudaBit users.`})
+    history.back()
   }
 
   const hideSpam = () => {

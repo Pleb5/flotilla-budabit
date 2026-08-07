@@ -71,7 +71,7 @@
     publishPermalinkToDestinations,
     type PublicationDestinationSelection,
   } from "@app/util/permalink-publishing"
-  import {postComment} from "@app/core/git-commands"
+  import {publishRepoEventAfterAck} from "@app/core/git-commands"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {
     canEditReplyEvent,
@@ -453,9 +453,7 @@
   const commitCommentOid = $derived(commitMeta?.sha || "")
   const commitCommentRoot = $derived(commitCommentOid ? getCommitCommentRoot(commitCommentOid) : "")
   const commitCommentRepoAddress = $derived(repoClass.address || "")
-  const commentRelays = $derived.by(() =>
-    normalizeCommentRelays($repoRelaysStore || []),
-  )
+  const commentRelays = $derived.by(() => normalizeCommentRelays($repoRelaysStore || []))
   const commentProfileRelays = $derived.by(() => {
     const profileRelays = normalizeCommentRelays(getRepoProfileRelays?.() || [])
     return profileRelays.length > 0 ? profileRelays : commentRelays
@@ -605,22 +603,37 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = getCommentPublishRelays()
     if (relays.length === 0) throw new Error("No repository relays are available")
-    await postComment(comment, relays, commitCommentRepoAddress)
+    await publishRepoEventAfterAck({
+      publication: "comment",
+      rootId: commitCommentRoot,
+      event: comment as any,
+      relays,
+      repoAddress: commitCommentRepoAddress,
+    })
   }
 
   const canEditComment = (comment: CommentEvent) => canEditReplyEvent(comment as any, $pubkey)
 
   const onCommentEdited = async (comment: CommentEvent, content: string, tags?: string[][]) => {
     const relays = getCommentPublishRelays()
-    if (relays.length === 0) throw new Error("No repository relays are available")
-    await publishEditedReply({
-      event: comment as unknown as TrustedEvent,
-      content,
-      tags,
-      relays,
-      url: relays[0],
-      repoAddress: commitCommentRepoAddress,
-    })
+    try {
+      if (relays.length === 0) throw new Error("No repository relays are available")
+      await publishEditedReply({
+        event: comment as unknown as TrustedEvent,
+        content,
+        tags,
+        relays,
+        url: relays[0],
+        repoAddress: commitCommentRepoAddress,
+      })
+    } catch (error) {
+      toast.push({
+        message: error instanceof Error ? error.message : "Failed to publish comment edit",
+        timeout: 3000,
+        theme: "error",
+      })
+      throw error
+    }
   }
 
   const deleteCommentReaction = async (event: TrustedEvent) => {

@@ -2,8 +2,8 @@
   import {onDestroy, tick} from "svelte"
   import {writable} from "svelte/store"
   import {page} from "$app/stores"
-  import {PublishStatus, request} from "@welshman/net"
-  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
+  import {request} from "@welshman/net"
+  import {pubkey, publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
   import Settings from "@assets/icons/settings.svg?dataurl"
@@ -119,11 +119,11 @@
   const communityPermissionsLoading = $derived(
     Boolean(
       $pubkey &&
-        communityPubkey &&
-        $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
-        $activeCommunityPermissionStatus.loading &&
-        !$activeCommunityPermissionStatus.loaded &&
-        !$activeCommunityPermissionStatus.hasCachedEvents,
+      communityPubkey &&
+      $activeCommunityPermissionStatus.communityPubkey === communityPubkey &&
+      $activeCommunityPermissionStatus.loading &&
+      !$activeCommunityPermissionStatus.loaded &&
+      !$activeCommunityPermissionStatus.hasCachedEvents,
     ),
   )
   let pageMode = $state<PageMode>("queue")
@@ -137,6 +137,8 @@
   let reportEvidenceKey = ""
   let reportEvidenceLoading = $state(false)
   let reportEvidenceLoaded = $state(false)
+  type GovernanceThunk = ReturnType<typeof publishThunk>
+  const failedFormPublishThunks = new Map<string, GovernanceThunk>()
   const communityPublishRelays = $derived(
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
@@ -337,7 +339,9 @@
   const contentReportGroups = $derived(getCommunityContentReportGroups(contentReports))
   const pendingContentReportGroups = $derived(contentReportGroups.filter(group => !group.reviewed))
   const reviewedContentReportGroups = $derived(contentReportGroups.filter(group => group.reviewed))
-  const reportDeleteFilters = $derived(makeCommunityReportDeleteFilters($activeCommunityReportEvents))
+  const reportDeleteFilters = $derived(
+    makeCommunityReportDeleteFilters($activeCommunityReportEvents),
+  )
   const reportReviewFilters = $derived(
     communityBootstrapReady && $activeCommunityDefinition
       ? makeCommunityReportReviewFilters($activeCommunityDefinition, $activeCommunityReportEvents)
@@ -596,12 +600,12 @@
     status === "review-loading"
       ? "badge-neutral"
       : status === "pending"
-      ? "badge-warning"
-      : status === "granted"
-        ? "badge-success"
-        : status === "rejected"
-          ? "badge-error"
-          : "badge-neutral"
+        ? "badge-warning"
+        : status === "granted"
+          ? "badge-success"
+          : status === "rejected"
+            ? "badge-error"
+            : "badge-neutral"
   const applicationGroupCountLabel = (label: string, count: number) =>
     applicationReviewEvidenceLoading && label === "New" ? "checking" : String(count)
   const applicationGroupBadgeClass = (label: string) =>
@@ -648,9 +652,6 @@
     status === "granted" ? "bg-success/10 text-success" : "bg-error/10 text-error"
   const reviewHistoryLabel = (status: string) =>
     status === "granted" ? "Previously granted" : "Previously rejected"
-  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === PublishStatus.Success)
-
   const findPublishedForm = async (event: TrustedEvent, relays: string[]) => {
     const idMatches = await loadCommunityEvents(relays, [{ids: [event.id], limit: 1}], {
       authenticate: true,
@@ -674,14 +675,6 @@
     ).catch(() => [] as TrustedEvent[])
 
     return addressMatches.find(match => match.id === event.id)
-  }
-
-  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
-    const result = Object.values(thunk.results).find(
-      result => result.status !== PublishStatus.Success,
-    )
-
-    return result ? `${result.relay}: ${result.detail || result.status}` : "No relay confirmed."
   }
 
   const selectSection = async (sectionName: string) => {
@@ -737,18 +730,29 @@
           fields: makeAdmissionFormFieldsFromDraft(selectedDraft),
         })
 
-        const thunk = publishThunk({
+        const operation = JSON.stringify({
+          type: "admission-form",
+          community: $activeCommunityDefinition.pubkey,
+          section: selected.section.name,
           relays: communityPublishRelays,
-          event: makeEvent(template.kind, template),
-          timeout: FORM_PUBLISH_TIMEOUT,
+          template,
         })
+        const failedThunk = failedFormPublishThunks.get(operation)
+        const thunk = failedThunk
+          ? (retryThunk(failedThunk) as GovernanceThunk)
+          : publishThunk({
+              relays: communityPublishRelays,
+              event: makeEvent(template.kind, template),
+              timeout: FORM_PUBLISH_TIMEOUT,
+              optimistic: false,
+            })
 
         publishStatus.set("Waiting for relay confirmation...")
-        await waitForThunkCompletion(thunk)
-
         let verifiedEvent: TrustedEvent | undefined
 
-        if (!hasSuccessfulRelay(thunk)) {
+        try {
+          await waitForAnyRelayAck(thunk, thunk.options.relays)
+        } catch (error) {
           publishStatus.set(
             "Relay confirmation timed out. Checking the relay for the published form...",
           )
@@ -756,19 +760,27 @@
           if (thunk.event) {
             verifiedEvent = await findPublishedForm(
               thunk.event as TrustedEvent,
-              communityPublishRelays,
+              thunk.options.relays,
             )
           }
 
           if (!verifiedEvent) {
+            failedFormPublishThunks.set(operation, thunk)
             publishStatus.set("")
-            if (thunk.event) repository.removeEvent(thunk.event.id)
-            pushToast({theme: "error", message: `Form publish failed: ${getPublishError(thunk)}`})
+            pushToast({
+              theme: "error",
+              message: `Form publish failed: ${error instanceof Error ? error.message : String(error)}`,
+            })
             return
           }
         }
 
-        publishStatus.set("Form was found on a relay. Finalizing...")
+        failedFormPublishThunks.delete(operation)
+        publishStatus.set(
+          verifiedEvent
+            ? "Form was found on a relay. Finalizing..."
+            : "Relay confirmed the form. Finalizing...",
+        )
 
         if (verifiedEvent) repository.publish(verifiedEvent)
         else if (thunk.event) repository.publish(thunk.event as TrustedEvent)
@@ -1466,7 +1478,9 @@
                 class="rounded-box bg-base-200 p-3"
                 open={!reportReviewEvidenceLoading && pendingContentReportGroups.length === 0}>
                 <summary class="cursor-pointer font-semibold">
-                  Reviewed ({reportReviewEvidenceLoading ? "checking" : reviewedContentReportGroups.length})
+                  Reviewed ({reportReviewEvidenceLoading
+                    ? "checking"
+                    : reviewedContentReportGroups.length})
                 </summary>
                 <div class="mt-3 flex flex-col gap-2">
                   {#each reviewedContentReportGroups as group (group.key)}
@@ -1620,7 +1634,8 @@
 
                     {#if applicationReviewEvidenceLoading && application.state.status === "pending"}
                       <p class="mt-4 rounded-box bg-base-200 p-3 text-sm opacity-70">
-                        Checking review and deletion evidence before treating this as a new application.
+                        Checking review and deletion evidence before treating this as a new
+                        application.
                       </p>
                     {/if}
 
@@ -1693,13 +1708,15 @@
                     <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                       <Button
                         class="btn btn-error btn-sm"
-                        disabled={applicationReviewEvidenceLoading || application.state.status === "rejected"}
+                        disabled={applicationReviewEvidenceLoading ||
+                          application.state.status === "rejected"}
                         onclick={() => confirmReviewApplication(application, "rejected")}>
                         {application.state.status === "granted" ? "Revoke" : "Reject"}
                       </Button>
                       <Button
                         class="btn btn-success btn-sm"
-                        disabled={applicationReviewEvidenceLoading || application.state.status === "granted"}
+                        disabled={applicationReviewEvidenceLoading ||
+                          application.state.status === "granted"}
                         onclick={() => confirmReviewApplication(application, "granted")}
                         >Grant</Button>
                     </div>

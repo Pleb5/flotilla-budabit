@@ -1,18 +1,43 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
-const mockPublishThunk = vi.fn((_opts?: unknown) => ({complete: Promise.resolve()}))
-const mockPublishDelete = vi.fn((_opts?: unknown) => ({complete: Promise.resolve()}))
+const makeMockThunk = (options: any = {}) => ({
+  complete: Promise.resolve(),
+  event: options.event,
+  options: {...options, relays: options.relays || []},
+})
+const mockPublishThunk = vi.fn((options?: unknown) => makeMockThunk(options))
+const mockPublishDelete = vi.fn((options?: any) =>
+  makeMockThunk({
+    ...options,
+    event: {
+      id: `delete-${options?.event?.id || "event"}`,
+      kind: 5,
+      content: "",
+      created_at: 1,
+      tags: [["e", options?.event?.id || ""]],
+      pubkey: options?.event?.pubkey || "a".repeat(64),
+      sig: "delete-signature",
+    },
+  }),
+)
 const mockLoad = vi.fn().mockResolvedValue(undefined)
 const mockPublish = vi.fn()
 const mockRepositoryPublish = vi.fn()
+const mockRepositoryQuery = vi.fn((..._args: any[]): any[] => [])
 const mockSignerSign = vi.fn()
+const mockRetryThunk = vi.fn((thunk: any) => makeMockThunk({...thunk.options, event: thunk.event}))
+const mockWaitForAnyRelayAck = vi.fn()
+const mockAbortThunk = vi.fn()
 
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
   return {
     ...actual,
     publishThunk: (opts?: unknown) => mockPublishThunk(opts),
-    abortThunk: vi.fn(),
+    abortThunk: (thunk: unknown) => mockAbortThunk(thunk),
+    retryThunk: (thunk: unknown) => mockRetryThunk(thunk),
+    waitForAnyRelayAck: (thunk: unknown, relays?: string[]) =>
+      mockWaitForAnyRelayAck(thunk, relays),
     pubkey: {...actual.pubkey, get: () => "a".repeat(64)},
     signer: {
       ...actual.signer,
@@ -20,7 +45,7 @@ vi.mock("@welshman/app", async importOriginal => {
     },
     repository: {
       ...actual.repository,
-      query: vi.fn(() => []),
+      query: mockRepositoryQuery,
       publish: (event: unknown) => mockRepositoryPublish(event),
     },
   }
@@ -66,14 +91,37 @@ vi.mock("./git-state", () => ({
 
 describe("budabit commands", () => {
   beforeEach(() => {
-    mockPublishThunk.mockClear()
+    mockPublishThunk.mockReset()
+    mockPublishThunk.mockImplementation((options?: unknown) => makeMockThunk(options))
     mockPublishDelete.mockReset()
-    mockPublishDelete.mockReturnValue({complete: Promise.resolve()})
+    mockPublishDelete.mockImplementation((options?: any) =>
+      makeMockThunk({
+        ...options,
+        event: {
+          id: `delete-${options?.event?.id || "event"}`,
+          kind: 5,
+          content: "",
+          created_at: 1,
+          tags: [["e", options?.event?.id || ""]],
+          pubkey: options?.event?.pubkey || "a".repeat(64),
+          sig: "delete-signature",
+        },
+      }),
+    )
     mockLoad.mockReset()
     mockLoad.mockResolvedValue(undefined)
     mockPublish.mockReset()
     mockRepositoryPublish.mockReset()
+    mockRepositoryQuery.mockReset()
+    mockRepositoryQuery.mockReturnValue([])
     mockSignerSign.mockReset()
+    mockRetryThunk.mockReset()
+    mockRetryThunk.mockImplementation((thunk: any) =>
+      makeMockThunk({...thunk.options, event: thunk.event}),
+    )
+    mockWaitForAnyRelayAck.mockReset()
+    mockWaitForAnyRelayAck.mockResolvedValue({relay: "wss://relay.example.com/"})
+    mockAbortThunk.mockReset()
   })
 
   describe("publishEvent", () => {
@@ -461,6 +509,105 @@ describe("budabit commands", () => {
     })
   })
 
+  describe("publishRepoEventAfterAck", () => {
+    it("pre-signs, waits for a successful ACK, and only then commits locally", async () => {
+      const {publishRepoEventAfterAck} = await import("./git-commands")
+      const owner = "a".repeat(64)
+      const repoAddress = `30617:${owner}:repo`
+      const relay = "wss://relay.example.com/"
+      const signedEvent = {
+        id: "signed-comment",
+        kind: 1111,
+        content: "comment",
+        created_at: 1,
+        tags: [["a", repoAddress]],
+        pubkey: owner,
+        sig: "signature",
+      }
+      let acknowledge!: () => void
+
+      mockSignerSign.mockResolvedValue(signedEvent)
+      mockWaitForAnyRelayAck.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            acknowledge = () => resolve({relay})
+          }),
+      )
+
+      const publication = publishRepoEventAfterAck({
+        publication: "comment",
+        rootId: "issue-ack-timing",
+        event: {
+          kind: 1111,
+          content: "comment",
+          created_at: 1,
+          tags: [["a", repoAddress]],
+        } as any,
+        relays: [relay],
+        repoAddress,
+      })
+
+      await vi.waitFor(() => expect(mockPublishThunk).toHaveBeenCalledOnce())
+      expect(mockSignerSign.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPublishThunk.mock.invocationCallOrder[0],
+      )
+      expect(mockPublishThunk).toHaveBeenCalledWith(
+        expect.objectContaining({event: signedEvent, optimistic: false}),
+      )
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+
+      acknowledge()
+      await publication
+
+      expect(mockRepositoryPublish).toHaveBeenCalledWith(signedEvent)
+    })
+
+    it("retries the exact retained signed thunk for the same semantic comment", async () => {
+      const {publishRepoEventAfterAck} = await import("./git-commands")
+      const owner = "a".repeat(64)
+      const repoAddress = `30617:${owner}:repo`
+      const relay = "wss://relay.example.com/"
+      const signedEvent = {
+        id: "signed-retry-comment",
+        kind: 1111,
+        content: "retry me",
+        created_at: 1,
+        tags: [["a", repoAddress]],
+        pubkey: owner,
+        sig: "signature",
+      }
+
+      mockSignerSign.mockResolvedValue(signedEvent)
+      mockWaitForAnyRelayAck.mockRejectedValueOnce(new Error("relay rejected"))
+
+      const params = {
+        publication: "comment" as const,
+        rootId: "issue-exact-comment-retry",
+        event: {
+          kind: 1111,
+          content: "retry me",
+          created_at: 1,
+          tags: [["a", repoAddress]],
+        } as any,
+        relays: [relay],
+        repoAddress,
+      }
+
+      await expect(publishRepoEventAfterAck(params)).rejects.toThrow("relay rejected")
+      const failedThunk = mockPublishThunk.mock.results[0]?.value
+
+      await publishRepoEventAfterAck({
+        ...params,
+        event: {...params.event, created_at: 2},
+      })
+
+      expect(mockSignerSign).toHaveBeenCalledTimes(1)
+      expect(mockRetryThunk).toHaveBeenCalledWith(failedThunk)
+      expect(mockRetryThunk.mock.results[0]?.value.event).toBe(signedEvent)
+      expect(mockRepositoryPublish).toHaveBeenCalledWith(signedEvent)
+    })
+  })
+
   describe("repository publication circuit breaker", () => {
     const owner = "a".repeat(64)
     const repoAddress = `30617:${owner}:repo`
@@ -726,8 +873,7 @@ describe("budabit commands", () => {
 
       const progress: Array<{label: string; completed: number; total: number; current?: string}> =
         []
-      const app = await import("@welshman/app")
-      vi.mocked(app.repository.query).mockReturnValue([labelEvent] as any)
+      mockRepositoryQuery.mockReturnValue([labelEvent] as any)
 
       const result = await deleteIssueWithLabels({
         issue,
@@ -744,6 +890,15 @@ describe("budabit commands", () => {
 
       expect(result).toEqual({labelsDeleted: 1})
       expect(mockPublishDelete).toHaveBeenCalledTimes(2)
+      expect(mockPublishDelete.mock.calls.map(([options]) => options.event.id)).toEqual([
+        labelEvent.id,
+        issue.id,
+      ])
+      expect(mockPublishDelete).toHaveBeenCalledWith(expect.objectContaining({optimistic: false}))
+      expect(mockRepositoryPublish.mock.calls.map(([event]) => event.id)).toEqual([
+        `delete-${labelEvent.id}`,
+        `delete-${issue.id}`,
+      ])
       expect(progress).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -758,6 +913,115 @@ describe("budabit commands", () => {
           }),
           expect.objectContaining({label: "Delete requests acknowledged.", completed: 2, total: 2}),
         ]),
+      )
+    })
+
+    it("does not treat thunk completion without relay success as acknowledgement", async () => {
+      const {deleteIssueWithLabels} = await import("./git-commands")
+      const issue = {
+        id: "issue-complete-without-success",
+        kind: 1621,
+        pubkey: "a".repeat(64),
+        tags: [],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+
+      mockWaitForAnyRelayAck.mockRejectedValue(new Error("No target relay acknowledged"))
+
+      await expect(
+        deleteIssueWithLabels({issue, relays: ["wss://relay.example.com"]}),
+      ).rejects.toThrow("No target relay acknowledged")
+
+      expect(mockPublishDelete.mock.results[0]?.value.complete).toBeInstanceOf(Promise)
+      await expect(mockPublishDelete.mock.results[0]?.value.complete).resolves.toBeUndefined()
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+    })
+
+    it("commits a delete locally only after its relay ACK", async () => {
+      const {deleteIssueWithLabels} = await import("./git-commands")
+      const issue = {
+        id: "issue-delete-ack-timing",
+        kind: 1621,
+        pubkey: "a".repeat(64),
+        tags: [],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+      let acknowledge!: () => void
+
+      mockWaitForAnyRelayAck.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            acknowledge = () => resolve({relay: "wss://relay.example.com/"})
+          }),
+      )
+
+      const deletion = deleteIssueWithLabels({
+        issue,
+        relays: ["wss://relay.example.com"],
+      })
+
+      await vi.waitFor(() => expect(mockWaitForAnyRelayAck).toHaveBeenCalledOnce())
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+
+      acknowledge()
+      await deletion
+
+      expect(mockRepositoryPublish).toHaveBeenCalledWith(
+        expect.objectContaining({id: `delete-${issue.id}`}),
+      )
+    })
+
+    it("skips an acknowledged related delete and retries the exact failed root delete", async () => {
+      const {deleteIssueWithLabels} = await import("./git-commands")
+      const issue = {
+        id: "issue-exact-delete-retry",
+        kind: 1621,
+        pubkey: "a".repeat(64),
+        tags: [],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+      const labelEvent = {
+        id: "label-exact-delete-retry",
+        kind: 1985,
+        pubkey: issue.pubkey,
+        tags: [["e", issue.id]],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+
+      mockRepositoryQuery.mockReturnValue([labelEvent])
+      mockWaitForAnyRelayAck
+        .mockResolvedValueOnce({relay: "wss://relay.example.com/"})
+        .mockRejectedValueOnce(new Error("root rejected"))
+
+      await expect(
+        deleteIssueWithLabels({issue, relays: ["wss://relay.example.com"]}),
+      ).rejects.toThrow("root rejected")
+
+      const failedRootThunk = mockPublishDelete.mock.results[1]?.value
+      expect(mockRepositoryPublish).toHaveBeenCalledWith(
+        expect.objectContaining({id: `delete-${labelEvent.id}`}),
+      )
+      expect(mockRepositoryPublish).not.toHaveBeenCalledWith(
+        expect.objectContaining({id: `delete-${issue.id}`}),
+      )
+
+      mockWaitForAnyRelayAck.mockResolvedValue({relay: "wss://relay.example.com/"})
+      await deleteIssueWithLabels({issue, relays: ["wss://relay.example.com"]})
+
+      expect(mockPublishDelete).toHaveBeenCalledTimes(2)
+      expect(mockRetryThunk).toHaveBeenCalledTimes(1)
+      expect(mockRetryThunk).toHaveBeenCalledWith(failedRootThunk)
+      expect(mockRetryThunk.mock.results[0]?.value.event).toBe(failedRootThunk.event)
+      expect(mockRepositoryPublish).toHaveBeenCalledWith(
+        expect.objectContaining({id: `delete-${issue.id}`}),
       )
     })
   })
@@ -775,9 +1039,7 @@ describe("budabit commands", () => {
         sig: "",
       } as any
 
-      mockPublishDelete.mockImplementation(() => ({
-        complete: new Promise<void>(() => {}),
-      }))
+      mockWaitForAnyRelayAck.mockImplementation(() => new Promise<void>(() => {}))
 
       const controller = new AbortController()
       const deletion = deletePullRequestWithRelated({
@@ -786,9 +1048,50 @@ describe("budabit commands", () => {
         signal: controller.signal,
       })
 
+      await vi.waitFor(() => expect(mockWaitForAnyRelayAck).toHaveBeenCalledOnce())
       controller.abort()
 
       await expect(deletion).rejects.toMatchObject({name: "AbortError"})
+      expect(mockAbortThunk).toHaveBeenCalledOnce()
+    })
+
+    it("deletes same-author related events before the pull request root", async () => {
+      const {deletePullRequestWithRelated} = await import("./git-commands")
+      const root = {
+        id: "pr-root-last",
+        kind: 1618,
+        pubkey: "a".repeat(64),
+        tags: [],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+      const comment = {
+        id: "pr-root-last-comment",
+        kind: 1111,
+        pubkey: root.pubkey,
+        tags: [["E", root.id]],
+        content: "comment",
+        created_at: 1,
+        sig: "",
+      } as any
+      const otherAuthorComment = {
+        ...comment,
+        id: "other-author-comment",
+        pubkey: "b".repeat(64),
+      }
+      mockRepositoryQuery.mockReturnValue([root, comment, otherAuthorComment])
+
+      const result = await deletePullRequestWithRelated({
+        root,
+        relays: ["wss://relay.example.com"],
+      })
+
+      expect(result).toEqual({deletedEvents: 2, relatedDeleted: 1})
+      expect(mockPublishDelete.mock.calls.map(([options]) => options.event.id)).toEqual([
+        comment.id,
+        root.id,
+      ])
     })
   })
 })

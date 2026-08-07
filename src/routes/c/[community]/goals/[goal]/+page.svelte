@@ -1,7 +1,7 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
-  import {pubkey, repository} from "@welshman/app"
+  import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {sortBy} from "@welshman/lib"
   import {
@@ -30,7 +30,7 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
   import GoalActions from "@app/components/GoalActions.svelte"
-  import {publishComment} from "@app/core/commands"
+  import {makeComment} from "@app/core/commands"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
@@ -61,6 +61,7 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {signEventForPublication} from "@app/core/publication"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
@@ -265,7 +266,7 @@
     ),
   )
 
-  const sendReply = ({content, tags}: EventContent) => {
+  const sendReply = async ({content, tags}: EventContent) => {
     const trimmed = content.trim()
     if (!approvedGoal || !trimmed) return false
     if (!canReply) {
@@ -278,24 +279,45 @@
     }
 
     if (eventToEdit) {
-      publishEditedReply({
-        event: eventToEdit,
-        content: trimmed,
-        tags,
-        relays: $activeCommunityPublishRelays,
-        url: communityPubkey,
-      })
+      try {
+        await publishEditedReply({
+          event: eventToEdit,
+          content: trimmed,
+          tags,
+          relays: $activeCommunityPublishRelays,
+          url: communityPubkey,
+        })
+      } catch (error) {
+        pushToast({
+          theme: "error",
+          message: error instanceof Error ? error.message : "Failed to publish edit.",
+        })
+        return false
+      }
       eventToEdit = undefined
       showReply = false
       return true
     }
 
-    publishComment({
-      relays: $activeCommunityPublishRelays,
-      event: approvedGoal,
-      content: trimmed,
-      tags: [["h", communityPubkey], ...tags],
-    })
+    const relays = $activeCommunityPublishRelays
+
+    try {
+      const event = await signEventForPublication(
+        makeComment({
+          event: approvedGoal,
+          content: trimmed,
+          tags: [["h", communityPubkey], ...tags],
+        }),
+      )
+      publishThunk({relays, event})
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to publish comment.",
+      })
+      return false
+    }
+
     showReply = false
     return true
   }

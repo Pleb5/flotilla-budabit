@@ -29,6 +29,7 @@ export type ThunkOptions = Override<
     recipient?: string
     delay?: number
     pow?: number
+    optimistic?: boolean
   }
 >
 
@@ -132,29 +133,28 @@ export class Thunk {
     }
 
     // Send it off
+    const signal = this.options.signal
+      ? AbortSignal.any([this.controller.signal, this.options.signal])
+      : this.controller.signal
+
     await publish({
       ...this.options,
       event,
+      signal,
       onSuccess: (result: PublishResult) => {
+        tracker.track(event.id, result.relay)
         this.options.onSuccess?.(result)
         this.results[result.relay] = result
         this._notify()
       },
       onFailure: (result: PublishResult) => {
-        tracker.removeRelay(event.id, result.relay)
         this.options.onFailure?.(result)
         this.results[result.relay] = result
         this._notify()
       },
       onPending: this._setPending,
-      onTimeout: (result: PublishResult) => {
-        tracker.removeRelay(event.id, result.relay)
-        this._setTimeout(result)
-      },
-      onAborted: (result: PublishResult) => {
-        tracker.removeRelay(event.id, result.relay)
-        this._setAborted(result)
-      },
+      onTimeout: this._setTimeout,
+      onAborted: this._setAborted,
       onComplete: (result: PublishResult) => {
         this.options.onComplete?.(result)
         this._subs = []
@@ -210,17 +210,12 @@ export class Thunk {
         signal: AbortSignal.timeout(30_000),
       })
 
-      // Update tracker and repository with the signed event since the id will have changed
-      if (this.options.pow) {
-        for (const url of this.options.relays) {
-          tracker.removeRelay(this.event.id, url)
-          tracker.track(signedEvent.id, url)
-        }
+      if (this.options.optimistic !== false) {
+        if (this._optimisticEventId) repository.removeEvent(this._optimisticEventId)
+        repository.publish(signedEvent)
+        this._optimisticEventId = undefined
       }
 
-      if (this._optimisticEventId) repository.removeEvent(this._optimisticEventId)
-      repository.publish(signedEvent)
-      this._optimisticEventId = undefined
       this.event = signedEvent
 
       return this._publish(signedEvent)
@@ -233,17 +228,16 @@ export class Thunk {
   enqueue() {
     thunkQueue.push(this)
 
-    for (const url of this.options.relays) {
-      tracker.track(this.event.id, url)
+    if (this.options.optimistic !== false && repository.publish(this.event)) {
+      this._optimisticEventId = this.event.id
     }
 
-    if (repository.publish(this.event)) this._optimisticEventId = this.event.id
     thunks.update($thunks => append(this, $thunks))
 
     this.controller.signal.addEventListener("abort", () => {
       if (this.wrap) {
         wrapManager.remove(this.wrap.id)
-      } else if (this._optimisticEventId) {
+      } else if (this.options.optimistic !== false && this._optimisticEventId) {
         repository.removeEvent(this._optimisticEventId)
         this._optimisticEventId = undefined
       }
@@ -388,6 +382,68 @@ export const waitForThunkCompletion = (thunk: Thunk) =>
     })
   })
 
+export const waitForAnyRelayAck = (
+  thunk: Thunk,
+  targetRelays: string[] = thunk.options.relays,
+): Promise<PublishResult> => {
+  const targets = Array.from(new Set(targetRelays))
+
+  if (targets.length === 0) {
+    return Promise.reject(new Error("Cannot wait for a relay ACK without target relays"))
+  }
+
+  const inspect = ($thunk: Thunk): PublishResult | Error | undefined => {
+    for (const relay of targets) {
+      const result = $thunk.results[relay]
+
+      if (result?.status === PublishStatus.Success) return result
+    }
+
+    const isTerminal = targets.every(relay => {
+      const result = $thunk.results[relay]
+
+      return !result || ![PublishStatus.Sending, PublishStatus.Pending].includes(result.status)
+    })
+
+    if (!isTerminal) return
+
+    const detail = targets
+      .map(relay => {
+        const result = $thunk.results[relay]
+
+        if (!result) return `${relay}: no result`
+
+        return `${relay}: ${result.status}${result.detail ? ` (${result.detail})` : ""}`
+      })
+      .join("; ")
+
+    return new Error(`No target relay acknowledged publication (${detail})`)
+  }
+
+  const initial = inspect(thunk)
+
+  if (initial instanceof Error) return Promise.reject(initial)
+  if (initial) return Promise.resolve(initial)
+
+  return new Promise<PublishResult>((resolve, reject) => {
+    let unsubscribe: (() => void) | undefined
+
+    unsubscribe = thunk.subscribe($thunk => {
+      const outcome = inspect($thunk)
+
+      if (!outcome) return
+
+      unsubscribe?.()
+
+      if (outcome instanceof Error) {
+        reject(outcome)
+      } else {
+        resolve(outcome)
+      }
+    })
+  })
+}
+
 // Thunk state
 
 export const thunks = writable<Thunk[]>([])
@@ -396,7 +452,10 @@ export const thunkQueue = new TaskQueue<Thunk>({
   batchSize: 10,
   batchDelay: 100,
   processItem: (thunk: Thunk) => {
-    thunk.publish()
+    void thunk.publish().catch(e => {
+      console.error("Failed to publish event", e)
+      thunk._fail(String(e || "Failed to publish event"))
+    })
   },
 })
 

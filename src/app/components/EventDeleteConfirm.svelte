@@ -1,6 +1,6 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
-  import {abortThunk} from "@welshman/app"
+  import {abortThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import DeleteWithProgressConfirm from "@app/components/DeleteWithProgressConfirm.svelte"
   import {publishSocialDelete} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
@@ -16,23 +16,25 @@
 
   const {url, relays = undefined, event, noun = "Message", repoAddress = ""}: Props = $props()
 
-  const waitForDeletePublish = async (
-    thunk: {complete?: Promise<unknown>} | undefined,
-    signal: AbortSignal,
-  ) => {
-    const completion = thunk?.complete
-    if (!completion) return
+  type DeleteThunk = ReturnType<typeof publishSocialDelete>
 
-    await new Promise((resolve, reject) => {
+  const failedDeleteThunks = new Map<string, DeleteThunk>()
+
+  const waitForDeleteAck = (thunk: DeleteThunk, signal: AbortSignal) => {
+    const acknowledgement = waitForAnyRelayAck(thunk, thunk.options.relays)
+
+    return new Promise<void>((resolve, reject) => {
       const abort = () => {
-        abortThunk(thunk as any)
+        abortThunk(thunk)
         reject(new DOMException("Delete operation cancelled", "AbortError"))
       }
 
       signal.addEventListener("abort", abort, {once: true})
-      completion.then(resolve, reject).finally(() => {
-        signal.removeEventListener("abort", abort)
-      })
+      acknowledgement
+        .then(() => resolve(), reject)
+        .finally(() => {
+          signal.removeEventListener("abort", abort)
+        })
     })
   }
 
@@ -54,13 +56,30 @@
       current: noun.toLowerCase(),
     })
 
-    const thunk = publishSocialDelete({
-      url,
-      ...(relays !== undefined ? {relays} : {}),
-      event,
-      repoAddress: repoAddress || undefined,
-    })
-    await waitForDeletePublish(thunk, signal)
+    const deleteKey = JSON.stringify({eventId: event.id, url, relays, repoAddress})
+    let thunk = failedDeleteThunks.get(deleteKey)
+
+    if (thunk) {
+      thunk = retryThunk(thunk) as DeleteThunk
+    } else {
+      thunk = publishSocialDelete({
+        url,
+        ...(relays !== undefined ? {relays} : {}),
+        event,
+        repoAddress: repoAddress || undefined,
+        optimistic: false,
+      })
+    }
+
+    try {
+      await waitForDeleteAck(thunk, signal)
+    } catch (error) {
+      if (!signal.aborted) failedDeleteThunks.set(deleteKey, thunk)
+      throw error
+    }
+
+    failedDeleteThunks.clear()
+    repository.publish(thunk.event as TrustedEvent)
 
     return thunk
   }

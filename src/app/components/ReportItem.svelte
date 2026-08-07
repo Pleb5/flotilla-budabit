@@ -3,7 +3,7 @@
   import {getTag, getIdFilters} from "@welshman/util"
   import {load, LOCAL_RELAY_URL} from "@welshman/net"
   import type {TrustedEvent} from "@welshman/util"
-  import {pubkey} from "@welshman/app"
+  import {pubkey, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import Profile from "@app/components/Profile.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
@@ -12,6 +12,7 @@
   import ReportMenu from "@app/components/ReportMenu.svelte"
   import {publishDelete} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
   import {goToEvent} from "@app/util/routes"
 
   type Props = {
@@ -21,6 +22,7 @@
   }
 
   const {url, event, onDelete}: Props = $props()
+  const failedDeleteThunks = new Map<string, ReturnType<typeof publishDelete>>()
 
   const etag = getTag("e", event.tags)
   const ptag = getTag("p", event.tags)
@@ -36,9 +38,37 @@
   }
 
   const deleteReport = async () => {
-    publishDelete({event, relays: [url]})
+    if (isDeleting) return
+
+    const deleteKey = JSON.stringify({eventId: event.id, relays: [url]})
+    let thunk = failedDeleteThunks.get(deleteKey)
+    isDeleting = true
+
+    try {
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof publishDelete>
+      } else {
+        thunk = publishDelete({event, relays: [url], optimistic: false})
+      }
+
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      if (thunk) failedDeleteThunks.set(deleteKey, thunk)
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to delete this report.",
+      })
+      return
+    } finally {
+      isDeleting = false
+    }
+
+    failedDeleteThunks.clear()
+    repository.publish(thunk.event as TrustedEvent)
     onDelete?.()
   }
+
+  let isDeleting = $state(false)
 </script>
 
 <div class="column gap-4">
@@ -53,7 +83,9 @@
       </span>
     </div>
     {#if event.pubkey === $pubkey}
-      <Button class="btn-default btn" onclick={deleteReport}>Delete Report</Button>
+      <Button class="btn-default btn" onclick={deleteReport} disabled={isDeleting}>
+        Delete Report
+      </Button>
     {:else}
       <ReportMenu {url} {event} />
     {/if}

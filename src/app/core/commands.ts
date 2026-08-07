@@ -578,6 +578,10 @@ export type DeleteParams = {
   tags?: string[][]
 }
 
+type PublishBehavior = {
+  optimistic?: boolean
+}
+
 const getRepoAddressForDelete = (event: TrustedEvent) => {
   const repoTag = getTagValue("repo", event.tags)
   if (repoTag) return repoTag
@@ -705,12 +709,13 @@ const requireScopedPublishRelays = (relays: string[]) => {
 export const publishDelete = ({
   relays,
   repoAddress,
+  optimistic,
   ...params
-}: DeleteParams & {relays: string[]; repoAddress?: string}) => {
+}: DeleteParams & {relays: string[]; repoAddress?: string} & PublishBehavior) => {
   const publishRelays = repoAddress
     ? requireRepoPublicationScope({event: params.event, relays, repoAddress})
     : requireScopedPublishRelays(relays)
-  const thunk = publishThunk({event: makeDelete(params), relays: publishRelays})
+  const thunk = publishThunk({event: makeDelete(params), relays: publishRelays, optimistic})
 
   logDeleteDebug({
     deleteEvent: thunk.event as TrustedEvent,
@@ -744,11 +749,13 @@ export const publishSocialDelete = ({
   url,
   relays,
   repoAddress,
+  optimistic,
   ...params
-}: DeleteParams & {url?: string; relays?: string[]; repoAddress?: string}) =>
+}: DeleteParams & {url?: string; relays?: string[]; repoAddress?: string} & PublishBehavior) =>
   publishDelete({
     ...params,
     repoAddress,
+    optimistic,
     relays:
       relays !== undefined
         ? requireScopedPublishRelays(relays)
@@ -775,12 +782,14 @@ export const makeReport = ({event, reason, content}: ReportParams) => {
 export const publishReport = ({
   relays,
   repoAddress,
+  optimistic,
   event,
   reason,
   content,
-}: ReportParams & {relays: string[]; repoAddress?: string}) =>
+}: ReportParams & {relays: string[]; repoAddress?: string} & PublishBehavior) =>
   publishThunk({
     event: makeReport({event, reason, content}),
+    optimistic,
     relays: repoAddress
       ? requireRepoPublicationScope({event, relays, repoAddress})
       : requireScopedPublishRelays(relays),

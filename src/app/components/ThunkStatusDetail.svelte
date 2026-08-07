@@ -7,7 +7,8 @@
     url: string
     status: string
     message: string
-    retry: () => void
+    retry: () => Promise<void> | void
+    retrying?: boolean
     partial?: boolean
     successCount?: number
     relayCount?: number
@@ -18,6 +19,7 @@
     status,
     message = $bindable(),
     retry,
+    retrying = false,
     partial = false,
     successCount = 0,
     relayCount = 0,
@@ -48,5 +50,7 @@
       Failed to publish to {displayRelayUrl(url)}: {message}.
     </p>
   {/if}
-  <Button class="link" onclick={retry}>Retry</Button>
+  <Button class="link" onclick={retry} disabled={retrying}>
+    {retrying ? "Retrying..." : "Retry"}
+  </Button>
 </div>

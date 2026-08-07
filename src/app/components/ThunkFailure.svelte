@@ -12,32 +12,40 @@
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
-  import ThunkToast from "@app/components/ThunkToast.svelte"
   import ThunkStatusDetail from "@app/components/ThunkStatusDetail.svelte"
-  import {pushToast} from "@app/util/toast"
   import {recoverActiveNip46Receiver} from "@app/util/nip46"
 
   interface Props {
     thunk: AbstractThunk
     partial?: boolean
     showToastOnRetry?: boolean
+    onRetry?: (thunk: AbstractThunk) => void
     class?: string
   }
 
-  let {thunk, partial = false, showToastOnRetry, ...restProps}: Props = $props()
+  let {thunk, partial = false, onRetry, ...restProps}: Props = $props()
+  let retrying = $state(false)
 
   const retry = async () => {
-    await recoverActiveNip46Receiver().catch(() => false)
-    thunk = retryThunk(thunk)
+    if (retrying) return
 
-    if (showToastOnRetry) {
-      pushToast({
-        timeout: 30_000,
-        children: {
-          component: ThunkToast,
-          props: {thunk},
-        },
+    retrying = true
+    try {
+      await recoverActiveNip46Receiver().catch(() => false)
+      thunk = retryThunk(thunk)
+      onRetry?.(thunk)
+
+      let unsubscribe: (() => void) | undefined
+      unsubscribe = thunk.subscribe($thunk => {
+        if (!thunkIsComplete($thunk)) return
+
+        retrying = false
+        unsubscribe?.()
       })
+      if (!retrying) unsubscribe()
+    } catch (error) {
+      retrying = false
+      console.error("Failed to retry publication", error)
     }
   }
 
@@ -60,7 +68,16 @@
     <Tippy
       class="flex items-center"
       component={ThunkStatusDetail}
-      props={{url, message, status, retry, partial, successCount: successUrls.length, relayCount}}
+      props={{
+        url,
+        message,
+        status,
+        retry,
+        retrying,
+        partial,
+        successCount: successUrls.length,
+        relayCount,
+      }}
       params={{interactive: true}}>
       {#snippet children()}
         {#if partial}

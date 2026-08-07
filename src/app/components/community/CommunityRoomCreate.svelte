@@ -1,7 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {pubkey, publishThunk} from "@welshman/app"
-  import {makeEvent, THREAD} from "@welshman/util"
+  import {pubkey, publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
+  import {makeEvent, THREAD, type TrustedEvent} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
@@ -26,6 +26,7 @@
     getCommunityWriteTargetSectionName,
   } from "@app/core/community-permissions"
   import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
+  import {signEventForPublication} from "@app/core/publication"
   import {pushToast} from "@app/util/toast"
   import {formatShortNpub} from "@app/util/pubkeys"
   import {makeCommunityRoomPath} from "@app/util/routes"
@@ -73,8 +74,9 @@
   const roomRootAccessMessage = $derived(`Request ${roomRootSectionName} access to create rooms.`)
 
   const back = () => history.back()
+  const failedRoomPublishThunks = new Map<string, ReturnType<typeof publishThunk>>()
 
-  const createRoom = () => {
+  const createRoom = async () => {
     const trimmed = roomName.trim()
     if (!trimmed || loading) return
     if (!communityBootstrapReady) {
@@ -90,20 +92,49 @@
       return
     }
 
-    loading = true
-    const event = makeEvent(
-      THREAD,
-      makeCommunityRoomRoot({
-        communityPubkey,
-        name: trimmed,
-        about: roomDescription.trim(),
-      }),
-    )
+    const about = roomDescription.trim()
+    const publishKey = JSON.stringify({
+      communityPubkey,
+      name: trimmed,
+      about,
+      relays: [...new Set(communityPublishRelays)].sort(),
+    })
+    let thunk = failedRoomPublishThunks.get(publishKey)
 
-    const thunk = publishThunk({relays: communityPublishRelays, event})
+    loading = true
+
+    try {
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof publishThunk>
+      } else {
+        const event = await signEventForPublication(
+          makeEvent(THREAD, makeCommunityRoomRoot({communityPubkey, name: trimmed, about})),
+        )
+
+        thunk = publishThunk({
+          relays: communityPublishRelays,
+          event,
+          optimistic: false,
+        })
+      }
+
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      if (thunk) failedRoomPublishThunks.set(publishKey, thunk)
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to publish room.",
+      })
+      return
+    } finally {
+      loading = false
+    }
+
+    failedRoomPublishThunks.clear()
+    repository.publish(thunk.event as TrustedEvent)
 
     pushToast({message: "Room published."})
-    void goto(makeCommunityRoomPath(communityPubkey, thunk.event.id), {replaceState: true})
+    await goto(makeCommunityRoomPath(communityPubkey, thunk.event.id), {replaceState: true})
   }
 
   let roomName = $state("")

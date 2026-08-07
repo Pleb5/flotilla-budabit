@@ -4,9 +4,13 @@
   import InlinePopover from "@lib/components/InlinePopover.svelte"
   import {graspServersStore, normalizeGraspServerUrl} from "@nostr-git/ui"
   import {CirclePlus, Trash} from "@lucide/svelte"
-  import {pubkey, relaySearch, waitForThunkCompletion} from "@welshman/app"
-  import {PublishStatus} from "@welshman/net"
-  import {displayRelayUrl, isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
+  import {pubkey, relaySearch, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
+  import {
+    displayRelayUrl,
+    isShareableRelayUrl,
+    normalizeRelayUrl,
+    type TrustedEvent,
+  } from "@welshman/util"
   import {createUserGraspListEvent, normalizeUserGraspServerUrls} from "@nostr-git/core/events"
   import {postGraspServersList} from "@app/core/git-commands"
   import {
@@ -36,6 +40,7 @@
   let isSaving = $state(false)
   let showRelayAutocomplete = $state(false)
   let openRecommendationEvidenceKey = $state("")
+  const failedPublishThunks = new Map<string, ReturnType<typeof postGraspServersList>>()
 
   onMount(startGraspServerRecommendationsSync)
 
@@ -82,32 +87,42 @@
     return results
   })
 
-  async function publishGraspServersList(nextUrls: string[], previousUrls: string[]) {
+  async function publishGraspServersList(nextUrls: string[]) {
+    if (isSaving) return false
+
     isSaving = true
+    const services = normalizeUserGraspServerUrls(nextUrls)
+    const publishKey = JSON.stringify({pubkey: $pubkey, services})
+    let thunk = failedPublishThunks.get(publishKey)
 
     try {
-      const graspServersList = {
-        ...createUserGraspListEvent({services: normalizeUserGraspServerUrls(nextUrls)}),
-        pubkey: $pubkey!,
+      if (thunk) {
+        thunk = retryThunk(thunk) as ReturnType<typeof postGraspServersList>
+      } else {
+        const graspServersList = {
+          ...createUserGraspListEvent({services}),
+          pubkey: $pubkey!,
+        }
+        thunk = postGraspServersList(graspServersList, {optimistic: false})
       }
-      const thunk = postGraspServersList(graspServersList)
 
-      await waitForThunkCompletion(thunk)
-      if (!Object.values(thunk.results).some(result => result.status === PublishStatus.Success)) {
-        throw new Error("No relay accepted the GRASP server list.")
-      }
-
-      graspServersStore.set(nextUrls)
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
     } catch (error) {
-      graspServersStore.set(previousUrls)
+      if (thunk) failedPublishThunks.set(publishKey, thunk)
       console.error("Failed to publish GRASP servers list:", error)
       pushToast({
         theme: "error",
         message: error instanceof Error ? error.message : "Failed to save GRASP servers.",
       })
+      return false
     } finally {
       isSaving = false
     }
+
+    failedPublishThunks.clear()
+    repository.publish(thunk.event as TrustedEvent)
+    graspServersStore.set(nextUrls)
+    return true
   }
 
   async function addUrl() {
@@ -116,29 +131,31 @@
 
     const previousUrls = [...activeRelayUrls]
     const nextUrls = normalizeUserGraspServerUrls([...previousUrls, normalized])
-    newUrl = ""
-    showRelayAutocomplete = false
-    await publishGraspServersList(nextUrls, previousUrls)
+    if (await publishGraspServersList(nextUrls)) {
+      newUrl = ""
+      showRelayAutocomplete = false
+    }
   }
 
   async function addSuggestedUrl(url: string) {
     const previousUrls = [...activeRelayUrls]
     const nextUrls = normalizeUserGraspServerUrls([...previousUrls, url])
-    newUrl = ""
-    showRelayAutocomplete = false
-    await publishGraspServersList(nextUrls, previousUrls)
+    if (await publishGraspServersList(nextUrls)) {
+      newUrl = ""
+      showRelayAutocomplete = false
+    }
   }
 
   async function addRecommendedUrl(url: string) {
     const previousUrls = [...activeRelayUrls]
     const nextUrls = normalizeUserGraspServerUrls([...previousUrls, url])
-    await publishGraspServersList(nextUrls, previousUrls)
+    await publishGraspServersList(nextUrls)
   }
 
   async function removeUrl(url: string) {
     const previousUrls = [...activeRelayUrls]
     const nextUrls = previousUrls.filter(existingUrl => existingUrl !== url)
-    await publishGraspServersList(nextUrls, previousUrls)
+    await publishGraspServersList(nextUrls)
   }
 
   const openProfile = (profilePubkey: string) => {
@@ -481,7 +498,8 @@
                   type="button"
                   class="block w-full px-3 py-2 text-left text-sm hover:bg-base-200"
                   onmousedown={event => event.preventDefault()}
-                  onclick={() => void addSuggestedUrl(relayUrl)}>
+                  onclick={() => void addSuggestedUrl(relayUrl)}
+                  disabled={isSaving}>
                   {relayUrl}
                 </button>
               {/each}

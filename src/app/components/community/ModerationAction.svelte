@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
   import {MESSAGE, THREAD, getTagValue, makeEvent} from "@welshman/util"
-  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
+  import {pubkey, publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
   import Danger from "@assets/icons/danger.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
@@ -42,6 +42,8 @@
 
   const reporterPubkey = $derived(normalizePubkey($pubkey || ""))
   let publishStatus = $state<"idle" | "publishing">("idle")
+  type GovernanceThunk = ReturnType<typeof publishThunk>
+  const failedReportThunks = new Map<string, GovernanceThunk>()
   const reportRelays = $derived.by(() =>
     getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
@@ -100,17 +102,6 @@
     ),
   )
 
-  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
-    Object.values(thunk.results).some(result => result.status === "success")
-
-  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
-    const result = Object.values(thunk.results).find(result => result.status !== "success")
-
-    return result
-      ? `${result.relay}: ${result.detail || result.status}`
-      : "Relay did not confirm the moderation report."
-  }
-
   const publishCommunityReport = async (target: CommunityReportAction) => {
     if (!$activeCommunityDefinition || publishStatus === "publishing") return
     if (target === "content" && !canReportContent) return
@@ -142,24 +133,31 @@
           })
 
     publishStatus = "publishing"
-    const thunk = publishThunk({relays: reportRelays, event: makeEvent(template.kind, template)})
+    const operation = `community-report:${$activeCommunityDefinition.pubkey}:${target}:${sectionName}:${target === "person" ? event.pubkey : event.id}`
+    const failedThunk = failedReportThunks.get(operation)
+    let thunk: GovernanceThunk | undefined
 
     try {
-      await waitForThunkCompletion(thunk)
-    } catch {
-      // The result map below carries the relay-specific failure detail.
-    }
-
-    if (!hasSuccessfulRelay(thunk)) {
-      if (thunk.event) repository.removeEvent(thunk.event.id)
+      thunk = failedThunk
+        ? (retryThunk(failedThunk) as GovernanceThunk)
+        : publishThunk({
+            relays: reportRelays,
+            event: makeEvent(template.kind, template),
+            optimistic: false,
+          })
+      await waitForAnyRelayAck(thunk, thunk.options.relays)
+    } catch (error) {
+      if (thunk) failedReportThunks.set(operation, thunk)
       publishStatus = "idle"
       pushToast({
         theme: "error",
-        message: `${target === "content" ? "Report" : "Moderation"} failed: ${getPublishError(thunk)}`,
+        message: `${target === "content" ? "Report" : "Moderation"} failed: ${error instanceof Error ? error.message : String(error)}`,
       })
       return
     }
 
+    failedReportThunks.delete(operation)
+    repository.publish(thunk.event as TrustedEvent)
     publishStatus = "idle"
     pushToast({
       theme: "success",
@@ -179,13 +177,17 @@
       Confirm,
       {
         title:
-          target === "content" ? "Report content" : target === "event" ? "Moderate event" : "Ban person",
+          target === "content"
+            ? "Report content"
+            : target === "event"
+              ? "Moderate event"
+              : "Ban person",
         message:
           target === "content"
             ? "Send this report to community moderators for review?"
             : target === "event"
-            ? "Hide this event in the current community section?"
-            : "Ban this person from publishing across this community?",
+              ? "Hide this event in the current community section?"
+              : "Ban this person from publishing across this community?",
         confirm: () => publishCommunityReport(target),
       },
       {replaceState},

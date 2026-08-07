@@ -25,12 +25,13 @@
     activeCommunityPublishRelays,
     activeCommunityReportState,
     activeCommunityRelays,
+    getUserOutboxRelays,
     hasCommunityHydrationCompleted,
     hydrateCommunityEventsWithStatus,
     markCommunityHydrationCompleted,
     type CommunityHydrationStatus,
   } from "@app/core/community-state"
-  import {normalizePubkey, parseTargetedPublication} from "@app/core/community"
+  import {normalizePubkey, normalizeRelays, parseTargetedPublication} from "@app/core/community"
   import {
     CALENDAR_EVENT_KINDS,
     getCalendarEventRange,
@@ -86,6 +87,9 @@
   )
   const createPath = $derived(
     communityPubkey ? makeCommunityCalendarPath(communityPubkey, "create") : "",
+  )
+  const calendarEditPublishRelays = $derived(
+    normalizeRelays([...getUserOutboxRelays(), ...$activeCommunityPublishRelays]),
   )
   const communityBootstrapReady = $derived(
     Boolean(
@@ -501,7 +505,7 @@
       <CalendarEventItem
         url={communityPubkey}
         relays={$activeCommunityRelays}
-        publishRelays={$activeCommunityPublishRelays}
+        publishRelays={calendarEditPublishRelays}
         scopeH={communityPubkey}
         activityLiveCovered
         communitySectionName={getCalendarEventSectionName(event.kind)}

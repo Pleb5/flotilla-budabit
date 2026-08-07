@@ -59,6 +59,7 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
+  import {signEventForPublication} from "@app/core/publication"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
@@ -252,7 +253,7 @@
     parent = undefined
   }
 
-  const sendReply = ({content, tags}: EventContent) => {
+  const sendReply = async ({content, tags}: EventContent) => {
     const trimmed = content.trim()
     if (!trimmed || !communityPubkey || !threadId) return false
     if (!thread) {
@@ -271,13 +272,21 @@
     }
 
     if (eventToEdit) {
-      publishEditedReply({
-        event: eventToEdit,
-        content: trimmed,
-        tags,
-        relays,
-        url: communityPubkey,
-      })
+      try {
+        await publishEditedReply({
+          event: eventToEdit,
+          content: trimmed,
+          tags,
+          relays,
+          url: communityPubkey,
+        })
+      } catch (error) {
+        pushToast({
+          theme: "error",
+          message: error instanceof Error ? error.message : "Failed to publish edit.",
+        })
+        return false
+      }
       closeCommentPrompt()
       return true
     }
@@ -293,10 +302,17 @@
         : undefined,
     })
 
-    publishThunk({
-      relays,
-      event: makeEvent(COMMENT, template),
-    })
+    try {
+      const event = await signEventForPublication(makeEvent(COMMENT, template))
+      publishThunk({relays, event})
+    } catch (error) {
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to publish comment.",
+      })
+      return false
+    }
+
     closeCommentPrompt()
     return true
   }
