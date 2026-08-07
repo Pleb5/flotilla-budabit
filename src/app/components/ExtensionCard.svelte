@@ -179,7 +179,7 @@
           {#if widgetUpdate}
             <span class="badge-update badge badge-sm min-w-0 max-w-full">
               Widget update{#if widgetUpdateVersion}
-                v{widgetUpdateVersion}{/if}
+                {" "}v{widgetUpdateVersion}{/if}
             </span>
           {/if}
           <span class="badge badge-sm min-w-0 max-w-full">
