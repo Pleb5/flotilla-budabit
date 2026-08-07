@@ -137,6 +137,7 @@ type InstalledWidgetMatch = {
 
 type CommunitySharedConfigEvent = {
   kind?: number
+  pubkey?: string
   tags?: string[][]
 }
 
@@ -315,18 +316,24 @@ export const getEnabledInstalledCommunitySlotWidgets = ({
 export const getEnabledCommunitySlotWidgetsWithSharedConfig = ({
   communityPubkey,
   sharedConfigEvents,
+  authorizedPubkeys,
   installedWidgets,
   enabledIds,
   slotType,
 }: {
   communityPubkey: string
   sharedConfigEvents: CommunitySharedConfigEvent[]
+  authorizedPubkeys: Set<string>
   installedWidgets: Record<string, SmartWidgetEvent>
   enabledIds: Set<string>
   slotType: WidgetCommunitySlotType
 }) => {
   const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
+  const normalizedAuthorizedPubkeys = new Set(
+    Array.from(authorizedPubkeys, author => normalizePubkey(author)).filter(Boolean),
+  )
   const sharedConfigRefs = sharedConfigEvents
+    .filter(event => normalizedAuthorizedPubkeys.has(normalizePubkey(event.pubkey || "")))
     .map(parseCommunitySharedConfigRef)
     .filter((ref): ref is CommunitySharedConfigRef =>
       Boolean(ref && normalizePubkey(ref.communityPubkey) === normalizedCommunityPubkey),

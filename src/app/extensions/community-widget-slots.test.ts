@@ -251,6 +251,7 @@ describe("community widget slots", () => {
     )
     const sharedConfigEvent = {
       kind: COMMUNITY_SHARED_CONFIG_KIND,
+      pubkey: communityPubkey,
       tags: [
         [
           "d",
@@ -265,6 +266,7 @@ describe("community widget slots", () => {
     const selected = getEnabledCommunitySlotWidgetsWithSharedConfig({
       communityPubkey,
       sharedConfigEvents: [sharedConfigEvent],
+      authorizedPubkeys: new Set([communityPubkey]),
       installedWidgets: {
         [getWidgetLineId(widget)]: widget,
         [getWidgetLineId(unrelatedWidget)]: unrelatedWidget,
@@ -275,9 +277,21 @@ describe("community widget slots", () => {
 
     expect(selected.map(item => item.identifier)).toEqual(["featured-calendar-event"])
 
+    const unauthorized = getEnabledCommunitySlotWidgetsWithSharedConfig({
+      communityPubkey,
+      sharedConfigEvents: [{...sharedConfigEvent, pubkey: "e".repeat(64)}],
+      authorizedPubkeys: new Set([communityPubkey]),
+      installedWidgets: {[getWidgetLineId(widget)]: widget},
+      enabledIds: new Set([getWidgetLineId(widget)]),
+      slotType: "community-home-after-quicklinks",
+    })
+
+    expect(unauthorized).toEqual([])
+
     const unrelatedCommunity = getEnabledCommunitySlotWidgetsWithSharedConfig({
       communityPubkey: "d".repeat(64),
       sharedConfigEvents: [sharedConfigEvent],
+      authorizedPubkeys: new Set([communityPubkey]),
       installedWidgets: {
         [getWidgetLineId(widget)]: widget,
         [getWidgetLineId(unrelatedWidget)]: unrelatedWidget,

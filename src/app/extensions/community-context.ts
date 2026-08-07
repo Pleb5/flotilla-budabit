@@ -202,7 +202,7 @@ const getSectionPermissionDescriptor = (
 const getDescriptorLabel = (descriptor: CommunityEventDescriptor) =>
   descriptor.subtype ? `${descriptor.kind}/${descriptor.subtype}` : String(descriptor.kind)
 
-const getSectionAuthorityPubkeysWithPendingRefs = ({
+export const getSectionAuthorityPubkeysWithPendingRefs = ({
   definition,
   section,
   profileListEvents,

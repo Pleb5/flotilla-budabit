@@ -22,6 +22,7 @@
     frameClass?: string
     minHeight?: number
     resizeMinHeight?: number
+    onResizeRequest?: (request: WidgetResizeRequest) => void
   }
 
   const {
@@ -31,6 +32,7 @@
     frameClass = "absolute inset-0 h-full w-full border-0",
     minHeight = 280,
     resizeMinHeight = minHeight,
+    onResizeRequest,
   }: Props = $props()
 
   let iframeRef: HTMLIFrameElement | undefined = $state()
@@ -45,6 +47,7 @@
   let surfaceObserver: ResizeObserver | undefined
   let themePostFrame: number | undefined
   let loadWatchdogTimer: ReturnType<typeof setTimeout> | undefined
+  let contextPostTimer: ReturnType<typeof setTimeout> | undefined
   let bridgeExtension: LoadedWidgetExtension | undefined
   let readyOrigin = ""
   let loadFailed = $state(false)
@@ -91,6 +94,13 @@
     loadWatchdogTimer = undefined
   }
 
+  const clearContextPostTimer = () => {
+    if (!contextPostTimer) return
+
+    clearTimeout(contextPostTimer)
+    contextPostTimer = undefined
+  }
+
   const detachBridge = () => {
     bridge?.detach()
     bridge = undefined
@@ -98,6 +108,7 @@
   }
 
   const resetFrameStateForLoad = () => {
+    clearContextPostTimer()
     loaded = false
     loadFailed = false
     requestedHeight = undefined
@@ -214,8 +225,9 @@
     return styles.join("; ")
   })
 
-  const handleResizeRequest = ({height}: WidgetResizeRequest) => {
-    if (height !== undefined) requestedHeight = height
+  const handleResizeRequest = (request: WidgetResizeRequest) => {
+    if (request.height !== undefined) requestedHeight = request.height
+    onResizeRequest?.(request)
   }
 
   type RgbaColor = {r: number; g: number; b: number; a: number}
@@ -437,6 +449,7 @@
 
   const onIframeLoad = () => {
     clearLoadWatchdog()
+    clearContextPostTimer()
     loaded = true
     loadFailed = false
     autoRetryCount = 0
@@ -463,7 +476,14 @@
       bridge.attachHandlers(iframeRef.contentWindow)
     }
 
-    setTimeout(() => sendContext(readyOrigin), 100)
+    if (readyOrigin) {
+      sendContext(readyOrigin)
+    } else {
+      contextPostTimer = setTimeout(() => {
+        contextPostTimer = undefined
+        if (!initSent) sendContext()
+      }, 100)
+    }
   }
 
   const onIframeError = () => {
@@ -509,7 +529,8 @@
           action,
           bridgeReady: Boolean(bridge),
         })
-        if (bridge) {
+        if (bridge && !initSent) {
+          clearContextPostTimer()
           sendContext(event.origin)
         }
       }
@@ -589,6 +610,7 @@
     document.removeEventListener("visibilitychange", recoverVisibleWidgetFrame)
     surfaceObserver?.disconnect()
     clearLoadWatchdog()
+    clearContextPostTimer()
     if (themePostFrame !== undefined) cancelAnimationFrame(themePostFrame)
     bridge?.post("widget:unmounting", {timestamp: Date.now()})
     detachBridge()
