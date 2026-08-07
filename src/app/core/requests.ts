@@ -1,15 +1,5 @@
 import {get, writable} from "svelte/store"
-import {
-  uniq,
-  int,
-  YEAR,
-  DAY,
-  sleep,
-  insertAt,
-  sortBy,
-  now,
-  on,
-} from "@welshman/lib"
+import {uniq, int, YEAR, DAY, sleep, insertAt, sortBy, now, on} from "@welshman/lib"
 import {
   DELETE,
   EVENT_DATE,
@@ -228,6 +218,16 @@ export const makeFeed = ({
     }
   })
 
+  // Promote a cached event once a relay actually acknowledges or delivers it.
+  const unsubscribeTracker = on(tracker, "add", (id: string, url: string) => {
+    if (!relaysSet.has(url)) return
+
+    const event = repository.getEvent(id)
+    if (event && matchFilters(liveFilters, event) && isVisibleAfterDeletesAndEdits(event)) {
+      insertEvent(event)
+    }
+  })
+
   let exhausted = 0
 
   // One tracker shared across the per-relay controllers and their pages, so an
@@ -314,6 +314,7 @@ export const makeFeed = ({
         clearTimeout(initialLoadTimeout)
       }
       unsubscribe()
+      unsubscribeTracker()
       unsubscribeSuppressedEdits()
       scroller.stop()
       controller.abort()

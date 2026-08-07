@@ -103,6 +103,48 @@ describe("requests", () => {
     }
   })
 
+  it("adds a cached event when a room relay acknowledges it later", async () => {
+    vi.useFakeTimers()
+
+    const {makeFeed} = await import("./requests")
+    const {repository, tracker} = await import("@welshman/app")
+    const relay = "wss://acknowledged-room-feed.test"
+    const otherRelay = "wss://other-room-feed.test"
+    const event: TrustedEvent = {
+      id: "4".repeat(64),
+      pubkey: "5".repeat(64),
+      created_at: 456,
+      kind: 9,
+      tags: [],
+      content: "optimistic room message",
+      sig: "6".repeat(128),
+    }
+    const feed = makeFeed({
+      element: document.createElement("div"),
+      relays: [relay],
+      feedFilters: [{kinds: [event.kind], authors: [event.pubkey]}],
+    })
+
+    try {
+      vi.advanceTimersByTime(3000)
+      repository.publish(event)
+
+      expect(get(feed.events)).toEqual([])
+
+      tracker.addRelay(event.id, otherRelay)
+      expect(get(feed.events)).toEqual([])
+
+      tracker.addRelay(event.id, relay)
+      expect(get(feed.events).map(item => item.id)).toEqual([event.id])
+    } finally {
+      feed.cleanup()
+      repository.removeEvent(event.id)
+      tracker.removeRelay(event.id, relay)
+      tracker.removeRelay(event.id, otherRelay)
+      vi.useRealTimers()
+    }
+  })
+
   it("honors a custom initial timeout and forwards request scheduling metadata", async () => {
     vi.useFakeTimers()
 

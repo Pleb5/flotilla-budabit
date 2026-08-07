@@ -58,7 +58,7 @@ test("recovers a slow room lookup in the background without duplicate errors", a
   test.setTimeout(45_000)
   let roomLookupSubscriptions = 0
   const mockRelay = new MockRelay({
-    seedEvents: [definition],
+    seedEvents: [definition, message],
     responseLatencyByKind: {11: 12_000},
     onSubscribe: (_subscriptionId, filters) => {
       if (filters.some(filter => filter.kinds?.includes(11) && filter.ids?.includes(room.id))) {
@@ -91,6 +91,25 @@ test("recovers a slow room lookup in the background without duplicate errors", a
   ).toBeVisible({timeout: 10_000})
   await expect(status).not.toContainText(/loading room/i)
   await expect(page.locator("body")).toHaveAttribute("data-room-recovery-document", "original")
+
+  const latestMessage = page.locator(`[data-event="${message.id}"]`)
+  const composer = page.locator(".chat__compose")
+  await expect(latestMessage).toBeVisible({timeout: 10_000})
+  await expect(composer).toBeVisible()
+  await expect
+    .poll(async () => {
+      const [messageBounds, composerBounds] = await Promise.all([
+        latestMessage.boundingBox(),
+        composer.boundingBox(),
+      ])
+
+      return Boolean(
+        messageBounds &&
+        composerBounds &&
+        messageBounds.y + messageBounds.height <= composerBounds.y + 1,
+      )
+    })
+    .toBe(true)
 })
 
 test("prioritizes delayed room history before broad community discovery", async ({page}) => {

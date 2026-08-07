@@ -1,8 +1,8 @@
 <script lang="ts">
   import {readable, type Readable} from "svelte/store"
-  import {onDestroy, onMount, tick} from "svelte"
+  import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {pubkey, publishThunk, repository, thunks} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById, throttled} from "@welshman/store"
   import {formatTimestampAsDate, int, MINUTE, now} from "@welshman/lib"
   import type {EventContent, TrustedEvent} from "@welshman/util"
@@ -70,7 +70,6 @@
     filterVisibleAfterDeletesAndEdits,
   } from "@app/core/event-edits"
   import {publishEditedMessage} from "@app/core/event-edit-publish"
-  import {signEventForPublication} from "@app/core/publication"
   import {
     checked,
     effectiveCommunityNotificationBaselines,
@@ -385,31 +384,28 @@
       template = prependParent(parent, template, {relays})
     }
 
-    let thunk: ReturnType<typeof publishThunk>
-
     try {
-      const event = await signEventForPublication(makeEvent(MESSAGE, template))
-      thunk = publishThunk({
+      const thunk = publishThunk({
         relays,
-        event,
+        event: makeEvent(MESSAGE, template),
         delay: $userSettingsValues.send_delay,
       })
+
+      if ($userSettingsValues.send_delay) {
+        pushToast({
+          timeout: 0,
+          children: {
+            component: ThunkToast,
+            props: {thunk},
+          },
+        })
+      }
     } catch (error) {
       pushToast({
         theme: "error",
         message: error instanceof Error ? error.message : "Failed to send message.",
       })
       return false
-    }
-
-    if ($userSettingsValues.send_delay) {
-      pushToast({
-        timeout: 0,
-        children: {
-          component: ThunkToast,
-          props: {thunk},
-        },
-      })
     }
 
     clearParent()
@@ -439,12 +435,6 @@
     newMessages?.scrollIntoView({behavior: "smooth", block: "center"})
 
   const scrollToBottom = () => element?.scrollTo({top: 0, behavior: "smooth"})
-
-  const updateDynamicPadding = () => {
-    if (dynamicPadding && chatCompose) {
-      dynamicPadding.style.minHeight = `${chatCompose.offsetHeight}px`
-    }
-  }
 
   const clearFeedEmptySettleTimer = () => {
     if (!feedEmptySettleTimer) return
@@ -617,9 +607,23 @@
   )
   const recoveringRoomLookup = $derived(roomLookupNeedsRecovery && !roomLookupIncomplete)
 
+  const messageEventCandidates = $derived.by(() => {
+    const eventsById = new Map<string, TrustedEvent>()
+
+    // Pending thunks are local UI state; relay provenance is added only after an ACK.
+    for (const thunk of $thunks) {
+      if (thunk.options.optimistic !== false) {
+        eventsById.set(thunk.event.id, thunk.event as TrustedEvent)
+      }
+    }
+
+    for (const event of $events) eventsById.set(event.id, event)
+
+    return Array.from(eventsById.values()).sort((a, b) => b.created_at - a.created_at)
+  })
   const messages = $derived(
     readCommunityRoomMessages(
-      filterVisibleAfterDeletesAndEdits($events, $editedTargetIds),
+      filterVisibleAfterDeletesAndEdits(messageEventCandidates, $editedTargetIds),
       communityPubkey,
       roomId,
     ).filter(item => !isCommunityPersonBanned($activeCommunityReportState, item.event.pubkey)),
@@ -894,18 +898,25 @@
     return () => setChecked(checkedPath)
   })
 
-  onMount(() => {
-    const observer = new ResizeObserver(updateDynamicPadding)
+  $effect(() => {
+    const paddingElement = dynamicPadding
+    const composeElement = chatCompose
 
-    if (chatCompose) observer.observe(chatCompose)
-    if (dynamicPadding) observer.observe(dynamicPadding)
-    updateDynamicPadding()
-
-    return () => {
-      if (chatCompose) observer.unobserve(chatCompose)
-      if (dynamicPadding) observer.unobserve(dynamicPadding)
-      observer.disconnect()
+    if (!paddingElement) return
+    if (!composeElement) {
+      paddingElement.style.minHeight = "0px"
+      return
     }
+
+    const update = () => {
+      paddingElement.style.minHeight = `${composeElement.offsetHeight}px`
+    }
+    const observer = new ResizeObserver(update)
+
+    observer.observe(composeElement)
+    update()
+
+    return () => observer.disconnect()
   })
 
   onDestroy(() => {
