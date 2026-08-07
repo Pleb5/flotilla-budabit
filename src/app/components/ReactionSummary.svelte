@@ -16,7 +16,12 @@
     normalizeRelayUrl,
   } from "@welshman/util"
   import type {TrustedEvent, EventContent, Filter, Zap} from "@welshman/util"
-  import {deriveArray, deriveEventsById, deriveItemsByKey} from "@welshman/store"
+  import {
+    deriveArray,
+    deriveEventsById,
+    deriveEventsByIdByUrl,
+    deriveItemsByKey,
+  } from "@welshman/store"
   import {load} from "@welshman/net"
   import {pubkey, repository, tracker, getValidZap, displayProfileByPubkey} from "@welshman/app"
   import {isMobile, preventDefault, stopPropagation} from "@lib/html"
@@ -110,18 +115,35 @@
 
   const matchesScopeH = (event: TrustedEvent) => !scopeH || getTag("h", event.tags)?.[1] === scopeH
 
-  const matchesScope = (event: TrustedEvent) => matchesRelayScope(event) && matchesScopeH(event)
-
   const matchesAllowedAuthor = (event: TrustedEvent) =>
     !allowedAuthorSet || allowedAuthorSet.has(event.pubkey.toLowerCase())
 
-  const reports = deriveArray(
-    deriveEventsById({repository, filters: [{kinds: [REPORT], "#e": [event.id]}]}),
-  )
+  const getRelayScopedEvents = (
+    allEvents: TrustedEvent[],
+    eventsByRelay: Map<string, Map<string, TrustedEvent>>,
+  ) => {
+    if (relaySet.size === 0) return allEvents
 
-  const reactions = deriveArray(
-    deriveEventsById({repository, filters: [{kinds: [REACTION], "#e": [event.id]}]}),
-  )
+    const scopedEvents = new Map<string, TrustedEvent>()
+
+    for (const [relay, events] of eventsByRelay) {
+      if (!relaySet.has(normalizeRelay(relay))) continue
+
+      for (const event of events.values()) {
+        scopedEvents.set(event.id, event)
+      }
+    }
+
+    return Array.from(scopedEvents.values())
+  }
+
+  const engagementFilters: Filter[] = [{kinds: [REPORT, REACTION], "#e": [event.id]}]
+  const engagements = deriveArray(deriveEventsById({repository, filters: engagementFilters}))
+  const engagementsByRelay = deriveEventsByIdByUrl({
+    repository,
+    tracker,
+    filters: engagementFilters,
+  })
 
   const zaps = deriveArray(
     deriveItemsByKey<Zap>({
@@ -133,14 +155,14 @@
   )
 
   const scopedReports = $derived.by(() =>
-    Array.from($reports.values()).filter(
-      event => matchesScope(event) && matchesAllowedAuthor(event),
+    getRelayScopedEvents($engagements, $engagementsByRelay).filter(
+      event => event.kind === REPORT && matchesScopeH(event) && matchesAllowedAuthor(event),
     ),
   )
 
   const scopedReactions = $derived.by(() =>
-    Array.from($reactions.values()).filter(
-      event => matchesScope(event) && matchesAllowedAuthor(event),
+    getRelayScopedEvents($engagements, $engagementsByRelay).filter(
+      event => event.kind === REACTION && matchesScopeH(event) && matchesAllowedAuthor(event),
     ),
   )
 
@@ -274,11 +296,16 @@
       {@const pubkeys = events.map(e => e.pubkey)}
       {@const isOwn = $pubkey && pubkeys.includes($pubkey)}
       {@const info = displayList(pubkeys.map(pubkey => displayProfileByPubkey(pubkey)))}
-      {@const tooltip = `${info} reacted`}
+      {@const tooltip = readOnly
+        ? `${info} reacted`
+        : isOwn
+          ? `${info} reacted. Click to remove your reaction.`
+          : `${info} reacted. Click to add this reaction.`}
       {@const onClick = () => onReactionClick(events)}
       <button
         type="button"
         data-tip={tooltip}
+        aria-label={tooltip}
         class={cx(
           reactionClass,
           "flex-inline btn btn-outline btn-neutral btn-xs gap-1 rounded-full font-normal",

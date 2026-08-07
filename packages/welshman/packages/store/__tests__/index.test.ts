@@ -1,6 +1,15 @@
 import {get} from "svelte/store"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
-import {getter, synced, localStorageProvider, throttled, withGetter} from "../src/index"
+import {Repository, Tracker} from "@welshman/net"
+import type {TrustedEvent} from "@welshman/util"
+import {
+  deriveEventsByIdByUrl,
+  getter,
+  synced,
+  localStorageProvider,
+  throttled,
+  withGetter,
+} from "../src/index"
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -127,6 +136,44 @@ describe("Store utilities", () => {
       vi.advanceTimersByTime(100)
       expect(mockFn).toHaveBeenCalledTimes(2)
       expect(mockFn).toHaveBeenLastCalledWith(3)
+    })
+  })
+
+  describe("deriveEventsByIdByUrl", () => {
+    it("reacts when relay provenance arrives after the repository event", () => {
+      const repository = new Repository()
+      const tracker = new Tracker()
+      const relay = "wss://relay.example.com/"
+      const reaction = {
+        id: "reaction",
+        pubkey: "a".repeat(64),
+        kind: 7,
+        created_at: 1,
+        content: "+",
+        tags: [["e", "comment"]],
+        sig: "",
+      } as TrustedEvent
+      const store = deriveEventsByIdByUrl({
+        repository,
+        tracker,
+        filters: [{kinds: [7], "#e": ["comment"]}],
+      })
+      let current = new Map<string, Map<string, TrustedEvent>>()
+      const updates: Array<Map<string, Map<string, TrustedEvent>>> = []
+      const unsubscribe = store.subscribe(value => {
+        current = value
+        updates.push(value)
+      })
+
+      repository.publish(reaction)
+      expect(current.get(relay)).toBeUndefined()
+      const updatesBeforeTracking = updates.length
+
+      tracker.track(reaction.id, relay)
+
+      expect(current.get(relay)?.get(reaction.id)).toBe(reaction)
+      expect(updates).toHaveLength(updatesBeforeTracking + 1)
+      unsubscribe()
     })
   })
 })

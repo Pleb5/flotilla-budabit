@@ -1888,7 +1888,8 @@
               <div class="min-w-0">
                 <h3 class="font-semibold text-red-700 dark:text-red-300">Danger Zone</h3>
                 <p class="mt-1 text-sm text-red-700/80 dark:text-red-200/80">
-                  Delete this repository and its related Nostr events. This action cannot be undone.
+                  Request deletion of supported Nostr events, selected remote repositories, and the
+                  local clone. Deletion may be partial and cannot be undone.
                 </p>
                 {#if !canDelete}
                   <p class="mt-2 text-sm text-red-700/70 dark:text-red-200/70">

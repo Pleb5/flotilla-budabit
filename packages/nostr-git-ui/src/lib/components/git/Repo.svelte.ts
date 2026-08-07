@@ -2273,6 +2273,8 @@ export class Repo {
    */
   async reset() {
     console.log("Resetting repository state...");
+    let gitResetError: unknown;
+    let gitResetFailed = false;
 
     const branchBeforeReset =
       this.selectedBranch || this.mainBranch || this.branchManager?.getMainBranch() || "main";
@@ -2323,13 +2325,15 @@ export class Repo {
         }
       } catch (resetError) {
         console.warn("Git reset to remote failed:", resetError);
-        // Continue with cache clearing even if git reset fails
+        gitResetError = resetError;
+        gitResetFailed = true;
       }
 
       // Force reload branches and other data
       await this.#loadBranchesFromRepo(this.repoEvent);
     }
 
+    if (gitResetFailed) throw gitResetError;
     console.log("Repository reset complete");
   }
 

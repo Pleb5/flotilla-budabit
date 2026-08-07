@@ -34,7 +34,7 @@
     const {deletedEvents = 0} = (result || {}) as {deletedEvents?: number}
 
     pushToast({
-      message: `Delete requests sent for ${deletedEvents} event${deletedEvents === 1 ? "" : "s"}`,
+      message: `Deletion requests acknowledged for ${deletedEvents} event${deletedEvents === 1 ? "" : "s"}`,
     })
   }
 </script>
@@ -44,7 +44,7 @@
   {onSuccess}
   {title}
   subtitle={`Are you sure you want to delete this ${noun}?`}
-  message="Events from other authors will remain."
+  message="Deletion requests will be sent for this pull request and related updates, statuses, labels, and comments you authored. Events from other authors and other related events will remain. Some relays may retain the deleted events."
   errorMessage={`Failed to delete ${noun}`}
   cancelMessage="Pull request deletion cancelled"
   confirmLabel={title} />

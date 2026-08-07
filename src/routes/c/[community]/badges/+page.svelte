@@ -266,15 +266,18 @@
   const confirmAction = ({
     title,
     message,
+    confirmLabel = "Confirm",
     confirm,
   }: {
     title: string
     message: string
+    confirmLabel?: string
     confirm: () => Promise<boolean>
   }) => {
     pushModal(Confirm, {
       title,
       message,
+      confirmLabel,
       confirm: async () => {
         if (await confirm()) history.back()
       },
@@ -450,7 +453,8 @@
   const revokeAward = (definition: CommunityBadgeDefinition, award: CommunityBadgeAward) => {
     confirmAction({
       title: "Revoke badge award",
-      message: `Revoke ${definition.name} from this recipient?`,
+      message: `Send a deletion request for the ${definition.name} badge award? An older award may become active, and some relays may retain this award.`,
+      confirmLabel: "Send revocation request",
       confirm: () =>
         runPublish(
           () =>
@@ -458,7 +462,7 @@
               `badge-award:delete:${award.event.id}`,
               makeCommunityBadgeAwardDelete({awardId: award.event.id}),
             ),
-          "Badge award revoked.",
+          "Badge revocation request acknowledged by a relay.",
         ),
     })
   }

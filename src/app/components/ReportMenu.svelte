@@ -41,7 +41,7 @@
     if (error) {
       pushToast({theme: "error", message: error})
     } else {
-      pushToast({message: "Content has successfully been deleted!"})
+      pushToast({message: "Report dismissed on this relay."})
       repository.removeEvent(event.id)
       history.back()
     }
@@ -51,8 +51,10 @@
     const [_, id, reason = ""] = etag!
 
     pushModal(Confirm, {
-      title: `Delete Content`,
-      message: `Are you sure you want to delete this content from the community?`,
+      title: "Remove Content From Relay",
+      message:
+        "Ban this content on the current community relay? Copies on other relays and related events will remain.",
+      confirmLabel: "Remove content",
       confirm: async () => {
         const {error} = await manageRelay(url, {
           method: ManagementMethod.BanEvent,
@@ -62,7 +64,7 @@
         if (error) {
           pushToast({theme: "error", message: error})
         } else {
-          pushToast({message: "Content has successfully been deleted!"})
+          pushToast({message: "Content removed from this relay."})
           repository.removeEvent(id)
           history.back()
         }

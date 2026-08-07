@@ -32,7 +32,7 @@
     const totalDeleted = 1 + labelsDeleted
 
     pushToast({
-      message: `Delete requests sent for ${totalDeleted} event${totalDeleted === 1 ? "" : "s"}`,
+      message: `Deletion requests acknowledged for ${totalDeleted} event${totalDeleted === 1 ? "" : "s"}`,
     })
   }
 </script>
@@ -42,7 +42,7 @@
   {onSuccess}
   title="Delete Issue"
   subtitle="Are you sure you want to delete this issue?"
-  message="Replies, edits, and other related events will remain."
+  message="Deletion requests will be sent for this issue and related labels you authored, including title edits. Replies, description edits, statuses, reactions, and events from other authors will remain. Some relays may retain the deleted events."
   errorMessage="Failed to delete issue"
   cancelMessage="Issue deletion cancelled"
   confirmLabel="Delete issue" />

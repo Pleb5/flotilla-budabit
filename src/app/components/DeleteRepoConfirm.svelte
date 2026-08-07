@@ -898,14 +898,14 @@
       Delete repository
     {/snippet}
     {#snippet info()}
-      This action cannot be undone
+      Deletion may be partial and cannot be undone
     {/snippet}
   </ModalHeader>
 
   {#if summary}
     <div class="space-y-3 text-sm">
       <div>
-        <div class="font-medium">Nostr deletions</div>
+        <div class="font-medium">Nostr deletion requests</div>
         <div class="text-gray-400">
           {summary.deletedEvents} events targeted, {summary.metadataDeliveriesAccepted} of
           {summary.metadataDeliveriesAttempted} relay deliveries accepted
@@ -963,7 +963,7 @@
       </div>
 
       <div>
-        <div class="font-medium">Local cache</div>
+        <div class="font-medium">Local repository</div>
         {#if summary.localDeleted}
           <div class="text-green-400">Local clone deleted</div>
         {:else}
@@ -976,9 +976,10 @@
     </div>
   {:else}
     <p class="text-sm text-gray-300">
-      This removes your repository announcement and related metadata. On selected GRASP hosts, the
-      server may also remove orphaned issues, pull requests, patches, statuses, comments, and other
-      descendants. Events still anchored to another maintainer's announcement may remain.
+      Budabit will request deletion of the repository announcement and supported metadata you
+      authored. Comments, labels, patches, reactions, and events from other authors are not directly
+      targeted. Selected remote hosts may also delete hosted code and orphaned events. The local
+      clone is removed only after the required steps succeed.
     </p>
 
     <div class="space-y-3">
@@ -986,7 +987,8 @@
         <div class="text-sm font-medium">Remote hosts to delete code from</div>
         {#if remoteTargets.length === 0}
           <div class="text-sm text-gray-400">
-            No clone URLs found. Only Nostr events will be deleted.
+            No remote code hosts were found. Budabit will still request deletion of supported Nostr
+            events and, if those requests succeed, remove the local clone.
           </div>
         {:else}
           <div class="text-xs text-gray-400">

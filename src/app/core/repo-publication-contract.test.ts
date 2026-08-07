@@ -41,6 +41,19 @@ describe("repository publication source contract", () => {
     expect(issueCard).not.toContain("wss://relay.budabit.club/")
   })
 
+  it("reacts to successful relay provenance for scoped engagement", () => {
+    const reactionSummary = readProjectFile("../components/ReactionSummary.svelte")
+    const emojiPicker = readProjectFile("../../lib/components/EmojiPicker.svelte")
+
+    expect(reactionSummary).toContain("deriveEventsByIdByUrl")
+    expect(reactionSummary).toContain("getRelayScopedEvents($engagements, $engagementsByRelay)")
+    expect(reactionSummary).toContain("event.kind === REACTION")
+    expect(reactionSummary).toContain("event.kind === REPORT")
+    expect(reactionSummary).toContain("deleteReaction(reaction)")
+    expect(reactionSummary).toContain("Click to remove your reaction")
+    expect(emojiPicker).toContain("Use the top row to choose a category")
+  })
+
   it("starts creation and import repository relay selections empty", () => {
     const gitPage = readProjectFile("../../routes/git/+page.svelte")
     const newRepo = readProjectFile(

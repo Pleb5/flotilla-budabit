@@ -44,7 +44,7 @@
   const reportRelays = $derived(getCommunityScopedPublishRelays($activeCommunityDefinition))
   const profileRelays = $derived(relays.length > 0 ? relays : reportRelays)
   const canRevoke = $derived(Boolean(currentPubkey && report.reporterPubkey === currentPubkey))
-  const revokeLabel = $derived(report.target === "event" ? "Uncensor" : "Unban")
+  const revokeLabel = "Remove report"
   const targetLabel = $derived(report.target === "event" ? "Event" : "Person ban")
 
   const getTargetEventKindLabelFromParts = (kind: number, subtype = "") => {
@@ -145,18 +145,19 @@
     revokeStatus = "idle"
     pushToast({
       theme: "success",
-      message: report.target === "event" ? "Event uncensored." : "Person unbanned.",
+      message: "Moderation report deletion request acknowledged by a relay.",
     })
     history.back()
   }
 
   const confirmRevoke = () => {
     pushModal(Confirm, {
-      title: revokeLabel,
+      title: "Remove moderation report",
       message:
         report.target === "event"
-          ? "Remove this event moderation report so the event can render again?"
-          : "Remove this person ban so their content can render again?",
+          ? "Send a deletion request for this moderation report? The event will become visible only if no other active report hides it. Some relays may retain the report."
+          : "Send a deletion request for this moderation report? This person's content will become visible only if no other active report hides it. Some relays may retain the report.",
+      confirmLabel: revokeLabel,
       confirm: publishReportDelete,
     })
   }

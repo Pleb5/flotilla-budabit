@@ -36,4 +36,4 @@
   {confirm}
   title="Reset Repository"
   subtitle="This will permanently discard local changes"
-  message="This action will reset the local repository '{repoName}' to match the remote HEAD state. Any local commits, uncommitted changes, or merge attempts will be permanently lost. This cannot be undone." />
+  message={`This action will reset the local repository '${repoName}' to match the remote HEAD state. Any local commits, uncommitted changes, or merge attempts will be permanently lost. This cannot be undone.`} />

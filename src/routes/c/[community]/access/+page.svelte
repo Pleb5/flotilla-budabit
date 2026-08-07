@@ -759,7 +759,8 @@
   ) => {
     pushModal(Confirm, {
       title: "Delete submission",
-      message: `Delete your ${sectionDisplayName} membership request so you can submit a revised application?`,
+      message: `Send a deletion request for your ${sectionDisplayName} membership submission? Reviews and membership state will remain, and an older submission may become active. Some relays may retain this submission.`,
+      confirmLabel: "Delete submission",
       confirm: async () => {
         if (communityPublishRelays.length === 0) {
           pushToast({
@@ -788,7 +789,7 @@
         }
 
         pushToast({
-          message: "Submission deleted. You can now submit a revised application.",
+          message: "Submission deletion request acknowledged by a relay.",
         })
         history.back()
       },

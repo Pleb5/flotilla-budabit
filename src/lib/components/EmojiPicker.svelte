@@ -41,4 +41,9 @@
   })
 </script>
 
-<emoji-picker bind:this={element} class="m-auto"></emoji-picker>
+<div class="rounded-box bg-base-100 p-2">
+  <p class="px-2 pb-2 text-center text-xs opacity-70">
+    Use the top row to choose a category, then select an emoji below.
+  </p>
+  <emoji-picker bind:this={element} class="m-auto"></emoji-picker>
+</div>

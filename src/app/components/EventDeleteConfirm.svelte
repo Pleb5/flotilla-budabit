@@ -87,7 +87,7 @@
   const lowerNoun = noun.toLowerCase()
 
   const onSuccess = () => {
-    pushToast({message: `${noun} delete request sent`})
+    pushToast({message: `${noun} deletion request acknowledged by a relay`})
   }
 </script>
 
@@ -96,7 +96,7 @@
   {onSuccess}
   title={`Delete ${noun}`}
   subtitle={`Are you sure you want to delete this ${lowerNoun}?`}
-  message="Not all relays may honor this request."
+  message={`A deletion request will be sent for this ${lowerNoun}. Replies, reactions, and other related events will remain. Some relays may retain it.`}
   errorMessage={`Failed to delete this ${lowerNoun}`}
   cancelMessage={`${noun} deletion cancelled`}
   confirmLabel={`Delete ${noun}`} />
