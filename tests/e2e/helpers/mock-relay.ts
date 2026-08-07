@@ -76,6 +76,13 @@ export interface NostrFilter {
   [key: string]: string[] | number[] | number | undefined
 }
 
+export interface MockRelayPublishResponse {
+  outcome?: "accept" | "reject" | "stall"
+  latency?: number
+  message?: string
+  retain?: boolean
+}
+
 /**
  * Options for configuring the mock relay
  */
@@ -85,9 +92,9 @@ export interface MockRelayOptions {
   /** Additional events available only from an exact relay URL */
   seedEventsByRelay?: Record<string, NostrEvent[]>
   /** Callback when app publishes an event */
-  onPublish?: (event: NostrEvent) => void
+  onPublish?: (event: NostrEvent, relayUrl: string) => void
   /** Callback when app creates a subscription */
-  onSubscribe?: (subId: string, filters: NostrFilter[]) => void
+  onSubscribe?: (subId: string, filters: NostrFilter[], relayUrl: string) => void
   /** Whether to log relay messages for debugging */
   debug?: boolean
   /** Relay URLs to intercept (defaults to all wss:// URLs) */
@@ -96,6 +103,8 @@ export interface MockRelayOptions {
   latency?: number
   /** Optional response latency override when a subscription includes a kind */
   responseLatencyByKind?: Record<number, number>
+  /** Optional publish ACK and retention behavior keyed by exact relay URL */
+  publishResponsesByRelay?: Record<string, MockRelayPublishResponse>
 }
 
 /**
@@ -108,12 +117,13 @@ export class MockRelay {
   private seedEventsList: NostrEvent[] = []
   private seedEventsByRelay: Record<string, NostrEvent[]> = {}
   private publishedEvents: NostrEvent[] = []
-  private onPublishCallback?: (event: NostrEvent) => void
-  private onSubscribeCallback?: (subId: string, filters: NostrFilter[]) => void
+  private onPublishCallback?: (event: NostrEvent, relayUrl: string) => void
+  private onSubscribeCallback?: (subId: string, filters: NostrFilter[], relayUrl: string) => void
   private debug: boolean = false
   private interceptUrls: string[] = []
   private latency: number = 10
   private responseLatencyByKind: Record<number, number> = {}
+  private publishResponsesByRelay: Record<string, MockRelayPublishResponse> = {}
   private eventWaiters: Map<
     number,
     {resolve: (event: NostrEvent) => void; reject: (error: Error) => void}[]
@@ -145,6 +155,9 @@ export class MockRelay {
     }
     if (options?.responseLatencyByKind) {
       this.responseLatencyByKind = {...options.responseLatencyByKind}
+    }
+    if (options?.publishResponsesByRelay) {
+      this.publishResponsesByRelay = {...options.publishResponsesByRelay}
     }
   }
 
@@ -183,14 +196,20 @@ export class MockRelay {
         ...options.responseLatencyByKind,
       }
     }
+    if (options?.publishResponsesByRelay) {
+      this.publishResponsesByRelay = {
+        ...this.publishResponsesByRelay,
+        ...options.publishResponsesByRelay,
+      }
+    }
 
     this.page = page
     this.isSetup = true
 
     // Expose functions for the page to call back to the test
-    await page.exposeFunction("__mockRelayPublish", (event: NostrEvent) => {
+    await page.exposeFunction("__mockRelayPublish", (event: NostrEvent, relayUrl: string) => {
       this.publishedEvents.push(event)
-      this.onPublishCallback?.(event)
+      this.onPublishCallback?.(event, relayUrl)
 
       // Notify any waiters for this event kind
       const waiters = this.eventWaiters.get(event.kind)
@@ -200,13 +219,24 @@ export class MockRelay {
       }
     })
 
-    await page.exposeFunction("__mockRelaySubscribe", (subId: string, filters: NostrFilter[]) => {
-      this.onSubscribeCallback?.(subId, filters)
-    })
+    await page.exposeFunction(
+      "__mockRelaySubscribe",
+      (subId: string, filters: NostrFilter[], relayUrl: string) => {
+        this.onSubscribeCallback?.(subId, filters, relayUrl)
+      },
+    )
 
     // Inject the mock WebSocket before any scripts run
     await page.addInitScript(
-      ({seedEvents, seedEventsByRelay, debug, interceptUrls, latency, responseLatencyByKind}) => {
+      ({
+        seedEvents,
+        seedEventsByRelay,
+        debug,
+        interceptUrls,
+        latency,
+        responseLatencyByKind,
+        publishResponsesByRelay,
+      }) => {
         // Store original WebSocket
         const OriginalWebSocket = window.WebSocket
 
@@ -337,9 +367,13 @@ export class MockRelay {
             // Notify the test about the subscription
             ;(
               window as unknown as {
-                __mockRelaySubscribe: (subId: string, filters: NostrFilter[]) => void
+                __mockRelaySubscribe: (
+                  subId: string,
+                  filters: NostrFilter[],
+                  relayUrl: string,
+                ) => void
               }
-            ).__mockRelaySubscribe?.(subId, filters)
+            ).__mockRelaySubscribe?.(subId, filters, this.url)
 
             const responseLatency = Math.max(
               latency,
@@ -368,6 +402,8 @@ export class MockRelay {
 
           private handleEvent(params: unknown[]): void {
             const event = params[0] as NostrEvent
+            const response = publishResponsesByRelay[this.url]
+            const outcome = response?.outcome || "accept"
 
             if (debug) {
               console.log(`[MockRelay] EVENT published:`, event)
@@ -375,13 +411,25 @@ export class MockRelay {
 
             // Notify the test about the published event
             ;(
-              window as unknown as {__mockRelayPublish: (event: NostrEvent) => void}
-            ).__mockRelayPublish?.(event)
+              window as unknown as {
+                __mockRelayPublish: (event: NostrEvent, relayUrl: string) => void
+              }
+            ).__mockRelayPublish?.(event, this.url)
+
+            if (outcome === "accept" && response?.retain) {
+              const retainedEvents = seedEventsByRelay[this.url] || []
+              if (!retainedEvents.some((candidate: NostrEvent) => candidate.id === event.id)) {
+                retainedEvents.push(event)
+              }
+              seedEventsByRelay[this.url] = retainedEvents
+            }
+
+            if (outcome === "stall") return
 
             // Send OK response
             setTimeout(() => {
-              this.sendMessage(["OK", event.id, true, ""])
-            }, latency)
+              this.sendMessage(["OK", event.id, outcome === "accept", response?.message || ""])
+            }, response?.latency ?? latency)
           }
 
           private handleClose(params: unknown[]): void {
@@ -527,6 +575,7 @@ export class MockRelay {
         interceptUrls: this.interceptUrls,
         latency: this.latency,
         responseLatencyByKind: this.responseLatencyByKind,
+        publishResponsesByRelay: this.publishResponsesByRelay,
       },
     )
   }
