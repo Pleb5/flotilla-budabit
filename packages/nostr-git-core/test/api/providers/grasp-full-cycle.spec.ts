@@ -45,7 +45,9 @@ function setPriv<T extends object>(obj: T, key: string, value: any) {
 // Mock EventIO for testing event publishing
 function createMockEventIO(overrides: Partial<any> = {}) {
   return {
-    publishEvent: vi.fn().mockResolvedValue({ok: true, id: "test-event-id"}),
+    publishEvent: vi
+      .fn()
+      .mockResolvedValue({ok: true, id: "test-event-id", relays: ["wss://relay.test.com"]}),
     subscribeToEvents: vi.fn().mockReturnValue({unsubscribe: vi.fn()}),
     signEvent: vi.fn().mockImplementation(async (event: any) => ({
       ...event,
@@ -296,22 +298,16 @@ describe("GRASP Full Cycle Integration Tests", () => {
   // Token Storage and Retrieval (via GraspApi)
   // --------------------------------------------------------------------------
   describe("Token Storage and Retrieval", () => {
-    it("GraspApi publishes repository state to relays via publishStateFromLocal", async () => {
-      const mockPublish = vi.fn().mockResolvedValue({ok: true})
+    it("GraspApi rejects synthetic local repository state publication", async () => {
+      const mockPublish = vi.fn()
       const api = new GraspApi({
         publishEvent: mockPublish,
       })
 
-      const result = await api.publishStateFromLocal(testPubkeyHex, "test-repo", {
-        relays: [testRelayUrl],
-      })
-
-      // Should return success with event info
-      expect(result.success).toBe(true)
-      expect(result.relays).toContain(testRelayUrl)
-      expect(mockPublish).toHaveBeenCalledWith(expect.anything(), {
-        relays: [testRelayUrl],
-      })
+      await expect(
+        api.publishStateFromLocal(testPubkeyHex, "test-repo", {relays: [testRelayUrl]}),
+      ).rejects.toThrow(/unsupported without a real repository state source/)
+      expect(mockPublish).not.toHaveBeenCalled()
     })
 
     it("GraspApi retrieves repository state from relays", async () => {
@@ -326,6 +322,53 @@ describe("GRASP Full Cycle Integration Tests", () => {
 
       // Should return null when no events found
       expect(state).toBeNull()
+    })
+
+    it("GraspApi retrieves the latest valid state using the repository d tag", async () => {
+      const api = new GraspApi({publishEvent: vi.fn()})
+      const poolQuery = vi.spyOn((api as any).pool, "querySync").mockResolvedValue([
+        {
+          id: "wrong-repo",
+          kind: 30618,
+          pubkey: testPubkeyHex,
+          content: "",
+          created_at: 3,
+          tags: [["d", "other"]],
+        },
+        {
+          id: "older",
+          kind: 30618,
+          pubkey: testPubkeyHex,
+          content: "",
+          created_at: 1,
+          tags: [
+            ["d", "test-repo"],
+            ["refs/heads/old", "old"],
+          ],
+        },
+        {
+          id: "newer",
+          kind: 30618,
+          pubkey: testPubkeyHex,
+          content: "",
+          created_at: 2,
+          tags: [
+            ["d", "test-repo"],
+            ["refs/heads/main", "abc123"],
+          ],
+        },
+      ])
+
+      const state = await api.getStateFromRelays(testPubkeyHex, "test-repo", [testRelayUrl])
+
+      expect(poolQuery).toHaveBeenCalledWith([testRelayUrl], {
+        kinds: [30618],
+        authors: [testPubkeyHex],
+        "#d": ["test-repo"],
+        limit: 100,
+      })
+      expect(state.id).toBe("newer")
+      expect(state.refs).toEqual([{ref: "refs/heads/main", commit: "abc123"}])
     })
 
     it("GraspApi filters capable relays", async () => {
@@ -392,10 +435,9 @@ describe("GRASP Full Cycle Integration Tests", () => {
       })
       setPriv(provider, "httpBase", "https://relay.test.com")
 
-      // publishStateFromLocal should return null
-      const result = await provider.publishStateFromLocal(testPubkeyHex, "test-repo")
-
-      expect(result).toBeNull()
+      await expect(provider.publishStateFromLocal(testPubkeyHex, "test-repo")).rejects.toThrow(
+        "Relay does not advertise GRASP-01 support",
+      )
     })
 
     it("handles query errors gracefully", async () => {
@@ -498,7 +540,7 @@ describe("GRASP Full Cycle Integration Tests", () => {
       expect(mockEventIO.publishEvent).toHaveBeenCalled()
     })
 
-    it("returns unsigned event when EventIO publish fails", async () => {
+    it("propagates EventIO publish failure instead of returning unsigned", async () => {
       const mockEventIO = createMockEventIO({
         publishEvent: vi.fn().mockRejectedValue(new Error("Publish failed")),
       })
@@ -517,11 +559,9 @@ describe("GRASP Full Cycle Integration Tests", () => {
         return "abc123"
       })
 
-      const event = await provider.publishStateFromLocal(testPubkeyHex, "test-repo")
-
-      // Should still return the unsigned event
-      expect(event).toBeDefined()
-      expect(event?.tags).toBeDefined()
+      await expect(provider.publishStateFromLocal(testPubkeyHex, "test-repo")).rejects.toThrow(
+        /Failed to publish state event/,
+      )
     })
   })
 
@@ -608,19 +648,15 @@ describe("GraspApi Extended Tests", () => {
     )
   })
 
-  it("syncs state across multiple relays", async () => {
-    const publishEvent = vi.fn().mockResolvedValue({ok: true})
-    const api = new GraspApi({
-      publishEvent,
-    })
+  it("rejects state synchronization before reads or publication", async () => {
+    const publishEvent = vi.fn()
+    const api = new GraspApi({publishEvent})
+    const getState = vi.spyOn(api, "getStateFromRelays")
 
-    vi.spyOn(api, "getStateFromRelays").mockResolvedValue({kind: 30618})
-    vi.spyOn(api, "checkRelayCapabilities").mockResolvedValue(true)
-
-    const relays = ["wss://relay1.example", "wss://relay2.example"]
-    const result = await api.syncStateAcrossRelays(testRelayUrl, "repo", relays)
-
-    expect(result.syncedRelays).toEqual(relays)
-    expect(publishEvent).toHaveBeenCalledWith(expect.anything(), {relays})
+    await expect(api.syncStateAcrossRelays("owner", "repo", [testRelayUrl])).rejects.toThrow(
+      "unsupported without an unsigned authoritative state source",
+    )
+    expect(getState).not.toHaveBeenCalled()
+    expect(publishEvent).not.toHaveBeenCalled()
   })
 })

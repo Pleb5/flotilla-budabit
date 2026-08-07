@@ -280,7 +280,11 @@ describe("NostrGitProvider blossomMirror integration", () => {
   it("runs Blossom mirror after GRASP state publishing", async () => {
     // Mock GRASP
     const mockGrasp = {
-      publishStateFromLocal: vi.fn().mockResolvedValue("grasp-event-id"),
+      supportsStatePublicationFromLocal: true,
+      publishStateFromLocal: vi.fn().mockResolvedValue({
+        ok: true,
+        relays: ["wss://relay.example"],
+      }),
     }
     provider.configureGrasp(mockGrasp)
 
@@ -300,10 +304,16 @@ describe("NostrGitProvider blossomMirror integration", () => {
 
     await provider.push(pushOptions)
 
-    // Verify order: push -> GRASP -> Blossom mirror
+    // Required state is accepted before Git, and mirroring runs after Git.
     expect(mockGitProvider.push).toHaveBeenCalled()
     expect(mockGrasp.publishStateFromLocal).toHaveBeenCalled()
     expect(pushToBlossomSpy).toHaveBeenCalled()
+    expect(mockGrasp.publishStateFromLocal.mock.invocationCallOrder[0]).toBeLessThan(
+      mockGitProvider.push.mock.invocationCallOrder[0],
+    )
+    expect(mockGitProvider.push.mock.invocationCallOrder[0]).toBeLessThan(
+      pushToBlossomSpy.mock.invocationCallOrder[0],
+    )
   })
 
   it("provides progress logging during Blossom mirror", async () => {

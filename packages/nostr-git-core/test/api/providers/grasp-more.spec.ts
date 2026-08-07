@@ -62,7 +62,7 @@ describe("api/providers: GraspApiProvider (additional coverage)", () => {
     expect(repo.htmlUrl).toBe("https://host.example//npub1xyz/repo")
   })
 
-  it("publishStateFromLocal returns null when relay lacks GRASP-01", async () => {
+  it("publishStateFromLocal rejects when relay lacks GRASP-01", async () => {
     // Rewire capabilities mock to indicate no GRASP support
     const capMod = await import("../../../src/api/providers/grasp-capabilities.js")
     ;(capMod as any).graspCapabilities = vi.fn((_info: any, relayUrl: string) => ({
@@ -71,21 +71,25 @@ describe("api/providers: GraspApiProvider (additional coverage)", () => {
       relayUrl,
     }))
     const provider = new GraspApiProvider("wss://relay.example", "pub")
-    const res = await provider.publishStateFromLocal(ownerPubkey, "repo", {includeTags: true})
-    expect(res).toBeNull()
+    await expect(
+      provider.publishStateFromLocal(ownerPubkey, "repo", {includeTags: true}),
+    ).rejects.toThrow("Relay does not advertise GRASP-01 support")
   })
 
-  it("publishStateFromLocal includeTags and publishEvent throws -> returns unsigned event with HEAD tag", async () => {
+  it("publishStateFromLocal propagates an injected publishEvent rejection", async () => {
     const provider = new GraspApiProvider("wss://relay.example", "pub", {
       publishEvent: async () => {
         throw new Error("publish blocked")
       },
     } as any)
+    ;(provider as any).capabilities = {
+      grasp01: true,
+      httpOrigins: ["https://host.example/"],
+    }
+    ;(provider as any).httpBase = "https://host.example/"
 
-    const event: any = await provider.publishStateFromLocal(ownerPubkey, "repo", {
-      includeTags: true,
-    })
-    // Current implementation returns null when publishEvent throws; update test to match
-    expect(event).toBeNull()
+    await expect(
+      provider.publishStateFromLocal(ownerPubkey, "repo", {includeTags: true}),
+    ).rejects.toThrow(/Failed to publish state event/)
   })
 })

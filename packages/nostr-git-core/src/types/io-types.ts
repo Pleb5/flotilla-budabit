@@ -15,9 +15,17 @@ export type {NostrEvent, NostrFilter}
 /**
  * Result returned after publishing an event.
  */
+export type PublishRelayOutcome = {
+  relay: string
+  status: "success" | "failure" | "timeout" | "aborted"
+  detail: string
+}
+
 export type PublishResult = {
   ok: boolean
   relays?: string[]
+  eventId?: string
+  outcomes?: Record<string, PublishRelayOutcome>
   error?: string
 }
 

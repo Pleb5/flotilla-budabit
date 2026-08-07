@@ -6,6 +6,7 @@ const mockGetGitWorker = vi.fn().mockImplementation(() => {
     api: {
       ping: vi.fn().mockResolvedValue({success: true}),
       setGitConfig: vi.fn().mockResolvedValue(undefined),
+      pushToRemote: vi.fn().mockResolvedValue({success: true}),
     },
     worker,
   }
@@ -50,6 +51,31 @@ describe("worker-singleton", () => {
         onError: expect.any(Function),
       }),
     )
+  })
+
+  it("keeps standard Git usable and does not log EventIO success when configuration rejects", async () => {
+    const initializationError = new Error("Nostr provider unavailable")
+    mockConfigureWorkerEventIO.mockRejectedValueOnce(initializationError)
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {})
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    const {getInitializedGitWorker} = await import("./worker-singleton")
+    const {api} = await getInitializedGitWorker()
+
+    expect(consoleLog).not.toHaveBeenCalledWith("[GitWorker] EventIO configured successfully")
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "[GitWorker] Failed to configure EventIO:",
+      initializationError,
+    )
+    await expect(
+      api.pushToRemote({
+        repoId: "owner/repo",
+        remoteUrl: "https://example.com/owner/repo.git",
+      }),
+    ).resolves.toEqual({success: true})
+
+    consoleLog.mockRestore()
+    consoleWarn.mockRestore()
   })
 
   it("getInitializedGitWorker returns same instance on subsequent calls", async () => {

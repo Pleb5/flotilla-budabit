@@ -45,7 +45,7 @@ export function createNostrGitProvider(options: NostrGitFactoryOptions): NostrGi
   const {
     eventIO,
     enableGrasp = true,
-    publishRepoState = true,
+    publishRepoState = false,
     publishRepoAnnouncements = false,
     corsProxy,
     timeoutMs = 10000,
@@ -100,7 +100,7 @@ export async function createNostrGitProviderFromEnv(options: {
   // Repository relay scope is always supplied by the operation.
   const env = typeof process !== "undefined" && process.env ? process.env : {}
   const enableGrasp = env.NOSTR_ENABLE_GRASP !== "false"
-  const publishRepoState = env.NOSTR_PUBLISH_REPO_STATE !== "false"
+  const publishRepoState = env.NOSTR_PUBLISH_REPO_STATE === "true"
   const publishRepoAnnouncements = env.NOSTR_PUBLISH_REPO_ANNOUNCEMENTS === "true"
   const corsProxy = gitConfig.defaultCorsProxy ?? undefined
 
@@ -130,7 +130,7 @@ export async function createNostrGitProviderFromGitConfig(options: {
   // Default configuration
   let config = {
     enableGrasp: true,
-    publishRepoState: true,
+    publishRepoState: false,
     publishRepoAnnouncements: false,
     corsProxy: gitConfig.defaultCorsProxy ?? undefined,
   }
@@ -174,7 +174,7 @@ export function selectProvider(
   const {preferNostr = false, enableGrasp = true} = options
 
   // Check if URL is a nostr:// URL
-  if (url.startsWith("nostr://")) {
+  if (/^nostr:\/\//i.test(url)) {
     return "nostr"
   }
 

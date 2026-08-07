@@ -25,8 +25,9 @@ import type {
 } from "../api.js"
 import {nip19, SimplePool} from "nostr-tools"
 import {toNpub, toHexPubkey} from "../../utils/nostr-pubkey.js"
-import type {NostrFilter, EventIO} from "../../types/index.js"
+import type {NostrFilter, EventIO, PublishResult} from "../../types/index.js"
 import {createRepoStateEvent, getTagValue, getTags} from "../../events/index.js"
+import {sanitizeRelays} from "../../utils/sanitize-relays.js"
 import {
   fetchRelayInfo,
   graspCapabilities as detectCapabilities,
@@ -62,6 +63,10 @@ export class GraspApiProvider implements GitServiceApi {
   private relayInfo?: RelayInfo
   private pool: SimplePool = new SimplePool()
   private eventIO?: EventIO
+
+  get supportsStatePublicationFromLocal(): boolean {
+    return false
+  }
 
   constructor(relayUrl: string, pubkey: string, io?: EventIO) {
     // Normalize to base ws(s) origin with no path
@@ -363,16 +368,15 @@ export class GraspApiProvider implements GitServiceApi {
     owner: string,
     repo: string,
     opts?: {includeTags?: boolean; prevEventId?: string},
-  ): Promise<NostrEvent | null> {
+  ): Promise<NostrEvent | PublishResult | null> {
     await this.ensureCapabilities()
     if (!this.capabilities?.grasp01) {
-      // Mirrors ngit client.rs::supported_grasps behavior
-      console.warn("Relay does not support GRASP-01")
-      return null
+      throw new Error("Relay does not advertise GRASP-01 support")
     }
     const npub = toNpub(owner)
     const httpOrigin = this.httpBase || normalizeHttpOrigin(this.relayUrl)
     const remoteUrl = `${httpOrigin}/${npub}/${repo}.git`
+    let event: ReturnType<typeof createRepoStateEvent>
     try {
       // Mirrors ngit repo_state.rs::build - collect refs and HEAD
       const fs = createMemFs()
@@ -382,45 +386,55 @@ export class GraspApiProvider implements GitServiceApi {
       const tags = opts?.includeTags ? await git.listTags({fs, dir}) : []
       const refs: Record<string, string> = {}
       for (const b of branches) {
-        try {
-          refs[`refs/heads/${b}`] = await git.resolveRef({fs, dir, ref: `refs/heads/${b}`})
-        } catch {}
+        refs[`refs/heads/${b}`] = await git.resolveRef({fs, dir, ref: `refs/heads/${b}`})
       }
       if (opts?.includeTags) {
         for (const t of tags) {
-          try {
-            refs[`refs/tags/${t}`] = await git.resolveRef({fs, dir, ref: `refs/tags/${t}`})
-          } catch {}
+          refs[`refs/tags/${t}`] = await git.resolveRef({fs, dir, ref: `refs/tags/${t}`})
         }
       }
       let headBranch: string | undefined
-      try {
+      if (branches.length > 0) {
         const resolvedHead = await git.resolveRef({fs, dir, ref: "HEAD"})
         headBranch = this.resolveHeadBranch(resolvedHead, refs)
-      } catch {}
+        if (!headBranch) throw new Error("Could not resolve repository HEAD to an advertised branch")
+      }
 
-      const event = createRepoStateEvent({
+      event = createRepoStateEvent({
         repoId: encodeRepoAddress(toHexPubkey(owner), repo),
         head: headBranch,
         refs: Object.entries(refs)
           .map(([ref, commit]) => this.toRepoStateRef(ref, commit))
           .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
       })
-      // If an EventIO is injected, publish directly; otherwise return unsigned for the UI to handle.
-      // Mirrors ngit architectural flexibility where publishing lives in client layer (client.rs)
-      if (this.eventIO?.publishEvent) {
-        try {
-          await this.eventIO.publishEvent(event as any, {relays: [this.relayUrl]})
-        } catch (e) {
-          console.warn("EventIO.publishEvent failed; returning unsigned event instead", e)
-          return event as unknown as NostrEvent
-        }
-      }
-      return event as unknown as NostrEvent
     } catch (err) {
       console.error("publishStateFromLocal failed:", err)
       throw new Error(`Failed to build state event: ${err}`)
     }
+
+    // Without EventIO this method remains a state-event builder. Once EventIO is injected,
+    // publication failures must not be represented as a successfully built unsigned event.
+    if (!this.eventIO?.publishEvent) {
+      return event as unknown as NostrEvent
+    }
+
+    let publishResult: PublishResult
+    try {
+      publishResult = await this.eventIO.publishEvent(event as any, {relays: [this.relayUrl]})
+    } catch (error) {
+      throw new Error(`Failed to publish state event: ${error}`)
+    }
+    if (publishResult.ok !== true) {
+      throw new Error(`Failed to publish state event: ${publishResult.error || "rejected"}`)
+    }
+
+    const acceptedRelays = sanitizeRelays(publishResult.relays || []).filter(
+      relay => relay === this.relayUrl,
+    )
+    if (acceptedRelays.length === 0) {
+      throw new Error("Failed to publish state event: no relays accepted the event")
+    }
+    return {...publishResult, ok: true, relays: acceptedRelays}
   }
 
   async createRepo(options: {

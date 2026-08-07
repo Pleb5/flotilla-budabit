@@ -8,11 +8,12 @@
 import type {GitProvider, HttpOverrides} from "../../git/provider.js"
 import type {BlossomPushSummary} from "../../blossom/index.js"
 import {createGitProvider} from "../../git/factory.js"
-import type {EventIO} from "../../types/index.js"
+import type {EventIO, PublishResult} from "../../types/index.js"
 import type {RepoAnnouncementEvent, RepoStateEvent} from "../../events/index.js"
-import {createRepoStateEvent, createRepoAnnouncementEvent, getTags} from "../../events/index.js"
+import {getTags} from "../../events/index.js"
 import {sanitizeRelays} from "../../utils/sanitize-relays.js"
 import {getRepoActivityRelays} from "../../utils/repo-relay-policy.js"
+import {isGraspRepoHttpUrl} from "../../utils/grasp-url.js"
 
 export interface NostrGitConfig {
   eventIO: EventIO
@@ -24,12 +25,20 @@ export interface NostrGitConfig {
 }
 
 interface GraspLike {
+  supportsStatePublicationFromLocal?: boolean
   publishStateFromLocal(
     owner: string,
     repo: string,
     opts: {relays: string[]; includeTags?: boolean; prevEventId?: string},
-  ): Promise<any>
+  ): Promise<PublishResult>
 }
+
+const LOCAL_REPO_STATE_UNSUPPORTED =
+  "Local repository state publication is unsupported without a real repository state source"
+const PROVIDER_MANAGED_PUSH_UNSUPPORTED =
+  "Provider-managed Nostr repository pushes are unsupported until real state publication is implemented"
+const PROVIDER_GIT_INSPECTION_UNSUPPORTED =
+  "NostrGitProvider repository inspection is unsupported; use the underlying GitProvider"
 
 export interface RepoAnnouncementDiscoveryOptions {
   announcementRelays: string[]
@@ -82,9 +91,6 @@ export class NostrGitProvider {
 
   configureGrasp(grasp: GraspLike): void {
     this.nostrConfig.grasp = grasp
-    if (this.nostrConfig.publishRepoState === undefined) {
-      this.nostrConfig.publishRepoState = true
-    }
   }
 
   updateConfig(config: Partial<NostrGitConfig>): void {
@@ -110,61 +116,56 @@ export class NostrGitProvider {
     options: RepoAnnouncementDiscoveryOptions,
   ): Promise<RepoDiscovery | null> {
     const announcementRelays = requireRepoRelays(options?.announcementRelays)
-    try {
-      // Use EventIO to fetch repository announcement events
-      const filters = [
-        {
-          kinds: [30617], // GIT_REPO_ANNOUNCEMENT
-          "#d": [repoId],
-        },
-      ]
+    // Use EventIO to fetch repository announcement events
+    const filters = [
+      {
+        kinds: [30617], // GIT_REPO_ANNOUNCEMENT
+        "#d": [repoId],
+      },
+    ]
 
-      const events = await this.nostrConfig.eventIO.fetchEvents(filters, {
-        relays: announcementRelays,
-      })
+    const events = await this.nostrConfig.eventIO.fetchEvents(filters, {
+      relays: announcementRelays,
+    })
 
-      if (events.length === 0) {
-        return null
-      }
-
-      // Get the latest announcement event
-      const announcement = events[0] as RepoAnnouncementEvent
-
-      const cloneUrls = getTags(announcement as any, "clone").flatMap((t: any) =>
-        (t as string[]).slice(1),
-      )
-      const maintainers = getTags(announcement as any, "maintainers").flatMap((t: any) =>
-        (t as string[]).slice(1),
-      )
-      const relays = getRepoActivityRelays(announcement, {identifier: repoId})
-
-      if (relays.length === 0) {
-        return null
-      }
-
-      // Try to get repo state
-      const stateFilters = [
-        {
-          kinds: [30618], // GIT_REPO_STATE
-          authors: [announcement.pubkey],
-          "#d": [repoId],
-        },
-      ]
-
-      const stateEvents = await this.nostrConfig.eventIO.fetchEvents(stateFilters, {relays})
-      const state = stateEvents.length > 0 ? (stateEvents[0] as RepoStateEvent) : undefined
-
-      return {
-        repoId,
-        urls: cloneUrls,
-        announcement,
-        state,
-        maintainers,
-        relays,
-      }
-    } catch (error) {
-      console.error("Failed to discover repository:", error)
+    if (events.length === 0) {
       return null
+    }
+
+    // Get the latest announcement event
+    const announcement = events[0] as RepoAnnouncementEvent
+
+    const cloneUrls = getTags(announcement as any, "clone").flatMap((t: any) =>
+      (t as string[]).slice(1),
+    )
+    const maintainers = getTags(announcement as any, "maintainers").flatMap((t: any) =>
+      (t as string[]).slice(1),
+    )
+    const relays = getRepoActivityRelays(announcement, {identifier: repoId})
+
+    if (relays.length === 0) {
+      return null
+    }
+
+    // Try to get repo state
+    const stateFilters = [
+      {
+        kinds: [30618], // GIT_REPO_STATE
+        authors: [announcement.pubkey],
+        "#d": [repoId],
+      },
+    ]
+
+    const stateEvents = await this.nostrConfig.eventIO.fetchEvents(stateFilters, {relays})
+    const state = stateEvents.length > 0 ? (stateEvents[0] as RepoStateEvent) : undefined
+
+    return {
+      repoId,
+      urls: cloneUrls,
+      announcement,
+      state,
+      maintainers,
+      relays,
     }
   }
 
@@ -181,40 +182,64 @@ export class NostrGitProvider {
    * Based on ngit's push logic with multi-relay coordination
    */
   async push(options: any): Promise<NostrPushResult> {
-    const publishesRepoState = Boolean(
-      this.nostrConfig.grasp &&
-      ((this.nostrConfig.publishRepoState && options.dir) || options.publishRepoStateFromLocal),
-    )
-    const repoRelays = publishesRepoState ? requireRepoRelays(options.repoRelays) : []
+    const remoteUrl = String(options?.url || "")
+    if (/^nostr:\/\//i.test(remoteUrl) || isGraspRepoHttpUrl(remoteUrl)) {
+      throw new Error(PROVIDER_MANAGED_PUSH_UNSUPPORTED)
+    }
+
+    const automaticallyPublishesRepoState = this.nostrConfig.publishRepoState === true
+    const publishesRepoStateFromLocal = options.publishRepoStateFromLocal === true
+
+    // The built-in local snapshot path is quarantined until it can read real Git state. Rejecting
+    // here avoids completing the Git push and then returning a generic error that invites retries.
+    if (automaticallyPublishesRepoState) {
+      if (!options.dir) {
+        throw new Error("Automatic repository state publication requires a local repository path")
+      }
+      await this.getRepoStateFromLocal(options.dir)
+    }
+
+    let owner: string | undefined
+    let repo: string | undefined
+    let repoRelays: string[] = []
+    if (publishesRepoStateFromLocal) {
+      if (!this.nostrConfig.grasp) {
+        throw new Error("Repository state publication requires a configured GRASP provider")
+      }
+      if (this.nostrConfig.grasp.supportsStatePublicationFromLocal !== true) {
+        throw new Error(LOCAL_REPO_STATE_UNSUPPORTED)
+      }
+
+      owner = options.ownerPubkey ?? options.owner
+      repo = options.repoId ?? options.repo
+      if (typeof owner !== "string" || owner.trim().length === 0) {
+        throw new Error("Repository state publication requires an explicit owner")
+      }
+      if (typeof repo !== "string" || repo.trim().length === 0) {
+        throw new Error("Repository state publication requires an explicit repository identifier")
+      }
+      repoRelays = requireRepoRelays(options.repoRelays)
+    }
+
+    // Required state must be accepted before Git work. This avoids ambiguous retries after a
+    // remote side effect when relay publication fails.
+    if (publishesRepoStateFromLocal) {
+      const publication = await this.nostrConfig.grasp!.publishStateFromLocal(owner!, repo!, {
+        ...options.graspOptions,
+        relays: repoRelays,
+      })
+      const acceptedRelays = sanitizeRelays(publication?.relays || []).filter(relay =>
+        repoRelays.includes(relay),
+      )
+      if (publication?.ok !== true || acceptedRelays.length === 0) {
+        throw new Error(publication?.error || "Repository state publication was not accepted")
+      }
+    }
 
     // Delegate to base provider for actual push
     const result = await this.baseGitProvider.push(options)
     const pushResult: NostrPushResult = {
       ...result,
-    }
-
-    // After successful push, optionally publish repo state via GRASP
-    if (this.nostrConfig.grasp && this.nostrConfig.publishRepoState && options.dir) {
-      try {
-        const stateEventId = await this.publishRepoState(options.dir, repoRelays)
-        pushResult.stateEventId = stateEventId
-      } catch (error) {
-        console.warn("Failed to publish repo state after push:", error)
-      }
-    }
-
-    // Optionally publish repo state from local using GRASP helper when requested on push options
-    if (options.publishRepoStateFromLocal && this.nostrConfig.grasp) {
-      try {
-        const owner = options.ownerPubkey ?? options.owner ?? "owner-unknown"
-        const repo = options.repoId ?? options.repo ?? "repo-unknown"
-        await this.nostrConfig.grasp.publishStateFromLocal(owner, repo, {
-          ...options.graspOptions,
-          relays: repoRelays,
-        })
-      } catch (error) {
-        console.warn("Failed to publish repo state from local before Blossom mirror:", error)
-      }
     }
 
     // Handle Blossom mirroring if requested and supported
@@ -257,37 +282,8 @@ export class NostrGitProvider {
    * Based on ngit's repo state publishing
    */
   async publishRepoState(dir: string, relays: string[]): Promise<string> {
-    const repoRelays = requireRepoRelays(relays)
-    try {
-      // Get repo state from git repository
-      const repoState = await this.getRepoStateFromLocal(dir)
-
-      if (!repoState) {
-        throw new Error("Failed to get repository state")
-      }
-
-      // Create repo state event
-      const stateEvent = createRepoStateEvent({
-        repoId: repoState.repoAddr,
-        refs: repoState.refs,
-        created_at: Math.floor(Date.now() / 1000),
-      })
-
-      // Publish the event using EventIO (handles signing internally - no more signer passing!)
-      const publishResult = await this.nostrConfig.eventIO.publishEvent(stateEvent, {
-        relays: repoRelays,
-      })
-
-      if (!publishResult.ok) {
-        throw new Error(`Failed to publish repository state: ${publishResult.error}`)
-      }
-
-      console.log("[NostrGitProvider] Repository state published successfully")
-      return publishResult.relays?.[0] || "published"
-    } catch (error) {
-      console.error("Failed to publish repo state:", error)
-      throw error
-    }
+    requireRepoRelays(relays)
+    return this.getRepoStateFromLocal(dir)
   }
 
   /**
@@ -295,62 +291,12 @@ export class NostrGitProvider {
    * Based on ngit's repo announcement logic
    */
   async publishRepoAnnouncement(dir: string, relays: string[]): Promise<string> {
-    const repoRelays = requireRepoRelays(relays)
-    try {
-      // Get repo state from git repository
-      const repoState = await this.getRepoStateFromLocal(dir)
-
-      if (!repoState) {
-        throw new Error("Failed to get repository state")
-      }
-
-      // Create repo announcement event
-      const announcementEvent = createRepoAnnouncementEvent({
-        repoId: repoState.repoAddr,
-        name: repoState.name || "Unnamed Repository",
-        description: repoState.description || "",
-        clone: repoState.gitServers || [],
-        relays: repoRelays,
-        maintainers: repoState.maintainers || [],
-        created_at: Math.floor(Date.now() / 1000),
-      })
-
-      // Publish the event using EventIO (handles signing internally - no more signer passing!)
-      const publishResult = await this.nostrConfig.eventIO.publishEvent(announcementEvent, {
-        relays: repoRelays,
-      })
-
-      if (!publishResult.ok) {
-        throw new Error(`Failed to publish repository announcement: ${publishResult.error}`)
-      }
-
-      console.log("[NostrGitProvider] Repository announcement published successfully")
-      return publishResult.relays?.[0] || "published"
-    } catch (error) {
-      console.error("Failed to publish repo announcement:", error)
-      throw error
-    }
+    requireRepoRelays(relays)
+    return this.getRepoStateFromLocal(dir)
   }
 
-  private async getRepoStateFromLocal(dir: string): Promise<any> {
-    // This would typically read from a local git repository
-    // For now, return a mock state - in real implementation this would:
-    // 1. Open the local git repository
-    // 2. Read HEAD and refs
-    // 3. Return structured state data
-
-    return {
-      repoAddr: "mock-repo-addr",
-      refs: [
-        {type: "heads" as const, name: "main", commit: "latest-commit-hash"},
-        {type: "heads" as const, name: "develop", commit: "develop-commit-hash"},
-      ],
-      head: "ref: refs/heads/main",
-      name: "Test Repository",
-      description: "A test repository",
-      maintainers: ["npub1..."],
-      gitServers: ["https://github.com"],
-    }
+  private async getRepoStateFromLocal(_dir: string): Promise<never> {
+    throw new Error(LOCAL_REPO_STATE_UNSUPPORTED)
   }
 
   /**
@@ -358,20 +304,14 @@ export class NostrGitProvider {
    */
   async listProposals(repoAddr: string, options: RepoRelayOptions): Promise<any[]> {
     const relays = requireRepoRelays(options?.relays)
-    try {
-      const filters = [
-        {
-          kinds: [1618, 1619],
-          "#a": [repoAddr],
-        },
-      ]
+    const filters = [
+      {
+        kinds: [1618, 1619],
+        "#a": [repoAddr],
+      },
+    ]
 
-      const events = await this.nostrConfig.eventIO.fetchEvents(filters, {relays})
-      return events
-    } catch (error) {
-      console.error("Failed to list proposals:", error)
-      return []
-    }
+    return this.nostrConfig.eventIO.fetchEvents(filters, {relays})
   }
 
   /**
@@ -388,47 +328,42 @@ export class NostrGitProvider {
    * Based on ngit's branch comparison
    */
   async getAheadBehind(
-    dir: string,
-    baseRef: string,
-    headRef: string,
+    _dir: string,
+    _baseRef: string,
+    _headRef: string,
   ): Promise<{ahead: string[]; behind: string[]}> {
-    // For now, return mock data - in real implementation this would use git operations
-    return {ahead: [], behind: []}
+    throw new Error(PROVIDER_GIT_INSPECTION_UNSUPPORTED)
   }
 
   /**
    * Check if repository has outstanding changes
    * Based on ngit's change detection
    */
-  async hasOutstandingChanges(dir: string): Promise<boolean> {
-    // For now, return mock data - in real implementation this would use git operations
-    return false
+  async hasOutstandingChanges(_dir: string): Promise<boolean> {
+    throw new Error(PROVIDER_GIT_INSPECTION_UNSUPPORTED)
   }
 
   /**
    * Get the root commit of a repository
    * Based on ngit's root commit detection
    */
-  async getRootCommit(dir: string): Promise<string> {
-    // For now, return mock data - in real implementation this would use git operations
-    return "mock-root-commit"
+  async getRootCommit(_dir: string): Promise<string> {
+    throw new Error(PROVIDER_GIT_INSPECTION_UNSUPPORTED)
   }
 
   /**
    * Get detailed commit information
    * Based on ngit's commit info extraction
    */
-  async getCommitInfo(dir: string, commitId: string): Promise<any> {
-    // For now, return mock data - in real implementation this would use git operations
-    return {}
+  async getCommitInfo(_dir: string, _commitId: string): Promise<any> {
+    throw new Error(PROVIDER_GIT_INSPECTION_UNSUPPORTED)
   }
 
   /**
    * Get all branches in a repository
    * Based on ngit's branch listing
    */
-  async getAllBranches(dir: string): Promise<any[]> {
-    // For now, return mock data - in real implementation this would use git operations
-    return []
+  async getAllBranches(_dir: string): Promise<any[]> {
+    throw new Error(PROVIDER_GIT_INSPECTION_UNSUPPORTED)
   }
 }

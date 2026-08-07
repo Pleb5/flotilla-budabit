@@ -3,6 +3,9 @@ import type {RepoCache, RepoCacheManager} from "./cache.js"
 import {resolveBranchToOid} from "../../git/git.js"
 import type {GitVendor} from "../../git/vendor-providers.js"
 import type {BlossomPushSummary} from "../../blossom/index.js"
+import {normalizeGraspServiceRelayUrl, parseGraspRepoHttpUrl} from "../../utils/grasp-url.js"
+import {toHexPubkey} from "../../utils/nostr-pubkey.js"
+import {sanitizeRelays} from "../../utils/sanitize-relays.js"
 
 export interface SafePushOptions {
   repoId: string
@@ -18,6 +21,77 @@ export interface SafePushOptions {
     requireUpToDate?: boolean
     blockIfShallow?: boolean
   }
+}
+
+export function validateExplicitGraspPush(options: {
+  remoteUrl: string
+  token?: string
+  repoRelays?: string[]
+}): {pushUrl: string; repoRelays: string[]; targetRelay: string} {
+  const pushUrl = String(options.remoteUrl || "").trim()
+  const parsed = parseGraspRepoHttpUrl(pushUrl)
+  if (!parsed) {
+    throw new Error("GRASP provider requires a strict GRASP repository HTTP URL")
+  }
+
+  const url = new URL(pushUrl)
+  if (url.username || url.password) {
+    throw new Error("GRASP repository URL must not contain credentials")
+  }
+  const canonicalPushUrl = `${parsed.httpBase}/${parsed.ownerNpub}/${encodeURIComponent(parsed.identifier)}.git`
+  if (url.toString() !== new URL(canonicalPushUrl).toString()) {
+    throw new Error("GRASP repository URL must use its canonical service path")
+  }
+
+  const relayInputs = (options.repoRelays || []).map(relay => String(relay || "").trim())
+  const repoRelays: string[] = []
+  for (const relay of relayInputs) {
+    let parsedRelay: URL
+    try {
+      parsedRelay = new URL(relay)
+    } catch {
+      throw new Error("GRASP repository relay scope must contain literal WS/WSS URLs")
+    }
+    if (
+      (parsedRelay.protocol !== "ws:" && parsedRelay.protocol !== "wss:") ||
+      parsedRelay.username ||
+      parsedRelay.password ||
+      parsedRelay.search ||
+      parsedRelay.hash
+    ) {
+      throw new Error("GRASP repository relay scope must contain literal WS/WSS URLs")
+    }
+    const normalized = sanitizeRelays([relay])[0]
+    if (!normalized) {
+      throw new Error("GRASP repository relay scope contains an invalid relay URL")
+    }
+    if (!repoRelays.includes(normalized)) repoRelays.push(normalized)
+  }
+  if (repoRelays.length === 0) {
+    throw new Error("GRASP provider requires at least one explicit repository relay")
+  }
+
+  const targetRelay = normalizeGraspServiceRelayUrl(parsed.httpBase)
+  if (!targetRelay.startsWith("wss://")) {
+    throw new Error(
+      "GRASP provider requires an HTTPS repository URL with a corresponding WSS relay",
+    )
+  }
+  if (!repoRelays.includes(targetRelay)) {
+    throw new Error(`GRASP target relay ${targetRelay} is not in the repository relay scope`)
+  }
+
+  let tokenPubkey: string
+  try {
+    tokenPubkey = toHexPubkey(String(options.token || "").trim())
+  } catch {
+    throw new Error("GRASP provider requires a valid pubkey token")
+  }
+  if (tokenPubkey !== toHexPubkey(parsed.ownerNpub)) {
+    throw new Error("GRASP pubkey token must match the repository owner")
+  }
+
+  return {pushUrl: canonicalPushUrl, repoRelays, targetRelay}
 }
 
 export async function safePushToRemoteUtil(
@@ -78,9 +152,6 @@ export async function safePushToRemoteUtil(
     needsUpdate,
     pushToRemote,
   } = deps
-  const key = parseRepoId(repoId)
-  const dir = `${rootDir}/${key}`
-
   const pf = {
     blockIfUncommitted: true,
     requireUpToDate: true,
@@ -89,6 +160,11 @@ export async function safePushToRemoteUtil(
   }
 
   try {
+    const validatedGrasp =
+      provider === "grasp" ? validateExplicitGraspPush({remoteUrl, token, repoRelays}) : null
+    const key = parseRepoId(repoId)
+    const dir = `${rootDir}/${key}`
+
     const cloned = await isRepoCloned(dir)
     if (!cloned)
       return {success: false, error: "Repository not cloned locally; clone before pushing."}
@@ -154,7 +230,11 @@ export async function safePushToRemoteUtil(
       branch: targetBranch,
       token,
       provider,
-      ...(repoRelays ? {repoRelays} : {}),
+      ...(validatedGrasp
+        ? {repoRelays: validatedGrasp.repoRelays}
+        : repoRelays
+          ? {repoRelays}
+          : {}),
     })
     const ok = (pushRes as any)?.success
     if (ok === undefined) {

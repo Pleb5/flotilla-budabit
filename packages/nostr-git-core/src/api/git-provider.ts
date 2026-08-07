@@ -13,6 +13,7 @@ let gitProvider: GitProvider = new MultiVendorGitProvider({
 
 // NostrGitProvider instance for Nostr-based operations
 let nostrGitProvider: NostrGitProvider | null = null
+let nostrGitProviderGeneration = 0
 
 /**
  * Set a custom GitProvider instance
@@ -56,8 +57,11 @@ export function setGitTokens(tokens: Array<{host: string; token: string}>) {
 export async function initializeNostrGitProvider(options: {
   eventIO: EventIO
 }): Promise<NostrGitProvider> {
-  nostrGitProvider = await createNostrGitProviderFromEnv(options)
-  return nostrGitProvider
+  const generation = ++nostrGitProviderGeneration
+  nostrGitProvider = null
+  const provider = await createNostrGitProviderFromEnv(options)
+  if (generation === nostrGitProviderGeneration) nostrGitProvider = provider
+  return provider
 }
 
 /**

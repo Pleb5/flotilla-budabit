@@ -23,8 +23,6 @@ import {
   GitErrorCode,
   GitErrorCategory,
 } from "@nostr-git/core/errors";
-import { isGraspRepoHttpUrl, parseGraspRepoHttpUrl } from "$lib/utils/grasp-url";
-import { normalizeGraspOrigins } from "$lib/utils/grasp-pipeline";
 
 // Worker URL/factory must be injected by the consuming app (not imported here)
 // because ?url imports only work at the app's bundler level, not in pre-built packages
@@ -990,12 +988,8 @@ export class WorkerManager {
    * new merge commit to be on the relay *before* the git push is accepted. This mirrors how
    * ngit-cli works: publish state → confirm relay received it → git push.
    *
-   * When `publishStateEvent` is provided the method uses a two-phase approach for GRASP:
-   *   1. Worker merges only (skipPush=true) → returns mergeCommitOid
-   *   2. Main thread publishes state event with new SHA and waits for the callback to resolve
-   *   3. Worker pushes (unauthenticated smart HTTP)
-   *
-   * For non-GRASP remotes the normal single-call path is used.
+   * The legacy callback-driven GRASP flow is disabled because it cannot carry complete
+   * repository authority and publication evidence. The application owns state-aware GRASP pushes.
    */
   async mergePRAndPush(params: {
     repoId: string;
@@ -1042,144 +1036,12 @@ export class WorkerManager {
       skipPush: params.skipPush,
     };
 
-    // ── Two-phase flow for GRASP remotes ──────────────────────────────────────
-    // GRASP authorizes pushes by checking the relay for a state event (30618) signed by the
-    // maintainer that declares the new branch HEAD. We must publish it between merge and push.
     if (typeof params.publishStateEvent === "function") {
-      try {
-        const targetCloneUrls =
-          params.targetCloneUrls && params.targetCloneUrls.length > 0
-            ? params.targetCloneUrls
-            : params.cloneUrls;
-
-        // Ensure repo is cloned so listRemotes works
-        await this.ensureFullClone({
-          repoId: params.repoId,
-          branch: params.targetBranch || "main",
-          cloneUrls: targetCloneUrls,
-        });
-
-        const remotes = await this.execute<Array<{ remote: string; url: string }>>("listRemotes", {
-          repoId: params.repoId,
-        });
-
-        const graspRemotes = (remotes || []).filter((r) => r.url && isGraspRepoHttpUrl(r.url));
-
-        if (graspRemotes.length > 0) {
-          // Phase 1: merge only
-          const mergeOnlyResult = await this.execute<{
-            success: boolean;
-            error?: string;
-            mergeCommitOid?: string;
-          }>("mergePRAndPush", { ...baseParams, skipPush: true }, { timeoutMs: 120000 });
-
-          if (!mergeOnlyResult?.success || !mergeOnlyResult.mergeCommitOid) {
-            return {
-              success: false,
-              error: mergeOnlyResult?.error || "Merge failed",
-            };
-          }
-
-          const mergeCommitOid = mergeOnlyResult.mergeCommitOid;
-          const branch = params.targetBranch || "main";
-
-          // Phase 2: publish state event for each GRASP remote, then push
-          const pushedRemotes: string[] = [];
-          const skippedRemotes: string[] = [];
-          const pushErrors: Array<{
-            remote: string;
-            url: string;
-            error: string;
-            code: string;
-            stack: string;
-          }> = [];
-
-          for (const remote of graspRemotes) {
-            try {
-              const parsedRemote = parseGraspRepoHttpUrl(remote.url);
-              if (!parsedRemote) {
-                throw new Error(`Invalid GRASP clone URL: ${remote.url}`);
-              }
-
-              const relayUrl = normalizeGraspOrigins(remote.url).wsOrigin;
-              const repoName = parsedRemote.identifier;
-
-              // Publish state event with new SHA — GRASP relay must confirm before push
-              await params.publishStateEvent({
-                repoName,
-                branch,
-                commitSha: mergeCommitOid,
-                relayUrl,
-              });
-
-              // Phase 3: push (unauthenticated smart HTTP — relay now has the state event)
-              const pushResult = await this.execute<{ success?: boolean; error?: string }>(
-                "pushToRemote",
-                {
-                  repoId: params.repoId,
-                  remoteUrl: remote.url,
-                  branch,
-                  token: params.userPubkey,
-                  provider: "grasp",
-                },
-                { timeoutMs: 60000 }
-              );
-
-              if (pushResult?.success) {
-                pushedRemotes.push(remote.remote);
-              } else {
-                throw new Error(pushResult?.error || "Push failed");
-              }
-            } catch (err: any) {
-              pushErrors.push({
-                remote: remote.remote,
-                url: remote.url,
-                error: err?.message || String(err),
-                code: err?.code || "UNKNOWN",
-                stack: err?.stack || "",
-              });
-              skippedRemotes.push(remote.remote);
-            }
-          }
-
-          if (pushedRemotes.length === 0 && graspRemotes.length > 0) {
-            // All GRASP pushes failed — reset local state
-            try {
-              await this.execute("resetRepoToRemote", {
-                repoId: params.repoId,
-                branch,
-                cloneUrls: targetCloneUrls,
-              });
-            } catch {
-              // best effort
-            }
-            const firstErr = pushErrors[0];
-            return {
-              success: false,
-              error: firstErr
-                ? `Push to ${firstErr.remote} failed: ${firstErr.error}`
-                : "Push to all GRASP remotes failed",
-              pushedRemotes,
-              skippedRemotes,
-              pushErrors,
-            };
-          }
-
-          return {
-            success: true,
-            mergeCommitOid,
-            pushedRemotes,
-            skippedRemotes,
-            pushErrors: pushErrors.length ? pushErrors : undefined,
-          };
-        }
-      } catch (e: any) {
-        console.error("[WorkerManager] GRASP two-phase merge failed:", e);
-        return {
-          success: false,
-          error: e?.message || "GRASP two-phase merge failed",
-        };
-      }
+      return {
+        success: false,
+        error:
+          "WorkerManager GRASP merge orchestration is disabled; use the state-aware application coordinator",
+      };
     }
 
     // ── Normal single-call flow (non-GRASP or no publishStateEvent callback) ──

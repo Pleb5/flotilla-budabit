@@ -255,4 +255,41 @@ describe("worker/remote-backfill: buildRemoteBackfillPlanFromSnapshots", () => {
       expect.anything(),
     )
   })
+
+  it("rejects GRASP backfill before creating a staging repository", async () => {
+    const git: any = {init: vi.fn(async () => undefined)}
+    const pushToRemote = vi.fn()
+
+    await expect(
+      executeRemoteBackfillUtil(
+        git,
+        {
+          repoId: "owner/repo",
+          userPubkey: "a".repeat(64),
+          targets: [
+            {
+              remoteUrl:
+                "https://grasp.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git",
+              refs: [
+                {
+                  ref: "refs/heads/main",
+                  name: "main",
+                  type: "heads",
+                  effectiveOid: "a".repeat(40),
+                  sourceUrls: ["https://github.com/owner/repo.git"],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          rootDir: "/tmp/budabit-test",
+          parseRepoId: id => id,
+          pushToRemote,
+        },
+      ),
+    ).rejects.toThrow("state-aware main-thread coordinator")
+    expect(git.init).not.toHaveBeenCalled()
+    expect(pushToRemote).not.toHaveBeenCalled()
+  })
 })

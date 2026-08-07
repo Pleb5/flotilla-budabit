@@ -4,6 +4,7 @@ import "fake-indexeddb/auto"
 import type {GitProvider} from "../../src/git/provider.js"
 import type {RepoCacheManager} from "../../src/worker/workers/cache.js"
 import {safePushToRemoteUtil} from "../../src/worker/workers/push.js"
+import {toHexPubkey} from "../../src/utils/nostr-pubkey.js"
 
 import {createTestFs, mkdirp, writeText} from "../utils/lightningfs.js"
 import {createRemoteRegistry} from "../utils/remote-registry.js"
@@ -12,6 +13,10 @@ import {initRepo, commitFile} from "../utils/git-harness.js"
 
 const GRASP_REMOTE_URL =
   "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git"
+const GRASP_OWNER_PUBKEY = toHexPubkey(
+  "npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw",
+)
+const GRASP_RELAY = "wss://relay.ngit.dev"
 
 class MemCacheManager implements Partial<RepoCacheManager> {
   private map = new Map<string, any>()
@@ -24,6 +29,40 @@ class MemCacheManager implements Partial<RepoCacheManager> {
     this.map.set(cache.repoId, cache)
   }
 }
+
+it("rejects invalid GRASP authority before repository preflight", async () => {
+  const isRepoCloned = vi.fn()
+  const pushToRemote = vi.fn()
+
+  const result = await safePushToRemoteUtil(
+    {} as GitProvider,
+    {} as RepoCacheManager,
+    {
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      provider: "grasp",
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: ["https://relay.ngit.dev"],
+    },
+    {
+      rootDir: "/repos",
+      parseRepoId: vi.fn(),
+      isRepoCloned,
+      isShallowClone: vi.fn(),
+      resolveBranchName: vi.fn(),
+      hasUncommittedChanges: vi.fn(),
+      needsUpdate: vi.fn(),
+      pushToRemote,
+    },
+  )
+
+  expect(result).toMatchObject({
+    success: false,
+    error: "GRASP repository relay scope must contain literal WS/WSS URLs",
+  })
+  expect(isRepoCloned).not.toHaveBeenCalled()
+  expect(pushToRemote).not.toHaveBeenCalled()
+})
 
 async function statIsDir(fs: any, path: string): Promise<boolean> {
   try {
@@ -70,9 +109,11 @@ it("proceeds when provider==='grasp' even if needsUpdate would be true, and prop
     cacheManager as any,
     {
       repoId,
-      remoteUrl: "https://example.com/owner/repo.git",
+      remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
       provider: "grasp" as any,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
       preflight: {requireUpToDate: true, blockIfUncommitted: false},
     },
     {
@@ -312,6 +353,8 @@ describe("worker/push: safePushToRemoteUtil", () => {
         remoteUrl: GRASP_REMOTE_URL,
         branch: "main",
         provider: "grasp" as any,
+        token: GRASP_OWNER_PUBKEY,
+        repoRelays: [GRASP_RELAY],
         preflight: {requireUpToDate: true, blockIfUncommitted: false},
       },
       {

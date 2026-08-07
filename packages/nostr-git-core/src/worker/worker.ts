@@ -208,7 +208,7 @@ import type {AnalyzePRMergeOptions, MergePRAndPushOptions} from "./workers/pr-me
 import {analyzePRMergeUtil, mergePRAndPushUtil} from "./workers/pr-merge.js"
 
 import type {SafePushOptions} from "./workers/push.js"
-import {safePushToRemoteUtil} from "./workers/push.js"
+import {safePushToRemoteUtil, validateExplicitGraspPush} from "./workers/push.js"
 import {
   getGitProgressUnit,
   type GitOperation,
@@ -911,6 +911,8 @@ const clonedRepos = new Set<string>()
 const repoDataLevels = new Map<string, DataLevel>()
 const operationRegistry = new OperationRegistry(postOperationStatus)
 let eventIO: EventIO | null = null
+let nostrGitProviderReady = false
+let eventIOConfiguration = Promise.resolve()
 const WORKER_BUILD_ID = new Date().toISOString()
 
 function beginTrackedOperation(
@@ -1118,15 +1120,25 @@ const api = {
 
   // Configuration
   async setEventIO(io: EventIO): Promise<void> {
-    eventIO = io
-    // Wire EventIO into the higher-level NostrGitProvider system
-    // (EventIO handles signing internally; worker just stores proxy and delegates)
-    try {
-      await initializeNostrGitProvider({eventIO: io})
-      console.log("[Worker] NostrGitProvider initialized successfully")
-    } catch (err) {
-      console.error("[Worker] Failed to initialize NostrGitProvider:", err)
+    const configure = async () => {
+      eventIO = null
+      nostrGitProviderReady = false
+      try {
+        await initializeNostrGitProvider({eventIO: io})
+        eventIO = io
+        nostrGitProviderReady = true
+        console.log("[Worker] NostrGitProvider initialized successfully")
+      } catch (err) {
+        eventIO = null
+        nostrGitProviderReady = false
+        console.error("[Worker] Failed to initialize NostrGitProvider:", err)
+        throw err
+      }
     }
+
+    const configured = eventIOConfiguration.then(configure, configure)
+    eventIOConfiguration = configured.catch(() => {})
+    await configured
   },
 
   async setAuthConfig(cfg: AuthConfig): Promise<void> {
@@ -1799,7 +1811,43 @@ const api = {
           : [normalizePushRef(targetBranch)],
       ),
     )
+    const isNostrUrl = /^nostr:\/\//i.test(remoteUrl) || isGraspRepoHttpUrl(remoteUrl)
+    let explicitGraspTarget: ReturnType<typeof validateExplicitGraspPush> | null = null
     const operation = beginTrackedOperation(operationId, "pushToRemote", "Preparing push")
+
+    try {
+      if (provider === "grasp") {
+        explicitGraspTarget = validateExplicitGraspPush({remoteUrl, token, repoRelays})
+      } else if (isNostrUrl) {
+        if (!nostrGitProviderReady || !hasNostrGitProvider()) {
+          throw new Error("NostrGitProvider is not ready for Nostr repository push")
+        }
+        if (sanitizeRelays(repoRelays || []).length === 0) {
+          throw new Error("Nostr repository push requires at least one explicit repository relay")
+        }
+        throw new Error(
+          "Provider-managed Nostr repository pushes are unavailable until real state publication is implemented",
+        )
+      }
+    } catch (error) {
+      const message = getErrorMessageWithDetails(error)
+      return finishTrackedOperation(
+        operation,
+        toPlain({
+          success: false,
+          repoId,
+          remoteUrl,
+          ...formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"}),
+          error: message,
+          details: {
+            pushedRefs: [],
+            failedRefs: refsToPush.map(ref => ({ref, error: message})),
+            warnings: [],
+          },
+        }),
+      )
+    }
+
     const sendPushProgress = operationId
       ? makeGitOperationProgress({
           operationId,
@@ -1840,19 +1888,7 @@ const api = {
 
       // Handle GRASP provider with full state publishing
       if (provider === "grasp") {
-        if (!token) {
-          throw new Error("GRASP provider requires a pubkey token")
-        }
-
-        // Build Smart HTTP URL
-        const pickSmartHttpUrl = (orig: string): string => {
-          const u = new URL(orig)
-          let p = u.pathname.startsWith("/git/") ? u.pathname.slice(4) : u.pathname
-          if (!p.endsWith(".git")) p = p.endsWith("/") ? `${p.slice(0, -1)}.git` : `${p}.git`
-          return `${u.protocol}//${u.host}${p}`
-        }
-
-        const pushUrl = pickSmartHttpUrl(remoteUrl)
+        const pushUrl = explicitGraspTarget!.pushUrl
 
         // Add remote if needed
         try {
@@ -2412,11 +2448,7 @@ const api = {
         }
       }
 
-      // Only use NostrGitProvider for nostr:// URLs or GRASP-style Smart HTTP paths.
-      const isNostrUrl = remoteUrl.startsWith("nostr://") || isGraspRepoHttpUrl(remoteUrl)
-
-      // Check if NostrGitProvider is available before trying to use it
-      if (isNostrUrl && hasNostrGitProvider()) {
+      if (isNostrUrl) {
         const explicitRepoRelays = sanitizeRelays(repoRelays || [])
         if (explicitRepoRelays.length === 0) {
           throw new Error("Nostr repository push requires at least one explicit repository relay")

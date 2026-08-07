@@ -153,6 +153,14 @@ describe("api/git-provider", () => {
 
     // Non-nostr URL routes to default provider
     expect(mod.getProviderForUrl("https://example.com/x/y")).toBe(mod.getGitProvider())
+
+    createFromEnv.mockRejectedValueOnce(new Error("provider initialization failed"))
+    await expect(mod.initializeNostrGitProvider({eventIO: io})).rejects.toThrow(
+      "provider initialization failed",
+    )
+    expect(mod.hasNostrGitProvider()).toBe(false)
+    expect(() => mod.getNostrGitProvider()).toThrow(/not initialized/i)
+    expect(() => mod.getProviderForUrl("nostr://whatever")).toThrow(/not initialized/i)
   })
 
   it("getProviderForUrl throws for nostr URLs if NostrGitProvider is not initialized", async () => {

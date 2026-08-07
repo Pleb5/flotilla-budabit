@@ -57,7 +57,7 @@ describe("API/NostrGitProvider additional paths", () => {
     ])
   })
 
-  it("listProposals failure returns empty array", async () => {
+  it("listProposals propagates transport failures", async () => {
     const io = createEventIOStub()
     // Force fetchEvents to throw
     ;(io as any).fetchEvents = async () => {
@@ -65,11 +65,11 @@ describe("API/NostrGitProvider additional paths", () => {
     }
 
     const provider = new NostrGitProvider({eventIO: io})
-    const res = await provider.listProposals("30617:addr", {
-      relays: ["wss://repo.example.com"],
-    })
-    expect(Array.isArray(res)).toBe(true)
-    expect(res.length).toBe(0)
+    await expect(
+      provider.listProposals("30617:addr", {
+        relays: ["wss://repo.example.com"],
+      }),
+    ).rejects.toThrow("network down")
   })
 
   it("sendProposal rejects because legacy patch proposals were removed", async () => {
@@ -78,19 +78,21 @@ describe("API/NostrGitProvider additional paths", () => {
     await expect(provider.sendProposal("30617:addr", ["c1"])).rejects.toThrow(/legacy patch events/)
   })
 
-  it("publishRepoState success returns relay string", async () => {
+  it("publishRepoState is unsupported without a real local snapshot", async () => {
     const io = createEventIOStub()
     const provider = new NostrGitProvider({eventIO: io})
-    const relay = await provider.publishRepoState("/repo", ["wss://repo.example.com"])
-    expect(typeof relay).toBe("string")
-    expect(relay).toBe("test-relay")
+    await expect(provider.publishRepoState("/repo", ["wss://repo.example.com"])).rejects.toThrow(
+      /unsupported without a real repository state source/,
+    )
+    expect(io.__calls.publishEvent).toHaveLength(0)
   })
 
-  it("publishRepoAnnouncement success returns relay string", async () => {
+  it("publishRepoAnnouncement is unsupported without real local metadata", async () => {
     const io = createEventIOStub()
     const provider = new NostrGitProvider({eventIO: io})
-    const relay = await provider.publishRepoAnnouncement("/repo", ["wss://repo.example.com"])
-    expect(typeof relay).toBe("string")
-    expect(relay).toBe("test-relay")
+    await expect(
+      provider.publishRepoAnnouncement("/repo", ["wss://repo.example.com"]),
+    ).rejects.toThrow(/unsupported without a real repository state source/)
+    expect(io.__calls.publishEvent).toHaveLength(0)
   })
 })

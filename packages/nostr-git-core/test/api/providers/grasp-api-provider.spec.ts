@@ -130,7 +130,7 @@ describe('GraspApiProvider basic behavior', () => {
     logSpy.mockRestore();
   });
 
-  it('publishStateFromLocal returns unsigned event when EventIO publish fails', async () => {
+  it('publishStateFromLocal propagates EventIO rejection instead of returning unsigned', async () => {
     const failingIO = { publishEvent: vi.fn().mockRejectedValue(new Error('pub fail')) } as any;
     const api = new GraspApiProvider(relay, ownerHex as any, failingIO);
     (api as any).capabilities = { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
@@ -138,9 +138,44 @@ describe('GraspApiProvider basic behavior', () => {
     vi.spyOn(git as any, 'fetch').mockResolvedValue(undefined);
     vi.spyOn(git as any, 'listBranches').mockResolvedValue(['main']);
     vi.spyOn(git as any, 'resolveRef').mockResolvedValue('refs/heads/main');
-    const ev = await api.publishStateFromLocal(ownerHex, 'repo');
-    expect(ev).toBeTruthy();
+    await expect(api.publishStateFromLocal(ownerHex, 'repo')).rejects.toThrow(/Failed to publish state event: Error: pub fail/);
     expect(failingIO.publishEvent).toHaveBeenCalled();
+  });
+
+  it('publishStateFromLocal rejects resolved ok:false instead of returning unsigned', async () => {
+    const failingIO = { publishEvent: vi.fn().mockResolvedValue({ ok: false, error: 'denied', relays: [relay] }) } as any;
+    const api = new GraspApiProvider(relay, ownerHex as any, failingIO);
+    (api as any).capabilities = { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
+    (api as any).httpBase = 'https://relay.example';
+    vi.spyOn(git as any, 'fetch').mockResolvedValue(undefined);
+    vi.spyOn(git as any, 'listBranches').mockResolvedValue(['main']);
+    vi.spyOn(git as any, 'resolveRef').mockResolvedValue('abc123');
+
+    await expect(api.publishStateFromLocal(ownerHex, 'repo')).rejects.toThrow(/Failed to publish state event: denied/);
+  });
+
+  it('publishStateFromLocal requires a nonempty accepted relay result', async () => {
+    const eventIO = { publishEvent: vi.fn().mockResolvedValue({ ok: true, relays: [] }) } as any;
+    const api = new GraspApiProvider(relay, ownerHex as any, eventIO);
+    (api as any).capabilities = { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
+    (api as any).httpBase = 'https://relay.example';
+    vi.spyOn(git as any, 'fetch').mockResolvedValue(undefined);
+    vi.spyOn(git as any, 'listBranches').mockResolvedValue(['main']);
+    vi.spyOn(git as any, 'resolveRef').mockResolvedValue('abc123');
+
+    await expect(api.publishStateFromLocal(ownerHex, 'repo')).rejects.toThrow(/no relays accepted the event/);
+  });
+
+  it('publishStateFromLocal returns the accepted publication result when EventIO succeeds', async () => {
+    const eventIO = { publishEvent: vi.fn().mockResolvedValue({ ok: true, relays: [relay] }) } as any;
+    const api = new GraspApiProvider(relay, ownerHex as any, eventIO);
+    (api as any).capabilities = { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
+    (api as any).httpBase = 'https://relay.example';
+    vi.spyOn(git as any, 'fetch').mockResolvedValue(undefined);
+    vi.spyOn(git as any, 'listBranches').mockResolvedValue(['main']);
+    vi.spyOn(git as any, 'resolveRef').mockResolvedValue('abc123');
+
+    await expect(api.publishStateFromLocal(ownerHex, 'repo')).resolves.toEqual({ ok: true, relays: [relay] });
   });
 
   it('publishStateFromLocal builds event with HEAD tag and refs when GRASP-01 supported', async () => {
@@ -264,13 +299,12 @@ describe('GraspApiProvider basic behavior', () => {
     expect(res.cloneUrl).toBe(`${res.htmlUrl}.git`);
   });
 
-  it('publishStateFromLocal returns null when relay does not support GRASP-01', async () => {
+  it('publishStateFromLocal rejects when relay does not support GRASP-01', async () => {
     const api = new GraspApiProvider(relay, ownerHex as any);
     // Seed capabilities to grasp01=false
     (api as any).capabilities = { grasp01: false, grasp05: true, httpOrigins: ['https://relay.example'], nostrRelays: [relay] };
     (api as any).httpBase = 'https://relay.example';
-    const res = await api.publishStateFromLocal(ownerHex, 'repo');
-    expect(res).toBeNull();
+    await expect(api.publishStateFromLocal(ownerHex, 'repo')).rejects.toThrow('Relay does not advertise GRASP-01 support');
   });
 
   it('publishStateFromLocal wraps git fetch failure in a stable error message', async () => {

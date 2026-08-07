@@ -11,26 +11,26 @@
  * - ngit/src/lib/client.rs (relay coordination)
  */
 import type {Event as NostrEvent} from "nostr-tools"
-import {
-  GIT_REPO_STATE,
-  type RepoStateEvent,
-  type RepoState,
-  createRepoStateEvent,
-  parseRepoStateEvent,
-} from "../../events/index.js"
+import {GIT_REPO_STATE, type RepoStateEvent, parseRepoStateEvent} from "../../events/index.js"
 import {validateRepoStateEvent} from "../../utils/validation.js"
 import {sanitizeRelays} from "../../utils/sanitize-relays.js"
-import type {EventIORelayScope} from "../../types/index.js"
+import type {EventIORelayScope, PublishResult} from "../../types/index.js"
 import {nip11, SimplePool} from "nostr-tools"
 
 // Define interfaces locally since they're not exported
 interface GraspLike {
+  supportsStatePublicationFromLocal?: boolean
   publishStateFromLocal(
     owner: string,
     repo: string,
     opts: {relays: string[]; includeTags?: boolean; prevEventId?: string},
   ): Promise<any>
 }
+
+const LOCAL_REPO_STATE_UNSUPPORTED =
+  "GRASP local repository state publication is unsupported without a real repository state source"
+const STATE_SYNC_UNSUPPORTED =
+  "GRASP state synchronization is unsupported without an unsigned authoritative state source"
 
 const requireRepoRelays = (relays: string[]): string[] => {
   const normalized = sanitizeRelays(relays || [])
@@ -47,7 +47,7 @@ export interface GraspApiConfig {
   /** Default timeout for operations */
   timeoutMs?: number
   /** Publish event function */
-  publishEvent: (event: NostrEvent, scope: EventIORelayScope) => Promise<any>
+  publishEvent: (event: NostrEvent, scope: EventIORelayScope) => Promise<PublishResult>
 }
 
 /**
@@ -59,6 +59,8 @@ export interface GraspApiConfig {
  * IMPORTANT: Uses EventIO which handles signing internally.
  */
 export class GraspApi implements GraspLike {
+  readonly supportsStatePublicationFromLocal = false
+
   private config: GraspApiConfig
 
   private pool: SimplePool
@@ -69,63 +71,19 @@ export class GraspApi implements GraspLike {
   }
 
   /**
-   * Publish repository state to GRASP relays
-   *
-   * This method is called by git-wrapper when publishRepoStateFromLocal is enabled.
-   * It publishes the current repository state (HEAD, refs) to GRASP relays.
-   *
-   * Based on ngit's repo state publishing logic in repo_state.rs
+   * Local repository state publication is quarantined until a real Git snapshot source is wired.
    */
   async publishStateFromLocal(
-    owner: string,
-    repo: string,
+    _owner: string,
+    _repo: string,
     opts: {
       relays: string[]
       includeTags?: boolean
       prevEventId?: string
     },
   ): Promise<any> {
-    const relays = requireRepoRelays(opts?.relays || [])
-    try {
-      // Create repo address identifier
-      const repoAddr = `${GIT_REPO_STATE}:${owner}:${repo}`
-
-      // Get current repository state
-      // Note: In a real implementation, this would read from the actual Git repository
-      // For now, we'll create a basic state structure
-      const repoState = {
-        repoAddr,
-        refs: [
-          {type: "heads" as const, name: "main", commit: "latest-commit-hash"},
-          {type: "heads" as const, name: "develop", commit: "develop-commit-hash"},
-        ],
-        head: "ref: refs/heads/main",
-        created_at: Math.floor(Date.now() / 1000),
-      }
-
-      // Create repo state event
-      const stateEvent = createRepoStateEvent({
-        repoId: repoAddr,
-        refs: repoState.refs,
-        head: repoState.head,
-        created_at: repoState.created_at,
-      })
-
-      // finalizeEvent(stateEvent);
-
-      const publishResult = await this.config.publishEvent(stateEvent as NostrEvent, {relays})
-      if (publishResult?.ok === false) {
-        throw new Error(publishResult.error || "relay publication failed")
-      }
-
-      return {
-        eventId: stateEvent.id,
-        relays,
-        success: true,
-      }
-    } catch (error) {
-      throw new Error(`GRASP state publishing failed: ${error}`)
-    }
+    requireRepoRelays(opts?.relays || [])
+    throw new Error(LOCAL_REPO_STATE_UNSUPPORTED)
   }
 
   /**
@@ -137,31 +95,19 @@ export class GraspApi implements GraspLike {
   async getStateFromRelays(owner: string, repo: string, relays: string[]): Promise<any> {
     const repoRelays = requireRepoRelays(relays)
     try {
-      const repoAddr = `${GIT_REPO_STATE}:${owner}:${repo}`
-
       // Query all GRASP relays for state events
       const results = await this.pool.querySync(repoRelays, {
-        ids: [repoAddr],
         kinds: [GIT_REPO_STATE],
         authors: [owner],
-        since: 0,
-        until: Date.now(),
+        "#d": [repo],
+        limit: 100,
       })
 
-      const allEvents = results.map(result => parseRepoStateEvent(result as RepoStateEvent))
-
-      if (allEvents.length === 0) {
-        return null
-      }
-
       // Find the most recent valid state event
-      const validEvents = allEvents.filter(event => {
-        try {
-          validateRepoStateEvent(event)
-          return true
-        } catch {
-          return false
-        }
+      const validEvents = results.filter(event => {
+        if (event.kind !== GIT_REPO_STATE || event.pubkey !== owner) return false
+        if (!event.tags.some(tag => tag[0] === "d" && tag[1] === repo)) return false
+        return validateRepoStateEvent(event).success
       })
 
       if (validEvents.length === 0) {
@@ -169,8 +115,11 @@ export class GraspApi implements GraspLike {
       }
 
       // Sort by creation time and return the latest
-      validEvents.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      return validEvents[0]
+      validEvents.sort((a, b) => {
+        const createdAtDiff = b.created_at - a.created_at
+        return createdAtDiff || b.id.localeCompare(a.id)
+      })
+      return parseRepoStateEvent(validEvents[0] as RepoStateEvent)
     } catch (error) {
       throw new Error(`GRASP state retrieval failed: ${error}`)
     }
@@ -185,7 +134,7 @@ export class GraspApi implements GraspLike {
   async checkRelayCapabilities(relay: string): Promise<boolean> {
     try {
       const relayInfo = await nip11.fetchRelayInformation(relay)
-      return relayInfo.supported_nips?.includes(30618) || false
+      return relayInfo.supported_nips?.includes(34) || false
     } catch (error) {
       console.warn(`Failed to check capabilities for relay ${relay}:`, error)
       return false
@@ -222,46 +171,15 @@ export class GraspApi implements GraspLike {
    * Handles conflicts and ensures consistency.
    */
   async syncStateAcrossRelays(
-    owner: string,
-    repo: string,
+    _owner: string,
+    _repo: string,
     relays: string[],
   ): Promise<{
     syncedRelays: string[]
     failedRelays: string[]
     conflicts: any[]
   }> {
-    const repoRelays = requireRepoRelays(relays)
-    try {
-      // Get current state
-      const currentState = await this.getStateFromRelays(owner, repo, repoRelays)
-
-      if (!currentState) {
-        return {
-          syncedRelays: [],
-          failedRelays: repoRelays,
-          conflicts: [],
-        }
-      }
-
-      // Get capable relays
-      const capableRelays = await this.getCapableRelays(repoRelays)
-
-      if (capableRelays.length > 0) {
-        await this.config.publishEvent(currentState as NostrEvent, {relays: capableRelays})
-        return {
-          syncedRelays: capableRelays,
-          failedRelays: [],
-          conflicts: [],
-        }
-      } else {
-        return {
-          syncedRelays: [],
-          failedRelays: repoRelays,
-          conflicts: [],
-        }
-      }
-    } catch (error) {
-      throw new Error(`GRASP synchronization failed: ${error}`)
-    }
+    requireRepoRelays(relays)
+    throw new Error(STATE_SYNC_UNSUPPORTED)
   }
 }

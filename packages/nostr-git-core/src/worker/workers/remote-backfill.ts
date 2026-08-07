@@ -996,6 +996,12 @@ export async function executeRemoteBackfillUtil(
     }
   }
 
+  if (selectedTargets.some(target => isGraspRepoHttpUrl(target.remoteUrl))) {
+    throw new Error(
+      "GRASP backfill requires the state-aware main-thread coordinator and accepted repository relay authority",
+    )
+  }
+
   const uniqueRefs = collectUniqueSelectedRefs(selectedTargets)
 
   const seedRemoteUrl =
@@ -1102,7 +1108,11 @@ export async function executeRemoteBackfillUtil(
       const collectPushResult = (
         pushResult: any,
         attemptedRefs: string[],
-      ): {pushedRefs: string[]; failedRefs: Array<{ref: string; error: string}>; success: boolean} => {
+      ): {
+        pushedRefs: string[]
+        failedRefs: Array<{ref: string; error: string}>
+        success: boolean
+      } => {
         const resultPushedRefs =
           pushResult?.details?.pushedRefs && Array.isArray(pushResult.details.pushedRefs)
             ? pushResult.details.pushedRefs

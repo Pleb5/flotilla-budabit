@@ -15,12 +15,12 @@ describe('API/NostrGitProvider trivial methods', () => {
     const gp = provider.getGitProvider();
     expect(gp).toBeTruthy();
 
-    // Passthrough methods (skip clone to avoid real git invocation)
-    await expect(provider.getAheadBehind('/repo', 'main', 'feature')).resolves.toEqual({ ahead: [], behind: [] });
-    await expect(provider.hasOutstandingChanges('/repo')).resolves.toBe(false);
-    await expect(provider.getRootCommit('/repo')).resolves.toBe('mock-root-commit');
-    await expect(provider.getCommitInfo('/repo', 'abc')).resolves.toEqual({});
-    await expect(provider.getAllBranches('/repo')).resolves.toEqual([]);
+    // Unimplemented inspection methods must not return plausible mock data.
+    await expect(provider.getAheadBehind('/repo', 'main', 'feature')).rejects.toThrow(/unsupported/);
+    await expect(provider.hasOutstandingChanges('/repo')).rejects.toThrow(/unsupported/);
+    await expect(provider.getRootCommit('/repo')).rejects.toThrow(/unsupported/);
+    await expect(provider.getCommitInfo('/repo', 'abc')).rejects.toThrow(/unsupported/);
+    await expect(provider.getAllBranches('/repo')).rejects.toThrow(/unsupported/);
   });
 
   it('covers configureGrasp and updateConfig without side effects', async () => {

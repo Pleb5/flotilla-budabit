@@ -1,5 +1,6 @@
 import {beforeEach, describe, it, expect, vi} from "vitest"
 import "fake-indexeddb/auto"
+import {nip19} from "nostr-tools"
 
 const pushMock = vi.fn(async (_opts?: any) => undefined)
 const fetchMock = vi.fn(async () => undefined)
@@ -17,8 +18,10 @@ const httpFetchMock = vi.fn(async () => ({
   text: async () => "",
 }))
 
-const GRASP_REMOTE_URL =
-  "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git"
+const GRASP_OWNER_NPUB = "npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw"
+const GRASP_OWNER_PUBKEY = nip19.decode(GRASP_OWNER_NPUB).data as string
+const GRASP_REMOTE_URL = `https://relay.ngit.dev/${GRASP_OWNER_NPUB}/repo.git`
+const GRASP_RELAY = "wss://relay.ngit.dev"
 
 ;(globalThis as any).fetch = httpFetchMock
 
@@ -52,11 +55,13 @@ vi.mock("../../src/worker/workers/fs-utils.js", () => ({
   isRepoClonedFs: async (_g: any, _d: string) => true,
 }))
 
-// Default mock for getNostrGitProvider is undefined; individual tests will override
+let nostrProviderMock: {push: ReturnType<typeof vi.fn>} | undefined
+const initializeNostrGitProviderMock = vi.fn(async () => undefined)
+
 vi.mock("../../src/api/git-provider.js", () => ({
-  getNostrGitProvider: () => undefined,
-  hasNostrGitProvider: () => false,
-  initializeNostrGitProvider: () => {},
+  getNostrGitProvider: () => nostrProviderMock,
+  hasNostrGitProvider: () => Boolean(nostrProviderMock),
+  initializeNostrGitProvider: initializeNostrGitProviderMock,
 }))
 
 // Import the worker module AFTER mocks so comlink.expose is intercepted
@@ -73,6 +78,7 @@ describe("worker.pushToRemote API", () => {
     logMock.mockReset()
     writeRefMock.mockReset()
     httpFetchMock.mockReset()
+    nostrProviderMock = undefined
     pushMock.mockResolvedValue(undefined)
     fetchMock.mockResolvedValue(undefined)
     addRemoteMock.mockResolvedValue(undefined)
@@ -88,6 +94,7 @@ describe("worker.pushToRemote API", () => {
       arrayBuffer: async () => new ArrayBuffer(0),
       text: async () => "",
     })
+    initializeNostrGitProviderMock.mockResolvedValue(undefined)
   })
 
   it("materializes an imported pull request refs/nostr ref", async () => {
@@ -145,38 +152,61 @@ describe("worker.pushToRemote API", () => {
     })
   })
 
-  it("uses Nostr provider path and propagates blossomSummary when available", async () => {
-    // Arrange: install a nostr provider that returns a blossomSummary
-    const summary = {uploaded: 3, failures: []} as any
-    const pushSpy = vi.fn(async () => ({blossomSummary: summary}))
-    const mod = await import("../../src/api/git-provider.js")
-    ;(mod as any).getNostrGitProvider = () => ({push: pushSpy})
-    ;(mod as any).hasNostrGitProvider = () => true
+  it("fails a strict Nostr remote before Git work when its provider is unavailable", async () => {
+    await exposed.setEventIO({})
+
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      branch: "main",
+      repoRelays: [GRASP_RELAY],
+    })
+
+    expect(res).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: "NostrGitProvider is not ready for Nostr repository push",
+      }),
+    )
+    expect(addRemoteMock).not.toHaveBeenCalled()
+    expect(listRemotesMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(resolveRefMock).not.toHaveBeenCalled()
+    expect(writeRefMock).not.toHaveBeenCalled()
+    expect(httpFetchMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects provider-managed Nostr pushes until real state publication exists", async () => {
+    const pushSpy = vi.fn(async () => ({}))
+    nostrProviderMock = {push: pushSpy}
+    await exposed.setEventIO({})
 
     // Act: call pushToRemote on exposed API
     // Use a Nostr URL pattern to trigger the NostrGitProvider path
     const res = await exposed.pushToRemote({
       repoId: "owner/repo",
-      remoteUrl:
-        "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git",
+      remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
       repoRelays: [" WSS://RELAY.NGIT.DEV/ ", "wss://relay.ngit.dev"],
     })
 
-    // Assert
-    expect(res.success).toBe(true)
-    expect(res.branch).toBe("main")
-    expect(res.blossomSummary).toEqual(summary)
-    expect(pushSpy).toHaveBeenCalledWith(
-      expect.objectContaining({repoRelays: ["wss://relay.ngit.dev"]}),
+    expect(res).toEqual(
+      expect.objectContaining({
+        success: false,
+        error:
+          "Provider-managed Nostr repository pushes are unavailable until real state publication is implemented",
+      }),
     )
+    expect(pushSpy).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(addRemoteMock).not.toHaveBeenCalled()
   })
 
   it("fails a Nostr provider push with empty relay scope before provider or git work", async () => {
     const pushSpy = vi.fn(async () => ({}))
-    const mod = await import("../../src/api/git-provider.js")
-    ;(mod as any).getNostrGitProvider = () => ({push: pushSpy})
-    ;(mod as any).hasNostrGitProvider = () => true
+    nostrProviderMock = {push: pushSpy}
+    await exposed.setEventIO({})
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
 
     const res = await exposed.pushToRemote({
@@ -198,12 +228,175 @@ describe("worker.pushToRemote API", () => {
     consoleError.mockRestore()
   })
 
-  it("falls back to git.push when no Nostr provider and returns success without blossomSummary", async () => {
-    // Arrange: ensure getNostrGitProvider returns undefined
-    const mod = await import("../../src/api/git-provider.js")
-    ;(mod as any).getNostrGitProvider = () => undefined
+  it("rejects failed EventIO configuration and does not reuse a stale Nostr provider", async () => {
+    const stalePush = vi.fn(async () => ({}))
+    nostrProviderMock = {push: stalePush}
+    await exposed.setEventIO({id: "working"})
 
-    // Act
+    const initializationError = new Error("provider initialization failed")
+    initializeNostrGitProviderMock.mockRejectedValueOnce(initializationError)
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    await expect(exposed.setEventIO({id: "broken"})).rejects.toBe(initializationError)
+
+    const nostrResult = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      branch: "main",
+      repoRelays: [GRASP_RELAY],
+    })
+    expect(nostrResult).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: "NostrGitProvider is not ready for Nostr repository push",
+      }),
+    )
+    expect(stalePush).not.toHaveBeenCalled()
+    expect(addRemoteMock).not.toHaveBeenCalled()
+    expect(listRemotesMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(writeRefMock).not.toHaveBeenCalled()
+    expect(httpFetchMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+
+    const standardResult = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: "https://example.com/owner/repo.git",
+      branch: "main",
+    })
+    expect(standardResult.success).toBe(true)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    consoleError.mockRestore()
+  })
+
+  it("serializes concurrent EventIO configuration attempts", async () => {
+    let releaseFirst!: () => void
+    initializeNostrGitProviderMock
+      .mockImplementationOnce(
+        async () =>
+          await new Promise<void>(resolve => {
+            releaseFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce(undefined)
+
+    const first = exposed.setEventIO({id: "first"})
+    const second = exposed.setEventIO({id: "second"})
+    await vi.waitFor(() => expect(initializeNostrGitProviderMock).toHaveBeenCalledTimes(1))
+
+    releaseFirst()
+    await Promise.all([first, second])
+
+    expect(initializeNostrGitProviderMock).toHaveBeenCalledTimes(2)
+    expect(initializeNostrGitProviderMock).toHaveBeenNthCalledWith(1, {
+      eventIO: {id: "first"},
+    })
+    expect(initializeNostrGitProviderMock).toHaveBeenNthCalledWith(2, {
+      eventIO: {id: "second"},
+    })
+  })
+
+  it.each([
+    {
+      name: "non-GRASP URL",
+      remoteUrl: "https://example.com/owner/repo.git",
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
+    },
+    {
+      name: "empty relay scope",
+      remoteUrl: GRASP_REMOTE_URL,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [],
+    },
+    {
+      name: "target relay outside scope",
+      remoteUrl: GRASP_REMOTE_URL,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: ["wss://other.example"],
+    },
+    {
+      name: "HTTP relay scope",
+      remoteUrl: GRASP_REMOTE_URL,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: ["https://relay.ngit.dev"],
+    },
+    {
+      name: "bare-host relay scope",
+      remoteUrl: GRASP_REMOTE_URL,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: ["relay.ngit.dev"],
+    },
+    {
+      name: "invalid pubkey token",
+      remoteUrl: GRASP_REMOTE_URL,
+      token: "deadbeef",
+      repoRelays: [GRASP_RELAY],
+    },
+    {
+      name: "mismatched owner pubkey",
+      remoteUrl: GRASP_REMOTE_URL,
+      token: "b".repeat(64),
+      repoRelays: [GRASP_RELAY],
+    },
+    {
+      name: "non-WSS target",
+      remoteUrl: `http://relay.ngit.dev/${GRASP_OWNER_NPUB}/repo.git`,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: ["ws://relay.ngit.dev"],
+    },
+    {
+      name: "credentialed target URL",
+      remoteUrl: `https://user:pass@relay.ngit.dev/${GRASP_OWNER_NPUB}/repo.git`,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
+    },
+    {
+      name: "non-canonical service path",
+      remoteUrl: `https://relay.ngit.dev/git//${GRASP_OWNER_NPUB}/repo.git`,
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: ["wss://relay.ngit.dev/git"],
+    },
+  ])("rejects explicit GRASP $name before any Git or network work", async options => {
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      branch: "main",
+      provider: "grasp",
+      ...options,
+    })
+
+    expect(res.success).toBe(false)
+    expect(addRemoteMock).not.toHaveBeenCalled()
+    expect(listRemotesMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(resolveRefMock).not.toHaveBeenCalled()
+    expect(writeRefMock).not.toHaveBeenCalled()
+    expect(httpFetchMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("records validation failures as known pre-side-effect operation failures", async () => {
+    const operationId = "invalid-grasp-authority"
+    const result = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      branch: "main",
+      token: GRASP_OWNER_PUBKEY,
+      provider: "grasp",
+      repoRelays: [],
+      operationId,
+    })
+
+    expect(result.success).toBe(false)
+    expect(exposed.getOperationStatus({operationId})).toMatchObject({
+      state: "failed",
+      sideEffectMayHaveOccurred: false,
+    })
+    expect(addRemoteMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("falls back to git.push when no Nostr provider and returns success without blossomSummary", async () => {
     const res = await exposed.pushToRemote({
       repoId: "owner/repo",
       remoteUrl: "https://example.com/owner/repo.git",
@@ -214,12 +407,10 @@ describe("worker.pushToRemote API", () => {
     expect(res.success).toBe(true)
     expect(res.branch).toBe("main")
     expect(res.blossomSummary).toBeUndefined()
+    expect(pushMock).toHaveBeenCalledTimes(1)
   })
 
   it("pushes all requested refs for standard providers", async () => {
-    const mod = await import("../../src/api/git-provider.js")
-    ;(mod as any).getNostrGitProvider = () => undefined
-
     const res = await exposed.pushToRemote({
       repoId: "owner/repo",
       remoteUrl: "https://example.com/owner/repo.git",
@@ -288,8 +479,9 @@ describe("worker.pushToRemote API", () => {
       repoId: "owner/repo",
       remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
-      token: "deadbeef",
+      token: GRASP_OWNER_PUBKEY,
       provider: "grasp",
+      repoRelays: [GRASP_RELAY],
     })
 
     expect(res.success).toBe(true)
@@ -338,8 +530,9 @@ describe("worker.pushToRemote API", () => {
       repoId: "owner/repo",
       remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
-      token: "deadbeef",
+      token: GRASP_OWNER_PUBKEY,
       provider: "grasp",
+      repoRelays: [GRASP_RELAY],
     })
 
     expect(res.success).toBe(true)
@@ -360,8 +553,9 @@ describe("worker.pushToRemote API", () => {
       repoId: "owner/repo",
       remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
-      token: "deadbeef",
+      token: GRASP_OWNER_PUBKEY,
       provider: "grasp",
+      repoRelays: [GRASP_RELAY],
     })
 
     expect(res.success).toBe(true)
@@ -409,8 +603,9 @@ describe("worker.pushToRemote API", () => {
       repoId: "owner/repo",
       remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
-      token: "deadbeef",
+      token: GRASP_OWNER_PUBKEY,
       provider: "grasp",
+      repoRelays: [GRASP_RELAY],
     })
 
     expect(res.success).toBe(true)
@@ -419,7 +614,7 @@ describe("worker.pushToRemote API", () => {
     expect(pushMock.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
-  it("uses unauthenticated Smart HTTP for GRASP pushes", async () => {
+  it("requires the repository owner pubkey and uses unauthenticated Smart HTTP", async () => {
     const infoRefsUrl = `${GRASP_REMOTE_URL}/info/refs?service=git-receive-pack`
     const receivePackUrl = `${GRASP_REMOTE_URL}/git-receive-pack`
 
@@ -461,11 +656,41 @@ describe("worker.pushToRemote API", () => {
       repoId: "owner/repo",
       remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
-      token: "deadbeef",
+      token: GRASP_OWNER_PUBKEY,
       provider: "grasp",
+      repoRelays: [GRASP_RELAY],
     })
 
     expect(res.success).toBe(true)
     expect(seenAuth).toEqual([undefined, undefined])
+  })
+
+  it("preserves a GRASP deployment path when pushing", async () => {
+    const pathRemote = `https://relay.ngit.dev/git/${GRASP_OWNER_NPUB}/repo.git`
+    httpFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers({"content-type": "application/x-git-upload-pack-advertisement"}),
+      arrayBuffer: async () => new ArrayBuffer(0),
+      text: async () => "003faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n0000",
+    })
+
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: pathRemote,
+      branch: "main",
+      token: GRASP_OWNER_PUBKEY,
+      provider: "grasp",
+      repoRelays: [" WSS://RELAY.NGIT.DEV/git/ "],
+    })
+
+    expect(res.success).toBe(true)
+    expect(addRemoteMock).toHaveBeenCalledWith({
+      dir: "/repos/owner/repo",
+      remote: "origin",
+      url: pathRemote,
+    })
+    expect(pushMock).not.toHaveBeenCalled()
   })
 })
