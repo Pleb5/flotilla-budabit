@@ -8,7 +8,7 @@
     GIT_PULL_REQUEST_UPDATE,
   } from "@nostr-git/core/events"
   import type {PullRequestEvent} from "@nostr-git/core/events"
-  import {load, makeLoader} from "@welshman/net"
+  import {makeLoader} from "@welshman/net"
   import {repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {type TrustedEvent} from "@welshman/util"
@@ -40,14 +40,18 @@
     () => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[],
   )
   const prEditRelays = $derived(repoRelays)
-  const LOAD_TIMEOUT_MS = 7000
+  const hasRepoAnnouncement = $derived.by(() => Boolean(repoClass.repoEvent))
+  const repoRelaysUnavailable = $derived(hasRepoAnnouncement && repoRelays.length === 0)
+  const LOAD_TIMEOUT_MS = 15_000
   const SCROLL_TO_TOP_THRESHOLD = 300
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
 
   let isResolving = $state(true)
   let didTimeout = $state(false)
   let hasStartedResolve = $state(false)
+  let resolvingPrId = $state("")
   let resolveTimeout: ReturnType<typeof setTimeout> | null = null
+  let resolveController: AbortController | null = null
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
@@ -121,36 +125,48 @@
     resolvedPrEvent ? parsePullRequestEvent(resolvedPrEvent) : undefined,
   )
 
-  const clearResolveTimeout = () => {
-    if (!resolveTimeout) return
-    clearTimeout(resolveTimeout)
-    resolveTimeout = null
+  const cancelResolve = () => {
+    if (resolveTimeout) {
+      clearTimeout(resolveTimeout)
+      resolveTimeout = null
+    }
+    resolveController?.abort()
+    resolveController = null
   }
 
   const resolveCurrentPr = async () => {
+    const currentPrId = prId
     const relays = uniq(repoRelays.filter(Boolean))
-    if (relays.length === 0) {
-      hasStartedResolve = false
-      return
-    }
+    if (!currentPrId || relays.length === 0) return
 
-    clearResolveTimeout()
+    cancelResolve()
     isResolving = true
     didTimeout = false
     hasStartedResolve = true
+    resolvingPrId = currentPrId
+    const controller = new AbortController()
+    resolveController = controller
 
     resolveTimeout = setTimeout(() => {
+      if (resolveController !== controller) return
+      resolveTimeout = null
       didTimeout = true
       isResolving = false
+      controller.abort()
+      resolveController = null
     }, LOAD_TIMEOUT_MS)
 
-    const primaryEvents = await loadDetail({relays, filters: [{ids: [prId]}]}).catch(
-      () => [] as TrustedEvent[],
-    )
+    const primaryEvents = await loadDetail({
+      relays,
+      filters: [{ids: [currentPrId]}],
+      signal: controller.signal,
+    }).catch(() => [] as TrustedEvent[])
+    if (controller.signal.aborted) return
+
     const primaryEvent =
-      primaryEvents.find(event => event.id === prId && !isDeletedRepositoryEvent(event)) ||
+      primaryEvents.find(event => event.id === currentPrId && !isDeletedRepositoryEvent(event)) ||
       (() => {
-        const event = repository.getEvent(prId) as TrustedEvent | undefined
+        const event = repository.getEvent(currentPrId) as TrustedEvent | undefined
         return isDeletedRepositoryEvent(event) ? undefined : event
       })()
 
@@ -159,21 +175,24 @@
         getFirstTagValue(primaryEvent as {tags?: string[][]}, "E") ||
         getFirstTagValue(primaryEvent as {tags?: string[][]}, "e")
       if (rootId) {
-        await load({relays, filters: [{ids: [rootId]}]}).catch(() => [] as TrustedEvent[])
+        await loadDetail({relays, filters: [{ids: [rootId]}], signal: controller.signal}).catch(
+          () => [] as TrustedEvent[],
+        )
       }
     }
   }
 
   $effect(() => {
     void prId
+    void repoRelays
     hasStartedResolve = false
     isResolving = true
     didTimeout = false
-    clearResolveTimeout()
+    cancelResolve()
   })
 
   $effect(() => {
-    if (hasStartedResolve || !isResolving) return
+    if (hasStartedResolve || !isResolving || !prId || repoRelays.length === 0) return
     void resolveCurrentPr()
   })
 
@@ -182,7 +201,7 @@
     if (pr) {
       isResolving = false
       didTimeout = false
-      clearResolveTimeout()
+      cancelResolve()
     }
   })
 
@@ -209,7 +228,7 @@
 
   onDestroy(() => {
     hasStartedResolve = false
-    clearResolveTimeout()
+    cancelResolve()
   })
 </script>
 
@@ -220,11 +239,19 @@
 <div bind:this={pageContainerRef}>
   {#if isHiddenRoot}
     <div class="p-4 text-center text-muted-foreground">This pull request was hidden as spam.</div>
-  {:else if isResolving}
-    <div class="p-4 text-center">Loading pull request...</div>
   {:else if pr && resolvedPrEvent}
     <PRView {pr} prEvent={resolvedPrEvent} repo={repoClass} {repoRelays} {prEditRelays} />
-  {:else if didTimeout}
+  {:else if repoRelaysUnavailable}
+    <div class="p-4 text-center">
+      <p class="font-medium">Repository Relays Unavailable</p>
+      <p class="mt-1 text-sm text-muted-foreground">
+        This pull request cannot be loaded until a valid repository announcement declares at least
+        one relay.
+      </p>
+    </div>
+  {:else if resolvingPrId !== prId || isResolving}
+    <div class="p-4 text-center">Loading pull request...</div>
+  {:else if resolvingPrId === prId && didTimeout}
     <div class="p-4 text-center text-muted-foreground">Pull request not found.</div>
   {/if}
 </div>

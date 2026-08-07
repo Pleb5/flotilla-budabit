@@ -356,7 +356,40 @@
     return () => clearTimeout(timeout)
   })
 
-  const loading = false
+  const LIST_RESOLVE_TIMEOUT_MS = 15_000
+  const prListRouteId = $derived($page.params.id ?? "")
+  let prListResolution = $state<{routeId: string; status: "loading" | "resolved"}>({
+    routeId: "",
+    status: "loading",
+  })
+  let prListResolveTimeout: ReturnType<typeof setTimeout> | null = null
+  const hasProcessedPrItems = $derived(
+    allPullRequests.length > 0 && (pullRequests.length === 0 || allPrItems.length > 0),
+  )
+  const clearPrListResolveTimeout = () => {
+    if (!prListResolveTimeout) return
+    clearTimeout(prListResolveTimeout)
+    prListResolveTimeout = null
+  }
+
+  $effect(() => {
+    const routeId = prListRouteId
+    clearPrListResolveTimeout()
+    prListResolution = {routeId, status: "loading"}
+    prListResolveTimeout = setTimeout(() => {
+      prListResolveTimeout = null
+      prListResolution = {routeId, status: "resolved"}
+    }, LIST_RESOLVE_TIMEOUT_MS)
+
+    return clearPrListResolveTimeout
+  })
+
+  $effect(() => {
+    if (!hasProcessedPrItems) return
+    clearPrListResolveTimeout()
+    prListResolution = {routeId: prListRouteId, status: "resolved"}
+  })
+
   const ITEMS_PER_PAGE = 20
   let visiblePrCount = $state(ITEMS_PER_PAGE)
   let element: HTMLElement | undefined = $state()
@@ -865,6 +898,10 @@
           : selectedLabels.some(label => labels.includes(label))
       })
   })
+  const loading = $derived(
+    prListResolution.routeId !== prListRouteId ||
+      (prListResolution.status === "loading" && searchedPrs.length === 0),
+  )
 
   $effect(() => {
     void [searchTerm, statusFilter, authorFilter, selectedLabels, matchAllLabels, sortBy]

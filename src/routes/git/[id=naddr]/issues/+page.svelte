@@ -922,8 +922,44 @@
     visibleIssueCount = Math.min(visibleIssueCount + ITEMS_PER_PAGE, searchedIssues.length)
   }
 
-  // Set loading to false immediately if we have data - don't wait for makeFeed
-  const loading = $state(false)
+  const LIST_RESOLVE_TIMEOUT_MS = 15_000
+  const issueListRouteId = $derived($page.params.id ?? "")
+  let issueListResolution = $state<{routeId: string; status: "loading" | "resolved"}>({
+    routeId: "",
+    status: "loading",
+  })
+  let issueListResolveTimeout: ReturnType<typeof setTimeout> | null = null
+  const hasProcessedIssueItems = $derived(
+    allIssues.length > 0 && (issues.length === 0 || issueList.length > 0),
+  )
+  const clearIssueListResolveTimeout = () => {
+    if (!issueListResolveTimeout) return
+    clearTimeout(issueListResolveTimeout)
+    issueListResolveTimeout = null
+  }
+
+  $effect(() => {
+    const routeId = issueListRouteId
+    clearIssueListResolveTimeout()
+    issueListResolution = {routeId, status: "loading"}
+    issueListResolveTimeout = setTimeout(() => {
+      issueListResolveTimeout = null
+      issueListResolution = {routeId, status: "resolved"}
+    }, LIST_RESOLVE_TIMEOUT_MS)
+
+    return clearIssueListResolveTimeout
+  })
+
+  $effect(() => {
+    if (!hasProcessedIssueItems) return
+    clearIssueListResolveTimeout()
+    issueListResolution = {routeId: issueListRouteId, status: "resolved"}
+  })
+
+  const loading = $derived(
+    issueListResolution.routeId !== issueListRouteId ||
+      (issueListResolution.status === "loading" && searchedIssues.length === 0),
+  )
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
 

@@ -35,7 +35,8 @@
     type TrustedEvent,
   } from "@welshman/util"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {load} from "@welshman/net"
+  import {load, makeLoader} from "@welshman/net"
+  import {RepoCore} from "@nostr-git/core/git"
   import {pubkey, repository} from "@welshman/app"
   import {profilesByPubkey} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
@@ -57,7 +58,6 @@
     getRepoMaintainers,
     REPO_PROFILE_RELAYS_KEY,
     REPO_RELAYS_KEY,
-    loadRepoContext,
     repoAnnouncementsByAddress,
   } from "@app/core/git-state"
   import {toNaturalArray} from "@app/util/labels"
@@ -102,7 +102,7 @@
     return normalizeRelays([repoClass.community?.relay || ""])
   })
 
-  const issueId = $page.params.issueid
+  const issueId = $derived($page.params.issueid ?? "")
   const hiddenRootIds = $derived.by(() =>
     hiddenRootIdsStore ? $hiddenRootIdsStore : new Set<string>(),
   )
@@ -132,50 +132,54 @@
   )
   const hasRepoAnnouncement = $derived.by(() => Boolean(repoClass.repoEvent))
 
-  let isResolvingIssue = $state(false)
-  let didResolveIssue = $state(false)
-  const ISSUE_RESOLVE_TIMEOUT_MS = 7000
+  const ISSUE_RESOLVE_TIMEOUT_MS = 15_000
+  const loadIssueDetail = makeLoader({
+    delay: 100,
+    timeout: ISSUE_RESOLVE_TIMEOUT_MS,
+    threshold: 0.5,
+  })
+  let issueResolution = $state<{issueId: string; status: "loading" | "not-found"}>({
+    issueId: "",
+    status: "loading",
+  })
+  const issueResolutionStatus = $derived(
+    issueResolution.issueId === issueId ? issueResolution.status : "loading",
+  )
+  const repoRelaysUnavailable = $derived(hasRepoAnnouncement && repoBoundRelays.length === 0)
 
   $effect(() => {
-    if (!issueId) {
-      isResolvingIssue = false
-      didResolveIssue = true
+    const currentIssueId = issueId
+
+    if (!currentIssueId) {
+      issueResolution = {issueId: currentIssueId, status: "not-found"}
       return
     }
 
     if (issueEvent) {
-      isResolvingIssue = false
-      didResolveIssue = true
+      issueResolution = {issueId: currentIssueId, status: "loading"}
       return
     }
 
-    const relays = repoBoundRelays
+    const relays = normalizeRelays(repoBoundRelays)
+    issueResolution = {issueId: currentIssueId, status: "loading"}
     if (relays.length === 0) {
-      isResolvingIssue = !hasRepoAnnouncement
-      didResolveIssue = hasRepoAnnouncement
       return
     }
 
-    isResolvingIssue = true
-    didResolveIssue = false
-
-    let cancelled = false
+    const controller = new AbortController()
     const timeout = setTimeout(() => {
-      if (cancelled) return
-      isResolvingIssue = false
-      didResolveIssue = true
+      issueResolution = {issueId: currentIssueId, status: "not-found"}
+      controller.abort()
     }, ISSUE_RESOLVE_TIMEOUT_MS)
 
-    void loadRepoContext({rootId: issueId, relays}).finally(() => {
-      if (cancelled) return
-      clearTimeout(timeout)
-      isResolvingIssue = false
-      didResolveIssue = true
-    })
+    const {filters} = RepoCore.buildRepoSubscriptions({rootEventId: currentIssueId})
+    void loadIssueDetail({relays, filters: filters as Filter[], signal: controller.signal}).catch(
+      () => [],
+    )
 
     return () => {
-      cancelled = true
       clearTimeout(timeout)
+      controller.abort()
     }
   })
 
@@ -1175,7 +1179,15 @@
         enableReplies />
     </Card>
   </div>
-{:else if isResolvingIssue || !didResolveIssue}
+{:else if repoRelaysUnavailable}
+  <div class="flex flex-col items-center justify-center px-4 py-8 text-center sm:py-12">
+    <SearchX class="mb-2 h-6 w-6 sm:h-8 sm:w-8" />
+    <p class="text-sm font-medium sm:text-base">Repository Relays Unavailable</p>
+    <p class="mt-1 max-w-lg text-sm text-muted-foreground">
+      This issue cannot be loaded until a valid repository announcement declares at least one relay.
+    </p>
+  </div>
+{:else if issueResolutionStatus === "loading"}
   <div class="flex flex-col items-center justify-center px-4 py-8 sm:py-12">
     <p class="text-center text-sm text-muted-foreground sm:text-base">Loading issue...</p>
   </div>

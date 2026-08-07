@@ -47,6 +47,44 @@ describe("authoritative repository loading scope", () => {
     expect(testRoute).not.toContain("wss://relay.budabit.club")
   })
 
+  it("keeps issue and pull request not-found states behind their detail deadlines", () => {
+    const issueDetail = dense(
+      readProjectFile("../../routes/git/[id=naddr]/issues/[issueid]/+page.svelte"),
+    )
+    const prDetail = dense(readProjectFile("../../routes/git/[id=naddr]/prs/[prid]/+page.svelte"))
+    const issueResolution = issueDetail.slice(
+      issueDetail.indexOf("constISSUE_RESOLVE_TIMEOUT_MS"),
+      issueDetail.indexOf("//Filterhelpersusedwhenrefreshinglabels"),
+    )
+
+    expect(issueDetail).toContain('constissueId=$derived($page.params.issueid??"")')
+    expect(issueResolution).toContain("timeout:ISSUE_RESOLVE_TIMEOUT_MS")
+    expect(issueResolution).toContain("signal:controller.signal")
+    expect(issueResolution).not.toContain(".finally(")
+    expect(issueDetail).toContain("RepositoryRelaysUnavailable")
+
+    expect(prDetail).toContain("timeout:LOAD_TIMEOUT_MS")
+    expect(prDetail).toContain(
+      "awaitloadDetail({relays,filters:[{ids:[rootId]}],signal:controller.signal})",
+    )
+    expect(prDetail).toContain("resolveController?.abort()")
+    expect(prDetail).toContain("RepositoryRelaysUnavailable")
+  })
+
+  it("keeps issue and pull request list empty states behind a cold-start deadline", () => {
+    for (const path of [
+      "../../routes/git/[id=naddr]/issues/+page.svelte",
+      "../../routes/git/[id=naddr]/prs/+page.svelte",
+    ]) {
+      const source = dense(readProjectFile(path))
+
+      expect(source).toContain("constLIST_RESOLVE_TIMEOUT_MS=15_000")
+      expect(source).toContain('status:"loading"')
+      expect(source).toContain("},LIST_RESOLVE_TIMEOUT_MS)")
+      expect(source.indexOf("{#ifloading}")).toBeLessThan(source.indexOf("found."))
+    }
+  })
+
   it("partitions owned repository state loads without Git relay fallback", () => {
     const layout = dense(readProjectFile("../../routes/git/[id=naddr]/+layout.svelte"))
     const ownedStateLoad = layout.slice(
