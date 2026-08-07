@@ -49,8 +49,10 @@ describe("strict community publication source contracts", () => {
     const threadActions = readProjectFile("../components/ThreadActions.svelte")
     const calendarActions = readProjectFile("../components/CalendarEventActions.svelte")
 
-    expect(eventMenu).toContain("pushModal(Report, {url, event, relays})")
-    expect(eventMenu).toContain("pushModal(EventDeleteConfirm, {url, event, noun, relays})")
+    expect(eventMenu).toContain("pushModal(Report, {url, event, relays, repoAddress})")
+    expect(eventMenu).toContain(
+      "pushModal(EventDeleteConfirm, {url, event, noun, relays, repoAddress})",
+    )
     expect(report).toContain("const publishRelays = normalizeRelays(relays)")
     expect(threadActions).toContain("publishSocialDelete({url, relays: actionRelays, event})")
     expect(calendarActions).toContain("publishSocialDelete({url, relays: actionRelays, event})")

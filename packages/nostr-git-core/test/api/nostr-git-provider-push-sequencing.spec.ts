@@ -44,7 +44,8 @@ describe('NostrGitProvider push sequencing with GRASP + Blossom', () => {
       repoAddr: '31990:npub1test:test-repo',
       blossomMirror: true,
       publishRepoStateFromLocal: true,
-      ownerPubkey: 'npub1test'
+      ownerPubkey: 'npub1test',
+      repoRelays: ['wss://relay.example']
     };
 
     const res = await provider.push(options);

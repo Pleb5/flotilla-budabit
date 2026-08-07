@@ -295,6 +295,7 @@ describe("NostrGitProvider blossomMirror integration", () => {
       blossomMirror: true,
       publishRepoStateFromLocal: true,
       ownerPubkey: "npub1test",
+      repoRelays: ["wss://relay.example"],
     }
 
     await provider.push(pushOptions)

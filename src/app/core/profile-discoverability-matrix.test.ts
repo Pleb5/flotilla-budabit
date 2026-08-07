@@ -69,7 +69,7 @@ describe("profile discoverability test matrix", () => {
     expect(gitCommandsTests).toContain("publishes statuses only to provided repo relays")
     expect(communityGitPage).toContain("getRepoAnnouncementPublishRelays")
     expect(communityGitPage).toContain("relays:announcementRelays,event:repoEvent")
-    expect(gitPage).toContain("constdefaultRepoRelays=$state<string[]>([...GIT_RELAYS])")
+    expect(gitPage).toContain("constdefaultRepoRelays=$state<string[]>([])")
     expect(repoLayout).not.toContain("repoRelays.length>0?repoRelays:GIT_RELAYS")
   })
 
