@@ -154,8 +154,11 @@ export function buildRepoEvents(
     distinctUntilChanged(sameRelaySet),
   );
 
+  // Show current user's runs in history.
+  const runAuthors = viewerPubkey ? [...new Set([...authors, viewerPubkey])] : authors;
+
   return relays$.pipe(
-    switchMap(activeRelays => buildRepoEventGraph(repoAddress, activeRelays, authors)),
+    switchMap(activeRelays => buildRepoEventGraph(repoAddress, activeRelays, runAuthors)),
   );
 }
 
