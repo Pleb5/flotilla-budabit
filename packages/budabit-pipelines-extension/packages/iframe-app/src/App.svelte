@@ -1089,7 +1089,9 @@
     })
 
     // Worker discovery — kind 10100 stream, deduped by pubkey, latest wins.
-    const workersSub = workers$(repoWorkerRelays(repo)).subscribe(list => {
+    // The viewer pubkey lets the stream resolve advertised freelists and flag
+    // workers that run jobs for this user without payment.
+    const workersSub = workers$(repoWorkerRelays(repo), viewerPubkey).subscribe(list => {
       discoveredWorkers = list
     })
 

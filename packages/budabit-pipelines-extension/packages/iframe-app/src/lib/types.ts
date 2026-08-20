@@ -89,6 +89,17 @@ export interface LoomWorker {
   maxDuration?: number;
   maxConcurrentJobs?: number;
   currentQueueDepth?: number;
+  /**
+   * Address of the worker's advertised NIP-51 freelist event
+   * (naddr / nevent / kind:pubkey[:d_tag]), when the operator opted into
+   * publishing it (`freelist_event` tag / content field on the kind:10100 ad).
+   */
+  freelistEventAddress?: string;
+  /**
+   * True when the current user's pubkey is on this worker's freelist — runs
+   * execute without payment. Resolved live from the freelist event.
+   */
+  freeForUser?: boolean;
   online: boolean;
   lastSeen: number;
 }

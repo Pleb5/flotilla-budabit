@@ -147,15 +147,18 @@
     rerunDraft.envVars = next.length > 0 ? next : [{key: '', value: ''}]
   }
 
-  // Ranking for worker cards: online > price (cheaper first) > queue depth
+  // Ranking for worker cards: free for the current user (advertised freelist
+  // membership) > online > price (cheaper first) > queue depth
   const rankedWorkers = $derived.by(() => {
     if (!discoveredWorkers || discoveredWorkers.length === 0) return []
+    const free = (w: LoomWorker) => (w.freeForUser ? 0 : 1)
     const rate = (w: LoomWorker) => w.pricing?.perSecondRate ?? Number.POSITIVE_INFINITY
     const minDur = (w: LoomWorker) => w.minDuration ?? 0
     const queue = (w: LoomWorker) => w.currentQueueDepth ?? 0
     const online = (w: LoomWorker) => (w.online ? 0 : 1)
     const minCostOf = (w: LoomWorker) => rate(w) * minDur(w)
     return [...discoveredWorkers].sort((a, b) => {
+      if (free(a) !== free(b)) return free(a) - free(b)
       if (online(a) !== online(b)) return online(a) - online(b)
       if (minCostOf(a) !== minCostOf(b)) return minCostOf(a) - minCostOf(b)
       return queue(a) - queue(b)
@@ -182,15 +185,39 @@
     return min
   })
 
-  // Auto-select the top-ranked online worker when nothing valid is picked yet.
+  // Auto-select the top-ranked online worker. Until the user clicks a worker
+  // explicitly, a worker whose freelist membership resolves asynchronously
+  // (and is therefore free for the user) is promoted over the auto-picked
+  // paid worker. A deliberate user pick is never stomped — only replaced if
+  // it vanishes from the list.
+  let userPickedWorker = $state(false)
   $effect(() => {
     if (!rankedWorkers || rankedWorkers.length === 0) return
     const current = rankedWorkers.find(w => w.pubkey === rerunDraft.workerPubkey)
-    if (current) return
-    const pick = rankedWorkers.find(w => w.online) || rankedWorkers[0]
+    if (userPickedWorker && current) return
+    const freePick = rankedWorkers.find(w => w.online && w.freeForUser)
+    const pick = freePick ?? (current ? undefined : rankedWorkers.find(w => w.online) || rankedWorkers[0])
     if (pick && pick.pubkey !== rerunDraft.workerPubkey) {
       rerunDraft.workerPubkey = pick.pubkey
     }
+  })
+
+  // Keep "run unpaid" in sync with the selected worker's freelist status:
+  // selecting a free worker ticks it, selecting a paid-only worker unticks it
+  // — whether the selection comes from the initial auto-pick, the async
+  // freelist resolution, or a manual click. Keyed on worker pubkey + free
+  // status so re-emitted worker ads (new object identities) don't re-fire it,
+  // and a deliberate manual tick/untick afterwards is preserved. (Manually
+  // ticking a paid worker stays possible for off-band allowlisting, e.g. the
+  // worker's ALLOW_UNPAID_PUBKEYS.)
+  let unpaidSyncedFor = $state('')
+  $effect(() => {
+    const key = selectedWorker
+      ? `${selectedWorker.pubkey}|${selectedWorker.freeForUser ? 'free' : 'paid'}`
+      : ''
+    if (!key || unpaidSyncedFor === key) return
+    unpaidSyncedFor = key
+    unpaidRun = !!selectedWorker?.freeForUser
   })
 
   const stripScheme = (url: string) => (url || '').replace(/^https?:\/\//i, '').replace(/\/$/, '')
@@ -315,12 +342,15 @@
             {@const isSelected = rerunDraft.workerPubkey === worker.pubkey}
             <button
               class="rounded-md border p-3 text-left text-sm {isSelected ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
-              onclick={() => (rerunDraft.workerPubkey = worker.pubkey)}>
+              onclick={() => { userPickedWorker = true; rerunDraft.workerPubkey = worker.pubkey }}>
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="h-2 w-2 shrink-0 rounded-full {worker.online ? 'bg-green-400' : 'bg-zinc-500'}" title={worker.online ? 'Online' : 'Offline'}></span>
                     <span class="truncate font-medium">{worker.name}</span>
+                    {#if worker.freeForUser}
+                      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">free</span>
+                    {/if}
                     {#if workerMinCost > 0 && workerMinCost === cheapestMinCost && rankedWorkers.length > 1}
                       <span class="rounded-full border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-300">cheapest</span>
                     {/if}
