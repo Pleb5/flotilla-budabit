@@ -296,11 +296,12 @@
   // redeemed by this client, the reclaim log holds the amount actually
   // credited to the wallet (net of the mint's redemption fee) — display that
   // instead of the token's face value, blending the fee into the worker's
-  // effective cost. Falls back to the face value until/unless redeemed here.
+  // effective cost. The same applies when the job was refunded in full (the
+  // original payment token reclaimed, kind 'original'): the refunded amount
+  // counts as change, bringing the effective cost to ~0.
+  // Falls back to the face value until/unless redeemed here.
   const effectiveChange = $derived(
-    selectedReclaim?.kind === 'change' &&
-      selectedReclaim.status === 'redeemed' &&
-      typeof selectedReclaim.amount === 'number'
+    selectedReclaim?.status === 'redeemed' && typeof selectedReclaim.amount === 'number'
       ? selectedReclaim.amount
       : changeAmount
   )
