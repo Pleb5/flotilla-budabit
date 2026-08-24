@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {Lock} from '@lucide/svelte'
   import {isFreeWorker} from '../submission'
   import type {LoomWorker, RerunDraft, WorkflowDefinition} from '../types'
 
@@ -244,6 +245,20 @@
     return `${seconds}s`
   }
 
+  // Composite "1h 30m"-style formatter for the fixed freelist-timeout display —
+  // formatDuration above collapses to a single unit ("1.5h").
+  const formatFixedDuration = (seconds: number) => {
+    const total = Math.max(0, Math.floor(seconds))
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    const s = total % 60
+    const parts: string[] = []
+    if (h > 0) parts.push(`${h}h`)
+    if (m > 0) parts.push(`${m}m`)
+    if (s > 0) parts.push(`${s}s`)
+    return parts.length > 0 ? parts.join(' ') : '0s'
+  }
+
   // Hours / minutes / seconds breakdown for the custom-duration input. Edits to
   // any field recompose maxDuration in seconds; we only resync the local fields
   // from `maxDuration` when the change came from outside (preset buttons, parent
@@ -440,42 +455,53 @@
     <!-- Max duration -->
     <div class="space-y-2">
       <span class="text-xs text-muted-foreground">Max duration</span>
-      <div class="flex flex-wrap gap-2">
-        {#each durationPresets as preset}
-          {@const belowMin = preset.seconds < customMinSeconds}
-          <button
-            class="rounded-md border px-3 py-1.5 text-sm {maxDuration === preset.seconds && !showCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'} {belowMin ? 'cursor-not-allowed opacity-40' : ''}"
-            disabled={belowMin}
-            title={belowMin ? `Worker requires at least ${formatDuration(customMinSeconds)}` : ''}
-            onclick={() => { showCustomDuration = false; maxDuration = preset.seconds }}>
-            {preset.label}
-          </button>
-        {/each}
-        <button
-          class="rounded-md border px-3 py-1.5 text-sm {isCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
-          onclick={() => (showCustomDuration = !showCustomDuration || !isCustomDuration)}>
-          Custom
-        </button>
-      </div>
-      {#if isCustomDuration}
-        <div class="flex flex-wrap items-center gap-2 text-sm">
-          <label class="flex items-center gap-1">
-            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" step="1" bind:value={customHours} oninput={setCustomDuration} onchange={setCustomDuration} />
-            <span class="text-xs text-muted-foreground">h</span>
-          </label>
-          <label class="flex items-center gap-1">
-            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customMinutes} oninput={setCustomDuration} onchange={setCustomDuration} />
-            <span class="text-xs text-muted-foreground">m</span>
-          </label>
-          <label class="flex items-center gap-1">
-            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customSeconds} oninput={setCustomDuration} onchange={setCustomDuration} />
-            <span class="text-xs text-muted-foreground">s</span>
-          </label>
-          <span class="text-xs text-muted-foreground">= {maxDuration}s</span>
+      {#if unpaidRun && selectedWorker?.freelistTimeout}
+        <!-- Free runs are capped at the worker's freelist timeout — show it as
+             a fixed value instead of the duration selector. -->
+        <div
+          class="flex w-fit cursor-not-allowed items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground"
+          title="Free runs are capped at the worker's freelist timeout">
+          <Lock class="h-3.5 w-3.5" />
+          {formatFixedDuration(selectedWorker.freelistTimeout)}
         </div>
-      {/if}
-      {#if minDurationSeconds && minDurationSeconds > 0}
-        <p class="text-[11px] text-muted-foreground">Worker minimum: {formatDuration(minDurationSeconds)}</p>
+      {:else}
+        <div class="flex flex-wrap gap-2">
+          {#each durationPresets as preset}
+            {@const belowMin = preset.seconds < customMinSeconds}
+            <button
+              class="rounded-md border px-3 py-1.5 text-sm {maxDuration === preset.seconds && !showCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'} {belowMin ? 'cursor-not-allowed opacity-40' : ''}"
+              disabled={belowMin}
+              title={belowMin ? `Worker requires at least ${formatDuration(customMinSeconds)}` : ''}
+              onclick={() => { showCustomDuration = false; maxDuration = preset.seconds }}>
+              {preset.label}
+            </button>
+          {/each}
+          <button
+            class="rounded-md border px-3 py-1.5 text-sm {isCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
+            onclick={() => (showCustomDuration = !showCustomDuration || !isCustomDuration)}>
+            Custom
+          </button>
+        </div>
+        {#if isCustomDuration}
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <label class="flex items-center gap-1">
+              <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" step="1" bind:value={customHours} oninput={setCustomDuration} onchange={setCustomDuration} />
+              <span class="text-xs text-muted-foreground">h</span>
+            </label>
+            <label class="flex items-center gap-1">
+              <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customMinutes} oninput={setCustomDuration} onchange={setCustomDuration} />
+              <span class="text-xs text-muted-foreground">m</span>
+            </label>
+            <label class="flex items-center gap-1">
+              <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customSeconds} oninput={setCustomDuration} onchange={setCustomDuration} />
+              <span class="text-xs text-muted-foreground">s</span>
+            </label>
+            <span class="text-xs text-muted-foreground">= {maxDuration}s</span>
+          </div>
+        {/if}
+        {#if isCustomDuration && minDurationSeconds && minDurationSeconds > 0}
+          <p class="text-[11px] text-muted-foreground">Worker minimum: {formatDuration(minDurationSeconds)}</p>
+        {/if}
       {/if}
     </div>
 

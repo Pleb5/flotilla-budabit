@@ -349,6 +349,7 @@ export function parseLoomWorker(event: NostrEvent): LoomWorker | null {
       currentQueueDepth:
         Number.parseInt(String(content.current_queue_depth || ''), 10) || undefined,
       freelistEventAddress: freelistAddressFromEvent(event),
+      freelistTimeout: Number.parseInt(eventTagValue(event, 'freelist_timeout') || '', 10) || undefined,
       online: Date.now() - event.created_at * 1000 < 5 * 60 * 1000,
       lastSeen: event.created_at,
     };

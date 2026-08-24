@@ -96,6 +96,12 @@ export interface LoomWorker {
    */
   freelistEventAddress?: string;
   /**
+   * Max runtime (seconds) the worker allows for free jobs — the
+   * `freelist_timeout` tag on its kind:10100 ad, present when the operator
+   * enabled the freelist. Free jobs carry no payment, so this caps them.
+   */
+  freelistTimeout?: number;
+  /**
    * True when the current user's pubkey is on this worker's freelist — runs
    * execute without payment. Resolved live from the freelist event.
    */
