@@ -119,7 +119,7 @@
       <summary class="flex cursor-pointer select-none list-none items-center justify-between gap-2">
         <span class="text-xs font-semibold text-muted-foreground">Total cost</span>
         <span class="flex items-center gap-2">
-          <span class="font-mono font-semibold">{fmt(actualCost)}</span>
+          <span class="font-mono font-semibold group-open:hidden">{fmt(actualCost)}</span>
           <ChevronDown class="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
         </span>
       </summary>
