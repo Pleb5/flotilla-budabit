@@ -46,6 +46,16 @@ export function eventTagValue(
 }
 
 /**
+ * A run is free when its loom job (kind 5100) carries no payment tag —
+ * freelist and no-pricing submissions omit it by design. Returns false while
+ * the job event hasn't loaded (loomJobEvent undefined), so callers show the
+ * usual placeholder until we can tell.
+ */
+export function isFreeRun(run: WorkflowRun): boolean {
+  return !!run.loomJobEvent && !eventTagValue(run.loomJobEvent, 'payment');
+}
+
+/**
  * Acceptable `#a` coordinates for a repo. Workflow runs reference the repo by
  * either its kind:30617 (announcement) or kind:30618 (repo-state) address —
  * older Hive CI runs used 30618, newer ones use 30617 — so we match both for

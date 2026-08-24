@@ -17,6 +17,7 @@
   import {
     eventTagValue,
     externalUrlForEvent,
+    isFreeRun,
     mergeEventIntoDetail,
     publicLinkForRun,
     statusLabel,
@@ -1789,7 +1790,11 @@
                   <div class="space-y-1">
                     <div class="text-xs text-muted-foreground">Total cost</div>
                     <div class="text-sm font-medium">
-                      {actualCost !== null ? `${actualCost.toLocaleString()} sats` : '—'}
+                      {#if isFreeRun(run)}
+                        <span class="text-green-400">free</span>
+                      {:else}
+                        {actualCost !== null ? `${actualCost.toLocaleString()} sats` : '—'}
+                      {/if}
                     </div>
                   </div>
                 </div>

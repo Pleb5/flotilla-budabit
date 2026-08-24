@@ -1,7 +1,7 @@
 <script lang="ts">
   import {ChevronDown, Copy, ExternalLink, GitBranch, GitCommit, Server} from '@lucide/svelte'
   import {shortId} from '../presentation'
-  import {publicLinkForRun} from '../workflows'
+  import {isFreeRun, publicLinkForRun} from '../workflows'
   import ReclaimBadge from './ReclaimBadge.svelte'
   import type {WorkflowRun, LoomWorker, ReclaimUiState} from '../types'
 
@@ -119,7 +119,11 @@
       <summary class="flex cursor-pointer select-none list-none items-center justify-between gap-2">
         <span class="text-xs font-semibold text-muted-foreground">Total cost</span>
         <span class="flex items-center gap-2">
-          <span class="font-mono font-semibold group-open:hidden">{fmt(actualCost)}</span>
+          {#if isFreeRun(run)}
+            <span class="font-mono font-semibold text-green-400 group-open:hidden">free</span>
+          {:else}
+            <span class="font-mono font-semibold text-foreground group-open:hidden">{fmt(actualCost)}</span>
+          {/if}
           <ChevronDown class="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
         </span>
       </summary>
@@ -137,7 +141,11 @@
 
         <div class="flex items-center justify-between border-t border-border pt-2 text-sm">
           <span class="font-medium">Total cost</span>
-          <span class="font-mono font-semibold text-foreground">{fmt(actualCost)}</span>
+          {#if isFreeRun(run)}
+            <span class="font-mono font-semibold text-green-400">free</span>
+          {:else}
+            <span class="font-mono font-semibold text-foreground">{fmt(actualCost)}</span>
+          {/if}
         </div>
       </div>
     </details>
