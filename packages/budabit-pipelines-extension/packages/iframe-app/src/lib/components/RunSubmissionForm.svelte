@@ -281,18 +281,6 @@
     lastSyncedFromMaxDuration = clamped
     maxDuration = clamped
   }
-
-  const formatLastSeen = (ts?: number) => {
-    if (!ts) return ''
-    const sec = Math.max(0, Math.floor((Date.now() - ts * 1000) / 1000))
-    if (sec < 60) return `${sec}s ago`
-    const m = Math.floor(sec / 60)
-    if (m < 60) return `${m}m ago`
-    const h = Math.floor(m / 60)
-    if (h < 48) return `${h}h ago`
-    const d = Math.floor(h / 24)
-    return `${d}d ago`
-  }
 </script>
 
 <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -380,9 +368,6 @@
                     <span>{isFreeWorker(worker) ? 'no pricing' : `${rate || '?'} ${worker.pricing?.unit || 'sat'}/s`}</span>
                     <span>queue {queue}{worker.maxConcurrentJobs ? `/${worker.maxConcurrentJobs}` : ''}</span>
                     <span>{worker.architecture || 'unknown arch'}</span>
-                    {#if worker.lastSeen}
-                      <span>seen {formatLastSeen(worker.lastSeen)}</span>
-                    {/if}
                   </div>
                 </div>
               </div>
