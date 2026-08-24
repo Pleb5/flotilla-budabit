@@ -563,10 +563,13 @@
             <span class="text-xs">
               <span class="font-medium">Run unpaid</span>
               <span class="block text-[11px] text-muted-foreground">
-                Submit without payment. Only works if this worker's operator has
-                allowlisted your pubkey for unpaid usage — otherwise the job is
-                ignored by the worker.
+                Submit without payment.
               </span>
+              {#if unpaidRun && !selectedWorker.freelistEventAddress}
+                <span class="mt-1 block text-[11px] text-yellow-300">
+                  Works only if the freelist is not advertised publicly and you are on it.
+                </span>
+              {/if}
             </span>
           </label>
         {/if}
