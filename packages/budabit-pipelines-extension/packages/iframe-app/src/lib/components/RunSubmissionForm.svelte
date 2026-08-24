@@ -429,35 +429,6 @@
   </div>
 
   <aside class="space-y-3 rounded-lg border border-border bg-card p-4 xl:sticky xl:top-4 xl:self-start">
-    <!-- Mint -->
-    <div class="space-y-1">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-muted-foreground">Mint</span>
-        {#if walletAvailable}
-          <button class="text-xs text-primary hover:underline" onclick={onRefreshWallet}>{walletLoading ? '…' : 'refresh'}</button>
-        {/if}
-      </div>
-      {#if visibleMintOptions.length > 1}
-        <select
-          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          bind:value={selectedMint}
-          disabled={!walletAvailable || walletLoading}>
-          {#each visibleMintOptions as mint}
-            <option value={mint}>{stripScheme(mint)} · {(walletBalancesByMint[mint] || 0).toLocaleString()} sats</option>
-          {/each}
-        </select>
-      {:else if selectedMint}
-        <div class="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm">
-          <span class="truncate" title={selectedMint}>{stripScheme(selectedMint)}</span>
-          <span class="shrink-0 font-medium">{selectedMintBalance.toLocaleString()} sats</span>
-        </div>
-      {:else}
-        <div class="rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
-          {walletError ? `Wallet unavailable: ${walletError}` : 'No mint available'}
-        </div>
-      {/if}
-    </div>
-
     <!-- Worker -->
     <div class="space-y-1">
       <span class="text-xs text-muted-foreground">Worker</span>
@@ -529,6 +500,37 @@
             ? `${selectedWorker.pricing.perSecondRate} ${selectedWorker.pricing.unit || 'sat'}/s × ${formatDuration(maxDuration)}`
             : 'Pick a worker to compute prepayment'}
         </p>
+        <!-- Mint (dimmed with the rest of the payment UI when running unpaid) -->
+        <div class="mt-3 space-y-1 {unpaidRun ? 'opacity-40' : ''}">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-muted-foreground">Mint</span>
+            {#if walletAvailable}
+              <button
+                class="text-xs {unpaidRun ? 'cursor-default text-muted-foreground' : 'text-primary hover:underline'}"
+                disabled={unpaidRun}
+                onclick={onRefreshWallet}>{walletLoading ? '…' : 'refresh'}</button>
+            {/if}
+          </div>
+          {#if visibleMintOptions.length > 1}
+            <select
+              class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              bind:value={selectedMint}
+              disabled={!walletAvailable || walletLoading || unpaidRun}>
+              {#each visibleMintOptions as mint}
+                <option value={mint}>{stripScheme(mint)} · {(walletBalancesByMint[mint] || 0).toLocaleString()} sats</option>
+              {/each}
+            </select>
+          {:else if selectedMint}
+            <div class="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm">
+              <span class="truncate" title={selectedMint}>{stripScheme(selectedMint)}</span>
+              <span class="shrink-0 font-medium">{selectedMintBalance.toLocaleString()} sats</span>
+            </div>
+          {:else}
+            <div class="rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
+              {walletError ? `Wallet unavailable: ${walletError}` : 'No mint available'}
+            </div>
+          {/if}
+        </div>
         {#if selectedWorker}
           <label class="mt-3 flex cursor-pointer items-start gap-2">
             <input type="checkbox" class="mt-0.5" bind:checked={unpaidRun} />
