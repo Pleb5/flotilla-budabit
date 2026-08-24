@@ -16,6 +16,6 @@
   "slot": {
     "type": "repo-tab",
     "label": "Workflows",
-    "path": "pipelines"
+    "path": "workflows"
   }
 }
