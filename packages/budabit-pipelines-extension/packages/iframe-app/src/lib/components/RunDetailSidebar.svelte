@@ -32,7 +32,7 @@
   }: Props = $props()
 
   const fmt = (n: number | null | undefined, sign: '' | '+' | '−' = '') =>
-    n === null || n === undefined ? '—' : `${sign}₿ ${n.toLocaleString()}`
+    n === null || n === undefined ? '—' : `${sign}${n.toLocaleString()} sats`
 
   const plain = (n: number | null | undefined, sign: '' | '+' | '−' = '') =>
     n === null || n === undefined ? '—' : `${sign}${n.toLocaleString()}`

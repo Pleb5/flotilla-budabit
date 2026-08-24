@@ -45,7 +45,7 @@
   )
 
   const amountText = $derived(
-    typeof amount === 'number' ? `₿ ${amount.toLocaleString()}` : null
+    typeof amount === 'number' ? `${amount.toLocaleString()} sats` : null
   )
 
   const labelPrefix = $derived(kind === 'change' ? 'Change' : 'Refund')

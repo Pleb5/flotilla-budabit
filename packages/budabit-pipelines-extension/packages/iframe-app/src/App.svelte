@@ -1776,7 +1776,7 @@
                   <div class="space-y-1">
                     <div class="text-xs text-muted-foreground">Total cost</div>
                     <div class="text-sm font-medium">
-                      {actualCost !== null ? `₿ ${actualCost.toLocaleString()}` : '—'}
+                      {actualCost !== null ? `${actualCost.toLocaleString()} sats` : '—'}
                     </div>
                   </div>
                 </div>
