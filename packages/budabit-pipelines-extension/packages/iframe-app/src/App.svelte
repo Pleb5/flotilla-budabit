@@ -247,7 +247,6 @@
   const parsedActJobs = $derived(parseActLog(actLogContent))
   const actJobByName = $derived(new Map(parsedActJobs.map(job => [job.name.toLowerCase(), job])))
   const jobGroups = $derived(getJobGroups(workflowJobs))
-  const actualCost = $derived(prepaidAmount !== null ? prepaidAmount - (changeAmount ?? 0) : null)
 
   // ─── Reclaim derivation + handlers ──────────────────────────────────────
   // Per-run UI state. Computed from the persisted redeemed log + transient
@@ -291,6 +290,20 @@
   const selectedReclaim = $derived(
     selectedRunDetail ? (reclaimByRunId[selectedRunDetail.run.id] ?? null) : null
   )
+
+  // Change shown in the cost breakdown: once the change token has been
+  // redeemed by this client, the reclaim log holds the amount actually
+  // credited to the wallet (net of the mint's redemption fee) — display that
+  // instead of the token's face value, blending the fee into the worker's
+  // effective cost. Falls back to the face value until/unless redeemed here.
+  const effectiveChange = $derived(
+    selectedReclaim?.kind === 'change' &&
+      selectedReclaim.status === 'redeemed' &&
+      typeof selectedReclaim.amount === 'number'
+      ? selectedReclaim.amount
+      : changeAmount
+  )
+  const actualCost = $derived(prepaidAmount !== null ? prepaidAmount - (effectiveChange ?? 0) : null)
 
   async function attemptReclaim(runId: string): Promise<void> {
     if (!bridge) return
@@ -1896,7 +1909,7 @@
                 {run}
                 worker={selectedRunDetail.worker}
                 {prepaidAmount}
-                {changeAmount}
+                changeAmount={effectiveChange}
                 {actualCost}
                 reclaim={selectedReclaim}
                 onReclaim={() => void attemptReclaim(run.id)}

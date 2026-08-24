@@ -11,8 +11,6 @@
     prepaidAmount: number | null
     changeAmount: number | null
     actualCost: number | null
-    prepaymentFee?: number | null
-    changeFee?: number | null
     reclaim?: ReclaimUiState | null
     copyText: (value: string | undefined, label: string) => void | Promise<void>
     onReclaim?: () => void
@@ -24,8 +22,6 @@
     prepaidAmount,
     changeAmount,
     actualCost,
-    prepaymentFee = 0,
-    changeFee = 0,
     reclaim = null,
     copyText,
     onReclaim,
@@ -133,18 +129,10 @@
           <span class="text-muted-foreground">Prepayment</span>
           <span class="font-mono text-red-400">{plain(prepaidAmount, '−')}</span>
         </div>
-        <div class="flex items-center justify-between pl-3 text-[11px]">
-          <span class="text-muted-foreground/80">Prepayment fees</span>
-          <span class="font-mono text-red-400/80">{plain(prepaymentFee ?? 0, '−')}</span>
-        </div>
 
         <div class="flex items-center justify-between text-xs">
           <span class="text-muted-foreground">Change</span>
           <span class="font-mono text-green-400">{plain(changeAmount, '+')}</span>
-        </div>
-        <div class="flex items-center justify-between pl-3 text-[11px]">
-          <span class="text-muted-foreground/80">Change fees</span>
-          <span class="font-mono text-red-400/80">{plain(changeFee ?? 0, '−')}</span>
         </div>
 
         <div class="flex items-center justify-between border-t border-border pt-2 text-sm">
