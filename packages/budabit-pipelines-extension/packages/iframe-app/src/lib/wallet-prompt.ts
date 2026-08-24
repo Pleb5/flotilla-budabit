@@ -11,6 +11,11 @@ export interface WalletPromptState {
 /**
  * Picks a sensible mint for the selected worker. Payment amount is owned
  * by the form's number input and is not touched here.
+ *
+ * A current selection that is still valid for the worker (i.e. in
+ * compatibleMints) is preserved — a deliberate user pick sticks. The
+ * best-balance compatible mint is only filled in when nothing valid is
+ * selected (initial state, or the worker changed and no longer accepts it).
  */
 export function reconcileWalletSelection(args: {
   selectedWorker: LoomWorker | null;
@@ -20,6 +25,8 @@ export function reconcileWalletSelection(args: {
 }) {
   const { selectedWorker, compatibleMints, walletBalancesByMint, selectedMint } = args;
   if (!selectedWorker) return { selectedMint };
+
+  if (selectedMint && compatibleMints.includes(selectedMint)) return { selectedMint };
 
   const bestCompatibleMint = getBestCompatibleMint(compatibleMints, walletBalancesByMint);
   const nextSelectedMint =

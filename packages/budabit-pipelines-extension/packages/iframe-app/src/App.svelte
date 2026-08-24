@@ -1040,9 +1040,14 @@
     writeRunIdToUrl(selectedRunId)
   })
 
+  // Refresh the wallet once when the bridge becomes ready. untrack(): the
+  // refresh reads selectedMint in its sync prelude — without untracking, the
+  // effect would subscribe to selectedMint and every mint pick would trigger
+  // a refresh, whose applyWalletState write-back fights reconcileWalletSelection
+  // and loops forever (flickering refresh button).
   $effect(() => {
     if (!bridge) return
-    void refreshWallet()
+    untrack(() => void refreshWallet())
   })
 
   // Set signer pubkey from host-provided user pubkey
