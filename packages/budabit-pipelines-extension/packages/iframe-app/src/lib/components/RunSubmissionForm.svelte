@@ -585,7 +585,7 @@
     {/if}
 
     <button
-      class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-green-500/40 bg-green-500/20 px-3 py-2.5 text-sm font-semibold text-green-100 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+      class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-green-500/40 bg-green-500/20 px-3 py-2.5 text-sm font-semibold text-green-30 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50"
       onclick={onSubmit}
       disabled={rerunSubmitting || generatingPaymentToken || !isFormValid}>
       <span class="{rerunSubmitting || generatingPaymentToken ? 'animate-pulse' : ''}">▶</span>
