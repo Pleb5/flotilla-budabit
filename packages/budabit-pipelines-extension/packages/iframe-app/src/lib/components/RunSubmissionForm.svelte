@@ -550,9 +550,9 @@
               <span class="block text-[11px] text-muted-foreground">
                 Submit without payment.
               </span>
-              {#if unpaidRun && !selectedWorker.freelistEventAddress}
-                <span class="mt-1 block text-[11px] text-yellow-300">
-                  Works only if the freelist is not advertised publicly and you are on it.
+              {#if unpaidRun && !selectedWorker.freeForUser}
+                <span class="mt-1 block text-[11px] text-red-300">
+                  You are not on the freelist of this worker.
                 </span>
               {/if}
             </span>
