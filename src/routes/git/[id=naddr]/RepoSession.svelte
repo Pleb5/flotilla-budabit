@@ -76,6 +76,7 @@
     CommentEvent,
     LabelEvent,
   } from "@nostr-git/core/events"
+  import {RepoCore} from "@nostr-git/core/git"
   import {
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
@@ -943,6 +944,10 @@
   const repoOwnerStore: Readable<string[]> = derived(activeRepoClass, $repo => {
     const owner = ($repo?.repoEvent as RepoAnnouncementEvent | undefined)?.pubkey || repoPubkey
     return owner ? [owner] : []
+  }) as Readable<string[]>
+  const repoStateAuthorsStore: Readable<string[]> = derived(activeRepoClass, $repo => {
+    const event = $repo?.repoEvent as RepoAnnouncementEvent | undefined
+    return event ? getRepoMaintainers(event) : repoPubkey ? [repoPubkey] : []
   }) as Readable<string[]>
   const repoAddressesStore: Readable<string[]> = derived(repoAddressStore, $repoAddress =>
     getRepoRenameAddresses($repoAddress),
@@ -2007,10 +2012,17 @@
     setActiveExactCommunityPointer(pointer)
     autoAppliedRepoCommunityAddress = pointer.address
   })
-  const repoStateEventsStore = deriveRepoStateEvents(repoName, repoOwnerStore)
+  const repoStateEventsStore = deriveRepoStateEvents(repoName, repoStateAuthorsStore)
   const repoStateEventStore: Readable<RepoStateEvent | undefined> = derived(
-    repoStateEventsStore,
-    $events => ($events.length > 0 ? $events[$events.length - 1] : undefined),
+    [repoStateEventsStore, repoEventStore],
+    ([$events, $repoEvent]) =>
+      RepoCore.selectAuthorizedRepoStateEvent(
+        {
+          repoEvent: $repoEvent,
+          repo: $repoEvent ? parseRepoAnnouncementEvent($repoEvent) : undefined,
+        },
+        $events,
+      ),
   )
   const repoHeaderKey = $derived.by(() => {
     const eventId = $repoEventStore?.id || "no-event"
@@ -2279,7 +2291,7 @@
     if (!$repoActivityHydrationReady) return
     const relays = $repoRelaysStore || []
     if (relays.length === 0) return
-    const owners = $repoOwnerStore || []
+    const owners = $repoStateAuthorsStore || []
     const ownerList = owners.length > 0 ? owners : [repoPubkey]
     const key = `${ownerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
     if (repoLoadKey === key) return
@@ -2317,7 +2329,7 @@
         if (currentRepoStateEvent) return
         const relaysRetry = getStore(repoRelaysStore)
         if (relaysRetry.length === 0) return
-        const ownersRetry = getStore(repoOwnerStore)
+        const ownersRetry = getStore(repoStateAuthorsStore)
         const ownerListRetry = ownersRetry && ownersRetry.length > 0 ? ownersRetry : [repoPubkey]
         if (!currentRepoStateEvent) {
           load({
@@ -2675,7 +2687,7 @@
     const activityRelays = normalizeRelayScopeValues(($repoRelaysStore || []).filter(Boolean))
     const liveActivityRelays = activityRelays.slice(0, 6)
     const addresses = normalizeScopeValues(($repoAddressesStore || []).filter(Boolean))
-    const owners = normalizeScopeValues(($repoOwnerStore || []).filter(Boolean))
+    const owners = normalizeScopeValues(($repoStateAuthorsStore || []).filter(Boolean))
     const viewer = $pubkey || ""
     const requestedRootId = $page.params.issueid || $page.params.prid || ""
     const exactRootId =

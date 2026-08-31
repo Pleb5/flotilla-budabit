@@ -54,11 +54,19 @@ function getOwnerPubkey(ctx: RepoContext): string {
   return (ctx.repoEvent?.pubkey || "").trim()
 }
 
+function getDirectMaintainers(ctx: RepoContext): string[] {
+  const parsed = ctx.repo?.maintainers || ctx.maintainers || []
+  const announced = (ctx.repoEvent?.tags || [])
+    .filter(tag => tag[0] === "maintainers")
+    .flatMap(tag => tag.slice(1))
+  return Array.from(new Set([...parsed, ...announced].map(value => value.trim()).filter(Boolean)))
+}
+
 function isTrusted(ctx: RepoContext, pubkey?: string): boolean {
   if (!pubkey) return false
   const owner = getOwnerPubkey(ctx)
   if (pubkey === owner) return true
-  return (ctx.maintainers || ctx.repo?.maintainers || []).includes(pubkey)
+  return getDirectMaintainers(ctx).includes(pubkey)
 }
 
 function toLabelSet(arr: string[] | undefined): Set<string> {
@@ -80,23 +88,32 @@ export class RepoCore {
   }
 
   static trustedMaintainers(ctx: RepoContext): string[] {
-    const out = new Set<string>(ctx.repo?.maintainers || ctx.maintainers || [])
+    const out = new Set<string>(getDirectMaintainers(ctx))
     const owner = getOwnerPubkey(ctx)
     if (owner) out.add(owner)
     return Array.from(out)
   }
 
-  static selectOwnerRepoStateEvent(
+  static selectAuthorizedRepoStateEvent(
     ctx: RepoContext,
     events: RepoStateEvent[] = [],
   ): RepoStateEvent | undefined {
     const owner = getOwnerPubkey(ctx)
     if (!owner) return undefined
 
-    const ownerEvents = events
-      .filter(event => event.pubkey === owner)
-      .sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
-    return ownerEvents[ownerEvents.length - 1]
+    const authorized = new Set([owner, ...getDirectMaintainers(ctx)])
+    const repoId = String(ctx.repo?.repoId || "").trim()
+
+    return events
+      .filter(event => authorized.has(event.pubkey))
+      .filter(
+        event =>
+          !repoId || (event.tags || []).some(tag => tag[0] === "d" && tag[1] === repoId),
+      )
+      .sort((a, b) => {
+        const byTime = (b.created_at || 0) - (a.created_at || 0)
+        return byTime !== 0 ? byTime : String(a.id || "").localeCompare(String(b.id || ""))
+      })[0]
   }
 
   static getRepoStateRefs(

@@ -190,12 +190,13 @@ describe("Repo core helpers", () => {
     expect(status?.by).toBe("author-z");
   });
 
-  it("uses only owner-authored repo state refs", async () => {
+  it("uses the latest state from the owner or a direct maintainer", async () => {
     const repoEv = mkRepoAnnouncement({ pubkey: "owner-abc", tags: [["d", "repo"]] });
     const state1 = mkRepoState({
       pubkey: "owner-abc",
       created_at: 1000,
       tags: [
+        ["d", "repo"],
         ["r", "refs/heads/main", "ref"],
         ["r", "1111111111111111111111111111111111111111", "commit"],
       ],
@@ -204,6 +205,7 @@ describe("Repo core helpers", () => {
       pubkey: "maint-1",
       created_at: 2000,
       tags: [
+        ["d", "repo"],
         ["r", "refs/heads/main", "ref"],
         ["r", "2222222222222222222222222222222222222222", "commit"],
       ],
@@ -212,10 +214,10 @@ describe("Repo core helpers", () => {
       repoEvent: repoEv,
       repo: { ...parseRepoAnnouncementEvent(repoEv as any), maintainers: ["maint-1"] } as any,
     });
-    const ownerState = RepoCore.selectOwnerRepoStateEvent(ctx, [state1, state2] as any);
+    const ownerState = RepoCore.selectAuthorizedRepoStateEvent(ctx, [state1, state2] as any);
     const refs = RepoCore.getRepoStateRefs(ownerState);
     const main = refs.get("heads:main");
-    expect(main?.commitId).toBe("1111111111111111111111111111111111111111");
+    expect(main?.commitId).toBe("2222222222222222222222222222222222222222");
   });
 
   it("resolves status with precedence and author/trust policy", async () => {

@@ -334,12 +334,6 @@ describe("worker.pushToRemote API", () => {
       repoRelays: [GRASP_RELAY],
     },
     {
-      name: "mismatched owner pubkey",
-      remoteUrl: GRASP_REMOTE_URL,
-      token: "b".repeat(64),
-      repoRelays: [GRASP_RELAY],
-    },
-    {
       name: "non-WSS target",
       remoteUrl: `http://relay.ngit.dev/${GRASP_OWNER_NPUB}/repo.git`,
       token: GRASP_OWNER_PUBKEY,
@@ -437,7 +431,7 @@ describe("worker.pushToRemote API", () => {
     )
   })
 
-  it("retries GRASP push once after missing-object repair fetch", async () => {
+  it("accepts a maintainer token for an owner-scoped GRASP push", async () => {
     const missingError = Object.assign(
       new Error("One or more branches were not updated: missing necessary objects"),
       {
@@ -479,7 +473,7 @@ describe("worker.pushToRemote API", () => {
       repoId: "owner/repo",
       remoteUrl: GRASP_REMOTE_URL,
       branch: "main",
-      token: GRASP_OWNER_PUBKEY,
+      token: "b".repeat(64),
       provider: "grasp",
       repoRelays: [GRASP_RELAY],
     })
@@ -494,6 +488,7 @@ describe("worker.pushToRemote API", () => {
       }),
     )
     expect(pushMock).toHaveBeenCalledTimes(2)
+    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({url: GRASP_REMOTE_URL}))
   })
 
   it("retries GRASP push once after empty receive-pack parse response", async () => {

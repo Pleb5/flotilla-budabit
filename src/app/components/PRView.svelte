@@ -2816,7 +2816,7 @@
       remoteUrl,
       branch,
       commitSha,
-      authorPubkey: repoOwnerPubkey,
+      stateAuthorPubkeys: repoMaintainers,
       fallbackRepoName: repoClass.name || "repo",
       fetchRelayEvents,
       onPublishEvent: publishRepoState,

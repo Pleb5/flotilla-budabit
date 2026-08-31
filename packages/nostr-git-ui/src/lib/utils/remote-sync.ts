@@ -1489,7 +1489,7 @@ export async function syncLocalRepoToTargets(
             relayUrl: target.relayUrl,
             repoName,
             fetchRelayEvents: options.onFetchRelayEvents,
-            authorPubkey: userPubkey,
+            authorPubkeys: [userPubkey],
           });
           if (!existingStateEvent && !createdRemote) {
             throw new Error("Existing GRASP repository state is unavailable");

@@ -9,7 +9,6 @@ import {
   parseGraspRepoHttpUrl,
 } from "../../utils/grasp-url.js"
 import {toHexPubkey} from "../../utils/nostr-pubkey.js"
-import {sanitizeRelays} from "../../utils/sanitize-relays.js"
 
 export interface SafePushOptions {
   repoId: string
@@ -32,6 +31,8 @@ export function validateExplicitGraspPush(options: {
   token?: string
   repoRelays?: string[]
 }): {pushUrl: string; repoRelays: string[]; targetRelay: string} {
+  const normalizeServiceRelay = (relay: string) =>
+    normalizeGraspServiceRelayUrl(relay).replace(/\/+(?=\?|$)/, "")
   const pushUrl = String(options.remoteUrl || "").trim()
   const parsed = parseGraspRepoHttpUrl(pushUrl)
   if (!parsed) {
@@ -67,7 +68,7 @@ export function validateExplicitGraspPush(options: {
     ) {
       throw new Error("GRASP repository relay scope must contain literal WS/WSS URLs")
     }
-    const normalized = sanitizeRelays([relay])[0]
+    const normalized = normalizeServiceRelay(relay)
     if (!normalized) {
       throw new Error("GRASP repository relay scope contains an invalid relay URL")
     }
@@ -77,7 +78,7 @@ export function validateExplicitGraspPush(options: {
     throw new Error("GRASP provider requires at least one explicit repository relay")
   }
 
-  const targetRelay = normalizeGraspServiceRelayUrl(parsed.httpBase)
+  const targetRelay = normalizeServiceRelay(parsed.httpBase)
   if (!targetRelay.startsWith("wss://")) {
     throw new Error(
       "GRASP provider requires an HTTPS repository URL with a corresponding WSS relay",
@@ -87,14 +88,10 @@ export function validateExplicitGraspPush(options: {
     throw new Error(`GRASP target relay ${targetRelay} is not in the repository relay scope`)
   }
 
-  let tokenPubkey: string
   try {
-    tokenPubkey = toHexPubkey(String(options.token || "").trim())
+    toHexPubkey(String(options.token || "").trim())
   } catch {
     throw new Error("GRASP provider requires a valid pubkey token")
-  }
-  if (tokenPubkey !== toHexPubkey(parsed.ownerNpub)) {
-    throw new Error("GRASP pubkey token must match the repository owner")
   }
 
   return {pushUrl: canonicalPushUrl, repoRelays, targetRelay}

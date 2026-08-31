@@ -147,7 +147,7 @@ export interface PublishGraspRepoStateForPushParams {
   remoteUrl: string;
   branch: string;
   commitSha: string;
-  authorPubkey: string;
+  stateAuthorPubkeys: string[];
   fallbackRepoName?: string;
   onPublishEvent: PublishRepoEvent;
   publishRelays: string[];
@@ -160,7 +160,7 @@ export interface FetchLatestGraspRepoStateParams {
   relayUrl: string;
   repoName: string;
   fetchRelayEvents?: FetchRelayEvents;
-  authorPubkey?: string;
+  authorPubkeys?: string[];
   timeoutMs?: number;
 }
 
@@ -1136,7 +1136,7 @@ export async function fetchLatestGraspRepoStateEvent({
   relayUrl,
   repoName,
   fetchRelayEvents,
-  authorPubkey,
+  authorPubkeys = [],
   timeoutMs = 2500,
 }: FetchLatestGraspRepoStateParams): Promise<NostrEvent | undefined> {
   if (!fetchRelayEvents) return undefined;
@@ -1148,8 +1148,9 @@ export async function fetchLatestGraspRepoStateEvent({
     limit: 20,
   };
 
-  if (authorPubkey) {
-    filter.authors = [authorPubkey];
+  const authorized = new Set(authorPubkeys.map((value) => value.trim()).filter(Boolean));
+  if (authorized.size > 0) {
+    filter.authors = Array.from(authorized);
   }
 
   const events = await fetchRelayEvents({
@@ -1160,7 +1161,7 @@ export async function fetchLatestGraspRepoStateEvent({
 
   return events
     .filter((event) => event?.kind === 30618)
-    .filter((event) => !authorPubkey || event.pubkey === authorPubkey)
+    .filter((event) => authorized.size === 0 || authorized.has(event.pubkey))
     .filter((event) =>
       Array.isArray(event.tags)
         ? event.tags.some((tag) => tag?.[0] === "d" && String(tag?.[1] || "") === repoName)
@@ -1421,7 +1422,7 @@ export async function publishGraspRepoStateForPush({
   remoteUrl,
   branch,
   commitSha,
-  authorPubkey,
+  stateAuthorPubkeys,
   fallbackRepoName = "",
   onPublishEvent,
   publishRelays,
@@ -1438,8 +1439,11 @@ export async function publishGraspRepoStateForPush({
   if (targetPublishRelays.length === 0) {
     throw new Error("GRASP state publication requires accepted repository relays");
   }
-  if (!authorPubkey.trim()) {
-    throw new Error("Existing GRASP state lookup requires the repository owner pubkey");
+  const authorizedStateAuthors = Array.from(
+    new Set(stateAuthorPubkeys.map((value) => value.trim()).filter(Boolean))
+  );
+  if (authorizedStateAuthors.length === 0) {
+    throw new Error("Existing GRASP state lookup requires authorized repository state authors");
   }
   const { relayUrl, repoName } = parseGraspPushTarget(remoteUrl, fallbackRepoName);
   let existingStateEvent: NostrEvent | undefined;
@@ -1449,7 +1453,7 @@ export async function publishGraspRepoStateForPush({
       relayUrl,
       repoName,
       fetchRelayEvents,
-      authorPubkey,
+      authorPubkeys: authorizedStateAuthors,
     });
   } catch (error) {
     throw new Error(`Failed to fetch existing GRASP state before push: ${errorMessage(error)}`);

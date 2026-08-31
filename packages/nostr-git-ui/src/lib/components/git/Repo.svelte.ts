@@ -266,7 +266,7 @@ export class Repo {
     this.invalidateBranchCache();
   }
 
-  #processOwnerRepoStateEvents(
+  #processAuthorizedRepoStateEvents(
     nextRepoStateEvents: RepoStateEvent[] | undefined,
     initialRepoEvent: RepoAnnouncementEvent | null
   ): void {
@@ -280,7 +280,7 @@ export class Repo {
 
     if (!this.getOwnerPubkey()) return;
 
-    const ownerStateEvent = RepoCore.selectOwnerRepoStateEvent(
+    const ownerStateEvent = RepoCore.selectAuthorizedRepoStateEvent(
       this.#coreCtx(),
       nextRepoStateEvents
     );
@@ -639,14 +639,14 @@ export class Repo {
 
           const pendingRepoStateEvent = this.#pendingRepoStateEvent;
           if (pendingRepoStateEvent) {
-            const owner = this.getOwnerPubkey();
+            const authorized = new Set(this.maintainers);
             this.#pendingRepoStateEvent = undefined;
-            if (owner && pendingRepoStateEvent.pubkey === owner) {
+            if (authorized.has(pendingRepoStateEvent.pubkey)) {
               this.#processRepoStateEvent(pendingRepoStateEvent, initialRepoEvent);
             }
           }
           if (this.#repoStateEventsArr !== undefined) {
-            this.#processOwnerRepoStateEvents(this.#repoStateEventsArr, initialRepoEvent);
+            this.#processAuthorizedRepoStateEvents(this.#repoStateEventsArr, initialRepoEvent);
           }
         }
       })
@@ -655,12 +655,12 @@ export class Repo {
     this.#trackStoreSubscription(
       repoStateEvent.subscribe((event) => {
         if (event) {
-          const owner = this.getOwnerPubkey();
-          if (!owner) {
+          const authorized = new Set(this.maintainers);
+          if (authorized.size === 0) {
             this.#pendingRepoStateEvent = event;
             return;
           }
-          if (event.pubkey !== owner) return;
+          if (!authorized.has(event.pubkey)) return;
 
           this.#pendingRepoStateEvent = undefined;
           this.#processRepoStateEvent(event, initialRepoEvent);
@@ -678,7 +678,7 @@ export class Repo {
           this.#repoStateEventsSignature = repoStateEventsSignature;
         }
 
-        this.#processOwnerRepoStateEvents(nextRepoStateEvents, initialRepoEvent);
+        this.#processAuthorizedRepoStateEvents(nextRepoStateEvents, initialRepoEvent);
       })
     );
     this.#trackStoreSubscription(
@@ -1040,7 +1040,7 @@ export class Repo {
     const fullRef = toFullRef(ref);
     // Prefer owner-authored repo-state refs if present
     if (this.#repoStateEventsArr && this.#repoStateEventsArr.length > 0) {
-      const ownerStateEvent = RepoCore.selectOwnerRepoStateEvent(
+      const ownerStateEvent = RepoCore.selectAuthorizedRepoStateEvent(
         this.#coreCtx(),
         this.#repoStateEventsArr
       );
@@ -1554,7 +1554,7 @@ export class Repo {
     // Prefer owner-authored repo-state refs when available.
     if (this.#repoStateEventsArr && this.#repoStateEventsArr.length > 0) {
       if (!this.#repoStateRefsCache) {
-        const ownerStateEvent = RepoCore.selectOwnerRepoStateEvent(
+        const ownerStateEvent = RepoCore.selectAuthorizedRepoStateEvent(
           this.#coreCtx(),
           this.#repoStateEventsArr
         );
@@ -2473,7 +2473,17 @@ export class Repo {
     remoteUrls?: string[];
     userPubkey?: string;
   }): Promise<PushFanoutResult> {
-    this.assertEditable("push changes");
+    const actor = String(params?.userPubkey || "").trim();
+    if (actor) {
+      if (!RepoCore.isTrusted(this.#coreCtx(), actor)) {
+        throw new UserActionableError(
+          "Cannot push: the current account is not a repository maintainer",
+          GitErrorCode.PERMISSION_DENIED
+        );
+      }
+    } else {
+      this.assertEditable("push changes");
+    }
 
     const repoId = this.key;
     if (!repoId) {

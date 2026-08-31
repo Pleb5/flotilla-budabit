@@ -839,14 +839,15 @@ describe("grasp-pipeline", () => {
       fetchLatestGraspRepoStateEvent({
         relayUrl: "wss://relay.ngit.dev/",
         repoName: "repo",
-        authorPubkey: "f".repeat(64),
+        authorPubkeys: ["f".repeat(64)],
         fetchRelayEvents: vi.fn().mockResolvedValue([makeState(higherId), makeState(lowerId)]),
       })
     ).resolves.toEqual(expect.objectContaining({ id: lowerId }));
   });
 
-  it("rejects foreign-author state events returned outside the requested filter", async () => {
+  it("selects owner or direct-maintainer state and rejects foreign relay results", async () => {
     const ownerPubkey = "a".repeat(64);
+    const maintainerPubkey = "b".repeat(64);
     const ownerState = {
       ...signedEvent(createRepoStateEvent({ repoId: "repo" }), "owner-state"),
       pubkey: ownerPubkey,
@@ -854,18 +855,33 @@ describe("grasp-pipeline", () => {
     };
     const foreignState = {
       ...signedEvent(createRepoStateEvent({ repoId: "repo" }), "foreign-state"),
-      pubkey: "b".repeat(64),
+      pubkey: "c".repeat(64),
+      created_at: 300,
+    };
+    const maintainerState = {
+      ...signedEvent(createRepoStateEvent({ repoId: "repo" }), "maintainer-state"),
+      pubkey: maintainerPubkey,
       created_at: 200,
     };
+    const fetchRelayEvents = vi.fn().mockResolvedValue([
+      foreignState,
+      ownerState,
+      maintainerState,
+    ]);
 
     await expect(
       fetchLatestGraspRepoStateEvent({
         relayUrl: "wss://relay.ngit.dev/",
         repoName: "repo",
-        authorPubkey: ownerPubkey,
-        fetchRelayEvents: vi.fn().mockResolvedValue([foreignState, ownerState]),
+        authorPubkeys: [ownerPubkey, maintainerPubkey],
+        fetchRelayEvents,
       })
-    ).resolves.toEqual(ownerState);
+    ).resolves.toEqual(maintainerState);
+    expect(fetchRelayEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: [expect.objectContaining({authors: [ownerPubkey, maintainerPubkey]})],
+      })
+    );
   });
 
   it("retries an already-signed event after a transient publish exception", async () => {
@@ -1117,7 +1133,7 @@ describe("grasp-pipeline", () => {
           "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
         branch: "dev",
         commitSha: "feedbeef1234",
-        authorPubkey: "a".repeat(64),
+        stateAuthorPubkeys: ["a".repeat(64)],
         onPublishEvent,
         publishRelays: ["wss://relay.ngit.dev/"],
         fetchRelayEvents,
@@ -1151,7 +1167,7 @@ describe("grasp-pipeline", () => {
           "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
         branch: "dev",
         commitSha: "d".repeat(40),
-        authorPubkey: "a".repeat(64),
+        stateAuthorPubkeys: ["a".repeat(64)],
         onPublishEvent,
         publishRelays: ["wss://relay.ngit.dev/"],
         fetchRelayEvents: vi.fn().mockResolvedValue([]),
@@ -1171,12 +1187,12 @@ describe("grasp-pipeline", () => {
           "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
         branch: "dev",
         commitSha: "d".repeat(40),
-        authorPubkey: "a".repeat(64),
+        stateAuthorPubkeys: [],
         onPublishEvent,
-        publishRelays: [],
+        publishRelays: ["wss://relay.ngit.dev/"],
         fetchRelayEvents,
       })
-    ).rejects.toThrow("requires accepted repository relays");
+    ).rejects.toThrow("requires authorized repository state authors");
 
     expect(fetchRelayEvents).not.toHaveBeenCalled();
     expect(onPublishEvent).not.toHaveBeenCalled();
@@ -1218,7 +1234,7 @@ describe("grasp-pipeline", () => {
           "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
         branch: "dev",
         commitSha: "d".repeat(40),
-        authorPubkey: "a".repeat(64),
+        stateAuthorPubkeys: ["a".repeat(64)],
         onPublishEvent,
         publishRelays: ["wss://relay.ngit.dev/"],
         fetchRelayEvents,
