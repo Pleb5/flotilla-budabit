@@ -115,14 +115,6 @@
   const preferredByAddress = $derived(
     new Map($activePreferredCommunities.map(item => [item.pointer.address, item])),
   )
-  const ownCommunityDefinition = $derived(
-    communityDefinitions.find(
-      item =>
-        item.ownerPubkey === $pubkey &&
-        item.pointer.address === $activeExactCommunityPointer?.address,
-    ) || communityDefinitions.find(item => item.ownerPubkey === $pubkey),
-  )
-  const hasOwnCommunity = $derived(Boolean(ownCommunityDefinition))
   const currentRelayHints = $derived(normalizeRelays($activeExactCommunityRelays))
   const userRelayHints = $derived(normalizeRelays(getRelaysFromList($userRelayList)))
   const preferredHydrationRelayHints = $derived(
@@ -200,12 +192,6 @@
     communityInput = value
     void submitCommunityInput(value)
   }
-  const editOwnCommunity = () => {
-    if (ownCommunityDefinition) {
-      void goto(makeExactCommunityPath(ownCommunityDefinition.pointer, "admin"))
-    }
-  }
-
   const previewCommunity = $derived(
     previewDefinition?.pointer || parseCommunityNaddr(communityInput),
   )
@@ -463,13 +449,6 @@
               <Icon icon={AddCircle} size={7} />
               <span class="min-w-0 truncate font-bold leading-none">Create Community</span>
             </Button>
-            {#if hasOwnCommunity}
-              <Button
-                onclick={editOwnCommunity}
-                class="btn btn-primary min-h-10 rounded-box px-4 py-2 text-sm font-bold sm:min-h-16 sm:px-6 sm:py-4 sm:text-base">
-                Edit
-              </Button>
-            {/if}
           </div>
         </div>
       </div>
