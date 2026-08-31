@@ -1,6 +1,15 @@
 <script lang="ts">
   import { z } from "zod";
-  import { CircleAlert, GitBranch, ChevronRight, Loader2, GitFork } from "@lucide/svelte";
+  import {
+    CircleAlert,
+    GitBranch,
+    ChevronRight,
+    Loader2,
+    GitFork,
+    X,
+    Plus,
+    Trash2,
+  } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
   import { createPullRequestEvent } from "@nostr-git/core/events";
   import type { PullRequestEvent, PullRequestTag } from "@nostr-git/core/events";
@@ -9,14 +18,25 @@
     RichContentPayload,
     RichDescriptionEditorHandle,
   } from "../../types/composer";
-  import { X, Plus } from "@lucide/svelte";
   import type { Repo } from "./Repo.svelte";
+  import { validateForkCloneUrls } from "./pr-clone-urls";
 
   const { Button, Input, Textarea, Label, Checkbox, RichDescriptionEditor } = useRegistry();
 
+  type PRPublicationSnapshot = {
+    phase: "publishing" | "confirmed" | "unconfirmed" | "cancelled";
+    error?: string;
+  };
+
+  type PRPublicationOperation = {
+    operationId: string;
+    settled: Promise<PRPublicationSnapshot>;
+    retry: () => Promise<PRPublicationSnapshot>;
+  };
+
   interface Props {
     repo: Repo;
-    onPRCreated: (pr: PullRequestEvent) => Promise<void>;
+    onPRCreated: (pr: PullRequestEvent) => PRPublicationOperation;
   }
 
   let { repo, onPRCreated }: Props = $props();
@@ -42,8 +62,10 @@
   let sourceBranch = $state("");
   let targetBranch = $state("");
   let fromFork = $state(false);
-  let cloneUrlsText = $state("");
-  let settledForkCloneUrlsText = $state("");
+  let forkCloneUrls = $state<string[]>([""]);
+  let validatedForkCloneUrls = $state<string[]>([]);
+  let forkCloneUrlErrors = $state<string[]>([]);
+  let forkInputRevision = $state(0);
   let labels = $state<string[]>([]);
   let customLabels = $state<string[]>([]);
   let newLabel = $state("");
@@ -54,7 +76,7 @@
   let sourceBranchesLoading = $state(false);
   let sourceBranchesError = $state("");
   let forkFetchRetryNonce = $state(0);
-  let lastSourceKey = "";
+  let publicationOperation = $state<PRPublicationOperation | null>(null);
   let prPreview = $state<{
     success: boolean;
     error?: string;
@@ -66,6 +88,7 @@
     mergeBase?: string;
   } | null>(null);
   let previewLoading = $state(false);
+  const formLocked = $derived(isSubmitting || Boolean(publicationOperation));
 
   const commonLabels = ["enhancement", "bug", "documentation", "ready-for-review"];
 
@@ -86,11 +109,40 @@
     })
   );
 
-  const parseForkCloneUrls = (value = settledForkCloneUrlsText) =>
-    value
-      .split(/\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+  function invalidateForkSource() {
+    forkInputRevision += 1;
+    validatedForkCloneUrls = [];
+    forkCloneUrlErrors = [];
+    sourceBranch = "";
+    sourceBranches = [];
+    sourceBranchesLoading = false;
+    sourceBranchesError = "";
+    prPreview = null;
+    previewLoading = false;
+  }
+
+  function handleForkModeChange(checked: boolean) {
+    fromFork = checked;
+    invalidateForkSource();
+  }
+
+  function updateForkCloneUrl(index: number, value: string) {
+    invalidateForkSource();
+    const next = [...forkCloneUrls];
+    next[index] = value;
+    forkCloneUrls = next;
+  }
+
+  function addForkCloneUrl() {
+    invalidateForkSource();
+    forkCloneUrls = [...forkCloneUrls, ""];
+  }
+
+  function removeForkCloneUrl(index: number) {
+    invalidateForkSource();
+    const next = forkCloneUrls.filter((_, current) => current !== index);
+    forkCloneUrls = next.length > 0 ? next : [""];
+  }
 
   function handleRetryForkFetch() {
     if (!fromFork) return;
@@ -99,15 +151,18 @@
   }
 
   $effect(() => {
-    const value = fromFork ? cloneUrlsText : "";
-    prPreview = null;
-    previewLoading = false;
+    const revision = forkInputRevision;
+    const values = [...forkCloneUrls];
     if (!fromFork) {
-      settledForkCloneUrlsText = "";
+      validatedForkCloneUrls = [];
+      forkCloneUrlErrors = [];
       return;
     }
     const timeout = setTimeout(() => {
-      settledForkCloneUrlsText = value;
+      if (revision !== forkInputRevision || !fromFork) return;
+      const validation = validateForkCloneUrls(values);
+      forkCloneUrlErrors = validation.errors;
+      validatedForkCloneUrls = validation.success ? validation.urls : [];
     }, 400);
     return () => clearTimeout(timeout);
   });
@@ -116,21 +171,14 @@
   $effect(() => {
     const retryNonce = forkFetchRetryNonce;
     void retryNonce;
-    const sourceKey = fromFork ? `fork:${settledForkCloneUrlsText}` : "repo";
-    if (sourceKey !== lastSourceKey) {
-      lastSourceKey = sourceKey;
-      sourceBranch = "";
-      sourceBranches = [];
-      prPreview = null;
-      previewLoading = false;
-    }
+    const requestRevision = forkInputRevision;
     if (!fromFork) {
       sourceBranches = targetBranches;
       sourceBranchesLoading = false;
       sourceBranchesError = "";
       return;
     }
-    const urls = parseForkCloneUrls();
+    const urls = validatedForkCloneUrls;
     if (urls.length === 0 || !repo.workerManager) {
       sourceBranches = [];
       sourceBranchesLoading = false;
@@ -143,13 +191,13 @@
     repo.workerManager
       .listBranchesFromUrls({ cloneUrls: urls })
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || requestRevision !== forkInputRevision) return;
         sourceBranches = (res?.branches || []).map((name) => ({ name }));
         sourceBranchesError = res?.error || "";
         sourceBranchesLoading = false;
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || requestRevision !== forkInputRevision) return;
         sourceBranches = [];
         sourceBranchesError = err instanceof Error ? err.message : "Failed to load fork branches";
         sourceBranchesLoading = false;
@@ -164,6 +212,7 @@
   $effect(() => {
     const retryNonce = forkFetchRetryNonce;
     void retryNonce;
+    const requestRevision = forkInputRevision;
     const sameNameInvalid = !fromFork && sourceBranch === targetBranch;
     if (!repo.workerManager || !sourceBranch || !targetBranch || sameNameInvalid) {
       prPreview = null;
@@ -173,7 +222,7 @@
     previewLoading = true;
     prPreview = null;
     const targetUrls = cloneUrls;
-    const sourceUrls = fromFork ? parseForkCloneUrls() : [];
+    const sourceUrls = fromFork ? validatedForkCloneUrls : [];
     const cloneUrlsForPreview = fromFork ? targetUrls : targetUrls;
     if (fromFork && sourceUrls.length === 0) {
       prPreview = {
@@ -195,12 +244,12 @@
         sourceCloneUrls: fromFork ? sourceUrls : undefined,
       })
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled || requestRevision !== forkInputRevision) return;
         prPreview = result;
         previewLoading = false;
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || requestRevision !== forkInputRevision) return;
         prPreview = {
           success: false,
           error: err?.message || "Failed to load PR preview",
@@ -237,12 +286,36 @@
     labels = labels.filter((l) => l !== label);
   }
 
+  async function finishPublication(attempt: Promise<PRPublicationSnapshot>) {
+    const snapshot = await attempt;
+    if (snapshot.phase === "confirmed") {
+      back();
+      return;
+    }
+    errors.general =
+      snapshot.error ||
+      "Publication was not confirmed. Retry resumes the failed stage without creating another PR.";
+  }
+
   async function onFormSubmit(e: Event) {
     e.preventDefault();
     if (isSubmitting) return;
 
     errors = {};
     isSubmitting = true;
+
+    if (publicationOperation) {
+      try {
+        await finishPublication(publicationOperation.retry());
+      } catch (error) {
+        console.error(error);
+        errors.general = error instanceof Error ? error.message : String(error);
+      } finally {
+        isSubmitting = false;
+      }
+      return;
+    }
+
     const urls = prPreview?.verifiedCloneUrls ?? [];
 
     try {
@@ -310,8 +383,8 @@
         recipients: [repo.repoEvent?.pubkey ?? ""],
         tags: (descriptionPayload.tags || []) as PullRequestTag[],
       });
-      await onPRCreated(prEvent);
-      back();
+      publicationOperation = onPRCreated(prEvent);
+      await finishPublication(publicationOperation.settled);
     } catch (error) {
       console.error(error);
       errors.general = error instanceof Error ? error.message : String(error);
@@ -329,30 +402,62 @@
 
   <!-- Same repo vs From fork -->
   <label class="flex items-center gap-2 cursor-pointer">
-    <Checkbox bind:checked={fromFork} />
+    <Checkbox checked={fromFork} disabled={formLocked} onCheckedChange={handleForkModeChange} />
     <GitFork class="h-4 w-4" />
     <span>Create PR from my fork</span>
   </label>
 
   {#if fromFork}
-    <div>
-      <Label for="pr-clone-urls">Clone URL(s), one per line</Label>
-      <Textarea
-        id="pr-clone-urls"
-        bind:value={cloneUrlsText}
-        class="mt-1 font-mono text-sm"
-        rows={2}
-        placeholder="https://github.com/you/your-fork.git"
-      />
+    <div class="space-y-2">
+      <Label>Fork clone URLs</Label>
+      {#each forkCloneUrls as cloneUrl, index (index)}
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <Input
+              value={cloneUrl}
+              oninput={(event) =>
+                updateForkCloneUrl(index, (event.currentTarget as HTMLInputElement).value)}
+              class="min-w-0 flex-1 font-mono text-sm"
+              placeholder="https://github.com/you/your-fork.git"
+              aria-label={`Fork clone URL ${index + 1}`}
+              aria-invalid={Boolean(forkCloneUrlErrors[index])}
+              disabled={formLocked}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onclick={() => removeForkCloneUrl(index)}
+              aria-label={`Remove fork clone URL ${index + 1}`}
+              disabled={formLocked}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
+          {#if forkCloneUrlErrors[index]}
+            <div class="text-sm text-destructive">{forkCloneUrlErrors[index]}</div>
+          {:else if prPreview?.verifiedCloneUrls?.includes(validatedForkCloneUrls[index])}
+            <div class="text-xs text-emerald-600 dark:text-emerald-400">
+              Verified for the selected source tip
+            </div>
+          {/if}
+        </div>
+      {/each}
+      <Button type="button" variant="outline" onclick={addForkCloneUrl} disabled={formLocked}>
+        <Plus size={14} />
+        Add clone URL
+      </Button>
       <p class="mt-1 text-xs text-muted-foreground">
-        Your fork's clone URL. Source branches will be loaded from here.
+        Add HTTP(S) clone URLs for your fork. They are validated before branches are loaded.
       </p>
       <div class="mt-2 flex items-center gap-2">
         <Button
           type="button"
           variant="outline"
           onclick={handleRetryForkFetch}
-          disabled={!cloneUrlsText.trim() || sourceBranchesLoading || previewLoading}
+          disabled={validatedForkCloneUrls.length === 0 ||
+            sourceBranchesLoading ||
+            previewLoading ||
+            formLocked}
         >
           Retry fork fetch
         </Button>
@@ -379,7 +484,7 @@
       <select
         id="pr-source-branch"
         bind:value={sourceBranch}
-        disabled={sourceBranchesLoading}
+        disabled={sourceBranchesLoading || formLocked}
         class="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
       >
         <option value="">Select a branch</option>
@@ -396,7 +501,7 @@
       <select
         id="pr-target-branch"
         bind:value={targetBranch}
-        disabled={false}
+        disabled={formLocked}
         class="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
       >
         <option value="">Select a branch</option>
@@ -432,7 +537,7 @@
               type="button"
               variant="outline"
               onclick={handleRetryForkFetch}
-              disabled={sourceBranchesLoading || previewLoading}
+              disabled={sourceBranchesLoading || previewLoading || formLocked}
             >
               Retry fork fetch
             </Button>
@@ -473,6 +578,7 @@
     <Input
       id="pr-subject"
       bind:value={subject}
+      disabled={formLocked}
       class="mt-1"
       placeholder="Brief description of the PR"
     />
@@ -489,7 +595,7 @@
           initialContent={content}
           placeholder="Describe the changes. Markdown supported."
           compact={true}
-          disabled={isSubmitting}
+          disabled={formLocked}
           context={descriptionContext}
           onReady={(handle) => (descriptionEditor = handle)}
         />
@@ -498,6 +604,7 @@
       <Textarea
         id="pr-content"
         bind:value={content}
+        disabled={formLocked}
         class="mt-1"
         rows={6}
         placeholder="Describe the changes. Markdown supported."
@@ -513,6 +620,7 @@
         <label class="flex items-center space-x-2">
           <Checkbox
             checked={labels.includes(label)}
+            disabled={formLocked}
             onCheckedChange={() => handleLabelToggle(label)}
           />
           <span>{label}</span>
@@ -522,10 +630,16 @@
         <label class="flex items-center space-x-2 rounded">
           <Checkbox
             checked={labels.includes(label)}
+            disabled={formLocked}
             onCheckedChange={() => handleLabelToggle(label)}
           />
           <span>{label}</span>
-          <button type="button" class="text-red-500" onclick={() => handleRemoveCustomLabel(label)}>
+          <button
+            type="button"
+            class="text-red-500"
+            onclick={() => handleRemoveCustomLabel(label)}
+            disabled={formLocked}
+          >
             <X size={14} />
           </button>
         </label>
@@ -534,16 +648,16 @@
         <Input
           placeholder="Add label"
           bind:value={newLabel}
+          disabled={formLocked}
           class="flex-1"
           onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddCustomLabel())}
         />
-        <Button type="button" variant="outline" onclick={handleAddCustomLabel}
+        <Button type="button" variant="outline" onclick={handleAddCustomLabel} disabled={formLocked}
           ><Plus size={14} /></Button
         >
       </div>
     </div>
   </div>
-
   {#if errors.general}
     <div class="text-sm text-red-500">{errors.general}</div>
   {/if}
@@ -553,9 +667,15 @@
     <Button
       type="submit"
       variant="git"
-      disabled={isSubmitting || previewLoading || !prPreview?.success}
+      disabled={isSubmitting || (!publicationOperation && (previewLoading || !prPreview?.success))}
     >
-      {isSubmitting ? "Creating…" : "Create PR"}
+      {isSubmitting
+        ? publicationOperation
+          ? "Retrying…"
+          : "Creating…"
+        : publicationOperation
+          ? "Retry publication"
+          : "Create PR"}
     </Button>
   </div>
 </form>

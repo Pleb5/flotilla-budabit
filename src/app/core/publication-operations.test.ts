@@ -760,7 +760,7 @@ describe("single-event publication operations", () => {
     await vi.waitFor(() => expect(mocks.publishThunk).toHaveBeenCalledTimes(2))
 
     const targetThunk = mocks.publishThunk.mock.results[1]?.value as TestThunk
-    expect(targetEvent).toHaveBeenCalledWith(relayOne)
+    expect(targetEvent).toHaveBeenCalledWith(relayOne, primary)
     expect(targetThunk.options).toMatchObject({
       event: target,
       relays: [relayOne, relayTwo],

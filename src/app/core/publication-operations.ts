@@ -42,7 +42,7 @@ export type StartLinkedPublicationOptions = Omit<
   StartPublicationOptions,
   "confirmRelays" | "delay" | "validateRetry"
 > & {
-  targetEvent: (primaryAckRelay: string) => EventTemplate
+  targetEvent: (primaryAckRelay: string, primaryEvent: HashedEvent) => EventTemplate
 }
 
 export type PublicationSnapshot = {
@@ -84,7 +84,7 @@ type LinkedPublicationRuntime = {
   snapshot: PublicationSnapshot
   primaryThunk: PublicationThunk
   targetThunk?: PublicationThunk
-  targetEvent: (primaryAckRelay: string) => EventTemplate
+  targetEvent: (primaryAckRelay: string, primaryEvent: HashedEvent) => EventTemplate
   relays: string[]
   stage: "primary" | "target"
   primaryAckRelay?: string
@@ -534,7 +534,7 @@ const createLinkedTargetThunk = (runtime: LinkedPublicationRuntime) => {
   }
 
   const targetThunk = publishThunk({
-    event: runtime.targetEvent(runtime.primaryAckRelay),
+    event: runtime.targetEvent(runtime.primaryAckRelay, runtime.primaryThunk.event),
     relays: runtime.relays,
     operationId: runtime.snapshot.operationId,
     publicationStage: "target",

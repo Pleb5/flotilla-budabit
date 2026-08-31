@@ -13,7 +13,6 @@
   import {fade} from "@lib/transition"
   import {normalizeEffectiveLabels, toNaturalArray, toNaturalNonRoleLabels} from "@app/util/labels"
   import {getInteractiveCardTarget, isMobile} from "@src/lib/html.js"
-  import {publishEvent} from "@app/core/git-commands.js"
   import {pushModal} from "@app/util/modal"
   import {
     checked,
@@ -53,7 +52,7 @@
   import type {Repo} from "@nostr-git/ui"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {getRepoRootListPresentation} from "@app/core/repo-root-presentation"
-  import {awaitLinkedPublication} from "@app/core/linked-publication"
+  import {retryPublication, startLinkedPublication} from "@app/core/publication-operations"
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
 
@@ -684,7 +683,7 @@
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
-  const onPRCreated = async (prEvent: PullRequestEvent) => {
+  const onPRCreated = (prEvent: PullRequestEvent) => {
     const relaysToUse = repoRelays
 
     const evt = repoClass.repoEvent
@@ -695,21 +694,34 @@
 
     const maintainers = Array.from(new Set([...repoMaintainers, evt.pubkey].filter(Boolean)))
     const prEventWithRecipients = withPullRequestRepoContext(prEvent, maintainers, repoAddress)
-    const publishedPR = publishEvent(prEventWithRecipients, relaysToUse, repoAddress)
-    const rootId = publishedPR.event.id
-    const statusEvent = createStatusEvent({
-      kind: GIT_STATUS_OPEN,
-      content: "",
-      rootId,
-      recipients: Array.from(
-        new Set([...maintainers, $pubkey].filter((value): value is string => Boolean(value))),
-      ),
-      repoAddr: repoClass.address,
+    const operation = startLinkedPublication({
+      event: prEventWithRecipients,
       relays: relaysToUse,
+      targetEvent: (primaryAckRelay, primaryEvent) =>
+        createStatusEvent({
+          kind: GIT_STATUS_OPEN,
+          content: "",
+          rootId: primaryEvent.id,
+          recipients: Array.from(
+            new Set([...maintainers, $pubkey].filter((value): value is string => Boolean(value))),
+          ),
+          repoAddr: repoClass.address,
+          relays: [primaryAckRelay],
+        }),
+      label: "Pull request",
+      semanticKey: `pull-request:${repoAddress}:${prEventWithRecipients.tags.find(tag => tag[0] === "c")?.[1] || "unknown"}`,
+      preview: "retain-on-failure",
     })
-    const publishedStatus = publishEvent(statusEvent as any, relaysToUse, repoAddress)
-    await awaitLinkedPublication([publishedPR, publishedStatus])
-    pushToast({message: "Pull request created"})
+    const settled = operation.settled.then(snapshot => {
+      if (snapshot.phase === "confirmed") pushToast({message: "Pull request created"})
+      return snapshot
+    })
+
+    return {
+      operationId: operation.operationId,
+      settled,
+      retry: () => retryPublication(operation.operationId),
+    }
   }
 
   const onNewPR = () => {

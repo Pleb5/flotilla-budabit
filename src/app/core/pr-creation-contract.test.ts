@@ -27,18 +27,28 @@ describe("pull request creation contract", () => {
     expect(worker).toContain("result.success && verifiedSourceUrl ? [verifiedSourceUrl] : []")
   })
 
-  it("debounces fork input and resets stale source state", () => {
+  it("uses one validated input per fork clone URL", () => {
+    expect(form).toContain("{#each forkCloneUrls as cloneUrl, index (index)}")
+    expect(form).toContain("validateForkCloneUrls(values)")
+    expect(form).toContain("Add clone URL")
+    expect(form).not.toContain("Clone URL(s), one per line")
+  })
+
+  it("invalidates stale fork requests immediately while debouncing replacement work", () => {
+    expect(form).toContain("forkInputRevision += 1")
+    expect(form).toContain("requestRevision !== forkInputRevision")
     expect(form).toContain("setTimeout(() =>")
     expect(form).toContain("}, 400)")
     expect(form).toContain('sourceBranch = ""')
     expect(form).toContain("prPreview = null")
   })
 
-  it("waits for linked PR and status publication before success", () => {
-    const linked = page.indexOf("await awaitLinkedPublication([publishedPR, publishedStatus])")
-    const success = page.indexOf('pushToast({message: "Pull request created"})')
-
-    expect(linked).toBeGreaterThan(-1)
-    expect(success).toBeGreaterThan(linked)
+  it("uses durable sequenced publication and exact-stage retry", () => {
+    expect(page).toContain("startLinkedPublication({")
+    expect(page).toContain("rootId: primaryEvent.id")
+    expect(page).toContain("retry: () => retryPublication(operation.operationId)")
+    expect(page).not.toContain("awaitLinkedPublication")
+    expect(form).toContain("await finishPublication(publicationOperation.retry())")
+    expect(form).toContain("Retry publication")
   })
 })
