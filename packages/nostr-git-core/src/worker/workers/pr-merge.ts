@@ -22,6 +22,7 @@ export interface MergePRAndPushOptions {
   targetCloneUrls?: string[]
   tipCommitOid: string
   targetBranch?: string
+  expectedTargetCommitOid?: string
   mergeCommitMessage?: string
   fastForward?: boolean
   onProgress?: (step: string, progress: number) => void
@@ -122,6 +123,7 @@ export async function mergePRAndPushUtil(
     targetCloneUrls,
     tipCommitOid,
     targetBranch,
+    expectedTargetCommitOid,
     mergeCommitMessage,
     fastForward = true,
     onProgress = () => {},
@@ -159,12 +161,36 @@ export async function mergePRAndPushUtil(
     const effectiveTargetBranch = await resolveBranchName(dir, targetBranch, {strict: true})
     const validTargetCloneUrls = filterValidCloneUrls(targetCloneUrls || [])
 
+    if (typeof (git as any).statusMatrix === "function") {
+      const matrix: Array<[string, number, number, number]> = await (git as any).statusMatrix({dir})
+      if (matrix.some(([, head, workdir, stage]) => head !== workdir || head !== stage)) {
+        return {success: false, error: "PR merge requires a clean working tree"}
+      }
+    }
+
+    const verifyExpectedTarget = async () => {
+      if (!expectedTargetCommitOid) return undefined
+      const currentTargetOid = await git.resolveRef({
+        dir,
+        ref: `refs/heads/${effectiveTargetBranch}`,
+      })
+      return currentTargetOid === expectedTargetCommitOid
+        ? undefined
+        : `Target branch changed after analysis: expected ${expectedTargetCommitOid}, found ${currentTargetOid}`
+    }
+
+    const staleBeforeSync = await verifyExpectedTarget()
+    if (staleBeforeSync) return {success: false, error: staleBeforeSync}
+
     onProgress("Ensuring repository is ready...", 10)
     await ensureFullClone({
       repoId,
       branch: effectiveTargetBranch,
       ...(validTargetCloneUrls.length > 0 ? {cloneUrls: validTargetCloneUrls} : {}),
     })
+
+    const staleAfterSync = await verifyExpectedTarget()
+    if (staleAfterSync) return {success: false, error: staleAfterSync}
 
     const fetchResult = await withUrlFallback(
       validUrls,

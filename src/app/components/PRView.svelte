@@ -113,7 +113,11 @@
   import type {Readable} from "svelte/store"
   import {getSeenEventRelayHints} from "@app/util/event-links"
   import {selectAuthorizedPullRequestUpdates} from "@app/core/pr-update-selection"
-  import {planPrMergeRemotes, resolvePrTargetBranch} from "@app/core/pr-merge-targets"
+  import {
+    buildPrAnalysisIdentity,
+    planPrMergeRemotes,
+    resolvePrTargetBranch,
+  } from "@app/core/pr-merge-targets"
 
   type PrChange = {
     path: string
@@ -168,6 +172,7 @@
     error?: string
     warning?: string | null
     usedUrl?: string
+    targetOid?: string
   }
 
   type PrReviewErrorPhase = "source" | "target" | "review"
@@ -313,10 +318,7 @@
 
   const prStatusEventsArray = $derived.by(() => {
     if (!prStatusEvents) return []
-    return filterVisibleAfterDeletesAndEdits(
-      $prStatusEvents as StatusEvent[],
-      $editedTargetIds,
-    )
+    return filterVisibleAfterDeletesAndEdits($prStatusEvents as StatusEvent[], $editedTargetIds)
   })
 
   const prResolvedStatus = $derived.by(() => {
@@ -449,8 +451,7 @@
     return selectAuthorizedPullRequestUpdates({
       root: prEvent,
       updates: ($prUpdatesDerived || []) as TrustedEvent[],
-      isVisible: event =>
-        filterVisibleAfterDeletesAndEdits([event], $editedTargetIds).length === 1,
+      isVisible: event => filterVisibleAfterDeletesAndEdits([event], $editedTargetIds).length === 1,
     })
   })
 
@@ -511,9 +512,7 @@
     planPrMergeRemotes({declaredCloneUrls: prDeclaredTargetCloneUrls}),
   )
 
-  const prTargetCloneUrls = $derived.by(() =>
-    prTargetRemotePlan.remotes.map(remote => remote.url),
-  )
+  const prTargetCloneUrls = $derived.by(() => prTargetRemotePlan.remotes.map(remote => remote.url))
 
   const prFetchCloneUrls = $derived.by(() =>
     Array.from(new Set([...prEffectiveCloneUrls, ...prTargetCloneUrls])),
@@ -543,12 +542,31 @@
   let lastPrAnalysisKey: string | null = null
   let prMergeAnalysisKey = $state<string | null>(null)
 
-  const getPrAnalysisKey = (
+  const getPrAnalysisContextKey = (
     tipOid = prEffectiveTipOid,
     targetBranch = prTargetBranch,
   ): string | null => {
     if (!prEvent || !tipOid) return null
-    return `${prEvent.id}-${tipOid}-${targetBranch}`
+    const announcementId = String((repoClass as any)?.repoEvent?.id || "")
+    return buildPrAnalysisIdentity({
+      rootId: prEvent.id,
+      tipOid,
+      targetBranch,
+      announcementId,
+      primaryUrl: primaryTargetCloneUrl,
+    })
+  }
+
+  const getPrAnalysisKey = (targetOid = "unknown") => {
+    if (!prEvent || !prEffectiveTipOid) return null
+    return buildPrAnalysisIdentity({
+      rootId: prEvent.id,
+      tipOid: prEffectiveTipOid,
+      targetBranch: prTargetBranch,
+      targetOid,
+      announcementId: String((repoClass as any)?.repoEvent?.id || ""),
+      primaryUrl: primaryTargetCloneUrl,
+    })
   }
 
   const clearPrMergeAnalysis = () => {
@@ -558,13 +576,23 @@
     prAnalysisProgress = ""
   }
 
-  const setPrMergeAnalysis = (analysisKey: string, result: PRMergeAnalysisResult) => {
-    prMergeAnalysisKey = analysisKey
+  const setPrMergeAnalysis = (result: PRMergeAnalysisResult) => {
+    prMergeAnalysisKey = buildPrAnalysisIdentity({
+      rootId: prEvent.id,
+      tipOid: prEffectiveTipOid || "",
+      targetBranch: prTargetBranch,
+      targetOid: result.targetCommit,
+      announcementId: String((repoClass as any)?.repoEvent?.id || ""),
+      primaryUrl: primaryTargetCloneUrl,
+    })
     prMergeAnalysisResult = result
   }
 
   const prCurrentMergeAnalysisResult = $derived.by(() =>
-    prMergeAnalysisKey === getPrAnalysisKey() ? prMergeAnalysisResult : null,
+    prMergeAnalysisKey === getPrAnalysisKey(prMergeAnalysisResult?.targetCommit) &&
+    prMergeAnalysisResult
+      ? prMergeAnalysisResult
+      : null,
   )
 
   const prAnalysisErrorMessage = $derived.by(() =>
@@ -577,10 +605,6 @@
     const message = prAnalysisErrorMessage || ""
     return /timed out|timeout/.test(message.toLowerCase())
   })
-
-  const prAnalysisHasTerminalConflicts = $derived.by(
-    () => prCurrentMergeAnalysisResult?.analysis === "conflicts",
-  )
 
   const prAnalysisRetryLabel = $derived.by(() => {
     const message = (prAnalysisErrorMessage || "").toLowerCase()
@@ -685,9 +709,7 @@
   })
 
   const prCanRunMergeAnalysis = $derived.by(() =>
-    Boolean(
-      prEffectiveTipOid && prReviewReady && !isAnalyzingPRMerge && !prAnalysisHasTerminalConflicts,
-    ),
+    Boolean(prEffectiveTipOid && prReviewReady && !isAnalyzingPRMerge),
   )
 
   const prCommitOids = $derived.by(() => {
@@ -1227,7 +1249,12 @@
       syncResult.warning || syncResult.synced === false
         ? syncResult.warning || `Sync finished with local data only before ${phase}`
         : null
-    return {ok: true, warning, usedUrl: syncResult.usedUrl}
+    return {
+      ok: true,
+      warning,
+      usedUrl: syncResult.usedUrl,
+      targetOid: syncResult.headCommit,
+    }
   }
 
   async function syncTargetBranchForPR(phase: "analysis" | "merge"): Promise<PrSyncResult> {
@@ -1321,19 +1348,18 @@
 
   async function runPRMergeAnalysis() {
     if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
-    if (prAnalysisHasTerminalConflicts) return
     const tipOid = prEffectiveTipOid
     const prCloneUrls = prEffectiveCloneUrls
     const cloneUrls = prCloneUrls.length > 0 ? prCloneUrls : (repoClass as any).cloneUrls || []
     if (cloneUrls.length === 0) return
 
-    const analysisKey = getPrAnalysisKey(tipOid, prTargetBranch)
+    const analysisKey = getPrAnalysisContextKey(tipOid, prTargetBranch)
     if (!analysisKey) return
 
     prAnalysisGeneration++
     const myGen = prAnalysisGeneration
     const isCurrentAnalysis = () =>
-      prAnalysisGeneration === myGen && getPrAnalysisKey() === analysisKey
+      prAnalysisGeneration === myGen && getPrAnalysisContextKey() === analysisKey
     lastPrAnalysisKey = analysisKey
     clearPrMergeAnalysis()
     isAnalyzingPRMerge = true
@@ -1344,7 +1370,6 @@
       if (!isCurrentAnalysis()) return
       if (!targetBranchCheck.ok) {
         setPrMergeAnalysis(
-          analysisKey,
           toAnalysisErrorResult(
             `Cannot run merge analysis until target branch is available: ${
               targetBranchCheck.error || `Target branch ${prTargetBranch} could not be verified`
@@ -1360,26 +1385,24 @@
       if (isCurrentAnalysis()) {
         if (!result) {
           setPrMergeAnalysis(
-            analysisKey,
             toAnalysisErrorResult("Merge analysis returned no result. Retry Analyze.", [tipOid]),
           )
           return
         }
 
         if (result.analysis === "error") {
-          setPrMergeAnalysis(analysisKey, {
+          setPrMergeAnalysis({
             ...result,
             errorMessage: formatMergeAnalysisError(result.errorMessage || "Merge analysis failed"),
           })
           return
         }
 
-        setPrMergeAnalysis(analysisKey, result)
+        setPrMergeAnalysis(result)
       }
     } catch (err) {
       if (isCurrentAnalysis()) {
         setPrMergeAnalysis(
-          analysisKey,
           toAnalysisErrorResult(
             formatMergeAnalysisError(err instanceof Error ? err.message : String(err)),
             [tipOid],
@@ -1397,7 +1420,7 @@
   $effect(() => {
     if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
     const tipOid = prEffectiveTipOid
-    const analysisKey = getPrAnalysisKey(tipOid, prTargetBranch)
+    const analysisKey = getPrAnalysisContextKey(tipOid, prTargetBranch)
     if (!analysisKey) return
 
     if (lastPrAnalysisKey && lastPrAnalysisKey !== analysisKey) {
@@ -3083,6 +3106,18 @@
     }
     if (sync.warning) toast.push({message: sync.warning, timeout: 5000, variant: "default"})
 
+    const analyzedTargetOid = prCurrentMergeAnalysisResult?.targetCommit
+    if (!analyzedTargetOid || !sync.targetOid || sync.targetOid !== analyzedTargetOid) {
+      clearPrMergeAnalysis()
+      mergePrError =
+        "The target branch changed after analysis. Review the new analysis and confirm again."
+      mergePrStep = "Target changed"
+      isMergingPr = false
+      await runPRMergeAnalysis()
+      toast.push({message: mergePrError, timeout: 7000, variant: "destructive"})
+      return
+    }
+
     mergePrStep = "Merging PR..."
     const tipOid = prEffectiveTipOid
 
@@ -3093,6 +3128,7 @@
         targetCloneUrls: prTargetCloneUrls,
         tipCommitOid: tipOid,
         targetBranch: prTargetBranch,
+        expectedTargetCommitOid: analyzedTargetOid,
         mergeCommitMessage: mergePrCommitMessage || undefined,
         fastForward: prCurrentMergeAnalysisResult?.fastForward === true,
         userPubkey: $pubkey ?? undefined,

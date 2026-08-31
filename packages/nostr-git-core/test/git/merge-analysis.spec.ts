@@ -86,4 +86,27 @@ describe("merge analysis", () => {
     expect(result.patchCommits).toEqual([])
     expect(result.prCommits).toEqual([])
   })
+
+  it("refuses analysis before remote or ref mutation when the working tree is dirty", async () => {
+    const git = {
+      statusMatrix: vi.fn().mockResolvedValue([["README.md", 1, 2, 1]]),
+      addRemote: vi.fn(),
+      branch: vi.fn(),
+      writeRef: vi.fn(),
+    } as unknown as GitProvider
+
+    const result = await analyzePRMergeability(git, "/repo", {
+      cloneUrls: ["https://github.com/contributor/repo.git"],
+      targetCloneUrls: ["https://github.com/upstream/repo.git"],
+      tipCommitOid: tipOid,
+      targetBranch: "main",
+      strictTargetFresh: true,
+    })
+
+    expect(result.analysis).toBe("error")
+    expect(result.errorMessage).toBe("Merge analysis requires a clean working tree.")
+    expect((git as any).addRemote).not.toHaveBeenCalled()
+    expect((git as any).branch).not.toHaveBeenCalled()
+    expect((git as any).writeRef).not.toHaveBeenCalled()
+  })
 })

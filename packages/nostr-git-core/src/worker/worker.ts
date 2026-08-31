@@ -206,6 +206,7 @@ import {needsUpdateUtil, syncWithRemoteUtil} from "./workers/sync.js"
 
 import type {AnalyzePRMergeOptions, MergePRAndPushOptions} from "./workers/pr-merge.js"
 import {analyzePRMergeUtil, mergePRAndPushUtil} from "./workers/pr-merge.js"
+import {withRepoOperationLock} from "./workers/repo-operation-lock.js"
 
 import type {SafePushOptions} from "./workers/push.js"
 import {safePushToRemoteUtil, validateExplicitGraspPush} from "./workers/push.js"
@@ -1398,16 +1399,18 @@ const api = {
     preferredUrl?: string
   }) {
     return toPlain(
-      await syncWithRemoteUtil(git, cacheManager, opts, {
-        rootDir,
-        parseRepoId,
-        resolveBranchName: async (dir: string, requested?: string) =>
-          resolveRobustBranchUtil(git, dir, requested),
-        isRepoCloned: async (dir: string) => isRepoClonedFs(git, dir),
-        toPlain,
-        getAuthCallback,
-        corsProxy: resolveDefaultCorsProxy(),
-      }),
+      await withRepoOperationLock(opts.repoId, () =>
+        syncWithRemoteUtil(git, cacheManager, opts, {
+          rootDir,
+          parseRepoId,
+          resolveBranchName: async (dir: string, requested?: string) =>
+            resolveRobustBranchUtil(git, dir, requested),
+          isRepoCloned: async (dir: string) => isRepoClonedFs(git, dir),
+          toPlain,
+          getAuthCallback,
+          corsProxy: resolveDefaultCorsProxy(),
+        }),
+      ),
     )
   },
 
@@ -1693,14 +1696,19 @@ const api = {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "merge-progress")
     sendProgress("Fetching PR from clone URL...")
-    const result = await analyzePRMergeUtil(git, opts, {
-      rootDir,
-      parseRepoId,
-      resolveBranchName: async (dir: string, requested?: string) =>
-        resolveRobustBranchUtil(git, dir, requested),
-      getAuthCallback,
-      corsProxy: resolveDefaultCorsProxy(),
-    })
+    const result = await withRepoOperationLock(repoId, () =>
+      analyzePRMergeUtil(git, opts, {
+        rootDir,
+        parseRepoId,
+        resolveBranchName: async (
+          dir: string,
+          requested?: string,
+          options?: {strict?: boolean},
+        ) => resolveRobustBranchUtil(git, dir, requested, options),
+        getAuthCallback,
+        corsProxy: resolveDefaultCorsProxy(),
+      }),
+    )
     sendProgress("Analysis complete")
     return toPlain(result)
   },
@@ -1718,11 +1726,14 @@ const api = {
       onProgress: (step: string, pct: number) => sendProgress(step),
     }
     const {getTokensForHost} = await import("./workers/auth.js")
-    const result = await mergePRAndPushUtil(git, optsWithProgress, {
+    const result = await withRepoOperationLock(repoId, () => mergePRAndPushUtil(git, optsWithProgress, {
       rootDir,
       parseRepoId,
-      resolveBranchName: async (dir: string, requested?: string) =>
-        resolveRobustBranchUtil(git, dir, requested),
+      resolveBranchName: async (
+        dir: string,
+        requested?: string,
+        options?: {strict?: boolean},
+      ) => resolveRobustBranchUtil(git, dir, requested, options),
       ensureFullClone: async (args: {
         repoId: string
         branch?: string
@@ -1776,7 +1787,7 @@ const api = {
           return []
         }
       },
-    })
+    }))
     sendProgress("Merge complete")
     return toPlain(result)
   },

@@ -383,6 +383,26 @@ export async function analyzePRMergeability(
 
   const effectiveTargetBranch = targetBranch || "main"
 
+  if (typeof (git as any).statusMatrix === "function") {
+    try {
+      const matrix: Array<[string, number, number, number]> = await (git as any).statusMatrix({
+        dir: repoDir,
+      })
+      const dirty = matrix.filter(([, head, workdir, stage]) => head !== workdir || head !== stage)
+      if (dirty.length > 0) {
+        return {
+          ...returnObj,
+          errorMessage: "Merge analysis requires a clean working tree.",
+        }
+      }
+    } catch (error) {
+      return {
+        ...returnObj,
+        errorMessage: `Unable to verify a clean working tree: ${getErrorMessage(error)}`,
+      }
+    }
+  }
+
   const validUrls = filterValidCloneUrls(cloneUrls)
   if (validUrls.length === 0) {
     console.warn(
@@ -403,6 +423,7 @@ export async function analyzePRMergeability(
   })
 
   let usedTargetCloneUrl: string | undefined
+  let analysisTargetBranch: string | undefined
 
   const validTargetUrls = filterValidCloneUrls(targetCloneUrls || [])
   if (strictTargetFresh && validTargetUrls.length === 0) {
@@ -490,28 +511,45 @@ export async function analyzePRMergeability(
         `Failed to refresh target branch "${effectiveTargetBranch}" from remote: target commit was not resolved`,
       )
     }
+    analysisTargetBranch = `pr-target-analysis-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     try {
-      await git.writeRef({
+      await git.branch({
         dir: repoDir,
-        ref: `refs/heads/${effectiveTargetBranch}`,
-        value: targetOid,
-        force: true,
+        ref: analysisTargetBranch,
+        start: targetOid,
+        checkout: false,
       })
     } catch (error) {
       return errResult(
-        `Failed to update local target branch "${effectiveTargetBranch}" after refresh: ${getErrorMessage(error)}`,
+        `Failed to create temporary target branch for "${effectiveTargetBranch}": ${getErrorMessage(error)}`,
       )
+    }
+  }
+
+  const cleanupAnalysisTarget = async () => {
+    if (!analysisTargetBranch) return
+    try {
+      await git.deleteBranch({dir: repoDir, ref: analysisTargetBranch})
+    } catch (error) {
+      console.warn("[analyzePRMergeability] Failed to remove temporary target branch:", error)
     }
   }
 
   let resolvedBranch: string
   try {
-    resolvedBranch = await resolveRobustBranchInMergeAnalysis(git, repoDir, effectiveTargetBranch)
+    resolvedBranch = await resolveRobustBranchInMergeAnalysis(
+      git,
+      repoDir,
+      analysisTargetBranch || effectiveTargetBranch,
+    )
   } catch (error) {
+    await cleanupAnalysisTarget()
     return errResult(error instanceof Error ? error.message : String(error))
   }
 
-  if (effectiveTargetBranch && resolvedBranch !== effectiveTargetBranch) {
+  const expectedResolvedBranch = analysisTargetBranch || effectiveTargetBranch
+  if (expectedResolvedBranch && resolvedBranch !== expectedResolvedBranch) {
+    await cleanupAnalysisTarget()
     return errResult(
       `Target branch '${effectiveTargetBranch}' not found after sync (resolved '${resolvedBranch}' instead)`,
     )
@@ -524,6 +562,7 @@ export async function analyzePRMergeability(
       ref: `refs/heads/${resolvedBranch}`,
     })
   } catch (error) {
+    await cleanupAnalysisTarget()
     return errResult(
       `Target branch '${effectiveTargetBranch}' could not be resolved locally after sync: ${error instanceof Error ? error.message : String(error)}`,
     )
@@ -699,9 +738,11 @@ export async function analyzePRMergeability(
       ? result.attempts.map(a => `${a.url}: ${a.error || "failed"}`).join("; ")
       : "Failed to fetch PR from any clone URL"
     console.warn(`[analyzePRMergeability] All clone URLs failed: ${errMsg}`)
+    await cleanupAnalysisTarget()
     return errResult(errMsg)
   }
 
+  await cleanupAnalysisTarget()
   return result.result
 }
 
@@ -778,7 +819,12 @@ async function getPRCommitsOnly(
   stopAtOidOrRef: string,
   maxDepth: number,
 ): Promise<
-  Array<{oid: string; message: string; author?: {name?: string; email?: string}; parents?: string[]}>
+  Array<{
+    oid: string
+    message: string
+    author?: {name?: string; email?: string}
+    parents?: string[]
+  }>
 > {
   try {
     const log = await git.log({dir: repoDir, ref: prTipRef, depth: maxDepth})
@@ -813,7 +859,12 @@ async function getCommitMetadataForOids(
   repoDir: string,
   oids: string[],
 ): Promise<
-  Array<{oid: string; message: string; author?: {name?: string; email?: string}; parents?: string[]}>
+  Array<{
+    oid: string
+    message: string
+    author?: {name?: string; email?: string}
+    parents?: string[]
+  }>
 > {
   const result: Array<{
     oid: string
@@ -1143,7 +1194,9 @@ async function handleMergeConflicts(
   }
 
   if (conflictFiles.length === 0) {
-    throw new Error(`Merge failed but no conflict files could be identified: ${getErrorMessage(err)}`)
+    throw new Error(
+      `Merge failed but no conflict files could be identified: ${getErrorMessage(err)}`,
+    )
   }
 
   // Parse conflict markers from conflicted files
@@ -1187,8 +1240,15 @@ async function performPRDryRunMerge(
   const tempBranch = `pr-merge-temp-${Date.now()}`
   const prTipRef = `refs/pr-tip-analysis-${Date.now()}` // Use unique name for analysis
   let tipOid: string = prTipSource // Declare outside try-catch for fallback access
+  let originalBranch: string | undefined
 
   try {
+    if (typeof (git as any).currentBranch === "function") {
+      originalBranch =
+        (await (git as any)
+          .currentBranch({dir: repoDir, fullname: false})
+          .catch(() => undefined)) || undefined
+    }
     // Ensure we're working with the latest state - checkout target branch first
     await git.checkout({dir: repoDir, ref: targetBranch})
 
@@ -1258,7 +1318,7 @@ async function performPRDryRunMerge(
   } finally {
     // Restore repo state regardless of merge outcome
     try {
-      await git.checkout({dir: repoDir, ref: targetBranch, force: true})
+      await git.checkout({dir: repoDir, ref: originalBranch || targetBranch, force: true})
     } catch (cleanupErr) {
       console.warn("[performPRDryRunMerge] Cleanup checkout failed:", cleanupErr)
     }

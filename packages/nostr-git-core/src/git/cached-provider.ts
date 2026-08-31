@@ -1,4 +1,4 @@
-import type { GitProvider } from "./provider.js"
+import type {GitProvider} from "./provider.js"
 import type {CacheMode, GitConfig} from "./config.js"
 
 // Simple per-dir cache store with TTL
@@ -122,6 +122,9 @@ export class CachedGitProvider implements GitProvider {
   }
   async statusMatrix(options: any) {
     return this.inner.statusMatrix(this.withCache(options))
+  }
+  async currentBranch(options: any) {
+    return this.inner.currentBranch(this.withCache(options))
   }
 
   // Branches

@@ -12,7 +12,7 @@ export interface GitProvider {
    * @example
    * await git.push({ url, corsProxy: null }) // Direct push to GRASP endpoint
    */
-  TREE(options: { ref: string }): any
+  TREE(options: {ref: string}): any
 
   // Repository
   clone(options: any): Promise<void>
@@ -25,6 +25,7 @@ export interface GitProvider {
   push(options: any): Promise<any>
   status(options: any): Promise<any>
   statusMatrix(options: any): Promise<any>
+  currentBranch(options: any): Promise<string | undefined>
 
   // Branches
   deleteBranch(options: any): Promise<any>

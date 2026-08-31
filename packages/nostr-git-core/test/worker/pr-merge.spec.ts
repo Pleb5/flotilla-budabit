@@ -268,6 +268,29 @@ describe("pr-merge", () => {
       )
     })
 
+    it("rejects a target branch that changed after analysis before fetching the PR", async () => {
+      const result = await mergePRAndPushUtil(
+        mockGit,
+        {
+          repoId: "test-repo",
+          cloneUrls: ["https://github.com/user/fork.git"],
+          targetCloneUrls: ["https://github.com/upstream/repo.git"],
+          tipCommitOid: "tip-oid",
+          targetBranch: "main",
+          expectedTargetCommitOid: "analyzed-target-oid",
+          skipPush: true,
+        },
+        baseDeps as any,
+      )
+
+      expect(result).toEqual({
+        success: false,
+        error:
+          "Target branch changed after analysis: expected analyzed-target-oid, found target-oid-123",
+      })
+      expect(mockGit.addRemote).not.toHaveBeenCalled()
+    })
+
     it("fetches the PR tip by commit oid before falling back to branch refs", async () => {
       await mergePRAndPushUtil(
         mockGit,
@@ -400,12 +423,15 @@ describe("pr-merge", () => {
         log: vi.fn(async (args: any) => await isogit.log({fs, ...args})),
         resolveRef: vi.fn(async (args: any) => await isogit.resolveRef({fs, ...args})),
         merge: vi.fn(async (args: any) => await isogit.merge({fs, ...args})),
-        findMergeBase: vi.fn(async (args: any) => await (isogit as any).findMergeBase({fs, ...args})),
+        findMergeBase: vi.fn(
+          async (args: any) => await (isogit as any).findMergeBase({fs, ...args}),
+        ),
         isDescendent: vi.fn(async (args: any) => await isogit.isDescendent({fs, ...args})),
         listBranches: vi.fn(async (args: any) => await isogit.listBranches({fs, ...args})),
         statusMatrix: vi.fn(async (args: any) => await isogit.statusMatrix({fs, ...args})),
+        currentBranch: vi.fn(async (args: any) => await isogit.currentBranch({fs, ...args})),
         walk: vi.fn(async (args: any) => await isogit.walk({fs, ...args})),
-      } as any as GitProvider)
+      }) as any as GitProvider
 
     const dirtyRows = (matrix: any[]) =>
       matrix.filter(([, head, workdir, stage]) => workdir !== head || stage !== head)
@@ -461,6 +487,15 @@ describe("pr-merge", () => {
           singleBranch: true,
         }),
       )
+      expect(mockGit.writeRef).not.toHaveBeenCalledWith(
+        expect.objectContaining({ref: "refs/heads/main"}),
+      )
+      expect(mockGit.branch).toHaveBeenCalledWith(
+        expect.objectContaining({ref: expect.stringMatching(/^pr-target-analysis-/)}),
+      )
+      expect(mockGit.deleteBranch).toHaveBeenCalledWith(
+        expect.objectContaining({ref: expect.stringMatching(/^pr-target-analysis-/)}),
+      )
     })
 
     it("keeps analysis clean after a real conflict analysis in the same repo", async () => {
@@ -505,12 +540,7 @@ describe("pr-merge", () => {
         force: true,
       })
       await checkout(harness, "clean-pr")
-      const cleanTip = await commitFile(
-        harness,
-        "/docs/feature.txt",
-        "feature\n",
-        "clean feature",
-      )
+      const cleanTip = await commitFile(harness, "/docs/feature.txt", "feature\n", "clean feature")
       await checkout(harness, "main")
 
       const conflict = await analyzePRMergeability(realGit, dir, {
@@ -523,6 +553,9 @@ describe("pr-merge", () => {
       expect(conflict.hasConflicts).toBe(true)
       expect(conflict.conflictFiles).toContain("README.md")
       expect(dirtyRows(await statusMatrix(harness))).toEqual([])
+      await expect(isogit.currentBranch({fs: fs as any, dir, fullname: false})).resolves.toBe(
+        "main",
+      )
 
       const clean = await analyzePRMergeability(realGit, dir, {
         cloneUrls: ["https://github.com/user/fork.git"],
@@ -534,6 +567,9 @@ describe("pr-merge", () => {
       expect(clean.canMerge).toBe(true)
       expect(clean.hasConflicts).toBe(false)
       expect(dirtyRows(await statusMatrix(harness))).toEqual([])
+      await expect(isogit.currentBranch({fs: fs as any, dir, fullname: false})).resolves.toBe(
+        "main",
+      )
     })
 
     it("returns conflicts when fallback merge reports conflict filepaths", async () => {
@@ -597,7 +633,7 @@ describe("pr-merge", () => {
       expect(result.hasConflicts).toBe(true)
       expect(result.conflictFiles).toEqual(["src/direct-conflict.ts"])
       expect(gitWithInitialConflict.merge).toHaveBeenCalledTimes(1)
-      expect(gitWithInitialConflict.statusMatrix).not.toHaveBeenCalled()
+      expect(gitWithInitialConflict.statusMatrix).toHaveBeenCalledTimes(1)
     })
 
     it("returns an analysis error when merge is unsupported without conflict files", async () => {
@@ -627,7 +663,7 @@ describe("pr-merge", () => {
       expect(result.canMerge).toBe(false)
       expect(result.hasConflicts).toBe(false)
       expect(result.errorMessage).toContain("Merge not supported")
-      expect(gitWithUnsupportedMerge.statusMatrix).not.toHaveBeenCalled()
+      expect(gitWithUnsupportedMerge.statusMatrix).toHaveBeenCalledTimes(1)
     })
   })
 })

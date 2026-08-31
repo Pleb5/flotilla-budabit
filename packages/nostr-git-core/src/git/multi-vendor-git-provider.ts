@@ -174,6 +174,10 @@ export class MultiVendorGitProvider implements GitProvider {
     return this.baseProvider.statusMatrix(options);
   }
 
+  currentBranch(options: any): Promise<string | undefined> {
+    return this.baseProvider.currentBranch(options);
+  }
+
   deleteBranch(options: any): Promise<any> {
     return this.baseProvider.deleteBranch(options);
   }

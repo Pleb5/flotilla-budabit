@@ -1006,6 +1006,7 @@ export class WorkerManager {
     targetCloneUrls?: string[];
     tipCommitOid: string;
     targetBranch?: string;
+    expectedTargetCommitOid?: string;
     mergeCommitMessage?: string;
     fastForward?: boolean;
     userPubkey?: string;
@@ -1039,6 +1040,7 @@ export class WorkerManager {
       targetCloneUrls: params.targetCloneUrls,
       tipCommitOid: params.tipCommitOid,
       targetBranch: params.targetBranch,
+      expectedTargetCommitOid: params.expectedTargetCommitOid,
       mergeCommitMessage: params.mergeCommitMessage,
       fastForward: params.fastForward,
       userPubkey: params.userPubkey,

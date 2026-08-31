@@ -49,7 +49,9 @@ export const resolvePrTargetBranch = ({
   targetBranch?: string
   repositoryDefaultBranch?: string
   normalize: (branch: string) => string
-}): {branch: string; source: "explicit" | "repository-default"; error?: undefined} | {error: string} => {
+}):
+  | {branch: string; source: "explicit" | "repository-default"; error?: undefined}
+  | {error: string} => {
   if (targetBranch !== undefined) {
     const branch = normalize(targetBranch)
     return branch
@@ -62,3 +64,22 @@ export const resolvePrTargetBranch = ({
     ? {branch, source: "repository-default"}
     : {error: "The repository default branch could not be determined."}
 }
+
+export const buildPrAnalysisIdentity = ({
+  rootId,
+  tipOid,
+  targetBranch,
+  targetOid,
+  announcementId,
+  primaryUrl,
+}: {
+  rootId: string
+  tipOid: string
+  targetBranch: string
+  targetOid?: string
+  announcementId: string
+  primaryUrl: string
+}) =>
+  [rootId, tipOid, targetBranch, targetOid || "unknown", announcementId, primaryUrl]
+    .map(value => String(value || "").trim())
+    .join("|")

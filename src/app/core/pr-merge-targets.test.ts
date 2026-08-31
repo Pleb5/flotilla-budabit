@@ -1,5 +1,9 @@
 import {describe, expect, it} from "vitest"
-import {planPrMergeRemotes, resolvePrTargetBranch} from "./pr-merge-targets"
+import {
+  buildPrAnalysisIdentity,
+  planPrMergeRemotes,
+  resolvePrTargetBranch,
+} from "./pr-merge-targets"
 
 describe("PR merge target planning", () => {
   it("keeps announcement order and only labels exact configured matches", () => {
@@ -33,9 +37,7 @@ describe("PR merge target planning", () => {
     ).toEqual({
       primaryUrl: "nostr://repo",
       primaryPushCapable: false,
-      remotes: [
-        {remote: "remote-1", url: "https://mirror.example/repo.git", primary: false},
-      ],
+      remotes: [{remote: "remote-1", url: "https://mirror.example/repo.git", primary: false}],
     })
   })
 
@@ -43,17 +45,41 @@ describe("PR merge target planning", () => {
     const normalize = (branch: string) => branch.trim().replace(/^refs\/heads\//, "")
 
     expect(
-      resolvePrTargetBranch({targetBranch: "refs/heads/release", repositoryDefaultBranch: "main", normalize}),
+      resolvePrTargetBranch({
+        targetBranch: "refs/heads/release",
+        repositoryDefaultBranch: "main",
+        normalize,
+      }),
     ).toEqual({branch: "release", source: "explicit"})
     expect(resolvePrTargetBranch({repositoryDefaultBranch: "main", normalize})).toEqual({
       branch: "main",
       source: "repository-default",
     })
-    expect(resolvePrTargetBranch({targetBranch: " ", repositoryDefaultBranch: "main", normalize})).toEqual({
+    expect(
+      resolvePrTargetBranch({targetBranch: " ", repositoryDefaultBranch: "main", normalize}),
+    ).toEqual({
       error: "This PR has an invalid target-branch tag.",
     })
     expect(resolvePrTargetBranch({normalize})).toEqual({
       error: "The repository default branch could not be determined.",
     })
+  })
+
+  it("identifies analysis by root, tip, exact target, announcement, and primary URL", () => {
+    const base = {
+      rootId: "root",
+      tipOid: "tip",
+      targetBranch: "main",
+      targetOid: "target-a",
+      announcementId: "announcement",
+      primaryUrl: "https://primary.example/repo.git",
+    }
+
+    expect(buildPrAnalysisIdentity(base)).not.toBe(
+      buildPrAnalysisIdentity({...base, targetOid: "target-b"}),
+    )
+    expect(buildPrAnalysisIdentity(base)).not.toBe(
+      buildPrAnalysisIdentity({...base, primaryUrl: "https://mirror.example/repo.git"}),
+    )
   })
 })
