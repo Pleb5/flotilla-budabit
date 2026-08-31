@@ -148,6 +148,16 @@ export function filterValidCloneUrls(urls: string[]): string[] {
   });
 }
 
+export function isPushCapableCloneUrl(url: string): boolean {
+  const value = String(url || "").trim();
+  return (
+    /^https?:\/\//i.test(value) ||
+    /^wss?:\/\//i.test(value) ||
+    /^ssh:\/\//i.test(value) ||
+    /^git@/i.test(value)
+  );
+}
+
 /**
  * Execute a read operation with fallback through multiple URLs.
  * Tries each URL in order until one succeeds.
@@ -492,4 +502,10 @@ export function getCloneUrlsFromEvent(event: {
   }
 
   return cloneUrls;
+}
+
+export function getPrimaryCloneUrlFromEvent(event: {
+  tags: Array<[string, ...string[]]>;
+}): string | undefined {
+  return getCloneUrlsFromEvent(event)[0];
 }

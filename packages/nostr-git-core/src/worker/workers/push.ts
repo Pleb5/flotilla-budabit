@@ -106,7 +106,11 @@ export async function safePushToRemoteUtil(
     parseRepoId: (id: string) => string
     isRepoCloned: (dir: string) => Promise<boolean>
     isShallowClone: (key: string) => Promise<boolean>
-    resolveBranchName: (dir: string, requested?: string) => Promise<string>
+    resolveBranchName: (
+      dir: string,
+      requested?: string,
+      options?: {strict?: boolean},
+    ) => Promise<string>
     hasUncommittedChanges: (dir: string) => Promise<boolean>
     needsUpdate: (
       repoId: string,
@@ -172,7 +176,7 @@ export async function safePushToRemoteUtil(
     if (!cloned)
       return {success: false, error: "Repository not cloned locally; clone before pushing."}
 
-    const targetBranch = await resolveBranchName(dir, branch)
+    const targetBranch = await resolveBranchName(dir, branch, {strict: Boolean(branch)})
 
     if (pf.blockIfUncommitted) {
       const dirty = await hasUncommittedChanges(dir)

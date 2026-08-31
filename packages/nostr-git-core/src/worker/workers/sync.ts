@@ -158,7 +158,11 @@ export async function syncWithRemoteUtil(
   deps: {
     rootDir: string
     parseRepoId: (id: string) => string
-    resolveBranchName: (dir: string, requested?: string) => Promise<string>
+    resolveBranchName: (
+      dir: string,
+      requested?: string,
+      options?: {strict?: boolean},
+    ) => Promise<string>
     isRepoCloned: (dir: string) => Promise<boolean>
     toPlain: <T>(v: T) => T
     getAuthCallback?: (url: string) => any
@@ -353,7 +357,7 @@ export async function syncWithRemoteUtil(
 
     // 4. If requested branch fetch failed or no branch specified, use robust branch resolution
     if (!fetchSuccess) {
-      targetBranch = await resolveBranchName(dir, branch)
+      targetBranch = await resolveBranchName(dir, branch, {strict: Boolean(branch)})
       console.log(`[syncWithRemote] Resolved fallback branch: ${targetBranch}`)
 
       console.log(`[syncWithRemote] Fetching fallback branch from remote with URL fallback...`)

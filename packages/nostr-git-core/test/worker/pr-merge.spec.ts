@@ -242,6 +242,7 @@ describe("pr-merge", () => {
       expect(baseDeps.resolveBranchName).toHaveBeenCalledWith(
         expect.stringContaining("test-repo"),
         "develop",
+        {strict: true},
       )
     })
 

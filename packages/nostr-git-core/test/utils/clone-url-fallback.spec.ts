@@ -9,6 +9,8 @@ import {
   updateUrlPreferenceCache,
   clearUrlPreferenceCache,
   getCloneUrlsFromEvent,
+  getPrimaryCloneUrlFromEvent,
+  isPushCapableCloneUrl,
   cloneWithFallback,
   pushToAllRemotes,
 } from '../../src/utils/clone-url-fallback.js';
@@ -275,6 +277,15 @@ describe('clone-url-fallback utilities', () => {
   });
 
   describe('getCloneUrlsFromEvent', () => {
+    it('keeps the first declared URL as primary without promoting a later usable URL', () => {
+      const event = {
+        tags: [['clone', 'nostr://repo', 'https://primary.example/repo.git']],
+      };
+
+      expect(getPrimaryCloneUrlFromEvent(event as any)).toBe('nostr://repo');
+      expect(isPushCapableCloneUrl('nostr://repo')).toBe(false);
+      expect(isPushCapableCloneUrl('https://primary.example/repo.git')).toBe(true);
+    });
     it('extracts clone URLs from event tags', () => {
       const event = {
         tags: [

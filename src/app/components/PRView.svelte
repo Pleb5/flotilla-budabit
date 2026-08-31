@@ -89,7 +89,12 @@
   } from "@app/core/event-edits"
   import {publishEditedReply} from "@app/core/event-edit-publish"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
-  import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
+  import {
+    getCloneUrlsFromEvent,
+    isGraspRepoHttpUrl,
+    normalizeGraspServiceRelayUrl,
+    parseGraspRepoHttpUrl,
+  } from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
   import Profile from "@src/app/components/Profile.svelte"
   import LogIn from "@app/components/LogIn.svelte"
@@ -108,6 +113,7 @@
   import type {Readable} from "svelte/store"
   import {getSeenEventRelayHints} from "@app/util/event-links"
   import {selectAuthorizedPullRequestUpdates} from "@app/core/pr-update-selection"
+  import {planPrMergeRemotes, resolvePrTargetBranch} from "@app/core/pr-merge-targets"
 
   type PrChange = {
     path: string
@@ -151,6 +157,7 @@
     url: string
     provider: string
     selected: boolean
+    primary: boolean
     status: PrPushStatus
     summary?: string
     error?: string
@@ -485,15 +492,27 @@
     return getCloneUrlsFromEvent(pr?.raw ?? {tags: []})
   })
 
-  /** Target branch from PR event, fallback to the repository default branch. */
-  const prTargetBranch = $derived(
-    normalizeBranchName(pr?.targetBranch ?? repoClass?.mainBranch ?? "main") || "main",
+  const prTargetResolution = $derived.by(() =>
+    resolvePrTargetBranch({
+      targetBranch: pr?.targetBranch,
+      repositoryDefaultBranch: repoClass?.defaultBranch,
+      normalize: normalizeBranchName,
+    }),
+  )
+  const prTargetBranch = $derived("branch" in prTargetResolution ? prTargetResolution.branch : "")
+  const prTargetBranchError = $derived(
+    "error" in prTargetResolution ? prTargetResolution.error : null,
+  )
+
+  const prDeclaredTargetCloneUrls = $derived.by(() =>
+    getCloneUrlsFromEvent((repoClass as any)?.repoEvent || {tags: []}),
+  )
+  const prTargetRemotePlan = $derived.by(() =>
+    planPrMergeRemotes({declaredCloneUrls: prDeclaredTargetCloneUrls}),
   )
 
   const prTargetCloneUrls = $derived.by(() =>
-    filterValidCloneUrls(
-      (((repoClass as any).cloneUrls || []) as string[]).map(url => String(url || "").trim()),
-    ),
+    prTargetRemotePlan.remotes.map(remote => remote.url),
   )
 
   const prFetchCloneUrls = $derived.by(() =>
@@ -501,7 +520,7 @@
   )
 
   const primaryTargetCloneUrl = $derived.by(() => {
-    return prTargetCloneUrls[0] || ""
+    return prTargetRemotePlan.primaryUrl
   })
 
   const canPublishPrUpdates = $derived.by(() => {
@@ -2686,6 +2705,11 @@
   const prMergeBlockedReason = $derived.by(() => {
     if (!canManagePr) return "Only maintainers can merge this PR."
     if (prEffectiveStatus !== "open") return "Only open PRs can be merged."
+    if (prTargetBranchError) return prTargetBranchError
+    if (!primaryTargetCloneUrl) return "This repository does not declare a primary clone URL."
+    if (!prTargetRemotePlan.primaryPushCapable) {
+      return "The repository's primary clone URL is not push-capable."
+    }
     if (!prReviewReady) return "Load PR commits and file changes before merging."
     if (isAnalyzingPRMerge) return "Wait for merge analysis to finish before merging."
     if (!prCurrentMergeAnalysisResult) return "Run Analyze before merging."
@@ -2782,9 +2806,9 @@
   }
 
   const publishMergeStateToRelay = async (remoteUrl: string, branch: string, commitSha: string) => {
-    const remote = new URL(remoteUrl)
-    const relayUrl = `${remote.protocol === "http:" ? "ws" : "wss"}://${remote.host}`
-    const normalizedRelayUrl = normalizeRelay(relayUrl)
+    const parsedRemote = parseGraspRepoHttpUrl(remoteUrl)
+    if (!parsedRemote) throw new Error("The selected remote is not a valid GRASP repository URL.")
+    const normalizedRelayUrl = normalizeRelay(normalizeGraspServiceRelayUrl(parsedRemote.httpBase))
     if (!strictRepoRelays.includes(normalizedRelayUrl)) {
       throw new Error("The selected GRASP relay is not declared by this repository announcement.")
     }
@@ -2841,27 +2865,15 @@
       const remotes = (await repoClass.workerManager.listRemotes({
         repoId: repoClass.key,
       })) as Array<{remote: string; url: string}>
-      const fallback = ((repoClass as any).cloneUrls || []).map((url: string, i: number) => ({
-        remote: `remote-${i + 1}`,
-        url,
-      }))
+      const plan = planPrMergeRemotes({
+        declaredCloneUrls: prDeclaredTargetCloneUrls,
+        configuredRemotes: Array.isArray(remotes) ? remotes : [],
+      })
 
-      const combined: Array<{remote: string; url: string}> = [
-        ...(Array.isArray(remotes) ? remotes : []),
-        ...fallback,
-      ]
-        .filter((remote: {remote: string; url: string}) => Boolean(remote?.url))
-        .reduce(
-          (acc: Array<{remote: string; url: string}>, remote: {remote: string; url: string}) => {
-            if (!acc.some(x => x.url === remote.url)) acc.push(remote)
-            return acc
-          },
-          [],
-        )
-
-      prPushRemotes = combined.map(remote => ({
+      prPushRemotes = plan.remotes.map(remote => ({
         remote: remote.remote,
         url: remote.url,
+        primary: remote.primary,
         provider: inferRemoteProvider(remote.url),
         selected: true,
         status: "idle" as PrPushStatus,
@@ -2869,7 +2881,7 @@
 
       const syncResult = await repoClass.workerManager.syncWithRemote({
         repoId: repoClass.key,
-        cloneUrls: combined.map(r => r.url),
+        cloneUrls: plan.remotes.map(remote => remote.url),
         branch: prTargetBranch,
         preferredUrl: primaryTargetCloneUrl || undefined,
       })

@@ -95,7 +95,11 @@ export async function mergePRAndPushUtil(
   deps: {
     rootDir: string
     parseRepoId: (id: string) => string
-    resolveBranchName: (dir: string, requested?: string) => Promise<string>
+    resolveBranchName: (
+      dir: string,
+      requested?: string,
+      options?: {strict?: boolean},
+    ) => Promise<string>
     ensureFullClone: (args: {
       repoId: string
       branch?: string
@@ -142,7 +146,17 @@ export async function mergePRAndPushUtil(
 
   try {
     onProgress("Resolving target branch...", 5)
-    const effectiveTargetBranch = await resolveBranchName(dir, targetBranch || "main")
+    const validUrls = filterValidCloneUrls(cloneUrls)
+    if (validUrls.length === 0) {
+      return {
+        success: false,
+        error: "No valid clone URLs in PR",
+      }
+    }
+    if (!targetBranch?.trim()) {
+      return {success: false, error: "PR merge requires a resolved target branch"}
+    }
+    const effectiveTargetBranch = await resolveBranchName(dir, targetBranch, {strict: true})
     const validTargetCloneUrls = filterValidCloneUrls(targetCloneUrls || [])
 
     onProgress("Ensuring repository is ready...", 10)
@@ -151,14 +165,6 @@ export async function mergePRAndPushUtil(
       branch: effectiveTargetBranch,
       ...(validTargetCloneUrls.length > 0 ? {cloneUrls: validTargetCloneUrls} : {}),
     })
-
-    const validUrls = filterValidCloneUrls(cloneUrls)
-    if (validUrls.length === 0) {
-      return {
-        success: false,
-        error: "No valid clone URLs in PR",
-      }
-    }
 
     const fetchResult = await withUrlFallback(
       validUrls,
@@ -487,7 +493,11 @@ export async function analyzePRMergeUtil(
   deps: {
     rootDir: string
     parseRepoId: (id: string) => string
-    resolveBranchName: (dir: string, requested?: string) => Promise<string>
+    resolveBranchName: (
+      dir: string,
+      requested?: string,
+      options?: {strict?: boolean},
+    ) => Promise<string>
     getAuthCallback?: (url: string) => any
     corsProxy?: string | null
   },

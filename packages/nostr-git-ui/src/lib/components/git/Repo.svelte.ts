@@ -25,7 +25,7 @@ import {
   createRepoStateEvent,
 } from "@nostr-git/core/events";
 import { nip19 } from "nostr-tools";
-import { parseRepoId } from "@nostr-git/core/utils";
+import { isPushCapableCloneUrl, parseRepoId } from "@nostr-git/core/utils";
 import { context } from "$lib/stores/context";
 import { toast } from "$lib/stores/toast";
 import type { Token } from "$lib/stores/tokens";
@@ -1297,6 +1297,10 @@ export class Repo {
     return this.branchManager.getMainBranch();
   }
 
+  get defaultBranch(): string | undefined {
+    return this.#getKnownMainBranch();
+  }
+
   get branches() {
     // Derive branches from reactive refs for instant UI updates
     // Filter refs to only include heads (branches), not tags
@@ -2496,10 +2500,14 @@ export class Repo {
 
     // Resolve branch (short name)
     const fallbackMain = this.branchManager.getMainBranch();
+    const requestedBranch = params?.branch ? normalizeGitRefName(params.branch) : "";
+    if (params?.branch && !requestedBranch) {
+      throw new UserActionableError("Cannot push: invalid branch", GitErrorCode.INVALID_INPUT);
+    }
     const branch =
-      normalizeGitRefName(
-        params?.branch ?? this.selectedBranch ?? this.mainBranch ?? fallbackMain
-      ) || fallbackMain;
+      requestedBranch ||
+      normalizeGitRefName(this.selectedBranch ?? this.defaultBranch ?? fallbackMain) ||
+      fallbackMain;
 
     const cloneUrlsRaw = [...(this.#repo?.clone || [])]
       .map((u) => String(u || "").trim())
@@ -2507,12 +2515,9 @@ export class Repo {
 
     // Only attempt URLs that look like push-capable remotes. We intentionally skip nostr:// URLs
     // that are meant for addressing/browsing rather than git push remotes.
-    const isPushRemote = (u: string): boolean =>
-      /^https?:\/\//i.test(u) || /^wss?:\/\//i.test(u) || /^ssh:\/\//i.test(u) || /^git@/i.test(u);
-
     const selectedUrls = new Set((params?.remoteUrls || []).map((u) => String(u || "").trim()));
     const cloneUrls = cloneUrlsRaw
-      .filter(isPushRemote)
+      .filter(isPushCapableCloneUrl)
       .filter((u) => selectedUrls.size === 0 || selectedUrls.has(u));
 
     if (cloneUrls.length === 0) {

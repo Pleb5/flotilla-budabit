@@ -17,8 +17,10 @@ describe("pull request creation contract", () => {
   })
 
   it("falls back to the repository default when target-branch is absent", () => {
-    expect(prView).toContain('pr?.targetBranch ?? repoClass?.mainBranch ?? "main"')
-    expect(prView).not.toContain("pr?.targetBranch ?? repoClass?.selectedBranch")
+    expect(prView).toContain("resolvePrTargetBranch({")
+    expect(prView).toContain("repositoryDefaultBranch: repoClass?.defaultBranch")
+    expect(prView).not.toContain("repoClass?.selectedBranch")
+    expect(prView).not.toContain('repoClass?.mainBranch ?? "main"')
   })
 
   it("publishes only clone URLs verified by the preview", () => {

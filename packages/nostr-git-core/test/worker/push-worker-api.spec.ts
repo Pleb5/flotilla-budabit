@@ -661,7 +661,7 @@ describe("worker.pushToRemote API", () => {
   })
 
   it("preserves a GRASP deployment path when pushing", async () => {
-    const pathRemote = `https://relay.ngit.dev/git/${GRASP_OWNER_NPUB}/repo.git`
+    const pathRemote = `https://relay.ngit.dev/git/${GRASP_OWNER_NPUB}/repo.git?tenant=x`
     httpFetchMock.mockResolvedValue({
       ok: true,
       status: 200,
@@ -677,7 +677,7 @@ describe("worker.pushToRemote API", () => {
       branch: "main",
       token: GRASP_OWNER_PUBKEY,
       provider: "grasp",
-      repoRelays: [" WSS://RELAY.NGIT.DEV/git/ "],
+      repoRelays: [" WSS://RELAY.NGIT.DEV/git/?tenant=x "],
     })
 
     expect(res.success).toBe(true)
