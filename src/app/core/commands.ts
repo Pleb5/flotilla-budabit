@@ -1302,32 +1302,6 @@ const getFileExtension = (type?: string) => {
   return extension ? `.${extension}` : ""
 }
 
-const getBlossomTaskHash = (task: Record<string, any>) => {
-  for (const value of [task.sha256, task.hash, task.x]) {
-    if (typeof value === "string" && /^[0-9a-f]{64}$/i.test(value)) return value.toLowerCase()
-  }
-
-  if (Array.isArray(task.tags)) {
-    for (const tag of task.tags) {
-      if (tag?.[0] === "x" && typeof tag[1] === "string" && /^[0-9a-f]{64}$/i.test(tag[1])) {
-        return tag[1].toLowerCase()
-      }
-    }
-  }
-
-  if (typeof task.url === "string") {
-    try {
-      const match = new URL(task.url).pathname.match(/\/([0-9a-f]{64})(?:\.|$)/i)
-
-      if (match) return match[1].toLowerCase()
-    } catch {
-      // Ignore malformed server responses; the caller will decide if the hash is required.
-    }
-  }
-
-  return undefined
-}
-
 const getTaskMimeType = (task: Record<string, any>) =>
   typeof task.type === "string"
     ? task.type
@@ -1341,36 +1315,51 @@ const getTaskSize = (task: Record<string, any>) => {
   return typeof size === "number" && Number.isFinite(size) ? size : undefined
 }
 
-const buildBlossomUrl = (server: string, hash: string, type?: string) =>
-  `${server.replace(/\/+$/, "")}/${hash}${getFileExtension(type)}`
-
-const getValidHttpUrl = (url: unknown) => {
-  if (typeof url !== "string") return ""
-
-  try {
-    const parsed = new URL(url)
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : ""
-  } catch {
-    return ""
-  }
-}
-
-const getBlossomResultUrl = ({
-  hash,
-  server,
-  task,
-  type,
-}: {
-  hash: string
-  server: string
-  task: Record<string, any>
-  type?: string
-}) => getValidHttpUrl(task.url) || buildBlossomUrl(server, hash, type)
-
-const hasBlossomTaskSucceeded = (task: Record<string, any>) =>
-  Boolean(task.uploaded || task.url || getBlossomTaskHash(task))
-
 type BlossomInitialUploadEndpoint = "upload" | "media"
+
+const validateBlossomDescriptor = ({
+  endpoint,
+  expectedHash,
+  server,
+  value,
+}: {
+  endpoint: BlossomInitialUploadEndpoint | "mirror"
+  expectedHash: string
+  server: string
+  value: unknown
+}) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Blossom server returned an invalid blob descriptor.")
+  }
+
+  const descriptor = value as Record<string, any>
+  const descriptorHash = descriptor.sha256
+  if (typeof descriptorHash !== "string" || !/^[0-9a-f]{64}$/i.test(descriptorHash)) {
+    throw new Error("Blossom server returned a descriptor without a valid SHA-256 hash.")
+  }
+
+  let descriptorUrl: URL
+  let serverUrl: URL
+  try {
+    descriptorUrl = new URL(descriptor.url)
+    serverUrl = new URL(server)
+  } catch {
+    throw new Error("Blossom server returned a descriptor without a valid URL.")
+  }
+  if (
+    !["http:", "https:"].includes(descriptorUrl.protocol) ||
+    descriptorUrl.origin !== serverUrl.origin
+  ) {
+    throw new Error("Blossom descriptor URL does not belong to the selected server.")
+  }
+
+  const sha256 = descriptorHash.toLowerCase()
+  if (endpoint !== "media" && sha256 !== expectedHash.toLowerCase()) {
+    throw new Error("Blossom server returned a different hash than the uploaded file.")
+  }
+
+  return {...descriptor, url: descriptorUrl.toString(), sha256}
+}
 
 const ensureUploadUrlExtension = ({
   encrypted,
@@ -1387,10 +1376,17 @@ const ensureUploadUrlExtension = ({
 
   if (!extension) return url
 
-  if (encrypted) return url.replace(/\.\w+$/, "") + extension
-
   try {
-    return new URL(url).pathname.split(".").length === 1 ? url + extension : url
+    const parsed = new URL(url)
+    const segments = parsed.pathname.split("/")
+    const filename = segments.pop() || ""
+    const nextFilename = encrypted
+      ? filename.replace(/\.[^./]+$/, "") + extension
+      : filename.includes(".")
+        ? filename
+        : filename + extension
+    parsed.pathname = [...segments, nextFilename].join("/")
+    return parsed.toString()
   } catch {
     return url
   }
@@ -1423,7 +1419,12 @@ const uploadFileToBlossomServer = async ({
         })
   const text = await res.text()
 
-  return {res, text, task: parseJson(text) || {}}
+  const parsed = parseJson(text)
+  const task = res.ok
+    ? validateBlossomDescriptor({endpoint, expectedHash: hash, server, value: parsed})
+    : parsed || {}
+
+  return {res, text, task}
 }
 
 const uploadFileToPlannedBlossomServer = async ({
@@ -1488,7 +1489,12 @@ const mirrorBlossomUrlToBlossomServer = async ({
   })
   const text = await res.text()
 
-  return {res, text, task: parseJson(text) || {}}
+  const parsed = parseJson(text)
+  const task = res.ok
+    ? validateBlossomDescriptor({endpoint: "mirror", expectedHash: hash, server, value: parsed})
+    : parsed || {}
+
+  return {res, text, task}
 }
 
 const updateBackgroundMirrorJob = (
@@ -1523,22 +1529,11 @@ const runServerSideMirrorJob = async ({
     url: canonical.url,
   })
 
-  if (!res.ok || !hasBlossomTaskSucceeded(task)) {
+  if (!res.ok) {
     throw new Error(text || `Failed to mirror file (HTTP ${res.status})`)
   }
 
-  const mirroredHash = getBlossomTaskHash(task)
-
-  if (mirroredHash && mirroredHash !== canonical.sha256) {
-    throw new Error("Mirror returned a different hash than the canonical file.")
-  }
-
-  return getBlossomResultUrl({
-    hash: canonical.sha256,
-    server: job.targetUrl,
-    task,
-    type: canonical.type,
-  })
+  return task.url
 }
 
 const runBrowserUploadMirrorJob = async ({
@@ -1558,22 +1553,11 @@ const runBrowserUploadMirrorJob = async ({
     server: job.targetUrl,
   })
 
-  if (!res.ok || !hasBlossomTaskSucceeded(task)) {
+  if (!res.ok) {
     throw new Error(text || `Failed to upload mirror file (HTTP ${res.status})`)
   }
 
-  const uploadedHash = getBlossomTaskHash(task)
-
-  if (uploadedHash && uploadedHash !== canonical.sha256) {
-    throw new Error("Mirror upload returned a different hash than the canonical file.")
-  }
-
-  return getBlossomResultUrl({
-    hash: canonical.sha256,
-    server: job.targetUrl,
-    task,
-    type: canonical.type,
-  })
+  return task.url
 }
 
 const runBackgroundMirrorJob = async ({
@@ -1844,7 +1828,7 @@ export const uploadFile = async (
       uploadServer = attempt.uploadServer
       uploadTask = attempt.task
 
-      if (attempt.res.ok && hasBlossomTaskSucceeded(uploadTask)) break
+      if (attempt.res.ok) break
 
       const message = getUploadFailureMessage(attempt.text, attempt.res.status)
 
@@ -1862,11 +1846,9 @@ export const uploadFile = async (
     if (plan.mirrorOptimizedToCanonical) {
       setStage("saving-canonical")
 
-      const optimizedHash = getBlossomTaskHash(uploadTask)
+      const optimizedHash = uploadTask.sha256
       const optimizedType = getTaskMimeType(uploadTask) || contentType || file.type
-      const optimizedUrl =
-        uploadTask.url ||
-        (optimizedHash && buildBlossomUrl(uploadServer, optimizedHash, optimizedType))
+      const optimizedUrl = uploadTask.url
 
       if (!optimizedHash || !optimizedUrl) {
         setStage("failed")
@@ -1884,7 +1866,7 @@ export const uploadFile = async (
         url: optimizedUrl,
       })
 
-      if (!mirrorRes.ok || !hasBlossomTaskSucceeded(mirrorTask)) {
+      if (!mirrorRes.ok) {
         setStage("failed")
 
         return {
@@ -1894,40 +1876,19 @@ export const uploadFile = async (
         }
       }
 
-      const mirroredHash = getBlossomTaskHash(mirrorTask)
-
-      if (mirroredHash && mirroredHash !== optimizedHash) {
-        setStage("failed")
-
-        return {
-          error: "Canonical Blossom mirror returned a different hash than the optimized file.",
-        }
-      }
-
       uploadTask = {
         ...uploadTask,
         ...mirrorTask,
-        url: getBlossomResultUrl({
-          hash: optimizedHash,
-          server: plan.canonical.url,
-          task: mirrorTask,
-          type: optimizedType,
-        }),
-        sha256: mirroredHash || optimizedHash,
+        url: mirrorTask.url,
+        sha256: mirrorTask.sha256,
         type: getTaskMimeType(mirrorTask) || optimizedType,
       }
     }
 
-    const resultHash = getBlossomTaskHash(uploadTask) || hash
+    const resultHash = uploadTask.sha256
     const resultType = getTaskMimeType(uploadTask) || contentType || file.type || type
     const resultSize = getTaskSize(uploadTask) || file.size
     let {url, ...task} = uploadTask
-    url = getBlossomResultUrl({
-      hash: resultHash,
-      server: plan.canonical.url,
-      task: uploadTask,
-      type: resultType,
-    })
 
     url = ensureUploadUrlExtension({
       encrypted: Boolean(options.encrypt),

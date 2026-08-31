@@ -813,7 +813,7 @@ describe("blossom mirror job planning", () => {
     ])
   })
 
-  it("server-side-only mode tries server mirrors even when preference toggle is off", () => {
+  it("server-side-only mode mirrors only selected target groups", () => {
     expect(
       createBlossomMirrorJobs({
         targets: [mirror],
@@ -822,6 +822,29 @@ describe("blossom mirror job planning", () => {
           ...defaultBlossomSettings,
           mirrorMode: "server-side-only",
           preferServerSideMirroring: false,
+          autoMirrorTargetGroups: ["last-resort"],
+        },
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "server-mirror",
+        status: "skipped",
+        lastError: "Target group is not selected for automatic mirroring.",
+      }),
+    ])
+  })
+
+  it("server-side-only mode queues selected target groups", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "supported"})},
+        settings: {
+          ...defaultBlossomSettings,
+          mirrorMode: "server-side-only",
+          preferServerSideMirroring: false,
+          autoMirrorTargetGroups: ["personal"],
         },
         makeId: () => "job",
       }),

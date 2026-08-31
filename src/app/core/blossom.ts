@@ -793,7 +793,7 @@ export const createBlossomMirrorJobs = ({
 
     const capability = capabilities[target.url]
     const targetGroupSelected =
-      normalizedSettings.mirrorMode !== "always-selected" ||
+      !["always-selected", "server-side-only"].includes(normalizedSettings.mirrorMode) ||
       normalizedSettings.autoMirrorTargetGroups.includes(target.group)
     const canMirror =
       (normalizedSettings.preferServerSideMirroring ||

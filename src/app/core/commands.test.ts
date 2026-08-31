@@ -29,27 +29,6 @@ import {
   setActiveExactCommunityPointer,
 } from "./community-state"
 
-vi.hoisted(() => {
-  const values = new Map<string, string>()
-  Object.defineProperties(Storage.prototype, {
-    clear: {configurable: true, value: () => values.clear()},
-    getItem: {configurable: true, value: (key: string) => values.get(key) ?? null},
-    key: {
-      configurable: true,
-      value: (index: number) => Array.from(values.keys())[index] ?? null,
-    },
-    removeItem: {configurable: true, value: (key: string) => values.delete(key)},
-    setItem: {
-      configurable: true,
-      value: (key: string, value: string) => values.set(key, String(value)),
-    },
-  })
-  const storage = Object.create(Storage.prototype)
-
-  Object.defineProperty(globalThis, "localStorage", {configurable: true, value: storage})
-  Object.defineProperty(globalThis, "sessionStorage", {configurable: true, value: storage})
-})
-
 const utilMocks = vi.hoisted(() => ({
   uploadBlob: vi.fn(),
 }))
@@ -190,6 +169,22 @@ const makeUploadTestFile = () => {
   return file
 }
 
+const makeUploadDescriptorResponse = (
+  server: string,
+  options: {headers?: HeadersInit},
+  values: Record<string, unknown> = {},
+) => {
+  const hash = new Headers(options.headers).get("X-SHA-256")
+  return new Response(
+    JSON.stringify({
+      uploaded: 1,
+      url: new URL("blob", server).toString(),
+      sha256: hash,
+      ...values,
+    }),
+  )
+}
+
 const waitForBackgroundJobs = async () => {
   await new Promise(resolve => setTimeout(resolve, 0))
   await new Promise(resolve => setTimeout(resolve, 0))
@@ -313,7 +308,7 @@ describe("commands", () => {
   })
 
   it("logout closes workers before deleting all persistent databases", async () => {
-    const clearStorage = vi.spyOn(Storage.prototype, "clear")
+    const clearLocalStorage = vi.spyOn(localStorage, "clear")
     const {logout} = await import("./commands")
 
     await logout()
@@ -333,9 +328,9 @@ describe("commands", () => {
     expect(logoutMocks.terminateSharedWorkerManager.mock.invocationCallOrder[0]).toBeLessThan(
       logoutMocks.deleteIndexedDB.mock.invocationCallOrder[0],
     )
-    expect(clearStorage).toHaveBeenCalledTimes(2)
+    expect(clearLocalStorage).toHaveBeenCalledTimes(2)
 
-    clearStorage.mockRestore()
+    clearLocalStorage.mockRestore()
   })
 
   it("normalizeBlossomUrl converts ws to http", async () => {
@@ -382,8 +377,8 @@ describe("commands", () => {
       return new Response(JSON.stringify({url: `${mirror}/${hash}.webp`, sha256: hash}))
     })
 
-    utilMocks.uploadBlob.mockImplementation(
-      async (server: string) => new Response(JSON.stringify({uploaded: 1, url: `${server}blob`})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
     vi.stubGlobal("fetch", fetchMock)
 
@@ -394,7 +389,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
     expect(mirrors).toBeUndefined()
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(primary)
@@ -434,8 +429,8 @@ describe("commands", () => {
         new Response("mirror unavailable", {status: 503}),
     )
 
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
     vi.stubGlobal("fetch", fetchMock)
 
@@ -446,7 +441,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
     expect(mirrors).toBeUndefined()
 
     await waitForBackgroundJobs()
@@ -475,8 +470,8 @@ describe("commands", () => {
         ),
     )
 
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
     vi.stubGlobal("fetch", fetchMock)
 
@@ -487,7 +482,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
 
     await waitForBackgroundJobs()
     expect(await startBlossomMirrorJobs({uploadId: uploadId!})).toBe(true)
@@ -495,7 +490,7 @@ describe("commands", () => {
 
     expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
       status: "failed",
-      lastError: "Mirror returned a different hash than the canonical file.",
+      lastError: "Blossom server returned a different hash than the uploaded file.",
     })
   })
 
@@ -505,9 +500,9 @@ describe("commands", () => {
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
 
-    utilMocks.uploadBlob
-      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})))
-      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${mirror}blob`})))
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
+    )
 
     const {error, result} = await uploadFile(file, {
       url: primary,
@@ -531,7 +526,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
 
     await waitForBackgroundJobs()
 
@@ -550,9 +545,9 @@ describe("commands", () => {
     const file = makeUploadTestFile()
     const bytes = new Uint8Array(await file.arrayBuffer())
 
-    utilMocks.uploadBlob
-      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})))
-      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${mirror}blob`})))
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
+    )
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(bytes, {headers: {"Content-Type": file.type}})),
@@ -574,7 +569,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
     expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
       method: "browser-upload",
       status: "paused",
@@ -596,8 +591,8 @@ describe("commands", () => {
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
 
-    utilMocks.uploadBlob.mockResolvedValueOnce(
-      new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})),
+    utilMocks.uploadBlob.mockImplementationOnce(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
     vi.stubGlobal(
       "fetch",
@@ -620,7 +615,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
     expect(await startBlossomMirrorJobs({uploadId: uploadId!, browserAssist: true})).toBe(false)
 
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
@@ -635,14 +630,14 @@ describe("commands", () => {
     const {DEFAULT_BLOSSOM_SERVERS} = await import("@app/core/state")
     const file = makeUploadTestFile()
 
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: "https://default.example.com/blob"})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
 
     const {error, mirrors, result} = await uploadFile(file)
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe("https://default.example.com/blob.webp")
+    expect(result?.url).toMatch(/\/blob\.webp$/)
     expect(mirrors).toBeUndefined()
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(
@@ -650,21 +645,49 @@ describe("commands", () => {
     )
   })
 
-  it("uploadFile reconstructs canonical URLs when upload response URL is unusable", async () => {
+  it("uploadFile rejects upload responses with an unusable URL", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const server = normalizeBlossomUrl("https://primary.example.com")
     const file = makeUploadTestFile()
 
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: "not-a-url"})),
+    utilMocks.uploadBlob.mockImplementation(async (target: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(target, options, {url: "not-a-url"}),
     )
 
     const {error, result} = await uploadFile(file, {url: server})
 
-    expect(error).toBeUndefined()
-    expect(result?.url.startsWith(`${server}/`)).toBe(true)
-    expect(result?.url.endsWith(".webp")).toBe(true)
-    expect(result?.url).toMatch(/[a-f0-9]{64}\.webp$/)
+    expect(result).toBeUndefined()
+    expect(error).toContain("descriptor without a valid URL")
+  })
+
+  it("uploadFile rejects upload descriptors from a foreign origin", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://primary.example.com")
+
+    utilMocks.uploadBlob.mockImplementation(async (target: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(target, options, {url: "https://attacker.example/blob"}),
+    )
+
+    const {error, result} = await uploadFile(makeUploadTestFile(), {url: server})
+
+    expect(result).toBeUndefined()
+    expect(error).toContain("does not belong to the selected server")
+    expect(get(blossomDashboardState).uploads).toHaveLength(0)
+  })
+
+  it("uploadFile rejects exact upload descriptors with a different hash", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://primary.example.com")
+
+    utilMocks.uploadBlob.mockImplementation(async (target: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(target, options, {sha256: "c".repeat(64)}),
+    )
+
+    const {error, result} = await uploadFile(makeUploadTestFile(), {url: server})
+
+    expect(result).toBeUndefined()
+    expect(error).toContain("different hash than the uploaded file")
+    expect(get(blossomDashboardState).uploads).toHaveLength(0)
   })
 
   it("uploadFile retries once with the Blossom server expected content type", async () => {
@@ -687,9 +710,10 @@ describe("commands", () => {
         )
       }
 
-      return new Response(
-        JSON.stringify({uploaded: 1, url: `${server}/blob`, type: headers["Content-Type"]}),
-      )
+      return makeUploadDescriptorResponse(server, options, {
+        url: `${server}/blob`,
+        type: headers["Content-Type"],
+      })
     })
 
     const {error, result} = await uploadFile(file, {url: server})
@@ -732,7 +756,10 @@ describe("commands", () => {
         return new Response("File type not allowed, unsupported.", {status: 415})
       }
 
-      return new Response(JSON.stringify({uploaded: 1, url: `${server}/blob`, type: contentType}))
+      return makeUploadDescriptorResponse(server, options, {
+        url: `${server}/blob`,
+        type: contentType,
+      })
     })
 
     const {error, result} = await uploadFile(file, {
@@ -789,8 +816,8 @@ describe("commands", () => {
     setActiveExactCommunityDefinition(
       makeCommunityDefinition("definition-with-blossom", [communityBlossom]),
     )
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: `${communityBlossom}/blob`})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options, {url: `${server}/blob`}),
     )
 
     const {error, result} = await uploadFile(file, {
@@ -816,8 +843,8 @@ describe("commands", () => {
     setActiveExactCommunityDefinition(
       makeCommunityDefinition("definition-with-blossom", [activeCommunityBlossom]),
     )
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: "https://fallback.example/blob"})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
 
     await uploadFile(makeUploadTestFile(), {
@@ -836,8 +863,8 @@ describe("commands", () => {
     const file = makeUploadTestFile()
 
     setActiveExactCommunityDefinition(makeCommunityDefinition("definition-without-blossom"))
-    utilMocks.uploadBlob.mockResolvedValue(
-      new Response(JSON.stringify({uploaded: 1, url: "https://fallback.example/blob"})),
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(server, options),
     )
 
     await uploadFile(file, {

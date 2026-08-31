@@ -53,6 +53,7 @@ export default defineConfig({
           name: "main",
           include: ["src/**/*.{test,spec}.ts", "tests/**/*.{test,spec}.ts"],
           exclude: ["**/node_modules/**", "**/packages/**", "**/e2e/**", "tests/e2e/**"],
+          setupFiles: ["./tests/vitest.setup.ts"],
           server: {
             deps: {
               inline: [/@pomade\/core/],
