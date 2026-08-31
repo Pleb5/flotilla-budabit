@@ -53,6 +53,7 @@
   import type {Repo} from "@nostr-git/ui"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {getRepoRootListPresentation} from "@app/core/repo-root-presentation"
+  import {awaitLinkedPublication} from "@app/core/linked-publication"
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
 
@@ -706,7 +707,8 @@
       repoAddr: repoClass.address,
       relays: relaysToUse,
     })
-    publishEvent(statusEvent as any, relaysToUse, repoAddress)
+    const publishedStatus = publishEvent(statusEvent as any, relaysToUse, repoAddress)
+    await awaitLinkedPublication([publishedPR, publishedStatus])
     pushToast({message: "Pull request created"})
   }
 

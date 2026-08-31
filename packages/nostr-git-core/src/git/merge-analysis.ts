@@ -1284,6 +1284,7 @@ export interface PRPreviewData {
   error?: string
   mergeBase?: string
   tipCommit?: string
+  verifiedCloneUrls?: string[]
   commits: Array<{oid: string; message: string; author?: {name?: string; email?: string}}>
   commitOids: string[]
   filesChanged: string[]

@@ -400,6 +400,7 @@ async function tryGitNaturalPRPreview(params: {
     filesChanged: Array.from(
       new Set((review.changes || []).map(change => change.path).filter(Boolean)),
     ),
+    verifiedCloneUrls: [source.usedUrl.trim()],
     source: "git-natural",
     readSource: review.readSource,
     usedCloneUrl: review.usedCloneUrl,
@@ -2942,6 +2943,7 @@ const api = {
       ? filterValidCloneUrls(opts.sourceCloneUrls || [])
       : targetUrls
     let sourceRemote: string | undefined
+    let verifiedSourceUrl: string | undefined
 
     try {
       const naturalPreview = await tryGitNaturalPRPreview({
@@ -2992,7 +2994,7 @@ const api = {
             ref: opts.targetBranch,
             singleBranch: true,
             depth: 100,
-            prune: true,
+            prune: false,
             tags: false,
             corsProxy: corsProxy ?? undefined,
             onAuth: getAuthCallback(cloneUrl),
@@ -3079,6 +3081,37 @@ const api = {
           })
         }
         sourceRemote = prSourceRemote
+        verifiedSourceUrl = sourceFetchResult.usedUrl?.trim()
+      } else {
+        const sourceFetchResult = await withUrlFallback(
+          orderedUrls,
+          async (cloneUrl: string) => {
+            await ensureOriginRemoteConfig(git, dir, cloneUrl)
+            await git.fetch({
+              dir,
+              url: cloneUrl,
+              ref: opts.sourceBranch,
+              singleBranch: true,
+              depth: 100,
+              prune: false,
+              tags: false,
+              corsProxy: corsProxy ?? undefined,
+              onAuth: getAuthCallback(cloneUrl),
+            })
+            await git.resolveRef({dir, ref: `refs/remotes/origin/${opts.sourceBranch}`})
+          },
+          {repoId: key, perUrlTimeoutMs: 15000},
+        )
+        if (!sourceFetchResult.success) {
+          return toPlain({
+            success: false,
+            error: `Failed to refresh source branch from remote: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
+            commits: [],
+            commitOids: [],
+            filesChanged: [],
+          })
+        }
+        verifiedSourceUrl = sourceFetchResult.usedUrl?.trim()
       }
 
       const result = await getPRPreviewData(git, dir, opts.sourceBranch, opts.targetBranch, {
@@ -3086,7 +3119,10 @@ const api = {
         preferRemoteRefs: true, // Use remote refs first; local refs/heads may be stale after push
       })
 
-      return toPlain(result)
+      return toPlain({
+        ...result,
+        verifiedCloneUrls: result.success && verifiedSourceUrl ? [verifiedSourceUrl] : [],
+      })
     } catch (error: any) {
       return toPlain({
         success: false,

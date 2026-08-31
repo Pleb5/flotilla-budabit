@@ -43,6 +43,7 @@
   let targetBranch = $state("");
   let fromFork = $state(false);
   let cloneUrlsText = $state("");
+  let settledForkCloneUrlsText = $state("");
   let labels = $state<string[]>([]);
   let customLabels = $state<string[]>([]);
   let newLabel = $state("");
@@ -53,12 +54,14 @@
   let sourceBranchesLoading = $state(false);
   let sourceBranchesError = $state("");
   let forkFetchRetryNonce = $state(0);
+  let lastSourceKey = "";
   let prPreview = $state<{
     success: boolean;
     error?: string;
     commits: Array<{ oid: string; message: string; author?: { name?: string } }>;
     commitOids: string[];
     tipCommit?: string;
+    verifiedCloneUrls?: string[];
     filesChanged: string[];
     mergeBase?: string;
   } | null>(null);
@@ -83,8 +86,8 @@
     })
   );
 
-  const parseForkCloneUrls = () =>
-    cloneUrlsText
+  const parseForkCloneUrls = (value = settledForkCloneUrlsText) =>
+    value
       .split(/\n/)
       .map((s) => s.trim())
       .filter(Boolean);
@@ -95,10 +98,32 @@
     forkFetchRetryNonce += 1;
   }
 
+  $effect(() => {
+    const value = fromFork ? cloneUrlsText : "";
+    prPreview = null;
+    previewLoading = false;
+    if (!fromFork) {
+      settledForkCloneUrlsText = "";
+      return;
+    }
+    const timeout = setTimeout(() => {
+      settledForkCloneUrlsText = value;
+    }, 400);
+    return () => clearTimeout(timeout);
+  });
+
   // Source branches: from repo.refs when same-repo, from fork when fromFork
   $effect(() => {
     const retryNonce = forkFetchRetryNonce;
     void retryNonce;
+    const sourceKey = fromFork ? `fork:${settledForkCloneUrlsText}` : "repo";
+    if (sourceKey !== lastSourceKey) {
+      lastSourceKey = sourceKey;
+      sourceBranch = "";
+      sourceBranches = [];
+      prPreview = null;
+      previewLoading = false;
+    }
     if (!fromFork) {
       sourceBranches = targetBranches;
       sourceBranchesLoading = false;
@@ -218,10 +243,11 @@
 
     errors = {};
     isSubmitting = true;
-    const urls = fromFork ? parseForkCloneUrls() : cloneUrls;
+    const urls = prPreview?.verifiedCloneUrls ?? [];
 
     try {
-      content = RichDescriptionEditor && descriptionEditor ? await descriptionEditor.getText() : content;
+      content =
+        RichDescriptionEditor && descriptionEditor ? await descriptionEditor.getText() : content;
     } catch (error) {
       errors.general = error instanceof Error ? error.message : "Failed to read PR description";
       isSubmitting = false;
@@ -233,7 +259,7 @@
       content,
       sourceBranch,
       targetBranch,
-      cloneUrls: urls.length ? urls : cloneUrls,
+      cloneUrls: urls,
       labels,
     });
     if (!result.success) {
@@ -259,9 +285,10 @@
 
     let descriptionPayload: RichContentPayload;
     try {
-      descriptionPayload = RichDescriptionEditor && descriptionEditor
-        ? await descriptionEditor.getContent()
-        : { content: result.data.content, tags: [] };
+      descriptionPayload =
+        RichDescriptionEditor && descriptionEditor
+          ? await descriptionEditor.getContent()
+          : { content: result.data.content, tags: [] };
     } catch (error) {
       errors.general = error instanceof Error ? error.message : "Failed to read PR description";
       isSubmitting = false;
@@ -277,7 +304,8 @@
         labels: result.data.labels,
         tipCommitOid,
         clone: result.data.cloneUrls,
-        branchName: result.data.targetBranch,
+        branchName: result.data.sourceBranch,
+        targetBranch: result.data.targetBranch,
         mergeBase: prPreview.mergeBase,
         recipients: [repo.repoEvent?.pubkey ?? ""],
         tags: (descriptionPayload.tags || []) as PullRequestTag[],
@@ -522,7 +550,11 @@
 
   <div class="flex justify-end gap-3">
     <Button type="button" variant="outline" onclick={back} disabled={isSubmitting}>Cancel</Button>
-    <Button type="submit" variant="git" disabled={isSubmitting}>
+    <Button
+      type="submit"
+      variant="git"
+      disabled={isSubmitting || previewLoading || !prPreview?.success}
+    >
       {isSubmitting ? "Creating…" : "Create PR"}
     </Button>
   </div>
