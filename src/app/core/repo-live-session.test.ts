@@ -42,6 +42,7 @@ describe("repository live session", () => {
         expect.objectContaining({kinds: [30618], "#d": ["repo"]}),
         expect.objectContaining({"#a": [address]}),
         {kinds: [1111], "#q": [address]},
+        {kinds: [5], "#repo": [address]},
         expect.objectContaining({"#p": ["c".repeat(64)]}),
       ]),
     )

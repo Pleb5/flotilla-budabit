@@ -57,7 +57,6 @@
   import {filterValidCloneUrls} from "@nostr-git/core"
   import {
     parseStatusEvent,
-    parsePullRequestUpdateEvent,
     createCoverLetterEvent,
     createPullRequestUpdateEvent,
     createStatusEvent,
@@ -108,6 +107,7 @@
   import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
   import {getSeenEventRelayHints} from "@app/util/event-links"
+  import {selectAuthorizedPullRequestUpdates} from "@app/core/pr-update-selection"
 
   type PrChange = {
     path: string
@@ -306,7 +306,10 @@
 
   const prStatusEventsArray = $derived.by(() => {
     if (!prStatusEvents) return []
-    return $prStatusEvents as StatusEvent[]
+    return filterVisibleAfterDeletesAndEdits(
+      $prStatusEvents as StatusEvent[],
+      $editedTargetIds,
+    )
   })
 
   const prResolvedStatus = $derived.by(() => {
@@ -436,13 +439,12 @@
 
   const prUpdatesArray = $derived.by(() => {
     if (!prUpdatesDerived) return []
-    const events = $prUpdatesDerived as TrustedEvent[]
-    return (events || [])
-      .sort((a: TrustedEvent, b: TrustedEvent) => {
-        if (a.created_at !== b.created_at) return a.created_at - b.created_at
-        return a.id.localeCompare(b.id)
-      })
-      .map((e: TrustedEvent) => parsePullRequestUpdateEvent(e as any))
+    return selectAuthorizedPullRequestUpdates({
+      root: prEvent,
+      updates: ($prUpdatesDerived || []) as TrustedEvent[],
+      isVisible: event =>
+        filterVisibleAfterDeletesAndEdits([event], $editedTargetIds).length === 1,
+    })
   })
 
   const prEffectiveTipOid = $derived.by(() => {

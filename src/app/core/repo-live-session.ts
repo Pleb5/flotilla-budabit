@@ -57,7 +57,7 @@ export type RepoLiveRequestDependencies = {
 }
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort()
-const REPO_SCOPE_FILTER_KEYS = ["#a", "#q", "#d", "#e", "#E"] as const
+const REPO_SCOPE_FILTER_KEYS = ["#a", "#q", "#d", "#e", "#E", "#repo"] as const
 
 const isRepoScopedFilter = (filter: Filter) =>
   REPO_SCOPE_FILTER_KEYS.some(key => {
@@ -122,6 +122,7 @@ export const buildRepoStableLiveFilters = ({
         "#a": normalizedAddresses,
       },
       {kinds: [COMMENT], "#q": normalizedAddresses},
+      {kinds: [DELETE], "#repo": normalizedAddresses},
     )
   }
 
