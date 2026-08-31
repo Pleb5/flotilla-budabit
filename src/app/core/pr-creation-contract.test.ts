@@ -9,10 +9,16 @@ describe("pull request creation contract", () => {
   )
   const worker = readProjectFile("../../../packages/nostr-git-core/src/worker/worker.ts")
   const page = readProjectFile("../../routes/git/[id=naddr]/prs/+page.svelte")
+  const prView = readProjectFile("../components/PRView.svelte")
 
   it("emits distinct source and target branch tags", () => {
     expect(form).toContain("branchName: result.data.sourceBranch")
     expect(form).toContain("targetBranch: result.data.targetBranch")
+  })
+
+  it("falls back to the repository default when target-branch is absent", () => {
+    expect(prView).toContain('pr?.targetBranch ?? repoClass?.mainBranch ?? "main"')
+    expect(prView).not.toContain("pr?.targetBranch ?? repoClass?.selectedBranch")
   })
 
   it("publishes only clone URLs verified by the preview", () => {

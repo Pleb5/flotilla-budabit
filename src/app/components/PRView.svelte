@@ -483,11 +483,9 @@
     return getCloneUrlsFromEvent(pr?.raw ?? {tags: []})
   })
 
-  /** Target branch from PR event, fallback to repo selection */
+  /** Target branch from PR event, fallback to the repository default branch. */
   const prTargetBranch = $derived(
-    normalizeBranchName(
-      pr?.targetBranch ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main",
-    ) || "main",
+    normalizeBranchName(pr?.targetBranch ?? repoClass?.mainBranch ?? "main") || "main",
   )
 
   const prTargetCloneUrls = $derived.by(() =>
