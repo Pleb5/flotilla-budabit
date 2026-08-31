@@ -285,7 +285,7 @@ describe("NIP-34 builders", () => {
     expect((applied as any)[2]).toBe("c2")
   })
 
-  it("createPullRequestEvent encodes tip commit, clone URLs, branch name (target), merge base, recipients, labels", () => {
+  it("createPullRequestEvent encodes tip commit, clone URLs, source and target branches, merge base, recipients, labels", () => {
     const evt = createPullRequestEvent({
       content: "pr body",
       repoAddr: "30617:pubkey:repo",
@@ -294,7 +294,8 @@ describe("NIP-34 builders", () => {
       labels: ["enhancement"],
       tipCommitOid: "c2",
       clone: ["https://example.com/repo.git", "https://mirror.example.com/repo.git"],
-      branchName: "main",
+      branchName: "feature",
+      targetBranch: "main",
       mergeBase: "base-oid",
       created_at: 1700000005,
     })
@@ -314,7 +315,8 @@ describe("NIP-34 builders", () => {
       "https://mirror.example.com/repo.git",
     ])
 
-    expect(getTagValue(evt as any, "branch-name")).toBe("main")
+    expect(getTagValue(evt as any, "branch-name")).toBe("feature")
+    expect(getTagValue(evt as any, "target-branch")).toBe("main")
     expect(getTagValue(evt as any, "merge-base")).toBe("base-oid")
   })
 
@@ -331,14 +333,16 @@ describe("NIP-34 builders", () => {
       repoAddr: "30617:pubkey:repo",
       subject: "PR subject",
       tipCommitOid: "c2",
-      branchName: "main",
+      branchName: "feature",
+      targetBranch: "main",
       tags: richTags,
     })
 
     expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
     expect(getTagValue(evt as any, "subject")).toBe("PR subject")
     expect(getTagValue(evt as any, "c")).toBe("c2")
-    expect(getTagValue(evt as any, "branch-name")).toBe("main")
+    expect(getTagValue(evt as any, "branch-name")).toBe("feature")
+    expect(getTagValue(evt as any, "target-branch")).toBe("main")
     for (const tag of richTags) expect(evt.tags).toContainEqual(tag)
   })
 

@@ -52,6 +52,7 @@ describe("NIP-34 Pull Request Events", () => {
           ["c", "commit-hash"],
           ["clone", "https://github.com/user/repo"],
           ["branch-name", "feature-branch"],
+          ["target-branch", "main"],
           ["e", "event-id"],
           ["merge-base", "base-commit"],
         ],
@@ -116,6 +117,7 @@ describe("NIP-34 Pull Request Events", () => {
         tipCommitOid: "commit-hash",
         clone: ["https://github.com/user/repo"],
         branchName: "feature-branch",
+        targetBranch: "main",
         mergeBase: "base-commit",
         content: "PR description",
       })
@@ -129,6 +131,7 @@ describe("NIP-34 Pull Request Events", () => {
       expect(event.tags).toContainEqual(["c", "commit-hash"])
       expect(event.tags).toContainEqual(["clone", "https://github.com/user/repo"])
       expect(event.tags).toContainEqual(["branch-name", "feature-branch"])
+      expect(event.tags).toContainEqual(["target-branch", "main"])
       expect(event.tags).toContainEqual(["merge-base", "base-commit"])
     })
 
@@ -182,6 +185,7 @@ describe("NIP-34 Pull Request Events", () => {
           ["c", "commit-hash"],
           ["clone", "https://github.com/user/repo"],
           ["branch-name", "feature-branch"],
+          ["target-branch", "main"],
           ["e", "event-id"],
           ["merge-base", "base-commit"],
         ],
@@ -195,6 +199,7 @@ describe("NIP-34 Pull Request Events", () => {
       expect(parsed.labels).toEqual(["bug"])
       expect(parsed.tipCommitOid).toBe("commit-hash")
       expect(parsed.branchName).toBe("feature-branch")
+      expect(parsed.targetBranch).toBe("main")
       expect(parsed.mergeBase).toBe("base-commit")
       expect(parsed.content).toBe("PR description")
       expect(parsed.author.pubkey).toBe("test-pubkey")
@@ -486,6 +491,7 @@ describe("NIP-34 Pull Request Events", () => {
       expect(parsed.labels).toEqual([])
       expect(parsed.tipCommitOid).toBe("")
       expect(parsed.branchName).toBeUndefined()
+      expect(parsed.targetBranch).toBeUndefined()
       expect(parsed.mergeBase).toBeUndefined()
       expect(parsed.content).toBe("")
       expect(parsed.author.pubkey).toBe("pk")
@@ -601,6 +607,7 @@ describe("NIP-34 Pull Request Events", () => {
         tipCommitOid: "abc123",
         clone: ["https://github.com/user/repo.git"],
         branchName: "main",
+        targetBranch: "release",
         mergeBase: "base123",
         recipients: ["pk1"],
       })
@@ -611,6 +618,7 @@ describe("NIP-34 Pull Request Events", () => {
       expect(parsed.labels).toEqual(["enhancement"])
       expect(parsed.tipCommitOid).toEqual("abc123")
       expect(parsed.branchName).toBe("main")
+      expect(parsed.targetBranch).toBe("release")
       expect(parsed.mergeBase).toBe("base123")
       expect(parsed.raw).toBe(created)
     })

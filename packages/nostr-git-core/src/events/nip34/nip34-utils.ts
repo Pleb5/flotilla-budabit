@@ -592,8 +592,10 @@ export function createPullRequestEvent(opts: {
   labels?: string[]
   tipCommitOid: string
   clone?: string[]
-  /** branchName = target branch (merge-into) per NIP-34. Source is identified by tip commit (c tag). */
+  /** Optional recommended name for the proposed/source branch. */
   branchName?: string
+  /** Optional Budabit extension naming the branch the PR should merge into. */
+  targetBranch?: string
   mergeBase?: string
   tags?: PullRequestTag[]
   created_at?: number
@@ -608,6 +610,7 @@ export function createPullRequestEvent(opts: {
   tags.push(["c", opts.tipCommitOid])
   if (opts.clone && opts.clone.length > 0) tags.push(["clone", ...opts.clone])
   if (opts.branchName) tags.push(["branch-name", opts.branchName])
+  if (opts.targetBranch) tags.push(["target-branch", opts.targetBranch])
   if (opts.mergeBase) tags.push(["merge-base", opts.mergeBase])
   if (opts.tags) tags.push(...opts.tags)
   return {
@@ -840,8 +843,10 @@ export interface PullRequest {
   tipCommitOid: string
   tipCandidates: string[]
   tipError?: "missing-tip" | "ambiguous-tip"
-  /** Target branch (merge-into) per NIP-34 */
+  /** Optional recommended name for the proposed/source branch. */
   branchName?: string
+  /** Optional Budabit extension naming the merge target. */
+  targetBranch?: string
   mergeBase?: string
   createdAt: string
   raw: PullRequestEvent
@@ -876,6 +881,7 @@ export function parsePullRequestEvent(event: PullRequestEvent): PullRequest {
     tipCandidates: tip.tipCandidates,
     tipError: tip.tipError,
     branchName: getTag("branch-name"),
+    targetBranch: getTag("target-branch"),
     mergeBase: getTag("merge-base"),
     createdAt: new Date(event.created_at * 1000).toISOString(),
     raw: event,

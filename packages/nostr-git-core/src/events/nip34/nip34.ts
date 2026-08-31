@@ -174,6 +174,7 @@ export type PullRequestTag =
   | ["c", string]
   | ["clone", ...string[]]
   | ["branch-name", string]
+  | ["target-branch", string]
   | ["e", string]
   | ["merge-base", string]
 

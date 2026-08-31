@@ -135,6 +135,7 @@ export const PullRequestTagSchema = z.union([
   CTag,
   CloneTag,
   z.tuple([z.literal("branch-name"), z.string()]),
+  z.tuple([z.literal("target-branch"), z.string()]),
   z.tuple([z.literal("merge-base"), z.string()]),
   z.tuple([z.literal("e"), z.string()]),
 ])

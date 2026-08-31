@@ -51,6 +51,9 @@ describe("platform-to-nostr pull requests", () => {
 
     expect(converted.platformPullRequestNumber).toBe(42)
     expect(converted.event.tags).toContainEqual(["c", commits[1]])
+    expect(converted.event.tags).toContainEqual(["branch-name", "feature"])
+    expect(converted.event.tags).toContainEqual(["target-branch", "main"])
+    expect(converted.event.tags).toContainEqual(["merge-base", "d".repeat(40)])
   })
 })
 

@@ -2075,7 +2075,7 @@
   const getPullRequestRepoAddress = (pullRequest: Pick<PullRequestEvent, "tags">) =>
     getTagValue("a", pullRequest.tags) || ""
   const getPullRequestTargetBranch = (pullRequest: Pick<PullRequestEvent, "tags">) =>
-    getTagValue("branch-name", pullRequest.tags) || ""
+    getTagValue("target-branch", pullRequest.tags) || ""
   const getLatestMaintainerAppliedStatus = (statuses: StatusEvent[], maintainers: Set<string>) =>
     [...statuses]
       .filter(status => maintainers.has(status.pubkey))

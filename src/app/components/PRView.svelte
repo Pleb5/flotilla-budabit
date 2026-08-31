@@ -486,7 +486,7 @@
   /** Target branch from PR event, fallback to repo selection */
   const prTargetBranch = $derived(
     normalizeBranchName(
-      pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main",
+      pr?.targetBranch ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main",
     ) || "main",
   )
 
