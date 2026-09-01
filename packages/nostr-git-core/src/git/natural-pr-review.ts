@@ -8,7 +8,11 @@ import type {GitNaturalCommit} from "./natural-read-types.js"
 import {filterValidCloneUrls, reorderUrlsByPreference} from "../utils/clone-url-fallback.js"
 
 export interface GitNaturalPRReviewReader {
-  resolveRef(params: {url: string; ref: string; corsProxy?: string | null}): Promise<GitNaturalResolveRefResult>
+  resolveRef(params: {
+    url: string
+    ref: string
+    corsProxy?: string | null
+  }): Promise<GitNaturalResolveRefResult>
   listCommits(params: {
     url: string
     commitHash: string
@@ -29,6 +33,10 @@ export interface GitNaturalPRReviewData {
   headOid: string
   targetCommit?: string
   mergeBase?: string
+  claimedMergeBase?: string
+  claimedMergeBaseMismatch?: boolean
+  aheadCount?: number
+  behindCount?: number
   commits: Array<{
     oid: string
     message: string
@@ -86,7 +94,7 @@ export async function getGitNaturalPRReviewData(
   let targetCommit = normalizeFullOid(options.targetCommitOid)
   let usedTargetCloneUrl: string | undefined
 
-  if (!providedMergeBase && !targetCommit && options.targetBranch && targetUrls.length > 0) {
+  if (!targetCommit && options.targetBranch && targetUrls.length > 0) {
     const target = await tryResolveRef(options.reader, targetUrls, {
       ref: options.targetBranch,
       corsProxy: options.corsProxy,
@@ -95,18 +103,25 @@ export async function getGitNaturalPRReviewData(
     usedTargetCloneUrl = target?.usedUrl
   }
 
-  let baseOid = providedMergeBase
-  if (!baseOid && targetCommit) {
-    const targetHistory = await tryListCommits(options.reader, targetUrls.length > 0 ? targetUrls : diffUrls, {
-      commitHash: targetCommit,
-      depth: maxCommits,
-      corsProxy: options.corsProxy,
-    })
+  let targetHistory: UrlResult<GitNaturalListCommitsResult> | null = null
+  let computedMergeBase: string | undefined
+  if (targetCommit) {
+    targetHistory = await tryListCommits(
+      options.reader,
+      targetUrls.length > 0 ? targetUrls : diffUrls,
+      {
+        commitHash: targetCommit,
+        depth: maxCommits,
+        corsProxy: options.corsProxy,
+      },
+    )
     if (!usedTargetCloneUrl) usedTargetCloneUrl = targetHistory?.usedUrl
-    baseOid = targetHistory
+    computedMergeBase = targetHistory
       ? findFirstCommonCommit(sourceHistory.result.commits, targetHistory.result.commits)
       : undefined
   }
+
+  const baseOid = targetCommit ? computedMergeBase : providedMergeBase
 
   if (!baseOid) return null
 
@@ -118,6 +133,10 @@ export async function getGitNaturalPRReviewData(
   if (!diff) return null
 
   const commits = commitsUntilBase(sourceHistory.result.commits, baseOid, tipCommitOid)
+  const targetCommits = targetHistory
+    ? commitsUntilBase(targetHistory.result.commits, baseOid, targetCommit || baseOid)
+    : []
+  const claimedMergeBaseMismatch = Boolean(providedMergeBase && providedMergeBase !== baseOid)
 
   return {
     success: true,
@@ -125,6 +144,10 @@ export async function getGitNaturalPRReviewData(
     headOid: tipCommitOid,
     ...(targetCommit ? {targetCommit} : {}),
     mergeBase: baseOid,
+    ...(providedMergeBase ? {claimedMergeBase: providedMergeBase} : {}),
+    ...(claimedMergeBaseMismatch ? {claimedMergeBaseMismatch: true} : {}),
+    aheadCount: commits.length,
+    ...(targetHistory ? {behindCount: targetCommits.length} : {}),
     commits,
     commitOids: commits.map(commit => commit.oid),
     changes: diff.result.changes,
@@ -136,11 +159,15 @@ export async function getGitNaturalPRReviewData(
 }
 
 function normalizeHttpUrls(urls: string[], repoId: string): string[] {
-  return reorderUrlsByPreference(filterValidCloneUrls(urls), repoId).filter(url => /^https?:\/\//i.test(url))
+  return reorderUrlsByPreference(filterValidCloneUrls(urls), repoId).filter(url =>
+    /^https?:\/\//i.test(url),
+  )
 }
 
 function normalizeFullOid(value?: string): string | undefined {
-  const normalized = String(value || "").trim().toLowerCase()
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
   return /^[0-9a-f]{40}$/.test(normalized) ? normalized : undefined
 }
 
@@ -227,7 +254,9 @@ function commitsUntilBase(
   return result
 }
 
-function naturalCommitToReviewCommit(commit: GitNaturalCommit): GitNaturalPRReviewData["commits"][number] {
+function naturalCommitToReviewCommit(
+  commit: GitNaturalCommit,
+): GitNaturalPRReviewData["commits"][number] {
   return {
     oid: commit.hash,
     message: commit.message || "",

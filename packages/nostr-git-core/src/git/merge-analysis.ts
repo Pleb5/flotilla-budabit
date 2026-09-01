@@ -260,6 +260,10 @@ export interface PRReviewData {
   headOid?: string
   targetCommit?: string
   mergeBase?: string
+  claimedMergeBase?: string
+  claimedMergeBaseMismatch?: boolean
+  aheadCount?: number
+  behindCount?: number
   commits: Array<{
     oid: string
     message: string
@@ -288,11 +292,11 @@ export async function getPRReviewData(
   const tipOid = opts.tipCommitOid
   if (!tipOid) return {...empty, error: "PR tip commit is missing"}
 
-  const mergeBase =
-    opts.mergeBase ||
-    (opts.targetCommitOid
-      ? await findMergeBase(git, repoDir, tipOid, opts.targetCommitOid)
-      : undefined)
+  const claimedMergeBase = opts.mergeBase
+  const mergeBase = opts.targetCommitOid
+    ? await findMergeBase(git, repoDir, tipOid, opts.targetCommitOid)
+    : claimedMergeBase
+  const claimedMergeBaseMismatch = Boolean(claimedMergeBase && claimedMergeBase !== mergeBase)
   const unrelatedHistoryFallback =
     !mergeBase && Boolean(opts.targetCommitOid) && opts.allowUnrelatedHistoryFallback !== false
   const diffBase = mergeBase || (unrelatedHistoryFallback ? opts.targetCommitOid : undefined)
@@ -310,6 +314,27 @@ export async function getPRReviewData(
     commits.length > 0 || tipOid === diffBase
       ? commits
       : await getCommitMetadataForOids(git, repoDir, [tipOid])
+  const aheadCount = mergeBase
+    ? await getCommitDistance(git, repoDir, tipOid, mergeBase, opts.maxCommits ?? 100)
+    : undefined
+  const behindCount =
+    mergeBase && opts.targetCommitOid
+      ? await getCommitDistance(
+          git,
+          repoDir,
+          opts.targetCommitOid,
+          mergeBase,
+          opts.maxCommits ?? 100,
+        )
+      : undefined
+  const warnings = [
+    claimedMergeBaseMismatch
+      ? `The PR claimed merge base ${claimedMergeBase}, but the local commit graph resolved ${mergeBase || "no common ancestor"}. The displayed diff uses local graph evidence.`
+      : undefined,
+    unrelatedHistoryFallback
+      ? "No common history was found for this PR. Showing files changed against the target branch head; merge analysis still needs to be run separately."
+      : undefined,
+  ].filter(Boolean)
 
   return {
     success: true,
@@ -317,12 +342,31 @@ export async function getPRReviewData(
     headOid: tipOid,
     targetCommit: opts.targetCommitOid,
     mergeBase,
-    warning: unrelatedHistoryFallback
-      ? "No common history was found for this PR. Showing files changed against the target branch head; merge analysis still needs to be run separately."
-      : undefined,
+    claimedMergeBase,
+    claimedMergeBaseMismatch: claimedMergeBaseMismatch || undefined,
+    aheadCount,
+    behindCount,
+    warning: warnings.length > 0 ? warnings.join(" ") : undefined,
     unrelatedHistory: unrelatedHistoryFallback || undefined,
     commits: effectiveCommits,
     commitOids: effectiveCommits.map(commit => commit.oid),
+  }
+}
+
+async function getCommitDistance(
+  git: GitProvider,
+  repoDir: string,
+  tipOid: string,
+  baseOid: string,
+  maxDepth: number,
+): Promise<number | undefined> {
+  if (tipOid === baseOid) return 0
+  try {
+    const log = await git.log({dir: repoDir, ref: tipOid, depth: maxDepth + 1})
+    const baseIndex = log.findIndex((commit: any) => commit.oid === baseOid)
+    return baseIndex >= 0 ? baseIndex : undefined
+  } catch {
+    return undefined
   }
 }
 

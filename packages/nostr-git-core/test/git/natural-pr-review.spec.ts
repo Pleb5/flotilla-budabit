@@ -14,9 +14,13 @@ const BASE = "c".repeat(40)
 const TARGET = "d".repeat(40)
 
 describe("getGitNaturalPRReviewData", () => {
-  it("loads PR commits and diff naturally when merge base is provided", async () => {
+  it("validates a provided merge base against natural target history", async () => {
     const reader = createReader({
-      histories: new Map([[HEAD, [commit(HEAD, [MID]), commit(MID, [BASE]), commit(BASE)]]]),
+      histories: new Map([
+        [HEAD, [commit(HEAD, [MID]), commit(MID, [BASE]), commit(BASE)]],
+        [TARGET, [commit(TARGET, [BASE]), commit(BASE)]],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
       diffs: new Map([[SOURCE_URL, [{path: "README.md", status: "modified", diffHunks: []}]]]),
     })
 
@@ -37,12 +41,47 @@ describe("getGitNaturalPRReviewData", () => {
       mergeBase: BASE,
       source: "git-natural",
       usedCloneUrl: SOURCE_URL,
+      aheadCount: 2,
+      behindCount: 1,
     })
     expect(review?.commitOids).toEqual([HEAD, MID])
     expect(review?.changes).toHaveLength(1)
-    expect(reader.resolveRef).not.toHaveBeenCalled()
+    expect(reader.resolveRef).toHaveBeenCalledWith(
+      expect.objectContaining({url: TARGET_URL, ref: "main"}),
+    )
     expect(reader.getDiffBetween).toHaveBeenCalledWith(
       expect.objectContaining({url: SOURCE_URL, baseCommitHash: BASE, headCommitHash: HEAD}),
+    )
+  })
+
+  it("surfaces a claimed merge-base mismatch and diffs from the computed base", async () => {
+    const reader = createReader({
+      histories: new Map([
+        [HEAD, [commit(HEAD, [MID]), commit(MID, [BASE]), commit(BASE)]],
+        [TARGET, [commit(TARGET, [BASE]), commit(BASE)]],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "repo",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      mergeBase: MID,
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      baseOid: BASE,
+      mergeBase: BASE,
+      claimedMergeBase: MID,
+      claimedMergeBaseMismatch: true,
+    })
+    expect(reader.getDiffBetween).toHaveBeenCalledWith(
+      expect.objectContaining({baseCommitHash: BASE, headCommitHash: HEAD}),
     )
   })
 
@@ -69,7 +108,9 @@ describe("getGitNaturalPRReviewData", () => {
     expect(review?.targetCommit).toBe(TARGET)
     expect(review?.usedTargetCloneUrl).toBe(TARGET_URL)
     expect(review?.commitOids).toEqual([HEAD])
-    expect(reader.resolveRef).toHaveBeenCalledWith(expect.objectContaining({url: TARGET_URL, ref: "main"}))
+    expect(reader.resolveRef).toHaveBeenCalledWith(
+      expect.objectContaining({url: TARGET_URL, ref: "main"}),
+    )
   })
 
   it("returns null when natural diff cannot load both sides from any URL", async () => {
@@ -95,7 +136,10 @@ describe("getGitNaturalPRReviewData", () => {
 function createReader(options: {
   histories?: Map<string, GitNaturalCommit[]>
   refs?: Map<string, string>
-  diffs?: Map<string, Array<{path: string; status: "added" | "modified" | "deleted" | "renamed"; diffHunks: []}>>
+  diffs?: Map<
+    string,
+    Array<{path: string; status: "added" | "modified" | "deleted" | "renamed"; diffHunks: []}>
+  >
   diffError?: Error
 }): GitNaturalPRReviewReader & Record<string, any> {
   return {
@@ -138,7 +182,12 @@ function commit(hash: string, parents: string[] = []): GitNaturalCommit {
     hash,
     tree: "e".repeat(40),
     parents,
-    author: {name: `Author ${hash.slice(0, 1)}`, email: `${hash.slice(0, 1)}@example.com`, timestamp: 1, timezone: "+0000"},
+    author: {
+      name: `Author ${hash.slice(0, 1)}`,
+      email: `${hash.slice(0, 1)}@example.com`,
+      timestamp: 1,
+      timezone: "+0000",
+    },
     committer: {name: "Committer", email: "c@example.com", timestamp: 1, timezone: "+0000"},
     message: `commit ${hash.slice(0, 1)}`,
   }

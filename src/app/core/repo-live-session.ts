@@ -35,7 +35,8 @@ export type RepoStableLiveFilterOptions = {
 }
 
 export type RepoLiveRequestOptions = {
-  relay: string
+  relay?: string
+  relays?: string[]
   filters: Filter[]
   signal: AbortSignal
   priority: number
@@ -57,6 +58,15 @@ export type RepoLiveRequestDependencies = {
 }
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort()
+export const batchRepoLiveRelays = (relays: string[], batchSize = 6): string[][] => {
+  const normalized = unique(relays)
+  const size = Math.max(1, Math.floor(batchSize))
+  const batches: string[][] = []
+  for (let index = 0; index < normalized.length; index += size) {
+    batches.push(normalized.slice(index, index + size))
+  }
+  return batches
+}
 const REPO_SCOPE_FILTER_KEYS = ["#a", "#q", "#d", "#e", "#E", "#repo"] as const
 
 const isRepoScopedFilter = (filter: Filter) =>
@@ -170,6 +180,8 @@ export const createRepoLiveRequester = (dependencies: RepoLiveRequestDependencie
     ((message: string, error?: unknown) => console.warn(`[repo-live] ${message}`, error))
 
   return (options: RepoLiveRequestOptions) => {
+    const relays = unique([...(options.relays || []), options.relay || ""])
+    if (relays.length === 0) return () => {}
     const retryBaseMs = options.retryBaseMs ?? 1000
     const retryMaxMs = options.retryMaxMs ?? 30_000
     const overlapSeconds = options.overlapSeconds ?? 10
@@ -209,7 +221,7 @@ export const createRepoLiveRequester = (dependencies: RepoLiveRequestDependencie
       let pending: Promise<TrustedEvent[]>
       try {
         pending = dependencies.request({
-          relays: [options.relay],
+          relays,
           filters,
           lifetime: "live",
           signal: AbortSignal.any([options.signal, controller.signal]),
@@ -228,15 +240,15 @@ export const createRepoLiveRequester = (dependencies: RepoLiveRequestDependencie
             retryCount = 0
           },
           onClosed: reason => {
-            onError(`Relay ${options.relay} closed ${options.owner}: ${reason}`)
+            onError(`Relays ${relays.join(", ")} closed ${options.owner}: ${reason}`)
           },
           onDisconnect: () => {
-            onError(`Relay ${options.relay} disconnected ${options.owner}`)
+            onError(`Relays ${relays.join(", ")} disconnected ${options.owner}`)
           },
         })
       } catch (error) {
         if (!stopped && !options.signal.aborted) {
-          onError(`Failed to start ${options.owner} on ${options.relay}`, error)
+          onError(`Failed to start ${options.owner} on ${relays.join(", ")}`, error)
           scheduleRetry()
         }
         return
@@ -245,7 +257,7 @@ export const createRepoLiveRequester = (dependencies: RepoLiveRequestDependencie
       void pending
         .catch(error => {
           if (!stopped && !options.signal.aborted && !controller.signal.aborted) {
-            onError(`Failed ${options.owner} on ${options.relay}`, error)
+            onError(`Failed ${options.owner} on ${relays.join(", ")}`, error)
           }
         })
         .finally(() => {

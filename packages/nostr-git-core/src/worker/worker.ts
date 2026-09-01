@@ -3363,46 +3363,26 @@ const api = {
         }
       }
 
-      if (preferredMergeBase && !(await hasCommitObject(dir, preferredMergeBase))) {
-        const fetchedBase = await fetchRefsUntilOidsAvailable({
-          key,
-          dir,
-          requiredOids: [headOid, preferredMergeBase],
-          cloneUrls: allCloneUrls,
-        })
-        if (!fetchedBase) {
-          return failure("Could not fetch PR diff base objects.", "review")
-        }
-      }
-
       let review = await getPRReviewDataCore(git, dir, {
         tipCommitOid: headOid,
         targetCommitOid: targetCommit,
         mergeBase: preferredMergeBase,
-        allowUnrelatedHistoryFallback: Boolean(preferredMergeBase),
+        allowUnrelatedHistoryFallback: false,
       })
 
-      if (!review.success && preferredMergeBase && targetCommit) {
-        review = await getPRReviewDataCore(git, dir, {
-          tipCommitOid: headOid,
-          targetCommitOid: targetCommit,
-        })
-      }
-
-      if (!review.success && !preferredMergeBase && targetCommit) {
-        const deepened = await fetchRefsUntilOidsAvailable({
+      if (!review.success && targetCommit) {
+        await fetchRefsUntilOidsAvailable({
           key,
           dir,
           requiredOids: [headOid, targetCommit],
           cloneUrls: allCloneUrls,
           forceRefFetch: true,
         })
-        if (deepened) {
-          review = await getPRReviewDataCore(git, dir, {
-            tipCommitOid: headOid,
-            targetCommitOid: targetCommit,
-          })
-        }
+        review = await getPRReviewDataCore(git, dir, {
+          tipCommitOid: headOid,
+          targetCommitOid: targetCommit,
+          mergeBase: preferredMergeBase,
+        })
       }
 
       if (!review.success || !review.baseOid || !review.headOid) {

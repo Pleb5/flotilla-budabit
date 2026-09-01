@@ -216,6 +216,7 @@
   import {
     buildRepoExactThreadLiveFilters,
     buildRepoStableLiveFilters,
+    batchRepoLiveRelays,
     getRepoLiveFilterSignature,
     startRepoLiveRequest,
   } from "@app/core/repo-live-session"
@@ -2636,33 +2637,37 @@
     initialReplayLimit: number
     ownedAddresses?: string[]
   }) => {
-    const targetRelays = new Set(relays)
+    const targetBatches = new Map(
+      batchRepoLiveRelays(relays).map(batch => [batch.join("|"), batch] as const),
+    )
     const signature = `${initialReplayLimit}:${getRepoLiveFilterSignature(filters)}`
 
-    for (const [relay, lane] of lanes) {
-      if (targetRelays.has(relay) && lane.signature === signature) continue
+    for (const [batchKey, lane] of lanes) {
+      if (targetBatches.has(batchKey) && lane.signature === signature) continue
       lane.stop()
       lane.releaseOwnership()
-      lanes.delete(relay)
+      lanes.delete(batchKey)
     }
 
     if (filters.length === 0) return
 
-    for (const relay of targetRelays) {
-      if (lanes.has(relay)) continue
+    for (const [batchKey, batch] of targetBatches) {
+      if (lanes.has(batchKey)) continue
 
-      const releases = ownedAddresses.map(address => registerRepoLiveOwnership(address, relay))
-      lanes.set(relay, {
+      const releases = batch.flatMap(relay =>
+        ownedAddresses.map(address => registerRepoLiveOwnership(address, relay)),
+      )
+      lanes.set(batchKey, {
         signature,
         stop: startRepoLiveRequest({
-          relay,
+          relays: batch,
           filters,
           signal: layoutLoadController.signal,
           priority: RELAY_REQUEST_PRIORITY.live,
           owner,
           initialReplayLimit: Math.min(
             initialReplayLimit,
-            getRelayPolicy(relay).maxLimit ?? initialReplayLimit,
+            ...batch.map(relay => getRelayPolicy(relay).maxLimit ?? initialReplayLimit),
           ),
           onEvent: receiveRepoLiveEvent,
         }),
@@ -2683,9 +2688,9 @@
       ...announcementDiscoveryRelays,
       ...$discoveredAnnouncementRelays,
     ])
-    const liveAnnouncementRelays = announcementRelays.slice(0, 6)
+    const liveAnnouncementRelays = announcementRelays
     const activityRelays = normalizeRelayScopeValues(($repoRelaysStore || []).filter(Boolean))
-    const liveActivityRelays = activityRelays.slice(0, 6)
+    const liveActivityRelays = activityRelays
     const addresses = normalizeScopeValues(($repoAddressesStore || []).filter(Boolean))
     const owners = normalizeScopeValues(($repoStateAuthorsStore || []).filter(Boolean))
     const viewer = $pubkey || ""

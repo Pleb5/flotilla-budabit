@@ -54,6 +54,32 @@ describe("merge analysis", () => {
     expect((git as any).log).not.toHaveBeenCalled()
   })
 
+  it("uses the computed merge base and reports a mismatched claimed base", async () => {
+    const claimedOid = "3".repeat(40)
+    const git = {
+      findMergeBase: vi.fn().mockResolvedValue([targetOid]),
+      log: vi.fn(async ({ref}: {ref: string}) =>
+        ref === tipOid
+          ? [
+              {oid: tipOid, commit: {message: "change", parent: [targetOid]}},
+              {oid: targetOid, commit: {message: "base", parent: []}},
+            ]
+          : [{oid: targetOid, commit: {message: "base", parent: []}}],
+      ),
+    } as unknown as GitProvider
+
+    const result = await getPRReviewData(git, "/repo", {
+      tipCommitOid: tipOid,
+      targetCommitOid: targetOid,
+      mergeBase: claimedOid,
+    })
+
+    expect(result.baseOid).toBe(targetOid)
+    expect(result.claimedMergeBaseMismatch).toBe(true)
+    expect(result.aheadCount).toBe(1)
+    expect(result.behindCount).toBe(0)
+  })
+
   it("does not report synthetic commits for up-to-date PR analysis", async () => {
     const git = {
       addRemote: vi.fn().mockResolvedValue(undefined),

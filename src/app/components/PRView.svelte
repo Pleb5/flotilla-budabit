@@ -632,11 +632,21 @@
   let lastPrChangesLoadKey: string | null = null
   let prDiffBaseOid = $state<string | null>(null)
   let prDiffHeadOid = $state<string | null>(null)
+  let prReviewTargetOid = $state<string | null>(null)
+  let prReviewAheadCount = $state<number | null>(null)
+  let prReviewBehindCount = $state<number | null>(null)
+  let prClaimedMergeBaseMismatch = $state(false)
+  let lastPrTargetDriftReloadKey = ""
   let prExpandedFiles = $state<Set<string>>(new Set())
   let prDiffAnchors = $state<Record<string, string>>({})
   let prReviewTab = $state("commits")
   let prExpandedCommits = $state<Set<string>>(new Set())
   let prCommitDiffByOid = $state<Record<string, PrCommitDiffState>>({})
+  const prReviewTargetDrift = $derived.by(() => {
+    const analysisTarget = prCurrentMergeAnalysisResult?.targetCommit
+    if (!analysisTarget || !prReviewTargetOid) return null
+    return analysisTarget !== prReviewTargetOid
+  })
   let prInlineTargetStatus = $state<{
     state: "loading" | "error"
     message: string
@@ -1440,6 +1450,10 @@
       prReviewCommits = []
       prDiffBaseOid = null
       prDiffHeadOid = null
+      prReviewTargetOid = null
+      prReviewAheadCount = null
+      prReviewBehindCount = null
+      prClaimedMergeBaseMismatch = false
       lastPrChangesLoadKey = null
     }
     if (lastPrAnalysisKey !== analysisKey) {
@@ -1628,6 +1642,10 @@
     prChangesErrorPhase = null
     prChangesWarning = null
     prChangesProgress = "Resolving diff range..."
+    prReviewTargetOid = null
+    prReviewAheadCount = null
+    prReviewBehindCount = null
+    prClaimedMergeBaseMismatch = false
     if (!options.preserveAnalysisUntilSuccess) {
       prChanges = null
       prReviewCommits = []
@@ -1656,6 +1674,10 @@
           prDiffHeadOid = res.headOid || prEffectiveTipOid
           prReviewCommits = Array.isArray(res.commits) ? res.commits : []
           prChanges = Array.isArray(res.changes) ? res.changes : []
+          prReviewTargetOid = typeof res.targetCommit === "string" ? res.targetCommit : null
+          prReviewAheadCount = typeof res.aheadCount === "number" ? res.aheadCount : null
+          prReviewBehindCount = typeof res.behindCount === "number" ? res.behindCount : null
+          prClaimedMergeBaseMismatch = res.claimedMergeBaseMismatch === true
           prChangesError = null
           prChangesErrorPhase = null
           prChangesWarning = typeof res.warning === "string" ? res.warning : null
@@ -1749,6 +1771,15 @@
       }
     }
   }
+
+  $effect(() => {
+    if (prReviewTargetDrift !== true || prChangesLoading) return
+    const analysisTarget = prCurrentMergeAnalysisResult?.targetCommit || ""
+    const key = `${prReviewTargetOid}:${analysisTarget}`
+    if (!analysisTarget || lastPrTargetDriftReloadKey === key) return
+    lastPrTargetDriftReloadKey = key
+    void loadPrChanges({preserveAnalysisUntilSuccess: true})
+  })
 
   async function retryPrReviewLoad() {
     if (
@@ -2744,6 +2775,9 @@
     if (!prReviewReady) return "Load PR commits and file changes before merging."
     if (isAnalyzingPRMerge) return "Wait for merge analysis to finish before merging."
     if (!prCurrentMergeAnalysisResult) return "Run Analyze before merging."
+    if (prReviewTargetDrift === true) {
+      return "The target moved after review data loaded. Refresh review data and analyze again."
+    }
     if (prCurrentMergeAnalysisResult.analysis === "conflicts") {
       return "Resolve conflicts or refetch the PR before merging."
     }
@@ -4180,6 +4214,31 @@
             <div
               class="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               {prChangesWarning}
+            </div>
+          {/if}
+
+          {#if prEffectiveStatus !== "applied" && !prChangesError}
+            <div
+              class="mb-3 flex flex-wrap gap-x-4 gap-y-1 rounded border border-border bg-background/50 px-3 py-2 text-xs text-muted-foreground">
+              <span>
+                Graph: {prReviewAheadCount ?? "unknown"} ahead,
+                {prReviewBehindCount ?? "unknown"} behind
+              </span>
+              <span>
+                Target drift: {prReviewTargetDrift === null
+                  ? "unknown"
+                  : prReviewTargetDrift
+                    ? "detected"
+                    : "none"}
+              </span>
+              {#if prDiffBaseOid}
+                <span>Merge base: {prDiffBaseOid.slice(0, 8)}</span>
+              {/if}
+              {#if prClaimedMergeBaseMismatch}
+                <span class="font-medium text-amber-700 dark:text-amber-300">
+                  Claimed merge base does not match the local graph
+                </span>
+              {/if}
             </div>
           {/if}
 

@@ -4,6 +4,7 @@ import type {TrustedEvent} from "@welshman/util"
 import {
   buildRepoExactThreadLiveFilters,
   buildRepoStableLiveFilters,
+  batchRepoLiveRelays,
   createRepoLiveRequester,
 } from "./repo-live-session"
 
@@ -25,6 +26,14 @@ const pendingRequest = (options: RequestOptions) =>
   })
 
 describe("repository live session", () => {
+  it("batches every declared relay without truncating coverage", () => {
+    const relays = Array.from({length: 14}, (_, index) => `wss://relay-${index}.example`)
+    const batches = batchRepoLiveRelays(relays, 6)
+
+    expect(batches.map(batch => batch.length)).toEqual([6, 6, 2])
+    expect(batches.flat().sort()).toEqual([...relays].sort())
+  })
+
   it("builds stable coordinate, comment, metadata, and viewer filters", () => {
     const filters = buildRepoStableLiveFilters({
       addresses: [address],
