@@ -113,6 +113,30 @@ describe("getGitNaturalPRReviewData", () => {
     )
   })
 
+  it("keeps source-side commits reached after an early base in traversal order", async () => {
+    const side = "e".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [HEAD, [commit(HEAD, [BASE, side]), commit(BASE), commit(side, [BASE])]],
+        [TARGET, [commit(TARGET, [BASE]), commit(BASE)]],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "repo",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review?.aheadCount).toBe(2)
+    expect(review?.commitOids).toEqual([HEAD, side])
+  })
+
   it("returns null when natural diff cannot load both sides from any URL", async () => {
     const reader = createReader({
       histories: new Map([[HEAD, [commit(HEAD, [BASE]), commit(BASE)]]]),

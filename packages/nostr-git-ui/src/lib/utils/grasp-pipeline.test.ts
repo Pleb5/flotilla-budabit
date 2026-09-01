@@ -863,11 +863,7 @@ describe("grasp-pipeline", () => {
       pubkey: maintainerPubkey,
       created_at: 200,
     };
-    const fetchRelayEvents = vi.fn().mockResolvedValue([
-      foreignState,
-      ownerState,
-      maintainerState,
-    ]);
+    const fetchRelayEvents = vi.fn().mockResolvedValue([foreignState, ownerState, maintainerState]);
 
     await expect(
       fetchLatestGraspRepoStateEvent({
@@ -879,7 +875,7 @@ describe("grasp-pipeline", () => {
     ).resolves.toEqual(maintainerState);
     expect(fetchRelayEvents).toHaveBeenCalledWith(
       expect.objectContaining({
-        filters: [expect.objectContaining({authors: [ownerPubkey, maintainerPubkey]})],
+        filters: [expect.objectContaining({ authors: [ownerPubkey, maintainerPubkey] })],
       })
     );
   });
@@ -1173,6 +1169,37 @@ describe("grasp-pipeline", () => {
         fetchRelayEvents: vi.fn().mockResolvedValue([]),
       })
     ).rejects.toThrow("Existing GRASP repository state is unavailable");
+
+    expect(onPublishEvent).not.toHaveBeenCalled();
+  });
+
+  it("refuses to replace a latest GRASP state with no parseable refs", async () => {
+    const onPublishEvent = vi.fn();
+    const malformedState = {
+      id: "evt-malformed",
+      kind: 30618,
+      pubkey: "a".repeat(64),
+      created_at: 10,
+      tags: [
+        ["d", "flotilla-budabit"],
+        ["HEAD", "ref: refs/heads/main"],
+      ],
+      content: "",
+      sig: "sig",
+    };
+
+    await expect(
+      publishGraspRepoStateForPush({
+        remoteUrl:
+          "https://relay.ngit.dev/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
+        branch: "dev",
+        commitSha: "d".repeat(40),
+        stateAuthorPubkeys: ["a".repeat(64)],
+        onPublishEvent,
+        publishRelays: ["wss://relay.ngit.dev/"],
+        fetchRelayEvents: vi.fn().mockResolvedValue([malformedState]),
+      })
+    ).rejects.toThrow("no parseable refs");
 
     expect(onPublishEvent).not.toHaveBeenCalled();
   });

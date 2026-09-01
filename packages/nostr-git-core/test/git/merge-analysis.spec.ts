@@ -80,6 +80,60 @@ describe("merge analysis", () => {
     expect(result.behindCount).toBe(0)
   })
 
+  it("counts every reachable source commit when log order encounters the base early", async () => {
+    const sideOid = "4".repeat(40)
+    const git = {
+      findMergeBase: vi.fn().mockResolvedValue([targetOid]),
+      log: vi.fn(async ({ref}: {ref: string}) =>
+        ref === tipOid
+          ? [
+              {oid: tipOid, commit: {message: "merge", parent: [targetOid, sideOid]}},
+              {oid: targetOid, commit: {message: "base", parent: []}},
+              {oid: sideOid, commit: {message: "side", parent: [targetOid]}},
+            ]
+          : [{oid: targetOid, commit: {message: "base", parent: []}}],
+      ),
+    } as unknown as GitProvider
+
+    const result = await getPRReviewData(git, "/repo", {
+      tipCommitOid: tipOid,
+      targetCommitOid: targetOid,
+    })
+
+    expect(result.aheadCount).toBe(2)
+    expect(result.commitOids).toEqual([tipOid, sideOid])
+  })
+
+  it("excludes commits reachable from the target side of a merge DAG", async () => {
+    const baseOid = "3".repeat(40)
+    const sourceOnlyOid = "4".repeat(40)
+    const git = {
+      findMergeBase: vi.fn().mockResolvedValue([baseOid]),
+      log: vi.fn(async ({ref}: {ref: string}) =>
+        ref === tipOid
+          ? [
+              {oid: tipOid, commit: {message: "merge", parent: [targetOid, sourceOnlyOid]}},
+              {oid: targetOid, commit: {message: "target", parent: [baseOid]}},
+              {oid: sourceOnlyOid, commit: {message: "source", parent: [baseOid]}},
+              {oid: baseOid, commit: {message: "base", parent: []}},
+            ]
+          : [
+              {oid: targetOid, commit: {message: "target", parent: [baseOid]}},
+              {oid: baseOid, commit: {message: "base", parent: []}},
+            ],
+      ),
+    } as unknown as GitProvider
+
+    const result = await getPRReviewData(git, "/repo", {
+      tipCommitOid: tipOid,
+      targetCommitOid: targetOid,
+    })
+
+    expect(result.commitOids).toEqual([tipOid, sourceOnlyOid])
+    expect(result.aheadCount).toBe(2)
+    expect(result.behindCount).toBe(0)
+  })
+
   it("does not report synthetic commits for up-to-date PR analysis", async () => {
     const git = {
       addRemote: vi.fn().mockResolvedValue(undefined),

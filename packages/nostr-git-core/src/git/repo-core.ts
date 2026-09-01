@@ -17,6 +17,7 @@ import {
   statusKindToState,
 } from "../events/nip34/status-resolver.js"
 import {buildRepoSubscriptions, type RepoSubscriptions} from "../git/subscriptions.js"
+import {toHexPubkey} from "../utils/nostr-pubkey.js"
 
 // ============================================================
 // Types Re-Exports
@@ -48,10 +49,20 @@ export type EffectiveLabels = {
 // Helper Utilities
 // ============================================================
 
+function normalizeAuthorityPubkey(value?: string): string {
+  const trimmed = String(value || "").trim()
+  if (!trimmed) return ""
+  try {
+    return toHexPubkey(trimmed)
+  } catch {
+    return trimmed.toLowerCase()
+  }
+}
+
 function getOwnerPubkey(ctx: RepoContext): string {
   const owner = ctx.repo?.owner?.trim?.() ?? ""
-  if (owner) return owner
-  return (ctx.repoEvent?.pubkey || "").trim()
+  if (owner) return normalizeAuthorityPubkey(owner)
+  return normalizeAuthorityPubkey(ctx.repoEvent?.pubkey)
 }
 
 function getDirectMaintainers(ctx: RepoContext): string[] {
@@ -59,14 +70,17 @@ function getDirectMaintainers(ctx: RepoContext): string[] {
   const announced = (ctx.repoEvent?.tags || [])
     .filter(tag => tag[0] === "maintainers")
     .flatMap(tag => tag.slice(1))
-  return Array.from(new Set([...parsed, ...announced].map(value => value.trim()).filter(Boolean)))
+  return Array.from(
+    new Set([...parsed, ...announced].map(normalizeAuthorityPubkey).filter(Boolean)),
+  )
 }
 
 function isTrusted(ctx: RepoContext, pubkey?: string): boolean {
   if (!pubkey) return false
   const owner = getOwnerPubkey(ctx)
-  if (pubkey === owner) return true
-  return getDirectMaintainers(ctx).includes(pubkey)
+  const actor = normalizeAuthorityPubkey(pubkey)
+  if (actor === owner) return true
+  return getDirectMaintainers(ctx).includes(actor)
 }
 
 function toLabelSet(arr: string[] | undefined): Set<string> {
@@ -105,10 +119,9 @@ export class RepoCore {
     const repoId = String(ctx.repo?.repoId || "").trim()
 
     return events
-      .filter(event => authorized.has(event.pubkey))
+      .filter(event => authorized.has(normalizeAuthorityPubkey(event.pubkey)))
       .filter(
-        event =>
-          !repoId || (event.tags || []).some(tag => tag[0] === "d" && tag[1] === repoId),
+        event => !repoId || (event.tags || []).some(tag => tag[0] === "d" && tag[1] === repoId),
       )
       .sort((a, b) => {
         const byTime = (b.created_at || 0) - (a.created_at || 0)
@@ -199,7 +212,7 @@ export class RepoCore {
     const {final, state: resolvedState} = resolveStatusState({
       statuses: events as any,
       rootAuthor,
-      maintainers: new Set(ctx.maintainers || ctx.repo?.maintainers || []),
+      maintainers: new Set(getDirectMaintainers(ctx)),
       repoOwner: getOwnerPubkey(ctx),
       importedRoot: isImportedEvent(root as any),
     })
@@ -375,8 +388,9 @@ export class RepoCore {
   static getMaintainerBadge(ctx: RepoContext, pubkey: string): "owner" | "maintainer" | null {
     if (!pubkey) return null
     const owner = getOwnerPubkey(ctx)
-    if (pubkey === owner) return "owner"
-    if ((ctx.repo?.maintainers || []).includes(pubkey)) return "maintainer"
+    const actor = normalizeAuthorityPubkey(pubkey)
+    if (actor === owner) return "owner"
+    if (getDirectMaintainers(ctx).includes(actor)) return "maintainer"
     return null
   }
 

@@ -309,24 +309,26 @@ export async function getPRReviewData(
     }
   }
 
-  const commits = await getPRCommitsOnly(git, repoDir, tipOid, diffBase, opts.maxCommits ?? 100)
-  const effectiveCommits =
-    commits.length > 0 || tipOid === diffBase
-      ? commits
-      : await getCommitMetadataForOids(git, repoDir, [tipOid])
-  const aheadCount = mergeBase
-    ? await getCommitDistance(git, repoDir, tipOid, mergeBase, opts.maxCommits ?? 100)
-    : undefined
-  const behindCount =
+  const graphDifference =
     mergeBase && opts.targetCommitOid
-      ? await getCommitDistance(
+      ? await getCommitDifference(
           git,
           repoDir,
+          tipOid,
           opts.targetCommitOid,
           mergeBase,
           opts.maxCommits ?? 100,
         )
       : undefined
+  const commits = graphDifference
+    ? graphDifference.sourceCommits
+    : await getPRCommitsOnly(git, repoDir, tipOid, diffBase, opts.maxCommits ?? 100)
+  const effectiveCommits =
+    commits.length > 0 || tipOid === diffBase
+      ? commits
+      : await getCommitMetadataForOids(git, repoDir, [tipOid])
+  const aheadCount = graphDifference?.aheadCount
+  const behindCount = graphDifference?.behindCount
   const warnings = [
     claimedMergeBaseMismatch
       ? `The PR claimed merge base ${claimedMergeBase}, but the local commit graph resolved ${mergeBase || "no common ancestor"}. The displayed diff uses local graph evidence.`
@@ -363,8 +365,99 @@ async function getCommitDistance(
   if (tipOid === baseOid) return 0
   try {
     const log = await git.log({dir: repoDir, ref: tipOid, depth: maxDepth + 1})
-    const baseIndex = log.findIndex((commit: any) => commit.oid === baseOid)
-    return baseIndex >= 0 ? baseIndex : undefined
+    const reachable = getReachableCommitIds(log, tipOid, baseOid, maxDepth)
+    return reachable.complete && reachable.reachedStop ? reachable.ids.size : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function getReachableCommitIds(
+  log: any[],
+  tipOid: string,
+  stopOid: string,
+  maxDepth: number,
+): {ids: Set<string>; complete: boolean; reachedStop: boolean} {
+  const commits = new Map(log.map(commit => [commit.oid, commit]))
+  const ids = new Set<string>()
+  const pending = [tipOid]
+  let complete = true
+  let reachedStop = tipOid === stopOid
+
+  while (pending.length > 0) {
+    const oid = pending.pop()!
+    if (oid === stopOid) {
+      reachedStop = true
+      continue
+    }
+    if (ids.has(oid)) continue
+    if (ids.size >= maxDepth) {
+      complete = false
+      break
+    }
+    const entry = commits.get(oid)
+    if (!entry) {
+      complete = false
+      continue
+    }
+    ids.add(oid)
+    const parents = Array.isArray(entry.commit?.parent) ? entry.commit.parent : []
+    pending.push(...parents)
+  }
+
+  return {ids, complete, reachedStop}
+}
+
+async function getCommitDifference(
+  git: GitProvider,
+  repoDir: string,
+  sourceTip: string,
+  targetTip: string,
+  mergeBase: string,
+  maxDepth: number,
+): Promise<
+  | {
+      sourceCommits: Array<{
+        oid: string
+        message: string
+        author?: {name?: string; email?: string}
+        parents?: string[]
+      }>
+      aheadCount: number
+      behindCount: number
+    }
+  | undefined
+> {
+  try {
+    const [sourceLog, targetLog] = await Promise.all([
+      git.log({dir: repoDir, ref: sourceTip, depth: maxDepth + 1}),
+      sourceTip === targetTip
+        ? Promise.resolve([])
+        : git.log({dir: repoDir, ref: targetTip, depth: maxDepth + 1}),
+    ])
+    const source = getReachableCommitIds(sourceLog, sourceTip, mergeBase, maxDepth)
+    const target =
+      targetTip === mergeBase
+        ? {ids: new Set<string>(), complete: true, reachedStop: true}
+        : getReachableCommitIds(targetLog, targetTip, mergeBase, maxDepth)
+    if (!source.complete || !source.reachedStop || !target.complete || !target.reachedStop) {
+      return undefined
+    }
+
+    const sourceOnly = new Set(Array.from(source.ids).filter(oid => !target.ids.has(oid)))
+    const targetOnly = new Set(Array.from(target.ids).filter(oid => !source.ids.has(oid)))
+    return {
+      sourceCommits: sourceLog
+        .filter((commit: any) => sourceOnly.has(commit.oid))
+        .map((commit: any) => ({
+          oid: commit.oid,
+          message: commit.commit?.message || "",
+          author: commit.commit?.author,
+          parents: Array.isArray(commit.commit?.parent) ? commit.commit.parent : [],
+        })),
+      aheadCount: sourceOnly.size,
+      behindCount: targetOnly.size,
+    }
   } catch {
     return undefined
   }
@@ -872,22 +965,16 @@ async function getPRCommitsOnly(
 > {
   try {
     const log = await git.log({dir: repoDir, ref: prTipRef, depth: maxDepth})
-    const result: Array<{
-      oid: string
-      message: string
-      author?: {name?: string; email?: string}
-      parents?: string[]
-    }> = []
-    for (const c of log) {
-      if (c.oid === stopAtOidOrRef) break // Reached merge base, stop (don't include it)
-      result.push({
+    const reachable = getReachableCommitIds(log, prTipRef, stopAtOidOrRef, maxDepth)
+    if (!reachable.complete) return []
+    return log
+      .filter((commit: any) => reachable.ids.has(commit.oid))
+      .map((c: any) => ({
         oid: c.oid,
         message: c.commit?.message || "",
         author: c.commit?.author,
         parents: Array.isArray(c.commit?.parent) ? c.commit.parent : [],
-      })
-    }
-    return result
+      }))
   } catch (err) {
     console.warn(`[getPRCommitsOnly] Failed for ref=${prTipRef}:`, err)
     return []

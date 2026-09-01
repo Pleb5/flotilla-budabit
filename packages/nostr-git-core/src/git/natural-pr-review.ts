@@ -117,7 +117,12 @@ export async function getGitNaturalPRReviewData(
     )
     if (!usedTargetCloneUrl) usedTargetCloneUrl = targetHistory?.usedUrl
     computedMergeBase = targetHistory
-      ? findFirstCommonCommit(sourceHistory.result.commits, targetHistory.result.commits)
+      ? findBestCommonCommit(
+          sourceHistory.result.commits,
+          targetHistory.result.commits,
+          tipCommitOid,
+          targetCommit,
+        )
       : undefined
   }
 
@@ -132,10 +137,16 @@ export async function getGitNaturalPRReviewData(
   })
   if (!diff) return null
 
-  const commits = commitsUntilBase(sourceHistory.result.commits, baseOid, tipCommitOid)
-  const targetCommits = targetHistory
+  const sourceReachable = commitsUntilBase(sourceHistory.result.commits, baseOid, tipCommitOid)
+  const targetReachable = targetHistory
     ? commitsUntilBase(targetHistory.result.commits, baseOid, targetCommit || baseOid)
     : []
+  if (!sourceReachable || (targetHistory && !targetReachable)) return null
+  const resolvedTargetReachable = targetReachable || []
+  const sourceIds = new Set(sourceReachable.map(commit => commit.oid))
+  const targetIds = new Set(resolvedTargetReachable.map(commit => commit.oid))
+  const commits = sourceReachable.filter(commit => !targetIds.has(commit.oid))
+  const targetCommits = resolvedTargetReachable.filter(commit => !sourceIds.has(commit.oid))
   const claimedMergeBaseMismatch = Boolean(providedMergeBase && providedMergeBase !== baseOid)
 
   return {
@@ -239,19 +250,26 @@ function commitsUntilBase(
   commits: GitNaturalCommit[],
   baseOid: string,
   tipOid: string,
-): GitNaturalPRReviewData["commits"] {
-  const result: GitNaturalPRReviewData["commits"] = []
-  for (const commit of commits) {
-    if (commit.hash === baseOid) break
-    result.push(naturalCommitToReviewCommit(commit))
+): GitNaturalPRReviewData["commits"] | null {
+  const graph = new Map(commits.map(commit => [commit.hash, commit]))
+  const reachable = new Set<string>()
+  const pending = [tipOid]
+  let reachedBase = tipOid === baseOid
+  while (pending.length > 0) {
+    const oid = pending.pop()!
+    if (oid === baseOid) {
+      reachedBase = true
+      continue
+    }
+    if (reachable.has(oid)) continue
+    const commit = graph.get(oid)
+    if (!commit) return null
+    reachable.add(oid)
+    pending.push(...(commit.parents || []))
   }
+  if (!reachedBase) return null
 
-  if (result.length === 0 && tipOid !== baseOid) {
-    const tip = commits.find(commit => commit.hash === tipOid)
-    if (tip) result.push(naturalCommitToReviewCommit(tip))
-  }
-
-  return result
+  return commits.filter(commit => reachable.has(commit.hash)).map(naturalCommitToReviewCommit)
 }
 
 function naturalCommitToReviewCommit(
@@ -268,12 +286,51 @@ function naturalCommitToReviewCommit(
   }
 }
 
-function findFirstCommonCommit(
+function getGraphDistance(
+  graph: Map<string, GitNaturalCommit>,
+  tipOid: string,
+  targetOid: string,
+): number | undefined {
+  const pending: Array<{oid: string; distance: number}> = [{oid: tipOid, distance: 0}]
+  const seen = new Set<string>()
+  while (pending.length > 0) {
+    const current = pending.shift()!
+    if (current.oid === targetOid) return current.distance
+    if (seen.has(current.oid)) continue
+    seen.add(current.oid)
+    const commit = graph.get(current.oid)
+    if (!commit) continue
+    pending.push(...(commit.parents || []).map(oid => ({oid, distance: current.distance + 1})))
+  }
+  return undefined
+}
+
+function findBestCommonCommit(
   sourceCommits: GitNaturalCommit[],
   targetCommits: GitNaturalCommit[],
+  sourceTip: string,
+  targetTip: string,
 ): string | undefined {
+  const sourceGraph = new Map(sourceCommits.map(commit => [commit.hash, commit]))
+  const targetGraph = new Map(targetCommits.map(commit => [commit.hash, commit]))
   const targetHashes = new Set(targetCommits.map(commit => commit.hash))
-  return sourceCommits.find(commit => targetHashes.has(commit.hash))?.hash
+  return sourceCommits
+    .filter(commit => targetHashes.has(commit.hash))
+    .map(commit => ({
+      oid: commit.hash,
+      sourceDistance: getGraphDistance(sourceGraph, sourceTip, commit.hash),
+      targetDistance: getGraphDistance(targetGraph, targetTip, commit.hash),
+    }))
+    .filter(
+      (candidate): candidate is {oid: string; sourceDistance: number; targetDistance: number} =>
+        candidate.sourceDistance !== undefined && candidate.targetDistance !== undefined,
+    )
+    .sort(
+      (left, right) =>
+        Math.max(left.sourceDistance, left.targetDistance) -
+          Math.max(right.sourceDistance, right.targetDistance) ||
+        left.sourceDistance + left.targetDistance - (right.sourceDistance + right.targetDistance),
+    )[0]?.oid
 }
 
 function uniqueStrings(values: string[]): string[] {

@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest"
 import {RepoCore, type RepoContext} from "../../src/git/repo-core.js"
 import type {RepoStateEvent} from "../../src/events/index.js"
+import {nip19} from "nostr-tools"
 
 const owner = "a".repeat(64)
 const maintainer = "b".repeat(64)
@@ -12,7 +13,10 @@ const context: RepoContext = {
     pubkey: owner,
     created_at: 1,
     kind: 30617,
-    tags: [["d", "repo"], ["maintainers", maintainer]],
+    tags: [
+      ["d", "repo"],
+      ["maintainers", maintainer],
+    ],
     content: "",
     sig: "2".repeat(128),
   },
@@ -35,7 +39,10 @@ const state = ({
     pubkey,
     created_at,
     kind: 30618,
-    tags: [["d", repoId], ["refs/heads/main", "3".repeat(40)]],
+    tags: [
+      ["d", repoId],
+      ["refs/heads/main", "3".repeat(40)],
+    ],
     content: "",
     sig: "4".repeat(128),
   }) as RepoStateEvent
@@ -67,5 +74,26 @@ describe("authorized repository state selection", () => {
     const lowerId = state({id: "0".repeat(64), pubkey: maintainer, created_at: 3})
 
     expect(RepoCore.selectAuthorizedRepoStateEvent(context, [higherId, lowerId])).toBe(lowerId)
+  })
+
+  it("normalizes npub maintainer declarations for core authority", () => {
+    const npubContext: RepoContext = {
+      ...context,
+      repoEvent: {
+        ...context.repoEvent!,
+        tags: [
+          ["d", "repo"],
+          ["maintainers", nip19.npubEncode(maintainer)],
+        ],
+      },
+    }
+    const maintainerState = state({id: "5".repeat(64), pubkey: maintainer, created_at: 4})
+
+    expect(RepoCore.isTrusted(npubContext, maintainer)).toBe(true)
+    expect(RepoCore.trustedMaintainers(npubContext)).toContain(maintainer)
+    expect(RepoCore.getMaintainerBadge(npubContext, maintainer)).toBe("maintainer")
+    expect(RepoCore.selectAuthorizedRepoStateEvent(npubContext, [maintainerState])).toBe(
+      maintainerState,
+    )
   })
 })

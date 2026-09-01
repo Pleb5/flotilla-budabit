@@ -1464,9 +1464,13 @@ export async function publishGraspRepoStateForPush({
     );
   }
 
-  const refs = mergeGraspRefs(getGraspStateRefsFromEvent(existingStateEvent), [
-    { type: "heads", name: branch, commit: commitSha },
-  ]);
+  const existingRefs = getGraspStateRefsFromEvent(existingStateEvent);
+  if (existingRefs.length === 0) {
+    throw new Error(
+      "Existing GRASP repository state has no parseable refs; refusing incomplete replacement state"
+    );
+  }
+  const refs = mergeGraspRefs(existingRefs, [{ type: "heads", name: branch, commit: commitSha }]);
   const head = resolveGraspStateHead({
     existingHead: getGraspStateHeadFromEvent(existingStateEvent),
     refs,
