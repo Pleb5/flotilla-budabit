@@ -806,7 +806,7 @@ async function resolveRequestedRefs(
   );
 }
 
-async function verifyRequestedRemoteRefs(params: {
+export async function verifyRequestedRemoteRefs(params: {
   workerApi: any;
   remoteUrl: string;
   refs: RemoteSyncRef[];
@@ -847,11 +847,20 @@ function updateLatestRepoMetadataCreatedAt(
   return next;
 }
 
-function isUnknownRemoteOutcome(error: unknown): boolean {
+export function isUnknownRemoteOutcome(error: unknown): boolean {
   if (error instanceof RemoteWorkerMutationError && error.operationStatus.state === "unknown") {
     return true;
   }
-  const message = error instanceof Error ? error.message : String(error || "");
+  const value = error as any;
+  const message = [
+    error instanceof Error ? error.message : error,
+    value?.message,
+    value?.error instanceof Error ? value.error.message : value?.error,
+    value?.error?.message,
+    value?.reason,
+  ]
+    .filter((part) => typeof part === "string")
+    .join(" ");
   return /abort|cancel|timed?\s*out|timeout|network|failed to fetch|connection.*(?:closed|reset)/i.test(
     message
   );

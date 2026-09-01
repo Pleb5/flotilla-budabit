@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   assertCompleteRemoteRefPush,
+  isUnknownRemoteOutcome,
   publishRepoSyncAnnouncement,
   syncLocalRepoToTargets,
+  verifyRequestedRemoteRefs,
 } from "./remote-sync";
 
 function signedEvent(event: any) {
@@ -15,6 +17,35 @@ function signedEvent(event: any) {
     sig: event.sig || "signature",
   };
 }
+
+describe("remote ref outcome helpers", () => {
+  it("confirms only an exact advertised branch OID", async () => {
+    const workerApi = {
+      listServerRefs: vi.fn().mockResolvedValue([{ ref: "refs/heads/main", oid: "expected" }]),
+    };
+
+    await expect(
+      verifyRequestedRemoteRefs({
+        workerApi,
+        remoteUrl: "https://git.example/repo.git",
+        refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit: "expected" }],
+      })
+    ).resolves.toEqual(["refs/heads/main"]);
+
+    await expect(
+      verifyRequestedRemoteRefs({
+        workerApi,
+        remoteUrl: "https://git.example/repo.git",
+        refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit: "other" }],
+      })
+    ).rejects.toThrow("Remote ref postflight verification failed");
+  });
+
+  it("classifies network ambiguity as unknown but not deterministic rejection", () => {
+    expect(isUnknownRemoteOutcome(new Error("network timeout"))).toBe(true);
+    expect(isUnknownRemoteOutcome(new Error("non-fast-forward"))).toBe(false);
+  });
+});
 
 function workerTerminalStatus(operationId: string, state: "failed" | "unknown" = "failed") {
   const operation = [

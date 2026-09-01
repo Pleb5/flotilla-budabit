@@ -79,7 +79,9 @@ export {
 export {
   applyReconciledGraspResults,
   getRemoteSyncProvisionalEvents,
+  isUnknownRemoteOutcome,
   syncLocalRepoToTargets,
+  verifyRequestedRemoteRefs,
   type RemoteSyncRef,
   type RemoteSyncTargetResult,
 } from "./utils/remote-sync";
