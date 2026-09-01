@@ -175,11 +175,14 @@ const makeUploadDescriptorResponse = (
   values: Record<string, unknown> = {},
 ) => {
   const hash = new Headers(options.headers).get("X-SHA-256")
+  const descriptorHash = typeof values.sha256 === "string" ? values.sha256 : hash
   return new Response(
     JSON.stringify({
       uploaded: 1,
-      url: new URL("blob", server).toString(),
-      sha256: hash,
+      url: new URL(`${descriptorHash}.webp`, server).toString(),
+      sha256: descriptorHash,
+      size: 5,
+      type: new Headers(options.headers).get("Content-Type") || "application/octet-stream",
       ...values,
     }),
   )
@@ -374,7 +377,15 @@ describe("commands", () => {
       const headers = init?.headers as Record<string, string>
       const hash = headers["X-SHA-256"]
 
-      return new Response(JSON.stringify({url: `${mirror}/${hash}.webp`, sha256: hash}))
+      return new Response(
+        JSON.stringify({
+          uploaded: 1,
+          url: `${mirror}/${hash}.webp`,
+          sha256: hash,
+          size: 5,
+          type: "image/webp",
+        }),
+      )
     })
 
     utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
@@ -389,7 +400,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
+    expect(result?.url).toBe(`${primary}/${result?.sha256}.webp`)
     expect(mirrors).toBeUndefined()
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(primary)
@@ -441,7 +452,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
+    expect(result?.url).toBe(`${primary}/${result?.sha256}.webp`)
     expect(mirrors).toBeUndefined()
 
     await waitForBackgroundJobs()
@@ -466,7 +477,13 @@ describe("commands", () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(
-          JSON.stringify({url: `${mirror}/${"c".repeat(64)}.webp`, sha256: "c".repeat(64)}),
+          JSON.stringify({
+            uploaded: 1,
+            url: `${mirror}/${"c".repeat(64)}.webp`,
+            sha256: "c".repeat(64),
+            size: 5,
+            type: "image/webp",
+          }),
         ),
     )
 
@@ -482,7 +499,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
+    expect(result?.url).toBe(`${primary}/${result?.sha256}.webp`)
 
     await waitForBackgroundJobs()
     expect(await startBlossomMirrorJobs({uploadId: uploadId!})).toBe(true)
@@ -526,7 +543,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
+    expect(result?.url).toBe(`${primary}/${result?.sha256}.webp`)
 
     await waitForBackgroundJobs()
 
@@ -569,7 +586,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
+    expect(result?.url).toBe(`${primary}/${result?.sha256}.webp`)
     expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
       method: "browser-upload",
       status: "paused",
@@ -615,7 +632,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(new URL("blob.webp", primary).toString())
+    expect(result?.url).toBe(`${primary}/${result?.sha256}.webp`)
     expect(await startBlossomMirrorJobs({uploadId: uploadId!, browserAssist: true})).toBe(false)
 
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
@@ -637,7 +654,7 @@ describe("commands", () => {
     const {error, mirrors, result} = await uploadFile(file)
 
     expect(error).toBeUndefined()
-    expect(result?.url).toMatch(/\/blob\.webp$/)
+    expect(result?.url).toMatch(/\/[a-f0-9]{64}\.webp$/)
     expect(mirrors).toBeUndefined()
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(
@@ -690,6 +707,111 @@ describe("commands", () => {
     expect(get(blossomDashboardState).uploads).toHaveLength(0)
   })
 
+  it.each([
+    ["missing URL", (descriptor: Record<string, unknown>) => ({...descriptor, url: undefined})],
+    ["missing hash", (descriptor: Record<string, unknown>) => ({...descriptor, sha256: undefined})],
+    ["negative size", (descriptor: Record<string, unknown>) => ({...descriptor, size: -1})],
+    ["fractional size", (descriptor: Record<string, unknown>) => ({...descriptor, size: 1.5})],
+    ["unsafe size", (descriptor: Record<string, unknown>) => ({...descriptor, size: 2 ** 53})],
+    ["empty type", (descriptor: Record<string, unknown>) => ({...descriptor, type: ""})],
+    ["invalid type", (descriptor: Record<string, unknown>) => ({...descriptor, type: "image"})],
+    [
+      "unsafe uploaded",
+      (descriptor: Record<string, unknown>) => ({...descriptor, uploaded: 2 ** 53}),
+    ],
+    ["negative uploaded", (descriptor: Record<string, unknown>) => ({...descriptor, uploaded: -1})],
+    [
+      "uppercase hash",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: `https://primary.example.com/${String(descriptor.sha256).toUpperCase()}.webp`,
+        sha256: String(descriptor.sha256).toUpperCase(),
+      }),
+    ],
+    [
+      "hash-only path",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: `https://primary.example.com/${descriptor.sha256}`,
+      }),
+    ],
+    [
+      "empty extension",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: `https://primary.example.com/${descriptor.sha256}.`,
+      }),
+    ],
+    [
+      "non-content-addressed path",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: "https://primary.example.com/blob.webp",
+      }),
+    ],
+  ])("uploadFile rejects BUD-02 descriptors with a %s", async (_name, mutate) => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://primary.example.com")
+
+    utilMocks.uploadBlob.mockImplementation(async (_target: string, _blob: Blob, options: any) => {
+      const headers = new Headers(options.headers)
+      const hash = headers.get("X-SHA-256")!
+      const descriptor = mutate({
+        uploaded: 1,
+        url: `${server}/${hash}.webp`,
+        sha256: hash,
+        size: 5,
+        type: "image/webp",
+      })
+
+      return new Response(JSON.stringify(descriptor))
+    })
+
+    const {error, result} = await uploadFile(makeUploadTestFile(), {
+      blossomTargets: [makeBlossomTarget(server, 1)],
+    })
+
+    expect(result).toBeUndefined()
+    expect(error).toContain("Blossom")
+    expect(utilMocks.uploadBlob).toHaveBeenCalledOnce()
+  })
+
+  it.each(["malformed", "network", "http-500"])(
+    "uploadFile falls back by priority after a %s failure",
+    async failure => {
+      const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+      const primary = normalizeBlossomUrl("https://primary.example.com")
+      const backup = normalizeBlossomUrl("https://backup.example.com")
+
+      utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) => {
+        if (server === primary) {
+          if (failure === "network") throw new TypeError("Failed to fetch")
+          if (failure === "http-500") return new Response("server exploded", {status: 500})
+
+          return new Response(
+            JSON.stringify({
+              uploaded: 1,
+              url: `${primary}/blob.webp`,
+              sha256: new Headers(options.headers).get("X-SHA-256"),
+              size: 5,
+              type: "image/webp",
+            }),
+          )
+        }
+
+        return makeUploadDescriptorResponse(server, options)
+      })
+
+      const {error, result} = await uploadFile(makeUploadTestFile(), {
+        blossomTargets: [makeBlossomTarget(backup, 20), makeBlossomTarget(primary, 10)],
+      })
+
+      expect(error).toBeUndefined()
+      expect(result?.url).toBe(`${backup}/${result?.sha256}.webp`)
+      expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary, backup])
+    },
+  )
+
   it("uploadFile retries once with the Blossom server expected content type", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const server = normalizeBlossomUrl("https://primary.example.com")
@@ -711,7 +833,8 @@ describe("commands", () => {
       }
 
       return makeUploadDescriptorResponse(server, options, {
-        url: `${server}/blob`,
+        url: `${server}/${headers["X-SHA-256"]}.json`,
+        size: _blob.size,
         type: headers["Content-Type"],
       })
     })
@@ -720,7 +843,7 @@ describe("commands", () => {
 
     expect(error).toBeUndefined()
     expect(result?.type).toBe("application/json")
-    expect(result?.url).toBe(`${server}/blob.json`)
+    expect(result?.url).toBe(`${server}/${result?.sha256}.json`)
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
     expect(utilMocks.uploadBlob.mock.calls[0][2].headers["Content-Type"]).toBe("text/markdown")
     expect(utilMocks.uploadBlob.mock.calls[1][2].headers["Content-Type"]).toBe("application/json")
@@ -757,7 +880,8 @@ describe("commands", () => {
       }
 
       return makeUploadDescriptorResponse(server, options, {
-        url: `${server}/blob`,
+        url: `${server}/${headers["X-SHA-256"]}.markdown`,
+        size: _blob.size,
         type: contentType,
       })
     })
@@ -770,11 +894,13 @@ describe("commands", () => {
 
     expect(error).toBeUndefined()
     expect(result?.type).toBe("text/markdown")
-    expect(result?.url).toBe(`${backup}/blob.markdown`)
+    expect(result?.url).toBe(`${backup}/${result?.sha256}.markdown`)
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(3)
     expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary, primary, backup])
     expect(utilMocks.uploadBlob.mock.calls[2][2].headers["Content-Type"]).toBe("text/markdown")
-    expect(get(blossomDashboardState).uploads[0].canonical.url).toBe(`${backup}/blob.markdown`)
+    expect(get(blossomDashboardState).uploads[0].canonical.url).toBe(
+      `${backup}/${result?.sha256}.markdown`,
+    )
     expect(get(blossomDashboardState).uploads[0].mirrorJobs).toHaveLength(0)
   })
 
@@ -817,7 +943,7 @@ describe("commands", () => {
       makeCommunityDefinition("definition-with-blossom", [communityBlossom]),
     )
     utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
-      makeUploadDescriptorResponse(server, options, {url: `${server}/blob`}),
+      makeUploadDescriptorResponse(server, options),
     )
 
     const {error, result} = await uploadFile(file, {
@@ -826,7 +952,7 @@ describe("commands", () => {
     })
 
     expect(error).toBeUndefined()
-    expect(result?.url).toBe(`${communityBlossom}/blob.webp`)
+    expect(result?.url).toBe(`${communityBlossom}/${result?.sha256}.webp`)
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(communityBlossom)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).not.toBe(normalizeBlossomUrl(relay))
@@ -883,7 +1009,15 @@ describe("commands", () => {
     const stages: string[] = []
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response(JSON.stringify({url: `${server}/${hash}`, sha256: hash, type: "image/webp"})),
+        new Response(
+          JSON.stringify({
+            uploaded: 1,
+            url: `${server}/${hash}.webp`,
+            sha256: hash,
+            size: 4,
+            type: "image/webp",
+          }),
+        ),
     )
 
     blossomDashboardState.set({

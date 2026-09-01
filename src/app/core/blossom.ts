@@ -184,6 +184,7 @@ export type BlossomServerTarget = {
   url: string
   source: BlossomServerSource
   group: BlossomMirrorTargetGroup
+  groups?: readonly BlossomMirrorTargetGroup[]
   priority: number
   label: string
   communityAddress?: string
@@ -412,6 +413,7 @@ export const buildBlossomServerGroups = ({
   lastResortServers = [],
 }: BuildBlossomServerGroupsOptions): BlossomServerGroups => {
   const seen = new Set<string>()
+  const targetsByUrl = new Map<string, BlossomServerTarget>()
   const groups: BlossomServerGroups = {
     currentCommunity: [],
     personal: [],
@@ -425,10 +427,20 @@ export const buildBlossomServerGroups = ({
     target: Omit<BlossomServerTarget, "url" | "priority">,
   ) => {
     const normalized = normalizeBlossomServerUrl(url)
-    if (!normalized || seen.has(normalized)) return
+    if (!normalized) return
+
+    const existing = targetsByUrl.get(normalized)
+    if (existing) {
+      existing.groups = Array.from(
+        new Set([...(existing.groups || [existing.group]), target.group]),
+      )
+      return
+    }
 
     seen.add(normalized)
-    groups[group].push({...target, url: normalized, priority: seen.size})
+    const nextTarget = {...target, url: normalized, priority: seen.size}
+    targetsByUrl.set(normalized, nextTarget)
+    groups[group].push(nextTarget)
   }
 
   for (const server of currentCommunity?.servers || []) {
@@ -483,14 +495,25 @@ export const buildBlossomInitialUploadTargets = ({
   lastResortServers = [],
 }: BuildBlossomInitialUploadTargetsOptions): BlossomServerTarget[] => {
   const seen = new Set<string>()
+  const targetsByUrl = new Map<string, BlossomServerTarget>()
   const targets: BlossomServerTarget[] = []
 
   const addTarget = (url: string, target: Omit<BlossomServerTarget, "url" | "priority">) => {
     const normalized = normalizeBlossomServerUrl(url)
-    if (!normalized || seen.has(normalized)) return
+    if (!normalized) return
+
+    const existing = targetsByUrl.get(normalized)
+    if (existing) {
+      existing.groups = Array.from(
+        new Set([...(existing.groups || [existing.group]), target.group]),
+      )
+      return
+    }
 
     seen.add(normalized)
-    targets.push({...target, url: normalized, priority: seen.size})
+    const nextTarget = {...target, url: normalized, priority: seen.size}
+    targetsByUrl.set(normalized, nextTarget)
+    targets.push(nextTarget)
   }
 
   for (const server of selectedContextServers) {
@@ -792,9 +815,13 @@ export const createBlossomMirrorJobs = ({
     seen.add(target.url)
 
     const capability = capabilities[target.url]
+    const targetGroups = target.groups || [target.group]
+    const selectedTargetGroup = targetGroups.find(group =>
+      normalizedSettings.autoMirrorTargetGroups.includes(group),
+    )
     const targetGroupSelected =
       !["always-selected", "server-side-only"].includes(normalizedSettings.mirrorMode) ||
-      normalizedSettings.autoMirrorTargetGroups.includes(target.group)
+      Boolean(selectedTargetGroup)
     const canMirror =
       (normalizedSettings.preferServerSideMirroring ||
         normalizedSettings.mirrorMode === "server-side-only") &&
@@ -813,7 +840,7 @@ export const createBlossomMirrorJobs = ({
         id: makeId?.(target, index) || `${createdAt}-${index}-${target.url}`,
         targetUrl: target.url,
         targetLabel: target.label,
-        targetGroup: target.group,
+        targetGroup: selectedTargetGroup || target.group,
         method,
         status: canQueue ? (shouldDefer ? "paused" : "queued") : "skipped",
         attempts: 0,

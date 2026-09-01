@@ -406,6 +406,7 @@ describe("blossom server sources", () => {
       "member-community",
       "last-resort",
     ])
+    expect(targets[1].groups).toEqual(["current-community", "member-community"])
   })
 
   it("selects communities where the user can publish to at least one section", () => {
@@ -811,6 +812,32 @@ describe("blossom mirror job planning", () => {
         lastError: "Target group is not selected for automatic mirroring.",
       }),
     ])
+  })
+
+  it("queues one shared-server job when any target membership is selected", () => {
+    const shared = {
+      ...mirror,
+      group: "current-community" as const,
+      groups: ["current-community", "personal"] as const,
+    }
+
+    const jobs = createBlossomMirrorJobs({
+      targets: [shared, {...shared, group: "personal"}],
+      capabilities: {[shared.url]: makeCapability(shared.url, {mirror: "supported"})},
+      settings: {
+        ...defaultBlossomSettings,
+        mirrorMode: "always-selected",
+        autoMirrorTargetGroups: ["personal"],
+      },
+      makeId: () => "job",
+    })
+
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]).toMatchObject({
+      targetUrl: shared.url,
+      targetGroup: "personal",
+      status: "queued",
+    })
   })
 
   it("server-side-only mode mirrors only selected target groups", () => {
