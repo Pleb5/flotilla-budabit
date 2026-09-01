@@ -1,0 +1,2 @@
+Commit two adds a second file.
+The final commit will rename and expand this file.
