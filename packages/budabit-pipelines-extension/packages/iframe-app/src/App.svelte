@@ -1486,6 +1486,30 @@
           onSubmit={() => void submitRerunRequest()}
         />
       </div>
+      {:else if !selectedRunId && repo && !repoMetadataError && !repoMetadataLoading && repoWorkflows.length === 0}
+        <section class="rounded-lg border border-primary/40 bg-primary/10 p-3 shadow-md">
+          <strong>No workflows defined in this repository</strong>
+          <div>Workflows enable you to run automatic tests, release jobs or deployment tasks. They are located in <code>.github/workflows/</code></div>
+          <p class="text-sm opacity-75">
+            <a
+              class="text-primary hover:underline"
+              href="https://www.workflows.guru/tutorials/github-workflows"
+              target="_blank"
+              rel="noreferrer">
+              Get started: read this tutorial
+            </a>
+          </p>
+          <br>
+          <p class="text-sm opacity-75">
+            <a
+              class="text-primary hover:underline"
+              href="https://budabit.club/git/naddr1qvzqqqrhnypzqg739mu828j7ufnlkc6p6lzph9p55xues60qyyhtxn2k4wmtzt52qy2hwumn8ghj7un9d3shjtnwva5hgtnyv4mz7qgnwaehxw309ankjarwdaehgu3wvdhk6tcqq3nxjurnv9dzke/extensions/workflows"
+              target="_blank"
+              rel="noreferrer">
+              See it in action in the FIPS repository
+            </a>
+          </p>
+        </section>
       {:else if !selectedRunId}
       <section class="space-y-4">
 
