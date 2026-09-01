@@ -24,5 +24,18 @@ describe("PR delivery contract", () => {
     expect(prView).toContain("status: previous?.status")
     expect(prView).toContain("const recheckPrimaryDelivery = async () =>")
     expect(prView).toContain("Recheck primary")
+    expect(prView).toContain('observation.status === "diverged"')
+    expect(prView).toContain('status: "failed"')
+  })
+
+  it("recovers delivery evidence and keeps secondary outcomes visible after applied ACK", () => {
+    expect(prView).toContain("loadPrDeliveryRecovery(localStorage")
+    expect(prView).toContain("savePrDeliveryRecovery(localStorage")
+    expect(prView).toContain("One or more delivery destinations still need attention")
+    expect(prView).toContain("View delivery details")
+  })
+
+  it("does not invent a merge commit when manually marking an already-contained PR", () => {
+    expect(prView).toContain("emitPRAppliedStatus(identity, {includeMergeCommit: false})")
   })
 })

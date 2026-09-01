@@ -870,16 +870,32 @@ export function isUnknownRemoteOutcome(error: unknown): boolean {
   if (error instanceof RemoteWorkerMutationError && error.operationStatus.state === "unknown") {
     return true;
   }
-  const value = error as any;
-  const message = [
-    error instanceof Error ? error.message : error,
-    value?.message,
-    value?.error instanceof Error ? value.error.message : value?.error,
-    value?.error?.message,
-    value?.reason,
-  ]
-    .filter((part) => typeof part === "string")
-    .join(" ");
+  const seen = new Set<unknown>();
+  const pending: unknown[] = [error];
+  const messages: string[] = [];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current == null || seen.has(current)) continue;
+    seen.add(current);
+    if (typeof current === "string") {
+      messages.push(current);
+      continue;
+    }
+    if (current instanceof Error) messages.push(current.message);
+    if (typeof current !== "object") continue;
+    const value = current as any;
+    for (const candidate of [
+      value.message,
+      value.reason,
+      value.error,
+      value.cause,
+      value.details?.results,
+    ]) {
+      if (Array.isArray(candidate)) pending.push(...candidate);
+      else if (candidate != null) pending.push(candidate);
+    }
+  }
+  const message = messages.join(" ");
   return /abort|cancel|timed?\s*out|timeout|network|failed to fetch|connection.*(?:closed|reset)|expected.*unpack ok.*received/i.test(
     message
   );

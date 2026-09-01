@@ -314,7 +314,7 @@ function findBestCommonCommit(
   const sourceGraph = new Map(sourceCommits.map(commit => [commit.hash, commit]))
   const targetGraph = new Map(targetCommits.map(commit => [commit.hash, commit]))
   const targetHashes = new Set(targetCommits.map(commit => commit.hash))
-  return sourceCommits
+  const candidates = sourceCommits
     .filter(commit => targetHashes.has(commit.hash))
     .map(commit => ({
       oid: commit.hash,
@@ -325,11 +325,23 @@ function findBestCommonCommit(
       (candidate): candidate is {oid: string; sourceDistance: number; targetDistance: number} =>
         candidate.sourceDistance !== undefined && candidate.targetDistance !== undefined,
     )
+
+  return candidates
+    .filter(
+      candidate =>
+        !candidates.some(
+          other =>
+            other.oid !== candidate.oid &&
+            (getGraphDistance(sourceGraph, other.oid, candidate.oid) !== undefined ||
+              getGraphDistance(targetGraph, other.oid, candidate.oid) !== undefined),
+        ),
+    )
     .sort(
       (left, right) =>
         Math.max(left.sourceDistance, left.targetDistance) -
           Math.max(right.sourceDistance, right.targetDistance) ||
-        left.sourceDistance + left.targetDistance - (right.sourceDistance + right.targetDistance),
+        left.sourceDistance + left.targetDistance - (right.sourceDistance + right.targetDistance) ||
+        (left.oid < right.oid ? -1 : left.oid > right.oid ? 1 : 0),
     )[0]?.oid
 }
 

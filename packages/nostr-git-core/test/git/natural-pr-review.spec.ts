@@ -137,6 +137,115 @@ describe("getGitNaturalPRReviewData", () => {
     expect(review?.commitOids).toEqual([HEAD, side])
   })
 
+  it("excludes an older common ancestor dominated by a nonlinear common ancestor", async () => {
+    const sourceSide = "1".repeat(40)
+    const targetSide = "2".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [
+          HEAD,
+          [
+            commit(HEAD, [BASE, sourceSide]),
+            commit(BASE),
+            commit(sourceSide, [MID]),
+            commit(MID, [BASE]),
+          ],
+        ],
+        [
+          TARGET,
+          [
+            commit(TARGET, [BASE, targetSide]),
+            commit(BASE),
+            commit(targetSide, [MID]),
+            commit(MID, [BASE]),
+          ],
+        ],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "repo",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review?.baseOid).toBe(MID)
+    expect(reader.getDiffBetween).toHaveBeenCalledWith(
+      expect.objectContaining({baseCommitHash: MID}),
+    )
+  })
+
+  it("deterministically selects between incomparable nonlinear common ancestors", async () => {
+    const first = "1".repeat(40)
+    const second = "2".repeat(40)
+    const root = "3".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [
+          HEAD,
+          [
+            commit(HEAD, [first, second]),
+            commit(second, [root]),
+            commit(first, [root]),
+            commit(root),
+          ],
+        ],
+        [
+          TARGET,
+          [
+            commit(TARGET, [second, first]),
+            commit(second, [root]),
+            commit(first, [root]),
+            commit(root),
+          ],
+        ],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "repo",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review?.baseOid).toBe(first)
+  })
+
+  it("does not infer dominance across missing nonlinear history", async () => {
+    const older = "1".repeat(40)
+    const newer = "2".repeat(40)
+    const missing = "3".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [HEAD, [commit(HEAD, [older, newer]), commit(older), commit(newer, [missing])]],
+        [TARGET, [commit(TARGET, [older, newer]), commit(older), commit(newer, [missing])]],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    await expect(
+      getGitNaturalPRReviewData({
+        repoId: "repo",
+        tipCommitOid: HEAD,
+        targetBranch: "main",
+        sourceUrls: [SOURCE_URL],
+        targetUrls: [TARGET_URL],
+        reader,
+      }),
+    ).resolves.toBeNull()
+  })
+
   it("returns null when natural diff cannot load both sides from any URL", async () => {
     const reader = createReader({
       histories: new Map([[HEAD, [commit(HEAD, [BASE]), commit(BASE)]]]),

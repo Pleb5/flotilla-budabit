@@ -59,21 +59,13 @@ export type RepoLiveRequestDependencies = {
 }
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort()
-export const MAX_REPO_LIVE_RELAYS = 6
-export const selectRepoLiveRelays = (relays: string[], limit = MAX_REPO_LIVE_RELAYS): string[] => {
-  const selected: string[] = []
-  const seen = new Set<string>()
-  for (const relay of relays) {
-    const value = normalizeRepoRelay(relay)
-    if (!value || seen.has(value)) continue
-    seen.add(value)
-    selected.push(value)
-    if (selected.length >= Math.max(1, limit)) break
-  }
-  return selected
-}
-export const batchRepoLiveRelays = (relays: string[], batchSize = 6): string[][] => {
-  const normalized = unique(relays)
+export const REPO_LIVE_RELAY_BATCH_SIZE = 6
+export const REPO_LIVE_RELAY_ROTATION_MS = 15_000
+export const batchRepoLiveRelays = (
+  relays: string[],
+  batchSize = REPO_LIVE_RELAY_BATCH_SIZE,
+): string[][] => {
+  const normalized = unique(relays.map(normalizeRepoRelay))
   const size = Math.max(1, Math.floor(batchSize))
   const batches: string[][] = []
   for (let index = 0; index < normalized.length; index += size) {

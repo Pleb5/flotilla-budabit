@@ -218,7 +218,7 @@
     buildRepoDeletionTargetLiveFilters,
     buildRepoStableLiveFilters,
     batchRepoLiveRelays,
-    selectRepoLiveRelays,
+    REPO_LIVE_RELAY_ROTATION_MS,
     getRepoLiveFilterSignature,
     startRepoLiveRequest,
   } from "@app/core/repo-live-session"
@@ -2620,12 +2620,30 @@
     stop: () => void
     releaseOwnership: () => void
   }
+  type RepoLiveRotation = {
+    cursor: number
+    scope: string
+    timer?: ReturnType<typeof setTimeout>
+  }
   const repoAnnouncementLiveByRelay = new Map<string, RepoLiveLane>()
   const repoActivityLiveByRelay = new Map<string, RepoLiveLane>()
   const repoExactThreadLiveByRelay = new Map<string, RepoLiveLane>()
+  const repoAnnouncementLiveRotation: RepoLiveRotation = {cursor: 0, scope: ""}
+  const repoActivityLiveRotation: RepoLiveRotation = {cursor: 0, scope: ""}
+  const repoExactThreadLiveRotation: RepoLiveRotation = {cursor: 0, scope: ""}
   let viewerScopedLoadKey = ""
 
   const stopRepoLiveSubscription = () => {
+    for (const rotation of [
+      repoAnnouncementLiveRotation,
+      repoActivityLiveRotation,
+      repoExactThreadLiveRotation,
+    ]) {
+      if (rotation.timer) clearTimeout(rotation.timer)
+      rotation.timer = undefined
+      rotation.cursor = 0
+      rotation.scope = ""
+    }
     for (const lanes of [
       repoAnnouncementLiveByRelay,
       repoActivityLiveByRelay,
@@ -2641,6 +2659,7 @@
 
   const reconcileRepoLiveLane = ({
     lanes,
+    rotation,
     relays,
     filters,
     owner,
@@ -2648,16 +2667,25 @@
     ownedAddresses = [],
   }: {
     lanes: Map<string, RepoLiveLane>
+    rotation: RepoLiveRotation
     relays: string[]
     filters: Filter[]
     owner: string
     initialReplayLimit: number
     ownedAddresses?: string[]
   }) => {
-    const targetBatches = new Map(
-      batchRepoLiveRelays(relays).map(batch => [batch.join("|"), batch] as const),
-    )
+    const batches = batchRepoLiveRelays(relays)
     const signature = `${initialReplayLimit}:${getRepoLiveFilterSignature(filters)}`
+    const scope = `${signature}:${batches.map(batch => batch.join("|")).join("::")}`
+    if (rotation.scope !== scope) {
+      rotation.scope = scope
+      rotation.cursor = 0
+    }
+    const batch = batches[rotation.cursor % Math.max(1, batches.length)] || []
+    const targetBatches = new Map(batch.length > 0 ? [[batch.join("|"), batch] as const] : [])
+
+    if (rotation.timer) clearTimeout(rotation.timer)
+    rotation.timer = undefined
 
     for (const [batchKey, lane] of lanes) {
       if (targetBatches.has(batchKey) && lane.signature === signature) continue
@@ -2691,6 +2719,22 @@
         releaseOwnership: () => releases.forEach(release => release()),
       })
     }
+
+    if (batches.length > 1 && filters.length > 0) {
+      rotation.timer = setTimeout(() => {
+        rotation.timer = undefined
+        rotation.cursor = (rotation.cursor + 1) % batches.length
+        reconcileRepoLiveLane({
+          lanes,
+          rotation,
+          relays,
+          filters,
+          owner,
+          initialReplayLimit,
+          ownedAddresses,
+        })
+      }, REPO_LIVE_RELAY_ROTATION_MS)
+    }
   }
 
   // Initial bounded replay makes the finite-history/live handoff independent of queue order.
@@ -2705,9 +2749,7 @@
       ...announcementDiscoveryRelays,
       ...$discoveredAnnouncementRelays,
     ])
-    const liveAnnouncementRelays = selectRepoLiveRelays(announcementRelays)
     const activityRelays = normalizeRelayScopeValues(($repoRelaysStore || []).filter(Boolean))
-    const liveActivityRelays = selectRepoLiveRelays(activityRelays)
     const addresses = normalizeScopeValues(($repoAddressesStore || []).filter(Boolean))
     const owners = normalizeScopeValues(($repoStateAuthorsStore || []).filter(Boolean))
     const viewer = $pubkey || ""
@@ -2721,7 +2763,8 @@
 
     reconcileRepoLiveLane({
       lanes: repoAnnouncementLiveByRelay,
-      relays: liveAnnouncementRelays,
+      rotation: repoAnnouncementLiveRotation,
+      relays: announcementRelays,
       filters: buildRepoStableLiveFilters({
         addresses: [],
         repoPubkey,
@@ -2735,7 +2778,8 @@
     })
     reconcileRepoLiveLane({
       lanes: repoActivityLiveByRelay,
-      relays: liveActivityRelays,
+      rotation: repoActivityLiveRotation,
+      relays: activityRelays,
       filters: buildRepoStableLiveFilters({
         addresses,
         repoPubkey,
@@ -2751,7 +2795,8 @@
     })
     reconcileRepoLiveLane({
       lanes: repoExactThreadLiveByRelay,
-      relays: liveActivityRelays,
+      rotation: repoExactThreadLiveRotation,
+      relays: activityRelays,
       filters: [
         ...exactThreadIds.flatMap(rootId => buildRepoExactThreadLiveFilters(rootId)),
         ...buildRepoDeletionTargetLiveFilters(deletionTargetIds),

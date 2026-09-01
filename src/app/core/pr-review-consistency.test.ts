@@ -26,4 +26,10 @@ describe("PR review consistency", () => {
     )
     expect(worker).toContain("allowUnrelatedHistoryFallback: false")
   })
+
+  it("loads target-side review evidence only from the declared primary", () => {
+    expect(
+      prView.match(/cloneUrls: primaryTargetCloneUrl \? \[primaryTargetCloneUrl\] : \[\]/g),
+    ).toHaveLength(3)
+  })
 })

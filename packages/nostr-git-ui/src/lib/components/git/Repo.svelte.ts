@@ -639,7 +639,7 @@ export class Repo {
 
           const pendingRepoStateEvent = this.#pendingRepoStateEvent;
           if (pendingRepoStateEvent) {
-            const authorized = new Set(this.maintainers);
+            const authorized = new Set(RepoCore.trustedMaintainers(this.#coreCtx()));
             this.#pendingRepoStateEvent = undefined;
             if (authorized.has(pendingRepoStateEvent.pubkey)) {
               this.#processRepoStateEvent(pendingRepoStateEvent, initialRepoEvent);
@@ -655,7 +655,7 @@ export class Repo {
     this.#trackStoreSubscription(
       repoStateEvent.subscribe((event) => {
         if (event) {
-          const authorized = new Set(this.maintainers);
+          const authorized = new Set(RepoCore.trustedMaintainers(this.#coreCtx()));
           if (authorized.size === 0) {
             this.#pendingRepoStateEvent = event;
             return;

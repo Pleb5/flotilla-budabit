@@ -34,7 +34,10 @@ const makeRootEvent = ({
 }): TrustedEvent => ({
   ...makeEvent(id, 10),
   kind,
-  tags: addresses.map(value => ["a", value]),
+  tags: [
+    ...addresses.map(value => ["a", value]),
+    ...(kind === 1618 ? [["c", "1".repeat(40)], ["merge-base", "2".repeat(40)]] : []),
+  ],
 })
 
 const result = (
@@ -133,6 +136,27 @@ describe("repository root history", () => {
     expect(
       isAcceptedRepoRootEvent(makeRootEvent({id: "3", addresses: [foreignAddress]}), [address]),
     ).toBe(false)
+  })
+
+  it("rejects pull request roots with malformed Git OIDs or merge-base schema", () => {
+    const valid = makeRootEvent({id: "4", kind: 1618})
+    const malformedTip = {
+      ...valid,
+      tags: valid.tags.map(tag => (tag[0] === "c" ? ["c", "short"] : tag)),
+    }
+    const malformedMergeBase = {
+      ...valid,
+      tags: valid.tags.map(tag => (tag[0] === "merge-base" ? ["merge-base", "short"] : tag)),
+    }
+    const duplicateMergeBase = {
+      ...valid,
+      tags: [...valid.tags, ["merge-base", "3".repeat(40)]],
+    }
+
+    expect(isAcceptedRepoRootEvent(valid, [address])).toBe(true)
+    expect(isAcceptedRepoRootEvent(malformedTip, [address])).toBe(false)
+    expect(isAcceptedRepoRootEvent(malformedMergeBase, [address])).toBe(false)
+    expect(isAcceptedRepoRootEvent(duplicateMergeBase, [address])).toBe(false)
   })
 
   it("tracks relay cursors independently and exhausts empty EOSE relays", async () => {

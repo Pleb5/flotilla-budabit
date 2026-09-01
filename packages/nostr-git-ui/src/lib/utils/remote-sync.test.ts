@@ -72,6 +72,15 @@ describe("remote ref outcome helpers", () => {
     expect(isUnknownRemoteOutcome(new Error("network timeout"))).toBe(true);
     expect(isUnknownRemoteOutcome(new Error("non-fast-forward"))).toBe(false);
   });
+
+  it("preserves ambiguity through a best-effort fan-out error wrapper", () => {
+    const wrapped = new Error("Push failed for all 1 remotes");
+    (wrapped as any).details = {
+      results: [{success: false, error: {error: "network timeout after receive-pack"}}],
+    };
+
+    expect(isUnknownRemoteOutcome(wrapped)).toBe(true);
+  });
 });
 
 function workerTerminalStatus(operationId: string, state: "failed" | "unknown" = "failed") {

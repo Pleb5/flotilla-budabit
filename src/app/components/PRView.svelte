@@ -35,6 +35,7 @@
     isAccessTokenManagementIssue,
     publishGraspRepoStateForPush,
     verifyGraspEventAfterPush,
+    inspectRequestedRemoteRefs,
     verifyRequestedRemoteRefs,
     isUnknownRemoteOutcome,
     prChangeToParseDiffFile,
@@ -127,6 +128,11 @@
     type PrDeliveryRemoteStatus,
   } from "@app/core/pr-delivery-outcome"
   import {completePrDelivery, deliverPrRemote} from "@app/core/pr-merge-delivery"
+  import {
+    clearPrDeliveryRecovery,
+    loadPrDeliveryRecovery,
+    savePrDeliveryRecovery,
+  } from "@app/core/pr-delivery-recovery"
 
   type PrChange = {
     path: string
@@ -1567,7 +1573,7 @@
       repoId: repoClass.key,
       tipCommitOid: prParent,
       targetBranch: prTargetBranch,
-      cloneUrls: prTargetCloneUrls,
+      cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
       prCloneUrls: prEffectiveCloneUrls,
       targetCommitOid: targetParent,
     })
@@ -1588,7 +1594,7 @@
         repoId: repoClass.key,
         tipCommitOid: prEffectiveTipOid,
         targetBranch: prTargetBranch,
-        cloneUrls: prTargetCloneUrls,
+        cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
         prCloneUrls: prEffectiveCloneUrls,
         mergeBase: prEffectiveMergeBase,
       })
@@ -1682,7 +1688,7 @@
           repoId: repoClass.key,
           tipCommitOid: prEffectiveTipOid,
           targetBranch: prTargetBranch,
-          cloneUrls: prTargetCloneUrls,
+          cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
           prCloneUrls: prEffectiveCloneUrls,
           ...(prEffectiveMergeBase ? {mergeBase: prEffectiveMergeBase} : {}),
         })
@@ -2771,9 +2777,25 @@
   let mergePrDeliveryIdentity = $state<PrDeliveryIdentity | null>(null)
   let mergePrDeliveryCommits = $state<string[]>([])
   let mergePrDeliveryGeneration = $state(0)
+  let prDeliveryRecoveryLoadedKey = $state("")
+
+  const matchesCurrentDeliveryContext = (identity: PrDeliveryIdentity) =>
+    Boolean(
+      prEvent &&
+        $pubkey &&
+        identity.rootId === prEvent.id &&
+        identity.tipOid === prEffectiveTipOid &&
+        identity.targetBranch === prTargetBranch &&
+        identity.announcementId === String((repoClass as any)?.repoEvent?.id || "") &&
+        identity.primaryUrl === primaryTargetCloneUrl &&
+        identity.actor === $pubkey,
+    )
 
   const getCurrentDeliveryKey = (mergeOid: string) => {
-    const targetOid = prCurrentMergeAnalysisResult?.targetCommit
+    const targetOid =
+      mergePrDeliveryIdentity?.mergeOid === mergeOid
+        ? mergePrDeliveryIdentity.targetOid
+        : prCurrentMergeAnalysisResult?.targetCommit
     if (!prEvent || !prEffectiveTipOid || !targetOid || !$pubkey) return null
     return buildPrDeliveryKey({
       rootId: prEvent.id,
@@ -2790,11 +2812,17 @@
   const isCurrentDelivery = () =>
     Boolean(
       mergePrDeliveryIdentity &&
+      matchesCurrentDeliveryContext(mergePrDeliveryIdentity) &&
+      (!prCurrentMergeAnalysisResult?.targetCommit ||
+        prCurrentMergeAnalysisResult.targetCommit === mergePrDeliveryIdentity.targetOid) &&
       getCurrentDeliveryKey(mergePrDeliveryIdentity.mergeOid) ===
         buildPrDeliveryKey(mergePrDeliveryIdentity),
     )
 
   const clearPrDelivery = () => {
+    if (prEvent && typeof localStorage !== "undefined") {
+      clearPrDeliveryRecovery(localStorage, prEvent.id, $pubkey || mergePrDeliveryIdentity?.actor || "")
+    }
     mergePrDeliveryGeneration++
     mergePrDeliveryIdentity = null
     mergePrDeliveryCommits = []
@@ -2807,6 +2835,50 @@
     isLoadingPrPushRemotes = false
     isPushingPrRemotes = false
   }
+
+  $effect(() => {
+    if (!prEvent || !$pubkey || typeof localStorage === "undefined") return
+    if (!prEffectiveTipOid || !primaryTargetCloneUrl || !(repoClass as any)?.repoEvent?.id) return
+    const recoveryKey = `${prEvent.id}:${$pubkey}`
+    if (prDeliveryRecoveryLoadedKey === recoveryKey) return
+
+    const recovery = loadPrDeliveryRecovery(localStorage, prEvent.id, $pubkey)
+    if (recovery && matchesCurrentDeliveryContext(recovery.identity)) {
+      mergePrDeliveryIdentity = recovery.identity
+      mergePrDeliveryCommits = recovery.commits
+      mergePrResult = {mergeCommitOid: recovery.identity.mergeOid}
+      mergePrMergedLocal = true
+      mergePrSuccess = recovery.completed
+      appliedStatusPending = recovery.appliedStatusPending
+      prPushRemotes = recovery.remotes.map(remote =>
+        remote.status === "pushing"
+          ? {
+              ...remote,
+              status: "unknown",
+              summary: "Outcome unknown after reload",
+              error: "Recheck the exact remote branch before retrying.",
+            }
+          : remote,
+      )
+    } else if (recovery) {
+      clearPrDeliveryRecovery(localStorage, prEvent.id, $pubkey)
+    }
+    prDeliveryRecoveryLoadedKey = recoveryKey
+  })
+
+  $effect(() => {
+    if (!prEvent || !$pubkey || typeof localStorage === "undefined") return
+    if (prDeliveryRecoveryLoadedKey !== `${prEvent.id}:${$pubkey}`) return
+    if (!mergePrDeliveryIdentity || !matchesCurrentDeliveryContext(mergePrDeliveryIdentity)) return
+    savePrDeliveryRecovery(localStorage, {
+      savedAt: Date.now(),
+      identity: mergePrDeliveryIdentity,
+      commits: mergePrDeliveryCommits,
+      remotes: prPushRemotes,
+      appliedStatusPending,
+      completed: mergePrSuccess,
+    })
+  })
 
   const prHasCleanMergeAnalysis = $derived.by(() =>
     Boolean(
@@ -3190,7 +3262,11 @@
     const pushed = prPushRemotes.filter(remote => remote.status === "confirmed").length
     if (outcome === "complete") {
       mergePrStep = "Primary remote confirmed"
-      await publishAppliedStatusAfterDelivery()
+      if (prEffectiveStatus !== "applied") {
+        await publishAppliedStatusAfterDelivery()
+      } else {
+        mergePrSuccess = true
+      }
       toast.push({
         message: `Confirmed on ${pushed} remote${pushed === 1 ? "" : "s"}`,
         timeout: 4000,
@@ -3225,7 +3301,7 @@
       return
     isPushingPrRemotes = true
     try {
-      await verifyRequestedRemoteRefs({
+      const observation = await inspectRequestedRemoteRefs({
         workerApi: repoClass.workerManager,
         remoteUrl: primary.url,
         refs: [
@@ -3237,6 +3313,16 @@
           },
         ],
       })
+      if (observation.status === "unknown") throw observation.error
+      if (observation.status === "diverged") {
+        updatePushRemote(primary.url, {
+          status: "failed",
+          summary: "Not delivered",
+          error: `The primary advertises a different commit for ${identity.targetBranch}.`,
+        })
+        mergePrError = "The primary does not contain this merge commit. You may retry the push."
+        return
+      }
       updatePushRemote(primary.url, {
         status: "confirmed",
         summary: "Confirmed after recheck",
@@ -3378,7 +3464,10 @@
     }
   }
 
-  const emitPRAppliedStatus = async (identity: PrDeliveryIdentity) => {
+  const emitPRAppliedStatus = async (
+    identity: PrDeliveryIdentity,
+    options: {includeMergeCommit?: boolean} = {},
+  ) => {
     if (!prEvent || !$pubkey || !isCurrentDelivery()) return
     const appliedCommits =
       mergePrDeliveryCommits.length > 0 ? mergePrDeliveryCommits : [identity.tipOid]
@@ -3398,7 +3487,7 @@
       repoAddr: repoAddress,
       relays: strictRepoRelays,
       appliedCommits,
-      mergedCommit: identity.mergeOid,
+      mergedCommit: options.includeMergeCommit === false ? undefined : identity.mergeOid,
     })
     await handlePrStatusPublish(statusEvent as any)
   }
@@ -3470,7 +3559,8 @@
       }
       mergePrDeliveryIdentity = identity
       mergePrDeliveryCommits = prCommitOids.length > 0 ? [...prCommitOids] : [identity.tipOid]
-      await emitPRAppliedStatus(identity)
+      await emitPRAppliedStatus(identity, {includeMergeCommit: false})
+      clearPrDelivery()
       markAsAppliedSuccess = true
       toast.push({message: "PR marked as merged", timeout: 5000})
     } catch (error) {
@@ -3994,6 +4084,40 @@
                 Merge PR
               {/if}
             </Button>
+          </div>
+        </div>
+      {/if}
+
+      {#if canManagePr && mergePrDeliveryIdentity && prPushRemotes.length > 0 && !prCanShowMergeSection}
+        <div class="mb-6 rounded-lg border bg-card p-6">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 class="font-semibold">Merge delivery</h3>
+              <p class="mt-1 text-sm text-muted-foreground">
+                {prPushCounts.pushed} pushed, {prPushCounts.skipped} skipped, {prPushCounts.failed}
+                failed, {prPushCounts.unknown} unknown.
+              </p>
+              {#if appliedStatusPending}
+                <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                  Primary Git delivery is confirmed. Applied-status publication still needs an ACK.
+                </p>
+              {:else if prPushCounts.failed > 0 || prPushCounts.unknown > 0}
+                <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                  One or more delivery destinations still need attention.
+                </p>
+              {/if}
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {#if appliedStatusPending}
+                <Button
+                  variant="outline"
+                  onclick={publishAppliedStatusAfterDelivery}
+                  disabled={isPublishingAppliedStatus}>
+                  Retry applied status
+                </Button>
+              {/if}
+              <Button variant="outline" onclick={openPrPushDialog}>View delivery details</Button>
+            </div>
           </div>
         </div>
       {/if}

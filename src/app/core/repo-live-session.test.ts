@@ -7,7 +7,6 @@ import {
   buildRepoStableLiveFilters,
   batchRepoLiveRelays,
   createRepoLiveRequester,
-  selectRepoLiveRelays,
 } from "./repo-live-session"
 
 const relay = "wss://repo.example"
@@ -33,17 +32,15 @@ describe("repository live session", () => {
     const batches = batchRepoLiveRelays(relays, 6)
 
     expect(batches.map(batch => batch.length)).toEqual([6, 6, 2])
-    expect(batches.flat().sort()).toEqual([...relays].sort())
+    expect(batches.flat().sort()).toEqual(relays.map(relay => `${relay}/`).sort())
   })
 
-  it("bounds continuous live relays while preserving declared preference order", () => {
+  it("normalizes all declared relays before bounding each live batch", () => {
     const relays = Array.from({length: 10}, (_, index) => `wss://relay-${index}.example`)
-    expect(
-      selectRepoLiveRelays([relays[0], "", "not-a-relay", relays[0], ...relays.slice(1)]),
-    ).toHaveLength(6)
-    expect(selectRepoLiveRelays([relays[0], "", relays[0], ...relays.slice(1)])[0]).toContain(
-      "relay-0.example",
-    )
+    const batches = batchRepoLiveRelays([relays[0], "", "not-a-relay", relays[0], ...relays.slice(1)])
+
+    expect(batches.map(batch => batch.length)).toEqual([6, 4])
+    expect(batches.flat().sort()).toEqual(relays.map(relay => `${relay}/`).sort())
   })
 
   it("builds stable coordinate, comment, metadata, and viewer filters", () => {

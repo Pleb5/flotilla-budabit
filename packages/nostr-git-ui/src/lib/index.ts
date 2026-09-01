@@ -79,6 +79,7 @@ export {
 export {
   applyReconciledGraspResults,
   getRemoteSyncProvisionalEvents,
+  inspectRequestedRemoteRefs,
   isUnknownRemoteOutcome,
   syncLocalRepoToTargets,
   verifyRequestedRemoteRefs,

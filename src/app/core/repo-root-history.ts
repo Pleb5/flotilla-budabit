@@ -11,6 +11,7 @@ import {
   type TrustedEvent,
 } from "@welshman/util"
 import {GIT_LABEL, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
+import {validatePullRequestEvent} from "@nostr-git/core/utils"
 import {
   requestFiniteRelay,
   type FiniteRelayRequestOptions,
@@ -177,6 +178,7 @@ export const isAcceptedRepoRootEvent = (
   addresses: string[],
 ): event is TrustedEvent & {kind: typeof GIT_ISSUE | typeof GIT_PULL_REQUEST} => {
   if (event.kind !== GIT_ISSUE && event.kind !== GIT_PULL_REQUEST) return false
+  if (event.kind === GIT_PULL_REQUEST && !validatePullRequestEvent(event).success) return false
 
   try {
     return Boolean(getMatchingRepoPublicationAddress(event, addresses))

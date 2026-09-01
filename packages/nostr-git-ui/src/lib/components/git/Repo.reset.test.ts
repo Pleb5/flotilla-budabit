@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readable } from "svelte/store";
+import { readable, writable } from "svelte/store";
+import { nip19 } from "nostr-tools";
 import { Repo } from "./Repo.svelte";
 
 vi.hoisted(() => {
@@ -100,6 +101,66 @@ describe("Repo reset", () => {
     expect(loadAllRefs).toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith("Git reset to remote failed:", resetError);
 
+    repo.dispose();
+  });
+});
+
+describe("Repo state authority", () => {
+  const maintainer = "b".repeat(64);
+  const announcement = {
+    id: "1".repeat(64),
+    pubkey: "a".repeat(64),
+    kind: 30617,
+    created_at: 1,
+    content: "",
+    tags: [["d", "repo"], ["maintainers", nip19.npubEncode(maintainer)]],
+    sig: "2".repeat(128),
+  } as any;
+  const state = {
+    id: "3".repeat(64),
+    pubkey: maintainer,
+    kind: 30618,
+    created_at: 2,
+    content: "",
+    tags: [["d", "repo"]],
+    sig: "4".repeat(128),
+  } as any;
+
+  const makeWorkerManager = () => ({
+    isReady: false,
+    setProgressCallback: vi.fn(),
+    setAuthConfig: vi.fn().mockResolvedValue(undefined),
+    initialize: vi.fn(() => new Promise<void>(() => {})),
+    dispose: vi.fn(),
+  });
+
+  it("normalizes npub maintainers for single-state subscriptions", () => {
+    const stateStore = writable(undefined as any);
+    const repo = new Repo({
+      repoEvent: readable(announcement),
+      repoStateEvent: stateStore,
+      issues: readable([]),
+      workerManager: makeWorkerManager() as any,
+    });
+
+    stateStore.set(state);
+
+    expect(repo.repoStateEvent?.id).toBe(state.id);
+    repo.dispose();
+  });
+
+  it("normalizes npub maintainers when admitting a pending state", () => {
+    const announcementStore = writable(undefined as any);
+    const repo = new Repo({
+      repoEvent: announcementStore,
+      repoStateEvent: readable(state),
+      issues: readable([]),
+      workerManager: makeWorkerManager() as any,
+    });
+
+    announcementStore.set(announcement);
+
+    expect(repo.repoStateEvent?.id).toBe(state.id);
     repo.dispose();
   });
 });
