@@ -653,7 +653,7 @@ export async function analyzePRMergeability(
       await git.branch({
         dir: repoDir,
         ref: analysisTargetBranch,
-        start: targetOid,
+        object: targetOid,
         checkout: false,
       })
     } catch (error) {
@@ -1387,7 +1387,7 @@ async function performPRDryRunMerge(
     const targetOid = await git.resolveRef({dir: repoDir, ref: `refs/heads/${targetBranch}`})
 
     // Create temp branch from the current target HEAD (not the ref, to avoid stale references)
-    await git.branch({dir: repoDir, ref: tempBranch, start: targetOid, checkout: true})
+    await git.branch({dir: repoDir, ref: tempBranch, object: targetOid, checkout: true})
 
     // Resolve PR tip ref consistently - handle both OID and ref cases
     if (prTipSource.startsWith("refs/")) {

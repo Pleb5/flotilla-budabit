@@ -491,8 +491,13 @@ describe("pr-merge", () => {
         expect.objectContaining({ref: "refs/heads/main"}),
       )
       expect(mockGit.branch).toHaveBeenCalledWith(
-        expect.objectContaining({ref: expect.stringMatching(/^pr-target-analysis-/)}),
+        expect.objectContaining({
+          ref: expect.stringMatching(/^pr-target-analysis-/),
+          object: "some-oid",
+          checkout: false,
+        }),
       )
+      expect(mockGit.branch).not.toHaveBeenCalledWith(expect.objectContaining({start: expect.anything()}))
       expect(mockGit.deleteBranch).toHaveBeenCalledWith(
         expect.objectContaining({ref: expect.stringMatching(/^pr-target-analysis-/)}),
       )

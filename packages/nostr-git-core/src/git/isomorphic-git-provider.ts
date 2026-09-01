@@ -76,7 +76,10 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.status({...this.withDir(options), fs: this.fs})
   }
   async statusMatrix(options: any) {
-    return isogit.statusMatrix({...this.withDir(options), fs: this.fs})
+    const callerFilter = options.filter
+    const filter = (filepath: string) =>
+      filepath !== "" && filepath !== "." && (!callerFilter || callerFilter(filepath))
+    return isogit.statusMatrix({...this.withDir(options), fs: this.fs, filter})
   }
   async currentBranch(options: any) {
     return isogit.currentBranch({...this.withDir(options), fs: this.fs})

@@ -13,6 +13,7 @@ vi.mock("isomorphic-git", async () => {
     push: vi.fn(async (opts: any) => ({ok: true, opts})),
     getRemoteInfo: vi.fn(async (opts: any) => ({ok: true, opts})),
     listServerRefs: vi.fn(async (opts: any) => ({ok: true, opts})),
+    statusMatrix: vi.fn(async (opts: any) => ({ok: true, opts})),
     TREE: vi.fn((opts: any) => ({walker: true, opts})),
   } as any
 })
@@ -75,5 +76,19 @@ describe("IsomorphicGitProvider delegation", () => {
     expect((isogit as any).listServerRefs.mock.calls.at(-1)[0]).toEqual(
       expect.objectContaining({protocolVersion: 1}),
     )
+  })
+
+  it("skips invalid root sentinels while preserving the caller status filter", async () => {
+    const prov = new IsomorphicGitProvider({fs: {fs: true}, http: {}, corsProxy: null})
+    const callerFilter = vi.fn((filepath: string) => filepath.endsWith(".md"))
+
+    await prov.statusMatrix({dir: "/r", filter: callerFilter})
+
+    const filter = (isogit as any).statusMatrix.mock.calls.at(-1)[0].filter
+    expect(filter("")).toBe(false)
+    expect(filter(".")).toBe(false)
+    expect(filter("README.md")).toBe(true)
+    expect(filter("src/index.ts")).toBe(false)
+    expect(callerFilter).toHaveBeenCalledTimes(2)
   })
 })
