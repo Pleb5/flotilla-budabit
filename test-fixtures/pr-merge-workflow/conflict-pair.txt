@@ -1,0 +1,2 @@
+conflict-winner=right
+expected-after-right-merge=left-PR-reports-add-add-conflict
