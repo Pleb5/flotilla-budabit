@@ -1706,7 +1706,6 @@
           prChangesError = null
           prChangesErrorPhase = null
           prChangesWarning = typeof res.warning === "string" ? res.warning : null
-          if (options.preserveAnalysisUntilSuccess) clearPrMergeAnalysis()
         } else {
           const errorPhase = normalizePrReviewErrorPhase(res?.errorPhase)
           prDiffBaseOid =

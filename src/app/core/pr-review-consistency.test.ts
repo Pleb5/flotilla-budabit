@@ -17,6 +17,7 @@ describe("PR review consistency", () => {
   it("reloads stale review data and blocks merge confirmation on target drift", () => {
     expect(prView).toContain("if (prReviewTargetDrift !== true || prChangesLoading) return")
     expect(prView).toContain("void loadPrChanges({preserveAnalysisUntilSuccess: true})")
+    expect(prView).not.toContain("if (options.preserveAnalysisUntilSuccess) clearPrMergeAnalysis()")
     expect(prView).toContain("The target moved after review data loaded")
   })
 
