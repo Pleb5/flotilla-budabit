@@ -1,0 +1,2 @@
+This file will be renamed by the next commit.
+Its content remains stable so Git can detect the rename.

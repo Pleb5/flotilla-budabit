@@ -1,0 +1,2 @@
+This file exists only in intermediate commit history.
+The next commit deletes it.
