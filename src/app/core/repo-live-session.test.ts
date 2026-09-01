@@ -3,9 +3,11 @@ import type {RequestOptions} from "@welshman/net"
 import type {TrustedEvent} from "@welshman/util"
 import {
   buildRepoExactThreadLiveFilters,
+  buildRepoDeletionTargetLiveFilters,
   buildRepoStableLiveFilters,
   batchRepoLiveRelays,
   createRepoLiveRequester,
+  selectRepoLiveRelays,
 } from "./repo-live-session"
 
 const relay = "wss://repo.example"
@@ -34,6 +36,16 @@ describe("repository live session", () => {
     expect(batches.flat().sort()).toEqual([...relays].sort())
   })
 
+  it("bounds continuous live relays while preserving declared preference order", () => {
+    const relays = Array.from({length: 10}, (_, index) => `wss://relay-${index}.example`)
+    expect(
+      selectRepoLiveRelays([relays[0], "", "not-a-relay", relays[0], ...relays.slice(1)]),
+    ).toHaveLength(6)
+    expect(selectRepoLiveRelays([relays[0], "", relays[0], ...relays.slice(1)])[0]).toContain(
+      "relay-0.example",
+    )
+  })
+
   it("builds stable coordinate, comment, metadata, and viewer filters", () => {
     const filters = buildRepoStableLiveFilters({
       addresses: [address],
@@ -56,6 +68,15 @@ describe("repository live session", () => {
       ]),
     )
     expect(filters.some(filter => "#e" in filter || "#E" in filter)).toBe(false)
+  })
+
+  it("subscribes to deletions for discovered child event IDs", () => {
+    const ids = Array.from({length: 101}, (_, index) => String(index).padStart(64, "0"))
+    const filters = buildRepoDeletionTargetLiveFilters([ids[0], ...ids])
+
+    expect(filters).toHaveLength(2)
+    expect(filters.flatMap(filter => filter["#e"] || [])).toEqual([...ids].sort())
+    expect(filters.every(filter => filter.kinds?.includes(5))).toBe(true)
   })
 
   it("keeps exact legacy thread filters separate from stable filters", () => {

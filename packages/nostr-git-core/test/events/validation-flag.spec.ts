@@ -127,12 +127,12 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
     const pr = createPullRequestEvent({
       content: "pr",
       repoAddr: "30617:pk:repo",
-      tipCommitOid: "c1",
+      tipCommitOid: "c".repeat(40),
     })
     const richPr = createPullRequestEvent({
       content: "pr with rich tags",
       repoAddr: "30617:pk:repo",
-      tipCommitOid: "c1",
+      tipCommitOid: "c".repeat(40),
       tags: [
         ["p", "mentioned-pubkey", "wss://relay.mention"],
         ["q", "quoted-event-id", "wss://relay.quote"],
@@ -143,7 +143,7 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
       repoAddr: "30617:pk:repo",
       pullRequestEventId: "pr-evt-1",
       pullRequestAuthorPubkey: "pk",
-      tipCommitOid: "c1",
+      tipCommitOid: "c".repeat(40),
     })
     const grasp = createUserGraspListEvent({services: ["github"]})
     const stack = createStackEvent({repoAddr: "30617:pk:repo", stackId: "s1", members: ["p1"]})

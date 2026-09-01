@@ -215,8 +215,10 @@
   import {registerRepoLiveOwnership} from "@app/core/repo-live-ownership"
   import {
     buildRepoExactThreadLiveFilters,
+    buildRepoDeletionTargetLiveFilters,
     buildRepoStableLiveFilters,
     batchRepoLiveRelays,
+    selectRepoLiveRelays,
     getRepoLiveFilterSignature,
     startRepoLiveRequest,
   } from "@app/core/repo-live-session"
@@ -1709,6 +1711,12 @@
     ) as Readable<PullRequestEvent[]>
   }
 
+  function derivePullRequestUpdates(repoAddresses: Readable<string[]>) {
+    return deriveAddressScopedEvents(repoAddresses, [GIT_PULL_REQUEST_UPDATE]) as Readable<
+      TrustedEvent[]
+    >
+  }
+
   function deriveStatusEvents(repoAddresses: Readable<string[]>) {
     const scopedStatusEvents = deriveAddressScopedEvents(repoAddresses, [
       GIT_STATUS_OPEN,
@@ -2036,6 +2044,7 @@
   const repoRelaysStore: Readable<string[]> = rootRepoRelaysStore
   const realIssuesStore = deriveIssues(repoAddressesStore)
   const realPullRequestsStore = derivePullRequests(repoAddressesStore)
+  const realPullRequestUpdatesStore = derivePullRequestUpdates(repoAddressesStore)
   const realStatusEventsStore = deriveStatusEvents(repoAddressesStore)
   const issuesStore = deferUntilRepoActivityHydrated<IssueEvent[]>([], () => realIssuesStore)
   const pullRequestsStore = deferUntilRepoActivityHydrated<PullRequestEvent[]>(
@@ -2065,6 +2074,14 @@
         (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
       )
     },
+  )
+  const repoDeletionTargetIdsStore: Readable<string[]> = derived(
+    [realPullRequestUpdatesStore, mergedStatusEventsStore],
+    ([$updates, $statuses]) =>
+      normalizeScopeValues([
+        ...($updates || []).map(event => event.id),
+        ...($statuses || []).map(event => event.id),
+      ]),
   )
   const rawCommentEventsStore = deriveComments(allRootIdsStore)
   const allRepoContentIdsStore: Readable<string[]> = derived(
@@ -2688,9 +2705,9 @@
       ...announcementDiscoveryRelays,
       ...$discoveredAnnouncementRelays,
     ])
-    const liveAnnouncementRelays = announcementRelays
+    const liveAnnouncementRelays = selectRepoLiveRelays(announcementRelays)
     const activityRelays = normalizeRelayScopeValues(($repoRelaysStore || []).filter(Boolean))
-    const liveActivityRelays = activityRelays
+    const liveActivityRelays = selectRepoLiveRelays(activityRelays)
     const addresses = normalizeScopeValues(($repoAddressesStore || []).filter(Boolean))
     const owners = normalizeScopeValues(($repoStateAuthorsStore || []).filter(Boolean))
     const viewer = $pubkey || ""
@@ -2700,6 +2717,7 @@
         ? ensuredRoot.rootId || requestedRootId
         : requestedRootId
     const exactThreadIds = uniqueScopeValues([requestedRootId, exactRootId])
+    const deletionTargetIds = $repoDeletionTargetIdsStore
 
     reconcileRepoLiveLane({
       lanes: repoAnnouncementLiveByRelay,
@@ -2734,7 +2752,10 @@
     reconcileRepoLiveLane({
       lanes: repoExactThreadLiveByRelay,
       relays: liveActivityRelays,
-      filters: exactThreadIds.flatMap(rootId => buildRepoExactThreadLiveFilters(rootId)),
+      filters: [
+        ...exactThreadIds.flatMap(rootId => buildRepoExactThreadLiveFilters(rootId)),
+        ...buildRepoDeletionTargetLiveFilters(deletionTargetIds),
+      ],
       owner: "repo-foreground:exact-thread",
       initialReplayLimit: DEFAULT_REPO_ROOT_PAGE_SIZE,
     })

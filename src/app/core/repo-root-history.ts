@@ -607,33 +607,90 @@ export const createDefaultRepoRootHistory = createRepoRootHistory({
 })
 export const createDefaultRepoRootResolver = createRepoRootResolver({requestFiniteRelay})
 
-export const loadRepoRootGap = async ({
-  relays,
-  rootIds,
-  signal,
-  priority,
-  onEvent,
-  timeoutMs = DEFAULT_REPO_ROOT_TIMEOUT_MS,
-}: {
-  relays: string[]
-  rootIds: string[]
-  signal: AbortSignal
-  priority: number
-  onEvent: (event: TrustedEvent, relay: string) => void
-  timeoutMs?: number
-}) => {
-  const filters = buildRepoRootGapFilters(rootIds)
-  if (filters.length === 0) return []
-
-  return mapRepoRelayWork(normalizeRequestRelays(relays), relay =>
-    requestFiniteRelay({
-      relay,
-      filters,
-      signal,
-      timeoutMs,
-      priority,
-      owner: "repo-roots:gap",
-      onEvent,
+const combineGapResults = (
+  first: FiniteRelayResult,
+  second?: FiniteRelayResult,
+): FiniteRelayResult => {
+  if (!second) return first
+  const events = new Map([...first.events, ...second.events].map(event => [event.id, event]))
+  return {
+    relay: first.relay,
+    outcome: first.outcome === "eose" ? second.outcome : first.outcome,
+    events: Array.from(events.values()),
+    queuedAt: Math.min(first.queuedAt, second.queuedAt),
+    startedAt:
+      first.startedAt === undefined
+        ? second.startedAt
+        : second.startedAt === undefined
+          ? first.startedAt
+          : Math.min(first.startedAt, second.startedAt),
+    finishedAt: Math.max(first.finishedAt, second.finishedAt),
+    ...((first.reason || second.reason) && {
+      reason: [first.reason, second.reason].filter(Boolean).join("; "),
     }),
-  )
+  }
 }
+
+export const createRepoRootGapLoader =
+  (dependencies: RepoRootHistoryDependencies) =>
+  async ({
+    relays,
+    rootIds,
+    signal,
+    priority,
+    onEvent,
+    timeoutMs = DEFAULT_REPO_ROOT_TIMEOUT_MS,
+  }: {
+    relays: string[]
+    rootIds: string[]
+    signal: AbortSignal
+    priority: number
+    onEvent: (event: TrustedEvent, relay: string) => void
+    timeoutMs?: number
+  }) => {
+    const filters = buildRepoRootGapFilters(rootIds)
+    if (filters.length === 0) return []
+
+    const normalizedRelays = normalizeRequestRelays(relays)
+    const firstResults = await mapRepoRelayWork(normalizedRelays, relay =>
+      dependencies.requestFiniteRelay({
+        relay,
+        filters,
+        signal,
+        timeoutMs,
+        priority,
+        owner: "repo-roots:gap",
+        onEvent,
+      }),
+    )
+    const roots = new Set(rootIds)
+    const childIds = Array.from(
+      new Set(
+        firstResults.flatMap(result =>
+          result.events
+            .filter(event => event.kind !== DELETE && !roots.has(event.id))
+            .map(event => event.id),
+        ),
+      ),
+    ).sort()
+    if (childIds.length === 0) return firstResults
+
+    const deletionFilters = chunkValues(childIds, REPO_ROOT_CHUNK_SIZE).map(
+      ids => ({kinds: [DELETE], "#e": ids}) as Filter,
+    )
+    const secondResults = await mapRepoRelayWork(normalizedRelays, relay =>
+      dependencies.requestFiniteRelay({
+        relay,
+        filters: deletionFilters,
+        signal,
+        timeoutMs,
+        priority,
+        owner: "repo-roots:child-deletes",
+        onEvent,
+      }),
+    )
+
+    return firstResults.map((result, index) => combineGapResults(result, secondResults[index]))
+  }
+
+export const loadRepoRootGap = createRepoRootGapLoader({requestFiniteRelay})

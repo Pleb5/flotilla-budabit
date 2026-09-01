@@ -5,6 +5,7 @@ import {
   buildRepoRootGapFilters,
   buildRepoRootPageFilter,
   createRepoRootResolver,
+  createRepoRootGapLoader,
   createRepoRootHistory,
   getIncompleteRepoRootGapScopes,
   isAcceptedRepoRootEvent,
@@ -66,6 +67,53 @@ describe("repository root history", () => {
         {kinds: [5], "#e": ["root"]},
       ]),
     )
+  })
+
+  it("loads deletions for discovered child events from every relay", async () => {
+    const child = {...makeEvent("d", 20), kind: 1619}
+    const deletion = {...makeEvent("e", 21), kind: 5, tags: [["e", child.id]]}
+    const requestFiniteRelay = vi.fn(async (options: any) => {
+      if (options.owner === "repo-roots:gap") {
+        return result(options.relay, "eose", options.relay.includes("one") ? [child] : [])
+      }
+      return result(options.relay, "eose", options.relay.includes("two") ? [deletion] : [])
+    })
+    const onEvent = vi.fn()
+
+    const results = await createRepoRootGapLoader({requestFiniteRelay})({
+      relays: ["wss://one.example", "wss://two.example"],
+      rootIds: ["root"],
+      signal: new AbortController().signal,
+      priority: 1,
+      onEvent,
+    })
+
+    const deletionCalls = requestFiniteRelay.mock.calls
+      .map(([options]) => options)
+      .filter(options => options.owner === "repo-roots:child-deletes")
+    expect(deletionCalls).toHaveLength(2)
+    expect(deletionCalls.every(call => call.filters[0]["#e"].includes(child.id))).toBe(true)
+    expect(results.every(item => item.outcome === "eose")).toBe(true)
+    expect(results.flatMap(item => item.events.map(event => event.id))).toContain(deletion.id)
+  })
+
+  it("keeps a child-deletion timeout partial", async () => {
+    const child = {...makeEvent("f", 20), kind: 1630}
+    const requestFiniteRelay = vi.fn(async (options: any) =>
+      options.owner === "repo-roots:gap"
+        ? result(options.relay, "eose", [child])
+        : result(options.relay, "timeout"),
+    )
+
+    const results = await createRepoRootGapLoader({requestFiniteRelay})({
+      relays: ["wss://one.example"],
+      rootIds: ["root"],
+      signal: new AbortController().signal,
+      priority: 1,
+      onEvent: vi.fn(),
+    })
+
+    expect(results[0].outcome).toBe("timeout")
   })
 
   it("accepts multi-target issues and pull requests when any coordinate matches", () => {

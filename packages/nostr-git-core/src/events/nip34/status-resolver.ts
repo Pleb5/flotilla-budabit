@@ -28,8 +28,9 @@ export function isStatusAuthorized(args: {
   if (!statusAuthor) return false;
   if (repoOwner && statusAuthor === repoOwner) return true;
   if (maintainers.has(statusAuthor)) return true;
-  if (!importedRoot && rootAuthor && statusAuthor === rootAuthor) return true;
-  return importedRoot && isImportedEvent(status);
+  if (importedRoot) return isImportedEvent(status);
+  if (status.kind === GIT_STATUS_APPLIED) return false;
+  return Boolean(rootAuthor && statusAuthor === rootAuthor);
 }
 
 export function resolveStatus(args: {

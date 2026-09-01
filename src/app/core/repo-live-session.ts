@@ -18,6 +18,7 @@ import {
   GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_STATE,
 } from "@nostr-git/core/events"
+import {normalizeRepoRelay} from "@app/core/repo-relays"
 
 const GIT_COVER_LETTER = 1624
 const STATUS_KINDS = [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE]
@@ -58,6 +59,19 @@ export type RepoLiveRequestDependencies = {
 }
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean))).sort()
+export const MAX_REPO_LIVE_RELAYS = 6
+export const selectRepoLiveRelays = (relays: string[], limit = MAX_REPO_LIVE_RELAYS): string[] => {
+  const selected: string[] = []
+  const seen = new Set<string>()
+  for (const relay of relays) {
+    const value = normalizeRepoRelay(relay)
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    selected.push(value)
+    if (selected.length >= Math.max(1, limit)) break
+  }
+  return selected
+}
 export const batchRepoLiveRelays = (relays: string[], batchSize = 6): string[][] => {
   const normalized = unique(relays)
   const size = Math.max(1, Math.floor(batchSize))
@@ -158,6 +172,15 @@ export const buildRepoExactThreadLiveFilters = (rootId: string): Filter[] =>
         },
       ]
     : []
+
+export const buildRepoDeletionTargetLiveFilters = (eventIds: string[]): Filter[] => {
+  const ids = unique(eventIds)
+  const filters: Filter[] = []
+  for (let index = 0; index < ids.length; index += 100) {
+    filters.push({kinds: [DELETE], "#e": ids.slice(index, index + 100)})
+  }
+  return filters
+}
 
 export const getRepoLiveFilterSignature = (filters: Filter[]) =>
   JSON.stringify(

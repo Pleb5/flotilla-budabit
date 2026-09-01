@@ -32,7 +32,7 @@ describe('resolveStatus', () => {
 
     const events: LocalStatusEvent[] = [
       makeStatus('s1', 1630, 'other-pub', 1000), // open by other
-      makeStatus('s2', 1631, 'root-pub', 1100), // applied by root
+      makeStatus('s2', 1631, 'root-pub', 1100), // applied by root is unauthorized
       makeStatus('s3', 1630, 'maintainer-pub', 900), // open by maintainer older
       makeStatus('s4', 1632, 'other-pub', 1200), // closed by other ignored
       makeStatus('s5', 1631, 'maintainer-pub', 800), // applied by maintainer oldest
@@ -43,6 +43,22 @@ describe('resolveStatus', () => {
 
     expect(final?.id).toBe('s6');
     expect(reason).toMatch(/latest authorized status/);
+  });
+
+  it('requires owner or maintainer authority for applied status', () => {
+    const rootApplied = makeStatus('root-applied', 1631, 'root-pub', 1200);
+    const maintainerApplied = makeStatus('maintainer-applied', 1631, 'maintainer-pub', 1100);
+
+    expect(resolveStatus({
+      statuses: [rootApplied],
+      rootAuthor: 'root-pub',
+      maintainers: new Set(),
+    }).final).toBeUndefined();
+    expect(resolveStatus({
+      statuses: [rootApplied, maintainerApplied],
+      rootAuthor: 'root-pub',
+      maintainers: new Set(['maintainer-pub']),
+    }).final?.id).toBe('maintainer-applied');
   });
 
   it('accepts repo owner status even when owner is not a maintainer', () => {

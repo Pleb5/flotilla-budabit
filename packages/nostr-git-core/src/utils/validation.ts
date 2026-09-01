@@ -218,6 +218,11 @@ function countTagName(tags: unknown[], name: string) {
   return tags.filter(t => Array.isArray(t) && t[0] === name).length
 }
 
+function isValidGitOidTag(tags: unknown[], name: string) {
+  const tag = tags.find(item => Array.isArray(item) && item[0] === name)
+  return Array.isArray(tag) && typeof tag[1] === "string" && /^[0-9a-f]{40}$/i.test(tag[1])
+}
+
 export const RepoAnnouncementEventSchema = NostrEventSchema.extend({
   kind: z.literal(30617),
   tags: RepoAnnouncementTagsSchema,
@@ -300,6 +305,25 @@ export const PullRequestEventSchema = NostrEventSchema.extend({
       code: z.ZodIssueCode.custom,
       message: "Pull Request must include exactly one 'c' tag (tip commit)",
     })
+  } else if (!isValidGitOidTag(evt.tags as unknown[], "c")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Pull Request 'c' tag must contain a full hexadecimal Git OID",
+    })
+  }
+  if (countTagName(evt.tags as unknown[], "merge-base") > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Pull Request may include at most one 'merge-base' tag",
+    })
+  } else if (
+    countTagName(evt.tags as unknown[], "merge-base") === 1 &&
+    !isValidGitOidTag(evt.tags as unknown[], "merge-base")
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Pull Request 'merge-base' must contain a full hexadecimal Git OID",
+    })
   }
 })
 
@@ -330,6 +354,25 @@ export const PullRequestUpdateEventSchema = NostrEventSchema.extend({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Pull Request update must include exactly one 'c' tag (tip commit)",
+    })
+  } else if (!isValidGitOidTag(evt.tags as unknown[], "c")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Pull Request update 'c' tag must contain a full hexadecimal Git OID",
+    })
+  }
+  if (countTagName(evt.tags as unknown[], "merge-base") > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Pull Request update may include at most one 'merge-base' tag",
+    })
+  } else if (
+    countTagName(evt.tags as unknown[], "merge-base") === 1 &&
+    !isValidGitOidTag(evt.tags as unknown[], "merge-base")
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Pull Request update 'merge-base' must contain a full hexadecimal Git OID",
     })
   }
 })
