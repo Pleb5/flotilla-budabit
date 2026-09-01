@@ -471,8 +471,20 @@ const listRepoWorkflowFiles = async () => {
   console.log(
     `[bridge] listRepoWorkflowFiles: listing .github/workflows on branch=${branch || "(default)"}`,
   )
-  const filesResult = await repo.listRepoFiles({path: ".github/workflows", branch})
-  const files = Array.isArray(filesResult?.files) ? filesResult.files : []
+
+  var files: any[]
+  try {
+    const filesResult = await repo.listRepoFiles({path: ".github/workflows", branch})
+    files = Array.isArray(filesResult?.files) ? filesResult.files : []
+  } catch (e) {
+    // listRepoFiles returns error if directory doesn't exist
+    if (e instanceof Error && e.message.includes("Could not find file or directory")) {
+      files = []
+    } else {
+      throw e
+    }
+  }
+
   console.log(
     `[bridge] listRepoWorkflowFiles: got ${files.length} entries:`,
     files.map((f: any) => ({path: f?.path, type: f?.type})),
