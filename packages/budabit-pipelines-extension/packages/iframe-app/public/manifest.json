@@ -1,5 +1,5 @@
 {
-  "id": "budabit-pipelines",
+  "id": "budabit-workflows",
   "name": "Workflows",
   "description": "View and manage workflow runs for your repository",
   "author": "Budabit",
