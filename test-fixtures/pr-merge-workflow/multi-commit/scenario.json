@@ -1,0 +1,5 @@
+{
+  "name": "multi-commit",
+  "expectedCommits": 3,
+  "expectedResult": "clean"
+}
