@@ -106,6 +106,13 @@ export interface LoomWorker {
    * execute without payment. Resolved live from the freelist event.
    */
   freeForUser?: boolean;
+  /**
+   * True while the worker's advertised freelist event is still being fetched
+   * from the network — `freeForUser` is not yet authoritative. UIs should
+   * block submission until this clears, since the result decides whether the
+   * run is free for the current user.
+   */
+  freelistPending?: boolean;
   online: boolean;
   lastSeen: number;
 }

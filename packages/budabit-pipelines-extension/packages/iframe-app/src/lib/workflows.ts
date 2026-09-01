@@ -503,6 +503,10 @@ export function workers$(relays: string[], userPubkey?: string): Observable<Loom
   // list address → member pubkeys. An empty set doubles as the in-flight
   // marker so repeated ads for the same address don't refetch.
   const freelistsByAddress = new Map<string, Set<string>>();
+  // Addresses whose freelist event fetch has not resolved yet — exposed on
+  // emitted workers as `freelistPending` so UIs can block submission until
+  // membership is known.
+  const freelistPendingAddresses = new Set<string>();
 
   const recompute = () => {
     const next = Array.from(latestByPubkey.values())
@@ -514,6 +518,10 @@ export function workers$(relays: string[], userPubkey?: string): Observable<Loom
           !!userPubkey &&
           !!worker.freelistEventAddress &&
           (freelistsByAddress.get(worker.freelistEventAddress)?.has(userPubkey) ?? false),
+        freelistPending:
+          !!userPubkey &&
+          !!worker.freelistEventAddress &&
+          freelistPendingAddresses.has(worker.freelistEventAddress),
       }))
       .sort((a, b) => (a.currentQueueDepth || 0) - (b.currentQueueDepth || 0));
     subject.next(next);
@@ -524,8 +532,10 @@ export function workers$(relays: string[], userPubkey?: string): Observable<Loom
   const fetchFreelistOnce = (address: string) => {
     if (!userPubkey || freelistsByAddress.has(address)) return;
     freelistsByAddress.set(address, new Set());
+    freelistPendingAddresses.add(address);
     void fetchFreelistPubkeys(address, relays).then((members) => {
       freelistsByAddress.set(address, members);
+      freelistPendingAddresses.delete(address);
       recompute();
     });
   };

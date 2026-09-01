@@ -101,6 +101,11 @@
   // token and only execute if the worker accepts unpaid jobs from this pubkey.
   const selectedWorkerIsFree = $derived(isFreeWorker(selectedWorker))
 
+  // While the selected worker's advertised freelist event is being fetched,
+  // membership (and therefore whether the run is free) is unknown — block
+  // submission until it resolves.
+  const freelistFetching = $derived(!!selectedWorker?.freelistPending)
+
   // Payment is waived when the worker is free, or the user opted into an
   // unpaid run on a priced worker (worker-side pubkey allowlist).
   const paymentWaived = $derived(selectedWorkerIsFree || unpaidRun)
@@ -561,7 +566,7 @@
       {/if}
     </div>
 
-    {#if selectedWorker && !paymentWaived && walletAvailable && compatibleMints.length === 0}
+    {#if selectedWorker && !paymentWaived && walletAvailable && compatibleMints.length === 0 && !freelistFetching}
       <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">No overlapping mints between your wallet and the selected worker.</div>
     {/if}
 
@@ -569,10 +574,16 @@
       <div class="rounded-md border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">Selected mint balance is lower than the prepayment.</div>
     {/if}
 
+    {#if freelistFetching}
+      <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">Fetching worker freelist</div>
+    {/if}
+
     <button
-      class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-green-500/40 bg-green-500/20 px-3 py-2.5 text-sm font-semibold text-green-30 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+      class="inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2.5 text-sm font-semibold {freelistFetching
+        ? 'cursor-not-allowed border-input bg-muted text-muted-foreground'
+        : 'border-green-500/40 bg-green-500/20 text-green-30 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50'}"
       onclick={onSubmit}
-      disabled={rerunSubmitting || generatingPaymentToken || !isFormValid}>
+      disabled={rerunSubmitting || generatingPaymentToken || !isFormValid || freelistFetching}>
       <span class="{rerunSubmitting || generatingPaymentToken ? 'animate-pulse' : ''}">▶</span>
       {rerunSubmitting
         ? 'Submitting…'
