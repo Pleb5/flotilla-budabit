@@ -44,7 +44,6 @@ export type BlossomUploadStage =
   | "checking-servers"
   | "uploading"
   | "optimizing"
-  | "saving-canonical"
   | "ready"
   | "failed"
 
@@ -58,8 +57,6 @@ export const getBlossomUploadStageMessage = (stage: BlossomUploadStage = "idle")
       return "Uploading to Blossom..."
     case "optimizing":
       return "Optimizing media on Blossom..."
-    case "saving-canonical":
-      return "Saving optimized media to the canonical server..."
     case "ready":
       return "Ready to publish."
     case "failed":
@@ -132,8 +129,6 @@ export type BlossomInitialUploadPlan =
       status: "ready"
       method: BlossomInitialUploadMethod
       canonical: BlossomServerTarget
-      optimizer?: BlossomServerTarget
-      mirrorOptimizedToCanonical: boolean
       useClientCompression: boolean
       reason: string
     }
@@ -149,6 +144,7 @@ export type ChooseBlossomInitialUploadPlanOptions = {
   file?: BlossomUploadPlanFile
   encrypted?: boolean
   publicContext?: boolean
+  disableMedia?: boolean
 }
 
 export type BlossomBlobDescriptor = {
@@ -190,7 +186,22 @@ export type BlossomServerTarget = {
   communityAddress?: string
   communityPubkey?: string
   communityName?: string
+  memberships?: readonly BlossomServerMembership[]
 }
+
+export type BlossomServerMembership = Pick<
+  BlossomServerTarget,
+  "source" | "group" | "label" | "communityAddress" | "communityPubkey" | "communityName"
+>
+
+const getTargetMembership = (target: BlossomServerTarget): BlossomServerMembership => ({
+  source: target.source,
+  group: target.group,
+  label: target.label,
+  communityAddress: target.communityAddress,
+  communityPubkey: target.communityPubkey,
+  communityName: target.communityName,
+})
 
 export type BlossomServerGroups = {
   currentCommunity: BlossomServerTarget[]
@@ -424,7 +435,7 @@ export const buildBlossomServerGroups = ({
   const addTarget = (
     group: keyof BlossomServerGroups,
     url: string,
-    target: Omit<BlossomServerTarget, "url" | "priority">,
+    target: BlossomServerMembership,
   ) => {
     const normalized = normalizeBlossomServerUrl(url)
     if (!normalized) return
@@ -434,11 +445,17 @@ export const buildBlossomServerGroups = ({
       existing.groups = Array.from(
         new Set([...(existing.groups || [existing.group]), target.group]),
       )
+      existing.memberships = [...(existing.memberships || [getTargetMembership(existing)]), target]
       return
     }
 
     seen.add(normalized)
-    const nextTarget = {...target, url: normalized, priority: seen.size}
+    const nextTarget = {
+      ...target,
+      url: normalized,
+      priority: seen.size,
+      memberships: [target],
+    }
     targetsByUrl.set(normalized, nextTarget)
     groups[group].push(nextTarget)
   }
@@ -498,7 +515,7 @@ export const buildBlossomInitialUploadTargets = ({
   const targetsByUrl = new Map<string, BlossomServerTarget>()
   const targets: BlossomServerTarget[] = []
 
-  const addTarget = (url: string, target: Omit<BlossomServerTarget, "url" | "priority">) => {
+  const addTarget = (url: string, target: BlossomServerMembership) => {
     const normalized = normalizeBlossomServerUrl(url)
     if (!normalized) return
 
@@ -507,11 +524,17 @@ export const buildBlossomInitialUploadTargets = ({
       existing.groups = Array.from(
         new Set([...(existing.groups || [existing.group]), target.group]),
       )
+      existing.memberships = [...(existing.memberships || [getTargetMembership(existing)]), target]
       return
     }
 
     seen.add(normalized)
-    const nextTarget = {...target, url: normalized, priority: seen.size}
+    const nextTarget = {
+      ...target,
+      url: normalized,
+      priority: seen.size,
+      memberships: [target],
+    }
     targetsByUrl.set(normalized, nextTarget)
     targets.push(nextTarget)
   }
@@ -719,9 +742,6 @@ const canTryUpload = (capability: BlossomServerCapability | undefined) =>
 const canTryMedia = (capability: BlossomServerCapability | undefined) =>
   Boolean(capability && ["supported", "auth-failed"].includes(capability.media))
 
-const canServerMirror = (capability: BlossomServerCapability | undefined) =>
-  Boolean(capability && ["supported", "auth-failed"].includes(capability.mirror))
-
 const canTryServerMirror = (capability: BlossomServerCapability | undefined) =>
   !capability || ["unknown", "supported", "auth-failed"].includes(capability.mirror)
 
@@ -740,6 +760,7 @@ export const chooseBlossomInitialUploadPlan = ({
   file,
   encrypted = false,
   publicContext = true,
+  disableMedia = false,
 }: ChooseBlossomInitialUploadPlanOptions): BlossomInitialUploadPlan => {
   if (encrypted && publicContext) return {status: "blocked", reason: "public-encryption-disabled"}
 
@@ -748,6 +769,7 @@ export const chooseBlossomInitialUploadPlan = ({
 
   const normalizedSettings = normalizeBlossomSettings(settings)
   const mediaEligible =
+    !disableMedia &&
     !encrypted &&
     isMediaFile(file) &&
     (normalizedSettings.optimizationMode === "auto" ||
@@ -758,27 +780,8 @@ export const chooseBlossomInitialUploadPlan = ({
       status: "ready",
       method: "media",
       canonical,
-      mirrorOptimizedToCanonical: false,
       useClientCompression: false,
       reason: "canonical-media",
-    }
-  }
-
-  if (mediaEligible && canServerMirror(capabilities[canonical.url])) {
-    const optimizer = targets.find(
-      target => target.url !== canonical.url && canTryMedia(capabilities[target.url]),
-    )
-
-    if (optimizer) {
-      return {
-        status: "ready",
-        method: "media",
-        canonical,
-        optimizer,
-        mirrorOptimizedToCanonical: true,
-        useClientCompression: false,
-        reason: "safe-external-optimizer",
-      }
     }
   }
 
@@ -786,7 +789,6 @@ export const chooseBlossomInitialUploadPlan = ({
     status: "ready",
     method: "upload",
     canonical,
-    mirrorOptimizedToCanonical: false,
     useClientCompression:
       isClientCompressibleImage(file) &&
       (normalizedSettings.optimizationMode === "client" ||
@@ -834,12 +836,15 @@ export const createBlossomMirrorJobs = ({
       canTryUpload(capability)
     const method: BlossomMirrorMethod = canMirror ? "server-mirror" : "browser-upload"
     const canQueue = targetGroupSelected && (canMirror || canBrowserUpload)
+    const selectedMembership = target.memberships?.find(
+      membership => membership.group === (selectedTargetGroup || target.group),
+    )
 
     return [
       {
         id: makeId?.(target, index) || `${createdAt}-${index}-${target.url}`,
         targetUrl: target.url,
-        targetLabel: target.label,
+        targetLabel: selectedMembership?.label || target.label,
         targetGroup: selectedTargetGroup || target.group,
         method,
         status: canQueue ? (shouldDefer ? "paused" : "queued") : "skipped",

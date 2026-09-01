@@ -407,6 +407,10 @@ describe("blossom server sources", () => {
       "last-resort",
     ])
     expect(targets[1].groups).toEqual(["current-community", "member-community"])
+    expect(targets[1].memberships).toEqual([
+      expect.objectContaining({group: "current-community", label: "Current community"}),
+      expect.objectContaining({group: "member-community", label: "Member community"}),
+    ])
   })
 
   it("selects communities where the user can publish to at least one section", () => {
@@ -627,12 +631,11 @@ describe("blossom initial upload planner", () => {
       status: "ready",
       method: "media",
       canonical: community,
-      mirrorOptimizedToCanonical: false,
       reason: "canonical-media",
     })
   })
 
-  it("uses a non-canonical optimizer only when canonical can mirror the result", () => {
+  it("does not send source media to a non-canonical optimizer", () => {
     const plan = chooseBlossomInitialUploadPlan({
       targets: [community, personal],
       file: {type: "image/png", size: 1024},
@@ -644,12 +647,11 @@ describe("blossom initial upload planner", () => {
 
     expect(plan).toMatchObject({
       status: "ready",
-      method: "media",
+      method: "upload",
       canonical: community,
-      optimizer: personal,
-      mirrorOptimizedToCanonical: true,
-      reason: "safe-external-optimizer",
+      reason: "media-unavailable-upload-fallback",
     })
+    expect(plan).not.toHaveProperty("optimizer")
   })
 
   it("falls back to upload when no safe optimizer is available", () => {
@@ -666,7 +668,6 @@ describe("blossom initial upload planner", () => {
       status: "ready",
       method: "upload",
       canonical: community,
-      mirrorOptimizedToCanonical: false,
       useClientCompression: true,
       reason: "media-unavailable-upload-fallback",
     })
@@ -819,6 +820,11 @@ describe("blossom mirror job planning", () => {
       ...mirror,
       group: "current-community" as const,
       groups: ["current-community", "personal"] as const,
+      label: "Current community",
+      memberships: [
+        {source: "current-community", group: "current-community", label: "Current community"},
+        {source: "personal", group: "personal", label: "Your personal servers"},
+      ] as const,
     }
 
     const jobs = createBlossomMirrorJobs({
@@ -836,6 +842,7 @@ describe("blossom mirror job planning", () => {
     expect(jobs[0]).toMatchObject({
       targetUrl: shared.url,
       targetGroup: "personal",
+      targetLabel: "Your personal servers",
       status: "queued",
     })
   })

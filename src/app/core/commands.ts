@@ -1280,20 +1280,13 @@ const getUploadFailureMessage = (text: string, status: number) => {
   )
 }
 
-const isFileTypePolicyRejection = (res: Response, text: string) => {
-  if (res.status === 415) return true
+const isRetryableUploadResponse = (response: Response) =>
+  response.status === 408 || [500, 502, 503, 504].includes(response.status)
 
-  const parsed = parseJson(text)
-  const messages = [text, parsed?.message, parsed?.reason, parsed?.error]
-    .filter((message): message is string => typeof message === "string")
-    .map(message => message.toLowerCase())
-
-  return messages.some(
-    message =>
-      /(file type|content-type|mime|media type)/.test(message) &&
-      /(not allowed|not supported|unsupported|disallowed)/.test(message),
+const isRetryableUploadError = (error: unknown) =>
+  /failed to fetch|networkerror|network request failed|fetch failed|load failed/i.test(
+    getErrorMessage(error),
   )
-}
 
 const getBlossomEndpointUrl = (server: string, endpoint: "media" | "mirror") =>
   `${server.replace(/\/+$/, "")}/${endpoint}`
@@ -1350,11 +1343,22 @@ const validateBlossomDescriptor = ({
   ) {
     throw new Error("Blossom descriptor URL does not belong to the selected server.")
   }
+  if (descriptorUrl.username || descriptorUrl.password) {
+    throw new Error("Blossom descriptor URL must not contain credentials.")
+  }
+  if (descriptorUrl.search || descriptorUrl.hash) {
+    throw new Error("Blossom descriptor URL must not contain a query string or fragment.")
+  }
 
-  const filename = descriptorUrl.pathname.split("/").at(-1) || ""
-  if (!new RegExp(`^${descriptorHash}\\.[^./]+$`).test(filename)) {
+  let pathname: string
+  try {
+    pathname = decodeURIComponent(descriptorUrl.pathname)
+  } catch {
+    throw new Error("Blossom descriptor URL contains an invalid encoded path.")
+  }
+  if (!new RegExp(`^/${descriptorHash}\\.[A-Za-z0-9][A-Za-z0-9_-]*$`).test(pathname)) {
     throw new Error(
-      "Blossom descriptor URL must end with the declared SHA-256 hash and a nonempty extension.",
+      "Blossom descriptor URL must use the root hash endpoint with a valid extension.",
     )
   }
 
@@ -1366,12 +1370,15 @@ const validateBlossomDescriptor = ({
   }
   if (
     typeof descriptor.type !== "string" ||
-    descriptor.type.trim() !== descriptor.type ||
-    !/^[^\s/]+\/[^\s/]+$/.test(descriptor.type)
+    !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(descriptor.type)
   ) {
     throw new Error("Blossom server returned a descriptor without a valid content type.")
   }
-  if (!Number.isSafeInteger(descriptor.uploaded) || descriptor.uploaded < 0) {
+  if (
+    !Number.isSafeInteger(descriptor.uploaded) ||
+    descriptor.uploaded < 0 ||
+    descriptor.uploaded > Math.floor(Date.now() / 1000) + 300
+  ) {
     throw new Error("Blossom server returned a descriptor without a valid upload timestamp.")
   }
 
@@ -1433,7 +1440,7 @@ const uploadFileToPlannedBlossomServer = async ({
   hash: string
   plan: ReadyBlossomInitialUploadPlan
 }) => {
-  const uploadServer = plan.optimizer?.url || plan.canonical.url
+  const uploadServer = plan.canonical.url
   let contentType = file.type
   let headers = getBlossomUploadHeaders(file, hash, contentType)
   let {res, text, task} = await uploadFileToBlossomServer({
@@ -1747,11 +1754,13 @@ export const uploadFile = async (
     const capabilities = options.blossomCapabilities || get(blossomDashboardState).capabilities
     const settings = normalizeBlossomSettings(options.blossomSettings || get(blossomSettings))
     const plannerTargets = getPlannerTargets({options, primary, mirrors: mirrorServers})
+    const uploadTrustGroup = plannerTargets[0]?.group
+    const uploadTargets = plannerTargets.filter(target => target.group === uploadTrustGroup)
 
     setStage("checking-servers")
 
     const initialPlan = chooseBlossomInitialUploadPlan({
-      targets: plannerTargets,
+      targets: uploadTargets,
       capabilities,
       settings,
       file: {type, size: file.size},
@@ -1790,34 +1799,50 @@ export const uploadFile = async (
       })
     }
 
-    const hash = await sha256(await file.arrayBuffer())
+    let hash = await sha256(await file.arrayBuffer())
     const rejectedUploadTargets = new Set<string>()
-    let lastPolicyRejection = ""
     let lastFailure = ""
-    let sawNonPolicyFailure = false
+    let pendingPlan: ReadyBlossomInitialUploadPlan | undefined = initialPlan
     let plan!: ReadyBlossomInitialUploadPlan
     let uploadTask!: Record<string, any>
     let contentType = file.type
     let uploadServer = ""
 
-    while (true) {
-      const nextPlan = chooseBlossomInitialUploadPlan({
-        targets: plannerTargets.filter(target => !rejectedUploadTargets.has(target.url)),
+    const fallBackFromMedia = async () => {
+      const fallback = chooseBlossomInitialUploadPlan({
+        targets: [plan.canonical],
         capabilities,
         settings,
-        file: {type, size: file.size},
+        file: {type: file.type, size: file.size},
         encrypted: Boolean(options.encrypt),
         publicContext: options.publicContext ?? true,
+        disableMedia: true,
       })
+
+      if (fallback.status === "blocked") return false
+      if (fallback.useClientCompression) {
+        file = await compressFile(file, options)
+        hash = await sha256(await file.arrayBuffer())
+      }
+      pendingPlan = fallback
+      return true
+    }
+
+    while (true) {
+      const nextPlan =
+        pendingPlan ||
+        chooseBlossomInitialUploadPlan({
+          targets: uploadTargets.filter(target => !rejectedUploadTargets.has(target.url)),
+          capabilities,
+          settings,
+          file: {type: file.type, size: file.size},
+          encrypted: Boolean(options.encrypt),
+          publicContext: options.publicContext ?? true,
+        })
+      pendingPlan = undefined
 
       if (nextPlan.status === "blocked") {
         setStage("failed")
-
-        if (lastPolicyRejection && !sawNonPolicyFailure) {
-          return {
-            error: `No Blossom upload target accepted this file type. Last rejection: ${lastPolicyRejection}`,
-          }
-        }
 
         if (lastFailure) {
           return {error: `No Blossom upload target succeeded. Last error: ${lastFailure}`}
@@ -1834,14 +1859,19 @@ export const uploadFile = async (
       plan = nextPlan
       setStage(plan.method === "media" ? "optimizing" : "uploading")
 
-      uploadServer = plan.optimizer?.url || plan.canonical.url
+      uploadServer = plan.canonical.url
       let attempt: Awaited<ReturnType<typeof uploadFileToPlannedBlossomServer>>
 
       try {
         attempt = await uploadFileToPlannedBlossomServer({file, hash, plan})
       } catch (error) {
+        if (plan.method === "media" && (await fallBackFromMedia())) continue
+
         lastFailure = getErrorMessage(error)
-        sawNonPolicyFailure = true
+        if (!isRetryableUploadError(error)) {
+          setStage("failed")
+          return {error: lastFailure}
+        }
         rejectedUploadTargets.add(uploadServer)
         continue
       }
@@ -1853,62 +1883,22 @@ export const uploadFile = async (
       if (attempt.res.ok) break
 
       const message = getUploadFailureMessage(attempt.text, attempt.res.status)
-
-      if (isFileTypePolicyRejection(attempt.res, attempt.text)) {
-        lastPolicyRejection = message
-      } else {
-        sawNonPolicyFailure = true
+      if (plan.method === "media" && (await fallBackFromMedia())) {
+        continue
       }
+
+      if (!isRetryableUploadResponse(attempt.res)) {
+        setStage("failed")
+        return {error: message}
+      }
+
       lastFailure = message
       rejectedUploadTargets.add(uploadServer)
     }
 
-    if (plan.mirrorOptimizedToCanonical) {
-      setStage("saving-canonical")
-
-      const optimizedHash = uploadTask.sha256
-      const optimizedType = getTaskMimeType(uploadTask) || contentType || file.type
-      const optimizedUrl = uploadTask.url
-
-      if (!optimizedHash || !optimizedUrl) {
-        setStage("failed")
-
-        return {error: "Optimized Blossom upload did not include a usable URL and hash."}
-      }
-
-      const {
-        res: mirrorRes,
-        text: mirrorText,
-        task: mirrorTask,
-      } = await mirrorBlossomUrlToBlossomServer({
-        hash: optimizedHash,
-        size: getTaskSize(uploadTask),
-        server: plan.canonical.url,
-        url: optimizedUrl,
-      })
-
-      if (!mirrorRes.ok) {
-        setStage("failed")
-
-        return {
-          error:
-            mirrorText ||
-            `Failed to save optimized file to canonical server (HTTP ${mirrorRes.status})`,
-        }
-      }
-
-      uploadTask = {
-        ...uploadTask,
-        ...mirrorTask,
-        url: mirrorTask.url,
-        sha256: mirrorTask.sha256,
-        type: getTaskMimeType(mirrorTask) || optimizedType,
-      }
-    }
-
     const resultHash = uploadTask.sha256
     const resultType = getTaskMimeType(uploadTask) || contentType || file.type || type
-    const resultSize = getTaskSize(uploadTask) || file.size
+    const resultSize = getTaskSize(uploadTask) ?? file.size
     const {url, ...task} = uploadTask
 
     const canonical: BlossomBlobDescriptor = {

@@ -716,10 +716,25 @@ describe("commands", () => {
     ["empty type", (descriptor: Record<string, unknown>) => ({...descriptor, type: ""})],
     ["invalid type", (descriptor: Record<string, unknown>) => ({...descriptor, type: "image"})],
     [
+      "invalid MIME token",
+      (descriptor: Record<string, unknown>) => ({...descriptor, type: "image/(png)"}),
+    ],
+    [
       "unsafe uploaded",
       (descriptor: Record<string, unknown>) => ({...descriptor, uploaded: 2 ** 53}),
     ],
     ["negative uploaded", (descriptor: Record<string, unknown>) => ({...descriptor, uploaded: -1})],
+    [
+      "millisecond uploaded timestamp",
+      (descriptor: Record<string, unknown>) => ({...descriptor, uploaded: Date.now()}),
+    ],
+    [
+      "implausible future timestamp",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        uploaded: Math.floor(Date.now() / 1000) + 301,
+      }),
+    ],
     [
       "uppercase hash",
       (descriptor: Record<string, unknown>) => ({
@@ -749,6 +764,35 @@ describe("commands", () => {
         url: "https://primary.example.com/blob.webp",
       }),
     ],
+    [
+      "prefixed path",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: `https://primary.example.com/blobs/${descriptor.sha256}.webp`,
+      }),
+    ],
+    [
+      "encoded path separator",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: `https://primary.example.com/${descriptor.sha256}.%2Fwebp`,
+      }),
+    ],
+    [
+      "credentials",
+      (descriptor: Record<string, unknown>) => ({
+        ...descriptor,
+        url: `https://user:secret@primary.example.com/${descriptor.sha256}.webp`,
+      }),
+    ],
+    [
+      "query string",
+      (descriptor: Record<string, unknown>) => ({...descriptor, url: `${descriptor.url}?token=x`}),
+    ],
+    [
+      "fragment",
+      (descriptor: Record<string, unknown>) => ({...descriptor, url: `${descriptor.url}#blob`}),
+    ],
   ])("uploadFile rejects BUD-02 descriptors with a %s", async (_name, mutate) => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const server = normalizeBlossomUrl("https://primary.example.com")
@@ -776,7 +820,7 @@ describe("commands", () => {
     expect(utilMocks.uploadBlob).toHaveBeenCalledOnce()
   })
 
-  it.each(["malformed", "network", "http-500"])(
+  it.each(["network", "http-500"])(
     "uploadFile falls back by priority after a %s failure",
     async failure => {
       const {uploadFile, normalizeBlossomUrl} = await import("./commands")
@@ -786,17 +830,7 @@ describe("commands", () => {
       utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) => {
         if (server === primary) {
           if (failure === "network") throw new TypeError("Failed to fetch")
-          if (failure === "http-500") return new Response("server exploded", {status: 500})
-
-          return new Response(
-            JSON.stringify({
-              uploaded: 1,
-              url: `${primary}/blob.webp`,
-              sha256: new Headers(options.headers).get("X-SHA-256"),
-              size: 5,
-              type: "image/webp",
-            }),
-          )
+          return new Response("server exploded", {status: 500})
         }
 
         return makeUploadDescriptorResponse(server, options)
@@ -811,6 +845,111 @@ describe("commands", () => {
       expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary, backup])
     },
   )
+
+  it.each([401, 402, 403, 415, 429])(
+    "uploadFile does not fail over after a non-retryable HTTP %s response",
+    async status => {
+      const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+      const primary = normalizeBlossomUrl("https://primary.example.com")
+      const backup = normalizeBlossomUrl("https://backup.example.com")
+      utilMocks.uploadBlob.mockImplementation(async server => {
+        if (server === primary) return new Response("policy rejection", {status})
+        throw new Error("backup must not receive bytes")
+      })
+
+      const {error, result} = await uploadFile(makeUploadTestFile(), {
+        blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(backup, 2)],
+      })
+
+      expect(result).toBeUndefined()
+      expect(error).toBe("policy rejection")
+      expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary])
+    },
+  )
+
+  it("uploadFile does not fail over after an invalid descriptor", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const backup = normalizeBlossomUrl("https://backup.example.com")
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) =>
+      server === primary
+        ? makeUploadDescriptorResponse(server, options, {url: `${server}/blob.webp`})
+        : makeUploadDescriptorResponse(server, options),
+    )
+
+    const {error} = await uploadFile(makeUploadTestFile(), {
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(backup, 2)],
+    })
+
+    expect(error).toContain("root hash endpoint")
+    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary])
+  })
+
+  it("uploadFile does not cross trust groups after an availability failure", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const community = normalizeBlossomUrl("https://community.example.com")
+    const personal = normalizeBlossomUrl("https://personal.example.com")
+    const communityTarget = {
+      ...makeBlossomTarget(community, 1),
+      source: "current-community" as const,
+      group: "current-community" as const,
+    }
+    const personalTarget = {
+      ...makeBlossomTarget(personal, 2),
+      source: "personal" as const,
+      group: "personal" as const,
+    }
+    utilMocks.uploadBlob.mockImplementation(async server => {
+      if (server === community) return new Response("unavailable", {status: 503})
+      throw new Error("personal server must not receive bytes")
+    })
+
+    const {error} = await uploadFile(makeUploadTestFile(), {
+      blossomTargets: [communityTarget, personalTarget],
+    })
+
+    expect(error).toContain("unavailable")
+    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([community])
+  })
+
+  it("uploadFile does not skip directly to another trust group from cached capabilities", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const community = normalizeBlossomUrl("https://community.example.com")
+    const personal = normalizeBlossomUrl("https://personal.example.com")
+    const communityTarget = {
+      ...makeBlossomTarget(community, 1),
+      source: "current-community" as const,
+      group: "current-community" as const,
+    }
+    const personalTarget = {
+      ...makeBlossomTarget(personal, 2),
+      source: "personal" as const,
+      group: "personal" as const,
+    }
+
+    const {error} = await uploadFile(makeUploadTestFile(), {
+      blossomTargets: [communityTarget, personalTarget],
+      blossomCapabilities: {
+        [community]: {
+          url: community,
+          checkedAt: 1,
+          upload: "unsupported",
+          media: "unsupported",
+          mirror: "unsupported",
+        },
+        [personal]: {
+          url: personal,
+          checkedAt: 1,
+          upload: "supported",
+          media: "unsupported",
+          mirror: "unsupported",
+        },
+      },
+    })
+
+    expect(error).toBe("No available Blossom upload target.")
+    expect(utilMocks.uploadBlob).not.toHaveBeenCalled()
+  })
 
   it("uploadFile retries once with the Blossom server expected content type", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
@@ -853,7 +992,7 @@ describe("commands", () => {
     })
   })
 
-  it("uploadFile tries the next target after a file-type policy rejection", async () => {
+  it("uploadFile stops after a file-type policy rejection", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const primary = normalizeBlossomUrl("https://primary.example.com")
     const backup = normalizeBlossomUrl("https://backup.example.com")
@@ -892,16 +1031,11 @@ describe("commands", () => {
       blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(backup, 2)],
     })
 
-    expect(error).toBeUndefined()
-    expect(result?.type).toBe("text/markdown")
-    expect(result?.url).toBe(`${backup}/${result?.sha256}.markdown`)
-    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(3)
-    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary, primary, backup])
-    expect(utilMocks.uploadBlob.mock.calls[2][2].headers["Content-Type"]).toBe("text/markdown")
-    expect(get(blossomDashboardState).uploads[0].canonical.url).toBe(
-      `${backup}/${result?.sha256}.markdown`,
-    )
-    expect(get(blossomDashboardState).uploads[0].mirrorJobs).toHaveLength(0)
+    expect(result).toBeUndefined()
+    expect(error).toBe("File type not allowed, unsupported.")
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([primary, primary])
+    expect(get(blossomDashboardState).uploads).toHaveLength(0)
   })
 
   it("uploadFile returns a clear error when every target rejects the file type", async () => {
@@ -926,10 +1060,8 @@ describe("commands", () => {
     })
 
     expect(result).toBeUndefined()
-    expect(error).toBe(
-      "No Blossom upload target accepted this file type. Last rejection: File type not allowed, unsupported.",
-    )
-    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(error).toBe("File type not allowed, unsupported.")
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(get(blossomDashboardState).uploads).toHaveLength(0)
   })
 
@@ -1046,6 +1178,76 @@ describe("commands", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).toBe(`${server.replace(/\/+$/, "")}/media`)
     expect(fetchMock.mock.calls[0][1]?.method).toBe("PUT")
+  })
+
+  it("uploadFile falls back from canonical media to canonical upload", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://media.example.com")
+    const file = makeUploadTestFile()
+    blossomDashboardState.set({
+      ...defaultBlossomDashboardState,
+      capabilities: {
+        [server]: {
+          url: server,
+          checkedAt: 1,
+          upload: "supported",
+          media: "supported",
+          mirror: "unsupported",
+        },
+      },
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("media disabled", {status: 403})),
+    )
+    utilMocks.uploadBlob.mockImplementation(async (target: string, _blob: Blob, options: any) =>
+      makeUploadDescriptorResponse(target, options),
+    )
+
+    const {error, result} = await uploadFile(file, {url: server})
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${server}/${result?.sha256}.webp`)
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([server])
+  })
+
+  it("uploadFile preserves a zero-size media descriptor", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://media.example.com")
+    const hash = "b".repeat(64)
+    blossomDashboardState.set({
+      ...defaultBlossomDashboardState,
+      capabilities: {
+        [server]: {
+          url: server,
+          checkedAt: 1,
+          upload: "supported",
+          media: "supported",
+          mirror: "unsupported",
+        },
+      },
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              uploaded: 1,
+              url: `${server}/${hash}.webp`,
+              sha256: hash,
+              size: 0,
+              type: "image/webp",
+            }),
+          ),
+      ),
+    )
+
+    const {result} = await uploadFile(makeUploadTestFile(), {url: server})
+
+    expect(result?.size).toBe(0)
+    expect(get(blossomDashboardState).uploads[0].canonical.size).toBe(0)
   })
 
   it("uploadFile rejects encrypted uploads in public contexts", async () => {
