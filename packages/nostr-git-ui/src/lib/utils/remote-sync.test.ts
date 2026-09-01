@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   assertCompleteRemoteRefPush,
+  inspectRequestedRemoteRefs,
   isUnknownRemoteOutcome,
   publishRepoSyncAnnouncement,
   syncLocalRepoToTargets,
@@ -39,6 +40,32 @@ describe("remote ref outcome helpers", () => {
         refs: [{ type: "heads", name: "main", ref: "refs/heads/main", commit: "other" }],
       })
     ).rejects.toThrow("Remote ref postflight verification failed");
+  });
+
+  it("distinguishes confirmed, diverged, and unknown remote observations", async () => {
+    const refs = [{type: "heads" as const, name: "main", ref: "refs/heads/main", commit: "expected"}];
+
+    await expect(
+      inspectRequestedRemoteRefs({
+        workerApi: {listServerRefs: vi.fn().mockResolvedValue([{ref: "refs/heads/main", oid: "expected"}])},
+        remoteUrl: "https://git.example/repo.git",
+        refs,
+      })
+    ).resolves.toEqual({status: "confirmed", refs: ["refs/heads/main"]});
+    await expect(
+      inspectRequestedRemoteRefs({
+        workerApi: {listServerRefs: vi.fn().mockResolvedValue([{ref: "refs/heads/main", oid: "other"}])},
+        remoteUrl: "https://git.example/repo.git",
+        refs,
+      })
+    ).resolves.toEqual({status: "diverged", refs: ["refs/heads/main"]});
+    await expect(
+      inspectRequestedRemoteRefs({
+        workerApi: {listServerRefs: vi.fn().mockRejectedValue(new Error("network timeout"))},
+        remoteUrl: "https://git.example/repo.git",
+        refs,
+      })
+    ).resolves.toMatchObject({status: "unknown"});
   });
 
   it("classifies network ambiguity as unknown but not deterministic rejection", () => {

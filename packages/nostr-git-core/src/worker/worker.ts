@@ -219,7 +219,6 @@ import {
 } from "./progress.js"
 import {
   OperationRegistry,
-  raceWithOperationSignal,
   type CancelOperationOptions,
   type DeleteRepoOptions,
   type GetOperationStatusOptions,
@@ -649,6 +648,12 @@ function normalizeFullOid(value?: string): string | undefined {
     .trim()
     .toLowerCase()
   return /^[0-9a-f]{40}$/.test(normalized) ? normalized : undefined
+}
+
+function isEmptyReceivePackParseError(error: unknown): boolean {
+  const value = error as {message?: unknown}
+  const message = String(value?.message || "").toLowerCase()
+  return message.includes('expected "unpack ok"') && message.includes('received ""')
 }
 
 function naturalCommitToWorkerMeta(commit: GitNaturalCommit) {
@@ -1792,7 +1797,12 @@ const api = {
     return toPlain(result)
   },
 
-  async pushToRemote(opts: PushToRemoteOptions) {
+  async pushToRemote(opts: PushToRemoteOptions): Promise<any> {
+    if (!opts.skipRepoLock) {
+      return await withRepoOperationLock(opts.repoId, () =>
+        api.pushToRemote({...opts, skipRepoLock: true}),
+      )
+    }
     const {
       repoId,
       remoteUrl,
@@ -1804,9 +1814,22 @@ const api = {
       blossomMirror,
       repoRelays,
       operationId,
+      expectedSourceOid,
     } = opts
     const {key, dir} = repoKeyAndDir(repoId)
     const targetBranch = branch || "main"
+    if (expectedSourceOid) {
+      const sourceOid = await git.resolveRef({dir, ref: `refs/heads/${targetBranch}`})
+      if (sourceOid !== expectedSourceOid) {
+        return toPlain({
+          success: false,
+          repoId,
+          remoteUrl,
+          error: `Push source changed: expected ${expectedSourceOid}, found ${sourceOid}`,
+          reason: "source_changed",
+        })
+      }
+    }
 
     const normalizePushRef = (value: string): string => {
       const trimmed = String(value || "").trim()
@@ -1919,11 +1942,6 @@ const api = {
             .join(" ")
             .toLowerCase()
           return message.includes("missing necessary objects")
-        }
-
-        const isEmptyReceivePackParseError = (error: any): boolean => {
-          const message = String(error?.message || "").toLowerCase()
-          return message.includes('expected "unpack ok"') && message.includes('received ""')
         }
 
         const isHeadlessRemoteFetchError = (error: unknown): boolean => {
@@ -2199,7 +2217,6 @@ const api = {
           authMode: "grasp-state",
         })
 
-        const retryDelaysMs = [1200, 3500, 7000]
         const pushedRefs: string[] = []
         const failedRefs: Array<{ref: string; error: string}> = []
         const warnings: string[] = []
@@ -2219,37 +2236,12 @@ const api = {
             let recovered = false
 
             if (isEmptyReceivePackParseError(pushErr)) {
-              for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
-                const delay = retryDelaysMs[attempt]
-                console.warn(
-                  `[GRASP] Empty receive-pack response for ${targetRef}; retrying (${attempt + 1}/${retryDelaysMs.length}) after ${delay}ms${buildGraspHttpTraceSuffix()}`,
+              if (await isRemoteAlreadyAtLocalTip(targetRef)) {
+                recovered = true
+                warnings.push(
+                  `${targetRef}: receive-pack response was ambiguous but the remote tip matches`,
                 )
-
-                try {
-                  await raceWithOperationSignal(
-                    new Promise(resolve => setTimeout(resolve, delay)),
-                    operation?.signal,
-                  )
-                  await pushOnce(targetRef)
-                  recovered = true
-                  break
-                } catch (retryErr: any) {
-                  console.warn(
-                    `[GRASP] Empty response retry (${attempt + 1}) for ${targetRef} failed${buildGraspHttpTraceSuffix()}:`,
-                    retryErr,
-                  )
-
-                  if (await isRemoteAlreadyAtLocalTip(targetRef)) {
-                    recovered = true
-                    warnings.push(
-                      `${targetRef}: receive-pack parse error but remote tip matches after retry`,
-                    )
-                    break
-                  }
-                }
               }
-
-              // Do not treat 200 receive-pack-result with empty parse as success on its own.
             }
 
             if (!recovered && isMissingObjectsPushError(pushErr)) {
@@ -2575,10 +2567,7 @@ const api = {
         remote: remoteUrl,
         operation: "push",
       })
-
-      return finishTrackedOperation(
-        operation,
-        toPlain({
+      const failure = toPlain({
           success: false,
           repoId,
           remoteUrl,
@@ -2592,15 +2581,20 @@ const api = {
               ? ["Source contains .github/workflows files; GitHub tokens need Workflow permission."]
               : [],
           },
-        }),
-      )
+        })
+      if (operation && isEmptyReceivePackParseError(error)) {
+        operation.finishUnknown(error, [failure])
+        return failure
+      }
+      return finishTrackedOperation(operation, failure)
     }
   },
 
   // Safe push wrapper (preflight checks + optional confirmation flow)
   async safePushToRemote(opts: SafePushOptions) {
-    return toPlain(
-      await safePushToRemoteUtil(git, cacheManager, opts, {
+    return await withRepoOperationLock(opts.repoId, async () =>
+      toPlain(
+        await safePushToRemoteUtil(git, cacheManager, opts, {
         rootDir,
         parseRepoId,
         isRepoCloned: async (dir: string) => isRepoClonedFs(git, dir),
@@ -2637,6 +2631,7 @@ const api = {
           token?: string
           provider?: any
           repoRelays?: string[]
+          expectedSourceOid?: string
         }) => {
           try {
             return await api.pushToRemote({
@@ -2645,13 +2640,16 @@ const api = {
               branch: args.branch,
               token: args.token,
               provider: args.provider,
+              expectedSourceOid: args.expectedSourceOid,
+              skipRepoLock: true,
               ...(args.repoRelays ? {repoRelays: args.repoRelays} : {}),
             })
           } catch (e: any) {
             return {success: false, error: e?.message || String(e)} as any
           }
         },
-      }),
+        }),
+      ),
     )
   },
 

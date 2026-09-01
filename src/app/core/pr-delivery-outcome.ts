@@ -8,6 +8,29 @@ export type PrDeliveryRemoteStatus =
 
 export type PrDeliveryOutcome = "pending" | "complete" | "partial" | "failed" | "unknown"
 
+export type PrDeliveryIdentity = {
+  rootId: string
+  tipOid: string
+  targetBranch: string
+  targetOid: string
+  announcementId: string
+  primaryUrl: string
+  mergeOid: string
+  actor: string
+}
+
+export const buildPrDeliveryKey = (identity: PrDeliveryIdentity): string =>
+  [
+    identity.rootId,
+    identity.tipOid,
+    identity.targetBranch,
+    identity.targetOid,
+    identity.announcementId,
+    identity.primaryUrl,
+    identity.mergeOid,
+    identity.actor,
+  ].join("\u0000")
+
 export const reducePrDeliveryOutcome = (
   remotes: Array<{primary: boolean; selected: boolean; status: PrDeliveryRemoteStatus}>,
 ): PrDeliveryOutcome => {

@@ -120,10 +120,13 @@
     resolvePrTargetBranch,
   } from "@app/core/pr-merge-targets"
   import {
+    buildPrDeliveryKey,
     orderPrimaryFirst,
     reducePrDeliveryOutcome,
+    type PrDeliveryIdentity,
     type PrDeliveryRemoteStatus,
   } from "@app/core/pr-delivery-outcome"
+  import {completePrDelivery, deliverPrRemote} from "@app/core/pr-merge-delivery"
 
   type PrChange = {
     path: string
@@ -1237,6 +1240,16 @@
       }
     }
 
+    if (
+      !primaryTargetCloneUrl ||
+      String(syncResult.usedUrl || "").trim() !== primaryTargetCloneUrl.trim()
+    ) {
+      return {
+        ok: false,
+        error: `The authoritative primary ${primaryTargetCloneUrl || "remote"} did not provide target freshness evidence`,
+      }
+    }
+
     if (syncResult.branch && syncResult.branch !== prTargetBranch) {
       return {
         ok: false,
@@ -1278,7 +1291,7 @@
       return {ok: false, error: "Repository worker is not ready"}
     }
 
-    const targetCloneUrls = prTargetCloneUrls
+    const targetCloneUrls = primaryTargetCloneUrl ? [primaryTargetCloneUrl] : []
     if (targetCloneUrls.length === 0) {
       return {ok: false, error: "Repository has no clone URLs to sync target branch"}
     }
@@ -1397,7 +1410,12 @@
       }
 
       prAnalysisProgress = "Fetching target and PR source..."
-      const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch)
+      const result = await repoClass.getPRMergeAnalysis(
+        cloneUrls,
+        tipOid,
+        prTargetBranch,
+        primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
+      )
       if (isCurrentAnalysis()) {
         if (!result) {
           setPrMergeAnalysis(
@@ -1443,6 +1461,7 @@
       prAnalysisGeneration++
       isAnalyzingPRMerge = false
       clearPrMergeAnalysis()
+      clearPrDelivery()
       prChanges = null
       prChangesError = null
       prChangesErrorPhase = null
@@ -2699,6 +2718,9 @@
 
   const handlePrStatusPublish = async (statusEvent: StatusEvent) => {
     if (!prEvent || !$pubkey) return
+    if (statusEvent.kind === GIT_STATUS_APPLIED && !canManagePr) {
+      throw new Error("Only repository maintainers can publish merged PR status")
+    }
     if ($pubkey !== prEvent.pubkey && !canManagePr) {
       throw new Error("Only the PR author or maintainers can change PR status")
     }
@@ -2746,6 +2768,45 @@
   let markAsAppliedSuccess = $state(false)
   let isPublishingAppliedStatus = $state(false)
   let appliedStatusPending = $state(false)
+  let mergePrDeliveryIdentity = $state<PrDeliveryIdentity | null>(null)
+  let mergePrDeliveryCommits = $state<string[]>([])
+  let mergePrDeliveryGeneration = $state(0)
+
+  const getCurrentDeliveryKey = (mergeOid: string) => {
+    const targetOid = prCurrentMergeAnalysisResult?.targetCommit
+    if (!prEvent || !prEffectiveTipOid || !targetOid || !$pubkey) return null
+    return buildPrDeliveryKey({
+      rootId: prEvent.id,
+      tipOid: prEffectiveTipOid,
+      targetBranch: prTargetBranch,
+      targetOid,
+      announcementId: String((repoClass as any)?.repoEvent?.id || ""),
+      primaryUrl: primaryTargetCloneUrl,
+      mergeOid,
+      actor: $pubkey,
+    })
+  }
+
+  const isCurrentDelivery = () =>
+    Boolean(
+      mergePrDeliveryIdentity &&
+      getCurrentDeliveryKey(mergePrDeliveryIdentity.mergeOid) ===
+        buildPrDeliveryKey(mergePrDeliveryIdentity),
+    )
+
+  const clearPrDelivery = () => {
+    mergePrDeliveryGeneration++
+    mergePrDeliveryIdentity = null
+    mergePrDeliveryCommits = []
+    mergePrResult = null
+    mergePrMergedLocal = false
+    mergePrSuccess = false
+    appliedStatusPending = false
+    prPushRemotes = []
+    showPrPushDialog = false
+    isLoadingPrPushRemotes = false
+    isPushingPrRemotes = false
+  }
 
   const prHasCleanMergeAnalysis = $derived.by(() =>
     Boolean(
@@ -2928,7 +2989,9 @@
   }
 
   const openPrPushDialog = async () => {
-    if (!repoClass.workerManager || !repoClass.key) return
+    if (!repoClass.workerManager || !repoClass.key || !mergePrDeliveryIdentity) return
+    const deliveryKey = buildPrDeliveryKey(mergePrDeliveryIdentity)
+    const deliveryGeneration = mergePrDeliveryGeneration
     isLoadingPrPushRemotes = true
     prPushSyncNotice = null
     prPushSyncSource = null
@@ -2940,6 +3003,14 @@
         declaredCloneUrls: prDeclaredTargetCloneUrls,
         configuredRemotes: Array.isArray(remotes) ? remotes : [],
       })
+      if (
+        deliveryGeneration !== mergePrDeliveryGeneration ||
+        !isCurrentDelivery() ||
+        !mergePrDeliveryIdentity ||
+        buildPrDeliveryKey(mergePrDeliveryIdentity) !== deliveryKey
+      ) {
+        return
+      }
 
       const previousByUrl = new Map(prPushRemotes.map(remote => [remote.url, remote]))
       prPushRemotes = plan.remotes.map(remote => {
@@ -2955,23 +3026,10 @@
           error: previous?.error,
         }
       })
-
-      const syncResult = await repoClass.workerManager.syncWithRemote({
-        repoId: repoClass.key,
-        cloneUrls: plan.remotes.map(remote => remote.url),
-        branch: prTargetBranch,
-        preferredUrl: primaryTargetCloneUrl || undefined,
-      })
-      prPushSyncSource = syncResult?.usedUrl || primaryTargetCloneUrl || null
-      if (!syncResult?.success) {
-        prPushSyncNotice = `Remote sync failed: ${syncResult?.error || "unknown"}. You can still try pushing.`
-      } else if (syncResult?.warning || syncResult?.synced === false) {
-        prPushSyncNotice =
-          syncResult.warning || "Remote sync used local fallback data. Push may still be attempted."
-      }
     } catch (error) {
       prPushSyncNotice = `Could not refresh remotes: ${error instanceof Error ? error.message : String(error)}`
     } finally {
+      if (deliveryGeneration !== mergePrDeliveryGeneration || !isCurrentDelivery()) return
       isLoadingPrPushRemotes = false
       showPrPushDialog = true
     }
@@ -2999,12 +3057,7 @@
     isMergingPr = false
     mergePrStep = ""
     mergePrError = null
-    mergePrSuccess = false
-    mergePrMergedLocal = false
-    mergePrResult = null
-    appliedStatusPending = false
-    showPrPushDialog = false
-    prPushRemotes = []
+    clearPrDelivery()
     prPushSyncNotice = null
     prPushSyncSource = null
     // Only set a merge commit message if it's not a fast-forward merge
@@ -3015,7 +3068,25 @@
   }
 
   const pushMergedCommitToSelectedRemotes = async () => {
-    if (!mergePrResult?.mergeCommitOid || !repoClass.key || !repoClass.workerManager) return
+    if (
+      !mergePrResult?.mergeCommitOid ||
+      !mergePrDeliveryIdentity ||
+      !isCurrentDelivery() ||
+      !repoClass.key ||
+      !repoClass.workerManager
+    ) {
+      mergePrError =
+        "This deferred merge no longer matches the current PR. Analyze and merge again."
+      return
+    }
+    const deliveryIdentity = {...mergePrDeliveryIdentity}
+    const deliveryKey = buildPrDeliveryKey(deliveryIdentity)
+    const deliveryGeneration = mergePrDeliveryGeneration
+    const isActiveDelivery = () =>
+      deliveryGeneration === mergePrDeliveryGeneration &&
+      isCurrentDelivery() &&
+      mergePrDeliveryIdentity !== null &&
+      buildPrDeliveryKey(mergePrDeliveryIdentity) === deliveryKey
     const selected = orderPrimaryFirst(prPushRemotes.filter(remote => remote.selected))
     if (selected.length === 0) {
       toast.push({message: "Select at least one remote", timeout: 3000, variant: "destructive"})
@@ -3024,112 +3095,86 @@
 
     isPushingPrRemotes = true
     mergePrError = null
-    const mergeCommitOid = mergePrResult.mergeCommitOid
+    const mergeCommitOid = deliveryIdentity.mergeOid
 
     for (const remote of selected) {
+      if (!isActiveDelivery()) break
       if (remote.status === "confirmed" || remote.status === "unknown") continue
       updatePushRemote(remote.url, {status: "pushing", summary: "Pushing...", error: undefined})
-      try {
-        let verifyGraspPush: (() => Promise<void>) | undefined
-        if (isGraspRemote(remote.url, remote.provider)) {
-          updatePushRemote(remote.url, {
-            status: "pushing",
-            summary: "Publishing state...",
-            error: undefined,
+      const verify = () =>
+        verifyRequestedRemoteRefs({
+          workerApi: repoClass.workerManager,
+          remoteUrl: remote.url,
+          refs: [
+            {
+              type: "heads",
+              name: deliveryIdentity.targetBranch,
+              ref: `refs/heads/${deliveryIdentity.targetBranch}`,
+              commit: mergeCommitOid,
+            },
+          ],
+        }).then(() => undefined)
+      const delivery = await deliverPrRemote({
+        prepare: isGraspRemote(remote.url, remote.provider)
+          ? async () => {
+              updatePushRemote(remote.url, {
+                status: "pushing",
+                summary: "Publishing state...",
+                error: undefined,
+              })
+              const verifyMetadata = await publishMergeStateToRelay(
+                remote.url,
+                deliveryIdentity.targetBranch,
+                mergeCommitOid,
+              )
+              updatePushRemote(remote.url, {
+                status: "pushing",
+                summary: "Pushing...",
+                error: undefined,
+              })
+              return verifyMetadata
+            }
+          : undefined,
+        push: async () => {
+          const pushResult = await repoClass.pushToAllRemotes({
+            branch: deliveryIdentity.targetBranch,
+            expectedSourceOid: mergeCommitOid,
+            mode: "best-effort",
+            remoteUrls: [remote.url],
+            userPubkey: deliveryIdentity.actor,
           })
-          verifyGraspPush = await publishMergeStateToRelay(
-            remote.url,
-            prTargetBranch,
-            mergeCommitOid,
-          )
-          updatePushRemote(remote.url, {
-            status: "pushing",
-            summary: "Pushing...",
-            error: undefined,
-          })
-        }
+          const entry = pushResult.results[0]
+          return {success: Boolean(entry?.success), error: entry?.error}
+        },
+        verify,
+        isUnknown: isUnknownRemoteOutcome,
+      })
 
-        const pushResult = await repoClass.pushToAllRemotes({
-          branch: prTargetBranch,
-          mode: "best-effort",
-          remoteUrls: [remote.url],
-          userPubkey: $pubkey || undefined,
+      if (delivery.status === "confirmed") {
+        let metadataWarning: string | undefined
+        try {
+          await delivery.verifyMetadata?.()
+        } catch (verificationError) {
+          metadataWarning =
+            verificationError instanceof Error
+              ? verificationError.message
+              : String(verificationError || "Metadata verification failed")
+        }
+        updatePushRemote(remote.url, {
+          status: "confirmed",
+          summary: metadataWarning ? "Confirmed (metadata warning)" : "Confirmed",
+          error: metadataWarning,
         })
-        const entry = pushResult.results[0]
-        if (entry?.success) {
-          await verifyRequestedRemoteRefs({
-            workerApi: repoClass.workerManager,
-            remoteUrl: remote.url,
-            refs: [
-              {
-                type: "heads",
-                name: prTargetBranch,
-                ref: `refs/heads/${prTargetBranch}`,
-                commit: mergeCommitOid,
-              },
-            ],
-          })
-          let metadataWarning: string | undefined
-          try {
-            await verifyGraspPush?.()
-          } catch (verificationError) {
-            metadataWarning =
-              verificationError instanceof Error
-                ? verificationError.message
-                : String(verificationError || "Metadata verification failed")
-          }
-          updatePushRemote(remote.url, {
-            status: "confirmed",
-            summary: metadataWarning ? "Confirmed (metadata warning)" : "Confirmed",
-            error: metadataWarning,
-          })
-        } else {
-          if (isUnknownRemoteOutcome(entry?.error)) throw entry?.error
-          const classified = classifyPushFailure(entry?.error)
-          updatePushRemote(remote.url, {
-            status: classified.status,
-            summary: classified.summary,
-            error: classified.detail,
-          })
-        }
-      } catch (error: any) {
-        const detailResult = (error as any)?.details?.results?.[0]
-        const pushError = detailResult?.error || error
-        if (isUnknownRemoteOutcome(pushError)) {
-          try {
-            await verifyRequestedRemoteRefs({
-              workerApi: repoClass.workerManager,
-              remoteUrl: remote.url,
-              refs: [
-                {
-                  type: "heads",
-                  name: prTargetBranch,
-                  ref: `refs/heads/${prTargetBranch}`,
-                  commit: mergeCommitOid,
-                },
-              ],
-            })
-            updatePushRemote(remote.url, {
-              status: "confirmed",
-              summary: "Confirmed after recheck",
-              error: undefined,
-            })
-            continue
-          } catch (verificationError) {
-            const stillUnknown = isUnknownRemoteOutcome(verificationError)
-            updatePushRemote(remote.url, {
-              status: stillUnknown ? "unknown" : "failed",
-              summary: stillUnknown ? "Outcome unknown" : "Not confirmed",
-              error: stillUnknown
-                ? "The push may have reached this remote. Recheck the exact branch ref before retrying."
-                : verificationError instanceof Error
-                  ? verificationError.message
-                  : String(verificationError),
-            })
-            continue
-          }
-        }
-        const classified = classifyPushFailure(pushError)
+      } else if (delivery.status === "unknown") {
+        updatePushRemote(remote.url, {
+          status: "unknown",
+          summary: "Outcome unknown",
+          error:
+            "The push may have reached this remote. Recheck the exact branch ref before retrying.",
+        })
+      } else {
+        const detailResult = (delivery.error as any)?.details?.results?.[0]
+        const classified = classifyPushFailure(detailResult?.error || delivery.error)
         updatePushRemote(remote.url, {
           status: classified.status,
           summary: classified.summary,
@@ -3140,6 +3185,7 @@
 
     isPushingPrRemotes = false
 
+    if (!isActiveDelivery()) return
     const outcome = reducePrDeliveryOutcome(prPushRemotes)
     const pushed = prPushRemotes.filter(remote => remote.status === "confirmed").length
     if (outcome === "complete") {
@@ -3167,8 +3213,16 @@
 
   const recheckPrimaryDelivery = async () => {
     const primary = prPushRemotes.find(remote => remote.primary)
-    const mergeCommitOid = mergePrResult?.mergeCommitOid
-    if (!primary || !mergeCommitOid || !repoClass.workerManager) return
+    const identity = mergePrDeliveryIdentity
+    const mergeCommitOid = identity?.mergeOid
+    if (
+      !primary ||
+      !identity ||
+      !mergeCommitOid ||
+      !isCurrentDelivery() ||
+      !repoClass.workerManager
+    )
+      return
     isPushingPrRemotes = true
     try {
       await verifyRequestedRemoteRefs({
@@ -3177,8 +3231,8 @@
         refs: [
           {
             type: "heads",
-            name: prTargetBranch,
-            ref: `refs/heads/${prTargetBranch}`,
+            name: identity.targetBranch,
+            ref: `refs/heads/${identity.targetBranch}`,
             commit: mergeCommitOid,
           },
         ],
@@ -3191,10 +3245,9 @@
       mergePrError = null
       await publishAppliedStatusAfterDelivery()
     } catch (error) {
-      const stillUnknown = isUnknownRemoteOutcome(error)
       updatePushRemote(primary.url, {
-        status: stillUnknown ? "unknown" : "failed",
-        summary: stillUnknown ? "Still unknown" : "Not confirmed",
+        status: "unknown",
+        summary: "Still unknown",
         error: error instanceof Error ? error.message : String(error),
       })
     } finally {
@@ -3261,12 +3314,23 @@
 
     mergePrStep = "Merging PR..."
     const tipOid = prEffectiveTipOid
+    const deliveryGeneration = ++mergePrDeliveryGeneration
+    const deliveryBase = {
+      rootId: prEvent.id,
+      tipOid,
+      targetBranch: prTargetBranch,
+      targetOid: analyzedTargetOid,
+      announcementId: String((repoClass as any)?.repoEvent?.id || ""),
+      primaryUrl: primaryTargetCloneUrl,
+      actor: $pubkey,
+    }
+    const deliveryCommits = prCommitOids.length > 0 ? [...prCommitOids] : [tipOid]
 
     try {
       const result = await repoClass.workerManager.mergePRAndPush({
         repoId: repoClass.key,
         cloneUrls: prCloneUrls,
-        targetCloneUrls: prTargetCloneUrls,
+        targetCloneUrls: [primaryTargetCloneUrl],
         tipCommitOid: tipOid,
         targetBranch: prTargetBranch,
         expectedTargetCommitOid: analyzedTargetOid,
@@ -3277,6 +3341,20 @@
       })
 
       if (result.success) {
+        const mergeOid = result.mergeCommitOid || ""
+        const identity: PrDeliveryIdentity = {...deliveryBase, mergeOid}
+        if (
+          !mergeOid ||
+          deliveryGeneration !== mergePrDeliveryGeneration ||
+          getCurrentDeliveryKey(mergeOid) !== buildPrDeliveryKey(identity)
+        ) {
+          mergePrError =
+            "The PR identity changed while merging. The local result will not be delivered; analyze and merge again."
+          mergePrStep = "Merge identity changed"
+          return
+        }
+        mergePrDeliveryIdentity = identity
+        mergePrDeliveryCommits = deliveryCommits
         mergePrMergedLocal = true
         mergePrResult = result
         mergePrStep = "Merge completed locally. Choose remotes to push."
@@ -3300,11 +3378,10 @@
     }
   }
 
-  const emitPRAppliedStatus = async (mergeCommitOid?: string) => {
-    if (!prEvent || !$pubkey) return
-    const commitIds = prCommitOids
+  const emitPRAppliedStatus = async (identity: PrDeliveryIdentity) => {
+    if (!prEvent || !$pubkey || !isCurrentDelivery()) return
     const appliedCommits =
-      commitIds.length > 0 ? commitIds : prEffectiveTipOid ? [prEffectiveTipOid] : undefined
+      mergePrDeliveryCommits.length > 0 ? mergePrDeliveryCommits : [identity.tipOid]
     const recipients = Array.from(
       new Set([...repoMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
     )
@@ -3316,33 +3393,42 @@
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_APPLIED,
       content: mergePrCommitMessage || `PR merged: ${pr?.subject || "Untitled"}`,
-      rootId: prEvent.id,
+      rootId: identity.rootId,
       recipients,
       repoAddr: repoAddress,
       relays: strictRepoRelays,
       appliedCommits,
-      mergedCommit: mergeCommitOid,
+      mergedCommit: identity.mergeOid,
     })
     await handlePrStatusPublish(statusEvent as any)
   }
 
   const publishAppliedStatusAfterDelivery = async () => {
-    if (reducePrDeliveryOutcome(prPushRemotes) !== "complete") return
+    const identity = mergePrDeliveryIdentity
+    if (!identity || !isCurrentDelivery() || reducePrDeliveryOutcome(prPushRemotes) !== "complete")
+      return
     isPublishingAppliedStatus = true
-    try {
-      await emitPRAppliedStatus(mergePrResult?.mergeCommitOid)
+    const completion = await completePrDelivery({
+      outcome: reducePrDeliveryOutcome(prPushRemotes),
+      identity,
+      isCurrent: candidate =>
+        isCurrentDelivery() &&
+        mergePrDeliveryIdentity !== null &&
+        buildPrDeliveryKey(candidate) === buildPrDeliveryKey(mergePrDeliveryIdentity),
+      publishApplied: emitPRAppliedStatus,
+      reload: () => load({relays: (repoRelays || []) as string[], filters: [getPrStatusFilter()]}),
+    })
+    if (completion === "acked") {
       appliedStatusPending = false
       mergePrSuccess = true
       mergePrError = null
       mergePrStep = "Primary confirmed and applied status acknowledged"
-      load({relays: (repoRelays || []) as string[], filters: [getPrStatusFilter()]})
-    } catch (error) {
+    } else if (completion === "pending") {
       appliedStatusPending = true
       mergePrSuccess = false
-      mergePrError = `Primary Git delivery is confirmed, but applied status was not acknowledged: ${error instanceof Error ? error.message : String(error)}`
-    } finally {
-      isPublishingAppliedStatus = false
+      mergePrError = "Primary Git delivery is confirmed, but applied status was not acknowledged."
     }
+    isPublishingAppliedStatus = false
   }
 
   const cancelPrMerge = () => {
@@ -3372,7 +3458,19 @@
           },
         ],
       })
-      await emitPRAppliedStatus(expectedOid)
+      const identity: PrDeliveryIdentity = {
+        rootId: prEvent.id,
+        tipOid: prEffectiveTipOid || expectedOid,
+        targetBranch: prTargetBranch,
+        targetOid: expectedOid,
+        announcementId: String((repoClass as any)?.repoEvent?.id || ""),
+        primaryUrl: primaryTargetCloneUrl,
+        mergeOid: expectedOid,
+        actor: $pubkey,
+      }
+      mergePrDeliveryIdentity = identity
+      mergePrDeliveryCommits = prCommitOids.length > 0 ? [...prCommitOids] : [identity.tipOid]
+      await emitPRAppliedStatus(identity)
       markAsAppliedSuccess = true
       toast.push({message: "PR marked as merged", timeout: 5000})
     } catch (error) {

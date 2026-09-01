@@ -513,6 +513,7 @@ export class WorkerManager {
     token?: string;
     provider?: string;
     repoRelays?: string[];
+    expectedSourceOid?: string;
   }): Promise<any> {
     await this.initialize();
     return this.execute("pushToRemote", params);
@@ -683,6 +684,7 @@ export class WorkerManager {
     repoRelays?: string[];
     allowForce?: boolean;
     confirmDestructive?: boolean;
+    expectedSourceOid?: string;
     preflight?: {
       blockIfUncommitted?: boolean;
       requireUpToDate?: boolean;

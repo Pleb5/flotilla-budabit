@@ -53,6 +53,11 @@ export interface RemoteSyncRef {
   commit?: string;
 }
 
+export type RemoteRefObservation =
+  | {status: "confirmed"; refs: string[]}
+  | {status: "diverged"; refs: string[]}
+  | {status: "unknown"; error: unknown}
+
 export type RemoteSyncTargetStage =
   | "planned"
   | "creating"
@@ -806,19 +811,24 @@ async function resolveRequestedRefs(
   );
 }
 
-export async function verifyRequestedRemoteRefs(params: {
+export async function inspectRequestedRemoteRefs(params: {
   workerApi: any;
   remoteUrl: string;
   refs: RemoteSyncRef[];
-}): Promise<string[]> {
+}): Promise<RemoteRefObservation> {
   if (!params.workerApi?.listServerRefs) {
-    throw new Error("Remote ref postflight verification is unavailable");
+    return {status: "unknown", error: new Error("Remote ref postflight verification is unavailable")};
   }
 
-  const advertisedRefs = (await params.workerApi.listServerRefs({
-    url: params.remoteUrl,
-    symrefs: true,
-  })) as Array<{ ref?: string; oid?: string }>;
+  let advertisedRefs: Array<{ref?: string; oid?: string}>;
+  try {
+    advertisedRefs = (await params.workerApi.listServerRefs({
+      url: params.remoteUrl,
+      symrefs: true,
+    })) as Array<{ref?: string; oid?: string}>;
+  } catch (error) {
+    return {status: "unknown", error};
+  }
   const advertisedByRef = new Map(
     (advertisedRefs || []).map((ref) => [String(ref.ref || ""), String(ref.oid || "")])
   );
@@ -829,12 +839,21 @@ export async function verifyRequestedRemoteRefs(params: {
   });
 
   if (mismatches.length > 0) {
-    throw new Error(
-      `Remote ref postflight verification failed: ${mismatches.map((ref) => ref.ref).join(", ")}`
-    );
+    return {status: "diverged", refs: mismatches.map((ref) => ref.ref)};
   }
 
-  return params.refs.map((ref) => ref.ref);
+  return {status: "confirmed", refs: params.refs.map((ref) => ref.ref)};
+}
+
+export async function verifyRequestedRemoteRefs(params: {
+  workerApi: any;
+  remoteUrl: string;
+  refs: RemoteSyncRef[];
+}): Promise<string[]> {
+  const observation = await inspectRequestedRemoteRefs(params);
+  if (observation.status === "confirmed") return observation.refs;
+  if (observation.status === "unknown") throw observation.error;
+  throw new Error(`Remote ref postflight verification failed: ${observation.refs.join(", ")}`);
 }
 
 function updateLatestRepoMetadataCreatedAt(
@@ -861,7 +880,7 @@ export function isUnknownRemoteOutcome(error: unknown): boolean {
   ]
     .filter((part) => typeof part === "string")
     .join(" ");
-  return /abort|cancel|timed?\s*out|timeout|network|failed to fetch|connection.*(?:closed|reset)/i.test(
+  return /abort|cancel|timed?\s*out|timeout|network|failed to fetch|connection.*(?:closed|reset)|expected.*unpack ok.*received/i.test(
     message
   );
 }

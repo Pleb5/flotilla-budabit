@@ -19,6 +19,7 @@ export interface SafePushOptions {
   repoRelays?: string[]
   allowForce?: boolean
   confirmDestructive?: boolean
+  expectedSourceOid?: string
   preflight?: {
     blockIfUncommitted?: boolean
     requireUpToDate?: boolean
@@ -127,6 +128,7 @@ export async function safePushToRemoteUtil(
       token?: string
       provider?: GitVendor
       repoRelays?: string[]
+      expectedSourceOid?: string
     }) => Promise<{success?: boolean; blossomSummary?: BlossomPushSummary}>
   },
 ): Promise<{
@@ -147,6 +149,7 @@ export async function safePushToRemoteUtil(
     repoRelays,
     allowForce = false,
     confirmDestructive = false,
+    expectedSourceOid,
     preflight,
   } = options
   const {
@@ -177,6 +180,16 @@ export async function safePushToRemoteUtil(
       return {success: false, error: "Repository not cloned locally; clone before pushing."}
 
     const targetBranch = await resolveBranchName(dir, branch, {strict: Boolean(branch)})
+    if (expectedSourceOid) {
+      const sourceOid = await git.resolveRef({dir, ref: `refs/heads/${targetBranch}`})
+      if (sourceOid !== expectedSourceOid) {
+        return {
+          success: false,
+          reason: "source_changed",
+          error: `Push source changed: expected ${expectedSourceOid}, found ${sourceOid}`,
+        }
+      }
+    }
 
     if (pf.blockIfUncommitted) {
       const dirty = await hasUncommittedChanges(dir)
@@ -237,6 +250,7 @@ export async function safePushToRemoteUtil(
       branch: targetBranch,
       token,
       provider,
+      expectedSourceOid,
       ...(validatedGrasp
         ? {repoRelays: validatedGrasp.repoRelays}
         : repoRelays

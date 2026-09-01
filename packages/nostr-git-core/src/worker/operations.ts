@@ -162,6 +162,14 @@ export class OperationHandle implements OperationControl {
     })
   }
 
+  finishUnknown(error: unknown, receipts?: unknown[]): OperationStatus {
+    return this.registry.finish(this.operationId, "unknown", {
+      stage: "Outcome unknown",
+      error: operationError(error),
+      ...(receipts?.length ? {receipts} : {}),
+    })
+  }
+
   finishCancellation(error?: unknown, receipts?: unknown[]): OperationStatus {
     const status = this.registry.getStatus(this.operationId)!
     const state: OperationTerminalState = status.sideEffectMayHaveOccurred ? "unknown" : "cancelled"

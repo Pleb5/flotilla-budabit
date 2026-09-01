@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {orderPrimaryFirst, reducePrDeliveryOutcome} from "./pr-delivery-outcome"
+import {buildPrDeliveryKey, orderPrimaryFirst, reducePrDeliveryOutcome} from "./pr-delivery-outcome"
 
 describe("PR delivery outcome", () => {
   const remote = (primary: boolean, status: any, selected = true) => ({
@@ -32,5 +32,23 @@ describe("PR delivery outcome", () => {
       {primary: true, id: "primary"},
       {primary: false, id: "mirror"},
     ])
+  })
+
+  it("invalidates delivery evidence when any analyzed identity field changes", () => {
+    const identity = {
+      rootId: "root",
+      tipOid: "1".repeat(40),
+      targetBranch: "main",
+      targetOid: "2".repeat(40),
+      announcementId: "announcement",
+      primaryUrl: "https://primary.example/repo.git",
+      mergeOid: "3".repeat(40),
+      actor: "4".repeat(64),
+    }
+    const key = buildPrDeliveryKey(identity)
+
+    for (const field of Object.keys(identity) as Array<keyof typeof identity>) {
+      expect(buildPrDeliveryKey({...identity, [field]: `${identity[field]}-changed`})).not.toBe(key)
+    }
   })
 })

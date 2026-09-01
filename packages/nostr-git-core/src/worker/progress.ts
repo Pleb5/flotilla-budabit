@@ -35,6 +35,9 @@ export interface PushToRemoteOptions {
   blossomMirror?: boolean
   repoRelays?: string[]
   operationId?: string
+  expectedSourceOid?: string
+  /** Internal recursion guard used while an outer repository operation lock is held. */
+  skipRepoLock?: boolean
 }
 
 export function getGitProgressUnit(phase: string): GitProgressUnit | undefined {

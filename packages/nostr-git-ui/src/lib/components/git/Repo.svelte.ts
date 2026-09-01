@@ -1080,7 +1080,8 @@ export class Repo {
   async getPRMergeAnalysis(
     prCloneUrls: string[],
     tipCommitOid: string,
-    targetBranch: string
+    targetBranch: string,
+    targetCloneUrls: string[] = this.cloneUrls
   ): Promise<import("@nostr-git/core/git").PRMergeAnalysisResult | null> {
     if (!this.repoEvent || !this.workerManager) return null;
     const repoId = this.key;
@@ -1090,7 +1091,7 @@ export class Repo {
       const result = await this.workerManager.analyzePRMerge({
         repoId,
         prCloneUrls,
-        targetCloneUrls: this.cloneUrls,
+        targetCloneUrls,
         tipCommitOid,
         targetBranch: effectiveBranch,
       });
@@ -2476,6 +2477,7 @@ export class Repo {
     confirmDestructive?: boolean;
     remoteUrls?: string[];
     userPubkey?: string;
+    expectedSourceOid?: string;
   }): Promise<PushFanoutResult> {
     const actor = String(params?.userPubkey || "").trim();
     if (actor) {
@@ -2612,6 +2614,7 @@ export class Repo {
           repoRelays: this.relays,
           allowForce,
           confirmDestructive,
+          expectedSourceOid: params?.expectedSourceOid,
         });
 
         results.push({

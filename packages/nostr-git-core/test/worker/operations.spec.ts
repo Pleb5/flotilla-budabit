@@ -56,6 +56,24 @@ describe("worker operation lifecycle", () => {
     })
   })
 
+  it("durably records an ambiguous mutation outcome", () => {
+    const registry = new OperationRegistry()
+    const operation = registry.start({
+      operationId: "ambiguous-push",
+      operation: "pushToRemote",
+      stage: "Pushing",
+    })
+    operation.markSideEffectBoundary()
+
+    operation.finishUnknown(new Error("receive-pack response was ambiguous"), [{ref: "main"}])
+
+    expect(registry.getStatus("ambiguous-push")).toMatchObject({
+      state: "unknown",
+      sideEffectMayHaveOccurred: true,
+      receipts: [{ref: "main"}],
+    })
+  })
+
   it("waits for terminal state and returns terminal records immediately thereafter", async () => {
     const registry = new OperationRegistry()
     const operation = registry.start({

@@ -404,6 +404,19 @@ describe("worker.pushToRemote API", () => {
     expect(pushMock).toHaveBeenCalledTimes(1)
   })
 
+  it("rejects a moved branch before pushing an asserted source OID", async () => {
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: "https://example.com/owner/repo.git",
+      branch: "main",
+      expectedSourceOid: "b".repeat(40),
+    })
+
+    expect(res.success).toBe(false)
+    expect(res.reason).toBe("source_changed")
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
   it("pushes all requested refs for standard providers", async () => {
     const res = await exposed.pushToRemote({
       repoId: "owner/repo",
@@ -491,7 +504,7 @@ describe("worker.pushToRemote API", () => {
     expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({url: GRASP_REMOTE_URL}))
   })
 
-  it("retries GRASP push once after empty receive-pack parse response", async () => {
+  it("reconciles an empty receive-pack response without repeating the push", async () => {
     const parseError = new Error(
       'Expected "unpack ok" or "unpack [error message]" but received "".',
     )
@@ -531,7 +544,37 @@ describe("worker.pushToRemote API", () => {
     })
 
     expect(res.success).toBe(true)
-    expect(pushMock).toHaveBeenCalledTimes(2)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("records an unreconciled receive-pack response as an unknown operation", async () => {
+    pushMock.mockRejectedValueOnce(
+      new Error('Expected "unpack ok" or "unpack [error message]" but received "".'),
+    )
+    httpFetchMock.mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      headers: new Headers(),
+      arrayBuffer: async () => new ArrayBuffer(0),
+      text: async () => "",
+    })
+
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      branch: "main",
+      token: GRASP_OWNER_PUBKEY,
+      provider: "grasp",
+      repoRelays: [GRASP_RELAY],
+      operationId: "ambiguous-grasp-push",
+    })
+
+    expect(res.success).toBe(false)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(
+      await exposed.getOperationStatus({operationId: "ambiguous-grasp-push"}),
+    ).toMatchObject({state: "unknown", sideEffectMayHaveOccurred: true})
   })
 
   it("skips GRASP push when remote branch already at local tip", async () => {
@@ -604,9 +647,7 @@ describe("worker.pushToRemote API", () => {
     })
 
     expect(res.success).toBe(true)
-    // 2 initial push attempts (both fail with parse error) + 1 more retry after mismatch
-    expect(pushMock).toHaveBeenCalled()
-    expect(pushMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(pushMock).toHaveBeenCalledTimes(1)
   })
 
   it("requires the repository owner pubkey and uses unauthenticated Smart HTTP", async () => {
