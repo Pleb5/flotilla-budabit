@@ -1,8 +1,29 @@
 // @vitest-environment jsdom
 
-import {describe, expect, it} from "vitest"
+import {load} from "@welshman/net"
+import {describe, expect, it, vi} from "vitest"
+
+vi.mock("@welshman/net", async importOriginal => ({
+  ...(await importOriginal<typeof import("@welshman/net")>()),
+  load: vi.fn(),
+}))
 
 describe("state", () => {
+  it("only loads derived events when relay hints are provided", async () => {
+    const {deriveEvent} = await import("./state")
+    const eventId = "a".repeat(64)
+
+    vi.mocked(load).mockClear()
+    deriveEvent(eventId)
+    expect(load).not.toHaveBeenCalled()
+
+    deriveEvent(eventId, ["wss://relay.example/"])
+    expect(load).toHaveBeenCalledWith({
+      filters: [{ids: [eventId]}],
+      relays: ["wss://relay.example/"],
+    })
+  })
+
   it("fromCsv splits comma-separated values and filters empty", async () => {
     const {fromCsv} = await import("./state")
     expect(fromCsv("a,b,c")).toEqual(["a", "b", "c"])

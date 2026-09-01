@@ -162,7 +162,9 @@ export const pubkeyLink = (pubkey: string, relays = Router.get().FromPubkeys([pu
 export const deriveEvent = makeDeriveEvent({
   repository,
   includeDeleted: true,
-  onDerive: (filters: Filter[], relays: string[]) => load({filters, relays}),
+  onDerive: (filters: Filter[], relays?: string[]) => {
+    if (relays?.length) void load({filters, relays})
+  },
 })
 
 export const getEventsForUrl = (url: string, filters: Filter[]) =>
