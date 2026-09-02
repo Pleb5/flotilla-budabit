@@ -113,6 +113,32 @@ describe("getGitNaturalPRReviewData", () => {
     )
   })
 
+  it("uses an explicit target commit without resolving a cached branch ref", async () => {
+    const reader = createReader({
+      histories: new Map([
+        [HEAD, [commit(HEAD, [BASE]), commit(BASE)]],
+        [TARGET, [commit(TARGET, [BASE]), commit(BASE)]],
+      ]),
+      refs: new Map([[TARGET_URL, "e".repeat(40)]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "repo",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      targetCommitOid: TARGET,
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review?.targetCommit).toBe(TARGET)
+    expect(review?.aheadCount).toBe(1)
+    expect(review?.behindCount).toBe(1)
+    expect(reader.resolveRef).not.toHaveBeenCalled()
+  })
+
   it("keeps source-side commits reached after an early base in traversal order", async () => {
     const side = "e".repeat(40)
     const reader = createReader({

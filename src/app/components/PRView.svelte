@@ -1656,7 +1656,9 @@
     return []
   }
 
-  async function loadPrChanges(options: {preserveAnalysisUntilSuccess?: boolean} = {}) {
+  async function loadPrChanges(
+    options: {preserveAnalysisUntilSuccess?: boolean; targetCommitOid?: string} = {},
+  ) {
     if (!repoClass.key || !repoClass.workerManager) return
     if (!prEffectiveTipOid && !prStatus?.mergedCommit) return
 
@@ -1691,6 +1693,7 @@
           cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
           prCloneUrls: prEffectiveCloneUrls,
           ...(prEffectiveMergeBase ? {mergeBase: prEffectiveMergeBase} : {}),
+          ...(options.targetCommitOid ? {targetCommitOid: options.targetCommitOid} : {}),
         })
 
         if (prChangesGeneration !== currentGen) return
@@ -1802,7 +1805,10 @@
     const key = `${prReviewTargetOid}:${analysisTarget}`
     if (!analysisTarget || lastPrTargetDriftReloadKey === key) return
     lastPrTargetDriftReloadKey = key
-    void loadPrChanges({preserveAnalysisUntilSuccess: true})
+    void loadPrChanges({
+      preserveAnalysisUntilSuccess: true,
+      targetCommitOid: analysisTarget,
+    })
   })
 
   async function retryPrReviewLoad() {
@@ -3883,7 +3889,7 @@
             </div>
           {/if}
           {#if prCurrentMergeAnalysisResult.usedTargetCloneUrl}
-            <p class="mt-2 text-xs text-muted-foreground">
+            <p class="mt-2 break-all text-xs text-muted-foreground">
               Target synced from: {prCurrentMergeAnalysisResult.usedTargetCloneUrl}
               {#if primaryTargetCloneUrl && prCurrentMergeAnalysisResult.usedTargetCloneUrl !== primaryTargetCloneUrl}
                 (primary is {primaryTargetCloneUrl})
@@ -3891,7 +3897,7 @@
             </p>
           {/if}
           {#if prCurrentMergeAnalysisResult.usedCloneUrl}
-            <p class="mt-2 text-xs text-muted-foreground">
+            <p class="mt-2 break-all text-xs text-muted-foreground">
               PR fetched from: {prCurrentMergeAnalysisResult.usedCloneUrl}
             </p>
           {/if}
@@ -4492,12 +4498,12 @@
                 {#each prCommitOids as oid (oid)}
                   {@const commitState = getPrCommitState(oid)}
                   {@const isExpanded = prExpandedCommits.has(oid)}
-                  <div class="overflow-x-auto">
+                  <div class="overflow-hidden">
                     <button
                       type="button"
                       onclick={() => togglePrCommit(oid)}
                       class="flex min-h-[44px] w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
-                      <div class="flex min-w-0 items-center gap-2">
+                      <div class="flex min-w-0 flex-1 items-center gap-2">
                         {#if isExpanded}
                           <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
                         {:else}
@@ -4510,10 +4516,11 @@
                         </code>
                         <span class="truncate text-sm">{getPrCommitTitle(oid)}</span>
                       </div>
-                      <div class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                        <span>{getPrCommitAuthor(oid)}</span>
+                      <div
+                        class="flex min-w-0 max-w-[40%] shrink items-center justify-end gap-2 text-xs text-muted-foreground">
+                        <span class="truncate">{getPrCommitAuthor(oid)}</span>
                         {#if commitState.meta?.date}
-                          <span>• {formatTimestamp(commitState.meta.date)}</span>
+                          <span class="shrink-0">• {formatTimestamp(commitState.meta.date)}</span>
                         {/if}
                       </div>
                     </button>
