@@ -36,6 +36,28 @@ describe("NewRepoWizard modal surface", () => {
     expect(source).toContain("bg-card text-foreground hover:bg-muted hover:text-foreground");
   });
 
+  it("omits the step progress indicator while keeping navigation controls", async () => {
+    const source = await readPackageSource("src/lib/components/git/NewRepoWizard.svelte");
+
+    expect(source).not.toContain("<!-- Progress Indicator -->");
+    expect(source).not.toContain("class:bg-accent={currentStep");
+    expect(source).toContain(">Previous</Button");
+    expect(source).toContain('{currentStep === 3 ? "Create Repository" : "Next"}');
+  });
+
+  it("uses generic author hints and defaults to no community", async () => {
+    const wizard = await readPackageSource("src/lib/components/git/NewRepoWizard.svelte");
+    const advanced = await readPackageSource("src/lib/components/git/AdvancedSettingsStep.svelte");
+
+    expect(wizard).toContain('authorName: ""');
+    expect(wizard).toContain('authorEmail: ""');
+    expect(wizard).toContain('let selectedCommunityPubkey = $state("")');
+    expect(wizard).not.toContain("defaultAuthorName");
+    expect(wizard).not.toContain("defaultAuthorEmail");
+    expect(advanced).toContain('placeholder="Your full name"');
+    expect(advanced).toContain('placeholder="your.email@example.com"');
+  });
+
   it("defaults new repo web URLs to Budabit then GitWorkshop only", async () => {
     const source = await readPackageSource("src/lib/components/git/NewRepoWizard.svelte");
 

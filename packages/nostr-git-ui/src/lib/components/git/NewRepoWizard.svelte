@@ -81,10 +81,6 @@
     platformUrl?: string;
     makeRepoPath?: (relayUrl: string, naddr: string) => string;
     userPubkey?: string; // User's nostr pubkey (required for GRASP repos)
-    /** Default author name for git commits (from user profile) */
-    defaultAuthorName?: string;
-    /** Default author email for git commits (nip-05 or npub-based email) */
-    defaultAuthorEmail?: string;
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
@@ -103,7 +99,6 @@
     searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
     communityOptions?: RepoCommunityOption[];
-    defaultCommunityPubkey?: string;
     /** Fetch events from specific relays for GRASP state visibility checks */
     onFetchRelayEvents?: (params: {
       relays: string[];
@@ -128,14 +123,11 @@
     platformUrl = "",
     makeRepoPath,
     userPubkey,
-    defaultAuthorName = "",
-    defaultAuthorEmail = "",
     getProfile,
     searchProfiles,
     searchProfilesUpdateSignal,
     searchRelays,
     communityOptions = [],
-    defaultCommunityPubkey = "",
     onFetchRelayEvents,
   }: Props = $props();
 
@@ -186,7 +178,7 @@
   let userEditedWebUrl = $state(false);
   let userEditedCloneUrl = $state(false);
   let userEditedRelays = $state(false);
-  let selectedCommunityPubkey = $state(defaultCommunityPubkey);
+  let selectedCommunityPubkey = $state("");
   let resolvedGraspServices = $state<GraspServiceDescriptor[]>([]);
   let resolvingGraspServices = $state(false);
   let graspServiceResolutionRunId = 0;
@@ -466,9 +458,9 @@
     gitignoreTemplate: "",
     licenseTemplate: "",
     defaultBranch: "master",
-    // Author information (populated from user profile via props)
-    authorName: defaultAuthorName,
-    authorEmail: defaultAuthorEmail,
+    // Author information must be entered explicitly.
+    authorName: "",
+    authorEmail: "",
     // NIP-34 metadata
     maintainers: [] as string[],
     relays: [...defaultRelays] as string[],
@@ -882,7 +874,7 @@
 <div
   class="ng-themed-modal bg-card text-card-foreground mx-auto flex h-[calc(100dvh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border shadow sm:h-auto sm:max-h-[calc(100dvh-4rem)] lg:max-w-5xl xl:max-w-6xl"
 >
-  <div class="shrink-0 space-y-4 border-b border-border px-4 pb-4 pt-4 sm:px-6 sm:pt-6">
+  <div class="shrink-0 border-b border-border px-4 pb-4 pt-4 sm:px-6 sm:pt-6">
     <!-- Header -->
     <div class="text-center space-y-2">
       <h1 class="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
@@ -891,77 +883,6 @@
       <p class="break-words text-sm text-muted-foreground sm:text-base">
         Set up a new git repository with Nostr integration
       </p>
-    </div>
-
-    <!-- Progress Indicator -->
-    <div
-      class="grid grid-cols-2 gap-2 sm:gap-4 md:flex md:items-center md:justify-center md:space-x-4"
-    >
-      <div class="flex min-w-0 items-center gap-2">
-        <div
-          class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-          class:bg-accent={currentStep >= 1}
-          class:text-accent-foreground={currentStep >= 1}
-          class:bg-muted={currentStep < 1}
-          class:text-muted-foreground={currentStep < 1}
-        >
-          {currentStep > 1 ? "✓" : "1"}
-        </div>
-        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
-          >Choose Service</span
-        >
-      </div>
-
-      <div class="hidden md:block w-12 h-px bg-border"></div>
-
-      <div class="flex min-w-0 items-center gap-2">
-        <div
-          class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-          class:bg-accent={currentStep >= 2}
-          class:text-accent-foreground={currentStep >= 2}
-          class:bg-muted={currentStep < 2}
-          class:text-muted-foreground={currentStep < 2}
-        >
-          {currentStep > 2 ? "✓" : "2"}
-        </div>
-        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
-          >Repository Details</span
-        >
-      </div>
-
-      <div class="hidden md:block w-12 h-px bg-border"></div>
-
-      <div class="flex min-w-0 items-center gap-2">
-        <div
-          class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-          class:bg-accent={currentStep >= 3}
-          class:text-accent-foreground={currentStep >= 3}
-          class:bg-muted={currentStep < 3}
-          class:text-muted-foreground={currentStep < 3}
-        >
-          {currentStep > 3 ? "✓" : "3"}
-        </div>
-        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
-          >Advanced Settings</span
-        >
-      </div>
-
-      <div class="hidden md:block w-12 h-px bg-border"></div>
-
-      <div class="flex min-w-0 items-center gap-2">
-        <div
-          class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-          class:bg-accent={currentStep >= 4}
-          class:text-accent-foreground={currentStep >= 4}
-          class:bg-muted={currentStep < 4}
-          class:text-muted-foreground={currentStep < 4}
-        >
-          {currentStep > 4 ? "✓" : "4"}
-        </div>
-        <span class="min-w-0 break-words text-xs font-medium text-foreground sm:text-sm"
-          >Create Repository</span
-        >
-      </div>
     </div>
   </div>
 
@@ -1082,7 +1003,9 @@
                   isCheckingAvailability ||
                   availabilityBlocksCreation(nameAvailabilityResults))) ||
               (currentStep === 3 &&
-                (getEffectiveRepoRelays().length === 0 ||
+                (!advancedSettings.authorName.trim() ||
+                  !advancedSettings.authorEmail.trim() ||
+                  getEffectiveRepoRelays().length === 0 ||
                   Boolean(relaySelectionError) ||
                   isCheckingAvailability ||
                   availabilityBlocksCreation(nameAvailabilityResults)))}

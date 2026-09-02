@@ -18,7 +18,6 @@
     relaySearch,
     pubkey,
     session,
-    deriveProfile,
     userRelayList,
   } from "@welshman/app"
   import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
@@ -208,28 +207,6 @@
 
   const url = GIT_RELAYS[0] || ""
   const repoListHydrationReadyStore = getContext<Readable<boolean>>(REPO_LIST_HYDRATION_READY_KEY)
-
-  // Derive current user's profile for git commit author info
-  const userProfile = $derived($pubkey ? deriveProfile($pubkey) : null)
-
-  // Helper to generate author email from nip-05 or npub
-  const getAuthorEmail = (profile: any, pk: string | null | undefined) => {
-    if (profile?.nip05) return profile.nip05
-    if (pk) {
-      try {
-        const npub = nip19.npubEncode(pk)
-        return `${npub.slice(0, 12)}@nostr.git`
-      } catch {
-        return `${pk.slice(0, 12)}@nostr.git`
-      }
-    }
-    return ""
-  }
-
-  // Helper to get author name from profile
-  const getAuthorName = (profile: any) => {
-    return profile?.display_name || profile?.name || "Anonymous"
-  }
 
   const normalizeSearchValue = (value: unknown) => String(value ?? "").toLocaleLowerCase()
   const projectRepoListCard = createRepoListCardProjector()
@@ -4376,11 +4353,6 @@
 
     console.log("[+page.svelte] About to push NewRepoWizard modal")
 
-    // Get user profile for git author info
-    const profile = userProfile ? getStore(userProfile) : null
-    const authorName = getAuthorName(profile)
-    const authorEmail = getAuthorEmail(profile, $pubkey)
-
     let publishTransport: RepoPublishTransport | undefined
     try {
       publishTransport = createTrackedRepoPublishTransport()
@@ -4406,16 +4378,7 @@
           platformUrl: $APP_URL,
           makeRepoPath: makeGitPath,
           userPubkey: $pubkey,
-          defaultAuthorName: authorName,
-          defaultAuthorEmail: authorEmail,
           communityOptions: repoPublishCommunityOptions,
-          defaultCommunityPubkey:
-            activeMode === "community" &&
-            repoPublishCommunityOptions.some(
-              option => option.address === $activeExactCommunityPointer?.address,
-            )
-              ? $activeExactCommunityPointer?.address
-              : "",
           onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
             const explicitRelays = context?.relays || []
             const targetRelays =
