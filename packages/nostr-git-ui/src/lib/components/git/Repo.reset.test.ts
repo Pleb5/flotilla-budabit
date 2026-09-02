@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readable, writable } from "svelte/store";
 import { nip19 } from "nostr-tools";
 import { Repo } from "./Repo.svelte";
+import { tokens } from "$lib/stores/tokens";
 
 vi.hoisted(() => {
   const values = new Map<string, string>();
@@ -101,6 +102,91 @@ describe("Repo reset", () => {
     expect(loadAllRefs).toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith("Git reset to remote failed:", resetError);
 
+    repo.dispose();
+  });
+});
+
+describe("Repo initialization sync", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const announcement = {
+    id: "1".repeat(64),
+    pubkey: "a".repeat(64),
+    kind: 30617,
+    created_at: 1,
+    content: "",
+    tags: [
+      ["d", "repo"],
+      ["name", "repo"],
+      ["clone", "https://relay.ngit.dev/owner/repo.git"],
+    ],
+    sig: "2".repeat(128),
+  } as any;
+
+  function createRepo(isCloned: boolean) {
+    vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
+    let finishInitialize!: () => void;
+    const initializePromise = new Promise<void>((resolve) => {
+      finishInitialize = resolve;
+    });
+    const workerManager = {
+      isReady: false,
+      setProgressCallback: vi.fn(),
+      setAuthConfig: vi.fn().mockResolvedValue(undefined),
+      initialize: vi.fn(() => initializePromise),
+      isRepoCloned: vi.fn().mockResolvedValue(isCloned),
+      syncWithRemote: vi.fn().mockResolvedValue({ success: true }),
+      dispose: vi.fn(),
+    };
+    const repo = new Repo({
+      repoEvent: readable(announcement),
+      repoStateEvent: readable(undefined as any),
+      issues: readable([]),
+      workerManager: workerManager as any,
+    });
+
+    repo.refs = [
+      {
+        name: "main",
+        type: "heads",
+        fullRef: "refs/heads/main",
+        commitId: "3".repeat(40),
+      },
+    ];
+    vi.spyOn(repo.branchManager, "getStats").mockReturnValue({
+      mainBranch: "main",
+      selectedBranch: "main",
+    } as any);
+
+    return { repo, workerManager, finishInitialize };
+  }
+
+  it("does not sync a repository that has not been cloned locally", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { repo, workerManager, finishInitialize } = createRepo(false);
+
+    finishInitialize();
+    await repo.waitForReady();
+
+    expect(workerManager.isRepoCloned).toHaveBeenCalledWith({ repoId: repo.key });
+    expect(workerManager.syncWithRemote).not.toHaveBeenCalled();
+    repo.dispose();
+  });
+
+  it("syncs an existing local clone", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { repo, workerManager, finishInitialize } = createRepo(true);
+
+    finishInitialize();
+    await repo.waitForReady();
+
+    expect(workerManager.syncWithRemote).toHaveBeenCalledWith({
+      repoId: repo.key,
+      cloneUrls: ["https://relay.ngit.dev/owner/repo.git"],
+      branch: "main",
+    });
     repo.dispose();
   });
 });

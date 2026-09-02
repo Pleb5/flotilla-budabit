@@ -746,18 +746,23 @@ export class Repo {
         try {
           const repoId = this.key;
           const cloneUrls = [...(this.#repo?.clone || [])];
-          const branch = this.#getKnownMainBranch() || this.branchManager.getMainBranch();
+          const branch = this.#getKnownMainBranch();
           const hasVendorApi = this.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false;
 
           if (repoId && cloneUrls.length > 0 && !hasVendorApi) {
-            console.log(`[Repo init] No vendor API, syncing with remote...`);
-            this.syncStatus = await this.workerManager.syncWithRemote({
-              repoId,
-              cloneUrls,
-              branch,
-            });
-            if (this.syncStatus?.usedUrl) {
-              this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
+            const isCloned = await this.workerManager.isRepoCloned({ repoId });
+            if (isCloned) {
+              console.log(`[Repo init] No vendor API, syncing existing local clone...`);
+              this.syncStatus = await this.workerManager.syncWithRemote({
+                repoId,
+                cloneUrls,
+                branch,
+              });
+              if (this.syncStatus?.usedUrl) {
+                this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
+              }
+            } else {
+              console.log(`[Repo init] Repository is not cloned locally; skipping remote sync`);
             }
           } else if (hasVendorApi) {
             console.log(`[Repo init] Vendor API available, skipping git sync for fast UI response`);

@@ -3,7 +3,7 @@
   import {fade} from "svelte/transition"
   import {goto} from "$app/navigation"
   import {browser} from "$app/environment"
-  import {PanelLeftClose, PanelLeftOpen, Search} from "@lucide/svelte"
+  import {CircleAlert, PanelLeftClose, PanelLeftOpen, Search} from "@lucide/svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -80,7 +80,7 @@
   // Derive selectedBranch from repoClass to avoid circular effect dependencies.
   // Using $derived instead of $effect + $state prevents the read-write cycle
   // that was causing effect_update_depth_exceeded errors.
-  const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
+  const selectedBranch = $derived(repoClass.selectedBranch || repoClass.defaultBranch || "")
   const repoEventId = $derived.by(() => repoClass.repoEvent?.id || "")
   const repoLinkBasePath = $derived.by(() => {
     const repoNaddr = repoClass.repoEvent
@@ -411,6 +411,7 @@
 
     if (!repoClass) return
     if (!currentRepoEventId) return
+    if (!repoClass.isInitialized) return
     // Wait for repo key to be populated (set when repoEvent is processed)
     if (!repoClass.key) return
     // Only attempt clone check once per page load
@@ -418,6 +419,10 @@
 
     const cloneUrls = [...supportedCloneUrls]
     if (cloneUrls.length === 0) return
+    if (!repoClass.defaultBranch) {
+      cloneCheckAttempted = true
+      return
+    }
 
     // Check if vendor API is available - if so, skip clone entirely
     // The vendor API (GitHub, GitLab, etc.) can provide files immediately
@@ -512,7 +517,7 @@
 
   // Load refs using the unified API - defer to avoid blocking render
   $effect(() => {
-    if (repoClass && !isCloning) {
+    if (repoClass.isInitialized && cloneCheckAttempted && selectedBranch && !isCloning) {
       // Defer ref loading to avoid blocking initial render
       const timeout = setTimeout(() => {
         repoClass.getAllRefsWithFallback().catch((err: Error) => {
@@ -780,9 +785,18 @@
                 class="h-9 pl-9"
                 data-testid="code-browser-search" />
             </div>
-            {#if error}
-              <div class="w-full min-w-0 max-w-full text-sm text-red-500 [overflow-wrap:anywhere]">
-                {error}
+            {#if repoClass.isInitialized && !selectedBranch}
+              <div class="rounded-md border border-border bg-muted/30 px-4 py-6 text-center">
+                <CircleAlert class="mx-auto mb-3 h-6 w-6 text-warning" />
+                <h3 class="font-medium">Repository content unavailable</h3>
+                <p class="mt-2 text-sm text-muted-foreground">
+                  Repository metadata was found, but no Git branches could be resolved from its
+                  repository state or declared clone URLs.
+                </p>
+              </div>
+            {:else if error}
+              <div class="w-full min-w-0 max-w-full text-sm text-muted-foreground">
+                Unable to load repository files from the declared clone URLs.
               </div>
             {:else}
               {#key files}

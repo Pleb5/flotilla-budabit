@@ -122,7 +122,7 @@
   // Progressive loading states - show immediate content right away
   const initialLoading = false
   let readmeLoading = $state(true)
-  let readmeError = $state(false)
+  let readmeError = $state<"missing" | "no-branches" | null>(null)
   let lastCommit = $state<any>(null)
   let lastCommitReqSeq = $state(0)
   let _prevRepoKey = $state<string | undefined>(undefined)
@@ -339,7 +339,7 @@
     relays: repoRelayItems.map(item => item.url),
     cloneUrls: repoCloneUrlItems.map(item => item.url),
     webUrls: getDisplayedRepoWebUrls(repoClass),
-    mainBranch: repoClass.mainBranch,
+    mainBranch: repoClass.defaultBranch || "",
     createdAt: repoClass.repoEvent?.created_at
       ? new Date(repoClass.repoEvent.created_at * 1000)
       : null,
@@ -444,7 +444,7 @@
   $effect(() => {
     // Touch reactive dependencies so this effect re-runs when repo changes
     const repoKey = repoClass.key
-    const main = repoClass.mainBranch
+    const main = repoClass.defaultBranch
     const branchSig = (repoClass.branches || []).map(b => b.name).join("|")
 
     // Only refetch if identity actually changed
@@ -487,12 +487,12 @@
   }
 
   async function loadReadme() {
-    readmeError = false
+    readmeError = null
     try {
-      const branchName = normalizeBranchRef(repoClass.mainBranch)
+      const branchName = normalizeBranchRef(repoClass.defaultBranch)
       if (!branchName) {
-        console.debug("README: Cannot load - branch not yet determined")
-        readmeError = true
+        console.debug("README: Cannot load - no repository branch could be resolved")
+        readmeError = "no-branches"
         return
       }
 
@@ -504,11 +504,11 @@
       if (destroyed) return
       readme = readmeContent.content
       renderedReadme = readme ? md.render(readme) : ""
-      if (!readme) readmeError = true
+      if (!readme) readmeError = "missing"
     } catch (e) {
       if (destroyed) return
       console.debug("README: Failed to load", e)
-      readmeError = true
+      readmeError = "missing"
     } finally {
       if (!destroyed) readmeLoading = false
     }
@@ -530,7 +530,7 @@
     commitLoadInProgress = true
 
     try {
-      const mainBranch = normalizeBranchRef(repoClass.mainBranch)
+      const mainBranch = normalizeBranchRef(repoClass.defaultBranch)
       if (!mainBranch) {
         commitLoadInProgress = false
         return
@@ -1372,7 +1372,20 @@
             </div>
           </Card>
         </div>
-      {:else if readmeError}
+      {:else if readmeError === "no-branches"}
+        <div transition:slide class="min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+          <Card class="min-w-0 p-4 sm:p-6">
+            <h3 class="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <CircleAlert class="h-5 w-5 text-warning" />
+              Repository content unavailable
+            </h3>
+            <p class="text-sm text-muted-foreground">
+              Repository metadata was found, but no Git branches could be resolved from its
+              repository state or declared clone URLs.
+            </p>
+          </Card>
+        </div>
+      {:else if readmeError === "missing"}
         <div transition:slide class="min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
           <Card class="min-w-0 p-4 sm:p-6">
             <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">

@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {User, Search} from "@lucide/svelte"
+  import {CircleAlert, User, Search} from "@lucide/svelte"
   import {
     Input,
     Select,
@@ -36,6 +36,7 @@
   // Start with false - only show loading when actually fetching
   let commitsLoading = $state(false)
   let commitsError = $state<string | undefined>(undefined)
+  let commitsUnavailable = $state(false)
   // Use $derived to directly track repoClass.commits - this ensures reactivity
   // through the context boundary that $effect doesn't handle well
   const repoCommits = $derived(repoClass.commits || [])
@@ -174,7 +175,7 @@
   // Load commits when branch changes (but not during active switching or right after)
   $effect(() => {
     const selectedBranch = repoClass.selectedBranch
-    const mainBranch = repoClass.mainBranch
+    const mainBranch = repoClass.defaultBranch
     const currentBranch = selectedBranch || mainBranch
     const isSwitching = repoClass.isBranchSwitching
     const repoEvent = repoClass.repoEvent
@@ -196,6 +197,13 @@
     if (!repoEvent) {
       return
     }
+
+    if (!currentBranch) {
+      if (repoClass.isInitialized) commitsUnavailable = true
+      return
+    }
+
+    commitsUnavailable = false
 
     if (repoClass && repoClass.repoId) {
       // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
@@ -249,6 +257,15 @@
       if (!repoClass.repoEvent || !repoClass.repoId) {
         return
       }
+
+      const branch = repoClass.selectedBranch || repoClass.defaultBranch
+      if (!branch) {
+        commitsUnavailable = true
+        initialLoadComplete = true
+        return
+      }
+
+      commitsUnavailable = false
 
       const result = await repoClass.loadPage(currentPage)
 
@@ -417,7 +434,18 @@
     </div>
   </div>
 
-  {#if commitsLoading}
+  {#if commitsUnavailable}
+    <div
+      class="rounded-lg border border-border bg-card px-5 py-10 text-center"
+      data-testid="empty-state">
+      <CircleAlert class="mx-auto mb-3 h-6 w-6 text-warning" />
+      <h3 class="font-medium">Repository content unavailable</h3>
+      <p class="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
+        Repository metadata was found, but no Git branches could be resolved from its repository
+        state or declared clone URLs.
+      </p>
+    </div>
+  {:else if commitsLoading}
     <div class="flex items-center justify-center py-12">
       <Spinner loading={commitsLoading}>Loading commits...</Spinner>
     </div>
