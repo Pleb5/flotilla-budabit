@@ -265,7 +265,7 @@ The `RepoCore` class in `repo-core.ts` orchestrates Nostr-based git workflows, i
 - Maintainer trust verification
 - Pull request trust and status metrics
 
-GRASP and Nostr Git paths are compiled in unless `FEATURE_GRASP=0`. Experimental CI/CD hooks require `FEATURE_CICD=1`.
+GRASP and Nostr Git paths are compiled in unless `FEATURE_GRASP=0`. Experimental CI/CD hooks require `FEATURE_CICD=1`, and repository import requires `FEATURE_IMPORT_REPO=1`.
 
 Notification settings are always available. Git email digest providers are discovered from verified exact `kind:32222` community definitions and selected explicitly per account.
 

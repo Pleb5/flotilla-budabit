@@ -125,6 +125,7 @@ Build-time feature flags:
 
 - `FEATURE_GRASP` - Enables GRASP and Nostr Git paths unless set to `0`
 - `FEATURE_CICD` - Enables experimental CI/CD hooks only when set to `1`
+- `FEATURE_IMPORT_REPO` - Enables repository import only when set to `1`
 
 Development-only helpers:
 

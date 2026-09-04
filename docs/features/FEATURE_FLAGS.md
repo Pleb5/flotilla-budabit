@@ -28,6 +28,14 @@ Enables GRASP and Nostr Git integration paths.
 
 Enables experimental CI/CD automation hooks.
 
+### `__IMPORT_REPO__`
+
+**Type**: Feature
+**Default**: Disabled unless `FEATURE_IMPORT_REPO=1`
+**Control**: `FEATURE_IMPORT_REPO`
+
+Enables the repository import dialog and its entry points.
+
 ## Removed Flags
 
 These are intentionally not feature flags:
@@ -48,6 +56,7 @@ export default defineConfig({
     __DEVELOPMENT__: JSON.stringify(process.env.NODE_ENV !== "production"),
     __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
+    __IMPORT_REPO__: JSON.stringify(process.env.FEATURE_IMPORT_REPO === "1"),
   },
 })
 ```
@@ -61,6 +70,7 @@ declare const __PRODUCTION__: boolean
 declare const __DEVELOPMENT__: boolean
 declare const __GRASP__: boolean
 declare const __CICD__: boolean
+declare const __IMPORT_REPO__: boolean
 ```
 
 ## Source Of Truth

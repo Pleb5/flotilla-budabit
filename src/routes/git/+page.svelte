@@ -31,7 +31,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
   import PerformanceDiagnosticsStatus from "@app/components/PerformanceDiagnosticsStatus.svelte"
-  import {PERFORMANCE_DIAGNOSTICS_ENABLED} from "@app/core/feature-flags"
+  import {IMPORT_REPO_ENABLED, PERFORMANCE_DIAGNOSTICS_ENABLED} from "@app/core/feature-flags"
   import {
     activePerformanceDiagnosticsRun,
     completeAutomaticPerformanceDiagnosticsCapture,
@@ -4409,6 +4409,8 @@
   }
 
   const onImportRepo = async () => {
+    if (!IMPORT_REPO_ENABLED) return
+
     console.log("[+page.svelte] onImportRepo called")
 
     if (!$session || !$pubkey) {
@@ -4629,10 +4631,14 @@
         <Icon icon={AddCircle} />
         New Repo
       </Button>
-      <Button class="btn btn-secondary btn-sm !text-primary-content" onclick={() => onImportRepo()}>
-        <Icon icon={Download} />
-        Import Repo
-      </Button>
+      {#if IMPORT_REPO_ENABLED}
+        <Button
+          class="btn btn-secondary btn-sm !text-primary-content"
+          onclick={() => onImportRepo()}>
+          <Icon icon={Download} />
+          Import Repo
+        </Button>
+      {/if}
     </div>
     <GitCommunityMenuButton />
   {/snippet}
@@ -4650,12 +4656,14 @@
       <Icon icon={AddCircle} />
       New Repo
     </Button>
-    <Button
-      class="btn btn-secondary btn-sm w-full !text-primary-content"
-      onclick={() => onImportRepo()}>
-      <Icon icon={Download} />
-      Import Repo
-    </Button>
+    {#if IMPORT_REPO_ENABLED}
+      <Button
+        class="btn btn-secondary btn-sm w-full !text-primary-content"
+        onclick={() => onImportRepo()}>
+        <Icon icon={Download} />
+        Import Repo
+      </Button>
+    {/if}
   </div>
   <!-- Tabs and Search Bar -->
   <div class="flex flex-col gap-3">
