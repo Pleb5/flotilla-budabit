@@ -6,7 +6,7 @@
  */
 
 import type {GitProvider} from "../../git/provider.js"
-import type {GitVendor} from "../../git/vendor-providers.js"
+import {assertGitRemoteUrlEnabled, type GitVendor} from "../../git/vendor-providers.js"
 import {assertGitVendorEnabled} from "../../git/provider-policy.js"
 import {getGitServiceApi} from "../../git/provider-factory.js"
 import {parseRepoFromUrl} from "../../git/vendor-provider-factory.js"
@@ -2983,7 +2983,9 @@ export async function deleteRemoteRepo(
 // ============================================================================
 
 export interface UpdateAndPushFilesOptions {
+  repoId: string
   dir: string
+  remoteUrl: string
   files: Array<{path: string; content: string}>
   commitMessage: string
   token: string
@@ -3004,10 +3006,11 @@ export async function updateAndPushFiles(
   git: GitProvider,
   options: UpdateAndPushFilesOptions,
 ): Promise<UpdateAndPushFilesResult> {
-  const {dir, files, commitMessage, token, provider = "github", onProgress} = options
+  const {dir, remoteUrl, files, commitMessage, token, provider = "github", onProgress} = options
 
   try {
     assertGitVendorEnabled(provider, "file update")
+    assertGitRemoteUrlEnabled(remoteUrl, "file update")
     if (provider === "grasp") {
       throw new Error("GRASP file updates require the coordinated pushToRemote flow")
     }
@@ -3049,6 +3052,7 @@ export async function updateAndPushFiles(
     const corsProxy = resolveDefaultCorsProxy()
     await git.push({
       dir,
+      url: remoteUrl,
       onAuth: authCallback,
       force: false,
       ...(corsProxy !== null ? {corsProxy} : {}),

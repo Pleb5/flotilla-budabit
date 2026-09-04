@@ -1,5 +1,8 @@
 import {describe, expect, it, vi} from "vitest"
-import {withRepoOperationLock} from "../../src/worker/workers/repo-operation-lock.js"
+import {
+  withRepoOperationLock,
+  withRepoOperationLocks,
+} from "../../src/worker/workers/repo-operation-lock.js"
 
 describe("repository operation lock", () => {
   it("serializes operations for one repository without blocking another", async () => {
@@ -41,6 +44,28 @@ describe("repository operation lock", () => {
       order.push("first:end")
     })
     const second = withRepoOperationLock("owner/name", async () => {
+      order.push("second")
+    })
+
+    await vi.waitFor(() => expect(order).toEqual(["first:start"]))
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first:start", "first:end", "second"])
+  })
+
+  it("orders multi-repository locks consistently", async () => {
+    const order: string[] = []
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+
+    const first = withRepoOperationLocks(["owner/source", "owner/target"], async () => {
+      order.push("first:start")
+      await firstGate
+      order.push("first:end")
+    })
+    const second = withRepoOperationLocks(["owner/target", "owner/source"], async () => {
       order.push("second")
     })
 

@@ -64,6 +64,11 @@ export interface GitNaturalPRReviewData {
 
 export type GitNaturalPRReviewUrlAttempt = Omit<UrlAttemptResult, "result">
 
+export interface GitNaturalPRReviewAttempts {
+  sourceAttempts: GitNaturalPRReviewUrlAttempt[]
+  targetAttempts: GitNaturalPRReviewUrlAttempt[]
+}
+
 export interface GetGitNaturalPRReviewDataOptions {
   repoId: string
   tipCommitOid: string
@@ -75,6 +80,7 @@ export interface GetGitNaturalPRReviewDataOptions {
   sourceReadScope?: string
   maxCommits?: number
   corsProxy?: string | null
+  onAttempts?: (attempts: GitNaturalPRReviewAttempts) => void
   reader: GitNaturalPRReviewReader
 }
 
@@ -98,15 +104,22 @@ export async function getGitNaturalPRReviewData(
     depth: maxCommits,
     corsProxy: options.corsProxy,
   })
-  if (!sourceHistory.result?.commits?.length) return null
-  let usedCloneUrl = latestAttemptUrl(sourceHistory)
   const sourceAttempts = summarizeAttempts(sourceHistory.attempts)
+  const targetAttempts: GitNaturalPRReviewUrlAttempt[] = []
+  const reportAttempts = () =>
+    options.onAttempts?.({
+      sourceAttempts: [...sourceAttempts],
+      targetAttempts: [...targetAttempts],
+    })
+  if (!sourceHistory.result?.commits?.length) {
+    reportAttempts()
+    return null
+  }
+  let usedCloneUrl = latestAttemptUrl(sourceHistory)
 
   const providedMergeBase = normalizeFullOid(options.mergeBase)
   let targetCommit = normalizeFullOid(options.targetCommitOid)
   let usedTargetCloneUrl: string | undefined
-  const targetAttempts: GitNaturalPRReviewUrlAttempt[] = []
-
   if (!targetCommit && options.targetBranch && targetUrls.length > 0) {
     const target = await tryResolveRef(options.reader, targetUrls, {
       repoId: options.repoId,
@@ -151,7 +164,10 @@ export async function getGitNaturalPRReviewData(
 
   const baseOid = targetCommit ? computedMergeBase : providedMergeBase
 
-  if (!baseOid) return null
+  if (!baseOid) {
+    reportAttempts()
+    return null
+  }
 
   const diffParams = {
     repoId: options.repoId,
@@ -172,13 +188,19 @@ export async function getGitNaturalPRReviewData(
     targetAttempts.push(...summarizeAttempts(diff.attempts))
     usedTargetCloneUrl = latestAttemptUrl(diff) || usedTargetCloneUrl
   }
-  if (!diff.result) return null
+  if (!diff.result) {
+    reportAttempts()
+    return null
+  }
 
   const sourceReachable = commitsUntilBase(sourceHistory.result.commits, baseOid, tipCommitOid)
   const targetReachable = targetHistory?.result
     ? commitsUntilBase(targetHistory.result.commits, baseOid, targetCommit || baseOid)
     : []
-  if (!sourceReachable || (targetHistory?.result && !targetReachable)) return null
+  if (!sourceReachable || (targetHistory?.result && !targetReachable)) {
+    reportAttempts()
+    return null
+  }
   const resolvedTargetReachable = targetReachable || []
   const sourceIds = new Set(sourceReachable.map(commit => commit.oid))
   const targetIds = new Set(resolvedTargetReachable.map(commit => commit.oid))

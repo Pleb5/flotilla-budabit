@@ -9,6 +9,20 @@ const listRemotesMock = vi.fn(async () => [])
 const resolveRefMock = vi.fn(async () => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 const logMock = vi.fn(async () => [] as any[])
 const writeRefMock = vi.fn(async () => undefined)
+const addMock = vi.fn(async () => undefined)
+const commitMock = vi.fn(async () => "f".repeat(40))
+const initMock = vi.fn(async () => undefined)
+const mkdirMock = vi.fn(async () => undefined)
+const writeFileMock = vi.fn(async () => undefined)
+const readCommitMock = vi.fn(async ({oid}: {oid: string}) => ({
+  oid,
+  commit: {
+    author: {name: "Test", email: "test@example.com", timestamp: 1},
+    message: "commit",
+    parent: [],
+  },
+}))
+const walkMock = vi.fn(async () => [])
 const httpFetchMock = vi.fn(async () => ({
   ok: false,
   status: 404,
@@ -42,6 +56,12 @@ vi.mock("../../src/git/factory-browser.js", () => ({
     listRemotes: listRemotesMock,
     resolveRef: resolveRefMock,
     writeRef: writeRefMock,
+    add: addMock,
+    commit: commitMock,
+    init: initMock,
+    readCommit: readCommitMock,
+    walk: walkMock,
+    TREE: ({ref}: {ref: string}) => ({ref}),
     // Other methods may be referenced in unrelated API paths but are not invoked here
     statusMatrix: vi.fn(async () => []),
     log: logMock,
@@ -51,7 +71,9 @@ vi.mock("../../src/git/factory-browser.js", () => ({
 
 // Mock provider FS accessor to a minimal FS
 vi.mock("../../src/worker/workers/fs-utils.js", () => ({
-  getProviderFs: (_g: any) => ({promises: {stat: async () => ({})}}),
+  getProviderFs: (_g: any) => ({
+    promises: {stat: async () => ({}), mkdir: mkdirMock, writeFile: writeFileMock},
+  }),
   isRepoClonedFs: async (_g: any, _d: string) => true,
 }))
 
@@ -77,6 +99,13 @@ describe("worker.pushToRemote API", () => {
     resolveRefMock.mockReset()
     logMock.mockReset()
     writeRefMock.mockReset()
+    addMock.mockReset()
+    commitMock.mockReset()
+    initMock.mockReset()
+    mkdirMock.mockReset()
+    writeFileMock.mockReset()
+    readCommitMock.mockClear()
+    walkMock.mockClear()
     httpFetchMock.mockReset()
     nostrProviderMock = undefined
     pushMock.mockResolvedValue(undefined)
@@ -86,6 +115,11 @@ describe("worker.pushToRemote API", () => {
     resolveRefMock.mockResolvedValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     logMock.mockResolvedValue([])
     writeRefMock.mockResolvedValue(undefined)
+    addMock.mockResolvedValue(undefined)
+    commitMock.mockResolvedValue("f".repeat(40))
+    initMock.mockResolvedValue(undefined)
+    mkdirMock.mockResolvedValue(undefined)
+    writeFileMock.mockResolvedValue(undefined)
     httpFetchMock.mockResolvedValue({
       ok: false,
       status: 404,
@@ -204,7 +238,9 @@ describe("worker.pushToRemote API", () => {
     ["grasp", "GRASP file updates require the coordinated pushToRemote flow"],
   ])("rejects %s updateAndPushFiles before local or remote Git work", async (provider, error) => {
     const res = await exposed.updateAndPushFiles({
+      repoId: "owner/repo",
       dir: "/repos/owner/repo",
+      remoteUrl: "https://github.com/owner/repo.git",
       files: [{path: "README.md", content: "updated"}],
       commitMessage: "Update README",
       token: "token",
@@ -215,6 +251,130 @@ describe("worker.pushToRemote API", () => {
     expect(resolveRefMock).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
     expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("pushes file edits to the explicit declared remote", async () => {
+    const remoteUrl = "https://github.com/owner/repo.git"
+    const res = await exposed.updateAndPushFiles({
+      repoId: "owner/repo",
+      dir: "/repos/owner/repo",
+      remoteUrl,
+      files: [{path: "README.md", content: "updated"}],
+      commitMessage: "Update README",
+      token: "token",
+      provider: "github",
+    })
+
+    expect(res).toEqual({success: true, commitId: "f".repeat(40)})
+    expect(pushMock).toHaveBeenCalledWith(
+      expect.objectContaining({dir: "/repos/owner/repo", url: remoteUrl}),
+    )
+  })
+
+  it("rejects mismatched exact-OID evidence from a scoped clone fallback", async () => {
+    const requestedOid = "a".repeat(40)
+    const staleOid = "b".repeat(40)
+    logMock.mockResolvedValue([{oid: requestedOid}])
+    fetchMock.mockResolvedValue({fetchHead: staleOid})
+
+    const result = await exposed.getCommitMeta({
+      repoId: "owner/repo",
+      commitId: requestedOid,
+      cloneUrls: ["https://authorized.example/owner/repo.git"],
+      cloneFallbackReason: "missing-filter-capability",
+    })
+
+    expect(result.success).toBe(false)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ref: requestedOid, url: "https://authorized.example/owner/repo.git"}),
+    )
+    expect(readCommitMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts lowercase fetch evidence for an uppercase requested OID", async () => {
+    const fetchedOid = "c".repeat(40)
+    const requestedOid = fetchedOid.toUpperCase()
+    logMock.mockResolvedValue([{oid: fetchedOid}])
+    fetchMock.mockResolvedValue({fetchHead: fetchedOid})
+
+    const result = await exposed.getCommitMeta({
+      repoId: "owner/repo",
+      commitId: requestedOid,
+      cloneUrls: ["https://authorized.example/owner/repo.git"],
+      cloneFallbackReason: "missing-filter-capability",
+    })
+
+    expect(result.success).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(expect.objectContaining({ref: fetchedOid}))
+    expect(readCommitMock).toHaveBeenCalledWith(expect.objectContaining({oid: fetchedOid}))
+  })
+
+  it("normalizes uppercase OIDs for commit detail object reads", async () => {
+    const fetchedOid = "d".repeat(40)
+    const requestedOid = fetchedOid.toUpperCase()
+    logMock.mockResolvedValue([
+      {
+        oid: fetchedOid,
+        commit: {
+          author: {name: "Test", email: "test@example.com", timestamp: 1},
+          message: "commit",
+          parent: [],
+        },
+      },
+    ])
+    fetchMock.mockResolvedValue({fetchHead: fetchedOid})
+
+    const result = await exposed.getCommitDetails({
+      repoId: "owner/repo",
+      commitId: requestedOid,
+      cloneUrls: ["https://authorized.example/owner/repo.git"],
+      cloneFallbackReason: "missing-filter-capability",
+    })
+
+    expect(result.success).toBe(true)
+    expect(logMock).toHaveBeenCalledWith(expect.objectContaining({ref: fetchedOid}))
+    expect(walkMock).toHaveBeenCalledWith(
+      expect.objectContaining({trees: [expect.objectContaining({ref: fetchedOid})]}),
+    )
+  })
+
+  it("serializes file edits and local creation behind an active repository push", async () => {
+    let releasePush!: () => void
+    const pushGate = new Promise<void>(resolve => {
+      releasePush = resolve
+    })
+    pushMock.mockImplementationOnce(async () => await pushGate)
+
+    const pushing = exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: "https://github.com/owner/repo.git",
+      branch: "main",
+    })
+    await vi.waitFor(() => expect(pushMock).toHaveBeenCalledOnce())
+
+    const editing = exposed.updateAndPushFiles({
+      repoId: "owner/repo",
+      dir: "/repos/owner/repo",
+      remoteUrl: "https://github.com/owner/repo.git",
+      files: [{path: "README.md", content: "updated"}],
+      commitMessage: "Update README",
+      token: "token",
+      provider: "github",
+    })
+    const creating = exposed.createLocalRepo({
+      repoId: "owner/repo",
+      name: "repo",
+      authorName: "Test",
+      authorEmail: "test@example.com",
+    })
+    await Promise.resolve()
+    expect(writeFileMock).not.toHaveBeenCalled()
+    expect(initMock).not.toHaveBeenCalled()
+
+    releasePush()
+    await Promise.all([pushing, editing, creating])
+    expect(writeFileMock).toHaveBeenCalled()
+    expect(initMock).toHaveBeenCalledOnce()
   })
 
   it("rejects provider-managed Nostr pushes while the direct provider is disabled", async () => {

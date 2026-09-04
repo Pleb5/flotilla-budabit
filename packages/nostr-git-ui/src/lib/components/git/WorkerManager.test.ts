@@ -627,6 +627,85 @@ describe('WorkerManager', () => {
       expect(getCachedUrlPreference(repoId)?.preferredUrl).toBe(targetUrls[2]);
       expect(getCachedUrlPreference(repoId, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
     });
+
+    it('reconciles terminal composite-read failures without throwing away attempts', async () => {
+      const api = manager.apiInstance as any;
+      const targetUrls = [
+        'https://target-primary.example/repo.git',
+        'https://target-secondary.example/repo.git'
+      ];
+      const sourceUrls = [
+        'https://source-primary.example/repo.git',
+        'https://source-secondary.example/repo.git'
+      ];
+      const sourceReadScope = 'pr-source:terminal';
+      const failure = {
+        success: false,
+        error: 'all remotes failed',
+        targetAttempts: targetUrls.map((url) => ({ url, success: false, error: 'target failed' })),
+        sourceAttempts: sourceUrls.map((url) => ({ url, success: false, error: 'source failed' }))
+      };
+
+      const reviewRepo = 'worker-manager-terminal-review';
+      api.getPRReviewData = vi.fn(async () => failure);
+      await expect(
+        manager.getPRReviewData({
+          repoId: reviewRepo,
+          tipCommitOid: 'a'.repeat(40),
+          targetBranch: 'main',
+          cloneUrls: targetUrls,
+          prCloneUrls: sourceUrls,
+          sourceReadScope
+        })
+      ).resolves.toMatchObject({ success: false });
+      expect(getCachedUrlPreference(reviewRepo)?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference(reviewRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[1]);
+
+      const previewRepo = 'worker-manager-terminal-preview';
+      api.getPRPreview = vi.fn(async () => failure);
+      await expect(
+        manager.getPRPreview({
+          repoId: previewRepo,
+          sourceBranch: 'feature',
+          targetBranch: 'main',
+          cloneUrls: targetUrls,
+          sourceCloneUrls: sourceUrls,
+          sourceReadScope
+        })
+      ).resolves.toMatchObject({ success: false });
+      expect(getCachedUrlPreference(previewRepo)?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference(previewRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[1]);
+
+      const aheadRepo = 'worker-manager-terminal-ahead';
+      api.getCommitsAheadOfTip = vi.fn(async () => failure);
+      await expect(
+        manager.getCommitsAheadOfTip({
+          repoId: aheadRepo,
+          tipOid: 'a'.repeat(40),
+          cloneUrls: targetUrls,
+          sourceCloneUrls: sourceUrls,
+          sourceReadScope
+        })
+      ).resolves.toMatchObject({ success: false });
+      expect(getCachedUrlPreference(aheadRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[1]);
+
+      const mergeBaseRepo = 'worker-manager-terminal-merge-base';
+      api.getMergeBaseBetween = vi.fn(async () => failure);
+      await expect(
+        manager.getMergeBaseBetween({
+          repoId: mergeBaseRepo,
+          headOid: 'a'.repeat(40),
+          targetBranch: 'main',
+          cloneUrls: targetUrls,
+          sourceCloneUrls: sourceUrls,
+          sourceReadScope
+        })
+      ).resolves.toMatchObject({ success: false });
+      expect(getCachedUrlPreference(mergeBaseRepo)?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference(mergeBaseRepo, sourceReadScope)?.preferredUrl).toBe(
+        sourceUrls[1]
+      );
+    });
   });
 
   describe('Auth Configuration', () => {

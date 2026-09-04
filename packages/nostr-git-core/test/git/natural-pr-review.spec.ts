@@ -294,6 +294,38 @@ describe("getGitNaturalPRReviewData", () => {
     ).resolves.toBeNull()
   })
 
+  it("reports partial role attempts before returning null", async () => {
+    const sourceUrls = [SOURCE_URL, "https://source-fallback.example/repo.git"]
+    const targetUrls = [TARGET_URL, "https://target-fallback.example/repo.git"]
+    const onAttempts = vi.fn()
+    const reader = createReader({
+      histories: new Map([[HEAD, [commit(HEAD, [BASE]), commit(BASE)]]]),
+      diffError: new Error("object not found"),
+    })
+
+    await expect(
+      getGitNaturalPRReviewData({
+        repoId: "terminal-natural-review",
+        tipCommitOid: HEAD,
+        targetBranch: "main",
+        sourceUrls,
+        targetUrls,
+        mergeBase: BASE,
+        reader,
+        onAttempts,
+      }),
+    ).resolves.toBeNull()
+
+    expect(onAttempts).toHaveBeenCalledWith({
+      sourceAttempts: expect.arrayContaining(
+        sourceUrls.map(url => expect.objectContaining({url, success: false})),
+      ),
+      targetAttempts: expect.arrayContaining(
+        targetUrls.map(url => expect.objectContaining({url, success: false})),
+      ),
+    })
+  })
+
   it("attributes the furthest source and target operations when diff falls back roles", async () => {
     const sourceUrls = [
       "https://source-primary.example/repo.git",

@@ -223,7 +223,9 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
             providerHost,
             async (token: string, host: string) => {
               return await gitWorker.api.updateAndPushFiles({
+                repoId: `${currentAnnouncement.pubkey}/${repoId}`,
                 dir: repoDir,
+                remoteUrl: cloneUrl,
                 files: filesToUpdate,
                 commitMessage: `Update repository files via Nostr Git\n\n- Updated README.md\n- Updated repository metadata`,
                 token,

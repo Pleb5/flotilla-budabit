@@ -14,6 +14,20 @@ export async function withRepoOperationLock<T>(
   }
 }
 
+export async function withRepoOperationLocks<T>(
+  repoIds: string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const keys = Array.from(new Set(repoIds.map(repoId => canonicalRepoKey(repoId)))).sort()
+  const releases: Array<() => void> = []
+  try {
+    for (const key of keys) releases.push(await acquireRepoOperationLock(key))
+    return await operation()
+  } finally {
+    for (const release of releases.reverse()) release()
+  }
+}
+
 export async function acquireRepoOperationLock(repoId: string): Promise<() => void> {
   const key = canonicalRepoKey(String(repoId || "").trim())
   const previous = repoOperationLocks.get(key) || Promise.resolve()

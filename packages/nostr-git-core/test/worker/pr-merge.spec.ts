@@ -69,6 +69,7 @@ describe("pr-merge", () => {
       fetch: vi.fn().mockImplementation(async ({ref, singleBranch}) => {
         if (ref === "tip-oid-456" && singleBranch === true) {
           fetchedTipOid = true
+          return {fetchHead: ref}
         }
       }),
       readCommit: vi.fn().mockImplementation(async ({oid}) => {
@@ -165,7 +166,7 @@ describe("pr-merge", () => {
           }
         }),
         setConfig: vi.fn(async (args: any) => await isogit.setConfig({fs: fs as any, ...args})),
-        fetch: vi.fn(async () => undefined),
+        fetch: vi.fn(async ({ref}: {ref?: string}) => ({fetchHead: ref || null})),
         readCommit: vi.fn(async (args: any) => await isogit.readCommit({fs: fs as any, ...args})),
         writeRef: vi.fn(async (args: any) => await isogit.writeRef({fs: fs as any, ...args})),
         checkout: vi.fn(async (args: any) => await isogit.checkout({fs: fs as any, ...args})),
@@ -366,6 +367,7 @@ describe("pr-merge", () => {
       fetch: vi.fn().mockImplementation(async ({ref, singleBranch}) => {
         if (ref === "tip-oid" && singleBranch === true) {
           fetchedAnalysisTip = true
+          return {fetchHead: ref}
         }
       }),
       readCommit: vi.fn().mockImplementation(async ({oid}) => {
@@ -413,7 +415,7 @@ describe("pr-merge", () => {
           }
         }),
         setConfig: vi.fn(async (args: any) => await isogit.setConfig({fs, ...args})),
-        fetch: vi.fn(async () => undefined),
+        fetch: vi.fn(async ({ref}: {ref?: string}) => ({fetchHead: ref || null})),
         readCommit: vi.fn(async (args: any) => await isogit.readCommit({fs, ...args})),
         writeRef: vi.fn(async (args: any) => await isogit.writeRef({fs, ...args})),
         checkout: vi.fn(async (args: any) => await isogit.checkout({fs, ...args})),

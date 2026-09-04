@@ -242,4 +242,30 @@ describe("operation-scoped Git worker progress", () => {
 
     expect(progressEvents()).toEqual([])
   })
+
+  it("serializes clone and push mutations for the same repository", async () => {
+    let releaseClone!: () => void
+    const cloneGate = new Promise<void>(resolve => {
+      releaseClone = resolve
+    })
+    cloneMock.mockImplementationOnce(async () => await cloneGate)
+
+    const cloning = exposed.cloneRemoteRepo({
+      url: "https://example.com/owner/repo.git",
+      dir: "/repos/owner/repo",
+    })
+    await vi.waitFor(() => expect(cloneMock).toHaveBeenCalledOnce())
+
+    const pushing = exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: "https://example.com/owner/repo.git",
+      branch: "main",
+    })
+    await Promise.resolve()
+    expect(pushMock).not.toHaveBeenCalled()
+
+    releaseClone()
+    await Promise.all([cloning, pushing])
+    expect(pushMock).toHaveBeenCalledOnce()
+  })
 })

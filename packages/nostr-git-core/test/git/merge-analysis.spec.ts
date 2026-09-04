@@ -139,7 +139,7 @@ describe("merge analysis", () => {
       addRemote: vi.fn().mockResolvedValue(undefined),
       deleteRemote: vi.fn().mockResolvedValue(undefined),
       setConfig: vi.fn().mockResolvedValue(undefined),
-      fetch: vi.fn().mockResolvedValue(undefined),
+      fetch: vi.fn(async ({ref}: {ref?: string}) => ({fetchHead: ref || null})),
       readCommit: vi.fn().mockImplementation(async ({oid}) => {
         if (oid === tipOid) {
           return {oid, commit: {message: "already merged", parent: []}}

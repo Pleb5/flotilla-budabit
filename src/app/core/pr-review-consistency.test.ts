@@ -6,6 +6,9 @@ const readProjectFile = (path: string) => readFileSync(new URL(path, import.meta
 describe("PR review consistency", () => {
   const prView = readProjectFile("../components/PRView.svelte")
   const worker = readProjectFile("../../../packages/nostr-git-core/src/worker/worker.ts")
+  const newPrForm = readProjectFile(
+    "../../../packages/nostr-git-ui/src/lib/components/git/NewPRForm.svelte",
+  )
 
   it("displays computed graph evidence without converting missing evidence to zero", () => {
     expect(prView).toContain('prReviewAheadCount ?? "unknown"')
@@ -44,5 +47,7 @@ describe("PR review consistency", () => {
     expect(prView).toContain('if (role === "target" && result?.usedUrl)')
     expect(prView).toContain("sourceReadScope: prSourceReadScope")
     expect(prView).toContain("...(route.readScope ? {readScope: route.readScope} : {})")
+    expect(newPrForm).toContain('`pr-source:new:${JSON.stringify(sourceUrls)}`')
+    expect(newPrForm).toContain("sourceReadScope,")
   })
 })

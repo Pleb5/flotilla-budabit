@@ -34,12 +34,14 @@ export async function fetchPrSourceTip(
     dir,
     remote,
     url,
-    tipCommitOid,
     depth = 100,
     corsProxy,
     onAuth,
     requireRemoteEvidence = false,
   } = opts
+  const tipCommitOid = String(opts.tipCommitOid || "")
+    .trim()
+    .toLowerCase()
 
   if (!requireRemoteEvidence && (await hasCommitObject(git, dir, tipCommitOid))) {
     return {tipOid: tipCommitOid, strategy: "local"}
@@ -58,11 +60,17 @@ export async function fetchPrSourceTip(
   let tipFetchError: unknown
 
   try {
-    await git.fetch({
+    const fetchResult = await git.fetch({
       ...commonFetchOptions,
       ref: tipCommitOid,
       singleBranch: true,
     })
+
+    if (String(fetchResult?.fetchHead || "").toLowerCase() !== tipCommitOid.toLowerCase()) {
+      throw new Error(
+        `Exact tip fetch returned ${fetchResult?.fetchHead || "no OID"}; expected ${tipCommitOid}`,
+      )
+    }
 
     if (await hasCommitObject(git, dir, tipCommitOid)) {
       return {tipOid: tipCommitOid, strategy: "tip-oid"}

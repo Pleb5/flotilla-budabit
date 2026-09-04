@@ -151,7 +151,9 @@ import {listAdvertisedServerRefs} from "../utils/advertised-refs.js"
 import {
   filterValidCloneUrls,
   orderReadUrlsByPreference,
+  type ReadFallbackResult,
   reorderUrlsByPreference,
+  type UrlAttemptResult,
   withUrlFallback,
 } from "../utils/clone-url-fallback.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
@@ -216,7 +218,11 @@ import {needsUpdateUtil, syncWithRemoteUtil} from "./workers/sync.js"
 
 import type {AnalyzePRMergeOptions, MergePRAndPushOptions} from "./workers/pr-merge.js"
 import {analyzePRMergeUtil, mergePRAndPushUtil} from "./workers/pr-merge.js"
-import {acquireRepoOperationLock, withRepoOperationLock} from "./workers/repo-operation-lock.js"
+import {
+  acquireRepoOperationLock,
+  withRepoOperationLock,
+  withRepoOperationLocks,
+} from "./workers/repo-operation-lock.js"
 
 import type {SafePushOptions} from "./workers/push.js"
 import {safePushToRemoteUtil, validateExplicitGraspPush} from "./workers/push.js"
@@ -377,6 +383,22 @@ function repoEventOperationKey(repoEvent: RepoAnnouncementEvent, repoKey?: strin
   return identifier ? `${repoEvent.pubkey}:${identifier}` : repoEvent.id
 }
 
+function summarizeUrlAttempts(
+  attempts: UrlAttemptResult[] | undefined,
+): Array<Omit<UrlAttemptResult, "result">> | undefined {
+  return attempts?.map(({result: _result, ...attempt}) => attempt)
+}
+
+type ReadUrlAttempt = Omit<UrlAttemptResult, "result">
+type RoleAttemptCollector = {
+  sourceAttempts: ReadUrlAttempt[]
+  targetAttempts: ReadUrlAttempt[]
+}
+
+function appendUrlAttempts(target: ReadUrlAttempt[], attempts: UrlAttemptResult[] | undefined) {
+  target.push(...(summarizeUrlAttempts(attempts) || []))
+}
+
 async function tryGitNaturalPRReviewData(params: {
   key: string
   tipCommitOid: string
@@ -387,9 +409,11 @@ async function tryGitNaturalPRReviewData(params: {
   targetCommitOid?: string
   corsProxy?: string | null
   sourceReadScope?: string
+  attempts?: RoleAttemptCollector
 }) {
   const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
   const provider = getGitNaturalReadProvider(corsProxy)
+  let terminalAttempts: RoleAttemptCollector | undefined
   try {
     const review = await getGitNaturalPRReviewData({
       repoId: params.key,
@@ -401,6 +425,9 @@ async function tryGitNaturalPRReviewData(params: {
       targetCommitOid: params.targetCommitOid,
       sourceReadScope: params.sourceReadScope,
       corsProxy,
+      onAttempts: attempts => {
+        terminalAttempts = attempts
+      },
       reader: {
         resolveRef: request => provider.resolveRef(request),
         listCommits: request => provider.listCommits(request),
@@ -410,6 +437,14 @@ async function tryGitNaturalPRReviewData(params: {
 
     if (review) {
       console.info(`[getPRReviewData] Git natural PR review data loaded for ${params.tipCommitOid}`)
+    }
+    if (params.attempts) {
+      params.attempts.sourceAttempts.push(
+        ...(review?.sourceAttempts || terminalAttempts?.sourceAttempts || []),
+      )
+      params.attempts.targetAttempts.push(
+        ...(review?.targetAttempts || terminalAttempts?.targetAttempts || []),
+      )
     }
     return review
   } catch (error) {
@@ -427,6 +462,7 @@ async function tryGitNaturalPRPreview(params: {
   sourceUrls: string[]
   targetUrls: string[]
   sourceReadScope?: string
+  attempts?: RoleAttemptCollector
 }) {
   const source = await tryGitNaturalResolveRefFromUrls({
     key: params.key,
@@ -434,7 +470,8 @@ async function tryGitNaturalPRPreview(params: {
     cloneUrls: params.sourceUrls,
     readScope: params.sourceReadScope,
   })
-  if (!source) return null
+  appendUrlAttempts(params.attempts?.sourceAttempts || [], source.attempts)
+  if (!source.success || !source.result || !source.usedUrl) return null
 
   const review = await tryGitNaturalPRReviewData({
     key: params.key,
@@ -443,6 +480,7 @@ async function tryGitNaturalPRPreview(params: {
     sourceUrls: params.sourceUrls,
     targetUrls: params.targetUrls,
     sourceReadScope: params.sourceReadScope,
+    attempts: params.attempts,
   })
   if (!review) return null
 
@@ -461,8 +499,8 @@ async function tryGitNaturalPRPreview(params: {
     readSource: review.readSource,
     usedCloneUrl: review.usedCloneUrl,
     usedTargetCloneUrl: review.usedTargetCloneUrl,
-    sourceAttempts: review.sourceAttempts,
-    targetAttempts: review.targetAttempts,
+    sourceAttempts: params.attempts?.sourceAttempts || review.sourceAttempts,
+    targetAttempts: params.attempts?.targetAttempts || review.targetAttempts,
   }
 }
 
@@ -471,6 +509,7 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
   tipOid: string
   sourceUrls: string[]
   sourceReadScope?: string
+  attempts?: RoleAttemptCollector
 }) {
   const tipOid = normalizeFullOid(params.tipOid)
   if (!tipOid) return null
@@ -532,10 +571,14 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
     },
     {repoId: params.key, readScope: params.sourceReadScope, perUrlTimeoutMs: 20000},
   )
+  appendUrlAttempts(params.attempts?.sourceAttempts || [], result.attempts)
 
   if (result.success) {
     console.info(`[getCommitsAheadOfTip] Git natural preview loaded for ${tipOid}`)
-    return result.result
+    return {
+      ...result.result,
+      sourceAttempts: params.attempts?.sourceAttempts || summarizeUrlAttempts(result.attempts),
+    }
   }
   return null
 }
@@ -547,6 +590,7 @@ async function tryGitNaturalMergeBaseBetween(params: {
   targetUrls: string[]
   sourceUrls?: string[]
   sourceReadScope?: string
+  attempts?: RoleAttemptCollector
 }) {
   const headOid = normalizeFullOid(params.headOid)
   if (!headOid) return null
@@ -555,7 +599,8 @@ async function tryGitNaturalMergeBaseBetween(params: {
     ref: params.targetBranch,
     cloneUrls: params.targetUrls,
   })
-  if (!target) return null
+  appendUrlAttempts(params.attempts?.targetAttempts || [], target.attempts)
+  if (!target.success || !target.result || !target.usedUrl) return null
   const headUrls = params.sourceUrls?.length ? params.sourceUrls : params.targetUrls
 
   const headHistory = await tryGitNaturalListCommitsFromUrls({
@@ -565,13 +610,15 @@ async function tryGitNaturalMergeBaseBetween(params: {
     depth: 100,
     readScope: params.sourceUrls?.length ? params.sourceReadScope : undefined,
   })
+  appendUrlAttempts(params.attempts?.sourceAttempts || [], headHistory.attempts)
   const targetHistory = await tryGitNaturalListCommitsFromUrls({
     key: params.key,
     commitHash: target.result.commitHash,
     cloneUrls: params.targetUrls,
     depth: 100,
   })
-  if (!headHistory || !targetHistory) return null
+  appendUrlAttempts(params.attempts?.targetAttempts || [], targetHistory.attempts)
+  if (!headHistory.result || !targetHistory.result) return null
 
   const mergeBase = firstCommonNaturalCommit(
     headHistory.result.commits,
@@ -584,6 +631,8 @@ async function tryGitNaturalMergeBaseBetween(params: {
     source: "git-natural",
     usedCloneUrl: headHistory.usedUrl,
     usedTargetCloneUrl: targetHistory.usedUrl,
+    sourceAttempts: params.attempts?.sourceAttempts,
+    targetAttempts: params.attempts?.targetAttempts,
   }
 }
 
@@ -592,9 +641,9 @@ async function tryGitNaturalResolveRefFromUrls(params: {
   ref: string
   cloneUrls: string[]
   readScope?: string
-}): Promise<{result: GitNaturalResolveRefResult; usedUrl: string} | null> {
+}): Promise<ReadFallbackResult<GitNaturalResolveRefResult>> {
   const urls = gitNaturalHttpUrls(params.cloneUrls, params.key, params.readScope)
-  if (urls.length === 0) return null
+  if (urls.length === 0) return {success: false, attempts: []}
   const corsProxy = resolveGitNaturalCorsProxy(undefined)
   const result = await withUrlFallback(
     urls,
@@ -604,9 +653,7 @@ async function tryGitNaturalResolveRefFromUrls(params: {
     },
     {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 15000},
   )
-  return result.success && result.result && result.usedUrl
-    ? {result: result.result, usedUrl: result.usedUrl}
-    : null
+  return result
 }
 
 async function tryGitNaturalListCommitsFromUrls(params: {
@@ -615,11 +662,11 @@ async function tryGitNaturalListCommitsFromUrls(params: {
   cloneUrls: string[]
   depth: number
   readScope?: string
-}): Promise<{result: GitNaturalListCommitsResult; usedUrl: string} | null> {
+}): Promise<ReadFallbackResult<GitNaturalListCommitsResult>> {
   const commitHash = normalizeFullOid(params.commitHash)
-  if (!commitHash) return null
+  if (!commitHash) return {success: false, attempts: []}
   const urls = gitNaturalHttpUrls(params.cloneUrls, params.key, params.readScope)
-  if (urls.length === 0) return null
+  if (urls.length === 0) return {success: false, attempts: []}
   const corsProxy = resolveGitNaturalCorsProxy(undefined)
   const result = await withUrlFallback(
     urls,
@@ -635,9 +682,7 @@ async function tryGitNaturalListCommitsFromUrls(params: {
     },
     {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 15000},
   )
-  return result.success && result.result && result.usedUrl
-    ? {result: result.result, usedUrl: result.usedUrl}
-    : null
+  return result
 }
 
 function gitNaturalHttpUrls(urls: string[], repoId: string, readScope?: string): string[] {
@@ -963,10 +1008,12 @@ async function fetchRefsUntilOidsAvailable(opts: {
   forceRefFetch?: boolean
   strictCloneUrls?: boolean
   readScope?: string
-}): Promise<boolean> {
+}): Promise<ReadFallbackResult<boolean>> {
   const {key, dir} = opts
-  const requiredOids = Array.from(new Set((opts.requiredOids || []).filter(Boolean)))
-  if (requiredOids.length === 0) return true
+  const requiredOids = Array.from(
+    new Set((opts.requiredOids || []).filter(Boolean).map(oid => oid.toLowerCase())),
+  )
+  if (requiredOids.length === 0) return {success: true, result: true, attempts: []}
 
   const urlsToTry: string[] = []
   const addUrls = (urls: string[]) => {
@@ -1000,7 +1047,13 @@ async function fetchRefsUntilOidsAvailable(opts: {
 
   const orderedUrls = reorderUrlsByPreference(urlsToTry, key)
   if (orderedUrls.length === 0) {
-    return false
+    return {success: false, attempts: []}
+  }
+
+  const attempts: UrlAttemptResult<boolean>[] = []
+  const recordResult = (result: ReadFallbackResult<boolean>): ReadFallbackResult<boolean> => {
+    attempts.push(...result.attempts)
+    return {...result, attempts: [...attempts]}
   }
 
   const corsProxy = resolveDefaultCorsProxy()
@@ -1018,7 +1071,7 @@ async function fetchRefsUntilOidsAvailable(opts: {
     const authCallback = getAuthCallback(url)
     const oidsToFetch = opts.strictCloneUrls ? requiredOids : await getMissingOids()
     for (const oid of oidsToFetch) {
-      await git.fetch({
+      const fetchResult = await git.fetch({
         dir,
         url,
         ref: oid,
@@ -1028,6 +1081,11 @@ async function fetchRefsUntilOidsAvailable(opts: {
         corsProxy,
         ...(authCallback && {onAuth: authCallback}),
       })
+      if (String(fetchResult?.fetchHead || "").toLowerCase() !== oid.toLowerCase()) {
+        throw new Error(
+          `Exact object fetch returned ${fetchResult?.fetchHead || "no OID"}; expected ${oid}`,
+        )
+      }
     }
 
     const missingOids = await getMissingOids()
@@ -1057,7 +1115,9 @@ async function fetchRefsUntilOidsAvailable(opts: {
   }
 
   const initialMissingOids = await getMissingOids()
-  if (!opts.forceRefFetch && initialMissingOids.length === 0 && !opts.strictCloneUrls) return true
+  if (!opts.forceRefFetch && initialMissingOids.length === 0 && !opts.strictCloneUrls) {
+    return {success: true, result: true, attempts: []}
+  }
 
   if (opts.strictCloneUrls && opts.forceRefFetch) {
     const strictRefFetchResult = await withUrlFallback(
@@ -1072,7 +1132,7 @@ async function fetchRefsUntilOidsAvailable(opts: {
       },
       {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
     )
-    return strictRefFetchResult.success
+    return recordResult(strictRefFetchResult)
   }
 
   const requiresDirectOidProof =
@@ -1087,8 +1147,9 @@ async function fetchRefsUntilOidsAvailable(opts: {
       {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
     )
 
-    if (directOidFetchResult.success) return true
-    if (opts.strictCloneUrls && !directOidFetchResult.success) return false
+    const directOidResult = recordResult(directOidFetchResult)
+    if (directOidResult.success) return directOidResult
+    if (opts.strictCloneUrls) return directOidResult
   }
 
   const shallowRefsResult = await withUrlFallback(
@@ -1097,7 +1158,8 @@ async function fetchRefsUntilOidsAvailable(opts: {
     {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
   )
 
-  if (shallowRefsResult.success) return true
+  const shallowResult = recordResult(shallowRefsResult)
+  if (shallowResult.success) return shallowResult
 
   const fetchResult = await withUrlFallback(
     orderedUrls,
@@ -1105,7 +1167,7 @@ async function fetchRefsUntilOidsAvailable(opts: {
     {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
   )
 
-  return fetchResult.success
+  return recordResult(fetchResult)
 }
 
 // --- exposed Comlink API ---
@@ -1309,7 +1371,9 @@ const api = {
               onStage: stage => operation?.setStage(stage),
             })
           : undefined
-        await cloneRemoteRepoUtil(git, cacheManager, options, sendProgress, operation)
+        await withRepoOperationLock(repoId, () =>
+          cloneRemoteRepoUtil(git, cacheManager, options, sendProgress, operation),
+        )
       },
     )
   },
@@ -2786,7 +2850,7 @@ const api = {
           requiredOids: [commit],
           cloneUrls,
         })
-        if (!fetched || !(await hasCommitObject(dir, commit))) {
+        if (!fetched.success || !(await hasCommitObject(dir, commit))) {
           throw new Error(`Unable to fetch imported pull request commit ${commit}`)
         }
       }
@@ -3044,9 +3108,12 @@ const api = {
       : targetUrls
     let sourceRemote: string | undefined
     let verifiedSourceUrl: string | undefined
+    let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
+    let sourceAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
     let releaseRepoOperation: (() => void) | undefined
 
     try {
+      const naturalAttempts: RoleAttemptCollector = {sourceAttempts: [], targetAttempts: []}
       const naturalPreview = await tryGitNaturalPRPreview({
         key,
         sourceBranch: opts.sourceBranch,
@@ -3054,8 +3121,11 @@ const api = {
         sourceUrls: naturalSourceUrls,
         targetUrls,
         sourceReadScope: opts.sourceReadScope,
+        attempts: naturalAttempts,
       }).catch(() => null)
       if (naturalPreview) return toPlain(naturalPreview)
+      targetAttempts = naturalAttempts.targetAttempts
+      sourceAttempts = naturalAttempts.sourceAttempts
 
       releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       await smartInitializeRepoUtil(
@@ -3083,6 +3153,8 @@ const api = {
           commits: [],
           commitOids: [],
           filesChanged: [],
+          targetAttempts,
+          sourceAttempts,
         })
       }
 
@@ -3106,6 +3178,7 @@ const api = {
         },
         {repoId: key, perUrlTimeoutMs: 0},
       )
+      appendUrlAttempts(targetAttempts, targetFetchResult.attempts)
       if (!targetFetchResult.success) {
         return toPlain({
           success: false,
@@ -3113,6 +3186,8 @@ const api = {
           commits: [],
           commitOids: [],
           filesChanged: [],
+          targetAttempts,
+          sourceAttempts,
         })
       }
 
@@ -3125,6 +3200,8 @@ const api = {
             commits: [],
             commitOids: [],
             filesChanged: [],
+            targetAttempts,
+            sourceAttempts,
           })
         }
         const sourceOrdered = orderReadUrlsByPreference(forkSourceUrls, key, opts.sourceReadScope)
@@ -3174,6 +3251,7 @@ const api = {
           },
           {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
         )
+        appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
         if (!sourceFetchResult.success) {
           return toPlain({
             success: false,
@@ -3181,6 +3259,8 @@ const api = {
             commits: [],
             commitOids: [],
             filesChanged: [],
+            targetAttempts,
+            sourceAttempts,
           })
         }
         sourceRemote = prSourceRemote
@@ -3205,6 +3285,7 @@ const api = {
           },
           {repoId: key, perUrlTimeoutMs: 0},
         )
+        appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
         if (!sourceFetchResult.success) {
           return toPlain({
             success: false,
@@ -3212,6 +3293,8 @@ const api = {
             commits: [],
             commitOids: [],
             filesChanged: [],
+            targetAttempts,
+            sourceAttempts,
           })
         }
         verifiedSourceUrl = sourceFetchResult.usedUrl?.trim()
@@ -3227,6 +3310,8 @@ const api = {
         verifiedCloneUrls: result.success && verifiedSourceUrl ? [verifiedSourceUrl] : [],
         usedCloneUrl: verifiedSourceUrl,
         usedTargetCloneUrl: targetFetchResult.usedUrl,
+        targetAttempts,
+        sourceAttempts,
       })
     } catch (error: any) {
       return toPlain({
@@ -3235,6 +3320,8 @@ const api = {
         commits: [],
         commitOids: [],
         filesChanged: [],
+        targetAttempts,
+        sourceAttempts,
       })
     } finally {
       if (sourceRemote) {
@@ -3270,6 +3357,8 @@ const api = {
     const initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
     type PRReviewErrorPhase = "source" | "target" | "review"
     let loadingPhase: PRReviewErrorPhase = targetUrls.length > 0 ? "target" : "source"
+    let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
+    let sourceAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
     const failure = (
       error: string,
       errorPhase: PRReviewErrorPhase,
@@ -3280,6 +3369,8 @@ const api = {
         success: false,
         error,
         errorPhase,
+        targetAttempts,
+        sourceAttempts,
         commits: Array.isArray(extra.commits) ? extra.commits : [],
         commitOids: Array.isArray(extra.commitOids) ? extra.commitOids : [],
         changes: Array.isArray(extra.changes) ? extra.changes : [],
@@ -3300,6 +3391,7 @@ const api = {
       return failure("PR target branch is missing", "target")
     }
 
+    const naturalAttempts: RoleAttemptCollector = {sourceAttempts: [], targetAttempts: []}
     const naturalReview = await tryGitNaturalPRReviewData({
       key,
       tipCommitOid: opts.tipCommitOid,
@@ -3309,8 +3401,11 @@ const api = {
       ...(hasProvidedMergeBase ? {mergeBase: opts.mergeBase} : {}),
       ...(hasProvidedTargetCommit ? {targetCommitOid: opts.targetCommitOid} : {}),
       sourceReadScope: opts.sourceReadScope,
+      attempts: naturalAttempts,
     })
     if (naturalReview) return toPlain(naturalReview)
+    targetAttempts = naturalAttempts.targetAttempts
+    sourceAttempts = naturalAttempts.sourceAttempts
 
     const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
     try {
@@ -3332,7 +3427,7 @@ const api = {
 
       const corsProxy = resolveDefaultCorsProxy()
       let targetCommit: string | undefined = hasProvidedTargetCommit
-        ? opts.targetCommitOid
+        ? opts.targetCommitOid!.toLowerCase()
         : undefined
       let targetFetchError = ""
       let usedTargetCloneUrl: string | undefined
@@ -3386,6 +3481,7 @@ const api = {
           },
           {repoId: key, perUrlTimeoutMs: 0},
         )
+        appendUrlAttempts(targetAttempts, targetFetchResult.attempts)
 
         if (targetFetchResult.success) {
           targetCommit = targetFetchResult.result?.oid
@@ -3430,6 +3526,7 @@ const api = {
         },
         {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
       )
+      appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
 
       if (!sourceFetchResult.success) {
         return failure(
@@ -3441,7 +3538,7 @@ const api = {
       headOid = sourceFetchResult.result?.tipOid || opts.tipCommitOid
       usedCloneUrl = sourceFetchResult.usedUrl
 
-      const preferredMergeBase = hasProvidedMergeBase ? opts.mergeBase : undefined
+      const preferredMergeBase = hasProvidedMergeBase ? opts.mergeBase!.toLowerCase() : undefined
       loadingPhase = "review"
       if (hasProvidedTargetCommit && targetCommit && !(await hasCommitObject(dir, targetCommit))) {
         const targetRecoveryUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
@@ -3453,7 +3550,14 @@ const api = {
           strictCloneUrls: true,
           ...(targetUrls.length === 0 ? {readScope: opts.sourceReadScope} : {}),
         })
-        if (!fetchedTarget) {
+        if (targetUrls.length > 0) {
+          appendUrlAttempts(targetAttempts, fetchedTarget.attempts)
+          usedTargetCloneUrl = fetchedTarget.usedUrl || usedTargetCloneUrl
+        } else {
+          appendUrlAttempts(sourceAttempts, fetchedTarget.attempts)
+          usedCloneUrl = fetchedTarget.usedUrl || usedCloneUrl
+        }
+        if (!fetchedTarget.success) {
           return failure("Could not fetch PR target commit objects.", "target")
         }
       }
@@ -3466,7 +3570,7 @@ const api = {
       })
 
       if (!review.success && targetCommit) {
-        await fetchRefsUntilOidsAvailable({
+        const sourceRecovery = await fetchRefsUntilOidsAvailable({
           key,
           dir,
           requiredOids: [headOid],
@@ -3475,8 +3579,10 @@ const api = {
           strictCloneUrls: true,
           readScope: opts.sourceReadScope,
         })
+        appendUrlAttempts(sourceAttempts, sourceRecovery.attempts)
+        usedCloneUrl = sourceRecovery.usedUrl || usedCloneUrl
         if (targetUrls.length > 0) {
-          await fetchRefsUntilOidsAvailable({
+          const targetRecovery = await fetchRefsUntilOidsAvailable({
             key,
             dir,
             requiredOids: [targetCommit],
@@ -3484,6 +3590,8 @@ const api = {
             forceRefFetch: true,
             strictCloneUrls: true,
           })
+          appendUrlAttempts(targetAttempts, targetRecovery.attempts)
+          usedTargetCloneUrl = targetRecovery.usedUrl || usedTargetCloneUrl
         }
         review = await getPRReviewDataCore(git, dir, {
           tipCommitOid: headOid,
@@ -3496,7 +3604,7 @@ const api = {
         return failure(
           review.error || targetFetchError || "Failed to resolve PR review data",
           targetFetchError ? "target" : "review",
-          review,
+          {...review, usedTargetCloneUrl, usedCloneUrl},
         )
       }
 
@@ -3520,6 +3628,8 @@ const api = {
         changes: diff.changes || [],
         usedTargetCloneUrl,
         usedCloneUrl,
+        targetAttempts,
+        sourceAttempts,
       })
     } catch (error: any) {
       return failure(error?.message || String(error), loadingPhase)
@@ -3549,16 +3659,20 @@ const api = {
       : targetUrls
     let sourceRemote: string | undefined
     let usedCloneUrl: string | undefined
+    let sourceAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
     let releaseRepoOperation: (() => void) | undefined
 
     try {
+      const naturalAttempts: RoleAttemptCollector = {sourceAttempts: [], targetAttempts: []}
       const naturalAhead = await tryGitNaturalCommitsAheadOfTip({
         key,
         tipOid: opts.tipOid,
         sourceUrls: naturalSourceUrls,
         sourceReadScope: opts.sourceReadScope,
+        attempts: naturalAttempts,
       }).catch(() => null)
       if (naturalAhead) return toPlain(naturalAhead)
+      sourceAttempts = naturalAttempts.sourceAttempts
 
       releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       await smartInitializeRepoUtil(
@@ -3636,12 +3750,14 @@ const api = {
           },
           {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
         )
+        appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
         if (!sourceFetchResult.success) {
           return toPlain({
             success: false,
             error: `Failed to fetch from fork: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
             commits: [],
             commitOids: [],
+            sourceAttempts,
           })
         }
         sourceRemote = prSourceRemote
@@ -3673,12 +3789,14 @@ const api = {
           },
           {repoId: key, perUrlTimeoutMs: 0},
         )
+        appendUrlAttempts(sourceAttempts, fetchResult.attempts)
         if (!fetchResult.success) {
           return toPlain({
             success: false,
             error: `Failed to refresh repository refs: ${fetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
             commits: [],
             commitOids: [],
+            sourceAttempts,
           })
         }
         usedCloneUrl = fetchResult.usedUrl
@@ -3691,13 +3809,14 @@ const api = {
         sourceRemote ? {sourceRemote} : undefined,
       )
 
-      return toPlain({...result, usedCloneUrl})
+      return toPlain({...result, usedCloneUrl, sourceAttempts})
     } catch (error: any) {
       return toPlain({
         success: false,
         error: error?.message || String(error),
         commits: [],
         commitOids: [],
+        sourceAttempts,
       })
     } finally {
       if (sourceRemote) {
@@ -3724,19 +3843,28 @@ const api = {
     sourceReadScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const headOid = String(opts.headOid || "")
+      .trim()
+      .toLowerCase()
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
     let usedTargetCloneUrl: string | undefined
+    let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
+    let sourceAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
     let releaseRepoOperation: (() => void) | undefined
     try {
+      const naturalAttempts: RoleAttemptCollector = {sourceAttempts: [], targetAttempts: []}
       const naturalMergeBase = await tryGitNaturalMergeBaseBetween({
         key,
-        headOid: opts.headOid,
+        headOid,
         targetBranch: opts.targetBranch,
         targetUrls,
         sourceUrls: filterValidCloneUrls(opts.sourceCloneUrls || []),
         sourceReadScope: opts.sourceReadScope,
+        attempts: naturalAttempts,
       }).catch(() => null)
       if (naturalMergeBase) return toPlain(naturalMergeBase)
+      targetAttempts = naturalAttempts.targetAttempts
+      sourceAttempts = naturalAttempts.sourceAttempts
 
       releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       if (targetUrls.length > 0) {
@@ -3757,20 +3885,31 @@ const api = {
           },
           {repoId: key, perUrlTimeoutMs: 0},
         )
+        appendUrlAttempts(targetAttempts, fetchResult.attempts)
+        if (!fetchResult.success) {
+          return toPlain({
+            mergeBase: undefined,
+            error: `Failed to refresh target branch from remote: ${fetchResult.attempts.map(attempt => attempt.error || "unknown").join("; ")}`,
+            targetAttempts,
+            sourceAttempts,
+          })
+        }
         usedTargetCloneUrl = fetchResult.usedUrl
       }
       const result = await getMergeBaseBetweenData(
         git,
         dir,
-        opts.headOid,
+        headOid,
         opts.targetBranch,
         undefined,
       )
-      return toPlain({...result, usedTargetCloneUrl})
+      return toPlain({...result, usedTargetCloneUrl, targetAttempts, sourceAttempts})
     } catch (error: any) {
       return toPlain({
         mergeBase: undefined,
         error: error?.message || String(error),
+        targetAttempts,
+        sourceAttempts,
       })
     } finally {
       releaseRepoOperation?.()
@@ -4026,6 +4165,9 @@ const api = {
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
+    const commitId = String(opts.commitId || "")
+      .trim()
+      .toLowerCase()
 
     try {
       if (allowRemoteFallback) {
@@ -4033,22 +4175,22 @@ const api = {
           fetchRefsUntilOidsAvailable({
             key,
             dir,
-            requiredOids: [opts.commitId],
+            requiredOids: [commitId],
             cloneUrls: opts.cloneUrls,
             strictCloneUrls: true,
             readScope: opts.readScope,
           }),
         )
-        if (!fetched) {
-          throw new Error(`Commit ${opts.commitId} not found`)
+        if (!fetched.success) {
+          throw new Error(`Commit ${commitId} not found`)
         }
-      } else if (!(await hasCommitObject(dir, opts.commitId))) {
+      } else if (!(await hasCommitObject(dir, commitId))) {
         throw new Error(
-          `Commit ${opts.commitId} is not available locally; remote fallback requires missing-filter-capability`,
+          `Commit ${commitId} is not available locally; remote fallback requires missing-filter-capability`,
         )
       }
 
-      const commit = await git.readCommit({dir, oid: opts.commitId})
+      const commit = await git.readCommit({dir, oid: commitId})
       return toPlain({
         success: true,
         meta: {
@@ -4082,6 +4224,9 @@ const api = {
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
+    const commitId = String(opts.commitId || "")
+      .trim()
+      .toLowerCase()
 
     const isMissingCommitObjectError = (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error || "")
@@ -4097,14 +4242,15 @@ const api = {
 
     const fetchAllRefsForMissingCommit = async (): Promise<boolean> => {
       if (!allowRemoteFallback) return false
-      return await fetchRefsUntilOidsAvailable({
+      const result = await fetchRefsUntilOidsAvailable({
         key,
         dir,
-        requiredOids: [opts.commitId],
+        requiredOids: [commitId],
         cloneUrls: opts.cloneUrls,
         strictCloneUrls: true,
         readScope: opts.readScope,
       })
+      return result.success
     }
 
     const releaseRepoOperation = allowRemoteFallback
@@ -4115,28 +4261,30 @@ const api = {
         const verified = await fetchRefsUntilOidsAvailable({
           key,
           dir,
-          requiredOids: [opts.commitId],
+          requiredOids: [commitId],
           cloneUrls: opts.cloneUrls,
           strictCloneUrls: true,
           readScope: opts.readScope,
         })
-        if (!verified) throw new Error(`Commit ${opts.commitId} not found on the scoped remote`)
+        if (!verified.success) {
+          throw new Error(`Commit ${commitId} not found on the scoped remote`)
+        }
       }
 
       // Optimization: Try to read commit locally first before triggering expensive fetch
       let commits: any[] = []
       try {
-        commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+        commits = await (git as any).log({dir, depth: 1, ref: commitId})
       } catch (error) {
         // Commit not found locally, need to fetch
-        console.log(`[getCommitDetails] Commit ${opts.commitId} not found locally, fetching...`)
+        console.log(`[getCommitDetails] Commit ${commitId} not found locally, fetching...`)
       }
 
       // Only fetch if commit wasn't found locally
       if (commits.length === 0) {
         if (!allowRemoteFallback) {
           throw new Error(
-            `Commit ${opts.commitId} is not available locally; remote fallback requires missing-filter-capability`,
+            `Commit ${commitId} is not available locally; remote fallback requires missing-filter-capability`,
           )
         }
         let restMeta:
@@ -4203,10 +4351,10 @@ const api = {
                 )
 
                 const api = getGitServiceApi(provider.vendor, "", provider.getApiUrl(""))
-                const commitData = await api.getCommit(owner, repo, opts.commitId)
+                const commitData = await api.getCommit(owner, repo, commitId)
 
                 console.log(
-                  `[getCommitDetails] REST API metadata loaded for commit ${opts.commitId}`,
+                  `[getCommitDetails] REST API metadata loaded for commit ${commitId}`,
                 )
 
                 restMeta = {
@@ -4272,19 +4420,19 @@ const api = {
           }
 
           try {
-            commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+            commits = await (git as any).log({dir, depth: 1, ref: commitId})
           } catch (logError) {
             if (!isMissingCommitObjectError(logError) && !branchFetchError) {
               throw logError
             }
 
             console.warn(
-              `[getCommitDetails] Commit ${opts.commitId} missing after branch fetch, trying full ref fetch...`,
+              `[getCommitDetails] Commit ${commitId} missing after branch fetch, trying full ref fetch...`,
               logError,
             )
             const recovered = await fetchAllRefsForMissingCommit()
             if (recovered) {
-              commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+              commits = await (git as any).log({dir, depth: 1, ref: commitId})
             } else {
               throw branchFetchError || logError
             }
@@ -4292,11 +4440,11 @@ const api = {
 
           if (commits.length === 0) {
             console.warn(
-              `[getCommitDetails] Commit ${opts.commitId} still missing after branch fetch, trying full ref fetch...`,
+              `[getCommitDetails] Commit ${commitId} still missing after branch fetch, trying full ref fetch...`,
             )
             const recovered = await fetchAllRefsForMissingCommit()
             if (recovered) {
-              commits = await (git as any).log({dir, depth: 1, ref: opts.commitId})
+              commits = await (git as any).log({dir, depth: 1, ref: commitId})
             } else if (branchFetchError) {
               throw branchFetchError
             }
@@ -4327,7 +4475,7 @@ const api = {
         }
       }
       if (commits.length === 0) {
-        throw new Error(`Commit ${opts.commitId} not found`)
+        throw new Error(`Commit ${commitId} not found`)
       }
 
       const commit = commits[0]
@@ -4453,7 +4601,7 @@ const api = {
           // Initial commit - show all files as added
           const files = await (git as any).walk({
             dir,
-            trees: [(git as any).TREE({ref: opts.commitId})],
+            trees: [(git as any).TREE({ref: commitId})],
             map: async function (filepath: string, [A]: any[]) {
               if (filepath === ".") return
               const oid = await A?.oid()
@@ -4509,7 +4657,7 @@ const api = {
         }
 
         console.warn(
-          `[getCommitDetails] Missing commit objects for ${opts.commitId}, attempting ancestor refetch...`,
+          `[getCommitDetails] Missing commit objects for ${commitId}, attempting ancestor refetch...`,
           diffError,
         )
 
@@ -4523,17 +4671,19 @@ const api = {
           const requiredOids = [commit.oid, ...(commit.commit.parent || [])]
           let recovered = false
           try {
-            recovered = await fetchRefsUntilOidsAvailable({
-              key,
-              dir,
-              requiredOids,
-              cloneUrls: opts.cloneUrls,
-              strictCloneUrls: true,
-              readScope: opts.readScope,
-            })
+            recovered = (
+              await fetchRefsUntilOidsAvailable({
+                key,
+                dir,
+                requiredOids,
+                cloneUrls: opts.cloneUrls,
+                strictCloneUrls: true,
+                readScope: opts.readScope,
+              })
+            ).success
           } catch (recoverError) {
             console.warn(
-              `[getCommitDetails] Ancestor refetch failed for ${opts.commitId}:`,
+              `[getCommitDetails] Ancestor refetch failed for ${commitId}:`,
               recoverError,
             )
           }
@@ -4556,7 +4706,9 @@ const api = {
                 forceRefFetch: true,
                 strictCloneUrls: true,
                 readScope: opts.readScope,
-              }).catch(() => false)
+              })
+                .then(result => result.success)
+                .catch(() => false)
 
               if (deepened) {
                 try {
@@ -4633,6 +4785,12 @@ const api = {
   }> {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
+    const baseOid = String(opts.baseOid || "")
+      .trim()
+      .toLowerCase()
+    const headOid = String(opts.headOid || "")
+      .trim()
+      .toLowerCase()
 
     const releaseRepoOperation = allowRemoteFallback
       ? await acquireRepoOperationLock(opts.repoId)
@@ -4670,17 +4828,17 @@ const api = {
         const verified = await fetchRefsUntilOidsAvailable({
           key,
           dir,
-          requiredOids: [opts.baseOid, opts.headOid],
+          requiredOids: [baseOid, headOid],
           cloneUrls: opts.cloneUrls,
           strictCloneUrls: true,
           readScope: opts.readScope,
         })
-        if (!verified) {
+        if (!verified.success) {
           throw new Error("Diff commits were not available from the scoped remote")
         }
       }
 
-      const requiredOids = Array.from(new Set([opts.baseOid, opts.headOid].filter(Boolean)))
+      const requiredOids = Array.from(new Set([baseOid, headOid].filter(Boolean)))
       const missingOids: string[] = []
       for (const oid of requiredOids) {
         if (!(await hasCommitObject(dir, oid))) {
@@ -4703,7 +4861,7 @@ const api = {
           readScope: opts.readScope,
         })
 
-        if (!recovered) {
+        if (!recovered.success) {
           throw new Error(`Could not find ${missingOids.join(", ")}.`)
         }
       }
@@ -4722,7 +4880,7 @@ const api = {
 
       const changedFiles = await (git as any).walk({
         dir,
-        trees: [(git as any).TREE({ref: opts.baseOid}), (git as any).TREE({ref: opts.headOid})],
+        trees: [(git as any).TREE({ref: baseOid}), (git as any).TREE({ref: headOid})],
         map: async function (filepath: string, [A, B]: any[]) {
           if (filepath === ".") return
           try {
@@ -4969,13 +5127,15 @@ const api = {
       "createLocalRepo",
       "Preparing local repository creation",
       async operation => {
-        const result = await createLocalRepo(
-          git,
-          rootDir,
-          clonedRepos,
-          repoDataLevels,
-          opts,
-          operation,
+        const result = await withRepoOperationLock(opts.repoId, () =>
+          createLocalRepo(
+            git,
+            rootDir,
+            clonedRepos,
+            repoDataLevels,
+            opts,
+            operation,
+          ),
         )
         return toPlain(result)
       },
@@ -4995,17 +5155,26 @@ const api = {
   // Fork and clone a repository
   async forkAndCloneRepo(opts: ForkAndCloneOptions) {
     const progressRepoId = opts.dir || `${opts.owner}/${opts.forkName}`
-    const result = await forkAndCloneRepo(git, cacheManager, rootDir, {
-      ...opts,
-      onProgress: (stage: string, pct?: number) => {
-        postProgress({
-          type: "clone-progress",
-          repoId: progressRepoId,
-          phase: stage,
-          ...(typeof pct === "number" ? {progress: pct} : {}),
-        })
-      },
-    })
+    const targetRepoId = opts.dir.startsWith(`${rootDir}/`)
+      ? opts.dir.slice(rootDir.length + 1)
+      : opts.dir
+    const fallbackSourceRepoId = `${opts.owner}/${opts.repo}`
+    const sourceRepoId = opts.sourceRepoId || fallbackSourceRepoId
+    const result = await withRepoOperationLocks(
+      [sourceRepoId, fallbackSourceRepoId, targetRepoId],
+      () =>
+        forkAndCloneRepo(git, cacheManager, rootDir, {
+          ...opts,
+          onProgress: (stage: string, pct?: number) => {
+            postProgress({
+              type: "clone-progress",
+              repoId: progressRepoId,
+              phase: stage,
+              ...(typeof pct === "number" ? {progress: pct} : {}),
+            })
+          },
+        }),
+    )
     return toPlain(result)
   },
 
@@ -5027,7 +5196,7 @@ const api = {
 
   // Update and push files to a repository
   async updateAndPushFiles(opts: UpdateAndPushFilesOptions) {
-    const result = await updateAndPushFiles(git, opts)
+    const result = await withRepoOperationLock(opts.repoId, () => updateAndPushFiles(git, opts))
     return toPlain(result)
   },
 }

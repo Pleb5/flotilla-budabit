@@ -1210,7 +1210,7 @@ export class WorkerManager {
             }
           : {}),
       },
-      { timeoutMs: 0 }
+      { timeoutMs: 0, returnWorkerErrors: true }
     );
     if (trackTargetReadPreference) {
       applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
@@ -1263,7 +1263,7 @@ export class WorkerManager {
             }
           : {}),
       },
-      { timeoutMs: 0 }
+      { timeoutMs: 0, returnWorkerErrors: true }
     );
     applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
     applyReadResult(
@@ -1305,7 +1305,7 @@ export class WorkerManager {
             }
           : {}),
       },
-      { timeoutMs: 0 }
+      { timeoutMs: 0, returnWorkerErrors: true }
     );
     applyReadResult(
       params.repoId,
@@ -1346,7 +1346,7 @@ export class WorkerManager {
             }
           : {}),
       },
-      { timeoutMs: 0 }
+      { timeoutMs: 0, returnWorkerErrors: true }
     );
     applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
     applyReadResult(

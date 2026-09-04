@@ -223,6 +223,7 @@
     prPreview = null;
     const targetUrls = cloneUrls;
     const sourceUrls = fromFork ? validatedForkCloneUrls : [];
+    const sourceReadScope = fromFork ? `pr-source:new:${JSON.stringify(sourceUrls)}` : undefined;
     const cloneUrlsForPreview = fromFork ? targetUrls : targetUrls;
     if (fromFork && sourceUrls.length === 0) {
       prPreview = {
@@ -242,6 +243,7 @@
         targetBranch,
         cloneUrls: cloneUrlsForPreview,
         sourceCloneUrls: fromFork ? sourceUrls : undefined,
+        sourceReadScope,
       })
       .then((result) => {
         if (cancelled || requestRevision !== forkInputRevision) return;
