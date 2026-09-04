@@ -128,6 +128,7 @@
   let _prevRepoKey = $state<string | undefined>(undefined)
   let _prevMain = $state<string | undefined>(undefined)
   let _prevBranchSig = $state<string | undefined>(undefined)
+  let _prevRefsUnavailable = $state<boolean | undefined>(undefined)
   let copiedUrl = $state<string | null>(null)
   let repoInfoLoaded = $state(false)
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
@@ -446,14 +447,20 @@
     const repoKey = repoClass.key
     const main = repoClass.defaultBranch
     const branchSig = (repoClass.branches || []).map(b => b.name).join("|")
+    const refsUnavailable = repoClass.isRefDiscoveryUnavailable
 
     // Only refetch if identity actually changed
-    const changed = repoKey !== _prevRepoKey || main !== _prevMain || branchSig !== _prevBranchSig
+    const changed =
+      repoKey !== _prevRepoKey ||
+      main !== _prevMain ||
+      branchSig !== _prevBranchSig ||
+      refsUnavailable !== _prevRefsUnavailable
     if (!changed) return
 
     _prevRepoKey = repoKey
     _prevMain = main
     _prevBranchSig = branchSig
+    _prevRefsUnavailable = refsUnavailable
 
     // Reset repoInfoLoaded when navigating to a different repo
     repoInfoLoaded = false
@@ -488,8 +495,14 @@
 
   async function loadReadme() {
     readmeError = null
+    readmeLoading = true
+    readme = undefined
+    renderedReadme = undefined
+
+    const branchName = normalizeBranchRef(repoClass.defaultBranch)
+    if (!branchName && !repoClass.isRefDiscoveryUnavailable) return
+
     try {
-      const branchName = normalizeBranchRef(repoClass.defaultBranch)
       if (!branchName) {
         console.debug("README: Cannot load - no repository branch could be resolved")
         readmeError = "no-branches"

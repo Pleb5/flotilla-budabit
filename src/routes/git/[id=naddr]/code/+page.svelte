@@ -76,6 +76,7 @@
 
   // Guard to prevent multiple concurrent clone checks
   let cloneCheckInProgress = $state(false)
+  let cloneCheckAttempted = $state(false)
 
   // Derive selectedBranch from repoClass to avoid circular effect dependencies.
   // Using $derived instead of $effect + $state prevents the read-write cycle
@@ -97,6 +98,13 @@
     ),
   )
   const supportedCloneUrlKey = $derived.by(() => supportedCloneUrls.join("|"))
+  const repositoryContentUnavailable = $derived.by(() => {
+    if (selectedBranch || !repoClass.isRefDiscoveryUnavailable) return false
+    if (supportedCloneUrls.length === 0) return true
+
+    const hasVendorApi = repoClass.vendorReadRouter?.hasVendorSupport(supportedCloneUrls) ?? false
+    return hasVendorApi || (cloneCheckAttempted && !cloneCheckInProgress && !isCloning)
+  })
 
   const normalizePath = (value: string | null | undefined) =>
     (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -400,9 +408,6 @@
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
-  // Track if we've already attempted clone check to prevent infinite retries
-  let cloneCheckAttempted = $state(false)
-
   // Check if repo is cloned and clone if needed (only on code tab)
   // Skip this entirely if vendor API is available - files can be loaded directly from API
   $effect(() => {
@@ -412,6 +417,7 @@
     if (!repoClass) return
     if (!currentRepoEventId) return
     if (!repoClass.isInitialized) return
+    if (repoClass.isRefsLoading) return
     // Wait for repo key to be populated (set when repoEvent is processed)
     if (!repoClass.key) return
     // Only attempt clone check once per page load
@@ -419,10 +425,6 @@
 
     const cloneUrls = [...supportedCloneUrls]
     if (cloneUrls.length === 0) return
-    if (!repoClass.defaultBranch) {
-      cloneCheckAttempted = true
-      return
-    }
 
     // Check if vendor API is available - if so, skip clone entirely
     // The vendor API (GitHub, GitLab, etc.) can provide files immediately
@@ -490,6 +492,8 @@
               cloneProgressPercent = undefined
             }
           }
+
+          await repoClass.loadRefsForPRAnalysis()
         } catch (err) {
           console.error("Failed to initialize repository:", err)
           notifyCorsProxyIssue(err)
@@ -785,7 +789,7 @@
                 class="h-9 pl-9"
                 data-testid="code-browser-search" />
             </div>
-            {#if repoClass.isInitialized && !selectedBranch}
+            {#if repositoryContentUnavailable}
               <div class="rounded-md border border-border bg-muted/30 px-4 py-6 text-center">
                 <CircleAlert class="mx-auto mb-3 h-6 w-6 text-warning" />
                 <h3 class="font-medium">Repository content unavailable</h3>
@@ -793,6 +797,10 @@
                   Repository metadata was found, but no Git branches could be resolved from its
                   repository state or declared clone URLs.
                 </p>
+              </div>
+            {:else if !selectedBranch}
+              <div class="flex justify-center px-4 py-6">
+                <Spinner loading>Resolving repository branches...</Spinner>
               </div>
             {:else if error}
               <div class="w-full min-w-0 max-w-full text-sm text-muted-foreground">

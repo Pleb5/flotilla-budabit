@@ -36,7 +36,10 @@
   // Start with false - only show loading when actually fetching
   let commitsLoading = $state(false)
   let commitsError = $state<string | undefined>(undefined)
-  let commitsUnavailable = $state(false)
+  const commitsUnavailable = $derived(repoClass.isRefDiscoveryUnavailable)
+  const commitsWaitingForBranch = $derived(
+    !repoClass.selectedBranch && !repoClass.defaultBranch && !commitsUnavailable,
+  )
   // Use $derived to directly track repoClass.commits - this ensures reactivity
   // through the context boundary that $effect doesn't handle well
   const repoCommits = $derived(repoClass.commits || [])
@@ -199,11 +202,8 @@
     }
 
     if (!currentBranch) {
-      if (repoClass.isInitialized) commitsUnavailable = true
       return
     }
-
-    commitsUnavailable = false
 
     if (repoClass && repoClass.repoId) {
       // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
@@ -260,12 +260,8 @@
 
       const branch = repoClass.selectedBranch || repoClass.defaultBranch
       if (!branch) {
-        commitsUnavailable = true
-        initialLoadComplete = true
         return
       }
-
-      commitsUnavailable = false
 
       const result = await repoClass.loadPage(currentPage)
 
@@ -445,7 +441,7 @@
         state or declared clone URLs.
       </p>
     </div>
-  {:else if commitsLoading}
+  {:else if commitsLoading || commitsWaitingForBranch}
     <div class="flex items-center justify-center py-12">
       <Spinner loading={commitsLoading}>Loading commits...</Spinner>
     </div>

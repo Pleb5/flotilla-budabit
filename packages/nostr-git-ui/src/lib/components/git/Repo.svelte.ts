@@ -60,6 +60,8 @@ import {
 
 export type PushFanoutMode = "best-effort" | "all-or-nothing";
 
+export type RefDiscoveryStatus = "idle" | "loading" | "resolved" | "empty" | "failed";
+
 export interface PushFanoutResult {
   branch: string;
   results: Array<{
@@ -178,6 +180,8 @@ export class Repo {
 
   syncStatus: any = $state(null);
   refDiscoverySource = $state<RefDiscoverySource | null>(null);
+  refDiscoveryStatus = $state<RefDiscoveryStatus>("idle");
+  #repoStateDiscoveryPending = $state(false);
 
   #updateEditable() {
     const viewer = this.viewerPubkey;
@@ -442,6 +446,7 @@ export class Repo {
     repoStateEvent,
     issues,
     repoStateEvents,
+    repoStateDiscoveryPending,
     statusEvents,
     commentEvents,
     labelEvents,
@@ -456,6 +461,8 @@ export class Repo {
     repoStateEvent: Readable<RepoStateEvent>;
     issues: Readable<IssueEvent[]>;
     repoStateEvents?: Readable<RepoStateEvent[]>;
+    /** Whether the consuming app is still loading authoritative repository-state events. */
+    repoStateDiscoveryPending?: Readable<boolean>;
     statusEvents?: Readable<StatusEvent[]>;
     commentEvents?: Readable<CommentEvent[]>;
     labelEvents?: Readable<LabelEvent[]>;
@@ -525,6 +532,12 @@ export class Repo {
     } else {
       this.#updateEditable();
     }
+
+    this.#trackStoreSubscription(
+      repoStateDiscoveryPending?.subscribe((pending) => {
+        this.#repoStateDiscoveryPending = pending;
+      })
+    );
 
     // Initialize cache managers
     this.cacheManager = new CacheManager();
@@ -782,14 +795,14 @@ export class Repo {
           hasStateSnapshot ||
           (!!this.#repoStateEvent && currentHeadRefs.length <= 1);
 
-        if (shouldRefreshRefs) {
+        if (shouldRefreshRefs && this.repoEvent) {
           try {
             this.#refsLoading = true;
             // Set repoEvent for vendor API fallback when no RepoStateEvent is available
             if (this.repoEvent) {
               this.branchManager.setRepoEvent(this.repoEvent);
             }
-            await this.branchManager.loadAllRefs(() => this.getAllRefsWithFallback());
+            await this.#discoverRefs();
             const loadedRefs = this.branchManager.getAllRefs();
             if (loadedRefs.length > 0) {
               this.refs = loadedRefs;
@@ -1261,7 +1274,7 @@ export class Repo {
       }
 
       // Delegate to BranchManager
-      await this.branchManager.loadAllRefs(() => this.getAllRefsWithFallback());
+      await this.#discoverRefs();
 
       const loadedRefs = this.branchManager.getAllRefs();
       if (loadedRefs.length > 0) {
@@ -1305,6 +1318,15 @@ export class Repo {
 
   get defaultBranch(): string | undefined {
     return this.#getKnownMainBranch();
+  }
+
+  get isRefDiscoveryUnavailable(): boolean {
+    return (
+      !!this.repoEvent &&
+      !this.#repoStateDiscoveryPending &&
+      !this.defaultBranch &&
+      (this.refDiscoveryStatus === "empty" || this.refDiscoveryStatus === "failed")
+    );
   }
 
   get branches() {
@@ -1647,6 +1669,25 @@ export class Repo {
     });
   }
 
+  async #discoverRefs(): Promise<void> {
+    if (!this.repoEvent) {
+      this.refDiscoveryStatus = "idle";
+      return;
+    }
+
+    this.refDiscoveryStatus = "loading";
+    try {
+      await this.branchManager.loadAllRefs(() => this.getAllRefsWithFallback());
+      const hasBranches = [...this.branchManager.getAllRefs(), ...this.refs].some(
+        (ref) => ref.type === "heads"
+      );
+      this.refDiscoveryStatus = hasBranches ? "resolved" : "empty";
+    } catch (error) {
+      this.refDiscoveryStatus = "failed";
+      throw error;
+    }
+  }
+
   /**
    * Get branch names only (for backward compatibility)
    * @returns Promise<string[]>
@@ -1865,7 +1906,7 @@ export class Repo {
       // 4) Reload refs so UI sees updated heads/tags state
       try {
         this.#refsLoading = true;
-        await this.branchManager.loadAllRefs(() => this.getAllRefsWithFallback());
+        await this.#discoverRefs();
         this.refs = this.branchManager.getAllRefs();
         const selectedAfterRefs =
           this.branchManager.getSelectedBranch() || this.#selectedBranchState;
@@ -2292,6 +2333,7 @@ export class Repo {
     // Clone URL issues are session-local read observations. Clear them before a fresh reload
     // so successful probes can repopulate only current problems.
     this.clearCloneUrlErrors();
+    this.refDiscoveryStatus = "idle";
 
     // Reset managers that have reset methods
     this.commitManager?.reset();

@@ -191,6 +191,120 @@ describe("Repo initialization sync", () => {
   });
 });
 
+describe("Repo ref discovery status", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const announcement = {
+    id: "1".repeat(64),
+    pubkey: "a".repeat(64),
+    kind: 30617,
+    created_at: 1,
+    content: "",
+    tags: [
+      ["d", "repo"],
+      ["name", "repo"],
+      ["clone", "https://github.com/owner/repo.git"],
+    ],
+    sig: "2".repeat(128),
+  } as any;
+
+  const createWorkerManager = (initialize: () => Promise<void>) => {
+    vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
+    return {
+      isReady: false,
+      setProgressCallback: vi.fn(),
+      setAuthConfig: vi.fn().mockResolvedValue(undefined),
+      initialize: vi.fn(initialize),
+      dispose: vi.fn(),
+    };
+  };
+
+  it("does not report unavailable while refs for a late announcement are loading", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const announcementStore = writable(undefined as any);
+    const workerManager = createWorkerManager(() => Promise.resolve());
+    const repo = new Repo({
+      repoEvent: announcementStore,
+      repoStateEvent: readable(undefined as any),
+      issues: readable([]),
+      workerManager: workerManager as any,
+    });
+
+    await repo.waitForReady();
+    workerManager.isReady = true;
+    expect(repo.refDiscoveryStatus).toBe("idle");
+    expect(repo.isRefDiscoveryUnavailable).toBe(false);
+
+    let finishRefDiscovery!: (result: any) => void;
+    vi.spyOn(repo.vendorReadRouter, "listRefs").mockReturnValue(
+      new Promise((resolve) => {
+        finishRefDiscovery = resolve;
+      })
+    );
+
+    announcementStore.set(announcement);
+
+    expect(repo.refDiscoveryStatus).toBe("loading");
+    expect(repo.isRefDiscoveryUnavailable).toBe(false);
+
+    finishRefDiscovery({
+      refs: [
+        {
+          name: "main",
+          type: "heads",
+          fullRef: "refs/heads/main",
+          commitId: "3".repeat(40),
+        },
+      ],
+      defaultBranch: "main",
+      fromVendor: true,
+      source: { kind: "provider-rest", label: "Provider REST API" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(repo.refDiscoveryStatus).toBe("resolved");
+    expect(repo.defaultBranch).toBe("main");
+    expect(repo.isRefDiscoveryUnavailable).toBe(false);
+    repo.dispose();
+  });
+
+  it("waits for repository-state discovery before reporting empty refs", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    let finishInitialize!: () => void;
+    const initializePromise = new Promise<void>((resolve) => {
+      finishInitialize = resolve;
+    });
+    const repoStateDiscoveryPending = writable(true);
+    const workerManager = createWorkerManager(() => initializePromise);
+    const repo = new Repo({
+      repoEvent: readable(announcement),
+      repoStateEvent: readable(undefined as any),
+      repoStateDiscoveryPending,
+      issues: readable([]),
+      workerManager: workerManager as any,
+    });
+    vi.spyOn(repo.vendorReadRouter, "listRefs").mockResolvedValue({
+      refs: [],
+      fromVendor: true,
+      source: { kind: "provider-rest", label: "Provider REST API" },
+    } as any);
+
+    workerManager.isReady = true;
+    finishInitialize();
+    await repo.waitForReady();
+
+    expect(repo.refDiscoveryStatus).toBe("empty");
+    expect(repo.isRefDiscoveryUnavailable).toBe(false);
+
+    repoStateDiscoveryPending.set(false);
+
+    expect(repo.isRefDiscoveryUnavailable).toBe(true);
+    repo.dispose();
+  });
+});
+
 describe("Repo state authority", () => {
   const maintainer = "b".repeat(64);
   const announcement = {
@@ -199,7 +313,10 @@ describe("Repo state authority", () => {
     kind: 30617,
     created_at: 1,
     content: "",
-    tags: [["d", "repo"], ["maintainers", nip19.npubEncode(maintainer)]],
+    tags: [
+      ["d", "repo"],
+      ["maintainers", nip19.npubEncode(maintainer)],
+    ],
     sig: "2".repeat(128),
   } as any;
   const state = {

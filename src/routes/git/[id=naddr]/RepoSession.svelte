@@ -2275,6 +2275,23 @@
   let repoAnnouncementSettled = $state(false)
   let repoAnnouncementSettleTimer: ReturnType<typeof setTimeout> | null = null
   let repoLoadRetryTimer: ReturnType<typeof setTimeout> | null = null
+  const repoStateDiscoveryPendingStore = writable(true)
+  let repoStateLoadsInFlight = 0
+
+  const updateRepoStateDiscoveryPending = () => {
+    repoStateDiscoveryPendingStore.set(repoStateLoadsInFlight > 0 || repoLoadRetryTimer !== null)
+  }
+
+  const trackRepoStateLoad = (request: Promise<unknown>) => {
+    repoStateLoadsInFlight += 1
+    updateRepoStateDiscoveryPending()
+    void request
+      .catch(() => {})
+      .finally(() => {
+        repoStateLoadsInFlight = Math.max(0, repoStateLoadsInFlight - 1)
+        updateRepoStateDiscoveryPending()
+      })
+  }
 
   $effect(() => {
     const eventId = $repoEventStore?.id || ""
@@ -2306,9 +2323,15 @@
   })
 
   $effect(() => {
-    if (!$repoActivityHydrationReady) return
+    if (!$repoActivityHydrationReady) {
+      repoStateDiscoveryPendingStore.set(true)
+      return
+    }
     const relays = $repoRelaysStore || []
-    if (relays.length === 0) return
+    if (relays.length === 0) {
+      updateRepoStateDiscoveryPending()
+      return
+    }
     const owners = $repoStateAuthorsStore || []
     const ownerList = owners.length > 0 ? owners : [repoPubkey]
     const key = `${ownerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
@@ -2323,18 +2346,23 @@
     const cachedState = getStore(repoStateEventStore)
     const needState = !cachedState
 
+    if (needState) repoStateDiscoveryPendingStore.set(true)
+    else updateRepoStateDiscoveryPending()
+
     if (needState) {
-      load({
-        relays,
-        signal: layoutLoadController.signal,
-        filters: [
-          {
-            authors: ownerList,
-            kinds: [GIT_REPO_STATE],
-            "#d": [repoName],
-          },
-        ],
-      }).catch(() => {})
+      trackRepoStateLoad(
+        load({
+          relays,
+          signal: layoutLoadController.signal,
+          filters: [
+            {
+              authors: ownerList,
+              kinds: [GIT_REPO_STATE],
+              "#d": [repoName],
+            },
+          ],
+        }),
+      )
     }
 
     // Only arm the retry timer if we actually issued a network load - the
@@ -2344,12 +2372,18 @@
       repoLoadRetryTimer = setTimeout(() => {
         repoLoadRetryTimer = null
         const currentRepoStateEvent = getStore(repoStateEventStore)
-        if (currentRepoStateEvent) return
+        if (currentRepoStateEvent) {
+          updateRepoStateDiscoveryPending()
+          return
+        }
         const relaysRetry = getStore(repoRelaysStore)
-        if (relaysRetry.length === 0) return
+        if (relaysRetry.length === 0) {
+          updateRepoStateDiscoveryPending()
+          return
+        }
         const ownersRetry = getStore(repoStateAuthorsStore)
         const ownerListRetry = ownersRetry && ownersRetry.length > 0 ? ownersRetry : [repoPubkey]
-        if (!currentRepoStateEvent) {
+        trackRepoStateLoad(
           load({
             relays: relaysRetry,
             signal: layoutLoadController.signal,
@@ -2360,8 +2394,8 @@
                 "#d": [repoName],
               },
             ],
-          }).catch(() => {})
-        }
+          }),
+        )
       }, 2500)
     }
   })
@@ -2410,6 +2444,7 @@
       repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
       issues: issuesStore,
       repoStateEvents: repoStateEventsStore,
+      repoStateDiscoveryPending: repoStateDiscoveryPendingStore,
       statusEvents: mergedStatusEventsStore,
       commentEvents: commentEventsStore,
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
@@ -2432,6 +2467,7 @@
         repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
         issues: issuesStore,
         repoStateEvents: repoStateEventsStore,
+        repoStateDiscoveryPending: repoStateDiscoveryPendingStore,
         statusEvents: mergedStatusEventsStore,
         commentEvents: commentEventsStore,
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
