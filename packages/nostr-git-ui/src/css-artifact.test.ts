@@ -13,6 +13,7 @@ describe("CSS artifact", () => {
     expect(packageJson.files).not.toContain("index.css");
     expect(packageJson.scripts["build:tailwind"]).toContain("-o ./dist/index.css");
     expect(packageJson.scripts["watch:tailwind"]).toContain("-o ./dist/index.css");
+    expect(packageJson.scripts["watch:lib"]).toContain("--preserve-output");
     expect(existsSync(resolve(packageRoot, "index.css"))).toBe(false);
   });
 });

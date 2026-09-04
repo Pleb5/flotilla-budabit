@@ -28,7 +28,7 @@
     "build": "pnpm run clean && svelte-package && pnpm run build:tailwind",
     "build:tailwind": "mkdir -p dist && tailwindcss -i ./src/index.css -o ./dist/index.css --minify",
     "watch": "node dev.mjs",
-    "watch:lib": "svelte-package --watch",
+    "watch:lib": "svelte-package --watch --preserve-output",
     "watch:tailwind": "tailwindcss -i ./src/index.css -o ./dist/index.css --minify --watch=always --verbose",
     "dev:workspace": "pnpm run watch",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
