@@ -2,6 +2,11 @@ import {describe, it, expect, vi, beforeEach, afterEach} from "vitest"
 import "fake-indexeddb/auto"
 import {BitbucketApi} from "../../../src/api/providers/bitbucket.js"
 
+vi.mock("../../../src/git/provider-policy.js", async () => ({
+  ...(await vi.importActual("../../../src/git/provider-policy.js")),
+  assertGitVendorEnabled: vi.fn(),
+}))
+
 const makeFetchOk = (json: any) =>
   vi.fn().mockResolvedValue({
     ok: true,

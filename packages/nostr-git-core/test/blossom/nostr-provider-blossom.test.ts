@@ -3,6 +3,11 @@ import {NostrGitProvider} from "../../src/api/providers/nostr-git-provider"
 import BlossomFS, {Signer, BlossomPushSummary} from "../../src/blossom/index.js"
 import {NostrEvent} from "nostr-tools"
 
+vi.mock("../../src/git/provider-policy.js", async () => ({
+  ...(await vi.importActual("../../src/git/provider-policy.js")),
+  assertDirectNostrGitProviderEnabled: vi.fn(),
+}))
+
 // Polyfills for IndexedDB + fetch (Node/Jsdom environment)
 import "fake-indexeddb/auto"
 import {TextEncoder, TextDecoder} from "util"

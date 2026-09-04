@@ -1,6 +1,11 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 import {NostrGitProvider} from "../../src/api/providers/nostr-git-provider.js"
 
+vi.mock("../../src/git/provider-policy.js", async () => ({
+  ...(await vi.importActual("../../src/git/provider-policy.js")),
+  assertDirectNostrGitProviderEnabled: vi.fn(),
+}))
+
 describe("NostrGitProvider state publication sequencing", () => {
   beforeEach(() => {
     vi.restoreAllMocks()

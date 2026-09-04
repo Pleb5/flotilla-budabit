@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 
 import { NostrGitProvider } from '../../src/api/providers/nostr-git-provider.js';
 import { createEventIOStub } from '../utils/eventio-stub.js';
+
+vi.mock('../../src/git/provider-policy.js', async () => ({
+  ...(await vi.importActual('../../src/git/provider-policy.js')),
+  assertDirectNostrGitProviderEnabled: vi.fn(),
+}));
 
 // Exercise simple passthrough/utility methods to lift function coverage
 

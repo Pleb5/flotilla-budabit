@@ -47,6 +47,10 @@
     ProfileSearchUpdateSignal,
   } from "../../types/profile-search.js";
   import {
+    getEditableRepoCloneUrls,
+    mergePreservedNostrCloneUrls,
+  } from "./edit-repo-clone-urls.js";
+  import {
     findRepoCommunityOption,
     getRepoCommunityOptionBinding,
   } from "./repo-community-options.js";
@@ -220,10 +224,7 @@
     const defaultBranch = repo.mainBranch || "";
 
     // Determine visibility from clone URL (basic heuristic)
-    const editableCloneUrls = copyList(repo.clone).filter((url) => {
-      const trimmed = String(url || "").trim();
-      return trimmed && !trimmed.startsWith("nostr://") && !trimmed.startsWith("nostr:");
-    });
+    const editableCloneUrls = getEditableRepoCloneUrls(copyList(repo.clone));
     const cloneUrl = editableCloneUrls[0] || "";
     const isPrivate = cloneUrl.includes("private") || false;
 
@@ -882,7 +883,7 @@
       const cleanList = (values: string[]) =>
         Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
       const cleanWebUrls = cleanList(formData.webUrls);
-      const cleanCloneUrls = cleanList(formData.cloneUrls);
+      const cleanCloneUrls = mergePreservedNostrCloneUrls(formData.cloneUrls, repo?.clone || []);
       const cleanRelays = getRepoSettingsRelayState(
         formData.relays,
         cleanCloneUrls,

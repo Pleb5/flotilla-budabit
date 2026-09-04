@@ -1,4 +1,4 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 
 import {
   ENABLE_BITBUCKET_PROVIDER,
@@ -12,6 +12,8 @@ import {
   detectVendorFromUrl,
   isGitRemoteUrlEnabled,
 } from "../../src/git/vendor-providers.js"
+import {BitbucketApi} from "../../src/api/providers/bitbucket.js"
+import {NostrGitProvider} from "../../src/api/providers/nostr-git-provider.js"
 
 describe("Git provider policy", () => {
   it("disables Bitbucket without changing URL classification", () => {
@@ -52,5 +54,17 @@ describe("Git provider policy", () => {
     expect(() => assertDirectNostrGitProviderEnabled("test")).toThrow(
       /Direct NostrGitProvider is disabled for test/i,
     )
+  })
+
+  it("rejects direct construction before disabled providers can perform I/O", () => {
+    const fetchEvents = vi.fn()
+
+    expect(() => new BitbucketApi("retained-token")).toThrow(
+      /Bitbucket provider is disabled for REST API construction/i,
+    )
+    expect(
+      () => new NostrGitProvider({eventIO: {fetchEvents} as any}),
+    ).toThrow(/Direct NostrGitProvider is disabled for provider construction/i)
+    expect(fetchEvents).not.toHaveBeenCalled()
   })
 })

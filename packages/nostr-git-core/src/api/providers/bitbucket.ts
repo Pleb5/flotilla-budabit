@@ -24,6 +24,7 @@ import type {
   User,
   GitForkOptions,
 } from "../api.js"
+import {assertGitVendorEnabled} from "../../git/provider-policy.js"
 
 /**
  * Bitbucket API client implementing GitServiceApi
@@ -33,6 +34,7 @@ export class BitbucketApi implements GitServiceApi {
   private readonly baseUrl: string
 
   constructor(token: string, baseUrl: string = "https://api.bitbucket.org/2.0") {
+    assertGitVendorEnabled("bitbucket", "REST API construction")
     this.token = token
     this.baseUrl = baseUrl.replace(/\/$/, "") // Remove trailing slash
   }

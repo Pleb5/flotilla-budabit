@@ -1,6 +1,11 @@
 import {describe, it, expect, vi, beforeEach} from "vitest"
 import {NostrGitProvider} from "../../src/api/providers/nostr-git-provider.js"
 
+vi.mock("../../src/git/provider-policy.js", async () => ({
+  ...(await vi.importActual("../../src/git/provider-policy.js")),
+  assertDirectNostrGitProviderEnabled: vi.fn(),
+}))
+
 describe("NostrGitProvider state/announcement publishing", () => {
   function makeProvider() {
     const eventIO = {

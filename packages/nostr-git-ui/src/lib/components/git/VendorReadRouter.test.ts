@@ -32,6 +32,36 @@ const hostedVendorUrls = [
 ];
 
 describe("VendorReadRouter.listRefs", () => {
+  it("rejects direct calls to emitted Bitbucket methods before token or network access", async () => {
+    const getTokens = vi.fn(async () => [{ host: "bitbucket.org", token: "retained" }]);
+    const router = new VendorReadRouter({ getTokens });
+    const remoteUrl = "https://bitbucket.org/example/repo.git";
+
+    await expect(
+      (router as any).vendorListDirectoryBitbucket({
+        vendor: "bitbucket",
+        remoteUrl,
+        branch: "main",
+        path: "",
+      })
+    ).rejects.toThrow(/Bitbucket provider is disabled/i);
+    await expect(
+      (router as any).vendorGetFileContentBitbucket({
+        vendor: "bitbucket",
+        remoteUrl,
+        branch: "main",
+        path: "README.md",
+      })
+    ).rejects.toThrow(/Bitbucket provider is disabled/i);
+    await expect((router as any).vendorListRefsBitbucket(remoteUrl)).rejects.toThrow(
+      /Bitbucket provider is disabled/i
+    );
+    await expect(
+      (router as any).vendorListCommitsBitbucket({ remoteUrl, branch: "main" })
+    ).rejects.toThrow(/Bitbucket provider is disabled/i);
+    expect(getTokens).not.toHaveBeenCalled();
+  });
+
   it("does not attempt reads for disabled Bitbucket remotes", async () => {
     const router = new VendorReadRouter({
       getTokens: async () => [{ host: "bitbucket.org", token: "retained" }],

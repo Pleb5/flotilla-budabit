@@ -14,6 +14,7 @@ import {getTags} from "../../events/index.js"
 import {sanitizeRelays} from "../../utils/sanitize-relays.js"
 import {getRepoActivityRelays} from "../../utils/repo-relay-policy.js"
 import {isGraspRepoHttpUrl} from "../../utils/grasp-url.js"
+import {assertDirectNostrGitProviderEnabled} from "../../git/provider-policy.js"
 
 export interface NostrGitConfig {
   eventIO: EventIO
@@ -83,6 +84,7 @@ export class NostrGitProvider {
   private nostrConfig: NostrGitConfig
 
   constructor(config: NostrGitConfig) {
+    assertDirectNostrGitProviderEnabled("provider construction")
     this.nostrConfig = config
 
     // Create the underlying git provider (isomorphic-git or libgit2)

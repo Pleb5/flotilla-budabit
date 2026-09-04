@@ -9,6 +9,7 @@ import {
 } from "@nostr-git/core/errors";
 import {
   detectVendorFromUrl,
+  assertGitVendorEnabled,
   isGitVendorEnabled,
   type GitNaturalFileContentResult,
   type GitNaturalListCommitsResult,
@@ -2234,6 +2235,7 @@ export class VendorReadRouter {
     branch: string;
     path: string;
   }): Promise<VendorDirectoryResult> {
+    assertGitVendorEnabled("bitbucket", "directory read");
     const { host, owner, repo } = this.parseOwnerRepoFromCloneUrl(params.remoteUrl);
     const apiBase = this.getApiBase("bitbucket", host);
     const cleanPath = this.normalizeRepoPath(params.path);
@@ -2283,6 +2285,7 @@ export class VendorReadRouter {
     branch: string;
     path: string;
   }): Promise<VendorFileContentResult> {
+    assertGitVendorEnabled("bitbucket", "file read");
     const { host, owner, repo } = this.parseOwnerRepoFromCloneUrl(params.remoteUrl);
     const apiBase = this.getApiBase("bitbucket", host);
     const filePath = this.normalizeRepoPath(params.path);
@@ -2317,6 +2320,7 @@ export class VendorReadRouter {
   }
 
   private async vendorListRefsBitbucket(remoteUrl: string): Promise<VendorRefResult> {
+    assertGitVendorEnabled("bitbucket", "ref read");
     const { host, owner, repo } = this.parseOwnerRepoFromCloneUrl(remoteUrl);
     const apiBase = this.getApiBase("bitbucket", host);
     const ctx = this.ctx({ op: "listRefs", remote: remoteUrl });
@@ -2752,6 +2756,7 @@ export class VendorReadRouter {
     page?: number;
     perPage?: number;
   }): Promise<VendorCommitResult> {
+    assertGitVendorEnabled("bitbucket", "commit read");
     const { host, owner, repo } = this.parseOwnerRepoFromCloneUrl(params.remoteUrl);
     const apiBase = this.getApiBase("bitbucket", host);
     const perPage = params.perPage || 30;
