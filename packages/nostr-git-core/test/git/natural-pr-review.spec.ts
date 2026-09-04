@@ -1,10 +1,11 @@
-import {describe, expect, it, vi} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
 
 import {
   getGitNaturalPRReviewData,
   type GitNaturalPRReviewReader,
 } from "../../src/git/natural-pr-review.js"
 import type {GitNaturalCommit} from "../../src/git/natural-read-types.js"
+import {clearUrlPreferenceCache} from "../../src/utils/clone-url-fallback.js"
 
 const SOURCE_URL = "https://source.example/repo.git"
 const TARGET_URL = "https://target.example/repo.git"
@@ -14,6 +15,8 @@ const BASE = "c".repeat(40)
 const TARGET = "d".repeat(40)
 
 describe("getGitNaturalPRReviewData", () => {
+  beforeEach(() => clearUrlPreferenceCache())
+
   it("validates a provided merge base against natural target history", async () => {
     const reader = createReader({
       histories: new Map([
@@ -289,6 +292,77 @@ describe("getGitNaturalPRReviewData", () => {
         reader,
       }),
     ).resolves.toBeNull()
+  })
+
+  it("attributes the furthest source and target operations when diff falls back roles", async () => {
+    const sourceUrls = [
+      "https://source-primary.example/repo.git",
+      "https://source-secondary.example/repo.git",
+    ]
+    const targetUrls = [
+      "https://target-primary.example/repo.git",
+      "https://target-secondary.example/repo.git",
+      "https://target-tertiary.example/repo.git",
+    ]
+    const reader: GitNaturalPRReviewReader & Record<string, any> = {
+      resolveRef: vi.fn(async ({url, ref}) => {
+        if (url !== targetUrls[0]) throw new Error("target ref unavailable")
+        return {
+          requestedRef: ref,
+          resolvedRef: `refs/heads/${ref}`,
+          commitHash: TARGET,
+          source: sourceMetadata(url, "resolveRef"),
+        }
+      }),
+      listCommits: vi.fn(async ({url, commitHash}) => {
+        if (commitHash === TARGET && url === targetUrls[0]) {
+          throw new Error("target history unavailable")
+        }
+        const commits =
+          commitHash === HEAD
+            ? [commit(HEAD, [BASE]), commit(BASE)]
+            : [commit(TARGET, [BASE]), commit(BASE)]
+        return {
+          ref: commitHash,
+          commitHash,
+          commits,
+          source: sourceMetadata(url, "listCommits"),
+        }
+      }),
+      getDiffBetween: vi.fn(async ({url, baseCommitHash, headCommitHash}) => {
+        if (url !== targetUrls[2]) throw new Error("diff unavailable")
+        return {
+          baseCommitHash,
+          headCommitHash,
+          changes: [],
+          source: sourceMetadata(url, "getDiffBetween"),
+        }
+      }),
+    }
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "composite-pr-role-attribution",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      sourceUrls,
+      targetUrls,
+      sourceReadScope: "pr-source:event",
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      success: true,
+      usedCloneUrl: sourceUrls[1],
+      usedTargetCloneUrl: targetUrls[2],
+    })
+    expect(review?.sourceAttempts?.slice(-2)).toEqual([
+      expect.objectContaining({url: sourceUrls[0], success: false}),
+      expect.objectContaining({url: sourceUrls[1], success: false}),
+    ])
+    expect(review?.targetAttempts?.slice(-2)).toEqual([
+      expect.objectContaining({url: targetUrls[1], success: false}),
+      expect.objectContaining({url: targetUrls[2], success: true}),
+    ])
   })
 })
 

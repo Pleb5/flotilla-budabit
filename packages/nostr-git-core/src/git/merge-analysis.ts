@@ -2,6 +2,7 @@ import type {GitProvider} from "./provider.js"
 import {createMergeMetadataEvent, createConflictMetadataEvent} from "../events/index.js"
 import {wrapError, type GitErrorContext} from "../errors/index.js"
 import {fetchPrSourceTip} from "./pr-source-fetch.js"
+import type {UrlAttemptResult} from "../utils/clone-url-fallback.js"
 
 /**
  * Build a Merge Metadata event (kind 30411) from a merge analysis result.
@@ -246,6 +247,10 @@ export interface PRMergeAnalysisResult extends MergeAnalysisResult {
   usedTargetCloneUrl?: string
   /** Clone URL that succeeded when using fallback (helps debug fetch failures) */
   usedCloneUrl?: string
+  /** Ordered target attempts for reconciling the main-thread read cursor. */
+  targetAttempts?: Array<Omit<UrlAttemptResult, "result">>
+  /** Ordered source attempts for reconciling the scoped main-thread read cursor. */
+  sourceAttempts?: Array<Omit<UrlAttemptResult, "result">>
   /** Commit metadata for display (oid, message, author) */
   prCommits?: Array<{oid: string; message: string; author?: {name?: string; email?: string}}>
 }
@@ -553,14 +558,20 @@ export async function analyzePRMergeability(
   }
   console.log(`[analyzePRMergeability] ${validUrls.length} valid clone URL(s) to try`)
 
-  const errResult = (msg: string): PRMergeAnalysisResult => ({
+  let usedTargetCloneUrl: string | undefined
+  let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
+  let analysisTargetBranch: string | undefined
+  const errResult = (
+    msg: string,
+    sourceAttempts?: Array<Omit<UrlAttemptResult, "result">>,
+  ): PRMergeAnalysisResult => ({
     ...returnObj,
     analysis: "error",
     errorMessage: msg,
+    usedTargetCloneUrl,
+    targetAttempts,
+    sourceAttempts,
   })
-
-  let usedTargetCloneUrl: string | undefined
-  let analysisTargetBranch: string | undefined
 
   const validTargetUrls = filterValidCloneUrls(targetCloneUrls || [])
   if (strictTargetFresh && validTargetUrls.length === 0) {
@@ -612,8 +623,7 @@ export async function analyzePRMergeability(
           const remoteRef = `refs/remotes/${targetRemote}/${effectiveTargetBranch}`
           const remoteOid =
             fetchInfo?.fetchHead ||
-            (await git.resolveRef({dir: repoDir, ref: remoteRef}).catch(() => null)) ||
-            (await git.resolveRef({dir: repoDir, ref: "FETCH_HEAD"}).catch(() => null))
+            (await git.resolveRef({dir: repoDir, ref: remoteRef}).catch(() => null))
           if (!remoteOid) {
             throw new Error(
               `Remote fetch completed but no target commit could be resolved for ${effectiveTargetBranch}.`,
@@ -629,8 +639,9 @@ export async function analyzePRMergeability(
           }
         }
       },
-      {perUrlTimeoutMs: 20000},
+      {perUrlTimeoutMs: 0},
     )
+    targetAttempts = targetFetchResult.attempts
 
     if (!targetFetchResult.success) {
       const attempts = targetFetchResult.attempts?.length
@@ -725,6 +736,7 @@ export async function analyzePRMergeability(
           depth: 100,
           ...(corsProxy !== undefined ? {corsProxy} : {}),
           ...(onAuth ? {onAuth} : {}),
+          requireRemoteEvidence: true,
         })
         console.log(
           `[analyzePRMergeability] PR source ready via ${sourceFetch.strategy} from ${url}`,
@@ -867,7 +879,7 @@ export async function analyzePRMergeability(
         }
       }
     },
-    {perUrlTimeoutMs: 20000},
+    {perUrlTimeoutMs: 0},
   )
 
   if (!result.success || !result.result) {
@@ -876,11 +888,15 @@ export async function analyzePRMergeability(
       : "Failed to fetch PR from any clone URL"
     console.warn(`[analyzePRMergeability] All clone URLs failed: ${errMsg}`)
     await cleanupAnalysisTarget()
-    return errResult(errMsg)
+    return errResult(errMsg, result.attempts)
   }
 
   await cleanupAnalysisTarget()
-  return result.result
+  return {
+    ...result.result,
+    targetAttempts,
+    sourceAttempts: result.attempts,
+  }
 }
 
 /**

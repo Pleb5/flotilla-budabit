@@ -67,6 +67,7 @@ export async function listRepoFilesFromEvent(opts: {
   repoKey?: string
   /** Restrict clone-backed fallback to a router-authorized active remote. */
   cloneUrls?: string[]
+  strictCloneUrls?: boolean
 }): Promise<FileEntry[]> {
   assertRepoAnnouncementEvent(opts.repoEvent)
   const event = parseRepoAnnouncementEvent(opts.repoEvent)
@@ -82,8 +83,15 @@ export async function listRepoFilesFromEvent(opts: {
   // Ensure adequate repository depth for file operations
   // If accessing a specific commit, we need more than shallow clone
   const requiredDepth = opts.commit ? 100 : 10 // More depth if accessing specific commit
-  await ensureRepoFromEvent(
-    {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+  const ensured = await ensureRepoFromEvent(
+    {
+      repoEvent: event,
+      branch,
+      repoKey: opts.repoKey,
+      cloneUrls: opts.cloneUrls,
+      strictCloneUrls: opts.strictCloneUrls,
+      requiredOid: opts.strictCloneUrls ? opts.commit : undefined,
+    },
     requiredDepth,
   )
 
@@ -101,7 +109,13 @@ export async function listRepoFilesFromEvent(opts: {
         try {
           // Try with much deeper history
           await ensureRepoFromEvent(
-            {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+            {
+              repoEvent: event,
+              branch,
+              repoKey: opts.repoKey,
+              cloneUrls: opts.cloneUrls,
+              strictCloneUrls: opts.strictCloneUrls,
+            },
             500,
           )
           // Retry reading the commit
@@ -124,7 +138,7 @@ export async function listRepoFilesFromEvent(opts: {
                   })
                   return {url}
                 },
-                {repoId: opts.repoKey || parseRepoId(event.repoId), perUrlTimeoutMs: 15000},
+                {repoId: opts.repoKey || parseRepoId(event.repoId), perUrlTimeoutMs: 0},
               )
               if (!fetchResult.success) {
                 const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
@@ -164,9 +178,12 @@ export async function listRepoFilesFromEvent(opts: {
     }
   } else {
     // Prefer a full OID for subsequent tree/blob reads
+    if (opts.strictCloneUrls && !ensured?.oid) {
+      throw createInvalidInputError(`Strict fetch did not resolve branch '${branch}'`, contextBase)
+    }
     let branchResolutionError: unknown
     try {
-      oid = await git.resolveRef({dir, ref: branch})
+      oid = opts.strictCloneUrls ? ensured!.oid : await git.resolveRef({dir, ref: branch})
     } catch (e) {
       try {
         // Fallback to robust resolver if direct ref resolution fails
@@ -228,10 +245,22 @@ export async function listRepoFilesFromEvent(opts: {
     let attempts = 0
     const attemptReadTree = async (depthHint: number) => {
       // Deepen repo and retry
-      await ensureRepoFromEvent(
-        {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+      const retryResult = await ensureRepoFromEvent(
+        {
+          repoEvent: event,
+          branch,
+          repoKey: opts.repoKey,
+          cloneUrls: opts.cloneUrls,
+          strictCloneUrls: opts.strictCloneUrls,
+        },
         depthHint,
       )
+      if (opts.strictCloneUrls && !opts.commit) {
+        if (!retryResult?.oid) {
+          throw new Error(`Strict fetch did not resolve branch '${branch}'`)
+        }
+        oid = retryResult.oid
+      }
       const fp: any = treePath ? treePath : undefined
       const {tree} = await git.readTree({dir, oid, filepath: fp})
       return tree.map((entry: any) => ({
@@ -273,7 +302,7 @@ export async function listRepoFilesFromEvent(opts: {
               }
               return {url}
             },
-            {repoId: opts.repoKey || parseRepoId(event.repoId), perUrlTimeoutMs: 15000},
+            {repoId: opts.repoKey || parseRepoId(event.repoId), perUrlTimeoutMs: 0},
           )
           if (!fetchResult.success) {
             const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
@@ -328,6 +357,7 @@ export async function getRepoFileContentFromEvent(opts: {
   repoKey?: string
   /** Restrict clone-backed fallback to a router-authorized active remote. */
   cloneUrls?: string[]
+  strictCloneUrls?: boolean
 }): Promise<string> {
   assertRepoAnnouncementEvent(opts.repoEvent)
   const event = parseRepoAnnouncementEvent(opts.repoEvent)
@@ -343,8 +373,15 @@ export async function getRepoFileContentFromEvent(opts: {
   // Ensure adequate repository depth for file operations
   // If accessing a specific commit, we need more than shallow clone
   const requiredDepth = opts.commit ? 100 : 10 // More depth if accessing specific commit
-  await ensureRepoFromEvent(
-    {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+  const ensured = await ensureRepoFromEvent(
+    {
+      repoEvent: event,
+      branch,
+      repoKey: opts.repoKey,
+      cloneUrls: opts.cloneUrls,
+      strictCloneUrls: opts.strictCloneUrls,
+      requiredOid: opts.strictCloneUrls ? opts.commit : undefined,
+    },
     requiredDepth,
   )
 
@@ -362,7 +399,13 @@ export async function getRepoFileContentFromEvent(opts: {
         try {
           // Try with much deeper history
           await ensureRepoFromEvent(
-            {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+            {
+              repoEvent: event,
+              branch,
+              repoKey: opts.repoKey,
+              cloneUrls: opts.cloneUrls,
+              strictCloneUrls: opts.strictCloneUrls,
+            },
             500,
           )
           // Retry reading the commit
@@ -390,15 +433,22 @@ export async function getRepoFileContentFromEvent(opts: {
       }
     }
   } else {
-    oid = await resolveBranchToOid(git, dir, branch, {
-      onBranchNotFound: (branchName, error: unknown) => {
-        // This will be handled by the UI layer if they provide a callback
-        console.warn(
-          `Branch '${branchName}' from repository state not found in local git:`,
-          error instanceof Error ? error.message : String(error),
-        )
-      },
-    })
+    if (opts.strictCloneUrls) {
+      if (!ensured?.oid) {
+        throw createInvalidInputError(`Strict fetch did not resolve branch '${branch}'`, contextBase)
+      }
+      oid = ensured.oid
+    } else {
+      oid = await resolveBranchToOid(git, dir, branch, {
+        onBranchNotFound: (branchName, error: unknown) => {
+          // This will be handled by the UI layer if they provide a callback
+          console.warn(
+            `Branch '${branchName}' from repository state not found in local git:`,
+            error instanceof Error ? error.message : String(error),
+          )
+        },
+      })
+    }
   }
 
   try {
@@ -412,15 +462,22 @@ export async function getRepoFileContentFromEvent(opts: {
       // If file not found, try to deepen repository and retry
       console.warn(`File '${opts.path}' not found, attempting to deepen repository...`)
       try {
-        await ensureRepoFromEvent(
+        const retryResult = await ensureRepoFromEvent(
           {
             repoEvent: event,
             branch: opts.branch,
             repoKey: opts.repoKey,
             cloneUrls: opts.cloneUrls,
+            strictCloneUrls: opts.strictCloneUrls,
           },
           1000,
         )
+        if (opts.strictCloneUrls && !opts.commit) {
+          if (!retryResult?.oid) {
+            throw new Error(`Strict fetch did not resolve branch '${branch}'`)
+          }
+          oid = retryResult.oid
+        }
         const {oid: blobOid, blob} = await git.readBlob({dir, oid, filepath: opts.path})
         cacheObservedGitNaturalBlob(blobOid, blob)
         // Return raw binary data as string to preserve binary files

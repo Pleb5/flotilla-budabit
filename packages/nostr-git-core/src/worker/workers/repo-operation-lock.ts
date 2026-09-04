@@ -1,23 +1,35 @@
+import {canonicalRepoKey} from "../../utils/repo-id.js"
+
 const repoOperationLocks = new Map<string, Promise<void>>()
 
 export async function withRepoOperationLock<T>(
   repoId: string,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const key = String(repoId || "").trim()
+  const release = await acquireRepoOperationLock(repoId)
+  try {
+    return await operation()
+  } finally {
+    release()
+  }
+}
+
+export async function acquireRepoOperationLock(repoId: string): Promise<() => void> {
+  const key = canonicalRepoKey(String(repoId || "").trim())
   const previous = repoOperationLocks.get(key) || Promise.resolve()
-  let release!: () => void
+  let releaseQueued!: () => void
   const current = new Promise<void>(resolve => {
-    release = resolve
+    releaseQueued = resolve
   })
   const queued = previous.then(() => current)
   repoOperationLocks.set(key, queued)
 
   await previous
-  try {
-    return await operation()
-  } finally {
-    release()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    releaseQueued()
     if (repoOperationLocks.get(key) === queued) repoOperationLocks.delete(key)
   }
 }

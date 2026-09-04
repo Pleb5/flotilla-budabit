@@ -1,4 +1,4 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 import {withRepoOperationLock} from "../../src/worker/workers/repo-operation-lock.js"
 
 describe("repository operation lock", () => {
@@ -26,5 +26,27 @@ describe("repository operation lock", () => {
     releaseFirst()
     await Promise.all([first, second])
     expect(order).toEqual(["first:start", "other", "first:end", "second"])
+  })
+
+  it("serializes aliases that resolve to the same repository directory", async () => {
+    const order: string[] = []
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+
+    const first = withRepoOperationLock("owner:name", async () => {
+      order.push("first:start")
+      await firstGate
+      order.push("first:end")
+    })
+    const second = withRepoOperationLock("owner/name", async () => {
+      order.push("second")
+    })
+
+    await vi.waitFor(() => expect(order).toEqual(["first:start"]))
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(["first:start", "first:end", "second"])
   })
 })

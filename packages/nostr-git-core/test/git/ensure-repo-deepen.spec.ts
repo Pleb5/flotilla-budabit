@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 
 import { ensureRepoFromEvent, rootDir, clearRepoDepthCache } from '../../src/git/git.js';
+import { clearUrlPreferenceCache } from '../../src/utils/clone-url-fallback.js';
 
 vi.mock('../../src/api/git-provider.js', () => {
   const state: any = { git: null };
@@ -17,6 +18,7 @@ describe('ensureRepoFromEvent deepening path (strict)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     clearRepoDepthCache(); // Clear the depth cache between tests
+    clearUrlPreferenceCache();
   });
 
   function makeRepoEvent(host = 'example.com') {
@@ -50,6 +52,65 @@ describe('ensureRepoFromEvent deepening path (strict)', () => {
     expect(args.singleBranch).toBe(true);
     expect(typeof args.ref).toBe('string');
     expect((args.ref as string).length).toBeGreaterThan(7);
+  });
+
+  it('strict depth-1 reads fetch the supplied URL and return its fetch head', async () => {
+    const remoteOid = 'a'.repeat(40);
+    const fetch = vi.fn(async () => ({ fetchHead: remoteOid }));
+    __setGit({
+      resolveRef: vi.fn(async ({ ref }: { ref: string }) => {
+        if (ref === 'HEAD') return 'b'.repeat(40);
+        throw new Error('missing');
+      }),
+      fetch,
+    });
+
+    const result = await ensureRepoFromEvent(
+      {
+        repoEvent: makeRepoEvent(),
+        branch: 'main',
+        cloneUrls: ['https://authorized.example/owner/repo.git'],
+        strictCloneUrls: true,
+      },
+      1
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://authorized.example/owner/repo.git',
+        ref: 'main',
+      })
+    );
+    expect(result).toEqual({
+      usedUrl: 'https://authorized.example/owner/repo.git',
+      oid: remoteOid,
+      branch: 'main',
+    });
+  });
+
+  it('strict reads reject a failed fetch instead of using a stale local branch', async () => {
+    const fetch = vi.fn(async () => {
+      throw new Error('authorized remote failed');
+    });
+    __setGit({
+      resolveRef: vi.fn(async () => 'b'.repeat(40)),
+      fetch,
+    });
+
+    await expect(
+      ensureRepoFromEvent(
+        {
+          repoEvent: makeRepoEvent(),
+          branch: 'main',
+          cloneUrls: ['https://authorized.example/owner/repo.git'],
+          strictCloneUrls: true,
+        },
+        1
+      )
+    ).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({url: 'https://authorized.example/owner/repo.git'})
+    );
   });
 
   it('when deepening fetch fails, tries later clone URLs', async () => {

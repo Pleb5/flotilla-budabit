@@ -111,6 +111,9 @@ export async function smartInitializeRepoUtil(
     cloneUrls: string[]
     branch?: string
     forceUpdate?: boolean
+    strictCloneUrls?: boolean
+    readScope?: string
+    trackReadPreference?: boolean
   },
   deps: {
     rootDir: string
@@ -122,14 +125,22 @@ export async function smartInitializeRepoUtil(
   },
   sendProgress: (phase: string, loaded?: number, total?: number) => void,
 ) {
-  const {repoId, cloneUrls, branch, forceUpdate = false} = opts
+  const {
+    repoId,
+    cloneUrls,
+    branch,
+    forceUpdate = false,
+    strictCloneUrls = false,
+    readScope,
+    trackReadPreference = true,
+  } = opts
   const {rootDir, parseRepoId, repoDataLevels, clonedRepos, isRepoCloned, resolveBranchName} = deps
 
   try {
     const key = parseRepoId(repoId)
     const dir = `${rootDir}/${key}`
     const cache = await cacheManager.getRepoCache(key)
-    if (cache && !forceUpdate) {
+    if (cache && !forceUpdate && !strictCloneUrls) {
       const cacheHasLocalClone = await isRepoCloned(git, dir).catch(() => false)
       if (cacheHasLocalClone) {
         sendProgress("Using cached data")
@@ -155,7 +166,7 @@ export async function smartInitializeRepoUtil(
         sendProgress("Syncing with remote")
         const validUrls = filterValidCloneUrls(cloneUrls)
         const orderedUrls = reorderUrlsByPreference(validUrls, key)
-        let fetchResult: ReadFallbackResult<{url: string}> | undefined
+        let fetchResult: ReadFallbackResult<{url: string; headCommit?: string}> | undefined
 
         if (orderedUrls.length > 0) {
           sendProgress("Fetching latest changes from remote")
@@ -168,6 +179,14 @@ export async function smartInitializeRepoUtil(
             orderedUrls,
             async (cloneUrl: string) => {
               const corsProxy = resolveCorsProxyForUrl(cloneUrl, configuredCorsProxy)
+              const fetchScoped = async (fetchOpts: any) => {
+                const fetchInfo = await git.fetch(fetchOpts)
+                const headCommit = fetchInfo?.fetchHead
+                if (strictCloneUrls && !headCommit) {
+                  throw new Error(`Strict fetch from ${cloneUrl} did not return FETCH_HEAD`)
+                }
+                return {url: cloneUrl, headCommit: headCommit || undefined}
+              }
               // Try singleBranch: true first (works better with non-GitHub servers like Forgejo)
               const primaryFetchOpts: any = {
                 dir,
@@ -180,8 +199,7 @@ export async function smartInitializeRepoUtil(
                 primaryFetchOpts.ref = branch
               }
               try {
-                await git.fetch(primaryFetchOpts)
-                return {url: cloneUrl}
+                return await fetchScoped(primaryFetchOpts)
               } catch (singleBranchError: any) {
                 // If single branch fetch fails, try without specifying singleBranch
                 console.warn(
@@ -198,11 +216,14 @@ export async function smartInitializeRepoUtil(
                   fallbackFetchOpts.ref = branch
                   fallbackFetchOpts.singleBranch = true
                 }
-                await git.fetch(fallbackFetchOpts)
-                return {url: cloneUrl}
+                return await fetchScoped(fallbackFetchOpts)
               }
             },
-            {repoId: key, perUrlTimeoutMs: 15000},
+            {
+              repoId: trackReadPreference ? key : undefined,
+              readScope,
+              perUrlTimeoutMs: 0,
+            },
           )
 
           if (fetchResult.success) {
@@ -216,6 +237,22 @@ export async function smartInitializeRepoUtil(
                 `[smartInitializeRepo] Fetch succeeded after ${failedAttempts.length} failed attempt(s)`,
               )
             }
+            if (strictCloneUrls) {
+              return {
+                success: true,
+                repoId,
+                fromCache: false,
+                dataLevel: (repoDataLevels.get(key) || "refs") as DataLevel,
+                headCommit: fetchResult.result?.headCommit,
+                synced: true,
+                usedUrl: fetchResult.usedUrl,
+                attemptedUrls: fetchResult.attempts.map(a => a.url),
+              }
+            }
+          } else if (strictCloneUrls) {
+            throw new Error(
+              `Strict clone URL fetch failed: ${fetchResult.attempts.map(a => `${a.url}: ${a.error || "failed"}`).join("; ")}`,
+            )
           } else {
             // All URLs failed - check if it's a recoverable error
             const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
@@ -358,6 +395,7 @@ export async function smartInitializeRepoUtil(
           attemptedUrls: fetchResult?.attempts.map(a => a.url) ?? [],
         }
       } catch (e) {
+        if (strictCloneUrls) throw e
         // fall through to re-init
       }
     }
@@ -365,7 +403,7 @@ export async function smartInitializeRepoUtil(
     return await initializeRepoUtil(
       git,
       cacheManager,
-      {repoId, cloneUrls, branch},
+      {repoId, cloneUrls, branch, readScope, trackReadPreference},
       {rootDir, parseRepoId, repoDataLevels, clonedRepos},
       sendProgress,
     )
@@ -382,7 +420,13 @@ export async function smartInitializeRepoUtil(
 export async function initializeRepoUtil(
   git: GitProvider,
   cacheManager: RepoCacheManager,
-  opts: {repoId: string; cloneUrls: string[]; branch?: string},
+  opts: {
+    repoId: string
+    cloneUrls: string[]
+    branch?: string
+    readScope?: string
+    trackReadPreference?: boolean
+  },
   deps: {
     rootDir: string
     parseRepoId: (id: string) => string
@@ -391,7 +435,7 @@ export async function initializeRepoUtil(
   },
   sendProgress: (phase: string, loaded?: number, total?: number) => void,
 ) {
-  const {repoId, cloneUrls, branch} = opts
+  const {repoId, cloneUrls, branch, readScope, trackReadPreference = true} = opts
   const {rootDir, parseRepoId, repoDataLevels, clonedRepos} = deps
   try {
     const key = parseRepoId(repoId)
@@ -495,7 +539,11 @@ export async function initializeRepoUtil(
         }
         throw lastRefError || new Error(`Clone failed for ${cloneUrl}`)
       },
-      {repoId: key, perUrlTimeoutMs: 30000}, // 30s timeout for initial clone (larger than fetch)
+      {
+        repoId: trackReadPreference ? key : undefined,
+        readScope,
+        perUrlTimeoutMs: 0,
+      },
     )
 
     if (!cloneResult.success) {
@@ -794,6 +842,8 @@ export async function ensureFullCloneUtil(
     depth?: number
     cloneUrls?: string[]
     strictCloneUrls?: boolean
+    readScope?: string
+    trackReadPreference?: boolean
   },
   deps: {
     rootDir: string
@@ -810,7 +860,15 @@ export async function ensureFullCloneUtil(
   },
   sendProgress: (phase: string, loaded?: number, total?: number) => void,
 ) {
-  const {repoId, branch, depth = 50, cloneUrls: providedCloneUrls, strictCloneUrls = false} = opts
+  const {
+    repoId,
+    branch,
+    depth = 50,
+    cloneUrls: providedCloneUrls,
+    strictCloneUrls = false,
+    readScope,
+    trackReadPreference = true,
+  } = opts
   const {rootDir, parseRepoId, repoDataLevels, clonedRepos, isRepoCloned, resolveBranchName} = deps
   const key = parseRepoId(repoId)
   const dir = `${rootDir}/${key}`
@@ -852,7 +910,7 @@ export async function ensureFullCloneUtil(
 
   // Check if we already have commits for this specific branch
   // Even at 'full' level, we may need to fetch a different branch
-  if (currentLevel === "full") {
+  if (currentLevel === "full" && !strictCloneUrls) {
     // Try to verify the branch exists locally by attempting to resolve it to an OID
     try {
       // Try direct branch name, then remote tracking branch
@@ -955,7 +1013,7 @@ export async function ensureFullCloneUtil(
         orderedUrls.join(", "),
       )
 
-      // Use withUrlFallback with per-URL timeout for responsive fallback
+      // Git fetch cannot confirm abort, so advance only after each attempt settles.
       const fetchResult = await withUrlFallback(
         orderedUrls,
         async (cloneUrl: string) => {
@@ -971,7 +1029,7 @@ export async function ensureFullCloneUtil(
           }
 
           const authCallback = getAuthCallback(cloneUrl)
-          await git.fetch({
+          const fetchInfo = await git.fetch({
             dir,
             url: cloneUrl,
             ref: targetBranch,
@@ -982,11 +1040,16 @@ export async function ensureFullCloneUtil(
             onProgress: (p: any) => sendProgress(`Full clone: ${p.phase}`, p.loaded, p.total),
             ...(authCallback && {onAuth: authCallback}),
           })
-          return {url: cloneUrl}
+          const headCommit = fetchInfo?.fetchHead
+          if (strictCloneUrls && !headCommit) {
+            throw new Error(`Fetch from ${cloneUrl} completed without a resolvable commit`)
+          }
+          return {url: cloneUrl, headCommit: headCommit || undefined}
         },
         {
-          repoId: key,
-          perUrlTimeoutMs: 15000, // 15 second timeout per URL - if slow, try next
+          repoId: trackReadPreference ? key : undefined,
+          readScope,
+          perUrlTimeoutMs: 0,
         },
       )
 
@@ -1006,6 +1069,7 @@ export async function ensureFullCloneUtil(
           cached: false,
           level: "full" as const,
           usedUrl: fetchResult.usedUrl,
+          headCommit: fetchResult.result?.headCommit,
         }
       } else {
         // All URLs failed
@@ -1018,7 +1082,9 @@ export async function ensureFullCloneUtil(
           console.warn(`  - ${attempt.url}: ${attempt.error} (${attempt.durationMs}ms)`)
         }
 
-        const existingCommit = await resolveExistingBranchCommit(targetBranch)
+        const existingCommit = strictCloneUrls
+          ? null
+          : await resolveExistingBranchCommit(targetBranch)
         if (existingCommit) {
           console.warn(
             `[ensureFullClone] Using existing local data for '${targetBranch}' after fetch failure: ${errorMessage}`,

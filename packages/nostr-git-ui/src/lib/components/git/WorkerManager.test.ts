@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WorkerManager } from './WorkerManager';
+import {
+  clearUrlPreferenceCache,
+  getCachedUrlPreference,
+  updateUrlPreferenceCache,
+} from '@nostr-git/core/utils';
 
 vi.mock('@nostr-git/core/errors', () => {
   class FatalError extends Error {
@@ -77,6 +82,7 @@ describe('WorkerManager', () => {
   let progressCallback: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    clearUrlPreferenceCache();
     progressCallback = vi.fn();
     manager = new WorkerManager(progressCallback);
   });
@@ -304,12 +310,322 @@ describe('WorkerManager', () => {
 
       expect(calls).toEqual([`natural:${primary}`, `clone:${primary}`, `natural:${secondary}`]);
       expect(result).toMatchObject({ success: true, usedUrl: secondary });
+      expect(api.smartInitializeRepo).toHaveBeenCalledWith({
+        repoId: 'worker-manager-capability-fallback',
+        cloneUrls: [primary],
+        branch: undefined,
+        strictCloneUrls: true,
+        readScope: undefined
+      });
       expect(api.getCommitDetails).toHaveBeenCalledWith({
         repoId: 'worker-manager-capability-fallback',
         commitId: 'root',
         cloneUrls: [primary],
         cloneFallbackReason: 'missing-filter-capability'
       });
+    });
+
+    it('keeps scoped PR source routing independent from the target cursor', async () => {
+      const api = manager.apiInstance as any;
+      const repoId = 'worker-manager-pr-scopes';
+      const targetPrimary = 'https://target-primary.example/repo.git';
+      const targetSecondary = 'https://target-secondary.example/repo.git';
+      const sourcePrimary = 'https://source-primary.example/repo.git';
+      const sourceSecondary = 'https://source-secondary.example/repo.git';
+      const calls: string[] = [];
+      updateUrlPreferenceCache(repoId, targetSecondary, [targetPrimary]);
+      api.gitNaturalGetCommit = vi.fn(async ({ url }: { url: string }) => {
+        calls.push(url);
+        if (url === sourcePrimary) {
+          return {
+            success: false,
+            error: 'source primary failed',
+            gitNaturalError: {
+              name: 'GitNaturalReadError',
+              message: 'source primary failed',
+              code: 'protocol-error',
+              remoteUrl: url
+            }
+          };
+        }
+        return {
+          commit: {
+            hash: 'a'.repeat(40),
+            author: { name: 'Alice', email: 'alice@example.com', timestamp: 1 },
+            message: 'Change',
+            parents: []
+          }
+        };
+      });
+
+      await manager.getCommitMeta({
+        repoId,
+        commitId: 'a'.repeat(40),
+        cloneUrls: [sourcePrimary, sourceSecondary],
+        readScope: 'pr-source:event'
+      });
+
+      expect(calls).toEqual([sourcePrimary, sourceSecondary]);
+      expect(getCachedUrlPreference(repoId)?.preferredUrl).toBe(targetSecondary);
+      expect(getCachedUrlPreference(repoId, 'pr-source:event')?.preferredUrl).toBe(sourceSecondary);
+
+      calls.length = 0;
+      await manager.getCommitMeta({
+        repoId,
+        commitId: 'a'.repeat(40),
+        cloneUrls: [targetPrimary, targetSecondary]
+      });
+      expect(calls).toEqual([targetSecondary]);
+    });
+
+    it('forwards the PR source scope through worker review APIs', async () => {
+      const api = manager.apiInstance as any;
+      api.getPRReviewData = vi.fn(async () => ({ success: true }));
+      api.getPRPreview = vi.fn(async () => ({ success: true }));
+      api.getCommitsAheadOfTip = vi.fn(async () => ({ success: true }));
+      api.getMergeBaseBetween = vi.fn(async () => ({ mergeBase: 'a'.repeat(40) }));
+      api.analyzePRMerge = vi.fn(async () => ({ success: true }));
+      const common = {
+        repoId: 'owner/repo',
+        cloneUrls: ['https://target.example/repo.git'],
+        sourceReadScope: 'pr-source:event'
+      };
+
+      await manager.getPRReviewData({
+        ...common,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main'
+      });
+      await manager.getPRPreview({ ...common, sourceBranch: 'feature', targetBranch: 'main' });
+      await manager.getCommitsAheadOfTip({ ...common, tipOid: 'a'.repeat(40) });
+      await manager.getMergeBaseBetween({
+        ...common,
+        headOid: 'a'.repeat(40),
+        targetBranch: 'main'
+      });
+      await manager.analyzePRMerge({
+        repoId: common.repoId,
+        prCloneUrls: ['https://source.example/repo.git'],
+        targetCloneUrls: common.cloneUrls,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        sourceReadScope: common.sourceReadScope
+      });
+
+      for (const method of [
+        api.getPRReviewData,
+        api.getPRPreview,
+        api.getCommitsAheadOfTip,
+        api.getMergeBaseBetween,
+        api.analyzePRMerge
+      ]) {
+        expect(method).toHaveBeenCalledWith(expect.objectContaining({ sourceReadScope: 'pr-source:event' }));
+      }
+    });
+
+    it('orders and reconciles target and source cursors for composite PR reads', async () => {
+      const api = manager.apiInstance as any;
+      const targetUrls = [
+        'https://target-primary.example/repo.git',
+        'https://target-secondary.example/repo.git',
+        'https://target-tertiary.example/repo.git'
+      ];
+      const sourceUrls = [
+        'https://source-primary.example/repo.git',
+        'https://source-secondary.example/repo.git',
+        'https://source-tertiary.example/repo.git'
+      ];
+      const sourceReadScope = 'pr-source:event';
+      const seedCursors = (repoId: string) => {
+        updateUrlPreferenceCache(repoId, targetUrls[1], [targetUrls[0]]);
+        updateUrlPreferenceCache(repoId, sourceUrls[1], [sourceUrls[0]], sourceReadScope);
+      };
+      const result = {
+        success: true,
+        commits: [],
+        commitOids: [],
+        usedTargetCloneUrl: targetUrls[2],
+        targetAttempts: [
+          { url: targetUrls[1], success: false, error: 'target failed' },
+          { url: targetUrls[2], success: true }
+        ],
+        usedCloneUrl: sourceUrls[2],
+        sourceAttempts: [
+          { url: sourceUrls[1], success: false, error: 'source failed' },
+          { url: sourceUrls[2], success: true }
+        ]
+      };
+
+      const analysisRepo = 'worker-manager-analysis-cursors';
+      seedCursors(analysisRepo);
+      api.analyzePRMerge = vi.fn(async () => result);
+      await manager.analyzePRMerge({
+        repoId: analysisRepo,
+        prCloneUrls: sourceUrls,
+        targetCloneUrls: targetUrls,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        sourceReadScope
+      });
+      expect(api.analyzePRMerge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prCloneUrls: sourceUrls.slice(1),
+          targetCloneUrls: targetUrls.slice(1)
+        })
+      );
+      expect(getCachedUrlPreference(analysisRepo)?.preferredUrl).toBe(targetUrls[2]);
+      expect(getCachedUrlPreference(analysisRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+
+      const writeAnalysisRepo = 'worker-manager-write-analysis-cursors';
+      seedCursors(writeAnalysisRepo);
+      api.analyzePRMerge = vi.fn(async () => ({
+        ...result,
+        usedTargetCloneUrl: targetUrls[0],
+        targetAttempts: [{ url: targetUrls[0], success: true }]
+      }));
+      await manager.analyzePRMerge({
+        repoId: writeAnalysisRepo,
+        prCloneUrls: sourceUrls,
+        targetCloneUrls: [targetUrls[0]],
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        sourceReadScope,
+        trackTargetReadPreference: false
+      });
+      expect(api.analyzePRMerge).toHaveBeenCalledWith(
+        expect.objectContaining({ targetCloneUrls: [targetUrls[0]] })
+      );
+      expect(getCachedUrlPreference(writeAnalysisRepo)?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference(writeAnalysisRepo, sourceReadScope)?.preferredUrl).toBe(
+        sourceUrls[2]
+      );
+
+      const reviewRepo = 'worker-manager-review-cursors';
+      seedCursors(reviewRepo);
+      api.getPRReviewData = vi.fn(async () => result);
+      await manager.getPRReviewData({
+        repoId: reviewRepo,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: targetUrls,
+        prCloneUrls: sourceUrls,
+        sourceReadScope
+      });
+      expect(api.getPRReviewData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cloneUrls: targetUrls.slice(1),
+          prCloneUrls: sourceUrls.slice(1)
+        })
+      );
+      expect(getCachedUrlPreference(reviewRepo)?.preferredUrl).toBe(targetUrls[2]);
+      expect(getCachedUrlPreference(reviewRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+
+      const previewRepo = 'worker-manager-preview-cursors';
+      seedCursors(previewRepo);
+      api.getPRPreview = vi.fn(async () => result);
+      await manager.getPRPreview({
+        repoId: previewRepo,
+        sourceBranch: 'feature',
+        targetBranch: 'main',
+        cloneUrls: targetUrls,
+        sourceCloneUrls: sourceUrls,
+        sourceReadScope
+      });
+      expect(api.getPRPreview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cloneUrls: targetUrls.slice(1),
+          sourceCloneUrls: sourceUrls.slice(1)
+        })
+      );
+      expect(getCachedUrlPreference(previewRepo)?.preferredUrl).toBe(targetUrls[2]);
+      expect(getCachedUrlPreference(previewRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+
+      const aheadRepo = 'worker-manager-ahead-cursors';
+      seedCursors(aheadRepo);
+      api.getCommitsAheadOfTip = vi.fn(async () => result);
+      await manager.getCommitsAheadOfTip({
+        repoId: aheadRepo,
+        tipOid: 'a'.repeat(40),
+        cloneUrls: targetUrls,
+        sourceCloneUrls: sourceUrls,
+        sourceReadScope
+      });
+      expect(api.getCommitsAheadOfTip).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cloneUrls: targetUrls.slice(1),
+          sourceCloneUrls: sourceUrls.slice(1)
+        })
+      );
+      expect(getCachedUrlPreference(aheadRepo)?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference(aheadRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+
+      const mergeBaseRepo = 'worker-manager-merge-base-cursors';
+      seedCursors(mergeBaseRepo);
+      api.getMergeBaseBetween = vi.fn(async () => ({ ...result, mergeBase: 'b'.repeat(40) }));
+      await manager.getMergeBaseBetween({
+        repoId: mergeBaseRepo,
+        headOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: targetUrls,
+        sourceCloneUrls: sourceUrls,
+        sourceReadScope
+      });
+      expect(api.getMergeBaseBetween).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cloneUrls: targetUrls.slice(1),
+          sourceCloneUrls: sourceUrls.slice(1)
+        })
+      );
+      expect(getCachedUrlPreference(mergeBaseRepo)?.preferredUrl).toBe(targetUrls[2]);
+      expect(getCachedUrlPreference(mergeBaseRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+    });
+
+    it('does not let a stale PR RPC completion move either role cursor backward', async () => {
+      const api = manager.apiInstance as any;
+      const repoId = 'worker-manager-stale-pr-read';
+      const sourceReadScope = 'pr-source:event';
+      const targetUrls = [
+        'https://target-primary.example/repo.git',
+        'https://target-secondary.example/repo.git',
+        'https://target-tertiary.example/repo.git'
+      ];
+      const sourceUrls = [
+        'https://source-primary.example/repo.git',
+        'https://source-secondary.example/repo.git',
+        'https://source-tertiary.example/repo.git'
+      ];
+      let resolveReview!: (value: any) => void;
+      api.getPRReviewData = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveReview = resolve;
+          })
+      );
+
+      const pending = manager.getPRReviewData({
+        repoId,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: targetUrls,
+        prCloneUrls: sourceUrls,
+        sourceReadScope
+      });
+      await vi.waitFor(() => expect(api.getPRReviewData).toHaveBeenCalled());
+      updateUrlPreferenceCache(repoId, targetUrls[2], targetUrls.slice(0, 2));
+      updateUrlPreferenceCache(repoId, sourceUrls[2], sourceUrls.slice(0, 2), sourceReadScope);
+      resolveReview({
+        success: true,
+        commits: [],
+        commitOids: [],
+        usedTargetCloneUrl: targetUrls[1],
+        targetAttempts: [{ url: targetUrls[1], success: true }],
+        usedCloneUrl: sourceUrls[1],
+        sourceAttempts: [{ url: sourceUrls[1], success: true }]
+      });
+      await pending;
+
+      expect(getCachedUrlPreference(repoId)?.preferredUrl).toBe(targetUrls[2]);
+      expect(getCachedUrlPreference(repoId, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
     });
   });
 

@@ -36,4 +36,13 @@ describe("PR review consistency", () => {
       prView.match(/cloneUrls: primaryTargetCloneUrl \? \[primaryTargetCloneUrl\] : \[\]/g),
     ).toHaveLength(3)
   })
+
+  it("keeps fork-source routing separate from the target repository cursor", () => {
+    expect(prView).not.toContain("prFetchCloneUrls")
+    expect(prView).toContain('return `pr-source:${sourceEventId}`')
+    expect(prView).toContain('role === "source"')
+    expect(prView).toContain('if (role === "target" && result?.usedUrl)')
+    expect(prView).toContain("sourceReadScope: prSourceReadScope")
+    expect(prView).toContain("...(route.readScope ? {readScope: route.readScope} : {})")
+  })
 })

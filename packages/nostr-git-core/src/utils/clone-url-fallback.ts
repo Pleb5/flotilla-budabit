@@ -62,17 +62,38 @@ export class UrlTimeoutError extends Error {
   }
 }
 
+export class UrlCancellationUnconfirmedError extends Error {
+  readonly url: string;
+  readonly timeoutMs: number;
+  readonly code = 'CANCELLATION_UNCONFIRMED';
+
+  constructor(url: string, timeoutMs: number) {
+    super(`Timed-out operation did not settle after abort for ${url}`);
+    this.name = 'UrlCancellationUnconfirmedError';
+    this.url = url;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 /**
  * Simple in-memory cache for URL preferences.
  * Maps repoId -> preferred URL info.
  */
 const urlPreferenceCache = new Map<string, CloneUrlCacheEntry>();
+const READ_SCOPE_SEPARATOR = "\0";
+
+function readPreferenceCacheKey(repoId: string, readScope?: string): string {
+  return readScope ? `${repoId}${READ_SCOPE_SEPARATOR}${readScope}` : repoId;
+}
 
 /**
  * Get cached URL preference for a repo.
  */
-export function getCachedUrlPreference(repoId: string): CloneUrlCacheEntry | undefined {
-  return urlPreferenceCache.get(repoId);
+export function getCachedUrlPreference(
+  repoId: string,
+  readScope?: string
+): CloneUrlCacheEntry | undefined {
+  return urlPreferenceCache.get(readPreferenceCacheKey(repoId, readScope));
 }
 
 /**
@@ -81,10 +102,12 @@ export function getCachedUrlPreference(repoId: string): CloneUrlCacheEntry | und
 export function updateUrlPreferenceCache(
   repoId: string,
   successfulUrl: string,
-  failedUrls: string[] = []
+  failedUrls: string[] = [],
+  readScope?: string
 ): void {
-  const existing = urlPreferenceCache.get(repoId);
-  urlPreferenceCache.set(repoId, {
+  const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  const existing = urlPreferenceCache.get(cacheKey);
+  urlPreferenceCache.set(cacheKey, {
     preferredUrl: successfulUrl,
     lastSuccessAt: Date.now(),
     failedUrls: Array.from(new Set([...(existing?.failedUrls || []), ...failedUrls])),
@@ -101,15 +124,17 @@ export function advanceReadUrlPreference(
   failedUrl: string,
   nextUrl: string | undefined,
   error?: string,
-  declaredUrls?: string[]
+  declaredUrls?: string[],
+  readScope?: string
 ): void {
-  const existing = urlPreferenceCache.get(repoId);
+  const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  const existing = urlPreferenceCache.get(cacheKey);
   if (existing && declaredUrls) {
     const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
     const nextIndex = declaredUrls.indexOf(nextUrl || failedUrl);
     if (currentIndex >= 0 && nextIndex >= 0 && currentIndex > nextIndex) return;
   }
-  urlPreferenceCache.set(repoId, {
+  urlPreferenceCache.set(cacheKey, {
     preferredUrl: nextUrl || failedUrl,
     lastSuccessAt: existing?.lastSuccessAt || 0,
     failedUrls: Array.from(new Set([...(existing?.failedUrls || []), failedUrl])),
@@ -122,23 +147,32 @@ function recordReadUrlSuccess(
   repoId: string,
   successfulUrl: string,
   failedUrls: string[],
-  declaredUrls: string[]
+  declaredUrls: string[],
+  readScope?: string
 ): void {
-  const existing = urlPreferenceCache.get(repoId);
+  const existing = getCachedUrlPreference(repoId, readScope);
   if (existing) {
     const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
     const successIndex = declaredUrls.indexOf(successfulUrl);
     if (currentIndex >= 0 && successIndex >= 0 && currentIndex > successIndex) return;
   }
-  updateUrlPreferenceCache(repoId, successfulUrl, failedUrls);
+  updateUrlPreferenceCache(repoId, successfulUrl, failedUrls, readScope);
 }
 
 /**
  * Clear cached URL preference for a repo.
  */
-export function clearUrlPreferenceCache(repoId?: string): void {
+export function clearUrlPreferenceCache(repoId?: string, readScope?: string): void {
   if (repoId) {
-    urlPreferenceCache.delete(repoId);
+    if (readScope) {
+      urlPreferenceCache.delete(readPreferenceCacheKey(repoId, readScope));
+      return;
+    }
+    for (const key of urlPreferenceCache.keys()) {
+      if (key === repoId || key.startsWith(`${repoId}${READ_SCOPE_SEPARATOR}`)) {
+        urlPreferenceCache.delete(key);
+      }
+    }
   } else {
     urlPreferenceCache.clear();
   }
@@ -185,16 +219,21 @@ export function reorderUrlsByPreference(urls: string[], repoId?: string): string
  * a repository advances to a fallback, later reads continue from that URL and
  * never wrap back to an earlier failed remote until the cache is reset.
  */
-export function orderReadUrlsByPreference(urls: string[], repoId?: string): string[] {
+export function orderReadUrlsByPreference(
+  urls: string[],
+  repoId?: string,
+  readScope?: string
+): string[] {
   const ordered = [...urls];
   if (!repoId) return ordered;
 
-  const cached = urlPreferenceCache.get(repoId);
+  const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  const cached = urlPreferenceCache.get(cacheKey);
   if (!cached?.preferredUrl) return ordered;
 
   const activeIndex = ordered.indexOf(cached.preferredUrl);
   if (activeIndex === -1) {
-    urlPreferenceCache.delete(repoId);
+    urlPreferenceCache.delete(cacheKey);
     return ordered;
   }
 
@@ -249,18 +288,24 @@ export async function withUrlFallback<T>(
     isRetriable?: (error: unknown) => boolean;
     /** Timeout in milliseconds for each URL attempt. If exceeded, tries next URL. Default: 15000 (15s) */
     perUrlTimeoutMs?: number;
+    /** Maximum time to wait for an aborted operation to settle before stopping fallback. */
+    cancellationSettleTimeoutMs?: number;
+    /** Independent read cursor within the repository, such as a fork PR source. */
+    readScope?: string;
   }
 ): Promise<ReadFallbackResult<T>> {
   const {
     repoId,
     tryAll = false,
     isRetriable = defaultIsRetriable,
-    perUrlTimeoutMs = 15000  // Default 15 second timeout per URL
+    perUrlTimeoutMs = 15000,
+    cancellationSettleTimeoutMs = 1000,
+    readScope,
   } = options || {};
 
   // Filter and reorder URLs
   const validUrls = filterValidCloneUrls(urls);
-  const orderedUrls = orderReadUrlsByPreference(validUrls, repoId);
+  const orderedUrls = orderReadUrlsByPreference(validUrls, repoId, readScope);
 
   if (orderedUrls.length === 0) {
     return {
@@ -278,20 +323,16 @@ export async function withUrlFallback<T>(
   for (let i = 0; i < orderedUrls.length; i++) {
     const url = orderedUrls[i];
     if (repoId) {
-      const activeUrl = orderReadUrlsByPreference(validUrls, repoId)[0];
+      const activeUrl = orderReadUrlsByPreference(validUrls, repoId, readScope)[0];
       const activeIndex = activeUrl ? validUrls.indexOf(activeUrl) : -1;
       const urlIndex = validUrls.indexOf(url);
       if (activeIndex >= 0 && urlIndex >= 0 && urlIndex < activeIndex) continue;
     }
     const startTime = Date.now();
-    const isLastUrl = i === orderedUrls.length - 1;
-
     try {
-      // Wrap operation with timeout - but only if we have more URLs to try
-      // For the last URL, let it run without timeout to give it a fair chance
       let result: T;
 
-      if (perUrlTimeoutMs > 0 && !isLastUrl) {
+      if (perUrlTimeoutMs > 0) {
         const controller = new AbortController();
         const operationPromise = operation(url, controller.signal);
         let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -313,7 +354,13 @@ export async function withUrlFallback<T>(
           if (error instanceof UrlTimeoutError) {
             controller.abort();
             // Do not advance to another remote while the cancelled operation is still running.
-            await operationPromise.catch(() => undefined);
+            const settled = await waitForPromiseSettlement(
+              operationPromise,
+              cancellationSettleTimeoutMs
+            );
+            if (!settled) {
+              throw new UrlCancellationUnconfirmedError(url, cancellationSettleTimeoutMs);
+            }
           }
           throw error;
         } finally {
@@ -351,7 +398,11 @@ export async function withUrlFallback<T>(
       const durationMs = Date.now() - startTime;
       const isTimeout = error instanceof UrlTimeoutError;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorCode = isTimeout ? 'TIMEOUT' : ((error as any)?.code || (error as any)?.name || "UNKNOWN");
+      const sourceErrorCode = (error as any)?.code || (error as any)?.name || "UNKNOWN";
+      const cancellationUnconfirmed =
+        error instanceof UrlCancellationUnconfirmedError ||
+        String(sourceErrorCode).toLowerCase().replace(/_/g, "-") === "cancellation-unconfirmed";
+      const errorCode = isTimeout ? 'TIMEOUT' : sourceErrorCode;
 
       attempts.push({
         url,
@@ -364,7 +415,14 @@ export async function withUrlFallback<T>(
       failedUrls.push(url);
 
       if (repoId) {
-        advanceReadUrlPreference(repoId, url, orderedUrls[i + 1], errorMessage, validUrls);
+        advanceReadUrlPreference(
+          repoId,
+          url,
+          cancellationUnconfirmed ? undefined : orderedUrls[i + 1],
+          errorMessage,
+          validUrls,
+          readScope
+        );
       }
 
       // Log timeout to help with debugging
@@ -372,9 +430,8 @@ export async function withUrlFallback<T>(
         console.log(`[withUrlFallback] URL timed out after ${perUrlTimeoutMs}ms, trying next: ${url}`);
       }
 
-      // If error is not retriable (and not a timeout), don't try other URLs
-      // Timeouts are always retriable - we want to try the next URL
-      if (!isTimeout && !isRetriable(error)) {
+      // Starting another remote is unsafe when the timed-out operation ignored abort.
+      if (cancellationUnconfirmed || (!isTimeout && !isRetriable(error))) {
         break;
       }
     }
@@ -382,7 +439,7 @@ export async function withUrlFallback<T>(
 
   // Update cache if we had a success
   if (successUrl && repoId) {
-    recordReadUrlSuccess(repoId, successUrl, failedUrls, validUrls);
+    recordReadUrlSuccess(repoId, successUrl, failedUrls, validUrls, readScope);
   }
 
   return {
@@ -392,6 +449,31 @@ export async function withUrlFallback<T>(
     attempts,
     successIndex,
   };
+}
+
+async function waitForPromiseSettlement(
+  promise: Promise<unknown>,
+  timeoutMs: number
+): Promise<boolean> {
+  if (timeoutMs <= 0) {
+    void promise.catch(() => undefined);
+    return false;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true
+      ),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 /**
@@ -514,6 +596,10 @@ function defaultIsRetriable(error: unknown): boolean {
   const code = (error as any)?.code || (error as any)?.name || "";
   const lower = (message + code).toLowerCase();
 
+  if (lower.includes('cancellation_unconfirmed') || lower.includes('cancellation-unconfirmed')) {
+    return false;
+  }
+
   // Keep URL fallback moving even for auth/not-found errors. One mirror can
   // require credentials or be stale while another mirror remains readable.
 
@@ -564,7 +650,7 @@ export async function cloneWithFallback<T>(
   cloneFn: (url: string) => Promise<T>,
   repoId?: string
 ): Promise<ReadFallbackResult<T>> {
-  return withUrlFallback(cloneUrls, cloneFn, { repoId });
+  return withUrlFallback(cloneUrls, cloneFn, { repoId, perUrlTimeoutMs: 0 });
 }
 
 /**

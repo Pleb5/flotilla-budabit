@@ -692,6 +692,7 @@ export class VendorReadRouter {
                   commit: params.commitHash,
                   path,
                   cloneUrls: [remoteUrl],
+                  strictCloneUrls: true,
                 })
               : await params.workerManager.listRepoFilesFromEvent({
                   repoEvent: params.repoEvent,
@@ -699,6 +700,7 @@ export class VendorReadRouter {
                   branch,
                   path,
                   cloneUrls: [remoteUrl],
+                  strictCloneUrls: true,
                 });
             return {
               files: (filesRaw || []).map((file: any) => ({
@@ -973,6 +975,7 @@ export class VendorReadRouter {
               path: params.path,
               commit: params.commitHash,
               cloneUrls: [remoteUrl],
+              strictCloneUrls: true,
             });
             const content = typeof contentRaw === "string" ? contentRaw : String(contentRaw ?? "");
             return {
@@ -1565,6 +1568,7 @@ export class VendorReadRouter {
               repoId: params.repoKey,
               cloneUrls: [remoteUrl],
               branch,
+              strictCloneUrls: true,
               timeoutMs: 0,
             });
             if (!initResult?.success) {
@@ -1583,10 +1587,14 @@ export class VendorReadRouter {
             if (!cloneResult?.success) {
               throw new Error(cloneResult?.error || "Failed to load clone-backed commit history");
             }
+            if (!cloneResult.headCommit) {
+              throw new Error(`Strict fetch from ${remoteUrl} did not return a branch OID`);
+            }
             const commitsResult = await params.workerManager.getCommitHistory({
               repoId: params.repoKey,
               branch,
               depth,
+              startOid: cloneResult.headCommit,
             });
             if (commitsResult?.success === false) {
               throw new Error(commitsResult.error || "Git worker commit history fallback failed");

@@ -6,6 +6,7 @@ import {zlibSync} from "fflate"
 
 import {GitNaturalObjectCache} from "../../src/git/natural-read-cache.js"
 import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
+import {GitNaturalApiAdapter} from "../../src/git/natural-read-api-adapter.js"
 import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
 
 const encoder = new TextEncoder()
@@ -243,6 +244,93 @@ describe("GitNaturalReadProvider", () => {
       .filter(([, init]) => init?.method === "POST")
       .map(([, init]) => String(init?.body || ""))
     expect(treeZeroPostBodies.filter(body => body.includes("filter tree:0\n"))).toHaveLength(1)
+  })
+
+  it("keeps caller-abortable filtered object batches independent", async () => {
+    const commitHash = "a".repeat(40)
+    const treeHash = "b".repeat(40)
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const objects = new Map([
+      [
+        commitHash,
+        {type: 1, size: 0, data: new Uint8Array(), offset: 0, hash: commitHash},
+      ],
+      [treeHash, {type: 2, size: 0, data: new Uint8Array(), offset: 0, hash: treeHash}],
+    ])
+    const pack = {
+      remoteUrl: REMOTE_URL,
+      effectiveUrl: REMOTE_URL,
+      usesProxy: false,
+      pack: {version: 2, count: objects.size, objects},
+      elapsedMs: 1,
+    }
+    const fetchBlobNoneObjects = vi.fn(
+      async (params: {signal?: AbortSignal}) => {
+        if (params.signal === firstController.signal) {
+          await new Promise<void>((_resolve, reject) => {
+            params.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              {once: true},
+            )
+          })
+        }
+        return pack
+      },
+    )
+    const adapter = {
+      fetchInfoRefs: vi.fn(async () => ({
+        infoRefs: {
+          refs: {HEAD: commitHash, "refs/heads/main": commitHash},
+          capabilities: CAPABILITIES,
+          symrefs: {HEAD: "refs/heads/main"},
+          headRef: "refs/heads/main",
+          headCommit: commitHash,
+        },
+        remoteUrl: REMOTE_URL,
+        effectiveUrl: REMOTE_URL,
+        usesProxy: false,
+        elapsedMs: 1,
+      })),
+      fetchBlobNoneObjects,
+      parseCommit: vi.fn(() => ({
+        hash: commitHash,
+        tree: treeHash,
+        parents: [],
+        author: {name: "A", email: "a@example.com", timestamp: 1, timezone: "+0000"},
+        committer: {name: "C", email: "c@example.com", timestamp: 1, timezone: "+0000"},
+        message: "",
+      })),
+      parseTree: vi.fn(() => []),
+    } as unknown as GitNaturalApiAdapter
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      cache: new GitNaturalObjectCache({asyncStore: false}),
+      adapter,
+    })
+
+    const first = provider.listDirectory({
+      url: REMOTE_URL,
+      ref: "main",
+      signal: firstController.signal,
+    })
+    const second = provider.listDirectory({
+      url: REMOTE_URL,
+      ref: "main",
+      signal: secondController.signal,
+    })
+    await vi.waitFor(() => expect(fetchBlobNoneObjects).toHaveBeenCalledTimes(2))
+
+    await expect(second).resolves.toMatchObject({commitHash, treeHash})
+    expect(firstController.signal.aborted).toBe(false)
+    firstController.abort()
+    await expect(first).rejects.toMatchObject({name: "AbortError"})
+    expect(fetchBlobNoneObjects.mock.calls.map(([params]) => params.signal)).toEqual([
+      firstController.signal,
+      secondController.signal,
+    ])
+    expect(secondController.signal.aborted).toBe(false)
   })
 
   it("keeps concurrent filtered fetches separate across proxy modes", async () => {

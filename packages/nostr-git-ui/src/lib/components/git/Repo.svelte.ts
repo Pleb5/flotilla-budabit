@@ -1076,7 +1076,8 @@ export class Repo {
     prCloneUrls: string[],
     tipCommitOid: string,
     targetBranch: string,
-    targetCloneUrls: string[] = this.cloneUrls
+    targetCloneUrls: string[] = this.cloneUrls,
+    sourceReadScope?: string
   ): Promise<import("@nostr-git/core/git").PRMergeAnalysisResult | null> {
     if (!this.repoEvent || !this.workerManager) return null;
     const repoId = this.key;
@@ -1089,6 +1090,8 @@ export class Repo {
         targetCloneUrls,
         tipCommitOid,
         targetBranch: effectiveBranch,
+        sourceReadScope,
+        trackTargetReadPreference: false,
       });
       return result;
     } catch (err) {
@@ -1295,6 +1298,10 @@ export class Repo {
   // Record a clone URL error (called by VendorReadRouter or other components)
   recordCloneUrlError(url: string, error: string, status?: number): void {
     const normalized = this.#normalizeCloneUrl(url);
+    const activeReadUrl = getCachedUrlPreference(this.key)?.preferredUrl;
+    if (activeReadUrl) {
+      this.currentReadRemoteUrl = activeReadUrl;
+    }
 
     // Avoid duplicates
     const existing = this.#cloneUrlErrors.find(

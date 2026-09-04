@@ -150,6 +150,7 @@ import {parseRepoId} from "../utils/repo-id.js"
 import {listAdvertisedServerRefs} from "../utils/advertised-refs.js"
 import {
   filterValidCloneUrls,
+  orderReadUrlsByPreference,
   reorderUrlsByPreference,
   withUrlFallback,
 } from "../utils/clone-url-fallback.js"
@@ -215,7 +216,7 @@ import {needsUpdateUtil, syncWithRemoteUtil} from "./workers/sync.js"
 
 import type {AnalyzePRMergeOptions, MergePRAndPushOptions} from "./workers/pr-merge.js"
 import {analyzePRMergeUtil, mergePRAndPushUtil} from "./workers/pr-merge.js"
-import {withRepoOperationLock} from "./workers/repo-operation-lock.js"
+import {acquireRepoOperationLock, withRepoOperationLock} from "./workers/repo-operation-lock.js"
 
 import type {SafePushOptions} from "./workers/push.js"
 import {safePushToRemoteUtil, validateExplicitGraspPush} from "./workers/push.js"
@@ -294,28 +295,65 @@ async function runGitNaturalWorkerRead<T>(
 > {
   const timeoutMs = opts.timeoutMs ?? 15000
   const controller = new AbortController()
-  const timeout =
+  const readPromise = read(controller.signal)
+  const timeoutError = new GitNaturalReadError(
+    "transient-network-failure",
+    `Git natural read timed out after ${timeoutMs}ms for ${opts.url}`,
+    {remoteUrl: opts.url},
+  )
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const timedRead =
     timeoutMs > 0
-      ? setTimeout(() => {
-          controller.abort()
-        }, timeoutMs)
-      : undefined
+      ? Promise.race([
+          readPromise,
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+              controller.abort()
+              reject(timeoutError)
+            }, timeoutMs)
+          }),
+        ])
+      : readPromise
 
   try {
-    return toPlain(await read(controller.signal))
+    return toPlain(await timedRead)
   } catch (error) {
-    const normalizedError = controller.signal.aborted
-      ? new GitNaturalReadError(
-          "transient-network-failure",
-          `Git natural read timed out after ${timeoutMs}ms for ${opts.url}`,
-          {remoteUrl: opts.url, cause: error},
-        )
-      : error
+    let normalizedError = error
+    if (error === timeoutError) {
+      const settled = await waitForWorkerReadSettlement(readPromise, 1000)
+      normalizedError = settled
+        ? timeoutError
+        : new GitNaturalReadError(
+            "cancellation-unconfirmed",
+            `Git natural read did not settle after timeout cancellation for ${opts.url}`,
+            {remoteUrl: opts.url},
+          )
+    }
     return toPlain({
       success: false as const,
       error: normalizedError instanceof Error ? normalizedError.message : String(normalizedError),
       gitNaturalError: serializeGitNaturalReadError(normalizedError),
     })
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+}
+
+async function waitForWorkerReadSettlement(
+  promise: Promise<unknown>,
+  timeoutMs: number,
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>(resolve => {
+        timeout = setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
   } finally {
     if (timeout !== undefined) clearTimeout(timeout)
   }
@@ -333,6 +371,12 @@ function isHttpCloneUrl(url: string): boolean {
   return /^https?:\/\//i.test(String(url || "").trim())
 }
 
+function repoEventOperationKey(repoEvent: RepoAnnouncementEvent, repoKey?: string): string {
+  if (repoKey) return repoKey
+  const identifier = repoEvent.tags.find(tag => tag[0] === "d")?.[1]
+  return identifier ? `${repoEvent.pubkey}:${identifier}` : repoEvent.id
+}
+
 async function tryGitNaturalPRReviewData(params: {
   key: string
   tipCommitOid: string
@@ -342,6 +386,7 @@ async function tryGitNaturalPRReviewData(params: {
   mergeBase?: string
   targetCommitOid?: string
   corsProxy?: string | null
+  sourceReadScope?: string
 }) {
   const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
   const provider = getGitNaturalReadProvider(corsProxy)
@@ -354,6 +399,7 @@ async function tryGitNaturalPRReviewData(params: {
       targetUrls: params.targetUrls,
       mergeBase: params.mergeBase,
       targetCommitOid: params.targetCommitOid,
+      sourceReadScope: params.sourceReadScope,
       corsProxy,
       reader: {
         resolveRef: request => provider.resolveRef(request),
@@ -380,11 +426,13 @@ async function tryGitNaturalPRPreview(params: {
   targetBranch: string
   sourceUrls: string[]
   targetUrls: string[]
+  sourceReadScope?: string
 }) {
   const source = await tryGitNaturalResolveRefFromUrls({
     key: params.key,
     ref: params.sourceBranch,
     cloneUrls: params.sourceUrls,
+    readScope: params.sourceReadScope,
   })
   if (!source) return null
 
@@ -394,6 +442,7 @@ async function tryGitNaturalPRPreview(params: {
     targetBranch: params.targetBranch,
     sourceUrls: params.sourceUrls,
     targetUrls: params.targetUrls,
+    sourceReadScope: params.sourceReadScope,
   })
   if (!review) return null
 
@@ -412,6 +461,8 @@ async function tryGitNaturalPRPreview(params: {
     readSource: review.readSource,
     usedCloneUrl: review.usedCloneUrl,
     usedTargetCloneUrl: review.usedTargetCloneUrl,
+    sourceAttempts: review.sourceAttempts,
+    targetAttempts: review.targetAttempts,
   }
 }
 
@@ -419,18 +470,25 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
   key: string
   tipOid: string
   sourceUrls: string[]
+  sourceReadScope?: string
 }) {
   const tipOid = normalizeFullOid(params.tipOid)
   if (!tipOid) return null
-  const urls = gitNaturalHttpUrls(params.sourceUrls, params.key)
+  const urls = gitNaturalHttpUrls(params.sourceUrls, params.key, params.sourceReadScope)
   if (urls.length === 0) return null
   const corsProxy = resolveGitNaturalCorsProxy(undefined)
 
   const result = await withUrlFallback(
     urls,
-    async (url: string) => {
+    async (url: string, signal?: AbortSignal) => {
       const provider = getGitNaturalReadProvider(corsProxy)
-      const refs = await provider.listRefs({url, prefix: "refs/heads/", symrefs: false, corsProxy})
+      const refs = await provider.listRefs({
+        url,
+        prefix: "refs/heads/",
+        symrefs: false,
+        corsProxy,
+        signal,
+      })
       const branchHeads = refs.refs
         .map(ref => ({ref: ref.ref || "", oid: normalizeFullOid(ref.oid)}))
         .filter((ref): ref is {ref: string; oid: string} =>
@@ -446,6 +504,7 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
             commitHash: branch.oid,
             depth: 100,
             corsProxy,
+            signal,
           })
           const tipIndex = history.commits.findIndex(commit => commit.hash === tipOid)
           if (tipIndex > 0)
@@ -471,7 +530,7 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
         sourceBranch: best.branch,
       }
     },
-    {repoId: params.key, perUrlTimeoutMs: 20000},
+    {repoId: params.key, readScope: params.sourceReadScope, perUrlTimeoutMs: 20000},
   )
 
   if (result.success) {
@@ -487,6 +546,7 @@ async function tryGitNaturalMergeBaseBetween(params: {
   targetBranch: string
   targetUrls: string[]
   sourceUrls?: string[]
+  sourceReadScope?: string
 }) {
   const headOid = normalizeFullOid(params.headOid)
   if (!headOid) return null
@@ -503,6 +563,7 @@ async function tryGitNaturalMergeBaseBetween(params: {
     commitHash: headOid,
     cloneUrls: headUrls,
     depth: 100,
+    readScope: params.sourceUrls?.length ? params.sourceReadScope : undefined,
   })
   const targetHistory = await tryGitNaturalListCommitsFromUrls({
     key: params.key,
@@ -522,7 +583,7 @@ async function tryGitNaturalMergeBaseBetween(params: {
     mergeBase,
     source: "git-natural",
     usedCloneUrl: headHistory.usedUrl,
-    usedTargetCloneUrl: target.usedUrl,
+    usedTargetCloneUrl: targetHistory.usedUrl,
   }
 }
 
@@ -530,17 +591,18 @@ async function tryGitNaturalResolveRefFromUrls(params: {
   key: string
   ref: string
   cloneUrls: string[]
+  readScope?: string
 }): Promise<{result: GitNaturalResolveRefResult; usedUrl: string} | null> {
-  const urls = gitNaturalHttpUrls(params.cloneUrls, params.key)
+  const urls = gitNaturalHttpUrls(params.cloneUrls, params.key, params.readScope)
   if (urls.length === 0) return null
   const corsProxy = resolveGitNaturalCorsProxy(undefined)
   const result = await withUrlFallback(
     urls,
-    async (url: string) => {
+    async (url: string, signal?: AbortSignal) => {
       const provider = getGitNaturalReadProvider(corsProxy)
-      return await provider.resolveRef({url, ref: params.ref, corsProxy})
+      return await provider.resolveRef({url, ref: params.ref, corsProxy, signal})
     },
-    {repoId: params.key, perUrlTimeoutMs: 15000},
+    {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 15000},
   )
   return result.success && result.result && result.usedUrl
     ? {result: result.result, usedUrl: result.usedUrl}
@@ -552,27 +614,36 @@ async function tryGitNaturalListCommitsFromUrls(params: {
   commitHash: string
   cloneUrls: string[]
   depth: number
+  readScope?: string
 }): Promise<{result: GitNaturalListCommitsResult; usedUrl: string} | null> {
   const commitHash = normalizeFullOid(params.commitHash)
   if (!commitHash) return null
-  const urls = gitNaturalHttpUrls(params.cloneUrls, params.key)
+  const urls = gitNaturalHttpUrls(params.cloneUrls, params.key, params.readScope)
   if (urls.length === 0) return null
   const corsProxy = resolveGitNaturalCorsProxy(undefined)
   const result = await withUrlFallback(
     urls,
-    async (url: string) => {
+    async (url: string, signal?: AbortSignal) => {
       const provider = getGitNaturalReadProvider(corsProxy)
-      return await provider.listCommits({url, commitHash, depth: params.depth, corsProxy})
+      return await provider.listCommits({
+        url,
+        commitHash,
+        depth: params.depth,
+        corsProxy,
+        signal,
+      })
     },
-    {repoId: params.key, perUrlTimeoutMs: 15000},
+    {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 15000},
   )
   return result.success && result.result && result.usedUrl
     ? {result: result.result, usedUrl: result.usedUrl}
     : null
 }
 
-function gitNaturalHttpUrls(urls: string[], repoId: string): string[] {
-  return reorderUrlsByPreference(filterValidCloneUrls(urls), repoId).filter(isHttpCloneUrl)
+function gitNaturalHttpUrls(urls: string[], repoId: string, readScope?: string): string[] {
+  return orderReadUrlsByPreference(filterValidCloneUrls(urls), repoId, readScope).filter(
+    isHttpCloneUrl,
+  )
 }
 
 function normalizeFullOid(value?: string): string | undefined {
@@ -890,6 +961,8 @@ async function fetchRefsUntilOidsAvailable(opts: {
   requiredOids: string[]
   cloneUrls?: string[]
   forceRefFetch?: boolean
+  strictCloneUrls?: boolean
+  readScope?: string
 }): Promise<boolean> {
   const {key, dir} = opts
   const requiredOids = Array.from(new Set((opts.requiredOids || []).filter(Boolean)))
@@ -906,21 +979,23 @@ async function fetchRefsUntilOidsAvailable(opts: {
 
   addUrls(opts.cloneUrls || [])
 
-  try {
-    const remotes = await git.listRemotes({dir})
-    const originRemote = remotes.find((r: any) => r.remote === "origin")
-    if (originRemote?.url) {
-      addUrls([originRemote.url])
+  if (!opts.strictCloneUrls) {
+    try {
+      const remotes = await git.listRemotes({dir})
+      const originRemote = remotes.find((r: any) => r.remote === "origin")
+      if (originRemote?.url) {
+        addUrls([originRemote.url])
+      }
+    } catch {
+      // ignore remote listing issues
     }
-  } catch {
-    // ignore remote listing issues
-  }
 
-  try {
-    const cache = await cacheManager.getRepoCache(key)
-    addUrls(cache?.cloneUrls || [])
-  } catch {
-    // ignore cache issues
+    try {
+      const cache = await cacheManager.getRepoCache(key)
+      addUrls(cache?.cloneUrls || [])
+    } catch {
+      // ignore cache issues
+    }
   }
 
   const orderedUrls = reorderUrlsByPreference(urlsToTry, key)
@@ -939,39 +1014,26 @@ async function fetchRefsUntilOidsAvailable(opts: {
     return missingOids
   }
 
-  if (!opts.forceRefFetch && (await getMissingOids()).length === 0) return true
+  const fetchExactOids = async (url: string) => {
+    const authCallback = getAuthCallback(url)
+    const oidsToFetch = opts.strictCloneUrls ? requiredOids : await getMissingOids()
+    for (const oid of oidsToFetch) {
+      await git.fetch({
+        dir,
+        url,
+        ref: oid,
+        singleBranch: true,
+        depth: 1,
+        tags: false,
+        corsProxy,
+        ...(authCallback && {onAuth: authCallback}),
+      })
+    }
 
-  if (!opts.forceRefFetch) {
-    const directOidFetchResult = await withUrlFallback(
-      orderedUrls,
-      async (url: string) => {
-        const authCallback = getAuthCallback(url)
-        for (const oid of await getMissingOids()) {
-          await git.fetch({
-            dir,
-            url,
-            ref: oid,
-            singleBranch: true,
-            depth: 1,
-            tags: false,
-            corsProxy,
-            ...(authCallback && {onAuth: authCallback}),
-          })
-        }
-
-        const missingOids = await getMissingOids()
-        if (missingOids.length > 0) {
-          throw new Error(
-            `Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`,
-          )
-        }
-
-        return true
-      },
-      {repoId: key, perUrlTimeoutMs: 15000},
-    )
-
-    if (directOidFetchResult.success) return true
+    const missingOids = await getMissingOids()
+    if (missingOids.length > 0) {
+      throw new Error(`Fetched direct object(s) but missing commit(s): ${missingOids.join(", ")}`)
+    }
   }
 
   const fetchRefs = async (url: string, opts: {depth?: number; tags: boolean}) => {
@@ -994,10 +1056,45 @@ async function fetchRefsUntilOidsAvailable(opts: {
     return true
   }
 
+  const initialMissingOids = await getMissingOids()
+  if (!opts.forceRefFetch && initialMissingOids.length === 0 && !opts.strictCloneUrls) return true
+
+  if (opts.strictCloneUrls && opts.forceRefFetch) {
+    const strictRefFetchResult = await withUrlFallback(
+      orderedUrls,
+      async url => {
+        await fetchExactOids(url)
+        try {
+          return await fetchRefs(url, {depth: 100, tags: false})
+        } catch {
+          return await fetchRefs(url, {tags: true})
+        }
+      },
+      {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
+    )
+    return strictRefFetchResult.success
+  }
+
+  const requiresDirectOidProof =
+    opts.strictCloneUrls || (!opts.forceRefFetch && initialMissingOids.length > 0)
+  if (requiresDirectOidProof) {
+    const directOidFetchResult = await withUrlFallback(
+      orderedUrls,
+      async url => {
+        await fetchExactOids(url)
+        return true
+      },
+      {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
+    )
+
+    if (directOidFetchResult.success) return true
+    if (opts.strictCloneUrls && !directOidFetchResult.success) return false
+  }
+
   const shallowRefsResult = await withUrlFallback(
     orderedUrls,
     async (url: string) => fetchRefs(url, {depth: 100, tags: false}),
-    {repoId: key, perUrlTimeoutMs: 20000},
+    {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
   )
 
   if (shallowRefsResult.success) return true
@@ -1005,7 +1102,7 @@ async function fetchRefsUntilOidsAvailable(opts: {
   const fetchResult = await withUrlFallback(
     orderedUrls,
     async (url: string) => fetchRefs(url, {tags: true}),
-    {repoId: key, perUrlTimeoutMs: 20000},
+    {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
   )
 
   return fetchResult.success
@@ -1080,17 +1177,19 @@ const api = {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "clone-progress")
     return toPlain(
-      await initializeRepoUtil(
-        git,
-        cacheManager,
-        opts,
-        {
-          rootDir,
-          parseRepoId,
-          repoDataLevels,
-          clonedRepos,
-        },
-        sendProgress,
+      await withRepoOperationLock(repoId, () =>
+        initializeRepoUtil(
+          git,
+          cacheManager,
+          opts,
+          {
+            rootDir,
+            parseRepoId,
+            repoDataLevels,
+            clonedRepos,
+          },
+          sendProgress,
+        ),
       ),
     )
   },
@@ -1100,27 +1199,32 @@ const api = {
     cloneUrls: string[]
     branch?: string
     forceUpdate?: boolean
+    strictCloneUrls?: boolean
+    readScope?: string
+    trackReadPreference?: boolean
   }) {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "clone-progress")
     return toPlain(
-      await smartInitializeRepoUtil(
-        git,
-        cacheManager,
-        opts,
-        {
-          rootDir,
-          parseRepoId,
-          repoDataLevels,
-          clonedRepos,
-          isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-          resolveBranchName: async (
-            dir: string,
-            requested?: string,
-            options?: {strict?: boolean},
-          ) => resolveRobustBranchUtil(git, dir, requested, options),
-        },
-        sendProgress,
+      await withRepoOperationLock(repoId, () =>
+        smartInitializeRepoUtil(
+          git,
+          cacheManager,
+          opts,
+          {
+            rootDir,
+            parseRepoId,
+            repoDataLevels,
+            clonedRepos,
+            isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
+            resolveBranchName: async (
+              dir: string,
+              requested?: string,
+              options?: {strict?: boolean},
+            ) => resolveRobustBranchUtil(git, dir, requested, options),
+          },
+          sendProgress,
+        ),
       ),
     )
   },
@@ -1129,19 +1233,24 @@ const api = {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "clone-progress")
     return toPlain(
-      await ensureShallowCloneUtil(
-        git,
-        opts,
-        {
-          rootDir,
-          parseRepoId,
-          repoDataLevels,
-          clonedRepos,
-          isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-          resolveBranchName: async (dir: string, requested?: string) =>
-            resolveRobustBranchUtil(git, dir, requested),
-        },
-        sendProgress,
+      await withRepoOperationLock(repoId, () =>
+        ensureShallowCloneUtil(
+          git,
+          opts,
+          {
+            rootDir,
+            parseRepoId,
+            repoDataLevels,
+            clonedRepos,
+            isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
+            resolveBranchName: async (
+              dir: string,
+              requested?: string,
+              options?: {strict?: boolean},
+            ) => resolveRobustBranchUtil(git, dir, requested, options),
+          },
+          sendProgress,
+        ),
       ),
     )
   },
@@ -1152,24 +1261,31 @@ const api = {
     depth?: number
     cloneUrls?: string[]
     strictCloneUrls?: boolean
+    readScope?: string
+    trackReadPreference?: boolean
   }) {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "clone-progress")
     return toPlain(
-      await ensureFullCloneUtil(
-        git,
-        opts,
-        {
-          rootDir,
-          parseRepoId,
-          repoDataLevels,
-          clonedRepos,
-          isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-          resolveBranchName: async (dir: string, requested?: string) =>
-            resolveRobustBranchUtil(git, dir, requested),
-          cacheManager,
-        },
-        sendProgress,
+      await withRepoOperationLock(repoId, () =>
+        ensureFullCloneUtil(
+          git,
+          opts,
+          {
+            rootDir,
+            parseRepoId,
+            repoDataLevels,
+            clonedRepos,
+            isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
+            resolveBranchName: async (
+              dir: string,
+              requested?: string,
+              options?: {strict?: boolean},
+            ) => resolveRobustBranchUtil(git, dir, requested, options),
+            cacheManager,
+          },
+          sendProgress,
+        ),
       ),
     )
   },
@@ -1313,6 +1429,7 @@ const api = {
     requireRemoteSync?: boolean
     requireTrackingRef?: boolean
     preferredUrl?: string
+    trackReadPreference?: boolean
   }) {
     return toPlain(
       await withRepoOperationLock(opts.repoId, () =>
@@ -1670,6 +1787,7 @@ const api = {
         branch?: string
         depth?: number
         cloneUrls?: string[]
+        trackReadPreference?: boolean
       }) =>
         ensureFullCloneUtil(
           git,
@@ -1692,7 +1810,7 @@ const api = {
       getAuthCallback,
       getConfiguredAuthHosts,
       pushToRemote: async opts => {
-        const r = await api.pushToRemote(opts)
+        const r = await api.pushToRemote({...opts, skipRepoLock: true})
         return r
       },
       safePushToRemote: async args => {
@@ -1700,6 +1818,7 @@ const api = {
           ...args,
           provider: args.provider as any,
           preflight: args.preflight,
+          skipRepoLock: true,
         })
         return {
           success: r?.success,
@@ -2534,10 +2653,14 @@ const api = {
   },
 
   // Safe push wrapper (preflight checks + optional confirmation flow)
-  async safePushToRemote(opts: SafePushOptions) {
-    return await withRepoOperationLock(opts.repoId, async () =>
-      toPlain(
-        await safePushToRemoteUtil(git, cacheManager, opts, {
+  async safePushToRemote(opts: SafePushOptions & {skipRepoLock?: boolean}): Promise<any> {
+    if (!opts.skipRepoLock) {
+      return await withRepoOperationLock(opts.repoId, () =>
+        api.safePushToRemote({...opts, skipRepoLock: true}),
+      )
+    }
+    return toPlain(
+      await safePushToRemoteUtil(git, cacheManager, opts, {
         rootDir,
         parseRepoId,
         isRepoCloned: async (dir: string) => isRepoClonedFs(git, dir),
@@ -2592,8 +2715,7 @@ const api = {
             return {success: false, error: e?.message || String(e)} as any
           }
         },
-        }),
-      ),
+      }),
     )
   },
 
@@ -2634,48 +2756,50 @@ const api = {
       throw new Error("A refs/nostr target requires a Git commit ID")
     }
 
-    const cloneUrls = filterValidCloneUrls(opts.cloneUrls || [])
-    if (!(await hasCommitObject(dir, commit)) && opts.sourceRef) {
-      const corsProxy = resolveDefaultCorsProxy()
-      for (const url of cloneUrls) {
-        try {
-          const authCallback = getAuthCallback(url)
-          await git.fetch({
-            dir,
-            url,
-            ref: opts.sourceRef,
-            singleBranch: true,
-            tags: false,
-            corsProxy,
-            ...(authCallback && {onAuth: authCallback}),
-          })
-          if (await hasCommitObject(dir, commit)) break
-        } catch {
-          // Fall back to the existing direct-OID and full-ref recovery below.
+    return await withRepoOperationLock(opts.repoId, async () => {
+      const cloneUrls = filterValidCloneUrls(opts.cloneUrls || [])
+      if (!(await hasCommitObject(dir, commit)) && opts.sourceRef) {
+        const corsProxy = resolveDefaultCorsProxy()
+        for (const url of cloneUrls) {
+          try {
+            const authCallback = getAuthCallback(url)
+            await git.fetch({
+              dir,
+              url,
+              ref: opts.sourceRef,
+              singleBranch: true,
+              tags: false,
+              corsProxy,
+              ...(authCallback && {onAuth: authCallback}),
+            })
+            if (await hasCommitObject(dir, commit)) break
+          } catch {
+            // Fall back to the existing direct-OID and full-ref recovery below.
+          }
         }
       }
-    }
 
-    if (!(await hasCommitObject(dir, commit))) {
-      const fetched = await fetchRefsUntilOidsAvailable({
-        key,
-        dir,
-        requiredOids: [commit],
-        cloneUrls,
-      })
-      if (!fetched || !(await hasCommitObject(dir, commit))) {
-        throw new Error(`Unable to fetch imported pull request commit ${commit}`)
+      if (!(await hasCommitObject(dir, commit))) {
+        const fetched = await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [commit],
+          cloneUrls,
+        })
+        if (!fetched || !(await hasCommitObject(dir, commit))) {
+          throw new Error(`Unable to fetch imported pull request commit ${commit}`)
+        }
       }
-    }
 
-    const ref = `refs/nostr/${eventId}`
-    await (git as any).writeRef({dir, ref, value: commit, force: true})
-    const resolved = await (git as any).resolveRef({dir, ref})
-    if (resolved !== commit) {
-      throw new Error(`Failed to materialize ${ref} at ${commit}`)
-    }
+      const ref = `refs/nostr/${eventId}`
+      await (git as any).writeRef({dir, ref, value: commit, force: true})
+      const resolved = await (git as any).resolveRef({dir, ref})
+      if (resolved !== commit) {
+        throw new Error(`Failed to materialize ${ref} at ${commit}`)
+      }
 
-    return toPlain({success: true as const, ref, commit})
+      return toPlain({success: true as const, ref, commit})
+    })
   },
 
   async listRemotes(opts: {repoId: string}): Promise<Array<{remote: string; url: string}>> {
@@ -2689,7 +2813,12 @@ const api = {
     return await resolveRobustBranchUtil(git, dir, opts.branch)
   },
 
-  async getCommitHistory(opts: {repoId: string; branch?: string; depth?: number}) {
+  async getCommitHistory(opts: {
+    repoId: string
+    branch?: string
+    depth?: number
+    startOid?: string
+  }) {
     try {
       const {key, dir} = repoKeyAndDir(opts.repoId)
       const ref = opts.branch || "main"
@@ -2726,6 +2855,14 @@ const api = {
         if (!dataLevel) {
           repoDataLevels.set(key, "refs")
         }
+      }
+
+      if (opts.startOid) {
+        if (!/^[0-9a-f]{40}$/i.test(opts.startOid)) {
+          throw new Error(`Invalid commit history start OID: ${opts.startOid}`)
+        }
+        const commits = await (git as any).log({dir, ref: opts.startOid, depth})
+        return {success: true, commits: toPlain(commits), startOid: opts.startOid}
       }
 
       // Prefer the explicitly requested branch before HEAD.
@@ -2862,8 +2999,12 @@ const api = {
     path?: string
     repoKey?: string
     cloneUrls?: string[]
+    strictCloneUrls?: boolean
   }) {
-    const result = await listRepoFilesFromEvent(opts)
+    const result = await withRepoOperationLock(
+      repoEventOperationKey(opts.repoEvent, opts.repoKey),
+      () => listRepoFilesFromEvent(opts),
+    )
     return toPlain(result)
   },
 
@@ -2874,8 +3015,11 @@ const api = {
     commit?: string
     repoKey?: string
     cloneUrls?: string[]
+    strictCloneUrls?: boolean
   }) {
-    return await getRepoFileContentFromEvent(opts)
+    return await withRepoOperationLock(repoEventOperationKey(opts.repoEvent, opts.repoKey), () =>
+      getRepoFileContentFromEvent(opts),
+    )
   },
 
   async listBranchesFromEvent(opts: {repoEvent: RepoAnnouncementEvent}) {
@@ -2890,6 +3034,7 @@ const api = {
     cloneUrls: string[]
     /** When present (fork PR), source branch is fetched from these URLs; cloneUrls = target/upstream */
     sourceCloneUrls?: string[]
+    sourceReadScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
@@ -2899,6 +3044,7 @@ const api = {
       : targetUrls
     let sourceRemote: string | undefined
     let verifiedSourceUrl: string | undefined
+    let releaseRepoOperation: (() => void) | undefined
 
     try {
       const naturalPreview = await tryGitNaturalPRPreview({
@@ -2907,9 +3053,11 @@ const api = {
         targetBranch: opts.targetBranch,
         sourceUrls: naturalSourceUrls,
         targetUrls,
+        sourceReadScope: opts.sourceReadScope,
       }).catch(() => null)
       if (naturalPreview) return toPlain(naturalPreview)
 
+      releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       await smartInitializeRepoUtil(
         git,
         cacheManager,
@@ -2956,7 +3104,7 @@ const api = {
           })
           await git.resolveRef({dir, ref: `refs/remotes/origin/${opts.targetBranch}`})
         },
-        {repoId: key, perUrlTimeoutMs: 15000},
+        {repoId: key, perUrlTimeoutMs: 0},
       )
       if (!targetFetchResult.success) {
         return toPlain({
@@ -2979,7 +3127,7 @@ const api = {
             filesChanged: [],
           })
         }
-        const sourceOrdered = reorderUrlsByPreference(forkSourceUrls, key)
+        const sourceOrdered = orderReadUrlsByPreference(forkSourceUrls, key, opts.sourceReadScope)
         const prSourceRemote = `pr-source-${Date.now().toString(36)}`
         const sourceFetchResult = await withUrlFallback(
           sourceOrdered,
@@ -3024,7 +3172,7 @@ const api = {
               ref: `refs/remotes/${prSourceRemote}/${opts.sourceBranch}`,
             })
           },
-          {repoId: key, perUrlTimeoutMs: 15000},
+          {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
         )
         if (!sourceFetchResult.success) {
           return toPlain({
@@ -3055,7 +3203,7 @@ const api = {
             })
             await git.resolveRef({dir, ref: `refs/remotes/origin/${opts.sourceBranch}`})
           },
-          {repoId: key, perUrlTimeoutMs: 15000},
+          {repoId: key, perUrlTimeoutMs: 0},
         )
         if (!sourceFetchResult.success) {
           return toPlain({
@@ -3077,6 +3225,8 @@ const api = {
       return toPlain({
         ...result,
         verifiedCloneUrls: result.success && verifiedSourceUrl ? [verifiedSourceUrl] : [],
+        usedCloneUrl: verifiedSourceUrl,
+        usedTargetCloneUrl: targetFetchResult.usedUrl,
       })
     } catch (error: any) {
       return toPlain({
@@ -3094,6 +3244,7 @@ const api = {
           /* ignore cleanup */
         }
       }
+      releaseRepoOperation?.()
     }
   },
 
@@ -3109,13 +3260,13 @@ const api = {
     prCloneUrls?: string[]
     mergeBase?: string
     targetCommitOid?: string
+    sourceReadScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const targetUrls = filterValidCloneUrls(opts.cloneUrls || [])
     const sourceUrls = filterValidCloneUrls(
       opts.prCloneUrls && opts.prCloneUrls.length > 0 ? opts.prCloneUrls : opts.cloneUrls || [],
     )
-    const allCloneUrls = Array.from(new Set([...sourceUrls, ...targetUrls]))
     const initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
     type PRReviewErrorPhase = "source" | "target" | "review"
     let loadingPhase: PRReviewErrorPhase = targetUrls.length > 0 ? "target" : "source"
@@ -3157,9 +3308,11 @@ const api = {
       targetUrls,
       ...(hasProvidedMergeBase ? {mergeBase: opts.mergeBase} : {}),
       ...(hasProvidedTargetCommit ? {targetCommitOid: opts.targetCommitOid} : {}),
+      sourceReadScope: opts.sourceReadScope,
     })
     if (naturalReview) return toPlain(naturalReview)
 
+    const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
     try {
       await smartInitializeRepoUtil(
         git,
@@ -3216,8 +3369,7 @@ const api = {
               const remoteRef = `refs/remotes/${targetRemote}/${opts.targetBranch}`
               const oid =
                 fetchInfo?.fetchHead ||
-                (await git.resolveRef({dir, ref: remoteRef}).catch(() => null)) ||
-                (await git.resolveRef({dir, ref: "FETCH_HEAD"}).catch(() => null))
+                (await git.resolveRef({dir, ref: remoteRef}).catch(() => null))
               if (!oid) {
                 throw new Error(
                   `Remote fetch completed but no target commit could be resolved for ${opts.targetBranch}.`,
@@ -3232,7 +3384,7 @@ const api = {
               }
             }
           },
-          {repoId: key, perUrlTimeoutMs: 15000},
+          {repoId: key, perUrlTimeoutMs: 0},
         )
 
         if (targetFetchResult.success) {
@@ -3247,60 +3399,59 @@ const api = {
       let headOid = opts.tipCommitOid
       let usedCloneUrl: string | undefined
       loadingPhase = "source"
-      if (!(await hasCommitObject(dir, headOid))) {
-        if (sourceUrls.length === 0) {
-          return failure(
-            "PR tip commit is not available locally and no PR clone URL was provided",
-            "source",
-          )
-        }
-
-        const sourceFetchResult = await withUrlFallback(
-          reorderUrlsByPreference(sourceUrls, key),
-          async (url: string) => {
-            const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
-            await git.addRemote({dir, remote: prSourceRemote, url})
-            try {
-              const source = await fetchPrSourceTip(git, {
-                dir,
-                remote: prSourceRemote,
-                url,
-                tipCommitOid: opts.tipCommitOid,
-                depth: 100,
-                corsProxy: corsProxy ?? undefined,
-                onAuth: getAuthCallback(url),
-              })
-              return source
-            } finally {
-              try {
-                await git.deleteRemote({dir, remote: prSourceRemote})
-              } catch {
-                /* ignore cleanup */
-              }
-            }
-          },
-          {repoId: key, perUrlTimeoutMs: 20000},
-        )
-
-        if (!sourceFetchResult.success) {
-          return failure(
-            `Failed to fetch PR source: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
-            "source",
-          )
-        }
-
-        headOid = sourceFetchResult.result?.tipOid || opts.tipCommitOid
-        usedCloneUrl = sourceFetchResult.usedUrl
+      if (sourceUrls.length === 0) {
+        return failure("No PR source clone URL was provided", "source")
       }
+
+      const sourceFetchResult = await withUrlFallback(
+        orderReadUrlsByPreference(sourceUrls, key, opts.sourceReadScope),
+        async (url: string) => {
+          const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+          await git.addRemote({dir, remote: prSourceRemote, url})
+          try {
+            const source = await fetchPrSourceTip(git, {
+              dir,
+              remote: prSourceRemote,
+              url,
+              tipCommitOid: opts.tipCommitOid,
+              depth: 100,
+              corsProxy: corsProxy ?? undefined,
+              onAuth: getAuthCallback(url),
+              requireRemoteEvidence: true,
+            })
+            return source
+          } finally {
+            try {
+              await git.deleteRemote({dir, remote: prSourceRemote})
+            } catch {
+              /* ignore cleanup */
+            }
+          }
+        },
+        {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
+      )
+
+      if (!sourceFetchResult.success) {
+        return failure(
+          `Failed to fetch PR source: ${sourceFetchResult.attempts?.map(a => a.error).join("; ") ?? "unknown"}`,
+          "source",
+        )
+      }
+
+      headOid = sourceFetchResult.result?.tipOid || opts.tipCommitOid
+      usedCloneUrl = sourceFetchResult.usedUrl
 
       const preferredMergeBase = hasProvidedMergeBase ? opts.mergeBase : undefined
       loadingPhase = "review"
       if (hasProvidedTargetCommit && targetCommit && !(await hasCommitObject(dir, targetCommit))) {
+        const targetRecoveryUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
         const fetchedTarget = await fetchRefsUntilOidsAvailable({
           key,
           dir,
-          requiredOids: [headOid, targetCommit],
-          cloneUrls: allCloneUrls,
+          requiredOids: [targetCommit],
+          cloneUrls: targetRecoveryUrls,
+          strictCloneUrls: true,
+          ...(targetUrls.length === 0 ? {readScope: opts.sourceReadScope} : {}),
         })
         if (!fetchedTarget) {
           return failure("Could not fetch PR target commit objects.", "target")
@@ -3318,10 +3469,22 @@ const api = {
         await fetchRefsUntilOidsAvailable({
           key,
           dir,
-          requiredOids: [headOid, targetCommit],
-          cloneUrls: allCloneUrls,
+          requiredOids: [headOid],
+          cloneUrls: sourceUrls,
           forceRefFetch: true,
+          strictCloneUrls: true,
+          readScope: opts.sourceReadScope,
         })
+        if (targetUrls.length > 0) {
+          await fetchRefsUntilOidsAvailable({
+            key,
+            dir,
+            requiredOids: [targetCommit],
+            cloneUrls: targetUrls,
+            forceRefFetch: true,
+            strictCloneUrls: true,
+          })
+        }
         review = await getPRReviewDataCore(git, dir, {
           tipCommitOid: headOid,
           targetCommitOid: targetCommit,
@@ -3341,7 +3504,6 @@ const api = {
         repoId: opts.repoId,
         baseOid: review.baseOid,
         headOid: review.headOid,
-        cloneUrls: allCloneUrls,
         gitNaturalDiff: true,
       })
 
@@ -3361,6 +3523,8 @@ const api = {
       })
     } catch (error: any) {
       return failure(error?.message || String(error), loadingPhase)
+    } finally {
+      releaseRepoOperation()
     }
   },
 
@@ -3375,6 +3539,7 @@ const api = {
     cloneUrls: string[]
     /** When present (fork PR), source is fetched from these; cloneUrls = target for init */
     sourceCloneUrls?: string[]
+    sourceReadScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
@@ -3383,15 +3548,19 @@ const api = {
       ? filterValidCloneUrls(opts.sourceCloneUrls || [])
       : targetUrls
     let sourceRemote: string | undefined
+    let usedCloneUrl: string | undefined
+    let releaseRepoOperation: (() => void) | undefined
 
     try {
       const naturalAhead = await tryGitNaturalCommitsAheadOfTip({
         key,
         tipOid: opts.tipOid,
         sourceUrls: naturalSourceUrls,
+        sourceReadScope: opts.sourceReadScope,
       }).catch(() => null)
       if (naturalAhead) return toPlain(naturalAhead)
 
+      releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       await smartInitializeRepoUtil(
         git,
         cacheManager,
@@ -3420,7 +3589,7 @@ const api = {
             commitOids: [],
           })
         }
-        const sourceOrdered = reorderUrlsByPreference(sourceUrls, key)
+        const sourceOrdered = orderReadUrlsByPreference(sourceUrls, key, opts.sourceReadScope)
         const prSourceRemote = `pr-source-${Date.now().toString(36)}`
         const sourceFetchResult = await withUrlFallback(
           sourceOrdered,
@@ -3465,7 +3634,7 @@ const api = {
               throw new Error("Fork fetch succeeded but no branches were discovered")
             }
           },
-          {repoId: key, perUrlTimeoutMs: 15000},
+          {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
         )
         if (!sourceFetchResult.success) {
           return toPlain({
@@ -3476,6 +3645,7 @@ const api = {
           })
         }
         sourceRemote = prSourceRemote
+        usedCloneUrl = sourceFetchResult.usedUrl
       } else {
         const orderedUrls = reorderUrlsByPreference(targetUrls, key)
         if (orderedUrls.length === 0) {
@@ -3501,7 +3671,7 @@ const api = {
               onAuth: getAuthCallback(cloneUrl),
             })
           },
-          {repoId: key, perUrlTimeoutMs: 15000},
+          {repoId: key, perUrlTimeoutMs: 0},
         )
         if (!fetchResult.success) {
           return toPlain({
@@ -3511,6 +3681,7 @@ const api = {
             commitOids: [],
           })
         }
+        usedCloneUrl = fetchResult.usedUrl
       }
 
       const result = await getCommitsAheadOfTipData(
@@ -3520,7 +3691,7 @@ const api = {
         sourceRemote ? {sourceRemote} : undefined,
       )
 
-      return toPlain(result)
+      return toPlain({...result, usedCloneUrl})
     } catch (error: any) {
       return toPlain({
         success: false,
@@ -3536,6 +3707,7 @@ const api = {
           /* ignore cleanup */
         }
       }
+      releaseRepoOperation?.()
     }
   },
 
@@ -3549,9 +3721,12 @@ const api = {
     cloneUrls: string[]
     /** For fork PR, target may be in origin; sourceRemote unused for this call */
     sourceCloneUrls?: string[]
+    sourceReadScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const targetUrls = filterValidCloneUrls(opts.cloneUrls)
+    let usedTargetCloneUrl: string | undefined
+    let releaseRepoOperation: (() => void) | undefined
     try {
       const naturalMergeBase = await tryGitNaturalMergeBaseBetween({
         key,
@@ -3559,13 +3734,15 @@ const api = {
         targetBranch: opts.targetBranch,
         targetUrls,
         sourceUrls: filterValidCloneUrls(opts.sourceCloneUrls || []),
+        sourceReadScope: opts.sourceReadScope,
       }).catch(() => null)
       if (naturalMergeBase) return toPlain(naturalMergeBase)
 
+      releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       if (targetUrls.length > 0) {
         const orderedUrls = reorderUrlsByPreference(targetUrls, key)
         const corsProxy = resolveDefaultCorsProxy()
-        await withUrlFallback(
+        const fetchResult = await withUrlFallback(
           orderedUrls,
           async (cloneUrl: string) => {
             await ensureOriginRemoteConfig(git, dir, cloneUrl)
@@ -3578,8 +3755,9 @@ const api = {
               corsProxy: corsProxy ?? undefined,
             })
           },
-          {repoId: key, perUrlTimeoutMs: 15000},
+          {repoId: key, perUrlTimeoutMs: 0},
         )
+        usedTargetCloneUrl = fetchResult.usedUrl
       }
       const result = await getMergeBaseBetweenData(
         git,
@@ -3588,12 +3766,14 @@ const api = {
         opts.targetBranch,
         undefined,
       )
-      return toPlain(result)
+      return toPlain({...result, usedTargetCloneUrl})
     } catch (error: any) {
       return toPlain({
         mergeBase: undefined,
         error: error?.message || String(error),
       })
+    } finally {
+      releaseRepoOperation?.()
     }
   },
 
@@ -3624,15 +3804,21 @@ const api = {
     path?: string
     repoKey?: string
     cloneUrls?: string[]
+    strictCloneUrls?: boolean
   }) {
     // Use listRepoFilesFromEvent with commit parameter
-    const result = await listRepoFilesFromEvent({
-      repoEvent: opts.repoEvent,
-      commit: opts.commit,
-      path: opts.path,
-      repoKey: opts.repoKey,
-      cloneUrls: opts.cloneUrls,
-    })
+    const result = await withRepoOperationLock(
+      repoEventOperationKey(opts.repoEvent, opts.repoKey),
+      () =>
+        listRepoFilesFromEvent({
+          repoEvent: opts.repoEvent,
+          commit: opts.commit,
+          path: opts.path,
+          repoKey: opts.repoKey,
+          cloneUrls: opts.cloneUrls,
+          strictCloneUrls: opts.strictCloneUrls,
+        }),
+    )
     return toPlain(result)
   },
 
@@ -3683,6 +3869,7 @@ const api = {
     )
     operation?.throwIfCancellationRequested()
     operation?.markSideEffectBoundary("Deleting local repository")
+    const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
     clonedRepos.delete(key)
     repoDataLevels.delete(key)
 
@@ -3788,6 +3975,8 @@ const api = {
           ...formatError(error, {naddr: opts.repoId, operation: "deleteRepo"}),
         }),
       )
+    } finally {
+      releaseRepoOperation()
     }
   },
 
@@ -3833,26 +4022,30 @@ const api = {
     commitId: string
     cloneUrls?: string[]
     cloneFallbackReason?: "missing-filter-capability"
+    readScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
 
     try {
-      if (!(await hasCommitObject(dir, opts.commitId))) {
-        if (!allowRemoteFallback) {
-          throw new Error(
-            `Commit ${opts.commitId} is not available locally; remote fallback requires missing-filter-capability`,
-          )
-        }
-        const fetched = await fetchRefsUntilOidsAvailable({
-          key,
-          dir,
-          requiredOids: [opts.commitId],
-          cloneUrls: opts.cloneUrls,
-        })
+      if (allowRemoteFallback) {
+        const fetched = await withRepoOperationLock(opts.repoId, () =>
+          fetchRefsUntilOidsAvailable({
+            key,
+            dir,
+            requiredOids: [opts.commitId],
+            cloneUrls: opts.cloneUrls,
+            strictCloneUrls: true,
+            readScope: opts.readScope,
+          }),
+        )
         if (!fetched) {
           throw new Error(`Commit ${opts.commitId} not found`)
         }
+      } else if (!(await hasCommitObject(dir, opts.commitId))) {
+        throw new Error(
+          `Commit ${opts.commitId} is not available locally; remote fallback requires missing-filter-capability`,
+        )
       }
 
       const commit = await git.readCommit({dir, oid: opts.commitId})
@@ -3885,6 +4078,7 @@ const api = {
     branch?: string
     cloneUrls?: string[]
     cloneFallbackReason?: "missing-filter-capability"
+    readScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
@@ -3908,10 +4102,27 @@ const api = {
         dir,
         requiredOids: [opts.commitId],
         cloneUrls: opts.cloneUrls,
+        strictCloneUrls: true,
+        readScope: opts.readScope,
       })
     }
 
+    const releaseRepoOperation = allowRemoteFallback
+      ? await acquireRepoOperationLock(opts.repoId)
+      : undefined
     try {
+      if (allowRemoteFallback) {
+        const verified = await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [opts.commitId],
+          cloneUrls: opts.cloneUrls,
+          strictCloneUrls: true,
+          readScope: opts.readScope,
+        })
+        if (!verified) throw new Error(`Commit ${opts.commitId} not found on the scoped remote`)
+      }
+
       // Optimization: Try to read commit locally first before triggering expensive fetch
       let commits: any[] = []
       try {
@@ -4036,6 +4247,7 @@ const api = {
               depth: 1000,
               cloneUrls: opts.cloneUrls,
               strictCloneUrls: true,
+              readScope: opts.readScope,
             },
             {
               rootDir,
@@ -4316,6 +4528,8 @@ const api = {
               dir,
               requiredOids,
               cloneUrls: opts.cloneUrls,
+              strictCloneUrls: true,
+              readScope: opts.readScope,
             })
           } catch (recoverError) {
             console.warn(
@@ -4340,6 +4554,8 @@ const api = {
                 requiredOids,
                 cloneUrls: opts.cloneUrls,
                 forceRefFetch: true,
+                strictCloneUrls: true,
+                readScope: opts.readScope,
               }).catch(() => false)
 
               if (deepened) {
@@ -4381,6 +4597,8 @@ const api = {
           operation: "getCommitDetails",
         }),
       })
+    } finally {
+      releaseRepoOperation?.()
     }
   },
 
@@ -4397,6 +4615,7 @@ const api = {
     gitNaturalDiff?: boolean
     corsProxy?: string | null
     cloneFallbackReason?: "missing-filter-capability"
+    readScope?: string
   }): Promise<{
     success: boolean
     changes?: Array<{
@@ -4415,15 +4634,19 @@ const api = {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
 
+    const releaseRepoOperation = allowRemoteFallback
+      ? await acquireRepoOperationLock(opts.repoId)
+      : undefined
     try {
       if (allowRemoteFallback) {
-        await ensureFullCloneUtil(
+        const cloneResult = await ensureFullCloneUtil(
           git,
           {
             repoId: opts.repoId,
             depth: 100,
             cloneUrls: opts.cloneUrls,
             strictCloneUrls: true,
+            readScope: opts.readScope,
           },
           {
             rootDir,
@@ -4440,6 +4663,21 @@ const api = {
           },
           makeProgress(opts.repoId, "clone-progress"),
         )
+        if (!cloneResult.success) {
+          throw new Error(cloneResult.error || "Strict clone URL fetch failed")
+        }
+
+        const verified = await fetchRefsUntilOidsAvailable({
+          key,
+          dir,
+          requiredOids: [opts.baseOid, opts.headOid],
+          cloneUrls: opts.cloneUrls,
+          strictCloneUrls: true,
+          readScope: opts.readScope,
+        })
+        if (!verified) {
+          throw new Error("Diff commits were not available from the scoped remote")
+        }
       }
 
       const requiredOids = Array.from(new Set([opts.baseOid, opts.headOid].filter(Boolean)))
@@ -4461,6 +4699,8 @@ const api = {
           dir,
           requiredOids,
           cloneUrls: opts.cloneUrls,
+          strictCloneUrls: true,
+          readScope: opts.readScope,
         })
 
         if (!recovered) {
@@ -4572,12 +4812,15 @@ const api = {
           operation: "getDiffBetween",
         }),
       })
+    } finally {
+      releaseRepoOperation?.()
     }
   },
 
   // Get working tree status for a repository
   async getStatus(opts: {repoId: string; branch?: string}) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
 
     try {
       const cloned = await isRepoClonedFs(git, dir)
@@ -4642,12 +4885,15 @@ const api = {
         counts: {},
         ...formatError(error, {naddr: opts.repoId, ref: opts.branch, operation: "getStatus"}),
       })
+    } finally {
+      releaseRepoOperation()
     }
   },
 
   // Reset local repository to match remote HEAD state
   async resetRepoToRemote(opts: {repoId: string; branch?: string}) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
 
     try {
       const targetBranch = await resolveRobustBranchUtil(git, dir, opts.branch)
@@ -4697,6 +4943,8 @@ const api = {
           operation: "resetRepoToRemote",
         }),
       })
+    } finally {
+      releaseRepoOperation()
     }
   },
 

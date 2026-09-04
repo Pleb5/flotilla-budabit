@@ -164,8 +164,11 @@ export class GitNaturalApiAdapter {
     const remoteUrl = trimTrailingSlashes(params.url)
     const corsProxy = resolveCorsProxyOverride(params.corsProxy, this.corsProxy)
     const inFlightKey = `${remoteUrl}\0${corsProxy ?? ""}`
-    const existing = this.inFlightInfoRefs.get(inFlightKey)
-    if (existing) return existing
+    const dedupeInFlight = params.signal === undefined
+    if (dedupeInFlight) {
+      const existing = this.inFlightInfoRefs.get(inFlightKey)
+      if (existing) return existing
+    }
 
     const promise = (async (): Promise<FetchInfoRefsResult> => {
       throwIfAborted(params.signal)
@@ -220,11 +223,13 @@ export class GitNaturalApiAdapter {
       }
     })()
 
-    this.inFlightInfoRefs.set(inFlightKey, promise)
-    void promise.then(
-      () => this.inFlightInfoRefs.delete(inFlightKey),
-      () => this.inFlightInfoRefs.delete(inFlightKey),
-    )
+    if (dedupeInFlight) {
+      this.inFlightInfoRefs.set(inFlightKey, promise)
+      void promise.then(
+        () => this.inFlightInfoRefs.delete(inFlightKey),
+        () => this.inFlightInfoRefs.delete(inFlightKey),
+      )
+    }
     return promise
   }
 

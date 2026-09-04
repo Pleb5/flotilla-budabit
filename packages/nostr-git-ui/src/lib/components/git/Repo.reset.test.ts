@@ -108,6 +108,36 @@ describe("Repo reset", () => {
 
     repo.dispose();
   });
+
+  it("reflects read cursor advances when a remote error is reported", async () => {
+    vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
+    const workerManager = {
+      isReady: false,
+      setProgressCallback: vi.fn(),
+      setAuthConfig: vi.fn().mockResolvedValue(undefined),
+      initialize: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn(),
+    };
+    const repo = new Repo({
+      repoEvent: readable(undefined as any),
+      repoStateEvent: readable(undefined as any),
+      issues: readable([]),
+      workerManager: workerManager as any,
+    });
+    await repo.waitForReady();
+    repo.key = "owner/repo";
+    repo.currentReadRemoteUrl = "https://primary.example/repo.git";
+    updateUrlPreferenceCache(
+      "owner/repo",
+      "https://secondary.example/repo.git",
+      ["https://primary.example/repo.git"]
+    );
+
+    repo.recordCloneUrlError("https://primary.example/repo.git", "primary failed");
+
+    expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
+    repo.dispose();
+  });
 });
 
 describe("Repo initialization reads", () => {

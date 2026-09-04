@@ -176,6 +176,24 @@ describe('clone-url-fallback utilities', () => {
       expect(orderReadUrlsByPreference(urls, 'repo')).toEqual(urls);
       expect(getCachedUrlPreference('repo')).toBeUndefined();
     });
+
+    it('keeps target and scoped source cursors independent', () => {
+      const targetUrls = ['https://target-primary.example', 'https://target-secondary.example'];
+      const sourceUrls = ['https://fork-primary.example', 'https://fork-secondary.example'];
+      updateUrlPreferenceCache('repo', targetUrls[1], [targetUrls[0]]);
+      updateUrlPreferenceCache('repo', sourceUrls[1], [sourceUrls[0]], 'pr-source:event');
+
+      expect(orderReadUrlsByPreference(targetUrls, 'repo')).toEqual([targetUrls[1]]);
+      expect(orderReadUrlsByPreference(sourceUrls, 'repo', 'pr-source:event')).toEqual([
+        sourceUrls[1],
+      ]);
+      expect(getCachedUrlPreference('repo')?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference('repo', 'pr-source:event')?.preferredUrl).toBe(sourceUrls[1]);
+
+      clearUrlPreferenceCache('repo');
+      expect(getCachedUrlPreference('repo')).toBeUndefined();
+      expect(getCachedUrlPreference('repo', 'pr-source:event')).toBeUndefined();
+    });
   });
 
   describe('withUrlFallback', () => {
@@ -251,6 +269,25 @@ describe('clone-url-fallback utilities', () => {
         'https://secondary.example',
         expect.any(AbortSignal)
       );
+    });
+
+    it('advances a scoped source without changing the target cursor', async () => {
+      const targetUrls = ['https://target-primary.example', 'https://target-secondary.example'];
+      const sourceUrls = ['https://fork-primary.example', 'https://fork-secondary.example'];
+      updateUrlPreferenceCache('repo', targetUrls[1], [targetUrls[0]]);
+
+      const sourceResult = await withUrlFallback(
+        sourceUrls,
+        async url => {
+          if (url === sourceUrls[0]) throw new Error('fork primary failed');
+          return url;
+        },
+        {repoId: 'repo', readScope: 'pr-source:event'}
+      );
+
+      expect(sourceResult.usedUrl).toBe(sourceUrls[1]);
+      expect(getCachedUrlPreference('repo')?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference('repo', 'pr-source:event')?.preferredUrl).toBe(sourceUrls[1]);
     });
 
     it('advances the shared cursor before attempting the next fallback', async () => {
@@ -331,6 +368,67 @@ describe('clone-url-fallback utilities', () => {
       const result = await resultPromise;
       expect(result.usedUrl).toBe('https://secondary.example');
       expect(secondaryStarted).toBe(true);
+    });
+
+    it('stops fallback when a timed-out operation never settles after abort', async () => {
+      let secondaryStarted = false;
+
+      const result = await withUrlFallback(
+        ['https://primary.example', 'https://secondary.example'],
+        async (url) => {
+          if (url.includes('primary')) return await new Promise<never>(() => {});
+          secondaryStarted = true;
+          return { data: 'secondary' };
+        },
+        {
+          repoId: 'repo',
+          perUrlTimeoutMs: 5,
+          cancellationSettleTimeoutMs: 5,
+        }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.attempts).toHaveLength(1);
+      expect(result.attempts[0].errorCode).toBe('CANCELLATION_UNCONFIRMED');
+      expect(secondaryStarted).toBe(false);
+      expect(getCachedUrlPreference('repo')?.preferredUrl).toBe('https://primary.example');
+    });
+
+    it('does not advance after a worker reports unconfirmed cancellation', async () => {
+      const secondary = vi.fn(async () => ({data: 'secondary'}));
+      const result = await withUrlFallback(
+        ['https://primary.example', 'https://secondary.example'],
+        async url => {
+          if (url.includes('primary')) {
+            throw Object.assign(new Error('worker cancellation was not confirmed'), {
+              code: 'cancellation-unconfirmed',
+            });
+          }
+          return secondary();
+        },
+        {repoId: 'repo', perUrlTimeoutMs: 0}
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.attempts).toHaveLength(1);
+      expect(result.attempts[0].errorCode).toBe('cancellation-unconfirmed');
+      expect(secondary).not.toHaveBeenCalled();
+      expect(getCachedUrlPreference('repo')?.preferredUrl).toBe('https://primary.example');
+    });
+
+    it('applies the timeout to the final URL', async () => {
+      const result = await withUrlFallback(
+        ['https://only.example'],
+        async (_url, signal) =>
+          await new Promise<never>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+          }),
+        { perUrlTimeoutMs: 5 }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.attempts).toHaveLength(1);
+      expect(result.attempts[0].errorCode).toBe('TIMEOUT');
     });
 
     it('does not let a stale primary success rewind a concurrent fallback', async () => {

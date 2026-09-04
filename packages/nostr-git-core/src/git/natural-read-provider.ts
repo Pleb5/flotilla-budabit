@@ -702,8 +702,11 @@ export class GitNaturalReadProvider {
       params.commitHash,
       params.cacheFilter,
     )
-    const existing = this.rawObjectBatchInflight.get(inFlightKey)
-    if (existing) return existing
+    const dedupeInFlight = params.params.signal === undefined
+    if (dedupeInFlight) {
+      const existing = this.rawObjectBatchInflight.get(inFlightKey)
+      if (existing) return existing
+    }
 
     const promise = (async () => {
       const pack = await params.request(corsProxy)
@@ -711,6 +714,8 @@ export class GitNaturalReadProvider {
       this.storeObjects(objects, params.commitHash, params.cacheFilter)
       return {objects, pack}
     })()
+
+    if (!dedupeInFlight) return promise
 
     this.rawObjectBatchInflight.set(inFlightKey, promise)
     try {

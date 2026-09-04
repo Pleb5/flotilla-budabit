@@ -16,6 +16,7 @@ import {createRemoteRegistry} from "../utils/remote-registry.js"
 import {createTestGitProvider} from "../utils/provider-harness.js"
 import {createTestFs, mkdirp} from "../utils/lightningfs.js"
 import {initRepo, commitFile} from "../utils/git-harness.js"
+import {clearUrlPreferenceCache} from "../../src/utils/clone-url-fallback.js"
 
 describe.sequential(
   "git/git.ts: ensureRepo + ensureRepoFromEvent + default branch detection",
@@ -24,6 +25,7 @@ describe.sequential(
 
     beforeEach(() => {
       prevProvider = getGitProvider()
+      clearUrlPreferenceCache()
     })
 
     afterEach(() => {

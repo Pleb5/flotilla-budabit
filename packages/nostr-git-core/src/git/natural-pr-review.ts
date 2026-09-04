@@ -5,25 +5,34 @@ import type {
   GitNaturalResolveRefResult,
 } from "./natural-read-provider.js"
 import type {GitNaturalCommit} from "./natural-read-types.js"
-import {filterValidCloneUrls, reorderUrlsByPreference} from "../utils/clone-url-fallback.js"
+import {
+  filterValidCloneUrls,
+  orderReadUrlsByPreference,
+  type ReadFallbackResult,
+  type UrlAttemptResult,
+  withUrlFallback,
+} from "../utils/clone-url-fallback.js"
 
 export interface GitNaturalPRReviewReader {
   resolveRef(params: {
     url: string
     ref: string
     corsProxy?: string | null
+    signal?: AbortSignal
   }): Promise<GitNaturalResolveRefResult>
   listCommits(params: {
     url: string
     commitHash: string
     depth: number
     corsProxy?: string | null
+    signal?: AbortSignal
   }): Promise<GitNaturalListCommitsResult>
   getDiffBetween(params: {
     url: string
     baseCommitHash: string
     headCommitHash: string
     corsProxy?: string | null
+    signal?: AbortSignal
   }): Promise<GitNaturalDiffBetweenResult>
 }
 
@@ -48,8 +57,12 @@ export interface GitNaturalPRReviewData {
   source: "git-natural"
   usedCloneUrl?: string
   usedTargetCloneUrl?: string
+  sourceAttempts?: GitNaturalPRReviewUrlAttempt[]
+  targetAttempts?: GitNaturalPRReviewUrlAttempt[]
   readSource?: GitNaturalDiffBetweenResult["source"]
 }
+
+export type GitNaturalPRReviewUrlAttempt = Omit<UrlAttemptResult, "result">
 
 export interface GetGitNaturalPRReviewDataOptions {
   repoId: string
@@ -59,14 +72,10 @@ export interface GetGitNaturalPRReviewDataOptions {
   targetUrls?: string[]
   mergeBase?: string
   targetCommitOid?: string
+  sourceReadScope?: string
   maxCommits?: number
   corsProxy?: string | null
   reader: GitNaturalPRReviewReader
-}
-
-interface UrlResult<T> {
-  result: T
-  usedUrl: string
 }
 
 const DEFAULT_PR_NATURAL_MAX_COMMITS = 100
@@ -77,46 +86,60 @@ export async function getGitNaturalPRReviewData(
   const tipCommitOid = normalizeFullOid(options.tipCommitOid)
   if (!tipCommitOid) return null
 
-  const sourceUrls = normalizeHttpUrls(options.sourceUrls, options.repoId)
+  const sourceUrls = normalizeHttpUrls(options.sourceUrls, options.repoId, options.sourceReadScope)
   const targetUrls = normalizeHttpUrls(options.targetUrls || [], options.repoId)
-  const diffUrls = uniqueStrings([...sourceUrls, ...targetUrls])
-  if (sourceUrls.length === 0 || diffUrls.length === 0) return null
+  if (sourceUrls.length === 0) return null
 
   const maxCommits = Math.max(1, options.maxCommits ?? DEFAULT_PR_NATURAL_MAX_COMMITS)
   const sourceHistory = await tryListCommits(options.reader, sourceUrls, {
+    repoId: options.repoId,
+    readScope: options.sourceReadScope,
     commitHash: tipCommitOid,
     depth: maxCommits,
     corsProxy: options.corsProxy,
   })
-  if (!sourceHistory?.result.commits?.length) return null
+  if (!sourceHistory.result?.commits?.length) return null
+  let usedCloneUrl = latestAttemptUrl(sourceHistory)
+  const sourceAttempts = summarizeAttempts(sourceHistory.attempts)
 
   const providedMergeBase = normalizeFullOid(options.mergeBase)
   let targetCommit = normalizeFullOid(options.targetCommitOid)
   let usedTargetCloneUrl: string | undefined
+  const targetAttempts: GitNaturalPRReviewUrlAttempt[] = []
 
   if (!targetCommit && options.targetBranch && targetUrls.length > 0) {
     const target = await tryResolveRef(options.reader, targetUrls, {
+      repoId: options.repoId,
       ref: options.targetBranch,
       corsProxy: options.corsProxy,
     })
-    targetCommit = target?.result.commitHash
-    usedTargetCloneUrl = target?.usedUrl
+    targetAttempts.push(...summarizeAttempts(target.attempts))
+    usedTargetCloneUrl = latestAttemptUrl(target)
+    targetCommit = target.result?.commitHash
   }
 
-  let targetHistory: UrlResult<GitNaturalListCommitsResult> | null = null
+  let targetHistory: ReadFallbackResult<GitNaturalListCommitsResult> | null = null
   let computedMergeBase: string | undefined
   if (targetCommit) {
     targetHistory = await tryListCommits(
       options.reader,
-      targetUrls.length > 0 ? targetUrls : diffUrls,
+      targetUrls.length > 0 ? targetUrls : sourceUrls,
       {
+        repoId: options.repoId,
+        ...(targetUrls.length === 0 ? {readScope: options.sourceReadScope} : {}),
         commitHash: targetCommit,
         depth: maxCommits,
         corsProxy: options.corsProxy,
       },
     )
-    if (!usedTargetCloneUrl) usedTargetCloneUrl = targetHistory?.usedUrl
-    computedMergeBase = targetHistory
+    if (targetUrls.length > 0) {
+      targetAttempts.push(...summarizeAttempts(targetHistory.attempts))
+      usedTargetCloneUrl = latestAttemptUrl(targetHistory) || usedTargetCloneUrl
+    } else {
+      sourceAttempts.push(...summarizeAttempts(targetHistory.attempts))
+      usedCloneUrl = latestAttemptUrl(targetHistory) || usedCloneUrl
+    }
+    computedMergeBase = targetHistory.result
       ? findBestCommonCommit(
           sourceHistory.result.commits,
           targetHistory.result.commits,
@@ -130,18 +153,32 @@ export async function getGitNaturalPRReviewData(
 
   if (!baseOid) return null
 
-  const diff = await tryGetDiffBetween(options.reader, diffUrls, {
+  const diffParams = {
+    repoId: options.repoId,
     baseCommitHash: baseOid,
     headCommitHash: tipCommitOid,
     corsProxy: options.corsProxy,
+  }
+  const sourceDiff = await tryGetDiffBetween(options.reader, sourceUrls, {
+    ...diffParams,
+    readScope: options.sourceReadScope,
   })
-  if (!diff) return null
+  sourceAttempts.push(...summarizeAttempts(sourceDiff.attempts))
+  usedCloneUrl = latestAttemptUrl(sourceDiff) || usedCloneUrl
+
+  let diff = sourceDiff
+  if (!diff.result && targetUrls.length > 0) {
+    diff = await tryGetDiffBetween(options.reader, targetUrls, diffParams)
+    targetAttempts.push(...summarizeAttempts(diff.attempts))
+    usedTargetCloneUrl = latestAttemptUrl(diff) || usedTargetCloneUrl
+  }
+  if (!diff.result) return null
 
   const sourceReachable = commitsUntilBase(sourceHistory.result.commits, baseOid, tipCommitOid)
-  const targetReachable = targetHistory
+  const targetReachable = targetHistory?.result
     ? commitsUntilBase(targetHistory.result.commits, baseOid, targetCommit || baseOid)
     : []
-  if (!sourceReachable || (targetHistory && !targetReachable)) return null
+  if (!sourceReachable || (targetHistory?.result && !targetReachable)) return null
   const resolvedTargetReachable = targetReachable || []
   const sourceIds = new Set(sourceReachable.map(commit => commit.oid))
   const targetIds = new Set(resolvedTargetReachable.map(commit => commit.oid))
@@ -158,19 +195,21 @@ export async function getGitNaturalPRReviewData(
     ...(providedMergeBase ? {claimedMergeBase: providedMergeBase} : {}),
     ...(claimedMergeBaseMismatch ? {claimedMergeBaseMismatch: true} : {}),
     aheadCount: commits.length,
-    ...(targetHistory ? {behindCount: targetCommits.length} : {}),
+    ...(targetHistory?.result ? {behindCount: targetCommits.length} : {}),
     commits,
     commitOids: commits.map(commit => commit.oid),
     changes: diff.result.changes,
     source: "git-natural",
-    usedCloneUrl: sourceHistory.usedUrl,
+    ...(usedCloneUrl ? {usedCloneUrl} : {}),
     ...(usedTargetCloneUrl ? {usedTargetCloneUrl} : {}),
+    sourceAttempts,
+    targetAttempts,
     readSource: diff.result.source,
   }
 }
 
-function normalizeHttpUrls(urls: string[], repoId: string): string[] {
-  return reorderUrlsByPreference(filterValidCloneUrls(urls), repoId).filter(url =>
+function normalizeHttpUrls(urls: string[], repoId: string, readScope?: string): string[] {
+  return orderReadUrlsByPreference(filterValidCloneUrls(urls), repoId, readScope).filter(url =>
     /^https?:\/\//i.test(url),
   )
 }
@@ -185,65 +224,77 @@ function normalizeFullOid(value?: string): string | undefined {
 async function tryResolveRef(
   reader: GitNaturalPRReviewReader,
   urls: string[],
-  params: {ref: string; corsProxy?: string | null},
-): Promise<UrlResult<GitNaturalResolveRefResult> | null> {
-  for (const url of urls) {
-    try {
-      return {
-        result: await reader.resolveRef({url, ref: params.ref, corsProxy: params.corsProxy}),
-        usedUrl: url,
-      }
-    } catch {
-      // Try the next remote.
-    }
-  }
-  return null
+  params: {repoId: string; readScope?: string; ref: string; corsProxy?: string | null},
+): Promise<ReadFallbackResult<GitNaturalResolveRefResult>> {
+  return withUrlFallback(
+    urls,
+    (url, signal) => reader.resolveRef({url, ref: params.ref, corsProxy: params.corsProxy, signal}),
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 15000},
+  )
 }
 
 async function tryListCommits(
   reader: GitNaturalPRReviewReader,
   urls: string[],
-  params: {commitHash: string; depth: number; corsProxy?: string | null},
-): Promise<UrlResult<GitNaturalListCommitsResult> | null> {
-  for (const url of urls) {
-    try {
-      return {
-        result: await reader.listCommits({
-          url,
-          commitHash: params.commitHash,
-          depth: params.depth,
-          corsProxy: params.corsProxy,
-        }),
-        usedUrl: url,
-      }
-    } catch {
-      // Try the next remote.
-    }
-  }
-  return null
+  params: {
+    repoId: string
+    readScope?: string
+    commitHash: string
+    depth: number
+    corsProxy?: string | null
+  },
+): Promise<ReadFallbackResult<GitNaturalListCommitsResult>> {
+  return withUrlFallback(
+    urls,
+    (url, signal) =>
+      reader.listCommits({
+        url,
+        commitHash: params.commitHash,
+        depth: params.depth,
+        corsProxy: params.corsProxy,
+        signal,
+      }),
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 15000},
+  )
 }
 
 async function tryGetDiffBetween(
   reader: GitNaturalPRReviewReader,
   urls: string[],
-  params: {baseCommitHash: string; headCommitHash: string; corsProxy?: string | null},
-): Promise<UrlResult<GitNaturalDiffBetweenResult> | null> {
-  for (const url of urls) {
-    try {
-      return {
-        result: await reader.getDiffBetween({
-          url,
-          baseCommitHash: params.baseCommitHash,
-          headCommitHash: params.headCommitHash,
-          corsProxy: params.corsProxy,
-        }),
-        usedUrl: url,
-      }
-    } catch {
-      // Try the next remote.
-    }
-  }
-  return null
+  params: {
+    repoId: string
+    readScope?: string
+    baseCommitHash: string
+    headCommitHash: string
+    corsProxy?: string | null
+  },
+): Promise<ReadFallbackResult<GitNaturalDiffBetweenResult>> {
+  return withUrlFallback(
+    urls,
+    (url, signal) =>
+      reader.getDiffBetween({
+        url,
+        baseCommitHash: params.baseCommitHash,
+        headCommitHash: params.headCommitHash,
+        corsProxy: params.corsProxy,
+        signal,
+      }),
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 15000},
+  )
+}
+
+function latestAttemptUrl(result: ReadFallbackResult): string | undefined {
+  return result.attempts[result.attempts.length - 1]?.url || result.usedUrl
+}
+
+function summarizeAttempts<T>(attempts: UrlAttemptResult<T>[]): GitNaturalPRReviewUrlAttempt[] {
+  return attempts.map(({url, success, error, errorCode, durationMs}) => ({
+    url,
+    success,
+    ...(error ? {error} : {}),
+    ...(errorCode ? {errorCode} : {}),
+    ...(durationMs !== undefined ? {durationMs} : {}),
+  }))
 }
 
 function commitsUntilBase(
@@ -343,8 +394,4 @@ function findBestCommonCommit(
         left.sourceDistance + left.targetDistance - (right.sourceDistance + right.targetDistance) ||
         (left.oid < right.oid ? -1 : left.oid > right.oid ? 1 : 0),
     )[0]?.oid
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)))
 }

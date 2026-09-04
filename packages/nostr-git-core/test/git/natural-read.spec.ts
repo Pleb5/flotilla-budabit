@@ -420,6 +420,48 @@ describe("natural read API adapter", () => {
     )
   })
 
+  it("keeps caller-abortable infoRefs transports independent", async () => {
+    const advertisement = buildAdvertisement()
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const response = () => ({
+      ok: true,
+      status: 200,
+      text: async () => advertisement,
+      arrayBuffer: async () => arrayBuffer(encoder.encode(advertisement)),
+    })
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => {
+      if (init?.signal === firstController.signal) {
+        return new Promise<ReturnType<typeof response>>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            {once: true},
+          )
+        })
+      }
+      return Promise.resolve(response())
+    })
+    const adapter = new GitNaturalApiAdapter({fetcher})
+
+    const first = adapter.fetchInfoRefs({url: GRASP_URL, signal: firstController.signal})
+    const second = adapter.fetchInfoRefs({url: GRASP_URL, signal: secondController.signal})
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+
+    firstController.abort()
+
+    await expect(first).rejects.toMatchObject({name: "AbortError"})
+    await expect(second).resolves.toMatchObject({
+      infoRefs: {headCommit: "1".repeat(40)},
+    })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher.mock.calls.map(([, init]) => init?.signal)).toEqual([
+      firstController.signal,
+      secondController.signal,
+    ])
+    expect(secondController.signal.aborted).toBe(false)
+  })
+
   it("preserves HTTP status when infoRefs returns an error response", async () => {
     const body = encoder.encode("Git error: repository not found")
     const fetcher = vi.fn(async () => ({

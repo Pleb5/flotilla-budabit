@@ -529,9 +529,21 @@
 
   const prTargetCloneUrls = $derived.by(() => prTargetRemotePlan.remotes.map(remote => remote.url))
 
-  const prFetchCloneUrls = $derived.by(() =>
-    Array.from(new Set([...prEffectiveCloneUrls, ...prTargetCloneUrls])),
+  const prSourceReadCloneUrls = $derived.by(() =>
+    prEffectiveCloneUrls.length > 0 ? prEffectiveCloneUrls : prTargetCloneUrls,
   )
+  const prSourceReadScope = $derived.by(() => {
+    if (
+      prEffectiveCloneUrls.length === 0 ||
+      (prEffectiveCloneUrls.length === prTargetCloneUrls.length &&
+        prEffectiveCloneUrls.every((url, index) => url === prTargetCloneUrls[index]))
+    ) {
+      return undefined
+    }
+    const updates = prUpdatesArray
+    const sourceEventId = updates[updates.length - 1]?.raw?.id || prEvent?.id || "unknown"
+    return `pr-source:${sourceEventId}`
+  })
 
   const primaryTargetCloneUrl = $derived.by(() => {
     return prTargetRemotePlan.primaryUrl
@@ -781,8 +793,76 @@
 
   const attemptedPrCommitMetaHydration = new Set<string>()
 
-  const recordPrReadRemote = (result: any) => {
-    if (result?.usedUrl) repoClass.recordCloneUrlSuccess(result.usedUrl)
+  type PrReadRole = "source" | "target"
+
+  const getPrReadRoute = (role: PrReadRole) =>
+    role === "source"
+      ? {cloneUrls: prSourceReadCloneUrls, readScope: prSourceReadScope}
+      : {cloneUrls: prTargetCloneUrls, readScope: undefined}
+
+  const getPrReadRoles = (targetFirst = false): PrReadRole[] => {
+    if (!prSourceReadScope) return ["target"]
+    return targetFirst ? ["target", "source"] : ["source", "target"]
+  }
+
+  const recordPrReadRemote = (result: any, role: PrReadRole) => {
+    if (role === "target" && result?.usedUrl) repoClass.recordCloneUrlSuccess(result.usedUrl)
+  }
+
+  const readPrCommitMeta = async (oid: string, targetFirst = false) => {
+    let lastResult: any = null
+    for (const role of getPrReadRoles(targetFirst)) {
+      const route = getPrReadRoute(role)
+      if (route.cloneUrls.length === 0) continue
+      const result = await repoClass.workerManager.getCommitMeta({
+        repoId: repoClass.key,
+        commitId: oid,
+        cloneUrls: route.cloneUrls,
+        ...(route.readScope ? {readScope: route.readScope} : {}),
+      })
+      recordPrReadRemote(result, role)
+      lastResult = result
+      if (result?.success && result?.meta) return result
+    }
+    return lastResult
+  }
+
+  const readPrCommitDetails = async (oid: string, targetFirst = false) => {
+    let lastResult: any = null
+    for (const role of getPrReadRoles(targetFirst)) {
+      const route = getPrReadRoute(role)
+      if (route.cloneUrls.length === 0) continue
+      const result = await repoClass.workerManager.getCommitDetails({
+        repoId: repoClass.key,
+        commitId: oid,
+        cloneUrls: route.cloneUrls,
+        ...(route.readScope ? {readScope: route.readScope} : {}),
+      })
+      recordPrReadRemote(result, role)
+      lastResult = result
+      if (result?.success && result?.meta && (result.usedUrl || role === "target")) return result
+    }
+    return lastResult
+  }
+
+  const readPrDiff = async (baseOid: string, headOid: string, targetFirst = false) => {
+    let lastResult: any = null
+    for (const role of getPrReadRoles(targetFirst)) {
+      const route = getPrReadRoute(role)
+      if (route.cloneUrls.length === 0) continue
+      const result = await repoClass.workerManager.getDiffBetween({
+        repoId: repoClass.key,
+        baseOid,
+        headOid,
+        cloneUrls: route.cloneUrls,
+        ...(route.readScope ? {readScope: route.readScope} : {}),
+        gitNaturalDiff: true,
+      })
+      recordPrReadRemote(result, role)
+      lastResult = result
+      if (result?.success && Array.isArray(result?.changes)) return result
+    }
+    return lastResult
   }
 
   async function loadPrCommitMetaOnly(oid: string): Promise<PrCommitMeta | null> {
@@ -792,12 +872,7 @@
     if (currentMeta) return currentMeta
 
     try {
-      const result = await repoClass.workerManager.getCommitMeta({
-        repoId: repoClass.key,
-        commitId: oid,
-        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-      })
-      recordPrReadRemote(result)
+      const result = await readPrCommitMeta(oid)
       if (!result?.success || !result?.meta) return null
 
       const meta: PrCommitMeta = {
@@ -832,7 +907,8 @@
       prEvent?.id || "",
       prEffectiveTipOid,
       prTargetBranch,
-      prFetchCloneUrls.join(","),
+      prSourceReadCloneUrls.join(","),
+      prSourceReadScope || "target",
     ].join("|")
     const missing: string[] = []
     for (const oid of oids) {
@@ -897,12 +973,7 @@
     }
 
     try {
-      const result = await repoClass.workerManager.getCommitDetails({
-        repoId: repoClass.key,
-        commitId: oid,
-        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-      })
-      recordPrReadRemote(result)
+      const result = await readPrCommitDetails(oid)
 
       if (!result?.success || !result?.meta) {
         prCommitDiffByOid = {
@@ -1140,6 +1211,7 @@
         cloneUrls,
         branch: prTargetBranch,
         timeoutMs: 90000,
+        trackReadPreference: false,
       })
       if (!initResult?.success) {
         return {
@@ -1176,6 +1248,7 @@
         branch: prTargetBranch,
         forceUpdate: true,
         timeoutMs: 90000,
+        trackReadPreference: false,
       })
       if (!refreshResult?.success) {
         return {
@@ -1211,6 +1284,7 @@
         requireRemoteSync: true,
         requireTrackingRef: true,
         preferredUrl: primaryTargetCloneUrl || undefined,
+        trackReadPreference: false,
       })
 
     if (
@@ -1316,6 +1390,7 @@
         requireRemoteSync: true,
         requireTrackingRef: true,
         preferredUrl: primaryTargetCloneUrl || undefined,
+        trackReadPreference: false,
       })
 
     try {
@@ -1427,6 +1502,7 @@
         tipOid,
         prTargetBranch,
         primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
+        prSourceReadScope,
       )
       if (isCurrentAnalysis()) {
         if (!result) {
@@ -1498,12 +1574,7 @@
 
     if (prEffectiveStatus === "applied" && prStatus?.mergedCommit) {
       prChangesProgress = "Loading merged commit..."
-      const mergeDetails = await repoClass.workerManager.getCommitMeta({
-        repoId: repoClass.key,
-        commitId: prStatus.mergedCommit,
-        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-      })
-      recordPrReadRemote(mergeDetails)
+      const mergeDetails = await readPrCommitMeta(prStatus.mergedCommit, true)
       const parentOid = mergeDetails?.meta?.parents?.[0]
       if (mergeDetails?.success && parentOid) {
         return {baseOid: parentOid, headOid: prStatus.mergedCommit}
@@ -1520,12 +1591,7 @@
       const headOid = prStatus.appliedCommits[0]
       const oldestOid = prStatus.appliedCommits[prStatus.appliedCommits.length - 1]
       prChangesProgress = "Loading merged commit range..."
-      const oldestDetails = await repoClass.workerManager.getCommitMeta({
-        repoId: repoClass.key,
-        commitId: oldestOid,
-        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-      })
-      recordPrReadRemote(oldestDetails)
+      const oldestDetails = await readPrCommitMeta(oldestOid, true)
       const parentOid = oldestDetails?.meta?.parents?.[0]
       if (oldestDetails?.success && parentOid) {
         return {baseOid: parentOid, headOid}
@@ -1537,19 +1603,17 @@
 
   const uniqueOids = (oids: string[]) => Array.from(new Set(oids.filter(Boolean)))
 
-  async function getReviewCommitMetadataForOids(oids: string[]): Promise<PrReviewCommit[]> {
+  async function getReviewCommitMetadataForOids(
+    oids: string[],
+    targetFirst = false,
+  ): Promise<PrReviewCommit[]> {
     if (!repoClass.key || !repoClass.workerManager) return []
     const orderedOids = uniqueOids(oids)
     const commits: PrReviewCommit[] = []
 
     for (const oid of orderedOids) {
       try {
-        const details = await repoClass.workerManager.getCommitMeta({
-          repoId: repoClass.key,
-          commitId: oid,
-          ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-        })
-        recordPrReadRemote(details)
+        const details = await readPrCommitMeta(oid, targetFirst)
         const meta = details?.meta
         commits.push({
           oid,
@@ -1568,12 +1632,7 @@
   async function loadPrCommitsFromMergeCommit(mergeCommitOid: string): Promise<PrReviewCommit[]> {
     if (!repoClass.key || !repoClass.workerManager || !mergeCommitOid) return []
 
-    const mergeDetails = await repoClass.workerManager.getCommitMeta({
-      repoId: repoClass.key,
-      commitId: mergeCommitOid,
-      ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-    })
-    recordPrReadRemote(mergeDetails)
+    const mergeDetails = await readPrCommitMeta(mergeCommitOid, true)
     const parents = mergeDetails?.meta?.parents || []
     const targetParent = parents[0]
     const prParent = parents[1]
@@ -1585,6 +1644,7 @@
       targetBranch: prTargetBranch,
       cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
       prCloneUrls: prEffectiveCloneUrls,
+      sourceReadScope: prSourceReadScope,
       targetCommitOid: targetParent,
     })
     if (review?.success && Array.isArray(review.commits) && review.commits.length > 0) {
@@ -1606,6 +1666,7 @@
         targetBranch: prTargetBranch,
         cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
         prCloneUrls: prEffectiveCloneUrls,
+        sourceReadScope: prSourceReadScope,
         mergeBase: prEffectiveMergeBase,
       })
       if (review?.success && Array.isArray(review.commits)) {
@@ -1628,7 +1689,7 @@
         ? appliedCommits.filter(oid => oid !== statusMergeCommit)
         : appliedCommits
 
-      const candidateCommits = await getReviewCommitMetadataForOids(appliedCandidates)
+      const candidateCommits = await getReviewCommitMetadataForOids(appliedCandidates, true)
       const nonMergeCommits = candidateCommits.filter(commit => (commit.parents || []).length <= 1)
       if (nonMergeCommits.length > 0) {
         return nonMergeCommits
@@ -1648,7 +1709,7 @@
       const commitsFromLatestTip = await loadPrCommitsFromLatestTip()
       if (commitsFromLatestTip.length > 0) return commitsFromLatestTip
 
-      return getReviewCommitMetadataForOids(appliedCommits)
+      return getReviewCommitMetadataForOids(appliedCommits, true)
     }
 
     if (prStatus?.mergedCommit) {
@@ -1702,6 +1763,7 @@
           targetBranch: prTargetBranch,
           cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
           prCloneUrls: prEffectiveCloneUrls,
+          sourceReadScope: prSourceReadScope,
           ...(prEffectiveMergeBase ? {mergeBase: prEffectiveMergeBase} : {}),
           ...(options.targetCommitOid ? {targetCommitOid: options.targetCommitOid} : {}),
         })
@@ -1770,14 +1832,7 @@
       prDiffHeadOid = range.headOid
       prChangesProgress = "Loading file diffs..."
 
-      const res = await (repoClass.workerManager as any).getDiffBetween({
-        repoId: repoClass.key,
-        baseOid: range.baseOid,
-        headOid: range.headOid,
-        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-        gitNaturalDiff: true,
-      })
-      recordPrReadRemote(res)
+      const res = await readPrDiff(range.baseOid, range.headOid, true)
 
       if (prChangesGeneration !== currentGen) return
       if (res.success && res.changes) {
@@ -1838,14 +1893,11 @@
       prChangesWarning = null
 
       try {
-        const res = await repoClass.workerManager.getDiffBetween({
-          repoId: repoClass.key,
-          baseOid: prDiffBaseOid,
-          headOid: prDiffHeadOid,
-          ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
-          gitNaturalDiff: true,
-        })
-        recordPrReadRemote(res)
+        const res = await readPrDiff(
+          prDiffBaseOid,
+          prDiffHeadOid,
+          prEffectiveStatus === "applied",
+        )
 
         if (prChangesGeneration !== currentGen) return
         if (res.success && res.changes) {
@@ -2438,6 +2490,7 @@
         tipOid,
         cloneUrls: targetCloneUrls,
         ...(sourceCloneUrls && {sourceCloneUrls}),
+        sourceReadScope: prSourceReadScope,
       })
       .then((result: typeof updatePrPreview) => {
         if (cancelled) return
@@ -2486,6 +2539,7 @@
         targetBranch: prTargetBranch,
         cloneUrls: targetCloneUrls,
         ...(sourceCloneUrls && {sourceCloneUrls}),
+        sourceReadScope: prSourceReadScope,
       })
       .then(result => {
         if (cancelled) return
@@ -2561,6 +2615,7 @@
           targetBranch: prTargetBranch,
           cloneUrls: targetCloneUrls,
           ...(prEffectiveCloneUrls.length > 0 ? {sourceCloneUrls: prEffectiveCloneUrls} : {}),
+          sourceReadScope: prSourceReadScope,
         })
         mergeBase = mbResult?.mergeBase
         if (mbResult?.error && !mergeBase) {

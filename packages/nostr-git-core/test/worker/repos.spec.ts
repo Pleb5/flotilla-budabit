@@ -33,7 +33,10 @@ function makeGit(overrides: any = {}) {
       return 'deadbeef'.padEnd(40, '0'); 
     },
     async listRemotes() { return overrides.remotes ?? [{ remote: 'origin', url: 'https://example.com/x/y.git' }]; },
-    async fetch() { if (overrides.fetchErr) throw new Error(overrides.fetchErr); },
+    async fetch(options: any) {
+      if (overrides.fetch) return await overrides.fetch(options);
+      if (overrides.fetchErr) throw new Error(overrides.fetchErr);
+    },
     async clone(options: any) {
       if (overrides.clone) return await overrides.clone(options);
       if (overrides.cloneErr) throw new Error(overrides.cloneErr);
@@ -76,6 +79,55 @@ describe('worker/repos quick tests', () => {
     );
     expect(res.success).toBe(false);
     expect(String((res as any).error)).toMatch(/network fail/);
+  });
+
+  it('strict full clone rejects fetch failure even when a local branch exists', async () => {
+    const res = await ensureFullCloneUtil(
+      makeGit({fetchErr: 'scoped remote failed'}),
+      {
+        repoId: 'owner/name',
+        branch: 'main',
+        cloneUrls: ['https://authorized.example/owner/name.git'],
+        strictCloneUrls: true,
+      },
+      {
+        rootDir: '/root',
+        parseRepoId: (id: string) => id.replace('/', ':'),
+        repoDataLevels: new Map([['owner:name', 'full']]),
+        clonedRepos: new Set(['owner:name']),
+        isRepoCloned: async () => true,
+        resolveBranchName: async () => 'main',
+      },
+      () => {}
+    );
+
+    expect(res.success).toBe(false);
+    expect((res as any).localOnly).toBeUndefined();
+    expect((res as any).error).toMatch(/scoped remote failed/);
+  });
+
+  it('strict full clone returns the exact fetched branch OID', async () => {
+    const remoteOid = 'a'.repeat(40);
+    const res = await ensureFullCloneUtil(
+      makeGit({fetch: async () => ({fetchHead: remoteOid})}),
+      {
+        repoId: 'owner/name',
+        branch: 'main',
+        cloneUrls: ['https://authorized.example/owner/name.git'],
+        strictCloneUrls: true,
+      },
+      {
+        rootDir: '/root',
+        parseRepoId: (id: string) => id.replace('/', ':'),
+        repoDataLevels: new Map([['owner:name', 'refs']]),
+        clonedRepos: new Set(['owner:name']),
+        isRepoCloned: async () => true,
+        resolveBranchName: async () => 'main',
+      },
+      () => {}
+    );
+
+    expect(res).toMatchObject({success: true, headCommit: remoteOid});
   });
 
   it('ensureFullCloneUtil resolves requested branches in strict mode', async () => {
@@ -253,6 +305,46 @@ describe('worker/repos quick tests', () => {
     expect((res as any).fromCache).toBe(false);
     expect(clone).toHaveBeenCalled();
     expect(progress).toContain('Cached metadata found, but local clone is missing');
+  });
+
+  it('strict smart initialization contacts only the supplied URL despite an existing clone', async () => {
+    const cache = makeCache();
+    cache.set({
+      repoId: 'owner/name',
+      dataLevel: 'full',
+      branches: [{ name: 'main', commit: 'deadbeef'.padEnd(40, '0') }],
+      headCommit: 'deadbeef'.padEnd(40, '0'),
+      cloneUrls: ['https://unauthorized.example/owner/name.git'],
+    });
+    const fetch = vi.fn().mockResolvedValue({fetchHead: 'a'.repeat(40)});
+    const git = makeGit({
+      fetch,
+      remotes: [{ remote: 'origin', url: 'https://unauthorized.example/owner/name.git' }],
+    });
+
+    const result = await smartInitializeRepoUtil(
+      git,
+      cache.obj as any,
+      {
+        repoId: 'owner:name',
+        cloneUrls: ['https://authorized.example/owner/name.git'],
+        strictCloneUrls: true,
+      },
+      {
+        rootDir: '/repos',
+        parseRepoId: () => 'owner/name',
+        repoDataLevels: new Map([['owner/name', 'full' as const]]),
+        clonedRepos: new Set(['owner/name']),
+        isRepoCloned: async () => true,
+        resolveBranchName: async () => 'main',
+      },
+      () => {},
+    );
+
+    expect(result.success).toBe(true);
+    expect((result as any).headCommit).toBe('a'.repeat(40));
+    expect(fetch).toHaveBeenCalled();
+    expect(fetch.mock.calls.every(([options]) => options.url === 'https://authorized.example/owner/name.git')).toBe(true);
   });
 
   it('ensureShallowCloneUtil happy path fetches and checks out branch', async () => {

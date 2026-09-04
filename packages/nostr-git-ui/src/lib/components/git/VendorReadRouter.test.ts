@@ -500,7 +500,7 @@ describe("VendorReadRouter natural read fallback", () => {
 
     expect(result.source?.kind).toBe("worker-clone");
     expect(workerManager.listRepoFilesFromEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ cloneUrls: [remoteUrl] })
+      expect.objectContaining({ cloneUrls: [remoteUrl], strictCloneUrls: true })
     );
   });
 
@@ -1006,6 +1006,90 @@ describe("VendorReadRouter hosted provider natural rollout", () => {
 });
 
 describe("VendorReadRouter.listCommits", () => {
+  it("anchors missing-filter history fallback to the scoped fetch head", async () => {
+    const router = new VendorReadRouter({getTokens: async () => [], preferVendorReads: false});
+    const remoteUrl = "https://example.com/owner/repo.git";
+    const remoteOid = "a".repeat(40);
+    const workerManager = {
+      gitNaturalListCommits: vi.fn(async () => {
+        throw new GitNaturalReadError(
+          "missing-filter-capability",
+          "Git server does not advertise filter support",
+          {remoteUrl, capability: "filter"},
+        );
+      }),
+      smartInitializeRepo: vi.fn(async () => ({success: true})),
+      ensureFullClone: vi.fn(async () => ({
+        success: true,
+        usedUrl: remoteUrl,
+        headCommit: remoteOid,
+      })),
+      getCommitHistory: vi.fn(async () => ({
+        success: true,
+        commits: [
+          {
+            oid: remoteOid,
+            commit: {
+              message: "Remote commit",
+              author: {name: "Alice", email: "alice@example.com", timestamp: 1},
+              committer: {name: "Alice", email: "alice@example.com", timestamp: 1},
+              parent: [],
+            },
+          },
+        ],
+      })),
+    } as any;
+
+    const result = await router.listCommits({
+      workerManager,
+      repoEvent: {id: "repo", pubkey: "owner", tags: []} as any,
+      repoKey: "owner/repo",
+      cloneUrls: [remoteUrl],
+      branch: "main",
+      depth: 10,
+    });
+
+    expect(result.commits.map(commit => commit.sha)).toEqual([remoteOid]);
+    expect(workerManager.smartInitializeRepo).toHaveBeenCalledWith(
+      expect.objectContaining({cloneUrls: [remoteUrl], strictCloneUrls: true}),
+    );
+    expect(workerManager.ensureFullClone).toHaveBeenCalledWith(
+      expect.objectContaining({cloneUrls: [remoteUrl], strictCloneUrls: true}),
+    );
+    expect(workerManager.getCommitHistory).toHaveBeenCalledWith(
+      expect.objectContaining({startOid: remoteOid}),
+    );
+  });
+
+  it("does not expose stale history after a scoped full fetch fails", async () => {
+    const router = new VendorReadRouter({getTokens: async () => [], preferVendorReads: false});
+    const remoteUrl = "https://example.com/owner/repo.git";
+    const workerManager = {
+      gitNaturalListCommits: vi.fn(async () => {
+        throw new GitNaturalReadError(
+          "missing-filter-capability",
+          "Git server does not advertise filter support",
+          {remoteUrl, capability: "filter"},
+        );
+      }),
+      smartInitializeRepo: vi.fn(async () => ({success: true})),
+      ensureFullClone: vi.fn(async () => ({success: false, error: "scoped fetch failed"})),
+      getCommitHistory: vi.fn(),
+    } as any;
+
+    await expect(
+      router.listCommits({
+        workerManager,
+        repoEvent: {id: "repo", pubkey: "owner", tags: []} as any,
+        repoKey: "owner/repo",
+        cloneUrls: [remoteUrl],
+        branch: "main",
+        depth: 10,
+      }),
+    ).rejects.toThrow(/Git natural listCommits failed/);
+    expect(workerManager.getCommitHistory).not.toHaveBeenCalled();
+  });
+
   it("does not initialize a clone after an operational natural failure", async () => {
     const router = new VendorReadRouter({ getTokens: async () => [] });
     const workerManager = {

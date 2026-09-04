@@ -9,6 +9,7 @@ export type GitNaturalReadErrorCode =
   | "network-error"
   | "cors-proxy-failure"
   | "transient-network-failure"
+  | "cancellation-unconfirmed"
   | "protocol-error"
   | "missing-capability"
   | "missing-filter-capability"
@@ -75,6 +76,7 @@ const gitNaturalReadErrorCodes = new Set<GitNaturalReadErrorCode>([
   "network-error",
   "cors-proxy-failure",
   "transient-network-failure",
+  "cancellation-unconfirmed",
   "protocol-error",
   "missing-capability",
   "missing-filter-capability",

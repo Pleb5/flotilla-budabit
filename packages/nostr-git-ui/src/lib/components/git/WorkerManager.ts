@@ -1,6 +1,13 @@
 import { getGitWorker } from "@nostr-git/core";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
-import { filterValidCloneUrls, withUrlFallback } from "@nostr-git/core/utils";
+import {
+  advanceReadUrlPreference,
+  filterValidCloneUrls,
+  getCachedUrlPreference,
+  orderReadUrlsByPreference,
+  updateUrlPreferenceCache,
+  withUrlFallback,
+} from "@nostr-git/core/utils";
 import type {
   GitNaturalFileContentResult,
   GitNaturalDiffBetweenResult,
@@ -62,7 +69,16 @@ export type PRReviewDataResult = PRReviewData & {
   changes?: any[];
   usedCloneUrl?: string;
   usedTargetCloneUrl?: string;
+  sourceAttempts?: ReadUrlAttempt[];
+  targetAttempts?: ReadUrlAttempt[];
 };
+
+interface ReadUrlAttempt {
+  url: string;
+  success: boolean;
+  error?: string;
+  errorCode?: string;
+}
 
 export interface AuthToken {
   host: string;
@@ -142,6 +158,72 @@ function gitNaturalCommitMeta(commit: any, fallbackSha: string) {
     message: String(commit?.message || ""),
     parents: Array.isArray(commit?.parents) ? commit.parents.map(String) : [],
   };
+}
+
+function applyReadResult(
+  repoId: string,
+  declaredUrls: string[],
+  usedUrl: unknown,
+  attempts: unknown,
+  readScope?: string
+): void {
+  const urls = filterValidCloneUrls(declaredUrls);
+  if (urls.length === 0) return;
+
+  const readAttempts = Array.isArray(attempts)
+    ? attempts.filter((attempt): attempt is ReadUrlAttempt =>
+        Boolean(
+          attempt &&
+          typeof attempt === "object" &&
+          typeof attempt.url === "string" &&
+          typeof attempt.success === "boolean" &&
+          urls.includes(attempt.url)
+        )
+      )
+    : [];
+  const failedUrls: string[] = [];
+
+  const recordSuccess = (url: string) => {
+    const successIndex = urls.indexOf(url);
+    if (successIndex < 0) return;
+    const activeUrl = getCachedUrlPreference(repoId, readScope)?.preferredUrl;
+    const activeIndex = activeUrl ? urls.indexOf(activeUrl) : -1;
+    if (activeIndex > successIndex) return;
+    updateUrlPreferenceCache(
+      repoId,
+      url,
+      Array.from(new Set([...urls.slice(0, successIndex), ...failedUrls])),
+      readScope
+    );
+  };
+
+  for (const attempt of readAttempts) {
+    if (attempt.success) {
+      recordSuccess(attempt.url);
+      continue;
+    }
+    failedUrls.push(attempt.url);
+    const attemptIndex = urls.indexOf(attempt.url);
+    const errorCode = String(attempt.errorCode || "")
+      .toLowerCase()
+      .replace(/_/g, "-");
+    advanceReadUrlPreference(
+      repoId,
+      attempt.url,
+      errorCode === "cancellation-unconfirmed" ? undefined : urls[attemptIndex + 1],
+      attempt.error,
+      urls,
+      readScope
+    );
+  }
+
+  const normalizedUsedUrl = typeof usedUrl === "string" ? usedUrl.trim() : "";
+  const lastMatchingAttempt = [...readAttempts]
+    .reverse()
+    .find((attempt) => attempt.url === normalizedUsedUrl);
+  if (normalizedUsedUrl && lastMatchingAttempt?.success !== false) {
+    recordSuccess(normalizedUsedUrl);
+  }
 }
 
 /**
@@ -496,6 +578,9 @@ export class WorkerManager {
     cloneUrls: string[];
     branch?: string;
     forceUpdate?: boolean;
+    strictCloneUrls?: boolean;
+    readScope?: string;
+    trackReadPreference?: boolean;
     timeoutMs?: number; // Optional custom timeout for background operations
   }): Promise<any> {
     await this.initialize();
@@ -514,6 +599,7 @@ export class WorkerManager {
     requireRemoteSync?: boolean;
     requireTrackingRef?: boolean;
     preferredUrl?: string;
+    trackReadPreference?: boolean;
   }): Promise<any> {
     await this.initialize();
     return this.execute("syncWithRemote", params);
@@ -745,11 +831,35 @@ export class WorkerManager {
     depth?: number;
     cloneUrls?: string[];
     strictCloneUrls?: boolean;
+    readScope?: string;
+    trackReadPreference?: boolean;
     timeoutMs?: number;
   }): Promise<any> {
     await this.initialize();
     const { timeoutMs, ...executeParams } = params;
     return this.execute("ensureFullClone", executeParams, { timeoutMs });
+  }
+
+  private async initializeScopedCloneFallback(params: {
+    repoId: string;
+    cloneUrls?: string[];
+    branch?: string;
+    readScope?: string;
+  }): Promise<void> {
+    const urls = filterValidCloneUrls(params.cloneUrls || []);
+    if (urls.length !== 1) {
+      throw new Error("Missing-filter clone fallback requires exactly one scoped clone URL");
+    }
+
+    const init = await this.smartInitializeRepo({
+      repoId: params.repoId,
+      cloneUrls: urls,
+      branch: params.branch,
+      strictCloneUrls: true,
+      readScope: params.readScope,
+      timeoutMs: 0,
+    });
+    if (!init?.success) throw new Error(init?.error || `Failed to initialize ${urls[0]}`);
   }
 
   /**
@@ -760,6 +870,7 @@ export class WorkerManager {
     branch: string;
     depth: number;
     offset?: number;
+    startOid?: string;
   }): Promise<any> {
     await this.initialize();
     return this.execute("getCommitHistory", params);
@@ -774,9 +885,11 @@ export class WorkerManager {
     branch?: string;
     cloneUrls?: string[];
     cloneFallbackReason?: "missing-filter-capability";
+    readScope?: string;
   }): Promise<any> {
     await this.initialize();
     if (params.cloneFallbackReason) {
+      await this.initializeScopedCloneFallback(params);
       return this.execute("getCommitDetails", params, { timeoutMs: 0 });
     }
 
@@ -825,13 +938,7 @@ export class WorkerManager {
           };
         } catch (error) {
           if ((error as { code?: string })?.code !== "missing-filter-capability") throw error;
-          const init = await this.smartInitializeRepo({
-            repoId: params.repoId,
-            cloneUrls: [url],
-            branch: params.branch,
-            timeoutMs: 0,
-          });
-          if (!init?.success) throw new Error(init?.error || `Failed to initialize ${url}`);
+          await this.initializeScopedCloneFallback({ ...params, cloneUrls: [url] });
           return this.execute(
             "getCommitDetails",
             {
@@ -843,7 +950,7 @@ export class WorkerManager {
           );
         }
       },
-      { repoId: params.repoId, perUrlTimeoutMs: 0 }
+      { repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0 }
     );
 
     if (routed.success && routed.result) {
@@ -867,9 +974,11 @@ export class WorkerManager {
     commitId: string;
     cloneUrls?: string[];
     cloneFallbackReason?: "missing-filter-capability";
+    readScope?: string;
   }): Promise<any> {
     await this.initialize();
     if (params.cloneFallbackReason) {
+      await this.initializeScopedCloneFallback(params);
       return this.execute("getCommitMeta", params, { timeoutMs: 0 });
     }
 
@@ -890,12 +999,7 @@ export class WorkerManager {
           return { success: true, meta: gitNaturalCommitMeta(result.commit, params.commitId) };
         } catch (error) {
           if ((error as { code?: string })?.code !== "missing-filter-capability") throw error;
-          const init = await this.smartInitializeRepo({
-            repoId: params.repoId,
-            cloneUrls: [url],
-            timeoutMs: 0,
-          });
-          if (!init?.success) throw new Error(init?.error || `Failed to initialize ${url}`);
+          await this.initializeScopedCloneFallback({ ...params, cloneUrls: [url] });
           return this.execute(
             "getCommitMeta",
             {
@@ -907,7 +1011,7 @@ export class WorkerManager {
           );
         }
       },
-      { repoId: params.repoId, perUrlTimeoutMs: 0 }
+      { repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0 }
     );
 
     if (routed.success && routed.result) {
@@ -929,9 +1033,11 @@ export class WorkerManager {
     gitNaturalDiff?: boolean;
     corsProxy?: string | null;
     cloneFallbackReason?: "missing-filter-capability";
+    readScope?: string;
   }): Promise<{ success: boolean; changes?: any[]; error?: string; usedUrl?: string }> {
     await this.initialize();
     if (params.cloneFallbackReason) {
+      await this.initializeScopedCloneFallback(params);
       return this.execute("getDiffBetween", params, { timeoutMs: 0 });
     }
 
@@ -960,12 +1066,7 @@ export class WorkerManager {
           };
         } catch (error) {
           if ((error as { code?: string })?.code !== "missing-filter-capability") throw error;
-          const init = await this.smartInitializeRepo({
-            repoId: params.repoId,
-            cloneUrls: [url],
-            timeoutMs: 0,
-          });
-          if (!init?.success) throw new Error(init?.error || `Failed to initialize ${url}`);
+          await this.initializeScopedCloneFallback({ ...params, cloneUrls: [url] });
           return this.execute(
             "getDiffBetween",
             {
@@ -978,7 +1079,7 @@ export class WorkerManager {
           );
         }
       },
-      { repoId: params.repoId, perUrlTimeoutMs: 0 }
+      { repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0 }
     );
 
     if (routed.success && routed.result) {
@@ -999,12 +1100,40 @@ export class WorkerManager {
     prCloneUrls?: string[];
     mergeBase?: string;
     targetCommitOid?: string;
+    sourceReadScope?: string;
   }): Promise<PRReviewDataResult> {
     await this.initialize();
-    return this.execute("getPRReviewData", params, {
-      timeoutMs: 45000,
-      returnWorkerErrors: true,
-    });
+    const targetUrls = params.cloneUrls;
+    const sourceUrls = params.prCloneUrls?.length ? params.prCloneUrls : targetUrls;
+    const result = await this.execute<PRReviewDataResult>(
+      "getPRReviewData",
+      {
+        ...params,
+        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        ...(params.prCloneUrls?.length
+          ? {
+              prCloneUrls: orderReadUrlsByPreference(
+                sourceUrls,
+                params.repoId,
+                params.sourceReadScope
+              ),
+            }
+          : {}),
+      },
+      {
+        timeoutMs: 0,
+        returnWorkerErrors: true,
+      }
+    );
+    applyReadResult(params.repoId, targetUrls, result.usedTargetCloneUrl, result.targetAttempts);
+    applyReadResult(
+      params.repoId,
+      sourceUrls,
+      result.usedCloneUrl,
+      result.sourceAttempts,
+      params.sourceReadScope
+    );
+    return result;
   }
 
   /**
@@ -1057,10 +1186,43 @@ export class WorkerManager {
     targetCloneUrls?: string[];
     tipCommitOid: string;
     targetBranch?: string;
+    sourceReadScope?: string;
+    trackTargetReadPreference?: boolean;
   }): Promise<any> {
     await this.initialize();
-    // PR analysis can require multiple remote fetch attempts; allow 50% more than default timeout.
-    return this.execute("analyzePRMerge", params, { timeoutMs: 45000 });
+    const sourceUrls = params.prCloneUrls;
+    const targetUrls = params.targetCloneUrls || [];
+    const { trackTargetReadPreference = true, ...workerParams } = params;
+    const result = await this.execute<any>(
+      "analyzePRMerge",
+      {
+        ...workerParams,
+        prCloneUrls: orderReadUrlsByPreference(
+          sourceUrls,
+          params.repoId,
+          params.sourceReadScope
+        ),
+        ...(params.targetCloneUrls
+          ? {
+              targetCloneUrls: trackTargetReadPreference
+                ? orderReadUrlsByPreference(targetUrls, params.repoId)
+                : targetUrls,
+            }
+          : {}),
+      },
+      { timeoutMs: 0 }
+    );
+    if (trackTargetReadPreference) {
+      applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
+    }
+    applyReadResult(
+      params.repoId,
+      sourceUrls,
+      result?.usedCloneUrl,
+      result?.sourceAttempts,
+      params.sourceReadScope
+    );
+    return result;
   }
 
   /**
@@ -1081,9 +1243,37 @@ export class WorkerManager {
     targetBranch: string;
     cloneUrls: string[];
     sourceCloneUrls?: string[];
+    sourceReadScope?: string;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("getPRPreview", params);
+    const targetUrls = params.cloneUrls;
+    const sourceUrls = params.sourceCloneUrls;
+    const result = await this.execute<any>(
+      "getPRPreview",
+      {
+        ...params,
+        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        ...(sourceUrls?.length
+          ? {
+              sourceCloneUrls: orderReadUrlsByPreference(
+                sourceUrls,
+                params.repoId,
+                params.sourceReadScope
+              ),
+            }
+          : {}),
+      },
+      { timeoutMs: 0 }
+    );
+    applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
+    applyReadResult(
+      params.repoId,
+      sourceUrls?.length ? sourceUrls : targetUrls,
+      result?.usedCloneUrl,
+      result?.sourceAttempts,
+      params.sourceReadScope
+    );
+    return result;
   }
 
   /**
@@ -1095,9 +1285,36 @@ export class WorkerManager {
     tipOid: string;
     cloneUrls: string[];
     sourceCloneUrls?: string[];
+    sourceReadScope?: string;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("getCommitsAheadOfTip", params);
+    const targetUrls = params.cloneUrls;
+    const sourceUrls = params.sourceCloneUrls?.length ? params.sourceCloneUrls : targetUrls;
+    const result = await this.execute<any>(
+      "getCommitsAheadOfTip",
+      {
+        ...params,
+        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        ...(params.sourceCloneUrls?.length
+          ? {
+              sourceCloneUrls: orderReadUrlsByPreference(
+                sourceUrls,
+                params.repoId,
+                params.sourceReadScope
+              ),
+            }
+          : {}),
+      },
+      { timeoutMs: 0 }
+    );
+    applyReadResult(
+      params.repoId,
+      sourceUrls,
+      result?.usedCloneUrl,
+      result?.sourceAttempts,
+      params.sourceReadScope
+    );
+    return result;
   }
 
   /**
@@ -1109,9 +1326,37 @@ export class WorkerManager {
     targetBranch: string;
     cloneUrls: string[];
     sourceCloneUrls?: string[];
+    sourceReadScope?: string;
   }): Promise<{ mergeBase?: string; error?: string }> {
     await this.initialize();
-    return this.execute("getMergeBaseBetween", params);
+    const targetUrls = params.cloneUrls;
+    const sourceUrls = params.sourceCloneUrls;
+    const result = await this.execute<any>(
+      "getMergeBaseBetween",
+      {
+        ...params,
+        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        ...(sourceUrls?.length
+          ? {
+              sourceCloneUrls: orderReadUrlsByPreference(
+                sourceUrls,
+                params.repoId,
+                params.sourceReadScope
+              ),
+            }
+          : {}),
+      },
+      { timeoutMs: 0 }
+    );
+    applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
+    applyReadResult(
+      params.repoId,
+      sourceUrls?.length ? sourceUrls : targetUrls,
+      result?.usedCloneUrl,
+      result?.sourceAttempts,
+      params.sourceReadScope
+    );
+    return result;
   }
 
   /**
@@ -1134,9 +1379,12 @@ export class WorkerManager {
     path?: string;
     repoKey?: string;
     cloneUrls?: string[];
+    strictCloneUrls?: boolean;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("listRepoFilesFromEvent", params);
+    return this.execute("listRepoFilesFromEvent", params, {
+      timeoutMs: params.strictCloneUrls ? 0 : undefined,
+    });
   }
 
   /**
@@ -1149,9 +1397,12 @@ export class WorkerManager {
     commit?: string;
     repoKey?: string;
     cloneUrls?: string[];
+    strictCloneUrls?: boolean;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("getRepoFileContentFromEvent", params);
+    return this.execute("getRepoFileContentFromEvent", params, {
+      timeoutMs: params.strictCloneUrls ? 0 : undefined,
+    });
   }
 
   /**
@@ -1163,9 +1414,12 @@ export class WorkerManager {
     path?: string;
     repoKey?: string;
     cloneUrls?: string[];
+    strictCloneUrls?: boolean;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("listTreeAtCommit", params);
+    return this.execute("listTreeAtCommit", params, {
+      timeoutMs: params.strictCloneUrls ? 0 : undefined,
+    });
   }
 
   /**

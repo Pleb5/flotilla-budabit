@@ -13,6 +13,7 @@ export interface AnalyzePRMergeOptions {
   targetCloneUrls?: string[]
   tipCommitOid: string
   targetBranch?: string
+  sourceReadScope?: string
 }
 
 export interface MergePRAndPushOptions {
@@ -106,6 +107,7 @@ export async function mergePRAndPushUtil(
       branch?: string
       depth?: number
       cloneUrls?: string[]
+      trackReadPreference?: boolean
     }) => Promise<any>
     getAuthCallback: (url: string) => any
     getConfiguredAuthHosts?: () => string[]
@@ -186,6 +188,7 @@ export async function mergePRAndPushUtil(
     await ensureFullClone({
       repoId,
       branch: effectiveTargetBranch,
+      trackReadPreference: false,
       ...(validTargetCloneUrls.length > 0 ? {cloneUrls: validTargetCloneUrls} : {}),
     })
 
@@ -208,6 +211,7 @@ export async function mergePRAndPushUtil(
             tipCommitOid,
             depth: 100,
             ...(onAuth ? {onAuth} : {}),
+            requireRemoteEvidence: true,
           })
 
           console.log(`[mergePRAndPush] PR source ready via ${sourceFetch.strategy} from ${url}`)
@@ -221,7 +225,7 @@ export async function mergePRAndPushUtil(
           }
         }
       },
-      {perUrlTimeoutMs: 20000},
+      {perUrlTimeoutMs: 0},
     )
 
     if (!fetchResult.success || !fetchResult.result) {

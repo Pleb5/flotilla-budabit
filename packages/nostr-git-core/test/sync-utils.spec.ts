@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { GitProvider } from '../src/git/provider.js';
 import { needsUpdateUtil, syncWithRemoteUtil } from '../src/worker/workers/sync.js';
+import {
+  clearUrlPreferenceCache,
+  getCachedUrlPreference,
+  updateUrlPreferenceCache,
+} from '../src/utils/clone-url-fallback.js';
 
 function makeGit(overrides: Partial<GitProvider> = {}): GitProvider {
   return {
@@ -117,6 +122,10 @@ describe('syncWithRemoteUtil', () => {
     toPlain: <T>(v: T) => JSON.parse(JSON.stringify(v)) as T
   };
 
+  beforeEach(() => {
+    clearUrlPreferenceCache();
+  });
+
   it('fetches and updates cache with remote head', async () => {
     const refs = ['cafebabe', 'deadbeef'];
     const git = makeGit({
@@ -154,5 +163,38 @@ describe('syncWithRemoteUtil', () => {
     } else {
       throw new Error(`Expected error property on failed result: ${JSON.stringify(res)}`);
     }
+  });
+
+  it('does not change read preference during write preflight sync', async () => {
+    const repoId = 'Org/Repo';
+    const primary = 'https://primary.example/repo.git';
+    const secondary = 'https://secondary.example/repo.git';
+    updateUrlPreferenceCache(repoId, secondary, [primary]);
+    const git = makeGit({
+      listRemotes: vi.fn(async () => [{remote: 'origin', url: secondary}]),
+      resolveRef: vi.fn(async ({ref}: {ref: string}) =>
+        ref.startsWith('refs/remotes/') ? 'cafebabe' : 'deadbeef'
+      ),
+    });
+    const cacheManager = {
+      setRepoCache: vi.fn(async () => {}),
+      getRepoCache: vi.fn(async () => null),
+    } as any;
+
+    const result = await syncWithRemoteUtil(
+      git,
+      cacheManager,
+      {
+        repoId,
+        cloneUrls: [primary],
+        branch: 'main',
+        preferredUrl: primary,
+        trackReadPreference: false,
+      },
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(getCachedUrlPreference(repoId)?.preferredUrl).toBe(secondary);
   });
 });

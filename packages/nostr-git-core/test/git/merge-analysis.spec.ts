@@ -165,6 +165,12 @@ describe("merge analysis", () => {
     expect(result.upToDate).toBe(true)
     expect(result.patchCommits).toEqual([])
     expect(result.prCommits).toEqual([])
+    expect(result.sourceAttempts).toEqual([
+      expect.objectContaining({
+        url: "https://github.com/contributor/repo.git",
+        success: true,
+      }),
+    ])
   })
 
   it("refuses analysis before remote or ref mutation when the working tree is dirty", async () => {
@@ -188,5 +194,35 @@ describe("merge analysis", () => {
     expect((git as any).addRemote).not.toHaveBeenCalled()
     expect((git as any).branch).not.toHaveBeenCalled()
     expect((git as any).writeRef).not.toHaveBeenCalled()
+  })
+
+  it("does not accept a stale global FETCH_HEAD for a scoped target fetch", async () => {
+    const git = {
+      statusMatrix: vi.fn().mockResolvedValue([]),
+      addRemote: vi.fn().mockResolvedValue(undefined),
+      deleteRemote: vi.fn().mockResolvedValue(undefined),
+      setConfig: vi.fn().mockResolvedValue(undefined),
+      fetch: vi.fn().mockResolvedValue(undefined),
+      resolveRef: vi.fn(async ({ref}: {ref: string}) => {
+        if (ref === "FETCH_HEAD") return targetOid
+        throw new Error(`Missing ref ${ref}`)
+      }),
+      branch: vi.fn(),
+    } as unknown as GitProvider
+
+    const result = await analyzePRMergeability(git, "/repo", {
+      cloneUrls: ["https://github.com/contributor/repo.git"],
+      targetCloneUrls: ["https://github.com/upstream/repo.git"],
+      tipCommitOid: tipOid,
+      targetBranch: "main",
+      strictTargetFresh: true,
+    })
+
+    expect(result.analysis).toBe("error")
+    expect(result.errorMessage).toContain("no target commit could be resolved")
+    expect((git as any).resolveRef).not.toHaveBeenCalledWith(
+      expect.objectContaining({ref: "FETCH_HEAD"}),
+    )
+    expect((git as any).branch).not.toHaveBeenCalled()
   })
 })

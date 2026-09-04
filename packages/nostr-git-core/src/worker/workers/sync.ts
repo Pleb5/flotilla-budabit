@@ -69,7 +69,7 @@ export async function needsUpdateUtil(
         const remoteBranch = getRequestedRemoteRef(refs || [])
         return {hasHeads: heads && heads.length > 0, branchExists: !!remoteBranch}
       },
-      {repoId: trackReadPreference ? repoId : undefined},
+      {repoId: trackReadPreference ? repoId : undefined, perUrlTimeoutMs: 0},
     )
 
     if (result.success && result.result) {
@@ -134,7 +134,7 @@ export async function needsUpdateUtil(
 
       return {needsUpdate: true}
     },
-    {repoId: trackReadPreference ? repoId : undefined},
+    {repoId: trackReadPreference ? repoId : undefined, perUrlTimeoutMs: 0},
   )
 
   if (result.success && result.result) {
@@ -155,6 +155,7 @@ export async function syncWithRemoteUtil(
     requireRemoteSync?: boolean
     requireTrackingRef?: boolean
     preferredUrl?: string
+    trackReadPreference?: boolean
   },
   deps: {
     rootDir: string
@@ -177,6 +178,7 @@ export async function syncWithRemoteUtil(
     requireRemoteSync = false,
     requireTrackingRef = false,
     preferredUrl,
+    trackReadPreference = true,
   } = opts
   const {
     rootDir,
@@ -302,7 +304,7 @@ export async function syncWithRemoteUtil(
           const fetchInfo = await git.fetch(fetchOpts)
           return {url: remoteUrl, fetchHead: fetchInfo?.fetchHead || null}
         },
-        {repoId: key, perUrlTimeoutMs: 15000},
+        {repoId: trackReadPreference ? key : undefined, perUrlTimeoutMs: 0},
       )
 
     // 3. Try to fetch the requested branch from remote with URL fallback

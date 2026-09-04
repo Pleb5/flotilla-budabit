@@ -8,7 +8,6 @@ import {Buffer} from "buffer"
 import {
   createInvalidInputError,
   createInvalidRefspecError,
-  createTimeoutError,
   type GitErrorContext,
   wrapError,
 } from "../errors/index.js"
@@ -309,10 +308,6 @@ export async function ensureRepo(
   if (!(await isRepoCloned(dir))) {
     console.log(`Cloning ${remoteUrl} to ${dir} (depth: ${depth})`)
 
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(createTimeoutError(baseContext)), 60000)
-    })
-
     const clonePromise = git.clone({
       dir,
       url: remoteUrl,
@@ -333,9 +328,8 @@ export async function ensureRepo(
       },
     })
 
-    // Race between clone and timeout
     try {
-      await Promise.race([clonePromise, timeoutPromise])
+      await clonePromise
       console.log(`Successfully cloned https://${opts.host}/${opts.owner}/${opts.repo}.git`)
     } catch (error) {
       console.error(`Clone failed for ${remoteUrl}:`, error)
@@ -359,6 +353,8 @@ export async function ensureRepoFromEvent(
     branch?: string
     repoKey?: string
     cloneUrls?: string[]
+    strictCloneUrls?: boolean
+    requiredOid?: string
   },
   depth: number = 1,
 ) {
@@ -427,6 +423,19 @@ export async function ensureRepoFromEvent(
     baseContext.ref = targetBranch
   }
 
+  if (opts.strictCloneUrls && cloneUrls.length !== 1) {
+    throw createInvalidInputError("Strict clone fallback requires exactly one clone URL", {
+      ...baseContext,
+      operation: "ensureRepoFromEvent/strict",
+    })
+  }
+  if (opts.strictCloneUrls && opts.requiredOid && !/^[0-9a-f]{40}$/i.test(opts.requiredOid)) {
+    throw createInvalidInputError("Strict clone fallback requires a full commit OID", {
+      ...baseContext,
+      operation: "ensureRepoFromEvent/strict",
+    })
+  }
+
   if (!isCloned) {
     const cloneResult = await withUrlFallback(
       cloneUrls,
@@ -435,11 +444,6 @@ export async function ensureRepoFromEvent(
         const cloneContext = {...baseContext, remote: url, ref: refForClone}
 
         console.log(`Cloning ${url} to ${dir} (depth: ${depth})`)
-
-        // Create a timeout promise to prevent infinite stalling
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(createTimeoutError(cloneContext)), 60000)
-        })
 
         // Clone the best-known branch explicitly.
         // This avoids remote HEAD lookups for headless servers while keeping checkout deferred.
@@ -469,7 +473,7 @@ export async function ensureRepoFromEvent(
         })
 
         try {
-          await Promise.race([clonePromise, timeoutPromise])
+          await clonePromise
           return {url, branch: refForClone}
         } catch (error) {
           console.error(`Clone failed for ${url}:`, error)
@@ -708,14 +712,37 @@ export async function ensureRepoFromEvent(
       }
       throw wrapError(error, baseContext)
     }
-  } else if (depth > 1) {
+    if (opts.strictCloneUrls && opts.requiredOid) {
+      const exactFetch = await git.fetch({
+        dir,
+        url: cloneUrl,
+        ref: opts.requiredOid,
+        depth: 1,
+        singleBranch: true,
+      })
+      if (exactFetch?.fetchHead?.toLowerCase() !== opts.requiredOid.toLowerCase()) {
+        throw new Error(`Strict fetch from ${cloneUrl} did not return ${opts.requiredOid}`)
+      }
+      await git.readCommit({dir, oid: opts.requiredOid})
+      return {usedUrl: cloneUrl, oid: opts.requiredOid, branch: targetBranch}
+    }
+    if (opts.strictCloneUrls && targetBranch) {
+      const strictOid = await resolveBranchToOid(git, dir, targetBranch)
+      return {usedUrl: cloneUrl, oid: strictOid, branch: targetBranch}
+    }
+  } else if (depth > 1 || opts.strictCloneUrls) {
     // Repository exists but might be shallow - try to deepen it if we need more history
     // Check if we've already fetched sufficient depth recently
     const cacheKey = dir
     const cached = repoDepthCache.get(cacheKey)
     const now = Date.now()
 
-    if (cached && now - cached.timestamp < DEPTH_CACHE_TTL_MS && cached.depth >= depth) {
+    if (
+      !opts.strictCloneUrls &&
+      cached &&
+      now - cached.timestamp < DEPTH_CACHE_TTL_MS &&
+      cached.depth >= depth
+    ) {
       console.log(
         `Repository at ${dir} already has depth ${cached.depth} (requested: ${depth}), skipping fetch`,
       )
@@ -726,21 +753,37 @@ export async function ensureRepoFromEvent(
       console.log(`Repository exists at ${dir}, attempting to fetch more history (depth: ${depth})`)
 
       // Use robust branch resolution instead of hardcoded fallback
-      const resolvedBranch = await resolveBranchToOid(git, dir, targetBranch)
+      const resolvedBranch = opts.strictCloneUrls
+        ? opts.requiredOid || targetBranch
+        : await resolveBranchToOid(git, dir, targetBranch)
+      if (!resolvedBranch) {
+        throw new Error("Strict clone fallback requires an explicit remote branch")
+      }
 
       const fetchResult = await withUrlFallback(
         cloneUrls,
         async (url: string) => {
-          await git.fetch({
+          const fetchInfo = await git.fetch({
             dir,
             url,
             ref: resolvedBranch,
             depth,
             singleBranch: true,
           })
-          return {url}
+          const fetchedOid = fetchInfo?.fetchHead
+          if (opts.strictCloneUrls && !fetchedOid) {
+            throw new Error(`Strict fetch from ${url} did not return FETCH_HEAD`)
+          }
+          if (
+            opts.strictCloneUrls &&
+            opts.requiredOid &&
+            fetchedOid?.toLowerCase() !== opts.requiredOid.toLowerCase()
+          ) {
+            throw new Error(`Strict fetch from ${url} did not return ${opts.requiredOid}`)
+          }
+          return {url, fetchedOid}
         },
-        {repoId: repoKey, perUrlTimeoutMs: 15000},
+        {repoId: repoKey, perUrlTimeoutMs: 0},
       )
 
       if (fetchResult.success) {
@@ -750,6 +793,13 @@ export async function ensureRepoFromEvent(
 
         // Update the depth cache
         repoDepthCache.set(cacheKey, {depth, timestamp: now})
+        if (opts.strictCloneUrls) {
+          return {
+            usedUrl: fetchResult.usedUrl,
+            oid: fetchResult.result?.fetchedOid,
+            branch: resolvedBranch,
+          }
+        }
       } else {
         const lastAttempt = fetchResult.attempts[fetchResult.attempts.length - 1]
         const fetchError = new Error(lastAttempt?.error || "Fetch failed for all clone URLs")
@@ -765,6 +815,7 @@ export async function ensureRepoFromEvent(
         })
       }
     } catch (error) {
+      if (opts.strictCloneUrls) throw error
       console.warn(`Failed to deepen repository, continuing with existing clone:`, error)
       // Continue with existing clone even if deepening fails
     }

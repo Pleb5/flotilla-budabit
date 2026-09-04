@@ -27,11 +27,21 @@ export async function fetchPrSourceTip(
     depth?: number
     corsProxy?: string | null
     onAuth?: any
+    requireRemoteEvidence?: boolean
   },
 ): Promise<{tipOid: string; strategy: PrSourceFetchStrategy}> {
-  const {dir, remote, url, tipCommitOid, depth = 100, corsProxy, onAuth} = opts
+  const {
+    dir,
+    remote,
+    url,
+    tipCommitOid,
+    depth = 100,
+    corsProxy,
+    onAuth,
+    requireRemoteEvidence = false,
+  } = opts
 
-  if (await hasCommitObject(git, dir, tipCommitOid)) {
+  if (!requireRemoteEvidence && (await hasCommitObject(git, dir, tipCommitOid))) {
     return {tipOid: tipCommitOid, strategy: "local"}
   }
 
@@ -81,7 +91,10 @@ export async function fetchPrSourceTip(
       singleBranch: false,
     })
 
-    if (await hasCommitObject(git, dir, tipCommitOid)) {
+    const remoteContainsTip = requireRemoteEvidence
+      ? await isCommitReachableFromRemote(git, dir, remote, tipCommitOid, depth)
+      : await hasCommitObject(git, dir, tipCommitOid)
+    if (remoteContainsTip) {
       return {tipOid: tipCommitOid, strategy: "all-refs"}
     }
 
@@ -105,4 +118,27 @@ export async function fetchPrSourceTip(
   )
 
   throw new Error(messages.join(" | ") || `Failed to fetch PR tip ${tipCommitOid}`)
+}
+
+async function isCommitReachableFromRemote(
+  git: GitProvider,
+  dir: string,
+  remote: string,
+  tipCommitOid: string,
+  depth: number,
+): Promise<boolean> {
+  const branches = await git.listBranches({dir, remote}).catch(() => [])
+  for (const branch of branches) {
+    try {
+      const commits = await (git as any).log({
+        dir,
+        ref: `refs/remotes/${remote}/${branch.replace(`${remote}/`, "")}`,
+        depth,
+      })
+      if (commits.some((commit: any) => commit?.oid === tipCommitOid)) return true
+    } catch {
+      // Try the next fetched remote branch.
+    }
+  }
+  return false
 }
