@@ -4,7 +4,12 @@
  */
 
 import {getGitServiceApi, parseRepoUrl} from "@nostr-git/core"
-import {filterValidCloneUrls, reorderUrlsByPreference, hasRestApiSupport} from "@nostr-git/core"
+import {
+  filterValidCloneUrls,
+  hasRestApiSupport,
+  orderReadUrlsByPreference,
+  withUrlFallback,
+} from "@nostr-git/core"
 
 function getRestApiBaseUrl(provider: string, host?: string): string | undefined {
   const hostname = String(host || "")
@@ -48,6 +53,10 @@ export interface CommitDetails {
   }
   error?: string
   source?: "git-natural" | "rest-api" | "worker"
+  remoteUrl?: string
+  metadataRemoteUrl?: string
+  fallbackReason?: "missing-filter-capability"
+  fallbackUrl?: string
 }
 
 type GitNaturalCommitWorker = {
@@ -56,6 +65,7 @@ type GitNaturalCommitWorker = {
     commitHash: string
     enabled: true
     corsProxy?: string | null
+    timeoutMs?: number
   }): Promise<any>
   gitNaturalGetDiffBetween(params: {
     url: string
@@ -63,6 +73,7 @@ type GitNaturalCommitWorker = {
     headCommitHash: string
     enabled: true
     corsProxy?: string | null
+    timeoutMs?: number
   }): Promise<any>
 }
 
@@ -101,6 +112,7 @@ export async function getCommitDetailsViaGitNatural(
   cloneUrls: string[],
   commitId: string,
   repoId?: string,
+  sameRemoteFallback?: (url: string, meta?: CommitMeta) => Promise<CommitDetails | null>,
 ): Promise<CommitDetails | null> {
   if (!cloneUrls?.length) {
     console.log("[commit-api] No clone URLs provided for Git natural commit details")
@@ -108,45 +120,52 @@ export async function getCommitDetailsViaGitNatural(
   }
 
   const validUrls = filterValidCloneUrls(cloneUrls)
-  const orderedUrls = reorderUrlsByPreference(validUrls, repoId)
 
   console.debug("[commit-api] Checking URLs for Git natural commit details:", {
     original: cloneUrls,
     valid: validUrls,
-    ordered: orderedUrls,
   })
 
-  for (const url of orderedUrls) {
-    try {
-      console.debug(`[commit-api] Trying Git natural commit details for ${url}`)
-      const commitResult = await workerManager.gitNaturalGetCommit({
-        url,
-        commitHash: commitId,
-        enabled: true,
-      })
-      const commit = commitResult?.commit
-      if (!commit) throw new Error("Git natural did not return a commit object")
-
-      const meta = naturalCommitToMeta(commit, commitId)
-      const firstParent = meta.parents[0]
-      if (!firstParent) {
-        return {
-          success: true,
-          meta,
-          changes: [],
-          diffAvailable: false,
-          warning:
-            "Commit metadata loaded from Git natural. Root commit diff is not available yet.",
-          source: "git-natural",
-        }
-      }
-
+  let lastMeta: CommitMeta | undefined
+  let lastMetaUrl: string | undefined
+  const result = await withUrlFallback<CommitDetails>(
+    validUrls,
+    async url => {
+      let meta: CommitMeta | undefined
       try {
+        console.debug(`[commit-api] Trying Git natural commit details for ${url}`)
+        const commitResult = await workerManager.gitNaturalGetCommit({
+          url,
+          commitHash: commitId,
+          enabled: true,
+          timeoutMs: 15_000,
+        })
+        const commit = commitResult?.commit
+        if (!commit) throw new Error("Git natural did not return a commit object")
+
+        meta = naturalCommitToMeta(commit, commitId)
+        lastMeta = meta
+        lastMetaUrl = url
+        const firstParent = meta.parents[0]
+        if (!firstParent) {
+          return {
+            success: true,
+            meta,
+            changes: [],
+            diffAvailable: false,
+            warning:
+              "Commit metadata loaded from Git natural. Root commit diff is not available yet.",
+            source: "git-natural",
+            remoteUrl: url,
+          }
+        }
+
         const diffResult = await workerManager.gitNaturalGetDiffBetween({
           url,
           baseCommitHash: firstParent,
           headCommitHash: meta.sha,
           enabled: true,
+          timeoutMs: 15_000,
         })
         const changes = Array.isArray(diffResult?.changes) ? diffResult.changes : []
         console.log(`[commit-api] Git natural commit details success for ${commitId}`)
@@ -157,29 +176,57 @@ export async function getCommitDetailsViaGitNatural(
           diffAvailable: true,
           stats: statsFromChanges(changes),
           source: "git-natural",
+          remoteUrl: url,
+        } satisfies CommitDetails
+      } catch (error) {
+        if ((error as {code?: string})?.code !== "missing-filter-capability") throw error
+        if (!sameRemoteFallback) throw error
+
+        const fallback = await sameRemoteFallback(url, meta)
+        if (!fallback?.success) {
+          throw new Error(fallback?.error || `Clone-backed commit fallback failed for ${url}`)
         }
-      } catch (diffError) {
-        console.debug(`[commit-api] Git natural diff failed for ${url}; falling back`, diffError)
         return {
-          success: true,
-          meta,
-          changes: [],
-          diffAvailable: false,
-          warning:
-            "Commit metadata loaded from Git natural, but the Git natural diff could not be loaded.",
-          source: "git-natural",
+          ...fallback,
+          fallbackReason: "missing-filter-capability",
+          fallbackUrl: url,
+          remoteUrl: fallback.remoteUrl || url,
         }
       }
-    } catch (error) {
-      console.debug(
-        `[commit-api] Git natural commit details failed for ${url}; trying fallback`,
-        error,
-      )
+    },
+    {repoId, perUrlTimeoutMs: 0},
+  )
+
+  if (result.success && result.result) {
+    return result.result
+  }
+
+  const lastAttempt = result.attempts[result.attempts.length - 1]
+  const missingFilter = lastAttempt?.errorCode === "missing-filter-capability"
+  console.debug("[commit-api] No Git natural commit detail URLs succeeded", result.attempts)
+
+  if (lastMeta) {
+    return {
+      success: true,
+      meta: lastMeta,
+      changes: [],
+      diffAvailable: false,
+      warning: "Commit metadata loaded from Git natural, but the diff could not be loaded.",
+      source: "git-natural",
+      metadataRemoteUrl: lastMetaUrl,
+      ...(missingFilter
+        ? {fallbackReason: "missing-filter-capability" as const, fallbackUrl: lastAttempt.url}
+        : {}),
     }
   }
 
-  console.debug("[commit-api] No Git natural commit detail URLs succeeded")
-  return null
+  return {
+    success: false,
+    error: lastAttempt?.error || "Git natural commit details failed for all eligible remotes",
+    ...(missingFilter
+      ? {fallbackReason: "missing-filter-capability" as const, fallbackUrl: lastAttempt.url}
+      : {}),
+  }
 }
 
 /**
@@ -197,7 +244,7 @@ export async function getCommitDetailsViaRestApi(
   }
 
   const validUrls = filterValidCloneUrls(cloneUrls)
-  const orderedUrls = reorderUrlsByPreference(validUrls, repoId)
+  const orderedUrls = orderReadUrlsByPreference(validUrls, repoId)
 
   console.log("[commit-api] Checking URLs for REST API support:", {
     original: cloneUrls,

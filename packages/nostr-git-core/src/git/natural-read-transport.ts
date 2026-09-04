@@ -55,6 +55,67 @@ export class GitNaturalReadError extends Error {
   }
 }
 
+export interface SerializedGitNaturalReadError {
+  name: "GitNaturalReadError"
+  message: string
+  code: GitNaturalReadErrorCode
+  remoteUrl?: string
+  effectiveUrl?: string
+  status?: number
+  capability?: string
+  filter?: string
+  depth?: number
+  parserFailureClass?: string
+}
+
+const gitNaturalReadErrorCodes = new Set<GitNaturalReadErrorCode>([
+  "feature-disabled",
+  "auth-required",
+  "http-error",
+  "network-error",
+  "cors-proxy-failure",
+  "transient-network-failure",
+  "protocol-error",
+  "missing-capability",
+  "missing-filter-capability",
+  "ref-not-found",
+  "object-not-found",
+])
+
+export function serializeGitNaturalReadError(
+  error: unknown,
+): SerializedGitNaturalReadError | undefined {
+  const value = error as Partial<GitNaturalReadError>
+  if (!gitNaturalReadErrorCodes.has(value?.code as GitNaturalReadErrorCode)) return undefined
+
+  return {
+    name: "GitNaturalReadError",
+    message: error instanceof Error ? error.message : String(error),
+    code: value.code as GitNaturalReadErrorCode,
+    remoteUrl: value.remoteUrl,
+    effectiveUrl: value.effectiveUrl,
+    status: value.status,
+    capability: value.capability,
+    filter: value.filter,
+    depth: value.depth,
+    parserFailureClass: value.parserFailureClass,
+  }
+}
+
+export function deserializeGitNaturalReadError(
+  error: SerializedGitNaturalReadError,
+): GitNaturalReadError {
+  return new GitNaturalReadError(error.code, error.message, {
+    remoteUrl: error.remoteUrl,
+    effectiveUrl: error.effectiveUrl,
+    status: error.status,
+    capability: error.capability,
+    filter: error.filter,
+    depth: error.depth,
+    parserFailureClass: error.parserFailureClass,
+  })
+}
+
 export type FetchLike = (
   input: string,
   init?: RequestInit,

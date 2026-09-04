@@ -1,5 +1,6 @@
 import { getGitWorker } from "@nostr-git/core";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
+import { filterValidCloneUrls, withUrlFallback } from "@nostr-git/core/utils";
 import type {
   GitNaturalFileContentResult,
   GitNaturalDiffBetweenResult,
@@ -9,6 +10,10 @@ import type {
   GitNaturalListRefsResult,
   GitNaturalResolveRefResult,
   PRReviewData,
+} from "@nostr-git/core/git";
+import {
+  deserializeGitNaturalReadError,
+  type SerializedGitNaturalReadError,
 } from "@nostr-git/core/git";
 import {
   createAuthRequiredError,
@@ -83,13 +88,18 @@ interface WorkerErrorResponse {
   category?: GitErrorCategory;
   hint?: string;
   context?: Record<string, any>;
+  gitNaturalError?: SerializedGitNaturalReadError;
 }
 
 /**
  * Create a typed error from a structured worker error response.
  */
 function createErrorFromWorkerResponse(response: WorkerErrorResponse): Error {
-  const { error, code, category, hint, context } = response;
+  const { error, code, category, hint, context, gitNaturalError } = response;
+
+  if (gitNaturalError) {
+    return deserializeGitNaturalReadError(gitNaturalError);
+  }
 
   // If we have structured error info, create the appropriate error type
   if (code && category) {
@@ -121,6 +131,17 @@ function isWorkerErrorResponse(result: any): result is WorkerErrorResponse {
     result.success === false &&
     typeof result.error === "string"
   );
+}
+
+function gitNaturalCommitMeta(commit: any, fallbackSha: string) {
+  return {
+    sha: String(commit?.hash || fallbackSha),
+    author: String(commit?.author?.name || "Unknown"),
+    email: String(commit?.author?.email || ""),
+    date: Number(commit?.author?.timestamp || 0) * 1000,
+    message: String(commit?.message || ""),
+    parents: Array.isArray(commit?.parents) ? commit.parents.map(String) : [],
+  };
 }
 
 /**
@@ -404,7 +425,12 @@ export class WorkerManager {
       // Pass through typed errors as-is
       if (error instanceof Error) {
         const name = (error as any).name || "";
-        if (name === "FatalError" || name === "RetriableError" || name === "UserActionableError") {
+        if (
+          name === "FatalError" ||
+          name === "RetriableError" ||
+          name === "UserActionableError" ||
+          name === "GitNaturalReadError"
+        ) {
           throw error;
         }
       }
@@ -548,9 +574,10 @@ export class WorkerManager {
     symrefs?: boolean;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalListRefsResult> {
     await this.initialize();
-    return this.execute("gitNaturalListRefs", params);
+    return this.execute("gitNaturalListRefs", params, { timeoutMs: 0 });
   }
 
   async gitNaturalInvalidateInfoRefs(params: { urls: string[] }): Promise<void> {
@@ -563,9 +590,10 @@ export class WorkerManager {
     ref: string;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalResolveRefResult> {
     await this.initialize();
-    return this.execute("gitNaturalResolveRef", params);
+    return this.execute("gitNaturalResolveRef", params, { timeoutMs: 0 });
   }
 
   async gitNaturalListDirectory(params: {
@@ -575,9 +603,10 @@ export class WorkerManager {
     path?: string;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalListDirectoryResult> {
     await this.initialize();
-    return this.execute("gitNaturalListDirectory", params);
+    return this.execute("gitNaturalListDirectory", params, { timeoutMs: 0 });
   }
 
   async gitNaturalGetFileContent(params: {
@@ -587,9 +616,10 @@ export class WorkerManager {
     path: string;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalFileContentResult> {
     await this.initialize();
-    return this.execute("gitNaturalGetFileContent", params);
+    return this.execute("gitNaturalGetFileContent", params, { timeoutMs: 0 });
   }
 
   async gitNaturalListCommits(params: {
@@ -599,9 +629,10 @@ export class WorkerManager {
     depth?: number;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalListCommitsResult> {
     await this.initialize();
-    return this.execute("gitNaturalListCommits", params);
+    return this.execute("gitNaturalListCommits", params, { timeoutMs: 0 });
   }
 
   async gitNaturalGetCommit(params: {
@@ -610,9 +641,10 @@ export class WorkerManager {
     commitHash?: string;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalGetCommitResult> {
     await this.initialize();
-    return this.execute("gitNaturalGetCommit", params);
+    return this.execute("gitNaturalGetCommit", params, { timeoutMs: 0 });
   }
 
   async gitNaturalGetDiffBetween(params: {
@@ -621,9 +653,10 @@ export class WorkerManager {
     headCommitHash: string;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs?: number;
   }): Promise<GitNaturalDiffBetweenResult> {
     await this.initialize();
-    return this.execute("gitNaturalGetDiffBetween", params);
+    return this.execute("gitNaturalGetDiffBetween", params, { timeoutMs: 0 });
   }
 
   async discoverRemoteBackfill(params: {
@@ -711,9 +744,12 @@ export class WorkerManager {
     branch: string;
     depth?: number;
     cloneUrls?: string[];
+    strictCloneUrls?: boolean;
+    timeoutMs?: number;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("ensureFullClone", params);
+    const { timeoutMs, ...executeParams } = params;
+    return this.execute("ensureFullClone", executeParams, { timeoutMs });
   }
 
   /**
@@ -737,18 +773,148 @@ export class WorkerManager {
     commitId: string;
     branch?: string;
     cloneUrls?: string[];
+    cloneFallbackReason?: "missing-filter-capability";
   }): Promise<any> {
     await this.initialize();
-    return this.execute("getCommitDetails", params);
+    if (params.cloneFallbackReason) {
+      return this.execute("getCommitDetails", params, { timeoutMs: 0 });
+    }
+
+    const urls = filterValidCloneUrls(params.cloneUrls || []);
+    if (urls.length === 0) return this.execute("getCommitDetails", params);
+
+    let lastMeta: ReturnType<typeof gitNaturalCommitMeta> | undefined;
+    const routed = await withUrlFallback<any>(
+      urls,
+      async (url) => {
+        let meta: ReturnType<typeof gitNaturalCommitMeta> | undefined;
+        try {
+          const commitResult = await this.gitNaturalGetCommit({
+            url,
+            commitHash: params.commitId,
+            enabled: true,
+            timeoutMs: 15_000,
+          });
+          if (!commitResult?.commit) throw new Error("Git natural did not return a commit object");
+          meta = gitNaturalCommitMeta(commitResult.commit, params.commitId);
+          lastMeta = meta;
+          const parent = meta.parents[0];
+          if (!parent) {
+            return {
+              success: true,
+              meta,
+              changes: [],
+              diffAvailable: false,
+              warning: "Commit metadata loaded, but the root commit diff is unavailable.",
+              source: "git-natural",
+            };
+          }
+          const diff = await this.gitNaturalGetDiffBetween({
+            url,
+            baseCommitHash: parent,
+            headCommitHash: meta.sha,
+            enabled: true,
+            timeoutMs: 15_000,
+          });
+          return {
+            success: true,
+            meta,
+            changes: Array.isArray(diff?.changes) ? diff.changes : [],
+            diffAvailable: true,
+            source: "git-natural",
+          };
+        } catch (error) {
+          if ((error as { code?: string })?.code !== "missing-filter-capability") throw error;
+          const init = await this.smartInitializeRepo({
+            repoId: params.repoId,
+            cloneUrls: [url],
+            branch: params.branch,
+            timeoutMs: 0,
+          });
+          if (!init?.success) throw new Error(init?.error || `Failed to initialize ${url}`);
+          return this.execute(
+            "getCommitDetails",
+            {
+              ...params,
+              cloneUrls: [url],
+              cloneFallbackReason: "missing-filter-capability",
+            },
+            { timeoutMs: 0 }
+          );
+        }
+      },
+      { repoId: params.repoId, perUrlTimeoutMs: 0 }
+    );
+
+    if (routed.success && routed.result) {
+      return { ...routed.result, usedUrl: routed.usedUrl };
+    }
+    if (lastMeta) {
+      return {
+        success: true,
+        meta: lastMeta,
+        changes: [],
+        diffAvailable: false,
+        warning: "Commit metadata loaded, but the diff failed on every eligible remote.",
+      };
+    }
+    const lastAttempt = routed.attempts[routed.attempts.length - 1];
+    return { success: false, error: lastAttempt?.error || "Commit details failed" };
   }
 
   async getCommitMeta(params: {
     repoId: string;
     commitId: string;
     cloneUrls?: string[];
+    cloneFallbackReason?: "missing-filter-capability";
   }): Promise<any> {
     await this.initialize();
-    return this.execute("getCommitMeta", params);
+    if (params.cloneFallbackReason) {
+      return this.execute("getCommitMeta", params, { timeoutMs: 0 });
+    }
+
+    const urls = filterValidCloneUrls(params.cloneUrls || []);
+    if (urls.length === 0) return this.execute("getCommitMeta", params);
+
+    const routed = await withUrlFallback<any>(
+      urls,
+      async (url) => {
+        try {
+          const result = await this.gitNaturalGetCommit({
+            url,
+            commitHash: params.commitId,
+            enabled: true,
+            timeoutMs: 15_000,
+          });
+          if (!result?.commit) throw new Error("Git natural did not return a commit object");
+          return { success: true, meta: gitNaturalCommitMeta(result.commit, params.commitId) };
+        } catch (error) {
+          if ((error as { code?: string })?.code !== "missing-filter-capability") throw error;
+          const init = await this.smartInitializeRepo({
+            repoId: params.repoId,
+            cloneUrls: [url],
+            timeoutMs: 0,
+          });
+          if (!init?.success) throw new Error(init?.error || `Failed to initialize ${url}`);
+          return this.execute(
+            "getCommitMeta",
+            {
+              ...params,
+              cloneUrls: [url],
+              cloneFallbackReason: "missing-filter-capability",
+            },
+            { timeoutMs: 0 }
+          );
+        }
+      },
+      { repoId: params.repoId, perUrlTimeoutMs: 0 }
+    );
+
+    if (routed.success && routed.result) {
+      return { ...routed.result, usedUrl: routed.usedUrl };
+    }
+    const lastAttempt = routed.attempts[routed.attempts.length - 1];
+    return { success: false, error: lastAttempt?.error || "Commit metadata failed" };
   }
 
   /**
@@ -762,9 +928,64 @@ export class WorkerManager {
     cloneUrls?: string[];
     gitNaturalDiff?: boolean;
     corsProxy?: string | null;
-  }): Promise<{ success: boolean; changes?: any[]; error?: string }> {
+    cloneFallbackReason?: "missing-filter-capability";
+  }): Promise<{ success: boolean; changes?: any[]; error?: string; usedUrl?: string }> {
     await this.initialize();
-    return this.execute("getDiffBetween", params);
+    if (params.cloneFallbackReason) {
+      return this.execute("getDiffBetween", params, { timeoutMs: 0 });
+    }
+
+    const urls = filterValidCloneUrls(params.cloneUrls || []);
+    if (!params.gitNaturalDiff || urls.length === 0) {
+      return this.execute("getDiffBetween", params);
+    }
+
+    const routed = await withUrlFallback<any>(
+      urls,
+      async (url) => {
+        try {
+          const result = await this.gitNaturalGetDiffBetween({
+            url,
+            baseCommitHash: params.baseOid,
+            headCommitHash: params.headOid,
+            enabled: true,
+            corsProxy: params.corsProxy,
+            timeoutMs: 15_000,
+          });
+          return {
+            success: true,
+            changes: Array.isArray(result?.changes) ? result.changes : [],
+            source: "git-natural",
+            readSource: result?.source,
+          };
+        } catch (error) {
+          if ((error as { code?: string })?.code !== "missing-filter-capability") throw error;
+          const init = await this.smartInitializeRepo({
+            repoId: params.repoId,
+            cloneUrls: [url],
+            timeoutMs: 0,
+          });
+          if (!init?.success) throw new Error(init?.error || `Failed to initialize ${url}`);
+          return this.execute(
+            "getDiffBetween",
+            {
+              ...params,
+              gitNaturalDiff: false,
+              cloneUrls: [url],
+              cloneFallbackReason: "missing-filter-capability",
+            },
+            { timeoutMs: 0 }
+          );
+        }
+      },
+      { repoId: params.repoId, perUrlTimeoutMs: 0 }
+    );
+
+    if (routed.success && routed.result) {
+      return { ...routed.result, usedUrl: routed.usedUrl };
+    }
+    const lastAttempt = routed.attempts[routed.attempts.length - 1];
+    return { success: false, error: lastAttempt?.error || "Commit diff failed" };
   }
 
   /**
@@ -912,6 +1133,7 @@ export class WorkerManager {
     branch?: string;
     path?: string;
     repoKey?: string;
+    cloneUrls?: string[];
   }): Promise<any> {
     await this.initialize();
     return this.execute("listRepoFilesFromEvent", params);
@@ -926,6 +1148,7 @@ export class WorkerManager {
     path: string;
     commit?: string;
     repoKey?: string;
+    cloneUrls?: string[];
   }): Promise<any> {
     await this.initialize();
     return this.execute("getRepoFileContentFromEvent", params);
@@ -939,6 +1162,7 @@ export class WorkerManager {
     commit: string;
     path?: string;
     repoKey?: string;
+    cloneUrls?: string[];
   }): Promise<any> {
     await this.initialize();
     return this.execute("listTreeAtCommit", params);

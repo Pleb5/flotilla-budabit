@@ -475,12 +475,10 @@ export class CommitManager {
             `[CommitManager] VendorReadRouter returned ${commitsResult.commits?.length || 0} commits, fromVendor=${vendorResult.fromVendor}`
           );
         } catch (vendorError) {
-          console.warn(
-            `[CommitManager] VendorReadRouter.listCommits failed, falling back to git:`,
-            vendorError
-          );
-          // Fall through to git worker below
-          commitsResult = { success: false, error: String(vendorError) };
+          console.warn(`[CommitManager] VendorReadRouter.listCommits failed:`, vendorError);
+          // The router owns clone authorization and already performs any
+          // missing-filter clone fallback against the active remote.
+          throw vendorError;
         }
       } else {
         // No vendor router or repo event, use git worker directly
@@ -728,10 +726,10 @@ export class CommitManager {
         return { success: true, commits };
       } catch (vendorError) {
         console.warn(
-          `[CommitManager.getCommitHistory] VendorReadRouter.listCommits failed, falling back to git:`,
+          `[CommitManager.getCommitHistory] VendorReadRouter.listCommits failed:`,
           vendorError
         );
-        // Fall through to git worker below
+        throw vendorError;
       }
     }
 

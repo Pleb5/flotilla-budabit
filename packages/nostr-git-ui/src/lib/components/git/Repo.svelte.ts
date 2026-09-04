@@ -25,7 +25,12 @@ import {
   createRepoStateEvent,
 } from "@nostr-git/core/events";
 import { nip19 } from "nostr-tools";
-import { isPushCapableCloneUrl, parseRepoId } from "@nostr-git/core/utils";
+import {
+  clearUrlPreferenceCache,
+  getCachedUrlPreference,
+  isPushCapableCloneUrl,
+  parseRepoId,
+} from "@nostr-git/core/utils";
 import { context } from "$lib/stores/context";
 import { toast } from "$lib/stores/toast";
 import type { Token } from "$lib/stores/tokens";
@@ -621,8 +626,9 @@ export class Repo {
           this.key = parseRepoId(`${_owner}:${this.#repo!.name}`);
           this.commitManager.setRepoKeys({
             canonicalKey: this.key,
-            workerRepoId: this.repoEvent!.id,
+            workerRepoId: this.key,
           });
+          this.branchManager.setRepoKey(this.key);
           this.commitManager.setRepoEvent(event);
 
           // Invalidate branch cache when repo event changes
@@ -752,35 +758,6 @@ export class Repo {
         if (eagerLoadCommits) {
           await this.#loadCommitsFromRepo();
         }
-
-        // Only sync with remote if vendor API is NOT available
-        // When vendor API is available (GitHub, GitLab, etc.), we can get data immediately
-        // without waiting for slow git sync operations
-        try {
-          const repoId = this.key;
-          const cloneUrls = [...(this.#repo?.clone || [])];
-          const branch = this.#getKnownMainBranch();
-          const hasVendorApi = this.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false;
-
-          if (repoId && cloneUrls.length > 0 && !hasVendorApi) {
-            const isCloned = await this.workerManager.isRepoCloned({ repoId });
-            if (isCloned) {
-              console.log(`[Repo init] No vendor API, syncing existing local clone...`);
-              this.syncStatus = await this.workerManager.syncWithRemote({
-                repoId,
-                cloneUrls,
-                branch,
-              });
-              if (this.syncStatus?.usedUrl) {
-                this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
-              }
-            } else {
-              console.log(`[Repo init] Repository is not cloned locally; skipping remote sync`);
-            }
-          } else if (hasVendorApi) {
-            console.log(`[Repo init] Vendor API available, skipping git sync for fast UI response`);
-          }
-        } catch {}
 
         // Reload refs when the immediate repo-state snapshot is missing, synthetic,
         // or suspiciously partial (for example a stale 30618 that only advertises
@@ -1141,88 +1118,13 @@ export class Repo {
         return;
       }
 
-      // Check if REST API is available for this repo
-      const hasVendorApi = this.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false;
-
-      const isOwner = this.viewerPubkey ? this.isAuthorized(this.viewerPubkey) : false;
-
-      console.log(`[Repo] #loadCommitsFromRepo: hasVendorApi=${hasVendorApi}, isOwner=${isOwner}`);
-
-      if (hasVendorApi && !isOwner) {
-        // Non-owner with REST API: skip git clone entirely, use only REST API.
-        console.log(`[Repo] Non-owner with REST API available - using REST API only`);
-        this.#loadingIds.clone = context.loading("Loading repository via API...");
-
-        // Load commits directly via REST API (CommitManager uses VendorReadRouter)
-        await this.#loadCommits();
-
-        context.update(this.#loadingIds.clone, {
-          type: "success",
-          message: "Repository loaded via API",
-          duration: 3000,
-        });
-      } else if (hasVendorApi && isOwner) {
-        // Owner with REST API: load metadata via REST API first for fast UI, then clone in background.
-        console.log(
-          `[Repo] Owner with REST API available - loading via API first, then cloning in background`
-        );
-        this.#loadingIds.clone = context.loading("Loading repository...");
-
-        // First: Load commits immediately via REST API for fast UI response
-        await this.#loadCommits();
-
-        context.update(this.#loadingIds.clone, {
-          type: "success",
-          message: "Repository loaded via API",
-          duration: 2000,
-        });
-
-        // Then: Clone in background for full git functionality (push, commit, etc.)
-        // Fire-and-forget - don't block the UI
-        this.workerManager
-          .smartInitializeRepo({
-            repoId,
-            cloneUrls,
-          })
-          .then((result) => {
-            if (result.success) {
-              if (result.usedUrl) {
-                this.recordCloneUrlSuccess(result.usedUrl);
-              }
-              console.log(`[Repo] Background git clone completed for owner`);
-            } else {
-              console.warn(`[Repo] Background git clone failed:`, result.error);
-            }
-          })
-          .catch((err) => {
-            console.warn(`[Repo] Background git clone error:`, err);
-          });
-      } else {
-        // NO REST API: Use git clone as before
-        this.#loadingIds.clone = context.loading("Initializing repository...");
-
-        // Use smart initialization instead of always cloning
-        const result = await this.workerManager.smartInitializeRepo({
-          repoId,
-          cloneUrls,
-        });
-
-        if (result.success) {
-          if (result.usedUrl) {
-            this.recordCloneUrlSuccess(result.usedUrl);
-          }
-          context.update(this.#loadingIds.clone, {
-            type: "success",
-            message: result.fromCache ? "Repository loaded from cache" : "Repository initialized",
-            duration: 3000,
-          });
-
-          // Load commits after successful initialization
-          await this.#loadCommits();
-        } else {
-          throw new Error(result.error || "Smart initialization failed");
-        }
-      }
+      this.#loadingIds.clone = context.loading("Loading repository...");
+      await this.#loadCommits();
+      context.update(this.#loadingIds.clone, {
+        type: "success",
+        message: "Repository loaded",
+        duration: 2000,
+      });
     } catch (error) {
       console.error("Git initialization failed:", error);
 
@@ -1418,7 +1320,7 @@ export class Repo {
   recordCloneUrlSuccess(url: string): void {
     const trimmed = String(url || "").trim();
     if (trimmed) {
-      this.currentReadRemoteUrl = trimmed;
+      this.currentReadRemoteUrl = getCachedUrlPreference(this.key)?.preferredUrl || trimmed;
     }
     this.clearCloneUrlError(url);
   }
@@ -1789,86 +1691,8 @@ export class Repo {
         return;
       }
 
-      // Gather clone URLs for remote operations
-      const cloneUrls = [...(this.#repo?.clone || [])];
-
-      // Check if vendor API is available - if so, skip slow git sync operations
-      // The vendor API (GitHub, GitLab, etc.) can provide commits/files immediately
-      // without needing to clone/sync the repo first
-      const hasVendorApi = this.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false;
-
-      // Track if we need to clear cache (only if branch content actually changed)
-      let shouldClearCache = false;
-
-      // 1) Only sync with remote if vendor API is NOT available
-      // When vendor API is available, we can get data immediately without waiting for git
-      if (!isTag && !hasVendorApi && this.key && cloneUrls.length > 0) {
-        // Ensure worker is ready
-        if (!this.workerManager?.isReady) {
-          await this.workerManager.initialize();
-        }
-
-        try {
-          console.log(`[setSelectedBranch] No vendor API, syncing with remote...`);
-          this.syncStatus = await this.workerManager.syncWithRemote({
-            repoId: this.key,
-            cloneUrls,
-            branch: shortBranch,
-            requireRemoteSync: true,
-            requireTrackingRef: true,
-          });
-          if (this.syncStatus?.success === false) {
-            throw new Error(this.syncStatus.error || `Failed to sync branch '${shortBranch}'`);
-          }
-          this.#assertBranchSwitchMatched(shortBranch, this.syncStatus?.branch, "remote sync");
-          if (this.syncStatus?.usedUrl) {
-            this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
-          }
-
-          // Only clear cache if remote had updates or if sync reports it needs update
-          if (this.syncStatus?.needsUpdate) {
-            console.log("Branch content changed, will clear cache");
-            shouldClearCache = true;
-          } else {
-            console.log("Branch already up-to-date, preserving cache for instant load");
-          }
-        } catch (syncErr) {
-          console.warn("syncWithRemote failed, will try ensureFullClone:", syncErr);
-          // If sync fails, play it safe and clear cache
-          shouldClearCache = true;
-        }
-
-        // 2) Ensure the branch is fully available locally (deep clone as needed)
-        if (this.key) {
-          const fullCloneResult = await this.workerManager.ensureFullClone({
-            repoId: this.key,
-            branch: shortBranch,
-            cloneUrls,
-          });
-          if (fullCloneResult?.success === false) {
-            throw new Error(
-              fullCloneResult.error || `Failed to load branch '${shortBranch}' locally`
-            );
-          }
-          this.#assertBranchSwitchMatched(shortBranch, fullCloneResult?.branch, "full clone");
-        }
-      } else if (hasVendorApi) {
-        console.log(
-          `[setSelectedBranch] Vendor API available, skipping git sync for fast UI response`
-        );
-      }
-
-      // 3) Clear caches only if branch content actually changed
-      if (shouldClearCache) {
-        console.log("Clearing file cache due to branch update");
-        try {
-          await this.fileManager.clearCache(this.key);
-        } catch {}
-      } else {
-        console.log("Preserving file cache - branch unchanged");
-      }
-
-      // 4) Load commits for new branch/tag
+      // Load commits for the new branch/tag through the read router. Explicit
+      // refresh and write flows remain responsible for synchronizing local git state.
       // Reset commits first to ensure fresh load for the new branch
       this.commitManager.reset(true); // Clear stored branch since we're explicitly switching
 
@@ -2302,11 +2126,8 @@ export class Repo {
         );
         return { success: true, commits };
       } catch (vendorError) {
-        console.warn(
-          `[Repo.getCommitHistory] VendorReadRouter.listCommits failed, falling back to git:`,
-          vendorError
-        );
-        // Fall through to git worker below
+        console.warn(`[Repo.getCommitHistory] VendorReadRouter.listCommits failed:`, vendorError);
+        throw vendorError;
       }
     }
 
@@ -2333,6 +2154,8 @@ export class Repo {
     // Clone URL issues are session-local read observations. Clear them before a fresh reload
     // so successful probes can repopulate only current problems.
     this.clearCloneUrlErrors();
+    clearUrlPreferenceCache(this.key);
+    this.currentReadRemoteUrl = this.#effectiveCloneUrls[0] || "";
     this.refDiscoveryStatus = "idle";
 
     // Reset managers that have reset methods

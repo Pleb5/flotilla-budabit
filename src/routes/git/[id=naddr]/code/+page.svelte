@@ -62,20 +62,6 @@
 
   const FILE_SEARCH_DEBOUNCE_MS = 350
 
-  // Clone progress state - only show when actually cloning
-  let isCloning = $state(false)
-  let cloneProgress = $state<string>("")
-  let cloneProgressPercent = $state<number | undefined>(undefined)
-  const normalizedCloneProgressPercent = $derived.by(() => {
-    if (cloneProgressPercent === undefined) return undefined
-    const raw = Number(cloneProgressPercent)
-    if (!Number.isFinite(raw)) return undefined
-    const percent = raw > 0 && raw < 1 ? raw * 100 : raw
-    return Math.max(0, Math.min(100, percent))
-  })
-
-  // Guard to prevent multiple concurrent clone checks
-  let cloneCheckInProgress = $state(false)
   let cloneCheckAttempted = $state(false)
 
   // Derive selectedBranch from repoClass to avoid circular effect dependencies.
@@ -103,7 +89,7 @@
     if (supportedCloneUrls.length === 0) return true
 
     const hasVendorApi = repoClass.vendorReadRouter?.hasVendorSupport(supportedCloneUrls) ?? false
-    return hasVendorApi || (cloneCheckAttempted && !cloneCheckInProgress && !isCloning)
+    return hasVendorApi || cloneCheckAttempted
   })
 
   const normalizePath = (value: string | null | undefined) =>
@@ -408,120 +394,19 @@
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
-  // Check if repo is cloned and clone if needed (only on code tab)
-  // Skip this entirely if vendor API is available - files can be loaded directly from API
+  // Routed reads decide whether missing filter support justifies clone fallback.
   $effect(() => {
-    const currentRepoEventId = repoEventId
-    const currentCloneUrlKey = supportedCloneUrlKey
-
     if (!repoClass) return
-    if (!currentRepoEventId) return
+    if (!repoEventId) return
     if (!repoClass.isInitialized) return
     if (repoClass.isRefsLoading) return
-    // Wait for repo key to be populated (set when repoEvent is processed)
     if (!repoClass.key) return
-    // Only attempt clone check once per page load
-    if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
-
-    const cloneUrls = [...supportedCloneUrls]
-    if (cloneUrls.length === 0) return
-
-    // Check if vendor API is available - if so, skip clone entirely
-    // The vendor API (GitHub, GitLab, etc.) can provide files immediately
-    const hasVendorApi = repoClass.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false
-    if (hasVendorApi) {
-      console.log("[code/+page] Vendor API available, skipping git clone check for fast UI")
-      cloneCheckAttempted = true
-      return
-    }
-
-    const timeout = setTimeout(() => {
-      ;(async () => {
-        if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
-        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey)
-          return
-        if (!repoClass.key) return // Double-check key is still valid
-        const cloneUrls = [...supportedCloneUrls]
-        if (cloneUrls.length === 0) return
-        cloneCheckInProgress = true
-        cloneCheckAttempted = true
-
-        try {
-          const isCloned = await repoClass.workerManager.isRepoCloned({
-            repoId: repoClass.key,
-          })
-
-          if (!isCloned) {
-            isCloning = true
-            cloneProgress = "Initializing repository..."
-
-            repoClass.workerManager.setProgressCallback(progressEvent => {
-              if (progressEvent.repoId === repoClass.key) {
-                cloneProgress = progressEvent.phase || "Cloning repository..."
-                cloneProgressPercent = progressEvent.progress
-              }
-            })
-
-            try {
-              if (cloneUrls.length === 0) {
-                throw new Error("No clone URLs found for repository")
-              }
-
-              const result = await repoClass.workerManager.smartInitializeRepo({
-                repoId: repoClass.key,
-                cloneUrls,
-                forceUpdate: false,
-              })
-
-              if (!result.success) {
-                notifyCorsProxyIssue(result)
-                throw new Error(result.error || "Repository initialization failed")
-              }
-
-              if (result.usedUrl) {
-                repoClass.recordCloneUrlSuccess(result.usedUrl)
-              }
-
-              // Skip syncWithRemote - it's slow and not needed for initial display
-              // The vendor API or cached data will be used for file display
-              console.log("✅ Repository initialized (skipping sync for faster UI)")
-            } finally {
-              repoClass.workerManager.setProgressCallback(() => {})
-              isCloning = false
-              cloneProgress = ""
-              cloneProgressPercent = undefined
-            }
-          }
-
-          await repoClass.loadRefsForPRAnalysis()
-        } catch (err) {
-          console.error("Failed to initialize repository:", err)
-          notifyCorsProxyIssue(err)
-          const errorMessage = err instanceof Error ? err.message : "Unknown error"
-          // Only show toast for non-transient errors
-          if (!errorMessage.includes("No clone URLs")) {
-            // Silently fail - file loading will handle it
-            console.warn("Clone check failed, file loading will handle:", errorMessage)
-          } else {
-            pushToast({
-              message: `Failed to initialize repository: ${errorMessage}`,
-              theme: "error",
-            })
-            error = errorMessage
-          }
-          isCloning = false
-        } finally {
-          cloneCheckInProgress = false
-        }
-      })()
-    }, 200) // Slightly longer delay to ensure worker is ready
-
-    return () => clearTimeout(timeout)
+    cloneCheckAttempted = true
   })
 
   // Load refs using the unified API - defer to avoid blocking render
   $effect(() => {
-    if (repoClass.isInitialized && cloneCheckAttempted && selectedBranch && !isCloning) {
+    if (repoClass.isInitialized && cloneCheckAttempted && selectedBranch) {
       // Defer ref loading to avoid blocking initial render
       const timeout = setTimeout(() => {
         repoClass.getAllRefsWithFallback().catch((err: Error) => {
@@ -560,7 +445,7 @@
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
     const branchName = normalizeBranchRef(currentBranch)
-    if (!branchName || !currentBranch || isCloning || isSwitching || path) return
+    if (!branchName || !currentBranch || isSwitching || path) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
       return
@@ -601,7 +486,7 @@
 
     // Don't attempt to load files until we have a valid branch name
     const branchName = normalizeBranchRef(currentBranch)
-    if (!branchName || !currentPath || !currentBranch || isCloning || isSwitching) return
+    if (!branchName || !currentPath || !currentBranch || isSwitching) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
       return
@@ -713,28 +598,7 @@
   data-component="code-browser"
   data-testid="code-browser"
   bind:this={pageContainerRef}>
-  {#if isCloning}
-    <div class="p-4 sm:p-6">
-      <div class="flex flex-col items-center justify-center space-y-4 py-12">
-        <Spinner>Cloning repository...</Spinner>
-        <div class="space-y-2 text-center">
-          <p class="text-lg font-medium">{cloneProgress}</p>
-          {#if normalizedCloneProgressPercent !== undefined}
-            <div
-              class="mx-auto h-2.5 w-full max-w-[16rem] rounded-full bg-gray-200 dark:bg-gray-700">
-              <div
-                class="h-2.5 rounded-full bg-blue-600 transition-all duration-300"
-                style="width: {Math.round(normalizedCloneProgressPercent)}%">
-              </div>
-            </div>
-            <p class="text-sm text-muted-foreground">
-              {Math.round(normalizedCloneProgressPercent)}%
-            </p>
-          {/if}
-        </div>
-      </div>
-    </div>
-  {:else if !isDesktopViewport && selectedFile}
+  {#if !isDesktopViewport && selectedFile}
     <div class="p-3 md:hidden">
       {#key selectedFileViewKey}
         <FileView

@@ -175,13 +175,13 @@ import {
 } from "./workers/git-config.js"
 import {
   GitNaturalReadProvider,
-  type GitNaturalDiffBetweenResult,
   type GitNaturalListCommitsResult,
   type GitNaturalResolveRefResult,
 } from "../git/natural-read-provider.js"
 import {getGitNaturalPRReviewData} from "../git/natural-pr-review.js"
 import {cacheObservedGitNaturalBlob} from "../git/natural-read-observed-cache.js"
 import type {GitNaturalCommit} from "../git/natural-read-types.js"
+import {GitNaturalReadError, serializeGitNaturalReadError} from "../git/natural-read-transport.js"
 
 // Import event-based git operations
 import {
@@ -281,6 +281,46 @@ function resolveGitNaturalCorsProxy(corsProxy: string | null | undefined): strin
   return corsProxy !== undefined ? corsProxy : resolveDefaultCorsProxy()
 }
 
+async function runGitNaturalWorkerRead<T>(
+  opts: {url: string; timeoutMs?: number},
+  read: (signal: AbortSignal) => Promise<T>,
+): Promise<
+  | T
+  | {
+      success: false
+      error: string
+      gitNaturalError?: ReturnType<typeof serializeGitNaturalReadError>
+    }
+> {
+  const timeoutMs = opts.timeoutMs ?? 15000
+  const controller = new AbortController()
+  const timeout =
+    timeoutMs > 0
+      ? setTimeout(() => {
+          controller.abort()
+        }, timeoutMs)
+      : undefined
+
+  try {
+    return toPlain(await read(controller.signal))
+  } catch (error) {
+    const normalizedError = controller.signal.aborted
+      ? new GitNaturalReadError(
+          "transient-network-failure",
+          `Git natural read timed out after ${timeoutMs}ms for ${opts.url}`,
+          {remoteUrl: opts.url, cause: error},
+        )
+      : error
+    return toPlain({
+      success: false as const,
+      error: normalizedError instanceof Error ? normalizedError.message : String(normalizedError),
+      gitNaturalError: serializeGitNaturalReadError(normalizedError),
+    })
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+}
+
 function toPlain<T>(val: T): T {
   try {
     return JSON.parse(JSON.stringify(val))
@@ -291,48 +331,6 @@ function toPlain<T>(val: T): T {
 
 function isHttpCloneUrl(url: string): boolean {
   return /^https?:\/\//i.test(String(url || "").trim())
-}
-
-async function tryGitNaturalDiffBetween(params: {
-  key: string
-  baseOid: string
-  headOid: string
-  cloneUrls?: string[]
-  enabled?: boolean
-  corsProxy?: string | null
-}): Promise<(GitNaturalDiffBetweenResult & {usedUrl?: string}) | null> {
-  if (params.enabled !== true) return null
-  const urls = reorderUrlsByPreference(
-    filterValidCloneUrls(params.cloneUrls || []),
-    params.key,
-  ).filter(isHttpCloneUrl)
-  if (urls.length === 0) return null
-
-  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
-  const result = await withUrlFallback(
-    urls,
-    async (url: string) => {
-      const provider = getGitNaturalReadProvider(corsProxy)
-      return await provider.getDiffBetween({
-        url,
-        baseCommitHash: params.baseOid,
-        headCommitHash: params.headOid,
-        corsProxy,
-      })
-    },
-    {repoId: params.key, perUrlTimeoutMs: 15000},
-  )
-
-  if (result.success && result.result) {
-    return {...result.result, ...(result.usedUrl ? {usedUrl: result.usedUrl} : {})}
-  }
-
-  if (result.attempts.length > 0) {
-    console.info(
-      `[getDiffBetween] Git natural diff unavailable, falling back to worker clone: ${result.attempts.map(a => `${a.url}: ${a.error || "failed"}`).join("; ")}`,
-    )
-  }
-  return null
 }
 
 async function tryGitNaturalPRReviewData(params: {
@@ -573,81 +571,6 @@ async function tryGitNaturalListCommitsFromUrls(params: {
     : null
 }
 
-async function tryGitNaturalCommitMeta(params: {
-  key: string
-  commitId: string
-  cloneUrls?: string[]
-  corsProxy?: string | null
-}) {
-  const commitId = normalizeFullOid(params.commitId)
-  if (!commitId) return null
-  const urls = gitNaturalHttpUrls(params.cloneUrls || [], params.key)
-  if (urls.length === 0) return null
-
-  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
-  const result = await withUrlFallback(
-    urls,
-    async (url: string) => {
-      const provider = getGitNaturalReadProvider(corsProxy)
-      const commit = await provider.getCommit({url, commitHash: commitId, corsProxy})
-      return {
-        success: true,
-        meta: naturalCommitToWorkerMeta(commit.commit),
-        source: "git-natural",
-        readSource: commit.source,
-        usedCloneUrl: url,
-      }
-    },
-    {repoId: params.key, perUrlTimeoutMs: 15000},
-  )
-
-  return result.success ? result.result : null
-}
-
-async function tryGitNaturalCommitDetails(params: {
-  key: string
-  commitId: string
-  cloneUrls?: string[]
-  corsProxy?: string | null
-}) {
-  const commitId = normalizeFullOid(params.commitId)
-  if (!commitId) return null
-  const urls = gitNaturalHttpUrls(params.cloneUrls || [], params.key)
-  if (urls.length === 0) return null
-
-  const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
-  const result = await withUrlFallback(
-    urls,
-    async (url: string) => {
-      const provider = getGitNaturalReadProvider(corsProxy)
-      const commitResult = await provider.getCommit({url, commitHash: commitId, corsProxy})
-      const firstParent = commitResult.commit.parents[0]
-      if (!firstParent) throw new Error("Root commit diff requires clone-backed fallback")
-
-      const diff = await provider.getDiffBetween({
-        url,
-        baseCommitHash: firstParent,
-        headCommitHash: commitResult.commit.hash,
-        corsProxy,
-      })
-
-      return {
-        success: true,
-        meta: naturalCommitToWorkerMeta(commitResult.commit),
-        changes: diff.changes,
-        stats: statsFromNaturalChanges(diff.changes),
-        diffAvailable: true,
-        source: "git-natural",
-        readSource: diff.source,
-        usedCloneUrl: url,
-      }
-    },
-    {repoId: params.key, perUrlTimeoutMs: 15000},
-  )
-
-  return result.success ? result.result : null
-}
-
 function gitNaturalHttpUrls(urls: string[], repoId: string): string[] {
   return reorderUrlsByPreference(filterValidCloneUrls(urls), repoId).filter(isHttpCloneUrl)
 }
@@ -663,17 +586,6 @@ function isEmptyReceivePackParseError(error: unknown): boolean {
   const value = error as {message?: unknown}
   const message = String(value?.message || "").toLowerCase()
   return message.includes('expected "unpack ok"') && message.includes('received ""')
-}
-
-function naturalCommitToWorkerMeta(commit: GitNaturalCommit) {
-  return {
-    sha: commit.hash,
-    author: commit.author?.name || "Unknown",
-    email: commit.author?.email || "",
-    date: Number(commit.author?.timestamp || 0) * 1000,
-    message: commit.message || "",
-    parents: Array.isArray(commit.parents) ? commit.parents : [],
-  }
 }
 
 function naturalCommitToReviewCommit(commit: GitNaturalCommit) {
@@ -694,22 +606,6 @@ function firstCommonNaturalCommit(
 ) {
   const targetHashes = new Set(targetCommits.map(commit => commit.hash))
   return sourceCommits.find(commit => targetHashes.has(commit.hash))?.hash
-}
-
-function statsFromNaturalChanges(
-  changes: Array<{diffHunks?: Array<{patches?: Array<{type?: string}>}>}>,
-) {
-  let additions = 0
-  let deletions = 0
-  for (const change of changes || []) {
-    for (const hunk of change.diffHunks || []) {
-      for (const patch of hunk.patches || []) {
-        if (patch.type === "+" || patch.type === "add") additions += 1
-        if (patch.type === "-" || patch.type === "del") deletions += 1
-      }
-    }
-  }
-  return {additions, deletions, total: additions + deletions}
 }
 
 function buildModifiedFileDiffHunks(
@@ -1255,6 +1151,7 @@ const api = {
     branch?: string
     depth?: number
     cloneUrls?: string[]
+    strictCloneUrls?: boolean
   }) {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "clone-progress")
@@ -1477,16 +1374,18 @@ const api = {
     symrefs?: boolean
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(
-      await provider.listRefs({
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.listRefs({
         url: opts.url,
         prefix: opts.prefix,
         symrefs: opts.symrefs ?? true,
         corsProxy,
+        signal,
       }),
     )
   },
@@ -1496,11 +1395,14 @@ const api = {
     ref: string
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(await provider.resolveRef({url: opts.url, ref: opts.ref, corsProxy}))
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.resolveRef({url: opts.url, ref: opts.ref, corsProxy, signal}),
+    )
   },
 
   async gitNaturalListDirectory(opts: {
@@ -1510,17 +1412,19 @@ const api = {
     path?: string
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(
-      await provider.listDirectory({
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.listDirectory({
         url: opts.url,
         ref: opts.ref,
         commitHash: opts.commitHash,
         path: opts.path,
         corsProxy,
+        signal,
       }),
     )
   },
@@ -1532,17 +1436,19 @@ const api = {
     path: string
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(
-      await provider.getFileContent({
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.getFileContent({
         url: opts.url,
         ref: opts.ref,
         commitHash: opts.commitHash,
         path: opts.path,
         corsProxy,
+        signal,
       }),
     )
   },
@@ -1554,17 +1460,19 @@ const api = {
     depth?: number
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(
-      await provider.listCommits({
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.listCommits({
         url: opts.url,
         ref: opts.ref,
         commitHash: opts.commitHash,
         depth: opts.depth,
         corsProxy,
+        signal,
       }),
     )
   },
@@ -1575,16 +1483,18 @@ const api = {
     commitHash?: string
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(
-      await provider.getCommit({
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.getCommit({
         url: opts.url,
         ref: opts.ref,
         commitHash: opts.commitHash,
         corsProxy,
+        signal,
       }),
     )
   },
@@ -1595,16 +1505,18 @@ const api = {
     headCommitHash: string
     enabled?: boolean
     corsProxy?: string | null
+    timeoutMs?: number
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return toPlain(
-      await provider.getDiffBetween({
+    return await runGitNaturalWorkerRead(opts, signal =>
+      provider.getDiffBetween({
         url: opts.url,
         baseCommitHash: opts.baseCommitHash,
         headCommitHash: opts.headCommitHash,
         corsProxy,
+        signal,
       }),
     )
   },
@@ -2654,6 +2566,7 @@ const api = {
             branch,
             localBranchCommit,
             repoDir,
+            false,
           ),
         pushToRemote: async (args: {
           repoId: string
@@ -2948,6 +2861,7 @@ const api = {
     branch?: string
     path?: string
     repoKey?: string
+    cloneUrls?: string[]
   }) {
     const result = await listRepoFilesFromEvent(opts)
     return toPlain(result)
@@ -2959,6 +2873,7 @@ const api = {
     path: string
     commit?: string
     repoKey?: string
+    cloneUrls?: string[]
   }) {
     return await getRepoFileContentFromEvent(opts)
   },
@@ -3708,6 +3623,7 @@ const api = {
     commit: string
     path?: string
     repoKey?: string
+    cloneUrls?: string[]
   }) {
     // Use listRepoFilesFromEvent with commit parameter
     const result = await listRepoFilesFromEvent({
@@ -3715,6 +3631,7 @@ const api = {
       commit: opts.commit,
       path: opts.path,
       repoKey: opts.repoKey,
+      cloneUrls: opts.cloneUrls,
     })
     return toPlain(result)
   },
@@ -3911,18 +3828,22 @@ const api = {
   },
 
   // Get detailed commit information including file changes
-  async getCommitMeta(opts: {repoId: string; commitId: string; cloneUrls?: string[]}) {
+  async getCommitMeta(opts: {
+    repoId: string
+    commitId: string
+    cloneUrls?: string[]
+    cloneFallbackReason?: "missing-filter-capability"
+  }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
 
     try {
-      const naturalMeta = await tryGitNaturalCommitMeta({
-        key,
-        commitId: opts.commitId,
-        cloneUrls: opts.cloneUrls,
-      }).catch(() => null)
-      if (naturalMeta) return toPlain(naturalMeta)
-
       if (!(await hasCommitObject(dir, opts.commitId))) {
+        if (!allowRemoteFallback) {
+          throw new Error(
+            `Commit ${opts.commitId} is not available locally; remote fallback requires missing-filter-capability`,
+          )
+        }
         const fetched = await fetchRefsUntilOidsAvailable({
           key,
           dir,
@@ -3963,8 +3884,10 @@ const api = {
     commitId: string
     branch?: string
     cloneUrls?: string[]
+    cloneFallbackReason?: "missing-filter-capability"
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
 
     const isMissingCommitObjectError = (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error || "")
@@ -3978,22 +3901,17 @@ const api = {
       )
     }
 
-    const fetchAllRefsForMissingCommit = async (): Promise<boolean> =>
-      await fetchRefsUntilOidsAvailable({
+    const fetchAllRefsForMissingCommit = async (): Promise<boolean> => {
+      if (!allowRemoteFallback) return false
+      return await fetchRefsUntilOidsAvailable({
         key,
         dir,
         requiredOids: [opts.commitId],
         cloneUrls: opts.cloneUrls,
       })
+    }
 
     try {
-      const naturalDetails = await tryGitNaturalCommitDetails({
-        key,
-        commitId: opts.commitId,
-        cloneUrls: opts.cloneUrls,
-      }).catch(() => null)
-      if (naturalDetails) return toPlain(naturalDetails)
-
       // Optimization: Try to read commit locally first before triggering expensive fetch
       let commits: any[] = []
       try {
@@ -4005,6 +3923,11 @@ const api = {
 
       // Only fetch if commit wasn't found locally
       if (commits.length === 0) {
+        if (!allowRemoteFallback) {
+          throw new Error(
+            `Commit ${opts.commitId} is not available locally; remote fallback requires missing-filter-capability`,
+          )
+        }
         let restMeta:
           | {
               sha: string
@@ -4027,23 +3950,24 @@ const api = {
         // We still need git objects to compute a real diff.
         try {
           const cache = await cacheManager.getRepoCache(key)
+          const fallbackUrls = filterValidCloneUrls(opts.cloneUrls || [])
           console.log(`[getCommitDetails] Cache lookup for ${key}:`, {
             hasCache: !!cache,
-            cloneUrls: cache?.cloneUrls,
-            cloneUrlCount: cache?.cloneUrls?.length || 0,
+            cloneUrls: fallbackUrls,
+            cloneUrlCount: fallbackUrls.length,
           })
 
-          if (cache?.cloneUrls?.length) {
+          if (fallbackUrls.length) {
             const {filterValidCloneUrls, reorderUrlsByPreference, hasRestApiSupport} =
               await import("../utils/clone-url-fallback.js")
             const {getGitServiceApi} = await import("../git/provider-factory.js")
             const {parseRepoFromUrl} = await import("../git/vendor-provider-factory.js")
 
-            const validUrls = filterValidCloneUrls(cache.cloneUrls)
+            const validUrls = filterValidCloneUrls(fallbackUrls)
             const orderedUrls = reorderUrlsByPreference(validUrls, key)
 
             console.log(`[getCommitDetails] URL analysis:`, {
-              original: cache.cloneUrls,
+              original: fallbackUrls,
               valid: validUrls,
               ordered: orderedUrls,
             })
@@ -4106,7 +4030,13 @@ const api = {
         try {
           const cloneResult = await ensureFullCloneUtil(
             git,
-            {repoId: opts.repoId, branch: opts.branch, depth: 1000, cloneUrls: opts.cloneUrls},
+            {
+              repoId: opts.repoId,
+              branch: opts.branch,
+              depth: 1000,
+              cloneUrls: opts.cloneUrls,
+              strictCloneUrls: true,
+            },
             {
               rootDir,
               parseRepoId,
@@ -4371,61 +4301,66 @@ const api = {
           diffError,
         )
 
-        // Use the shared incremental escalation (presence check, direct OID
-        // depth-1 fetch, shallow refs, full refs) instead of jumping straight
-        // to a deep all-ref fetch.
-        const requiredOids = [commit.oid, ...(commit.commit.parent || [])]
-        let recovered = false
-        try {
-          recovered = await fetchRefsUntilOidsAvailable({
-            key,
-            dir,
-            requiredOids,
-            cloneUrls: opts.cloneUrls,
-          })
-        } catch (recoverError) {
-          console.warn(
-            `[getCommitDetails] Ancestor refetch failed for ${opts.commitId}:`,
-            recoverError,
-          )
-        }
-
-        if (recovered) {
+        if (!allowRemoteFallback) {
+          warning =
+            "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
+        } else {
+          // Use the shared incremental escalation (presence check, direct OID
+          // depth-1 fetch, shallow refs, full refs) instead of jumping straight
+          // to a deep all-ref fetch.
+          const requiredOids = [commit.oid, ...(commit.commit.parent || [])]
+          let recovered = false
           try {
-            changes = await collectCommitChanges()
-          } catch (retryError) {
-            if (!isMissingCommitObjectError(retryError)) {
-              throw retryError
-            }
-
-            // Commit objects exist but trees/blobs behind a shallow boundary
-            // are still missing; escalate to a ref fetch before giving up.
-            const deepened = await fetchRefsUntilOidsAvailable({
+            recovered = await fetchRefsUntilOidsAvailable({
               key,
               dir,
               requiredOids,
               cloneUrls: opts.cloneUrls,
-              forceRefFetch: true,
-            }).catch(() => false)
+            })
+          } catch (recoverError) {
+            console.warn(
+              `[getCommitDetails] Ancestor refetch failed for ${opts.commitId}:`,
+              recoverError,
+            )
+          }
 
-            if (deepened) {
-              try {
-                changes = await collectCommitChanges()
-              } catch (finalError) {
-                if (!isMissingCommitObjectError(finalError)) {
-                  throw finalError
+          if (recovered) {
+            try {
+              changes = await collectCommitChanges()
+            } catch (retryError) {
+              if (!isMissingCommitObjectError(retryError)) {
+                throw retryError
+              }
+
+              // Commit objects exist but trees/blobs behind a shallow boundary
+              // are still missing; escalate to a ref fetch before giving up.
+              const deepened = await fetchRefsUntilOidsAvailable({
+                key,
+                dir,
+                requiredOids,
+                cloneUrls: opts.cloneUrls,
+                forceRefFetch: true,
+              }).catch(() => false)
+
+              if (deepened) {
+                try {
+                  changes = await collectCommitChanges()
+                } catch (finalError) {
+                  if (!isMissingCommitObjectError(finalError)) {
+                    throw finalError
+                  }
+                  warning =
+                    "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
                 }
+              } else {
                 warning =
                   "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
               }
-            } else {
-              warning =
-                "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
             }
+          } else {
+            warning =
+              "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
           }
-        } else {
-          warning =
-            "Commit metadata loaded, but diff is unavailable because ancestor objects are missing."
         }
       }
 
@@ -4461,6 +4396,7 @@ const api = {
     cloneUrls?: string[]
     gitNaturalDiff?: boolean
     corsProxy?: string | null
+    cloneFallbackReason?: "missing-filter-capability"
   }): Promise<{
     success: boolean
     changes?: Array<{
@@ -4477,41 +4413,34 @@ const api = {
     error?: string
   }> {
     const {key, dir} = repoKeyAndDir(opts.repoId)
+    const allowRemoteFallback = opts.cloneFallbackReason === "missing-filter-capability"
 
     try {
-      const naturalDiff = await tryGitNaturalDiffBetween({
-        key,
-        baseOid: opts.baseOid,
-        headOid: opts.headOid,
-        cloneUrls: opts.cloneUrls,
-        enabled: opts.gitNaturalDiff === true,
-        corsProxy: opts.corsProxy,
-      })
-      if (naturalDiff) {
-        return toPlain({
-          success: true,
-          changes: naturalDiff.changes,
-          source: "git-natural",
-          readSource: naturalDiff.source,
-          usedCloneUrl: naturalDiff.usedUrl,
-        })
+      if (allowRemoteFallback) {
+        await ensureFullCloneUtil(
+          git,
+          {
+            repoId: opts.repoId,
+            depth: 100,
+            cloneUrls: opts.cloneUrls,
+            strictCloneUrls: true,
+          },
+          {
+            rootDir,
+            parseRepoId,
+            repoDataLevels,
+            clonedRepos,
+            isRepoCloned: async (g: GitProvider, d: string) => isRepoClonedFs(g, d),
+            resolveBranchName: async (
+              d: string,
+              requested?: string,
+              options?: {strict?: boolean},
+            ) => resolveRobustBranchUtil(git, d, requested, options),
+            cacheManager,
+          },
+          makeProgress(opts.repoId, "clone-progress"),
+        )
       }
-
-      await ensureFullCloneUtil(
-        git,
-        {repoId: opts.repoId, depth: 100, cloneUrls: opts.cloneUrls},
-        {
-          rootDir,
-          parseRepoId,
-          repoDataLevels,
-          clonedRepos,
-          isRepoCloned: async (g: GitProvider, d: string) => isRepoClonedFs(g, d),
-          resolveBranchName: async (d: string, requested?: string, options?: {strict?: boolean}) =>
-            resolveRobustBranchUtil(git, d, requested, options),
-          cacheManager,
-        },
-        makeProgress(opts.repoId, "clone-progress"),
-      )
 
       const requiredOids = Array.from(new Set([opts.baseOid, opts.headOid].filter(Boolean)))
       const missingOids: string[] = []
@@ -4522,6 +4451,11 @@ const api = {
       }
 
       if (missingOids.length > 0) {
+        if (!allowRemoteFallback) {
+          throw new Error(
+            `Commits ${missingOids.join(", ")} are not available locally; remote fallback requires missing-filter-capability`,
+          )
+        }
         const recovered = await fetchRefsUntilOidsAvailable({
           key,
           dir,

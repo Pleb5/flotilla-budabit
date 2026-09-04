@@ -88,6 +88,11 @@ export class BranchManager {
   private repoEventSnapshot?: RepoAnnouncementEvent;
   private refDiscoverySource?: RefDiscoverySource;
   private cloneUrlsOverride: string[] = [];
+  private repoKey?: string;
+
+  setRepoKey(repoKey: string): void {
+    this.repoKey = repoKey;
+  }
 
   setCloneUrls(cloneUrls: string[]): void {
     this.cloneUrlsOverride = Array.from(
@@ -613,6 +618,7 @@ export class BranchManager {
             const vendorRes = await this.vendorReadRouter.listRefs({
               workerManager: this.workerManager,
               repoEvent: this.repoEventSnapshot,
+              repoKey: this.repoKey,
               cloneUrls,
             });
 

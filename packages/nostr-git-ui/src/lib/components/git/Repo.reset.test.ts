@@ -3,6 +3,7 @@ import { readable, writable } from "svelte/store";
 import { nip19 } from "nostr-tools";
 import { Repo } from "./Repo.svelte";
 import { tokens } from "$lib/stores/tokens";
+import { orderReadUrlsByPreference, updateUrlPreferenceCache } from "@nostr-git/core/utils";
 
 vi.hoisted(() => {
   const values = new Map<string, string>();
@@ -92,6 +93,8 @@ describe("Repo reset", () => {
       sig: "",
     } as any;
     repo.key = "owner/repo";
+    const cloneUrls = ["https://primary.example/repo.git", "https://fallback.example/repo.git"];
+    updateUrlPreferenceCache("owner/repo", cloneUrls[1], [cloneUrls[0]]);
 
     await expect(repo.reset()).rejects.toBe(resetError);
 
@@ -101,12 +104,13 @@ describe("Repo reset", () => {
     expect(clearCache).toHaveBeenCalledTimes(4);
     expect(loadAllRefs).toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith("Git reset to remote failed:", resetError);
+    expect(orderReadUrlsByPreference(cloneUrls, "owner/repo")).toEqual(cloneUrls);
 
     repo.dispose();
   });
 });
 
-describe("Repo initialization sync", () => {
+describe("Repo initialization reads", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -163,30 +167,27 @@ describe("Repo initialization sync", () => {
     return { repo, workerManager, finishInitialize };
   }
 
-  it("does not sync a repository that has not been cloned locally", async () => {
+  it("does not probe or sync an uncloned repository before routed reads", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { repo, workerManager, finishInitialize } = createRepo(false);
 
     finishInitialize();
     await repo.waitForReady();
 
-    expect(workerManager.isRepoCloned).toHaveBeenCalledWith({ repoId: repo.key });
+    expect(workerManager.isRepoCloned).not.toHaveBeenCalled();
     expect(workerManager.syncWithRemote).not.toHaveBeenCalled();
     repo.dispose();
   });
 
-  it("syncs an existing local clone", async () => {
+  it("does not sync an existing local clone before routed reads", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { repo, workerManager, finishInitialize } = createRepo(true);
 
     finishInitialize();
     await repo.waitForReady();
 
-    expect(workerManager.syncWithRemote).toHaveBeenCalledWith({
-      repoId: repo.key,
-      cloneUrls: ["https://relay.ngit.dev/owner/repo.git"],
-      branch: "main",
-    });
+    expect(workerManager.isRepoCloned).not.toHaveBeenCalled();
+    expect(workerManager.syncWithRemote).not.toHaveBeenCalled();
     repo.dispose();
   });
 });

@@ -169,9 +169,7 @@ export class FileManager {
       const bytes = this.decodeBase64ToBytes(rawContent);
       const keepBase64 = this.shouldKeepBase64FileContent(path, bytes);
       return {
-        content: keepBase64
-          ? rawContent
-          : new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+        content: keepBase64 ? rawContent : new TextDecoder("utf-8", { fatal: false }).decode(bytes),
         path,
         ref: vendorRes.ref || fallbackRef,
         encoding: keepBase64 ? "base64" : "utf-8",
@@ -281,12 +279,24 @@ export class FileManager {
     }
 
     try {
-      const pending = this.workerManager.listTreeAtCommit({
-        repoEvent,
-        commit,
-        path,
-        repoKey,
-      });
+      const pending = this.vendorReadRouter
+        ? this.vendorReadRouter
+            .listDirectory({
+              workerManager: this.workerManager,
+              repoEvent,
+              repoKey,
+              cloneUrls: this.getCloneUrlsFromRepoEvent(repoEvent),
+              branch: commit,
+              commitHash: commit,
+              path,
+            })
+            .then((result) => result.files)
+        : this.workerManager.listTreeAtCommit({
+            repoEvent,
+            commit,
+            path,
+            repoKey,
+          });
       this.inFlightListings.set(cacheKey, pending as unknown as Promise<FileListingResult>);
       this.recentListingCalls.set(cacheKey, now);
       const result = await pending;
@@ -412,6 +422,7 @@ export class FileManager {
     const shortBranch = this.getShortBranchName(branch);
     const repoKey = providedRepoKey || this.getCanonicalRepoKey(repoEvent);
     const cacheKey = this.generateCacheKey("LISTING", repoKey, path, shortBranch);
+    const routedRead = Boolean(this.vendorReadRouter);
 
     // Rate-limit duplicate calls for same key
     const now = Date.now();
@@ -527,7 +538,7 @@ export class FileManager {
 
       // Handle stale local clone: "commit X is not available locally. Do a git fetch"
       const looksLikeStaleClone = /is not available locally|do a git fetch/i.test(msg);
-      if (looksLikeStaleClone) {
+      if (!routedRead && looksLikeStaleClone) {
         console.log(
           `[FileManager] Stale clone detected, re-initializing repo for branch ${shortBranch}`
         );
@@ -568,7 +579,7 @@ export class FileManager {
       const isRootish = !path || path === "/" || path === "";
       const looksLikeRefError = /could not find|unknown ref|not found.*ref|branch/i.test(msg);
 
-      if (isRootish && looksLikeRefError) {
+      if (!routedRead && isRootish && looksLikeRefError) {
         const alternatives = shortBranch === "main" ? ["master", "develop"] : ["main", "master"];
 
         for (const altBranch of alternatives) {
@@ -651,8 +662,7 @@ export class FileManager {
     }
 
     try {
-      // Vendor-first only when reading by branch (commit reads stay on worker)
-      if (this.vendorReadRouter && !commit) {
+      if (this.vendorReadRouter) {
         const cloneUrls = this.getCloneUrlsFromRepoEvent(repoEvent);
         const vendorRes = await this.vendorReadRouter.getFileContent({
           workerManager: this.workerManager,
@@ -660,6 +670,7 @@ export class FileManager {
           repoKey,
           cloneUrls,
           branch: ref,
+          commitHash: commit,
           path,
         });
 

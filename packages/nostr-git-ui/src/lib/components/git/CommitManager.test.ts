@@ -47,4 +47,35 @@ describe("CommitManager", () => {
       })
     );
   });
+
+  it("does not bypass router clone authorization after a routed read fails", async () => {
+    const vendorReadRouter = {
+      listCommits: vi.fn(async () => {
+        throw new Error("Git natural listCommits failed");
+      }),
+    };
+    const workerManager = {
+      getRepoDataLevel: vi.fn(),
+      ensureFullClone: vi.fn(),
+      getCommitHistory: vi.fn(),
+    } as any;
+    const manager = new CommitManager(workerManager, undefined, {
+      vendorReadRouter: vendorReadRouter as any,
+      enableCaching: false,
+    });
+    manager.setRepoKeys({ canonicalKey: "owner/repo", workerRepoId: "owner/repo" });
+    manager.setRepoEvent({
+      id: "repo-event",
+      pubkey: "owner",
+      tags: [["clone", "https://example.com/owner/repo.git"]],
+    } as any);
+    manager.setCurrentBranch("main", "main");
+
+    const result = await manager.loadPage(1);
+
+    expect(result.success).toBe(false);
+    expect(workerManager.getRepoDataLevel).not.toHaveBeenCalled();
+    expect(workerManager.ensureFullClone).not.toHaveBeenCalled();
+    expect(workerManager.getCommitHistory).not.toHaveBeenCalled();
+  });
 });

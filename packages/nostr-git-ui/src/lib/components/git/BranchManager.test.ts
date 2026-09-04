@@ -60,6 +60,7 @@ describe("BranchManager", () => {
     const manager = new BranchManager({} as any, undefined, {
       vendorReadRouter: vendorReadRouter as any,
     });
+    manager.setRepoKey("owner/repo");
 
     manager.setRepoEvent({
       id: "repo-event",
@@ -106,6 +107,9 @@ describe("BranchManager", () => {
     expect(manager.getMainBranch()).toBe("add-logos");
     expect(manager.getSelectedBranch()).toBe("add-logos");
     expect(manager.getRefDiscoverySource()?.kind).toBe("git-remote");
+    expect(vendorReadRouter.listRefs).toHaveBeenCalledWith(
+      expect.objectContaining({ repoKey: "owner/repo" })
+    );
   });
 
   it("uses the discovered remote default when repo-state HEAD is stale but still present", async () => {

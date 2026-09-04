@@ -354,13 +354,20 @@ export async function ensureRepo(
 }
 
 export async function ensureRepoFromEvent(
-  opts: {repoEvent: RepoAnnouncement; branch?: string; repoKey?: string},
+  opts: {
+    repoEvent: RepoAnnouncement
+    branch?: string
+    repoKey?: string
+    cloneUrls?: string[]
+  },
   depth: number = 1,
 ) {
   const git = getGitProvider()
   const repoKey = opts.repoKey || parseRepoId(opts.repoEvent.repoId)
   const dir = `${rootDir}/${repoKey}`
-  const cloneUrls = getUsableCloneUrls(opts.repoEvent)
+  const cloneUrls = opts.cloneUrls
+    ? filterValidCloneUrls(opts.cloneUrls)
+    : getUsableCloneUrls(opts.repoEvent)
 
   if (cloneUrls.length === 0) {
     throw createInvalidInputError("No supported clone URL found in repo announcement", {

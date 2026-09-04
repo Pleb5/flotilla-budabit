@@ -185,7 +185,10 @@ export class GitNaturalApiAdapter {
       try {
         const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, async candidate => {
           const infoRefs = toGitNaturalInfoRefs(
-            await this.runWithFetch(() => getGitNaturalInfoRefs(candidate.effectiveUrl)),
+            await this.runWithFetch(
+              () => getGitNaturalInfoRefs(candidate.effectiveUrl),
+              params.signal,
+            ),
           )
           if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
             throw new GitNaturalReadError(
@@ -336,7 +339,10 @@ export class GitNaturalApiAdapter {
     try {
       throwIfAborted(params.signal)
       const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, candidate =>
-        this.runWithFetch(() => fetchGitNaturalPackfile(candidate.effectiveUrl, want)),
+        this.runWithFetch(
+          () => fetchGitNaturalPackfile(candidate.effectiveUrl, want),
+          params.signal,
+        ),
       )
       throwIfAborted(params.signal)
       return {
@@ -380,10 +386,11 @@ export class GitNaturalApiAdapter {
     }
   }
 
-  private runWithFetch<T>(operation: () => Promise<T>): Promise<T> {
-    const fetcher = this.fetcher
+  private runWithFetch<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const baseFetcher = this.fetcher
       ? createFetchOverride(this.fetcher)
       : createResponseBytesFetch(globalThis.fetch.bind(globalThis))
+    const fetcher = signal ? createAbortableFetch(baseFetcher, signal) : baseFetcher
     return withTemporaryGlobalFetch(fetcher, operation)
   }
 
@@ -401,6 +408,13 @@ export class GitNaturalApiAdapter {
       return {value: await operation(fallback), transport: fallback}
     }
   }
+}
+
+function createAbortableFetch(fetcher: typeof fetch, signal: AbortSignal): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    throwIfAborted(signal)
+    return fetcher(input, {...init, signal})
+  }) as typeof fetch
 }
 
 let temporaryFetchLock: Promise<void> = Promise.resolve()

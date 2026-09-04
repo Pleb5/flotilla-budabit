@@ -65,6 +65,8 @@ export async function listRepoFilesFromEvent(opts: {
   path?: string
   // Optional, when caller already computed canonical repo key (e.g. "owner/name" or "owner:name")
   repoKey?: string
+  /** Restrict clone-backed fallback to a router-authorized active remote. */
+  cloneUrls?: string[]
 }): Promise<FileEntry[]> {
   assertRepoAnnouncementEvent(opts.repoEvent)
   const event = parseRepoAnnouncementEvent(opts.repoEvent)
@@ -80,7 +82,10 @@ export async function listRepoFilesFromEvent(opts: {
   // Ensure adequate repository depth for file operations
   // If accessing a specific commit, we need more than shallow clone
   const requiredDepth = opts.commit ? 100 : 10 // More depth if accessing specific commit
-  await ensureRepoFromEvent({repoEvent: event, branch, repoKey: opts.repoKey}, requiredDepth)
+  await ensureRepoFromEvent(
+    {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+    requiredDepth,
+  )
 
   const git = getGitProvider()
   let oid: string
@@ -95,13 +100,16 @@ export async function listRepoFilesFromEvent(opts: {
         console.warn(`Commit ${opts.commit} not found, attempting to deepen repository...`)
         try {
           // Try with much deeper history
-          await ensureRepoFromEvent({repoEvent: event, branch, repoKey: opts.repoKey}, 500)
+          await ensureRepoFromEvent(
+            {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+            500,
+          )
           // Retry reading the commit
           await git.readCommit({dir, oid})
         } catch (deepenError: any) {
           // As a next attempt, fetch tags and recent history from remote (commit may be reachable via tag only)
           try {
-            const fetchUrls = getUsableCloneUrls(event)
+            const fetchUrls = opts.cloneUrls || getUsableCloneUrls(event)
             if (fetchUrls.length > 0) {
               // Fetch tags and a bit more history to try to obtain the commit
               const fetchResult = await withUrlFallback(
@@ -220,7 +228,10 @@ export async function listRepoFilesFromEvent(opts: {
     let attempts = 0
     const attemptReadTree = async (depthHint: number) => {
       // Deepen repo and retry
-      await ensureRepoFromEvent({repoEvent: event, branch, repoKey: opts.repoKey}, depthHint)
+      await ensureRepoFromEvent(
+        {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+        depthHint,
+      )
       const fp: any = treePath ? treePath : undefined
       const {tree} = await git.readTree({dir, oid, filepath: fp})
       return tree.map((entry: any) => ({
@@ -248,7 +259,7 @@ export async function listRepoFilesFromEvent(opts: {
     } catch (retry1: any) {
       try {
         // Second recovery path: fetch tags and more history, then retry again
-        const fetchUrls = getUsableCloneUrls(event)
+        const fetchUrls = opts.cloneUrls || getUsableCloneUrls(event)
         if (fetchUrls.length > 0) {
           // Prefer fetching the exact branch with full history to ensure the root tree exists
           const fetchResult = await withUrlFallback(
@@ -315,6 +326,8 @@ export async function getRepoFileContentFromEvent(opts: {
   commit?: string
   path: string
   repoKey?: string
+  /** Restrict clone-backed fallback to a router-authorized active remote. */
+  cloneUrls?: string[]
 }): Promise<string> {
   assertRepoAnnouncementEvent(opts.repoEvent)
   const event = parseRepoAnnouncementEvent(opts.repoEvent)
@@ -330,7 +343,10 @@ export async function getRepoFileContentFromEvent(opts: {
   // Ensure adequate repository depth for file operations
   // If accessing a specific commit, we need more than shallow clone
   const requiredDepth = opts.commit ? 100 : 10 // More depth if accessing specific commit
-  await ensureRepoFromEvent({repoEvent: event, branch, repoKey: opts.repoKey}, requiredDepth)
+  await ensureRepoFromEvent(
+    {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+    requiredDepth,
+  )
 
   const git = getGitProvider()
   let oid: string
@@ -345,7 +361,10 @@ export async function getRepoFileContentFromEvent(opts: {
         console.warn(`Commit ${opts.commit} not found, attempting to deepen repository...`)
         try {
           // Try with much deeper history
-          await ensureRepoFromEvent({repoEvent: event, branch, repoKey: opts.repoKey}, 500)
+          await ensureRepoFromEvent(
+            {repoEvent: event, branch, repoKey: opts.repoKey, cloneUrls: opts.cloneUrls},
+            500,
+          )
           // Retry reading the commit
           await git.readCommit({dir, oid})
         } catch (deepenError: any) {
@@ -394,7 +413,12 @@ export async function getRepoFileContentFromEvent(opts: {
       console.warn(`File '${opts.path}' not found, attempting to deepen repository...`)
       try {
         await ensureRepoFromEvent(
-          {repoEvent: event, branch: opts.branch, repoKey: opts.repoKey},
+          {
+            repoEvent: event,
+            branch: opts.branch,
+            repoKey: opts.repoKey,
+            cloneUrls: opts.cloneUrls,
+          },
           1000,
         )
         const {oid: blobOid, blob} = await git.readBlob({dir, oid, filepath: opts.path})

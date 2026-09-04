@@ -46,6 +46,27 @@ describe("GitNaturalReadProvider", () => {
     })
   })
 
+  it("passes cancellation through to the underlying info/refs fetch", async () => {
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          {once: true},
+        )
+      })
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher: fetcher as any})
+    const controller = new AbortController()
+
+    const result = provider.listRefs({url: `${REMOTE_URL}/cancelled`, signal: controller.signal})
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+    expect(fetcher.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
+
+    controller.abort()
+    await expect(result).rejects.toMatchObject({name: "GitNaturalReadError"})
+  })
+
   it("lists refs and resolves HEAD, branches, peeled tags, and direct commits", async () => {
     const fixture = createGitFixture()
     const fetcher = createFixtureFetcher(fixture)

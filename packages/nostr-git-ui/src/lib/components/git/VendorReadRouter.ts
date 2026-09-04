@@ -28,10 +28,7 @@ import { isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
 export interface VendorReadRouterConfig {
   getTokens: () => Promise<Token[]>;
   preferVendorReads?: boolean; // default true
-  /**
-   * Git natural reads use Git Smart HTTP through worker RPCs.
-   * Default is disabled so production-visible read order remains unchanged.
-   */
+  /** Git natural reads use Git Smart HTTP through worker RPCs. */
   gitNaturalReads?: GitNaturalReadMode;
   /** Scope Git natural rollout. `enabled` defaults to all HTTP(S); app rollout can use GRASP/generic first. */
   gitNaturalReadPolicy?: GitNaturalReadPolicy;
@@ -156,7 +153,7 @@ const ENABLE_GRASP_REST_READS: boolean = false;
  */
 export type CloneUrlErrorCallback = (url: string, error: string, status?: number) => void;
 export type CloneUrlSuccessCallback = (url: string) => void;
-type ReadFailureSummary = { url: string; error?: string };
+type ReadFailureSummary = { url: string; error?: string; errorCode?: string };
 
 /**
  * VendorReadRouter coordinates remote reads across Git natural, provider REST, and worker fallback.
@@ -175,7 +172,7 @@ export class VendorReadRouter {
   constructor(config: VendorReadRouterConfig) {
     this.getTokens = config.getTokens;
     this.preferVendorReads = config.preferVendorReads ?? true;
-    this.gitNaturalReads = config.gitNaturalReads ?? "disabled";
+    this.gitNaturalReads = config.gitNaturalReads ?? "enabled";
     this.gitNaturalReadPolicy = config.gitNaturalReadPolicy ?? "all-http";
     this.gitNaturalCorsProxy = config.gitNaturalCorsProxy;
   }
@@ -241,10 +238,12 @@ export class VendorReadRouter {
     url: string;
     enabled: true;
     corsProxy?: string | null;
+    timeoutMs: number;
   } {
     return {
       url: remoteUrl,
       enabled: true,
+      timeoutMs: 15_000,
       ...(this.gitNaturalCorsProxy !== undefined ? { corsProxy: this.gitNaturalCorsProxy } : {}),
     };
   }
@@ -301,7 +300,8 @@ export class VendorReadRouter {
     return {
       files: (result.entries || []).map((entry) => ({
         path: entry.path || entry.name || "",
-        type: entry.type === "directory" ? "directory" : entry.type === "file" ? "file" : entry.type,
+        type:
+          entry.type === "directory" ? "directory" : entry.type === "file" ? "file" : entry.type,
         mode: entry.mode,
         oid: entry.oid,
       })),
@@ -387,7 +387,7 @@ export class VendorReadRouter {
         async (remoteUrl: string) => {
           return await params.readNatural(remoteUrl, [remoteUrl], startedAt);
         },
-        { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+        { repoId: params.repoKey, perUrlTimeoutMs: 0 }
       );
 
       if (!fallbackResult.success || !fallbackResult.result) return;
@@ -427,7 +427,9 @@ export class VendorReadRouter {
     });
   }
 
-  private summarizeReadSource(source?: Partial<ReadSourceMetadata>): Record<string, unknown> | undefined {
+  private summarizeReadSource(
+    source?: Partial<ReadSourceMetadata>
+  ): Record<string, unknown> | undefined {
     if (!source) return undefined;
     return {
       kind: source.kind,
@@ -444,10 +446,7 @@ export class VendorReadRouter {
     };
   }
 
-  private summarizeRefsResult(result: {
-    refs?: VendorRef[];
-    defaultBranch?: string;
-  }): unknown {
+  private summarizeRefsResult(result: { refs?: VendorRef[]; defaultBranch?: string }): unknown {
     return {
       defaultBranch: result.defaultBranch,
       refs: (result.refs || [])
@@ -461,7 +460,9 @@ export class VendorReadRouter {
     };
   }
 
-  private summarizeDirectoryResult(result: Pick<VendorDirectoryResult, "files" | "path" | "ref">): unknown {
+  private summarizeDirectoryResult(
+    result: Pick<VendorDirectoryResult, "files" | "path" | "ref">
+  ): unknown {
     return {
       path: result.path,
       ref: normalizeGitRefName(result.ref),
@@ -487,7 +488,9 @@ export class VendorReadRouter {
     };
   }
 
-  private summarizeCommitResult(result: Pick<VendorCommitResult, "commits" | "ref" | "hasMore">): unknown {
+  private summarizeCommitResult(
+    result: Pick<VendorCommitResult, "commits" | "ref" | "hasMore">
+  ): unknown {
     return {
       ref: normalizeGitRefName(result.ref),
       hasMore: result.hasMore,
@@ -502,7 +505,10 @@ export class VendorReadRouter {
     natural: { refs?: VendorRef[]; defaultBranch?: string },
     baseline: { refs?: VendorRef[]; defaultBranch?: string }
   ): boolean {
-    return JSON.stringify(this.summarizeRefsResult(natural)) === JSON.stringify(this.summarizeRefsResult(baseline));
+    return (
+      JSON.stringify(this.summarizeRefsResult(natural)) ===
+      JSON.stringify(this.summarizeRefsResult(baseline))
+    );
   }
 
   private directoriesMatch(
@@ -536,10 +542,16 @@ export class VendorReadRouter {
     );
   }
 
-  private failedAttemptSummaries(attempts: Array<{ url: string; success: boolean; error?: string }>): ReadFailureSummary[] {
+  private failedAttemptSummaries(
+    attempts: Array<{ url: string; success: boolean; error?: string; errorCode?: string }>
+  ): ReadFailureSummary[] {
     return attempts
       .filter((attempt) => !attempt.success)
-      .map((attempt) => ({ url: attempt.url, error: attempt.error || "Unknown error" }));
+      .map((attempt) => ({
+        url: attempt.url,
+        error: attempt.error || "Unknown error",
+        errorCode: attempt.errorCode,
+      }));
   }
 
   private formatFailureContext(label: string, failures: ReadFailureSummary[]): string {
@@ -558,7 +570,7 @@ export class VendorReadRouter {
 
   private logGitNaturalFallback(
     operation: ReadOperation,
-    attempts: Array<{ url: string; success: boolean; error?: string }>
+    attempts: Array<{ url: string; success: boolean; error?: string; errorCode?: string }>
   ): ReadFailureSummary[] {
     const failures = this.failedAttemptSummaries(attempts);
     if (failures.length === 0) return [];
@@ -567,6 +579,29 @@ export class VendorReadRouter {
       attempts: failures.map((attempt) => ({ url: attempt.url, error: attempt.error })),
     });
     return failures;
+  }
+
+  private isMissingFilterCapability(error: unknown): boolean {
+    return (error as { code?: string } | null)?.code === "missing-filter-capability";
+  }
+
+  private setAttemptedUrls<T extends { source?: ReadSourceMetadata }>(
+    result: T,
+    attemptedUrls: string[]
+  ): T {
+    if (result.source) {
+      result.source = { ...result.source, attemptedUrls };
+    }
+    return result;
+  }
+
+  private naturalReadFailure(operation: ReadOperation, failures: ReadFailureSummary[]): Error {
+    return createUnknownError(
+      `Git natural ${operation} failed for all eligible remotes.${this.formatFailureContext(
+        "Attempts",
+        failures
+      )}`
+    );
   }
 
   /**
@@ -588,6 +623,7 @@ export class VendorReadRouter {
     repoKey?: string;
     cloneUrls: string[];
     branch: string;
+    commitHash?: string;
     path?: string;
   }): Promise<VendorDirectoryResult> {
     const path = params.path || "";
@@ -598,38 +634,116 @@ export class VendorReadRouter {
     let providerReadAttempted = false;
     let pendingNaturalFailures: ReadFailureSummary[] = [];
 
-    // 1) Optional Git natural fast path. This stays feature-flagged because it
-    // changes the production-visible source order when enabled.
-    if (this.shouldTryGitNaturalReads()) {
+    // 1) Git natural fast path for normal HTTP reads.
+    if (
+      this.shouldTryGitNaturalReads() &&
+      typeof params.workerManager.gitNaturalListDirectory === "function"
+    ) {
       const naturalUrls = this.getNaturalReadUrls(remotes);
       if (naturalUrls.length > 0) {
-        naturalAttempted = true;
         console.log(`[VendorReadRouter] Trying Git natural for listDirectory...`);
-        const naturalResult = await withUrlFallback(
+        const routedResult = await withUrlFallback<VendorDirectoryResult>(
           naturalUrls,
           async (remoteUrl: string) => {
-            return await params.workerManager.gitNaturalListDirectory({
-              ...this.naturalRequestBase(remoteUrl),
-              ref: branch,
+            try {
+              const natural = await params.workerManager.gitNaturalListDirectory({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+                commitHash: params.commitHash,
+                path,
+              });
+              return this.naturalListDirectoryToVendor(natural, [remoteUrl], startedAt);
+            } catch (error) {
+              if (!this.isMissingFilterCapability(error)) throw error;
+            }
+
+            const vendor = this.preferVendorReads ? this.getSupportedVendor(remoteUrl) : null;
+            if (vendor) {
+              try {
+                const result = await this.vendorListDirectory({
+                  vendor,
+                  remoteUrl,
+                  branch: params.commitHash || branch,
+                  path,
+                });
+                return {
+                  ...result,
+                  fromVendor: true,
+                  source: this.readSource({
+                    kind: "provider-rest",
+                    label: "Provider REST API",
+                    operation: "listDirectory",
+                    remoteUrl,
+                    attemptedUrls: [remoteUrl],
+                    ref: normalizeGitRefName(branch),
+                    fallbackReason: "missing-filter-capability",
+                    startedAt,
+                    details:
+                      "Git natural requires filter support; directory listing comes from provider REST.",
+                  }),
+                };
+              } catch {}
+            }
+
+            const filesRaw = params.commitHash
+              ? await params.workerManager.listTreeAtCommit({
+                  repoEvent: params.repoEvent,
+                  repoKey: params.repoKey,
+                  commit: params.commitHash,
+                  path,
+                  cloneUrls: [remoteUrl],
+                })
+              : await params.workerManager.listRepoFilesFromEvent({
+                  repoEvent: params.repoEvent,
+                  repoKey: params.repoKey,
+                  branch,
+                  path,
+                  cloneUrls: [remoteUrl],
+                });
+            return {
+              files: (filesRaw || []).map((file: any) => ({
+                path: file.path || file.name || "",
+                type:
+                  file.type === "dir" || file.type === "tree" || file.type === "directory"
+                    ? "directory"
+                    : "file",
+                size: file.size,
+                mode: file.mode,
+                oid: file.oid || file.sha,
+              })),
               path,
-            });
+              ref: normalizeGitRefName(branch),
+              fromVendor: false,
+              source: this.readSource({
+                kind: "worker-clone",
+                label: "Worker clone fallback",
+                operation: "listDirectory",
+                remoteUrl,
+                attemptedUrls: [remoteUrl],
+                ref: normalizeGitRefName(branch),
+                fallbackReason: "missing-filter-capability",
+                startedAt,
+                details:
+                  "Git natural requires filter support; directory listing comes from a URL-scoped clone.",
+              }),
+            };
           },
-          { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+          { repoId: params.repoKey, perUrlTimeoutMs: 0 }
         );
 
-        if (naturalResult.success && naturalResult.result) {
-          if (naturalResult.usedUrl) {
-            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+        if (routedResult.success && routedResult.result) {
+          if (routedResult.usedUrl) {
+            this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
-          console.log(`[VendorReadRouter] Git natural success`);
-          return this.naturalListDirectoryToVendor(
-            naturalResult.result,
-            naturalResult.attempts.map((attempt) => attempt.url),
-            startedAt
+          return this.setAttemptedUrls(
+            routedResult.result,
+            routedResult.attempts.map((attempt) => attempt.url)
           );
         }
 
-        pendingNaturalFailures = this.logGitNaturalFallback("listDirectory", naturalResult.attempts);
+        pendingNaturalFailures = this.logGitNaturalFallback("listDirectory", routedResult.attempts);
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+        throw this.naturalReadFailure("listDirectory", pendingNaturalFailures);
       }
     }
 
@@ -713,7 +827,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 3) Git worker fallback
+    // 3) Legacy clone-backed fallback when Git natural is disabled or in shadow mode.
     console.log(`[VendorReadRouter] Using git worker fallback`);
     try {
       const filesRaw = await params.workerManager.listRepoFilesFromEvent({
@@ -790,6 +904,7 @@ export class VendorReadRouter {
     repoKey?: string;
     cloneUrls: string[];
     branch: string;
+    commitHash?: string;
     path: string;
   }): Promise<VendorFileContentResult> {
     const branch = params.branch || "";
@@ -801,36 +916,105 @@ export class VendorReadRouter {
     let pendingNaturalFailures: ReadFailureSummary[] = [];
 
     // 1) Optional Git natural fast path.
-    if (this.shouldTryGitNaturalReads()) {
+    if (
+      this.shouldTryGitNaturalReads() &&
+      typeof params.workerManager.gitNaturalGetFileContent === "function"
+    ) {
       const naturalUrls = this.getNaturalReadUrls(remotes);
       if (naturalUrls.length > 0) {
-        naturalAttempted = true;
         console.log(`[VendorReadRouter] Trying Git natural for getFileContent...`);
-        const naturalResult = await withUrlFallback(
+        const routedResult = await withUrlFallback<VendorFileContentResult>(
           naturalUrls,
           async (remoteUrl: string) => {
-            return await params.workerManager.gitNaturalGetFileContent({
-              ...this.naturalRequestBase(remoteUrl),
-              ref: branch,
+            try {
+              const natural = await params.workerManager.gitNaturalGetFileContent({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+                commitHash: params.commitHash,
+                path: params.path,
+              });
+              return this.naturalGetFileContentToVendor(natural, [remoteUrl], startedAt);
+            } catch (error) {
+              if (!this.isMissingFilterCapability(error)) throw error;
+            }
+
+            const vendor = this.preferVendorReads ? this.getSupportedVendor(remoteUrl) : null;
+            if (vendor) {
+              try {
+                const result = await this.vendorGetFileContent({
+                  vendor,
+                  remoteUrl,
+                  branch: params.commitHash || branch,
+                  path: params.path,
+                });
+                return {
+                  ...result,
+                  fromVendor: true,
+                  source: this.readSource({
+                    kind: "provider-rest",
+                    label: "Provider REST API",
+                    operation: "getFileContent",
+                    remoteUrl,
+                    attemptedUrls: [remoteUrl],
+                    ref: normalizeGitRefName(branch),
+                    fallbackReason: "missing-filter-capability",
+                    startedAt,
+                    details:
+                      "Git natural requires filter support; file content comes from provider REST.",
+                  }),
+                };
+              } catch {}
+            }
+
+            const contentRaw = await params.workerManager.getRepoFileContentFromEvent({
+              repoEvent: params.repoEvent,
+              repoKey: params.repoKey,
+              branch,
               path: params.path,
+              commit: params.commitHash,
+              cloneUrls: [remoteUrl],
             });
+            const content = typeof contentRaw === "string" ? contentRaw : String(contentRaw ?? "");
+            return {
+              content,
+              path: params.path,
+              ref: normalizeGitRefName(branch),
+              encoding: "utf-8",
+              size: content.length,
+              fromVendor: false,
+              source: this.readSource({
+                kind: "worker-clone",
+                label: "Worker clone fallback",
+                operation: "getFileContent",
+                remoteUrl,
+                attemptedUrls: [remoteUrl],
+                ref: normalizeGitRefName(branch),
+                fallbackReason: "missing-filter-capability",
+                startedAt,
+                details:
+                  "Git natural requires filter support; file content comes from a URL-scoped clone.",
+              }),
+            };
           },
-          { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+          { repoId: params.repoKey, perUrlTimeoutMs: 0 }
         );
 
-        if (naturalResult.success && naturalResult.result) {
-          if (naturalResult.usedUrl) {
-            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+        if (routedResult.success && routedResult.result) {
+          if (routedResult.usedUrl) {
+            this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
-          console.log(`[VendorReadRouter] Git natural success`);
-          return this.naturalGetFileContentToVendor(
-            naturalResult.result,
-            naturalResult.attempts.map((attempt) => attempt.url),
-            startedAt
+          return this.setAttemptedUrls(
+            routedResult.result,
+            routedResult.attempts.map((attempt) => attempt.url)
           );
         }
 
-        pendingNaturalFailures = this.logGitNaturalFallback("getFileContent", naturalResult.attempts);
+        pendingNaturalFailures = this.logGitNaturalFallback(
+          "getFileContent",
+          routedResult.attempts
+        );
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+        throw this.naturalReadFailure("getFileContent", pendingNaturalFailures);
       }
     }
 
@@ -911,7 +1095,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 3) Git worker fallback
+    // 3) Legacy clone-backed fallback when Git natural is disabled or in shadow mode.
     console.log(`[VendorReadRouter] Using git worker fallback`);
     try {
       const contentRaw = await params.workerManager.getRepoFileContentFromEvent({
@@ -979,6 +1163,7 @@ export class VendorReadRouter {
   async listRefs(params: {
     workerManager: WorkerManager;
     repoEvent: RepoAnnouncementEvent;
+    repoKey?: string;
     cloneUrls: string[];
   }): Promise<{
     refs: VendorRef[];
@@ -992,7 +1177,10 @@ export class VendorReadRouter {
     let providerReadAttempted = false;
 
     // 1) Optional Git natural fast path.
-    if (this.shouldTryGitNaturalReads()) {
+    if (
+      this.shouldTryGitNaturalReads() &&
+      typeof params.workerManager.gitNaturalListRefs === "function"
+    ) {
       const naturalUrls = this.getNaturalReadUrls(remotes);
       if (naturalUrls.length > 0) {
         naturalAttempted = true;
@@ -1005,7 +1193,7 @@ export class VendorReadRouter {
               symrefs: true,
             });
           },
-          { repoId: this.pickRemote(params.cloneUrls) || undefined, perUrlTimeoutMs: 15_000 }
+          { repoId: params.repoKey, perUrlTimeoutMs: 0 }
         );
 
         if (naturalResult.success && naturalResult.result) {
@@ -1020,12 +1208,14 @@ export class VendorReadRouter {
           );
         }
 
-        this.logGitNaturalFallback("listRefs", naturalResult.attempts);
+        const failures = this.logGitNaturalFallback("listRefs", naturalResult.attempts);
+        this.reportGitNaturalFailures(failures);
+        throw this.naturalReadFailure("listRefs", failures);
       }
     }
 
     // 2) Vendor fast path only for the selected remote policy.
-    if (this.preferVendorReads && remotes.length > 0) {
+    if (this.preferVendorReads && remotes.length > 0 && !naturalAttempted) {
       const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
@@ -1105,7 +1295,7 @@ export class VendorReadRouter {
           });
           return this.parseServerRefs(refs || []);
         },
-        { repoId: this.pickRemote(params.cloneUrls) || undefined }
+        { repoId: params.repoKey }
       );
 
       if (gitResult.success && gitResult.result) {
@@ -1296,37 +1486,169 @@ export class VendorReadRouter {
     let pendingNaturalFailures: ReadFailureSummary[] = [];
 
     // 1) Optional Git natural fast path.
-    if (this.shouldTryGitNaturalReads()) {
+    if (
+      this.shouldTryGitNaturalReads() &&
+      typeof params.workerManager.gitNaturalListCommits === "function"
+    ) {
       const naturalUrls = this.getNaturalReadUrls(remotes);
       if (naturalUrls.length > 0) {
-        naturalAttempted = true;
         console.log(`[VendorReadRouter] Trying Git natural for listCommits...`);
-        const naturalResult = await withUrlFallback(
+        const routedResult = await withUrlFallback<VendorCommitResult>(
           naturalUrls,
           async (remoteUrl: string) => {
-            return await params.workerManager.gitNaturalListCommits({
-              ...this.naturalRequestBase(remoteUrl),
-              ref: branch,
+            try {
+              const natural = await params.workerManager.gitNaturalListCommits({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+                depth,
+              });
+              return this.naturalListCommitsToVendor(natural, [remoteUrl], startedAt, depth);
+            } catch (error) {
+              if (!this.isMissingFilterCapability(error)) throw error;
+            }
+
+            const vendor = this.preferVendorReads ? this.getSupportedVendor(remoteUrl) : null;
+            if (vendor) {
+              try {
+                const result = await this.vendorListCommits({
+                  vendor,
+                  remoteUrl,
+                  branch,
+                  page,
+                  perPage,
+                });
+                return {
+                  ...result,
+                  fromVendor: true,
+                  source: this.readSource({
+                    kind: "provider-rest",
+                    label: "Provider REST API",
+                    operation: "listCommits",
+                    remoteUrl,
+                    attemptedUrls: [remoteUrl],
+                    ref: normalizeGitRefName(branch),
+                    fallbackReason: "missing-filter-capability",
+                    startedAt,
+                    details:
+                      "Git natural requires filter support; commit history comes from provider REST.",
+                  }),
+                };
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                if (this.isBenignEmptyRepoCommitError(message)) {
+                  return {
+                    commits: [],
+                    ref: normalizeGitRefName(branch),
+                    fromVendor: true,
+                    hasMore: false,
+                    source: this.readSource({
+                      kind: "provider-rest",
+                      label: "Provider REST API",
+                      operation: "listCommits",
+                      remoteUrl,
+                      attemptedUrls: [remoteUrl],
+                      ref: normalizeGitRefName(branch),
+                      fallbackReason: "missing-filter-capability",
+                      startedAt,
+                      details: "Provider REST reported an empty repository.",
+                    }),
+                  };
+                }
+                // Continue with the same remote's clone-backed alternate.
+              }
+            }
+
+            if (!params.repoKey) {
+              throw new Error("Canonical repository key is required for clone fallback");
+            }
+            const initResult = await params.workerManager.smartInitializeRepo({
+              repoId: params.repoKey,
+              cloneUrls: [remoteUrl],
+              branch,
+              timeoutMs: 0,
+            });
+            if (!initResult?.success) {
+              throw new Error(
+                initResult?.error || "Failed to initialize clone-backed commit history"
+              );
+            }
+            const cloneResult = await params.workerManager.ensureFullClone({
+              repoId: params.repoKey,
+              branch,
+              depth,
+              cloneUrls: [remoteUrl],
+              strictCloneUrls: true,
+              timeoutMs: 0,
+            });
+            if (!cloneResult?.success) {
+              throw new Error(cloneResult?.error || "Failed to load clone-backed commit history");
+            }
+            const commitsResult = await params.workerManager.getCommitHistory({
+              repoId: params.repoKey,
+              branch,
               depth,
             });
+            if (commitsResult?.success === false) {
+              throw new Error(commitsResult.error || "Git worker commit history fallback failed");
+            }
+            const commits: VendorCommit[] = (commitsResult.commits || []).map((commit: any) => ({
+              sha: commit.oid || commit.sha || "",
+              message: commit.commit?.message || commit.message || "",
+              author: {
+                name: commit.commit?.author?.name || commit.author?.name || "",
+                email: commit.commit?.author?.email || commit.author?.email || "",
+                date: commit.commit?.author?.timestamp
+                  ? new Date(commit.commit.author.timestamp * 1000).toISOString()
+                  : commit.author?.date || "",
+              },
+              committer: {
+                name: commit.commit?.committer?.name || commit.committer?.name || "",
+                email: commit.commit?.committer?.email || commit.committer?.email || "",
+                date: commit.commit?.committer?.timestamp
+                  ? new Date(commit.commit.committer.timestamp * 1000).toISOString()
+                  : commit.committer?.date || "",
+              },
+              parents: (commit.commit?.parent || commit.parents || []).map((parent: any) =>
+                typeof parent === "string"
+                  ? { sha: parent }
+                  : { sha: parent.sha || parent.oid || "" }
+              ),
+            }));
+            return {
+              commits,
+              ref: normalizeGitRefName(branch),
+              fromVendor: false,
+              hasMore: commits.length >= depth,
+              source: this.readSource({
+                kind: "worker-clone",
+                label: "Worker clone fallback",
+                operation: "listCommits",
+                remoteUrl: cloneResult.usedUrl || initResult.usedUrl || remoteUrl,
+                attemptedUrls: [remoteUrl],
+                ref: normalizeGitRefName(branch),
+                fallbackReason: "missing-filter-capability",
+                startedAt,
+                details:
+                  "Git natural requires filter support; commit history comes from a URL-scoped clone.",
+              }),
+            };
           },
-          { repoId: params.repoKey, perUrlTimeoutMs: 15_000 }
+          { repoId: params.repoKey, perUrlTimeoutMs: 0 }
         );
 
-        if (naturalResult.success && naturalResult.result) {
-          if (naturalResult.usedUrl) {
-            this.reportCloneUrlSuccess(naturalResult.usedUrl);
+        if (routedResult.success && routedResult.result) {
+          if (routedResult.usedUrl) {
+            this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
-          console.log(`[VendorReadRouter] Git natural success`);
-          return this.naturalListCommitsToVendor(
-            naturalResult.result,
-            naturalResult.attempts.map((attempt) => attempt.url),
-            startedAt,
-            depth
+          return this.setAttemptedUrls(
+            routedResult.result,
+            routedResult.attempts.map((attempt) => attempt.url)
           );
         }
 
-        pendingNaturalFailures = this.logGitNaturalFallback("listCommits", naturalResult.attempts);
+        pendingNaturalFailures = this.logGitNaturalFallback("listCommits", routedResult.attempts);
+        this.reportGitNaturalFailures(pendingNaturalFailures);
+        throw this.naturalReadFailure("listCommits", pendingNaturalFailures);
       }
     }
 
@@ -1384,7 +1706,12 @@ export class VendorReadRouter {
                 ref: branch,
                 depth,
               });
-              return this.naturalListCommitsToVendor(natural, attemptedUrls, shadowStartedAt, depth);
+              return this.naturalListCommitsToVendor(
+                natural,
+                attemptedUrls,
+                shadowStartedAt,
+                depth
+              );
             },
             matches: (natural, baseline) => this.commitsMatch(natural, baseline),
             summarize: (value) => this.summarizeCommitResult(value),
@@ -1405,7 +1732,7 @@ export class VendorReadRouter {
       }
     }
 
-    // 3) Git worker fallback
+    // 3) Legacy clone-backed fallback when Git natural is disabled or in shadow mode.
     console.log(`[VendorReadRouter] Using git worker fallback`);
     let commitsResult: any;
 
@@ -1434,7 +1761,8 @@ export class VendorReadRouter {
               ? "git-natural-and-provider-rest-empty-repo"
               : "provider-rest-empty-repo",
             startedAt,
-            details: "Commit history fallback treated a provider empty-repo response as empty history.",
+            details:
+              "Commit history fallback treated a provider empty-repo response as empty history.",
           }),
         };
         this.runGitNaturalShadow({
@@ -1491,7 +1819,8 @@ export class VendorReadRouter {
               ? "git-natural-and-provider-rest-empty-repo"
               : "provider-rest-empty-repo",
             startedAt,
-            details: "Commit history fallback treated a provider empty-repo response as empty history.",
+            details:
+              "Commit history fallback treated a provider empty-repo response as empty history.",
           }),
         };
         this.runGitNaturalShadow({
@@ -1629,7 +1958,9 @@ export class VendorReadRouter {
     const vendor = this.getSupportedVendor(selectedRemote);
     if (!vendor) return [];
 
-    console.log(`[VendorReadRouter] Detected selected vendor: ${vendor} for URL: ${selectedRemote}`);
+    console.log(
+      `[VendorReadRouter] Detected selected vendor: ${vendor} for URL: ${selectedRemote}`
+    );
     return [selectedRemote];
   }
 
@@ -2811,14 +3142,6 @@ export class VendorReadRouter {
   // -------------------------
   // Fetch helpers + normalization
   // -------------------------
-
-  /**
-   * Get the first valid remote URL (for backward compatibility)
-   */
-  private pickRemote(cloneUrls: string[]): string | null {
-    const validUrls = this.getValidRemotes(cloneUrls);
-    return validUrls.length > 0 ? validUrls[0] : null;
-  }
 
   /**
    * Get all valid remote URLs for fallback attempts

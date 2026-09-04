@@ -6,43 +6,43 @@
  * Write Operations: Write to ALL URLs and report individual results
  */
 
-import {detectVendorFromUrl, isGitRemoteUrlEnabled} from "../git/vendor-providers.js"
+import { detectVendorFromUrl, isGitRemoteUrlEnabled } from '../git/vendor-providers.js';
 
 export interface UrlAttemptResult<T = unknown> {
-  url: string
-  success: boolean
-  result?: T
-  error?: string
-  errorCode?: string
-  durationMs?: number
+  url: string;
+  success: boolean;
+  result?: T;
+  error?: string;
+  errorCode?: string;
+  durationMs?: number;
 }
 
 export interface ReadFallbackResult<T = unknown> {
-  success: boolean
-  result?: T
-  usedUrl?: string
-  attempts: UrlAttemptResult<T>[]
+  success: boolean;
+  result?: T;
+  usedUrl?: string;
+  attempts: UrlAttemptResult<T>[];
   /** Index of the URL that succeeded (for caching) */
-  successIndex?: number
+  successIndex?: number;
 }
 
 export interface MultiWriteResult<T = unknown> {
-  success: boolean
+  success: boolean;
   /** True if at least one write succeeded */
-  partialSuccess: boolean
-  results: UrlAttemptResult<T>[]
-  successCount: number
-  failureCount: number
+  partialSuccess: boolean;
+  results: UrlAttemptResult<T>[];
+  successCount: number;
+  failureCount: number;
   /** Summary message for logging/display */
-  summary: string
+  summary: string;
 }
 
 export interface CloneUrlCacheEntry {
-  preferredUrl: string
-  lastSuccessAt: number
-  failedUrls: string[]
-  lastFailure?: string
-  updatedAt?: number
+  preferredUrl: string;
+  lastSuccessAt: number;
+  failedUrls: string[];
+  lastFailure?: string;
+  updatedAt?: number;
 }
 
 /**
@@ -50,15 +50,15 @@ export interface CloneUrlCacheEntry {
  * Used to distinguish timeouts from other errors in fallback logic.
  */
 export class UrlTimeoutError extends Error {
-  readonly url: string
-  readonly timeoutMs: number
-  readonly code = "TIMEOUT"
+  readonly url: string;
+  readonly timeoutMs: number;
+  readonly code = 'TIMEOUT';
 
   constructor(message: string, url: string, timeoutMs: number) {
-    super(message)
-    this.name = "UrlTimeoutError"
-    this.url = url
-    this.timeoutMs = timeoutMs
+    super(message);
+    this.name = 'UrlTimeoutError';
+    this.url = url;
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -66,13 +66,13 @@ export class UrlTimeoutError extends Error {
  * Simple in-memory cache for URL preferences.
  * Maps repoId -> preferred URL info.
  */
-const urlPreferenceCache = new Map<string, CloneUrlCacheEntry>()
+const urlPreferenceCache = new Map<string, CloneUrlCacheEntry>();
 
 /**
  * Get cached URL preference for a repo.
  */
 export function getCachedUrlPreference(repoId: string): CloneUrlCacheEntry | undefined {
-  return urlPreferenceCache.get(repoId)
+  return urlPreferenceCache.get(repoId);
 }
 
 /**
@@ -81,15 +81,15 @@ export function getCachedUrlPreference(repoId: string): CloneUrlCacheEntry | und
 export function updateUrlPreferenceCache(
   repoId: string,
   successfulUrl: string,
-  failedUrls: string[] = [],
+  failedUrls: string[] = []
 ): void {
-  const existing = urlPreferenceCache.get(repoId)
+  const existing = urlPreferenceCache.get(repoId);
   urlPreferenceCache.set(repoId, {
     preferredUrl: successfulUrl,
     lastSuccessAt: Date.now(),
     failedUrls: Array.from(new Set([...(existing?.failedUrls || []), ...failedUrls])),
     updatedAt: Date.now(),
-  })
+  });
 }
 
 /**
@@ -101,15 +101,36 @@ export function advanceReadUrlPreference(
   failedUrl: string,
   nextUrl: string | undefined,
   error?: string,
+  declaredUrls?: string[]
 ): void {
-  const existing = urlPreferenceCache.get(repoId)
+  const existing = urlPreferenceCache.get(repoId);
+  if (existing && declaredUrls) {
+    const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
+    const nextIndex = declaredUrls.indexOf(nextUrl || failedUrl);
+    if (currentIndex >= 0 && nextIndex >= 0 && currentIndex > nextIndex) return;
+  }
   urlPreferenceCache.set(repoId, {
     preferredUrl: nextUrl || failedUrl,
     lastSuccessAt: existing?.lastSuccessAt || 0,
     failedUrls: Array.from(new Set([...(existing?.failedUrls || []), failedUrl])),
     lastFailure: error,
     updatedAt: Date.now(),
-  })
+  });
+}
+
+function recordReadUrlSuccess(
+  repoId: string,
+  successfulUrl: string,
+  failedUrls: string[],
+  declaredUrls: string[]
+): void {
+  const existing = urlPreferenceCache.get(repoId);
+  if (existing) {
+    const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
+    const successIndex = declaredUrls.indexOf(successfulUrl);
+    if (currentIndex >= 0 && successIndex >= 0 && currentIndex > successIndex) return;
+  }
+  updateUrlPreferenceCache(repoId, successfulUrl, failedUrls);
 }
 
 /**
@@ -117,9 +138,9 @@ export function advanceReadUrlPreference(
  */
 export function clearUrlPreferenceCache(repoId?: string): void {
   if (repoId) {
-    urlPreferenceCache.delete(repoId)
+    urlPreferenceCache.delete(repoId);
   } else {
-    urlPreferenceCache.clear()
+    urlPreferenceCache.clear();
   }
 }
 
@@ -129,12 +150,11 @@ export function clearUrlPreferenceCache(repoId?: string): void {
  * fetching via REST API instead of full git clone.
  */
 export function hasRestApiSupport(url: string): boolean {
-  const vendor = detectVendorFromUrl(url)
+  const vendor = detectVendorFromUrl(url);
   // These vendors have REST APIs that can be used for faster repo access
-  return (
-    isGitRemoteUrlEnabled(url) &&
-    (vendor === "github" || vendor === "gitlab" || vendor === "gitea" || vendor === "bitbucket")
-  )
+  return isGitRemoteUrlEnabled(url) && (
+    vendor === 'github' || vendor === 'gitlab' || vendor === 'gitea' || vendor === 'bitbucket'
+  );
 }
 
 /**
@@ -144,7 +164,7 @@ export function hasRestApiSupport(url: string): boolean {
  * of earlier clone URLs.
  */
 export function sortUrlsByApiPriority(urls: string[]): string[] {
-  return [...urls]
+  return [...urls];
 }
 
 /**
@@ -154,8 +174,8 @@ export function sortUrlsByApiPriority(urls: string[]): string[] {
  * repository's declared primary remote policy on future reads.
  */
 export function reorderUrlsByPreference(urls: string[], repoId?: string): string[] {
-  void repoId
-  return [...urls]
+  void repoId;
+  return [...urls];
 }
 
 /**
@@ -166,19 +186,19 @@ export function reorderUrlsByPreference(urls: string[], repoId?: string): string
  * never wrap back to an earlier failed remote until the cache is reset.
  */
 export function orderReadUrlsByPreference(urls: string[], repoId?: string): string[] {
-  const ordered = [...urls]
-  if (!repoId) return ordered
+  const ordered = [...urls];
+  if (!repoId) return ordered;
 
-  const cached = urlPreferenceCache.get(repoId)
-  if (!cached?.preferredUrl) return ordered
+  const cached = urlPreferenceCache.get(repoId);
+  if (!cached?.preferredUrl) return ordered;
 
-  const activeIndex = ordered.indexOf(cached.preferredUrl)
+  const activeIndex = ordered.indexOf(cached.preferredUrl);
   if (activeIndex === -1) {
-    urlPreferenceCache.delete(repoId)
-    return ordered
+    urlPreferenceCache.delete(repoId);
+    return ordered;
   }
 
-  return ordered.slice(activeIndex)
+  return ordered.slice(activeIndex);
 }
 
 /**
@@ -186,28 +206,27 @@ export function orderReadUrlsByPreference(urls: string[], repoId?: string): stri
  * Skips pseudo-URLs like nostr:// that aren't real git remotes.
  */
 export function filterValidCloneUrls(urls: string[]): string[] {
-  if (!Array.isArray(urls)) return []
+  if (!Array.isArray(urls)) return [];
 
-  return urls.filter(u => {
-    const s = String(u || "").trim()
-    if (!s) return false
+  return urls.filter((u) => {
+    const s = String(u || "").trim();
+    if (!s) return false;
     // Skip nostr/grasp pseudo URLs
-    if (/^nostr:(?:\/\/)?/i.test(s)) return false
-    if (!isGitRemoteUrlEnabled(s)) return false
+    if (/^nostr:(?:\/\/)?/i.test(s)) return false;
+    if (!isGitRemoteUrlEnabled(s)) return false;
     // Accept http(s), ssh, git protocols
-    return true
-  })
+    return true;
+  });
 }
 
 export function isPushCapableCloneUrl(url: string): boolean {
-  const value = String(url || "").trim()
-  return (
-    isGitRemoteUrlEnabled(value) &&
-    (/^https?:\/\//i.test(value) ||
-      /^wss?:\/\//i.test(value) ||
-      /^ssh:\/\//i.test(value) ||
-      /^git@/i.test(value))
-  )
+  const value = String(url || "").trim();
+  return isGitRemoteUrlEnabled(value) && (
+    /^https?:\/\//i.test(value) ||
+    /^wss?:\/\//i.test(value) ||
+    /^ssh:\/\//i.test(value) ||
+    /^git@/i.test(value)
+  );
 }
 
 /**
@@ -221,102 +240,118 @@ export function isPushCapableCloneUrl(url: string): boolean {
  */
 export async function withUrlFallback<T>(
   urls: string[],
-  operation: (url: string) => Promise<T>,
+  operation: (url: string, signal?: AbortSignal) => Promise<T>,
   options?: {
-    repoId?: string
+    repoId?: string;
     /** Continue trying remaining URLs even after success (for validation) */
-    tryAll?: boolean
+    tryAll?: boolean;
     /** Custom error classifier to determine if error is retriable */
-    isRetriable?: (error: unknown) => boolean
+    isRetriable?: (error: unknown) => boolean;
     /** Timeout in milliseconds for each URL attempt. If exceeded, tries next URL. Default: 15000 (15s) */
-    perUrlTimeoutMs?: number
-  },
+    perUrlTimeoutMs?: number;
+  }
 ): Promise<ReadFallbackResult<T>> {
   const {
     repoId,
     tryAll = false,
     isRetriable = defaultIsRetriable,
-    perUrlTimeoutMs = 15000, // Default 15 second timeout per URL
-  } = options || {}
+    perUrlTimeoutMs = 15000  // Default 15 second timeout per URL
+  } = options || {};
 
   // Filter and reorder URLs
-  const validUrls = filterValidCloneUrls(urls)
-  const orderedUrls = orderReadUrlsByPreference(validUrls, repoId)
+  const validUrls = filterValidCloneUrls(urls);
+  const orderedUrls = orderReadUrlsByPreference(validUrls, repoId);
 
   if (orderedUrls.length === 0) {
     return {
       success: false,
       attempts: [],
-    }
+    };
   }
 
-  const attempts: UrlAttemptResult<T>[] = []
-  let successResult: T | undefined
-  let successUrl: string | undefined
-  let successIndex: number | undefined
-  const failedUrls: string[] = []
+  const attempts: UrlAttemptResult<T>[] = [];
+  let successResult: T | undefined;
+  let successUrl: string | undefined;
+  let successIndex: number | undefined;
+  const failedUrls: string[] = [];
 
   for (let i = 0; i < orderedUrls.length; i++) {
-    const url = orderedUrls[i]
-    const startTime = Date.now()
-    const isLastUrl = i === orderedUrls.length - 1
+    const url = orderedUrls[i];
+    if (repoId) {
+      const activeUrl = orderReadUrlsByPreference(validUrls, repoId)[0];
+      const activeIndex = activeUrl ? validUrls.indexOf(activeUrl) : -1;
+      const urlIndex = validUrls.indexOf(url);
+      if (activeIndex >= 0 && urlIndex >= 0 && urlIndex < activeIndex) continue;
+    }
+    const startTime = Date.now();
+    const isLastUrl = i === orderedUrls.length - 1;
 
     try {
       // Wrap operation with timeout - but only if we have more URLs to try
       // For the last URL, let it run without timeout to give it a fair chance
-      let result: T
+      let result: T;
 
       if (perUrlTimeoutMs > 0 && !isLastUrl) {
+        const controller = new AbortController();
+        const operationPromise = operation(url, controller.signal);
+        let timeout: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
+          timeout = setTimeout(() => {
             reject(
               new UrlTimeoutError(
                 `URL timeout after ${perUrlTimeoutMs}ms: ${url}`,
                 url,
-                perUrlTimeoutMs,
-              ),
-            )
-          }, perUrlTimeoutMs)
-        })
+                perUrlTimeoutMs
+              )
+            );
+          }, perUrlTimeoutMs);
+        });
 
-        result = await Promise.race([operation(url), timeoutPromise])
+        try {
+          result = await Promise.race([operationPromise, timeoutPromise]);
+        } catch (error) {
+          if (error instanceof UrlTimeoutError) {
+            controller.abort();
+            // Do not advance to another remote while the cancelled operation is still running.
+            await operationPromise.catch(() => undefined);
+          }
+          throw error;
+        } finally {
+          if (timeout !== undefined) clearTimeout(timeout);
+        }
       } else {
-        result = await operation(url)
+        result = await operation(url);
       }
 
-      const durationMs = Date.now() - startTime
+      const durationMs = Date.now() - startTime;
 
       attempts.push({
         url,
         success: true,
         result,
         durationMs,
-      })
+      });
 
       if (successUrl === undefined) {
-        successResult = result
-        successUrl = url
-        successIndex = i
+        successResult = result;
+        successUrl = url;
+        successIndex = i;
 
         // Log when we successfully used a fallback URL (not the first one)
         if (i > 0) {
-          console.log(
-            `[withUrlFallback] Success with fallback URL #${i + 1}: ${url} (${durationMs}ms)`,
-          )
+          console.log(`[withUrlFallback] Success with fallback URL #${i + 1}: ${url} (${durationMs}ms)`);
         }
       }
 
       // Stop if we don't need to try all
       if (!tryAll) {
-        break
+        break;
       }
     } catch (error) {
-      const durationMs = Date.now() - startTime
-      const isTimeout = error instanceof UrlTimeoutError
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      const errorCode = isTimeout
-        ? "TIMEOUT"
-        : (error as any)?.code || (error as any)?.name || "UNKNOWN"
+      const durationMs = Date.now() - startTime;
+      const isTimeout = error instanceof UrlTimeoutError;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = isTimeout ? 'TIMEOUT' : ((error as any)?.code || (error as any)?.name || "UNKNOWN");
 
       attempts.push({
         url,
@@ -324,32 +359,30 @@ export async function withUrlFallback<T>(
         error: errorMessage,
         errorCode,
         durationMs,
-      })
+      });
 
-      failedUrls.push(url)
+      failedUrls.push(url);
 
       if (repoId) {
-        advanceReadUrlPreference(repoId, url, orderedUrls[i + 1], errorMessage)
+        advanceReadUrlPreference(repoId, url, orderedUrls[i + 1], errorMessage, validUrls);
       }
 
       // Log timeout to help with debugging
       if (isTimeout) {
-        console.log(
-          `[withUrlFallback] URL timed out after ${perUrlTimeoutMs}ms, trying next: ${url}`,
-        )
+        console.log(`[withUrlFallback] URL timed out after ${perUrlTimeoutMs}ms, trying next: ${url}`);
       }
 
       // If error is not retriable (and not a timeout), don't try other URLs
       // Timeouts are always retriable - we want to try the next URL
       if (!isTimeout && !isRetriable(error)) {
-        break
+        break;
       }
     }
   }
 
   // Update cache if we had a success
   if (successUrl && repoId) {
-    updateUrlPreferenceCache(repoId, successUrl, failedUrls)
+    recordReadUrlSuccess(repoId, successUrl, failedUrls, validUrls);
   }
 
   return {
@@ -358,7 +391,7 @@ export async function withUrlFallback<T>(
     usedUrl: successUrl,
     attempts,
     successIndex,
-  }
+  };
 }
 
 /**
@@ -375,14 +408,14 @@ export async function withMultiWrite<T>(
   operation: (url: string) => Promise<T>,
   options?: {
     /** Run writes in parallel (default: true) */
-    parallel?: boolean
+    parallel?: boolean;
     /** Continue on auth errors (default: false - auth errors usually mean we can't write) */
-    continueOnAuthError?: boolean
-  },
+    continueOnAuthError?: boolean;
+  }
 ): Promise<MultiWriteResult<T>> {
-  const {parallel = true, continueOnAuthError = false} = options || {}
+  const { parallel = true, continueOnAuthError = false } = options || {};
 
-  const validUrls = filterValidCloneUrls(urls)
+  const validUrls = filterValidCloneUrls(urls);
 
   if (validUrls.length === 0) {
     return {
@@ -392,23 +425,23 @@ export async function withMultiWrite<T>(
       successCount: 0,
       failureCount: 0,
       summary: "No valid clone URLs to write to",
-    }
+    };
   }
 
   const executeWrite = async (url: string): Promise<UrlAttemptResult<T>> => {
-    const startTime = Date.now()
+    const startTime = Date.now();
 
     try {
-      const result = await operation(url)
+      const result = await operation(url);
       return {
         url,
         success: true,
         result,
         durationMs: Date.now() - startTime,
-      }
+      };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      const errorCode = (error as any)?.code || (error as any)?.name || "UNKNOWN"
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = (error as any)?.code || (error as any)?.name || "UNKNOWN";
 
       return {
         url,
@@ -416,48 +449,48 @@ export async function withMultiWrite<T>(
         error: errorMessage,
         errorCode,
         durationMs: Date.now() - startTime,
-      }
+      };
     }
-  }
+  };
 
-  let results: UrlAttemptResult<T>[]
+  let results: UrlAttemptResult<T>[];
 
   if (parallel) {
     // Execute all writes in parallel
-    results = await Promise.all(validUrls.map(executeWrite))
+    results = await Promise.all(validUrls.map(executeWrite));
   } else {
     // Execute writes sequentially
-    results = []
+    results = [];
     for (const url of validUrls) {
-      const result = await executeWrite(url)
-      results.push(result)
+      const result = await executeWrite(url);
+      results.push(result);
 
       // Stop on auth error if not configured to continue
       if (!result.success && !continueOnAuthError) {
         const isAuthError =
           result.errorCode === "UNAUTHORIZED" ||
           result.errorCode === "FORBIDDEN" ||
-          /auth|token|permission|401|403/i.test(result.error || "")
+          /auth|token|permission|401|403/i.test(result.error || "");
         if (isAuthError) {
-          break
+          break;
         }
       }
     }
   }
 
-  const successCount = results.filter(r => r.success).length
-  const failureCount = results.filter(r => !r.success).length
-  const success = failureCount === 0 && successCount > 0
-  const partialSuccess = successCount > 0
+  const successCount = results.filter((r) => r.success).length;
+  const failureCount = results.filter((r) => !r.success).length;
+  const success = failureCount === 0 && successCount > 0;
+  const partialSuccess = successCount > 0;
 
   // Build summary message
-  let summary: string
+  let summary: string;
   if (success) {
-    summary = `Successfully wrote to all ${successCount} remote(s)`
+    summary = `Successfully wrote to all ${successCount} remote(s)`;
   } else if (partialSuccess) {
-    summary = `Wrote to ${successCount}/${validUrls.length} remote(s), ${failureCount} failed`
+    summary = `Wrote to ${successCount}/${validUrls.length} remote(s), ${failureCount} failed`;
   } else {
-    summary = `Failed to write to all ${failureCount} remote(s)`
+    summary = `Failed to write to all ${failureCount} remote(s)`;
   }
 
   return {
@@ -467,7 +500,7 @@ export async function withMultiWrite<T>(
     successCount,
     failureCount,
     summary,
-  }
+  };
 }
 
 /**
@@ -475,11 +508,11 @@ export async function withMultiWrite<T>(
  * Returns true for network/transient errors that might succeed with a different URL.
  */
 function defaultIsRetriable(error: unknown): boolean {
-  if (!error) return true
+  if (!error) return true;
 
-  const message = error instanceof Error ? error.message : String(error)
-  const code = (error as any)?.code || (error as any)?.name || ""
-  const lower = (message + code).toLowerCase()
+  const message = error instanceof Error ? error.message : String(error);
+  const code = (error as any)?.code || (error as any)?.name || "";
+  const lower = (message + code).toLowerCase();
 
   // Keep URL fallback moving even for auth/not-found errors. One mirror can
   // require credentials or be stale while another mirror remains readable.
@@ -510,16 +543,16 @@ function defaultIsRetriable(error: unknown): boolean {
     // Rate limiting
     "429",
     "rate limit",
-  ]
+  ];
 
   for (const term of retriable) {
     if (lower.includes(term)) {
-      return true
+      return true;
     }
   }
 
   // Default to retriable for unknown errors
-  return true
+  return true;
 }
 
 /**
@@ -529,9 +562,9 @@ function defaultIsRetriable(error: unknown): boolean {
 export async function cloneWithFallback<T>(
   cloneUrls: string[],
   cloneFn: (url: string) => Promise<T>,
-  repoId?: string,
+  repoId?: string
 ): Promise<ReadFallbackResult<T>> {
-  return withUrlFallback(cloneUrls, cloneFn, {repoId})
+  return withUrlFallback(cloneUrls, cloneFn, { repoId });
 }
 
 /**
@@ -540,34 +573,36 @@ export async function cloneWithFallback<T>(
  */
 export async function pushToAllRemotes<T>(
   remoteUrls: string[],
-  pushFn: (url: string) => Promise<T>,
+  pushFn: (url: string) => Promise<T>
 ): Promise<MultiWriteResult<T>> {
-  return withMultiWrite(remoteUrls, pushFn, {parallel: true})
+  return withMultiWrite(remoteUrls, pushFn, { parallel: true });
 }
 
 /**
  * Extract clone URLs from a NIP-34 repo announcement event.
  */
-export function getCloneUrlsFromEvent(event: {tags: Array<[string, ...string[]]>}): string[] {
-  const cloneUrls: string[] = []
+export function getCloneUrlsFromEvent(event: {
+  tags: Array<[string, ...string[]]>;
+}): string[] {
+  const cloneUrls: string[] = [];
 
   for (const tag of event.tags) {
     if (tag[0] === "clone") {
       // Clone tag can have multiple URLs: ["clone", "url1", "url2", ...]
       for (let i = 1; i < tag.length; i++) {
-        const url = tag[i]
+        const url = tag[i];
         if (url && typeof url === "string" && url.trim()) {
-          cloneUrls.push(url.trim())
+          cloneUrls.push(url.trim());
         }
       }
     }
   }
 
-  return cloneUrls
+  return cloneUrls;
 }
 
 export function getPrimaryCloneUrlFromEvent(event: {
-  tags: Array<[string, ...string[]]>
+  tags: Array<[string, ...string[]]>;
 }): string | undefined {
-  return getCloneUrlsFromEvent(event)[0]
+  return getCloneUrlsFromEvent(event)[0];
 }

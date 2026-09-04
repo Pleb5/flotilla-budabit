@@ -94,7 +94,7 @@ describe('WorkerManager', () => {
 
     it('should initialize worker on first call', async () => {
       await manager.initialize();
-      
+
       expect(manager.isReady).toBe(true);
       expect(manager.workerInstance).toBeTruthy();
       expect(manager.apiInstance).toBeTruthy();
@@ -103,28 +103,24 @@ describe('WorkerManager', () => {
     it('should not reinitialize if already initialized', async () => {
       await manager.initialize();
       const firstWorker = manager.workerInstance;
-      
+
       await manager.initialize();
       const secondWorker = manager.workerInstance;
-      
+
       expect(firstWorker).toBe(secondWorker);
     });
 
     it('should handle concurrent initialization calls', async () => {
-      const promises = [
-        manager.initialize(),
-        manager.initialize(),
-        manager.initialize()
-      ];
-      
+      const promises = [manager.initialize(), manager.initialize(), manager.initialize()];
+
       await Promise.all(promises);
-      
+
       expect(manager.isReady).toBe(true);
     });
 
     it('should accept progress callback during initialization', async () => {
       await manager.initialize();
-      
+
       // Progress callback is registered but may not be called during init
       // It will be called when actual git operations emit progress events
       expect(manager.isReady).toBe(true);
@@ -141,7 +137,7 @@ describe('WorkerManager', () => {
         repoId: 'owner:repo',
         branch: 'main'
       });
-      
+
       expect(result).toEqual({
         success: true,
         files: [],
@@ -151,10 +147,8 @@ describe('WorkerManager', () => {
 
     it('should throw error if not initialized', async () => {
       const uninitializedManager = new WorkerManager();
-      
-      await expect(
-        uninitializedManager.execute('getStatus', {})
-      ).rejects.toThrow('WorkerManager not initialized');
+
+      await expect(uninitializedManager.execute('getStatus', {})).rejects.toThrow('WorkerManager not initialized');
     });
 
     it('should handle getStatus operation', async () => {
@@ -162,7 +156,7 @@ describe('WorkerManager', () => {
         repoId: 'owner:repo',
         branch: 'main'
       });
-      
+
       expect(result).toHaveProperty('success');
       expect(result).toHaveProperty('branch');
     });
@@ -173,7 +167,7 @@ describe('WorkerManager', () => {
         branch: 'main',
         depth: 50
       });
-      
+
       expect(result).toHaveProperty('success');
       expect(result).toHaveProperty('commits');
     });
@@ -184,8 +178,138 @@ describe('WorkerManager', () => {
         cloneUrls: ['https://example.com/repo.git'],
         forceUpdate: false
       });
-      
+
       expect(result).toHaveProperty('success');
+    });
+
+    it('preserves structured Git natural capability errors from the worker', async () => {
+      const api = manager.apiInstance as any;
+      api.gitNaturalListDirectory = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Git server does not advertise filter support',
+        gitNaturalError: {
+          name: 'GitNaturalReadError',
+          message: 'Git server does not advertise filter support',
+          code: 'missing-filter-capability',
+          remoteUrl: 'https://example.com/repo.git',
+          capability: 'filter',
+          filter: 'blob:none'
+        }
+      });
+
+      await expect(
+        manager.gitNaturalListDirectory({
+          url: 'https://example.com/repo.git',
+          ref: 'main',
+          enabled: true
+        })
+      ).rejects.toMatchObject({
+        name: 'GitNaturalReadError',
+        code: 'missing-filter-capability',
+        remoteUrl: 'https://example.com/repo.git',
+        capability: 'filter',
+        filter: 'blob:none'
+      });
+    });
+
+    it('retries commit metadata and diff together without clone fallback on operational failure', async () => {
+      const api = manager.apiInstance as any;
+      const primary = 'https://primary.example/repo.git';
+      const secondary = 'https://secondary.example/repo.git';
+      const calls: string[] = [];
+      api.gitNaturalGetCommit = vi.fn(async ({ url }: { url: string }) => {
+        calls.push(`meta:${url}`);
+        return {
+          commit: {
+            hash: 'head',
+            author: { name: 'Alice', email: 'alice@example.com', timestamp: 1 },
+            message: 'Change',
+            parents: ['parent']
+          }
+        };
+      });
+      api.gitNaturalGetDiffBetween = vi.fn(async ({ url }: { url: string }) => {
+        calls.push(`diff:${url}`);
+        if (url === primary) {
+          return {
+            success: false,
+            error: 'pack parser failed',
+            gitNaturalError: {
+              name: 'GitNaturalReadError',
+              message: 'pack parser failed',
+              code: 'protocol-error',
+              remoteUrl: url
+            }
+          };
+        }
+        return { changes: [] };
+      });
+      api.getCommitDetails = vi.fn();
+      api.smartInitializeRepo.mockClear();
+
+      const result = await manager.getCommitDetails({
+        repoId: 'worker-manager-operational-fallback',
+        commitId: 'head',
+        cloneUrls: [primary, secondary]
+      });
+
+      expect(calls).toEqual([`meta:${primary}`, `diff:${primary}`, `meta:${secondary}`, `diff:${secondary}`]);
+      expect(result).toMatchObject({ success: true, usedUrl: secondary, diffAvailable: true });
+      expect(api.smartInitializeRepo).not.toHaveBeenCalled();
+      expect(api.getCommitDetails).not.toHaveBeenCalled();
+    });
+
+    it('keeps missing-filter clone fallback inside its remote attempt', async () => {
+      const api = manager.apiInstance as any;
+      const primary = 'https://primary-filterless.example/repo.git';
+      const secondary = 'https://secondary-filtered.example/repo.git';
+      const calls: string[] = [];
+      api.gitNaturalGetCommit = vi.fn(async ({ url }: { url: string }) => {
+        calls.push(`natural:${url}`);
+        if (url === primary) {
+          return {
+            success: false,
+            error: 'filter unsupported',
+            gitNaturalError: {
+              name: 'GitNaturalReadError',
+              message: 'filter unsupported',
+              code: 'missing-filter-capability',
+              remoteUrl: url,
+              capability: 'filter'
+            }
+          };
+        }
+        return {
+          commit: {
+            hash: 'root',
+            author: { name: 'Alice', email: 'alice@example.com', timestamp: 1 },
+            message: 'Root',
+            parents: []
+          }
+        };
+      });
+      api.smartInitializeRepo = vi.fn(async ({ cloneUrls }: { cloneUrls: string[] }) => {
+        calls.push(`clone:${cloneUrls[0]}`);
+        return { success: true, usedUrl: cloneUrls[0] };
+      });
+      api.getCommitDetails = vi.fn(async () => {
+        throw new Error('clone failed');
+      });
+
+      const result = await manager.getCommitDetails({
+        repoId: 'worker-manager-capability-fallback',
+        commitId: 'root',
+        cloneUrls: [primary, secondary]
+      });
+
+      expect(calls).toEqual([`natural:${primary}`, `clone:${primary}`, `natural:${secondary}`]);
+      expect(result).toMatchObject({ success: true, usedUrl: secondary });
+      expect(api.getCommitDetails).toHaveBeenCalledWith({
+        repoId: 'worker-manager-capability-fallback',
+        commitId: 'root',
+        cloneUrls: [primary],
+        cloneFallbackReason: 'missing-filter-capability'
+      });
     });
   });
 
@@ -196,13 +320,11 @@ describe('WorkerManager', () => {
 
     it('should set auth config', async () => {
       const config = {
-        tokens: [
-          { host: 'github.com', token: 'ghp_test123' }
-        ]
+        tokens: [{ host: 'github.com', token: 'ghp_test123' }]
       };
-      
+
       await manager.setAuthConfig(config);
-      
+
       const retrieved = manager.getAuthConfig();
       expect(retrieved).toEqual(config);
     });
@@ -212,7 +334,7 @@ describe('WorkerManager', () => {
         host: 'gitlab.com',
         token: 'glpat_test456'
       });
-      
+
       const config = manager.getAuthConfig();
       expect(config.tokens).toHaveLength(1);
       expect(config.tokens[0].host).toBe('gitlab.com');
@@ -223,12 +345,12 @@ describe('WorkerManager', () => {
         host: 'github.com',
         token: 'token1'
       });
-      
+
       await manager.addAuthToken({
         host: 'github.com',
         token: 'token2'
       });
-      
+
       const config = manager.getAuthConfig();
       expect(config.tokens).toHaveLength(1);
       expect(config.tokens[0].token).toBe('token2');
@@ -239,9 +361,9 @@ describe('WorkerManager', () => {
         host: 'github.com',
         token: 'token1'
       });
-      
+
       await manager.removeAuthToken('github.com');
-      
+
       const config = manager.getAuthConfig();
       expect(config.tokens).toHaveLength(0);
     });
@@ -264,10 +386,10 @@ describe('WorkerManager', () => {
     it('should reinitialize worker', async () => {
       await manager.initialize();
       const firstWorker = manager.workerInstance;
-      
+
       await manager.restart();
       const secondWorker = manager.workerInstance;
-      
+
       expect(firstWorker).not.toBe(secondWorker);
       expect(manager.isReady).toBe(true);
     });
@@ -278,9 +400,9 @@ describe('WorkerManager', () => {
       await manager.initialize();
       const worker = manager.workerInstance;
       const terminateSpy = vi.spyOn(worker!, 'terminate');
-      
+
       manager.dispose();
-      
+
       expect(terminateSpy).toHaveBeenCalled();
       expect(manager.workerInstance).toBeNull();
       expect(manager.apiInstance).toBeNull();
@@ -296,27 +418,27 @@ describe('WorkerManager', () => {
       const callback = vi.fn();
       const mgr = new WorkerManager(callback);
       await mgr.initialize();
-      
+
       // Simulate progress event
       const progressEvent = {
         phase: 'cloning',
         loaded: 50,
         total: 100
       };
-      
+
       callback(progressEvent);
-      
+
       expect(callback).toHaveBeenCalledWith(progressEvent);
-      
+
       mgr.dispose();
     });
 
     it('should allow changing progress callback', async () => {
       await manager.initialize();
-      
+
       const newCallback = vi.fn();
       manager.setProgressCallback(newCallback);
-      
+
       // Callback should be updated (tested via integration)
       expect(true).toBe(true);
     });
@@ -331,24 +453,24 @@ describe('WorkerManager Integration', () => {
   it('should handle worker initialization with EventIO', async () => {
     const manager = new WorkerManager();
     await manager.initialize();
-    
+
     // Worker should be initialized with EventIO
     expect(manager.isReady).toBe(true);
-    
+
     manager.dispose();
   });
 
   it('should maintain auth config across operations', async () => {
     const manager = new WorkerManager();
     await manager.initialize();
-    
+
     await manager.setAuthConfig({
       tokens: [{ host: 'test.com', token: 'test' }]
     });
-    
+
     // Subsequent operations should use the auth config
     await manager.getStatus({ repoId: 'test:repo', branch: 'main' });
-    
+
     manager.dispose();
   });
 
@@ -363,9 +485,7 @@ describe('WorkerManager Integration', () => {
     }
 
     // The error is wrapped by WorkerManager.execute, so we check for the wrapped message
-    await expect(
-      manager.getStatus({ repoId: 'test:repo' })
-    ).rejects.toThrow("Worker operation 'getStatus' failed");
+    await expect(manager.getStatus({ repoId: 'test:repo' })).rejects.toThrow("Worker operation 'getStatus' failed");
 
     manager.dispose();
   });

@@ -39,7 +39,6 @@
     type RepoCommunityOption,
   } from "@nostr-git/ui"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
-  import type {PageData} from "./$types"
   import {getContext, hasContext, onDestroy, onMount, tick} from "svelte"
   import {
     REPO_CLONE_URLS_KEY,
@@ -91,8 +90,6 @@
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {fade} from "svelte/transition"
 
-  const {data}: {data: PageData} = $props()
-
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoCloneUrlsStore = hasContext(REPO_CLONE_URLS_KEY)
@@ -115,8 +112,8 @@
   }
 
   // Component-level state for commit data (loaded after repo is ready)
-  let commitMeta = $state<CommitMeta | undefined>(data?.commitMeta)
-  let changes = $state<CommitChange[] | undefined>(data?.changes)
+  let commitMeta = $state<CommitMeta | undefined>(undefined)
+  let changes = $state<CommitChange[] | undefined>(undefined)
   let fallbackStats = $state<
     | {
         additions: number
@@ -124,12 +121,12 @@
         total: number
       }
     | undefined
-  >(data?.stats)
-  let diffUnavailable = $state(data?.diffAvailable === false)
-  let commitWarning = $state<string | undefined>(data?.warning)
+  >(undefined)
+  let diffUnavailable = $state(false)
+  let commitWarning = $state<string | undefined>(undefined)
   let loadError = $state<string | undefined>(undefined)
   let loadAttempted = $state(false)
-  let commentsLoading = $state(Boolean(data?.commitMeta?.sha))
+  let commentsLoading = $state(false)
   let commentsError = $state<string | undefined>(undefined)
   let commentsReloadToken = $state(0)
   const SCROLL_TO_TOP_THRESHOLD = 300
@@ -137,7 +134,7 @@
   let pageContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
 
-  // Load commit details after ensuring repo is cloned
+  // Load commit details through repository-scoped remote routing.
   async function loadCommitDetails() {
     const commitid = $page.params.commitid
     if (!commitid) return
@@ -155,11 +152,6 @@
         loadError = "Repository information not available"
         return
       }
-      // Ensure repo is cloned first
-      const isCloned = await repoClass.workerManager.isRepoCloned({
-        repoId: repoClass.key,
-      })
-
       // Optimization: Check if commit metadata is already available in repoClass.commits
       // Show it immediately to eliminate perceived delay, then load diff details
       const existingCommit = repoClass.commits?.find(
@@ -184,7 +176,7 @@
         }
       }
 
-      // Try Git natural first, then REST metadata, before clone-backed fallback.
+      // Try Git natural on each active remote before any capability-gated clone fallback.
       const cloneUrls = Array.from(
         new Set(
           (
@@ -198,91 +190,39 @@
         return
       }
 
-      const {getCommitDetailsViaGitNatural, getCommitDetailsViaRestApi} =
-        await import("@app/core/commit-api")
-      let commitDetails = await getCommitDetailsViaGitNatural(
+      const {getCommitDetailsViaGitNatural} = await import("@app/core/commit-api")
+      const commitDetails = await getCommitDetailsViaGitNatural(
         repoClass.workerManager,
         cloneUrls,
         commitid,
         repoClass.key,
-      )
-      if (!commitDetails?.success) {
-        commitDetails = await getCommitDetailsViaRestApi(cloneUrls, commitid, repoClass.key)
-      }
-      const needsWorkerDiff =
-        !commitDetails ||
-        !commitDetails.success ||
-        commitDetails.diffAvailable === false ||
-        !Array.isArray(commitDetails.changes)
-
-      // If remote reads didn't provide a usable diff payload, fall back to worker git data.
-      if (needsWorkerDiff) {
-        console.debug("[commit page] remote metadata-only or unavailable, using worker git diff")
-        const metadataOnlyDetails = commitDetails?.success ? commitDetails : undefined
-        let canTryWorkerDiff = true
-
-        if (!isCloned) {
-          const result = await repoClass.workerManager.smartInitializeRepo({
-            repoId: repoClass.key,
-            cloneUrls,
-            branch: selectedBranch,
-            forceUpdate: false,
-          })
-
-          if (!result.success) {
-            notifyCorsProxyIssue(result)
-            if (metadataOnlyDetails) {
-              canTryWorkerDiff = false
-              commitDetails = {
-                ...metadataOnlyDetails,
-                changes: Array.isArray(metadataOnlyDetails.changes)
-                  ? metadataOnlyDetails.changes
-                  : [],
-                diffAvailable: false,
-                warning:
-                  metadataOnlyDetails.warning ||
-                  result.error ||
-                  "Commit metadata loaded, but the git diff could not be loaded.",
-              }
-            } else {
-              loadError = result.error || "Failed to initialize repository"
-              return
+        async fallbackUrl => {
+          const isCloned = await repoClass.workerManager.isRepoCloned({repoId: repoClass.key})
+          if (!isCloned) {
+            const result = await repoClass.workerManager.smartInitializeRepo({
+              repoId: repoClass.key,
+              cloneUrls: [fallbackUrl],
+              branch: selectedBranch,
+              forceUpdate: false,
+              timeoutMs: 0,
+            })
+            if (!result.success) {
+              notifyCorsProxyIssue(result)
+              return {success: false, error: result.error || "Failed to initialize repository"}
             }
           }
-        }
 
-        if (
-          canTryWorkerDiff &&
-          (!commitDetails ||
-            commitDetails.diffAvailable === false ||
-            !Array.isArray(commitDetails.changes))
-        ) {
-          const workerCommitDetails = await repoClass.workerManager.getCommitDetails({
+          return await repoClass.workerManager.getCommitDetails({
             repoId: repoClass.key,
             commitId: commitid,
             ...(selectedBranch ? {branch: selectedBranch} : {}),
-            cloneUrls,
+            cloneUrls: [fallbackUrl],
+            cloneFallbackReason: "missing-filter-capability",
           })
-
-          if (workerCommitDetails?.success && Array.isArray(workerCommitDetails.changes)) {
-            commitDetails = workerCommitDetails
-          } else if (metadataOnlyDetails) {
-            notifyCorsProxyIssue(workerCommitDetails)
-            commitDetails = {
-              ...metadataOnlyDetails,
-              changes: Array.isArray(metadataOnlyDetails.changes)
-                ? metadataOnlyDetails.changes
-                : [],
-              diffAvailable: false,
-              warning:
-                metadataOnlyDetails.warning ||
-                workerCommitDetails?.error ||
-                "Commit metadata loaded, but the git diff could not be loaded.",
-            }
-          } else {
-            commitDetails = workerCommitDetails
-          }
-        }
+        },
+      )
+      if (commitDetails?.remoteUrl) {
+        repoClass.recordCloneUrlSuccess(commitDetails.remoteUrl)
       }
 
       if (!commitDetails?.success || !commitDetails.meta || !Array.isArray(commitDetails.changes)) {

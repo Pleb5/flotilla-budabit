@@ -94,7 +94,8 @@
         commitId: commitSha,
         branch: repo.selectedBranch || repo.mainBranch,
         cloneUrls: repo.cloneUrls,
-      })) as { success: boolean; meta?: any; changes?: any; error?: string };
+      })) as { success: boolean; meta?: any; changes?: any; error?: string; usedUrl?: string };
+      if (result.usedUrl) repo.recordCloneUrlSuccess(result.usedUrl);
 
       if (result.success && result.meta && result.changes) {
         const commitDiff: CommitDiffType = {

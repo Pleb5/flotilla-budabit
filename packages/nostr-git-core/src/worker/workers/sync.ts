@@ -21,6 +21,7 @@ export async function needsUpdateUtil(
   branch?: string,
   localBranchCommit?: string,
   repoDir?: string,
+  trackReadPreference: boolean = true,
 ): Promise<boolean> {
   const requestedBranch = String(branch || "")
     .trim()
@@ -68,7 +69,7 @@ export async function needsUpdateUtil(
         const remoteBranch = getRequestedRemoteRef(refs || [])
         return {hasHeads: heads && heads.length > 0, branchExists: !!remoteBranch}
       },
-      {repoId},
+      {repoId: trackReadPreference ? repoId : undefined},
     )
 
     if (result.success && result.result) {
@@ -133,7 +134,7 @@ export async function needsUpdateUtil(
 
       return {needsUpdate: true}
     },
-    {repoId},
+    {repoId: trackReadPreference ? repoId : undefined},
   )
 
   if (result.success && result.result) {

@@ -781,6 +781,10 @@
 
   const attemptedPrCommitMetaHydration = new Set<string>()
 
+  const recordPrReadRemote = (result: any) => {
+    if (result?.usedUrl) repoClass.recordCloneUrlSuccess(result.usedUrl)
+  }
+
   async function loadPrCommitMetaOnly(oid: string): Promise<PrCommitMeta | null> {
     if (!repoClass?.workerManager || !repoClass?.key) return null
 
@@ -793,6 +797,7 @@
         commitId: oid,
         ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
+      recordPrReadRemote(result)
       if (!result?.success || !result?.meta) return null
 
       const meta: PrCommitMeta = {
@@ -897,6 +902,7 @@
         commitId: oid,
         ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
+      recordPrReadRemote(result)
 
       if (!result?.success || !result?.meta) {
         prCommitDiffByOid = {
@@ -1497,6 +1503,7 @@
         commitId: prStatus.mergedCommit,
         ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
+      recordPrReadRemote(mergeDetails)
       const parentOid = mergeDetails?.meta?.parents?.[0]
       if (mergeDetails?.success && parentOid) {
         return {baseOid: parentOid, headOid: prStatus.mergedCommit}
@@ -1518,6 +1525,7 @@
         commitId: oldestOid,
         ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
+      recordPrReadRemote(oldestDetails)
       const parentOid = oldestDetails?.meta?.parents?.[0]
       if (oldestDetails?.success && parentOid) {
         return {baseOid: parentOid, headOid}
@@ -1541,6 +1549,7 @@
           commitId: oid,
           ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
         })
+        recordPrReadRemote(details)
         const meta = details?.meta
         commits.push({
           oid,
@@ -1564,6 +1573,7 @@
       commitId: mergeCommitOid,
       ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
     })
+    recordPrReadRemote(mergeDetails)
     const parents = mergeDetails?.meta?.parents || []
     const targetParent = parents[0]
     const prParent = parents[1]
@@ -1767,6 +1777,7 @@
         ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
         gitNaturalDiff: true,
       })
+      recordPrReadRemote(res)
 
       if (prChangesGeneration !== currentGen) return
       if (res.success && res.changes) {
@@ -1834,6 +1845,7 @@
           ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
           gitNaturalDiff: true,
         })
+        recordPrReadRemote(res)
 
         if (prChangesGeneration !== currentGen) return
         if (res.success && res.changes) {

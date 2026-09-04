@@ -788,7 +788,13 @@ export async function ensureShallowCloneUtil(
 
 export async function ensureFullCloneUtil(
   git: GitProvider,
-  opts: {repoId: string; branch?: string; depth?: number; cloneUrls?: string[]},
+  opts: {
+    repoId: string
+    branch?: string
+    depth?: number
+    cloneUrls?: string[]
+    strictCloneUrls?: boolean
+  },
   deps: {
     rootDir: string
     parseRepoId: (id: string) => string
@@ -804,7 +810,7 @@ export async function ensureFullCloneUtil(
   },
   sendProgress: (phase: string, loaded?: number, total?: number) => void,
 ) {
-  const {repoId, branch, depth = 50, cloneUrls: providedCloneUrls} = opts
+  const {repoId, branch, depth = 50, cloneUrls: providedCloneUrls, strictCloneUrls = false} = opts
   const {rootDir, parseRepoId, repoDataLevels, clonedRepos, isRepoCloned, resolveBranchName} = deps
   const key = parseRepoId(repoId)
   const dir = `${rootDir}/${key}`
@@ -832,7 +838,10 @@ export async function ensureFullCloneUtil(
   }
 
   // Deduplication: if there's already a pending full clone for this repo, wait for it
-  const dedupeKey = `${key}:${branch || "default"}`
+  const strictUrlKey = strictCloneUrls
+    ? `:strict:${filterValidCloneUrls(providedCloneUrls || []).join("|")}`
+    : ""
+  const dedupeKey = `${key}:${branch || "default"}${strictUrlKey}`
   const pendingClone = pendingFullClones.get(dedupeKey)
   if (pendingClone) {
     console.log(`[ensureFullClone] Waiting for existing clone operation for ${dedupeKey}`)
@@ -905,28 +914,30 @@ export async function ensureFullCloneUtil(
         }
       }
 
-      // 2. Get origin URL from git config as an extra fallback.
-      const remotes = await git.listRemotes({dir})
-      const originRemote = remotes.find((r: any) => r.remote === "origin")
-      if (originRemote?.url) {
-        if (!urlsToTry.includes(originRemote.url)) {
-          urlsToTry.push(originRemote.url)
+      if (!strictCloneUrls) {
+        // 2. Get origin URL from git config as an extra fallback.
+        const remotes = await git.listRemotes({dir})
+        const originRemote = remotes.find((r: any) => r.remote === "origin")
+        if (originRemote?.url) {
+          if (!urlsToTry.includes(originRemote.url)) {
+            urlsToTry.push(originRemote.url)
+          }
         }
-      }
 
-      // 3. Try to get clone URLs from cache if we have a cache manager.
-      if (deps.cacheManager) {
-        try {
-          const cache = await deps.cacheManager.getRepoCache(key)
-          if (cache?.cloneUrls?.length) {
-            for (const url of filterValidCloneUrls(cache.cloneUrls)) {
-              if (!urlsToTry.includes(url)) {
-                urlsToTry.push(url)
+        // 3. Try to get clone URLs from cache if we have a cache manager.
+        if (deps.cacheManager) {
+          try {
+            const cache = await deps.cacheManager.getRepoCache(key)
+            if (cache?.cloneUrls?.length) {
+              for (const url of filterValidCloneUrls(cache.cloneUrls)) {
+                if (!urlsToTry.includes(url)) {
+                  urlsToTry.push(url)
+                }
               }
             }
+          } catch {
+            // Ignore cache errors
           }
-        } catch {
-          // Ignore cache errors
         }
       }
 
