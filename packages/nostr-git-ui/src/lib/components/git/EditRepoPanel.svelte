@@ -997,7 +997,7 @@
         maintainers: normalizedMaintainers,
         relays: cleanRelays,
         webUrls: cleanWebUrls,
-        cloneUrls: cleanCloneUrls,
+        cloneUrls: getEditableRepoCloneUrls(cleanCloneUrls),
         hashtags: cleanHashtags,
         earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase(),
         communityAddress: formData.communityAddress.trim().toLowerCase(),

@@ -12,18 +12,6 @@ export function mergePreservedNostrCloneUrls(
   currentValues: string[]
 ): string[] {
   const editable = getEditableRepoCloneUrls(editableValues);
-  const current = uniqueNonEmpty(currentValues);
-  const merged: string[] = [];
-  let editableIndex = 0;
-
-  for (const value of current) {
-    if (isDirectNostrCloneUrl(value)) {
-      merged.push(value);
-    } else if (editableIndex < editable.length) {
-      merged.push(editable[editableIndex++]);
-    }
-  }
-
-  merged.push(...editable.slice(editableIndex));
-  return merged;
+  const preserved = uniqueNonEmpty(currentValues).filter(isDirectNostrCloneUrl);
+  return [...editable, ...preserved];
 }
