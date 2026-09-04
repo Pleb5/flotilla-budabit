@@ -32,7 +32,12 @@
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
   import {fetchRelayInfoResult} from "@nostr-git/core/api"
-  import {detectVendorFromUrl, getGitServiceApiFromUrl, type GitVendor} from "@nostr-git/core/git"
+  import {
+    detectVendorFromUrl,
+    getGitServiceApiFromUrl,
+    isGitVendorEnabled,
+    type GitVendor,
+  } from "@nostr-git/core/git"
   import {
     tokens as tokensStore,
     tryTokensForHost,
@@ -298,6 +303,7 @@
         }
         continue
       }
+      if (!isGitVendorEnabled(parsed.vendor)) continue
       const isGrasp = parsed.vendor === "grasp" || parsed.vendor === "grasp-rest"
       const graspTarget = isGrasp
         ? getGraspRepoDeleteTarget({

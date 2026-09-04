@@ -15,6 +15,7 @@ describe("remote target helpers", () => {
       tokenList: [
         { host: "github.com", token: "ghp_example" },
         { host: "gitlab.com", token: "glpat-example" },
+        { host: "bitbucket.org", token: "retained-but-disabled" },
       ],
       graspRelayUrls: ["wss://relay.example"],
     });
@@ -28,6 +29,7 @@ describe("remote target helpers", () => {
         status: "checking",
       }),
     ]);
+    expect(targets.some((target) => target.provider === "bitbucket")).toBe(false);
   });
 
   it("does not expose GRASP relay queries in visible labels", () => {

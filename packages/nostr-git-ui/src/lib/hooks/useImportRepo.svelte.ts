@@ -7,6 +7,8 @@
 
 import {
   getGitServiceApiFromUrl,
+  assertGitRemoteUrlEnabled,
+  isGitVendorEnabled,
   parseRepoUrl,
   validateTokenPermissions,
   checkRepoOwnership,
@@ -2303,6 +2305,12 @@ export function useImportRepo(options: UseImportRepoOptions) {
   ): Promise<ImportResult> {
     if (isImporting) {
       throw new Error("Import operation already in progress");
+    }
+
+    assertGitRemoteUrlEnabled(repoUrl, "repository import");
+    const disabledTarget = remoteTargets.find((target) => !isGitVendorEnabled(target.provider));
+    if (disabledTarget) {
+      throw new Error(`${disabledTarget.label} provider is disabled for repository import`);
     }
 
     const selectedGraspRelays = remoteTargets

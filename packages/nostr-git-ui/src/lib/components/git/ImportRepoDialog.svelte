@@ -38,6 +38,7 @@
   import {
     buildRemoteTargetOptions,
     getDefaultSelectedRemoteTargetIds,
+    normalizeRelayUrl,
     preflightRemoteTargets,
     toRemoteTargetSelection,
     validateRemoteTargetRepoName,

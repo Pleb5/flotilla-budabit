@@ -29,10 +29,35 @@ const hostedVendorUrls = [
   "https://github.com/example/repo.git",
   "https://gitlab.com/example/repo.git",
   "https://gitea.com/example/repo.git",
-  "https://bitbucket.org/example/repo.git",
 ];
 
 describe("VendorReadRouter.listRefs", () => {
+  it("does not attempt reads for disabled Bitbucket remotes", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [{ host: "bitbucket.org", token: "retained" }],
+      preferVendorReads: true,
+      gitNaturalReads: "enabled",
+      gitNaturalReadPolicy: "all-http",
+    });
+    const vendorSpy = vi.spyOn(router as any, "vendorListRefs");
+    const workerManager = {
+      gitNaturalListRefs: vi.fn(),
+      listServerRefs: vi.fn(),
+      listBranchesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listRefs({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      cloneUrls: ["https://bitbucket.org/example/repo.git"],
+    });
+
+    expect(result.source.kind).toBe("local");
+    expect(workerManager.gitNaturalListRefs).not.toHaveBeenCalled();
+    expect(workerManager.listServerRefs).not.toHaveBeenCalled();
+    expect(vendorSpy).not.toHaveBeenCalled();
+  });
+
   it("uses advertised git refs for non-vendor remotes", async () => {
     const router = new VendorReadRouter({
       getTokens: async () => [],

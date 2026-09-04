@@ -16,22 +16,22 @@ describe("git/provider-factory", () => {
       "github",
       "gitlab",
       "gitea",
-      "bitbucket",
       "grasp",
       "grasp-rest",
     ])
   })
 
   it("supportsRestApi returns true for known providers", () => {
-    for (const p of ["github", "gitlab", "gitea", "bitbucket", "grasp", "grasp-rest"] as const) {
+    for (const p of ["github", "gitlab", "gitea", "grasp", "grasp-rest"] as const) {
       expect(supportsRestApi(p)).toBe(true)
     }
+    expect(supportsRestApi("bitbucket")).toBe(false)
   })
 
   it("getDefaultApiBaseUrl returns URLs and throws on providers requiring custom base", () => {
     expect(getDefaultApiBaseUrl("github")).toBe("https://api.github.com")
     expect(getDefaultApiBaseUrl("gitlab")).toBe("https://gitlab.com/api/v4")
-    expect(getDefaultApiBaseUrl("bitbucket")).toBe("https://api.bitbucket.org/2.0")
+    expect(() => getDefaultApiBaseUrl("bitbucket")).toThrow(/Bitbucket provider is disabled/i)
 
     expect(() => getDefaultApiBaseUrl("gitea")).toThrow(/requires a custom base URL/i)
     expect(() => getDefaultApiBaseUrl("grasp")).toThrow(/requires a custom relay URL/i)
@@ -52,8 +52,10 @@ describe("git/provider-factory", () => {
     ).not.toThrow()
     // Gitea self-hosted
     expect(() => getGitServiceApiFromUrl("https://gitea.example.com/owner/repo", "t")).not.toThrow()
-    // Bitbucket
-    expect(() => getGitServiceApiFromUrl("https://bitbucket.org/owner/repo", "t")).not.toThrow()
+    // Bitbucket remains detectable but is blocked by provider policy.
+    expect(() => getGitServiceApiFromUrl("https://bitbucket.org/owner/repo", "t")).toThrow(
+      /Bitbucket provider is disabled/i,
+    )
     // GRASP (ws)
     expect(() => getGitServiceApiFromUrl("wss://relay.example.com", "pubkey")).not.toThrow()
     // Unknown

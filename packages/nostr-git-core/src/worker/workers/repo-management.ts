@@ -7,6 +7,7 @@
 
 import type {GitProvider} from "../../git/provider.js"
 import type {GitVendor} from "../../git/vendor-providers.js"
+import {assertGitVendorEnabled} from "../../git/provider-policy.js"
 import {getGitServiceApi} from "../../git/provider-factory.js"
 import {parseRepoFromUrl} from "../../git/vendor-provider-factory.js"
 import {getProviderFs, ensureDir, isRepoClonedFs} from "./fs-utils.js"
@@ -3006,6 +3007,11 @@ export async function updateAndPushFiles(
   const {dir, files, commitMessage, token, provider = "github", onProgress} = options
 
   try {
+    assertGitVendorEnabled(provider, "file update")
+    if (provider === "grasp") {
+      throw new Error("GRASP file updates require the coordinated pushToRemote flow")
+    }
+
     onProgress?.("Updating local files...")
 
     const fs = getProviderFs(git)
@@ -3039,12 +3045,8 @@ export async function updateAndPushFiles(
     onProgress?.("Pushing to remote...")
 
     // Push with authentication
-    const authCallback =
-      provider === "grasp"
-        ? () => ({username: token, password: "grasp"})
-        : () => ({username: "token", password: token})
-
-    const corsProxy = provider === "grasp" ? null : resolveDefaultCorsProxy()
+    const authCallback = () => ({username: "token", password: token})
+    const corsProxy = resolveDefaultCorsProxy()
     await git.push({
       dir,
       onAuth: authCallback,

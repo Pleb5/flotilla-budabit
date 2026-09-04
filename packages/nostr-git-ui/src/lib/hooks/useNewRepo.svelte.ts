@@ -1,5 +1,5 @@
 import type { Event as NostrEvent } from "nostr-tools";
-import { getGitServiceApi } from "@nostr-git/core/git";
+import { getGitServiceApi, isGitVendorEnabled, type GitVendor } from "@nostr-git/core/git";
 import { tokens as tokensStore, type Token } from "../stores/tokens.js";
 import {
   createRepoAnnouncementEvent as createAnnouncementEventShared,
@@ -739,6 +739,12 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
 
       const selectedProviders = getSelectedProviders(config);
+      const disabledProvider = selectedProviders.find((provider) =>
+        !isGitVendorEnabled(provider as GitVendor)
+      );
+      if (disabledProvider) {
+        throw new Error(`${disabledProvider} provider is disabled for repository creation`);
+      }
       const includesGrasp = selectedProviders.includes("grasp");
       const selectedGraspTargetRelays = includesGrasp
         ? normalizeList([config.relayUrl || "", ...(config.relayUrls || [])])

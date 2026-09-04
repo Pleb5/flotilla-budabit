@@ -1,7 +1,7 @@
 import type { Event } from "nostr-tools";
 import type { RepoAnnouncementEvent, RepoStateEvent } from "@nostr-git/core/events";
 import { createRepoAnnouncementEvent, getTags, getTagValue } from "@nostr-git/core/events";
-import { detectVendorFromUrl } from "@nostr-git/core/git";
+import { assertGitRemoteUrlEnabled, detectVendorFromUrl } from "@nostr-git/core/git";
 import { isGraspRepoHttpUrl, sanitizeRelays } from "@nostr-git/core/utils";
 import { tokens as tokensStore } from "../stores/tokens.js";
 import {
@@ -106,6 +106,8 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
       if (repoRelays.length === 0) {
         throw new Error("Repository edit requires relays from the accepted announcement");
       }
+      const cloneUrl = getTagValue(currentAnnouncement as any, "clone") || "";
+      assertGitRemoteUrlEnabled(cloneUrl, "repository edit");
 
       // Get the git worker instance using dynamic import
       let gitWorker: any;
@@ -119,7 +121,6 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
       // Extract current repository info
       const repoId = getTagValue(currentAnnouncement as any, "d") || "";
       const currentName = getTagValue(currentAnnouncement as any, "name") || "";
-      const cloneUrl = getTagValue(currentAnnouncement as any, "clone") || "";
 
       // Parse owner/repo from clone URL and extract hostname
       let owner: string, repo: string, providerHost: string;

@@ -9,6 +9,7 @@ import type {GitForkOptions, RepoMetadata} from "../api/api.js"
 import {normalizeHttpOrigin} from "../api/providers/grasp-capabilities.js"
 import {getGitServiceApi} from "./provider-factory.js"
 import {toNpub} from "../utils/nostr-pubkey.js"
+import {assertGitVendorEnabled} from "./provider-policy.js"
 
 // Registry of vendor providers
 const providerRegistry = new Map<string, VendorProvider>()
@@ -203,15 +204,16 @@ export function clearProviderOverrides(): void {
 export function resolveVendorProvider(url: string): VendorProvider {
   const hostname = extractHostname(url).toLowerCase()
 
+  const overrideVendor = providerOverrides.get(hostname)
+  const vendor = overrideVendor || detectVendorFromUrl(url)
+  assertGitVendorEnabled(vendor, "vendor provider resolution")
+
   // Check if we already have a provider for this hostname
   if (providerRegistry.has(hostname)) {
     return providerRegistry.get(hostname)!
   }
 
   // Check for provider overrides first
-  const overrideVendor = providerOverrides.get(hostname)
-  const vendor = overrideVendor || detectVendorFromUrl(url)
-
   const provider = new RestVendorProvider(vendor, url)
 
   // Cache the provider
@@ -224,6 +226,7 @@ export function resolveVendorProvider(url: string): VendorProvider {
  * Get vendor provider for a specific vendor type and hostname
  */
 export function getVendorProvider(vendor: GitVendor, hostname: string): VendorProvider {
+  assertGitVendorEnabled(vendor, "vendor provider resolution")
   const key = `${vendor}:${hostname.toLowerCase()}`
 
   if (providerRegistry.has(key)) {

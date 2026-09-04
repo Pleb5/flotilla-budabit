@@ -1,4 +1,5 @@
 import { getGitServiceApi } from "@nostr-git/core";
+import { isGitVendorEnabled } from "@nostr-git/core/git";
 import {
   hasMatchingGraspRepoCloneUrl,
   normalizeRelayUrl as canonicalizeRelayUrl,
@@ -150,6 +151,7 @@ export function buildRemoteTargetOptions(params: {
 
   for (const [host, sampleToken] of tokenByHost.entries()) {
     const provider = inferRemoteTargetProvider(host, sampleToken);
+    if (provider && !isGitVendorEnabled(provider)) continue;
     if (!provider) {
       targetMap.set(`unsupported:${host}`, {
         id: `unsupported:${host}`,
@@ -251,6 +253,13 @@ export async function preflightRemoteTargets(params: {
   return await Promise.all(
     targets.map(async (target) => {
       if (target.status === "unsupported") return target;
+      if (!isGitVendorEnabled(target.provider)) {
+        return {
+          ...target,
+          status: "unsupported" as const,
+          detail: `${getRemoteTargetProviderLabel(target.provider)} provider is disabled`,
+        };
+      }
 
       if (target.provider === "grasp") {
         if (!target.relayUrl) {

@@ -24,6 +24,7 @@
   import {get} from "svelte/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
+  import {detectVendorFromUrl, isGitVendorEnabled} from "@nostr-git/core/git"
 
   type Props = {
     editToken?: TokenEntry
@@ -48,6 +49,14 @@
 
   const githubTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "github")
   const gitlabTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "gitlab")
+  const providerDisabled = $derived.by(() => {
+    const normalizedHost = host.trim()
+    if (!normalizedHost) return false
+    const url = /^\w+:\/\//.test(normalizedHost)
+      ? normalizedHost
+      : `https://${normalizedHost}`
+    return !isGitVendorEnabled(detectVendorFromUrl(url))
+  })
 
   function capabilityPillClass(capability: TokenCapability) {
     const base =
@@ -116,6 +125,11 @@
     // Basic validation
     if (!cleanHost || !cleanToken) {
       error = "Both host and token are required"
+      return
+    }
+
+    if (providerDisabled) {
+      error = "This Git provider is disabled. Existing tokens can only be deleted."
       return
     }
 
@@ -220,7 +234,12 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <input bind:value={host} class="grow" type="text" placeholder="git.example.com" />
+          <input
+            bind:value={host}
+            class="grow"
+            type="text"
+            placeholder="git.example.com"
+            disabled={providerDisabled && Boolean(editToken)} />
         </label>
       {/snippet}
     </Field>
@@ -234,6 +253,7 @@
             bind:value={token}
             type="password"
             class="grow"
+            disabled={providerDisabled && Boolean(editToken)}
             placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
         </label>
       {/snippet}
@@ -269,7 +289,7 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={busy}>
+    <Button type="submit" class="btn btn-primary" disabled={busy || providerDisabled}>
       <Spinner loading={busy}>{editToken ? "Save Changes" : "Add"}</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>

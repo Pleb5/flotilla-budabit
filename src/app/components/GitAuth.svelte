@@ -27,6 +27,7 @@
   import DangerTriangle from "@assets/icons/danger-triangle.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
+  import {detectVendorFromUrl, isGitVendorEnabled} from "@nostr-git/core/git"
 
   interface TokenEntry {
     host: string
@@ -74,6 +75,12 @@
 
   function getCapabilityCheck(token: TokenEntry) {
     return capabilityChecks[tokenKey(token)]
+  }
+
+  function isTokenProviderEnabled(token: TokenEntry) {
+    const host = token.host.trim()
+    const url = /^\w+:\/\//.test(host) ? host : `https://${host}`
+    return isGitVendorEnabled(detectVendorFromUrl(url))
   }
 
   function capabilityPillClass(capability: TokenCapability) {
@@ -251,6 +258,8 @@
       <Button
         class="btn btn-primary btn-sm shrink-0"
         aria-label="Edit token"
+        title={isTokenProviderEnabled(t) ? "Edit token" : "Provider disabled; delete only"}
+        disabled={!isTokenProviderEnabled(t)}
         onclick={() => editToken(t)}>
         <Icon icon={Pen} />
       </Button>

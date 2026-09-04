@@ -1,5 +1,6 @@
 import {resolveCorsProxyForUrl} from "../utils/grasp-url.js"
 import type {GitNaturalInfoRefs} from "./natural-read-cache.js"
+import {assertGitRemoteUrlEnabled} from "./vendor-providers.js"
 
 export type GitNaturalReadErrorCode =
   | "feature-disabled"
@@ -92,6 +93,7 @@ export function resolveNaturalReadTransport(
   remoteUrl: string,
   corsProxy?: string | null,
 ): GitNaturalTransport {
+  assertGitRemoteUrlEnabled(remoteUrl, "Git natural read")
   const proxy = resolveCorsProxyForUrl(remoteUrl, corsProxy)
   if (!proxy) {
     return {

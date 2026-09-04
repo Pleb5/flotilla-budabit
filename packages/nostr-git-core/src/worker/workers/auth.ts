@@ -1,6 +1,8 @@
 // Authentication utilities extracted from git-worker
 // Keeps a simple token-per-host configuration and provides onAuth callbacks
 
+import {isGitRemoteUrlEnabled} from "../../git/vendor-providers.js"
+
 export interface AuthToken {
   host: string
   token: string
@@ -27,8 +29,14 @@ function isLikelyGitLab(hostname: string, tokenHost: string, token: string): boo
 }
 
 export function setAuthConfig(config: AuthConfig): void {
-  authConfig = config
-  console.log("Git worker authentication configured for", config.tokens.length, "hosts")
+  authConfig = {
+    ...config,
+    tokens: config.tokens.filter(token => {
+      const remote = /^\w+:\/\//.test(token.host) ? token.host : `https://${token.host}`
+      return isGitRemoteUrlEnabled(remote)
+    }),
+  }
+  console.log("Git worker authentication configured for", authConfig.tokens.length, "hosts")
 }
 
 /**

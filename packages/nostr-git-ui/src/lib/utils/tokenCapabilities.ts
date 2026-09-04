@@ -1,4 +1,5 @@
 import type { Token } from "../stores/tokens.js";
+import { isGitVendorEnabled } from "@nostr-git/core/git";
 import {
   getProviderBaseUrl,
   getRemoteTargetProviderLabel,
@@ -261,6 +262,16 @@ export async function checkTokenCapabilities(
       normalizedHost,
       provider: provider || "unknown",
       error: "Host and token are required.",
+    });
+  }
+
+  if (provider && !isGitVendorEnabled(provider)) {
+    return invalidResult({
+      host,
+      normalizedHost,
+      provider,
+      error: `${getRemoteTargetProviderLabel(provider)} provider is disabled. This token is retained for deletion only.`,
+      unsupported: true,
     });
   }
 

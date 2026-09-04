@@ -1,6 +1,13 @@
 import type { Token } from "../stores/tokens.js";
 import { createHostMatcher, matchesHost } from "./tokenMatcher.js";
 import { AllTokensFailedError, TokenNotFoundError } from "./tokenErrors.js";
+import { isGitRemoteUrlEnabled } from "@nostr-git/core/git";
+
+function isTokenHostEnabled(host: string): boolean {
+  const normalized = String(host || "").trim();
+  if (!normalized) return false;
+  return isGitRemoteUrlEnabled(/^\w+:\/\//.test(normalized) ? normalized : `https://${normalized}`);
+}
 
 /**
  * Try all tokens for a given host until one succeeds.
@@ -23,7 +30,7 @@ export async function tryTokensForHost<T>(
     ? createHostMatcher(hostMatcher)
     : hostMatcher;
   
-  const matchingTokens = tokens.filter((t) => matcher(t.host));
+  const matchingTokens = tokens.filter((t) => isTokenHostEnabled(t.host) && matcher(t.host));
 
   if (matchingTokens.length === 0) {
     const hostname = typeof hostMatcher === 'string' ? hostMatcher : 'specified host';
@@ -65,5 +72,5 @@ export function getTokensForHost(
     ? createHostMatcher(hostMatcher)
     : hostMatcher;
   
-  return tokens.filter((t) => matcher(t.host));
+  return tokens.filter((t) => isTokenHostEnabled(t.host) && matcher(t.host));
 }

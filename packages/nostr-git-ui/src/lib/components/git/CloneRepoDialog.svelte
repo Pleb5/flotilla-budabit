@@ -2,6 +2,7 @@
   import { useRegistry } from "../../useRegistry";
   const { Button } = useRegistry();
   import type { NostrEvent } from "nostr-tools";
+  import { isGitRemoteUrlEnabled } from "@nostr-git/core/git";
 
   interface Props {
     isOpen: boolean;
@@ -58,6 +59,10 @@
     try {
       const parsedUrl = new URL(url);
 
+      if (!isGitRemoteUrlEnabled(url)) {
+        return "This Git provider is disabled";
+      }
+
       // Check for supported protocols
       if (!["http:", "https:"].includes(parsedUrl.protocol)) {
         return "Only HTTP and HTTPS URLs are supported";
@@ -65,7 +70,7 @@
 
       // Check for common Git hosting patterns
       const hostname = parsedUrl.hostname.toLowerCase();
-      const supportedHosts = ["github.com", "gitlab.com", "bitbucket.org"];
+      const supportedHosts = ["github.com", "gitlab.com"];
       const isKnownHost = supportedHosts.some(
         (host) => hostname === host || hostname.endsWith("." + host)
       );

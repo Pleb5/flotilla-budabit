@@ -135,4 +135,21 @@ describe("advertised-refs utilities", () => {
     expect(git.listServerRefs).toHaveBeenCalledTimes(1)
     expect(refs).toEqual([{ref: "refs/heads/main", oid: "abc"}])
   })
+
+  it("rejects a GRASP-shaped Bitbucket URL before either refs transport", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const git = {listServerRefs: vi.fn()}
+    const npub = "npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw"
+
+    await expect(
+      listAdvertisedServerRefs(git, {
+        url: `https://bitbucket.org/${npub}/repo.git`,
+        symrefs: true,
+      }),
+    ).rejects.toThrow("Bitbucket provider is disabled for advertised refs")
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(git.listServerRefs).not.toHaveBeenCalled()
+  })
 })

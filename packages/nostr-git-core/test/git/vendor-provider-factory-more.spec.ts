@@ -79,4 +79,13 @@ describe('vendor-provider-factory more edges', () => {
     const bad = parseRepoFromUrl('invalid::');
     expect(bad).toBeNull();
   });
+
+  it('rejects disabled Bitbucket providers before creating an adapter', () => {
+    expect(() => resolveVendorProvider('https://bitbucket.org/team/repo')).toThrow(
+      /Bitbucket provider is disabled/i
+    );
+    expect(() => getVendorProvider('bitbucket', 'bitbucket.org')).toThrow(
+      /Bitbucket provider is disabled/i
+    );
+  });
 });

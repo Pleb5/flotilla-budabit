@@ -91,4 +91,30 @@ describe("IsomorphicGitProvider delegation", () => {
     expect(filter("src/index.ts")).toBe(false)
     expect(callerFilter).toHaveBeenCalledTimes(2)
   })
+
+  it("blocks disabled remotes before raw Git transport calls", async () => {
+    const prov = new IsomorphicGitProvider({fs: {}, http: {}, corsProxy: null})
+    const cloneCalls = (isogit as any).clone.mock.calls.length
+    const fetchCalls = (isogit as any).fetch.mock.calls.length
+    const pushCalls = (isogit as any).push.mock.calls.length
+    const refCalls = (isogit as any).listServerRefs.mock.calls.length
+
+    await expect(
+      prov.clone({dir: "/repo", url: "https://bitbucket.org/team/repo.git"}),
+    ).rejects.toThrow(/Bitbucket provider is disabled for clone/i)
+    await expect(
+      prov.fetch({dir: "/repo", url: "https://bitbucket.org/team/repo.git"}),
+    ).rejects.toThrow(/Bitbucket provider is disabled for fetch/i)
+    await expect(
+      prov.push({dir: "/repo", url: "https://bitbucket.org/team/repo.git"}),
+    ).rejects.toThrow(/Bitbucket provider is disabled for push/i)
+    await expect(
+      prov.listServerRefs({url: "https://bitbucket.org/team/repo.git"}),
+    ).rejects.toThrow(/Bitbucket provider is disabled for remote ref listing/i)
+
+    expect((isogit as any).clone).toHaveBeenCalledTimes(cloneCalls)
+    expect((isogit as any).fetch).toHaveBeenCalledTimes(fetchCalls)
+    expect((isogit as any).push).toHaveBeenCalledTimes(pushCalls)
+    expect((isogit as any).listServerRefs).toHaveBeenCalledTimes(refCalls)
+  })
 })

@@ -152,7 +152,7 @@ describe("worker.pushToRemote API", () => {
     })
   })
 
-  it("fails a strict Nostr remote before Git work when its provider is unavailable", async () => {
+  it("fails a strict Nostr remote before Git work while the direct provider is disabled", async () => {
     await exposed.setEventIO({})
 
     const res = await exposed.pushToRemote({
@@ -165,7 +165,7 @@ describe("worker.pushToRemote API", () => {
     expect(res).toEqual(
       expect.objectContaining({
         success: false,
-        error: "NostrGitProvider is not ready for Nostr repository push",
+        error: "Direct NostrGitProvider is disabled for worker push",
       }),
     )
     expect(addRemoteMock).not.toHaveBeenCalled()
@@ -177,7 +177,47 @@ describe("worker.pushToRemote API", () => {
     expect(pushMock).not.toHaveBeenCalled()
   })
 
-  it("rejects provider-managed Nostr pushes until real state publication exists", async () => {
+  it("rejects an explicit Bitbucket provider before custom-host Git work", async () => {
+    const res = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: "https://git.example.com/owner/repo.git",
+      branch: "main",
+      provider: "bitbucket",
+    })
+
+    expect(res).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: "Bitbucket provider is disabled for worker push",
+      }),
+    )
+    expect(resolveRefMock).not.toHaveBeenCalled()
+    expect(addRemoteMock).not.toHaveBeenCalled()
+    expect(listRemotesMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(httpFetchMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["bitbucket", "Bitbucket provider is disabled for file update"],
+    ["grasp", "GRASP file updates require the coordinated pushToRemote flow"],
+  ])("rejects %s updateAndPushFiles before local or remote Git work", async (provider, error) => {
+    const res = await exposed.updateAndPushFiles({
+      dir: "/repos/owner/repo",
+      files: [{path: "README.md", content: "updated"}],
+      commitMessage: "Update README",
+      token: "token",
+      provider,
+    })
+
+    expect(res).toEqual({success: false, error})
+    expect(resolveRefMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects provider-managed Nostr pushes while the direct provider is disabled", async () => {
     const pushSpy = vi.fn(async () => ({}))
     nostrProviderMock = {push: pushSpy}
     await exposed.setEventIO({})
@@ -194,8 +234,7 @@ describe("worker.pushToRemote API", () => {
     expect(res).toEqual(
       expect.objectContaining({
         success: false,
-        error:
-          "Provider-managed Nostr repository pushes are unavailable until real state publication is implemented",
+        error: "Direct NostrGitProvider is disabled for worker push",
       }),
     )
     expect(pushSpy).not.toHaveBeenCalled()
@@ -203,7 +242,7 @@ describe("worker.pushToRemote API", () => {
     expect(addRemoteMock).not.toHaveBeenCalled()
   })
 
-  it("fails a Nostr provider push with empty relay scope before provider or git work", async () => {
+  it("applies the direct-provider policy before validating Nostr relay scope", async () => {
     const pushSpy = vi.fn(async () => ({}))
     nostrProviderMock = {push: pushSpy}
     await exposed.setEventIO({})
@@ -219,7 +258,7 @@ describe("worker.pushToRemote API", () => {
     expect(res).toEqual(
       expect.objectContaining({
         success: false,
-        error: "Nostr repository push requires at least one explicit repository relay",
+        error: "Direct NostrGitProvider is disabled for worker push",
       }),
     )
     expect(pushSpy).not.toHaveBeenCalled()
@@ -228,16 +267,12 @@ describe("worker.pushToRemote API", () => {
     consoleError.mockRestore()
   })
 
-  it("rejects failed EventIO configuration and does not reuse a stale Nostr provider", async () => {
+  it("configures EventIO without initializing or reusing the disabled direct provider", async () => {
     const stalePush = vi.fn(async () => ({}))
     nostrProviderMock = {push: stalePush}
     await exposed.setEventIO({id: "working"})
-
-    const initializationError = new Error("provider initialization failed")
-    initializeNostrGitProviderMock.mockRejectedValueOnce(initializationError)
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
-
-    await expect(exposed.setEventIO({id: "broken"})).rejects.toBe(initializationError)
+    await exposed.setEventIO({id: "replacement"})
+    expect(initializeNostrGitProviderMock).not.toHaveBeenCalled()
 
     const nostrResult = await exposed.pushToRemote({
       repoId: "owner/repo",
@@ -248,7 +283,7 @@ describe("worker.pushToRemote API", () => {
     expect(nostrResult).toEqual(
       expect.objectContaining({
         success: false,
-        error: "NostrGitProvider is not ready for Nostr repository push",
+        error: "Direct NostrGitProvider is disabled for worker push",
       }),
     )
     expect(stalePush).not.toHaveBeenCalled()
@@ -266,34 +301,13 @@ describe("worker.pushToRemote API", () => {
     })
     expect(standardResult.success).toBe(true)
     expect(pushMock).toHaveBeenCalledTimes(1)
-    consoleError.mockRestore()
   })
 
-  it("serializes concurrent EventIO configuration attempts", async () => {
-    let releaseFirst!: () => void
-    initializeNostrGitProviderMock
-      .mockImplementationOnce(
-        async () =>
-          await new Promise<void>(resolve => {
-            releaseFirst = resolve
-          }),
-      )
-      .mockResolvedValueOnce(undefined)
-
+  it("accepts concurrent EventIO configuration without direct-provider initialization", async () => {
     const first = exposed.setEventIO({id: "first"})
     const second = exposed.setEventIO({id: "second"})
-    await vi.waitFor(() => expect(initializeNostrGitProviderMock).toHaveBeenCalledTimes(1))
-
-    releaseFirst()
     await Promise.all([first, second])
-
-    expect(initializeNostrGitProviderMock).toHaveBeenCalledTimes(2)
-    expect(initializeNostrGitProviderMock).toHaveBeenNthCalledWith(1, {
-      eventIO: {id: "first"},
-    })
-    expect(initializeNostrGitProviderMock).toHaveBeenNthCalledWith(2, {
-      eventIO: {id: "second"},
-    })
+    expect(initializeNostrGitProviderMock).not.toHaveBeenCalled()
   })
 
   it.each([

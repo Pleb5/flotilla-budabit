@@ -2,6 +2,12 @@
 // Supports GitHub, GitLab, Gitea, Bitbucket and generic Git providers
 
 import {isGraspRelayUrl, isGraspRepoHttpUrl} from "../utils/grasp-url.js"
+import {
+  ENABLE_DIRECT_NOSTR_GIT_PROVIDER,
+  assertDirectNostrGitProviderEnabled,
+  assertGitVendorEnabled,
+  isGitVendorEnabled,
+} from "./provider-policy.js"
 
 export type GitVendor =
   | "github"
@@ -93,9 +99,7 @@ export interface UpdateRepoOptions {
 export function detectVendorFromUrl(url: string): GitVendor {
   const normalizedUrl = url.toLowerCase()
 
-  if (isGraspRepoHttpUrl(url) || isGraspRelayUrl(url)) {
-    return "grasp-rest"
-  } else if (normalizedUrl.includes("github.com")) {
+  if (normalizedUrl.includes("github.com")) {
     return "github"
   } else if (normalizedUrl.includes("gitlab.com") || normalizedUrl.includes("gitlab.")) {
     return "gitlab"
@@ -103,9 +107,26 @@ export function detectVendorFromUrl(url: string): GitVendor {
     return "gitea"
   } else if (normalizedUrl.includes("bitbucket.org") || normalizedUrl.includes("bitbucket.")) {
     return "bitbucket"
+  } else if (isGraspRepoHttpUrl(url) || isGraspRelayUrl(url)) {
+    return "grasp-rest"
   }
 
   return "generic"
+}
+
+/** Check whether policy permits Git operations against a remote URL. */
+export function isGitRemoteUrlEnabled(url: string): boolean {
+  if (/^nostr:(?:\/\/)?/i.test(url)) return ENABLE_DIRECT_NOSTR_GIT_PROVIDER
+  return isGitVendorEnabled(detectVendorFromUrl(url))
+}
+
+/** Reject a disabled remote before any provider or transport can use it. */
+export function assertGitRemoteUrlEnabled(url: string, operation?: string): void {
+  if (/^nostr:(?:\/\/)?/i.test(url)) {
+    assertDirectNostrGitProviderEnabled(operation)
+    return
+  }
+  assertGitVendorEnabled(detectVendorFromUrl(url), operation)
 }
 
 /**

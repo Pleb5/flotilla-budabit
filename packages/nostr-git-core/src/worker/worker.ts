@@ -155,6 +155,15 @@ import {
 } from "../utils/clone-url-fallback.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
 import {sanitizeRelays} from "../utils/sanitize-relays.js"
+import {
+  ENABLE_DIRECT_NOSTR_GIT_PROVIDER,
+  assertDirectNostrGitProviderEnabled,
+  assertGitVendorEnabled,
+} from "../git/provider-policy.js"
+import {
+  assertGitRemoteUrlEnabled,
+  type GitVendor,
+} from "../git/vendor-providers.js"
 
 import type {AuthConfig} from "./workers/auth.js"
 import {getAuthCallback, getConfiguredAuthHosts, setAuthConfig} from "./workers/auth.js"
@@ -1128,18 +1137,23 @@ const api = {
   // Configuration
   async setEventIO(io: EventIO): Promise<void> {
     const configure = async () => {
-      eventIO = null
+      eventIO = io
       nostrGitProviderReady = false
-      try {
-        await initializeNostrGitProvider({eventIO: io})
-        eventIO = io
-        nostrGitProviderReady = true
-        console.log("[Worker] NostrGitProvider initialized successfully")
-      } catch (err) {
-        eventIO = null
-        nostrGitProviderReady = false
-        console.error("[Worker] Failed to initialize NostrGitProvider:", err)
-        throw err
+      DIRECT_NOSTR_GIT_PROVIDER: {
+        if (!ENABLE_DIRECT_NOSTR_GIT_PROVIDER) {
+          console.log("[Worker] EventIO configured; direct NostrGitProvider is disabled")
+          break DIRECT_NOSTR_GIT_PROVIDER
+        }
+        try {
+          await initializeNostrGitProvider({eventIO: io})
+          nostrGitProviderReady = true
+          console.log("[Worker] NostrGitProvider initialized successfully")
+        } catch (err) {
+          eventIO = null
+          nostrGitProviderReady = false
+          console.error("[Worker] Failed to initialize NostrGitProvider:", err)
+          throw err
+        }
       }
     }
 
@@ -1816,6 +1830,20 @@ const api = {
       operationId,
       expectedSourceOid,
     } = opts
+
+    try {
+      if (provider) assertGitVendorEnabled(provider as GitVendor, "worker push")
+      assertGitRemoteUrlEnabled(remoteUrl, "worker push")
+    } catch (error) {
+      return toPlain({
+        success: false,
+        repoId,
+        remoteUrl,
+        ...formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"}),
+        error: getErrorMessageWithDetails(error),
+      })
+    }
+
     const {key, dir} = repoKeyAndDir(repoId)
     const targetBranch = branch || "main"
     if (expectedSourceOid) {
@@ -1846,7 +1874,7 @@ const api = {
           : [normalizePushRef(targetBranch)],
       ),
     )
-    const isNostrUrl = /^nostr:\/\//i.test(remoteUrl) || isGraspRepoHttpUrl(remoteUrl)
+    const isNostrUrl = /^nostr:(?:\/\/)?/i.test(remoteUrl) || isGraspRepoHttpUrl(remoteUrl)
     let explicitGraspTarget: ReturnType<typeof validateExplicitGraspPush> | null = null
     const operation = beginTrackedOperation(operationId, "pushToRemote", "Preparing push")
 
@@ -1854,15 +1882,18 @@ const api = {
       if (provider === "grasp") {
         explicitGraspTarget = validateExplicitGraspPush({remoteUrl, token, repoRelays})
       } else if (isNostrUrl) {
-        if (!nostrGitProviderReady || !hasNostrGitProvider()) {
-          throw new Error("NostrGitProvider is not ready for Nostr repository push")
+        assertDirectNostrGitProviderEnabled("worker push")
+        DIRECT_NOSTR_GIT_PROVIDER: {
+          if (!nostrGitProviderReady || !hasNostrGitProvider()) {
+            throw new Error("NostrGitProvider is not ready for Nostr repository push")
+          }
+          if (sanitizeRelays(repoRelays || []).length === 0) {
+            throw new Error("Nostr repository push requires at least one explicit repository relay")
+          }
+          throw new Error(
+            "Provider-managed Nostr repository pushes are unavailable until real state publication is implemented",
+          )
         }
-        if (sanitizeRelays(repoRelays || []).length === 0) {
-          throw new Error("Nostr repository push requires at least one explicit repository relay")
-        }
-        throw new Error(
-          "Provider-managed Nostr repository pushes are unavailable until real state publication is implemented",
-        )
       }
     } catch (error) {
       const message = getErrorMessageWithDetails(error)
@@ -2452,7 +2483,7 @@ const api = {
         }
       }
 
-      if (isNostrUrl) {
+      DIRECT_NOSTR_GIT_PROVIDER: if (isNostrUrl) {
         const explicitRepoRelays = sanitizeRelays(repoRelays || [])
         if (explicitRepoRelays.length === 0) {
           throw new Error("Nostr repository push requires at least one explicit repository relay")

@@ -74,6 +74,18 @@ export {
 } from "./git/index.js"
 
 export {getGitServiceApi, getGitServiceApiFromUrl} from "./git/provider-factory.js"
+export {
+  ENABLE_BITBUCKET_PROVIDER,
+  ENABLE_DIRECT_NOSTR_GIT_PROVIDER,
+  assertDirectNostrGitProviderEnabled,
+  assertGitVendorEnabled,
+  isGitVendorEnabled,
+} from "./git/provider-policy.js"
+export {
+  assertGitRemoteUrlEnabled,
+  detectVendorFromUrl,
+  isGitRemoteUrlEnabled,
+} from "./git/vendor-providers.js"
 // API type exports
 export type {
   GitServiceApi,

@@ -108,14 +108,8 @@ describe("api/git-provider", () => {
     expect(setTokensSpy).toHaveBeenCalledWith(tokens)
   })
 
-  it("initializeNostrGitProvider is async and populates getNostrGitProvider/hasNostrGitProvider", async () => {
-    const nostrUnderlying = {__kind: "nostr-underlying"}
-    const nostrProvider = {
-      getGitProvider: () => nostrUnderlying,
-    }
-
-    const createFromEnv = vi.fn(async () => nostrProvider)
-
+  it("blocks direct NostrGitProvider lifecycle while retaining ordinary and GRASP Git routing", async () => {
+    const createFromEnv = vi.fn(async () => ({}))
     vi.doMock("../../src/git/factory.js", () => ({
       createGitProvider: () => ({__kind: "base"}),
     }))
@@ -131,7 +125,6 @@ describe("api/git-provider", () => {
       createNostrGitProviderFromEnv: createFromEnv,
     }))
 
-    // Only used as a value import; we don't rely on instance checks.
     vi.doMock("../../src/api/providers/nostr-git-provider.js", () => ({
       NostrGitProvider: class {},
     }))
@@ -139,31 +132,24 @@ describe("api/git-provider", () => {
     const mod = await loadModule()
 
     expect(mod.hasNostrGitProvider()).toBe(false)
-    expect(() => mod.getNostrGitProvider()).toThrow(/not initialized/i)
+    expect(() => mod.getNostrGitProvider()).toThrow(/Direct NostrGitProvider is disabled/i)
 
     const io = {signEvent: async (e: any) => e} as any
-    await expect(mod.initializeNostrGitProvider({eventIO: io})).resolves.toBeTruthy()
-
-    expect(createFromEnv).toHaveBeenCalledTimes(1)
-    expect(mod.hasNostrGitProvider()).toBe(true)
-    expect(mod.getNostrGitProvider()).toBe(nostrProvider)
-
-    // Nostr URL routes to Nostr provider's underlying GitProvider
-    expect(mod.getProviderForUrl("nostr://whatever")).toBe(nostrUnderlying)
-
-    // Non-nostr URL routes to default provider
-    expect(mod.getProviderForUrl("https://example.com/x/y")).toBe(mod.getGitProvider())
-
-    createFromEnv.mockRejectedValueOnce(new Error("provider initialization failed"))
     await expect(mod.initializeNostrGitProvider({eventIO: io})).rejects.toThrow(
-      "provider initialization failed",
+      /Direct NostrGitProvider is disabled/i,
     )
-    expect(mod.hasNostrGitProvider()).toBe(false)
-    expect(() => mod.getNostrGitProvider()).toThrow(/not initialized/i)
-    expect(() => mod.getProviderForUrl("nostr://whatever")).toThrow(/not initialized/i)
+    expect(createFromEnv).not.toHaveBeenCalled()
+    expect(() => mod.getProviderForUrl("nostr://whatever")).toThrow(
+      /Direct NostrGitProvider is disabled/i,
+    )
+    expect(() => mod.getProviderForUrl("NOSTR://whatever")).toThrow(
+      /Direct NostrGitProvider is disabled/i,
+    )
+    expect(mod.getProviderForUrl("https://example.com/x/y")).toBe(mod.getGitProvider())
+    expect(mod.getProviderForUrl(graspRepoUrl)).toBe(mod.getGitProvider())
   })
 
-  it("getProviderForUrl throws for nostr URLs if NostrGitProvider is not initialized", async () => {
+  it("getProviderForUrl rejects Nostr URLs before provider initialization", async () => {
     vi.doMock("../../src/git/factory.js", () => ({
       createGitProvider: () => ({__kind: "base"}),
     }))
@@ -184,7 +170,9 @@ describe("api/git-provider", () => {
 
     const mod = await loadModule()
 
-    expect(() => mod.getProviderForUrl("nostr://repo")).toThrow(/not initialized/i)
-    expect(() => mod.getProviderForUrl(graspRepoUrl)).toThrow(/not initialized/i)
+    expect(() => mod.getProviderForUrl("nostr://repo")).toThrow(
+      /Direct NostrGitProvider is disabled/i,
+    )
+    expect(mod.getProviderForUrl(graspRepoUrl)).toBe(mod.getGitProvider())
   })
 })

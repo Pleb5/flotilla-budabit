@@ -1,5 +1,6 @@
 import type { NostrEvent } from "nostr-tools";
 import { createRepoStateEvent } from "@nostr-git/core/events";
+import { assertGitRemoteUrlEnabled, isGitRemoteUrlEnabled } from "@nostr-git/core/git";
 import { tokens as tokensStore } from "../stores/tokens.js";
 import { tryTokensForHost, getTokensForHost } from "../utils/tokenHelpers.js";
 
@@ -47,6 +48,15 @@ export function useCloneRepo(options: CloneRepoOptions): CloneRepoHook {
     try {
       onProgress?.("Initializing clone operation...", 0);
 
+      if (!url.trim()) {
+        throw new Error("Repository URL is required");
+      }
+      assertGitRemoteUrlEnabled(url, "clone");
+
+      if (!destinationPath.trim()) {
+        throw new Error("Destination path is required");
+      }
+
       // Get the git worker instance using dynamic import
       // This avoids circular dependency issues
       let api: any;
@@ -56,15 +66,6 @@ export function useCloneRepo(options: CloneRepoOptions): CloneRepoHook {
         const { getGitWorker } = await import("@nostr-git/core");
         const workerInstance = await getGitWorker();
         api = workerInstance.api;
-      }
-
-      // Validate inputs
-      if (!url.trim()) {
-        throw new Error("Repository URL is required");
-      }
-
-      if (!destinationPath.trim()) {
-        throw new Error("Destination path is required");
       }
 
       // Sanitize destination path
@@ -226,6 +227,16 @@ export function parseRepositoryUrl(url: string): {
 } {
   try {
     const parsedUrl = new URL(url);
+
+    if (!isGitRemoteUrlEnabled(url)) {
+      return {
+        hostname: "",
+        owner: "",
+        name: "",
+        slug: "",
+        isValid: false,
+      };
+    }
     const pathParts = parsedUrl.pathname.split("/").filter(Boolean);
 
     if (pathParts.length < 2) {
@@ -274,6 +285,10 @@ export function validateRepositoryUrl(url: string): {
   try {
     const parsedUrl = new URL(url);
 
+    if (!isGitRemoteUrlEnabled(url)) {
+      return { isValid: false, error: "This Git provider is disabled" };
+    }
+
     // Check protocol
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
       return { isValid: false, error: "Only HTTP and HTTPS URLs are supported" };
@@ -287,7 +302,7 @@ export function validateRepositoryUrl(url: string): {
 
     // Check for common Git hosting patterns
     const hostname = parsedUrl.hostname.toLowerCase();
-    const supportedHosts = ["github.com", "gitlab.com", "bitbucket.org"];
+    const supportedHosts = ["github.com", "gitlab.com"];
     const isKnownHost = supportedHosts.some(
       (host) => hostname === host || hostname.endsWith("." + host)
     );

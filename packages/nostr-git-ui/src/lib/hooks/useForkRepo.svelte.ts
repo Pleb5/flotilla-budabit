@@ -5,6 +5,7 @@ import type {
   NostrEvent,
 } from "@nostr-git/core/events";
 import { createRepoAnnouncementEvent, createRepoStateEvent } from "@nostr-git/core/events";
+import { isGitRemoteUrlEnabled, isGitVendorEnabled } from "@nostr-git/core/git";
 import {
   hasMatchingGraspRepoCloneUrl,
   parseGraspRepoHttpUrl,
@@ -250,7 +251,7 @@ function buildSourceCloneCandidates(...urls: Array<string | undefined>): string[
     const normalized = String(value || "")
       .trim()
       .replace(/\/+$/, "");
-    if (!normalized || candidates.includes(normalized)) return;
+    if (!normalized || !isGitRemoteUrlEnabled(normalized) || candidates.includes(normalized)) return;
     candidates.push(normalized);
 
     if (/^https?:\/\//i.test(normalized)) {
@@ -718,6 +719,12 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       selectedTargets = (config.targets || []).filter((target) => Boolean(target?.id));
       if (selectedTargets.length === 0) {
         throw new Error("Select at least one writable fork target");
+      }
+      const disabledTarget = selectedTargets.find(
+        (target) => !isGitVendorEnabled(target.provider)
+      );
+      if (disabledTarget) {
+        throw new Error(`${disabledTarget.label} provider is disabled for repository fork`);
       }
 
       const selectedGraspRelays = selectedTargets

@@ -1,10 +1,18 @@
 import * as esbuild from 'esbuild';
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
+const providerPolicy = await import(
+  `${pathToFileURL(path.join(rootDir, 'dist/git/provider-policy.js')).href}?build=${Date.now()}`
+);
+const dropLabels = [];
+if (!providerPolicy.ENABLE_BITBUCKET_PROVIDER) dropLabels.push('BITBUCKET_PROVIDER');
+if (!providerPolicy.ENABLE_DIRECT_NOSTR_GIT_PROVIDER) {
+  dropLabels.push('DIRECT_NOSTR_GIT_PROVIDER');
+}
 
 // Check for watch mode flag
 const watchMode = process.argv.includes('--watch') || process.argv.includes('-w');
@@ -18,6 +26,9 @@ const buildOptions = {
   format: 'esm',
   platform: 'browser',
   outfile: path.join(rootDir, 'dist/worker/worker.bundle.js'),
+  // Fold static provider policy branches so disabled worker-only paths are tree-shaken.
+  minifySyntax: true,
+  dropLabels,
   // Bundle comlink into the worker - it's needed for worker communication
   define: {
     'process.env.NODE_ENV': '"production"',

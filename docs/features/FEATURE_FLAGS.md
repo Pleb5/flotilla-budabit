@@ -14,11 +14,26 @@ Used for debug logging, development-only behavior, and production checks.
 
 ### `__GRASP__`
 
-**Type**: Feature
-**Default**: Enabled unless `FEATURE_GRASP=0`
-**Control**: `FEATURE_GRASP`
+**Type**: Legacy build definition
+**Default**: Defined unless `FEATURE_GRASP=0`
+**Control**: `FEATURE_GRASP` (currently inert)
 
-Enables GRASP and Nostr Git integration paths.
+Production code does not currently read this definition. Modern GRASP create, provision, and push
+flows are enabled independently of the dormant direct `NostrGitProvider`.
+
+### Git Provider Policy
+
+Git provider availability is controlled by static package-level constants in
+`packages/nostr-git-core/src/git/provider-policy.ts`:
+
+- `ENABLE_BITBUCKET_PROVIDER`: `false`
+- `ENABLE_DIRECT_NOSTR_GIT_PROVIDER`: `false`
+
+These constants intentionally keep the implementations in source while allowing bundlers to remove
+disabled operational paths. Change a constant and rebuild the core/UI/app packages to re-enable its
+provider. GitHub, GitLab, Gitea, generic Git, NIP-34 events, modern GRASP, and the internal
+`grasp-rest` adapter remain enabled. Displayed `nostr://` Ngit clone addresses are not affected;
+only attempts to route those addresses through the direct provider are blocked.
 
 ### `__CICD__`
 

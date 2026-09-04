@@ -34,6 +34,18 @@ describe('worker/auth utilities', () => {
     expect(hosts).toEqual(['a.com', 'b.com']);
   });
 
+  it('does not configure tokens for disabled Bitbucket hosts', async () => {
+    setAuthConfig({ tokens: [
+      { host: 'bitbucket.org', token: 'plain' },
+      { host: 'https://bitbucket.org', token: 'url' },
+      { host: 'github.com', token: 'enabled' },
+    ] });
+
+    expect(getConfiguredAuthHosts()).toEqual(['github.com']);
+    expect(getAuthCallback('https://bitbucket.org/team/repo.git')).toBeUndefined();
+    expect(await getTokensForHost('bitbucket.org')).toEqual([]);
+  });
+
   it('getTokensForHost matches exact and subdomain variants', async () => {
     setAuthConfig({ tokens: [
       { host: 'example.com', token: 't1' },

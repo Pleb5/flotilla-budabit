@@ -49,6 +49,15 @@ describe('clone-url-fallback utilities', () => {
         'git://other.com/repo',
       ]);
     });
+
+    it('filters out disabled Bitbucket remotes while retaining enabled mirrors', () => {
+      expect(filterValidCloneUrls([
+        'https://bitbucket.org/team/repo.git',
+        'git@bitbucket.org:team/repo.git',
+        'https://github.com/team/repo.git',
+      ])).toEqual(['https://github.com/team/repo.git']);
+      expect(isPushCapableCloneUrl('https://bitbucket.org/team/repo.git')).toBe(false);
+    });
   });
 
   describe('URL preference caching', () => {

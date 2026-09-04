@@ -19,6 +19,11 @@ import {normalizeHttpOrigin} from "../api/providers/grasp-capabilities.js"
 import {GraspRestApiProvider} from "../api/providers/grasp-rest.js"
 import {createInvalidInputError, type GitErrorContext} from "../errors/index.js"
 import {isGraspRelayUrl, isGraspRepoHttpUrl} from "../utils/grasp-url.js"
+import {
+  ENABLE_BITBUCKET_PROVIDER,
+  assertGitVendorEnabled,
+  isGitVendorEnabled,
+} from "./provider-policy.js"
 
 /**
  * Create a GitServiceApi instance for the specified provider
@@ -45,6 +50,8 @@ export function getGitServiceApi(
   token: string,
   baseUrl?: string,
 ): GitServiceApi {
+  assertGitVendorEnabled(provider, "REST API access")
+
   switch (provider) {
     case "github":
       return new GitHubApi(token, baseUrl)
@@ -56,7 +63,13 @@ export function getGitServiceApi(
       return new GiteaApi(token, baseUrl)
 
     case "bitbucket":
-      return new BitbucketApi(token, baseUrl)
+      if (!ENABLE_BITBUCKET_PROVIDER) {
+        throw new Error("Bitbucket provider is disabled for REST API access")
+      }
+      BITBUCKET_PROVIDER: {
+        return new BitbucketApi(token, baseUrl)
+      }
+      throw new Error("Bitbucket provider is unavailable")
 
     case "grasp":
       if (!baseUrl) {
@@ -157,7 +170,15 @@ export function getGitServiceApiFromUrl(url: string, token: string): GitServiceA
  * @returns Array of supported Git service provider names
  */
 export function getAvailableProviders(): GitVendor[] {
-  return ["github", "gitlab", "gitea", "bitbucket", "grasp", "grasp-rest"]
+  const providers: GitVendor[] = [
+    "github",
+    "gitlab",
+    "gitea",
+    "bitbucket",
+    "grasp",
+    "grasp-rest",
+  ]
+  return providers.filter(isGitVendorEnabled)
 }
 
 /**
@@ -167,7 +188,10 @@ export function getAvailableProviders(): GitVendor[] {
  * @returns true if the provider supports REST API operations
  */
 export function supportsRestApi(provider: GitVendor): boolean {
-  return ["github", "gitlab", "gitea", "bitbucket", "grasp", "grasp-rest"].includes(provider)
+  return (
+    isGitVendorEnabled(provider) &&
+    ["github", "gitlab", "gitea", "bitbucket", "grasp", "grasp-rest"].includes(provider)
+  )
 }
 
 /**
@@ -177,6 +201,8 @@ export function supportsRestApi(provider: GitVendor): boolean {
  * @returns Default API base URL for the provider
  */
 export function getDefaultApiBaseUrl(provider: GitVendor): string {
+  assertGitVendorEnabled(provider, "default API URL lookup")
+
   switch (provider) {
     case "github":
       return "https://api.github.com"

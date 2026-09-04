@@ -26,6 +26,7 @@
   import { commonHashtags } from "../../stores/hashtags";
   import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import type { NostrEvent } from "@nostr-git/core";
+  import { isGitRemoteUrlEnabled } from "@nostr-git/core/git";
   import type { Token } from "$lib/stores/tokens";
   import type { ForkResult, ForkConfig } from "../../hooks/useForkRepo.svelte";
   import { toast } from "../../stores/toast";
@@ -305,7 +306,12 @@
   const cloneUrl = $derived(
     (sourceCloneUrls.length > 0 ? sourceCloneUrls : repo.clone || []).find((url) => {
       const trimmed = String(url || "").trim();
-      return trimmed && !trimmed.startsWith("nostr://") && !trimmed.startsWith("nostr:");
+      return (
+        trimmed &&
+        !trimmed.startsWith("nostr://") &&
+        !trimmed.startsWith("nostr:") &&
+        isGitRemoteUrlEnabled(trimmed)
+      );
     }) || ""
   );
   const parsedUrl = $derived(parseCloneUrl(cloneUrl));

@@ -8,6 +8,7 @@
   import {
     filterValidCloneUrls,
     getGitServiceApiFromUrl,
+    isGitVendorEnabled,
     parseRepoUrl,
     updateUrlPreferenceCache,
   } from "@nostr-git/core"
@@ -400,10 +401,11 @@
   const isKnownBackfillVendor = (
     provider: string,
   ): provider is "github" | "gitlab" | "gitea" | "bitbucket" =>
-    provider === "github" ||
-    provider === "gitlab" ||
-    provider === "gitea" ||
-    provider === "bitbucket"
+    isGitVendorEnabled(provider as any) &&
+    (provider === "github" ||
+      provider === "gitlab" ||
+      provider === "gitea" ||
+      provider === "bitbucket")
 
   const getKnownBackfillVendorLabel = (provider: "github" | "gitlab" | "gitea" | "bitbucket") => {
     if (provider === "github") return "GitHub"

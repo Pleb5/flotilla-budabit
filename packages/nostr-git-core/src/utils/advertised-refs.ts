@@ -1,4 +1,5 @@
 import {isGraspRepoHttpUrl, resolveCorsProxyForUrl} from "./grasp-url.js"
+import {assertGitRemoteUrlEnabled} from "../git/vendor-providers.js"
 
 export type AdvertisedServerRef = {
   ref?: string
@@ -214,6 +215,8 @@ export async function listAdvertisedServerRefs(
   git: any,
   opts: {url: string; prefix?: string; symrefs?: boolean; onAuth?: any; corsProxy?: string | null},
 ): Promise<AdvertisedServerRef[]> {
+  assertGitRemoteUrlEnabled(opts.url, "advertised refs")
+
   if (isGraspRepoHttpUrl(opts.url)) {
     const body = await fetchAdvertisedRefsText(opts.url, opts.corsProxy)
     return filterAdvertisedRefs(parseGitUploadPackAdvertisement(body), opts)

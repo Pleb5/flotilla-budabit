@@ -87,4 +87,19 @@ describe("token capability checks", () => {
     expect(getCapability(result, "repoCreate")?.status).toBe("present");
     expect(getCapability(result, "issuesPr")?.status).toBe("present");
   });
+
+  it("retains disabled Bitbucket tokens without making capability requests", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    const result = await checkTokenCapabilities(
+      { host: "bitbucket.org", token: "retained" },
+      { fetchImpl }
+    );
+
+    expect(result.provider).toBe("bitbucket");
+    expect(result.valid).toBe(false);
+    expect(result.unsupported).toBe(true);
+    expect(result.error).toContain("retained for deletion only");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

@@ -38,15 +38,17 @@ describe("provider-factory edge cases", () => {
     expect(() => getGitServiceApi("grasp", "npub")).toThrow(/GRASP provider requires a relay URL/)
   })
 
-  it("supportsRestApi true for all supported providers", () => {
-    for (const p of ["github", "gitlab", "gitea", "bitbucket", "grasp"] as const) {
+  it("supportsRestApi is true only for enabled supported providers", () => {
+    for (const p of ["github", "gitlab", "gitea", "grasp"] as const) {
       expect(supportsRestApi(p)).toBe(true)
     }
+    expect(supportsRestApi("bitbucket")).toBe(false)
   })
 
   it("getAvailableProviders contains all supported providers", () => {
     const ps = getAvailableProviders()
-    expect(ps).toEqual(expect.arrayContaining(["github", "gitlab", "gitea", "bitbucket", "grasp"]))
+    expect(ps).toEqual(expect.arrayContaining(["github", "gitlab", "gitea", "grasp"]))
+    expect(ps).not.toContain("bitbucket")
   })
 
   it("self-hosted gitlab detection succeeds", () => {
@@ -81,10 +83,10 @@ describe("provider-factory edge cases", () => {
     expect(supportsRestApi("generic" as any)).toBe(false)
   })
 
-  it("getDefaultApiBaseUrl returns known URLs for github/gitlab/bitbucket", () => {
+  it("getDefaultApiBaseUrl returns known URLs for enabled hosted providers", () => {
     expect(getDefaultApiBaseUrl("github")).toBe("https://api.github.com")
     expect(getDefaultApiBaseUrl("gitlab")).toBe("https://gitlab.com/api/v4")
-    expect(getDefaultApiBaseUrl("bitbucket")).toBe("https://api.bitbucket.org/2.0")
+    expect(() => getDefaultApiBaseUrl("bitbucket")).toThrow(/Bitbucket provider is disabled/i)
   })
 
   it("github.com detection succeeds", () => {
@@ -92,9 +94,10 @@ describe("provider-factory edge cases", () => {
     expect(api).toBeTruthy()
   })
 
-  it("bitbucket.org detection succeeds", () => {
-    const api = getGitServiceApiFromUrl("https://bitbucket.org/team/repo", "t")
-    expect(api).toBeTruthy()
+  it("blocks bitbucket.org API construction", () => {
+    expect(() => getGitServiceApiFromUrl("https://bitbucket.org/team/repo", "t")).toThrow(
+      /Bitbucket provider is disabled/i,
+    )
   })
 
   it("gitea self-hosted detection succeeds", () => {
@@ -102,9 +105,10 @@ describe("provider-factory edge cases", () => {
     expect(api).toBeTruthy()
   })
 
-  it("bitbucket self-hosted detection succeeds (bitbucket.*)", () => {
-    const api = getGitServiceApiFromUrl("https://bitbucket.example.com/owner/repo", "t")
-    expect(api).toBeTruthy()
+  it("blocks self-hosted bitbucket API construction", () => {
+    expect(() =>
+      getGitServiceApiFromUrl("https://bitbucket.example.com/owner/repo", "t"),
+    ).toThrow(/Bitbucket provider is disabled/i)
   })
 
   it("getGitServiceApi unknown provider throws", () => {

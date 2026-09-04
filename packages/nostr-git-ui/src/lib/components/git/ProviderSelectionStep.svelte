@@ -4,6 +4,7 @@
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement";
   import { sanitizeRelays } from "@nostr-git/core/utils";
+  import { isGitVendorEnabled, type GitVendor } from "@nostr-git/core/git";
   import { onMount } from "svelte";
 
   const { Card, CardContent } = useRegistry();
@@ -108,7 +109,14 @@
         description: "Create repository on Bitbucket.org",
         hasToken: tokens.some((t) => t.host === "bitbucket.org"),
       },
-    ];
+    ].filter((provider) => isGitVendorEnabled(provider.id as GitVendor));
+
+    const enabledSelections = selectedProviders.filter((provider) =>
+      isGitVendorEnabled(provider as GitVendor)
+    );
+    if (enabledSelections.length !== selectedProviders.length) {
+      onProvidersChange(enabledSelections);
+    }
 
     // Mark providers as disabled if they have name conflicts
     availableProviders = providers.map((provider) => {
@@ -125,7 +133,7 @@
     });
 
     // Auto-select first available provider if none selected
-    if (selectedProviders.length === 0 && providers.some((p) => p.hasToken)) {
+    if (enabledSelections.length === 0 && providers.some((p) => p.hasToken)) {
       const firstAvailable = providers.find((p) => p.hasToken);
       if (firstAvailable) {
         onProvidersChange([firstAvailable.id]);
@@ -371,7 +379,7 @@
         <h4 class="font-medium text-foreground">No Authentication Tokens Found</h4>
         <p class="text-sm text-foreground max-w-md mx-auto">
           You need to configure authentication tokens for at least one Git service before creating a
-          repository. Go to Settings to add your GitHub, GitLab, Gitea, or Bitbucket tokens.
+          repository. Go to Settings to add your GitHub, GitLab, or Gitea tokens.
         </p>
       </div>
       <a

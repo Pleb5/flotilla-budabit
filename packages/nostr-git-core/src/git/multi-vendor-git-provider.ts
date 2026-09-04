@@ -12,6 +12,7 @@ import {
   createInvalidInputError,
   type GitErrorContext,
 } from '../errors/index.js';
+import { assertGitRemoteUrlEnabled, isGitRemoteUrlEnabled } from './vendor-providers.js';
 // Core no longer imports isomorphic-git or LightningFS directly; we rely on git-wrapper factory.
 
 /**
@@ -35,6 +36,8 @@ export class MultiVendorGitProvider implements GitProvider {
   setTokens(tokens: Array<{ host: string; token: string }>): void {
     this.tokenStore.clear();
     for (const { host, token } of tokens) {
+      const remote = /^\w+:\/\//.test(host) ? host : `https://${host}`;
+      if (!isGitRemoteUrlEnabled(remote)) continue;
       this.tokenStore.set(host.toLowerCase(), token);
     }
   }
@@ -135,6 +138,7 @@ export class MultiVendorGitProvider implements GitProvider {
   }
 
   clone(options: any): Promise<void> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'clone');
     return this.baseProvider.clone(options);
   }
 
@@ -143,6 +147,7 @@ export class MultiVendorGitProvider implements GitProvider {
   }
 
   fetch(options: any): Promise<any> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'fetch');
     return this.baseProvider.fetch(options);
   }
 
@@ -159,10 +164,12 @@ export class MultiVendorGitProvider implements GitProvider {
   }
 
   pull(options: any): Promise<any> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'pull');
     return this.baseProvider.pull(options);
   }
 
   push(options: any): Promise<any> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'push');
     return this.baseProvider.push(options);
   }
 
@@ -279,10 +286,12 @@ export class MultiVendorGitProvider implements GitProvider {
   }
 
   getRemoteInfo(options: any): Promise<any> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'remote inspection');
     return this.baseProvider.getRemoteInfo(options);
   }
 
   getRemoteInfo2(options: any): Promise<any> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'remote inspection');
     return this.baseProvider.getRemoteInfo2(options);
   }
 
@@ -291,6 +300,7 @@ export class MultiVendorGitProvider implements GitProvider {
   }
 
   listServerRefs(options: any): Promise<any> {
+    if (options?.url) assertGitRemoteUrlEnabled(options.url, 'remote ref listing');
     return this.baseProvider.listServerRefs(options);
   }
 

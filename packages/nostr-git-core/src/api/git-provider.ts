@@ -5,6 +5,10 @@ import {NostrGitProvider} from "./providers/nostr-git-provider.js"
 import {createNostrGitProviderFromEnv} from "./providers/nostr-git-factory.js"
 import type {EventIO} from "../types/index.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
+import {
+  ENABLE_DIRECT_NOSTR_GIT_PROVIDER,
+  assertDirectNostrGitProviderEnabled,
+} from "../git/provider-policy.js"
 
 // Create the multi-vendor GitProvider instance using git-wrapper factory
 let gitProvider: GitProvider = new MultiVendorGitProvider({
@@ -57,6 +61,7 @@ export function setGitTokens(tokens: Array<{host: string; token: string}>) {
 export async function initializeNostrGitProvider(options: {
   eventIO: EventIO
 }): Promise<NostrGitProvider> {
+  assertDirectNostrGitProviderEnabled("initialization")
   const generation = ++nostrGitProviderGeneration
   nostrGitProvider = null
   const provider = await createNostrGitProviderFromEnv(options)
@@ -70,6 +75,7 @@ export async function initializeNostrGitProvider(options: {
  * Returns the configured NostrGitProvider or throws an error if not initialized.
  */
 export function getNostrGitProvider(): NostrGitProvider {
+  assertDirectNostrGitProviderEnabled("provider access")
   if (!nostrGitProvider) {
     throw new Error("NostrGitProvider not initialized. Call initializeNostrGitProvider() first.")
   }
@@ -80,7 +86,7 @@ export function getNostrGitProvider(): NostrGitProvider {
  * Check if NostrGitProvider is available
  */
 export function hasNostrGitProvider(): boolean {
-  return nostrGitProvider !== null
+  return ENABLE_DIRECT_NOSTR_GIT_PROVIDER && nostrGitProvider !== null
 }
 
 /**
@@ -90,8 +96,17 @@ export function hasNostrGitProvider(): boolean {
  * based on the repository URL.
  */
 export function getProviderForUrl(url: string): GitProvider {
-  // Check if URL is Nostr-based
-  if (url.startsWith("nostr://") || isGraspRepoHttpUrl(url)) {
+  const isNostrUrl = /^nostr:(?:\/\/)?/i.test(url)
+  if (isNostrUrl) {
+    assertDirectNostrGitProviderEnabled("Nostr URL routing")
+  }
+
+  // GRASP Smart HTTP uses the ordinary Git provider while the direct provider is disabled.
+  if (isGraspRepoHttpUrl(url) && !ENABLE_DIRECT_NOSTR_GIT_PROVIDER) {
+    return gitProvider
+  }
+
+  if (isNostrUrl || isGraspRepoHttpUrl(url)) {
     if (!nostrGitProvider) {
       throw new Error("NostrGitProvider not initialized for Nostr-based repository")
     }

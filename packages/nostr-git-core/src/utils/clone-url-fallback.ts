@@ -6,7 +6,7 @@
  * Write Operations: Write to ALL URLs and report individual results
  */
 
-import { detectVendorFromUrl } from '../git/vendor-providers.js';
+import { detectVendorFromUrl, isGitRemoteUrlEnabled } from '../git/vendor-providers.js';
 
 export interface UrlAttemptResult<T = unknown> {
   url: string;
@@ -107,7 +107,9 @@ export function clearUrlPreferenceCache(repoId?: string): void {
 export function hasRestApiSupport(url: string): boolean {
   const vendor = detectVendorFromUrl(url);
   // These vendors have REST APIs that can be used for faster repo access
-  return vendor === 'github' || vendor === 'gitlab' || vendor === 'gitea' || vendor === 'bitbucket';
+  return isGitRemoteUrlEnabled(url) && (
+    vendor === 'github' || vendor === 'gitlab' || vendor === 'gitea' || vendor === 'bitbucket'
+  );
 }
 
 /**
@@ -142,7 +144,8 @@ export function filterValidCloneUrls(urls: string[]): string[] {
     const s = String(u || "").trim();
     if (!s) return false;
     // Skip nostr/grasp pseudo URLs
-    if (s.startsWith("nostr://") || s.startsWith("nostr:")) return false;
+    if (/^nostr:(?:\/\/)?/i.test(s)) return false;
+    if (!isGitRemoteUrlEnabled(s)) return false;
     // Accept http(s), ssh, git protocols
     return true;
   });
@@ -150,7 +153,7 @@ export function filterValidCloneUrls(urls: string[]): string[] {
 
 export function isPushCapableCloneUrl(url: string): boolean {
   const value = String(url || "").trim();
-  return (
+  return isGitRemoteUrlEnabled(value) && (
     /^https?:\/\//i.test(value) ||
     /^wss?:\/\//i.test(value) ||
     /^ssh:\/\//i.test(value) ||

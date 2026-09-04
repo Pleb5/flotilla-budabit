@@ -79,6 +79,16 @@ describe("MultiVendorGitProvider (strict)", () => {
     expect(meta.name).toBe("proj")
   })
 
+  it("setTokens retains no usable Bitbucket credentials", () => {
+    m.setTokens([
+      {host: "bitbucket.org", token: "plain"},
+      {host: "https://bitbucket.org", token: "url"},
+    ])
+
+    expect(m.getToken("bitbucket.org")).toBeUndefined()
+    expect(m.getToken("https://bitbucket.org")).toBeUndefined()
+  })
+
   it("updateRemoteRepo without token throws auth required", async () => {
     await expect(m.updateRemoteRepo("https://github.com/o/r", {description: "d"})).rejects.toThrow(
       /auth/i,

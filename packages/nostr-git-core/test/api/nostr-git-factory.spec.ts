@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it, vi} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 import {
   createNostrGitProvider,
   createNostrGitProviderFromEnv,
@@ -11,43 +11,28 @@ const eventIO = {
   publishEvent: vi.fn(),
 } as any
 
-const originalEnvPublish = process.env.NOSTR_PUBLISH_REPO_STATE
-const originalGitPublish = process.env.GIT_CONFIG_NOSTR_PUBLISH_STATE
-
-afterEach(() => {
-  if (originalEnvPublish === undefined) delete process.env.NOSTR_PUBLISH_REPO_STATE
-  else process.env.NOSTR_PUBLISH_REPO_STATE = originalEnvPublish
-
-  if (originalGitPublish === undefined) delete process.env.GIT_CONFIG_NOSTR_PUBLISH_STATE
-  else process.env.GIT_CONFIG_NOSTR_PUBLISH_STATE = originalGitPublish
-})
-
-describe("NostrGitProvider factory state publication defaults", () => {
-  it("disables automatic state publication by default", () => {
-    const provider = createNostrGitProvider({eventIO})
-
-    expect((provider as any).nostrConfig.publishRepoState).toBe(false)
+describe("disabled direct NostrGitProvider factory", () => {
+  it("blocks direct construction", () => {
+    expect(() => createNostrGitProvider({eventIO})).toThrow(/Direct NostrGitProvider is disabled/i)
   })
 
-  it("requires an explicit true environment opt-in", async () => {
-    delete process.env.NOSTR_PUBLISH_REPO_STATE
-    let provider = await createNostrGitProviderFromEnv({eventIO})
-    expect((provider as any).nostrConfig.publishRepoState).toBe(false)
-
-    process.env.NOSTR_PUBLISH_REPO_STATE = "true"
-    provider = await createNostrGitProviderFromEnv({eventIO})
-    expect((provider as any).nostrConfig.publishRepoState).toBe(true)
+  it("blocks environment and git-config construction", async () => {
+    await expect(createNostrGitProviderFromEnv({eventIO})).rejects.toThrow(
+      /Direct NostrGitProvider is disabled/i,
+    )
+    await expect(createNostrGitProviderFromGitConfig({eventIO})).rejects.toThrow(
+      /Direct NostrGitProvider is disabled/i,
+    )
   })
 
-  it("defaults git-config construction to no automatic publication", async () => {
-    delete process.env.GIT_CONFIG_NOSTR_PUBLISH_STATE
-
-    const provider = await createNostrGitProviderFromGitConfig({eventIO})
-
-    expect((provider as any).nostrConfig.publishRepoState).toBe(false)
-  })
-
-  it("recognizes Nostr URL schemes case-insensitively", () => {
-    expect(selectProvider("NOSTR://repository")).toBe("nostr")
+  it("blocks Nostr URLs while leaving GRASP Smart HTTP on the traditional provider", () => {
+    expect(() => selectProvider("NOSTR://repository")).toThrow(
+      /Direct NostrGitProvider is disabled/i,
+    )
+    expect(
+      selectProvider(
+        "https://relay.example.com/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git",
+      ),
+    ).toBe("traditional")
   })
 })

@@ -9,6 +9,7 @@ import {
 } from "@nostr-git/core/errors";
 import {
   detectVendorFromUrl,
+  isGitVendorEnabled,
   type GitNaturalFileContentResult,
   type GitNaturalListCommitsResult,
   type GitNaturalListDirectoryResult,
@@ -1607,6 +1608,7 @@ export class VendorReadRouter {
   private getSupportedVendor(remoteUrl: string): SupportedVendor | null {
     try {
       const v = detectVendorFromUrl(remoteUrl) as any;
+      if (!isGitVendorEnabled(v)) return null;
       if (v === "github") return "github";
       if (v === "gitlab") return "gitlab";
       if (v === "gitea") return "gitea";

@@ -1,6 +1,7 @@
 import * as isogit from "isomorphic-git"
 import {GitFetchResult, GitMergeResult, GitProvider} from "./provider.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
+import {assertGitRemoteUrlEnabled} from "./vendor-providers.js"
 
 export class IsomorphicGitProvider implements GitProvider {
   fs: any
@@ -28,6 +29,28 @@ export class IsomorphicGitProvider implements GitProvider {
     return dir ? {...options, dir} : options
   }
 
+  private async assertRemoteEnabled(options: any, operation: string): Promise<void> {
+    let url = typeof options?.url === "string" ? options.url.trim() : ""
+    const dir = this.pickDir(options || {})
+
+    if (!url && dir) {
+      const remote = String(options?.remote || "origin")
+      try {
+        url = String(
+          (await isogit.getConfig({
+            fs: this.fs,
+            dir,
+            path: `remote.${remote}.url`,
+          })) || "",
+        ).trim()
+      } catch {
+        // Let isomorphic-git report missing or invalid remote configuration.
+      }
+    }
+
+    if (url) assertGitRemoteUrlEnabled(url, operation)
+  }
+
   // Return a tree walker for the given ref (commit-ish)
   TREE(options: {ref: string}) {
     // isomorphic-git exposes TREE as a function for tree-walking
@@ -36,6 +59,7 @@ export class IsomorphicGitProvider implements GitProvider {
   }
   // Repository
   async clone(options: any) {
+    await this.assertRemoteEnabled(options, "clone")
     const corsProxy = this.pickCorsProxy(options)
     return isogit.clone({...this.withDir(options), fs: this.fs, http: this.http, corsProxy})
   }
@@ -43,6 +67,7 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.commit({...this.withDir(options), fs: this.fs})
   }
   async fetch(options: any) {
+    await this.assertRemoteEnabled(options, "fetch")
     const corsProxy = this.pickCorsProxy(options)
     return isogit.fetch({
       ...this.withDir(options),
@@ -61,10 +86,12 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.merge({...this.withDir(options), fs: this.fs}) as Promise<GitMergeResult>
   }
   async pull(options: any) {
+    await this.assertRemoteEnabled(options, "pull")
     const corsProxy = this.pickCorsProxy(options)
     return isogit.pull({...this.withDir(options), fs: this.fs, http: this.http, corsProxy})
   }
   async push(options: any) {
+    await this.assertRemoteEnabled(options, "push")
     // Allow caller to override corsProxy (e.g., set to null for GRASP to disable proxy)
     // Check if corsProxy is explicitly provided in options (even if null/undefined)
     const corsProxy = "corsProxy" in options ? options.corsProxy : this.corsProxy
@@ -171,6 +198,7 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.deleteRemote({...this.withDir(options), fs: this.fs})
   }
   async getRemoteInfo(options: any) {
+    await this.assertRemoteEnabled(options, "remote inspection")
     const corsProxy = this.pickCorsProxy(options)
     return isogit.getRemoteInfo({
       ...options,
@@ -180,6 +208,7 @@ export class IsomorphicGitProvider implements GitProvider {
     })
   }
   async getRemoteInfo2(options: any) {
+    await this.assertRemoteEnabled(options, "remote inspection")
     const corsProxy = this.pickCorsProxy(options)
     return (isogit as any).getRemoteInfo2({
       ...options,
@@ -195,6 +224,7 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.listRemotes({...this.withDir(options), fs: this.fs})
   }
   async listServerRefs(options: any) {
+    await this.assertRemoteEnabled(options, "remote ref listing")
     const corsProxy = this.pickCorsProxy(options)
     return (isogit as any).listServerRefs({
       ...options,
