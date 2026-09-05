@@ -111,6 +111,11 @@ export default defineConfig({
       // workspace TypeScript source; prebundling would inline a duplicate copy
       // of welshman's module-level singletons (Pool, netContext, ...)
       "@pomade/core",
+      // Noble Curves 1.x requires hashes 1.x while app/core code also uses hashes 2.x.
+      // Keep imports contextual instead of prebundling both majors under one bare module ID.
+      "@noble/curves",
+      "@noble/hashes",
+      "@getalby/sdk",
       // Two zod majors coexist (app code uses zod@3, @pomade/core needs its
       // nested zod@4). If zod were prebundled, Vite would rewrite every bare
       // "zod" import to the single optimized copy by name, breaking one side.
