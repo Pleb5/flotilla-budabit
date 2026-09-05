@@ -29,6 +29,16 @@ export type PackfileResult = {
   objects: Map<string, ParsedObject>
 }
 
+type PendingDelta = {
+  kind: "ofs-delta" | "ref-delta"
+  offset: number
+  delta: Uint8Array
+  baseOffset?: number
+  baseHash?: string
+}
+
+type PackEntry = ParsedObject | PendingDelta
+
 const PACK_HEADER_SIZE = 12
 const PACK_CHECKSUM_SIZE = 20
 
@@ -44,18 +54,22 @@ export function parsePackfile(data: Uint8Array): PackfileResult {
   if (version !== 2) throw new Error(`unsupported packfile version: ${version}`)
   const count = readUint32(data, 8)
   const objects = new Map<string, ParsedObject>()
-  const objectsByOffset = new Map<number, ParsedObject>()
+  const objectsByOffset = new Map<number, PackEntry>()
+  const entries: PackEntry[] = []
   let position = PACK_HEADER_SIZE
 
   for (let index = 0; index < count; index++) {
-    const [object, nextPosition] = parseObject(data, position, objects, objectsByOffset)
+    const [entry, nextPosition] = parseObject(data, position, objects, objectsByOffset)
     if (nextPosition <= position) {
       throw new Error(`pack parser did not advance at object ${index + 1}`)
     }
-    objects.set(object.hash, object)
-    objectsByOffset.set(object.offset, object)
+    entries.push(entry)
+    objectsByOffset.set(entry.offset, entry)
+    if (isParsedObject(entry)) objects.set(entry.hash, entry)
     position = nextPosition
   }
+
+  resolvePendingDeltas(entries, objects, objectsByOffset)
 
   const expectedTrailerPosition = data.length - PACK_CHECKSUM_SIZE
   if (position !== expectedTrailerPosition) {
@@ -77,8 +91,8 @@ function parseObject(
   data: Uint8Array,
   startPosition: number,
   objects: ObjectGetterByHash,
-  objectsByOffset: Map<number, ParsedObject>,
-): [ParsedObject, number] {
+  objectsByOffset: Map<number, PackEntry>,
+): [PackEntry, number] {
   let position = startPosition
   const first = readByte(data, position++)
   let type = (first >> 4) & 0x07
@@ -95,83 +109,95 @@ function parseObject(
 
   let objectData: Uint8Array
   if (type === ObjectType.OFS_DELTA) {
-    const result = parseOfsDelta(
-      data,
-      position,
-      encodedSize,
-      startPosition,
-      objectsByOffset,
-    )
-    objectData = result.data
-    position = result.position
-    type = result.type
+    let byte = readByte(data, position++)
+    let distance = byte & 0x7f
+    while (byte & 0x80) {
+      byte = readByte(data, position++)
+      distance = (distance + 1) * 128 + (byte & 0x7f)
+    }
+    const baseOffset = startPosition - distance
+    let delta: Uint8Array
+    ;[delta, position] = decompressObject(data, position, encodedSize)
+    const baseObject = objectsByOffset.get(baseOffset)
+    if (!baseObject || !isParsedObject(baseObject)) {
+      return [{kind: "ofs-delta", offset: startPosition, delta, baseOffset}, position]
+    }
+    objectData = applyDelta(delta, baseObject.data)
+    type = baseObject.type
   } else if (type === ObjectType.REF_DELTA) {
-    const result = parseRefDelta(data, position, encodedSize, objects)
-    objectData = result.data
-    position = result.position
-    type = result.type
+    if (data.length - position < 20) {
+      throw new Error(`truncated REF-delta base at byte ${position}`)
+    }
+    const baseHash = bytesToHex(data.subarray(position, position + 20))
+    position += 20
+    let delta: Uint8Array
+    ;[delta, position] = decompressObject(data, position, encodedSize)
+    const baseObject = objects.get(baseHash)
+    if (!baseObject) {
+      return [{kind: "ref-delta", offset: startPosition, delta, baseHash}, position]
+    }
+    objectData = applyDelta(delta, baseObject.data)
+    type = baseObject.type
   } else if (isBaseObjectType(type)) {
     ;[objectData, position] = decompressObject(data, position, encodedSize)
   } else {
     throw new Error(`unknown object type ${type} at byte ${startPosition}`)
   }
 
-  return [
-    {
-      type,
-      size: objectData.length,
-      data: objectData,
-      offset: startPosition,
-      hash: computeObjectHash(type, objectData),
-    },
-    position,
-  ]
+  return [createParsedObject(type, objectData, startPosition), position]
 }
 
-function parseOfsDelta(
-  data: Uint8Array,
-  position: number,
-  deltaSize: number,
-  currentOffset: number,
-  objectsByOffset: Map<number, ParsedObject>,
-): {data: Uint8Array; position: number; type: number} {
-  let byte = readByte(data, position++)
-  let distance = byte & 0x7f
-  while (byte & 0x80) {
-    byte = readByte(data, position++)
-    distance = (distance + 1) * 128 + (byte & 0x7f)
-  }
+function resolvePendingDeltas(
+  entries: PackEntry[],
+  objects: Map<string, ParsedObject>,
+  objectsByOffset: Map<number, PackEntry>,
+): void {
+  let unresolved = entries.filter(entry => !isParsedObject(entry)).length
+  while (unresolved > 0) {
+    let resolvedThisPass = 0
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]
+      if (isParsedObject(entry)) continue
+      const baseEntry =
+        entry.kind === "ofs-delta"
+          ? objectsByOffset.get(entry.baseOffset!)
+          : objects.get(entry.baseHash!)
+      if (!baseEntry || !isParsedObject(baseEntry)) continue
 
-  const baseOffset = currentOffset - distance
-  const baseObject = objectsByOffset.get(baseOffset)
-  if (!baseObject) throw new Error(`OFS-delta base object not found at byte ${baseOffset}`)
+      const object = createParsedObject(
+        baseEntry.type,
+        applyDelta(entry.delta, baseEntry.data),
+        entry.offset,
+      )
+      entries[index] = object
+      objectsByOffset.set(object.offset, object)
+      objects.set(object.hash, object)
+      unresolved -= 1
+      resolvedThisPass += 1
+    }
 
-  const [delta, nextPosition] = decompressObject(data, position, deltaSize)
-  return {
-    data: applyDelta(delta, baseObject.data),
-    position: nextPosition,
-    type: baseObject.type,
+    if (resolvedThisPass === 0) {
+      const entry = entries.find(candidate => !isParsedObject(candidate)) as PendingDelta
+      if (entry.kind === "ofs-delta") {
+        throw new Error(`OFS-delta base object not found at byte ${entry.baseOffset}`)
+      }
+      throw new Error(`REF-delta base object not found: ${entry.baseHash}`)
+    }
   }
 }
 
-function parseRefDelta(
-  data: Uint8Array,
-  position: number,
-  deltaSize: number,
-  objects: ObjectGetterByHash,
-): {data: Uint8Array; position: number; type: number} {
-  if (data.length - position < 20) throw new Error(`truncated REF-delta base at byte ${position}`)
-  const baseHash = bytesToHex(data.subarray(position, position + 20))
-  position += 20
-  const baseObject = objects.get(baseHash)
-  if (!baseObject) throw new Error(`REF-delta base object not found: ${baseHash}`)
-
-  const [delta, nextPosition] = decompressObject(data, position, deltaSize)
+function createParsedObject(type: number, data: Uint8Array, offset: number): ParsedObject {
   return {
-    data: applyDelta(delta, baseObject.data),
-    position: nextPosition,
-    type: baseObject.type,
+    type,
+    size: data.length,
+    data,
+    offset,
+    hash: computeObjectHash(type, data),
   }
+}
+
+function isParsedObject(entry: PackEntry): entry is ParsedObject {
+  return "hash" in entry
 }
 
 function decompressObject(
@@ -184,7 +210,9 @@ function decompressObject(
   inflater.push(input, false)
 
   if (inflater.err) {
-    throw new Error(`zlib decompression failed at byte ${position}: ${inflater.msg || inflater.err}`)
+    throw new Error(
+      `zlib decompression failed at byte ${position}: ${inflater.msg || inflater.err}`,
+    )
   }
   if (!inflater.result) {
     throw new Error(`truncated zlib stream at byte ${position}`)

@@ -1,8 +1,13 @@
-import {describe, expect, it, vi} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
 import "fake-indexeddb/auto"
+import {
+  clearUrlPreferenceCache,
+  getCachedUrlPreference,
+} from "../../src/utils/clone-url-fallback.js"
 
-const {fetchMock, fetchMode, reviewMock} = vi.hoisted(() => ({
+const {fetchMock, fetchMode, naturalMode, reviewMock, smartInitializeMock} = vi.hoisted(() => ({
   fetchMode: {failAllTargets: false},
+  naturalMode: {missingFilterHistory: false},
   fetchMock: vi.fn(async ({url, ref}: {url: string; ref?: string}) => {
     if (fetchMode.failAllTargets && url.includes("target")) {
       throw new Error(`target refresh failed for ${url}`)
@@ -11,6 +16,7 @@ const {fetchMock, fetchMode, reviewMock} = vi.hoisted(() => ({
     return {fetchHead: ref || null}
   }),
   reviewMock: vi.fn(async () => ({success: false, error: "review objects incomplete"})),
+  smartInitializeMock: vi.fn(async () => ({success: true})),
 }))
 let exposed: any
 
@@ -42,6 +48,11 @@ vi.mock("../../src/git/natural-read-provider.js", () => ({
     }
 
     async listCommits({url, commitHash}: {url: string; commitHash: string}) {
+      if (naturalMode.missingFilterHistory) {
+        throw Object.assign(new Error(`filter unavailable from ${url}`), {
+          code: "missing-filter-capability",
+        })
+      }
       if (url.includes("source")) {
         const person = {name: "Test", email: "test@example.com", timestamp: 1, timezone: "+0000"}
         return {
@@ -84,7 +95,7 @@ vi.mock("../../src/worker/workers/repos.js", () => ({
   ensureOriginRemoteConfig: vi.fn(),
   ensureShallowCloneUtil: vi.fn(),
   initializeRepoUtil: vi.fn(),
-  smartInitializeRepoUtil: vi.fn(async () => ({success: true})),
+  smartInitializeRepoUtil: smartInitializeMock,
 }))
 
 vi.mock("../../src/api/git-provider.js", () => ({
@@ -96,7 +107,14 @@ vi.mock("../../src/api/git-provider.js", () => ({
 await import("../../src/worker/worker.js")
 
 describe("PR review recovery attempts", () => {
-  it("returns clone-backed source and target recovery evidence", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchMode.failAllTargets = false
+    naturalMode.missingFilterHistory = false
+    clearUrlPreferenceCache()
+  })
+
+  it("does not start clone-backed recovery after generic natural-read failures", async () => {
     const sourceUrls = [
       "https://source-primary.example/repo.git",
       "https://source-secondary.example/repo.git",
@@ -116,24 +134,20 @@ describe("PR review recovery attempts", () => {
       sourceReadScope: "pr-source:event",
     })
 
-    expect(result).toMatchObject({
-      success: false,
-      usedCloneUrl: sourceUrls[1],
-      usedTargetCloneUrl: targetUrls[1],
-    })
+    expect(result).toMatchObject({success: false})
+    expect(result.error).toContain("without missing-filter capability evidence")
     expect(result.sourceAttempts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({url: sourceUrls[0], success: false}),
-        expect.objectContaining({url: sourceUrls[1], success: true}),
-      ]),
+      expect.arrayContaining([expect.objectContaining({url: sourceUrls[0], success: true})]),
     )
     expect(result.targetAttempts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({url: targetUrls[0], success: false}),
-        expect.objectContaining({url: targetUrls[1], success: true}),
+        expect.objectContaining({url: targetUrls[1], success: false}),
       ]),
     )
-    expect(reviewMock).toHaveBeenCalledTimes(2)
+    expect(smartInitializeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(reviewMock).not.toHaveBeenCalled()
   })
 
   it("preserves Git-natural source attempts when target refresh fails", async () => {
@@ -145,31 +159,54 @@ describe("PR review recovery attempts", () => {
       "https://preview-target-primary.example/repo.git",
       "https://preview-target-secondary.example/repo.git",
     ]
-    fetchMode.failAllTargets = true
+    const result = await exposed.getPRPreview({
+      repoId: "owner/preview-repo",
+      sourceBranch: "feature",
+      targetBranch: "main",
+      cloneUrls: targetUrls,
+      sourceCloneUrls: sourceUrls,
+      sourceReadScope: "pr-source:preview",
+    })
 
-    try {
-      const result = await exposed.getPRPreview({
-        repoId: "owner/preview-repo",
-        sourceBranch: "feature",
-        targetBranch: "main",
-        cloneUrls: targetUrls,
-        sourceCloneUrls: sourceUrls,
-        sourceReadScope: "pr-source:preview",
-      })
+    expect(result.success).toBe(false)
+    expect(result.sourceAttempts).toEqual(
+      expect.arrayContaining([expect.objectContaining({url: sourceUrls[0], success: true})]),
+    )
+    expect(result.targetAttempts).toEqual(
+      expect.arrayContaining([expect.objectContaining({url: targetUrls[1], success: false})]),
+    )
+    expect(smartInitializeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 
-      expect(result.success).toBe(false)
-      expect(result.sourceAttempts).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({url: sourceUrls[0], success: true}),
-        ]),
-      )
-      expect(result.targetAttempts).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({url: targetUrls[1], success: false}),
-        ]),
-      )
-    } finally {
-      fetchMode.failAllTargets = false
-    }
+  it("scopes allowed clone recovery to the active remote with capability evidence", async () => {
+    naturalMode.missingFilterHistory = true
+    const urls = ["https://primary.example/repo.git", "https://secondary.example/repo.git"]
+
+    const result = await exposed.getPRReviewData({
+      repoId: "owner/capability-recovery",
+      tipCommitOid: "a".repeat(40),
+      targetCommitOid: "b".repeat(40),
+      targetBranch: "main",
+      cloneUrls: urls,
+    })
+
+    expect(result.success).toBe(false)
+    expect(smartInitializeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        cloneUrls: [urls[1]],
+        strictCloneUrls: true,
+        trackReadPreference: false,
+      }),
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(fetchMock.mock.calls.every(([params]) => params.url === urls[1])).toBe(true)
+    expect(getCachedUrlPreference("owner/capability-recovery")).toMatchObject({
+      preferredUrl: urls[1],
+      lastSuccessAt: 0,
+    })
   })
 })

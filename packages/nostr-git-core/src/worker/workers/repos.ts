@@ -174,7 +174,9 @@ export async function smartInitializeRepoUtil(
           const fetchDepth = repoDataLevels.get(key) === "full" ? undefined : 50
           const configuredCorsProxy = resolveDefaultCorsProxy()
 
-          // Try each URL with fallback until one succeeds
+          // Do not race the repository mutation itself: the browser Git HTTP
+          // transport enforces a 90-second inactivity timeout and settles the
+          // fetch before this fallback can advance or release its repo lock.
           fetchResult = await withUrlFallback(
             orderedUrls,
             async (cloneUrl: string) => {
@@ -461,6 +463,9 @@ export async function initializeRepoUtil(
     const failedUrls: string[] = []
 
     // Try each URL with fallback
+    // Clone/fetch signals are not implemented by isomorphic-git. Network
+    // liveness is bounded in the browser HTTP transport instead, which lets
+    // this mutation settle before URL fallback advances.
     const cloneResult = await withUrlFallback(
       orderedUrls,
       async (cloneUrl: string) => {
@@ -1013,7 +1018,9 @@ export async function ensureFullCloneUtil(
         orderedUrls.join(", "),
       )
 
-      // Git fetch cannot confirm abort, so advance only after each attempt settles.
+      // The browser HTTP transport bounds network inactivity. Keep the outer
+      // fetch unraced so fallback and the canonical repo lock advance only
+      // after isomorphic-git has settled all local writes.
       const fetchResult = await withUrlFallback(
         orderedUrls,
         async (cloneUrl: string) => {

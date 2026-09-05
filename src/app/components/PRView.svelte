@@ -1210,7 +1210,7 @@
         repoId,
         cloneUrls,
         branch: prTargetBranch,
-        timeoutMs: 90000,
+        timeoutMs: 0,
         trackReadPreference: false,
       })
       if (!initResult?.success) {
@@ -1247,7 +1247,7 @@
         cloneUrls,
         branch: prTargetBranch,
         forceUpdate: true,
-        timeoutMs: 90000,
+        timeoutMs: 0,
         trackReadPreference: false,
       })
       if (!refreshResult?.success) {
@@ -1642,7 +1642,7 @@
       repoId: repoClass.key,
       tipCommitOid: prParent,
       targetBranch: prTargetBranch,
-      cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
+      cloneUrls: prTargetCloneUrls,
       prCloneUrls: prEffectiveCloneUrls,
       sourceReadScope: prSourceReadScope,
       targetCommitOid: targetParent,
@@ -1664,7 +1664,7 @@
         repoId: repoClass.key,
         tipCommitOid: prEffectiveTipOid,
         targetBranch: prTargetBranch,
-        cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
+        cloneUrls: prTargetCloneUrls,
         prCloneUrls: prEffectiveCloneUrls,
         sourceReadScope: prSourceReadScope,
         mergeBase: prEffectiveMergeBase,
@@ -1761,7 +1761,7 @@
           repoId: repoClass.key,
           tipCommitOid: prEffectiveTipOid,
           targetBranch: prTargetBranch,
-          cloneUrls: primaryTargetCloneUrl ? [primaryTargetCloneUrl] : [],
+          cloneUrls: prTargetCloneUrls,
           prCloneUrls: prEffectiveCloneUrls,
           sourceReadScope: prSourceReadScope,
           ...(prEffectiveMergeBase ? {mergeBase: prEffectiveMergeBase} : {}),

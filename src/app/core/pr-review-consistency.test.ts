@@ -34,20 +34,22 @@ describe("PR review consistency", () => {
     expect(worker).toContain("allowUnrelatedHistoryFallback: false")
   })
 
-  it("loads target-side review evidence only from the declared primary", () => {
-    expect(
-      prView.match(/cloneUrls: primaryTargetCloneUrl \? \[primaryTargetCloneUrl\] : \[\]/g),
-    ).toHaveLength(3)
+  it("routes normal target review reads through the declared list while pinning authority checks", () => {
+    expect(prView.match(/cloneUrls: prTargetCloneUrls/g)).toHaveLength(4)
+    expect(prView).toContain(
+      "const targetCloneUrls = primaryTargetCloneUrl ? [primaryTargetCloneUrl] : []",
+    )
+    expect(prView).toContain("targetCloneUrls: [primaryTargetCloneUrl]")
   })
 
   it("keeps fork-source routing separate from the target repository cursor", () => {
     expect(prView).not.toContain("prFetchCloneUrls")
-    expect(prView).toContain('return `pr-source:${sourceEventId}`')
+    expect(prView).toContain("return `pr-source:${sourceEventId}`")
     expect(prView).toContain('role === "source"')
     expect(prView).toContain('if (role === "target" && result?.usedUrl)')
     expect(prView).toContain("sourceReadScope: prSourceReadScope")
     expect(prView).toContain("...(route.readScope ? {readScope: route.readScope} : {})")
-    expect(newPrForm).toContain('`pr-source:new:${JSON.stringify(sourceUrls)}`')
+    expect(newPrForm).toContain("`pr-source:new:${JSON.stringify(sourceUrls)}`")
     expect(newPrForm).toContain("sourceReadScope,")
   })
 })

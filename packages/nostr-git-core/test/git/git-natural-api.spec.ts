@@ -1,4 +1,8 @@
 import {createHash} from "node:crypto"
+import {spawnSync} from "node:child_process"
+import {mkdtempSync, rmSync} from "node:fs"
+import {tmpdir} from "node:os"
+import {join} from "node:path"
 import {deflateSync} from "node:zlib"
 
 import {describe, expect, it, vi} from "vitest"
@@ -21,7 +25,10 @@ describe("owned git-natural pack parser", () => {
     const pack = buildPack([
       baseObject(ObjectType.BLOB, compressible),
       baseObject(ObjectType.BLOB, incompressible),
-      baseObject(ObjectType.TAG, encoder.encode("object deadbeef\ntype commit\ntag v1\n\nrelease\n")),
+      baseObject(
+        ObjectType.TAG,
+        encoder.encode("object deadbeef\ntype commit\ntag v1\n\nrelease\n"),
+      ),
     ])
 
     const result = parsePackfile(pack)
@@ -76,12 +83,60 @@ describe("owned git-natural pack parser", () => {
     }
   })
 
+  it("resolves a REF delta whose base appears later in the pack", () => {
+    const base = encoder.encode("hello world\n")
+    const expected = encoder.encode("hello budabit\n")
+    const delta = concatBytes(
+      encodeVariableInt(base.length),
+      encodeVariableInt(expected.length),
+      Uint8Array.of(0x90, 6, 8),
+      encoder.encode("budabit\n"),
+    )
+    const forwardDelta = concatBytes(
+      packObjectHeader(ObjectType.REF_DELTA, delta.length),
+      hexBytes(gitObjectHash("blob", base)),
+      new Uint8Array(deflateSync(delta)),
+    )
+
+    const pack = buildPack([forwardDelta, baseObject(ObjectType.BLOB, base)])
+    validatePackWithGit(pack)
+    const result = parsePackfile(pack)
+
+    expect(result.objects.get(gitObjectHash("blob", expected))).toMatchObject({
+      type: ObjectType.BLOB,
+      size: expected.length,
+      data: expected,
+    })
+  })
+
   it("rejects mismatched pack checksums", () => {
     const pack = buildPack([baseObject(ObjectType.BLOB, encoder.encode("content\n"))])
     pack[pack.length - 1] ^= 0xff
     expect(() => parsePackfile(pack)).toThrow("packfile SHA-1 checksum mismatch")
   })
 })
+
+function validatePackWithGit(pack: Uint8Array): void {
+  const dir = mkdtempSync(join(tmpdir(), "budabit-forward-ref-delta-"))
+  try {
+    const initialized = spawnSync("git", ["init", "--bare", "--quiet", dir], {
+      encoding: "utf8",
+    })
+    if (initialized.status !== 0) {
+      throw new Error(`git init failed: ${initialized.stderr || initialized.stdout}`)
+    }
+    const indexed = spawnSync("git", ["index-pack", "--stdin", "--strict"], {
+      cwd: dir,
+      input: pack,
+      encoding: "utf8",
+    })
+    if (indexed.status !== 0) {
+      throw new Error(`Git rejected forward REF-delta fixture: ${indexed.stderr || indexed.stdout}`)
+    }
+  } finally {
+    rmSync(dir, {recursive: true, force: true})
+  }
+}
 
 describe("owned git-natural Smart HTTP transport", () => {
   it("parses byte-framed advertisements and passes the caller signal", async () => {
@@ -130,13 +185,15 @@ describe("owned git-natural Smart HTTP transport", () => {
   it("surfaces side-band fatal errors and missing refs", async () => {
     await expect(
       fetchPackfile("https://example.com/repo.git", "want", {
-        fetcher: async () => response(concatBytes(sideBandPacket(3, encoder.encode("fatal\n")), flushPacket())),
+        fetcher: async () =>
+          response(concatBytes(sideBandPacket(3, encoder.encode("fatal\n")), flushPacket())),
       }),
     ).rejects.toThrow("side-band error: fatal")
 
     await expect(
       fetchPackfile("https://example.com/repo.git", "want", {
-        fetcher: async () => response(concatBytes(pktLine("ERR upload-pack: not our ref\n"), flushPacket())),
+        fetcher: async () =>
+          response(concatBytes(pktLine("ERR upload-pack: not our ref\n"), flushPacket())),
       }),
     ).rejects.toBeInstanceOf(MissingRef)
   })

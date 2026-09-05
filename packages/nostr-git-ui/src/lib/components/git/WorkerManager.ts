@@ -2,11 +2,13 @@ import { getGitWorker } from "@nostr-git/core";
 import type { RepoAnnouncementEvent } from "@nostr-git/core/events";
 import {
   advanceReadUrlPreference,
+  beginReadUrlOperation,
   filterValidCloneUrls,
   getCachedUrlPreference,
   orderReadUrlsByPreference,
   updateUrlPreferenceCache,
   withUrlFallback,
+  type ReadUrlOperationToken,
 } from "@nostr-git/core/utils";
 import type {
   GitNaturalFileContentResult,
@@ -165,7 +167,8 @@ function applyReadResult(
   declaredUrls: string[],
   usedUrl: unknown,
   attempts: unknown,
-  readScope?: string
+  readScope?: string,
+  operationToken?: ReadUrlOperationToken
 ): void {
   const urls = filterValidCloneUrls(declaredUrls);
   if (urls.length === 0) return;
@@ -193,7 +196,8 @@ function applyReadResult(
       repoId,
       url,
       Array.from(new Set([...urls.slice(0, successIndex), ...failedUrls])),
-      readScope
+      readScope,
+      operationToken
     );
   };
 
@@ -207,13 +211,21 @@ function applyReadResult(
     const errorCode = String(attempt.errorCode || "")
       .toLowerCase()
       .replace(/_/g, "-");
+    if (
+      ["aborterror", "abort-error", "abort-err", "err-aborted", "operation-aborted"].includes(
+        errorCode
+      )
+    ) {
+      continue;
+    }
     advanceReadUrlPreference(
       repoId,
       attempt.url,
       errorCode === "cancellation-unconfirmed" ? undefined : urls[attemptIndex + 1],
       attempt.error,
       urls,
-      readScope
+      readScope,
+      operationToken
     );
   }
 
@@ -585,7 +597,7 @@ export class WorkerManager {
   }): Promise<any> {
     await this.initialize();
     const { timeoutMs, ...executeParams } = params;
-    return this.execute("smartInitializeRepo", executeParams, { timeoutMs });
+    return this.execute("smartInitializeRepo", executeParams, { timeoutMs: timeoutMs ?? 0 });
   }
 
   /**
@@ -602,7 +614,7 @@ export class WorkerManager {
     trackReadPreference?: boolean;
   }): Promise<any> {
     await this.initialize();
-    return this.execute("syncWithRemote", params);
+    return this.execute("syncWithRemote", params, { timeoutMs: 0 });
   }
 
   /**
@@ -661,6 +673,7 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalListRefsResult> {
     await this.initialize();
     return this.execute("gitNaturalListRefs", params, { timeoutMs: 0 });
@@ -677,6 +690,7 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalResolveRefResult> {
     await this.initialize();
     return this.execute("gitNaturalResolveRef", params, { timeoutMs: 0 });
@@ -690,6 +704,7 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalListDirectoryResult> {
     await this.initialize();
     return this.execute("gitNaturalListDirectory", params, { timeoutMs: 0 });
@@ -703,6 +718,7 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalFileContentResult> {
     await this.initialize();
     return this.execute("gitNaturalGetFileContent", params, { timeoutMs: 0 });
@@ -716,6 +732,7 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalListCommitsResult> {
     await this.initialize();
     return this.execute("gitNaturalListCommits", params, { timeoutMs: 0 });
@@ -728,6 +745,7 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalGetCommitResult> {
     await this.initialize();
     return this.execute("gitNaturalGetCommit", params, { timeoutMs: 0 });
@@ -740,9 +758,15 @@ export class WorkerManager {
     enabled: true;
     corsProxy?: string | null;
     timeoutMs?: number;
+    operationId?: string;
   }): Promise<GitNaturalDiffBetweenResult> {
     await this.initialize();
     return this.execute("gitNaturalGetDiffBetween", params, { timeoutMs: 0 });
+  }
+
+  async cancelGitNaturalRead(operationId: string): Promise<boolean> {
+    if (!operationId || !this.isReady) return false;
+    return this.execute("cancelGitNaturalRead", { operationId });
   }
 
   async discoverRemoteBackfill(params: {
@@ -837,7 +861,7 @@ export class WorkerManager {
   }): Promise<any> {
     await this.initialize();
     const { timeoutMs, ...executeParams } = params;
-    return this.execute("ensureFullClone", executeParams, { timeoutMs });
+    return this.execute("ensureFullClone", executeParams, { timeoutMs: timeoutMs ?? 0 });
   }
 
   private async initializeScopedCloneFallback(params: {
@@ -857,6 +881,7 @@ export class WorkerManager {
       branch: params.branch,
       strictCloneUrls: true,
       readScope: params.readScope,
+      trackReadPreference: false,
       timeoutMs: 0,
     });
     if (!init?.success) throw new Error(init?.error || `Failed to initialize ${urls[0]}`);
@@ -1103,18 +1128,22 @@ export class WorkerManager {
     await this.initialize();
     const targetUrls = params.cloneUrls;
     const sourceUrls = params.prCloneUrls?.length ? params.prCloneUrls : targetUrls;
+    const orderedTargetUrls = orderReadUrlsByPreference(targetUrls, params.repoId);
+    const orderedSourceUrls = params.prCloneUrls?.length
+      ? orderReadUrlsByPreference(sourceUrls, params.repoId, params.sourceReadScope)
+      : orderedTargetUrls;
+    const targetOperation = beginReadUrlOperation(params.repoId);
+    const sourceOperation = params.sourceReadScope
+      ? beginReadUrlOperation(params.repoId, params.sourceReadScope)
+      : targetOperation;
     const result = await this.execute<PRReviewDataResult>(
       "getPRReviewData",
       {
         ...params,
-        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        cloneUrls: orderedTargetUrls,
         ...(params.prCloneUrls?.length
           ? {
-              prCloneUrls: orderReadUrlsByPreference(
-                sourceUrls,
-                params.repoId,
-                params.sourceReadScope
-              ),
+              prCloneUrls: orderedSourceUrls,
             }
           : {}),
       },
@@ -1123,13 +1152,21 @@ export class WorkerManager {
         returnWorkerErrors: true,
       }
     );
-    applyReadResult(params.repoId, targetUrls, result.usedTargetCloneUrl, result.targetAttempts);
+    applyReadResult(
+      params.repoId,
+      targetUrls,
+      result.usedTargetCloneUrl,
+      result.targetAttempts,
+      undefined,
+      targetOperation
+    );
     applyReadResult(
       params.repoId,
       sourceUrls,
       result.usedCloneUrl,
       result.sourceAttempts,
-      params.sourceReadScope
+      params.sourceReadScope,
+      sourceOperation
     );
     return result;
   }
@@ -1190,35 +1227,49 @@ export class WorkerManager {
     await this.initialize();
     const sourceUrls = params.prCloneUrls;
     const targetUrls = params.targetCloneUrls || [];
+    const orderedSourceUrls = orderReadUrlsByPreference(
+      sourceUrls,
+      params.repoId,
+      params.sourceReadScope
+    );
+    const sourceOperation = beginReadUrlOperation(params.repoId, params.sourceReadScope);
     const { trackTargetReadPreference = true, ...workerParams } = params;
+    const orderedTargetUrls = trackTargetReadPreference
+      ? orderReadUrlsByPreference(targetUrls, params.repoId)
+      : targetUrls;
+    const targetOperation = trackTargetReadPreference
+      ? beginReadUrlOperation(params.repoId)
+      : undefined;
     const result = await this.execute<any>(
       "analyzePRMerge",
       {
         ...workerParams,
-        prCloneUrls: orderReadUrlsByPreference(
-          sourceUrls,
-          params.repoId,
-          params.sourceReadScope
-        ),
+        prCloneUrls: orderedSourceUrls,
         ...(params.targetCloneUrls
           ? {
-              targetCloneUrls: trackTargetReadPreference
-                ? orderReadUrlsByPreference(targetUrls, params.repoId)
-                : targetUrls,
+              targetCloneUrls: orderedTargetUrls,
             }
           : {}),
       },
       { timeoutMs: 0, returnWorkerErrors: true }
     );
     if (trackTargetReadPreference) {
-      applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
+      applyReadResult(
+        params.repoId,
+        targetUrls,
+        result?.usedTargetCloneUrl,
+        result?.targetAttempts,
+        undefined,
+        targetOperation
+      );
     }
     applyReadResult(
       params.repoId,
       sourceUrls,
       result?.usedCloneUrl,
       result?.sourceAttempts,
-      params.sourceReadScope
+      params.sourceReadScope,
+      sourceOperation
     );
     return result;
   }
@@ -1246,30 +1297,42 @@ export class WorkerManager {
     await this.initialize();
     const targetUrls = params.cloneUrls;
     const sourceUrls = params.sourceCloneUrls;
+    const orderedTargetUrls = orderReadUrlsByPreference(targetUrls, params.repoId);
+    const orderedSourceUrls = sourceUrls?.length
+      ? orderReadUrlsByPreference(sourceUrls, params.repoId, params.sourceReadScope)
+      : orderedTargetUrls;
+    const targetOperation = beginReadUrlOperation(params.repoId);
+    const sourceOperation = params.sourceReadScope
+      ? beginReadUrlOperation(params.repoId, params.sourceReadScope)
+      : targetOperation;
     const result = await this.execute<any>(
       "getPRPreview",
       {
         ...params,
-        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        cloneUrls: orderedTargetUrls,
         ...(sourceUrls?.length
           ? {
-              sourceCloneUrls: orderReadUrlsByPreference(
-                sourceUrls,
-                params.repoId,
-                params.sourceReadScope
-              ),
+              sourceCloneUrls: orderedSourceUrls,
             }
           : {}),
       },
       { timeoutMs: 0, returnWorkerErrors: true }
     );
-    applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
+    applyReadResult(
+      params.repoId,
+      targetUrls,
+      result?.usedTargetCloneUrl,
+      result?.targetAttempts,
+      undefined,
+      targetOperation
+    );
     applyReadResult(
       params.repoId,
       sourceUrls?.length ? sourceUrls : targetUrls,
       result?.usedCloneUrl,
       result?.sourceAttempts,
-      params.sourceReadScope
+      params.sourceReadScope,
+      sourceOperation
     );
     return result;
   }
@@ -1288,18 +1351,19 @@ export class WorkerManager {
     await this.initialize();
     const targetUrls = params.cloneUrls;
     const sourceUrls = params.sourceCloneUrls?.length ? params.sourceCloneUrls : targetUrls;
+    const orderedTargetUrls = orderReadUrlsByPreference(targetUrls, params.repoId);
+    const orderedSourceUrls = params.sourceCloneUrls?.length
+      ? orderReadUrlsByPreference(sourceUrls, params.repoId, params.sourceReadScope)
+      : orderedTargetUrls;
+    const sourceOperation = beginReadUrlOperation(params.repoId, params.sourceReadScope);
     const result = await this.execute<any>(
       "getCommitsAheadOfTip",
       {
         ...params,
-        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        cloneUrls: orderedTargetUrls,
         ...(params.sourceCloneUrls?.length
           ? {
-              sourceCloneUrls: orderReadUrlsByPreference(
-                sourceUrls,
-                params.repoId,
-                params.sourceReadScope
-              ),
+              sourceCloneUrls: orderedSourceUrls,
             }
           : {}),
       },
@@ -1310,7 +1374,8 @@ export class WorkerManager {
       sourceUrls,
       result?.usedCloneUrl,
       result?.sourceAttempts,
-      params.sourceReadScope
+      params.sourceReadScope,
+      sourceOperation
     );
     return result;
   }
@@ -1329,30 +1394,42 @@ export class WorkerManager {
     await this.initialize();
     const targetUrls = params.cloneUrls;
     const sourceUrls = params.sourceCloneUrls;
+    const orderedTargetUrls = orderReadUrlsByPreference(targetUrls, params.repoId);
+    const orderedSourceUrls = sourceUrls?.length
+      ? orderReadUrlsByPreference(sourceUrls, params.repoId, params.sourceReadScope)
+      : orderedTargetUrls;
+    const targetOperation = beginReadUrlOperation(params.repoId);
+    const sourceOperation = params.sourceReadScope
+      ? beginReadUrlOperation(params.repoId, params.sourceReadScope)
+      : targetOperation;
     const result = await this.execute<any>(
       "getMergeBaseBetween",
       {
         ...params,
-        cloneUrls: orderReadUrlsByPreference(targetUrls, params.repoId),
+        cloneUrls: orderedTargetUrls,
         ...(sourceUrls?.length
           ? {
-              sourceCloneUrls: orderReadUrlsByPreference(
-                sourceUrls,
-                params.repoId,
-                params.sourceReadScope
-              ),
+              sourceCloneUrls: orderedSourceUrls,
             }
           : {}),
       },
       { timeoutMs: 0, returnWorkerErrors: true }
     );
-    applyReadResult(params.repoId, targetUrls, result?.usedTargetCloneUrl, result?.targetAttempts);
+    applyReadResult(
+      params.repoId,
+      targetUrls,
+      result?.usedTargetCloneUrl,
+      result?.targetAttempts,
+      undefined,
+      targetOperation
+    );
     applyReadResult(
       params.repoId,
       sourceUrls?.length ? sourceUrls : targetUrls,
       result?.usedCloneUrl,
       result?.sourceAttempts,
-      params.sourceReadScope
+      params.sourceReadScope,
+      sourceOperation
     );
     return result;
   }

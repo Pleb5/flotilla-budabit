@@ -8,6 +8,7 @@ import {CachedGitProvider} from "./cached-provider.js"
 import {loadConfig, type GitConfig} from "./config.js"
 import httpWeb from "isomorphic-git/http/web"
 import LightningFS from "@isomorphic-git/lightning-fs"
+import {GIT_HTTP_INACTIVITY_TIMEOUT_MS} from "./bounded-http-client.js"
 
 let singleton: GitProvider | null = null
 
@@ -24,6 +25,7 @@ export function createGitProvider(overrides?: Partial<GitConfig>): GitProvider {
     fs,
     http,
     corsProxy,
+    httpInactivityTimeoutMs: GIT_HTTP_INACTIVITY_TIMEOUT_MS,
   })
 
   if (cfg.cacheMode === "off") {

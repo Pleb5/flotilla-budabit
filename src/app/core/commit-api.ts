@@ -72,6 +72,7 @@ type GitNaturalCommitWorker = {
     enabled: true
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }): Promise<any>
   gitNaturalGetDiffBetween(params: {
     url: string
@@ -80,6 +81,7 @@ type GitNaturalCommitWorker = {
     enabled: true
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }): Promise<any>
 }
 
@@ -113,12 +115,17 @@ function statsFromChanges(changes: any[]): CommitDetails["stats"] {
   return {additions, deletions, total: additions + deletions}
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+}
+
 export async function getCommitDetailsViaGitNatural(
   workerManager: GitNaturalCommitWorker,
   cloneUrls: string[],
   commitId: string,
   repoId?: string,
   sameRemoteFallback?: (url: string, meta?: CommitMeta) => Promise<CommitDetails | null>,
+  options: {signal?: AbortSignal; operationId?: string} = {},
 ): Promise<CommitDetails | null> {
   if (!cloneUrls?.length) {
     console.log("[commit-api] No clone URLs provided for Git natural commit details")
@@ -139,15 +146,18 @@ export async function getCommitDetailsViaGitNatural(
     async url => {
       let meta: CommitMeta | undefined
       try {
+        throwIfAborted(options.signal)
         console.debug(`[commit-api] Trying Git natural commit details for ${url}`)
         const commitResult = await workerManager.gitNaturalGetCommit({
           url,
           commitHash: commitId,
           enabled: true,
           timeoutMs: 15_000,
+          operationId: options.operationId,
         })
         const commit = commitResult?.commit
         if (!commit) throw new Error("Git natural did not return a commit object")
+        throwIfAborted(options.signal)
 
         meta = naturalCommitToMeta(commit, commitId)
         lastMeta = meta
@@ -166,12 +176,15 @@ export async function getCommitDetailsViaGitNatural(
           }
         }
 
+        throwIfAborted(options.signal)
         const diffResult = await workerManager.gitNaturalGetDiffBetween({
           url,
           baseCommitHash: firstParent,
           headCommitHash: meta.sha,
           enabled: true,
+          operationId: options.operationId,
         })
+        throwIfAborted(options.signal)
         const changes = Array.isArray(diffResult?.changes) ? diffResult.changes : []
         console.log(`[commit-api] Git natural commit details success for ${commitId}`)
         return {
@@ -187,7 +200,9 @@ export async function getCommitDetailsViaGitNatural(
         if ((error as {code?: string})?.code !== "missing-filter-capability") throw error
         if (!sameRemoteFallback) throw error
 
+        throwIfAborted(options.signal)
         const fallback = await sameRemoteFallback(url, meta)
+        throwIfAborted(options.signal)
         if (!fallback?.success) {
           const structuredFallback = fallback as
             | (CommitDetails & {
@@ -209,8 +224,7 @@ export async function getCommitDetailsViaGitNatural(
                 structuredFallback?.errorCode ||
                 structuredFallback?.code ||
                 "missing-filter-capability",
-              status:
-                structuredFallback?.gitNaturalError?.status || structuredFallback?.status,
+              status: structuredFallback?.gitNaturalError?.status || structuredFallback?.status,
             },
           )
         }
@@ -225,12 +239,20 @@ export async function getCommitDetailsViaGitNatural(
         }
       }
     },
-    {repoId, perUrlTimeoutMs: 0},
+    {repoId, perUrlTimeoutMs: 0, signal: options.signal},
   )
 
   if (result.success && result.result) {
     return {
       ...result.result,
+      readFailures: result.attempts.filter(attempt => !attempt.success),
+    }
+  }
+
+  if (options.signal?.aborted) {
+    return {
+      success: false,
+      error: "Aborted",
       readFailures: result.attempts.filter(attempt => !attempt.success),
     }
   }

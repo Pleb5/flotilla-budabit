@@ -2,18 +2,27 @@ import * as isogit from "isomorphic-git"
 import {GitFetchResult, GitMergeResult, GitProvider} from "./provider.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
 import {assertGitRemoteUrlEnabled} from "./vendor-providers.js"
+import {createBoundedGitHttpClient} from "./bounded-http-client.js"
 
 export class IsomorphicGitProvider implements GitProvider {
   fs: any
   http: any
   corsProxy: string | null
   defaultDir?: string
+  httpInactivityTimeoutMs?: number
 
-  constructor(options: {fs: any; http: any; corsProxy: string | null; defaultDir?: string}) {
+  constructor(options: {
+    fs: any
+    http: any
+    corsProxy: string | null
+    defaultDir?: string
+    httpInactivityTimeoutMs?: number
+  }) {
     this.fs = options.fs
     this.http = options.http
     this.corsProxy = options.corsProxy
     this.defaultDir = options.defaultDir
+    this.httpInactivityTimeoutMs = options.httpInactivityTimeoutMs
   }
 
   private pickCorsProxy(options: any): any {
@@ -27,6 +36,18 @@ export class IsomorphicGitProvider implements GitProvider {
   private withDir(options: any): any {
     const dir = this.pickDir(options)
     return dir ? {...options, dir} : options
+  }
+
+  private pickHttp(options: any): any {
+    const http = options?.http || this.http
+    // Per-call clients may add authentication, tracing, or signing. Preserve
+    // those semantics rather than replacing them with the stock fetch client.
+    if (options?.http) return http
+    if (this.httpInactivityTimeoutMs === undefined && !options?.signal) return http
+    return createBoundedGitHttpClient(http, {
+      signal: options?.signal,
+      inactivityTimeoutMs: this.httpInactivityTimeoutMs,
+    })
   }
 
   private async assertRemoteEnabled(options: any, operation: string): Promise<void> {
@@ -61,7 +82,12 @@ export class IsomorphicGitProvider implements GitProvider {
   async clone(options: any) {
     await this.assertRemoteEnabled(options, "clone")
     const corsProxy = this.pickCorsProxy(options)
-    return isogit.clone({...this.withDir(options), fs: this.fs, http: this.http, corsProxy})
+    return isogit.clone({
+      ...this.withDir(options),
+      fs: this.fs,
+      http: this.pickHttp(options),
+      corsProxy,
+    })
   }
   async commit(options: any) {
     return isogit.commit({...this.withDir(options), fs: this.fs})
@@ -72,7 +98,7 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.fetch({
       ...this.withDir(options),
       fs: this.fs,
-      http: this.http,
+      http: this.pickHttp(options),
       corsProxy,
     }) as Promise<GitFetchResult>
   }
@@ -88,7 +114,12 @@ export class IsomorphicGitProvider implements GitProvider {
   async pull(options: any) {
     await this.assertRemoteEnabled(options, "pull")
     const corsProxy = this.pickCorsProxy(options)
-    return isogit.pull({...this.withDir(options), fs: this.fs, http: this.http, corsProxy})
+    return isogit.pull({
+      ...this.withDir(options),
+      fs: this.fs,
+      http: this.pickHttp(options),
+      corsProxy,
+    })
   }
   async push(options: any) {
     await this.assertRemoteEnabled(options, "push")
@@ -96,7 +127,7 @@ export class IsomorphicGitProvider implements GitProvider {
     // Check if corsProxy is explicitly provided in options (even if null/undefined)
     const corsProxy = "corsProxy" in options ? options.corsProxy : this.corsProxy
     // Allow callers to override the HTTP client for a specific push.
-    const http = options.http || this.http
+    const http = this.pickHttp(options)
     return isogit.push({...this.withDir(options), fs: this.fs, http, corsProxy})
   }
   async status(options: any) {
@@ -203,7 +234,7 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.getRemoteInfo({
       ...options,
       fs: this.fs,
-      http: this.http,
+      http: this.pickHttp(options),
       corsProxy,
     })
   }
@@ -216,7 +247,7 @@ export class IsomorphicGitProvider implements GitProvider {
         ? {protocolVersion: 1}
         : {}),
       fs: this.fs,
-      http: this.http,
+      http: this.pickHttp(options),
       corsProxy,
     })
   }
@@ -232,7 +263,7 @@ export class IsomorphicGitProvider implements GitProvider {
         ? {protocolVersion: 1}
         : {}),
       fs: this.fs,
-      http: this.http,
+      http: this.pickHttp(options),
       corsProxy,
     })
   }

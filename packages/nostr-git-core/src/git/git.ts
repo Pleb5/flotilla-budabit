@@ -437,6 +437,8 @@ export async function ensureRepoFromEvent(
   }
 
   if (!isCloned) {
+    // Browser Git HTTP has a transport-level inactivity timeout. Avoid an
+    // outer clone race so local writes settle before trying another remote.
     const cloneResult = await withUrlFallback(
       cloneUrls,
       async (url: string) => {
@@ -486,7 +488,7 @@ export async function ensureRepoFromEvent(
           throw error
         }
       },
-      {repoId: repoKey, perUrlTimeoutMs: 0},
+      {repoId: opts.strictCloneUrls ? undefined : repoKey, perUrlTimeoutMs: 0},
     )
 
     if (!cloneResult.success) {
@@ -760,6 +762,8 @@ export async function ensureRepoFromEvent(
         throw new Error("Strict clone fallback requires an explicit remote branch")
       }
 
+      // Network stalls are bounded by the browser Git HTTP client; this outer
+      // operation intentionally waits for local fetch settlement.
       const fetchResult = await withUrlFallback(
         cloneUrls,
         async (url: string) => {
@@ -783,7 +787,7 @@ export async function ensureRepoFromEvent(
           }
           return {url, fetchedOid}
         },
-        {repoId: repoKey, perUrlTimeoutMs: 0},
+        {repoId: opts.strictCloneUrls ? undefined : repoKey, perUrlTimeoutMs: 0},
       )
 
       if (fetchResult.success) {

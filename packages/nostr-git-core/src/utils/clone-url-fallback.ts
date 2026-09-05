@@ -82,9 +82,50 @@ export class UrlCancellationUnconfirmedError extends Error {
  */
 const urlPreferenceCache = new Map<string, CloneUrlCacheEntry>();
 const READ_SCOPE_SEPARATOR = "\0";
+const readPreferenceGenerations = new Map<string, number>();
+const readPreferenceMutationIds = new Map<string, number>();
+let nextReadPreferenceOperationId = 0;
+
+export interface ReadUrlOperationToken {
+  repoId: string;
+  readScope?: string;
+  generation: number;
+  operationId: number;
+}
 
 function readPreferenceCacheKey(repoId: string, readScope?: string): string {
   return readScope ? `${repoId}${READ_SCOPE_SEPARATOR}${readScope}` : repoId;
+}
+
+export function beginReadUrlOperation(repoId: string, readScope?: string): ReadUrlOperationToken {
+  const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  if (!readPreferenceGenerations.has(cacheKey)) readPreferenceGenerations.set(cacheKey, 0);
+  const operationId = ++nextReadPreferenceOperationId;
+  readPreferenceMutationIds.set(
+    cacheKey,
+    Math.max(readPreferenceMutationIds.get(cacheKey) || 0, operationId)
+  );
+  return {
+    repoId,
+    readScope,
+    generation: readPreferenceGenerations.get(cacheKey) || 0,
+    operationId,
+  };
+}
+
+function canApplyReadUrlOperation(cacheKey: string, token?: ReadUrlOperationToken): boolean {
+  if (!token) return true;
+  if (readPreferenceCacheKey(token.repoId, token.readScope) !== cacheKey) return false;
+  if ((readPreferenceGenerations.get(cacheKey) || 0) !== token.generation) return false;
+  return token.operationId >= (readPreferenceMutationIds.get(cacheKey) || 0);
+}
+
+function recordReadUrlMutation(cacheKey: string, token?: ReadUrlOperationToken): void {
+  const operationId = token?.operationId ?? ++nextReadPreferenceOperationId;
+  readPreferenceMutationIds.set(
+    cacheKey,
+    Math.max(readPreferenceMutationIds.get(cacheKey) || 0, operationId)
+  );
 }
 
 /**
@@ -104,9 +145,11 @@ export function updateUrlPreferenceCache(
   repoId: string,
   successfulUrl: string,
   failedUrls: string[] = [],
-  readScope?: string
+  readScope?: string,
+  operationToken?: ReadUrlOperationToken
 ): void {
   const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  if (!canApplyReadUrlOperation(cacheKey, operationToken)) return;
   const existing = urlPreferenceCache.get(cacheKey);
   urlPreferenceCache.set(cacheKey, {
     preferredUrl: successfulUrl,
@@ -114,6 +157,7 @@ export function updateUrlPreferenceCache(
     failedUrls: Array.from(new Set([...(existing?.failedUrls || []), ...failedUrls])),
     updatedAt: Date.now(),
   });
+  recordReadUrlMutation(cacheKey, operationToken);
 }
 
 /**
@@ -126,9 +170,11 @@ export function advanceReadUrlPreference(
   nextUrl: string | undefined,
   error?: string,
   declaredUrls?: string[],
-  readScope?: string
+  readScope?: string,
+  operationToken?: ReadUrlOperationToken
 ): void {
   const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  if (!canApplyReadUrlOperation(cacheKey, operationToken)) return;
   const existing = urlPreferenceCache.get(cacheKey);
   if (existing && declaredUrls) {
     const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
@@ -142,6 +188,7 @@ export function advanceReadUrlPreference(
     lastFailure: error,
     updatedAt: Date.now(),
   });
+  recordReadUrlMutation(cacheKey, operationToken);
 }
 
 function recordReadUrlSuccess(
@@ -149,8 +196,11 @@ function recordReadUrlSuccess(
   successfulUrl: string,
   failedUrls: string[],
   declaredUrls: string[],
-  readScope?: string
+  readScope?: string,
+  operationToken?: ReadUrlOperationToken
 ): void {
+  const cacheKey = readPreferenceCacheKey(repoId, readScope);
+  if (!canApplyReadUrlOperation(cacheKey, operationToken)) return;
   const existing = getCachedUrlPreference(repoId, readScope);
   if (existing) {
     const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
@@ -158,7 +208,7 @@ function recordReadUrlSuccess(
     if (currentIndex === -1) return;
     if (currentIndex >= 0 && successIndex >= 0 && currentIndex > successIndex) return;
   }
-  updateUrlPreferenceCache(repoId, successfulUrl, failedUrls, readScope);
+  updateUrlPreferenceCache(repoId, successfulUrl, failedUrls, readScope, operationToken);
 }
 
 /**
@@ -167,15 +217,26 @@ function recordReadUrlSuccess(
 export function clearUrlPreferenceCache(repoId?: string, readScope?: string): void {
   if (repoId) {
     if (readScope) {
-      urlPreferenceCache.delete(readPreferenceCacheKey(repoId, readScope));
+      const cacheKey = readPreferenceCacheKey(repoId, readScope);
+      readPreferenceGenerations.set(cacheKey, (readPreferenceGenerations.get(cacheKey) || 0) + 1);
+      readPreferenceMutationIds.delete(cacheKey);
+      urlPreferenceCache.delete(cacheKey);
       return;
     }
-    for (const key of urlPreferenceCache.keys()) {
+    const matchingKeys = new Set([...urlPreferenceCache.keys(), ...readPreferenceGenerations.keys()]);
+    matchingKeys.add(repoId);
+    for (const key of matchingKeys) {
       if (key === repoId || key.startsWith(`${repoId}${READ_SCOPE_SEPARATOR}`)) {
+        readPreferenceGenerations.set(key, (readPreferenceGenerations.get(key) || 0) + 1);
+        readPreferenceMutationIds.delete(key);
         urlPreferenceCache.delete(key);
       }
     }
   } else {
+    for (const key of new Set([...urlPreferenceCache.keys(), ...readPreferenceGenerations.keys()])) {
+      readPreferenceGenerations.set(key, (readPreferenceGenerations.get(key) || 0) + 1);
+    }
+    readPreferenceMutationIds.clear();
     urlPreferenceCache.clear();
   }
 }
@@ -224,7 +285,8 @@ export function reorderUrlsByPreference(urls: string[], repoId?: string): string
 export function orderReadUrlsByPreference(
   urls: string[],
   repoId?: string,
-  readScope?: string
+  readScope?: string,
+  invalidateStale: boolean = true
 ): string[] {
   const ordered = [...urls];
   if (!repoId) return ordered;
@@ -235,6 +297,9 @@ export function orderReadUrlsByPreference(
 
   const activeIndex = ordered.indexOf(cached.preferredUrl);
   if (activeIndex === -1) {
+    if (!invalidateStale) return ordered;
+    readPreferenceGenerations.set(cacheKey, (readPreferenceGenerations.get(cacheKey) || 0) + 1);
+    readPreferenceMutationIds.delete(cacheKey);
     urlPreferenceCache.delete(cacheKey);
     return ordered;
   }
@@ -294,6 +359,8 @@ export async function withUrlFallback<T>(
     cancellationSettleTimeoutMs?: number;
     /** Independent read cursor within the repository, such as a fork PR source. */
     readScope?: string;
+    /** Cancel the complete fallback sequence without advancing its read cursor. */
+    signal?: AbortSignal;
   }
 ): Promise<ReadFallbackResult<T>> {
   const {
@@ -303,6 +370,7 @@ export async function withUrlFallback<T>(
     perUrlTimeoutMs = 15000,
     cancellationSettleTimeoutMs = 1000,
     readScope,
+    signal,
   } = options || {};
 
   // Filter and reorder URLs
@@ -317,15 +385,17 @@ export async function withUrlFallback<T>(
   }
 
   const attempts: UrlAttemptResult<T>[] = [];
+  const operationToken = repoId ? beginReadUrlOperation(repoId, readScope) : undefined;
   let successResult: T | undefined;
   let successUrl: string | undefined;
   let successIndex: number | undefined;
   const failedUrls: string[] = [];
 
   for (let i = 0; i < orderedUrls.length; i++) {
+    if (signal?.aborted) break;
     const url = orderedUrls[i];
     if (repoId) {
-      const activeUrl = orderReadUrlsByPreference(validUrls, repoId, readScope)[0];
+      const activeUrl = orderReadUrlsByPreference(validUrls, repoId, readScope, false)[0];
       const activeIndex = activeUrl ? validUrls.indexOf(activeUrl) : -1;
       const urlIndex = validUrls.indexOf(url);
       if (activeIndex >= 0 && urlIndex >= 0 && urlIndex < activeIndex) continue;
@@ -336,6 +406,9 @@ export async function withUrlFallback<T>(
 
       if (perUrlTimeoutMs > 0) {
         const controller = new AbortController();
+        const abortFromCaller = () => controller.abort();
+        signal?.addEventListener('abort', abortFromCaller, { once: true });
+        if (signal?.aborted) controller.abort();
         const operationPromise = operation(url, controller.signal);
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -367,9 +440,10 @@ export async function withUrlFallback<T>(
           throw error;
         } finally {
           if (timeout !== undefined) clearTimeout(timeout);
+          signal?.removeEventListener('abort', abortFromCaller);
         }
       } else {
-        result = await operation(url);
+        result = await operation(url, signal);
       }
 
       const durationMs = Date.now() - startTime;
@@ -409,10 +483,11 @@ export async function withUrlFallback<T>(
         String(sourceErrorCode).toLowerCase().replace(/_/g, "-") === "cancellation-unconfirmed";
       const normalizedErrorCode = String(sourceErrorCode).toLowerCase().replace(/_/g, "-");
       const cancellationConfirmed =
-        !isTimeout &&
-        ["aborterror", "abort-error", "abort-err", "err-aborted", "operation-aborted"].includes(
-          normalizedErrorCode
-        );
+        signal?.aborted === true ||
+        (!isTimeout &&
+          ['aborterror', 'abort-error', 'abort-err', 'err-aborted', 'operation-aborted'].includes(
+            normalizedErrorCode
+          ));
       const errorCode = isTimeout ? 'TIMEOUT' : sourceErrorCode;
 
       attempts.push({
@@ -433,7 +508,8 @@ export async function withUrlFallback<T>(
           cancellationUnconfirmed ? undefined : orderedUrls[i + 1],
           errorMessage,
           validUrls,
-          readScope
+          readScope,
+          operationToken
         );
       }
 
@@ -455,7 +531,7 @@ export async function withUrlFallback<T>(
 
   // Update cache if we had a success
   if (successUrl && repoId) {
-    recordReadUrlSuccess(repoId, successUrl, failedUrls, validUrls, readScope);
+    recordReadUrlSuccess(repoId, successUrl, failedUrls, validUrls, readScope, operationToken);
   }
 
   return {

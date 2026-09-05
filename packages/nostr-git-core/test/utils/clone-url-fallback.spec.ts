@@ -532,6 +532,82 @@ describe('clone-url-fallback utilities', () => {
       expect(getCachedUrlPreference('repo')?.preferredUrl).toBe(newUrls[1]);
     });
 
+    it('supersedes an old result as soon as a newer read starts', async () => {
+      const urls = ['https://primary.example', 'https://secondary.example'];
+      let releaseOld!: () => void;
+      const oldGate = new Promise<void>((resolve) => {
+        releaseOld = resolve;
+      });
+      const oldRead = withUrlFallback(
+        urls,
+        async () => {
+          await oldGate;
+          return 'old success';
+        },
+        {repoId: 'repo', perUrlTimeoutMs: 0}
+      );
+
+      await withUrlFallback(
+        urls,
+        async () => {
+          throw new DOMException('Aborted', 'AbortError');
+        },
+        {repoId: 'repo', perUrlTimeoutMs: 0}
+      );
+      releaseOld();
+      await oldRead;
+
+      expect(getCachedUrlPreference('repo')).toBeUndefined();
+    });
+
+    it('does not let a failure from an old URL list overwrite a newer cursor', async () => {
+      const oldUrls = ['https://primary.example', 'https://secondary.example'];
+      const newUrls = ['https://secondary.example', 'https://tertiary.example'];
+      let rejectPrimary!: (error: Error) => void;
+      const delayedPrimary = new Promise<never>((_resolve, reject) => {
+        rejectPrimary = reject;
+      });
+
+      const oldRead = withUrlFallback(
+        oldUrls,
+        async (url) => (url === oldUrls[0] ? delayedPrimary : url),
+        {repoId: 'repo', perUrlTimeoutMs: 0}
+      );
+      await withUrlFallback(
+        newUrls,
+        async (url) => {
+          if (url === newUrls[0]) throw new Error('secondary failed');
+          return url;
+        },
+        {repoId: 'repo', perUrlTimeoutMs: 0}
+      );
+
+      rejectPrimary(new Error('late primary failure'));
+      await oldRead;
+
+      expect(getCachedUrlPreference('repo')?.preferredUrl).toBe(newUrls[1]);
+      expect(orderReadUrlsByPreference(newUrls, 'repo')).toEqual([newUrls[1]]);
+    });
+
+    it('does not let a pre-reset read restore a cleared fallback cursor', async () => {
+      const urls = ['https://primary.example', 'https://secondary.example'];
+      let rejectPrimary!: (error: Error) => void;
+      const delayedPrimary = new Promise<never>((_resolve, reject) => {
+        rejectPrimary = reject;
+      });
+      const oldRead = withUrlFallback(urls, async (url) => (url === urls[0] ? delayedPrimary : url), {
+        repoId: 'repo',
+        perUrlTimeoutMs: 0,
+      });
+
+      clearUrlPreferenceCache('repo');
+      rejectPrimary(new Error('late primary failure'));
+      await oldRead;
+
+      expect(getCachedUrlPreference('repo')).toBeUndefined();
+      expect(orderReadUrlsByPreference(urls, 'repo')).toEqual(urls);
+    });
+
     it('skips stale intermediate attempts after another read advances farther', async () => {
       const urls = [
         'https://primary.example',

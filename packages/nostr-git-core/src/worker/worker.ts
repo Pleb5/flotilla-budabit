@@ -149,7 +149,9 @@ import {
 import {parseRepoId} from "../utils/repo-id.js"
 import {listAdvertisedServerRefs} from "../utils/advertised-refs.js"
 import {
+  clearUrlPreferenceCache,
   filterValidCloneUrls,
+  getCachedUrlPreference,
   orderReadUrlsByPreference,
   type ReadFallbackResult,
   reorderUrlsByPreference,
@@ -158,6 +160,7 @@ import {
 } from "../utils/clone-url-fallback.js"
 import {isGraspRepoHttpUrl} from "../utils/grasp-url.js"
 import {sanitizeRelays} from "../utils/sanitize-relays.js"
+import {toBase64} from "../utils/binary-utils.js"
 import {
   ENABLE_DIRECT_NOSTR_GIT_PROVIDER,
   assertDirectNostrGitProviderEnabled,
@@ -270,10 +273,34 @@ type DataLevel = "refs" | "shallow" | "full"
 
 let gitNaturalReadProvider: GitNaturalReadProvider | null = null
 let gitNaturalReadProviderCorsProxy: string | null | undefined
+const gitNaturalReadControllers = new Map<string, AbortController>()
+const cancelledGitNaturalReadIds = new Set<string>()
+const MAX_CANCELLED_GIT_NATURAL_READ_IDS = 256
+
+function rememberCancelledGitNaturalRead(operationId: string): void {
+  cancelledGitNaturalReadIds.delete(operationId)
+  cancelledGitNaturalReadIds.add(operationId)
+  while (cancelledGitNaturalReadIds.size > MAX_CANCELLED_GIT_NATURAL_READ_IDS) {
+    const oldest = cancelledGitNaturalReadIds.values().next().value
+    if (oldest === undefined) break
+    cancelledGitNaturalReadIds.delete(oldest)
+  }
+}
+
+function gitNaturalAuthorizationForUrl(remoteUrl: string): string | undefined {
+  const credentials = getAuthCallback(remoteUrl)?.()
+  if (!credentials) return undefined
+  const value = `${credentials.username}:${credentials.password}`
+  return `Basic ${toBase64(new TextEncoder().encode(value))}`
+}
 
 function getGitNaturalReadProvider(corsProxy: string | null | undefined): GitNaturalReadProvider {
   if (!gitNaturalReadProvider || gitNaturalReadProviderCorsProxy !== corsProxy) {
-    gitNaturalReadProvider = new GitNaturalReadProvider({enabled: true, corsProxy})
+    gitNaturalReadProvider = new GitNaturalReadProvider({
+      enabled: true,
+      corsProxy,
+      authorizationForUrl: gitNaturalAuthorizationForUrl,
+    })
     gitNaturalReadProviderCorsProxy = corsProxy
   }
   return gitNaturalReadProvider
@@ -289,7 +316,7 @@ function resolveGitNaturalCorsProxy(corsProxy: string | null | undefined): strin
 }
 
 async function runGitNaturalWorkerRead<T>(
-  opts: {url: string; timeoutMs?: number},
+  opts: {url: string; timeoutMs?: number; operationId?: string},
   read: (signal: AbortSignal) => Promise<T>,
 ): Promise<
   | T
@@ -301,6 +328,11 @@ async function runGitNaturalWorkerRead<T>(
 > {
   const timeoutMs = opts.timeoutMs ?? 15000
   const controller = new AbortController()
+  if (opts.operationId) {
+    gitNaturalReadControllers.get(opts.operationId)?.abort()
+    gitNaturalReadControllers.set(opts.operationId, controller)
+    if (cancelledGitNaturalReadIds.delete(opts.operationId)) controller.abort()
+  }
   const readPromise = read(controller.signal)
   const timeoutError = new GitNaturalReadError(
     "transient-network-failure",
@@ -342,6 +374,10 @@ async function runGitNaturalWorkerRead<T>(
     })
   } finally {
     if (timeout !== undefined) clearTimeout(timeout)
+    if (opts.operationId && gitNaturalReadControllers.get(opts.operationId) === controller) {
+      gitNaturalReadControllers.delete(opts.operationId)
+      cancelledGitNaturalReadIds.delete(opts.operationId)
+    }
   }
 }
 
@@ -397,6 +433,28 @@ type RoleAttemptCollector = {
 
 function appendUrlAttempts(target: ReadUrlAttempt[], attempts: UrlAttemptResult[] | undefined) {
   target.push(...(summarizeUrlAttempts(attempts) || []))
+}
+
+function activeMissingFilterCloneUrls(
+  key: string,
+  urls: string[],
+  readScope: string | undefined,
+  ...attemptGroups: Array<ReadUrlAttempt[] | undefined>
+): string[] {
+  const cachedActiveUrl = getCachedUrlPreference(key, readScope)?.preferredUrl
+  if (cachedActiveUrl && !urls.includes(cachedActiveUrl)) return []
+  const activeUrl = orderReadUrlsByPreference(urls, key, readScope, false)[0]
+  if (!activeUrl) return []
+  const hasCapabilityEvidence = attemptGroups
+    .flatMap(attempts => attempts || [])
+    .some(attempt => {
+      const code = String(attempt.errorCode || "")
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, "-")
+      return !attempt.success && attempt.url === activeUrl && code === "missing-filter-capability"
+    })
+  return hasCapabilityEvidence ? [activeUrl] : []
 }
 
 async function tryGitNaturalPRReviewData(params: {
@@ -535,6 +593,7 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
         )
         .slice(0, 50)
       const candidates: Array<{commits: GitNaturalCommit[]; branch: string}> = []
+      let branchReadError: unknown
 
       for (const branch of branchHeads) {
         try {
@@ -548,12 +607,26 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
           const tipIndex = history.commits.findIndex(commit => commit.hash === tipOid)
           if (tipIndex > 0)
             candidates.push({branch: branch.ref, commits: history.commits.slice(0, tipIndex)})
-        } catch {
+        } catch (error) {
+          const code = String((error as {code?: string})?.code || "")
+            .toLowerCase()
+            .replace(/_/g, "-")
+          if (
+            branchReadError === undefined ||
+            code === "missing-filter-capability" ||
+            code === "cancellation-unconfirmed"
+          ) {
+            branchReadError = error
+          }
+          if (code === "cancellation-unconfirmed" || code === "operation-aborted") throw error
           // Try the next branch head.
         }
       }
 
-      if (candidates.length === 0) throw new Error("No natural branch history contains the PR tip")
+      if (candidates.length === 0) {
+        if (branchReadError !== undefined) throw branchReadError
+        throw new Error("No natural branch history contains the PR tip")
+      }
       const best = candidates.reduce((left, right) =>
         left.commits.length >= right.commits.length ? left : right,
       )
@@ -1130,7 +1203,11 @@ async function fetchRefsUntilOidsAvailable(opts: {
           return await fetchRefs(url, {tags: true})
         }
       },
-      {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
+      {
+        repoId: opts.strictCloneUrls ? undefined : key,
+        readScope: opts.readScope,
+        perUrlTimeoutMs: 0,
+      },
     )
     return recordResult(strictRefFetchResult)
   }
@@ -1144,7 +1221,11 @@ async function fetchRefsUntilOidsAvailable(opts: {
         await fetchExactOids(url)
         return true
       },
-      {repoId: key, readScope: opts.readScope, perUrlTimeoutMs: 0},
+      {
+        repoId: opts.strictCloneUrls ? undefined : key,
+        readScope: opts.readScope,
+        perUrlTimeoutMs: 0,
+      },
     )
 
     const directOidResult = recordResult(directOidFetchResult)
@@ -1179,6 +1260,14 @@ const api = {
 
   cancelOperation(opts: CancelOperationOptions): OperationStatus | null {
     return operationRegistry.cancel(opts.operationId, opts.reason)
+  },
+
+  cancelGitNaturalRead(opts: {operationId: string}): boolean {
+    if (!opts.operationId) return false
+    rememberCancelledGitNaturalRead(opts.operationId)
+    const controller = gitNaturalReadControllers.get(opts.operationId)
+    controller?.abort()
+    return true
   },
 
   getOperationStatus(opts: GetOperationStatusOptions): OperationStatus | null {
@@ -1556,6 +1645,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -1577,6 +1667,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -1594,6 +1685,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -1618,6 +1710,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -1642,6 +1735,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -1665,6 +1759,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -1687,6 +1782,7 @@ const api = {
     enabled?: boolean
     corsProxy?: string | null
     timeoutMs?: number
+    operationId?: string
   }) {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
@@ -3102,10 +3198,8 @@ const api = {
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
-    const targetUrls = filterValidCloneUrls(opts.cloneUrls)
-    const naturalSourceUrls = isForkPR
-      ? filterValidCloneUrls(opts.sourceCloneUrls || [])
-      : targetUrls
+    let targetUrls = filterValidCloneUrls(opts.cloneUrls)
+    let naturalSourceUrls = isForkPR ? filterValidCloneUrls(opts.sourceCloneUrls || []) : targetUrls
     let sourceRemote: string | undefined
     let verifiedSourceUrl: string | undefined
     let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
@@ -3127,11 +3221,45 @@ const api = {
       targetAttempts = naturalAttempts.targetAttempts
       sourceAttempts = naturalAttempts.sourceAttempts
 
+      const declaredTargetUrls = targetUrls
+      const declaredSourceUrls = naturalSourceUrls
+      targetUrls = activeMissingFilterCloneUrls(
+        key,
+        declaredTargetUrls,
+        undefined,
+        naturalAttempts.targetAttempts,
+        naturalAttempts.sourceAttempts,
+      )
+      naturalSourceUrls = activeMissingFilterCloneUrls(
+        key,
+        declaredSourceUrls,
+        opts.sourceReadScope,
+        naturalAttempts.sourceAttempts,
+        naturalAttempts.targetAttempts,
+      )
+      if (targetUrls.length === 0 || naturalSourceUrls.length === 0) {
+        return toPlain({
+          success: false,
+          error:
+            "Git-natural PR preview failed without missing-filter capability evidence for every required clone-backed remote.",
+          commits: [],
+          commitOids: [],
+          filesChanged: [],
+          targetAttempts,
+          sourceAttempts,
+        })
+      }
+
       releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       await smartInitializeRepoUtil(
         git,
         cacheManager,
-        {repoId: opts.repoId, cloneUrls: targetUrls},
+        {
+          repoId: opts.repoId,
+          cloneUrls: targetUrls,
+          strictCloneUrls: true,
+          trackReadPreference: false,
+        },
         {
           rootDir,
           parseRepoId,
@@ -3176,7 +3304,7 @@ const api = {
           })
           await git.resolveRef({dir, ref: `refs/remotes/origin/${opts.targetBranch}`})
         },
-        {repoId: key, perUrlTimeoutMs: 0},
+        {perUrlTimeoutMs: 0},
       )
       appendUrlAttempts(targetAttempts, targetFetchResult.attempts)
       if (!targetFetchResult.success) {
@@ -3192,7 +3320,7 @@ const api = {
       }
 
       if (isForkPR) {
-        const forkSourceUrls = filterValidCloneUrls(opts.sourceCloneUrls!)
+        const forkSourceUrls = naturalSourceUrls
         if (forkSourceUrls.length === 0) {
           return toPlain({
             success: false,
@@ -3204,7 +3332,7 @@ const api = {
             sourceAttempts,
           })
         }
-        const sourceOrdered = orderReadUrlsByPreference(forkSourceUrls, key, opts.sourceReadScope)
+        const sourceOrdered = forkSourceUrls
         const prSourceRemote = `pr-source-${Date.now().toString(36)}`
         const sourceFetchResult = await withUrlFallback(
           sourceOrdered,
@@ -3249,7 +3377,7 @@ const api = {
               ref: `refs/remotes/${prSourceRemote}/${opts.sourceBranch}`,
             })
           },
-          {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
+          {perUrlTimeoutMs: 0},
         )
         appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
         if (!sourceFetchResult.success) {
@@ -3283,7 +3411,7 @@ const api = {
             })
             await git.resolveRef({dir, ref: `refs/remotes/origin/${opts.sourceBranch}`})
           },
-          {repoId: key, perUrlTimeoutMs: 0},
+          {perUrlTimeoutMs: 0},
         )
         appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
         if (!sourceFetchResult.success) {
@@ -3350,11 +3478,11 @@ const api = {
     sourceReadScope?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
-    const targetUrls = filterValidCloneUrls(opts.cloneUrls || [])
-    const sourceUrls = filterValidCloneUrls(
+    let targetUrls = filterValidCloneUrls(opts.cloneUrls || [])
+    let sourceUrls = filterValidCloneUrls(
       opts.prCloneUrls && opts.prCloneUrls.length > 0 ? opts.prCloneUrls : opts.cloneUrls || [],
     )
-    const initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
+    let initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
     type PRReviewErrorPhase = "source" | "target" | "review"
     let loadingPhase: PRReviewErrorPhase = targetUrls.length > 0 ? "target" : "source"
     let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
@@ -3407,12 +3535,41 @@ const api = {
     targetAttempts = naturalAttempts.targetAttempts
     sourceAttempts = naturalAttempts.sourceAttempts
 
+    const declaredTargetUrls = targetUrls
+    const declaredSourceUrls = sourceUrls
+    targetUrls = activeMissingFilterCloneUrls(
+      key,
+      declaredTargetUrls,
+      undefined,
+      naturalAttempts.targetAttempts,
+      naturalAttempts.sourceAttempts,
+    )
+    sourceUrls = activeMissingFilterCloneUrls(
+      key,
+      declaredSourceUrls,
+      opts.sourceReadScope,
+      naturalAttempts.sourceAttempts,
+      naturalAttempts.targetAttempts,
+    )
+    if (sourceUrls.length === 0 || (declaredTargetUrls.length > 0 && targetUrls.length === 0)) {
+      return failure(
+        "Git-natural PR review failed without missing-filter capability evidence for every required clone-backed remote.",
+        sourceUrls.length === 0 ? "source" : "target",
+      )
+    }
+    initUrls = targetUrls.length > 0 ? targetUrls : sourceUrls
+
     const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
     try {
       await smartInitializeRepoUtil(
         git,
         cacheManager,
-        {repoId: opts.repoId, cloneUrls: initUrls},
+        {
+          repoId: opts.repoId,
+          cloneUrls: initUrls,
+          strictCloneUrls: true,
+          trackReadPreference: false,
+        },
         {
           rootDir,
           parseRepoId,
@@ -3479,7 +3636,7 @@ const api = {
               }
             }
           },
-          {repoId: key, perUrlTimeoutMs: 0},
+          {perUrlTimeoutMs: 0},
         )
         appendUrlAttempts(targetAttempts, targetFetchResult.attempts)
 
@@ -3500,7 +3657,7 @@ const api = {
       }
 
       const sourceFetchResult = await withUrlFallback(
-        orderReadUrlsByPreference(sourceUrls, key, opts.sourceReadScope),
+        sourceUrls,
         async (url: string) => {
           const prSourceRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
           await git.addRemote({dir, remote: prSourceRemote, url})
@@ -3524,7 +3681,7 @@ const api = {
             }
           }
         },
-        {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
+        {perUrlTimeoutMs: 0},
       )
       appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
 
@@ -3653,10 +3810,8 @@ const api = {
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     const isForkPR = opts.sourceCloneUrls && opts.sourceCloneUrls.length > 0
-    const targetUrls = filterValidCloneUrls(opts.cloneUrls)
-    const naturalSourceUrls = isForkPR
-      ? filterValidCloneUrls(opts.sourceCloneUrls || [])
-      : targetUrls
+    let targetUrls = filterValidCloneUrls(opts.cloneUrls)
+    let naturalSourceUrls = isForkPR ? filterValidCloneUrls(opts.sourceCloneUrls || []) : targetUrls
     let sourceRemote: string | undefined
     let usedCloneUrl: string | undefined
     let sourceAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
@@ -3674,11 +3829,41 @@ const api = {
       if (naturalAhead) return toPlain(naturalAhead)
       sourceAttempts = naturalAttempts.sourceAttempts
 
+      const declaredTargetUrls = targetUrls
+      const declaredSourceUrls = naturalSourceUrls
+      targetUrls = activeMissingFilterCloneUrls(
+        key,
+        declaredTargetUrls,
+        undefined,
+        naturalAttempts.sourceAttempts,
+      )
+      naturalSourceUrls = activeMissingFilterCloneUrls(
+        key,
+        declaredSourceUrls,
+        opts.sourceReadScope,
+        naturalAttempts.sourceAttempts,
+      )
+      if (naturalSourceUrls.length === 0) {
+        return toPlain({
+          success: false,
+          error:
+            "Git-natural source history failed without missing-filter capability evidence for clone-backed recovery.",
+          commits: [],
+          commitOids: [],
+          sourceAttempts,
+        })
+      }
+
       releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       await smartInitializeRepoUtil(
         git,
         cacheManager,
-        {repoId: opts.repoId, cloneUrls: targetUrls},
+        {
+          repoId: opts.repoId,
+          cloneUrls: naturalSourceUrls,
+          strictCloneUrls: true,
+          trackReadPreference: false,
+        },
         {
           rootDir,
           parseRepoId,
@@ -3694,7 +3879,7 @@ const api = {
       const corsProxy = resolveDefaultCorsProxy()
 
       if (isForkPR) {
-        const sourceUrls = filterValidCloneUrls(opts.sourceCloneUrls!)
+        const sourceUrls = naturalSourceUrls
         if (sourceUrls.length === 0) {
           return toPlain({
             success: false,
@@ -3703,7 +3888,7 @@ const api = {
             commitOids: [],
           })
         }
-        const sourceOrdered = orderReadUrlsByPreference(sourceUrls, key, opts.sourceReadScope)
+        const sourceOrdered = sourceUrls
         const prSourceRemote = `pr-source-${Date.now().toString(36)}`
         const sourceFetchResult = await withUrlFallback(
           sourceOrdered,
@@ -3748,7 +3933,7 @@ const api = {
               throw new Error("Fork fetch succeeded but no branches were discovered")
             }
           },
-          {repoId: key, readScope: opts.sourceReadScope, perUrlTimeoutMs: 0},
+          {perUrlTimeoutMs: 0},
         )
         appendUrlAttempts(sourceAttempts, sourceFetchResult.attempts)
         if (!sourceFetchResult.success) {
@@ -3787,7 +3972,7 @@ const api = {
               onAuth: getAuthCallback(cloneUrl),
             })
           },
-          {repoId: key, perUrlTimeoutMs: 0},
+          {perUrlTimeoutMs: 0},
         )
         appendUrlAttempts(sourceAttempts, fetchResult.attempts)
         if (!fetchResult.success) {
@@ -3846,7 +4031,7 @@ const api = {
     const headOid = String(opts.headOid || "")
       .trim()
       .toLowerCase()
-    const targetUrls = filterValidCloneUrls(opts.cloneUrls)
+    let targetUrls = filterValidCloneUrls(opts.cloneUrls)
     let usedTargetCloneUrl: string | undefined
     let targetAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
     let sourceAttempts: Array<Omit<UrlAttemptResult, "result">> | undefined
@@ -3865,6 +4050,22 @@ const api = {
       if (naturalMergeBase) return toPlain(naturalMergeBase)
       targetAttempts = naturalAttempts.targetAttempts
       sourceAttempts = naturalAttempts.sourceAttempts
+      targetUrls = activeMissingFilterCloneUrls(
+        key,
+        targetUrls,
+        undefined,
+        naturalAttempts.targetAttempts,
+        naturalAttempts.sourceAttempts,
+      )
+      if (targetUrls.length === 0) {
+        return toPlain({
+          mergeBase: undefined,
+          error:
+            "Git-natural merge-base resolution failed without missing-filter capability evidence for clone-backed recovery.",
+          targetAttempts,
+          sourceAttempts,
+        })
+      }
 
       releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
       if (targetUrls.length > 0) {
@@ -3883,7 +4084,7 @@ const api = {
               corsProxy: corsProxy ?? undefined,
             })
           },
-          {repoId: key, perUrlTimeoutMs: 0},
+          {perUrlTimeoutMs: 0},
         )
         appendUrlAttempts(targetAttempts, fetchResult.attempts)
         if (!fetchResult.success) {
@@ -4396,6 +4597,7 @@ const api = {
               cloneUrls: opts.cloneUrls,
               strictCloneUrls: true,
               readScope: opts.readScope,
+              trackReadPreference: false,
             },
             {
               rootDir,
@@ -5054,6 +5256,10 @@ const api = {
     const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
 
     try {
+      // The worker bundle owns a separate in-memory cursor. Reset it together
+      // with the authoritative main-thread cursor so later composite reads do
+      // not silently remain pinned to an old fallback.
+      clearUrlPreferenceCache(key)
       const remotes = await (git as any).listRemotes({dir})
       const originRemote = remotes.find((r: any) => r.remote === "origin")
 

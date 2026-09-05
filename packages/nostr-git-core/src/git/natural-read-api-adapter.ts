@@ -33,6 +33,7 @@ export interface GitNaturalApiAdapterConfig {
   now?: () => number
   requestTimeoutMs?: number
   cancellationSettleTimeoutMs?: number
+  authorizationForUrl?: (remoteUrl: string) => string | undefined
 }
 
 export type {
@@ -153,6 +154,7 @@ export class GitNaturalApiAdapter {
   private readonly now: () => number
   private readonly requestTimeoutMs?: number
   private readonly cancellationSettleTimeoutMs?: number
+  private readonly authorizationForUrl?: (remoteUrl: string) => string | undefined
   private readonly inFlightInfoRefs = new Map<string, Promise<FetchInfoRefsResult>>()
 
   constructor(config: GitNaturalApiAdapterConfig = {}) {
@@ -162,6 +164,7 @@ export class GitNaturalApiAdapter {
     this.now = config.now ?? (() => Date.now())
     this.requestTimeoutMs = config.requestTimeoutMs
     this.cancellationSettleTimeoutMs = config.cancellationSettleTimeoutMs
+    this.authorizationForUrl = config.authorizationForUrl
   }
 
   async fetchInfoRefs(params: {
@@ -199,7 +202,7 @@ export class GitNaturalApiAdapter {
           const infoRefs = toGitNaturalInfoRefs(
             await getGitNaturalInfoRefs(
               candidate.effectiveUrl,
-              this.createRequestOptions(params.signal),
+              this.createRequestOptions(params.signal, remoteUrl),
             ),
           )
           if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
@@ -356,7 +359,7 @@ export class GitNaturalApiAdapter {
         fetchGitNaturalPackfile(
           candidate.effectiveUrl,
           want,
-          this.createRequestOptions(params.signal),
+          this.createRequestOptions(params.signal, remoteUrl),
         ),
       )
       throwIfAborted(params.signal)
@@ -401,20 +404,24 @@ export class GitNaturalApiAdapter {
     }
   }
 
-  private createRequestOptions(signal?: AbortSignal): GitNaturalRequestOptions {
+  private createRequestOptions(
+    signal: AbortSignal | undefined,
+    remoteUrl: string,
+  ): GitNaturalRequestOptions {
     return {
-      fetcher: this.createRequestFetcher(),
+      fetcher: this.createRequestFetcher(remoteUrl),
       signal,
       timeoutMs: this.requestTimeoutMs,
       cancellationSettleTimeoutMs: this.cancellationSettleTimeoutMs,
     }
   }
 
-  private createRequestFetcher(): FetchLike {
+  private createRequestFetcher(remoteUrl: string): FetchLike {
     const fetcher =
       this.fetcher ??
       ((input: string, init?: RequestInit) => globalThis.fetch(input, init) as Promise<Response>)
-    return createCheckedFetch(fetcher)
+    const authorization = this.authorizationForUrl?.(remoteUrl)
+    return createCheckedFetch(fetcher, authorization)
   }
 
   private async runWithCorsFallback<T>(
@@ -464,10 +471,16 @@ function transportNetworkError(
   )
 }
 
-function createCheckedFetch(fetcher: FetchLike): FetchLike {
+function createCheckedFetch(fetcher: FetchLike, authorization?: string): FetchLike {
   return async (input: string, init?: RequestInit) => {
     throwIfAborted(init?.signal ?? undefined)
-    const response = await fetcher(input, init)
+    let requestInit = init
+    if (authorization) {
+      const headers = new Headers(init?.headers)
+      if (!headers.has("Authorization")) headers.set("Authorization", authorization)
+      requestInit = {...init, headers}
+    }
+    const response = await fetcher(input, requestInit)
     throwForHttpError(response, input)
     return response
   }
@@ -537,6 +550,8 @@ function parseGitIdentity(value: string): GitNaturalApiCommit["author"] {
 
 function isLikelyCorsOrNetworkFailure(error: unknown): boolean {
   if (error instanceof GitNaturalReadError) return false
+  if (error instanceof GitNaturalRequestCancellationUnconfirmedError) return false
+  if (isAbortError(error)) return false
   if (error instanceof GitNaturalRequestTimeoutError) return true
   if (error instanceof TypeError) return true
   const message = error instanceof Error ? error.message : String(error || "")

@@ -5,24 +5,31 @@ vi.mock("@nostr-git/core", () => ({
   parseRepoUrl: vi.fn(),
   filterValidCloneUrls: vi.fn((urls: string[]) => urls),
   orderReadUrlsByPreference: vi.fn((urls: string[], _repoId?: string) => urls),
-  withUrlFallback: vi.fn(async (urls: string[], operation: (url: string) => Promise<unknown>) => {
-    const attempts: any[] = []
-    for (const url of urls) {
-      try {
-        const result = await operation(url)
-        attempts.push({url, success: true, result})
-        return {success: true, result, usedUrl: url, attempts}
-      } catch (error) {
-        attempts.push({
-          url,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          errorCode: (error as any)?.code || (error as any)?.name,
-        })
+  withUrlFallback: vi.fn(
+    async (
+      urls: string[],
+      operation: (url: string) => Promise<unknown>,
+      options?: {signal?: AbortSignal},
+    ) => {
+      const attempts: any[] = []
+      for (const url of urls) {
+        if (options?.signal?.aborted) break
+        try {
+          const result = await operation(url)
+          attempts.push({url, success: true, result})
+          return {success: true, result, usedUrl: url, attempts}
+        } catch (error) {
+          attempts.push({
+            url,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            errorCode: (error as any)?.code || (error as any)?.name,
+          })
+        }
       }
-    }
-    return {success: false, attempts}
-  }),
+      return {success: false, attempts}
+    },
+  ),
   hasRestApiSupport: vi.fn((url: string) => url.includes("github.com") || url.includes("gitlab.")),
 }))
 
@@ -280,6 +287,70 @@ describe("commit-api", () => {
       fallbackReason: "missing-filter-capability",
       fallbackUrl: remoteUrl,
     })
+  })
+
+  it("does not start a diff or another remote after route cancellation", async () => {
+    const controller = new AbortController()
+    const worker = {
+      gitNaturalGetCommit: vi.fn(async () => {
+        controller.abort()
+        return {
+          commit: {
+            hash: "head",
+            author: {name: "Alice", email: "alice@example.com", timestamp: 1},
+            message: "Change",
+            parents: ["parent"],
+          },
+        }
+      }),
+      gitNaturalGetDiffBetween: vi.fn(),
+    }
+
+    const {getCommitDetailsViaGitNatural} = await import("./commit-api")
+    const result = await getCommitDetailsViaGitNatural(
+      worker,
+      ["https://primary.example/repo.git", "https://secondary.example/repo.git"],
+      "head",
+      "owner/repo",
+      undefined,
+      {signal: controller.signal, operationId: "commit-load"},
+    )
+
+    expect(result).toMatchObject({success: false})
+    expect(worker.gitNaturalGetCommit).toHaveBeenCalledTimes(1)
+    expect(worker.gitNaturalGetDiffBetween).not.toHaveBeenCalled()
+  })
+
+  it("does not turn a cancelled diff into metadata-only success", async () => {
+    const controller = new AbortController()
+    const worker = {
+      gitNaturalGetCommit: vi.fn(async () => ({
+        commit: {
+          hash: "head",
+          author: {name: "Alice", email: "alice@example.com", timestamp: 1},
+          message: "Change",
+          parents: ["parent"],
+        },
+      })),
+      gitNaturalGetDiffBetween: vi.fn(async () => {
+        controller.abort()
+        throw new DOMException("Aborted", "AbortError")
+      }),
+    }
+
+    const {getCommitDetailsViaGitNatural} = await import("./commit-api")
+    const result = await getCommitDetailsViaGitNatural(
+      worker,
+      ["https://primary.example/repo.git", "https://secondary.example/repo.git"],
+      "head",
+      "owner/repo",
+      undefined,
+      {signal: controller.signal, operationId: "commit-diff-load"},
+    )
+
+    expect(result).toMatchObject({success: false, error: "Aborted"})
+    expect(worker.gitNaturalGetCommit).toHaveBeenCalledTimes(1)
+    expect(worker.gitNaturalGetDiffBetween).toHaveBeenCalledTimes(1)
   })
 
   it("returns commit details when REST API succeeds", async () => {

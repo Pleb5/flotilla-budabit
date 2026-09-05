@@ -3402,7 +3402,9 @@
         repoId: repoClass.key,
         cloneUrls,
         forceUpdate: true,
-        // timeoutMs: 2 * 60 * 1000, // 2 minutes
+        // Browser Git HTTP owns the inactivity bound. Do not race a repository
+        // mutation with an outer RPC timeout.
+        timeoutMs: 0,
       })
 
       if (result.success) {

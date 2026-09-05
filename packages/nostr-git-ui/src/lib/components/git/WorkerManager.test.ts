@@ -188,6 +188,53 @@ describe('WorkerManager', () => {
       expect(result).toHaveProperty('success');
     });
 
+    it('does not race repository mutations with an outer RPC timeout', async () => {
+      const execute = vi.spyOn(manager, 'execute').mockResolvedValue({ success: true });
+
+      await manager.smartInitializeRepo({
+        repoId: 'owner:repo',
+        cloneUrls: ['https://example.com/repo.git']
+      });
+      await manager.syncWithRemote({
+        repoId: 'owner:repo',
+        cloneUrls: ['https://example.com/repo.git']
+      });
+      await manager.ensureFullClone({
+        repoId: 'owner:repo',
+        branch: 'main',
+        cloneUrls: ['https://example.com/repo.git']
+      });
+
+      expect(execute).toHaveBeenNthCalledWith(
+        1,
+        'smartInitializeRepo',
+        {
+          repoId: 'owner:repo',
+          cloneUrls: ['https://example.com/repo.git']
+        },
+        { timeoutMs: 0 }
+      );
+      expect(execute).toHaveBeenNthCalledWith(
+        2,
+        'syncWithRemote',
+        {
+          repoId: 'owner:repo',
+          cloneUrls: ['https://example.com/repo.git']
+        },
+        { timeoutMs: 0 }
+      );
+      expect(execute).toHaveBeenNthCalledWith(
+        3,
+        'ensureFullClone',
+        {
+          repoId: 'owner:repo',
+          branch: 'main',
+          cloneUrls: ['https://example.com/repo.git']
+        },
+        { timeoutMs: 0 }
+      );
+    });
+
     it('preserves structured Git natural capability errors from the worker', async () => {
       const api = manager.apiInstance as any;
       api.gitNaturalListDirectory = vi.fn().mockResolvedValue({
@@ -321,7 +368,8 @@ describe('WorkerManager', () => {
         cloneUrls: [primary],
         branch: undefined,
         strictCloneUrls: true,
-        readScope: undefined
+        readScope: undefined,
+        trackReadPreference: false
       });
       expect(api.getCommitDetails).toHaveBeenCalledWith({
         repoId: 'worker-manager-capability-fallback',
@@ -632,6 +680,125 @@ describe('WorkerManager', () => {
 
       expect(getCachedUrlPreference(repoId)?.preferredUrl).toBe(targetUrls[2]);
       expect(getCachedUrlPreference(repoId, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+    });
+
+    it('does not let an older URL-list result replace a newer list cursor', async () => {
+      const api = manager.apiInstance as any;
+      const repoId = 'worker-manager-replaced-url-list';
+      const oldUrls = [
+        'https://primary.example/repo.git',
+        'https://secondary.example/repo.git'
+      ];
+      const newUrls = [
+        'https://secondary.example/repo.git',
+        'https://tertiary.example/repo.git'
+      ];
+      const completions: Array<(value: any) => void> = [];
+      api.getPRReviewData = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            completions.push(resolve);
+          })
+      );
+
+      const oldRead = manager.getPRReviewData({
+        repoId,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: oldUrls
+      });
+      await vi.waitFor(() => expect(completions).toHaveLength(1));
+      const newRead = manager.getPRReviewData({
+        repoId,
+        tipCommitOid: 'b'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: newUrls
+      });
+      await vi.waitFor(() => expect(completions).toHaveLength(2));
+
+      completions[1]({
+        success: true,
+        commits: [],
+        commitOids: [],
+        usedTargetCloneUrl: newUrls[1],
+        targetAttempts: [
+          { url: newUrls[0], success: false, error: 'secondary failed' },
+          { url: newUrls[1], success: true }
+        ]
+      });
+      await newRead;
+      completions[0]({
+        success: true,
+        commits: [],
+        commitOids: [],
+        usedTargetCloneUrl: oldUrls[1],
+        targetAttempts: [{ url: oldUrls[1], success: true }]
+      });
+      await oldRead;
+
+      expect(getCachedUrlPreference(repoId)?.preferredUrl).toBe(newUrls[1]);
+    });
+
+    it('does not let a pre-reset worker result restore the cleared cursor', async () => {
+      const api = manager.apiInstance as any;
+      const repoId = 'worker-manager-reset-generation';
+      const urls = [
+        'https://primary.example/repo.git',
+        'https://secondary.example/repo.git'
+      ];
+      let complete!: (value: any) => void;
+      api.getPRReviewData = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          })
+      );
+
+      const pending = manager.getPRReviewData({
+        repoId,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: urls
+      });
+      await vi.waitFor(() => expect(api.getPRReviewData).toHaveBeenCalled());
+      clearUrlPreferenceCache(repoId);
+      complete({
+        success: true,
+        commits: [],
+        commitOids: [],
+        usedTargetCloneUrl: urls[1],
+        targetAttempts: [{ url: urls[1], success: true }]
+      });
+      await pending;
+
+      expect(getCachedUrlPreference(repoId)).toBeUndefined();
+    });
+
+    it('does not advance a cursor for a cancelled composite read', async () => {
+      const api = manager.apiInstance as any;
+      const repoId = 'worker-manager-cancelled-read';
+      const urls = [
+        'https://primary.example/repo.git',
+        'https://secondary.example/repo.git'
+      ];
+      api.getPRReviewData = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Aborted',
+        commits: [],
+        commitOids: [],
+        targetAttempts: [
+          { url: urls[0], success: false, error: 'Aborted', errorCode: 'AbortError' }
+        ]
+      });
+
+      await manager.getPRReviewData({
+        repoId,
+        tipCommitOid: 'a'.repeat(40),
+        targetBranch: 'main',
+        cloneUrls: urls
+      });
+
+      expect(getCachedUrlPreference(repoId)).toBeUndefined();
     });
 
     it('reconciles terminal composite-read failures without throwing away attempts', async () => {

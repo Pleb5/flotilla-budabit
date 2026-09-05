@@ -40,7 +40,7 @@
     type RepoCommunityOption,
   } from "@nostr-git/ui"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
-  import {getContext, hasContext, onDestroy, onMount, tick} from "svelte"
+  import {getContext, hasContext, onDestroy, tick} from "svelte"
   import {
     REPO_CLONE_URLS_KEY,
     REPO_KEY,
@@ -127,7 +127,11 @@
   let diffUnavailable = $state(false)
   let commitWarning = $state<string | undefined>(undefined)
   let loadError = $state<string | undefined>(undefined)
-  let loadAttempted = $state(false)
+  const commitLoadInstanceId = `${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`
+  let commitLoadGeneration = 0
+  let commitLoadRouteKey = ""
+  let commitLoadController: AbortController | null = null
+  let commitLoadOperationId = ""
   let commentsLoading = $state(false)
   let commentsError = $state<string | undefined>(undefined)
   let commentsReloadToken = $state(0)
@@ -137,18 +141,19 @@
   let scrollParent: HTMLElement | null = $state(null)
 
   // Load commit details through repository-scoped remote routing.
-  async function loadCommitDetails() {
-    const commitid = $page.params.commitid
-    if (!commitid) return
-
-    loadError = undefined
-    commitWarning = undefined
-    diffUnavailable = false
-    fallbackStats = undefined
+  async function loadCommitDetails(
+    commitid: string,
+    generation: number,
+    signal: AbortSignal,
+    operationId: string,
+  ) {
+    const isCurrent = () =>
+      !signal.aborted && generation === commitLoadGeneration && $page.params.commitid === commitid
 
     try {
       // Wait for repo to be ready (replaces inefficient polling loop)
       await repoClass.waitForReady()
+      if (!isCurrent()) return
 
       if (!repoClass.key) {
         loadError = "Repository information not available"
@@ -199,21 +204,7 @@
         commitid,
         repoClass.key,
         async fallbackUrl => {
-          const isCloned = await repoClass.workerManager.isRepoCloned({repoId: repoClass.key})
-          if (!isCloned) {
-            const result = await repoClass.workerManager.smartInitializeRepo({
-              repoId: repoClass.key,
-              cloneUrls: [fallbackUrl],
-              branch: selectedBranch,
-              forceUpdate: false,
-              timeoutMs: 0,
-            })
-            if (!result.success) {
-              notifyCorsProxyIssue(result)
-              return {success: false, error: result.error || "Failed to initialize repository"}
-            }
-          }
-
+          if (!isCurrent()) return null
           return await repoClass.workerManager.getCommitDetails({
             repoId: repoClass.key,
             commitId: commitid,
@@ -222,7 +213,9 @@
             cloneFallbackReason: "missing-filter-capability",
           })
         },
+        {signal, operationId},
       )
+      if (!isCurrent()) return
       const activeFallbackUrl =
         commitDetails?.remoteUrl && commitDetails.remoteUrl !== filterValidCloneUrls(cloneUrls)[0]
           ? commitDetails.remoteUrl
@@ -295,10 +288,32 @@
             ? "Commit metadata loaded, but diff is unavailable."
             : undefined
     } catch (err: any) {
+      if (!isCurrent() || err?.name === "AbortError") return
       console.error("Error loading commit details:", err)
       notifyCorsProxyIssue(err)
       loadError = err?.message || "Failed to load commit details"
     }
+  }
+
+  function startCommitLoad(commitid = $page.params.commitid) {
+    if (!commitid) return
+    commitLoadController?.abort()
+    if (commitLoadOperationId) {
+      void repoClass.workerManager.cancelGitNaturalRead(commitLoadOperationId).catch(() => false)
+    }
+
+    const generation = ++commitLoadGeneration
+    const controller = new AbortController()
+    const operationId = `commit:${commitLoadInstanceId}:${repoClass.key || "pending"}:${commitid}:${generation}`
+    commitLoadController = controller
+    commitLoadOperationId = operationId
+    commitMeta = undefined
+    changes = undefined
+    loadError = undefined
+    commitWarning = undefined
+    diffUnavailable = false
+    fallbackStats = undefined
+    void loadCommitDetails(commitid, generation, controller.signal, operationId)
   }
 
   const getCommunityOptionLabel = (communityPubkey: string) => {
@@ -381,14 +396,17 @@
     })
   }
 
-  // Load commit details when component mounts if not already loaded from +page.ts
-  onMount(() => {
-    if (!commitMeta || !changes || diffUnavailable) {
-      if (!loadAttempted) {
-        loadAttempted = true
-        loadCommitDetails()
-      }
-    }
+  // SvelteKit can reuse this component for parent-commit navigation. Key the
+  // finite load to the route parameter and cancel the previous worker read.
+  $effect(() => {
+    const commitid = $page.params.commitid
+    const availableCloneUrls =
+      $repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls || []
+    const cloneUrlKey = availableCloneUrls.filter(Boolean).join("\0")
+    const routeKey = `${$page.params.id || ""}\0${commitid || ""}\0${cloneUrlKey}`
+    if (!commitid || !cloneUrlKey || routeKey === commitLoadRouteKey) return
+    commitLoadRouteKey = routeKey
+    startCommitLoad(commitid)
   })
 
   $effect(() => {
@@ -542,6 +560,10 @@
   onDestroy(() => {
     stopCommitCommentsLive()
     pageAbortController.abort()
+    commitLoadController?.abort()
+    if (commitLoadOperationId) {
+      void repoClass.workerManager.cancelGitNaturalRead(commitLoadOperationId).catch(() => false)
+    }
   })
 
   let commentDeleteLoadKey = ""
@@ -905,7 +927,7 @@
       <p class="text-lg text-rose-700 dark:text-rose-300">Failed to load commit</p>
       <p class="text-sm">{loadError}</p>
       <button
-        onclick={() => loadCommitDetails()}
+        onclick={() => startCommitLoad()}
         class="text-primary-foreground mt-4 rounded-md bg-primary px-4 py-2 hover:bg-primary/90">
         Retry
       </button>

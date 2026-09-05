@@ -490,6 +490,30 @@ describe("natural read API adapter", () => {
     expect(globalThis.fetch).toBe(originalGlobalFetch)
   })
 
+  it("adds remote-scoped authorization to direct and proxied natural requests", async () => {
+    const advertisement = encoder.encode(buildAdvertisement())
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => arrayBuffer(advertisement),
+    }))
+    const authorizationForUrl = vi.fn(() => "Basic dGVzdDp0b2tlbg==")
+    const adapter = new GitNaturalApiAdapter({
+      fetcher,
+      corsProxy: "https://cors.example",
+      authorizationForUrl,
+    })
+    const authenticatedUrl = "https://github.com/owner/repo.git"
+
+    await adapter.fetchInfoRefs({url: authenticatedUrl})
+
+    expect(authorizationForUrl).toHaveBeenCalledWith(authenticatedUrl)
+    expect(fetcher.mock.calls[0][0]).toContain("https://cors.example/github.com/")
+    expect(new Headers(fetcher.mock.calls[0][1]?.headers).get("Authorization")).toBe(
+      "Basic dGVzdDp0b2tlbg==",
+    )
+  })
+
   it("preserves HTTP status when infoRefs returns an error response", async () => {
     const body = encoder.encode("Git error: repository not found")
     const fetcher = vi.fn(async () => ({
@@ -545,6 +569,21 @@ describe("natural read API adapter", () => {
       code: "cancellation-unconfirmed",
       message: expect.stringContaining("did not settle after cancellation"),
     })
+  })
+
+  it("does not retry unconfirmed direct cancellation through the CORS proxy", async () => {
+    const fetcher = vi.fn(() => new Promise<never>(() => {}))
+    const adapter = new GitNaturalApiAdapter({
+      corsProxy: "https://cors.example",
+      fetcher,
+      requestTimeoutMs: 5,
+      cancellationSettleTimeoutMs: 5,
+    })
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      code: "cancellation-unconfirmed",
+    })
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
   it("keeps caller cancellation authoritative while the request settles", async () => {
@@ -628,9 +667,9 @@ describe("natural read API adapter", () => {
     const direct = new GitNaturalApiAdapter({
       fetcher: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
     })
-    await expect(
-      direct.fetchInfoRefs({url: "https://example.com/repo.git"}),
-    ).rejects.toMatchObject({code: "network-error"})
+    await expect(direct.fetchInfoRefs({url: "https://example.com/repo.git"})).rejects.toMatchObject(
+      {code: "network-error"},
+    )
 
     const proxied = new GitNaturalApiAdapter({
       corsProxy: "https://cors.example",

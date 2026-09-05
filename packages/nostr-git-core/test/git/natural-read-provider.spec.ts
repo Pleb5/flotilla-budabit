@@ -256,10 +256,7 @@ describe("GitNaturalReadProvider", () => {
     const firstController = new AbortController()
     const secondController = new AbortController()
     const objects = new Map([
-      [
-        commitHash,
-        {type: 1, size: 0, data: new Uint8Array(), offset: 0, hash: commitHash},
-      ],
+      [commitHash, {type: 1, size: 0, data: new Uint8Array(), offset: 0, hash: commitHash}],
       [treeHash, {type: 2, size: 0, data: new Uint8Array(), offset: 0, hash: treeHash}],
     ])
     const pack = {
@@ -269,20 +266,18 @@ describe("GitNaturalReadProvider", () => {
       pack: {version: 2, count: objects.size, objects},
       elapsedMs: 1,
     }
-    const fetchBlobNoneObjects = vi.fn(
-      async (params: {signal?: AbortSignal}) => {
-        if (params.signal === firstController.signal) {
-          await new Promise<void>((_resolve, reject) => {
-            params.signal?.addEventListener(
-              "abort",
-              () => reject(new DOMException("Aborted", "AbortError")),
-              {once: true},
-            )
-          })
-        }
-        return pack
-      },
-    )
+    const fetchBlobNoneObjects = vi.fn(async (params: {signal?: AbortSignal}) => {
+      if (params.signal === firstController.signal) {
+        await new Promise<void>((_resolve, reject) => {
+          params.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            {once: true},
+          )
+        })
+      }
+      return pack
+    })
     const adapter = {
       fetchInfoRefs: vi.fn(async () => ({
         infoRefs: {
@@ -445,6 +440,44 @@ describe("GitNaturalReadProvider", () => {
     expect(objectBodies).toEqual([])
   })
 
+  it("waits for the sibling tree request to settle before returning a diff failure", async () => {
+    const provider = new GitNaturalReadProvider({enabled: true})
+    let siblingSettled = false
+    ;(provider as any).fetchInfoRefs = vi.fn(async () => ({
+      infoRefs: {refs: {}, capabilities: CAPABILITIES, symrefs: {}},
+      remoteUrl: REMOTE_URL,
+      effectiveUrl: REMOTE_URL,
+      usesProxy: false,
+      elapsedMs: 0,
+    }))
+    ;(provider as any).getBlobNoneObjects = vi.fn(
+      async (params: {signal?: AbortSignal}, _infoRefs: unknown, commitHash: string) => {
+        if (commitHash === "a".repeat(40)) throw new Error("base tree failed")
+        await new Promise<void>((_resolve, reject) => {
+          params.signal?.addEventListener(
+            "abort",
+            () => {
+              setTimeout(() => {
+                siblingSettled = true
+                reject(new DOMException("Aborted", "AbortError"))
+              }, 5)
+            },
+            {once: true},
+          )
+        })
+      },
+    )
+
+    await expect(
+      provider.getDiffBetween({
+        url: REMOTE_URL,
+        baseCommitHash: "a".repeat(40),
+        headCommitHash: "b".repeat(40),
+      }),
+    ).rejects.toThrow("base tree failed")
+    expect(siblingSettled).toBe(true)
+  })
+
   it("completes a 100-file diff over 15 aggregate seconds with eight concurrent requests", async () => {
     vi.useFakeTimers()
     const fixture = createAddedFilesDiffFixture(
@@ -540,11 +573,9 @@ describe("GitNaturalReadProvider", () => {
       const signal = init.signal as AbortSignal
       startedSignals.push(signal)
       return new Promise<never>((_resolve, reject) => {
-        signal.addEventListener(
-          "abort",
-          () => reject(new DOMException("Aborted", "AbortError")),
-          {once: true},
-        )
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {
+          once: true,
+        })
       })
     })
     const provider = new GitNaturalReadProvider({enabled: true, fetcher: fetcher as any})
@@ -623,12 +654,7 @@ describe("GitNaturalReadProvider", () => {
         {url: REMOTE_URL, signal: controller.signal},
         {refs: {}, capabilities: CAPABILITIES, symrefs: {}},
         new Map(),
-        new Map([
-          [
-            "image.png",
-            {path: "image.png", mode: "100644", hash: "a".repeat(40)},
-          ],
-        ]),
+        new Map([["image.png", {path: "image.png", mode: "100644", hash: "a".repeat(40)}]]),
       ),
     ).rejects.toMatchObject({name: "AbortError"})
   })
@@ -882,7 +908,9 @@ function createBinaryDiffFixture() {
   }
 }
 
-function createAddedFilesDiffFixture(files: Array<{name: string; data: Uint8Array}>): DiffFixtureLike {
+function createAddedFilesDiffFixture(
+  files: Array<{name: string; data: Uint8Array}>,
+): DiffFixtureLike {
   const entries = files.map(file => ({
     mode: "100644",
     name: file.name,
@@ -909,7 +937,11 @@ function createAddedFilesDiffFixture(files: Array<{name: string; data: Uint8Arra
   return {
     baseHash,
     headHash,
-    advertisement: buildAdvertisement({tipHash: headHash, tagHash: headHash, capabilities: CAPABILITIES}),
+    advertisement: buildAdvertisement({
+      tipHash: headHash,
+      tagHash: headHash,
+      capabilities: CAPABILITIES,
+    }),
     blobNonePacks: new Map([
       [
         baseHash,
@@ -1061,7 +1093,10 @@ function packfile(
 }
 
 function packObject(type: "commit" | "tree" | "blob" | "tag", data: Uint8Array): Uint8Array {
-  return concatBytes(packObjectHeader(typeCode(type), data.length), new Uint8Array(deflateSync(data)))
+  return concatBytes(
+    packObjectHeader(typeCode(type), data.length),
+    new Uint8Array(deflateSync(data)),
+  )
 }
 
 function packObjectHeader(type: number, objectSize: number): Uint8Array {

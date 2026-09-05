@@ -183,6 +183,10 @@ export async function getGitNaturalPRReviewData(
   usedCloneUrl = latestAttemptUrl(sourceDiff) || usedCloneUrl
 
   let diff = sourceDiff
+  if (!diff.result && isTerminalCancellation(sourceDiff)) {
+    reportAttempts()
+    return null
+  }
   if (!diff.result && targetUrls.length > 0) {
     diff = await tryGetDiffBetween(options.reader, targetUrls, diffParams)
     targetAttempts.push(...summarizeAttempts(diff.attempts))
@@ -228,6 +232,21 @@ export async function getGitNaturalPRReviewData(
     targetAttempts,
     readSource: diff.result.source,
   }
+}
+
+function isTerminalCancellation(result: ReadFallbackResult): boolean {
+  const lastAttempt = result.attempts[result.attempts.length - 1]
+  const code = String(lastAttempt?.errorCode || "")
+    .toLowerCase()
+    .replace(/_/g, "-")
+  return [
+    "cancellation-unconfirmed",
+    "operation-aborted",
+    "aborterror",
+    "abort-error",
+    "abort-err",
+    "err-aborted",
+  ].includes(code)
 }
 
 function normalizeHttpUrls(urls: string[], repoId: string, readScope?: string): string[] {

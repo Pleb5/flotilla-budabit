@@ -42,6 +42,20 @@ describe("IsomorphicGitProvider delegation", () => {
     expect(pushOpts.corsProxy).toBe(null)
   })
 
+  it("preserves a per-call HTTP client when inactivity bounds are enabled", async () => {
+    const customHttp = {request: vi.fn()}
+    const prov = new IsomorphicGitProvider({
+      fs: {fs: true},
+      http: {request: vi.fn()},
+      corsProxy: null,
+      httpInactivityTimeoutMs: 90_000,
+    })
+
+    await prov.push({dir: "/r", url: "https://example.com/repo.git", http: customHttp})
+
+    expect((isogit as any).push.mock.calls.at(-1)[0].http).toBe(customHttp)
+  })
+
   it("TREE returns isomorphic-git walker with fs bound", () => {
     const prov = new IsomorphicGitProvider({fs: {fs: true}, http: {http: true}, corsProxy: "x"})
     const w = prov.TREE({ref: "HEAD"})
@@ -108,9 +122,9 @@ describe("IsomorphicGitProvider delegation", () => {
     await expect(
       prov.push({dir: "/repo", url: "https://bitbucket.org/team/repo.git"}),
     ).rejects.toThrow(/Bitbucket provider is disabled for push/i)
-    await expect(
-      prov.listServerRefs({url: "https://bitbucket.org/team/repo.git"}),
-    ).rejects.toThrow(/Bitbucket provider is disabled for remote ref listing/i)
+    await expect(prov.listServerRefs({url: "https://bitbucket.org/team/repo.git"})).rejects.toThrow(
+      /Bitbucket provider is disabled for remote ref listing/i,
+    )
 
     expect((isogit as any).clone).toHaveBeenCalledTimes(cloneCalls)
     expect((isogit as any).fetch).toHaveBeenCalledTimes(fetchCalls)

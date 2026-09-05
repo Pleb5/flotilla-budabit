@@ -153,6 +153,7 @@ export interface GitNaturalReadProviderConfig {
   now?: () => number
   requestTimeoutMs?: number
   cancellationSettleTimeoutMs?: number
+  authorizationForUrl?: (remoteUrl: string) => string | undefined
 }
 
 type RefResolutionCore = Omit<GitNaturalResolveRefResult, "source">
@@ -210,6 +211,7 @@ export class GitNaturalReadProvider {
         now: config.now,
         requestTimeoutMs: config.requestTimeoutMs,
         cancellationSettleTimeoutMs: config.cancellationSettleTimeoutMs,
+        authorizationForUrl: config.authorizationForUrl,
       })
     this.corsProxy = config.corsProxy
     this.now = config.now ?? (() => Date.now())
@@ -555,10 +557,7 @@ export class GitNaturalReadProvider {
     const [baseBatch, headBatch] =
       base.commitHash === head.commitHash
         ? await this.getSameCommitBatches(params, info.infoRefs, base.commitHash)
-        : await Promise.all([
-            this.getBlobNoneObjects(params, info.infoRefs, base.commitHash),
-            this.getBlobNoneObjects(params, info.infoRefs, head.commitHash),
-          ])
+        : await this.getDiffTreeBatches(params, info.infoRefs, base.commitHash, head.commitHash)
 
     const baseRootTreeHash = this.getRootTreeHash(baseBatch.objects, base.commitHash)
     const headRootTreeHash = this.getRootTreeHash(headBatch.objects, head.commitHash)
@@ -780,6 +779,50 @@ export class GitNaturalReadProvider {
     return [batch, batch]
   }
 
+  private async getDiffTreeBatches(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    baseCommitHash: string,
+    headCommitHash: string,
+  ): Promise<[ObjectBatchResult, ObjectBatchResult]> {
+    const controller = new AbortController()
+    const abortFromCaller = () => controller.abort()
+    params.signal?.addEventListener("abort", abortFromCaller, {once: true})
+    if (params.signal?.aborted) controller.abort()
+
+    let firstFailure: unknown
+    const read = async (commitHash: string): Promise<ObjectBatchResult> => {
+      try {
+        return await this.getBlobNoneObjects(
+          {...params, signal: controller.signal},
+          infoRefs,
+          commitHash,
+        )
+      } catch (error) {
+        if (
+          firstFailure === undefined ||
+          (error instanceof GitNaturalReadError && error.code === "cancellation-unconfirmed")
+        ) {
+          firstFailure = error
+        }
+        controller.abort()
+        throw error
+      }
+    }
+
+    try {
+      const settled = await Promise.allSettled([read(baseCommitHash), read(headCommitHash)])
+      if (firstFailure !== undefined) throw firstFailure
+      if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      if (settled[0].status !== "fulfilled" || settled[1].status !== "fulfilled") {
+        throw new Error("Diff tree requests did not complete")
+      }
+      return [settled[0].value, settled[1].value]
+    } finally {
+      params.signal?.removeEventListener("abort", abortFromCaller)
+    }
+  }
+
   private getRootTreeHash(
     objects: Map<string, GitNaturalParsedObject>,
     commitHash: string,
@@ -949,10 +992,7 @@ export class GitNaturalReadProvider {
 
     try {
       await Promise.allSettled(
-        Array.from(
-          {length: Math.min(DIFF_BLOB_FETCH_CONCURRENCY, hashes.length)},
-          runWorker,
-        ),
+        Array.from({length: Math.min(DIFF_BLOB_FETCH_CONCURRENCY, hashes.length)}, runWorker),
       )
       if (firstFailure !== undefined) throw firstFailure
       if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError")

@@ -5,6 +5,7 @@ import {
   type GitNaturalPRReviewReader,
 } from "../../src/git/natural-pr-review.js"
 import type {GitNaturalCommit} from "../../src/git/natural-read-types.js"
+import {GitNaturalReadError} from "../../src/git/natural-read-transport.js"
 import {clearUrlPreferenceCache} from "../../src/utils/clone-url-fallback.js"
 
 const SOURCE_URL = "https://source.example/repo.git"
@@ -292,6 +293,37 @@ describe("getGitNaturalPRReviewData", () => {
         reader,
       }),
     ).resolves.toBeNull()
+  })
+
+  it("does not start a target read after unconfirmed source cancellation", async () => {
+    const targetDiff = vi.fn(async () => ({changes: []}) as any)
+    const reader: GitNaturalPRReviewReader = {
+      resolveRef: vi.fn(),
+      listCommits: vi.fn(
+        async () =>
+          ({
+            commits: [commit(HEAD, [BASE]), commit(BASE)],
+          }) as any,
+      ),
+      getDiffBetween: vi.fn(async ({url}) => {
+        if (url === SOURCE_URL) {
+          throw new GitNaturalReadError("cancellation-unconfirmed", "source request did not settle")
+        }
+        return targetDiff()
+      }),
+    }
+
+    await expect(
+      getGitNaturalPRReviewData({
+        repoId: "repo",
+        tipCommitOid: HEAD,
+        targetCommitOid: BASE,
+        sourceUrls: [SOURCE_URL],
+        targetUrls: [TARGET_URL],
+        reader,
+      }),
+    ).resolves.toBeNull()
+    expect(targetDiff).not.toHaveBeenCalled()
   })
 
   it("reports partial role attempts before returning null", async () => {
