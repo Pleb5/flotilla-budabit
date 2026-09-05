@@ -182,7 +182,17 @@ describe("Repo reset", () => {
       ],
     });
 
+    repo.recordReadFallback({
+      operation: "getFileContent",
+      activeFallbackUrl: "https://secondary.example/repo.git",
+      failures: [],
+    });
+
     expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
+    expect(repo.readFallbackObservation).toMatchObject({
+      operation: "listDirectory",
+      failures: [expect.objectContaining({errorCode: "protocol-error"})],
+    });
     repo.recordCloneUrlSuccess("https://primary.example/repo.git");
     expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
     expect(orderReadUrlsByPreference(
@@ -282,6 +292,75 @@ describe("Repo reset", () => {
       activeFallbackUrl: cloneUrls[2],
       failures: [],
     });
+
+    repo.recordReadFallback({
+      operation: "listDirectory",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [
+        {
+          url: cloneUrls[0],
+          error: "pack parser failed",
+          errorCode: "protocol-error",
+          kind: "parser",
+        },
+      ],
+    });
+    repo.setCloneUrls([cloneUrls[1], cloneUrls[2], cloneUrls[0]]);
+
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[2]);
+    expect(repo.readFallbackObservation).toEqual({
+      operation: "listDirectory",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [],
+    });
+
+    repo.setCloneUrls(cloneUrls.slice(1));
+    repo.recordReadFallback({
+      operation: "getFileContent",
+      activeFallbackUrl: cloneUrls[0],
+      failures: [{url: cloneUrls[1], error: "late failure", kind: "connectivity"}],
+    });
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[2]);
+    expect(repo.readFallbackObservation).toEqual({
+      operation: "listDirectory",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [],
+    });
+
+    repo.recordReadFallback({
+      operation: "listRefs",
+      failures: [
+        {url: cloneUrls[0], error: "late primary failure", kind: "connectivity"},
+      ],
+    });
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[2]);
+    expect(repo.readFallbackObservation).toEqual({
+      operation: "listDirectory",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [],
+    });
+
+    repo.recordReadFallback({
+      operation: "diff",
+      failures: [
+        {url: cloneUrls[1], error: "secondary failed", kind: "connectivity"},
+        {url: cloneUrls[2], error: "tertiary failed", kind: "connectivity"},
+      ],
+    });
+    expect(repo.currentReadRemoteUrl).toBe("");
+    expect(repo.readFallbackObservation?.failures).toHaveLength(2);
+
+    repo.recordReadFallback({
+      operation: "listRefs",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [],
+    });
+
+    repo.clearReadFallbackObservation();
+    repo.setCloneUrls([cloneUrls[1]]);
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[1]);
+    repo.recordCloneUrlSuccess(cloneUrls[0]);
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[1]);
     repo.dispose();
   });
 });

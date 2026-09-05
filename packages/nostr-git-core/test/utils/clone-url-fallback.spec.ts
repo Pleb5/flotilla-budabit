@@ -501,6 +501,37 @@ describe('clone-url-fallback utilities', () => {
       expect(getCachedUrlPreference('repo')?.preferredUrl).toBe(urls[1]);
     });
 
+    it('does not let a success from an old URL list overwrite a newer cursor', async () => {
+      const oldUrls = ['https://primary.example', 'https://secondary.example'];
+      const newUrls = ['https://secondary.example', 'https://tertiary.example'];
+      let releasePrimary!: () => void;
+      const primaryRelease = new Promise<void>((resolve) => {
+        releasePrimary = resolve;
+      });
+
+      const oldRead = withUrlFallback(
+        oldUrls,
+        async () => {
+          await primaryRelease;
+          return {data: 'primary'};
+        },
+        {repoId: 'repo', perUrlTimeoutMs: 0}
+      );
+      const newRead = await withUrlFallback(
+        newUrls,
+        async (url) => {
+          if (url === newUrls[0]) throw new Error('secondary failed');
+          return {data: 'tertiary'};
+        },
+        {repoId: 'repo'}
+      );
+
+      expect(newRead.usedUrl).toBe(newUrls[1]);
+      releasePrimary();
+      await oldRead;
+      expect(getCachedUrlPreference('repo')?.preferredUrl).toBe(newUrls[1]);
+    });
+
     it('skips stale intermediate attempts after another read advances farther', async () => {
       const urls = [
         'https://primary.example',

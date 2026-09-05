@@ -1297,6 +1297,37 @@ export class Repo {
     this.commitManager?.setCloneUrls(this.#effectiveCloneUrls);
     this.branchManager?.setCloneUrls(this.#effectiveCloneUrls);
     this.fileManager?.setCloneUrls(this.#effectiveCloneUrls);
+
+    if (this.#readFallbackObservation) {
+      const activeFallbackIndex = nextCloneUrls.findIndex(
+        (url) =>
+          this.#normalizeCloneUrl(url) ===
+          this.#normalizeCloneUrl(this.#readFallbackObservation?.activeFallbackUrl || "")
+      );
+      if (activeFallbackIndex <= 0) {
+        this.#readFallbackObservation = null;
+        this.currentReadRemoteUrl = nextCloneUrls[Math.max(activeFallbackIndex, 0)] || "";
+      } else {
+        this.#readFallbackObservation = {
+          ...this.#readFallbackObservation,
+          failures: this.#readFallbackObservation.failures.filter((failure) => {
+            const failureIndex = nextCloneUrls.findIndex(
+              (url) => this.#normalizeCloneUrl(url) === this.#normalizeCloneUrl(failure.url)
+            );
+            return failureIndex >= 0 && failureIndex < activeFallbackIndex;
+          }),
+        };
+        this.currentReadRemoteUrl = nextCloneUrls[activeFallbackIndex];
+      }
+    } else {
+      const cachedUrl = getCachedUrlPreference(this.key)?.preferredUrl;
+      const cachedIndex = cachedUrl
+        ? nextCloneUrls.findIndex(
+            (url) => this.#normalizeCloneUrl(url) === this.#normalizeCloneUrl(cachedUrl)
+          )
+        : -1;
+      this.currentReadRemoteUrl = nextCloneUrls[Math.max(cachedIndex, 0)] || "";
+    }
   }
 
   #arraysEqual(left: string[], right: string[]): boolean {
@@ -1343,12 +1374,51 @@ export class Repo {
     const declaredUrls = this.cloneUrls;
     const cachedIndex = cachedUrl ? declaredUrls.indexOf(cachedUrl) : -1;
     const observedIndex = observation.activeFallbackUrl
-      ? declaredUrls.indexOf(observation.activeFallbackUrl)
-      : Math.max(...observation.failures.map((failure) => declaredUrls.indexOf(failure.url)));
+      ? declaredUrls.findIndex(
+          (url) =>
+            this.#normalizeCloneUrl(url) === this.#normalizeCloneUrl(observation.activeFallbackUrl!)
+        )
+      : Math.max(
+          ...observation.failures.map((failure) =>
+            declaredUrls.findIndex(
+              (url) => this.#normalizeCloneUrl(url) === this.#normalizeCloneUrl(failure.url)
+            )
+          )
+        );
+    if (declaredUrls.length > 0 && observation.activeFallbackUrl && observedIndex <= 0) return;
     if (cachedIndex >= 0 && observedIndex >= 0 && cachedIndex > observedIndex) return;
+    const currentObservation =
+      declaredUrls.length > 0
+        ? {
+            ...observation,
+            failures: observation.failures.filter((failure) => {
+              const failureIndex = declaredUrls.findIndex(
+                (url) => this.#normalizeCloneUrl(url) === this.#normalizeCloneUrl(failure.url)
+              );
+              return (
+                failureIndex >= 0 &&
+                (!observation.activeFallbackUrl || observedIndex < 0 || failureIndex < observedIndex)
+              );
+            }),
+          }
+        : observation;
+    if (
+      !currentObservation.activeFallbackUrl &&
+      currentObservation.failures.length === 0
+    ) {
+      return;
+    }
+    if (
+      currentObservation.failures.length === 0 &&
+      this.#readFallbackObservation?.failures.length &&
+      this.#readFallbackObservation.activeFallbackUrl === currentObservation.activeFallbackUrl
+    ) {
+      this.currentReadRemoteUrl = currentObservation.activeFallbackUrl || "";
+      return;
+    }
 
-    this.#readFallbackObservation = observation;
-    this.currentReadRemoteUrl = observation.activeFallbackUrl || "";
+    this.#readFallbackObservation = currentObservation;
+    this.currentReadRemoteUrl = currentObservation.activeFallbackUrl || "";
   }
 
   // Clear a specific clone URL error after a successful operation
@@ -1362,7 +1432,26 @@ export class Repo {
   recordCloneUrlSuccess(url: string): void {
     const trimmed = String(url || "").trim();
     if (trimmed) {
-      this.currentReadRemoteUrl = getCachedUrlPreference(this.key)?.preferredUrl || trimmed;
+      const declaredUrls = this.cloneUrls;
+      if (declaredUrls.length === 0) {
+        this.currentReadRemoteUrl = getCachedUrlPreference(this.key)?.preferredUrl || trimmed;
+      } else {
+        const findUrlIndex = (candidate?: string) =>
+          candidate
+            ? declaredUrls.findIndex(
+                (declared) =>
+                  this.#normalizeCloneUrl(declared) === this.#normalizeCloneUrl(candidate)
+              )
+            : -1;
+        const successIndex = findUrlIndex(trimmed);
+        if (successIndex >= 0) {
+          const cachedIndex = findUrlIndex(getCachedUrlPreference(this.key)?.preferredUrl);
+          const currentIndex = findUrlIndex(this.currentReadRemoteUrl);
+          this.currentReadRemoteUrl =
+            declaredUrls[Math.max(cachedIndex, currentIndex, successIndex)] ||
+            trimmed;
+        }
+      }
     }
     this.clearCloneUrlError(url);
   }

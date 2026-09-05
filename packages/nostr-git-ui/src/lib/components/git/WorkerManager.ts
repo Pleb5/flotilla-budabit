@@ -1651,6 +1651,8 @@ export class WorkerManager {
     const result = await this.execute<{
       success: boolean;
       remoteCommit?: string;
+      skipped?: "no-origin";
+      message?: string;
       error?: string;
       code?: GitErrorCode;
       category?: GitErrorCategory;
@@ -1666,7 +1668,11 @@ export class WorkerManager {
       );
     }
 
-    console.log(`Repository ${repoId} reset to remote commit ${result.remoteCommit}`);
+    if (result.skipped === "no-origin") {
+      console.log(`Repository ${repoId} reset skipped: ${result.message}`);
+    } else {
+      console.log(`Repository ${repoId} reset to remote commit ${result.remoteCommit}`);
+    }
     return result;
   }
 

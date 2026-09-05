@@ -155,6 +155,7 @@ function recordReadUrlSuccess(
   if (existing) {
     const currentIndex = declaredUrls.indexOf(existing.preferredUrl);
     const successIndex = declaredUrls.indexOf(successfulUrl);
+    if (currentIndex === -1) return;
     if (currentIndex >= 0 && successIndex >= 0 && currentIndex > successIndex) return;
   }
   updateUrlPreferenceCache(repoId, successfulUrl, failedUrls, readScope);

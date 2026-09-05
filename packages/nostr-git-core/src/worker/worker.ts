@@ -5054,14 +5054,21 @@ const api = {
     const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
 
     try {
-      const targetBranch = await resolveRobustBranchUtil(git, dir, opts.branch)
       const remotes = await (git as any).listRemotes({dir})
       const originRemote = remotes.find((r: any) => r.remote === "origin")
 
-      if (!originRemote?.url) {
-        throw new Error("No origin remote found - cannot reset to remote state")
+      if (!originRemote) {
+        return toPlain({
+          success: true,
+          repoId: opts.repoId,
+          branch: opts.branch,
+          skipped: "no-origin",
+          message: "No local origin remote to reset",
+        })
       }
+      if (!originRemote.url) throw new Error("Origin remote has no URL")
 
+      const targetBranch = await resolveRobustBranchUtil(git, dir, opts.branch)
       const authCallback = getAuthCallback(originRemote.url)
       await (git as any).fetch({
         dir,
