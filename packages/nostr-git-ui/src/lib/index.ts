@@ -105,8 +105,11 @@ export {
 } from "./utils/repo-creation-recovery";
 export {
   classifyCloneUrlIssue,
+  classifyRemoteReadFailure,
   getCloneUrlBannerTitle,
+  getReadFallbackMessage,
   type CloneUrlIssueKind,
+  type RemoteReadFailureKind,
 } from "./utils/cloneUrlIssues";
 export { pushRepoAlert } from "./alertsAdapter";
 // Export event kind utilities

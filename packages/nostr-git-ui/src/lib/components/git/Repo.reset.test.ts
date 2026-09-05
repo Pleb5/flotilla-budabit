@@ -66,7 +66,7 @@ describe("Repo reset", () => {
       dispose: vi.fn(),
     } as any;
     repo.mergeAnalysisCacheManager = { clear: clearMergeCache } as any;
-    repo.commitManager = { reset: vi.fn(), dispose: vi.fn() } as any;
+    repo.commitManager = { reset: vi.fn(), setCloneUrls: vi.fn(), dispose: vi.fn() } as any;
     repo.branchManager = {
       reset: vi.fn(),
       getMainBranch: vi.fn(() => "main"),
@@ -77,10 +77,12 @@ describe("Repo reset", () => {
       loadAllRefs,
       getAllRefs: vi.fn(() => []),
       getRefDiscoverySource: vi.fn(() => null),
+      setCloneUrls: vi.fn(),
       dispose: vi.fn(),
     } as any;
     repo.fileManager = {
       clearCache: vi.fn().mockResolvedValue(undefined),
+      setCloneUrls: vi.fn(),
       dispose: vi.fn(),
     } as any;
     repo.repoEvent = {
@@ -94,7 +96,25 @@ describe("Repo reset", () => {
     } as any;
     repo.key = "owner/repo";
     const cloneUrls = ["https://primary.example/repo.git", "https://fallback.example/repo.git"];
+    repo.setCloneUrls(cloneUrls);
     updateUrlPreferenceCache("owner/repo", cloneUrls[1], [cloneUrls[0]]);
+    repo.recordCloneUrlError(cloneUrls[0], "network failed", undefined, {
+      errorCode: "network-error",
+      operation: "listDirectory",
+      kind: "connectivity",
+    });
+    repo.recordReadFallback({
+      operation: "listDirectory",
+      activeFallbackUrl: cloneUrls[1],
+      failures: [
+        {
+          url: cloneUrls[0],
+          error: "network failed",
+          errorCode: "network-error",
+          kind: "connectivity",
+        },
+      ],
+    });
 
     await expect(repo.reset()).rejects.toBe(resetError);
 
@@ -105,11 +125,14 @@ describe("Repo reset", () => {
     expect(loadAllRefs).toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith("Git reset to remote failed:", resetError);
     expect(orderReadUrlsByPreference(cloneUrls, "owner/repo")).toEqual(cloneUrls);
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[0]);
+    expect(repo.cloneUrlErrors).toEqual([]);
+    expect(repo.readFallbackObservation).toBeNull();
 
     repo.dispose();
   });
 
-  it("reflects read cursor advances when a remote error is reported", async () => {
+  it("separates endpoint issues from read fallback and does not rewind the cursor", async () => {
     vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
     const workerManager = {
       isReady: false,
@@ -133,9 +156,132 @@ describe("Repo reset", () => {
       ["https://primary.example/repo.git"]
     );
 
-    repo.recordCloneUrlError("https://primary.example/repo.git", "primary failed");
+    repo.recordCloneUrlError("https://primary.example/repo.git", "primary failed", undefined, {
+      errorCode: "network-error",
+      operation: "listDirectory",
+      kind: "connectivity",
+    });
+
+    expect(repo.currentReadRemoteUrl).toBe("https://primary.example/repo.git");
+    expect(repo.cloneUrlErrors[0]).toMatchObject({
+      errorCode: "network-error",
+      operation: "listDirectory",
+      kind: "connectivity",
+    });
+
+    repo.recordReadFallback({
+      operation: "listDirectory",
+      activeFallbackUrl: "https://secondary.example/repo.git",
+      failures: [
+        {
+          url: "https://primary.example/repo.git",
+          error: "pack parser failed",
+          errorCode: "protocol-error",
+          kind: "parser",
+        },
+      ],
+    });
 
     expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
+    repo.recordCloneUrlSuccess("https://primary.example/repo.git");
+    expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
+    expect(orderReadUrlsByPreference(
+      ["https://primary.example/repo.git", "https://secondary.example/repo.git"],
+      "owner/repo"
+    )).toEqual(["https://secondary.example/repo.git"]);
+    repo.dispose();
+  });
+
+  it("does not present the final failed cursor as an active fallback", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
+    const repo = new Repo({
+      repoEvent: readable(undefined as any),
+      repoStateEvent: readable(undefined as any),
+      issues: readable([]),
+      workerManager: {
+        isReady: false,
+        setProgressCallback: vi.fn(),
+        setAuthConfig: vi.fn().mockResolvedValue(undefined),
+        initialize: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+      } as any,
+    });
+    await repo.waitForReady();
+    repo.key = "owner/all-failed";
+    repo.currentReadRemoteUrl = "https://primary.example/repo.git";
+    updateUrlPreferenceCache(
+      repo.key,
+      "https://secondary.example/repo.git",
+      ["https://primary.example/repo.git"]
+    );
+
+    repo.recordReadFallback({
+      operation: "listRefs",
+      failures: [
+        {
+          url: "https://secondary.example/repo.git",
+          error: "request failed",
+          errorCode: "network-error",
+          kind: "connectivity",
+        },
+      ],
+    });
+
+    expect(repo.currentReadRemoteUrl).toBe("");
+    expect(repo.readFallbackObservation?.activeFallbackUrl).toBeUndefined();
+    repo.dispose();
+  });
+
+  it("ignores fallback observations behind the authoritative read cursor", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
+    const cloneUrls = [
+      "https://primary.example/repo.git",
+      "https://secondary.example/repo.git",
+      "https://tertiary.example/repo.git",
+    ];
+    const repo = new Repo({
+      repoEvent: readable(undefined as any),
+      repoStateEvent: readable(undefined as any),
+      issues: readable([]),
+      workerManager: {
+        isReady: false,
+        setProgressCallback: vi.fn(),
+        setAuthConfig: vi.fn().mockResolvedValue(undefined),
+        initialize: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+      } as any,
+    });
+    await repo.waitForReady();
+    repo.key = "owner/concurrent";
+    repo.setCloneUrls(cloneUrls);
+    updateUrlPreferenceCache(repo.key, cloneUrls[2], cloneUrls.slice(0, 2));
+    repo.recordReadFallback({
+      operation: "listRefs",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [],
+    });
+
+    repo.recordReadFallback({
+      operation: "listDirectory",
+      activeFallbackUrl: cloneUrls[1],
+      failures: [
+        {
+          url: cloneUrls[0],
+          error: "pack parser failed",
+          errorCode: "protocol-error",
+          kind: "parser",
+        },
+      ],
+    });
+
+    expect(repo.currentReadRemoteUrl).toBe(cloneUrls[2]);
+    expect(repo.readFallbackObservation).toEqual({
+      operation: "listRefs",
+      activeFallbackUrl: cloneUrls[2],
+      failures: [],
+    });
     repo.dispose();
   });
 });

@@ -48,7 +48,11 @@ import {
   detectVendorFromUrl,
   extractHostname,
 } from "@nostr-git/core/git";
-import { VendorReadRouter } from "./VendorReadRouter";
+import {
+  VendorReadRouter,
+  type CloneUrlErrorDetails,
+  type ReadFallbackObservation,
+} from "./VendorReadRouter";
 import { getGitRefMismatch, isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
 import { resolvePreferredBranchFromRefs } from "./branch-selection";
 import { resolveLoadPageBranch } from "./load-page-branch";
@@ -80,6 +84,12 @@ export interface PushFanoutResult {
   allSucceeded: boolean;
 }
 
+export interface CloneUrlErrorRecord extends CloneUrlErrorDetails {
+  url: string;
+  error: string;
+  status?: number;
+}
+
 export class Repo {
   name: string = $state("");
   description: string = $state("");
@@ -109,7 +119,8 @@ export class Repo {
   #state: RepoState | undefined = $state(undefined);
 
   // Clone URL error tracking - surfaces 404s and other errors to the UI
-  #cloneUrlErrors: Array<{ url: string; error: string; status?: number }> = $state([]);
+  #cloneUrlErrors: CloneUrlErrorRecord[] = $state([]);
+  #readFallbackObservation: ReadFallbackObservation | null = $state(null);
   #effectiveCloneUrls: string[] = $state([]);
   currentReadRemoteUrl: string = $state("");
 
@@ -578,11 +589,14 @@ export class Repo {
     });
 
     // Wire up error callback to surface clone URL errors (404s, auth errors, etc.) to the UI
-    this.vendorReadRouter.setCloneUrlErrorCallback((url, error, status) => {
-      this.recordCloneUrlError(url, error, status);
+    this.vendorReadRouter.setCloneUrlErrorCallback((url, error, status, details) => {
+      this.recordCloneUrlError(url, error, status, details);
     });
     this.vendorReadRouter.setCloneUrlSuccessCallback((url: string) => {
       this.recordCloneUrlSuccess(url);
+    });
+    this.vendorReadRouter.setReadFallbackCallback((observation) => {
+      this.recordReadFallback(observation);
     });
 
     // Initialize CommitManager with dependencies and vendor router for API-first commit reads
@@ -1291,17 +1305,22 @@ export class Repo {
   }
 
   // Expose clone URL errors for UI display (e.g., 404s, auth errors)
-  get cloneUrlErrors(): Array<{ url: string; error: string; status?: number }> {
+  get cloneUrlErrors(): CloneUrlErrorRecord[] {
     return this.#cloneUrlErrors;
   }
 
+  get readFallbackObservation(): ReadFallbackObservation | null {
+    return this.#readFallbackObservation;
+  }
+
   // Record a clone URL error (called by VendorReadRouter or other components)
-  recordCloneUrlError(url: string, error: string, status?: number): void {
+  recordCloneUrlError(
+    url: string,
+    error: string,
+    status?: number,
+    details: CloneUrlErrorDetails = {}
+  ): void {
     const normalized = this.#normalizeCloneUrl(url);
-    const activeReadUrl = getCachedUrlPreference(this.key)?.preferredUrl;
-    if (activeReadUrl) {
-      this.currentReadRemoteUrl = activeReadUrl;
-    }
 
     // Avoid duplicates
     const existing = this.#cloneUrlErrors.find(
@@ -1311,9 +1330,25 @@ export class Repo {
       existing.url = url;
       existing.error = error;
       existing.status = status;
+      existing.errorCode = details.errorCode;
+      existing.operation = details.operation;
+      existing.kind = details.kind;
     } else {
-      this.#cloneUrlErrors = [...this.#cloneUrlErrors, { url, error, status }];
+      this.#cloneUrlErrors = [...this.#cloneUrlErrors, { url, error, status, ...details }];
     }
+  }
+
+  recordReadFallback(observation: ReadFallbackObservation): void {
+    const cachedUrl = getCachedUrlPreference(this.key)?.preferredUrl;
+    const declaredUrls = this.cloneUrls;
+    const cachedIndex = cachedUrl ? declaredUrls.indexOf(cachedUrl) : -1;
+    const observedIndex = observation.activeFallbackUrl
+      ? declaredUrls.indexOf(observation.activeFallbackUrl)
+      : Math.max(...observation.failures.map((failure) => declaredUrls.indexOf(failure.url)));
+    if (cachedIndex >= 0 && observedIndex >= 0 && cachedIndex > observedIndex) return;
+
+    this.#readFallbackObservation = observation;
+    this.currentReadRemoteUrl = observation.activeFallbackUrl || "";
   }
 
   // Clear a specific clone URL error after a successful operation
@@ -1335,6 +1370,10 @@ export class Repo {
   // Clear clone URL errors (e.g., after successful operation)
   clearCloneUrlErrors(): void {
     this.#cloneUrlErrors = [];
+  }
+
+  clearReadFallbackObservation(): void {
+    this.#readFallbackObservation = null;
   }
 
   // Check if any clone URLs have errors
@@ -2161,6 +2200,7 @@ export class Repo {
     // Clone URL issues are session-local read observations. Clear them before a fresh reload
     // so successful probes can repopulate only current problems.
     this.clearCloneUrlErrors();
+    this.clearReadFallbackObservation();
     clearUrlPreferenceCache(this.key);
     this.currentReadRemoteUrl = this.#effectiveCloneUrls[0] || "";
     this.refDiscoveryStatus = "idle";

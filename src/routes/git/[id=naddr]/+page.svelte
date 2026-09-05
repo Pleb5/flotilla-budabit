@@ -51,7 +51,7 @@
   import {makeExactCommunityPath} from "@app/util/routes"
   import AppLink from "@lib/components/Link.svelte"
   import {nip19} from "nostr-tools"
-  import {clip, pushToast} from "@app/util/toast"
+  import {clip} from "@app/util/toast"
   import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
   import {resolveRepoReadmeHref} from "@app/util/repo-readme-links"
   import {normalizeRelays, parseCommunityDefinitionAddress} from "@app/core/community"
@@ -251,8 +251,6 @@
     url: string
   }
 
-  let remoteFallbackToastKey = $state("")
-
   const normalizeRemoteForCompare = (value: string) => {
     const raw = String(value || "").trim()
     if (!raw) return ""
@@ -285,7 +283,7 @@
   const issuePillLabel = (url: string) => {
     const issue = getCloneUrlError(url)
     if (!issue) return ""
-    const classified = classifyCloneUrlIssue(issue.error, issue.status)
+    const classified = classifyCloneUrlIssue(issue.error, issue.status, issue.errorCode)
     if (classified.kind === "auth") return "auth"
     if (classified.kind === "not-found") return "unavailable"
     if (classified.kind === "network") return "failed"
@@ -364,24 +362,6 @@
     if (relays.length > 0) return relays
 
     return normalizeRelays([repoMetadata.community?.relay || ""])
-  })
-
-  $effect(() => {
-    if (!declaredPrimaryCloneUrl || !currentReadRemoteUrl) return
-    if (
-      normalizeRemoteForCompare(declaredPrimaryCloneUrl) ===
-      normalizeRemoteForCompare(currentReadRemoteUrl)
-    ) {
-      return
-    }
-
-    const key = `${declaredPrimaryCloneUrl}|${currentReadRemoteUrl}`
-    if (remoteFallbackToastKey === key) return
-    remoteFallbackToastKey = key
-    pushToast({
-      message: `Primary remote unavailable; reading from fallback ${getUrlHost(currentReadRemoteUrl)}`,
-      theme: "warning",
-    })
   })
 
   const naddr = $derived.by(() =>
@@ -821,21 +801,6 @@
           {:else}
             Ask the owner to pick a replacement.
           {/if}
-        </div>
-      </div>
-    {/if}
-
-    {#if declaredPrimaryCloneUrl && currentReadRemoteUrl && normalizeRemoteForCompare(declaredPrimaryCloneUrl) !== normalizeRemoteForCompare(currentReadRemoteUrl)}
-      <div
-        class="mb-4 flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-        <div class="min-w-0 flex-1">
-          Reading from fallback remote
-          <code class="font-mono">{getUrlHost(currentReadRemoteUrl)}</code>
-          because the primary remote is not the active read source.
-          <button class="ml-1 underline" type="button" onclick={repoActions?.openRemoteFixModal}>
-            Review health
-          </button>
         </div>
       </div>
     {/if}

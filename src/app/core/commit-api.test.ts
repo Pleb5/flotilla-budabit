@@ -92,6 +92,13 @@ describe("commit-api", () => {
       remoteUrl: secondary,
       diffAvailable: true,
       changes: [{path: "README.md"}],
+      readFailures: [
+        expect.objectContaining({
+          url: primary,
+          error: "pack parser failed",
+          errorCode: "Error",
+        }),
+      ],
     })
     expect(smartInitializeRepo).not.toHaveBeenCalled()
     expect(getCommitDetails).not.toHaveBeenCalled()
@@ -182,7 +189,66 @@ describe("commit-api", () => {
       `meta:${secondary}`,
       `diff:${secondary}`,
     ])
-    expect(result).toMatchObject({success: true, remoteUrl: secondary, diffAvailable: true})
+    expect(result).toMatchObject({
+      success: true,
+      remoteUrl: secondary,
+      diffAvailable: true,
+      readFailures: [
+        expect.objectContaining({
+          url: primary,
+          errorCode: "missing-filter-capability",
+        }),
+      ],
+    })
+  })
+
+  it("reports a successful scoped clone fallback without marking the endpoint unavailable", async () => {
+    const remoteUrl = "https://example.com/repo.git"
+    const worker = {
+      gitNaturalGetCommit: vi.fn(async () => ({
+        commit: {
+          hash: "head",
+          author: {name: "Alice", email: "alice@example.com", timestamp: 1},
+          message: "Change",
+          parents: ["parent"],
+        },
+      })),
+      gitNaturalGetDiffBetween: vi.fn(async () => {
+        throw Object.assign(new Error("filter unsupported"), {
+          code: "missing-filter-capability",
+        })
+      }),
+    }
+    const sameRemoteFallback = vi.fn(async () => ({
+      success: true,
+      meta: {
+        sha: "head",
+        author: "Alice",
+        email: "alice@example.com",
+        date: 1,
+        message: "Change",
+        parents: ["parent"],
+      },
+      changes: [],
+      diffAvailable: true,
+    }))
+
+    const {getCommitDetailsViaGitNatural} = await import("./commit-api")
+    const result = await getCommitDetailsViaGitNatural(
+      worker,
+      [remoteUrl],
+      "head",
+      "owner/repo",
+      sameRemoteFallback,
+    )
+
+    expect(result).toMatchObject({
+      success: true,
+      remoteUrl,
+      fallbackReason: "missing-filter-capability",
+      warning: expect.stringContaining("scoped clone fallback"),
+      readFailures: [],
+    })
   })
 
   it("authorizes clone fallback only for explicit missing filter support", async () => {

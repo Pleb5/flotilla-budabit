@@ -35,6 +35,7 @@
     TabsTrigger,
     prChangeToParseDiffFile,
     prChangeToReviewParseDiffFile,
+    classifyRemoteReadFailure,
     toast,
     type RepoCommunityOption,
   } from "@nostr-git/ui"
@@ -49,6 +50,7 @@
   import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
+  import {filterValidCloneUrls} from "@nostr-git/core"
   import type {CommentEvent} from "@nostr-git/core/events"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
@@ -221,6 +223,39 @@
           })
         },
       )
+      const activeFallbackUrl =
+        commitDetails?.remoteUrl && commitDetails.remoteUrl !== filterValidCloneUrls(cloneUrls)[0]
+          ? commitDetails.remoteUrl
+          : undefined
+      if (commitDetails?.readFailures?.length || activeFallbackUrl) {
+        const failures = (commitDetails?.readFailures || []).map((failure: any) => ({
+          ...failure,
+          error: failure.error || "Unknown error",
+          kind: classifyRemoteReadFailure(
+            failure.error,
+            failure.status,
+            failure.errorCode,
+          ).kind,
+        }))
+        repoClass.recordReadFallback({
+          operation: "getCommit",
+          activeFallbackUrl,
+          failures,
+        })
+        for (const failure of failures) {
+          const classification = classifyRemoteReadFailure(
+            failure.error,
+            failure.status,
+            failure.errorCode,
+          )
+          if (!classification.endpointIssue) continue
+          repoClass.recordCloneUrlError(failure.url, failure.error, failure.status, {
+            errorCode: failure.errorCode,
+            operation: "getCommit",
+            kind: classification.kind,
+          })
+        }
+      }
       if (commitDetails?.remoteUrl) {
         repoClass.recordCloneUrlSuccess(commitDetails.remoteUrl)
       }

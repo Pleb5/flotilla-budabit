@@ -47,7 +47,7 @@ export async function requestBytes(
   throwIfAborted(options.signal)
   const controller = new AbortController()
   const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
-  let timedOut = false
+  let cancellationCause: "caller" | "timeout" | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
   let rejectCallerAbort: (() => void) | undefined
 
@@ -58,6 +58,11 @@ export async function requestBytes(
     : undefined
 
   const abortFromCaller = () => {
+    if (cancellationCause === undefined) cancellationCause = "caller"
+    if (cancellationCause === "caller" && timeout !== undefined) {
+      clearTimeout(timeout)
+      timeout = undefined
+    }
     controller.abort()
     rejectCallerAbort?.()
   }
@@ -74,7 +79,8 @@ export async function requestBytes(
     timeoutMs > 0
       ? new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
-            timedOut = true
+            if (cancellationCause !== undefined) return
+            cancellationCause = "timeout"
             controller.abort()
             reject(new GitNaturalRequestTimeoutError(url, timeoutMs))
           }, timeoutMs)
@@ -87,7 +93,7 @@ export async function requestBytes(
     if (callerAbortPromise) contenders.push(callerAbortPromise)
     return await Promise.race(contenders)
   } catch (error) {
-    if (!timedOut && !options.signal?.aborted) throw error
+    if (cancellationCause === undefined) throw error
 
     controller.abort()
     const settled = await waitForSettlement(
@@ -95,7 +101,7 @@ export async function requestBytes(
       options.cancellationSettleTimeoutMs ?? DEFAULT_CANCELLATION_SETTLE_TIMEOUT_MS,
     )
     if (!settled) throw new GitNaturalRequestCancellationUnconfirmedError(url)
-    if (timedOut) throw new GitNaturalRequestTimeoutError(url, timeoutMs)
+    if (cancellationCause === "timeout") throw new GitNaturalRequestTimeoutError(url, timeoutMs)
     throw abortError()
   } finally {
     if (timeout !== undefined) clearTimeout(timeout)

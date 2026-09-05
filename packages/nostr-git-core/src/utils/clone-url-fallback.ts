@@ -14,6 +14,7 @@ export interface UrlAttemptResult<T = unknown> {
   result?: T;
   error?: string;
   errorCode?: string;
+  status?: number;
   durationMs?: number;
 }
 
@@ -398,10 +399,19 @@ export async function withUrlFallback<T>(
       const durationMs = Date.now() - startTime;
       const isTimeout = error instanceof UrlTimeoutError;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const sourceErrorCode = (error as any)?.code || (error as any)?.name || "UNKNOWN";
+      const errorName = (error as any)?.name;
+      const sourceErrorCode =
+        errorName === "AbortError" ? errorName : (error as any)?.code || errorName || "UNKNOWN";
+      const sourceStatus = Number((error as any)?.status);
       const cancellationUnconfirmed =
         error instanceof UrlCancellationUnconfirmedError ||
         String(sourceErrorCode).toLowerCase().replace(/_/g, "-") === "cancellation-unconfirmed";
+      const normalizedErrorCode = String(sourceErrorCode).toLowerCase().replace(/_/g, "-");
+      const cancellationConfirmed =
+        !isTimeout &&
+        ["aborterror", "abort-error", "abort-err", "err-aborted", "operation-aborted"].includes(
+          normalizedErrorCode
+        );
       const errorCode = isTimeout ? 'TIMEOUT' : sourceErrorCode;
 
       attempts.push({
@@ -409,12 +419,13 @@ export async function withUrlFallback<T>(
         success: false,
         error: errorMessage,
         errorCode,
+        ...(Number.isFinite(sourceStatus) && sourceStatus > 0 ? { status: sourceStatus } : {}),
         durationMs,
       });
 
       failedUrls.push(url);
 
-      if (repoId) {
+      if (repoId && !cancellationConfirmed) {
         advanceReadUrlPreference(
           repoId,
           url,
@@ -431,7 +442,11 @@ export async function withUrlFallback<T>(
       }
 
       // Starting another remote is unsafe when the timed-out operation ignored abort.
-      if (cancellationUnconfirmed || (!isTimeout && !isRetriable(error))) {
+      if (
+        cancellationConfirmed ||
+        cancellationUnconfirmed ||
+        (!isTimeout && !isRetriable(error))
+      ) {
         break;
       }
     }
@@ -597,6 +612,13 @@ function defaultIsRetriable(error: unknown): boolean {
   const lower = (message + code).toLowerCase();
 
   if (lower.includes('cancellation_unconfirmed') || lower.includes('cancellation-unconfirmed')) {
+    return false;
+  }
+  if (
+    lower.includes("aborterror") ||
+    lower.includes("operation_aborted") ||
+    lower.includes("operation-aborted")
+  ) {
     return false;
   }
 

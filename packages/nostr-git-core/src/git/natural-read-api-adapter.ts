@@ -427,10 +427,41 @@ export class GitNaturalApiAdapter {
       return {value: await operation(primary), transport: primary}
     } catch (error) {
       const fallback = resolveNaturalReadFallbackTransport(remoteUrl, corsProxy, primary)
-      if (!fallback || !isLikelyCorsOrNetworkFailure(error)) throw error
-      return {value: await operation(fallback), transport: fallback}
+      if (!isLikelyCorsOrNetworkFailure(error)) throw error
+      if (!fallback) {
+        if (error instanceof GitNaturalRequestTimeoutError) throw error
+        throw transportNetworkError(error, remoteUrl, primary)
+      }
+
+      try {
+        return {value: await operation(fallback), transport: fallback}
+      } catch (fallbackError) {
+        if (!isLikelyCorsOrNetworkFailure(fallbackError)) throw fallbackError
+        if (fallbackError instanceof GitNaturalRequestTimeoutError) throw fallbackError
+        throw transportNetworkError(fallbackError, remoteUrl, fallback)
+      }
     }
   }
+}
+
+function transportNetworkError(
+  error: unknown,
+  remoteUrl: string,
+  transport: GitNaturalTransport,
+): GitNaturalReadError {
+  const code = transport.usesProxy ? "cors-proxy-failure" : "network-error"
+  const target = transport.usesProxy ? "CORS proxy" : "remote"
+  return new GitNaturalReadError(
+    code,
+    `Git natural ${target} request failed for ${redactUrlForDiagnostics(remoteUrl)}: ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+    {
+      remoteUrl,
+      effectiveUrl: transport.effectiveUrl,
+      cause: error,
+    },
+  )
 }
 
 function createCheckedFetch(fetcher: FetchLike): FetchLike {
@@ -506,6 +537,7 @@ function parseGitIdentity(value: string): GitNaturalApiCommit["author"] {
 
 function isLikelyCorsOrNetworkFailure(error: unknown): boolean {
   if (error instanceof GitNaturalReadError) return false
+  if (error instanceof GitNaturalRequestTimeoutError) return true
   if (error instanceof TypeError) return true
   const message = error instanceof Error ? error.message : String(error || "")
   return /failed to fetch|network|cors|access-control|cross-origin|load failed/i.test(message)

@@ -447,9 +447,18 @@ describe("VendorReadRouter natural read fallback", () => {
     const router = new VendorReadRouter({ getTokens: async () => [] });
     const primary = "https://relay.example/repo.git";
     const secondary = "https://github.com/example/repo.git";
+    const reportReadFallback = vi.fn();
+    const reportCloneUrlError = vi.fn();
+    router.setReadFallbackCallback(reportReadFallback);
+    router.setCloneUrlErrorCallback(reportCloneUrlError);
     const workerManager = {
       gitNaturalListDirectory: vi.fn(async ({ url }: { url: string }) => {
-        if (url === primary) throw new Error("pack parser failed");
+        if (url === primary) {
+          throw new GitNaturalReadError("protocol-error", "pack parser failed", {
+            remoteUrl: url,
+            parserFailureClass: "zlib",
+          });
+        }
         return {
           path: "",
           ref: "refs/heads/main",
@@ -474,6 +483,63 @@ describe("VendorReadRouter natural read fallback", () => {
       workerManager.gitNaturalListDirectory.mock.calls.map(([value]: any[]) => value.url)
     ).toEqual([primary, secondary]);
     expect(workerManager.listRepoFilesFromEvent).not.toHaveBeenCalled();
+    expect(reportReadFallback).toHaveBeenCalledWith({
+      operation: "listDirectory",
+      activeFallbackUrl: secondary,
+      failures: [
+        expect.objectContaining({
+          url: primary,
+          errorCode: "protocol-error",
+          kind: "parser",
+        }),
+      ],
+    });
+    expect(reportCloneUrlError).not.toHaveBeenCalled();
+  });
+
+  it("records endpoint evidence separately when connectivity fallback succeeds", async () => {
+    const router = new VendorReadRouter({ getTokens: async () => [] });
+    const primary = "https://relay.example/repo.git";
+    const secondary = "https://github.com/example/repo.git";
+    const reportReadFallback = vi.fn();
+    const reportCloneUrlError = vi.fn();
+    router.setReadFallbackCallback(reportReadFallback);
+    router.setCloneUrlErrorCallback(reportCloneUrlError);
+    const workerManager = {
+      gitNaturalListDirectory: vi.fn(async ({ url }: { url: string }) => {
+        if (url === primary) {
+          throw new GitNaturalReadError("network-error", "Failed to fetch", { remoteUrl: url });
+        }
+        return {
+          path: "",
+          ref: "refs/heads/main",
+          entries: [],
+          source: gitNaturalSource("listDirectory", url),
+        };
+      }),
+    } as any;
+
+    await router.listDirectory({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/connectivity",
+      cloneUrls: [primary, secondary],
+      branch: "main",
+    });
+
+    expect(reportReadFallback).toHaveBeenCalledWith(
+      expect.objectContaining({activeFallbackUrl: secondary})
+    );
+    expect(reportCloneUrlError).toHaveBeenCalledWith(
+      primary,
+      expect.stringContaining("Failed to fetch"),
+      undefined,
+      {
+        errorCode: "network-error",
+        operation: "listDirectory",
+        kind: "connectivity",
+      }
+    );
   });
 
   it("allows a URL-scoped clone only after explicit missing filter support", async () => {
@@ -549,6 +615,8 @@ describe("VendorReadRouter natural read fallback", () => {
     const router = new VendorReadRouter({ getTokens: async () => [] });
     const primary = "https://primary.example/repo.git";
     const secondary = "https://secondary.example/repo.git";
+    const reportReadFallback = vi.fn();
+    router.setReadFallbackCallback(reportReadFallback);
     const workerManager = {
       gitNaturalListDirectory: vi.fn(async ({ url }: { url: string }) => {
         if (url === primary) throw new Error("primary unavailable");
@@ -585,6 +653,11 @@ describe("VendorReadRouter natural read fallback", () => {
     expect(workerManager.gitNaturalGetFileContent).toHaveBeenCalledWith(
       expect.objectContaining({ url: secondary })
     );
+    expect(reportReadFallback).toHaveBeenLastCalledWith({
+      operation: "getFileContent",
+      activeFallbackUrl: secondary,
+      failures: [],
+    });
     expect(workerManager.getRepoFileContentFromEvent).not.toHaveBeenCalled();
   });
 });
@@ -884,7 +957,9 @@ describe("VendorReadRouter GRASP and generic natural rollout", () => {
       gitNaturalReadPolicy: "grasp-and-generic",
     });
     const reportCloneUrlError = vi.fn();
+    const reportReadFallback = vi.fn();
     router.setCloneUrlErrorCallback(reportCloneUrlError);
+    router.setReadFallbackCallback(reportReadFallback);
     const workerManager = {
       gitNaturalGetFileContent: vi.fn(async () => {
         throw new GitNaturalReadError("missing-filter-capability", "missing filter capability");
@@ -905,11 +980,14 @@ describe("VendorReadRouter GRASP and generic natural rollout", () => {
       })
     ).rejects.toThrow("Git natural getFileContent failed for all eligible remotes");
 
-    expect(reportCloneUrlError).toHaveBeenCalledWith(
-      "https://example.com/owner/repo.git",
-      expect.stringContaining("Git natural read failed"),
-      undefined
+    expect(reportReadFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "getFileContent",
+        activeFallbackUrl: undefined,
+        failures: [expect.objectContaining({kind: "unknown"})],
+      })
     );
+    expect(reportCloneUrlError).not.toHaveBeenCalled();
   });
 });
 

@@ -231,6 +231,46 @@ describe('clone-url-fallback utilities', () => {
       expect(result.attempts).toHaveLength(2);
     });
 
+    it('preserves structured HTTP status on failed attempts', async () => {
+      const error = Object.assign(new Error('HTTP request failed'), {
+        code: 'http-error',
+        status: 503,
+      });
+
+      const result = await withUrlFallback(
+        ['https://url1.com'],
+        vi.fn().mockRejectedValue(error),
+        {perUrlTimeoutMs: 0}
+      );
+
+      expect(result.attempts[0]).toMatchObject({
+        success: false,
+        errorCode: 'http-error',
+        status: 503,
+      });
+    });
+
+    it.each([
+      [new DOMException('Aborted', 'AbortError'), 'AbortError'],
+      [Object.assign(new Error('Operation aborted'), {code: 'OPERATION_ABORTED'}), 'OPERATION_ABORTED'],
+    ])('does not advance or try another URL after confirmed cancellation', async (error, code) => {
+      const urls = ['https://primary.example', 'https://secondary.example'];
+      const operation = vi.fn().mockRejectedValue(error);
+
+      const result = await withUrlFallback(urls, operation, {
+        repoId: 'cancelled-read',
+        perUrlTimeoutMs: 0,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.attempts).toEqual([
+        expect.objectContaining({url: urls[0], errorCode: code}),
+      ]);
+      expect(operation).toHaveBeenCalledTimes(1);
+      expect(getCachedUrlPreference('cancelled-read')).toBeUndefined();
+      expect(orderReadUrlsByPreference(urls, 'cancelled-read')).toEqual(urls);
+    });
+
     it('updates cache on success', async () => {
       const operation = vi.fn()
         .mockRejectedValueOnce(new Error('Failed'))

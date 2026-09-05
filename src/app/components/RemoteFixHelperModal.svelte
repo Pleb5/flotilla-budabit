@@ -1412,7 +1412,11 @@
       const missingExpectedBranch =
         expectedBranchRef && !heads.has(expectedBranchRef) ? expectedBranch : undefined
       const recordedIssue = recordedError
-        ? classifyCloneUrlIssue(recordedError.error, recordedError.status)
+        ? classifyCloneUrlIssue(
+            recordedError.error,
+            recordedError.status,
+            recordedError.errorCode,
+          )
         : null
 
       const hasHeads = branchCount > 0
@@ -1474,7 +1478,11 @@
         message: classified.message,
         details: classified.details,
         recordedIssueKind: recordedError
-          ? classifyCloneUrlIssue(recordedError.error, recordedError.status).kind
+          ? classifyCloneUrlIssue(
+              recordedError.error,
+              recordedError.status,
+              recordedError.errorCode,
+            ).kind
           : undefined,
         updatedAt: Date.now(),
       }

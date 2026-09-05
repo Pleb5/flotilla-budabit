@@ -22,6 +22,10 @@ import { nip19 } from "nostr-tools";
 
 import type { Token } from "$lib/stores/tokens";
 import { tryTokensForHost, getTokensForHost } from "$lib/utils/tokenHelpers";
+import {
+  classifyRemoteReadFailure,
+  type RemoteReadFailureKind,
+} from "$lib/utils/cloneUrlIssues";
 import { WorkerManager } from "./WorkerManager";
 import { isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
 
@@ -151,9 +155,34 @@ const ENABLE_GRASP_REST_READS: boolean = false;
 /**
  * Callback for reporting clone URL errors to the UI
  */
-export type CloneUrlErrorCallback = (url: string, error: string, status?: number) => void;
+export interface CloneUrlErrorDetails {
+  errorCode?: string;
+  operation?: ReadOperation;
+  kind?: RemoteReadFailureKind;
+}
+
+export type CloneUrlErrorCallback = (
+  url: string,
+  error: string,
+  status?: number,
+  details?: CloneUrlErrorDetails
+) => void;
 export type CloneUrlSuccessCallback = (url: string) => void;
-type ReadFailureSummary = { url: string; error?: string; errorCode?: string };
+export interface ReadFailureSummary {
+  url: string;
+  error?: string;
+  errorCode?: string;
+  status?: number;
+  kind: RemoteReadFailureKind;
+}
+
+export interface ReadFallbackObservation {
+  operation: ReadOperation;
+  failures: ReadFailureSummary[];
+  activeFallbackUrl?: string;
+}
+
+export type ReadFallbackCallback = (observation: ReadFallbackObservation) => void;
 
 /**
  * VendorReadRouter coordinates remote reads across Git natural, provider REST, and worker fallback.
@@ -168,6 +197,7 @@ export class VendorReadRouter {
   private gitNaturalCorsProxy?: string | null;
   private onCloneUrlError?: CloneUrlErrorCallback;
   private onCloneUrlSuccess?: CloneUrlSuccessCallback;
+  private onReadFallback?: ReadFallbackCallback;
 
   constructor(config: VendorReadRouterConfig) {
     this.getTokens = config.getTokens;
@@ -189,12 +219,22 @@ export class VendorReadRouter {
     this.onCloneUrlSuccess = callback;
   }
 
+  setReadFallbackCallback(callback: ReadFallbackCallback | undefined): void {
+    this.onReadFallback = callback;
+  }
+
   /**
    * Report a clone URL error to the registered callback
    */
-  private reportCloneUrlError(url: string, error: string, status?: number): void {
+  private reportCloneUrlError(
+    url: string,
+    error: string,
+    status?: number,
+    details?: CloneUrlErrorDetails
+  ): void {
     if (this.onCloneUrlError) {
-      this.onCloneUrlError(url, error, status);
+      if (details) this.onCloneUrlError(url, error, status, details);
+      else this.onCloneUrlError(url, error, status);
     }
   }
 
@@ -543,15 +583,26 @@ export class VendorReadRouter {
   }
 
   private failedAttemptSummaries(
-    attempts: Array<{ url: string; success: boolean; error?: string; errorCode?: string }>
+    attempts: Array<{
+      url: string;
+      success: boolean;
+      error?: string;
+      errorCode?: string;
+      status?: number;
+    }>
   ): ReadFailureSummary[] {
     return attempts
       .filter((attempt) => !attempt.success)
-      .map((attempt) => ({
-        url: attempt.url,
-        error: attempt.error || "Unknown error",
-        errorCode: attempt.errorCode,
-      }));
+      .map((attempt) => {
+        const error = attempt.error || "Unknown error";
+        return {
+          url: attempt.url,
+          error,
+          errorCode: attempt.errorCode,
+          status: attempt.status ?? this.extractHttpStatus(error),
+          kind: classifyRemoteReadFailure(error, attempt.status, attempt.errorCode).kind,
+        };
+      });
   }
 
   private formatFailureContext(label: string, failures: ReadFailureSummary[]): string {
@@ -561,22 +612,54 @@ export class VendorReadRouter {
       .join(" | ")}`;
   }
 
-  private reportGitNaturalFailures(failures: ReadFailureSummary[]): void {
+  private reportGitNaturalFailures(
+    operation: ReadOperation,
+    failures: ReadFailureSummary[],
+    activeFallbackUrl?: string,
+    declaredPrimaryUrl?: string
+  ): void {
+    if (
+      failures.length > 0 ||
+      (activeFallbackUrl !== undefined && activeFallbackUrl !== declaredPrimaryUrl)
+    ) {
+      this.onReadFallback?.({operation, failures, activeFallbackUrl});
+    }
     for (const attempt of failures) {
+      const classification = classifyRemoteReadFailure(
+        attempt.error,
+        attempt.status,
+        attempt.errorCode
+      );
+      if (!classification.endpointIssue) continue;
       const message = `Git natural read failed: ${attempt.error || "Unknown error"}`;
-      this.reportCloneUrlError(attempt.url, message, this.extractHttpStatus(attempt.error));
+      this.reportCloneUrlError(attempt.url, message, attempt.status, {
+        errorCode: attempt.errorCode,
+        operation,
+        kind: classification.kind,
+      });
     }
   }
 
   private logGitNaturalFallback(
     operation: ReadOperation,
-    attempts: Array<{ url: string; success: boolean; error?: string; errorCode?: string }>
+    attempts: Array<{
+      url: string;
+      success: boolean;
+      error?: string;
+      errorCode?: string;
+      status?: number;
+    }>
   ): ReadFailureSummary[] {
     const failures = this.failedAttemptSummaries(attempts);
     if (failures.length === 0) return [];
     console.warn("[VendorReadRouter] Git natural read failed, falling back", {
       operation,
-      attempts: failures.map((attempt) => ({ url: attempt.url, error: attempt.error })),
+      attempts: failures.map((attempt) => ({
+        url: attempt.url,
+        error: attempt.error,
+        errorCode: attempt.errorCode,
+        kind: attempt.kind,
+      })),
     });
     return failures;
   }
@@ -734,6 +817,13 @@ export class VendorReadRouter {
         );
 
         if (routedResult.success && routedResult.result) {
+          const failures = this.logGitNaturalFallback("listDirectory", routedResult.attempts);
+          this.reportGitNaturalFailures(
+            "listDirectory",
+            failures,
+            routedResult.usedUrl,
+            remotes[0]
+          );
           if (routedResult.usedUrl) {
             this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
@@ -744,7 +834,7 @@ export class VendorReadRouter {
         }
 
         pendingNaturalFailures = this.logGitNaturalFallback("listDirectory", routedResult.attempts);
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("listDirectory", pendingNaturalFailures);
         throw this.naturalReadFailure("listDirectory", pendingNaturalFailures);
       }
     }
@@ -890,7 +980,7 @@ export class VendorReadRouter {
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
       if (pendingNaturalFailures.length > 0) {
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("listDirectory", pendingNaturalFailures);
         err.message = `${err.message}${this.formatFailureContext(
           "after Git natural read failed",
           pendingNaturalFailures
@@ -1003,6 +1093,13 @@ export class VendorReadRouter {
         );
 
         if (routedResult.success && routedResult.result) {
+          const failures = this.logGitNaturalFallback("getFileContent", routedResult.attempts);
+          this.reportGitNaturalFailures(
+            "getFileContent",
+            failures,
+            routedResult.usedUrl,
+            remotes[0]
+          );
           if (routedResult.usedUrl) {
             this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
@@ -1016,7 +1113,7 @@ export class VendorReadRouter {
           "getFileContent",
           routedResult.attempts
         );
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("getFileContent", pendingNaturalFailures);
         throw this.naturalReadFailure("getFileContent", pendingNaturalFailures);
       }
     }
@@ -1153,7 +1250,7 @@ export class VendorReadRouter {
     } catch (workerErr) {
       const err = workerErr instanceof Error ? workerErr : new Error(String(workerErr));
       if (pendingNaturalFailures.length > 0) {
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("getFileContent", pendingNaturalFailures);
       }
       const naturalContext = pendingNaturalFailures.length
         ? this.formatFailureContext("after Git natural read failed", pendingNaturalFailures)
@@ -1200,6 +1297,13 @@ export class VendorReadRouter {
         );
 
         if (naturalResult.success && naturalResult.result) {
+          const failures = this.logGitNaturalFallback("listRefs", naturalResult.attempts);
+          this.reportGitNaturalFailures(
+            "listRefs",
+            failures,
+            naturalResult.usedUrl,
+            remotes[0]
+          );
           if (naturalResult.usedUrl) {
             this.reportCloneUrlSuccess(naturalResult.usedUrl);
           }
@@ -1212,7 +1316,7 @@ export class VendorReadRouter {
         }
 
         const failures = this.logGitNaturalFallback("listRefs", naturalResult.attempts);
-        this.reportGitNaturalFailures(failures);
+        this.reportGitNaturalFailures("listRefs", failures);
         throw this.naturalReadFailure("listRefs", failures);
       }
     }
@@ -1645,6 +1749,13 @@ export class VendorReadRouter {
         );
 
         if (routedResult.success && routedResult.result) {
+          const failures = this.logGitNaturalFallback("listCommits", routedResult.attempts);
+          this.reportGitNaturalFailures(
+            "listCommits",
+            failures,
+            routedResult.usedUrl,
+            remotes[0]
+          );
           if (routedResult.usedUrl) {
             this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
@@ -1655,7 +1766,7 @@ export class VendorReadRouter {
         }
 
         pendingNaturalFailures = this.logGitNaturalFallback("listCommits", routedResult.attempts);
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("listCommits", pendingNaturalFailures);
         throw this.naturalReadFailure("listCommits", pendingNaturalFailures);
       }
     }
@@ -1798,7 +1909,7 @@ export class VendorReadRouter {
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
       }
       if (pendingNaturalFailures.length > 0) {
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("listCommits", pendingNaturalFailures);
       }
       const err = error instanceof Error ? error : new Error(String(error));
       err.message = `${err.message}${this.formatFailureContext(
@@ -1858,7 +1969,7 @@ export class VendorReadRouter {
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
       }
       if (pendingNaturalFailures.length > 0) {
-        this.reportGitNaturalFailures(pendingNaturalFailures);
+        this.reportGitNaturalFailures("listCommits", pendingNaturalFailures);
       }
 
       const naturalContext = this.formatFailureContext(

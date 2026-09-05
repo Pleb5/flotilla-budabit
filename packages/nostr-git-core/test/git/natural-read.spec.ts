@@ -547,6 +547,32 @@ describe("natural read API adapter", () => {
     })
   })
 
+  it("keeps caller cancellation authoritative while the request settles", async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => setTimeout(() => reject(new DOMException("Aborted", "AbortError")), 5),
+          {once: true},
+        )
+      })
+    })
+    const adapter = new GitNaturalApiAdapter({fetcher, requestTimeoutMs: 10})
+
+    try {
+      const result = adapter.fetchInfoRefs({url: GRASP_URL, signal: controller.signal})
+      const rejection = expect(result).rejects.toMatchObject({name: "AbortError"})
+      await vi.advanceTimersByTimeAsync(8)
+      controller.abort()
+      await vi.advanceTimersByTimeAsync(12)
+      await rejection
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("retries direct GRASP infoRefs through the configured proxy after a network failure", async () => {
     const advertisement = buildAdvertisement()
     const fetcher = vi
@@ -567,6 +593,54 @@ describe("natural read API adapter", () => {
       `${GRASP_URL}/info/refs?service=git-upload-pack`,
       `https://cors.example/${GRASP_URL.replace("https://", "")}/info/refs?service=git-upload-pack`,
     ])
+  })
+
+  it("retries a confirmed direct request timeout through the configured proxy", async () => {
+    const advertisement = buildAdvertisement()
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce((_url: string, init?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            {once: true},
+          )
+        })
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        arrayBuffer: async () => arrayBuffer(encoder.encode(advertisement)),
+      })
+    const adapter = new GitNaturalApiAdapter({
+      corsProxy: "https://cors.example",
+      fetcher,
+      requestTimeoutMs: 5,
+    })
+
+    const result = await adapter.fetchInfoRefs({url: GRASP_URL})
+
+    expect(result.usesProxy).toBe(true)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it("distinguishes direct connectivity from exhausted CORS proxy failures", async () => {
+    const direct = new GitNaturalApiAdapter({
+      fetcher: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    })
+    await expect(
+      direct.fetchInfoRefs({url: "https://example.com/repo.git"}),
+    ).rejects.toMatchObject({code: "network-error"})
+
+    const proxied = new GitNaturalApiAdapter({
+      corsProxy: "https://cors.example",
+      fetcher: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    })
+    await expect(proxied.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      code: "cors-proxy-failure",
+      remoteUrl: GRASP_URL,
+      effectiveUrl: `https://cors.example/${GRASP_URL.replace("https://", "")}`,
+    })
   })
 
   it("parses library packfiles that include shallow, unshallow, and side-band progress packets", async () => {

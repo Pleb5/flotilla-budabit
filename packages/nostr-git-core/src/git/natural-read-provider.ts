@@ -911,7 +911,10 @@ export class GitNaturalReadProvider {
     hashes: string[],
   ): Promise<Map<string, GitNaturalParsedObject>> {
     const objects = new Map<string, GitNaturalParsedObject>()
-    if (hashes.length === 0) return objects
+    if (hashes.length === 0) {
+      if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      return objects
+    }
 
     const controller = new AbortController()
     const abortFromCaller = () => controller.abort()
@@ -933,7 +936,12 @@ export class GitNaturalReadProvider {
           )
           objects.set(normalizeObjectHash(hash), result.object)
         } catch (error) {
-          if (firstFailure === undefined) firstFailure = error
+          if (
+            firstFailure === undefined ||
+            (error instanceof GitNaturalReadError && error.code === "cancellation-unconfirmed")
+          ) {
+            firstFailure = error
+          }
           controller.abort()
         }
       }

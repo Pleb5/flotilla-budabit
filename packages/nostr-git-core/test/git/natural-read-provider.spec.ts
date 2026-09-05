@@ -564,6 +564,75 @@ describe("GitNaturalReadProvider", () => {
     expect(startedSignals.every(signal => signal.aborted)).toBe(true)
   })
 
+  it("surfaces unconfirmed sibling cancellation before remote fallback", async () => {
+    const fixture = createAddedFilesDiffFixture(
+      Array.from({length: 12}, (_, index) => ({
+        name: `failure-${index}.txt`,
+        data: encoder.encode(`content ${index}\n`),
+      })),
+    )
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    let rejectFirst: ((error: Error) => void) | undefined
+    let objectRequestCount = 0
+    const fetcher = vi.fn((url: string, init?: RequestInit) => {
+      const body = String(init?.body || "")
+      if (init?.method !== "POST" || body.includes("filter blob:none")) {
+        return fixtureFetcher(url, init)
+      }
+
+      objectRequestCount += 1
+      if (objectRequestCount === 1) {
+        return new Promise<never>((_resolve, reject) => {
+          rejectFirst = reject
+        })
+      }
+      if (objectRequestCount === 2) return new Promise<never>(() => {})
+      return new Promise<never>((_resolve, reject) => {
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          {once: true},
+        )
+      })
+    })
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher: fetcher as any,
+      cancellationSettleTimeoutMs: 5,
+    })
+
+    const diff = provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+    })
+    await vi.waitFor(() => expect(objectRequestCount).toBe(8))
+    rejectFirst?.(new Error("first object failed"))
+
+    await expect(diff).rejects.toMatchObject({code: "cancellation-unconfirmed"})
+    expect(objectRequestCount).toBe(8)
+  })
+
+  it("does not return a binary-only diff for an already-aborted scheduler", async () => {
+    const provider = new GitNaturalReadProvider({enabled: true})
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      (provider as any).buildDiffChanges(
+        {url: REMOTE_URL, signal: controller.signal},
+        {refs: {}, capabilities: CAPABILITIES, symrefs: {}},
+        new Map(),
+        new Map([
+          [
+            "image.png",
+            {path: "image.png", mode: "100644", hash: "a".repeat(40)},
+          ],
+        ]),
+      ),
+    ).rejects.toMatchObject({name: "AbortError"})
+  })
+
   it("declines filtered operations when the server lacks filter support", async () => {
     const fixture = createGitFixture({capabilities: CAPABILITIES.filter(cap => cap !== "filter")})
     const fetcher = createFixtureFetcher(fixture)

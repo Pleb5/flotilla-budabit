@@ -1,7 +1,12 @@
 <script lang="ts">
   import { cn } from "../../utils";
   import { filterValidCloneUrls } from "@nostr-git/core/utils";
-  import { classifyCloneUrlIssue, getCloneUrlBannerTitle } from "../../utils/cloneUrlIssues";
+  import {
+    classifyCloneUrlIssue,
+    classifyRemoteReadFailure,
+    getCloneUrlBannerTitle,
+    getReadFallbackMessage,
+  } from "../../utils/cloneUrlIssues";
   import { AlertTriangle, X } from "@lucide/svelte";
   import { Repo } from "./Repo.svelte";
 
@@ -121,24 +126,9 @@
 
   const cloneUrlErrors = $derived.by(() => {
     const errors = repoClass.cloneUrlErrors || [];
-    return errors.filter((error) => {
-      const status = Number(error?.status || 0);
-      if (status >= 400) return true;
-      const text = String(error?.error || "").toLowerCase();
-      return (
-        text.includes("timeout") ||
-        text.includes("failed to fetch") ||
-        text.includes("network") ||
-        text.includes("cors") ||
-        text.includes("not found") ||
-        text.includes("authentication required") ||
-        text.includes("bad credentials") ||
-        text.includes("no tokens found") ||
-        text.includes("forbidden") ||
-        text.includes("unauthorized") ||
-        text.includes("rate limit")
-      );
-    });
+    return errors.filter((error) =>
+      classifyRemoteReadFailure(error.error, error.status, error.errorCode).endpointIssue
+    );
   });
 
   const primaryCloneErrors = $derived.by(() => {
@@ -158,19 +148,86 @@
   );
 
   const hasCloneUrlErrors = $derived.by(() => cloneUrlErrors.length > 0);
+  const readFallbackMessage = $derived.by(() =>
+    repoClass.readFallbackObservation
+      ? getReadFallbackMessage(repoClass.readFallbackObservation)
+      : ""
+  );
+  const readFallbackHasFailures = $derived(
+    Boolean(repoClass.readFallbackObservation?.failures.length)
+  );
 
   // Dismiss errors
   function dismissErrors() {
     repoClass.clearCloneUrlErrors();
   }
 
+  function dismissReadFallback() {
+    repoClass.clearReadFallbackObservation();
+  }
+
   // Format error message for display
-  function formatError(error: { url: string; error: string; status?: number }): string {
+  function formatError(error: {
+    url: string;
+    error: string;
+    status?: number;
+    errorCode?: string;
+  }): string {
     const urlShort = error.url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
-    const issue = classifyCloneUrlIssue(error.error, error.status);
+    const issue = classifyCloneUrlIssue(error.error, error.status, error.errorCode);
     return `${issue.summary}: ${urlShort}`;
   }
 </script>
+
+{#if readFallbackMessage && repoClass.readFallbackObservation?.activeFallbackUrl}
+  <div
+    class={cn(
+      "mb-2 rounded-md border p-3",
+      readFallbackHasFailures ? "border-amber-500/20 bg-amber-500/10" : "border-border bg-muted/30"
+    )}
+  >
+    <div class="flex items-start justify-between gap-2">
+      <div class="flex min-w-0 items-start gap-2">
+        {#if readFallbackHasFailures}
+          <AlertTriangle class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+        {/if}
+        <p
+          class={cn(
+            "text-sm",
+            readFallbackHasFailures
+              ? "text-amber-700 dark:text-amber-300"
+              : "text-muted-foreground"
+          )}
+        >
+          {readFallbackMessage}
+        </p>
+      </div>
+      <div class="flex flex-shrink-0 items-center gap-1">
+        {#if resolveCloneUrlIssues}
+          <button
+            onclick={resolveCloneUrlIssues}
+            class={cn(
+              "rounded border px-2 py-1 text-xs",
+              readFallbackHasFailures
+                ? "border-amber-500/30 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
+                : "border-border text-muted-foreground hover:bg-muted"
+            )}
+            title="Review remote read status"
+          >
+            Review
+          </button>
+        {/if}
+        <button
+          onclick={dismissReadFallback}
+          class="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Dismiss"
+        >
+          <X class="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if hasCloneUrlErrors}
   <div class="mb-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">

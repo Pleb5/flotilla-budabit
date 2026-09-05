@@ -57,6 +57,12 @@ export interface CommitDetails {
   metadataRemoteUrl?: string
   fallbackReason?: "missing-filter-capability"
   fallbackUrl?: string
+  readFailures?: Array<{
+    url: string
+    error?: string
+    errorCode?: string
+    status?: number
+  }>
 }
 
 type GitNaturalCommitWorker = {
@@ -183,13 +189,39 @@ export async function getCommitDetailsViaGitNatural(
 
         const fallback = await sameRemoteFallback(url, meta)
         if (!fallback?.success) {
-          throw new Error(fallback?.error || `Clone-backed commit fallback failed for ${url}`)
+          const structuredFallback = fallback as
+            | (CommitDetails & {
+                code?: string
+                errorCode?: string
+                status?: number
+                gitNaturalError?: {code?: string; status?: number}
+              })
+            | null
+          throw Object.assign(
+            new Error(
+              `Clone-backed commit fallback failed after Git natural reported missing filter support: ${
+                fallback?.error || url
+              }`,
+            ),
+            {
+              code:
+                structuredFallback?.gitNaturalError?.code ||
+                structuredFallback?.errorCode ||
+                structuredFallback?.code ||
+                "missing-filter-capability",
+              status:
+                structuredFallback?.gitNaturalError?.status || structuredFallback?.status,
+            },
+          )
         }
         return {
           ...fallback,
           fallbackReason: "missing-filter-capability",
           fallbackUrl: url,
           remoteUrl: fallback.remoteUrl || url,
+          warning:
+            fallback.warning ||
+            "Git natural filter support was unavailable, so commit details used the scoped clone fallback.",
         }
       }
     },
@@ -197,7 +229,10 @@ export async function getCommitDetailsViaGitNatural(
   )
 
   if (result.success && result.result) {
-    return result.result
+    return {
+      ...result.result,
+      readFailures: result.attempts.filter(attempt => !attempt.success),
+    }
   }
 
   const lastAttempt = result.attempts[result.attempts.length - 1]
@@ -216,6 +251,7 @@ export async function getCommitDetailsViaGitNatural(
       ...(missingFilter
         ? {fallbackReason: "missing-filter-capability" as const, fallbackUrl: lastAttempt.url}
         : {}),
+      readFailures: result.attempts.filter(attempt => !attempt.success),
     }
   }
 
@@ -225,6 +261,7 @@ export async function getCommitDetailsViaGitNatural(
     ...(missingFilter
       ? {fallbackReason: "missing-filter-capability" as const, fallbackUrl: lastAttempt.url}
       : {}),
+    readFailures: result.attempts.filter(attempt => !attempt.success),
   }
 }
 
