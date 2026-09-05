@@ -1,6 +1,6 @@
 import {joinBytes, parsePktLines} from "./pkt-line.js"
 import {parsePackfile, type PackfileResult} from "./parse-packfile.js"
-import {assertSuccessfulResponse, type GitNaturalRequestOptions} from "./request.js"
+import {requestBytes, type GitNaturalRequestOptions} from "./request.js"
 
 export class MissingRef extends Error {
   constructor(message = "missing ref") {
@@ -16,18 +16,15 @@ export async function fetchPackfile(
   want: string,
   options: GitNaturalRequestOptions,
 ): Promise<PackfileResult> {
-  const response = await options.fetcher(`${url}/git-upload-pack`, {
+  const endpoint = `${url}/git-upload-pack`
+  const bytes = await requestBytes(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-git-upload-pack-request",
       Accept: "application/x-git-upload-pack-result",
     },
     body: want,
-    signal: options.signal,
-  })
-  assertSuccessfulResponse(response, "git upload-pack")
-
-  const bytes = new Uint8Array(await response.arrayBuffer())
+  }, options, "git upload-pack")
   if (bytes.length === 0) throw new Error("empty upload-pack response")
 
   const packChunks: Uint8Array[] = []

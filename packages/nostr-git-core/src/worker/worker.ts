@@ -1691,7 +1691,7 @@ const api = {
     assertGitNaturalReadEnabled(opts.enabled)
     const corsProxy = resolveGitNaturalCorsProxy(opts.corsProxy)
     const provider = getGitNaturalReadProvider(corsProxy)
-    return await runGitNaturalWorkerRead(opts, signal =>
+    return await runGitNaturalWorkerRead({...opts, timeoutMs: 0}, signal =>
       provider.getDiffBetween({
         url: opts.url,
         baseCommitHash: opts.baseCommitHash,

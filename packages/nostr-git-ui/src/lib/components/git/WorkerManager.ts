@@ -927,7 +927,6 @@ export class WorkerManager {
             baseCommitHash: parent,
             headCommitHash: meta.sha,
             enabled: true,
-            timeoutMs: 15_000,
           });
           return {
             success: true,
@@ -1056,7 +1055,6 @@ export class WorkerManager {
             headCommitHash: params.headOid,
             enabled: true,
             corsProxy: params.corsProxy,
-            timeoutMs: 15_000,
           });
           return {
             success: true,

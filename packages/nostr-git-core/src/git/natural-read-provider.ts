@@ -151,6 +151,8 @@ export interface GitNaturalReadProviderConfig {
   fetcher?: FetchLike
   corsProxy?: string | null
   now?: () => number
+  requestTimeoutMs?: number
+  cancellationSettleTimeoutMs?: number
 }
 
 type RefResolutionCore = Omit<GitNaturalResolveRefResult, "source">
@@ -171,8 +173,16 @@ interface BlobObjectResult {
   pack?: GitNaturalApiPackResult
 }
 
+interface DiffChangeDescriptor {
+  path: string
+  base?: FlattenedTreeFile
+  head?: FlattenedTreeFile
+  knownBinary: boolean
+}
+
 const DEFAULT_REF = "HEAD"
 const COMMIT_HISTORY_BATCH_SIZE = 15
+const DIFF_BLOB_FETCH_CONCURRENCY = 8
 const utf8Decoder = new TextDecoder("utf-8")
 
 export class GitNaturalReadProvider {
@@ -198,6 +208,8 @@ export class GitNaturalReadProvider {
         fetcher: config.fetcher,
         corsProxy: config.corsProxy,
         now: config.now,
+        requestTimeoutMs: config.requestTimeoutMs,
+        cancellationSettleTimeoutMs: config.cancellationSettleTimeoutMs,
       })
     this.corsProxy = config.corsProxy
     this.now = config.now ?? (() => Date.now())
@@ -835,49 +847,111 @@ export class GitNaturalReadProvider {
     headFiles: Map<string, FlattenedTreeFile>,
   ): Promise<GitNaturalDiffChange[]> {
     const paths = Array.from(new Set([...baseFiles.keys(), ...headFiles.keys()])).sort()
-    const changes: GitNaturalDiffChange[] = []
+    const descriptors: DiffChangeDescriptor[] = []
+    const hashes = new Set<string>()
 
     for (const path of paths) {
       const base = baseFiles.get(path)
       const head = headFiles.get(path)
       if (base?.hash === head?.hash) continue
 
+      const knownBinary = isBinaryByExtension(path)
+      descriptors.push({path, base, head, knownBinary})
+      if (knownBinary) continue
+      if (base) hashes.add(normalizeObjectHash(base.hash))
+      if (head) hashes.add(normalizeObjectHash(head.hash))
+    }
+
+    const blobs = await this.fetchDiffBlobs(params, infoRefs, Array.from(hashes))
+    return descriptors.map(({path, base, head, knownBinary}) => {
       if (!base && head) {
-        const blob = await this.getBlobObject(params, infoRefs, head.hash)
-        changes.push({
+        return {
           path,
           status: "added",
           newOid: head.hash,
           newMode: head.mode,
-          ...diffHunksForAddedFile(path, blob.object.data),
-        })
-      } else if (base && !head) {
-        const blob = await this.getBlobObject(params, infoRefs, base.hash)
-        changes.push({
+          ...(knownBinary
+            ? {binary: true, diffHunks: []}
+            : diffHunksForAddedFile(path, this.getObject(blobs, head.hash, "blob").data)),
+        }
+      }
+      if (base && !head) {
+        return {
           path,
           status: "deleted",
           oldOid: base.hash,
           oldMode: base.mode,
-          ...diffHunksForDeletedFile(path, blob.object.data),
-        })
-      } else if (base && head) {
-        const [oldBlob, newBlob] = await Promise.all([
-          this.getBlobObject(params, infoRefs, base.hash),
-          this.getBlobObject(params, infoRefs, head.hash),
-        ])
-        changes.push({
-          path,
-          status: "modified",
-          oldOid: base.hash,
-          newOid: head.hash,
-          oldMode: base.mode,
-          newMode: head.mode,
-          ...diffHunksForModifiedFile(path, oldBlob.object.data, newBlob.object.data),
-        })
+          ...(knownBinary
+            ? {binary: true, diffHunks: []}
+            : diffHunksForDeletedFile(path, this.getObject(blobs, base.hash, "blob").data)),
+        }
+      }
+      if (!base || !head) throw new Error(`invalid diff descriptor for ${path}`)
+      return {
+        path,
+        status: "modified",
+        oldOid: base.hash,
+        newOid: head.hash,
+        oldMode: base.mode,
+        newMode: head.mode,
+        ...(knownBinary
+          ? {binary: true, diffHunks: []}
+          : diffHunksForModifiedFile(
+              path,
+              this.getObject(blobs, base.hash, "blob").data,
+              this.getObject(blobs, head.hash, "blob").data,
+            )),
+      }
+    })
+  }
+
+  private async fetchDiffBlobs(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    hashes: string[],
+  ): Promise<Map<string, GitNaturalParsedObject>> {
+    const objects = new Map<string, GitNaturalParsedObject>()
+    if (hashes.length === 0) return objects
+
+    const controller = new AbortController()
+    const abortFromCaller = () => controller.abort()
+    params.signal?.addEventListener("abort", abortFromCaller, {once: true})
+    if (params.signal?.aborted) controller.abort()
+
+    let nextIndex = 0
+    let firstFailure: unknown
+    const runWorker = async () => {
+      while (!controller.signal.aborted && firstFailure === undefined) {
+        const index = nextIndex++
+        if (index >= hashes.length) return
+        const hash = hashes[index]
+        try {
+          const result = await this.getBlobObject(
+            {...params, signal: controller.signal},
+            infoRefs,
+            hash,
+          )
+          objects.set(normalizeObjectHash(hash), result.object)
+        } catch (error) {
+          if (firstFailure === undefined) firstFailure = error
+          controller.abort()
+        }
       }
     }
 
-    return changes
+    try {
+      await Promise.allSettled(
+        Array.from(
+          {length: Math.min(DIFF_BLOB_FETCH_CONCURRENCY, hashes.length)},
+          runWorker,
+        ),
+      )
+      if (firstFailure !== undefined) throw firstFailure
+      if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+      return objects
+    } finally {
+      params.signal?.removeEventListener("abort", abortFromCaller)
+    }
   }
 
   private getObject(

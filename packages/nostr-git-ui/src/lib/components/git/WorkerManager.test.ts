@@ -261,6 +261,12 @@ describe('WorkerManager', () => {
 
       expect(calls).toEqual([`meta:${primary}`, `diff:${primary}`, `meta:${secondary}`, `diff:${secondary}`]);
       expect(result).toMatchObject({ success: true, usedUrl: secondary, diffAvailable: true });
+      expect(api.gitNaturalGetCommit).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 15_000 }),
+      );
+      expect(api.gitNaturalGetDiffBetween).toHaveBeenCalledWith(
+        expect.not.objectContaining({ timeoutMs: expect.anything() }),
+      );
       expect(api.smartInitializeRepo).not.toHaveBeenCalled();
       expect(api.getCommitDetails).not.toHaveBeenCalled();
     });

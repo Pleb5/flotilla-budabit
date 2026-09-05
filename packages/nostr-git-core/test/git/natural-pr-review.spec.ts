@@ -396,6 +396,39 @@ describe("getGitNaturalPRReviewData", () => {
       expect.objectContaining({url: targetUrls[2], success: true}),
     ])
   })
+
+  it("allows a progressing diff to exceed the former 15-second aggregate deadline", async () => {
+    vi.useFakeTimers()
+    const reader = createReader({
+      histories: new Map([[HEAD, [commit(HEAD, [BASE]), commit(BASE)]]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+    reader.getDiffBetween.mockImplementation(async ({url, baseCommitHash, headCommitHash}: any) => {
+      await new Promise(resolve => setTimeout(resolve, 16_001))
+      return {
+        baseCommitHash,
+        headCommitHash,
+        changes: [],
+        source: sourceMetadata(url, "getDiffBetween"),
+      }
+    })
+
+    try {
+      const reviewPromise = getGitNaturalPRReviewData({
+        repoId: "long-natural-diff",
+        tipCommitOid: HEAD,
+        targetBranch: "main",
+        sourceUrls: [SOURCE_URL],
+        targetUrls: [TARGET_URL],
+        mergeBase: BASE,
+        reader,
+      })
+      await vi.advanceTimersByTimeAsync(16_001)
+      await expect(reviewPromise).resolves.toMatchObject({success: true, changes: []})
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 function createReader(options: {

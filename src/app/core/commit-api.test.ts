@@ -96,6 +96,12 @@ describe("commit-api", () => {
     expect(smartInitializeRepo).not.toHaveBeenCalled()
     expect(getCommitDetails).not.toHaveBeenCalled()
     expect(sameRemoteFallback).not.toHaveBeenCalled()
+    expect(worker.gitNaturalGetCommit).toHaveBeenCalledWith(
+      expect.objectContaining({timeoutMs: 15_000}),
+    )
+    expect(worker.gitNaturalGetDiffBetween).toHaveBeenCalledWith(
+      expect.not.objectContaining({timeoutMs: expect.anything()}),
+    )
   })
 
   it("returns metadata-only only after every natural diff attempt fails", async () => {

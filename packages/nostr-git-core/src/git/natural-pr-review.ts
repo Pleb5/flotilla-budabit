@@ -301,7 +301,7 @@ async function tryGetDiffBetween(
         corsProxy: params.corsProxy,
         signal,
       }),
-    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 15000},
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0},
   )
 }
 

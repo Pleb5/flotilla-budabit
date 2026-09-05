@@ -165,7 +165,6 @@ export async function getCommitDetailsViaGitNatural(
           baseCommitHash: firstParent,
           headCommitHash: meta.sha,
           enabled: true,
-          timeoutMs: 15_000,
         })
         const changes = Array.isArray(diffResult?.changes) ? diffResult.changes : []
         console.log(`[commit-api] Git natural commit details success for ${commitId}`)

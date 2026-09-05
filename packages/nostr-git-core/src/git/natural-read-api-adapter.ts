@@ -1,4 +1,6 @@
 import {
+  GitNaturalRequestCancellationUnconfirmedError,
+  GitNaturalRequestTimeoutError,
   MissingRef,
   fetchPackfile as fetchGitNaturalPackfile,
   getInfoRefs as getGitNaturalInfoRefs,
@@ -9,6 +11,7 @@ import {
   type ParsedObject,
   type Tree as GitNaturalApiTree,
   type TreeEntry as GitNaturalApiTreeEntry,
+  type GitNaturalRequestOptions,
 } from "./git-natural-api/index.js"
 
 import {
@@ -28,6 +31,8 @@ export interface GitNaturalApiAdapterConfig {
   fetcher?: FetchLike
   corsProxy?: string | null
   now?: () => number
+  requestTimeoutMs?: number
+  cancellationSettleTimeoutMs?: number
 }
 
 export type {
@@ -146,6 +151,8 @@ export class GitNaturalApiAdapter {
   private readonly fetcher?: FetchLike
   private readonly corsProxy?: string | null
   private readonly now: () => number
+  private readonly requestTimeoutMs?: number
+  private readonly cancellationSettleTimeoutMs?: number
   private readonly inFlightInfoRefs = new Map<string, Promise<FetchInfoRefsResult>>()
 
   constructor(config: GitNaturalApiAdapterConfig = {}) {
@@ -153,6 +160,8 @@ export class GitNaturalApiAdapter {
     this.fetcher = config.fetcher
     this.corsProxy = config.corsProxy
     this.now = config.now ?? (() => Date.now())
+    this.requestTimeoutMs = config.requestTimeoutMs
+    this.cancellationSettleTimeoutMs = config.cancellationSettleTimeoutMs
   }
 
   async fetchInfoRefs(params: {
@@ -188,10 +197,10 @@ export class GitNaturalApiAdapter {
       try {
         const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, async candidate => {
           const infoRefs = toGitNaturalInfoRefs(
-            await getGitNaturalInfoRefs(candidate.effectiveUrl, {
-              fetcher: this.createRequestFetcher(params.signal),
-              signal: params.signal,
-            }),
+            await getGitNaturalInfoRefs(
+              candidate.effectiveUrl,
+              this.createRequestOptions(params.signal),
+            ),
           )
           if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
             throw new GitNaturalReadError(
@@ -344,10 +353,11 @@ export class GitNaturalApiAdapter {
     try {
       throwIfAborted(params.signal)
       const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, candidate =>
-        fetchGitNaturalPackfile(candidate.effectiveUrl, want, {
-          fetcher: this.createRequestFetcher(params.signal),
-          signal: params.signal,
-        }),
+        fetchGitNaturalPackfile(
+          candidate.effectiveUrl,
+          want,
+          this.createRequestOptions(params.signal),
+        ),
       )
       throwIfAborted(params.signal)
       return {
@@ -391,11 +401,20 @@ export class GitNaturalApiAdapter {
     }
   }
 
-  private createRequestFetcher(signal?: AbortSignal): FetchLike {
+  private createRequestOptions(signal?: AbortSignal): GitNaturalRequestOptions {
+    return {
+      fetcher: this.createRequestFetcher(),
+      signal,
+      timeoutMs: this.requestTimeoutMs,
+      cancellationSettleTimeoutMs: this.cancellationSettleTimeoutMs,
+    }
+  }
+
+  private createRequestFetcher(): FetchLike {
     const fetcher =
       this.fetcher ??
       ((input: string, init?: RequestInit) => globalThis.fetch(input, init) as Promise<Response>)
-    return createCheckedFetch(fetcher, signal)
+    return createCheckedFetch(fetcher)
   }
 
   private async runWithCorsFallback<T>(
@@ -414,10 +433,10 @@ export class GitNaturalApiAdapter {
   }
 }
 
-function createCheckedFetch(fetcher: FetchLike, signal?: AbortSignal): FetchLike {
+function createCheckedFetch(fetcher: FetchLike): FetchLike {
   return async (input: string, init?: RequestInit) => {
-    throwIfAborted(signal)
-    const response = await fetcher(input, signal ? {...init, signal} : init)
+    throwIfAborted(init?.signal ?? undefined)
+    const response = await fetcher(input, init)
     throwForHttpError(response, input)
     return response
   }
@@ -518,6 +537,24 @@ function toGitNaturalReadError(
 ): GitNaturalReadError {
   if (error instanceof GitNaturalReadError) return error
   if (isAbortError(error)) throw error
+  if (error instanceof GitNaturalRequestTimeoutError) {
+    return new GitNaturalReadError("transient-network-failure", error.message, {
+      remoteUrl: fallback.remoteUrl,
+      effectiveUrl: error.url,
+      filter: fallback.filter,
+      depth: fallback.depth,
+      cause: error,
+    })
+  }
+  if (error instanceof GitNaturalRequestCancellationUnconfirmedError) {
+    return new GitNaturalReadError("cancellation-unconfirmed", error.message, {
+      remoteUrl: fallback.remoteUrl,
+      effectiveUrl: error.url,
+      filter: fallback.filter,
+      depth: fallback.depth,
+      cause: error,
+    })
+  }
   return new GitNaturalReadError(
     fallback.code,
     `${fallback.message}${formatPackFailureDiagnostics(fallback)}: ${error instanceof Error ? error.message : String(error)}`,

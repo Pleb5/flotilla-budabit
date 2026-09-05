@@ -1,5 +1,5 @@
 import {parsePktLines} from "./pkt-line.js"
-import {assertSuccessfulResponse, type GitNaturalRequestOptions} from "./request.js"
+import {requestBytes, type GitNaturalRequestOptions} from "./request.js"
 
 export type InfoRefsUploadPackResponse = {
   refs: Record<string, string>
@@ -13,14 +13,9 @@ export async function getInfoRefs(
   url: string,
   options: GitNaturalRequestOptions,
 ): Promise<InfoRefsUploadPackResponse> {
-  const response = await options.fetcher(`${url}/info/refs?service=git-upload-pack`, {
-    method: "GET",
-    signal: options.signal,
-  })
-  assertSuccessfulResponse(response, "git info/refs")
-
   const result: InfoRefsUploadPackResponse = {refs: {}, capabilities: [], symrefs: {}}
-  const bytes = new Uint8Array(await response.arrayBuffer())
+  const endpoint = `${url}/info/refs?service=git-upload-pack`
+  const bytes = await requestBytes(endpoint, {method: "GET"}, options, "git info/refs")
   for (const packet of parsePktLines(bytes)) {
     if (packet.type !== "data") continue
     const content = decoder.decode(packet.payload).replace(/\n$/, "")

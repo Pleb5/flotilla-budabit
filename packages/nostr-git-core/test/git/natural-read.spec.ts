@@ -420,7 +420,7 @@ describe("natural read API adapter", () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(fetcher).toHaveBeenCalledWith(
       "https://example.com/repo.git/info/refs?service=git-upload-pack",
-      {method: "GET", signal: undefined},
+      {method: "GET", signal: expect.any(AbortSignal)},
     )
   })
 
@@ -434,8 +434,10 @@ describe("natural read API adapter", () => {
       text: async () => advertisement,
       arrayBuffer: async () => arrayBuffer(encoder.encode(advertisement)),
     })
+    const transportSignals: AbortSignal[] = []
     const fetcher = vi.fn((_url: string, init?: RequestInit) => {
-      if (init?.signal === firstController.signal) {
+      transportSignals.push(init?.signal as AbortSignal)
+      if (transportSignals.length === 1) {
         return new Promise<ReturnType<typeof response>>((_resolve, reject) => {
           init.signal?.addEventListener(
             "abort",
@@ -451,6 +453,8 @@ describe("natural read API adapter", () => {
     const first = adapter.fetchInfoRefs({url: GRASP_URL, signal: firstController.signal})
     const second = adapter.fetchInfoRefs({url: GRASP_URL, signal: secondController.signal})
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+    expect(transportSignals[0]).not.toBe(transportSignals[1])
+    expect(transportSignals.map(signal => signal.aborted)).toEqual([false, false])
 
     firstController.abort()
 
@@ -459,10 +463,7 @@ describe("natural read API adapter", () => {
       infoRefs: {headCommit: "1".repeat(40)},
     })
     expect(fetcher).toHaveBeenCalledTimes(2)
-    expect(fetcher.mock.calls.map(([, init]) => init?.signal)).toEqual([
-      firstController.signal,
-      secondController.signal,
-    ])
+    expect(transportSignals.map(signal => signal.aborted)).toEqual([true, false])
     expect(secondController.signal.aborted).toBe(false)
   })
 
@@ -509,6 +510,41 @@ describe("natural read API adapter", () => {
       message: expect.stringContaining("HTTP 404 Not Found"),
     })
     expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it("classifies a stalled request timeout after confirmed cancellation", async () => {
+    let transportSignal: AbortSignal | undefined
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => {
+      transportSignal = init?.signal
+      return new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          {once: true},
+        )
+      })
+    })
+    const adapter = new GitNaturalApiAdapter({fetcher, requestTimeoutMs: 5})
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      code: "transient-network-failure",
+      message: expect.stringContaining("timed out after 5ms"),
+    })
+    expect(transportSignal?.aborted).toBe(true)
+  })
+
+  it("reports cancellation-unconfirmed when a timed-out request ignores abort", async () => {
+    const fetcher = vi.fn(() => new Promise<never>(() => {}))
+    const adapter = new GitNaturalApiAdapter({
+      fetcher,
+      requestTimeoutMs: 5,
+      cancellationSettleTimeoutMs: 5,
+    })
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      code: "cancellation-unconfirmed",
+      message: expect.stringContaining("did not settle after cancellation"),
+    })
   })
 
   it("retries direct GRASP infoRefs through the configured proxy after a network failure", async () => {

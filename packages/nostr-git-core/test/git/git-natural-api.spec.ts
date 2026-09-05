@@ -103,8 +103,11 @@ describe("owned git-natural Smart HTTP transport", () => {
     expect(result.refs["refs/heads/main"]).toBe("1".repeat(40))
     expect(fetcher).toHaveBeenCalledWith(
       "https://example.com/repo.git/info/refs?service=git-upload-pack",
-      {method: "GET", signal},
+      {method: "GET", signal: expect.any(AbortSignal)},
     )
+    const transportSignal = fetcher.mock.calls[0]?.[1]?.signal
+    expect(transportSignal).not.toBe(signal)
+    expect(transportSignal?.aborted).toBe(false)
   })
 
   it("assembles large side-band data with ACK and progress packets", async () => {

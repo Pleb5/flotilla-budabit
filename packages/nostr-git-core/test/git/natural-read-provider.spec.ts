@@ -62,10 +62,14 @@ describe("GitNaturalReadProvider", () => {
 
     const result = provider.listRefs({url: `${REMOTE_URL}/cancelled`, signal: controller.signal})
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
-    expect(fetcher.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
+    const transportSignal = fetcher.mock.calls[0]?.[1]?.signal
+    expect(transportSignal).toBeInstanceOf(AbortSignal)
+    expect(transportSignal).not.toBe(controller.signal)
+    expect(transportSignal?.aborted).toBe(false)
 
     controller.abort()
     await expect(result).rejects.toMatchObject({name: "AbortError"})
+    expect(transportSignal?.aborted).toBe(true)
   })
 
   it("lists refs and resolves HEAD, branches, peeled tags, and direct commits", async () => {
@@ -434,6 +438,130 @@ describe("GitNaturalReadProvider", () => {
       binary: true,
       diffHunks: [],
     })
+    const objectBodies = fetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+      .filter(body => !body.includes("filter blob:none"))
+    expect(objectBodies).toEqual([])
+  })
+
+  it("completes a 100-file diff over 15 aggregate seconds with eight concurrent requests", async () => {
+    vi.useFakeTimers()
+    const fixture = createAddedFilesDiffFixture(
+      Array.from({length: 105}, (_, index) => ({
+        name: `file-${String(index).padStart(3, "0")}.txt`,
+        data: encoder.encode(`content ${index}\n`),
+      })),
+    )
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    let active = 0
+    let maxActive = 0
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = String(init?.body || "")
+      if (init?.method === "POST" && !body.includes("filter blob:none")) {
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        await new Promise(resolve => setTimeout(resolve, 1_200))
+        active -= 1
+      }
+      return fixtureFetcher(url, init)
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    let diff
+    try {
+      const diffPromise = provider.getDiffBetween({
+        url: REMOTE_URL,
+        baseCommitHash: fixture.baseHash,
+        headCommitHash: fixture.headHash,
+      })
+      await vi.advanceTimersByTimeAsync(16_800)
+      diff = await diffPromise
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(diff.changes).toHaveLength(105)
+    expect(diff.changes.map(change => change.path)).toEqual(
+      [...diff.changes.map(change => change.path)].sort(),
+    )
+    expect(maxActive).toBe(8)
+    expect(
+      fetcher.mock.calls.filter(([, init]) => {
+        const body = String(init?.body || "")
+        return init?.method === "POST" && !body.includes("filter blob:none")
+      }),
+    ).toHaveLength(105)
+  })
+
+  it("deduplicates shared blob OIDs and retains content-based binary detection", async () => {
+    const shared = encoder.encode("shared text\n")
+    const binary = Uint8Array.of(1, 0, 2)
+    const fixture = createAddedFilesDiffFixture([
+      {name: "a.txt", data: shared},
+      {name: "b.txt", data: shared},
+      {name: "unknown.dat", data: binary},
+    ])
+    const fetcher = createDiffFixtureFetcher(fixture)
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const diff = await provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+    })
+
+    expect(diff.changes.find(change => change.path === "unknown.dat")).toMatchObject({
+      binary: true,
+      diffHunks: [],
+    })
+    const objectBodies = fetcher.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => String(init?.body || ""))
+      .filter(body => !body.includes("filter blob:none"))
+    expect(objectBodies).toHaveLength(2)
+  })
+
+  it("aborts active blob requests and does not start queued work after caller cancellation", async () => {
+    const fixture = createAddedFilesDiffFixture(
+      Array.from({length: 20}, (_, index) => ({
+        name: `cancel-${index}.txt`,
+        data: encoder.encode(`content ${index}\n`),
+      })),
+    )
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    const startedSignals: AbortSignal[] = []
+    const fetcher = vi.fn((url: string, init?: RequestInit) => {
+      const body = String(init?.body || "")
+      if (init?.method !== "POST" || body.includes("filter blob:none")) {
+        return fixtureFetcher(url, init)
+      }
+
+      const signal = init.signal as AbortSignal
+      startedSignals.push(signal)
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          {once: true},
+        )
+      })
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher: fetcher as any})
+    const controller = new AbortController()
+
+    const diff = provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => expect(startedSignals).toHaveLength(8))
+    controller.abort()
+
+    await expect(diff).rejects.toMatchObject({name: "AbortError"})
+    expect(startedSignals).toHaveLength(8)
+    expect(startedSignals.every(signal => signal.aborted)).toBe(true)
   })
 
   it("declines filtered operations when the server lacks filter support", async () => {
@@ -682,6 +810,59 @@ function createBinaryDiffFixture() {
       [oldImageHash, packfile([{type: "blob", data: oldImageData}])],
       [newImageHash, packfile([{type: "blob", data: newImageData}])],
     ]),
+  }
+}
+
+function createAddedFilesDiffFixture(files: Array<{name: string; data: Uint8Array}>): DiffFixtureLike {
+  const entries = files.map(file => ({
+    mode: "100644",
+    name: file.name,
+    hash: computeGitNaturalObjectHash("blob", file.data),
+  }))
+  const baseRootTreeData = treeData([])
+  const headRootTreeData = treeData(entries)
+  const baseRootTreeHash = computeGitNaturalObjectHash("tree", baseRootTreeData)
+  const headRootTreeHash = computeGitNaturalObjectHash("tree", headRootTreeData)
+  const baseCommitData = commitData({
+    tree: baseRootTreeHash,
+    message: "base commit",
+    timestamp: 1_700_000_000,
+  })
+  const baseHash = computeGitNaturalObjectHash("commit", baseCommitData)
+  const headCommitData = commitData({
+    tree: headRootTreeHash,
+    parent: baseHash,
+    message: "head commit",
+    timestamp: 1_700_000_100,
+  })
+  const headHash = computeGitNaturalObjectHash("commit", headCommitData)
+
+  return {
+    baseHash,
+    headHash,
+    advertisement: buildAdvertisement({tipHash: headHash, tagHash: headHash, capabilities: CAPABILITIES}),
+    blobNonePacks: new Map([
+      [
+        baseHash,
+        packfile([
+          {type: "commit", data: baseCommitData},
+          {type: "tree", data: baseRootTreeData},
+        ]),
+      ],
+      [
+        headHash,
+        packfile([
+          {type: "commit", data: headCommitData},
+          {type: "tree", data: headRootTreeData},
+        ]),
+      ],
+    ]),
+    blobPacks: new Map(
+      files.map(file => {
+        const hash = computeGitNaturalObjectHash("blob", file.data)
+        return [hash, packfile([{type: "blob" as const, data: file.data}])]
+      }),
+    ),
   }
 }
 
