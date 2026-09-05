@@ -1,8 +1,8 @@
 import {createHash} from "node:crypto"
+import {deflateSync} from "node:zlib"
 
 import {indexedDB as fakeIndexedDB} from "fake-indexeddb"
 import {afterEach, describe, expect, it, vi} from "vitest"
-import {zlibSync} from "fflate"
 
 import {GitNaturalObjectCache} from "../../src/git/natural-read-cache.js"
 import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
@@ -65,7 +65,7 @@ describe("GitNaturalReadProvider", () => {
     expect(fetcher.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
 
     controller.abort()
-    await expect(result).rejects.toMatchObject({name: "GitNaturalReadError"})
+    await expect(result).rejects.toMatchObject({name: "AbortError"})
   })
 
   it("lists refs and resolves HEAD, branches, peeled tags, and direct commits", async () => {
@@ -801,17 +801,17 @@ function treeData(entries: Array<{mode: string; name: string; hash: string}>): U
 function packfile(
   objects: Array<{type: "commit" | "tree" | "blob" | "tag"; data: Uint8Array}>,
 ): Uint8Array {
-  return concatBytes(
+  const body = concatBytes(
     encoder.encode("PACK"),
     uint32(2),
     uint32(objects.length),
     ...objects.map(object => packObject(object.type, object.data)),
-    new Uint8Array(20),
   )
+  return concatBytes(body, new Uint8Array(createHash("sha1").update(body).digest()))
 }
 
 function packObject(type: "commit" | "tree" | "blob" | "tag", data: Uint8Array): Uint8Array {
-  return concatBytes(packObjectHeader(typeCode(type), data.length), zlibSync(data))
+  return concatBytes(packObjectHeader(typeCode(type), data.length), new Uint8Array(deflateSync(data)))
 }
 
 function packObjectHeader(type: number, objectSize: number): Uint8Array {

@@ -594,6 +594,7 @@ export class GitNaturalReadProvider {
       })
     } catch (error) {
       if (error instanceof GitNaturalReadError) throw error
+      if (error instanceof Error && error.name === "AbortError") throw error
       throw new GitNaturalReadError(
         "protocol-error",
         `Git natural ${operation} failed: ${error instanceof Error ? error.message : String(error)}`,

@@ -104,13 +104,14 @@ const gitObjectHash = (type: string, data: Uint8Array): string =>
 
 const buildBlobPack = (content: string): {hash: string; data: Uint8Array; packfile: Uint8Array} => {
   const data = encoder.encode(content)
-  const packfile = concatBytes(
+  const body = concatBytes(
     encoder.encode("PACK"),
     uint32(2),
     uint32(1),
     packObjectHeader(3, data.length),
     new Uint8Array(deflateSync(data)),
   )
+  const packfile = concatBytes(body, new Uint8Array(createHash("sha1").update(body).digest()))
   return {hash: gitObjectHash("blob", data), data, packfile}
 }
 
@@ -131,6 +132,7 @@ const uploadPackResponseFetch = (response: Uint8Array) =>
     status: 200,
     text: async () => decoder.decode(response),
     bytes: async () => response,
+    arrayBuffer: async () => arrayBuffer(response),
   }))
 
 const arrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
@@ -401,6 +403,7 @@ describe("natural read API adapter", () => {
       status: 200,
       text: async () => advertisement,
       bytes: async () => encoder.encode(advertisement),
+      arrayBuffer: async () => arrayBuffer(encoder.encode(advertisement)),
     }))
     vi.stubGlobal("fetch", fetcher)
     const cache = new GitNaturalObjectCache()
@@ -417,6 +420,7 @@ describe("natural read API adapter", () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(fetcher).toHaveBeenCalledWith(
       "https://example.com/repo.git/info/refs?service=git-upload-pack",
+      {method: "GET", signal: undefined},
     )
   })
 
@@ -446,7 +450,7 @@ describe("natural read API adapter", () => {
 
     const first = adapter.fetchInfoRefs({url: GRASP_URL, signal: firstController.signal})
     const second = adapter.fetchInfoRefs({url: GRASP_URL, signal: secondController.signal})
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
 
     firstController.abort()
 
@@ -460,6 +464,29 @@ describe("natural read API adapter", () => {
       secondController.signal,
     ])
     expect(secondController.signal.aborted).toBe(false)
+  })
+
+  it("uses a configured fetcher without reading or mutating global fetch", async () => {
+    const advertisement = encoder.encode(buildAdvertisement())
+    const globalFetcher = vi.fn(async () => {
+      throw new Error("global fetch must not be called")
+    })
+    vi.stubGlobal("fetch", globalFetcher)
+    const originalGlobalFetch = globalThis.fetch
+    const configuredFetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => arrayBuffer(advertisement),
+    }))
+    const adapter = new GitNaturalApiAdapter({fetcher: configuredFetcher})
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).resolves.toMatchObject({
+      infoRefs: {headCommit: "1".repeat(40)},
+    })
+
+    expect(configuredFetcher).toHaveBeenCalledTimes(1)
+    expect(globalFetcher).not.toHaveBeenCalled()
+    expect(globalThis.fetch).toBe(originalGlobalFetch)
   })
 
   it("preserves HTTP status when infoRefs returns an error response", async () => {
@@ -539,7 +566,7 @@ describe("natural read API adapter", () => {
     )
   })
 
-  it("polyfills Response.bytes with arrayBuffer for older browsers", async () => {
+  it("reads pack responses through the standard arrayBuffer API", async () => {
     const blob = buildBlobPack("older browser response\n")
     const response = concatBytes(
       pktBytes("NAK\n"),

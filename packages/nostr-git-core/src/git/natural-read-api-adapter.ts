@@ -9,7 +9,7 @@ import {
   type ParsedObject,
   type Tree as GitNaturalApiTree,
   type TreeEntry as GitNaturalApiTreeEntry,
-} from "@fiatjaf/git-natural-api"
+} from "./git-natural-api/index.js"
 
 import {
   GitNaturalReadError,
@@ -188,10 +188,10 @@ export class GitNaturalApiAdapter {
       try {
         const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, async candidate => {
           const infoRefs = toGitNaturalInfoRefs(
-            await this.runWithFetch(
-              () => getGitNaturalInfoRefs(candidate.effectiveUrl),
-              params.signal,
-            ),
+            await getGitNaturalInfoRefs(candidate.effectiveUrl, {
+              fetcher: this.createRequestFetcher(params.signal),
+              signal: params.signal,
+            }),
           )
           if (Object.keys(infoRefs.refs).length === 0 && infoRefs.capabilities.length === 0) {
             throw new GitNaturalReadError(
@@ -344,10 +344,10 @@ export class GitNaturalApiAdapter {
     try {
       throwIfAborted(params.signal)
       const fetched = await this.runWithCorsFallback(remoteUrl, corsProxy, candidate =>
-        this.runWithFetch(
-          () => fetchGitNaturalPackfile(candidate.effectiveUrl, want),
-          params.signal,
-        ),
+        fetchGitNaturalPackfile(candidate.effectiveUrl, want, {
+          fetcher: this.createRequestFetcher(params.signal),
+          signal: params.signal,
+        }),
       )
       throwIfAborted(params.signal)
       return {
@@ -391,12 +391,11 @@ export class GitNaturalApiAdapter {
     }
   }
 
-  private runWithFetch<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-    const baseFetcher = this.fetcher
-      ? createFetchOverride(this.fetcher)
-      : createResponseBytesFetch(globalThis.fetch.bind(globalThis))
-    const fetcher = signal ? createAbortableFetch(baseFetcher, signal) : baseFetcher
-    return withTemporaryGlobalFetch(fetcher, operation)
+  private createRequestFetcher(signal?: AbortSignal): FetchLike {
+    const fetcher =
+      this.fetcher ??
+      ((input: string, init?: RequestInit) => globalThis.fetch(input, init) as Promise<Response>)
+    return createCheckedFetch(fetcher, signal)
   }
 
   private async runWithCorsFallback<T>(
@@ -415,68 +414,18 @@ export class GitNaturalApiAdapter {
   }
 }
 
-function createAbortableFetch(fetcher: typeof fetch, signal: AbortSignal): typeof fetch {
-  return ((input: RequestInfo | URL, init?: RequestInit) => {
+function createCheckedFetch(fetcher: FetchLike, signal?: AbortSignal): FetchLike {
+  return async (input: string, init?: RequestInit) => {
     throwIfAborted(signal)
-    return fetcher(input, {...init, signal})
-  }) as typeof fetch
-}
-
-let temporaryFetchLock: Promise<void> = Promise.resolve()
-
-async function withTemporaryGlobalFetch<T>(
-  fetcher: typeof fetch,
-  operation: () => Promise<T>,
-): Promise<T> {
-  const previousLock = temporaryFetchLock
-  let releaseLock: () => void = () => {}
-  temporaryFetchLock = new Promise(resolve => {
-    releaseLock = resolve
-  })
-  await previousLock
-
-  const previousFetch = globalThis.fetch
-  globalThis.fetch = fetcher
-  try {
-    return await operation()
-  } finally {
-    globalThis.fetch = previousFetch
-    releaseLock()
+    const response = await fetcher(input, signal ? {...init, signal} : init)
+    throwForHttpError(response, input)
+    return response
   }
-}
-
-function createFetchOverride(fetcher: FetchLike): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const response = await fetcher(String(input), init ?? {method: "GET"})
-    throwForHttpError(response, input)
-    const responseWithBytes = response as Awaited<ReturnType<FetchLike>> & {
-      bytes?: () => Promise<Uint8Array>
-    }
-    return {
-      ...responseWithBytes,
-      text:
-        response.text ??
-        (async () => textDecoder.decode(new Uint8Array(await response.arrayBuffer()))),
-      bytes: responseWithBytes.bytes ?? (async () => new Uint8Array(await response.arrayBuffer())),
-    } as Response
-  }) as typeof fetch
-}
-
-function createResponseBytesFetch(fetcher: typeof fetch): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const response = init === undefined ? await fetcher(input) : await fetcher(input, init)
-    throwForHttpError(response, input)
-    const compatible = response as Response & {bytes?: () => Promise<Uint8Array>}
-    if (!compatible.bytes) {
-      compatible.bytes = async () => new Uint8Array(await response.arrayBuffer())
-    }
-    return compatible
-  }) as typeof fetch
 }
 
 function throwForHttpError(
   response: {ok?: boolean; status: number; statusText?: string},
-  input: RequestInfo | URL,
+  input: string,
 ): void {
   const status = Number(response.status)
   const ok =
@@ -485,8 +434,7 @@ function throwForHttpError(
       : Number.isFinite(status) && status >= 200 && status < 300
   if (ok) return
 
-  const requestUrl =
-    typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+  const requestUrl = input
   const statusText = response.statusText ? ` ${response.statusText}` : ""
   throw new GitNaturalReadError(
     "http-error",

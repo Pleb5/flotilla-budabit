@@ -42,20 +42,20 @@
     "publish:latest": "npm publish --access public"
   },
   "dependencies": {
-    "@fiatjaf/git-natural-api": "npm:@jsr/fiatjaf__git-natural-api@^0.2.4",
     "@isomorphic-git/lightning-fs": "^4.6.2",
     "@noble/hashes": "2.0.1",
     "buffer": "^6.0.3",
     "comlink": "^4.4.2",
     "diff": "^8.0.2",
-    "fflate": "0.8.2",
     "file-type": "^20.0.0",
     "isomorphic-git": "^1.30.1",
     "nostr-tools": "^2.10.0",
+    "pako": "1.0.11",
     "zod": "^4.3.4"
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
+    "@types/pako": "2.0.4",
     "@vitest/coverage-v8": "3.2.4",
     "esbuild": "^0.24.0",
     "eslint": "^9.18.0",

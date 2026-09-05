@@ -421,9 +421,6 @@ importers:
 
   packages/nostr-git-core:
     dependencies:
-      '@fiatjaf/git-natural-api':
-        specifier: npm:@jsr/fiatjaf__git-natural-api@^0.2.4
-        version: '@jsr/fiatjaf__git-natural-api@0.2.4'
       '@isomorphic-git/lightning-fs':
         specifier: ^4.6.2
         version: 4.6.2
@@ -439,9 +436,6 @@ importers:
       diff:
         specifier: ^8.0.2
         version: 8.0.3
-      fflate:
-        specifier: 0.8.2
-        version: 0.8.2
       file-type:
         specifier: ^20.0.0
         version: 20.5.0
@@ -451,6 +445,9 @@ importers:
       nostr-tools:
         specifier: ^2.10.0
         version: 2.23.3(typescript@5.9.3)
+      pako:
+        specifier: 1.0.11
+        version: 1.0.11
       zod:
         specifier: ^4.3.4
         version: 4.3.6
@@ -458,6 +455,9 @@ importers:
       '@types/node':
         specifier: ^24.2.1
         version: 24.11.0
+      '@types/pako':
+        specifier: 2.0.4
+        version: 2.0.4
       '@vitest/coverage-v8':
         specifier: 3.2.4
         version: 3.2.4(vitest@3.2.4)
@@ -1780,9 +1780,6 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@jsr/fiatjaf__git-natural-api@0.2.4':
-    resolution: {integrity: sha512-Vg/bTWCj4cH21h0iWXLejmVxNd5UBM3+Y4S4ch1LNheodeJzqUG6F3vRl/ignQGintj5ATI/84PCJs0KYRFuwA==, tarball: https://npm.jsr.io/~/11/@jsr/fiatjaf__git-natural-api/0.2.4.tgz}
-
   '@lezer/common@1.5.1':
     resolution: {integrity: sha512-6YRVG9vBkaY7p1IVxL4s44n5nUnaNnGM2/AckNgYOnxTG2kWh1vR8BMxPseWPjRNpb5VtXnMpeYAEAADoRV1Iw==}
 
@@ -2443,6 +2440,9 @@ packages:
 
   '@types/offscreencanvas@2019.7.3':
     resolution: {integrity: sha512-ieXiYmgSRXUDeOntE1InxjWyvEelZGP63M+cGuquuRLuIKKT1osnkXjxev9B7d1nXSug5vpunx+gNlbVxMlC9A==}
+
+  '@types/pako@2.0.4':
+    resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
 
   '@types/qrcode@1.5.6':
     resolution: {integrity: sha512-te7NQcV2BOvdj2b1hCAHzAoMNuj65kNBMz0KBaxM6c3VGBOhU0dURQKOtH8CFNI/dsKkwlv32p26qYQTWoB5bw==}
@@ -5899,11 +5899,6 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
     optional: true
 
-  '@jsr/fiatjaf__git-natural-api@0.2.4':
-    dependencies:
-      '@noble/hashes': 2.0.1
-      fflate: 0.8.2
-
   '@lezer/common@1.5.1': {}
 
   '@lezer/cpp@1.1.5':
@@ -6653,6 +6648,8 @@ snapshots:
       undici-types: 7.16.0
 
   '@types/offscreencanvas@2019.7.3': {}
+
+  '@types/pako@2.0.4': {}
 
   '@types/qrcode@1.5.6':
     dependencies:
