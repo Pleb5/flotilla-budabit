@@ -257,6 +257,44 @@ describe("getGitNaturalPRReviewData", () => {
     expect(review?.commitOids).toEqual([HEAD, sideTip, sideRoot])
   })
 
+  it("propagates shared reachability through loaded ancestry without fetching repository roots", async () => {
+    const sourceSide = "1".repeat(40)
+    const sharedMain = "2".repeat(40)
+    const sharedSide = "3".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [
+          HEAD,
+          [
+            commit(HEAD, [TARGET, sourceSide]),
+            commit(TARGET, [sharedMain, sharedSide]),
+            commit(sourceSide, [sharedSide]),
+            commit(sharedSide),
+          ],
+        ],
+        [TARGET, [commit(TARGET, [sharedMain, sharedSide]), commit(sharedMain)]],
+      ]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "shared-reachability",
+      tipCommitOid: HEAD,
+      targetCommitOid: TARGET,
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      mergeBase: TARGET,
+      aheadCount: 2,
+      behindCount: 0,
+      commitOids: [HEAD, sourceSide],
+    })
+    expect(reader.listCommits).toHaveBeenCalledTimes(2)
+  })
+
   it("iteratively expands a merge base beyond the former 100-commit boundary", async () => {
     const sourceCommitCount = 125
     const graph = new Map<string, GitNaturalCommit>()
@@ -320,7 +358,76 @@ describe("getGitNaturalPRReviewData", () => {
     expect(review?.commitOids.at(-1)).toBe(numberedOid(2))
     expect(
       reader.listCommits.mock.calls.filter(([request]: any[]) => request.url === SOURCE_URL),
-    ).toHaveLength(2)
+    ).toHaveLength(3)
+  })
+
+  it("stops at a nearby shared frontier instead of counting 6000 shared commits", async () => {
+    const graph = new Map<string, GitNaturalCommit>()
+    let sharedParent: string | undefined
+    for (let index = 1; index <= 6_001; index += 1) {
+      const oid = numberedOid(index)
+      graph.set(oid, commit(oid, sharedParent ? [sharedParent] : []))
+      sharedParent = oid
+    }
+    const base = sharedParent!
+    const sourceOnly = numberedOid(20_002)
+    const sourceTip = numberedOid(20_000)
+    const targetTip = numberedOid(20_001)
+    graph.set(sourceOnly, commit(sourceOnly, [base]))
+    graph.set(sourceTip, commit(sourceTip, [sourceOnly]))
+    graph.set(targetTip, commit(targetTip, [base]))
+
+    const reader: GitNaturalPRReviewReader & Record<string, any> = {
+      resolveRef: vi.fn(),
+      listCommits: vi.fn(async ({url, commitHash, depth}) => {
+        const commits: GitNaturalCommit[] = []
+        let current: string | undefined = commitHash
+        while (current && commits.length < depth) {
+          const next = graph.get(current)
+          if (!next) throw new Error(`history not found for ${url}: ${current}`)
+          commits.push(next)
+          current = next.parents[0]
+        }
+        return {
+          ref: commitHash,
+          commitHash,
+          commits,
+          hasMore: Boolean(current),
+          unresolvedParentOids: current ? [current] : [],
+          source: sourceMetadata(url, "listCommits"),
+        }
+      }),
+      getDiffBetween: vi.fn(async ({url, baseCommitHash, headCommitHash}) => ({
+        baseCommitHash,
+        headCommitHash,
+        changes: [],
+        source: sourceMetadata(url, "getDiffBetween"),
+      })),
+    }
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "nearby-shared-frontier",
+      tipCommitOid: sourceTip,
+      targetCommitOid: targetTip,
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      maxCommits: 20,
+      historyBatchSize: 4,
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      success: true,
+      mergeBase: base,
+      aheadCount: 2,
+      behindCount: 1,
+      commitOids: [sourceTip, sourceOnly],
+    })
+    expect(reader.listCommits).toHaveBeenCalledTimes(2)
+    expect(reader.listCommits.mock.calls.map(([request]: any[]) => request.commitHash)).toEqual([
+      sourceTip,
+      targetTip,
+    ])
   })
 
   it("excludes an older common ancestor dominated by a nonlinear common ancestor", async () => {

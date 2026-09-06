@@ -78,7 +78,7 @@ export interface GetGitNaturalPRReviewDataOptions {
   mergeBase?: string
   targetCommitOid?: string
   sourceReadScope?: string
-  /** Maximum unique commits loaded per side before returning an unresolved result. */
+  /** Maximum unique commits loaded across source and target before returning an unresolved result. */
   maxCommits?: number
   /** Maximum commits requested in one frontier expansion. */
   historyBatchSize?: number
@@ -89,6 +89,7 @@ export interface GetGitNaturalPRReviewDataOptions {
 
 const DEFAULT_PR_NATURAL_MAX_COMMITS = 5_000
 const DEFAULT_PR_NATURAL_HISTORY_BATCH_SIZE = 100
+const INITIAL_PR_NATURAL_HISTORY_BATCH_SIZE = 15
 
 interface ExpandedNaturalHistory {
   commits: GitNaturalCommit[]
@@ -97,6 +98,17 @@ interface ExpandedNaturalHistory {
   complete: boolean
   attempts: UrlAttemptResult<GitNaturalListCommitsResult>[]
   usedUrl?: string
+}
+
+interface NaturalHistoryTraversal extends ExpandedNaturalHistory {
+  pending: string[]
+  requestedFrontiers: Set<string>
+}
+
+interface ExpandedNaturalHistories {
+  source: ExpandedNaturalHistory
+  target: ExpandedNaturalHistory
+  complete: boolean
 }
 
 export async function getGitNaturalPRReviewData(
@@ -114,26 +126,14 @@ export async function getGitNaturalPRReviewData(
     1,
     Math.min(maxCommits, options.historyBatchSize ?? DEFAULT_PR_NATURAL_HISTORY_BATCH_SIZE),
   )
-  const sourceHistory = await expandNaturalHistory(options.reader, sourceUrls, {
-    repoId: options.repoId,
-    readScope: options.sourceReadScope,
-    commitHash: tipCommitOid,
-    maxCommits,
-    batchSize: historyBatchSize,
-    corsProxy: options.corsProxy,
-  })
-  const sourceAttempts = summarizeAttempts(sourceHistory.attempts)
+  const sourceAttempts: GitNaturalPRReviewUrlAttempt[] = []
   const targetAttempts: GitNaturalPRReviewUrlAttempt[] = []
   const reportAttempts = () =>
     options.onAttempts?.({
       sourceAttempts: [...sourceAttempts],
       targetAttempts: [...targetAttempts],
     })
-  if (!sourceHistory.complete || sourceHistory.commits.length === 0) {
-    reportAttempts()
-    return null
-  }
-  let usedCloneUrl = sourceHistory.usedUrl
+  let usedCloneUrl: string | undefined
 
   const providedMergeBase = normalizeFullOid(options.mergeBase)
   let targetCommit = normalizeFullOid(options.targetCommitOid)
@@ -149,11 +149,21 @@ export async function getGitNaturalPRReviewData(
     targetCommit = target.result?.commitHash
   }
 
+  let sourceHistory: ExpandedNaturalHistory
   let targetHistory: ExpandedNaturalHistory | null = null
   let computedMergeBase: string | undefined
   if (targetCommit) {
-    targetHistory = await expandNaturalHistory(
+    const histories = await expandNaturalHistories(
       options.reader,
+      sourceUrls,
+      {
+        repoId: options.repoId,
+        readScope: options.sourceReadScope,
+        commitHash: tipCommitOid,
+        maxCommits,
+        batchSize: historyBatchSize,
+        corsProxy: options.corsProxy,
+      },
       targetUrls.length > 0 ? targetUrls : sourceUrls,
       {
         repoId: options.repoId,
@@ -164,6 +174,10 @@ export async function getGitNaturalPRReviewData(
         corsProxy: options.corsProxy,
       },
     )
+    sourceHistory = histories.source
+    targetHistory = histories.target
+    sourceAttempts.push(...summarizeAttempts(sourceHistory.attempts))
+    usedCloneUrl = sourceHistory.usedUrl
     if (targetUrls.length > 0) {
       targetAttempts.push(...summarizeAttempts(targetHistory.attempts))
       usedTargetCloneUrl = targetHistory.usedUrl || usedTargetCloneUrl
@@ -171,7 +185,7 @@ export async function getGitNaturalPRReviewData(
       sourceAttempts.push(...summarizeAttempts(targetHistory.attempts))
       usedCloneUrl = targetHistory.usedUrl || usedCloneUrl
     }
-    if (!targetHistory.complete) {
+    if (!histories.complete || sourceHistory.commits.length === 0) {
       reportAttempts()
       return null
     }
@@ -183,6 +197,21 @@ export async function getGitNaturalPRReviewData(
           targetCommit,
         )
       : undefined
+  } else {
+    sourceHistory = await expandNaturalHistory(options.reader, sourceUrls, {
+      repoId: options.repoId,
+      readScope: options.sourceReadScope,
+      commitHash: tipCommitOid,
+      maxCommits,
+      batchSize: historyBatchSize,
+      corsProxy: options.corsProxy,
+    })
+    sourceAttempts.push(...summarizeAttempts(sourceHistory.attempts))
+    usedCloneUrl = sourceHistory.usedUrl
+    if (!sourceHistory.complete || sourceHistory.commits.length === 0) {
+      reportAttempts()
+      return null
+    }
   }
 
   const baseOid = targetCommit ? computedMergeBase : providedMergeBase
@@ -220,11 +249,22 @@ export async function getGitNaturalPRReviewData(
     return null
   }
 
-  const sourceIds = collectReachableOids(sourceHistory.graph, tipCommitOid)
+  const sharedIds = targetHistory
+    ? collectSharedReachableOids(sourceHistory.graph, targetHistory.graph)
+    : undefined
+  const sourceIds = targetHistory
+    ? collectReachableExcludingOids(sourceHistory.graph, sharedIds!, tipCommitOid)
+    : collectReachableOids(sourceHistory.graph, tipCommitOid)
   const targetIds = targetHistory
-    ? collectReachableOids(targetHistory.graph, targetCommit || baseOid)
+    ? collectReachableExcludingOids(targetHistory.graph, sharedIds!, targetCommit || baseOid)
     : collectReachableOids(sourceHistory.graph, baseOid)
-  if (!sourceIds || !targetIds || !sourceIds.has(baseOid) || !targetIds.has(baseOid)) {
+  if (
+    !sourceIds ||
+    !targetIds ||
+    (targetHistory
+      ? !sourceHistory.graph.has(baseOid) || !targetHistory.graph.has(baseOid)
+      : !sourceIds.has(baseOid) || !targetIds.has(baseOid))
+  ) {
     reportAttempts()
     return null
   }
@@ -256,6 +296,304 @@ export async function getGitNaturalPRReviewData(
     targetAttempts,
     readSource: diff.result.source,
   }
+}
+
+async function expandNaturalHistories(
+  reader: GitNaturalPRReviewReader,
+  sourceUrls: string[],
+  sourceParams: {
+    repoId: string
+    readScope?: string
+    commitHash: string
+    maxCommits: number
+    batchSize: number
+    corsProxy?: string | null
+  },
+  targetUrls: string[],
+  targetParams: {
+    repoId: string
+    readScope?: string
+    commitHash: string
+    maxCommits: number
+    batchSize: number
+    corsProxy?: string | null
+  },
+): Promise<ExpandedNaturalHistories> {
+  const source = createNaturalHistoryTraversal(sourceParams.commitHash)
+  const target = createNaturalHistoryTraversal(targetParams.commitHash)
+  const uniqueCommits = new Set<string>()
+  const requestedSharedFrontiers = new Set<string>()
+  let nextSide: "source" | "target" = "source"
+  let failed = false
+  let resolved = false
+
+  while (!failed && uniqueCommits.size < sourceParams.maxCommits) {
+    pruneNaturalHistoryPending(source)
+    pruneNaturalHistoryPending(target)
+    const shared = collectSharedReachableOids(source.graph, target.graph)
+    const sourceExclusive = collectExclusiveMissingFrontiers(
+      source.graph,
+      shared,
+      sourceParams.commitHash,
+    )
+    const targetExclusive = collectExclusiveMissingFrontiers(
+      target.graph,
+      shared,
+      targetParams.commitHash,
+    )
+    const commonFrontier = collectCommonFrontierState(source.graph, target.graph)
+
+    if (
+      commonFrontier.common.size > 0 &&
+      sourceExclusive.size === 0 &&
+      targetExclusive.size === 0
+    ) {
+      const sharedFrontier = commonFrontier.unresolvedComparisonOids.find(
+        oid => !requestedSharedFrontiers.has(oid),
+      )
+      if (!sharedFrontier) {
+        resolved = commonFrontier.unresolvedComparisonOids.length === 0
+        failed = !resolved
+        break
+      }
+      requestedSharedFrontiers.add(sharedFrontier)
+      const result = await tryListCommits(reader, sourceUrls, {
+        repoId: sourceParams.repoId,
+        readScope: sourceParams.readScope,
+        commitHash: sharedFrontier,
+        depth: Math.min(sourceParams.batchSize, sourceParams.maxCommits - uniqueCommits.size),
+        corsProxy: sourceParams.corsProxy,
+      })
+      source.attempts.push(...result.attempts)
+      source.usedUrl = result.usedUrl || latestAttemptUrl(result) || source.usedUrl
+      if (!result.result?.commits?.length) {
+        failed = true
+        break
+      }
+      addNaturalHistoryCommits(source, result.result.commits, uniqueCommits)
+      addNaturalHistoryCommits(target, result.result.commits, uniqueCommits)
+      if (!source.graph.has(sharedFrontier) || !target.graph.has(sharedFrontier)) {
+        failed = true
+      }
+      continue
+    }
+
+    const sourceFrontier = selectNaturalHistoryFrontier(
+      source,
+      sourceExclusive,
+      targetExclusive.size > 0,
+    )
+    const targetFrontier = selectNaturalHistoryFrontier(
+      target,
+      targetExclusive,
+      sourceExclusive.size > 0,
+    )
+    if (!sourceFrontier && !targetFrontier) {
+      resolved = true
+      break
+    }
+
+    const useSource: boolean = Boolean(sourceFrontier) && (!targetFrontier || nextSide === "source")
+    const traversal = useSource ? source : target
+    const urls = useSource ? sourceUrls : targetUrls
+    const params = useSource ? sourceParams : targetParams
+    const frontier = (useSource ? sourceFrontier : targetFrontier)!
+    nextSide = useSource ? "target" : "source"
+    traversal.pending.splice(traversal.pending.indexOf(frontier), 1)
+    traversal.requestedFrontiers.add(frontier)
+
+    const result = await tryListCommits(reader, urls, {
+      repoId: params.repoId,
+      readScope: params.readScope,
+      commitHash: frontier,
+      depth: Math.min(
+        traversal.requestedFrontiers.size === 1
+          ? Math.min(params.batchSize, INITIAL_PR_NATURAL_HISTORY_BATCH_SIZE)
+          : params.batchSize,
+        params.maxCommits - uniqueCommits.size,
+      ),
+      corsProxy: params.corsProxy,
+    })
+    traversal.attempts.push(...result.attempts)
+    traversal.usedUrl = result.usedUrl || latestAttemptUrl(result) || traversal.usedUrl
+    if (!result.result?.commits?.length) {
+      traversal.pending.unshift(frontier)
+      failed = true
+      break
+    }
+
+    addNaturalHistoryCommits(traversal, result.result.commits, uniqueCommits)
+    if (!traversal.graph.has(frontier)) {
+      traversal.pending.unshift(frontier)
+      failed = true
+      break
+    }
+
+    const discoveredParents = result.result.commits.flatMap(commit => commit.parents || [])
+    for (const parent of [...(result.result.unresolvedParentOids || []), ...discoveredParents]) {
+      const oid = normalizeFullOid(parent)
+      if (
+        oid &&
+        !traversal.graph.has(oid) &&
+        !traversal.requestedFrontiers.has(oid) &&
+        !traversal.pending.includes(oid)
+      ) {
+        traversal.pending.push(oid)
+      }
+    }
+  }
+
+  const shared = collectSharedReachableOids(source.graph, target.graph)
+  const sourceUnresolved = collectExclusiveMissingFrontiers(
+    source.graph,
+    shared,
+    sourceParams.commitHash,
+  )
+  const targetUnresolved = collectExclusiveMissingFrontiers(
+    target.graph,
+    shared,
+    targetParams.commitHash,
+  )
+  source.unresolvedParentOids = [...sourceUnresolved]
+  target.unresolvedParentOids = [...targetUnresolved]
+  source.complete = !failed && resolved && sourceUnresolved.size === 0
+  target.complete = !failed && resolved && targetUnresolved.size === 0
+  return {source, target, complete: source.complete && target.complete}
+}
+
+function addNaturalHistoryCommits(
+  traversal: NaturalHistoryTraversal,
+  commits: GitNaturalCommit[],
+  uniqueCommits: Set<string>,
+): void {
+  for (const commit of commits) {
+    const oid = normalizeFullOid(commit.hash)
+    if (!oid) continue
+    uniqueCommits.add(oid)
+    if (traversal.graph.has(oid)) continue
+    traversal.graph.set(oid, commit)
+    traversal.commits.push(commit)
+  }
+}
+
+function createNaturalHistoryTraversal(commitHash: string): NaturalHistoryTraversal {
+  return {
+    commits: [],
+    graph: new Map(),
+    unresolvedParentOids: [],
+    complete: false,
+    attempts: [],
+    pending: [commitHash],
+    requestedFrontiers: new Set(),
+  }
+}
+
+function selectNaturalHistoryFrontier(
+  traversal: NaturalHistoryTraversal,
+  exclusive: Set<string>,
+  needsSharedSupport: boolean,
+): string | undefined {
+  pruneNaturalHistoryPending(traversal)
+  return (
+    traversal.pending.find(oid => exclusive.has(oid)) ||
+    (needsSharedSupport ? traversal.pending[0] : undefined)
+  )
+}
+
+function pruneNaturalHistoryPending(traversal: NaturalHistoryTraversal): void {
+  traversal.pending = traversal.pending.filter(
+    oid => !traversal.graph.has(oid) && !traversal.requestedFrontiers.has(oid),
+  )
+}
+
+function collectExclusiveMissingFrontiers(
+  graph: Map<string, GitNaturalCommit>,
+  shared: Set<string>,
+  tipOid: string,
+): Set<string> {
+  const missing = new Set<string>()
+  const pending = [tipOid]
+  const seen = new Set<string>()
+  while (pending.length > 0) {
+    const oid = pending.pop()!
+    if (seen.has(oid) || shared.has(oid)) continue
+    seen.add(oid)
+    const commit = graph.get(oid)
+    if (!commit) {
+      missing.add(oid)
+      continue
+    }
+    pending.push(...(commit.parents || []))
+  }
+  return missing
+}
+
+function collectSharedReachableOids(
+  sourceGraph: Map<string, GitNaturalCommit>,
+  targetGraph: Map<string, GitNaturalCommit>,
+): Set<string> {
+  const shared = new Set(Array.from(sourceGraph.keys()).filter(oid => targetGraph.has(oid)))
+  const unionGraph = new Map([...sourceGraph, ...targetGraph])
+  const pending = [...shared]
+  while (pending.length > 0) {
+    const oid = pending.pop()!
+    for (const parent of unionGraph.get(oid)?.parents || []) {
+      if (shared.has(parent)) continue
+      shared.add(parent)
+      if (unionGraph.has(parent)) pending.push(parent)
+    }
+  }
+  return shared
+}
+
+function collectCommonFrontierState(
+  sourceGraph: Map<string, GitNaturalCommit>,
+  targetGraph: Map<string, GitNaturalCommit>,
+): {common: Set<string>; unresolvedComparisonOids: string[]} {
+  const common = new Set(Array.from(sourceGraph.keys()).filter(oid => targetGraph.has(oid)))
+  const unionGraph = new Map([...sourceGraph, ...targetGraph])
+  const candidates = Array.from(common).filter(
+    candidate =>
+      !Array.from(common).some(
+        other => other !== candidate && isReachableInGraph(unionGraph, other, candidate),
+      ),
+  )
+  if (candidates.length <= 1) return {common, unresolvedComparisonOids: []}
+
+  const unresolved = new Set<string>()
+  for (const candidate of candidates) {
+    const pending = [...(unionGraph.get(candidate)?.parents || [])]
+    const seen = new Set<string>()
+    while (pending.length > 0) {
+      const oid = pending.pop()!
+      if (seen.has(oid) || common.has(oid)) continue
+      seen.add(oid)
+      const commit = unionGraph.get(oid)
+      if (!commit) {
+        unresolved.add(oid)
+        continue
+      }
+      pending.push(...(commit.parents || []))
+    }
+  }
+  return {common, unresolvedComparisonOids: [...unresolved].sort()}
+}
+
+function isReachableInGraph(
+  graph: Map<string, GitNaturalCommit>,
+  startOid: string,
+  targetOid: string,
+): boolean {
+  const pending = [startOid]
+  const seen = new Set<string>()
+  while (pending.length > 0) {
+    const oid = pending.pop()!
+    if (oid === targetOid) return true
+    if (seen.has(oid)) continue
+    seen.add(oid)
+    pending.push(...(graph.get(oid)?.parents || []))
+  }
+  return false
 }
 
 function isTerminalCancellation(result: ReadFallbackResult): boolean {
@@ -458,6 +796,24 @@ function collectReachableOids(
   while (pending.length > 0) {
     const oid = pending.pop()!
     if (reachable.has(oid)) continue
+    const commit = graph.get(oid)
+    if (!commit) return null
+    reachable.add(oid)
+    pending.push(...(commit.parents || []))
+  }
+  return reachable
+}
+
+function collectReachableExcludingOids(
+  graph: Map<string, GitNaturalCommit>,
+  excluded: Set<string>,
+  tipOid: string,
+): Set<string> | null {
+  const reachable = new Set<string>()
+  const pending = [tipOid]
+  while (pending.length > 0) {
+    const oid = pending.pop()!
+    if (reachable.has(oid) || excluded.has(oid)) continue
     const commit = graph.get(oid)
     if (!commit) return null
     reachable.add(oid)
